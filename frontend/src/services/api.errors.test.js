@@ -1,17 +1,17 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
-// setup.js mockea globalmente '../services/api' con stubs vi.fn() (lo necesitan
-// los tests de página). Esta suite ejercita la implementación REAL del
-// interceptor de respuesta, así que desmockea el módulo y mockea axios —
-// mismo arnés que `api.pxq.test.js`.
+// setup.js globally mocks '../services/api' with plain vi.fn() stubs (needed
+// by page-level tests). This suite exercises the REAL response interceptor,
+// so it unmocks the module and mocks axios directly instead — same harness as
+// `api.pxq.test.js`.
 vi.unmock('../services/api');
 
 const mockGet = vi.fn();
 const mockPost = vi.fn();
 const mockUse = vi.fn();
-// Capturados, no stubbeados: el interceptor de respuesta ES la unidad bajo
-// prueba, así que el mock tiene que devolverlo en vez de tragárselo como hace
-// `mockUse` del lado del request.
+// Captured, not stubbed: the response interceptor IS the unit under test, so
+// the mock has to hand it back rather than swallow it like `mockUse` does for
+// the request side.
 const responseInterceptors = [];
 
 vi.mock('axios', () => ({
@@ -30,19 +30,18 @@ vi.mock('axios', () => ({
 }));
 
 /**
- * El envelope estándar de error del backend, visto desde el frontend.
+ * The backend's standard error envelope, seen from the frontend.
  *
- * `backend/app/core/exceptions.py` (`http_exception_handler`) emite tres
- * formas de body y NINGUNA tiene clave `detail`:
- *   1. `detail` dict CON `code`  → `{error: {code, message}}`
- *   2. `detail` dict SIN `code`  → el dict crudo COMO RAÍZ del body
- *   3. `detail` string           → `{error: {code, message}}`, code por status
+ * `backend/app/core/exceptions.py` (`http_exception_handler`) emits three body
+ * shapes and NONE of them carries a `detail` key:
+ *   1. dict detail WITH `code`    → `{error: {code, message}}`
+ *   2. dict detail WITHOUT `code` → the raw dict AS THE ROOT of the body
+ *   3. string detail              → `{error: {code, message}}`, code by status
  *
- * O sea que para la forma 1 y la 3 — el envelope estándar, el camino que toma
- * la enorme mayoría de los errores de la API — `data.detail` llegaba
- * `undefined`. Los 287 `data.detail || 'fallback'` repartidos en 106 archivos
- * mostraban SIEMPRE el fallback genérico y el mensaje real del backend no
- * llegaba a la pantalla.
+ * So for shapes 1 and 3 — the standard envelope, the path the vast majority of
+ * this API's errors take — `data.detail` arrived `undefined`. The 287
+ * `data.detail || 'fallback'` call sites across 106 files ALWAYS showed the
+ * generic fallback, and the real backend message never reached the screen.
  */
 describe('response interceptor — standard {error: {code, message}} envelope', () => {
   beforeEach(() => {
@@ -53,10 +52,10 @@ describe('response interceptor — standard {error: {code, message}} envelope', 
   });
 
   /**
-   * Empuja `response` por el interceptor REAL registrado y devuelve la `data`
-   * que un componente terminaría leyendo. También asserta que el interceptor
-   * sigue rechazando con el mismo objeto error — normalizar un payload nunca
-   * puede convertir una falla en un éxito.
+   * Pushes `response` through the REAL registered interceptor and returns the
+   * `data` a component would end up reading. Also asserts the interceptor
+   * still rejects with the same error object — normalizing a payload must
+   * never turn a failure into a success.
    */
   async function throughInterceptor(response) {
     await import('./api');
@@ -66,7 +65,7 @@ describe('response interceptor — standard {error: {code, message}} envelope', 
     return error.response.data;
   }
 
-  // --- el desenvuelto ------------------------------------------------------
+  // --- the unwrap ----------------------------------------------------------
 
   it('shows the backend message instead of the generic fallback', async () => {
     const data = await throughInterceptor({
@@ -77,10 +76,10 @@ describe('response interceptor — standard {error: {code, message}} envelope', 
     expect(data.detail).toBe('Producto no encontrado');
   });
 
-  // La invariante que justifica el interceptor entero. Los 287 call sites
-  // hacen `<div>{data.detail || 'fallback'}</div>`: un objeto ahí es un hijo
-  // no renderizable y React tira el error #31. El desenvuelto produce un
-  // STRING, nunca un objeto, y esta assertion es lo que lo mantiene así.
+  // The invariant that justifies the whole interceptor. The 287 call sites do
+  // `<div>{data.detail || 'fallback'}</div>`: an object there is an
+  // unrenderable child and React throws error #31. The unwrap yields a STRING,
+  // never an object, and this assertion is what keeps it that way.
   it('never leaves an object where a component renders a text child', async () => {
     const data = await throughInterceptor({
       status: 404,
@@ -90,8 +89,8 @@ describe('response interceptor — standard {error: {code, message}} envelope', 
     expect(typeof data.detail).toBe('string');
   });
 
-  // El envelope es el mismo para toda la API; el status HTTP solo cambia el
-  // `code` que deriva `_status_to_code`, no la forma del body.
+  // The envelope is the same across the whole API; the HTTP status only
+  // changes the `code` that `_status_to_code` derives, not the body shape.
   it.each([
     [401, 'INVALID_TOKEN', 'Token expirado'],
     [403, 'INSUFFICIENT_PERMISSIONS', 'No tienes permiso: productos.editar'],
@@ -102,10 +101,10 @@ describe('response interceptor — standard {error: {code, message}} envelope', 
     expect(data.detail).toBe(message);
   });
 
-  // 18 archivos ya se comieron este bug y lo esquivaron a mano leyendo
+  // 18 files already hit this bug and worked around it by hand, reading
   // `err.response?.data?.error?.message || ... || 'fallback'` — `authStore.js`
-  // entre ellos. El desenvuelto AGREGA `detail`, no reemplaza ni muta `error`,
-  // así que esos 18 siguen funcionando exactamente igual.
+  // among them. The unwrap ADDS `detail`; it never replaces or mutates
+  // `error`, so those 18 keep behaving exactly as before.
   it('keeps data.error readable for the files that already work around this', async () => {
     const data = await throughInterceptor({
       status: 401,
@@ -117,7 +116,7 @@ describe('response interceptor — standard {error: {code, message}} envelope', 
     expect(data.detail).toBe('Token expirado');
   });
 
-  // --- lo que el desenvuelto NO pisa ---------------------------------------
+  // --- what the unwrap refuses to clobber ----------------------------------
 
   it('does not overwrite a detail the backend already sent', async () => {
     const data = await throughInterceptor({
@@ -131,10 +130,10 @@ describe('response interceptor — standard {error: {code, message}} envelope', 
     expect(data.detail).toBe('No tienes permiso: pxq.escribir');
   });
 
-  // Un error de aplicación TIPADO se lee por campos, no se renderiza. Si un
-  // payload es a la vez raíz tipada y trae `error`, gana lo tipado: aplanarlo
-  // a string dejaría `detail.status` en `undefined` y mataría las ramas que
-  // dependen de él (`adopt_conflict`, `divergence`).
+  // A TYPED application error is read field by field, not rendered. When a
+  // payload is both a typed root and carries `error`, the typed branch wins:
+  // flattening it to a string would leave `detail.status` `undefined` and kill
+  // the branches that depend on it (`adopt_conflict`, `divergence`).
   it('yields to the typed application error when the payload is both', async () => {
     const data = await throughInterceptor({
       status: 409,
@@ -150,11 +149,11 @@ describe('response interceptor — standard {error: {code, message}} envelope', 
     expect(data.detail.conflicts).toEqual([{ tier_id: 3, cantidad_minima: 12 }]);
   });
 
-  // --- el predicado se mantiene angosto ------------------------------------
+  // --- the predicate stays narrow ------------------------------------------
 
-  // `error` como string suelto no es el envelope estándar. Desenvolverlo a
-  // ciegas con `data.error.message` sería `undefined`, y peor: asumir que
-  // cualquier clave `error` es el envelope invita a que entre un objeto.
+  // A bare string under `error` is not the standard envelope. Unwrapping it
+  // blindly would make `data.error.message` `undefined`, and worse: assuming
+  // any `error` key is the envelope invites an object in.
   it('ignores a payload whose error is plain text', async () => {
     const data = await throughInterceptor({ status: 500, data: { error: 'texto plano' } });
 
@@ -167,18 +166,18 @@ describe('response interceptor — standard {error: {code, message}} envelope', 
     expect(data.detail).toBeUndefined();
   });
 
-  // Sin este chequeo, un `message` numérico entraría como número a un lugar
-  // donde el contrato con los componentes es "string o nada".
+  // Without this check a numeric `message` would land as a number in a place
+  // whose contract with the components is "a string or nothing".
   it('ignores an envelope whose message is not a string', async () => {
     const data = await throughInterceptor({ status: 500, data: { error: { message: 123 } } });
 
     expect(data.detail).toBeUndefined();
   });
 
-  // --- regresiones del comportamiento previo -------------------------------
+  // --- regressions of the previous behavior --------------------------------
 
-  // La razón original de existir del interceptor: la validación de body de
-  // FastAPI/Pydantic devuelve `detail` como ARRAY de objetos.
+  // The interceptor's original reason to exist: FastAPI/Pydantic body
+  // validation returns `detail` as an ARRAY of objects.
   it('still joins a Pydantic 422 detail array into one renderable string', async () => {
     const data = await throughInterceptor({
       status: 422,
@@ -200,18 +199,18 @@ describe('response interceptor — standard {error: {code, message}} envelope', 
     expect(data.detail.divergences).toEqual([{ ml_price_id: 'PXQ1', reason: 'amount_mismatch' }]);
   });
 
-  // --- hueco conocido, deliberadamente NO cerrado acá ----------------------
+  // --- known gap, deliberately NOT closed here -----------------------------
 
-  // La forma 2 del handler: un dict de `detail` SIN `code` vuelve como RAÍZ
-  // del body. Si además no tiene `status`, no es el envelope estándar ni un
-  // error tipado, así que `detail` sigue `undefined` y el componente muestra
-  // su fallback. Es exactamente lo que emite `backend/app/routers/prearmado.py`
-  // con `{message, errores}`.
+  // Shape 2 of the handler: a dict detail WITHOUT `code` comes back as the
+  // ROOT of the body. When it also has no `status` it is neither the standard
+  // envelope nor a typed error, so `detail` stays `undefined` and the
+  // component shows its fallback. That is exactly what
+  // `backend/app/routers/prearmado.py` emits with `{message, errores}`.
   //
-  // Este cambio NO lo arregla, y es a propósito: cerrarlo pide poner el dict
-  // — un OBJETO — en `detail`, que es precisamente el React #31 que este
-  // interceptor existe para evitar. Cerrarlo de verdad exige elegir qué campo
-  // es el texto para cada forma cruda, y eso es otro cambio.
+  // This change does NOT fix it, on purpose: closing it means putting the dict
+  // — an OBJECT — into `detail`, which is precisely the React #31 this
+  // interceptor exists to prevent. Closing it properly requires deciding which
+  // field is the text for each raw shape, and that is a separate change.
   it('leaves the known gap open: a raw root dict with neither code nor status', async () => {
     const data = await throughInterceptor({
       status: 422,
