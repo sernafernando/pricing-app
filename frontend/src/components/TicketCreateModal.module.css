@@ -164,3 +164,48 @@
   font-size: var(--font-xs);
   padding: var(--spacing-xs) 0;
 }
+
+/* Advanced options toggle */
+.btnToggleAdvanced {
+  composes: btn-tesla ghost sm from '../styles/buttons-tesla.css';
+  align-self: flex-start;
+  display: inline-flex;
+  align-items: center;
+  gap: var(--spacing-xs);
+}
+
+/* Dropped-metadata notice (tipo change) */
+.notice {
+  background: rgba(245, 158, 11, 0.1);
+  color: var(--cf-accent-orange);
+  padding: var(--spacing-sm) var(--spacing-md);
+  border-radius: var(--radius-md);
+  font-size: var(--font-sm);
+}
+
+/* Attachment upload errors */
+.uploadErrors {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-xs);
+}
+
+.uploadError {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--spacing-sm);
+  background: rgba(239, 68, 68, 0.1);
+  color: var(--cf-accent-red);
+  padding: var(--spacing-sm) var(--spacing-md);
+  border-radius: var(--radius-md);
+  font-size: var(--font-sm);
+}
+
+.btnRetry {
+  composes: btn-tesla outline-subtle-danger sm from '../styles/buttons-tesla.css';
+  display: inline-flex;
+  align-items: center;
+  gap: var(--spacing-xs);
+  flex-shrink: 0;
+}
