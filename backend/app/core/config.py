@@ -1,3 +1,4 @@
+from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from typing import List, Optional
 
@@ -199,6 +200,19 @@ class Settings(BaseSettings):
     CEREBRAS_BASE_URL: str = "https://api.cerebras.ai/v1"
     OPENROUTER_API_KEY: Optional[str] = None
     OPENROUTER_BASE_URL: str = "https://openrouter.ai/api/v1"
+
+    # Tickets AI triage (tickets-ai-triage PR 4a) — deliberately its OWN key,
+    # not shared with the ml-bot roster (obs #1299: Groq rate limits apply
+    # at the ORG level, so a separate key does not isolate quota, but a
+    # separate config row means changing the triage model can never change
+    # the ml-bot's model by accident). Reuses GROQ_BASE_URL — same vendor.
+    GROQ_TICKETS_KEY: Optional[str] = None
+    # Per-field gate (design §9a): below this, or null, writes zero proposal
+    # rows for that field — never a low-confidence guess presented as fact.
+    # Bounded (review finding): an unbounded float lets a typo like `6`
+    # instead of `0.6` in .env silently disable triage forever (no
+    # confianza value would ever reach it) — fail loudly at startup instead.
+    TICKETS_TRIAGE_MIN_CONFIANZA: float = Field(default=0.6, ge=0.0, le=1.0)
 
     # Prearmados stats cache
     PREARMADAS_STATS_CACHE_TTL_SECONDS: int = 15
