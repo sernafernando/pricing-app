@@ -21,6 +21,7 @@ import pytest
 from pydantic import ValidationError
 
 import app.tickets.api.endpoints.tickets as tickets_module
+from app.core.config import Settings
 from app.core.security import create_access_token, get_password_hash
 from app.main import app
 from app.models.rol import Rol
@@ -208,6 +209,45 @@ class TestTriagePropuestaValidation:
         propuesta = TriagePropuesta(**_valid_payload(severidad=None, confianza_severidad=None))
         assert propuesta.severidad is None
         assert propuesta.confianza_severidad is None
+
+
+class TestNormalizeStringNull:
+    """Real pre-push review finding: the prompt asks the model to return a
+    JSON `null` for an unsure field, but a model can still literally emit
+    the STRING "null". Because the schema is closed and all-or-nothing,
+    that single wrong token would otherwise fail the ENTIRE proposal —
+    including a sibling field that WAS confidently classified."""
+
+    def test_string_null_severidad_normalizes_to_none(self) -> None:
+        propuesta = TriagePropuesta(**_valid_payload(severidad="null"))
+        assert propuesta.severidad is None
+
+    def test_string_null_does_not_drop_sibling_field(self) -> None:
+        """The exact bug: without normalization, this payload raises
+        ValidationError and the whole proposal — including the confidently
+        classified `urgencia` — is lost."""
+        propuesta = TriagePropuesta(**_valid_payload(severidad="null", confianza_severidad=None))
+        assert propuesta.severidad is None
+        assert propuesta.urgencia == "alta"
+        assert propuesta.confianza_urgencia == 0.9
+
+    def test_real_severidad_value_is_untouched(self) -> None:
+        propuesta = TriagePropuesta(**_valid_payload(severidad="critica"))
+        assert propuesta.severidad == "critica"
+
+
+class TestTriageMinConfianzaBounds:
+    """Real pre-push review finding: an unbounded float lets a typo like
+    `6` instead of `0.6` in `.env` silently disable triage forever (no
+    confianza value would ever reach it) — must fail loudly at startup."""
+
+    def test_out_of_range_value_raises_at_construction(self) -> None:
+        with pytest.raises(ValidationError):
+            Settings(TICKETS_TRIAGE_MIN_CONFIANZA=6)
+
+    def test_negative_value_raises_at_construction(self) -> None:
+        with pytest.raises(ValidationError):
+            Settings(TICKETS_TRIAGE_MIN_CONFIANZA=-0.1)
 
 
 class TestParserIsolation:
@@ -418,3 +458,25 @@ class TestCrearTicketSchedulesTriage:
         assert called_args[2] is fake_provider
         # never awaited inline, never a real network call:
         assert fake_provider.calls == 0
+
+    def test_titulo_only_creation_does_not_schedule_triage(self, client, db, rol_ventas) -> None:
+        """Real pre-push review finding: the legacy titulo-only path (no
+        `texto`) leaves `texto_original` NULL — scheduling `run_triage`
+        there just opens a DB session to log a no-op warning on every
+        normal advanced-form submission."""
+        _seq[0] += 1
+        user = _make_usuario(db, rol_ventas, username=f"triage_endpoint_titulo_only_{_seq[0]}")
+        _seed_inbox(db)
+
+        fake_provider = FakeProvider(response=json.dumps(_valid_payload()))
+        app.dependency_overrides[get_triage_provider] = lambda: fake_provider
+
+        with patch.object(tickets_module.BackgroundTasks, "add_task") as mock_add_task:
+            resp = client.post(
+                TICKETS_ENDPOINT,
+                json={"titulo": "Solicitud de acceso a reportes"},
+                headers=_headers(user),
+            )
+
+        assert resp.status_code == 201
+        mock_add_task.assert_not_called()

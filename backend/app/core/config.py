@@ -1,3 +1,4 @@
+from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from typing import List, Optional
 
@@ -208,7 +209,10 @@ class Settings(BaseSettings):
     GROQ_TICKETS_KEY: Optional[str] = None
     # Per-field gate (design §9a): below this, or null, writes zero proposal
     # rows for that field — never a low-confidence guess presented as fact.
-    TICKETS_TRIAGE_MIN_CONFIANZA: float = 0.6
+    # Bounded (review finding): an unbounded float lets a typo like `6`
+    # instead of `0.6` in .env silently disable triage forever (no
+    # confianza value would ever reach it) — fail loudly at startup instead.
+    TICKETS_TRIAGE_MIN_CONFIANZA: float = Field(default=0.6, ge=0.0, le=1.0)
 
     # Prearmados stats cache
     PREARMADAS_STATS_CACHE_TTL_SECONDS: int = 15

@@ -22,7 +22,7 @@ import logging
 import uuid
 from typing import List, Literal, Optional, Protocol
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
@@ -65,11 +65,15 @@ Tu respuesta debe ser EXCLUSIVAMENTE un objeto JSON con esta forma exacta \
 {"tipo":"bug|feature|consulta",
  "titulo":"imperativo en español rioplatense, máximo 120 caracteres",
  "resumen":"una línea en español rioplatense, máximo 180 caracteres",
- "severidad":"trivial|menor|mayor|critica|null",
- "urgencia":"baja|normal|alta|inmediata|null",
+ "severidad":"trivial|menor|mayor|critica",
+ "urgencia":"baja|normal|alta|inmediata",
  "confianza_severidad":0.0,"confianza_urgencia":0.0,"confianza_global":0.0,
  "detalle":{"esperado":"","actual":"","pasos":[],"alcance":"","impacto":"","workaround":""},
- "area_probable":"string|null","tamano":"S|M|L|null"}
+ "area_probable":"string","tamano":"S|M|L"}
+
+Cuando no tengas certeza suficiente sobre "severidad", "urgencia", \
+"area_probable" o "tamano", usá el valor JSON `null` SIN COMILLAS en ese \
+campo (nunca el texto "null" entre comillas, que no es lo mismo).
 
 Vocabularios cerrados (usá EXACTAMENTE uno de estos valores, nunca otro):
 - tipo: "bug" (algo que debería funcionar y no funciona), "feature" (una \
@@ -142,6 +146,23 @@ class TriagePropuesta(BaseModel):
     tamano: Optional[Literal["S", "M", "L"]] = None
 
     model_config = ConfigDict(extra="forbid")
+
+    @model_validator(mode="before")
+    @classmethod
+    def _normalizar_string_null(cls, data):
+        """Defense-in-depth (real review finding): even though the prompt
+        now shows an unquoted JSON `null`, a model can still literally
+        emit the STRING "null" for a nullable field. Because this schema
+        is closed and validated all-or-nothing, that single wrong token
+        would otherwise fail the ENTIRE proposal — dropping a sibling
+        field that WAS confidently classified along with it. Normalize
+        before `Literal` validation ever runs."""
+        if isinstance(data, dict):
+            for campo in ("severidad", "urgencia", "area_probable", "tamano"):
+                valor = data.get(campo)
+                if isinstance(valor, str) and valor.strip().lower() == "null":
+                    data[campo] = None
+        return data
 
 
 # ---------------------------------------------------------------------------

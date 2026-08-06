@@ -488,7 +488,12 @@ async def crear_ticket(
     # AI triage (tickets-ai-triage PR 4a): scheduled AFTER commit, never
     # awaited — the request's `db` session is closed by the time
     # BackgroundTasks runs, so `run_triage` opens its own (design §6).
-    background_tasks.add_task(run_triage, nuevo_ticket.id, triage_provider)
+    # Only when there's free text to classify — the legacy titulo-only path
+    # (review finding) leaves texto_original NULL, so scheduling it there
+    # would just open a DB session to log a no-op warning on every normal
+    # advanced-form submission.
+    if ticket_data.texto:
+        background_tasks.add_task(run_triage, nuevo_ticket.id, triage_provider)
 
     await sse_publish("tickets:changed", {"hint": "reload"})
     await sse_publish("tickets:badge", {"hint": "reload"})
