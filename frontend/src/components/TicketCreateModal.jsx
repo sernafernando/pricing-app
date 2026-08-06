@@ -129,7 +129,13 @@ const uploadFile = async (ticketId, file) => {
     await ticketsAPI.subirAdjunto(ticketId, file);
     return null;
   } catch (err) {
-    const message = err.response?.data?.error?.message || `No se pudo subir "${file.name}"`;
+    // `subir_adjunto` raises plain HTTPException(detail=...) — FastAPI
+    // serializes that as {"detail": "..."}, not the {"error":{"message"}}
+    // envelope other endpoints in this app use. Check both shapes.
+    const message =
+      err.response?.data?.detail ||
+      err.response?.data?.error?.message ||
+      `No se pudo subir "${file.name}"`;
     return { file, message };
   }
 };
@@ -210,24 +216,25 @@ export default function TicketCreateModal({ isOpen, onClose, onCreated }) {
 
   // Changing tipo keeps metadata keys that exist in the new schema and drops
   // the rest, listing what was dropped inline instead of a confirm() modal.
+  // Computed from the current `metadata`/`schemaCampos` in scope (not inside
+  // a setState updater, which must stay pure) — this handler isn't called
+  // rapidly enough in succession for a stale-closure read to matter.
   const handleTipoChange = (newTipoId) => {
-    const camposAnteriores = schemaCampos;
     const nuevoTipo = tiposTicket.find((t) => String(t.id) === String(newTipoId));
     const nuevoSchema = nuevoTipo?.schema_campos || {};
 
-    setMetadata((prev) => {
-      const conservados = {};
-      const perdidos = [];
-      for (const [key, value] of Object.entries(prev)) {
-        if (key in nuevoSchema) {
-          conservados[key] = value;
-        } else {
-          perdidos.push(camposAnteriores[key]?.label || key);
-        }
+    const conservados = {};
+    const perdidos = [];
+    for (const [key, value] of Object.entries(metadata)) {
+      if (key in nuevoSchema) {
+        conservados[key] = value;
+      } else {
+        perdidos.push(schemaCampos[key]?.label || key);
       }
-      setDroppedFields(perdidos.length > 0 ? perdidos : null);
-      return conservados;
-    });
+    }
+
+    setDroppedFields(perdidos.length > 0 ? perdidos : null);
+    setMetadata(conservados);
     setTipoTicketId(newTipoId);
   };
 
@@ -347,8 +354,10 @@ export default function TicketCreateModal({ isOpen, onClose, onCreated }) {
 
         {failedUploads.length > 0 && (
           <div className={styles.uploadErrors}>
-            {failedUploads.map(({ file, message }) => (
-              <div key={file.name} className={styles.uploadError}>
+            {failedUploads.map(({ file, message }, idx) => (
+              // index, not file.name: two attachments can share a name
+              // (e.g. "captura.png" from two different screenshots).
+              <div key={idx} className={styles.uploadError}>
                 <span>{message}</span>
                 <button
                   type="button"
