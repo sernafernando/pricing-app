@@ -41,6 +41,45 @@
   gap: var(--spacing-sm);
 }
 
+/* Segmented view control (tickets-ai-triage PR 5b) — flat, not nested. */
+.viewSwitch {
+  display: inline-flex;
+  align-items: center;
+  background: var(--cf-bg-hover);
+  border: 1px solid var(--cf-border-default);
+  border-radius: var(--radius-lg);
+  padding: 3px;
+  gap: 2px;
+}
+
+.viewSwitchBtn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 12px;
+  border-radius: var(--radius-md);
+  border: none;
+  background: transparent;
+  color: var(--cf-text-secondary);
+  font-size: var(--font-xs);
+  font-weight: 500;
+  font-family: inherit;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: all var(--duration-200) var(--ease-out);
+}
+
+.viewSwitchBtn:hover {
+  color: var(--cf-text-primary);
+  background: var(--cf-bg-card);
+}
+
+.viewSwitchBtnActive {
+  background: var(--cf-bg-card);
+  color: var(--cf-accent-blue);
+  font-weight: 600;
+}
+
 /* Filters */
 .filters {
   display: flex;
