@@ -1887,3 +1887,85 @@ class TestEstadoControladoTransitions:
         db.flush()
         r = client.get(f"{BASE}/pedidos/{p.id}/recepcion/saldos", headers=auth_headers)
         assert r.status_code == 200
+
+    def test_saldo_en_cuenta_corriente_200(
+        self, client, auth_headers, db, empresa, proveedor, active_user, con_permiso_deposito
+    ):
+        """Recepción saldos state guard: en_cuenta_corriente is receptive → 200, lineas populated.
+
+        Regression for the guard drift: `get_recepcion_saldos` used to encode its own
+        literal state set instead of deriving from `recepcion_service._ESTADOS_RECEPTIVOS`,
+        so 'en_cuenta_corriente' was accepted for ingresos but rejected here with 409.
+        """
+        _mk_oc_header(db, poh_id=9101, supp_id=proveedor.supp_id)
+        _mk_oc_detail(db, poh_id=9101, pod_id=1, qty=50.0, item_id=201)
+        _mk_storage(db, stor_id=1)
+        p = PedidoCompra(
+            numero="P-T07-SALDO-CC",
+            empresa_id=empresa.id,
+            proveedor_id=proveedor.id,
+            moneda="ARS",
+            monto=Decimal("100"),
+            estado="en_cuenta_corriente",
+            oc_comp_id=1,
+            oc_bra_id=1,
+            oc_poh_id=9101,
+            creado_por_id=active_user.id,
+        )
+        db.add(p)
+        db.flush()
+        r = client.get(f"{BASE}/pedidos/{p.id}/recepcion/saldos", headers=auth_headers)
+        assert r.status_code == 200
+        data = r.json()
+        assert data["tiene_oc"] is True
+        assert len(data["lineas"]) == 1
+
+    def test_saldo_pagado_200(self, client, auth_headers, db, empresa, proveedor, active_user, con_permiso_deposito):
+        """Recepción saldos state guard: pagado stays receptive → 200 (unaffected by the fix)."""
+        p = PedidoCompra(
+            numero="P-T07-SALDO-PAG",
+            empresa_id=empresa.id,
+            proveedor_id=proveedor.id,
+            moneda="ARS",
+            monto=Decimal("100"),
+            estado="pagado",
+            creado_por_id=active_user.id,
+        )
+        db.add(p)
+        db.flush()
+        r = client.get(f"{BASE}/pedidos/{p.id}/recepcion/saldos", headers=auth_headers)
+        assert r.status_code == 200
+
+    def test_saldo_con_faltantes_200(
+        self, client, auth_headers, db, empresa, proveedor, active_user, con_permiso_deposito
+    ):
+        """Recepción saldos state guard: con_faltantes stays receptive → 200 (unaffected by the fix)."""
+        p = PedidoCompra(
+            numero="P-T07-SALDO-FALT",
+            empresa_id=empresa.id,
+            proveedor_id=proveedor.id,
+            moneda="ARS",
+            monto=Decimal("100"),
+            estado="con_faltantes",
+            creado_por_id=active_user.id,
+        )
+        db.add(p)
+        db.flush()
+        r = client.get(f"{BASE}/pedidos/{p.id}/recepcion/saldos", headers=auth_headers)
+        assert r.status_code == 200
+
+    def test_saldo_borrador_409(self, client, auth_headers, db, empresa, proveedor, active_user, con_permiso_deposito):
+        """Recepción saldos state guard: non-receptive estado (borrador) still rejected with 409."""
+        p = PedidoCompra(
+            numero="P-T07-SALDO-BORR",
+            empresa_id=empresa.id,
+            proveedor_id=proveedor.id,
+            moneda="ARS",
+            monto=Decimal("100"),
+            estado="borrador",
+            creado_por_id=active_user.id,
+        )
+        db.add(p)
+        db.flush()
+        r = client.get(f"{BASE}/pedidos/{p.id}/recepcion/saldos", headers=auth_headers)
+        assert r.status_code == 409

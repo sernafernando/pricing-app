@@ -53,6 +53,13 @@ PERMISO_RECEPCION: str = "deposito.recibir_mercaderia"
 # eligible for depósito/recepción — payment settles independently (pagado_en).
 _ESTADOS_RECEPTIVOS: frozenset[str] = frozenset({"pagado", "en_cuenta_corriente", "recibido", "con_faltantes"})
 
+# Read access to saldos = receptive states PLUS 'controlado'. 'controlado' is
+# terminal (no receipt may be registered) but its saldos stay queryable for
+# audit/traceability (REQ-EC-009). PUBLIC on purpose: the router MUST derive
+# its guard from here. The previous inline literal in `get_recepcion_saldos`
+# is exactly how 'en_cuenta_corriente' drifted out of the allowed set.
+ESTADOS_CONSULTA_SALDOS: frozenset[str] = _ESTADOS_RECEPTIVOS | {"controlado"}
+
 
 # ──────────────────────────────────────────────────────────────────────────
 # Private helpers
