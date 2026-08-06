@@ -35,6 +35,131 @@ api.interceptors.request.use((config) => {
   return config;
 });
 
+/**
+ * Un ERROR DE APLICACIÓN TIPADO es un payload que el backend construyó a
+ * propósito para que el frontend lo LEA POR CAMPOS, no para mostrarlo tal cual.
+ * El discriminador en esta API es un `status` string, y lo emiten hoy
+ * `backend/app/routers/pxq.py` (`_error_detail_from_outcome`, que conserva
+ * `divergences`) y `backend/app/services/ml_pxq_adopt_service.py`
+ * (`adopt_conflict` con `conflicts`, `adopt_read_unavailable`).
+ *
+ * El predicado es a propósito MÁS ANGOSTO que "cualquier objeto". Los otros
+ * detalles-dict del backend son `{code, message}` (`core/exceptions.py`),
+ * `{codigo, mensaje, ...}` (ordenes_pago), `{message, errores}` (prearmado) o
+ * `{motivo, item_id_real, ...}`, y hay más de cien componentes que hacen
+ * `<div>{data.detail || 'fallback'}</div>`. Dejar pasar cualquier objeto los
+ * haría explotar con React #31, que es exactamente lo que este interceptor
+ * existe para evitar. `status` string y nada más.
+ */
+function isTypedAppError(value) {
+  return (
+    !!value && typeof value === 'object' && !Array.isArray(value) && typeof value.status === 'string'
+  );
+}
+
+/**
+ * El ENVELOPE ESTÁNDAR de error: `{error: {code, message}}`, la forma que
+ * `backend/app/core/exceptions.py` (`http_exception_handler`) le pone al body
+ * cuando el `detail` es un string, o un dict que trae `code`. Es el camino que
+ * toma la enorme mayoría de los errores de la API.
+ *
+ * Lo contrario de `isTypedAppError`: acá el payload NO se lee por campos, es
+ * un mensaje para mostrarle a la persona. Por eso se desenvuelve a string.
+ *
+ * El predicado exige `error.message` STRING y no solo la presencia de `error`.
+ * Hay bodies que usan esa clave para otra cosa (`{error: "texto plano"}`), y
+ * confiar en la clave sola terminaría poniendo un número o un objeto donde el
+ * contrato con los componentes es "string o nada".
+ */
+function isStandardErrorEnvelope(value) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
+  const { error } = value;
+  return (
+    !!error && typeof error === 'object' && !Array.isArray(error) && typeof error.message === 'string'
+  );
+}
+
+/**
+ * Deja `response.data.detail` en un estado que los componentes puedan usar:
+ * un string renderizable, o el payload tipado INTACTO.
+ *
+ * Las dos primeras ramas son la razón original de existir de esto:
+ *   - [{msg, ...}] (422 de validación FastAPI/Pydantic) → msgs unidos
+ *   - {code, message} / {message} / {msg} / {mensaje}    → el texto
+ * Sin eso, un 422 deja detail como array de objetos y los componentes que lo
+ * renderizan directo (`<div>{error}</div>`) tiran React #31.
+ *
+ * Aplanar TAMBIÉN los errores tipados los mataba: `{status, reason, conflicts}`
+ * no tiene `message`/`msg`/`mensaje`, así que terminaba en `JSON.stringify` —
+ * un string — y `detail.status` quedaba `undefined` para siempre.
+ *
+ * La PRIMERA rama es la menos obvia y la más importante:
+ * `backend/app/core/exceptions.py` (`http_exception_handler`, registrado en
+ * `main.py` sobre `StarletteHTTPException`) devuelve el dict de `detail` COMO
+ * RAÍZ del body cuando no trae `code`. O sea que el 409 de adopt-live llega
+ * como `{status, reason, conflicts}` y NO como `{detail: {...}}`: sin esa rama
+ * `data.detail` es `undefined` y las ramas `adopt_conflict` / `divergence` de
+ * PxqPanel no se ejecutan NUNCA, que es como se enviaron muertas a producción.
+ */
+function normalizeErrorDetail(response) {
+  const data = response?.data;
+  if (!data || typeof data !== 'object') return;
+
+  if (isTypedAppError(data)) {
+    // La RAÍZ es el payload tipado. Que además traiga su propia clave `detail`
+    // no cambia nada: los outcomes de `ml_pxq_write_service` la usan como UN
+    // CAMPO MÁS del payload ("Writes are disabled...", el body crudo del proxy),
+    // no como el canal de mensaje renderizable del frontend. Tratar ese string
+    // como la respuesta es lo que dejaba `detail.status` en `undefined` para
+    // los siete estados de sync que sí traen `detail`.
+    //
+    // Copia superficial, NO `data` mismo: `data.detail = data` sería una
+    // referencia circular y rompería cualquier `JSON.stringify` del payload.
+    // La copia conserva el `detail` original como `detail.detail`.
+    data.detail = { ...data };
+    return;
+  }
+
+  // El envelope estándar NO trae `detail`: `http_exception_handler` mueve el
+  // mensaje a `error.message` y nunca escribe esa clave. Como los 287
+  // `data.detail || 'fallback'` repartidos en 106 archivos leen justamente
+  // `detail`, todos tomaban SIEMPRE el fallback genérico y el mensaje real del
+  // backend no llegaba a ninguna de esas pantallas. Dieciocho archivos ya se
+  // habían comido el bug y lo esquivaban a mano con
+  // `data?.error?.message || data?.detail || '...'`.
+  //
+  // Se AGREGA `detail` como string; `data.error` queda intacto, así que esos
+  // dieciocho siguen andando igual. String y no el objeto `error`, porque el
+  // destino es `<div>{data.detail || 'fallback'}</div>`: un objeto ahí es
+  // React #31, que es la razón de existir de todo este normalizador.
+  //
+  // Va DESPUÉS de la rama tipada a propósito: un payload que sea las dos cosas
+  // se lee por campos, y aplanarlo dejaría `detail.status` en `undefined`.
+  if (data.detail === undefined && isStandardErrorEnvelope(data)) {
+    data.detail = data.error.message;
+    return;
+  }
+
+  const { detail } = data;
+
+  if (Array.isArray(detail)) {
+    data.detail = detail
+      .map((e) => (typeof e === 'string' ? e : e?.msg || e?.mensaje || JSON.stringify(e)))
+      .join('; ');
+    return;
+  }
+
+  if (isTypedAppError(detail)) {
+    // Intacto. El consumidor lo lee por campos (`status`, `conflicts`,
+    // `divergences`); un string no le sirve para nada.
+    return;
+  }
+
+  if (detail && typeof detail === 'object') {
+    data.detail = detail.message || detail.msg || detail.mensaje || JSON.stringify(detail);
+  }
+}
+
 // --- Response interceptor: silent refresh + request queuing ---
 let isRefreshing = false;
 let failedQueue = [];
@@ -53,25 +178,9 @@ const processQueue = (error, token = null) => {
 api.interceptors.response.use(
   (response) => response,
   async (error) => {
-    // Normalizar detail a un string para que los componentes siempre reciban
-    // texto renderizable en error.response.data.detail, sea cual sea la forma
-    // que devuelva el backend:
-    //   - {code, message} / {message}          → message
-    //   - [{msg, ...}] (422 de validación FastAPI/Pydantic) → msgs unidos
-    //   - {msg} (error Pydantic suelto)         → msg
-    // Sin esto, un 422 deja detail como array de objetos y los componentes que
-    // lo renderizan directo (<div>{error}</div>) tiran React #31.
-    const detail = error.response?.data?.detail;
-    if (Array.isArray(detail)) {
-      error.response.data.detail = detail
-        .map((e) =>
-          typeof e === 'string' ? e : e?.msg || e?.mensaje || JSON.stringify(e),
-        )
-        .join('; ');
-    } else if (detail && typeof detail === 'object') {
-      error.response.data.detail =
-        detail.message || detail.msg || detail.mensaje || JSON.stringify(detail);
-    }
+    // Ver `normalizeErrorDetail`: aplana lo que hay que aplanar y deja pasar
+    // intactos los contratos de error tipados del backend.
+    normalizeErrorDetail(error.response);
 
     const originalRequest = error.config;
 
@@ -226,6 +335,17 @@ export const pxqAPI = {
   // parameter away removes the syntactic path that let a caller ask for a
   // wipe by accident.
   sync: (itemId) => api.post(`/pxq/${itemId}/sync`, { allow_clear: false }),
+  // Import path (PR 4e): pulls ML's LIVE tiers into an EMPTY local mirror.
+  // The opposite direction from `sync` and the only non-destructive way out of
+  // "ML holds tiers we never mirrored".
+  //
+  // Takes the item id and NOTHING else, for the same reason `sync` no longer
+  // takes `allow_clear`: `POST /pxq/{item_id}/adopt-live` accepts no request
+  // body at all (see `backend/app/routers/pxq.py`), so there is no option to
+  // express here. An optional flag on an import verb is exactly the shape that
+  // let "sincronizar" be asked to wipe four publications — the parameter that
+  // does not exist cannot be passed by accident.
+  adoptLive: (itemId) => api.post(`/pxq/${itemId}/adopt-live`),
 };
 
 export const pricingAPI = {

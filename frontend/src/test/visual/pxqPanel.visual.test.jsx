@@ -26,6 +26,7 @@ vi.mock('../../services/api', () => ({
     updateTier: vi.fn(),
     deleteTier: vi.fn(),
     sync: vi.fn(),
+    adoptLive: vi.fn(),
   },
 }));
 
@@ -228,6 +229,101 @@ describe('PxQ authoring form — the long label', () => {
   });
 });
 
+/**
+ * The adopt-live import control's outcome tones.
+ *
+ * Judged worth a browser test for one reason, and it is not "the new control
+ * should look nice". The control's entire contract is that its outcomes are
+ * DISTINGUISHABLE — a 409 you must act on, a 503 you should just retry, and a
+ * success that still owes you a shipping cost. In the DOM that distinction is
+ * carried by nothing but which of three CSS-module classes is applied, and the
+ * jsdom suite can only prove the class NAMES differ.
+ *
+ * They are declared as `color: var(--success, var(--text-primary))` and
+ * friends. That fallback chain is a silent collapse waiting to happen: drop
+ * `--success` / `--warning` / `--danger` from `theme.css` and all three tones
+ * resolve to the same `--text-primary`, the "warn tone, not error tone" unit
+ * assertion keeps passing on the class name, and the operator gets three
+ * identically-painted messages on the money path.
+ *
+ * Typeface-independent by construction — it measures resolved colours, exactly
+ * like the disabled-state test above, and asserts nothing about text metrics.
+ */
+describe('PxQ adopt-live control — outcome tones are actually distinguishable', () => {
+  const IMPORTABLE = {
+    data: {
+      item_id: 'MLA001',
+      live_status: 'ok',
+      live_tiers: [{ id: 'p1', quantity: 3, amount: 900 }],
+      // Empty mirror + live tiers is the one state that offers the import.
+      mirror_tiers: [],
+    },
+  };
+
+  /** Mount the panel in the importable state, click Import, return the message node. */
+  async function messageAfterImport(adoptResult, expectedClass) {
+    pxqAPI.getLive.mockResolvedValue(IMPORTABLE);
+    adoptResult();
+    const { container } = await render(<PxqPanel itemId="MLA001" pxqCacheRef={{ current: new Map() }} />);
+
+    const button = await vi.waitFor(() => {
+      const found = [...container.querySelectorAll('button')].find((b) => b.textContent === 'Importar de MercadoLibre');
+      if (!found) throw new Error('import button not rendered yet');
+      return found;
+    });
+    button.click();
+
+    // Querying BY the expected class is deliberate: it proves the branch chose
+    // that class, and hands back the node whose paint we then measure.
+    return vi.waitFor(() => {
+      const node = container.querySelector(`[class*="${expectedClass}"]`);
+      if (!node) throw new Error(`no ${expectedClass} message rendered yet`);
+      return node;
+    });
+  }
+
+  it('paints success, warn and error in three different colours, in both themes', async () => {
+    const ok = await messageAfterImport(
+      () => pxqAPI.adoptLive.mockResolvedValue({ data: { item_id: 'MLA001', count: 2, imported: [] } }),
+      'feedbackSuccess',
+    );
+    const warn = await messageAfterImport(
+      () =>
+        pxqAPI.adoptLive.mockRejectedValue({
+          response: { status: 503, data: { detail: { status: 'adopt_read_unavailable', reason: 'read failed' } } },
+        }),
+      'feedbackWarn',
+    );
+    const error = await messageAfterImport(
+      () =>
+        pxqAPI.adoptLive.mockRejectedValue({
+          response: {
+            status: 409,
+            data: { detail: { status: 'adopt_conflict', conflicts: [{ tier_id: 3, cantidad_minima: 12 }] } },
+          },
+        }),
+      'feedbackError',
+    );
+
+    // Both themes: the three tones come off `theme.css`'s light and dark
+    // blocks independently, so one can be repaired while the other collapses.
+    for (const theme of ['light', 'dark']) {
+      setTheme(theme);
+      const tones = [ok, warn, error].map((el) => getComputedStyle(el).color);
+
+      expect(new Set(tones).size).toBe(3);
+
+      // The exact collapse mode the fallback chain allows: every tone silently
+      // becoming the ordinary body colour. Three-distinct alone would not
+      // catch a partial collapse, so each is checked against it by name.
+      const plain = tokenColor('--text-primary');
+      for (const tone of tones) {
+        expect(tone).not.toBe(plain);
+      }
+    }
+  });
+});
+
 describe('PxQ authoring form — dark mode', () => {
   it('the form repaints for dark mode without changing its geometry', async () => {
     const container = await renderPanel();
@@ -307,5 +403,85 @@ describe('PxQ authoring form — dark mode', () => {
     }
 
     probe.remove();
+  });
+});
+
+/**
+ * The presented `estado` label, measured.
+ *
+ * `sincronizado` is rendered as "Actualizado en MercadoLibre" — a 27-character
+ * string in a row that also carries a quantity and a price. jsdom does no
+ * layout, so the unit suite can prove the TEXT is right and nothing about
+ * whether it FITS. That question is settled here, in Chromium, or not at all.
+ *
+ * `LIVE_PAYLOAD`'s mirror tier is `sincronizado`, so the panel these tests
+ * already mount carries the longest of the four labels by default.
+ */
+describe('PxQ mirror row — the presented estado label fits its column', () => {
+  /** The mirror is the second child of `.pxqColumns`; live is the first. */
+  const mirrorColumn = (container) => container.querySelector('[class*="pxqColumns"]').children[1];
+  const estadoSpan = (container) =>
+    [...mirrorColumn(container).querySelector('[class*="pxqTierRow"]').querySelectorAll('span')][2];
+
+  it('renders the label, not the raw enum', async () => {
+    const container = await renderPanel();
+    const estado = estadoSpan(container);
+
+    expect(estado.textContent).toBe('Actualizado en MercadoLibre');
+    expect(mirrorColumn(container).textContent).not.toMatch(/sincronizado/i);
+  });
+
+  it('stays on one line at an ordinary column width, without overflowing or clipping', async () => {
+    const container = await renderPanel();
+    // 640px of container puts the mirror column at ~308px — the two columns
+    // still sit side by side, which is the layout an operator normally sees.
+    container.style.width = '640px';
+
+    const column = mirrorColumn(container);
+    const row = column.querySelector('[class*="pxqTierRow"]');
+    const estado = estadoSpan(container);
+    const quantity = [...row.querySelectorAll('span')][0];
+
+    // One line == no taller than the sibling that can only ever be one line.
+    expect(estado.getBoundingClientRect().height).toBe(quantity.getBoundingClientRect().height);
+    // Not paid for with clipped text…
+    expect(estado.scrollWidth).toBeLessThanOrEqual(estado.clientWidth + 1);
+    // …nor with a row that spills past the column it belongs to.
+    expect(row.getBoundingClientRect().right).toBeLessThanOrEqual(column.getBoundingClientRect().right + 1);
+  });
+
+  /**
+   * The narrowest the column is DESIGNED to get: `.pxqColumn` is
+   * `flex: 1 1 220px; min-width: 200px`, and `.pxqColumns` wraps, so below
+   * roughly 440px the columns stack and each takes the full width down to that
+   * 200px floor. The label needs ~168px on its own and the whole row ~235px, so
+   * at the floor it cannot stay on one line.
+   *
+   * Wrapping is the ACCEPTED outcome, and this test pins that choice: the row
+   * has `align-items: center` and no fixed height, so it grows to two lines and
+   * stays fully readable. What would not be acceptable — and is what this test
+   * actually guards — is the label escaping its column or being cut off.
+   */
+  it('wraps rather than overflowing or truncating when the column hits its floor', async () => {
+    const container = await renderPanel();
+
+    // Its OWN one-line height, measured while it still has room. Not the
+    // sibling quantity span: at the floor the flex row squeezes every item, so
+    // "5 u." wraps at its space too and both spans come back the same height.
+    container.style.width = '640px';
+    const singleLine = estadoSpan(container).getBoundingClientRect().height;
+
+    container.style.width = '210px';
+    const column = mirrorColumn(container);
+    const row = column.querySelector('[class*="pxqTierRow"]');
+    const estado = estadoSpan(container);
+
+    // It does wrap here — stated, not merely tolerated, so that a future CSS
+    // change making it fit on one line is a deliberate edit and not a silent
+    // drift past an assertion that never looked.
+    expect(estado.getBoundingClientRect().height).toBeGreaterThan(singleLine);
+    // The two things that must NOT happen.
+    expect(estado.scrollWidth).toBeLessThanOrEqual(estado.clientWidth + 1);
+    expect(row.getBoundingClientRect().right).toBeLessThanOrEqual(column.getBoundingClientRect().right + 1);
   });
 });

@@ -12,6 +12,20 @@ vi.mock('../../contexts/PermisosContext', () => ({
   PermisosProvider: ({ children }) => children,
 }));
 
+// READ THIS BEFORE ASSERTING ON AN ERROR PAYLOAD HERE.
+//
+// This replaces the WHOLE `services/api` module, so the axios response
+// interceptor in it NEVER RUNS in this file. Every `detail` below is handed to
+// the component by hand. That is fine for testing what the component does with
+// a payload — but it proves NOTHING about the payload the component actually
+// receives in production, and it is exactly how the `adopt_conflict` and
+// `divergence` branches shipped dead: the interceptor was flattening every
+// object `detail` to a string, and no test here could see it.
+//
+// The shape of an error payload — flattened, passed through, or lifted out of
+// the response root — is covered in `src/services/api.pxq.test.js`, which
+// unmocks this module and drives the real interceptor. Assertions about SHAPE
+// belong there; assertions about what the component RENDERS belong here.
 vi.mock('../../services/api', () => ({
   pxqAPI: {
     getLive: vi.fn(),
@@ -19,6 +33,7 @@ vi.mock('../../services/api', () => ({
     updateTier: vi.fn(),
     deleteTier: vi.fn(),
     sync: vi.fn(),
+    adoptLive: vi.fn(),
   },
 }));
 
@@ -131,7 +146,10 @@ describe('PxqPanel', () => {
 
     renderPanel();
 
-    await waitFor(() => expect(screen.getByText(/en mercadolibre/i)).toBeInTheDocument());
+    // Matched on the full column heading, not a bare /en mercadolibre/: the
+    // write button below now reads "Actualizar precios en MercadoLibre", so the
+    // loose matcher would resolve to two nodes and throw.
+    await waitFor(() => expect(screen.getByText(/en mercadolibre \(en vivo\)/i)).toBeInTheDocument());
     expect(screen.getByText(/mirror local/i)).toBeInTheDocument();
   });
 
@@ -151,10 +169,83 @@ describe('PxqPanel', () => {
     renderPanel();
 
     await waitFor(() => expect(screen.getByText(/diverge/i)).toBeInTheDocument());
-    // A regular sync action existing elsewhere in the panel is fine (PR 4d) —
+    // The price-update action existing elsewhere in the panel is fine (PR 4d) —
     // what this read-only comparison must never offer is an inline
     // "resolver"/auto-fix action right next to the divergent row itself.
     expect(screen.queryByRole('button', { name: /^resolver$/i })).not.toBeInTheDocument();
+  });
+});
+
+// `estado` is a persisted domain value pinned by `ck_ml_pxq_tier_estado_valido`
+// (`backend/app/models/ml_pxq_tier.py`), so the MOCKS below keep sending the raw
+// backend values — that is the real payload, not copy. What is asserted is what
+// the operator READS, which is now a presented label instead of the bare enum.
+describe('PxqPanel — mirror estado is presented, not echoed', () => {
+  function mockOneTier(estado) {
+    return {
+      data: {
+        item_id: 'MLA001',
+        live_status: 'ok',
+        live_tiers: [],
+        mirror_tiers: [
+          { id: 1, cantidad_minima: 5, precio_unitario: 100, costo_envio_total: 20, ml_price_id: null, estado },
+        ],
+        fetched_at: '2026-08-01T10:00:00Z',
+      },
+    };
+  }
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockTienePermiso.mockReturnValue(true);
+  });
+
+  // The four members of `ESTADOS_VALIDOS`, each proved to reach the operator as
+  // a label AND proved not to leak the identifier that produced it.
+  it.each([
+    ['incompleto', 'Incompleto'],
+    ['listo', 'Listo'],
+    ['sincronizado', 'Actualizado en MercadoLibre'],
+    ['desconocido', 'Desconocido'],
+  ])('renders estado %s as "%s"', async (estado, label) => {
+    pxqAPI.getLive.mockResolvedValue(mockOneTier(estado));
+    renderPanel();
+
+    expect(await screen.findByText(label)).toBeInTheDocument();
+    // Exact-match query: without the anchors, "Incompleto" would also match the
+    // authoring form's "Incompleto: falta el costo de envío del bulto" badge.
+    expect(screen.queryByText(new RegExp(`^${estado}$`))).not.toBeInTheDocument();
+  });
+
+  // The map must never be the reason a cell goes blank. The backend can grow a
+  // fifth `estado` (a CHECK-constraint edit, no frontend deploy) and the panel
+  // has to keep telling the operator what the row actually says.
+  it('falls back to the raw value for an estado the map does not know', async () => {
+    pxqAPI.getLive.mockResolvedValue(mockOneTier('pendiente_revision'));
+    renderPanel();
+
+    expect(await screen.findByText('pendiente_revision')).toBeInTheDocument();
+  });
+
+  // Inherited keys are not entries. With a plain object literal this would hand
+  // `Object.prototype.toString` — a FUNCTION — to React and blow up the render.
+  it('does not resolve inherited object keys as labels', async () => {
+    pxqAPI.getLive.mockResolvedValue(mockOneTier('toString'));
+    renderPanel();
+
+    expect(await screen.findByText('toString')).toBeInTheDocument();
+  });
+
+  // THE guardrail for the whole rename. The button stopped saying "sincronizar"
+  // first; this row kept saying "sincronizado" to the operator afterwards,
+  // because a domain value was being painted raw. If anyone ever pipes the enum
+  // straight to the DOM again, this fails.
+  it('never shows the word "sincronizado" anywhere in the panel', async () => {
+    pxqAPI.getLive.mockResolvedValue(mockOneTier('sincronizado'));
+    const { container } = renderPanel();
+
+    await screen.findByText('Actualizado en MercadoLibre');
+    expect(container.textContent).not.toMatch(/sincroniz/i);
   });
 });
 
@@ -315,7 +406,7 @@ describe('PxqPanel — tier authoring (PR 4c)', () => {
   });
 });
 
-describe('PxqPanel — sync (PR 4d)', () => {
+describe('PxqPanel — price update to ML (PR 4d)', () => {
   function mockLive({ mirror_tiers = [], live_tiers = [], live_status = 'ok' } = {}) {
     return {
       data: {
@@ -339,25 +430,25 @@ describe('PxqPanel — sync (PR 4d)', () => {
     mockTienePermiso.mockImplementation(() => true);
   });
 
-  it('hides the sync button for a user without pxq.escribir', async () => {
+  it('hides the price-update button for a user without pxq.escribir', async () => {
     mockTienePermiso.mockImplementation((code) => code === 'pxq.ver');
     pxqAPI.getLive.mockResolvedValue(mockLive({ mirror_tiers: oneTier }));
 
     renderPanel();
 
     await waitFor(() => expect(screen.getByText(/mirror local/i)).toBeInTheDocument());
-    expect(screen.queryByRole('button', { name: /sincronizar con mercadolibre/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /actualizar precios en mercadolibre/i })).not.toBeInTheDocument();
   });
 
-  it('syncs directly (no confirm) when there are tiers to send, and reloads live state after success', async () => {
+  it('updates prices directly (no confirm) when there are tiers to send, and reloads live state after success', async () => {
     const user = userEvent.setup();
     pxqAPI.getLive.mockResolvedValueOnce(mockLive({ mirror_tiers: oneTier })).mockResolvedValueOnce(mockLive({ mirror_tiers: oneTier, live_tiers: [{ id: 'PXQ1', quantity: 5, amount: 100 }] }));
     pxqAPI.sync.mockResolvedValue({ data: { synced: true, status: 'sincronizado' } });
 
     renderPanel();
 
-    await waitFor(() => expect(screen.getByRole('button', { name: /sincronizar con mercadolibre/i })).toBeInTheDocument());
-    await user.click(screen.getByRole('button', { name: /sincronizar con mercadolibre/i }));
+    await waitFor(() => expect(screen.getByRole('button', { name: /actualizar precios en mercadolibre/i })).toBeInTheDocument());
+    await user.click(screen.getByRole('button', { name: /actualizar precios en mercadolibre/i }));
 
     await waitFor(() => expect(pxqAPI.sync).toHaveBeenCalledTimes(1));
     expect(pxqAPI.sync).toHaveBeenCalledWith('MLA001');
@@ -369,7 +460,7 @@ describe('PxqPanel — sync (PR 4d)', () => {
   // action was `runSync(true)` -> `allow_clear: true` -> a full wipe of the
   // live array. Four publications lost their tiers this way. No interaction
   // reachable from the sync control may produce a clearing call.
-  it('never sends a clearing sync when the mirror is empty but ML holds live tiers', async () => {
+  it('never sends a clearing write when the mirror is empty but ML holds live tiers', async () => {
     const user = userEvent.setup();
     pxqAPI.getLive.mockResolvedValue(
       mockLive({ mirror_tiers: [], live_tiers: [{ id: 'PXQ1', quantity: 5, amount: 100 }] }),
@@ -378,8 +469,8 @@ describe('PxqPanel — sync (PR 4d)', () => {
 
     renderPanel();
 
-    await waitFor(() => expect(screen.getByRole('button', { name: /sincronizar con mercadolibre/i })).toBeInTheDocument());
-    await user.click(screen.getByRole('button', { name: /sincronizar con mercadolibre/i }));
+    await waitFor(() => expect(screen.getByRole('button', { name: /actualizar precios en mercadolibre/i })).toBeInTheDocument());
+    await user.click(screen.getByRole('button', { name: /actualizar precios en mercadolibre/i }));
 
     // The write path is not reached at all in this state. That is the whole
     // assertion: the old code answered this exact situation by offering a
@@ -388,21 +479,33 @@ describe('PxqPanel — sync (PR 4d)', () => {
     // even if a caller tried — belongs to the API surface itself and lives in
     // `src/services/api.pxq.test.js`, where the real module is exercised.
     expect(pxqAPI.sync).not.toHaveBeenCalled();
-    expect(screen.getByText(/importarlos al mirror local todavía no está disponible/i)).toBeInTheDocument();
+    // The refusal used to end with "importarlos al mirror local todavía no
+    // está disponible". That is now false — `PxqAdoptControl` renders in
+    // exactly this state — so the assertion moved to the sentence that
+    // replaced it, naming the control by its button label. Matching on the
+    // label is deliberate: if the button is ever renamed, the message that
+    // points at it must be renamed in the same commit.
+    expect(
+      screen.getByText(/si los querés en el mirror, importalos con "Importar de MercadoLibre", acá arriba/i),
+    ).toBeInTheDocument();
+    expect(screen.queryByText(/todavía no está disponible/i)).not.toBeInTheDocument();
   });
 
-  it('refuses distinctly when neither side has tiers (nothing to sync)', async () => {
+  it('refuses distinctly when neither side has tiers (nothing to update)', async () => {
     const user = userEvent.setup();
     pxqAPI.getLive.mockResolvedValue(mockLive({ mirror_tiers: [], live_tiers: [] }));
 
     renderPanel();
 
-    await waitFor(() => expect(screen.getByRole('button', { name: /sincronizar con mercadolibre/i })).toBeInTheDocument());
-    await user.click(screen.getByRole('button', { name: /sincronizar con mercadolibre/i }));
+    await waitFor(() => expect(screen.getByRole('button', { name: /actualizar precios en mercadolibre/i })).toBeInTheDocument());
+    await user.click(screen.getByRole('button', { name: /actualizar precios en mercadolibre/i }));
 
     expect(pxqAPI.sync).not.toHaveBeenCalled();
-    expect(screen.getByText(/no hay nada para sincronizar/i)).toBeInTheDocument();
-    expect(screen.queryByText(/importarlos al mirror local/i)).not.toBeInTheDocument();
+    expect(screen.getByText(/no hay precios para actualizar/i)).toBeInTheDocument();
+    // Retargeted onto the copy that replaced the old "todavía no está
+    // disponible" sentence: with both sides empty there is nothing to import,
+    // so the refusal must not send the operator to the import control.
+    expect(screen.queryByText(/importalos con "Importar de MercadoLibre"/i)).not.toBeInTheDocument();
   });
 
   it('refuses distinctly when the mirror is empty and the live state could not be read', async () => {
@@ -413,12 +516,12 @@ describe('PxqPanel — sync (PR 4d)', () => {
 
     renderPanel();
 
-    await waitFor(() => expect(screen.getByRole('button', { name: /sincronizar con mercadolibre/i })).toBeInTheDocument());
-    await user.click(screen.getByRole('button', { name: /sincronizar con mercadolibre/i }));
+    await waitFor(() => expect(screen.getByRole('button', { name: /actualizar precios en mercadolibre/i })).toBeInTheDocument());
+    await user.click(screen.getByRole('button', { name: /actualizar precios en mercadolibre/i }));
 
     expect(pxqAPI.sync).not.toHaveBeenCalled();
     expect(screen.getByText(/no se pudo leer el estado en vivo de mercadolibre, así que no se va a tocar nada/i)).toBeInTheDocument();
-    expect(screen.queryByText(/no hay nada para sincronizar/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/no hay precios para actualizar/i)).not.toBeInTheDocument();
   });
 
   it('shows the feature-disabled message distinctly from a permissions problem (503 disabled)', async () => {
@@ -427,8 +530,8 @@ describe('PxqPanel — sync (PR 4d)', () => {
     pxqAPI.sync.mockRejectedValue({ response: { status: 503, data: { detail: { status: 'disabled' } } } });
 
     renderPanel();
-    await waitFor(() => expect(screen.getByRole('button', { name: /sincronizar con mercadolibre/i })).toBeInTheDocument());
-    await user.click(screen.getByRole('button', { name: /sincronizar con mercadolibre/i }));
+    await waitFor(() => expect(screen.getByRole('button', { name: /actualizar precios en mercadolibre/i })).toBeInTheDocument());
+    await user.click(screen.getByRole('button', { name: /actualizar precios en mercadolibre/i }));
 
     await waitFor(() => expect(screen.getByText(/deshabilitada/i)).toBeInTheDocument());
     expect(screen.queryByText(/no tenés permiso/i)).not.toBeInTheDocument();
@@ -440,8 +543,8 @@ describe('PxqPanel — sync (PR 4d)', () => {
     pxqAPI.sync.mockRejectedValue({ response: { status: 403, data: { detail: 'No tienes permiso: pxq.escribir' } } });
 
     renderPanel();
-    await waitFor(() => expect(screen.getByRole('button', { name: /sincronizar con mercadolibre/i })).toBeInTheDocument());
-    await user.click(screen.getByRole('button', { name: /sincronizar con mercadolibre/i }));
+    await waitFor(() => expect(screen.getByRole('button', { name: /actualizar precios en mercadolibre/i })).toBeInTheDocument());
+    await user.click(screen.getByRole('button', { name: /actualizar precios en mercadolibre/i }));
 
     await waitFor(() => expect(screen.getByText(/no tenés permiso/i)).toBeInTheDocument());
   });
@@ -452,8 +555,8 @@ describe('PxqPanel — sync (PR 4d)', () => {
     pxqAPI.sync.mockRejectedValue({ response: { status: 422, data: { detail: { status: 'rejected_not_eligible' } } } });
 
     renderPanel();
-    await waitFor(() => expect(screen.getByRole('button', { name: /sincronizar con mercadolibre/i })).toBeInTheDocument());
-    await user.click(screen.getByRole('button', { name: /sincronizar con mercadolibre/i }));
+    await waitFor(() => expect(screen.getByRole('button', { name: /actualizar precios en mercadolibre/i })).toBeInTheDocument());
+    await user.click(screen.getByRole('button', { name: /actualizar precios en mercadolibre/i }));
 
     await waitFor(() => expect(screen.getByText(/no está habilitada para precios mayoristas/i)).toBeInTheDocument());
   });
@@ -464,8 +567,8 @@ describe('PxqPanel — sync (PR 4d)', () => {
     pxqAPI.sync.mockRejectedValue({ response: { status: 503, data: { detail: { status: 'rejected_eligibility_unknown' } } } });
 
     renderPanel();
-    await waitFor(() => expect(screen.getByRole('button', { name: /sincronizar con mercadolibre/i })).toBeInTheDocument());
-    await user.click(screen.getByRole('button', { name: /sincronizar con mercadolibre/i }));
+    await waitFor(() => expect(screen.getByRole('button', { name: /actualizar precios en mercadolibre/i })).toBeInTheDocument());
+    await user.click(screen.getByRole('button', { name: /actualizar precios en mercadolibre/i }));
 
     await waitFor(() => expect(screen.getByText(/no se pudo confirmar si esta publicación está habilitada/i)).toBeInTheDocument());
   });
@@ -476,8 +579,8 @@ describe('PxqPanel — sync (PR 4d)', () => {
     pxqAPI.sync.mockRejectedValue({ response: { status: 503, data: { detail: { status: 'rejected_read_unavailable' } } } });
 
     renderPanel();
-    await waitFor(() => expect(screen.getByRole('button', { name: /sincronizar con mercadolibre/i })).toBeInTheDocument());
-    await user.click(screen.getByRole('button', { name: /sincronizar con mercadolibre/i }));
+    await waitFor(() => expect(screen.getByRole('button', { name: /actualizar precios en mercadolibre/i })).toBeInTheDocument());
+    await user.click(screen.getByRole('button', { name: /actualizar precios en mercadolibre/i }));
 
     await waitFor(() => expect(screen.getByText(/no se pudo leer el estado actual en mercadolibre/i)).toBeInTheDocument());
   });
@@ -505,8 +608,8 @@ describe('PxqPanel — sync (PR 4d)', () => {
     });
 
     renderPanel();
-    await waitFor(() => expect(screen.getByRole('button', { name: /sincronizar con mercadolibre/i })).toBeInTheDocument());
-    await user.click(screen.getByRole('button', { name: /sincronizar con mercadolibre/i }));
+    await waitFor(() => expect(screen.getByRole('button', { name: /actualizar precios en mercadolibre/i })).toBeInTheDocument());
+    await user.click(screen.getByRole('button', { name: /actualizar precios en mercadolibre/i }));
 
     await waitFor(() => expect(screen.getByText(/amount_mismatch/i)).toBeInTheDocument());
     expect(screen.getByText(/150/)).toBeInTheDocument();
@@ -520,11 +623,11 @@ describe('PxqPanel — sync (PR 4d)', () => {
     pxqAPI.sync.mockRejectedValue({ response: { status: 502, data: { detail: { status: 'submitted_unconfirmed' } } } });
 
     renderPanel();
-    await waitFor(() => expect(screen.getByRole('button', { name: /sincronizar con mercadolibre/i })).toBeInTheDocument());
-    await user.click(screen.getByRole('button', { name: /sincronizar con mercadolibre/i }));
+    await waitFor(() => expect(screen.getByRole('button', { name: /actualizar precios en mercadolibre/i })).toBeInTheDocument());
+    await user.click(screen.getByRole('button', { name: /actualizar precios en mercadolibre/i }));
 
     await waitFor(() => expect(screen.getByText(/no se pudo confirmar/i)).toBeInTheDocument());
-    expect(screen.queryByText(/sincronizado con éxito/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/precios actualizados/i)).not.toBeInTheDocument();
     expect(screen.queryByText(/^error$/i)).not.toBeInTheDocument();
   });
 
@@ -534,8 +637,8 @@ describe('PxqPanel — sync (PR 4d)', () => {
     pxqAPI.sync.mockRejectedValue({ response: { status: 502, data: { detail: { status: 'ambiguous_needs_reconcile' } } } });
 
     renderPanel();
-    await waitFor(() => expect(screen.getByRole('button', { name: /sincronizar con mercadolibre/i })).toBeInTheDocument());
-    await user.click(screen.getByRole('button', { name: /sincronizar con mercadolibre/i }));
+    await waitFor(() => expect(screen.getByRole('button', { name: /actualizar precios en mercadolibre/i })).toBeInTheDocument());
+    await user.click(screen.getByRole('button', { name: /actualizar precios en mercadolibre/i }));
 
     await waitFor(() => expect(screen.getByText(/no se pudo confirmar/i)).toBeInTheDocument());
   });
@@ -546,10 +649,491 @@ describe('PxqPanel — sync (PR 4d)', () => {
     pxqAPI.sync.mockRejectedValue({ response: { status: 422, data: { detail: { status: 'rejected_by_proxy', reason: 'invalid amount' } } } });
 
     renderPanel();
-    await waitFor(() => expect(screen.getByRole('button', { name: /sincronizar con mercadolibre/i })).toBeInTheDocument());
-    await user.click(screen.getByRole('button', { name: /sincronizar con mercadolibre/i }));
+    await waitFor(() => expect(screen.getByRole('button', { name: /actualizar precios en mercadolibre/i })).toBeInTheDocument());
+    await user.click(screen.getByRole('button', { name: /actualizar precios en mercadolibre/i }));
 
     await waitFor(() => expect(screen.getByText(/mercadolibre rechazó/i)).toBeInTheDocument());
+  });
+});
+
+describe('PxqPanel — adopt-live import (PR 4e)', () => {
+  function mockLive({ mirror_tiers = [], live_tiers = [], live_status = 'ok' } = {}) {
+    return {
+      data: { item_id: 'MLA001', live_status, live_tiers, mirror_tiers, fetched_at: '2026-08-05T10:00:00Z' },
+    };
+  }
+
+  const liveOnly = { mirror_tiers: [], live_tiers: [{ id: 'PXQ1', quantity: 5, amount: 100 }] };
+  const IMPORT_BUTTON = { name: /^importar de mercadolibre$/i };
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockTienePermiso.mockImplementation(() => true);
+  });
+
+  afterEach(() => {
+    mockTienePermiso.mockImplementation(() => true);
+  });
+
+  // --- mounting -------------------------------------------------------------
+  // Three states where the button would be a dead action. The user must not
+  // discover that by pressing it.
+
+  it('mounts only when the mirror is empty and ML holds live tiers', async () => {
+    pxqAPI.getLive.mockResolvedValue(mockLive(liveOnly));
+    renderPanel();
+    expect(await screen.findByRole('button', IMPORT_BUTTON)).toBeInTheDocument();
+  });
+
+  it('does NOT mount when the mirror already has rows (the API would refuse with 409)', async () => {
+    pxqAPI.getLive.mockResolvedValue(
+      mockLive({
+        mirror_tiers: [{ id: 1, cantidad_minima: 5, precio_unitario: 100, costo_envio_total: 20, ml_price_id: null, estado: 'listo' }],
+        live_tiers: [{ id: 'PXQ1', quantity: 5, amount: 100 }],
+      }),
+    );
+    renderPanel();
+
+    await waitFor(() => expect(screen.getByText(/mirror local/i)).toBeInTheDocument());
+    expect(screen.queryByRole('button', IMPORT_BUTTON)).not.toBeInTheDocument();
+  });
+
+  it('does NOT mount when ML genuinely has no tiers (nothing to import)', async () => {
+    pxqAPI.getLive.mockResolvedValue(mockLive({ mirror_tiers: [], live_tiers: [] }));
+    renderPanel();
+
+    await waitFor(() => expect(screen.getByText(/mirror local/i)).toBeInTheDocument());
+    expect(screen.queryByRole('button', IMPORT_BUTTON)).not.toBeInTheDocument();
+  });
+
+  it('does NOT mount when the live read failed (we do not know what is there)', async () => {
+    pxqAPI.getLive.mockResolvedValue(mockLive({ mirror_tiers: [], live_tiers: null, live_status: 'unavailable' }));
+    renderPanel();
+
+    await waitFor(() => expect(screen.getByText(/mirror local/i)).toBeInTheDocument());
+    expect(screen.queryByRole('button', IMPORT_BUTTON)).not.toBeInTheDocument();
+  });
+
+  it('hides the import button for a user without pxq.escribir', async () => {
+    mockTienePermiso.mockImplementation((code) => code === 'pxq.ver');
+    pxqAPI.getLive.mockResolvedValue(mockLive(liveOnly));
+    renderPanel();
+
+    await waitFor(() => expect(screen.getByText(/mirror local/i)).toBeInTheDocument());
+    expect(screen.queryByRole('button', IMPORT_BUTTON)).not.toBeInTheDocument();
+  });
+
+  // --- outcomes -------------------------------------------------------------
+
+  it('names the imported count AND the shipping cost still required before updating prices', async () => {
+    const user = userEvent.setup();
+    pxqAPI.getLive
+      .mockResolvedValueOnce(mockLive(liveOnly))
+      .mockResolvedValueOnce(
+        mockLive({
+          mirror_tiers: [{ id: 9, cantidad_minima: 5, precio_unitario: 100, costo_envio_total: null, ml_price_id: 'PXQ1', estado: 'incompleto' }],
+          live_tiers: [{ id: 'PXQ1', quantity: 5, amount: 100 }],
+        }),
+      );
+    pxqAPI.adoptLive.mockResolvedValue({ data: { item_id: 'MLA001', count: 2, imported: [] } });
+
+    renderPanel();
+    await user.click(await screen.findByRole('button', IMPORT_BUTTON));
+
+    await waitFor(() => expect(pxqAPI.adoptLive).toHaveBeenCalledWith('MLA001'));
+    // The count is not decoration: it is the only confirmation of how much
+    // was actually recovered.
+    const message = await screen.findByText(/se importaron 2 tramos/i);
+    // And the trap this copy exists to close — the rows land with
+    // `costo_envio_total` NULL and cannot be written back to ML until it is
+    // set. Asserted on the message node, not on the document: "Costo de envío
+    // del bulto" is also the authoring form's field label, so a document-wide
+    // matcher would pass on the wrong element.
+    expect(message).toHaveTextContent(/todavía no podés actualizar precios con ellos/i);
+    expect(message).toHaveTextContent(/cargá el costo de envío del bulto en cada uno/i);
+  });
+
+  it('refreshes the panel after a successful import', async () => {
+    const user = userEvent.setup();
+    pxqAPI.getLive.mockResolvedValue(mockLive(liveOnly));
+    pxqAPI.adoptLive.mockResolvedValue({ data: { item_id: 'MLA001', count: 1, imported: [] } });
+
+    renderPanel();
+    await user.click(await screen.findByRole('button', IMPORT_BUTTON));
+
+    await waitFor(() => expect(pxqAPI.getLive).toHaveBeenCalledTimes(2));
+  });
+
+  it('does NOT refresh the panel when the import was refused', async () => {
+    const user = userEvent.setup();
+    pxqAPI.getLive.mockResolvedValue(mockLive(liveOnly));
+    pxqAPI.adoptLive.mockRejectedValue({
+      response: { status: 503, data: { detail: { status: 'adopt_read_unavailable', reason: 'read failed' } } },
+    });
+
+    renderPanel();
+    await user.click(await screen.findByRole('button', IMPORT_BUTTON));
+
+    await waitFor(() => expect(screen.getByText(/no se importó nada/i)).toBeInTheDocument());
+    expect(pxqAPI.getLive).toHaveBeenCalledTimes(1);
+  });
+
+  // The refusal that has to survive a rename most of all: the payload names
+  // the rows to delete, and a message that dropped them would leave the
+  // operator hunting through the mirror column by hand.
+  it('names every conflicting quantity and tier id on 409', async () => {
+    const user = userEvent.setup();
+    pxqAPI.getLive.mockResolvedValue(mockLive(liveOnly));
+    pxqAPI.adoptLive.mockRejectedValue({
+      response: {
+        status: 409,
+        data: {
+          detail: {
+            status: 'adopt_conflict',
+            reason: 'The local mirror already has tiers for this publication',
+            conflicts: [
+              { tier_id: 3, cantidad_minima: 12 },
+              { tier_id: 7, cantidad_minima: 24 },
+            ],
+          },
+        },
+      },
+    });
+
+    renderPanel();
+    await user.click(await screen.findByRole('button', IMPORT_BUTTON));
+
+    const message = await screen.findByText(/el mirror local ya tiene tramos/i);
+    expect(message).toHaveTextContent('12 u. (id 3)');
+    expect(message).toHaveTextContent('24 u. (id 7)');
+    // The delete-then-import window, stated rather than walked into blind.
+    expect(message).toHaveTextContent(/entre el borrado y la importación el mirror queda vacío/i);
+    // …and the reassurance that makes the window survivable: ML is untouched.
+    expect(message).toHaveTextContent(/no se tocan en ningún caso/i);
+  });
+
+  it('renders the 503 unreadable-live refusal in the warn tone, not the error tone', async () => {
+    const user = userEvent.setup();
+    pxqAPI.getLive.mockResolvedValue(mockLive(liveOnly));
+    pxqAPI.adoptLive.mockRejectedValue({
+      response: { status: 503, data: { detail: { status: 'adopt_read_unavailable', reason: 'read failed' } } },
+    });
+
+    renderPanel();
+    await user.click(await screen.findByRole('button', IMPORT_BUTTON));
+
+    const message = await screen.findByText(/no se pudo leer el estado en vivo de mercadolibre, así que no se importó nada/i);
+    expect(message).toHaveTextContent(/podés reintentar/i);
+    // Transient, so it must not be painted as a failure the operator caused.
+    // The class is the only carrier of that distinction in the DOM; the visual
+    // suite proves the three classes actually paint differently.
+    expect(message.className).toMatch(/feedbackWarn/);
+    expect(message.className).not.toMatch(/feedbackError/);
+  });
+
+  it('shows a permissions message on 403, distinct from every other refusal', async () => {
+    const user = userEvent.setup();
+    pxqAPI.getLive.mockResolvedValue(mockLive(liveOnly));
+    pxqAPI.adoptLive.mockRejectedValue({ response: { status: 403, data: { detail: 'No tienes permiso: pxq.escribir' } } });
+
+    renderPanel();
+    await user.click(await screen.findByRole('button', IMPORT_BUTTON));
+
+    expect(await screen.findByText(/no tenés permiso para importar tramos/i)).toBeInTheDocument();
+    expect(screen.queryByText(/no se pudo leer el estado en vivo/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/el mirror local ya tiene tramos/i)).not.toBeInTheDocument();
+  });
+
+  it('shows a distinct message on 404 for an item the backend does not know', async () => {
+    const user = userEvent.setup();
+    pxqAPI.getLive.mockResolvedValue(mockLive(liveOnly));
+    pxqAPI.adoptLive.mockRejectedValue({ response: { status: 404, data: { detail: 'Publicación no encontrada' } } });
+
+    renderPanel();
+    await user.click(await screen.findByRole('button', IMPORT_BUTTON));
+
+    expect(await screen.findByText(/no se encontró esta publicación/i)).toBeInTheDocument();
+    expect(screen.queryByText(/no tenés permiso/i)).not.toBeInTheDocument();
+  });
+
+  // 200 with count 0 is reachable: the mount condition reads the live state
+  // fetched when the panel opened, and ML can lose its tiers before the click.
+  it('does not claim an import happened when ML turned out to have nothing left', async () => {
+    const user = userEvent.setup();
+    pxqAPI.getLive.mockResolvedValue(mockLive(liveOnly));
+    pxqAPI.adoptLive.mockResolvedValue({ data: { item_id: 'MLA001', count: 0, imported: [] } });
+
+    renderPanel();
+    await user.click(await screen.findByRole('button', IMPORT_BUTTON));
+
+    expect(await screen.findByText(/ya no tiene tramos mayoristas para importar/i)).toBeInTheDocument();
+    expect(screen.queryByText(/se importaron 0/i)).not.toBeInTheDocument();
+    // No next step is named, because no rows were created to have one.
+    expect(screen.queryByText(/cargá el costo de envío del bulto/i)).not.toBeInTheDocument();
+  });
+
+  it('disables the button while the import is in flight', async () => {
+    const user = userEvent.setup();
+    pxqAPI.getLive.mockResolvedValue(mockLive(liveOnly));
+    let resolveAdopt;
+    pxqAPI.adoptLive.mockReturnValue(
+      new Promise((resolve) => {
+        resolveAdopt = resolve;
+      }),
+    );
+
+    renderPanel();
+    const button = await screen.findByRole('button', IMPORT_BUTTON);
+    await user.click(button);
+
+    await waitFor(() => expect(button).toBeDisabled());
+    // A second click cannot start a second import.
+    await user.click(button);
+    expect(pxqAPI.adoptLive).toHaveBeenCalledTimes(1);
+
+    resolveAdopt({ data: { item_id: 'MLA001', count: 1, imported: [] } });
+    // Re-queried, not reused: the success path reloads the panel, which
+    // remounts the subtree, so `button` above is a detached node by now.
+    expect(await screen.findByText(/se importó 1 tramo/i)).toBeInTheDocument();
+    expect(screen.getByRole('button', IMPORT_BUTTON)).not.toBeDisabled();
+  });
+
+  // The outcome message deliberately outlives `reload()` (the reload unmounts
+  // the control, so local state would take the message with it — see the
+  // control's docstring). It must NOT also outlive the publication: the panel
+  // is re-keyed on a new `itemId` WITHOUT unmounting, so an uncleared message
+  // would go on describing an import that happened somewhere else.
+  it('clears the import outcome when the panel moves to another publication', async () => {
+    const user = userEvent.setup();
+    const pxqCacheRef = { current: new Map() };
+    pxqAPI.getLive.mockResolvedValue(mockLive(liveOnly));
+    pxqAPI.adoptLive.mockResolvedValue({ data: { item_id: 'MLA001', count: 2, imported: [] } });
+
+    const { rerender } = render(<PxqPanel itemId="MLA001" pxqCacheRef={pxqCacheRef} />);
+    await user.click(await screen.findByRole('button', IMPORT_BUTTON));
+    expect(await screen.findByText(/se importaron 2 tramos/i)).toBeInTheDocument();
+
+    rerender(<PxqPanel itemId="MLA002" pxqCacheRef={pxqCacheRef} />);
+
+    // Asserted AFTER the new publication has finished loading, not during the
+    // loading branch: the loading branch hides everything, so checking there
+    // would pass even with the message still held in state.
+    await waitFor(() => expect(pxqAPI.getLive).toHaveBeenLastCalledWith('MLA002'));
+    await screen.findByText(/mirror local/i);
+    expect(screen.queryByText(/se importaron 2 tramos/i)).not.toBeInTheDocument();
+  });
+
+  // The label is the whole point of the control existing separately: it says
+  // what it does. "Sincronizar" is the verb that destroyed four publications,
+  // and it is now gone from both directions of this panel — but the assertion
+  // stays, because a future rename must not reintroduce it here either.
+  it('never labels the import as a sync', async () => {
+    pxqAPI.getLive.mockResolvedValue(mockLive(liveOnly));
+    renderPanel();
+
+    const button = await screen.findByRole('button', IMPORT_BUTTON);
+    expect(button).toHaveTextContent('Importar de MercadoLibre');
+    expect(button.textContent).not.toMatch(/sincroniz/i);
+    expect(button.className).toMatch(/\bprimary\b/);
+  });
+});
+
+// An outcome message has to outlive the reload IT triggered — the reload is
+// what makes the outcome visible in the columns above, and it unmounts the
+// control that produced the message. It must NOT outlive its own truth: the
+// moment the operator edits the mirror the message describes, the message stops
+// describing what is on screen.
+//
+// Both halves are asserted here because they pull in opposite directions, and a
+// "simplification" that clears feedback inside `reload()` satisfies the second
+// while silently destroying the first.
+describe('PxqPanel — outcome messages outlive their reload, not their truth', () => {
+  function mockLive({ mirror_tiers = [], live_tiers = [], live_status = 'ok', item_id = 'MLA001' } = {}) {
+    return {
+      data: { item_id, live_status, live_tiers, mirror_tiers, fetched_at: '2026-08-06T10:00:00Z' },
+    };
+  }
+
+  const readyTier = [{ id: 1, cantidad_minima: 5, precio_unitario: 100, costo_envio_total: 20, ml_price_id: null, estado: 'listo' }];
+  const importedTier = [{ id: 9, cantidad_minima: 5, precio_unitario: 100, costo_envio_total: null, ml_price_id: 'PXQ1', estado: 'incompleto' }];
+  const liveTiers = [{ id: 'PXQ1', quantity: 5, amount: 100 }];
+
+  const UPDATE_BUTTON = { name: /actualizar precios en mercadolibre/i };
+  const IMPORT_BUTTON = { name: /^importar de mercadolibre$/i };
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockTienePermiso.mockImplementation(() => true);
+  });
+
+  afterEach(() => {
+    mockTienePermiso.mockImplementation(() => true);
+  });
+
+  // THE bug this block exists for. The success path calls `reload()`, which
+  // flips `loading` and makes the panel return its loading branch, unmounting
+  // the control — so a message held in the control's own state was destroyed
+  // by the very refresh that proved it true. It was never once visible.
+  it('shows the price-update success message after the reload that success triggers', async () => {
+    const user = userEvent.setup();
+    pxqAPI.getLive
+      .mockResolvedValueOnce(mockLive({ mirror_tiers: readyTier }))
+      .mockResolvedValueOnce(mockLive({ mirror_tiers: readyTier, live_tiers: liveTiers }));
+    pxqAPI.sync.mockResolvedValue({ data: { synced: true, status: 'sincronizado' } });
+
+    renderPanel();
+    await user.click(await screen.findByRole('button', UPDATE_BUTTON));
+
+    // Asserted AFTER the reload has landed, not before: checking mid-flight
+    // would pass on a message that the very next commit throws away.
+    await waitFor(() => expect(pxqAPI.getLive).toHaveBeenCalledTimes(2));
+    expect(await screen.findByText(/precios actualizados en mercadolibre/i)).toBeInTheDocument();
+  });
+
+  // The failure paths never reloaded, so they were never broken — which is
+  // exactly why they need a guard: lifting the state out of the control is the
+  // kind of change that can drop them on the floor without anyone noticing.
+  it('keeps the price-update error message and the 409 divergence rows after the state moves to the panel', async () => {
+    const user = userEvent.setup();
+    pxqAPI.getLive.mockResolvedValue(mockLive({ mirror_tiers: readyTier }));
+    pxqAPI.sync.mockRejectedValue({
+      response: {
+        status: 409,
+        data: {
+          detail: {
+            status: 'divergence',
+            divergences: [
+              { ml_price_id: 'PXQ1', reason: 'amount_mismatch', live: { quantity: 5, amount: 150 }, desired: { quantity: 5, amount: 100 } },
+            ],
+          },
+        },
+      },
+    });
+
+    renderPanel();
+    await user.click(await screen.findByRole('button', UPDATE_BUTTON));
+
+    expect(await screen.findByText(/mercadolibre y el mirror local no coinciden/i)).toBeInTheDocument();
+    // The message and the rows are ONE result. Splitting their lifetimes would
+    // leave the operator reading "resolvé las diferencias" with no differences
+    // on screen to resolve.
+    expect(screen.getByText(/amount_mismatch/i)).toBeInTheDocument();
+    expect(screen.getByText(/150/)).toBeInTheDocument();
+    expect(pxqAPI.getLive).toHaveBeenCalledTimes(1);
+  });
+
+  // The guardrail for the clearing rule. The import's OWN reload is the reason
+  // this state was lifted to the panel in the first place; anyone who
+  // "simplifies" by clearing feedback inside `reload()` breaks this.
+  it('does not clear the import message on the reload the import itself triggers', async () => {
+    const user = userEvent.setup();
+    pxqAPI.getLive
+      .mockResolvedValueOnce(mockLive({ mirror_tiers: [], live_tiers: liveTiers }))
+      .mockResolvedValueOnce(mockLive({ mirror_tiers: importedTier, live_tiers: liveTiers }));
+    pxqAPI.adoptLive.mockResolvedValue({ data: { item_id: 'MLA001', count: 2, imported: [] } });
+
+    renderPanel();
+    await user.click(await screen.findByRole('button', IMPORT_BUTTON));
+
+    await waitFor(() => expect(pxqAPI.getLive).toHaveBeenCalledTimes(2));
+    expect(await screen.findByText(/se importaron 2 tramos/i)).toBeInTheDocument();
+  });
+
+  // "Cargá el costo de envío del bulto" stops being true the instant he does.
+  it('clears the import message once the operator edits a tier', async () => {
+    const user = userEvent.setup();
+    pxqAPI.getLive
+      .mockResolvedValueOnce(mockLive({ mirror_tiers: [], live_tiers: liveTiers }))
+      .mockResolvedValueOnce(mockLive({ mirror_tiers: importedTier, live_tiers: liveTiers }))
+      .mockResolvedValue(
+        mockLive({
+          mirror_tiers: [{ id: 9, cantidad_minima: 5, precio_unitario: 100, costo_envio_total: 30, ml_price_id: 'PXQ1', estado: 'listo' }],
+          live_tiers: liveTiers,
+        }),
+      );
+    pxqAPI.adoptLive.mockResolvedValue({ data: { item_id: 'MLA001', count: 2, imported: [] } });
+    pxqAPI.updateTier.mockResolvedValue({ data: {} });
+
+    renderPanel();
+    await user.click(await screen.findByRole('button', IMPORT_BUTTON));
+    expect(await screen.findByText(/se importaron 2 tramos/i)).toBeInTheDocument();
+
+    // The exact next step the message named: load the shipping cost.
+    await user.click(await screen.findByRole('button', { name: /^editar$/i }));
+    await user.type(screen.getByLabelText(/costo de envío/i), '30');
+    await user.click(screen.getByRole('button', { name: /guardar/i }));
+
+    await waitFor(() => expect(pxqAPI.updateTier).toHaveBeenCalled());
+    await waitFor(() => expect(screen.queryByText(/se importaron 2 tramos/i)).not.toBeInTheDocument());
+  });
+
+  // Symmetric to the import case: "Precios actualizados en MercadoLibre" stops
+  // being true the instant the mirror stops being what was sent.
+  it('clears the price-update success message once the operator edits a tier', async () => {
+    const user = userEvent.setup();
+    pxqAPI.getLive.mockResolvedValue(mockLive({ mirror_tiers: readyTier, live_tiers: liveTiers }));
+    pxqAPI.sync.mockResolvedValue({ data: { synced: true, status: 'sincronizado' } });
+    pxqAPI.updateTier.mockResolvedValue({ data: {} });
+
+    renderPanel();
+    await user.click(await screen.findByRole('button', UPDATE_BUTTON));
+    expect(await screen.findByText(/precios actualizados en mercadolibre/i)).toBeInTheDocument();
+
+    await user.click(await screen.findByRole('button', { name: /^editar$/i }));
+    const precio = screen.getByLabelText(/precio unitario/i);
+    await user.clear(precio);
+    await user.type(precio, '150');
+    await user.click(screen.getByRole('button', { name: /guardar/i }));
+
+    await waitFor(() => expect(pxqAPI.updateTier).toHaveBeenCalled());
+    await waitFor(() => expect(screen.queryByText(/precios actualizados en mercadolibre/i)).not.toBeInTheDocument());
+  });
+
+  // A message may outlive its control, never its PUBLICATION. The cache for the
+  // second item is warmed on purpose so the move does NOT pass through the
+  // loading branch: an unmount would hide a stale message by accident, and this
+  // test has to prove the reset itself.
+  it('clears both the import and the price-update outcome when the panel moves to another publication', async () => {
+    const user = userEvent.setup();
+    const pxqCacheRef = { current: new Map() };
+    pxqCacheRef.current.set('MLA002', {
+      status: 'ok',
+      data: { item_id: 'MLA002', live_status: 'ok', live_tiers: [], mirror_tiers: [], fetched_at: '2026-08-06T10:00:00Z' },
+    });
+
+    pxqAPI.getLive
+      .mockResolvedValueOnce(mockLive({ mirror_tiers: [], live_tiers: liveTiers }))
+      .mockResolvedValueOnce(mockLive({ mirror_tiers: importedTier, live_tiers: liveTiers }));
+    pxqAPI.adoptLive.mockResolvedValue({ data: { item_id: 'MLA001', count: 2, imported: [] } });
+    pxqAPI.sync.mockRejectedValue({
+      response: {
+        status: 409,
+        data: {
+          detail: {
+            status: 'divergence',
+            divergences: [
+              { ml_price_id: 'PXQ1', reason: 'amount_mismatch', live: { quantity: 5, amount: 150 }, desired: { quantity: 5, amount: 100 } },
+            ],
+          },
+        },
+      },
+    });
+
+    const { rerender } = render(<PxqPanel itemId="MLA001" pxqCacheRef={pxqCacheRef} />);
+
+    await user.click(await screen.findByRole('button', IMPORT_BUTTON));
+    expect(await screen.findByText(/se importaron 2 tramos/i)).toBeInTheDocument();
+
+    // A 409 does not reload, so the import message is still standing when the
+    // price-update message joins it. Both are live at the same time here.
+    await user.click(screen.getByRole('button', UPDATE_BUTTON));
+    expect(await screen.findByText(/mercadolibre y el mirror local no coinciden/i)).toBeInTheDocument();
+
+    rerender(<PxqPanel itemId="MLA002" pxqCacheRef={pxqCacheRef} />);
+
+    await waitFor(() => expect(screen.queryByText(/se importaron 2 tramos/i)).not.toBeInTheDocument());
+    expect(screen.queryByText(/mercadolibre y el mirror local no coinciden/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/amount_mismatch/i)).not.toBeInTheDocument();
   });
 });
 
@@ -559,7 +1143,7 @@ describe('PxqPanel — primary actions look like buttons', () => {
     mockTienePermiso.mockReturnValue(true);
   });
 
-  it('renders "Agregar tramo" and "Sincronizar" with the primary variant, not the bare base', async () => {
+  it('renders "Agregar tramo" and "Actualizar precios" with the primary variant, not the bare base', async () => {
     pxqAPI.getLive.mockResolvedValue({
       data: {
         item_id: 'MLA001',
@@ -572,12 +1156,12 @@ describe('PxqPanel — primary actions look like buttons', () => {
     renderPanel();
 
     const agregar = await screen.findByRole('button', { name: /agregar tramo/i });
-    const sincronizar = screen.getByRole('button', { name: /sincronizar con mercadolibre/i });
+    const actualizar = screen.getByRole('button', { name: /actualizar precios en mercadolibre/i });
 
     // The bare `btn-tesla` base is `background: transparent` with a
     // transparent border, so on the panel's grey it reads as text. These two
     // are the primary actions of the panel — one of them writes to ML.
-    for (const button of [agregar, sincronizar]) {
+    for (const button of [agregar, actualizar]) {
       expect(button.className).toMatch(/\bprimary\b/);
     }
   });

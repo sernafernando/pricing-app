@@ -6,6 +6,18 @@ import styles from './promociones.module.css';
 
 const MAX_TIERS = 5;
 
+// `err.response.data.detail` reaches this file in ONE OF TWO SHAPES, and every
+// reader below accepts both:
+//   - a STRING, for every ordinary error — the response interceptor in
+//     `services/api.js` flattens validation arrays and untyped dicts into one;
+//   - the backend's TYPED error OBJECT, passed through untouched because it
+//     carries fields a string cannot express (`status`, `conflicts`,
+//     `divergences`).
+// See `normalizeErrorDetail` in `services/api.js` for the predicate that tells
+// them apart, and for the `http_exception_handler` quirk that puts the typed
+// object at the ROOT of the response body instead of under `detail`. That
+// interceptor used to flatten the typed shape too, which is why the
+// `adopt_conflict` and `divergence` branches below shipped unreachable.
 function extractErrorMessage(err) {
   const detail = err?.response?.data?.detail;
   if (typeof detail === 'string') return detail;
@@ -270,13 +282,13 @@ function PxqTierAuthoring({ itemId, mirrorTiers, onChanged }) {
 function syncOutcomeMessage(httpStatus, detail) {
   const backendStatus = detail && typeof detail === 'object' ? detail.status : undefined;
   if (httpStatus === 403) {
-    return { kind: 'error', text: 'No tenés permiso para sincronizar con MercadoLibre.' };
+    return { kind: 'error', text: 'No tenés permiso para actualizar precios en MercadoLibre.' };
   }
   switch (backendStatus) {
     case 'disabled':
       return {
         kind: 'error',
-        text: 'La sincronización con MercadoLibre está deshabilitada temporalmente (función apagada, no un problema de permisos).',
+        text: 'La actualización de precios en MercadoLibre está deshabilitada temporalmente (función apagada, no un problema de permisos).',
       };
     case 'rejected_not_eligible':
       return {
@@ -302,10 +314,10 @@ function syncOutcomeMessage(httpStatus, detail) {
     case 'ambiguous_needs_reconcile':
       return {
         kind: 'warn',
-        text: 'No se pudo confirmar el resultado de la sincronización: MercadoLibre puede o no haber aplicado el cambio. Volvé a leer el estado en vivo antes de reintentar.',
+        text: 'No se pudo confirmar el resultado de la actualización: MercadoLibre puede o no haber aplicado los precios nuevos. Volvé a leer el estado en vivo antes de reintentar.',
       };
     default:
-      return { kind: 'error', text: 'No se pudo sincronizar con MercadoLibre.' };
+      return { kind: 'error', text: 'No se pudieron actualizar los precios en MercadoLibre.' };
   }
 }
 
@@ -313,64 +325,93 @@ function syncOutcomeMessage(httpStatus, detail) {
 // different facts produce an empty mirror and they stay distinct here for the
 // same reason `live_tiers: null` never collapses into `[]` in the read columns
 // above: "ML holds tiers we never mirrored" is a different problem from "both
-// sides are genuinely empty" and from "the live read failed". Importing live
-// tiers into the mirror (`adopt-live`, design.md D4) does not exist yet, so
-// the first case has to say so out loud — otherwise the user reaches for
-// deletion as a workaround, which is exactly how live tiers were lost.
+// sides are genuinely empty" and from "the live read failed".
+//
+// The first case used to end with "importarlos al mirror local todavía no está
+// disponible", which was true and is now false: `PxqAdoptControl` below imports
+// them, and it renders in exactly this state. A refusal that still describes
+// the missing capability would send the user back to deletion as a workaround,
+// which is how live tiers were lost in the first place — so it points at the
+// control instead.
+//
+// Register: this panel addresses the operator in voseo throughout ("No tenés
+// permiso", "Resolvé las diferencias"). The both-empty branch is left alone
+// because it has no second-person verb to conjugate at all — it states a fact
+// about two systems and asks the reader for nothing.
 function emptyMirrorRefusal(liveTiers, liveUnavailable) {
   if (liveUnavailable) {
     return {
       kind: 'warn',
-      text: 'No se pudo leer el estado en vivo de MercadoLibre, así que no se va a tocar nada. Se puede reintentar en unos minutos.',
+      text: 'No se pudo leer el estado en vivo de MercadoLibre, así que no se va a tocar nada. Podés reintentar en unos minutos.',
     };
   }
   if (liveTiers && liveTiers.length > 0) {
+    // `warn`, not `error`: nothing failed and there is an action to take. The
+    // red tone belonged to the version of this message that had none.
     return {
-      kind: 'error',
-      text: 'MercadoLibre tiene tramos mayoristas que no están en el mirror local. La sincronización no los va a modificar, e importarlos al mirror local todavía no está disponible.',
+      kind: 'warn',
+      text: 'MercadoLibre tiene tramos mayoristas que no están en el mirror local. Actualizar precios no los trae acá: si los querés en el mirror, importalos con "Importar de MercadoLibre", acá arriba.',
     };
   }
   return {
     kind: 'ok',
-    text: 'No hay nada para sincronizar: ni el mirror local ni MercadoLibre tienen tramos mayoristas.',
+    text: 'No hay precios para actualizar: ni el mirror local ni MercadoLibre tienen tramos mayoristas.',
   };
 }
 
 /**
- * Sync action + full outcome handling (PR 4d). Every non-200 `status` the
- * backend can return gets rendered distinctly — see `syncOutcomeMessage` —
+ * Price-update action + full outcome handling (PR 4d). Every non-200 `status`
+ * the backend can return gets rendered distinctly — see `syncOutcomeMessage` —
  * plus a dedicated divergence banner (409).
  *
  * This control pushes the local mirror to ML and can never clear the live
  * array: with an empty mirror it refuses and explains why (see
  * `emptyMirrorRefusal`) instead of offering a wipe. It therefore needs the
- * live state, not just the mirror — deciding on the mirror alone is what made
- * "sincronizar" delete live tiers.
+ * live state, not just the mirror — deciding on the mirror alone is what let
+ * this action delete live tiers back when it was still labelled "sincronizar".
+ *
+ * That label is gone from the UI on purpose. The write is one-way, local -> ML;
+ * "sincronizar" promised reconciliation, so the operator believed he was
+ * looking when he was in fact writing. The button now names the write:
+ * "Actualizar precios en MercadoLibre". The identifiers below still say `sync`
+ * because they track the backend endpoint, which is unchanged.
+ *
+ * `feedback` and `divergences` are CONTROLLED by the panel, same shape and same
+ * reason as `PxqAdoptControl`: the success path calls `onSynced()` ->
+ * `useLazyResource.reload()`, which sets `loading`, so `PxqPanel` returns its
+ * loading branch and unmounts this subtree. Held locally, the success message
+ * was destroyed by the very refresh that proved it true and was never once
+ * visible; only the failure paths, which do not reload, ever painted.
+ *
+ * BOTH are lifted, not just the message. They are one result: a banner left
+ * behind by a remount would leave "Resolvé las diferencias" on screen with no
+ * differences under it to resolve.
+ *
+ * `syncing` stays local on purpose — it is this button's in-flight state, not
+ * an outcome, and it has nothing to survive.
  */
-function PxqSyncControl({ itemId, hasTiers, liveTiers, liveUnavailable, onSynced }) {
+function PxqSyncControl({ itemId, hasTiers, liveTiers, liveUnavailable, feedback, onFeedback, divergences, onDivergences, onSynced }) {
   const [syncing, setSyncing] = useState(false);
-  const [feedback, setFeedback] = useState(null); // { kind: 'ok'|'warn'|'error', text }
-  const [divergences, setDivergences] = useState(null);
 
   async function runSync() {
     setSyncing(true);
-    setFeedback(null);
-    setDivergences(null);
+    onFeedback(null);
+    onDivergences(null);
     try {
       await pxqAPI.sync(itemId);
-      setFeedback({ kind: 'ok', text: 'Sincronizado con MercadoLibre.' });
+      onFeedback({ kind: 'ok', text: 'Precios actualizados en MercadoLibre.' });
       await onSynced();
     } catch (err) {
       const httpStatus = err?.response?.status;
       const detail = err?.response?.data?.detail;
       if (httpStatus === 409 && detail && typeof detail === 'object' && Array.isArray(detail.divergences)) {
-        setDivergences(detail.divergences);
-        setFeedback({
+        onDivergences(detail.divergences);
+        onFeedback({
           kind: 'error',
-          text: 'MercadoLibre y el mirror local no coinciden. Resolvé las diferencias editando los tramos y volvé a sincronizar.',
+          text: 'MercadoLibre y el mirror local no coinciden. Resolvé las diferencias editando los tramos y volvé a actualizar los precios.',
         });
       } else {
-        setFeedback(syncOutcomeMessage(httpStatus, detail));
+        onFeedback(syncOutcomeMessage(httpStatus, detail));
       }
     } finally {
       setSyncing(false);
@@ -379,8 +420,8 @@ function PxqSyncControl({ itemId, hasTiers, liveTiers, liveUnavailable, onSynced
 
   function handleSyncClick() {
     if (!hasTiers) {
-      setDivergences(null);
-      setFeedback(emptyMirrorRefusal(liveTiers, liveUnavailable));
+      onDivergences(null);
+      onFeedback(emptyMirrorRefusal(liveTiers, liveUnavailable));
       return;
     }
     runSync();
@@ -392,12 +433,12 @@ function PxqSyncControl({ itemId, hasTiers, liveTiers, liveUnavailable, onSynced
   return (
     <div className={styles.pxqAuthoring}>
       <button type="button" className="btn-tesla primary sm" disabled={syncing} onClick={handleSyncClick}>
-        Sincronizar con MercadoLibre
+        Actualizar precios en MercadoLibre
       </button>
       {feedback && <div className={feedbackClass}>{feedback.text}</div>}
       {divergences && (
         <div className={styles.pxqDivergenceBanner}>
-          <div className={styles.pxqColumnTitle}>Diferencias que impiden la sincronización</div>
+          <div className={styles.pxqColumnTitle}>Diferencias que impiden actualizar los precios</div>
           {divergences.map((d, idx) => (
             <div key={d.ml_price_id ?? idx} className={styles.pxqDivergenceItem}>
               <span>{d.reason}</span>
@@ -411,12 +452,178 @@ function PxqSyncControl({ itemId, hasTiers, liveTiers, liveUnavailable, onSynced
   );
 }
 
+// The 409 payload carries the conflicting rows precisely so the operator does
+// not have to hunt for them. Rendering a bare "hay conflictos" would throw away
+// the one thing that makes the refusal actionable. Quantity first because that
+// is what the mirror column shows on screen; id second because that is what
+// tells two otherwise identical-looking rows apart.
+function formatAdoptConflicts(conflicts) {
+  if (!Array.isArray(conflicts) || conflicts.length === 0) return 'los tramos locales que ya existen';
+  return conflicts.map((c) => `${c.cantidad_minima} u. (id ${c.tier_id})`).join(', ');
+}
+
+// Same discipline as `syncOutcomeMessage`: the backend `status` in the detail
+// payload drives the message, not the bare HTTP code. Every branch ends with
+// something the operator can actually do next.
+function adoptOutcomeMessage(httpStatus, detail) {
+  const backendStatus = detail && typeof detail === 'object' ? detail.status : undefined;
+  if (httpStatus === 403) {
+    return { kind: 'error', text: 'No tenés permiso para importar tramos desde MercadoLibre.' };
+  }
+  if (httpStatus === 404) {
+    return {
+      kind: 'error',
+      text: 'No se encontró esta publicación, así que no se importó nada. Actualizá la vista y volvé a intentar.',
+    };
+  }
+  if (backendStatus === 'adopt_conflict') {
+    return {
+      kind: 'error',
+      text:
+        `El mirror local ya tiene tramos, así que no se importó nada. Para importar, eliminá primero ${formatAdoptConflicts(detail.conflicts)}. ` +
+        'Tené en cuenta que entre el borrado y la importación el mirror queda vacío: si justo ahí falla la lectura de MercadoLibre, vas a tener que reintentar. ' +
+        'Los tramos que están en vivo en MercadoLibre no se tocan en ningún caso.',
+    };
+  }
+  if (backendStatus === 'adopt_read_unavailable') {
+    // Both 503 sub-cases land here deliberately. The second one — a live read
+    // carrying MORE tiers than MercadoLibre's own platform limit of 5 — means
+    // our view of ML is untrustworthy, NOT that the operator has anything to
+    // go and fix; the backend refuses it as an unreadable read for that exact
+    // reason. Splitting the copy would invent an action that does not exist.
+    return {
+      kind: 'warn',
+      text: 'No se pudo leer el estado en vivo de MercadoLibre, así que no se importó nada. Podés reintentar en unos minutos.',
+    };
+  }
+  return { kind: 'error', text: 'No se pudieron importar los tramos desde MercadoLibre.' };
+}
+
+/**
+ * Import action (PR 4e): pulls MercadoLibre's live tiers DOWN into an empty
+ * local mirror. `POST /pxq/{item_id}/adopt-live` writes only local rows and
+ * calls no ML write endpoint on any path.
+ *
+ * Its own component, not a branch inside `PxqSyncControl`: that one already
+ * carries a dozen sync outcomes plus the divergence banner, and these two verbs
+ * point in opposite directions — one pushes to ML, this one only ever reads it.
+ *
+ * Labelled "Importar de MercadoLibre", never "sincronizar" — a word this panel
+ * no longer uses for either direction, because it promised reconciliation and
+ * delivered a one-way write. The push control names its own direction too now
+ * ("Actualizar precios en MercadoLibre"); the principle is the same one the
+ * comment above `pxqAPI.sync` states for the destructive argument: a control is
+ * named for what it does.
+ *
+ * What this does NOT do: recover a publication whose live tiers were already
+ * deleted on ML. There is nothing there to import. What it repairs is the
+ * publication that still HAS live tiers against an empty mirror — a state whose
+ * only offered action used to be a push that could merely destroy them.
+ *
+ * `feedback` is CONTROLLED by the panel rather than held here, and that is not
+ * a style preference. A successful import makes the mirror non-empty, and the
+ * refresh that reveals it goes through `useLazyResource.reload()`, which sets
+ * `loading` — so `PxqPanel` returns its loading branch and this whole subtree
+ * unmounts. Local state would take the outcome with it, and the operator would
+ * never read the count or the "still needs a shipping cost" next step: the one
+ * message this control exists to deliver. (`PxqSyncControl` had the same shape
+ * and therefore the same hole in its success message; it is controlled by the
+ * panel now for exactly this reason.)
+ */
+function PxqAdoptControl({ itemId, canImport, feedback, onFeedback, onAdopted }) {
+  const [adopting, setAdopting] = useState(false);
+
+  async function handleAdoptClick() {
+    setAdopting(true);
+    onFeedback(null);
+    try {
+      const { data } = await pxqAPI.adoptLive(itemId);
+      const count = data?.count ?? 0;
+      if (count === 0) {
+        // Reachable, not defensive: the mount condition reads the live state
+        // fetched when the panel opened, and ML can lose its tiers between then
+        // and this click. The backend answers that with 200 + count 0. Claiming
+        // "se importaron 0 tramos" and then naming a next step would describe
+        // work that did not happen.
+        onFeedback({
+          kind: 'warn',
+          text: 'MercadoLibre ya no tiene tramos mayoristas para importar, así que no se importó nada.',
+        });
+      } else {
+        // The count AND the next step, together. Imported rows land with
+        // `costo_envio_total` NULL and `estado` reading `incompleto`; write
+        // eligibility is decided by the cost alone (`pxq_confirm.is_priceable`)
+        // and nothing in the backend ever writes `ESTADO_LISTO`. A tier that
+        // silently cannot be written back to ML is a trap, so the copy says so.
+        onFeedback({
+          kind: 'ok',
+          text:
+            `${count === 1 ? 'Se importó 1 tramo' : `Se importaron ${count} tramos`} desde MercadoLibre. ` +
+            'Todavía no podés actualizar precios con ellos: cargá el costo de envío del bulto en cada uno.',
+        });
+      }
+      await onAdopted();
+    } catch (err) {
+      onFeedback(adoptOutcomeMessage(err?.response?.status, err?.response?.data?.detail));
+    } finally {
+      setAdopting(false);
+    }
+  }
+
+  const feedbackClass =
+    feedback?.kind === 'ok' ? styles.feedbackSuccess : feedback?.kind === 'warn' ? styles.feedbackWarn : styles.feedbackError;
+
+  return (
+    <div className={styles.pxqAuthoring}>
+      {/* The BUTTON is gated on the importable state; the MESSAGE outlives it.
+          After a successful import the mirror is no longer empty, so offering
+          the action again would be offering a guaranteed 409 — but the outcome
+          it produced still has to be readable. */}
+      {canImport && (
+        <button type="button" className="btn-tesla primary sm" disabled={adopting} onClick={handleAdoptClick}>
+          Importar de MercadoLibre
+        </button>
+      )}
+      {feedback && <div className={feedbackClass}>{feedback.text}</div>}
+    </div>
+  );
+}
+
 // Money is Decimal on the backend and arrives as a number or string here —
 // this only formats it for display, it never computes or re-derives a
 // markup (product decision carried over from CatalogCompetitionPanel).
 function formatMoney(value) {
   if (value === null || value === undefined) return 'N/A';
   return `$${Number(value).toLocaleString('es-AR')}`;
+}
+
+// `estado` is a PERSISTED DOMAIN VALUE, not UI copy: the four members of
+// `ESTADOS_VALIDOS` are pinned by the CHECK constraint
+// `ck_ml_pxq_tier_estado_valido` (see `backend/app/models/ml_pxq_tier.py`). The
+// panel PRESENTS it instead of echoing it. Rendering the bare enum put an
+// untranslated lowercase identifier in front of the operator, and `sincronizado`
+// was the LAST place the retired verb still reached him after the write button
+// stopped calling itself a sync — a row claiming to be "sincronizado" re-tells
+// the exact story ("both sides agree / it was reconciled") that cost four
+// publications. Renaming the value itself would need a migration and buy him
+// nothing, so the translation lives here.
+//
+// A `Map`, not an object literal: a bare `{}` resolves inherited keys, so an
+// `estado` of "constructor" or "toString" would hand a FUNCTION to the fallback
+// below and crash the render. `Map.get` only sees what was put in it.
+const ESTADO_LABELS = new Map([
+  ['incompleto', 'Incompleto'],
+  ['listo', 'Listo'],
+  ['sincronizado', 'Actualizado en MercadoLibre'],
+  ['desconocido', 'Desconocido'],
+]);
+
+// Unmapped values fall through to the RAW value deliberately — never blank,
+// never a throw. The backend can add a fifth `estado` before this map learns
+// about it, and an empty cell would hide the tier's real state; an ugly one at
+// least stays honest and is visibly wrong enough to get reported.
+function formatEstado(estado) {
+  return ESTADO_LABELS.get(estado) ?? estado;
 }
 
 /**
@@ -451,6 +658,54 @@ function PxqPanel({ itemId, pxqCacheRef }) {
   const fetcher = (id) => (canRead ? pxqAPI.getLive(id).then((r) => r.data) : Promise.resolve(null));
   const { data, loading, error, reload } = useLazyResource(pxqCacheRef, itemId, fetcher);
 
+  // Held here, not inside `PxqAdoptControl`: a successful import calls
+  // `reload()`, which flips `loading` and makes this component return its
+  // loading branch — unmounting the control and every piece of state in it.
+  // See the control's docstring. Declared above the early returns so the hook
+  // order stays fixed whatever branch renders.
+  const [adoptFeedback, setAdoptFeedback] = useState(null);
+
+  // Same story for the price-update outcome, and for the divergence rows that
+  // are part of that same outcome. See `PxqSyncControl`'s docstring.
+  const [syncFeedback, setSyncFeedback] = useState(null);
+  const [syncDivergences, setSyncDivergences] = useState(null);
+
+  // Outliving the control is not the same as outliving the PUBLICATION. The
+  // messages survive `reload()` deliberately (above); they must NOT survive a
+  // change of `itemId`, because `useLazyResource` re-keys on the new id without
+  // unmounting this component — so "Se importaron 2 tramos" would go on sitting
+  // under a publication it never described, indefinitely.
+  //
+  // Reset during render, not in an effect: an effect runs after commit, so the
+  // stale message would still paint once under the new item. Same thing the
+  // operator would misread, one frame later.
+  const [feedbackItemId, setFeedbackItemId] = useState(itemId);
+  if (feedbackItemId !== itemId) {
+    setFeedbackItemId(itemId);
+    setAdoptFeedback(null);
+    setSyncFeedback(null);
+    setSyncDivergences(null);
+  }
+
+  // A feedback message describes the RESULT of an action taken against a state.
+  // The moment the operator MUTATES that state, the message stops describing
+  // what is on screen — so authoring a tier clears BOTH outcomes:
+  //   - import: "cargá el costo de envío del bulto" is false as soon as he does;
+  //   - price update: "Precios actualizados en MercadoLibre" is false as soon as
+  //     he edits a tier, because the mirror is no longer what was sent.
+  //
+  // Tied to the AUTHORING callback, never to `reload()` itself. The reload the
+  // import triggers, and the one the price update triggers, are precisely the
+  // ones that must PRESERVE their message — that is the whole reason this state
+  // lives up here. Clearing inside `reload()` would look like a simplification
+  // and would silently restore the bug this file just fixed.
+  async function handleAuthoringChanged() {
+    setAdoptFeedback(null);
+    setSyncFeedback(null);
+    setSyncDivergences(null);
+    await reload();
+  }
+
   // Invisible rather than an error/403 for a user without the permission —
   // same treatment PromoApplyControl/refresh buttons use elsewhere in this
   // tree: showing a control that only 403s helps no one.
@@ -476,6 +731,10 @@ function PxqPanel({ itemId, pxqCacheRef }) {
   const liveTiers = data?.live_tiers ?? null;
   const mirrorTiers = data?.mirror_tiers || [];
   const liveUnavailable = data?.live_status === 'unavailable' || liveTiers === null;
+
+  // Order matters in this conjunction, not just readability: `liveUnavailable`
+  // is what guarantees `liveTiers` is non-null by the time it is dereferenced.
+  const canImportLive = mirrorTiers.length === 0 && !liveUnavailable && liveTiers.length > 0;
 
   // Divergence is informational only here (PR 4b owns resolution): a mirror
   // tier with a synced `ml_price_id` that either has no matching live id, or
@@ -520,7 +779,7 @@ function PxqPanel({ itemId, pxqCacheRef }) {
                 >
                   <span>{tier.cantidad_minima} u.</span>
                   <span>{formatMoney(tier.precio_unitario)}</span>
-                  <span>{tier.estado}</span>
+                  <span>{formatEstado(tier.estado)}</span>
                   {divergent && <span>Diverge de ML</span>}
                 </div>
               );
@@ -530,12 +789,33 @@ function PxqPanel({ itemId, pxqCacheRef }) {
       </div>
       {canWrite && (
         <>
-          <PxqTierAuthoring itemId={itemId} mirrorTiers={mirrorTiers} onChanged={reload} />
+          <PxqTierAuthoring itemId={itemId} mirrorTiers={mirrorTiers} onChanged={handleAuthoringChanged} />
+          {/* The IMPORT ACTION is offered in exactly one state. An empty
+              `liveTiers` means there is nothing on ML to import; a failed live
+              read means we do not know what is there; a non-empty mirror means
+              the backend would refuse with 409. A button in any of those three
+              is a dead action the user only discovers by pressing it.
+              The control is still mounted while an outcome is pending display,
+              because the successful import that ends the importable state is
+              also the one whose result most needs reading. */}
+          {(canImportLive || adoptFeedback) && (
+            <PxqAdoptControl
+              itemId={itemId}
+              canImport={canImportLive}
+              feedback={adoptFeedback}
+              onFeedback={setAdoptFeedback}
+              onAdopted={reload}
+            />
+          )}
           <PxqSyncControl
             itemId={itemId}
             hasTiers={mirrorTiers.length > 0}
             liveTiers={liveTiers}
             liveUnavailable={liveUnavailable}
+            feedback={syncFeedback}
+            onFeedback={setSyncFeedback}
+            divergences={syncDivergences}
+            onDivergences={setSyncDivergences}
             onSynced={reload}
           />
         </>
