@@ -50,6 +50,21 @@ class PropuestaIA(Base):
             "estado IN ('pendiente','confirmada','descartada','reemplazada')",
             name="ck_tickets_propuestas_ia_estado",
         ),
+        # DB-level mirror of `confirmacion_service.CAMPOS_CONFIRMABLES` — a
+        # second, independent enforcement layer on top of the app-level
+        # allowlist enforced in `_aplicar_confirmacion()`: even a raw INSERT
+        # or a future app bug can never smuggle in a value like 'estado_id'
+        # that would let confirmation write straight through the
+        # workflow-transition engine (PR 1). If a future slice adds a 5th
+        # confirmable field, THIS constraint AND
+        # `confirmacion_service.CAMPOS_CONFIRMABLES` must both be updated,
+        # plus a new migration (see
+        # alembic/versions/20260806_campo_check_ia.py).
+        # VARCHAR + CHECK, not a PG ENUM — same rationale as `estado` above.
+        CheckConstraint(
+            "campo IN ('severidad','urgencia','titulo','resumen')",
+            name="ck_tickets_propuestas_ia_campo",
+        ),
         # Partial unique index: only one PENDING proposal per (ticket_id,
         # campo) at a time. Once a proposal is confirmada/descartada/
         # reemplazada, a fresh triage run may write a new pendiente row for

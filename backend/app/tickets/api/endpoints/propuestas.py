@@ -16,8 +16,10 @@ from app.tickets.schemas.ticket_schemas import ConfirmarBatchRequest, PropuestaR
 from app.tickets.services import confirmacion_service
 from app.tickets.services.confirmacion_service import (
     PropuestaBatchInvalidaError,
+    PropuestaCampoNoPermitidoError,
     PropuestaNoEncontradaError,
     PropuestaNoPendienteError,
+    TicketNoEncontradoError,
 )
 from app.tickets.services.triage_service import LlmProvider, run_triage
 
@@ -79,6 +81,10 @@ def confirmar_propuesta(
         return confirmacion_service.confirmar(db, propuesta_id, current_user)
     except PropuestaNoEncontradaError:
         raise HTTPException(status_code=404, detail=f"Propuesta {propuesta_id} no encontrada")
+    except TicketNoEncontradoError as exc:
+        raise HTTPException(status_code=404, detail=str(exc))
+    except PropuestaCampoNoPermitidoError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
     except PropuestaNoPendienteError as exc:
         raise HTTPException(status_code=409, detail=str(exc))
 
@@ -113,6 +119,10 @@ def confirmar_propuestas_batch(
         return confirmacion_service.confirmar_batch(db, payload.propuesta_ids, current_user)
     except PropuestaBatchInvalidaError as exc:
         raise HTTPException(status_code=409, detail=str(exc))
+    except TicketNoEncontradoError as exc:
+        raise HTTPException(status_code=404, detail=str(exc))
+    except PropuestaCampoNoPermitidoError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
 
 
 @router.post("/tickets/{ticket_id}/triage")

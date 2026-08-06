@@ -239,3 +239,32 @@ class TestEstadoCheckConstraint:
         db.add(propuesta)
         with pytest.raises(IntegrityError):
             db.flush()
+
+
+class TestCampoCheckConstraint:
+    """Defect 1 hardening (confirmacion_service allowlist): `campo` is now
+    VARCHAR + CHECK against the same closed vocabulary as
+    `confirmacion_service.CAMPOS_CONFIRMABLES` — the DB-level half of
+    defense-in-depth, so even a raw INSERT or a future app bug can't smuggle
+    in a value like `estado_id` that would let confirmation write straight
+    through the workflow-transition engine (PR 1). Same VARCHAR+CHECK
+    rationale as `estado` above: a PG ENUM value can never be dropped, so
+    `downgrade()` would be a lie.
+    """
+
+    @pytest.mark.postgres
+    def test_invalid_campo_rejected(self, pg_tickets_db):
+        db = pg_tickets_db
+        rol = Rol(codigo="VENTAS", nombre="Ventas", es_sistema=False, orden=10, activo=True)
+        db.add(rol)
+        db.flush()
+        ticket = _make_ticket(db, rol, "pg_campo_check")
+
+        propuesta = PropuestaIA(
+            ticket_id=ticket.id,
+            campo="estado_id",
+            valor_propuesto={"valor": "no_deberia_llegar"},
+        )
+        db.add(propuesta)
+        with pytest.raises(IntegrityError):
+            db.flush()
