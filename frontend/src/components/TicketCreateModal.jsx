@@ -371,7 +371,7 @@ export default function TicketCreateModal({ isOpen, onClose, onCreated }) {
   return (
     <ModalTesla
       isOpen={isOpen}
-      onClose={onClose}
+      onClose={createdTicket ? handleFinish : onClose}
       title="Nuevo Ticket"
       size="lg"
       footer={footer}
