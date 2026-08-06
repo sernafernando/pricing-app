@@ -337,3 +337,50 @@ class ConfirmarBatchRequest(BaseModel):
     """Schema para confirmar múltiples propuestas de IA en un solo request"""
 
     propuesta_ids: List[int] = Field(..., min_length=1, description="IDs de propuestas pendientes a confirmar")
+
+
+class TicketCardResponse(BaseModel):
+    """Schema de respuesta para una card del tablero (tickets-ai-triage PR 5a).
+
+    Deliberadamente MÁS ANGOSTO que `TicketListResponse` — una card no
+    necesita todo lo que necesita una fila de tabla. `propuestas_pendientes`
+    no estaba en el pedido original de campos, pero se agregó porque sale
+    gratis: una subquery correlacionada dentro de la MISMA query de items,
+    sin round-trip ni JOIN adicional (ver `_items_del_board`).
+    """
+
+    id: int
+    titulo: str
+    resumen: Optional[str] = None
+    severidad: Optional[str] = None
+    urgencia: Optional[str] = None
+    severidad_origen: Optional[str] = None
+    urgencia_origen: Optional[str] = None
+    estado: EstadoSimple
+    sector: SectorSimple
+    created_at: datetime
+    propuestas_pendientes: int = 0
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class BoardColumnResponse(BaseModel):
+    """Una columna del tablero — ver `BoardResponse`."""
+
+    clave: str
+    etiqueta: str
+    color: Optional[str] = None
+    total: int
+    items: List[TicketCardResponse] = Field(default_factory=list)
+
+
+class BoardResponse(BaseModel):
+    """Respuesta de `GET /tickets/board` (tickets-ai-triage PR 5a).
+
+    Deliberadamente SIN metadata de paginación más allá de `total` por
+    columna: el overflow de una columna no tiene su propia paginación, el
+    cliente pide más vía `GET /tickets` con un filtro equivalente.
+    """
+
+    agrupacion: str
+    columnas: List[BoardColumnResponse]
