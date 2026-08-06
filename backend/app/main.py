@@ -104,6 +104,7 @@ from app.tickets.api.endpoints import (
     tickets as tickets_ep,
     sectores as sectores_ep,
     workflows as workflows_ep,
+    propuestas as propuestas_ep,
 )
 from app.core.config import settings, DEV_LIKE_ENVIRONMENTS
 from app.core.exceptions import http_exception_handler
@@ -392,6 +393,7 @@ app.include_router(administracion_cheques.router, prefix="/api", tags=["Administ
 app.include_router(tickets_ep.router, prefix="/api/tickets", tags=["tickets"])
 app.include_router(sectores_ep.router, prefix="/api/tickets", tags=["tickets-sectores"])
 app.include_router(workflows_ep.router, prefix="/api/tickets", tags=["tickets-workflows"])
+app.include_router(propuestas_ep.router, prefix="/api/tickets", tags=["tickets-propuestas"])
 
 
 @app.get("/")
