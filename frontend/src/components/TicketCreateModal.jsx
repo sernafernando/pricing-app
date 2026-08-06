@@ -310,10 +310,17 @@ export default function TicketCreateModal({ isOpen, onClose, onCreated }) {
     }
   };
 
+  const handleFinish = () => {
+    onCreated?.(createdTicket);
+  };
+
   const footer = createdTicket ? (
+    // The ticket already exists once we reach this state — both "Cerrar"
+    // and "Listo" must notify the parent so its list refreshes, even if
+    // the user closes without retrying a failed attachment upload.
     <ModalFooterButtons
-      onCancel={onClose}
-      onConfirm={() => onCreated?.(createdTicket)}
+      onCancel={handleFinish}
+      onConfirm={handleFinish}
       confirmText="Listo"
       cancelText="Cerrar"
     />
