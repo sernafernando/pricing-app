@@ -56,6 +56,21 @@ ALLOWED_MIME_TYPES = {
 }
 
 
+# Single-box intake defaults (tickets-ai-triage PR 3) — seeded by
+# 20260805_seed_inbox_sector_and_workflow.py.
+INBOX_SECTOR_CODIGO = "INBOX"
+INBOX_TIPO_CODIGO = "SIN_CLASIFICAR"
+TITULO_DERIVADO_MAX_LEN = 80
+
+
+def _derivar_titulo(texto: str) -> str:
+    """Deriva un título legible a partir de texto libre (primeros ~80 caracteres).
+
+    Pure function — no DB, no side effects, trivially testable.
+    """
+    return texto.strip()[:TITULO_DERIVADO_MAX_LEN].rstrip()
+
+
 def _check_permiso(db: Session, user: Usuario, permiso: str) -> None:
     """Raise 403 if user lacks the required permission."""
     svc = PermisosService(db)
@@ -349,27 +364,56 @@ async def crear_ticket(
     """
     Crea un nuevo ticket.
 
-    Cualquier usuario logueado puede crear tickets.
+    Cualquier usuario logueado puede crear tickets. `sector_id`/`tipo_ticket_id`
+    son opcionales: si se omiten, el ticket se crea en la Bandeja de entrada
+    (sector INBOX, tipo SIN_CLASIFICAR) sembrada por la migración de PR 3.
+    `titulo` se deriva de `texto` cuando no se envía explícitamente; `texto`
+    se persiste una única vez en `texto_original` y nunca vuelve a escribirse.
     """
 
-    # Validar sector
-    sector = db.query(Sector).filter(Sector.id == ticket_data.sector_id).first()
-    if not sector:
-        raise HTTPException(status_code=404, detail=f"Sector {ticket_data.sector_id} no encontrado")
+    # Validar/derivar sector
+    if ticket_data.sector_id is not None:
+        sector = db.query(Sector).filter(Sector.id == ticket_data.sector_id).first()
+        if not sector:
+            raise HTTPException(status_code=404, detail=f"Sector {ticket_data.sector_id} no encontrado")
+    else:
+        sector = db.query(Sector).filter(Sector.codigo == INBOX_SECTOR_CODIGO).first()
+        if not sector:
+            raise HTTPException(status_code=400, detail="No hay sector de Bandeja de entrada configurado")
 
     if not sector.activo:
         raise HTTPException(status_code=400, detail=f"Sector {sector.nombre} está inactivo")
 
-    # Validar tipo de ticket
-    tipo_ticket = (
-        db.query(TipoTicket)
-        .filter(TipoTicket.id == ticket_data.tipo_ticket_id, TipoTicket.sector_id == ticket_data.sector_id)
-        .first()
-    )
-    if not tipo_ticket:
+    # Validar/derivar tipo de ticket
+    if ticket_data.tipo_ticket_id is not None:
+        tipo_ticket = (
+            db.query(TipoTicket)
+            .filter(TipoTicket.id == ticket_data.tipo_ticket_id, TipoTicket.sector_id == sector.id)
+            .first()
+        )
+        if not tipo_ticket:
+            raise HTTPException(
+                status_code=404,
+                detail=f"Tipo de ticket {ticket_data.tipo_ticket_id} no encontrado para sector {sector.codigo}",
+            )
+    elif ticket_data.sector_id is None:
+        # True single-box path: neither sector_id nor tipo_ticket_id was
+        # sent, so fall back to the seeded Inbox tipo.
+        tipo_ticket = (
+            db.query(TipoTicket)
+            .filter(TipoTicket.codigo == INBOX_TIPO_CODIGO, TipoTicket.sector_id == sector.id)
+            .first()
+        )
+        if not tipo_ticket:
+            raise HTTPException(status_code=400, detail="No hay tipo de ticket 'Sin clasificar' configurado")
+    else:
+        # An explicit sector_id was sent for a non-Inbox sector, but
+        # tipo_ticket_id was not — the SIN_CLASIFICAR fallback only exists
+        # inside the Inbox sector, so silently searching for it here would
+        # produce a misleading "not configured" error. Say what's missing.
         raise HTTPException(
-            status_code=404,
-            detail=f"Tipo de ticket {ticket_data.tipo_ticket_id} no encontrado para sector {sector.codigo}",
+            status_code=422,
+            detail=f"tipo_ticket_id es requerido al especificar sector_id (sector {sector.codigo})",
         )
 
     # Obtener workflow (del tipo o default del sector)
@@ -392,16 +436,32 @@ async def crear_ticket(
     if not estado_inicial:
         raise HTTPException(status_code=400, detail=f"Workflow {workflow.nombre} no tiene estado inicial definido")
 
-    # Crear ticket
+    # Crear ticket — titulo explícito gana; si no se envió, se deriva de texto
+    # (el validador de TicketCreate garantiza que al menos uno esté presente).
+    titulo = ticket_data.titulo or _derivar_titulo(ticket_data.texto)
+
+    # texto_original stores the verbatim receipt, but nothing renders that
+    # column in the UI yet — without this fallback, a long single-box texto
+    # (titulo truncated to ~80 chars, descripcion empty) would be
+    # effectively invisible to the user after creation. descripcion stays
+    # editable afterwards (unlike texto_original); an explicit descripcion
+    # always wins.
+    # ponytail: descripcion and texto_original both start from the same
+    # value here but diverge on the first PATCH (descripcion is editable,
+    # texto_original never is) — once a UI surfaces texto_original
+    # directly, this fallback becomes redundant and should be reconsidered.
+    descripcion = ticket_data.descripcion or ticket_data.texto
+
     nuevo_ticket = Ticket(
-        titulo=ticket_data.titulo,
-        descripcion=ticket_data.descripcion,
+        titulo=titulo,
+        descripcion=descripcion,
         prioridad=ticket_data.prioridad,
         sector_id=sector.id,
         tipo_ticket_id=tipo_ticket.id,
         estado_id=estado_inicial.id,
         creador_id=current_user.id,
         campos_metadata=ticket_data.metadata,
+        texto_original=ticket_data.texto,
     )
 
     db.add(nuevo_ticket)
