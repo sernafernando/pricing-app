@@ -460,7 +460,7 @@ export default function TicketCreateModal({ isOpen, onClose, onCreated }) {
 
             {droppedFields && (
               <div className={styles.notice}>
-                Se perdieron estos campos al cambiar de tipo: {droppedFields.join(', ')}
+                Se perdieron estos campos al cambiar sector o tipo: {droppedFields.join(', ')}
               </div>
             )}
 
@@ -532,6 +532,7 @@ export default function TicketCreateModal({ isOpen, onClose, onCreated }) {
             type="button"
             className={styles.btnUpload}
             onClick={() => fileInputRef.current?.click()}
+            disabled={!!createdTicket}
           >
             <ImagePlus size={14} />
             Adjuntar captura
