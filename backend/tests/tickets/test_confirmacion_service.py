@@ -303,6 +303,161 @@ class TestConfirmarServiceErrors:
         assert ticket.severidad is None
 
 
+class _QueryStub:
+    """Minimal fake for the `.filter(...).first()` / `.filter(...).all()`
+    chains this service uses — `.filter(...)` is a no-op, `.first()`/`.all()`
+    return fixed values regardless of what was filtered on."""
+
+    def __init__(self, first=None, all_: list | None = None) -> None:
+        self._first = first
+        self._all = all_ if all_ is not None else ([] if first is None else [first])
+
+    def filter(self, *args, **kwargs) -> "_QueryStub":
+        return self
+
+    def first(self):
+        return self._first
+
+    def all(self) -> list:
+        return self._all
+
+
+def _stub_query_for(db, model, first=None, all_: list | None = None):
+    """Patches `db.query(model)` to return a `_QueryStub`, simulating an ORM
+    result a real INSERT can no longer produce — used both for a proposal's
+    `ticket_id` that doesn't resolve to a real `Ticket` (FK-protected, see
+    `TestConfirmarMissingTicket`) and for a `PropuestaIA.campo` outside the
+    vocabulary this same fix's `ck_tickets_propuestas_ia_campo` CHECK
+    constraint enforces at INSERT time in SQLite too (see
+    `TestConfirmarCampoAllowlist`): the app-level guard in
+    `_aplicar_confirmacion` must still hold even for a state the DB itself
+    now makes unreachable through the ORM directly — e.g. a legacy row
+    written before this migration, or any other bypass path.
+    """
+    original_query = db.query
+    stub = _QueryStub(first=first, all_=all_)
+
+    def fake_query(target, *args, **kwargs):
+        if target is model:
+            return stub
+        return original_query(target, *args, **kwargs)
+
+    return patch.object(db, "query", side_effect=fake_query)
+
+
+def _make_ticket_query_empty(db):
+    """See `_stub_query_for` — no ticket matches, simulating a proposal
+    whose `ticket_id` no longer resolves to a real ticket."""
+    return _stub_query_for(db, Ticket, first=None)
+
+
+def _transient_propuesta(ticket_id: int, campo: str, propuesta_id: int, valor="x") -> PropuestaIA:
+    """A `PropuestaIA` instance that is never `db.add()`-ed or flushed —
+    purely in-memory, so it never touches `ck_tickets_propuestas_ia_campo`.
+    Used together with `_stub_query_for` to exercise the app-level allowlist
+    guard for a `campo` the DB CHECK constraint now forbids ever inserting."""
+    return PropuestaIA(
+        id=propuesta_id,
+        ticket_id=ticket_id,
+        campo=campo,
+        valor_propuesto={"valor": valor},
+        estado="pendiente",
+    )
+
+
+class TestConfirmarCampoAllowlist:
+    """Defect 1 (structural): `PropuestaIA.campo` is a plain VARCHAR with no
+    application-level validation, so an unvalidated `setattr(ticket,
+    propuesta.campo, valor)` is an arbitrary-attribute-write primitive on
+    `Ticket`. `_aplicar_confirmacion` must reject any `campo` outside
+    `confirmacion_service.CAMPOS_CONFIRMABLES` BEFORE writing anything."""
+
+    def test_confirmar_campo_not_in_allowlist_rejected_and_ticket_unmodified(self, db, rol_ventas):
+        ticket = _make_ticket(db, rol_ventas)
+        usuario = _make_usuario(db, rol_ventas)
+        propuesta = _transient_propuesta(ticket.id, campo="creador_id", propuesta_id=900001, valor=999999)
+
+        with _stub_query_for(db, PropuestaIA, first=propuesta):
+            with pytest.raises(confirmacion_service.PropuestaCampoNoPermitidoError):
+                confirmacion_service.confirmar(db, propuesta.id, usuario)
+
+        # An exception raised AFTER a partial write is still a bug — assert
+        # the ticket's actual state, not just that an exception was raised.
+        ticket = _reload(db, ticket)
+        assert ticket.creador_id != 999999
+        assert propuesta.estado == "pendiente"
+
+    def test_confirmar_campo_estado_id_rejected_workflow_engine_bypass_guard(self, db, rol_ventas):
+        """THE regression guard for PR #1072/#1074's workflow-transition
+        engine: a proposal with `campo='estado_id'` must NEVER let
+        `confirmar()` write `ticket.estado_id` directly — that would walk
+        straight around the graph-validated `POST /tickets/{id}/transicion`
+        endpoint with zero validation. If this test goes red, the
+        confirmation service has become an authorization bypass."""
+        ticket = _make_ticket(db, rol_ventas)
+        estado_original_id = ticket.estado_id
+        usuario = _make_usuario(db, rol_ventas)
+        propuesta = _transient_propuesta(ticket.id, campo="estado_id", propuesta_id=900002, valor=999999)
+
+        with _stub_query_for(db, PropuestaIA, first=propuesta):
+            with pytest.raises(confirmacion_service.PropuestaCampoNoPermitidoError):
+                confirmacion_service.confirmar(db, propuesta.id, usuario)
+
+        ticket = _reload(db, ticket)
+        assert ticket.estado_id == estado_original_id
+
+    def test_confirmar_campo_not_allowed_returns_400_over_http(self, client, db, rol_ventas):
+        """HTTP-level regression guard (obs #1350's pattern): proves the
+        rejection reaches the caller as a clean 400, not an unhandled 500
+        from `setattr` on a non-existent/forbidden attribute."""
+        ticket = _make_ticket(db, rol_ventas)
+        usuario = _make_usuario(db, rol_ventas)
+        _give_permiso(db, usuario)
+        propuesta = _transient_propuesta(ticket.id, campo="estado_id", propuesta_id=900003, valor=999999)
+
+        with _stub_query_for(db, PropuestaIA, first=propuesta):
+            resp = client.post(
+                f"/api/tickets/propuestas/{propuesta.id}/confirmar",
+                headers=_headers(usuario),
+            )
+
+        assert resp.status_code == 400
+        ticket = _reload(db, ticket)
+        assert ticket.estado_id != 999999
+
+
+class TestConfirmarMissingTicket:
+    """Defect 2: a missing ticket (FK makes this unlikely, not impossible)
+    must yield a clean 4xx, never an unhandled `setattr(None, ...)` 500."""
+
+    def test_confirmar_missing_ticket_raises_domain_error_and_nothing_written(self, db, rol_ventas):
+        ticket = _make_ticket(db, rol_ventas)
+        usuario = _make_usuario(db, rol_ventas)
+        propuesta = _make_propuesta(db, ticket, campo="severidad", valor="mayor")
+
+        with _make_ticket_query_empty(db):
+            with pytest.raises(confirmacion_service.TicketNoEncontradoError):
+                confirmacion_service.confirmar(db, propuesta.id, usuario)
+
+        db.refresh(propuesta)
+        assert propuesta.estado == "pendiente"
+
+    def test_confirmar_missing_ticket_returns_404_over_http(self, client, db, rol_ventas):
+        ticket = _make_ticket(db, rol_ventas)
+        usuario = _make_usuario(db, rol_ventas)
+        _give_permiso(db, usuario)
+        propuesta = _make_propuesta(db, ticket, campo="severidad", valor="mayor")
+
+        with _make_ticket_query_empty(db):
+            resp = client.post(
+                f"/api/tickets/propuestas/{propuesta.id}/confirmar",
+                headers=_headers(usuario),
+            )
+
+        assert resp.status_code == 404
+        assert resp.status_code != 500
+
+
 class TestConfirmarEndpointPermission:
     """SC: Confirm without permission is rejected (403)."""
 
@@ -530,6 +685,65 @@ class TestConfirmarBatchAtomic:
         assert ticket1_fresh.severidad is None
         p1_fresh = db.query(PropuestaIA).filter(PropuestaIA.id == p1.id).first()
         assert p1_fresh.estado == "pendiente"
+
+    def test_batch_with_disallowed_campo_rejects_whole_batch_atomically(self, db, rol_ventas):
+        """Defect 1 atomicity: one disallowed `campo` (here `estado_id`,
+        the workflow-engine-bypass shape) in an otherwise-valid batch must
+        roll back EVERY write in that batch — no partial writes, not even
+        for the sibling proposal that was itself allowlisted."""
+        ticket1 = _make_ticket(db, rol_ventas)
+        ticket2 = _make_ticket(db, rol_ventas)
+        usuario = _make_usuario(db, rol_ventas)
+        p1 = _make_propuesta(db, ticket1, campo="severidad", valor="mayor")
+        p2 = _transient_propuesta(ticket2.id, campo="estado_id", propuesta_id=900004, valor=999999)
+        db.commit()
+
+        with _stub_query_for(db, PropuestaIA, all_=[p1, p2]):
+            with pytest.raises(confirmacion_service.PropuestaCampoNoPermitidoError):
+                confirmacion_service.confirmar_batch(db, [p1.id, p2.id], usuario)
+
+        ticket1_fresh = db.query(Ticket).filter(Ticket.id == ticket1.id).first()
+        assert ticket1_fresh.severidad is None
+        p1_fresh = db.query(PropuestaIA).filter(PropuestaIA.id == p1.id).first()
+        assert p1_fresh.estado == "pendiente"
+        ticket2_fresh = db.query(Ticket).filter(Ticket.id == ticket2.id).first()
+        assert ticket2_fresh.estado_id == ticket2.estado_id
+
+    def test_batch_missing_ticket_raises_domain_error_and_nothing_written(self, db, rol_ventas):
+        ticket1 = _make_ticket(db, rol_ventas)
+        usuario = _make_usuario(db, rol_ventas)
+        p1 = _make_propuesta(db, ticket1, campo="severidad", valor="mayor")
+        # Commit the arrange phase first (same reason as
+        # `test_batch_partial_write_failure_rolls_back_the_whole_batch`
+        # above): the service's own `db.rollback()` must only undo its
+        # pending work, not this test's fixture data.
+        db.commit()
+
+        with _make_ticket_query_empty(db):
+            with pytest.raises(confirmacion_service.TicketNoEncontradoError):
+                confirmacion_service.confirmar_batch(db, [p1.id], usuario)
+
+        # Post-rollback, `p1` is expired/detached (see the sibling
+        # `test_batch_partial_write_failure_rolls_back_the_whole_batch`
+        # test above) — a fresh query is the only reliable read here.
+        p1_fresh = db.query(PropuestaIA).filter(PropuestaIA.id == p1.id).first()
+        assert p1_fresh.estado == "pendiente"
+
+    def test_batch_missing_ticket_returns_404_over_http(self, client, db, rol_ventas):
+        ticket1 = _make_ticket(db, rol_ventas)
+        usuario = _make_usuario(db, rol_ventas)
+        _give_permiso(db, usuario)
+        p1 = _make_propuesta(db, ticket1, campo="severidad", valor="mayor")
+
+        with _make_ticket_query_empty(db):
+            resp = client.post(
+                "/api/tickets/propuestas/confirmar-batch",
+                json={"propuesta_ids": [p1.id]},
+                headers=_headers(usuario),
+            )
+
+        assert resp.status_code == 404
+        assert resp.status_code != 500
 
 
 TRIAGE_RETRIGGER_ENDPOINT = "/api/tickets/tickets/{id}/triage"

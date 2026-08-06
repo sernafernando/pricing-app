@@ -53,10 +53,50 @@ class PropuestaBatchInvalidaError(Exception):
         super().__init__(f"Propuestas no encontradas o no pendientes: {ids_invalidos}")
 
 
+class PropuestaCampoNoPermitidoError(Exception):
+    """`propuesta.campo` is outside `CAMPOS_CONFIRMABLES`. Without this
+    guard, confirmation is an arbitrary-attribute-write primitive on
+    `Ticket` (any column, e.g. `estado_id`) — enforced at the WRITE POINT
+    in `_aplicar_confirmacion`, not only where proposals are created, so it
+    also covers batch confirms and any future proposal-creation path."""
+
+    def __init__(self, campo: str) -> None:
+        self.campo = campo
+        super().__init__(f"Campo no permitido para confirmación: '{campo}'")
+
+
+class TicketNoEncontradoError(Exception):
+    """The ticket referenced by `propuesta.ticket_id` does not exist. FK
+    constraints make this unlikely, not impossible — without this guard,
+    `_aplicar_confirmacion` would call `setattr(None, ...)`, an unhandled
+    500 instead of a clean 404."""
+
+    def __init__(self, ticket_id: int) -> None:
+        self.ticket_id = ticket_id
+        super().__init__(f"Ticket {ticket_id} no encontrado")
+
+
+# Fields a confirmed AI proposal is allowed to write onto `Ticket`. Kept in
+# sync with `ck_tickets_propuestas_ia_campo` — the Postgres CHECK constraint
+# on `tickets_propuestas_ia.campo` (see `PropuestaIA.__table_args__` and
+# alembic/versions/20260806_campo_check_ia.py) — as a second,
+# independent enforcement layer: the app rejects an out-of-vocabulary campo
+# here, the DB refuses to store one there. A future slice adding a 5th
+# confirmable field MUST update BOTH this set AND that constraint's
+# vocabulary (plus a new migration), or the two layers drift out of sync.
+CAMPOS_CONFIRMABLES = frozenset({"severidad", "urgencia", "titulo", "resumen"})
+
+
 def _aplicar_confirmacion(db: Session, ticket: Ticket, propuesta: PropuestaIA, usuario: Usuario, valor) -> None:
     """Write one proposal's value + provenance + history onto its ticket.
     Shared by `confirmar()`/`confirmar_batch()` — the AUTO-APPLY SEAM: this
-    function only needs a real `Usuario` row, human or service user."""
+    function only needs a real `Usuario` row, human or service user.
+
+    Rejects `propuesta.campo` outside `CAMPOS_CONFIRMABLES` BEFORE any
+    write — see `PropuestaCampoNoPermitidoError`."""
+    if propuesta.campo not in CAMPOS_CONFIRMABLES:
+        raise PropuestaCampoNoPermitidoError(propuesta.campo)
+
     setattr(ticket, propuesta.campo, valor)
     setattr(ticket, f"{propuesta.campo}_origen", "ia_confirmada")
 
@@ -82,6 +122,8 @@ def confirmar(db: Session, propuesta_id: int, usuario: Usuario) -> PropuestaIA:
         raise PropuestaNoPendienteError(propuesta_id, propuesta.estado)
 
     ticket = db.query(Ticket).filter(Ticket.id == propuesta.ticket_id).first()
+    if ticket is None:
+        raise TicketNoEncontradoError(propuesta.ticket_id)
     valor = propuesta.valor_propuesto["valor"]
     _aplicar_confirmacion(db, ticket, propuesta, usuario, valor)
 
@@ -142,6 +184,8 @@ def confirmar_batch(db: Session, propuesta_ids: List[int], usuario: Usuario) -> 
             ticket = tickets_por_id.get(propuesta.ticket_id)
             if ticket is None:
                 ticket = db.query(Ticket).filter(Ticket.id == propuesta.ticket_id).first()
+                if ticket is None:
+                    raise TicketNoEncontradoError(propuesta.ticket_id)
                 tickets_por_id[propuesta.ticket_id] = ticket
             _aplicar_confirmacion(db, ticket, propuesta, usuario, propuesta.valor_propuesto["valor"])
             db.flush()
