@@ -211,6 +211,26 @@ class TestTriagePropuestaValidation:
         assert propuesta.confianza_severidad is None
 
 
+class TestTituloResumenLengthEnforcement:
+    """SCOPE: 'server-side length enforcement rejects an over-long model
+    response rather than truncating silently or writing it through' — the
+    LLM contract caps titulo at 120 chars / resumen at 180 (PR 06)."""
+
+    def test_titulo_over_120_chars_rejected(self) -> None:
+        with pytest.raises(ValidationError):
+            TriagePropuesta(**_valid_payload(titulo="x" * 121))
+
+    def test_resumen_over_180_chars_rejected(self) -> None:
+        with pytest.raises(ValidationError):
+            TriagePropuesta(**_valid_payload(resumen="x" * 181))
+
+    def test_titulo_at_exactly_120_chars_is_valid(self) -> None:
+        """Triangulation: the boundary itself must NOT be rejected — proves
+        the constraint is `max_length=120`, not an off-by-one `<120`."""
+        propuesta = TriagePropuesta(**_valid_payload(titulo="x" * 120))
+        assert len(propuesta.titulo) == 120
+
+
 class TestNormalizeStringNull:
     """Real pre-push review finding: the prompt asks the model to return a
     JSON `null` for an unsure field, but a model can still literally emit
@@ -297,12 +317,66 @@ class TestConfidenceGatePerField:
             asyncio.run(run_triage(ticket.id, provider))
 
         propuestas = db.query(PropuestaIA).filter(PropuestaIA.ticket_id == ticket.id).all()
-        assert {p.campo for p in propuestas} == {"urgencia"}
-        assert propuestas[0].valor_propuesto == {"valor": "alta"}
+        # `_valid_payload()`'s default confianza_global (0.85) still gates
+        # titulo/resumen above threshold, independently of the gated
+        # confianza_severidad here — sibling fields must not affect each
+        # other (PR 06, decision #1371).
+        assert {p.campo for p in propuestas} == {"urgencia", "titulo", "resumen"}
+        urgencia = next(p for p in propuestas if p.campo == "urgencia")
+        assert urgencia.valor_propuesto == {"valor": "alta"}
 
     def test_null_confianza_treated_as_below_threshold(self, db, rol_ventas) -> None:
         ticket = _make_ticket(db, rol_ventas, "gate-null")
         payload = _valid_payload(confianza_severidad=None, confianza_urgencia=None)
+        provider = FakeProvider(response=json.dumps(payload))
+
+        with _patch_background_db(db):
+            asyncio.run(run_triage(ticket.id, provider))
+
+        propuestas = db.query(PropuestaIA).filter(PropuestaIA.ticket_id == ticket.id).all()
+        # severidad/urgencia are gated out by their own null confidences;
+        # titulo/resumen gate independently on confianza_global (0.85,
+        # unaffected by the null siblings) and still write.
+        assert {p.campo for p in propuestas} == {"titulo", "resumen"}
+
+
+class TestTituloResumenConfianzaGlobalGate:
+    """Decision #1371: titulo/resumen have no field-specific confidence in
+    the LLM contract — both gate on `confianza_global`, independently of
+    severidad/urgencia's own per-field confidences."""
+
+    def test_confianza_global_above_threshold_writes_titulo_and_resumen(self, db, rol_ventas) -> None:
+        ticket = _make_ticket(db, rol_ventas, "titulo-gate-high")
+        payload = _valid_payload(confianza_global=0.9)
+        provider = FakeProvider(response=json.dumps(payload))
+
+        with _patch_background_db(db):
+            asyncio.run(run_triage(ticket.id, provider))
+
+        propuestas = {p.campo: p for p in db.query(PropuestaIA).filter(PropuestaIA.ticket_id == ticket.id).all()}
+        assert propuestas["titulo"].valor_propuesto == {"valor": payload["titulo"]}
+        assert propuestas["titulo"].estado == "pendiente"
+        assert propuestas["resumen"].valor_propuesto == {"valor": payload["resumen"]}
+        assert propuestas["resumen"].estado == "pendiente"
+
+    def test_confianza_global_below_threshold_writes_neither(self, db, rol_ventas) -> None:
+        ticket = _make_ticket(db, rol_ventas, "titulo-gate-low")
+        payload = _valid_payload(confianza_global=0.3)
+        provider = FakeProvider(response=json.dumps(payload))
+
+        with _patch_background_db(db):
+            asyncio.run(run_triage(ticket.id, provider))
+
+        campos = {p.campo for p in db.query(PropuestaIA).filter(PropuestaIA.ticket_id == ticket.id).all()}
+        # sibling fields (their own confidences, unaffected) still write:
+        assert campos == {"severidad", "urgencia"}
+
+    def test_run_triage_degrades_to_nothing_when_titulo_too_long(self, db, rol_ventas) -> None:
+        """The over-long titulo fails `TriagePropuesta` parsing entirely
+        (closed schema, all-or-nothing) — the proposal is rejected outright,
+        never truncated and never written through."""
+        ticket = _make_ticket(db, rol_ventas, "titulo-too-long")
+        payload = _valid_payload(titulo="x" * 121)
         provider = FakeProvider(response=json.dumps(payload))
 
         with _patch_background_db(db):
@@ -324,7 +398,7 @@ class TestRunTriageDirectCall:
 
         assert provider.calls == 1
         propuestas = db.query(PropuestaIA).filter(PropuestaIA.ticket_id == ticket.id).all()
-        assert {p.campo for p in propuestas} == {"severidad", "urgencia"}
+        assert {p.campo for p in propuestas} == {"severidad", "urgencia", "titulo", "resumen"}
         for p in propuestas:
             assert p.estado == "pendiente"
             assert p.modelo == provider.model
