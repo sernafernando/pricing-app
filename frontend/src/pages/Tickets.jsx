@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
+import { useSearchParams } from 'react-router-dom';
 
 import { useSSEChannel } from '../hooks/useSSEChannel';
 import { ticketsAPI, sectoresAPI } from '../services/api';
@@ -8,11 +9,27 @@ import {
   RotateCcw,
   ChevronLeft,
   ChevronRight,
+  Table2,
+  Columns3,
+  AlarmClock,
 } from 'lucide-react';
 import SearchInput from '../components/SearchInput';
 import TicketCreateModal from '../components/TicketCreateModal';
 import TicketDetail from '../components/TicketDetail';
+import TicketsBoard from '../components/TicketsBoard';
 import styles from './Tickets.module.css';
+
+// One flat segmented control — Tabla | Tablero por estado | Tablero por
+// urgencia. Deliberately NOT nested (a table/board toggle with a second
+// grouping selector inside): the inner selector only ever had two values,
+// so nesting bought nothing and cost a mode (see design's rationale).
+const VISTAS = ['tabla', 'estado', 'urgencia'];
+const VISTA_STORAGE_KEY = 'tickets:vista';
+const VISTA_OPTIONS = [
+  { value: 'tabla', label: 'Tabla', Icon: Table2 },
+  { value: 'estado', label: 'Tablero por estado', Icon: Columns3 },
+  { value: 'urgencia', label: 'Tablero por urgencia', Icon: AlarmClock },
+];
 
 const PRIORIDADES = [
   { value: '', label: 'Todas' },
@@ -70,6 +87,26 @@ export default function Tickets() {
   // Detail & create modal
   const [selectedTicketId, setSelectedTicketId] = useState(null);
   const [createModalOpen, setCreateModalOpen] = useState(false);
+
+  // View state — URL (?vista=) is the source of truth, linkable and
+  // reload-safe; localStorage is only the fresh-visit fallback default.
+  const [searchParams, setSearchParams] = useSearchParams();
+  const vistaParam = searchParams.get('vista');
+  const vistaGuardada = localStorage.getItem(VISTA_STORAGE_KEY);
+  const vista = VISTAS.includes(vistaParam)
+    ? vistaParam
+    : VISTAS.includes(vistaGuardada)
+      ? vistaGuardada
+      : 'tabla';
+
+  const handleVistaChange = (nuevaVista) => {
+    localStorage.setItem(VISTA_STORAGE_KEY, nuevaVista);
+    setSearchParams((prev) => {
+      const next = new URLSearchParams(prev);
+      next.set('vista', nuevaVista);
+      return next;
+    });
+  };
 
   // Debounce search
   useEffect(() => {
@@ -171,6 +208,24 @@ export default function Tickets() {
           <span className={styles.badge}>{total}</span>
         </div>
         <div className={styles.headerActions}>
+          <div className={styles.viewSwitch} role="tablist">
+            {VISTA_OPTIONS.map((opt) => {
+              const Icon = opt.Icon;
+              return (
+                <button
+                  key={opt.value}
+                  type="button"
+                  role="tab"
+                  aria-selected={vista === opt.value}
+                  className={`${styles.viewSwitchBtn} ${vista === opt.value ? styles.viewSwitchBtnActive : ''}`}
+                  onClick={() => handleVistaChange(opt.value)}
+                >
+                  <Icon size={14} />
+                  {opt.label}
+                </button>
+              );
+            })}
+          </div>
           {puedeCrear && (
             <button
               className={styles.btnCreate}
@@ -183,7 +238,9 @@ export default function Tickets() {
         </div>
       </div>
 
-      {/* Filters */}
+      {/* Filters — table view only; the board endpoint has no matching
+          filter params (agrupacion + items_por_columna only). */}
+      {vista === 'tabla' && (
       <div className={styles.filters}>
         <SearchInput
           value={search}
@@ -233,10 +290,15 @@ export default function Tickets() {
           <RotateCcw size={16} />
         </button>
       </div>
+      )}
 
       {/* Layout: list + detail */}
       <div className={styles.layout}>
         <div className={styles.listPanel}>
+          {vista !== 'tabla' ? (
+            <TicketsBoard agrupacion={vista} onCardClick={handleRowClick} />
+          ) : (
+            <>
           {/* Table */}
           <div className={styles.tableWrapper}>
             <table className={styles.table}>
@@ -332,6 +394,8 @@ export default function Tickets() {
                 <ChevronRight size={16} />
               </button>
             </div>
+          )}
+            </>
           )}
         </div>
 

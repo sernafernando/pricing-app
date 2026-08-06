@@ -1,0 +1,72 @@
+.board {
+  display: flex;
+  gap: var(--spacing-md);
+  overflow-x: auto;
+  padding-bottom: var(--spacing-sm);
+}
+
+.column {
+  flex: 0 0 280px;
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-sm);
+  background: var(--cf-bg-app);
+  border: 1px solid var(--cf-border-default);
+  border-radius: var(--radius-lg);
+  padding: var(--spacing-sm);
+  max-height: calc(100vh - 260px);
+}
+
+.columnHeader {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-xs);
+  padding: 0 var(--spacing-xs);
+}
+
+.columnDot {
+  width: 8px;
+  height: 8px;
+  border-radius: var(--radius-full);
+  flex-shrink: 0;
+}
+
+.columnTitle {
+  flex: 1;
+  font-size: var(--font-sm);
+  font-weight: 600;
+  color: var(--cf-text-primary);
+}
+
+.columnCount {
+  font-size: var(--font-xs);
+  font-weight: 600;
+  color: var(--cf-text-secondary);
+  background: var(--cf-bg-hover);
+  padding: 1px 8px;
+  border-radius: var(--radius-full);
+}
+
+.columnItems {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-xs);
+  overflow-y: auto;
+}
+
+.btnLoadMore {
+  composes: btn-tesla secondary sm from '../styles/buttons-tesla.css';
+  align-self: stretch;
+  justify-content: center;
+}
+
+.loading,
+.error {
+  padding: var(--spacing-lg);
+  text-align: center;
+  color: var(--cf-text-secondary);
+}
+
+.error {
+  color: var(--cf-accent-red);
+}

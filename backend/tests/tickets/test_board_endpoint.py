@@ -308,6 +308,76 @@ class TestBoardUnknownOrderByRejected:
         assert severidades == ["Ticket critica", "Ticket mayor", "Ticket menor", "Ticket trivial"]
 
 
+class TestListTicketsUrgenciaFilter:
+    """`GET /tickets`'s `urgencia` filter — added in PR 5b so the board's
+    "load more" (which reuses this endpoint, per design's single-pagination
+    rule) can request a matching filter for an urgencia-grouped column."""
+
+    def test_filters_to_matching_urgencia_only(self, client, db):
+        sector, workflow, estados, tipo, creador = _make_workflow(db, n_estados=1)
+        admin = _make_admin(db)
+        _make_ticket(db, sector, tipo, estados[0], creador, urgencia="alta", titulo="Alta 1")
+        _make_ticket(db, sector, tipo, estados[0], creador, urgencia="alta", titulo="Alta 2")
+        _make_ticket(db, sector, tipo, estados[0], creador, urgencia="baja", titulo="Baja 1")
+        db.commit()
+
+        resp = client.get("/api/tickets/tickets", params={"urgencia": "alta"}, headers=_headers(admin))
+
+        assert resp.status_code == 200
+        titulos = {item["titulo"] for item in resp.json()["items"]}
+        assert titulos == {"Alta 1", "Alta 2"}
+
+    def test_sin_clasificar_matches_null_urgencia(self, client, db):
+        sector, workflow, estados, tipo, creador = _make_workflow(db, n_estados=1)
+        admin = _make_admin(db)
+        _make_ticket(db, sector, tipo, estados[0], creador, urgencia=None, titulo="Sin urgencia")
+        _make_ticket(db, sector, tipo, estados[0], creador, urgencia="baja", titulo="Con urgencia")
+        db.commit()
+
+        resp = client.get("/api/tickets/tickets", params={"urgencia": "sin_clasificar"}, headers=_headers(admin))
+
+        assert resp.status_code == 200
+        titulos = [item["titulo"] for item in resp.json()["items"]]
+        assert titulos == ["Sin urgencia"]
+
+    def test_unknown_urgencia_value_returns_422_not_500(self, client, db):
+        admin = _make_admin(db)
+
+        resp = client.get(
+            "/api/tickets/tickets", params={"urgencia": "'; DROP TABLE tickets;--"}, headers=_headers(admin)
+        )
+
+        assert resp.status_code == 422
+
+
+class TestTicketListResponseCarriesTriageFields:
+    """`TicketListResponse` (GET /tickets) — gap found in PR 5b: TicketCard
+    needs severidad/urgencia/resumen/provenance to render the same for a
+    "load more" item as it does for a board item, and these were only ever
+    serialized on `TicketResponse` (single-ticket detail, PR 4c)."""
+
+    def test_severity_urgency_provenance_and_resumen_are_serialized(self, client, db):
+        sector, workflow, estados, tipo, creador = _make_workflow(db, n_estados=1)
+        admin = _make_admin(db)
+        ticket = _make_ticket(
+            db, sector, tipo, estados[0], creador, urgencia="alta", severidad="critica", titulo="Falla facturación"
+        )
+        ticket.severidad_origen = "ia_confirmada"
+        ticket.urgencia_origen = "humano"
+        ticket.resumen = "No puede facturar"
+        db.commit()
+
+        resp = client.get("/api/tickets/tickets", headers=_headers(admin))
+
+        assert resp.status_code == 200
+        item = next(i for i in resp.json()["items"] if i["id"] == ticket.id)
+        assert item["severidad"] == "critica"
+        assert item["urgencia"] == "alta"
+        assert item["severidad_origen"] == "ia_confirmada"
+        assert item["urgencia_origen"] == "humano"
+        assert item["resumen"] == "No puede facturar"
+
+
 class TestBoardQueryCount:
     def test_exactly_two_tickets_table_queries_regardless_of_column_count(self, client, db, query_counter):
         sector, workflow, estados, tipo, creador = _make_workflow(db, n_estados=5)
