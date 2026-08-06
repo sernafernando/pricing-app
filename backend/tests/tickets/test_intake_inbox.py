@@ -140,6 +140,10 @@ class TestMinimalTextoCreatesTicketWithInboxDefaults:
         assert body["titulo"] == "No puedo facturar desde ayer"
         assert body["estado"]["id"] == estado_inicial.id
         assert body["estado"]["codigo"] == "nuevo"
+        # texto_original isn't in any response schema yet — without this,
+        # a long texto (titulo truncated, no explicit descripcion) would be
+        # invisible after creation. descripcion is the visible copy.
+        assert body["descripcion"] == "No puedo facturar desde ayer"
 
     def test_derives_titulo_from_first_80_chars_of_long_texto(self, client, db, rol_ventas):
         user = _make_user(db, rol_ventas)
@@ -206,6 +210,25 @@ class TestExplicitSectorAndTipoStillHonored:
         body = resp.json()
         assert body["sector"]["codigo"] == "OTRO_SECT"
         assert body["tipo_ticket"]["codigo"] == "consulta"
+
+    def test_explicit_sector_without_tipo_gets_honest_422_not_inbox_lookup(self, client, db, rol_ventas):
+        """SC (review finding): explicit sector_id for a non-Inbox sector
+        without tipo_ticket_id must NOT silently search that sector for a
+        SIN_CLASIFICAR tipo it was never seeded with — the resulting "not
+        configured" message would be misleading (it IS configured, just in
+        Inbox). Must say what's actually missing: tipo_ticket_id."""
+        user = _make_user(db, rol_ventas)
+        _seed_inbox(db)
+        otro_sector, _, _ = _make_other_sector(db)
+
+        resp = client.post(
+            TICKETS_ENDPOINT,
+            json={"texto": "Consulta comercial", "sector_id": otro_sector.id},
+            headers=_headers(user),
+        )
+
+        assert resp.status_code == 422
+        assert "tipo_ticket_id" in resp.json()["error"]["message"]
 
 
 class TestTextoOriginalImmutableAfterCreation:

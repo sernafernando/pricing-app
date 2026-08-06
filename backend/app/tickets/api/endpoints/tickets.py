@@ -396,7 +396,9 @@ async def crear_ticket(
                 status_code=404,
                 detail=f"Tipo de ticket {ticket_data.tipo_ticket_id} no encontrado para sector {sector.codigo}",
             )
-    else:
+    elif ticket_data.sector_id is None:
+        # True single-box path: neither sector_id nor tipo_ticket_id was
+        # sent, so fall back to the seeded Inbox tipo.
         tipo_ticket = (
             db.query(TipoTicket)
             .filter(TipoTicket.codigo == INBOX_TIPO_CODIGO, TipoTicket.sector_id == sector.id)
@@ -404,6 +406,15 @@ async def crear_ticket(
         )
         if not tipo_ticket:
             raise HTTPException(status_code=400, detail="No hay tipo de ticket 'Sin clasificar' configurado")
+    else:
+        # An explicit sector_id was sent for a non-Inbox sector, but
+        # tipo_ticket_id was not — the SIN_CLASIFICAR fallback only exists
+        # inside the Inbox sector, so silently searching for it here would
+        # produce a misleading "not configured" error. Say what's missing.
+        raise HTTPException(
+            status_code=422,
+            detail=f"tipo_ticket_id es requerido al especificar sector_id (sector {sector.codigo})",
+        )
 
     # Obtener workflow (del tipo o default del sector)
     workflow = tipo_ticket.workflow if tipo_ticket.workflow_id else None
@@ -429,9 +440,17 @@ async def crear_ticket(
     # (el validador de TicketCreate garantiza que al menos uno esté presente).
     titulo = ticket_data.titulo or _derivar_titulo(ticket_data.texto)
 
+    # texto_original stores the verbatim receipt, but nothing renders that
+    # column in the UI yet — without this fallback, a long single-box texto
+    # (titulo truncated to ~80 chars, descripcion empty) would be
+    # effectively invisible to the user after creation. descripcion stays
+    # editable afterwards (unlike texto_original); an explicit descripcion
+    # always wins.
+    descripcion = ticket_data.descripcion or ticket_data.texto
+
     nuevo_ticket = Ticket(
         titulo=titulo,
-        descripcion=ticket_data.descripcion,
+        descripcion=descripcion,
         prioridad=ticket_data.prioridad,
         sector_id=sector.id,
         tipo_ticket_id=tipo_ticket.id,
