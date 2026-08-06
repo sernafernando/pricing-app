@@ -677,6 +677,14 @@ export const propuestasAPI = {
     api.post('/tickets/propuestas/confirmar-batch', { propuesta_ids: propuestaIds }),
 };
 
+// ── Tablero (tickets-ai-triage PR 5b) ────────────────────────
+export const boardAPI = {
+  obtener: (agrupacion, itemsPorColumna) =>
+    api.get('/tickets/tickets/board', {
+      params: { agrupacion, items_por_columna: itemsPorColumna },
+    }),
+};
+
 export const workflowsAPI = {
   obtener: (id) => api.get(`/tickets/workflows/${id}`),
   crear: (data) => api.post('/tickets/workflows', data),
