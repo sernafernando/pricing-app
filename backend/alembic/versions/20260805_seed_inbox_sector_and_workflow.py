@@ -45,6 +45,15 @@ ESTADO_FINAL_CODIGO = "cerrado"
 def upgrade() -> None:
     bind = op.get_bind()
 
+    # Idempotency guard: a retried/partial migration run (or a pre-existing
+    # sector with this codigo) must not crash on a unique-violation — if the
+    # Inbox sector is already there, assume this migration already ran.
+    existing = bind.execute(
+        sa.text("SELECT id FROM tickets_sectores WHERE codigo = :codigo"), {"codigo": SECTOR_CODIGO}
+    ).scalar_one_or_none()
+    if existing is not None:
+        return
+
     sectores = sa.table(
         "tickets_sectores",
         sa.column("id", sa.Integer),
