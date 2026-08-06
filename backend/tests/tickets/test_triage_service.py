@@ -325,6 +325,43 @@ class TestRunTriageDirectCall:
             assert p.modelo == provider.model
 
 
+class TestSessionNotHeldAcrossNetworkCall:
+    """Real pre-push review finding (CRITICAL, matches the 2026-06-24 pool
+    exhaustion incident fixed by PR #811): the DB session must NEVER be
+    held open across `await provider.complete()` — a burst of ticket
+    creations holding a pool connection idle for ~45s each would exhaust
+    the connection pool for the whole application, not just triage.
+    Proven structurally: the read session opens and CLOSES BEFORE the
+    network call, and a fresh session opens only AFTER it returns."""
+
+    def test_session_closes_before_network_call_and_reopens_after(self, db, rol_ventas) -> None:
+        ticket = _make_ticket(db, rol_ventas, "pool")
+        events: list[str] = []
+
+        class _TrackingCtx(_FakeBackgroundDb):
+            def __enter__(self):
+                events.append("enter")
+                return super().__enter__()
+
+            def __exit__(self, exc_type, exc, tb):
+                events.append("exit")
+                return super().__exit__(exc_type, exc, tb)
+
+        provider = FakeProvider(response=json.dumps(_valid_payload()))
+        real_complete = provider.complete
+
+        async def _tracked_complete(system_prompt: str, user_payload: str) -> str:
+            events.append("network_call")
+            return await real_complete(system_prompt, user_payload)
+
+        provider.complete = _tracked_complete
+
+        with patch("app.tickets.services.triage_service.get_background_db", return_value=_TrackingCtx(db)):
+            asyncio.run(run_triage(ticket.id, provider))
+
+        assert events == ["enter", "exit", "network_call", "enter", "exit"]
+
+
 class TestDegradationNotConfigured:
     """4a.9: unset key -> `is_configured()` False -> skipped, logged, zero
     network calls, ticket stays fully usable."""

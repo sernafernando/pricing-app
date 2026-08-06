@@ -204,8 +204,19 @@ async def run_triage(ticket_id: int, provider: LlmProvider) -> None:
     """Background triage for one ticket. Scheduled via
     `background_tasks.add_task(run_triage, ticket_id, provider)` from
     `crear_ticket`, AFTER its own request-scoped `db` session has committed
-    and closed — so this function opens its OWN session via
+    and closed — so this function opens its OWN session(s) via
     `get_background_db()` rather than accepting one as a parameter.
+
+    CRITICAL (real pre-push review finding, matches the 2026-06-24 pool
+    exhaustion incident fixed by PR #811): the DB session is NEVER held
+    open across the `await provider.complete()` call. `OpenAICompatProvider`
+    can take up to ~45s per attempt including retries (`llm_provider.py`
+    `_DEFAULT_TIMEOUT_SECONDS`/`_MAX_RETRIES`) — holding a pool connection
+    idle for that long during a burst of ticket creations would exhaust the
+    connection pool for the entire application, not just triage. This
+    function therefore uses TWO short-lived sessions: one to read the
+    ticket and build the payload, the network call with no session open,
+    and a second one to gate + write proposals.
 
     Every failure mode degrades to "ticket stays unclassified", never to a
     raised exception reaching the background-task runner (spec:
@@ -221,6 +232,9 @@ async def run_triage(ticket_id: int, provider: LlmProvider) -> None:
             logger.warning("tickets triage: ticket #%s has no texto_original to triage", ticket_id)
             return
 
+        # Resolve lazy-loaded relationships HERE, inside the short session
+        # — the payload dict below only holds plain scalars, safe to use
+        # after this `with` block closes the connection.
         user_payload = json.dumps(
             {
                 "texto": ticket.texto_original,
@@ -229,25 +243,25 @@ async def run_triage(ticket_id: int, provider: LlmProvider) -> None:
             }
         )
 
-        try:
-            raw = await provider.complete(TICKETS_TRIAGE_SYSTEM_PROMPT, user_payload)
-            propuesta = TriagePropuesta.model_validate_json(raw)
-        except Exception:
-            # Broad by design: network/timeout (LlmProviderError), malformed
-            # JSON, or a schema mismatch all degrade the same way — no
-            # retry is scheduled (the provider already retries 5xx/timeouts
-            # internally, obs #1299).
-            logger.warning("tickets triage: failed for ticket #%s", ticket_id, exc_info=True)
-            return
+    try:
+        raw = await provider.complete(TICKETS_TRIAGE_SYSTEM_PROMPT, user_payload)
+        propuesta = TriagePropuesta.model_validate_json(raw)
+    except Exception:
+        # Broad by design: network/timeout (LlmProviderError), malformed
+        # JSON, or a schema mismatch all degrade the same way — no retry is
+        # scheduled (the provider already retries 5xx/timeouts internally,
+        # obs #1299).
+        logger.warning("tickets triage: failed for ticket #%s", ticket_id, exc_info=True)
+        return
 
-        # str(), not the raw UUID object: the generic `Uuid` bind processor
-        # parses a string back into a `uuid.UUID` under real Postgres, and a
-        # bare string binds cleanly under SQLite's test-only String(36)
-        # remap (`conftest.py::_PG_TYPE_MAP`) — a raw `uuid.UUID` object
-        # does not.
-        run_id = str(uuid.uuid4())
-        modelo = getattr(provider, "model", None)
+    # str(), not the raw UUID object: the generic `Uuid` bind processor
+    # parses a string back into a `uuid.UUID` under real Postgres, and a
+    # bare string binds cleanly under SQLite's test-only String(36) remap
+    # (`conftest.py::_PG_TYPE_MAP`) — a raw `uuid.UUID` object does not.
+    run_id = str(uuid.uuid4())
+    modelo = getattr(provider, "model", None)
 
+    with get_background_db() as db:
         for campo, valor, confianza in (
             ("severidad", propuesta.severidad, propuesta.confianza_severidad),
             ("urgencia", propuesta.urgencia, propuesta.confianza_urgencia),
