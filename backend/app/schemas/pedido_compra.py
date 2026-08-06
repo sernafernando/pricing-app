@@ -146,6 +146,16 @@ class PedidoCompraResponse(PedidoCompraBase):
     pagado_en: datetime | None = None
     op_cuenta_corriente_id: int | None = None
 
+    # compras-recepcion-visibilidad-items — composición de ítems de la OC vinculada.
+    # Los popula `listar_pedidos` vía `pedidos_service.calcular_oc_totales_batch`
+    # (1 query agregada sin importar N). None = el pedido NO tiene OC vinculada
+    # (o la OC no tiene líneas en el ERP) → "no aplica", que NO es lo mismo que 0.
+    # En el resto de los endpoints quedan None: nadie más los calcula.
+    oc_lineas_total: int | None = None
+    # Suma de `pod_qty` (Numeric(18,6) en el ERP). Decimal, NO int: truncar acá
+    # haría que la API mienta sobre el dato de origen. El front formatea.
+    oc_unidades_total: Decimal | None = None
+
     @model_validator(mode="after")
     def _compute_tipo_cambio_es_manual(self) -> "PedidoCompraResponse":
         self.tipo_cambio_es_manual = self.tipo_cambio_manual is not None
