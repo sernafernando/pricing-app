@@ -282,13 +282,13 @@ function PxqTierAuthoring({ itemId, mirrorTiers, onChanged }) {
 function syncOutcomeMessage(httpStatus, detail) {
   const backendStatus = detail && typeof detail === 'object' ? detail.status : undefined;
   if (httpStatus === 403) {
-    return { kind: 'error', text: 'No tenés permiso para sincronizar con MercadoLibre.' };
+    return { kind: 'error', text: 'No tenés permiso para actualizar precios en MercadoLibre.' };
   }
   switch (backendStatus) {
     case 'disabled':
       return {
         kind: 'error',
-        text: 'La sincronización con MercadoLibre está deshabilitada temporalmente (función apagada, no un problema de permisos).',
+        text: 'La actualización de precios en MercadoLibre está deshabilitada temporalmente (función apagada, no un problema de permisos).',
       };
     case 'rejected_not_eligible':
       return {
@@ -314,10 +314,10 @@ function syncOutcomeMessage(httpStatus, detail) {
     case 'ambiguous_needs_reconcile':
       return {
         kind: 'warn',
-        text: 'No se pudo confirmar el resultado de la sincronización: MercadoLibre puede o no haber aplicado el cambio. Volvé a leer el estado en vivo antes de reintentar.',
+        text: 'No se pudo confirmar el resultado de la actualización: MercadoLibre puede o no haber aplicado los precios nuevos. Volvé a leer el estado en vivo antes de reintentar.',
       };
     default:
-      return { kind: 'error', text: 'No se pudo sincronizar con MercadoLibre.' };
+      return { kind: 'error', text: 'No se pudieron actualizar los precios en MercadoLibre.' };
   }
 }
 
@@ -350,25 +350,31 @@ function emptyMirrorRefusal(liveTiers, liveUnavailable) {
     // red tone belonged to the version of this message that had none.
     return {
       kind: 'warn',
-      text: 'MercadoLibre tiene tramos mayoristas que no están en el mirror local. La sincronización no los va a modificar: si los querés en el mirror, importalos con "Importar de MercadoLibre", acá arriba.',
+      text: 'MercadoLibre tiene tramos mayoristas que no están en el mirror local. Actualizar precios no los trae acá: si los querés en el mirror, importalos con "Importar de MercadoLibre", acá arriba.',
     };
   }
   return {
     kind: 'ok',
-    text: 'No hay nada para sincronizar: ni el mirror local ni MercadoLibre tienen tramos mayoristas.',
+    text: 'No hay precios para actualizar: ni el mirror local ni MercadoLibre tienen tramos mayoristas.',
   };
 }
 
 /**
- * Sync action + full outcome handling (PR 4d). Every non-200 `status` the
- * backend can return gets rendered distinctly — see `syncOutcomeMessage` —
+ * Price-update action + full outcome handling (PR 4d). Every non-200 `status`
+ * the backend can return gets rendered distinctly — see `syncOutcomeMessage` —
  * plus a dedicated divergence banner (409).
  *
  * This control pushes the local mirror to ML and can never clear the live
  * array: with an empty mirror it refuses and explains why (see
  * `emptyMirrorRefusal`) instead of offering a wipe. It therefore needs the
- * live state, not just the mirror — deciding on the mirror alone is what made
- * "sincronizar" delete live tiers.
+ * live state, not just the mirror — deciding on the mirror alone is what let
+ * this action delete live tiers back when it was still labelled "sincronizar".
+ *
+ * That label is gone from the UI on purpose. The write is one-way, local -> ML;
+ * "sincronizar" promised reconciliation, so the operator believed he was
+ * looking when he was in fact writing. The button now names the write:
+ * "Actualizar precios en MercadoLibre". The identifiers below still say `sync`
+ * because they track the backend endpoint, which is unchanged.
  */
 function PxqSyncControl({ itemId, hasTiers, liveTiers, liveUnavailable, onSynced }) {
   const [syncing, setSyncing] = useState(false);
@@ -381,7 +387,7 @@ function PxqSyncControl({ itemId, hasTiers, liveTiers, liveUnavailable, onSynced
     setDivergences(null);
     try {
       await pxqAPI.sync(itemId);
-      setFeedback({ kind: 'ok', text: 'Sincronizado con MercadoLibre.' });
+      setFeedback({ kind: 'ok', text: 'Precios actualizados en MercadoLibre.' });
       await onSynced();
     } catch (err) {
       const httpStatus = err?.response?.status;
@@ -390,7 +396,7 @@ function PxqSyncControl({ itemId, hasTiers, liveTiers, liveUnavailable, onSynced
         setDivergences(detail.divergences);
         setFeedback({
           kind: 'error',
-          text: 'MercadoLibre y el mirror local no coinciden. Resolvé las diferencias editando los tramos y volvé a sincronizar.',
+          text: 'MercadoLibre y el mirror local no coinciden. Resolvé las diferencias editando los tramos y volvé a actualizar los precios.',
         });
       } else {
         setFeedback(syncOutcomeMessage(httpStatus, detail));
@@ -415,12 +421,12 @@ function PxqSyncControl({ itemId, hasTiers, liveTiers, liveUnavailable, onSynced
   return (
     <div className={styles.pxqAuthoring}>
       <button type="button" className="btn-tesla primary sm" disabled={syncing} onClick={handleSyncClick}>
-        Sincronizar con MercadoLibre
+        Actualizar precios en MercadoLibre
       </button>
       {feedback && <div className={feedbackClass}>{feedback.text}</div>}
       {divergences && (
         <div className={styles.pxqDivergenceBanner}>
-          <div className={styles.pxqColumnTitle}>Diferencias que impiden la sincronización</div>
+          <div className={styles.pxqColumnTitle}>Diferencias que impiden actualizar los precios</div>
           {divergences.map((d, idx) => (
             <div key={d.ml_price_id ?? idx} className={styles.pxqDivergenceItem}>
               <span>{d.reason}</span>
@@ -490,14 +496,17 @@ function adoptOutcomeMessage(httpStatus, detail) {
  * carries a dozen sync outcomes plus the divergence banner, and these two verbs
  * point in opposite directions — one pushes to ML, this one only ever reads it.
  *
- * Labelled "Importar de MercadoLibre", never "sincronizar". The comment above
- * `pxqAPI.sync` states that principle for the destructive verb and it holds
- * just as hard for this one: a control is named for what it does.
+ * Labelled "Importar de MercadoLibre", never "sincronizar" — a word this panel
+ * no longer uses for either direction, because it promised reconciliation and
+ * delivered a one-way write. The push control names its own direction too now
+ * ("Actualizar precios en MercadoLibre"); the principle is the same one the
+ * comment above `pxqAPI.sync` states for the destructive argument: a control is
+ * named for what it does.
  *
  * What this does NOT do: recover a publication whose live tiers were already
  * deleted on ML. There is nothing there to import. What it repairs is the
  * publication that still HAS live tiers against an empty mirror — a state whose
- * only offered action used to be a sync that could merely destroy them.
+ * only offered action used to be a push that could merely destroy them.
  *
  * `feedback` is CONTROLLED by the panel rather than held here, and that is not
  * a style preference. A successful import makes the mirror non-empty, and the
@@ -533,12 +542,12 @@ function PxqAdoptControl({ itemId, canImport, feedback, onFeedback, onAdopted })
         // `costo_envio_total` NULL and `estado` reading `incompleto`; write
         // eligibility is decided by the cost alone (`pxq_confirm.is_priceable`)
         // and nothing in the backend ever writes `ESTADO_LISTO`. A tier that
-        // silently cannot be synced back is a trap, so the copy says so.
+        // silently cannot be written back to ML is a trap, so the copy says so.
         onFeedback({
           kind: 'ok',
           text:
             `${count === 1 ? 'Se importó 1 tramo' : `Se importaron ${count} tramos`} desde MercadoLibre. ` +
-            'Todavía no los podés sincronizar: cargá el costo de envío del bulto en cada uno.',
+            'Todavía no podés actualizar precios con ellos: cargá el costo de envío del bulto en cada uno.',
         });
       }
       await onAdopted();
@@ -574,6 +583,35 @@ function PxqAdoptControl({ itemId, canImport, feedback, onFeedback, onAdopted })
 function formatMoney(value) {
   if (value === null || value === undefined) return 'N/A';
   return `$${Number(value).toLocaleString('es-AR')}`;
+}
+
+// `estado` is a PERSISTED DOMAIN VALUE, not UI copy: the four members of
+// `ESTADOS_VALIDOS` are pinned by the CHECK constraint
+// `ck_ml_pxq_tier_estado_valido` (see `backend/app/models/ml_pxq_tier.py`). The
+// panel PRESENTS it instead of echoing it. Rendering the bare enum put an
+// untranslated lowercase identifier in front of the operator, and `sincronizado`
+// was the LAST place the retired verb still reached him after the write button
+// stopped calling itself a sync — a row claiming to be "sincronizado" re-tells
+// the exact story ("both sides agree / it was reconciled") that cost four
+// publications. Renaming the value itself would need a migration and buy him
+// nothing, so the translation lives here.
+//
+// A `Map`, not an object literal: a bare `{}` resolves inherited keys, so an
+// `estado` of "constructor" or "toString" would hand a FUNCTION to the fallback
+// below and crash the render. `Map.get` only sees what was put in it.
+const ESTADO_LABELS = new Map([
+  ['incompleto', 'Incompleto'],
+  ['listo', 'Listo'],
+  ['sincronizado', 'Actualizado en MercadoLibre'],
+  ['desconocido', 'Desconocido'],
+]);
+
+// Unmapped values fall through to the RAW value deliberately — never blank,
+// never a throw. The backend can add a fifth `estado` before this map learns
+// about it, and an empty cell would hide the tier's real state; an ugly one at
+// least stays honest and is visibly wrong enough to get reported.
+function formatEstado(estado) {
+  return ESTADO_LABELS.get(estado) ?? estado;
 }
 
 /**
@@ -703,7 +741,7 @@ function PxqPanel({ itemId, pxqCacheRef }) {
                 >
                   <span>{tier.cantidad_minima} u.</span>
                   <span>{formatMoney(tier.precio_unitario)}</span>
-                  <span>{tier.estado}</span>
+                  <span>{formatEstado(tier.estado)}</span>
                   {divergent && <span>Diverge de ML</span>}
                 </div>
               );

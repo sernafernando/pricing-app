@@ -405,3 +405,83 @@ describe('PxQ authoring form — dark mode', () => {
     probe.remove();
   });
 });
+
+/**
+ * The presented `estado` label, measured.
+ *
+ * `sincronizado` is rendered as "Actualizado en MercadoLibre" — a 27-character
+ * string in a row that also carries a quantity and a price. jsdom does no
+ * layout, so the unit suite can prove the TEXT is right and nothing about
+ * whether it FITS. That question is settled here, in Chromium, or not at all.
+ *
+ * `LIVE_PAYLOAD`'s mirror tier is `sincronizado`, so the panel these tests
+ * already mount carries the longest of the four labels by default.
+ */
+describe('PxQ mirror row — the presented estado label fits its column', () => {
+  /** The mirror is the second child of `.pxqColumns`; live is the first. */
+  const mirrorColumn = (container) => container.querySelector('[class*="pxqColumns"]').children[1];
+  const estadoSpan = (container) =>
+    [...mirrorColumn(container).querySelector('[class*="pxqTierRow"]').querySelectorAll('span')][2];
+
+  it('renders the label, not the raw enum', async () => {
+    const container = await renderPanel();
+    const estado = estadoSpan(container);
+
+    expect(estado.textContent).toBe('Actualizado en MercadoLibre');
+    expect(mirrorColumn(container).textContent).not.toMatch(/sincronizado/i);
+  });
+
+  it('stays on one line at an ordinary column width, without overflowing or clipping', async () => {
+    const container = await renderPanel();
+    // 640px of container puts the mirror column at ~308px — the two columns
+    // still sit side by side, which is the layout an operator normally sees.
+    container.style.width = '640px';
+
+    const column = mirrorColumn(container);
+    const row = column.querySelector('[class*="pxqTierRow"]');
+    const estado = estadoSpan(container);
+    const quantity = [...row.querySelectorAll('span')][0];
+
+    // One line == no taller than the sibling that can only ever be one line.
+    expect(estado.getBoundingClientRect().height).toBe(quantity.getBoundingClientRect().height);
+    // Not paid for with clipped text…
+    expect(estado.scrollWidth).toBeLessThanOrEqual(estado.clientWidth + 1);
+    // …nor with a row that spills past the column it belongs to.
+    expect(row.getBoundingClientRect().right).toBeLessThanOrEqual(column.getBoundingClientRect().right + 1);
+  });
+
+  /**
+   * The narrowest the column is DESIGNED to get: `.pxqColumn` is
+   * `flex: 1 1 220px; min-width: 200px`, and `.pxqColumns` wraps, so below
+   * roughly 440px the columns stack and each takes the full width down to that
+   * 200px floor. The label needs ~168px on its own and the whole row ~235px, so
+   * at the floor it cannot stay on one line.
+   *
+   * Wrapping is the ACCEPTED outcome, and this test pins that choice: the row
+   * has `align-items: center` and no fixed height, so it grows to two lines and
+   * stays fully readable. What would not be acceptable — and is what this test
+   * actually guards — is the label escaping its column or being cut off.
+   */
+  it('wraps rather than overflowing or truncating when the column hits its floor', async () => {
+    const container = await renderPanel();
+
+    // Its OWN one-line height, measured while it still has room. Not the
+    // sibling quantity span: at the floor the flex row squeezes every item, so
+    // "5 u." wraps at its space too and both spans come back the same height.
+    container.style.width = '640px';
+    const singleLine = estadoSpan(container).getBoundingClientRect().height;
+
+    container.style.width = '210px';
+    const column = mirrorColumn(container);
+    const row = column.querySelector('[class*="pxqTierRow"]');
+    const estado = estadoSpan(container);
+
+    // It does wrap here — stated, not merely tolerated, so that a future CSS
+    // change making it fit on one line is a deliberate edit and not a silent
+    // drift past an assertion that never looked.
+    expect(estado.getBoundingClientRect().height).toBeGreaterThan(singleLine);
+    // The two things that must NOT happen.
+    expect(estado.scrollWidth).toBeLessThanOrEqual(estado.clientWidth + 1);
+    expect(row.getBoundingClientRect().right).toBeLessThanOrEqual(column.getBoundingClientRect().right + 1);
+  });
+});
