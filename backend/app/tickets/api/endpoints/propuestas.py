@@ -33,6 +33,40 @@ def _check_permiso(db: Session, user: Usuario, permiso: str) -> None:
         raise HTTPException(status_code=403, detail=f"Sin permiso: {permiso}")
 
 
+def _check_acceso_ticket(db: Session, user: Usuario, ticket: Ticket) -> None:
+    """Duplicated from `tickets.py::_check_acceso_ticket` per this file's
+    established duplication convention (see `_check_permiso` above)."""
+    if PermisosService(db).tiene_permiso(user, "tickets.ver"):
+        return
+    if ticket.creador_id == user.id:
+        return
+    raise HTTPException(status_code=403, detail="No tenés acceso a este ticket")
+
+
+@router.get("/tickets/{ticket_id}/propuestas", response_model=list[PropuestaResponse])
+def listar_propuestas_pendientes(
+    ticket_id: int,
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(get_current_user),
+) -> list[PropuestaResponse]:
+    """Lista las propuestas de IA `pendiente` de un ticket. Visible con solo
+    acceso al ticket (creador o tickets.ver) — NO requiere
+    tickets.triage.confirmar: la confianza debe verse antes de confirmar,
+    independientemente de quién puede confirmar (spec: "Provenance Is
+    Always Visible" / "Confidence is visible before confirming")."""
+    ticket = db.query(Ticket).filter(Ticket.id == ticket_id).first()
+    if not ticket:
+        raise HTTPException(status_code=404, detail=f"Ticket {ticket_id} no encontrado")
+    _check_acceso_ticket(db, current_user, ticket)
+
+    return (
+        db.query(PropuestaIA)
+        .filter(PropuestaIA.ticket_id == ticket_id, PropuestaIA.estado == "pendiente")
+        .order_by(PropuestaIA.campo)
+        .all()
+    )
+
+
 @router.post("/propuestas/{propuesta_id}/confirmar", response_model=PropuestaResponse)
 def confirmar_propuesta(
     propuesta_id: int,

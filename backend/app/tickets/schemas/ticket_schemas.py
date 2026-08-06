@@ -174,6 +174,17 @@ class TicketResponse(TicketBase):
     updated_at: Optional[datetime] = None
     closed_at: Optional[datetime] = None
 
+    # tickets-ai-triage PR 4c: AI-inferred fields + provenance (spec's
+    # "Provenance Is Always Visible"). All nullable — NULL means unclassified
+    # or not yet AI-curated. `*_origen` in ('humano','ia_confirmada','ia_auto').
+    severidad: Optional[str] = None
+    urgencia: Optional[str] = None
+    severidad_origen: Optional[str] = None
+    urgencia_origen: Optional[str] = None
+    resumen: Optional[str] = None
+    titulo_origen: Optional[str] = None
+    resumen_origen: Optional[str] = None
+
     model_config = ConfigDict(from_attributes=True)
 
 
