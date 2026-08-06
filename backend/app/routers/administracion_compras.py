@@ -5057,7 +5057,9 @@ def get_recepcion_saldos(
     pedido = _obtener_pedido_recepcion_o_404(db, pedido_id)
     # Guard: receptive states + controlado for audit access (REQ-EC-009).
     # controlado is terminal but saldos are still queryable for audit/traceability.
-    if pedido.estado not in {"pagado", "recibido", "con_faltantes", "controlado"}:
+    # Derived from `recepcion_service.ESTADOS_CONSULTA_SALDOS` — single authority,
+    # see that constant's docstring for why this must never be a local literal.
+    if pedido.estado not in recepcion_service.ESTADOS_CONSULTA_SALDOS:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail="Pedido not in a receivable state",
