@@ -446,6 +446,10 @@ async def crear_ticket(
     # effectively invisible to the user after creation. descripcion stays
     # editable afterwards (unlike texto_original); an explicit descripcion
     # always wins.
+    # ponytail: descripcion and texto_original both start from the same
+    # value here but diverge on the first PATCH (descripcion is editable,
+    # texto_original never is) — once a UI surfaces texto_original
+    # directly, this fallback becomes redundant and should be reconsidered.
     descripcion = ticket_data.descripcion or ticket_data.texto
 
     nuevo_ticket = Ticket(

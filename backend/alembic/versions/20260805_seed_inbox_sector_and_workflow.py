@@ -191,12 +191,39 @@ def downgrade() -> None:
             f"orphaning tickets.sector_id/tipo_ticket_id is worse than refusing to downgrade."
         )
 
+    # Scope every delete to exactly what upgrade() created, by codigo/nombre
+    # — NOT by sector_id/workflow_id alone. A bare sector_id/workflow_id
+    # filter would sweep up anything a human added to this sector/workflow
+    # afterwards (e.g. another tipo or transition inside INBOX), silently
+    # deleting data this migration never wrote.
     workflow_id = bind.execute(
-        sa.text("SELECT id FROM tickets_workflows WHERE sector_id = :sector_id"), {"sector_id": sector_id}
+        sa.text(
+            "SELECT id FROM tickets_workflows WHERE sector_id = :sector_id AND nombre = :nombre AND es_default = true"
+        ),
+        {"sector_id": sector_id, "nombre": "Bandeja de entrada"},
     ).scalar_one_or_none()
 
-    bind.execute(sa.text("DELETE FROM tickets_transiciones WHERE workflow_id = :wf"), {"wf": workflow_id})
-    bind.execute(sa.text("DELETE FROM tickets_estados WHERE workflow_id = :wf"), {"wf": workflow_id})
-    bind.execute(sa.text("DELETE FROM tickets_tipos WHERE sector_id = :sector_id"), {"sector_id": sector_id})
-    bind.execute(sa.text("DELETE FROM tickets_workflows WHERE id = :wf"), {"wf": workflow_id})
+    estado_ids = [
+        row[0]
+        for row in bind.execute(
+            sa.text("SELECT id FROM tickets_estados WHERE workflow_id = :wf AND codigo IN (:inicial, :final)"),
+            {"wf": workflow_id, "inicial": ESTADO_INICIAL_CODIGO, "final": ESTADO_FINAL_CODIGO},
+        ).fetchall()
+    ]
+
+    bind.execute(
+        sa.text("DELETE FROM tickets_transiciones WHERE workflow_id = :wf AND nombre = 'Cerrar'"),
+        {"wf": workflow_id},
+    )
+    if estado_ids:
+        bind.execute(
+            sa.text("DELETE FROM tickets_estados WHERE id IN :ids").bindparams(sa.bindparam("ids", expanding=True)),
+            {"ids": estado_ids},
+        )
+    bind.execute(
+        sa.text("DELETE FROM tickets_tipos WHERE sector_id = :sector_id AND codigo = :codigo"),
+        {"sector_id": sector_id, "codigo": TIPO_CODIGO},
+    )
+    if workflow_id is not None:
+        bind.execute(sa.text("DELETE FROM tickets_workflows WHERE id = :wf"), {"wf": workflow_id})
     bind.execute(sa.text("DELETE FROM tickets_sectores WHERE id = :sector_id"), {"sector_id": sector_id})
