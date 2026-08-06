@@ -1,4 +1,4 @@
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 from typing import Optional, Dict, Any
 from datetime import datetime
 from app.tickets.models.ticket import PrioridadTicket
@@ -115,10 +115,39 @@ class TicketBase(BaseModel):
 
 
 class TicketCreate(TicketBase):
-    """Schema para crear un Ticket"""
+    """Schema para crear un Ticket.
 
-    sector_id: int = Field(..., description="ID del sector al que pertenece")
-    tipo_ticket_id: int = Field(..., description="ID del tipo de ticket")
+    Single-box intake (tickets-ai-triage PR 3): `sector_id`/`tipo_ticket_id`
+    are optional and default to the seeded Inbox pair (Sector INBOX /
+    TipoTicket SIN_CLASIFICAR) when omitted — explicit values still win.
+    `titulo` is optional too; when not sent, the endpoint derives it from
+    `texto` (first ~80 chars). `texto` is persisted verbatim once, in
+    `Ticket.texto_original`, and is never part of `TicketUpdate`.
+    """
+
+    sector_id: Optional[int] = Field(default=None, description="ID del sector (default: Bandeja de entrada)")
+    tipo_ticket_id: Optional[int] = Field(default=None, description="ID del tipo de ticket (default: Sin clasificar)")
+    titulo: Optional[str] = Field(
+        default=None, min_length=5, max_length=255, description="Título; si se omite, se deriva de texto"
+    )
+    texto: Optional[str] = Field(
+        default=None,
+        description="Texto libre del reporte. Se guarda tal cual en texto_original y, si no se envía "
+        "un título explícito, se usa para derivarlo.",
+    )
+
+    @field_validator("texto")
+    @classmethod
+    def _texto_no_muy_corto(cls, v: Optional[str]) -> Optional[str]:
+        if v is not None and len(v.strip()) < 5:
+            raise ValueError("El texto debe tener al menos 5 caracteres")
+        return v
+
+    @model_validator(mode="after")
+    def _requiere_texto_o_titulo(self) -> "TicketCreate":
+        if not self.texto and not self.titulo:
+            raise ValueError("Debe indicar texto o título para crear el ticket")
+        return self
 
 
 class TicketUpdate(BaseModel):
