@@ -10,11 +10,22 @@ import {
   CheckCircle2,
   AlertTriangle,
   Truck,
+  FileText,
+  StickyNote,
 } from 'lucide-react';
 import api from '../../services/api';
 import useRecepcionDeposito from '../../hooks/useRecepcionDeposito';
 import ModalCargarRetiro from './ModalCargarRetiro';
 import styles from './TabRecepcionDeposito.module.css';
+
+// ponytail: this file is 884+ lines and already violates the ~200-line
+// component-size convention. The genuine fix is splitting by accordion body
+// (AccordionBodyConOc, AccordionBodySinOc, AccordionBodyConOcArribo,
+// PedidoAccordion → own files) — a move-only refactor touching every export
+// and every test import. Bolting that onto a behavioural change would spend
+// the review budget on churn and bury the diff. Revisit next time this file
+// is touched for an unrelated reason. See design D5 (compras-recepcion-
+// visibilidad-items) for the full rationale. Tracked in docs/tech-debt-ledger.md.
 
 // ── Helpers ──────────────────────────────────────────────────────
 
@@ -71,10 +82,124 @@ const COPY_STATUS_MESSAGE = {
 // visual and the spoken feedback can never drift apart.
 const COPY_FLASH_MS = 1500;
 
+// Composición de ítems para el header cerrado (solo CON-OC). "líneas" —
+// nunca "productos distintos": la granularidad de pod_id es ítem×destino, así
+// que un ítem enviado a dos depósitos son DOS líneas. "u" es un símbolo de
+// unidad y no pluraliza (como "kg"), por eso solo "línea" tiene rama plural.
+const ITEMS_BADGE_LABEL = (lineas, unidades) =>
+  `${lineas} ${lineas === 1 ? 'línea' : 'líneas'} · ${formatUnidades(unidades)} u`;
+
+// Versión hablada del badge: "5 líneas · 120 u" leído en voz alta es críptico.
+const ITEMS_BADGE_A11Y = (lineas, unidades) =>
+  `${lineas} ${lineas === 1 ? 'línea' : 'líneas'} de orden de compra, ` +
+  `${formatUnidades(unidades)} ${Number(unidades) === 1 ? 'unidad' : 'unidades'} en total`;
+
+// Toda cantidad de esta pestaña pasa por acá. El backend serializa los Decimal
+// del ERP como string ("120.000000"), y volcarlo crudo en una celda mostraba
+// "10.000000" donde el operario espera "10" — justo en las columnas que tiene
+// que leer para reconocer el pedido. Es UNA sola función a propósito: el badge
+// del header y las tablas hablan del mismo dato, así que no pueden divergir de
+// formato. `maximumFractionDigits: 2` conserva el caso fraccionario real sin
+// arrastrar los seis decimales del Numeric(18,6).
+// El guard nullish no es por los llamadores de HOY: `SaldoLineaResponse` declara
+// pod_qty / cantidad_recibida_total / saldo_pendiente como Decimal REQUERIDOS, y
+// oc_unidades_total siempre viaja junto a oc_lineas_total, que ya está guardado.
+// Es por el contrato de la función: sin él, `Number(undefined)` pinta "NaN" y
+// `Number(null)` pinta un "0" inventado, así que el próximo que la use sobre un
+// campo opcional se come eso en pantalla. Un dato ausente se muestra como
+// ausente — el mismo guion que usa el resto de la tabla.
+const formatUnidades = (v) =>
+  v == null ? '—' : Number(v).toLocaleString('es-AR', { maximumFractionDigits: 2 });
+
+// Chips de identificación para pedidos SIN OC: los únicos datos identificatorios
+// que existen a nivel pedido. Se omiten cuando el campo es null/vacío, igual que
+// buildPedidoClipboardText.
+const CHIP_FACTURA_A11Y = (numero) => `Factura ${numero}`;
+const CHIP_OBSERVACIONES_A11Y = (texto) => `Observaciones: ${texto}`;
+
+// `observaciones` es texto libre sin tope. 60 caracteres entran en una línea al
+// tamaño del badge y alcanzan para distinguir dos pedidos; el texto COMPLETO
+// viaja por `title` (mouse) y por el span .sr-only (lectores de pantalla), así
+// que el truncado es puramente visual y no oculta información a nadie.
+const OBSERVACIONES_MAX_CHARS = 60;
+const truncarObservaciones = (t) =>
+  t.length > OBSERVACIONES_MAX_CHARS ? `${t.slice(0, OBSERVACIONES_MAX_CHARS).trimEnd()}…` : t;
+
+// Banner de arribo. Se CONSERVA con un solo cambio: "control de ítems" →
+// "control de cantidades". La primera oración sigue siendo cierta en TODAS las
+// ramas de render (incluida la de error de /saldos) y nombra el estado, no la
+// tabla. La segunda es la que más se gana ahora: con los ítems a la vista, el
+// operario necesita saber POR QUÉ no puede contarlos, y "control de ítems" al
+// lado de ítems visibles se leía como una contradicción.
+const ARRIBO_BANNER_TEXT =
+  'El pedido aún no fue recibido en depósito. Confirme el arribo para habilitar el control de cantidades.';
+
 function estadoBadge(estado, stylesMap) {
   const badgeClass = ESTADO_BADGE_CLASS[estado];
   if (!badgeClass) return <span className={stylesMap.badge}>{estado}</span>;
   return <span className={stylesMap[badgeClass]}>{ESTADO_LABELS[estado]}</span>;
+}
+
+/**
+ * Closed-header items badge (CON-OC only). Absent entirely when
+ * `oc_lineas_total == null` — that already reads as "no OC data"; a "sin OC"
+ * placeholder would spend header space to say nothing actionable, and
+ * rendering "0 ítems" is the forbidden fake zero.
+ *
+ * Zero is rejected here too, not only null. Today the backend cannot send it —
+ * the aggregate's GROUP BY emits no row for an OC with no lines, so such a
+ * pedido is absent from the map and both fields land as null. But that
+ * invariant lives two layers away, and this function is the one place that
+ * decides whether the forbidden output can reach a screen. It must not depend
+ * on a promise it cannot see: a 0 arriving from any future caller means "no
+ * composition to show", which is exactly the null case.
+ */
+function itemsBadge(pedido, stylesMap) {
+  if (pedido.oc_lineas_total == null || Number(pedido.oc_lineas_total) === 0) return null;
+  const { oc_lineas_total: lineas, oc_unidades_total: unidades } = pedido;
+  return (
+    <span className={stylesMap.badgeItems}>
+      <span aria-hidden="true">{ITEMS_BADGE_LABEL(lineas, unidades)}</span>
+      <span className="sr-only">{ITEMS_BADGE_A11Y(lineas, unidades)}</span>
+    </span>
+  );
+}
+
+/**
+ * Closed-header identification chips (SIN-OC only) — factura and
+ * observaciones are the only pedido-level fields that identify one pedido
+ * from another when there is no OC. Each is omitted independently when
+ * null/blank, same rule `buildPedidoClipboardText` already follows.
+ */
+function identChips(pedido, stylesMap) {
+  const chips = [];
+  if (pedido.numero_factura && String(pedido.numero_factura).trim() !== '') {
+    chips.push(
+      <span
+        key="factura"
+        className={stylesMap.chipIdent}
+        title={pedido.numero_factura}
+      >
+        <FileText size={11} aria-hidden="true" />
+        <span aria-hidden="true">{pedido.numero_factura}</span>
+        <span className="sr-only">{CHIP_FACTURA_A11Y(pedido.numero_factura)}</span>
+      </span>,
+    );
+  }
+  if (pedido.observaciones && String(pedido.observaciones).trim() !== '') {
+    chips.push(
+      <span
+        key="observaciones"
+        className={stylesMap.chipIdent}
+        title={pedido.observaciones}
+      >
+        <StickyNote size={11} aria-hidden="true" />
+        <span aria-hidden="true">{truncarObservaciones(pedido.observaciones)}</span>
+        <span className="sr-only">{CHIP_OBSERVACIONES_A11Y(pedido.observaciones)}</span>
+      </span>,
+    );
+  }
+  return chips;
 }
 
 /**
@@ -111,10 +236,38 @@ function buildPedidoClipboardText(pedido) {
 // ── Accordion body — CON OC — arrival panel (estado=pagado) ──────
 
 function AccordionBodyConOcArribo({ pedido, onRefreshList }) {
-  const { confirmarPedido } = useRecepcionDeposito();
+  const { confirmarPedido, getSaldos } = useRecepcionDeposito();
   const [submitting, setSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState(null);
   const [submitSuccess, setSubmitSuccess] = useState(null);
+
+  // Read-only item list (D5a). Mirrors AccordionBodyConOc's fetch shape, with
+  // ONE deliberate divergence: loading/error render as inline blocks instead
+  // of early-returning the body, so the banner + "Marcar como recibido" stay
+  // reachable even when /saldos fails. No refetch after handleArribo —
+  // onRefreshList() moves the row out of this tab entirely.
+  const [saldos, setSaldos] = useState(null);
+  const [loadingSaldos, setLoadingSaldos] = useState(false);
+  const [errorSaldos, setErrorSaldos] = useState(null);
+
+  const fetchSaldos = useCallback(async () => {
+    setLoadingSaldos(true);
+    setErrorSaldos(null);
+    try {
+      const data = await getSaldos(pedido.id);
+      setSaldos(data);
+    } catch (err) {
+      setErrorSaldos(
+        err.response?.data?.detail || err.message || 'Error al cargar saldos.'
+      );
+    } finally {
+      setLoadingSaldos(false);
+    }
+  }, [getSaldos, pedido.id]);
+
+  useEffect(() => {
+    fetchSaldos();
+  }, [fetchSaldos]);
 
   const handleArribo = async () => {
     setSubmitting(true);
@@ -133,8 +286,20 @@ function AccordionBodyConOcArribo({ pedido, onRefreshList }) {
     }
   };
 
+  const lineas = saldos?.lineas ?? [];
+
   return (
     <>
+      {loadingSaldos && (
+        <div className={styles.centered}>
+          <Loader2 size={16} className={styles.spin} /> Cargando ítems…
+        </div>
+      )}
+      {errorSaldos && (
+        <div className={styles.inlineError} role="alert">
+          <AlertCircle size={14} /> {errorSaldos}
+        </div>
+      )}
       {submitError && (
         <div className={styles.inlineError} role="alert">
           <AlertCircle size={14} /> {submitError}
@@ -147,9 +312,7 @@ function AccordionBodyConOcArribo({ pedido, onRefreshList }) {
       )}
       <div className={styles.noOcBanner} role="status">
         <AlertTriangle size={16} style={{ flexShrink: 0, marginTop: 2 }} />
-        <p className={styles.noOcBannerText}>
-          El pedido aún no fue recibido en depósito. Confirme el arribo para habilitar el control de ítems.
-        </p>
+        <p className={styles.noOcBannerText}>{ARRIBO_BANNER_TEXT}</p>
       </div>
       <div className={styles.noOcActions}>
         <button
@@ -162,6 +325,35 @@ function AccordionBodyConOcArribo({ pedido, onRefreshList }) {
           Marcar como recibido
         </button>
       </div>
+      {lineas.length > 0 && (
+        <div className={styles.tableWrapper}>
+          <table className={styles.itemTable}>
+            <caption className="sr-only">Ítems de la orden de compra (solo lectura)</caption>
+            <thead>
+              <tr>
+                <th>Ítem</th>
+                <th>Depósito</th>
+                <th className={styles.thRight}>Cant. pedida</th>
+              </tr>
+            </thead>
+            <tbody>
+              {lineas.map((linea) => {
+                const nombre = linea.item_nombre || `Ítem #${linea.item_id}`;
+                return (
+                  <tr key={linea.pod_id}>
+                    <td>
+                      <div className={styles.itemNombre}>{nombre}</div>
+                      <div className={styles.itemCodigo}>#{linea.item_code ?? linea.item_id}</div>
+                    </td>
+                    <td>{linea.deposito_nombre || '—'}</td>
+                    <td className={styles.tdRight}>{formatUnidades(linea.pod_qty)}</td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      )}
     </>
   );
 }
@@ -374,10 +566,10 @@ function AccordionBodyConOc({ pedido, onRefreshList }) {
                     <div className={styles.itemCodigo}>#{linea.item_code ?? linea.item_id}</div>
                   </td>
                   <td>{linea.deposito_nombre || '—'}</td>
-                  <td className={styles.tdRight}>{linea.pod_qty}</td>
-                  <td className={styles.tdRight}>{linea.cantidad_recibida_total}</td>
+                  <td className={styles.tdRight}>{formatUnidades(linea.pod_qty)}</td>
+                  <td className={styles.tdRight}>{formatUnidades(linea.cantidad_recibida_total)}</td>
                   <td className={`${styles.tdRight} ${styles.saldoCell} ${linea.saldo_pendiente > 0 ? styles.saldoPendiente : styles.saldoCero}`}>
-                    {linea.saldo_pendiente}
+                    {formatUnidades(linea.saldo_pendiente)}
                   </td>
                   <td className={styles.tdRight}>
                     <label htmlFor={`qty-${pedido.id}-${linea.pod_id}`} className="sr-only">
@@ -403,7 +595,7 @@ function AccordionBodyConOc({ pedido, onRefreshList }) {
                         role="alert"
                         style={{ display: 'block', fontSize: 'var(--font-xs)', color: 'var(--cf-accent-red)', marginTop: 2 }}
                       >
-                        Excede saldo ({linea.saldo_pendiente})
+                        Excede saldo ({formatUnidades(linea.saldo_pendiente)})
                       </span>
                     )}
                   </td>
@@ -683,6 +875,7 @@ function PedidoAccordion({ pedido, onRefreshList, onCopyOutcome }) {
           <span className={styles.pedidoProveedor}>{pedido.proveedor_nombre || '—'}</span>
         </button>
         <div className={styles.headerBadges}>
+          {pedido.oc_poh_id != null ? itemsBadge(pedido, styles) : identChips(pedido, styles)}
           {estadoBadge(pedido.estado, styles)}
           <button
             type="button"

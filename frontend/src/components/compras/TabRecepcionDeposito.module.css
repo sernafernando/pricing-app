@@ -222,6 +222,28 @@
   border: 1px solid rgba(139, 92, 246, 0.3);
 }
 
+/* Badge de composición de ítems — informativo, NO un estado. Tono neutro a
+   propósito: el badge de estado que va al lado es dueño del canal de color, y
+   una segunda píldora de color se leería como un segundo status. */
+.badgeItems {
+  composes: badge;
+  background: var(--cf-bg-hover);
+  color: var(--cf-text-secondary);
+  border: 1px solid var(--cf-border-default);
+  font-variant-numeric: tabular-nums;
+}
+
+/* Chips de identificación SIN-OC (factura / observaciones). Mismo tono neutro:
+   mismo trabajo, distinto campo origen. max-width + ellipsis evita que una
+   observación larga empuje los botones de acción fuera del header. */
+.chipIdent {
+  composes: badgeItems;
+  max-width: 22ch;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-weight: var(--font-normal);
+}
+
 /* ── Copy header data button (in header) ─────────────────────── */
 .copyButton {
   composes: btn-tesla outline-subtle-primary xs from '../../styles/buttons-tesla.css';
