@@ -1,7 +1,11 @@
 .claude/
 
 # Node.js
-node_modules/
+# No trailing slash on purpose: `node_modules/` matches directories ONLY, and in
+# git worktrees this path is often a SYMLINK to a shared install. Git treats a
+# symlink as a file, so the trailing-slash form left it untracked-but-visible,
+# which leaked it into tooling that reads the working tree. Do not re-add it.
+node_modules
 dist/
 .npm
 .eslintcache
@@ -89,6 +93,7 @@ frontend/public/sounds/
 .atl/
 .pi/
 .codegraph/
+.engram/
 
 # SDD artifacts under openspec/changes/ ARE tracked by default — they are the
 # shared record of a change and belong in its PR. The paths below are the

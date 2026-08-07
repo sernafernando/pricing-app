@@ -36,11 +36,97 @@ const PEDIDO_CUENTA_CORRIENTE = {
   moneda: 'USD',
 };
 
+// CON-OC fixtures (oc_poh_id set) — Phase 4/5 (D5a, D5b/D6). The two existing
+// fixtures above are deliberately SIN-OC (oc_poh_id: null); these cover the
+// arrival read-only table and the closed-header items badge.
+const PEDIDO_CON_OC_PAGADO = {
+  id: 3,
+  numero: 'PC-0003',
+  proveedor_id: 30,
+  proveedor_nombre: 'Proveedor Tres',
+  estado: 'pagado',
+  numero_factura: null,
+  observaciones: null,
+  requiere_envio: false,
+  oc_poh_id: 500,
+  oc_lineas_total: 2,
+  oc_unidades_total: '15.000000',
+  monto: '5000.00',
+  moneda: 'ARS',
+};
+
+const PEDIDO_CON_OC_CUENTA_CORRIENTE = {
+  ...PEDIDO_CON_OC_PAGADO,
+  id: 4,
+  numero: 'PC-0004',
+  estado: 'en_cuenta_corriente',
+  oc_lineas_total: 1,
+  oc_unidades_total: '1.000000',
+};
+
+// Two OC lines, split across two depositos — matches the pod_id = item×destino
+// granularity the design's copy locks ("2 líneas", never "productos distintos").
+const SALDOS_ARRIBO = {
+  pedido_id: PEDIDO_CON_OC_PAGADO.id,
+  tiene_oc: true,
+  estado: 'pagado',
+  requiere_envio: false,
+  lineas: [
+    {
+      pod_id: 1001,
+      item_id: 55,
+      item_code: 'SKU-55',
+      item_nombre: 'Memoria RAM 16GB',
+      stor_id: 1,
+      deposito_nombre: 'Depósito Central',
+      pod_qty: '10.000000',
+      cantidad_recibida_total: '0.000000',
+      saldo_pendiente: '10.000000',
+    },
+    {
+      pod_id: 1002,
+      item_id: 56,
+      item_code: 'SKU-56',
+      item_nombre: 'Disco SSD 1TB',
+      stor_id: 2,
+      deposito_nombre: 'Depósito Norte',
+      pod_qty: '5.000000',
+      cantidad_recibida_total: '0.000000',
+      saldo_pendiente: '5.000000',
+    },
+  ],
+};
+
 const LISTADO_ENDPOINT = '/administracion/compras/pedidos';
+const saldosUrlFor = (pedidoId) =>
+  `/administracion/compras/pedidos/${pedidoId}/recepcion/saldos`;
 
 function mockListado(items) {
   api.get.mockResolvedValue({
     data: { items, total: items.length, page: 1, page_size: 200 },
+  });
+}
+
+/**
+ * Routes GET by URL: the listing endpoint returns `items`, and
+ * `/recepcion/saldos` for `pedidoId` resolves/rejects per `saldosByPedidoId`.
+ * `{ reject: detail }` triggers a 409-shaped rejection; anything else resolves.
+ */
+function mockListadoAndSaldos(items, saldosByPedidoId = {}) {
+  api.get.mockImplementation((url) => {
+    if (url === LISTADO_ENDPOINT) {
+      return Promise.resolve({ data: { items, total: items.length, page: 1, page_size: 200 } });
+    }
+    const match = url.match(/\/pedidos\/(\d+)\/recepcion\/saldos$/);
+    if (match) {
+      const entry = saldosByPedidoId[Number(match[1])];
+      if (entry?.reject) {
+        return Promise.reject({ response: { data: { detail: entry.reject } } });
+      }
+      if (entry) return Promise.resolve({ data: entry });
+      return Promise.reject(new Error(`no saldos mock for pedido ${match[1]}`));
+    }
+    return Promise.reject(new Error(`unexpected GET ${url}`));
   });
 }
 
@@ -157,6 +243,25 @@ describe('TabRecepcionDeposito — copy header data', () => {
         'Observaciones: Entregar en el portón 3',
       ].join('\n'),
     );
+  });
+
+  it('includes the linked OC, right after the pedido number like the header does', async () => {
+    const copiado = await copiarPedido(PEDIDO_CON_OC_PAGADO);
+
+    // The pasted text answers "which pedido is this", so it must not say less
+    // than the row it was copied from. Order mirrors the closed header:
+    // numero → OC → proveedor.
+    expect(copiado).toBe(
+      ['Pedido #PC-0003', 'OC: #500', 'Proveedor: Proveedor Tres', 'Estado: Pagado'].join('\n'),
+    );
+  });
+
+  it('omits the OC line entirely for a pedido without a linked OC', async () => {
+    const copiado = await copiarPedido(PEDIDO_PAGADO);
+
+    // Absent, not "OC: —" or "OC: null": SIN-OC pedidos have no OC to report,
+    // same omit-if-blank rule every other optional field follows.
+    expect(copiado).not.toMatch(/^OC:/m);
   });
 
   it('never leaks money fields', async () => {
@@ -312,5 +417,272 @@ describe('TabRecepcionDeposito — retiro action', () => {
     ).toBeInTheDocument();
     expect(screen.getByText('Coordinar retiro')).toBeInTheDocument();
     expect(screen.queryByText('Despachar retiro')).not.toBeInTheDocument();
+  });
+});
+
+// ── Phase 4 (D5a) — read-only arrival item list ──────────────────
+
+describe('TabRecepcionDeposito — arrival item list (CON-OC, D5a)', () => {
+  /** Renders the tab, opens the single pedido's accordion, and returns the user. */
+  async function renderArribo(pedido, saldosByPedidoId) {
+    const user = userEvent.setup();
+    mockListadoAndSaldos([pedido], saldosByPedidoId);
+    render(<TabRecepcionDeposito />);
+    await screen.findByText(`#${pedido.numero}`);
+    await user.click(screen.getByRole('button', { name: new RegExp(pedido.proveedor_nombre) }));
+    return user;
+  }
+
+  it.each([
+    ['pagado', PEDIDO_CON_OC_PAGADO],
+    ['en_cuenta_corriente', PEDIDO_CON_OC_CUENTA_CORRIENTE],
+  ])('renders read-only item rows with zero editable controls for estado=%s', async (_estado, pedido) => {
+    await renderArribo(pedido, { [pedido.id]: SALDOS_ARRIBO });
+
+    await screen.findByText('Memoria RAM 16GB');
+    expect(screen.getByText('Disco SSD 1TB')).toBeInTheDocument();
+    expect(screen.getByText('Depósito Central')).toBeInTheDocument();
+    expect(screen.getByText('Depósito Norte')).toBeInTheDocument();
+    // The fixture feeds the raw serialized Decimal ("10.000000") exactly as the
+    // backend sends it; the cell must render the OPERATOR-facing form. Asserting
+    // the raw string here is what let "10.000000" reach a column whose whole job
+    // is to be read at a glance.
+    expect(screen.getByText('10')).toBeInTheDocument();
+    expect(screen.getByText('5')).toBeInTheDocument();
+    expect(screen.queryByText('10.000000')).not.toBeInTheDocument();
+
+    // ZERO editable controls: no input (any type), no checkbox, no tanda state.
+    expect(document.querySelectorAll('input')).toHaveLength(0);
+    expect(screen.queryAllByRole('checkbox')).toHaveLength(0);
+    expect(screen.queryAllByRole('spinbutton')).toHaveLength(0);
+    expect(
+      screen.queryByRole('button', { name: /marcar (con faltantes|como controlado)/i }),
+    ).not.toBeInTheDocument();
+
+    // Banner + "Marcar como recibido" stay reachable.
+    const arriboBtn = screen.getByRole('button', { name: 'Marcar como recibido' });
+    expect(arriboBtn).toBeInTheDocument();
+    expect(arriboBtn).not.toBeDisabled();
+  });
+
+  it('"Marcar como recibido" still works with the item list present', async () => {
+    api.post.mockResolvedValue({
+      data: { pedido_id: PEDIDO_CON_OC_PAGADO.id, estado_nuevo: 'recibido' },
+    });
+    const user = await renderArribo(PEDIDO_CON_OC_PAGADO, { [PEDIDO_CON_OC_PAGADO.id]: SALDOS_ARRIBO });
+    await screen.findByText('Memoria RAM 16GB');
+
+    await user.click(screen.getByRole('button', { name: 'Marcar como recibido' }));
+
+    await screen.findByText(/Arribo registrado/);
+    expect(api.post).toHaveBeenCalledWith(
+      `/administracion/compras/pedidos/${PEDIDO_CON_OC_PAGADO.id}/recepcion/confirmar-pedido`,
+      { completo: true },
+    );
+  });
+
+  it('keeps the banner and "Marcar como recibido" reachable when /saldos fails', async () => {
+    await renderArribo(PEDIDO_CON_OC_PAGADO, {
+      [PEDIDO_CON_OC_PAGADO.id]: { reject: 'saldos no disponibles' },
+    });
+
+    await screen.findByRole('alert');
+    expect(screen.getByText('saldos no disponibles')).toBeInTheDocument();
+
+    // The deliberate divergence from AccordionBodyConOc: a failed /saldos
+    // fetch must NOT early-return the body.
+    expect(screen.getByRole('button', { name: 'Marcar como recibido' })).toBeInTheDocument();
+    expect(screen.queryByRole('table')).not.toBeInTheDocument();
+  });
+
+  it('shows a loading indicator while /saldos is pending, without hiding the banner', async () => {
+    let resolveSaldos;
+    const user = userEvent.setup();
+    api.get.mockImplementation((url) => {
+      if (url === LISTADO_ENDPOINT) {
+        return Promise.resolve({
+          data: { items: [PEDIDO_CON_OC_PAGADO], total: 1, page: 1, page_size: 200 },
+        });
+      }
+      if (url === saldosUrlFor(PEDIDO_CON_OC_PAGADO.id)) {
+        return new Promise((resolve) => {
+          resolveSaldos = resolve;
+        });
+      }
+      return Promise.reject(new Error(`unexpected GET ${url}`));
+    });
+    render(<TabRecepcionDeposito />);
+    await screen.findByText(`#${PEDIDO_CON_OC_PAGADO.numero}`);
+    await user.click(screen.getByRole('button', { name: /Proveedor Tres/ }));
+
+    expect(await screen.findByText(/Cargando/)).toBeInTheDocument();
+    // Not an early return: the banner/button render even while /saldos is pending.
+    expect(screen.getByRole('button', { name: 'Marcar como recibido' })).toBeInTheDocument();
+
+    resolveSaldos({ data: SALDOS_ARRIBO });
+    await screen.findByText('Memoria RAM 16GB');
+  });
+
+  it('does not render the table when /saldos returns zero lineas', async () => {
+    await renderArribo(PEDIDO_CON_OC_PAGADO, {
+      [PEDIDO_CON_OC_PAGADO.id]: { ...SALDOS_ARRIBO, lineas: [] },
+    });
+    await screen.findByRole('button', { name: 'Marcar como recibido' });
+
+    expect(screen.queryByRole('table')).not.toBeInTheDocument();
+  });
+
+  it('renders an absent quantity as a dash, never "NaN" or a fabricated 0', async () => {
+    // Contract test for formatUnidades, not a reachable backend state:
+    // SaldoLineaResponse declares the quantity fields as required Decimals, so
+    // Pydantic would reject a null before the frontend ever saw it. This pins the
+    // formatter's behaviour for whoever reuses it on a genuinely optional field.
+    await renderArribo(PEDIDO_CON_OC_PAGADO, {
+      [PEDIDO_CON_OC_PAGADO.id]: {
+        ...SALDOS_ARRIBO,
+        lineas: [{ ...SALDOS_ARRIBO.lineas[0], pod_qty: null }],
+      },
+    });
+
+    await screen.findByText('Memoria RAM 16GB');
+    expect(screen.queryByText('NaN')).not.toBeInTheDocument();
+    expect(screen.getAllByText('—').length).toBeGreaterThan(0);
+  });
+});
+
+// ── Phase 5 (D5b, D6, D8) — closed-header identification ─────────
+
+describe('TabRecepcionDeposito — closed header OC identifier', () => {
+  it('shows the linked OC beside the pedido number, labelled so it cannot be misread', async () => {
+    await renderTab([PEDIDO_CON_OC_PAGADO]);
+
+    // Labelled, not a bare "#500": next to "#PC-0003" an unlabelled id reads as
+    // a second pedido number.
+    expect(await screen.findByText('OC #500')).toBeInTheDocument();
+  });
+
+  it('includes the OC in the toggle accessible name — it identifies the pedido', async () => {
+    await renderTab([PEDIDO_CON_OC_PAGADO]);
+
+    // Unlike the items badge (which is a sibling of the toggle and deliberately
+    // excluded), the OC id belongs INSIDE the toggle: it is part of naming which
+    // pedido this row is.
+    const toggle = screen.getByRole('button', { name: /Proveedor Tres/ });
+    expect(toggle.textContent).toMatch(/OC #500/);
+  });
+
+  it('renders no OC identifier for a pedido without a linked OC', async () => {
+    await renderTab([PEDIDO_PAGADO]);
+
+    expect(screen.queryByText(/^OC #/)).not.toBeInTheDocument();
+  });
+});
+
+describe('TabRecepcionDeposito — closed header items badge (CON-OC, D6)', () => {
+  it('renders the badge with "N líneas · N u" copy, never "productos distintos"', async () => {
+    await renderTab([PEDIDO_CON_OC_PAGADO]);
+
+    expect(screen.getByText('2 líneas · 15 u')).toBeInTheDocument();
+    expect(screen.queryByText(/productos distintos/i)).not.toBeInTheDocument();
+  });
+
+  it('uses singular "línea" when there is exactly one line', async () => {
+    await renderTab([PEDIDO_CON_OC_CUENTA_CORRIENTE]);
+
+    expect(screen.getByText('1 línea · 1 u')).toBeInTheDocument();
+  });
+
+  it('renders the badge across multiple estados for CON-OC pedidos', async () => {
+    const recibido = {
+      ...PEDIDO_CON_OC_PAGADO,
+      id: 5,
+      numero: 'PC-0005',
+      estado: 'recibido',
+      oc_lineas_total: 3,
+      oc_unidades_total: '9.000000',
+    };
+    await renderTab([recibido]);
+
+    expect(screen.getByText('3 líneas · 9 u')).toBeInTheDocument();
+  });
+
+  it('renders no badge at all — never "0 ítems" — when oc_lineas_total is null', async () => {
+    const sinAgregado = {
+      ...PEDIDO_CON_OC_PAGADO,
+      id: 6,
+      numero: 'PC-0006',
+      oc_lineas_total: null,
+      oc_unidades_total: null,
+    };
+    await renderTab([sinAgregado]);
+
+    expect(screen.queryByText(/línea/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/0 ítems/i)).not.toBeInTheDocument();
+  });
+
+  it('renders no badge when oc_lineas_total is 0, not "0 líneas · 0 u"', async () => {
+    // The backend cannot currently produce this: the aggregate's GROUP BY emits
+    // no row for an OC with no lines, so the pedido is absent from the map and
+    // both fields arrive null. This pins the render-site guard anyway — the
+    // component is the last place that can stop the forbidden fake zero, and it
+    // must not rely on an invariant enforced two layers away.
+    const cero = {
+      ...PEDIDO_CON_OC_PAGADO,
+      id: 7,
+      numero: 'PC-0007',
+      oc_lineas_total: 0,
+      oc_unidades_total: '0.000000',
+    };
+    await renderTab([cero]);
+
+    expect(screen.queryByText(/línea/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/0 u/i)).not.toBeInTheDocument();
+  });
+
+  it('excludes the badge text from the accordion toggle accessible name (D8)', async () => {
+    await renderTab([PEDIDO_CON_OC_PAGADO]);
+
+    // .headerBadges is a sibling of .accordionToggle: the toggle's own text
+    // content (its accessible name, name-from-content) must not include it.
+    const toggle = screen.getByRole('button', { name: /Proveedor Tres/ });
+    expect(toggle.textContent).not.toMatch(/línea/i);
+  });
+});
+
+describe('TabRecepcionDeposito — closed header identification chips (SIN-OC, D6, D8)', () => {
+  it('shows a factura chip when numero_factura is present', async () => {
+    await renderTab([PEDIDO_PAGADO]);
+
+    expect(screen.getByText(PEDIDO_PAGADO.numero_factura)).toBeInTheDocument();
+  });
+
+  it('omits the factura/observaciones chips when both fields are empty', async () => {
+    await renderTab([PEDIDO_CUENTA_CORRIENTE]);
+
+    // Only the copy button carries a `title` in this render; a rendered chip
+    // would add a second one.
+    const titled = document.querySelectorAll('[title]');
+    expect(titled).toHaveLength(1);
+    expect(titled[0]).toHaveAccessibleName('Copiar datos del pedido #PC-0002');
+  });
+
+  it('truncates a long observaciones chip visually but keeps the full text in title and sr-only', async () => {
+    const texto =
+      'Coordinar entrega con el encargado de turno tarde antes de las 18 horas, sin excepciones.';
+    await renderTab([{ ...PEDIDO_PAGADO, observaciones: texto }]);
+
+    const truncado = `${texto.slice(0, 60).trimEnd()}…`;
+    expect(screen.getByText(truncado)).toBeInTheDocument();
+    expect(screen.queryByText(texto)).not.toBeInTheDocument();
+
+    const chip = screen.getByTitle(texto);
+    expect(chip).toHaveTextContent(`Observaciones: ${texto}`);
+  });
+
+  it('does not truncate observaciones at or under 60 chars', async () => {
+    await renderTab([PEDIDO_PAGADO]);
+
+    // Fixture observaciones is 24 chars — must render verbatim, no ellipsis.
+    expect(screen.getByText(PEDIDO_PAGADO.observaciones)).toBeInTheDocument();
   });
 });

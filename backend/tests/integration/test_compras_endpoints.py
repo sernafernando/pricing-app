@@ -34,8 +34,10 @@ import pytest
 
 from app.models.caja import Caja, CajaTipoDocumento
 from app.models.empresa import Empresa
+from app.models.pedido_compra import PedidoCompra
 from app.models.proveedor import Proveedor
 from app.models.proveedor_direccion import ProveedorDireccion
+from app.models.purchase_order_detail import PurchaseOrderDetail
 from app.models.tb_sale_document import SaleDocument
 from app.services import ordenes_pago_service, pedidos_service
 from app.services.ordenes_pago_service import CODIGO_ERROR_DUPLICADO_ERP
@@ -284,7 +286,6 @@ class TestPedidosCRUD:
         """El listado debe aceptar estados separados por coma (?estado=pagado,con_faltantes),
         como los usa la pestaña Recepción de depósito. Antes comparaba con igualdad exacta
         (estado == 'pagado,con_faltantes') y devolvía lista vacía."""
-        from app.models.pedido_compra import PedidoCompra  # noqa: PLC0415
 
         def _mk(estado: str) -> PedidoCompra:
             p = pedidos_service.crear_pedido(
@@ -362,8 +363,6 @@ class TestPedidosCRUD:
         camino perdiera un estado, la pestaña por defecto quedaría vacía.
         """
         from unittest.mock import patch  # noqa: PLC0415
-
-        from app.models.pedido_compra import PedidoCompra  # noqa: PLC0415
 
         def _mk(estado: str) -> PedidoCompra:
             p = pedidos_service.crear_pedido(
@@ -509,6 +508,123 @@ class TestPedidosCRUD:
         )
         assert r.status_code == 200, r.text
         assert Decimal(r.json()["monto"]) == Decimal("7500.00")
+
+
+# ==========================================================================
+# Pedidos — oc_lineas_total / oc_unidades_total (D4, compras-recepcion-visibilidad-items)
+# ==========================================================================
+
+
+def _mk_pod(
+    db,
+    *,
+    poh_id: int,
+    pod_id: int,
+    comp_id: int = 1,
+    bra_id: int = 1,
+    stor_id: int = 1,
+    item_id: int = 501,
+    qty: Decimal,
+) -> PurchaseOrderDetail:
+    d = PurchaseOrderDetail(
+        comp_id=comp_id,
+        bra_id=bra_id,
+        poh_id=poh_id,
+        pod_id=pod_id,
+        stor_id=stor_id,
+        item_id=item_id,
+        pod_qty=qty,
+    )
+    db.add(d)
+    db.flush()
+    return d
+
+
+class TestListarPedidosOcTotales:
+    """D4: unconditional wiring of oc_lineas_total / oc_unidades_total in listar_pedidos."""
+
+    @pytest.fixture
+    def pedido_pagado_con_oc(self, db, empresa, proveedor, active_user) -> PedidoCompra:
+        p = pedidos_service.crear_pedido(
+            db,
+            empresa_id=empresa.id,
+            proveedor_id=proveedor.id,
+            moneda="ARS",
+            monto=Decimal("5000"),
+            creado_por_id=active_user.id,
+        )
+        p.estado = "pagado"
+        p.oc_comp_id = 1
+        p.oc_bra_id = 1
+        p.oc_poh_id = 9500
+        db.flush()
+        _mk_pod(db, poh_id=9500, pod_id=1, qty=Decimal("10"))
+        _mk_pod(db, poh_id=9500, pod_id=2, qty=Decimal("5"))
+        return p
+
+    def test_solo_deposito_recibe_oc_totales_populados(self, client, auth_headers, pedido_pagado_con_oc):
+        """3.1 — safety net (the trap): a warehouse-only user (deposito.recibir_mercaderia,
+        WITHOUT administracion.ver_ordenes_compra) must see oc_lineas_total/oc_unidades_total
+        POPULATED, while the accounting aggregates the solo_deposito branch withholds
+        (saldo_pendiente, tipo_cambio_ponderado, varianza_tc_neta) stay None. Item counts are
+        NOT money — folding this into the solo_deposito skip block would hide the feature
+        from its own intended audience."""
+        with patch(
+            "app.services.permisos_service.PermisosService.tiene_algun_permiso",
+            side_effect=lambda _u, codigos: "deposito.recibir_mercaderia" in codigos,
+        ):
+            r = client.get(f"{BASE}/pedidos", headers=auth_headers, params={"estado": "pagado"})
+        assert r.status_code == 200, r.text
+        items = r.json()["items"]
+        encontrado = next(i for i in items if i["id"] == pedido_pagado_con_oc.id)
+        assert encontrado["oc_lineas_total"] == 2
+        assert Decimal(str(encontrado["oc_unidades_total"])) == Decimal("15")
+        assert encontrado["saldo_pendiente"] is None
+        assert encontrado["tipo_cambio_ponderado"] is None
+        assert Decimal(str(encontrado["varianza_tc_neta"])) == Decimal("0")
+
+    def test_query_count_stable_regardless_of_page_size(
+        self, client, auth_headers, db, empresa, proveedor, active_user, con_todos_los_permisos
+    ):
+        """3.3 — exactly one extra SQL statement for the OC aggregate, regardless of N pedidos."""
+        from sqlalchemy import event
+
+        for i in range(5):
+            p = pedidos_service.crear_pedido(
+                db,
+                empresa_id=empresa.id,
+                proveedor_id=proveedor.id,
+                moneda="ARS",
+                monto=Decimal("1000"),
+                creado_por_id=active_user.id,
+            )
+            p.estado = "pagado"
+            p.oc_comp_id = 1
+            p.oc_bra_id = 1
+            p.oc_poh_id = 9600 + i
+            db.flush()
+            _mk_pod(db, poh_id=9600 + i, pod_id=1, qty=Decimal("2"))
+        db.commit()
+
+        contador = {"n": 0}
+        engine = db.get_bind()
+
+        def _on_execute(conn, cursor, statement, parameters, context, executemany):  # noqa: ARG001
+            s = statement.strip().upper()
+            if s.startswith("SELECT") and "PURCHASE_ORDER_DETAIL" in s:
+                contador["n"] += 1
+
+        event.listen(engine, "before_cursor_execute", _on_execute)
+        try:
+            r = client.get(f"{BASE}/pedidos?estado=pagado&page_size=200", headers=auth_headers)
+        finally:
+            event.remove(engine, "before_cursor_execute", _on_execute)
+
+        assert r.status_code == 200, r.text
+        assert contador["n"] == 1, (
+            f"Esperaba 1 query agregada sobre tb_purchase_order_detail, se ejecutaron "
+            f"{contador['n']}. calcular_oc_totales_batch debe ser N+1-free."
+        )
 
 
 # ==========================================================================

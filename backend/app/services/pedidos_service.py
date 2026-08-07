@@ -778,6 +778,58 @@ def calcular_saldos_pendientes_batch(session: Session, pedido_ids: list[int]) ->
     return {int(pid): Decimal(total or 0) for pid, total in rows}
 
 
+def calcular_oc_totales_batch(
+    session: Session,
+    oc_keys_por_pedido: dict[int, tuple[int, int, int]],
+) -> dict[int, tuple[int, Decimal]]:
+    """Composición de la OC vinculada, en batch (1 query fija sin importar N).
+
+    Args:
+        oc_keys_por_pedido: {pedido_id: (oc_comp_id, oc_bra_id, oc_poh_id)}.
+            El caller lo arma con los PedidoCompra YA en memoria (0 queries
+            extra) y omite los pedidos sin OC. Vacío → {}.
+
+    Returns:
+        {pedido_id: (lineas, unidades)} — `lineas` = COUNT(DISTINCT pod_id),
+        `unidades` = SUM(pod_qty). Un pedido AUSENTE del dict significa "la OC
+        no tiene líneas en el ERP" → el caller deja ambos campos en None.
+
+    ERP read-only: solo SELECT.
+    """
+    from sqlalchemy import func as sa_func, select, tuple_  # noqa: PLC0415
+
+    from app.models.purchase_order_detail import PurchaseOrderDetail  # noqa: PLC0415
+
+    if not oc_keys_por_pedido:
+        return {}
+
+    triples = sorted(set(oc_keys_por_pedido.values()))
+    rows = session.execute(
+        select(
+            PurchaseOrderDetail.comp_id,
+            PurchaseOrderDetail.bra_id,
+            PurchaseOrderDetail.poh_id,
+            sa_func.count(sa_func.distinct(PurchaseOrderDetail.pod_id)).label("lineas"),
+            sa_func.coalesce(sa_func.sum(PurchaseOrderDetail.pod_qty), 0).label("unidades"),
+        )
+        .where(
+            tuple_(
+                PurchaseOrderDetail.comp_id,
+                PurchaseOrderDetail.bra_id,
+                PurchaseOrderDetail.poh_id,
+            ).in_(triples)
+        )
+        .group_by(
+            PurchaseOrderDetail.comp_id,
+            PurchaseOrderDetail.bra_id,
+            PurchaseOrderDetail.poh_id,
+        )
+    ).all()
+
+    por_triple = {(int(c), int(b), int(p)): (int(n), Decimal(q or 0)) for c, b, p, n, q in rows}
+    return {pid: por_triple[k] for pid, k in oc_keys_por_pedido.items() if k in por_triple}
+
+
 def calcular_saldo_pendiente_pedido(session: Session, pedido_id: int) -> Decimal:
     """
     Saldo pendiente efectivo de un pedido.

@@ -24,7 +24,7 @@ from app.schemas.orden_pago import (
     OrdenPagoEjecutarPago,
     PosibleDuplicadoResponse,
 )
-from app.schemas.pedido_compra import PedidoCompraCreate, PedidoCompraUpdate
+from app.schemas.pedido_compra import PedidoCompraCreate, PedidoCompraResponse, PedidoCompraUpdate
 from app.schemas.sale_document import SaleDocumentResponse
 
 
@@ -69,6 +69,43 @@ class TestPedidoCompraCreate:
         pu = PedidoCompraUpdate()
         dumped = pu.model_dump(exclude_unset=True)
         assert dumped == {}
+
+
+class TestPedidoCompraResponseOcTotalesFields:
+    """compras-recepcion-visibilidad-items (D1): oc_lineas_total / oc_unidades_total."""
+
+    def _make_response_kwargs(self, **overrides: object) -> dict:
+        """Minimal valid kwargs for PedidoCompraResponse."""
+        base = {
+            "id": 1,
+            "numero": "PC-001",
+            "empresa_id": 1,
+            "proveedor_id": 1,
+            "moneda": "ARS",
+            "monto": Decimal("1000"),
+            "estado": "pagado",
+            "creado_por_id": 1,
+            "created_at": "2026-01-01T00:00:00",
+            "updated_at": "2026-01-01T00:00:00",
+        }
+        base.update(overrides)
+        return base
+
+    def test_oc_lineas_total_defaults_none(self) -> None:
+        resp = PedidoCompraResponse(**self._make_response_kwargs())
+        assert resp.oc_lineas_total is None
+
+    def test_oc_unidades_total_defaults_none(self) -> None:
+        resp = PedidoCompraResponse(**self._make_response_kwargs())
+        assert resp.oc_unidades_total is None
+
+    def test_oc_unidades_total_accepts_decimal_without_truncation(self) -> None:
+        """`pod_qty` is Numeric(18,6) — the schema must not truncate to int."""
+        resp = PedidoCompraResponse(
+            **self._make_response_kwargs(oc_lineas_total=3, oc_unidades_total=Decimal("12.500000"))
+        )
+        assert resp.oc_unidades_total == Decimal("12.500000")
+        assert resp.oc_lineas_total == 3
 
 
 # ---------------------------------------------------------------------------

@@ -26,6 +26,7 @@ from app.models.imputacion import Imputacion
 from app.models.orden_pago import OrdenPago
 from app.models.pedido_compra import PedidoCompra
 from app.models.proveedor import OrigenProveedor, Proveedor
+from app.models.purchase_order_detail import PurchaseOrderDetail
 from app.models.tipo_cambio import TipoCambio
 from app.models.usuario import AuthProvider, RolUsuario, Usuario
 from app.services.pedidos_service import (
@@ -686,3 +687,66 @@ class TestFilterDiferencialCambioPendiente:
         assert resp.status_code == 200
         ids = [i["id"] for i in resp.json()["items"]]
         assert pedido.id in ids
+
+
+# ---------------------------------------------------------------------------
+# D4 (compras-recepcion-visibilidad-items) — diferencial_cambio_pendiente
+# branch also populates oc_lineas_total / oc_unidades_total
+# ---------------------------------------------------------------------------
+
+
+class TestDiferencialCambioPendienteOcTotales:
+    """`PedidoCompraResponse` is one contract — populated on one branch of
+    `listar_pedidos` and None on the other (selected by an unrelated query
+    param) would be the same drift class D2 exists to kill."""
+
+    def test_diferencial_branch_populates_oc_totales(
+        self, db, client, con_permisos, empresa, proveedor, active_user, auth_headers, caja_ars, tipos_doc, tc_usd
+    ):
+        uid = active_user.id
+        pedido = PedidoCompra(
+            numero="PC-FILT-OC-001",
+            empresa_id=empresa.id,
+            proveedor_id=proveedor.id,
+            moneda="USD",
+            monto=Decimal("1"),
+            tipo_cambio=Decimal("1000"),
+            tipo_cambio_original=Decimal("1000"),
+            tipo_cambio_manual=Decimal("1500"),  # tc_ef=1500 → bruta=500 > threshold → survives Stage 2
+            estado="pagado",
+            oc_comp_id=1,
+            oc_bra_id=1,
+            oc_poh_id=9600,
+            creado_por_id=uid,
+        )
+        db.add(pedido)
+        db.flush()
+        op = _make_op(
+            db,
+            empresa=empresa,
+            proveedor=proveedor,
+            user=active_user,
+            monto_ars=Decimal("1000"),
+            tc=Decimal("1000"),
+            actualizar=False,
+        )
+        _make_caso_b_imp(db, pedido=pedido, op=op, monto_usd=Decimal("1"), tc=Decimal("1000"))
+        db.add(
+            PurchaseOrderDetail(
+                comp_id=1,
+                bra_id=1,
+                poh_id=9600,
+                pod_id=1,
+                stor_id=1,
+                item_id=701,
+                pod_qty=Decimal("7"),
+            )
+        )
+        db.flush()
+
+        resp = client.get(f"{BASE}/pedidos?diferencial_cambio_pendiente=true", headers=auth_headers)
+        assert resp.status_code == 200, resp.text
+        items = resp.json()["items"]
+        match = next(i for i in items if i["id"] == pedido.id)
+        assert match["oc_lineas_total"] == 1
+        assert Decimal(str(match["oc_unidades_total"])) == Decimal("7")

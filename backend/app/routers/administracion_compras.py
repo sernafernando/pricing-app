@@ -233,6 +233,10 @@ def _pedido_response(
     # F2 — ND/NC variance circuit. None means "not computed" (list endpoints skip it
     # for performance; detail endpoint passes the computed value).
     varianza_tc_neta: Optional[Decimal] = None,
+    # `oc_totales` = (lineas, unidades) que arma el caller vía
+    # `pedidos_service.calcular_oc_totales_batch` (1 query agregada sin importar
+    # N). None → el pedido no tiene OC vinculada; ambos campos quedan None.
+    oc_totales: Optional[tuple[int, Decimal]] = None,
 ) -> PedidoCompraResponse:
     """Serializa PedidoCompra incluyendo empresa_nombre / proveedor_nombre.
 
@@ -264,6 +268,8 @@ def _pedido_response(
             "puede_eliminar": puede_eliminar,
             "saldo_pendiente": saldo_pendiente,
             "tipo_cambio_ponderado": tipo_cambio_ponderado,
+            "oc_lineas_total": oc_totales[0] if oc_totales else None,
+            "oc_unidades_total": oc_totales[1] if oc_totales else None,
             # F2 — varianza_tc_neta = None → fields stay at schema defaults (False/0).
             # Detail endpoint populates; list endpoints leave as defaults to avoid N+1.
             **(
@@ -422,6 +428,14 @@ def listar_pedidos(
         puede_map = compras_papelera_service._calcular_puede_eliminar_pedidos_batch(db, items_page)
         saldo_imp_map = pedidos_service.calcular_saldos_pendientes_batch(db, page_ids)
         tc_pond_map = pedidos_service.calcular_tc_ponderado_pedido_batch(db, page_ids)
+        # D4 — `PedidoCompraResponse` is one contract: populated on one branch of
+        # listar_pedidos and None on the other (selected by an unrelated query
+        # param) is the same drift class D2 exists to kill. `solo_deposito` never
+        # reaches this branch (checked above), so this is a consistency call.
+        oc_totales_map = pedidos_service.calcular_oc_totales_batch(
+            db,
+            {p.id: (p.oc_comp_id, p.oc_bra_id, p.oc_poh_id) for p in items_page if p.oc_poh_id is not None},
+        )
 
         return PedidoCompraPaginated(
             items=[
@@ -431,6 +445,7 @@ def listar_pedidos(
                     saldo_pendiente=Decimal(p.monto) - saldo_imp_map.get(p.id, Decimal(0)),
                     tipo_cambio_ponderado=tc_pond_map.get(p.id),
                     varianza_tc_neta=varianza_map.get(p.id),
+                    oc_totales=oc_totales_map.get(p.id),
                 )
                 for p in items_page
             ],
@@ -470,6 +485,14 @@ def listar_pedidos(
     items, total = _paginate(db, stmt, page=page, page_size=page_size)
     puede_map = compras_papelera_service._calcular_puede_eliminar_pedidos_batch(db, items)
     pedido_ids = [p.id for p in items]
+    # Item composition is NOT the money trail the solo_deposito branch withholds.
+    # It is precisely what a warehouse-only operator needs to tell two pedidos
+    # from the same proveedor apart, so it is computed UNCONDITIONALLY. Folding
+    # this into the branch below would hide the feature from its own audience.
+    oc_totales_map = pedidos_service.calcular_oc_totales_batch(
+        db,
+        {p.id: (p.oc_comp_id, p.oc_bra_id, p.oc_poh_id) for p in items if p.oc_poh_id is not None},
+    )
     # These three aggregates feed the accounting fields only, so a warehouse-only
     # listing skips them entirely instead of computing and discarding them.
     if solo_deposito:
@@ -494,6 +517,7 @@ def listar_pedidos(
                 saldo_pendiente=(None if solo_deposito else Decimal(p.monto) - saldo_imp_map.get(p.id, Decimal(0))),
                 tipo_cambio_ponderado=None if solo_deposito else tc_pond_map.get(p.id),
                 varianza_tc_neta=None if solo_deposito else varianza_map.get(p.id),
+                oc_totales=oc_totales_map.get(p.id),
             )
             for p in items
         ],
@@ -5057,7 +5081,9 @@ def get_recepcion_saldos(
     pedido = _obtener_pedido_recepcion_o_404(db, pedido_id)
     # Guard: receptive states + controlado for audit access (REQ-EC-009).
     # controlado is terminal but saldos are still queryable for audit/traceability.
-    if pedido.estado not in {"pagado", "recibido", "con_faltantes", "controlado"}:
+    # Derived from `recepcion_service.ESTADOS_CONSULTA_SALDOS` — single authority,
+    # see that constant's docstring for why this must never be a local literal.
+    if pedido.estado not in recepcion_service.ESTADOS_CONSULTA_SALDOS:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail="Pedido not in a receivable state",
