@@ -93,6 +93,19 @@ def _tiene_permiso(db: Session, user: Usuario, permiso: str) -> bool:
     return PermisosService(db).tiene_permiso(user, permiso)
 
 
+def _check_algun_permiso(db: Session, user: Usuario, permisos: list[str]) -> None:
+    """Raise 403 unless the user holds at least one of `permisos`.
+
+    Used by `cambiar_estado_ticket` so `tickets.agente` (tickets-ai-triage PR
+    6 — narrow, service-user-only) grants transitions WITHOUT also granting
+    the rest of `tickets.gestionar`'s bundle (assign, workflow edit, delete
+    attachment, internal comments), which every other `tickets.gestionar`
+    gate in this module still checks on its own.
+    """
+    if not PermisosService(db).tiene_algun_permiso(user, permisos):
+        raise HTTPException(status_code=403, detail=f"Sin permiso: {' o '.join(permisos)}")
+
+
 def _check_acceso_ticket(db: Session, user: Usuario, ticket: Ticket) -> None:
     """
     Verifica que el usuario puede acceder a un ticket.
@@ -1024,9 +1037,11 @@ async def cambiar_estado_ticket(
     """
     Cambia el estado de un ticket siguiendo las transiciones del workflow.
 
-    Requiere: tickets.gestionar
+    Requiere: tickets.gestionar O tickets.agente (el rol de servicio
+    AGENTE_IA, tickets-ai-triage PR 6, transiciona tickets sin el resto de
+    las capacidades de tickets.gestionar).
     """
-    _check_permiso(db, current_user, "tickets.gestionar")
+    _check_algun_permiso(db, current_user, ["tickets.gestionar", "tickets.agente"])
 
     ticket = db.query(Ticket).filter(Ticket.id == ticket_id).first()
 
