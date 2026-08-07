@@ -2,6 +2,8 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import { usePermisos } from '../contexts/PermisosContext';
 import { useSSEChannel } from '../hooks/useSSEChannel';
 import { ticketsAPI, sectoresAPI } from '../services/api';
+import ProvenanceBadge from './ProvenanceBadge';
+import TicketProposals from './TicketProposals';
 import {
   X,
   MessageSquare,
@@ -373,7 +375,16 @@ export default function TicketDetail({ ticketId, onClose, onTicketChanged }) {
               {ticket.prioridad}
             </span>
           </div>
-          <h3 className={styles.ticketTitle}>{ticket.titulo}</h3>
+          <div className={styles.headerRow}>
+            <h3 className={styles.ticketTitle}>{ticket.titulo}</h3>
+            <ProvenanceBadge origen={ticket.titulo_origen} />
+          </div>
+          {ticket.resumen && (
+            <div className={styles.headerRow}>
+              <span className={styles.infoValue}>{ticket.resumen}</span>
+              <ProvenanceBadge origen={ticket.resumen_origen} />
+            </div>
+          )}
         </div>
         <button className={styles.btnClose} onClick={onClose} aria-label="Cerrar detalle">
           <X size={16} />
@@ -389,6 +400,18 @@ export default function TicketDetail({ ticketId, onClose, onTicketChanged }) {
         <div className={styles.infoItem}>
           <span className={styles.infoLabel}>Tipo</span>
           <span className={styles.infoValue}>{ticket.tipo_ticket?.nombre || '-'}</span>
+        </div>
+        <div className={styles.infoItem}>
+          <span className={styles.infoLabel}>Severidad</span>
+          <span className={styles.infoValue}>
+            {ticket.severidad || 'Sin clasificar'} <ProvenanceBadge origen={ticket.severidad_origen} />
+          </span>
+        </div>
+        <div className={styles.infoItem}>
+          <span className={styles.infoLabel}>Urgencia</span>
+          <span className={styles.infoValue}>
+            {ticket.urgencia || 'Sin clasificar'} <ProvenanceBadge origen={ticket.urgencia_origen} />
+          </span>
         </div>
         <div className={styles.infoItem}>
           <span className={styles.infoLabel}>Creador</span>
@@ -407,6 +430,9 @@ export default function TicketDetail({ ticketId, onClose, onTicketChanged }) {
           <span className={styles.infoValue}>{ticket.closed_at ? formatDate(ticket.closed_at) : '-'}</span>
         </div>
       </div>
+
+      {/* AI triage proposals — confirm affordance with confidence */}
+      <TicketProposals ticketId={ticketId} onChanged={fetchTicket} />
 
       {/* Metadata fields */}
       {metadataEntries.length > 0 && (

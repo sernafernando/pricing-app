@@ -1,7 +1,15 @@
-from pydantic import BaseModel, ConfigDict, Field
-from typing import Optional, Dict, Any
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+from typing import List, Literal, Optional, Dict, Any
 from datetime import datetime
 from app.tickets.models.ticket import PrioridadTicket
+
+# Mirrors the CHECK constraint on `tickets.urgencia` (`ck_tickets_urgencia`
+# — `models/ticket.py`). A closed vocabulary here, not a bare `str`, so a
+# bad value 422s cleanly instead of reaching `db.commit()` and surfacing as
+# an unhandled `IntegrityError` (500) — the same defense-in-depth this
+# change already applies elsewhere (`CAMPOS_CONFIRMABLES` in
+# confirmacion_service).
+UrgenciaValor = Literal["baja", "normal", "alta", "inmediata"]
 
 
 class UsuarioSimple(BaseModel):
@@ -115,10 +123,39 @@ class TicketBase(BaseModel):
 
 
 class TicketCreate(TicketBase):
-    """Schema para crear un Ticket"""
+    """Schema para crear un Ticket.
 
-    sector_id: int = Field(..., description="ID del sector al que pertenece")
-    tipo_ticket_id: int = Field(..., description="ID del tipo de ticket")
+    Single-box intake (tickets-ai-triage PR 3): `sector_id`/`tipo_ticket_id`
+    are optional and default to the seeded Inbox pair (Sector INBOX /
+    TipoTicket SIN_CLASIFICAR) when omitted — explicit values still win.
+    `titulo` is optional too; when not sent, the endpoint derives it from
+    `texto` (first ~80 chars). `texto` is persisted verbatim once, in
+    `Ticket.texto_original`, and is never part of `TicketUpdate`.
+    """
+
+    sector_id: Optional[int] = Field(default=None, description="ID del sector (default: Bandeja de entrada)")
+    tipo_ticket_id: Optional[int] = Field(default=None, description="ID del tipo de ticket (default: Sin clasificar)")
+    titulo: Optional[str] = Field(
+        default=None, min_length=5, max_length=255, description="Título; si se omite, se deriva de texto"
+    )
+    texto: Optional[str] = Field(
+        default=None,
+        description="Texto libre del reporte. Se guarda tal cual en texto_original y, si no se envía "
+        "un título explícito, se usa para derivarlo.",
+    )
+
+    @field_validator("texto")
+    @classmethod
+    def _texto_no_muy_corto(cls, v: Optional[str]) -> Optional[str]:
+        if v is not None and len(v.strip()) < 5:
+            raise ValueError("El texto debe tener al menos 5 caracteres")
+        return v
+
+    @model_validator(mode="after")
+    def _requiere_texto_o_titulo(self) -> "TicketCreate":
+        if not self.texto and not self.titulo:
+            raise ValueError("Debe indicar texto o título para crear el ticket")
+        return self
 
 
 class TicketUpdate(BaseModel):
@@ -128,6 +165,21 @@ class TicketUpdate(BaseModel):
     descripcion: Optional[str] = None
     prioridad: Optional[PrioridadTicket] = None
     metadata: Optional[Dict[str, Any]] = None
+
+    # tickets-ai-triage PR 5c: manual urgency reclassification, primarily via
+    # the board's drag-and-drop (dropping a card on a different URGENCY
+    # column). `None` sent EXPLICITLY clears urgencia (the "Sin clasificar"
+    # column); the field simply absent leaves it untouched — see
+    # `actualizar_ticket`'s `model_fields_set` check, not `is not None`.
+    urgencia: Optional[UrgenciaValor] = Field(default=None, description="Urgencia asignada manualmente")
+    # This endpoint is the HUMAN write path — any user with ticket access
+    # can call it. `"humano"` is the only legal value: accepting
+    # `ia_confirmada`/`ia_auto` here would let a human claim AI provenance
+    # for a manually-set value. The endpoint derives urgencia_origen itself
+    # regardless of what's sent (defense in depth on top of this Literal).
+    urgencia_origen: Optional[Literal["humano"]] = Field(
+        default=None, description="Siempre 'humano' — este es el camino de escritura humana"
+    )
 
 
 class TicketResponse(TicketBase):
@@ -145,6 +197,17 @@ class TicketResponse(TicketBase):
     updated_at: Optional[datetime] = None
     closed_at: Optional[datetime] = None
 
+    # tickets-ai-triage PR 4c: AI-inferred fields + provenance (spec's
+    # "Provenance Is Always Visible"). All nullable — NULL means unclassified
+    # or not yet AI-curated. `*_origen` in ('humano','ia_confirmada','ia_auto').
+    severidad: Optional[str] = None
+    urgencia: Optional[str] = None
+    severidad_origen: Optional[str] = None
+    urgencia_origen: Optional[str] = None
+    resumen: Optional[str] = None
+    titulo_origen: Optional[str] = None
+    resumen_origen: Optional[str] = None
+
     model_config = ConfigDict(from_attributes=True)
 
 
@@ -161,6 +224,16 @@ class TicketListResponse(BaseModel):
     asignado_a: Optional[UsuarioSimple] = None
     esta_cerrado: bool
     created_at: datetime
+
+    # tickets-ai-triage PR 5b: gap found while wiring the board's "load
+    # more" (GET /tickets) — TicketCard needs these to render the same as a
+    # board card, and they were only ever serialized on TicketResponse
+    # (PR 4c). Free from the ORM: same columns, no query change.
+    severidad: Optional[str] = None
+    urgencia: Optional[str] = None
+    severidad_origen: Optional[str] = None
+    urgencia_origen: Optional[str] = None
+    resumen: Optional[str] = None
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -274,3 +347,73 @@ class TicketListPaginatedResponse(BaseModel):
     page: int
     page_size: int
     pages: int
+
+
+class PropuestaResponse(BaseModel):
+    """Schema de respuesta para una propuesta de IA (tickets-ai-triage PR 4b)"""
+
+    id: int
+    ticket_id: int
+    campo: str
+    valor_propuesto: Dict[str, Any]
+    confianza: Optional[float] = None
+    modelo: Optional[str] = None
+    estado: str
+    confirmado_por_id: Optional[int] = None
+    confirmado_at: Optional[datetime] = None
+    created_at: datetime
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class ConfirmarBatchRequest(BaseModel):
+    """Schema para confirmar múltiples propuestas de IA en un solo request"""
+
+    propuesta_ids: List[int] = Field(..., min_length=1, description="IDs de propuestas pendientes a confirmar")
+
+
+class TicketCardResponse(BaseModel):
+    """Schema de respuesta para una card del tablero (tickets-ai-triage PR 5a).
+
+    Deliberadamente MÁS ANGOSTO que `TicketListResponse` — una card no
+    necesita todo lo que necesita una fila de tabla. `propuestas_pendientes`
+    no estaba en el pedido original de campos, pero se agregó porque sale
+    gratis: una subquery correlacionada dentro de la MISMA query de items,
+    sin round-trip ni JOIN adicional (ver `_items_del_board`).
+    """
+
+    id: int
+    titulo: str
+    resumen: Optional[str] = None
+    severidad: Optional[str] = None
+    urgencia: Optional[str] = None
+    severidad_origen: Optional[str] = None
+    urgencia_origen: Optional[str] = None
+    estado: EstadoSimple
+    sector: SectorSimple
+    created_at: datetime
+    propuestas_pendientes: int = 0
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class BoardColumnResponse(BaseModel):
+    """Una columna del tablero — ver `BoardResponse`."""
+
+    clave: str
+    etiqueta: str
+    color: Optional[str] = None
+    total: int
+    items: List[TicketCardResponse] = Field(default_factory=list)
+
+
+class BoardResponse(BaseModel):
+    """Respuesta de `GET /tickets/board` (tickets-ai-triage PR 5a).
+
+    Deliberadamente SIN metadata de paginación más allá de `total` por
+    columna: el overflow de una columna no tiene su propia paginación, el
+    cliente pide más vía `GET /tickets` con un filtro equivalente.
+    """
+
+    agrupacion: str
+    columnas: List[BoardColumnResponse]

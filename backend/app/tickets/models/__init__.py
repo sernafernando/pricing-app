@@ -7,6 +7,7 @@ from app.tickets.models.historial_ticket import HistorialTicket
 from app.tickets.models.comentario_ticket import ComentarioTicket
 from app.tickets.models.sector_usuario import SectorUsuario
 from app.tickets.models.adjunto_ticket import AdjuntoTicket
+from app.tickets.models.propuesta_ia import PropuestaIA
 
 __all__ = [
     "Sector",
@@ -20,4 +21,5 @@ __all__ = [
     "ComentarioTicket",
     "SectorUsuario",
     "AdjuntoTicket",
+    "PropuestaIA",
 ]

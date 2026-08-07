@@ -1,0 +1,85 @@
+.card {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-xs);
+  width: 100%;
+  text-align: left;
+  padding: var(--spacing-sm);
+  border: 1px solid var(--cf-border-default);
+  border-radius: var(--radius-md);
+  background: var(--cf-bg-card);
+  cursor: pointer;
+  font-family: inherit;
+  transition:
+    background var(--duration-200) var(--ease-out),
+    border-color var(--duration-200) var(--ease-out);
+}
+
+.card:hover {
+  background: var(--cf-bg-hover);
+  border-color: var(--cf-accent-blue);
+}
+
+.cardDragging {
+  opacity: 0.5;
+}
+
+.cardHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--spacing-xs);
+}
+
+.ticketId {
+  font-family: monospace;
+  font-size: var(--font-xs);
+  font-weight: 600;
+  color: var(--cf-accent-blue);
+}
+
+.pendingBadge {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding: 1px 6px;
+  border-radius: var(--radius-full);
+  background: var(--cf-accent-blue-light);
+  color: var(--cf-accent-blue);
+  font-size: 10px;
+  font-weight: 700;
+}
+
+.titulo {
+  font-size: var(--font-sm);
+  font-weight: 600;
+  color: var(--cf-text-primary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+}
+
+.resumen {
+  font-size: var(--font-xs);
+  color: var(--cf-text-secondary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.metaRow {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-sm);
+  flex-wrap: wrap;
+}
+
+.metaItem {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: var(--font-xs);
+  color: var(--cf-text-secondary);
+}

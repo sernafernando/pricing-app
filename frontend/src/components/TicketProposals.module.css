@@ -1,0 +1,75 @@
+.container {
+  padding: var(--spacing-sm) var(--spacing-md);
+  border-bottom: 1px solid var(--cf-border-default);
+  background: var(--cf-accent-blue-light);
+}
+
+.header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--spacing-sm);
+  margin-bottom: var(--spacing-xs);
+}
+
+.title {
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--cf-text-tertiary);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.btnBatch {
+  composes: btn-tesla primary xs from '../styles/buttons-tesla.css';
+}
+
+.list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-xs);
+}
+
+.item {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-xs);
+}
+
+.checkbox {
+  flex-shrink: 0;
+}
+
+.label {
+  flex: 1;
+  font-size: var(--font-sm);
+  color: var(--cf-text-primary);
+}
+
+.confianza {
+  color: var(--cf-accent-blue);
+  font-weight: 600;
+}
+
+.actions {
+  display: flex;
+  gap: 4px;
+  flex-shrink: 0;
+}
+
+.btnConfirm {
+  composes: btn-tesla outline-subtle-success icon-only xs from '../styles/buttons-tesla.css';
+}
+
+.btnDiscard {
+  composes: btn-tesla outline-subtle-danger icon-only xs from '../styles/buttons-tesla.css';
+}
+
+.inlineError {
+  color: var(--cf-accent-red);
+  font-size: var(--font-xs);
+  margin-bottom: var(--spacing-xs);
+}

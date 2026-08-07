@@ -618,6 +618,11 @@ export const ticketsAPI = {
   // Historial
   obtenerHistorial: (id) => api.get(`/tickets/tickets/${id}/historial`),
 
+  // Triage IA (tickets-ai-triage)
+  listarPropuestas: (id) => api.get(`/tickets/tickets/${id}/propuestas`),
+  triage: (id, forzar = false) =>
+    api.post(`/tickets/tickets/${id}/triage`, null, { params: { forzar } }),
+
   // Adjuntos
   listarAdjuntos: (id) => api.get(`/tickets/tickets/${id}/adjuntos`),
   subirAdjunto: (id, file) => {
@@ -662,6 +667,22 @@ export const sectoresAPI = {
     api.patch(`/tickets/sectores/${sectorId}/tipos-ticket/${tipoId}`, data),
   eliminarTipoTicket: (sectorId, tipoId) =>
     api.delete(`/tickets/sectores/${sectorId}/tipos-ticket/${tipoId}`),
+};
+
+// ── Propuestas IA (tickets-ai-triage) ────────────────────────
+export const propuestasAPI = {
+  confirmar: (id) => api.post(`/tickets/propuestas/${id}/confirmar`),
+  descartar: (id) => api.post(`/tickets/propuestas/${id}/descartar`),
+  confirmarBatch: (propuestaIds) =>
+    api.post('/tickets/propuestas/confirmar-batch', { propuesta_ids: propuestaIds }),
+};
+
+// ── Tablero (tickets-ai-triage PR 5b) ────────────────────────
+export const boardAPI = {
+  obtener: (agrupacion, itemsPorColumna) =>
+    api.get('/tickets/tickets/board', {
+      params: { agrupacion, items_por_columna: itemsPorColumna },
+    }),
 };
 
 export const workflowsAPI = {

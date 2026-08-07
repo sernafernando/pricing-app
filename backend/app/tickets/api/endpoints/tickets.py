@@ -1,12 +1,14 @@
+import enum
 import logging
 import math
 import os
 import uuid
 from datetime import UTC, datetime
-from typing import List, Optional
+from typing import Dict, List, Optional
 
-from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile
+from fastapi import APIRouter, BackgroundTasks, Depends, File, HTTPException, Query, UploadFile
 from fastapi.responses import FileResponse
+from sqlalchemy import case, func, or_
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_current_user
@@ -15,7 +17,9 @@ from app.core.database import get_db
 from app.core.sse import sse_publish
 from app.models.usuario import Usuario
 from app.services.permisos_service import PermisosService
+from app.tickets.api.deps import get_triage_provider
 from app.tickets.models.adjunto_ticket import AdjuntoTicket
+from app.tickets.models.propuesta_ia import PropuestaIA
 from app.tickets.models.sector_usuario import SectorUsuario
 from app.tickets.models.asignacion_ticket import AsignacionTicket, TipoAsignacion
 from app.tickets.models.comentario_ticket import ComentarioTicket
@@ -24,14 +28,20 @@ from app.tickets.models.sector import Sector
 from app.tickets.models.ticket import Ticket, PrioridadTicket
 from app.tickets.models.tipo_ticket import TipoTicket
 from app.tickets.models.workflow import EstadoTicket, Workflow
+from app.tickets.services.triage_service import LlmProvider, run_triage
 from app.tickets.services.workflow_service import MotivoRechazoTransicion, WorkflowService
 from app.tickets.schemas.ticket_schemas import (
     AdjuntoResponse,
     AsignarTicketRequest,
+    BoardColumnResponse,
+    BoardResponse,
     ComentarioCreate,
     ComentarioResponse,
+    EstadoSimple,
     HistorialResponse,
+    SectorSimple,
     TicketBadgeCount,
+    TicketCardResponse,
     TicketCreate,
     TicketListPaginatedResponse,
     TicketResponse,
@@ -56,6 +66,21 @@ ALLOWED_MIME_TYPES = {
 }
 
 
+# Single-box intake defaults (tickets-ai-triage PR 3) — seeded by
+# 20260805_seed_inbox_sector_and_workflow.py.
+INBOX_SECTOR_CODIGO = "INBOX"
+INBOX_TIPO_CODIGO = "SIN_CLASIFICAR"
+TITULO_DERIVADO_MAX_LEN = 80
+
+
+def _derivar_titulo(texto: str) -> str:
+    """Deriva un título legible a partir de texto libre (primeros ~80 caracteres).
+
+    Pure function — no DB, no side effects, trivially testable.
+    """
+    return texto.strip()[:TITULO_DERIVADO_MAX_LEN].rstrip()
+
+
 def _check_permiso(db: Session, user: Usuario, permiso: str) -> None:
     """Raise 403 if user lacks the required permission."""
     svc = PermisosService(db)
@@ -66,6 +91,19 @@ def _check_permiso(db: Session, user: Usuario, permiso: str) -> None:
 def _tiene_permiso(db: Session, user: Usuario, permiso: str) -> bool:
     """Check if user has a permission without raising."""
     return PermisosService(db).tiene_permiso(user, permiso)
+
+
+def _check_algun_permiso(db: Session, user: Usuario, permisos: list[str]) -> None:
+    """Raise 403 unless the user holds at least one of `permisos`.
+
+    Used by `cambiar_estado_ticket` so `tickets.agente` (tickets-ai-triage PR
+    6 — narrow, service-user-only) grants transitions WITHOUT also granting
+    the rest of `tickets.gestionar`'s bundle (assign, workflow edit, delete
+    attachment, internal comments), which every other `tickets.gestionar`
+    gate in this module still checks on its own.
+    """
+    if not PermisosService(db).tiene_algun_permiso(user, permisos):
+        raise HTTPException(status_code=403, detail=f"Sin permiso: {' o '.join(permisos)}")
 
 
 def _check_acceso_ticket(db: Session, user: Usuario, ticket: Ticket) -> None:
@@ -80,6 +118,280 @@ def _check_acceso_ticket(db: Session, user: Usuario, ticket: Ticket) -> None:
     if ticket.creador_id == user.id:
         return
     raise HTTPException(status_code=403, detail="No tenés acceso a este ticket")
+
+
+# ── Board + explicit ordering (tickets-ai-triage PR 5a) ────────────────
+#
+# severidad/urgencia are VARCHAR (see Ticket model docstring — never a PG
+# ENUM, downgrade() would be a lie). A plain `ORDER BY severidad DESC` sorts
+# ALPHABETICALLY: trivial, menor, mayor, critica — backwards. `_rank_case()`
+# maps each vocabulary value to an explicit ordinal instead.
+SEVERIDAD_VOCAB = ["trivial", "menor", "mayor", "critica"]
+URGENCIA_VOCAB = ["baja", "normal", "alta", "inmediata"]
+URGENCIA_SIN_CLASIFICAR = "sin_clasificar"
+URGENCIA_ETIQUETAS = {
+    "baja": "Baja",
+    "normal": "Normal",
+    "alta": "Alta",
+    "inmediata": "Inmediata",
+    URGENCIA_SIN_CLASIFICAR: "Sin clasificar",
+}
+URGENCIA_COLORES = {
+    "baja": "#94A3B8",
+    "normal": "#3B82F6",
+    "alta": "#F59E0B",
+    "inmediata": "#EF4444",
+    URGENCIA_SIN_CLASIFICAR: "#9CA3AF",
+}
+ITEMS_POR_COLUMNA_DEFAULT = 20
+ITEMS_POR_COLUMNA_MAX = 100
+
+
+def _rank_case(columna, vocabulario: List[str]):
+    """Explicit rank CASE for a VARCHAR column storing an ordered vocabulary.
+
+    Pure function, unit-testable without a DB or a session — `columna` and
+    the returned expression are plain SQLAlchemy constructs, never executed
+    here. NULL/unknown values rank below every known value (-1), so they
+    always sort last regardless of ASC/DESC direction.
+    """
+    whens = [(columna == valor, indice) for indice, valor in enumerate(vocabulario)]
+    return case(*whens, else_=-1)
+
+
+class TicketOrderBy(str, enum.Enum):
+    """Query enum — the injection boundary: an unknown value 422s before
+    FastAPI even calls `listar_tickets`, never reaching SQL."""
+
+    CREATED_AT = "created_at"
+    TITULO = "titulo"
+    SEVERIDAD = "severidad"
+    URGENCIA = "urgencia"
+
+
+class TicketOrderDir(str, enum.Enum):
+    ASC = "asc"
+    DESC = "desc"
+
+
+class AgrupacionBoard(str, enum.Enum):
+    ESTADO = "estado"
+    URGENCIA = "urgencia"
+
+
+class UrgenciaFiltro(str, enum.Enum):
+    """Query enum for `listar_tickets`'s `urgencia` filter — same
+    injection-boundary pattern as `TicketOrderBy`/`AgrupacionBoard`. Added
+    in PR 5b: the board groups by urgencia, but GET /tickets had no matching
+    filter for its "load more" to reuse (gap found, closed here)."""
+
+    BAJA = "baja"
+    NORMAL = "normal"
+    ALTA = "alta"
+    INMEDIATA = "inmediata"
+    SIN_CLASIFICAR = "sin_clasificar"
+
+
+def _aplicar_orden(query, order_by: TicketOrderBy, order_dir: TicketOrderDir):
+    """Applies ORDER BY, using `_rank_case()` for severidad/urgencia."""
+    columnas = {
+        TicketOrderBy.CREATED_AT: Ticket.created_at,
+        TicketOrderBy.TITULO: Ticket.titulo,
+        TicketOrderBy.SEVERIDAD: _rank_case(Ticket.severidad, SEVERIDAD_VOCAB),
+        TicketOrderBy.URGENCIA: _rank_case(Ticket.urgencia, URGENCIA_VOCAB),
+    }
+    columna = columnas[order_by]
+    return query.order_by(columna.desc() if order_dir == TicketOrderDir.DESC else columna.asc())
+
+
+def _visible_tickets_filter(db: Session, current_user: Usuario):
+    """Access-scope filter for the board — same visibility rule as
+    `listar_tickets` (admin sees all; `tickets.ver` sees their sectores +
+    lo que crearon; nadie más ve solo lo que creó). Returns `None` for "no
+    filter" (admin) or a SQLAlchemy boolean expression to `.filter()`.
+    """
+    if _tiene_permiso(db, current_user, "tickets.admin"):
+        return None
+    if _tiene_permiso(db, current_user, "tickets.ver"):
+        mis_sectores = (
+            db.query(SectorUsuario.sector_id)
+            .filter(SectorUsuario.usuario_id == current_user.id, SectorUsuario.activo.is_(True))
+            .scalar_subquery()
+        )
+        return or_(Ticket.sector_id.in_(mis_sectores), Ticket.creador_id == current_user.id)
+    return Ticket.creador_id == current_user.id
+
+
+def _columnas_por_estado(db: Session, visible_filter) -> List[BoardColumnResponse]:
+    """One column per configured `EstadoTicket`, including states with zero
+    visible tickets — a column never disappears. A SINGLE query: LEFT JOIN
+    from `tickets_estados` (every configured state) to a per-estado COUNT
+    subquery over `tickets` (inlined SQL, not a second round-trip).
+    """
+    conteos = db.query(Ticket.estado_id.label("estado_id"), func.count(Ticket.id).label("total"))
+    if visible_filter is not None:
+        conteos = conteos.filter(visible_filter)
+    conteos = conteos.group_by(Ticket.estado_id).subquery()
+
+    filas = (
+        db.query(
+            EstadoTicket.id,
+            EstadoTicket.nombre,
+            EstadoTicket.color,
+            func.coalesce(conteos.c.total, 0).label("total"),
+        )
+        .outerjoin(conteos, conteos.c.estado_id == EstadoTicket.id)
+        .order_by(EstadoTicket.orden)
+        .all()
+    )
+    return [
+        BoardColumnResponse(clave=str(fila.id), etiqueta=fila.nombre, color=fila.color, total=fila.total, items=[])
+        for fila in filas
+    ]
+
+
+def _columnas_por_urgencia(db: Session, visible_filter) -> List[BoardColumnResponse]:
+    """Fixed vocabulary (baja|normal|alta|inmediata) plus a synthetic
+    "Sin clasificar" column for NULL urgencia — unclassified tickets must
+    never vanish from the board. Columns are a static Python list; only the
+    totals come from the DB, in a SINGLE GROUP BY query.
+    """
+    conteo_expr = func.coalesce(Ticket.urgencia, URGENCIA_SIN_CLASIFICAR).label("clave")
+    conteo_query = db.query(conteo_expr, func.count(Ticket.id).label("total"))
+    if visible_filter is not None:
+        conteo_query = conteo_query.filter(visible_filter)
+    totales = {fila.clave: fila.total for fila in conteo_query.group_by(conteo_expr).all()}
+
+    return [
+        BoardColumnResponse(
+            clave=clave,
+            etiqueta=URGENCIA_ETIQUETAS[clave],
+            color=URGENCIA_COLORES[clave],
+            total=totales.get(clave, 0),
+            items=[],
+        )
+        for clave in [*URGENCIA_VOCAB, URGENCIA_SIN_CLASIFICAR]
+    ]
+
+
+def _items_del_board(
+    db: Session, agrupacion: AgrupacionBoard, visible_filter, items_por_columna: int
+) -> Dict[str, List[TicketCardResponse]]:
+    """`ROW_NUMBER() OVER (PARTITION BY <agrupación> ORDER BY <rank>)` capped
+    at `items_por_columna` — the board's SECOND and LAST query. Items within
+    a column are sorted by severidad rank descending (most severe first),
+    tie-broken by created_at ascending (FIFO) for determinism.
+
+    `propuestas_pendientes` is a correlated scalar subquery on
+    `tickets_propuestas_ia`, evaluated inline per-row by the DB engine as
+    part of THIS one statement — no extra round-trip, no N+1 from the app's
+    perspective. Decided against a third query or a JOIN specifically to
+    keep this endpoint's own query count at two.
+    """
+    grupo_expr = (
+        Ticket.estado_id
+        if agrupacion == AgrupacionBoard.ESTADO
+        else func.coalesce(Ticket.urgencia, URGENCIA_SIN_CLASIFICAR)
+    )
+    rank_expr = _rank_case(Ticket.severidad, SEVERIDAD_VOCAB)
+    propuestas_pendientes = (
+        db.query(func.count(PropuestaIA.id))
+        .filter(PropuestaIA.ticket_id == Ticket.id, PropuestaIA.estado == "pendiente")
+        .correlate(Ticket)
+        .scalar_subquery()
+    )
+
+    base = (
+        db.query(
+            Ticket.id,
+            Ticket.titulo,
+            Ticket.resumen,
+            Ticket.severidad,
+            Ticket.urgencia,
+            Ticket.severidad_origen,
+            Ticket.urgencia_origen,
+            Ticket.created_at,
+            EstadoTicket.id.label("estado_id"),
+            EstadoTicket.codigo.label("estado_codigo"),
+            EstadoTicket.nombre.label("estado_nombre"),
+            EstadoTicket.color.label("estado_color"),
+            EstadoTicket.es_final.label("estado_es_final"),
+            Sector.id.label("sector_id"),
+            Sector.codigo.label("sector_codigo"),
+            Sector.nombre.label("sector_nombre"),
+            Sector.color.label("sector_color"),
+            propuestas_pendientes.label("propuestas_pendientes"),
+            grupo_expr.label("grupo"),
+        )
+        .join(EstadoTicket, EstadoTicket.id == Ticket.estado_id)
+        .join(Sector, Sector.id == Ticket.sector_id)
+    )
+    if visible_filter is not None:
+        base = base.filter(visible_filter)
+
+    row_number_col = (
+        func.row_number().over(partition_by=grupo_expr, order_by=[rank_expr.desc(), Ticket.created_at.asc()])
+    ).label("rn")
+    ranked = base.add_columns(row_number_col).subquery()
+
+    filas = db.query(ranked).filter(ranked.c.rn <= items_por_columna).order_by(ranked.c.grupo, ranked.c.rn).all()
+
+    items_por_clave: Dict[str, List[TicketCardResponse]] = {}
+    for fila in filas:
+        items_por_clave.setdefault(str(fila.grupo), []).append(
+            TicketCardResponse(
+                id=fila.id,
+                titulo=fila.titulo,
+                resumen=fila.resumen,
+                severidad=fila.severidad,
+                urgencia=fila.urgencia,
+                severidad_origen=fila.severidad_origen,
+                urgencia_origen=fila.urgencia_origen,
+                estado=EstadoSimple(
+                    id=fila.estado_id,
+                    codigo=fila.estado_codigo,
+                    nombre=fila.estado_nombre,
+                    color=fila.estado_color,
+                    es_final=fila.estado_es_final,
+                ),
+                sector=SectorSimple(
+                    id=fila.sector_id, codigo=fila.sector_codigo, nombre=fila.sector_nombre, color=fila.sector_color
+                ),
+                created_at=fila.created_at,
+                propuestas_pendientes=fila.propuestas_pendientes or 0,
+            )
+        )
+    return items_por_clave
+
+
+@router.get("/tickets/board", response_model=BoardResponse)
+def obtener_board(
+    agrupacion: AgrupacionBoard = Query(..., description="Agrupación de columnas: estado o urgencia"),
+    items_por_columna: int = Query(ITEMS_POR_COLUMNA_DEFAULT, ge=1, le=ITEMS_POR_COLUMNA_MAX),
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(get_current_user),
+) -> BoardResponse:
+    """
+    Tablero de tickets agrupado por estado o urgencia (tickets-ai-triage PR 5a).
+
+    Exactamente DOS queries sin importar la cantidad de columnas: una
+    GROUP BY para los totales por columna, una ROW_NUMBER() OVER (PARTITION
+    BY <agrupación> ORDER BY <rank>) acotada a items_por_columna para los
+    items. El overflow de una columna NO tiene paginación propia — el
+    cliente pide más vía GET /tickets con el filtro correspondiente.
+    """
+    visible_filter = _visible_tickets_filter(db, current_user)
+
+    if agrupacion == AgrupacionBoard.ESTADO:
+        columnas = _columnas_por_estado(db, visible_filter)
+    else:
+        columnas = _columnas_por_urgencia(db, visible_filter)
+
+    items_por_clave = _items_del_board(db, agrupacion, visible_filter, items_por_columna)
+    for columna in columnas:
+        columna.items = items_por_clave.get(columna.clave, [])
+
+    return BoardResponse(agrupacion=agrupacion.value, columnas=columnas)
 
 
 # ── Badge count (MUST be before /{ticket_id} to avoid path capture) ──
@@ -340,36 +652,72 @@ async def marcar_revisado(
 # ── CRUD de tickets ──────────────────────────────────────────────
 
 
+# ponytail: tickets.crear stays unenforced here on purpose — enforcing it
+# would lock out exactly the non-technical reporters this change exists to
+# serve (seeded at migration 20260316t1:26-32, checked by no endpoint today).
+# The correct fix is to seed the permission to every role FIRST, then
+# enforce — a separate change with its own blast radius, not this one.
 @router.post("/tickets", response_model=TicketResponse, status_code=201)
 async def crear_ticket(
     ticket_data: TicketCreate,
+    background_tasks: BackgroundTasks,
     db: Session = Depends(get_db),
     current_user: Usuario = Depends(get_current_user),
+    triage_provider: LlmProvider = Depends(get_triage_provider),
 ) -> TicketResponse:
     """
     Crea un nuevo ticket.
 
-    Cualquier usuario logueado puede crear tickets.
+    Cualquier usuario logueado puede crear tickets. `sector_id`/`tipo_ticket_id`
+    son opcionales: si se omiten, el ticket se crea en la Bandeja de entrada
+    (sector INBOX, tipo SIN_CLASIFICAR) sembrada por la migración de PR 3.
+    `titulo` se deriva de `texto` cuando no se envía explícitamente; `texto`
+    se persiste una única vez en `texto_original` y nunca vuelve a escribirse.
     """
 
-    # Validar sector
-    sector = db.query(Sector).filter(Sector.id == ticket_data.sector_id).first()
-    if not sector:
-        raise HTTPException(status_code=404, detail=f"Sector {ticket_data.sector_id} no encontrado")
+    # Validar/derivar sector
+    if ticket_data.sector_id is not None:
+        sector = db.query(Sector).filter(Sector.id == ticket_data.sector_id).first()
+        if not sector:
+            raise HTTPException(status_code=404, detail=f"Sector {ticket_data.sector_id} no encontrado")
+    else:
+        sector = db.query(Sector).filter(Sector.codigo == INBOX_SECTOR_CODIGO).first()
+        if not sector:
+            raise HTTPException(status_code=400, detail="No hay sector de Bandeja de entrada configurado")
 
     if not sector.activo:
         raise HTTPException(status_code=400, detail=f"Sector {sector.nombre} está inactivo")
 
-    # Validar tipo de ticket
-    tipo_ticket = (
-        db.query(TipoTicket)
-        .filter(TipoTicket.id == ticket_data.tipo_ticket_id, TipoTicket.sector_id == ticket_data.sector_id)
-        .first()
-    )
-    if not tipo_ticket:
+    # Validar/derivar tipo de ticket
+    if ticket_data.tipo_ticket_id is not None:
+        tipo_ticket = (
+            db.query(TipoTicket)
+            .filter(TipoTicket.id == ticket_data.tipo_ticket_id, TipoTicket.sector_id == sector.id)
+            .first()
+        )
+        if not tipo_ticket:
+            raise HTTPException(
+                status_code=404,
+                detail=f"Tipo de ticket {ticket_data.tipo_ticket_id} no encontrado para sector {sector.codigo}",
+            )
+    elif ticket_data.sector_id is None:
+        # True single-box path: neither sector_id nor tipo_ticket_id was
+        # sent, so fall back to the seeded Inbox tipo.
+        tipo_ticket = (
+            db.query(TipoTicket)
+            .filter(TipoTicket.codigo == INBOX_TIPO_CODIGO, TipoTicket.sector_id == sector.id)
+            .first()
+        )
+        if not tipo_ticket:
+            raise HTTPException(status_code=400, detail="No hay tipo de ticket 'Sin clasificar' configurado")
+    else:
+        # An explicit sector_id was sent for a non-Inbox sector, but
+        # tipo_ticket_id was not — the SIN_CLASIFICAR fallback only exists
+        # inside the Inbox sector, so silently searching for it here would
+        # produce a misleading "not configured" error. Say what's missing.
         raise HTTPException(
-            status_code=404,
-            detail=f"Tipo de ticket {ticket_data.tipo_ticket_id} no encontrado para sector {sector.codigo}",
+            status_code=422,
+            detail=f"tipo_ticket_id es requerido al especificar sector_id (sector {sector.codigo})",
         )
 
     # Obtener workflow (del tipo o default del sector)
@@ -392,16 +740,32 @@ async def crear_ticket(
     if not estado_inicial:
         raise HTTPException(status_code=400, detail=f"Workflow {workflow.nombre} no tiene estado inicial definido")
 
-    # Crear ticket
+    # Crear ticket — titulo explícito gana; si no se envió, se deriva de texto
+    # (el validador de TicketCreate garantiza que al menos uno esté presente).
+    titulo = ticket_data.titulo or _derivar_titulo(ticket_data.texto)
+
+    # texto_original stores the verbatim receipt, but nothing renders that
+    # column in the UI yet — without this fallback, a long single-box texto
+    # (titulo truncated to ~80 chars, descripcion empty) would be
+    # effectively invisible to the user after creation. descripcion stays
+    # editable afterwards (unlike texto_original); an explicit descripcion
+    # always wins.
+    # ponytail: descripcion and texto_original both start from the same
+    # value here but diverge on the first PATCH (descripcion is editable,
+    # texto_original never is) — once a UI surfaces texto_original
+    # directly, this fallback becomes redundant and should be reconsidered.
+    descripcion = ticket_data.descripcion or ticket_data.texto
+
     nuevo_ticket = Ticket(
-        titulo=ticket_data.titulo,
-        descripcion=ticket_data.descripcion,
+        titulo=titulo,
+        descripcion=descripcion,
         prioridad=ticket_data.prioridad,
         sector_id=sector.id,
         tipo_ticket_id=tipo_ticket.id,
         estado_id=estado_inicial.id,
         creador_id=current_user.id,
         campos_metadata=ticket_data.metadata,
+        texto_original=ticket_data.texto,
     )
 
     db.add(nuevo_ticket)
@@ -421,6 +785,16 @@ async def crear_ticket(
     db.commit()
     db.refresh(nuevo_ticket)
 
+    # AI triage (tickets-ai-triage PR 4a): scheduled AFTER commit, never
+    # awaited — the request's `db` session is closed by the time
+    # BackgroundTasks runs, so `run_triage` opens its own (design §6).
+    # Only when there's free text to classify — the legacy titulo-only path
+    # (review finding) leaves texto_original NULL, so scheduling it there
+    # would just open a DB session to log a no-op warning on every normal
+    # advanced-form submission.
+    if ticket_data.texto:
+        background_tasks.add_task(run_triage, nuevo_ticket.id, triage_provider)
+
     await sse_publish("tickets:changed", {"hint": "reload"})
     await sse_publish("tickets:badge", {"hint": "reload"})
 
@@ -434,8 +808,13 @@ def listar_tickets(
     asignado_a_id: Optional[int] = Query(None, description="Filtrar por usuario asignado"),
     creador_id: Optional[int] = Query(None, description="Filtrar por creador"),
     prioridad: Optional[PrioridadTicket] = Query(None, description="Filtrar por prioridad"),
+    urgencia: Optional[UrgenciaFiltro] = Query(
+        None, description="Filtrar por urgencia (usado por el 'load more' del tablero)"
+    ),
     esta_cerrado: Optional[bool] = Query(None, description="Filtrar por cerrado/abierto"),
     busqueda: Optional[str] = Query(None, description="Buscar en título"),
+    order_by: TicketOrderBy = Query(TicketOrderBy.CREATED_AT, description="Campo de orden"),
+    order_dir: TicketOrderDir = Query(TicketOrderDir.DESC, description="Dirección de orden"),
     page: int = Query(1, ge=1),
     page_size: int = Query(50, ge=1, le=100),
     db: Session = Depends(get_db),
@@ -485,6 +864,12 @@ def listar_tickets(
     if prioridad:
         query = query.filter(Ticket.prioridad == prioridad)
 
+    if urgencia:
+        if urgencia == UrgenciaFiltro.SIN_CLASIFICAR:
+            query = query.filter(Ticket.urgencia.is_(None))
+        else:
+            query = query.filter(Ticket.urgencia == urgencia.value)
+
     if creador_id:
         query = query.filter(Ticket.creador_id == creador_id)
 
@@ -506,8 +891,10 @@ def listar_tickets(
 
     total = query.with_entities(func.count(Ticket.id)).scalar() or 0
 
-    # Ordenar por fecha de creación (más recientes primero)
-    query = query.order_by(Ticket.created_at.desc())
+    # order_by/order_dir are Query enums (tickets-ai-triage PR 5a) — an
+    # unknown value 422s before FastAPI even calls this function, never
+    # reaching SQL. Default preserves prior behavior (created_at DESC).
+    query = _aplicar_orden(query, order_by, order_dir)
 
     # Paginación
     offset = (page - 1) * page_size
@@ -599,6 +986,29 @@ async def actualizar_ticket(
                 }
         ticket.campos_metadata.update(ticket_data.metadata)
 
+    # `urgencia` uses `model_fields_set`, not `is not None` like the fields
+    # above: dropping a card on the board's "Sin clasificar" urgency column
+    # sends `urgencia: null` EXPLICITLY, and that must actually clear the
+    # field rather than being indistinguishable from "not sent".
+    #
+    # `urgencia_origen` is DERIVED here, never taken from the client — this
+    # endpoint is the human write path, so provenance tracks the value 1:1
+    # ("humano" whenever urgencia is set, None when cleared). That also
+    # means a PATCH resending the SAME urgencia value still repairs a
+    # stale/missing origen (checked independently of whether the value
+    # itself changed), and clearing urgencia always clears its provenance
+    # too — no "visible but false" badge either direction.
+    if "urgencia" in ticket_data.model_fields_set:
+        nuevo_urgencia = ticket_data.urgencia
+        nuevo_origen = "humano" if nuevo_urgencia is not None else None
+        if nuevo_urgencia != ticket.urgencia or nuevo_origen != ticket.urgencia_origen:
+            cambios_realizados["urgencia"] = {
+                "valor_anterior": ticket.urgencia,
+                "valor_nuevo": nuevo_urgencia,
+            }
+            ticket.urgencia = nuevo_urgencia
+            ticket.urgencia_origen = nuevo_origen
+
     if cambios_realizados:
         historial_entry = HistorialTicket(
             ticket_id=ticket.id,
@@ -627,9 +1037,11 @@ async def cambiar_estado_ticket(
     """
     Cambia el estado de un ticket siguiendo las transiciones del workflow.
 
-    Requiere: tickets.gestionar
+    Requiere: tickets.gestionar O tickets.agente (el rol de servicio
+    AGENTE_IA, tickets-ai-triage PR 6, transiciona tickets sin el resto de
+    las capacidades de tickets.gestionar).
     """
-    _check_permiso(db, current_user, "tickets.gestionar")
+    _check_algun_permiso(db, current_user, ["tickets.gestionar", "tickets.agente"])
 
     ticket = db.query(Ticket).filter(Ticket.id == ticket_id).first()
 
