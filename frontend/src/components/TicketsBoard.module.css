@@ -1,3 +1,18 @@
+.boardWrapper {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-sm);
+}
+
+.dragError {
+  padding: var(--spacing-sm) var(--spacing-md);
+  border-radius: var(--radius-md);
+  border: 1px solid var(--cf-accent-red);
+  background: var(--cf-bg-hover);
+  color: var(--cf-accent-red);
+  font-size: var(--font-sm);
+}
+
 .board {
   display: flex;
   gap: var(--spacing-md);
@@ -52,6 +67,12 @@
   flex-direction: column;
   gap: var(--spacing-xs);
   overflow-y: auto;
+}
+
+.columnItemsOver {
+  outline: 2px dashed var(--cf-accent-blue);
+  outline-offset: -4px;
+  border-radius: var(--radius-md);
 }
 
 .btnLoadMore {
