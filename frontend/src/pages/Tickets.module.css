@@ -1,9 +1,12 @@
 /* Tickets - Ticket System Module */
 
+/* Intentionally uncapped: this page is data-dense (a 9-column table and a
+   kanban board). A max-width here centres the content and wastes the right
+   half of a wide monitor, which is the opposite of what a board is for —
+   more columns visible before scrolling is the whole point. Do not
+   reintroduce a max-width without also solving it for the board. */
 .container {
   padding: var(--spacing-lg);
-  max-width: 1400px;
-  margin: 0 auto;
 }
 
 /* Header */
