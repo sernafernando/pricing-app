@@ -16,6 +16,16 @@ on:
   # the run its pull request already does.
   push:
     branches: [main, master]
+  # Manual trigger, so any ref can be re-verified on demand without pushing a
+  # commit to do it. Without this there is NO way to make CI run again over an
+  # unchanged `main`: `gh run rerun` only revives a run that already exists, and
+  # `gh workflow run` requires exactly this event.
+  #
+  # The gap is not theoretical. During the 2026-08-06 Actions outage the run for
+  # `ff2618f0` was cancelled mid-flight, so `main` carried merged work no
+  # pipeline had ever checked, and there was no way to ask for another run
+  # short of pushing an empty commit.
+  workflow_dispatch:
 
 concurrency:
   group: ci-${{ github.ref }}
