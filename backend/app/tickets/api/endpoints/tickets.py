@@ -973,6 +973,19 @@ async def actualizar_ticket(
                 }
         ticket.campos_metadata.update(ticket_data.metadata)
 
+    # `urgencia` uses `model_fields_set`, not `is not None` like the fields
+    # above: dropping a card on the board's "Sin clasificar" urgency column
+    # sends `urgencia: null` EXPLICITLY, and that must actually clear the
+    # field rather than being indistinguishable from "not sent".
+    if "urgencia" in ticket_data.model_fields_set and ticket_data.urgencia != ticket.urgencia:
+        cambios_realizados["urgencia"] = {
+            "valor_anterior": ticket.urgencia,
+            "valor_nuevo": ticket_data.urgencia,
+        }
+        ticket.urgencia = ticket_data.urgencia
+        if ticket_data.urgencia_origen is not None:
+            ticket.urgencia_origen = ticket_data.urgencia_origen
+
     if cambios_realizados:
         historial_entry = HistorialTicket(
             ticket_id=ticket.id,

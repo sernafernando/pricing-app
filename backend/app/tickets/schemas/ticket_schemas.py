@@ -158,6 +158,16 @@ class TicketUpdate(BaseModel):
     prioridad: Optional[PrioridadTicket] = None
     metadata: Optional[Dict[str, Any]] = None
 
+    # tickets-ai-triage PR 5c: manual urgency reclassification, primarily via
+    # the board's drag-and-drop (dropping a card on a different URGENCY
+    # column). `None` sent EXPLICITLY clears urgencia (the "Sin clasificar"
+    # column); the field simply absent leaves it untouched — see
+    # `actualizar_ticket`'s `model_fields_set` check, not `is not None`.
+    urgencia: Optional[str] = Field(default=None, description="Urgencia asignada manualmente")
+    urgencia_origen: Optional[str] = Field(
+        default=None, description="Procedencia de urgencia; 'humano' cuando se setea vía este endpoint"
+    )
+
 
 class TicketResponse(TicketBase):
     """Schema de respuesta completo para Ticket"""
