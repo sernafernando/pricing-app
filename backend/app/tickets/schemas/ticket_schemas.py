@@ -1,7 +1,15 @@
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
-from typing import List, Optional, Dict, Any
+from typing import List, Literal, Optional, Dict, Any
 from datetime import datetime
 from app.tickets.models.ticket import PrioridadTicket
+
+# Mirrors the CHECK constraint on `tickets.urgencia` (`ck_tickets_urgencia`
+# — `models/ticket.py`). A closed vocabulary here, not a bare `str`, so a
+# bad value 422s cleanly instead of reaching `db.commit()` and surfacing as
+# an unhandled `IntegrityError` (500) — the same defense-in-depth this
+# change already applies elsewhere (`CAMPOS_CONFIRMABLES` in
+# confirmacion_service).
+UrgenciaValor = Literal["baja", "normal", "alta", "inmediata"]
 
 
 class UsuarioSimple(BaseModel):
@@ -157,6 +165,21 @@ class TicketUpdate(BaseModel):
     descripcion: Optional[str] = None
     prioridad: Optional[PrioridadTicket] = None
     metadata: Optional[Dict[str, Any]] = None
+
+    # tickets-ai-triage PR 5c: manual urgency reclassification, primarily via
+    # the board's drag-and-drop (dropping a card on a different URGENCY
+    # column). `None` sent EXPLICITLY clears urgencia (the "Sin clasificar"
+    # column); the field simply absent leaves it untouched — see
+    # `actualizar_ticket`'s `model_fields_set` check, not `is not None`.
+    urgencia: Optional[UrgenciaValor] = Field(default=None, description="Urgencia asignada manualmente")
+    # This endpoint is the HUMAN write path — any user with ticket access
+    # can call it. `"humano"` is the only legal value: accepting
+    # `ia_confirmada`/`ia_auto` here would let a human claim AI provenance
+    # for a manually-set value. The endpoint derives urgencia_origen itself
+    # regardless of what's sent (defense in depth on top of this Literal).
+    urgencia_origen: Optional[Literal["humano"]] = Field(
+        default=None, description="Siempre 'humano' — este es el camino de escritura humana"
+    )
 
 
 class TicketResponse(TicketBase):

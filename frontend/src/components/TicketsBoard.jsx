@@ -1,21 +1,69 @@
 import { useState, useEffect, useCallback } from 'react';
+import {
+  DndContext,
+  closestCenter,
+  PointerSensor,
+  KeyboardSensor,
+  useSensor,
+  useSensors,
+  useDraggable,
+  useDroppable,
+} from '@dnd-kit/core';
 import { boardAPI, ticketsAPI } from '../services/api';
+import { handleDragEnd } from './ticketsBoardDnd';
 import TicketCard from './TicketCard';
 import styles from './TicketsBoard.module.css';
 
 const ITEMS_POR_COLUMNA = 20;
 
+/** Wraps a card with dnd-kit's `useDraggable` — the attributes/listeners are
+ * applied directly onto `TicketCard`'s own `<button>`, not a wrapping div. */
+function DraggableCard({ ticket, columnaClave, onClick }) {
+  const { attributes, listeners, setNodeRef, isDragging } = useDraggable({
+    id: `card-${ticket.id}`,
+    data: { ticketId: ticket.id, columnaClave },
+  });
+
+  return (
+    <TicketCard
+      ticket={ticket}
+      onClick={onClick}
+      dragRef={setNodeRef}
+      dragAttributes={attributes}
+      dragListeners={listeners}
+      isDragging={isDragging}
+    />
+  );
+}
+
+/** A column's item list as a dnd-kit droppable target, keyed by `columna.clave`. */
+function DroppableColumn({ columna, children }) {
+  const { setNodeRef, isOver } = useDroppable({ id: columna.clave });
+
+  return (
+    <div ref={setNodeRef} className={isOver ? `${styles.columnItems} ${styles.columnItemsOver}` : styles.columnItems}>
+      {children}
+    </div>
+  );
+}
+
 /**
- * Read-only board (tickets-ai-triage PR 5b). No drag-and-drop — that is
- * PR 5c. "Load more" reuses GET /tickets with a matching filter, never a
- * second board query — pagination has exactly one implementation.
+ * Board with drag-and-drop write semantics (tickets-ai-triage PR 5c).
+ * "Load more" reuses GET /tickets with a matching filter, never a second
+ * board query — pagination has exactly one implementation (PR 5b).
  */
 export default function TicketsBoard({ agrupacion, onCardClick }) {
   const [columnas, setColumnas] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
+  const [dragError, setDragError] = useState(null);
   const [loadingMore, setLoadingMore] = useState({});
   const [paginas, setPaginas] = useState({});
+
+  const sensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 4 } }),
+    useSensor(KeyboardSensor)
+  );
 
   const cargarTablero = useCallback(async () => {
     setLoading(true);
@@ -53,35 +101,48 @@ export default function TicketsBoard({ agrupacion, onCardClick }) {
     }
   };
 
+  const onDragEnd = useCallback(
+    (event) => handleDragEnd(event, { columnas, agrupacion, setColumnas, onError: setDragError }),
+    [columnas, agrupacion]
+  );
+
   if (loading) return <div className={styles.loading}>Cargando tablero...</div>;
   if (error) return <div className={styles.error}>{error}</div>;
 
   return (
-    <div className={styles.board}>
-      {columnas.map((columna) => (
-        <div key={columna.clave} className={styles.column}>
-          <div className={styles.columnHeader}>
-            <span className={styles.columnDot} style={{ background: columna.color || 'var(--cf-text-tertiary)' }} />
-            <span className={styles.columnTitle}>{columna.etiqueta}</span>
-            <span className={styles.columnCount}>{columna.total}</span>
-          </div>
-          <div className={styles.columnItems}>
-            {columna.items.map((ticket) => (
-              <TicketCard key={ticket.id} ticket={ticket} onClick={onCardClick} />
-            ))}
-            {columna.total > columna.items.length && (
-              <button
-                type="button"
-                className={styles.btnLoadMore}
-                onClick={() => handleLoadMore(columna)}
-                disabled={loadingMore[columna.clave]}
-              >
-                {loadingMore[columna.clave] ? 'Cargando...' : 'Cargar más'}
-              </button>
-            )}
-          </div>
+    <div className={styles.boardWrapper}>
+      {dragError && <div className={styles.dragError}>{dragError}</div>}
+      <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={onDragEnd}>
+        <div className={styles.board}>
+          {columnas.map((columna) => (
+            <div key={columna.clave} className={styles.column}>
+              <div className={styles.columnHeader}>
+                <span
+                  className={styles.columnDot}
+                  style={{ background: columna.color || 'var(--cf-text-tertiary)' }}
+                />
+                <span className={styles.columnTitle}>{columna.etiqueta}</span>
+                <span className={styles.columnCount}>{columna.total}</span>
+              </div>
+              <DroppableColumn columna={columna}>
+                {columna.items.map((ticket) => (
+                  <DraggableCard key={ticket.id} ticket={ticket} columnaClave={columna.clave} onClick={onCardClick} />
+                ))}
+                {columna.total > columna.items.length && (
+                  <button
+                    type="button"
+                    className={styles.btnLoadMore}
+                    onClick={() => handleLoadMore(columna)}
+                    disabled={loadingMore[columna.clave]}
+                  >
+                    {loadingMore[columna.clave] ? 'Cargando...' : 'Cargar más'}
+                  </button>
+                )}
+              </DroppableColumn>
+            </div>
+          ))}
         </div>
-      ))}
+      </DndContext>
     </div>
   );
 }

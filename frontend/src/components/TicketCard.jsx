@@ -4,17 +4,31 @@ import styles from './TicketCard.module.css';
 
 /**
  * A single board card (tickets-ai-triage PR 5b, deferred from PR 4c).
- * Read-only — no drag handle, no affordance implying within-column order
- * is persisted (it isn't, see design's "no order column exists").
+ *
+ * Draggable since PR 5c: `dragRef`/`dragAttributes`/`dragListeners` are
+ * optional dnd-kit `useDraggable()` output, applied directly to this same
+ * `<button>` (not a wrapping div) — the button is already the interactive
+ * element, so there is no nested-interactive-content a11y issue. All three
+ * props are undefined when the card renders outside a draggable context
+ * (e.g. these unit tests), so the button behaves exactly as before.
+ * Within-column order is never implied to persist — no order column exists
+ * (design's "no order column exists"); see `TicketsBoard.jsx`.
  *
  * The pending-proposals indicator is the point of the board: it tells the
  * maintainer at a glance where his attention is owed.
  */
-export default function TicketCard({ ticket, onClick }) {
+export default function TicketCard({ ticket, onClick, dragRef, dragAttributes, dragListeners, isDragging }) {
   const pendientes = ticket.propuestas_pendientes ?? 0;
 
   return (
-    <button type="button" className={styles.card} onClick={() => onClick?.(ticket.id)}>
+    <button
+      type="button"
+      ref={dragRef}
+      className={isDragging ? `${styles.card} ${styles.cardDragging}` : styles.card}
+      onClick={() => onClick?.(ticket.id)}
+      {...dragAttributes}
+      {...dragListeners}
+    >
       <div className={styles.cardHeader}>
         <span className={styles.ticketId}>#{ticket.id}</span>
         {pendientes > 0 && (
