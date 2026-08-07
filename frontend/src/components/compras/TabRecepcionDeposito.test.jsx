@@ -245,6 +245,25 @@ describe('TabRecepcionDeposito — copy header data', () => {
     );
   });
 
+  it('includes the linked OC, right after the pedido number like the header does', async () => {
+    const copiado = await copiarPedido(PEDIDO_CON_OC_PAGADO);
+
+    // The pasted text answers "which pedido is this", so it must not say less
+    // than the row it was copied from. Order mirrors the closed header:
+    // numero → OC → proveedor.
+    expect(copiado).toBe(
+      ['Pedido #PC-0003', 'OC: #500', 'Proveedor: Proveedor Tres', 'Estado: Pagado'].join('\n'),
+    );
+  });
+
+  it('omits the OC line entirely for a pedido without a linked OC', async () => {
+    const copiado = await copiarPedido(PEDIDO_PAGADO);
+
+    // Absent, not "OC: —" or "OC: null": SIN-OC pedidos have no OC to report,
+    // same omit-if-blank rule every other optional field follows.
+    expect(copiado).not.toMatch(/^OC:/m);
+  });
+
   it('never leaks money fields', async () => {
     const copiado = await copiarPedido(PEDIDO_PAGADO);
 
