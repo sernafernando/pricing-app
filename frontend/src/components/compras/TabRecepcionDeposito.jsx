@@ -217,6 +217,13 @@ function identChips(pedido, stylesMap) {
  */
 function buildPedidoClipboardText(pedido) {
   const campos = [
+    // First, mirroring the closed header (numero → OC → proveedor): this text is
+    // pasted to answer "which pedido is this", and the OC is the id the operator
+    // cross-checks against paperwork. Omitting it here while showing it on the
+    // row would make the copy say less than the screen it came from.
+    // Formatted to null rather than 0/'' so the omit-if-blank rule below covers
+    // the SIN-OC case with no extra branch.
+    ['OC', pedido.oc_poh_id != null ? `#${pedido.oc_poh_id}` : null],
     ['Proveedor', pedido.proveedor_nombre],
     ['Estado', ESTADO_LABELS[pedido.estado] ?? pedido.estado],
     ['Factura', pedido.numero_factura],
