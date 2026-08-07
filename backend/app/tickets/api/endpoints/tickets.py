@@ -977,20 +977,24 @@ async def actualizar_ticket(
     # above: dropping a card on the board's "Sin clasificar" urgency column
     # sends `urgencia: null` EXPLICITLY, and that must actually clear the
     # field rather than being indistinguishable from "not sent".
-    if "urgencia" in ticket_data.model_fields_set and ticket_data.urgencia != ticket.urgencia:
-        cambios_realizados["urgencia"] = {
-            "valor_anterior": ticket.urgencia,
-            "valor_nuevo": ticket_data.urgencia,
-        }
-        ticket.urgencia = ticket_data.urgencia
-        if ticket_data.urgencia is None:
-            # Clearing urgencia must clear its provenance too — a stale
-            # `urgencia_origen` pointing at a value that no longer exists
-            # would violate "Provenance Is Always Visible" by making it
-            # visible AND false.
-            ticket.urgencia_origen = None
-        elif ticket_data.urgencia_origen is not None:
-            ticket.urgencia_origen = ticket_data.urgencia_origen
+    #
+    # `urgencia_origen` is DERIVED here, never taken from the client — this
+    # endpoint is the human write path, so provenance tracks the value 1:1
+    # ("humano" whenever urgencia is set, None when cleared). That also
+    # means a PATCH resending the SAME urgencia value still repairs a
+    # stale/missing origen (checked independently of whether the value
+    # itself changed), and clearing urgencia always clears its provenance
+    # too — no "visible but false" badge either direction.
+    if "urgencia" in ticket_data.model_fields_set:
+        nuevo_urgencia = ticket_data.urgencia
+        nuevo_origen = "humano" if nuevo_urgencia is not None else None
+        if nuevo_urgencia != ticket.urgencia or nuevo_origen != ticket.urgencia_origen:
+            cambios_realizados["urgencia"] = {
+                "valor_anterior": ticket.urgencia,
+                "valor_nuevo": nuevo_urgencia,
+            }
+            ticket.urgencia = nuevo_urgencia
+            ticket.urgencia_origen = nuevo_origen
 
     if cambios_realizados:
         historial_entry = HistorialTicket(

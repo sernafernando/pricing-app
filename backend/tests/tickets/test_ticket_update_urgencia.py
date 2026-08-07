@@ -169,6 +169,61 @@ class TestPatchUrgenciaWriteSemantics:
         db.refresh(ticket)
         assert ticket.urgencia is None
 
+    def test_patch_rejects_ia_provenance_this_endpoint_is_the_human_path(self, db, client, rol_ventas):
+        """GGA pre-push finding: this endpoint is the human write path — any
+        authenticated user with ticket access can call it. Accepting
+        'ia_confirmada'/'ia_auto' here would let a human claim AI provenance
+        for a manually-set value. Only 'humano' is a legal value."""
+        user = _make_user(db, rol_ventas)
+        ticket = _make_ticket(db, user, urgencia=None)
+
+        resp = client.patch(
+            f"{TICKETS_ENDPOINT}/{ticket.id}",
+            json={"urgencia": "alta", "urgencia_origen": "ia_confirmada"},
+            headers=_headers(user),
+        )
+
+        assert resp.status_code == 422
+        db.refresh(ticket)
+        assert ticket.urgencia is None
+
+    def test_patch_urgencia_origen_is_always_humano_via_this_endpoint(self, db, client, rol_ventas):
+        """The endpoint derives urgencia_origen itself rather than trusting
+        the client's value — defense in depth on top of the schema-level
+        Literal["humano"] restriction above."""
+        user = _make_user(db, rol_ventas)
+        ticket = _make_ticket(db, user, urgencia=None)
+
+        resp = client.patch(
+            f"{TICKETS_ENDPOINT}/{ticket.id}",
+            json={"urgencia": "alta"},
+            headers=_headers(user),
+        )
+
+        assert resp.status_code == 200
+        db.refresh(ticket)
+        assert ticket.urgencia == "alta"
+        assert ticket.urgencia_origen == "humano"
+
+    def test_patch_urgencia_unchanged_still_repairs_stale_origen(self, db, client, rol_ventas):
+        """GGA pre-push finding: the change-tracking block was nested inside
+        `urgencia != ticket.urgencia`, so correcting only a stale provenance
+        (urgencia value already correct) silently no-op'd. A PATCH sending
+        the SAME urgencia value must still repair a stale/missing origen."""
+        user = _make_user(db, rol_ventas)
+        ticket = _make_ticket(db, user, urgencia="alta", urgencia_origen=None)
+
+        resp = client.patch(
+            f"{TICKETS_ENDPOINT}/{ticket.id}",
+            json={"urgencia": "alta", "urgencia_origen": "humano"},
+            headers=_headers(user),
+        )
+
+        assert resp.status_code == 200
+        db.refresh(ticket)
+        assert ticket.urgencia == "alta"
+        assert ticket.urgencia_origen == "humano"
+
     def test_clearing_urgencia_without_origen_also_clears_stale_origen(self, db, client, rol_ventas):
         """GGA pre-push finding: clearing urgencia (drop on 'Sin clasificar')
         without sending urgencia_origen must not leave a stale provenance
