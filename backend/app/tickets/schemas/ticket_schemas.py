@@ -1,7 +1,16 @@
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
-from typing import List, Optional, Dict, Any
+from typing import List, Literal, Optional, Dict, Any
 from datetime import datetime
 from app.tickets.models.ticket import PrioridadTicket
+
+# Mirrors the CHECK constraints on `tickets.urgencia`/`urgencia_origen`
+# (`ck_tickets_urgencia`, `ck_tickets_urgencia_origen` — `models/ticket.py`).
+# A closed vocabulary here, not a bare `str`, so a bad value 422s cleanly
+# instead of reaching `db.commit()` and surfacing as an unhandled
+# `IntegrityError` (500) — the same defense-in-depth this change already
+# applies elsewhere (`CAMPOS_CONFIRMABLES` in confirmacion_service).
+UrgenciaValor = Literal["baja", "normal", "alta", "inmediata"]
+OrigenValor = Literal["humano", "ia_confirmada", "ia_auto"]
 
 
 class UsuarioSimple(BaseModel):
@@ -163,8 +172,8 @@ class TicketUpdate(BaseModel):
     # column). `None` sent EXPLICITLY clears urgencia (the "Sin clasificar"
     # column); the field simply absent leaves it untouched — see
     # `actualizar_ticket`'s `model_fields_set` check, not `is not None`.
-    urgencia: Optional[str] = Field(default=None, description="Urgencia asignada manualmente")
-    urgencia_origen: Optional[str] = Field(
+    urgencia: Optional[UrgenciaValor] = Field(default=None, description="Urgencia asignada manualmente")
+    urgencia_origen: Optional[OrigenValor] = Field(
         default=None, description="Procedencia de urgencia; 'humano' cuando se setea vía este endpoint"
     )
 

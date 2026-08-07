@@ -135,3 +135,35 @@ class TestPatchUrgenciaWriteSemantics:
         assert resp.status_code == 200
         db.refresh(ticket)
         assert ticket.urgencia == "alta"
+
+    def test_patch_invalid_urgencia_value_is_rejected_422(self, db, client, rol_ventas):
+        """A closed vocabulary at the schema layer, matching `ck_tickets_urgencia`
+        — without it, a bad value reaches `db.commit()` and 500s as an
+        unhandled `IntegrityError` instead of a clean 422 (GGA pre-push
+        finding, fixed before this reached prod)."""
+        user = _make_user(db, rol_ventas)
+        ticket = _make_ticket(db, user, urgencia=None)
+
+        resp = client.patch(
+            f"{TICKETS_ENDPOINT}/{ticket.id}",
+            json={"urgencia": "urgentisimo", "urgencia_origen": "humano"},
+            headers=_headers(user),
+        )
+
+        assert resp.status_code == 422
+        db.refresh(ticket)
+        assert ticket.urgencia is None
+
+    def test_patch_invalid_urgencia_origen_value_is_rejected_422(self, db, client, rol_ventas):
+        user = _make_user(db, rol_ventas)
+        ticket = _make_ticket(db, user, urgencia=None)
+
+        resp = client.patch(
+            f"{TICKETS_ENDPOINT}/{ticket.id}",
+            json={"urgencia": "alta", "urgencia_origen": "un_robot_cualquiera"},
+            headers=_headers(user),
+        )
+
+        assert resp.status_code == 422
+        db.refresh(ticket)
+        assert ticket.urgencia is None
