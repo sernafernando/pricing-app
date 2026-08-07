@@ -300,11 +300,30 @@ button {
   transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
-button:hover {
+/* De-specified with `:where()`, and that is the whole point rather than a tidy-up.
+ *
+ * `button:hover` is specificity (0,1,1). A search field's clear button centres
+ * itself with `.clearBtn { transform: translateY(-50%) }` at (0,1,0), so this
+ * rule WON and replaced the centring outright — `transform` is one property,
+ * not two, so the lift does not compose with the centring, it overwrites it. On
+ * hover the button dropped by half its own height, out from under the pointer
+ * that was about to click it: you had to hover it, watch it fall, then chase it
+ * downward. Four buttons were affected — `SearchInput`,
+ * `ProveedorComprasAutocomplete`, and the dropdown search in `Productos.css`
+ * and `Tienda.css` — which is why it showed up on several screens, not one.
+ *
+ * `:where(button:hover)` contributes ZERO specificity, so any class at all now
+ * wins. A plain button with no transform of its own still lifts; a positioned
+ * one keeps its position. Same treatment the form-control globals in this file
+ * already received, and for the same reason: a global that outranks the
+ * component it lands on is not a default, it is an override.
+ *
+ * Pinned in `src/test/visual/buttonHoverLift.visual.test.jsx`. */
+:where(button:hover) {
   transform: translateY(-1px);
 }
 
-button:active {
+:where(button:active) {
   transform: translateY(0);
 }
 
