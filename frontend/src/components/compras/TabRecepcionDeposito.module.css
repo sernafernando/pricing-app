@@ -155,6 +155,17 @@
   flex-shrink: 0;
 }
 
+/* Identificador de la OC vinculada, al lado del número de pedido. Mono como
+   `.pedidoNumero` porque es un id, pero secundario en peso y color: identifica
+   sin competir con el número propio del pedido. `flex-shrink: 0` para que nunca
+   se colapse — un id truncado es un id inútil; el que cede es el proveedor, que
+   ya tiene su ellipsis. */
+.pedidoOc {
+  font-family: var(--font-mono, monospace);
+  font-size: var(--font-xs);
+  color: var(--cf-text-tertiary);
+  flex-shrink: 0;
+}
 .pedidoProveedor {
   font-size: var(--font-sm);
   color: var(--cf-text-secondary);
