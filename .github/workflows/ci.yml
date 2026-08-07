@@ -1,10 +1,31 @@
 name: CI
 
 on:
+  # No `branches:` filter here, deliberately. Filtering by BASE branch means a
+  # stacked PR — one opened against another feature branch instead of `main` —
+  # never triggers this workflow at all. That happened: PR #1090 was stacked on
+  # #1088 and merged without a single CI run, while its checks page still showed
+  # a green third-party scanner, so it looked verified. A PR that skips CI
+  # silently is worse than one that fails it.
+  #
+  # Every pull request runs CI now, whatever it targets. `concurrency` below is
+  # keyed on `github.ref` (which is `refs/pull/N/merge` for this event), so each
+  # PR still cancels only its own superseded runs.
   pull_request:
-    branches: [main, master]
+  # `push` STAYS filtered. Without the filter every branch push would duplicate
+  # the run its pull request already does.
   push:
     branches: [main, master]
+  # Manual trigger, so any ref can be re-verified on demand without pushing a
+  # commit to do it. Without this there is NO way to make CI run again over an
+  # unchanged `main`: `gh run rerun` only revives a run that already exists, and
+  # `gh workflow run` requires exactly this event.
+  #
+  # The gap is not theoretical. During the 2026-08-06 Actions outage the run for
+  # `ff2618f0` was cancelled mid-flight, so `main` carried merged work no
+  # pipeline had ever checked, and there was no way to ask for another run
+  # short of pushing an empty commit.
+  workflow_dispatch:
 
 concurrency:
   group: ci-${{ github.ref }}
