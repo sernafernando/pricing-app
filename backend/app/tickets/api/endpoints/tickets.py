@@ -983,7 +983,13 @@ async def actualizar_ticket(
             "valor_nuevo": ticket_data.urgencia,
         }
         ticket.urgencia = ticket_data.urgencia
-        if ticket_data.urgencia_origen is not None:
+        if ticket_data.urgencia is None:
+            # Clearing urgencia must clear its provenance too — a stale
+            # `urgencia_origen` pointing at a value that no longer exists
+            # would violate "Provenance Is Always Visible" by making it
+            # visible AND false.
+            ticket.urgencia_origen = None
+        elif ticket_data.urgencia_origen is not None:
             ticket.urgencia_origen = ticket_data.urgencia_origen
 
     if cambios_realizados:

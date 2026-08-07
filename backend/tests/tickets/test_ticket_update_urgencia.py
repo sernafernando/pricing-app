@@ -47,7 +47,7 @@ def _headers(user: Usuario) -> dict:
     return {"Authorization": f"Bearer {token}"}
 
 
-def _make_ticket(db, creador: Usuario, *, urgencia=None) -> Ticket:
+def _make_ticket(db, creador: Usuario, *, urgencia=None, urgencia_origen=None) -> Ticket:
     _seq[0] += 1
     sector = Sector(codigo=f"DND_SECT_{_seq[0]}", nombre="Sector DnD", activo=True)
     db.add(sector)
@@ -71,6 +71,7 @@ def _make_ticket(db, creador: Usuario, *, urgencia=None) -> Ticket:
         estado_id=estado.id,
         creador_id=creador.id,
         urgencia=urgencia,
+        urgencia_origen=urgencia_origen,
     )
     db.add(ticket)
     db.flush()
@@ -167,3 +168,22 @@ class TestPatchUrgenciaWriteSemantics:
         assert resp.status_code == 422
         db.refresh(ticket)
         assert ticket.urgencia is None
+
+    def test_clearing_urgencia_without_origen_also_clears_stale_origen(self, db, client, rol_ventas):
+        """GGA pre-push finding: clearing urgencia (drop on 'Sin clasificar')
+        without sending urgencia_origen must not leave a stale provenance
+        pointing at a value that no longer exists — 'Provenance Is Always
+        Visible' must never mean 'visible and false'."""
+        user = _make_user(db, rol_ventas)
+        ticket = _make_ticket(db, user, urgencia="alta", urgencia_origen="ia_confirmada")
+
+        resp = client.patch(
+            f"{TICKETS_ENDPOINT}/{ticket.id}",
+            json={"urgencia": None},
+            headers=_headers(user),
+        )
+
+        assert resp.status_code == 200
+        db.refresh(ticket)
+        assert ticket.urgencia is None
+        assert ticket.urgencia_origen is None
