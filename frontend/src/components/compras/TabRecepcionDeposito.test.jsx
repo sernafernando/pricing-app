@@ -533,6 +533,32 @@ describe('TabRecepcionDeposito — arrival item list (CON-OC, D5a)', () => {
 
 // ── Phase 5 (D5b, D6, D8) — closed-header identification ─────────
 
+describe('TabRecepcionDeposito — closed header OC identifier', () => {
+  it('shows the linked OC beside the pedido number, labelled so it cannot be misread', async () => {
+    await renderTab([PEDIDO_CON_OC_PAGADO]);
+
+    // Labelled, not a bare "#500": next to "#PC-0003" an unlabelled id reads as
+    // a second pedido number.
+    expect(await screen.findByText('OC #500')).toBeInTheDocument();
+  });
+
+  it('includes the OC in the toggle accessible name — it identifies the pedido', async () => {
+    await renderTab([PEDIDO_CON_OC_PAGADO]);
+
+    // Unlike the items badge (which is a sibling of the toggle and deliberately
+    // excluded), the OC id belongs INSIDE the toggle: it is part of naming which
+    // pedido this row is.
+    const toggle = screen.getByRole('button', { name: /Proveedor Tres/ });
+    expect(toggle.textContent).toMatch(/OC #500/);
+  });
+
+  it('renders no OC identifier for a pedido without a linked OC', async () => {
+    await renderTab([PEDIDO_PAGADO]);
+
+    expect(screen.queryByText(/^OC #/)).not.toBeInTheDocument();
+  });
+});
+
 describe('TabRecepcionDeposito — closed header items badge (CON-OC, D6)', () => {
   it('renders the badge with "N líneas · N u" copy, never "productos distintos"', async () => {
     await renderTab([PEDIDO_CON_OC_PAGADO]);

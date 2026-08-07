@@ -872,6 +872,20 @@ function PedidoAccordion({ pedido, onRefreshList, onCopyOutcome }) {
             aria-hidden="true"
           />
           <span className={styles.pedidoNumero}>#{pedido.numero}</span>
+          {/* Sits beside the pedido number, not after the proveedor: both are
+              IDENTIFIERS, while the proveedor is a name — and `.pedidoProveedor`
+              takes `flex: 1`, so anything after it gets pushed to the far edge,
+              away from the number it qualifies.
+              The "OC" prefix is not decoration: `#PC-0001` next to a bare `#500`
+              reads as two pedido numbers. It also lands inside the toggle on
+              purpose, so the accordion's accessible name becomes
+              "#PC-0001 OC #500 Proveedor SA" — the OC IS part of identifying the
+              pedido, which is the whole point of this row.
+              `#{oc_poh_id}` matches how ModalPedidoDetalle and ModalVincularOC
+              already name an OC; the ERP header carries no friendlier number. */}
+          {pedido.oc_poh_id != null && (
+            <span className={styles.pedidoOc}>OC #{pedido.oc_poh_id}</span>
+          )}
           <span className={styles.pedidoProveedor}>{pedido.proveedor_nombre || '—'}</span>
         </button>
         <div className={styles.headerBadges}>
