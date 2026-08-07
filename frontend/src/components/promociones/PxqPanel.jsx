@@ -18,11 +18,17 @@ const MAX_TIERS = 5;
 // object at the ROOT of the response body instead of under `detail`. That
 // interceptor used to flatten the typed shape too, which is why the
 // `adopt_conflict` and `divergence` branches below shipped unreachable.
-function extractErrorMessage(err) {
+//
+// The fallback is a PARAMETER, not a constant, because this helper is shared by
+// three actions — create, edit and delete — and a single hardcoded sentence is
+// guaranteed to name the wrong verb for two of them. The default keeps the
+// create and edit wording verbatim, so only the caller that needs a different
+// verb has to say so.
+function extractErrorMessage(err, fallback = 'No se pudo guardar el tramo.') {
   const detail = err?.response?.data?.detail;
   if (typeof detail === 'string') return detail;
   if (detail && typeof detail === 'object' && typeof detail.reason === 'string') return detail.reason;
-  return 'No se pudo guardar el tramo.';
+  return fallback;
 }
 
 // Whole-shipment cost the user reads off ML's wholesale simulator. There is
@@ -63,6 +69,14 @@ function PxqTierAuthoring({ itemId, mirrorTiers, onChanged }) {
   const [saving, setSaving] = useState(false);
 
   const [deletingId, setDeletingId] = useState(null);
+  // Distinct from `deletingId` on purpose: `deletingId` answers "which row has
+  // its confirmation open", `deleting` answers "is a DELETE outstanding". They
+  // are cleared at different moments — see `handleConfirmDelete`.
+  const [deleting, setDeleting] = useState(false);
+  // `{ tierId, message }`, never a bare string: the error is rendered INSIDE
+  // the row loop, so a component-wide string would paint the same failure on
+  // every tier at once. Keyed by tier so only the row that actually failed
+  // accuses itself.
   const [deleteError, setDeleteError] = useState(null);
 
   const atMax = mirrorTiers.length >= MAX_TIERS;
@@ -111,14 +125,39 @@ function PxqTierAuthoring({ itemId, mirrorTiers, onChanged }) {
     }
   }
 
+  function startDelete(tierId) {
+    setDeletingId(tierId);
+    // Opening another row's confirmation retires the previous row's failure:
+    // otherwise tier 1 keeps accusing itself while the operator is already
+    // looking at tier 2.
+    setDeleteError(null);
+  }
+
+  function cancelDelete() {
+    setDeletingId(null);
+    setDeleteError(null);
+  }
+
   async function handleConfirmDelete(tierId) {
+    setDeleting(true);
     setDeleteError(null);
     try {
       await pxqAPI.deleteTier(itemId, tierId);
+      // Cleared ONLY on success, and deliberately NOT in the `finally` below: a
+      // failed delete has to leave the confirmation standing so the retry and
+      // the cancel stay one click away, with the reason still on screen.
+      // Closing it on failure would send the operator hunting for the row again
+      // — and this is the one authoring action whose failure path never
+      // reloads, so the inline message is the only feedback there is.
       setDeletingId(null);
       await onChanged();
     } catch (err) {
-      setDeleteError(extractErrorMessage(err));
+      setDeleteError({ tierId, message: extractErrorMessage(err, 'No se pudo eliminar el tramo.') });
+    } finally {
+      // The in-flight flag, unlike `deletingId`, IS cleared unconditionally:
+      // leaving it set after a failure would disable the retry button the
+      // still-open confirmation exists to offer.
+      setDeleting(false);
     }
   }
 
@@ -200,19 +239,19 @@ function PxqTierAuthoring({ itemId, mirrorTiers, onChanged }) {
             {deletingId === tier.id ? (
               <span className={styles.applyConfirm}>
                 ¿Eliminar este tramo?
-                <button type="button" className="btn-tesla sm" onClick={() => handleConfirmDelete(tier.id)}>
+                <button type="button" className="btn-tesla sm" onClick={() => handleConfirmDelete(tier.id)} disabled={deleting}>
                   Confirmar
                 </button>
-                <button type="button" className="btn-tesla ghost sm" onClick={() => setDeletingId(null)}>
+                <button type="button" className="btn-tesla ghost sm" onClick={cancelDelete} disabled={deleting}>
                   Cancelar
                 </button>
               </span>
             ) : (
-              <button type="button" className={`btn-tesla ghost sm ${styles.removeBtn}`} onClick={() => setDeletingId(tier.id)}>
+              <button type="button" className={`btn-tesla ghost sm ${styles.removeBtn}`} onClick={() => startDelete(tier.id)}>
                 Eliminar
               </button>
             )}
-            {deleteError && deletingId === null && <span className={styles.feedbackError}>{deleteError}</span>}
+            {deleteError?.tierId === tier.id && <span className={styles.feedbackError}>{deleteError.message}</span>}
           </div>
         ),
       )}
