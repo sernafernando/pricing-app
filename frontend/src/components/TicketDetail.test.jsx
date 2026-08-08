@@ -115,6 +115,11 @@ describe('TicketDetail — AI triage provenance (tickets-ai-triage PR 4c)', () =
 
     await waitFor(() => expect(screen.getByText('mayor')).toBeInTheDocument());
     expect(screen.getByText('IA confirmada')).toBeInTheDocument();
-    expect(ticketsAPI.listarPropuestas).toHaveBeenCalledWith(42);
+
+    // Separate await: the ticket rendering above is driven by `obtener`, while
+    // the proposals come from an independent `listarPropuestas` call. Asserting
+    // it synchronously here only passed because both promises usually settle in
+    // the same flush — under CI load they do not, and this failed with 0 calls.
+    await waitFor(() => expect(ticketsAPI.listarPropuestas).toHaveBeenCalledWith(42));
   });
 });
