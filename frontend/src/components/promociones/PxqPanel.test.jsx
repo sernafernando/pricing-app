@@ -1137,6 +1137,279 @@ describe('PxqPanel — outcome messages outlive their reload, not their truth', 
   });
 });
 
+// A delete is the one authoring action whose failure path never reloads, so
+// the ONLY thing the operator gets back is the inline message. When that
+// message does not render, pressing "Confirmar" produces literally no feedback
+// and the tier stays on screen — indistinguishable from a click that never
+// registered.
+describe('PxqPanel — a failed tier delete is visible, and only on the row that failed', () => {
+  function mockLive({ mirror_tiers = [], live_tiers = [] } = {}) {
+    return {
+      data: { item_id: 'MLA001', live_status: 'ok', live_tiers, mirror_tiers, fetched_at: '2026-08-07T10:00:00Z' },
+    };
+  }
+
+  const twoTiers = [
+    { id: 1, cantidad_minima: 5, precio_unitario: 100, costo_envio_total: 20, ml_price_id: null, estado: 'listo' },
+    { id: 2, cantidad_minima: 10, precio_unitario: 90, costo_envio_total: 30, ml_price_id: null, estado: 'listo' },
+  ];
+
+  const DELETE_FAILED = /el tramo tiene ventas asociadas/i;
+  const deleteRejection = {
+    response: { status: 409, data: { detail: 'El tramo tiene ventas asociadas.' } },
+  };
+
+  // Two tiers on purpose. With one row the "shows on the failing row" and
+  // "shows everywhere" behaviours are indistinguishable, which is how a
+  // one-string-for-the-whole-list error survived review in the first place.
+  async function failDeleteOnFirstTier(user) {
+    const eliminar = await screen.findAllByRole('button', { name: /^eliminar$/i });
+    expect(eliminar).toHaveLength(2);
+    await user.click(eliminar[0]);
+    await user.click(screen.getByRole('button', { name: /^confirmar$/i }));
+    await waitFor(() => expect(pxqAPI.deleteTier).toHaveBeenCalledWith('MLA001', 1));
+  }
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockTienePermiso.mockImplementation(() => true);
+  });
+
+  afterEach(() => {
+    mockTienePermiso.mockImplementation(() => true);
+  });
+
+  it('renders the backend message when confirming a delete that fails', async () => {
+    const user = userEvent.setup();
+    pxqAPI.getLive.mockResolvedValue(mockLive({ mirror_tiers: twoTiers }));
+    pxqAPI.deleteTier.mockRejectedValue(deleteRejection);
+
+    renderPanel();
+    await failDeleteOnFirstTier(user);
+
+    expect(await screen.findByText(DELETE_FAILED)).toBeInTheDocument();
+  });
+
+  it('renders the delete error once, on the row that failed, not on every row', async () => {
+    const user = userEvent.setup();
+    pxqAPI.getLive.mockResolvedValue(mockLive({ mirror_tiers: twoTiers }));
+    pxqAPI.deleteTier.mockRejectedValue(deleteRejection);
+
+    renderPanel();
+    await failDeleteOnFirstTier(user);
+
+    await screen.findByText(DELETE_FAILED);
+    expect(screen.getAllByText(DELETE_FAILED)).toHaveLength(1);
+  });
+
+  // The confirmation staying open after a failure is DELIBERATE, not an
+  // oversight: the retry and the escape hatch have to be reachable without
+  // hunting for the row again, with the reason still on screen.
+  it('keeps the confirmation open after a failure so the operator can retry or cancel', async () => {
+    const user = userEvent.setup();
+    pxqAPI.getLive.mockResolvedValue(mockLive({ mirror_tiers: twoTiers }));
+    pxqAPI.deleteTier.mockRejectedValue(deleteRejection);
+
+    renderPanel();
+    await failDeleteOnFirstTier(user);
+
+    await screen.findByText(DELETE_FAILED);
+    expect(screen.getByRole('button', { name: /^confirmar$/i })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /^cancelar$/i })).toBeInTheDocument();
+  });
+
+  it('clears the delete error when the operator cancels', async () => {
+    const user = userEvent.setup();
+    pxqAPI.getLive.mockResolvedValue(mockLive({ mirror_tiers: twoTiers }));
+    pxqAPI.deleteTier.mockRejectedValue(deleteRejection);
+
+    renderPanel();
+    await failDeleteOnFirstTier(user);
+    await screen.findByText(DELETE_FAILED);
+
+    await user.click(screen.getByRole('button', { name: /^cancelar$/i }));
+
+    expect(screen.queryByText(DELETE_FAILED)).not.toBeInTheDocument();
+  });
+
+  // Otherwise a failure on tier 1 keeps accusing tier 1 while the operator is
+  // already looking at the confirmation for tier 2.
+  it('clears the delete error when the operator starts deleting another tier', async () => {
+    const user = userEvent.setup();
+    pxqAPI.getLive.mockResolvedValue(mockLive({ mirror_tiers: twoTiers }));
+    pxqAPI.deleteTier.mockRejectedValue(deleteRejection);
+
+    renderPanel();
+    await failDeleteOnFirstTier(user);
+    await screen.findByText(DELETE_FAILED);
+
+    // While tier 1 sits in confirmation, tier 2 is the only row still offering
+    // "Eliminar", so this query is unambiguous.
+    await user.click(screen.getByRole('button', { name: /^eliminar$/i }));
+
+    expect(screen.queryByText(DELETE_FAILED)).not.toBeInTheDocument();
+  });
+
+  it('leaves no error and closes the confirmation after a delete that succeeds', async () => {
+    const user = userEvent.setup();
+    pxqAPI.getLive
+      .mockResolvedValueOnce(mockLive({ mirror_tiers: twoTiers }))
+      .mockResolvedValue(mockLive({ mirror_tiers: [twoTiers[1]] }));
+    pxqAPI.deleteTier.mockResolvedValue({});
+
+    renderPanel();
+    await failDeleteOnFirstTier(user);
+
+    await waitFor(() => expect(pxqAPI.getLive).toHaveBeenCalledTimes(2));
+    expect(screen.queryByText(DELETE_FAILED)).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /^confirmar$/i })).not.toBeInTheDocument();
+  });
+
+  // Making the failure VISIBLE is what forces this block to exist. "Confirmar"
+  // was never disabled, so a double click always sent two DELETEs — the second
+  // one 404s because the first already succeeded. That second failure used to
+  // be swallowed by the same invisible-error defect; now it would be painted
+  // on the row, so the fix above would have turned a harmless race into a
+  // fabricated error message.
+  it('disables "Confirmar" while the delete is in flight', async () => {
+    const user = userEvent.setup();
+    pxqAPI.getLive.mockResolvedValue(mockLive({ mirror_tiers: twoTiers }));
+    let rejectDelete;
+    pxqAPI.deleteTier.mockReturnValue(
+      new Promise((_resolve, reject) => {
+        rejectDelete = reject;
+      }),
+    );
+
+    renderPanel();
+    const eliminar = await screen.findAllByRole('button', { name: /^eliminar$/i });
+    await user.click(eliminar[0]);
+    const confirmar = screen.getByRole('button', { name: /^confirmar$/i });
+    await user.click(confirmar);
+
+    await waitFor(() => expect(confirmar).toBeDisabled());
+
+    rejectDelete(deleteRejection);
+    await screen.findByText(DELETE_FAILED);
+  });
+
+  it('fires exactly one DELETE when "Confirmar" is clicked twice in a row', async () => {
+    const user = userEvent.setup();
+    pxqAPI.getLive
+      .mockResolvedValueOnce(mockLive({ mirror_tiers: twoTiers }))
+      .mockResolvedValue(mockLive({ mirror_tiers: [twoTiers[1]] }));
+    let resolveDelete;
+    pxqAPI.deleteTier.mockReturnValue(
+      new Promise((resolve) => {
+        resolveDelete = resolve;
+      }),
+    );
+
+    renderPanel();
+    const eliminar = await screen.findAllByRole('button', { name: /^eliminar$/i });
+    await user.click(eliminar[0]);
+    const confirmar = screen.getByRole('button', { name: /^confirmar$/i });
+    await user.click(confirmar);
+    await user.click(confirmar);
+
+    expect(pxqAPI.deleteTier).toHaveBeenCalledTimes(1);
+
+    resolveDelete({});
+    await waitFor(() => expect(pxqAPI.getLive).toHaveBeenCalledTimes(2));
+  });
+
+  // The in-flight flag is cleared in a `finally`; `setDeletingId(null)` is not.
+  // They answer different questions — "is a request outstanding" versus "is the
+  // confirmation still open" — and collapsing them would either kill the retry
+  // button or close the confirmation on failure.
+  it('re-enables "Confirmar" after a failure so the delete can be retried', async () => {
+    const user = userEvent.setup();
+    pxqAPI.getLive.mockResolvedValue(mockLive({ mirror_tiers: twoTiers }));
+    pxqAPI.deleteTier.mockRejectedValue(deleteRejection);
+
+    renderPanel();
+    await failDeleteOnFirstTier(user);
+    await screen.findByText(DELETE_FAILED);
+
+    const confirmar = screen.getByRole('button', { name: /^confirmar$/i });
+    expect(confirmar).toBeEnabled();
+
+    await user.click(confirmar);
+    await waitFor(() => expect(pxqAPI.deleteTier).toHaveBeenCalledTimes(2));
+  });
+});
+
+// `extractErrorMessage` is shared by create, edit and delete, so a single
+// hardcoded fallback is guaranteed to lie to two of the three callers. It only
+// started to matter once the delete error became visible at all: before that,
+// "No se pudo guardar el tramo." on a delete was a string nobody ever read.
+describe('PxqPanel — the unparseable-error fallback names the action that failed', () => {
+  function mockLive({ mirror_tiers = [], live_tiers = [] } = {}) {
+    return {
+      data: { item_id: 'MLA001', live_status: 'ok', live_tiers, mirror_tiers, fetched_at: '2026-08-07T10:00:00Z' },
+    };
+  }
+
+  const oneTier = [{ id: 1, cantidad_minima: 5, precio_unitario: 100, costo_envio_total: 20, ml_price_id: null, estado: 'listo' }];
+
+  // A raw 500: no `detail` at all, so neither the string branch nor the
+  // `.reason` branch of `extractErrorMessage` can produce anything.
+  const unparseable = { response: { status: 500, data: {} } };
+
+  const SAVE_FALLBACK = /^no se pudo guardar el tramo\.$/i;
+  const DELETE_FALLBACK = /^no se pudo eliminar el tramo\.$/i;
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockTienePermiso.mockImplementation(() => true);
+  });
+
+  afterEach(() => {
+    mockTienePermiso.mockImplementation(() => true);
+  });
+
+  it('says the tier could not be DELETED when a delete fails unparseably', async () => {
+    const user = userEvent.setup();
+    pxqAPI.getLive.mockResolvedValue(mockLive({ mirror_tiers: oneTier }));
+    pxqAPI.deleteTier.mockRejectedValue(unparseable);
+
+    renderPanel();
+    await user.click(await screen.findByRole('button', { name: /^eliminar$/i }));
+    await user.click(screen.getByRole('button', { name: /^confirmar$/i }));
+
+    expect(await screen.findByText(DELETE_FALLBACK)).toBeInTheDocument();
+    expect(screen.queryByText(SAVE_FALLBACK)).not.toBeInTheDocument();
+  });
+
+  // The other two callers keep the original wording verbatim. Parameterising
+  // the fallback must not become a silent copy change for create and edit.
+  it('still says the tier could not be SAVED when a create fails unparseably', async () => {
+    const user = userEvent.setup();
+    pxqAPI.getLive.mockResolvedValue(mockLive({ mirror_tiers: [] }));
+    pxqAPI.createTier.mockRejectedValue(unparseable);
+
+    renderPanel();
+    await waitFor(() => expect(screen.getByLabelText(/cantidad mínima/i)).toBeInTheDocument());
+    await user.type(screen.getByLabelText(/cantidad mínima/i), '5');
+    await user.type(screen.getByLabelText(/precio unitario/i), '100');
+    await user.click(screen.getByRole('button', { name: /agregar tramo/i }));
+
+    expect(await screen.findByText(SAVE_FALLBACK)).toBeInTheDocument();
+  });
+
+  it('still says the tier could not be SAVED when an edit fails unparseably', async () => {
+    const user = userEvent.setup();
+    pxqAPI.getLive.mockResolvedValue(mockLive({ mirror_tiers: oneTier }));
+    pxqAPI.updateTier.mockRejectedValue(unparseable);
+
+    renderPanel();
+    await user.click(await screen.findByRole('button', { name: /^editar$/i }));
+    await user.click(screen.getByRole('button', { name: /^guardar$/i }));
+
+    expect(await screen.findByText(SAVE_FALLBACK)).toBeInTheDocument();
+  });
+});
+
 describe('PxqPanel — primary actions look like buttons', () => {
   beforeEach(() => {
     vi.clearAllMocks();
