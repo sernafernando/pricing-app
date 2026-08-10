@@ -45,16 +45,29 @@ export default function TicketCard({ ticket, onClick, dragRef, dragAttributes, d
       <div className={styles.titulo}>{ticket.titulo}</div>
       {ticket.resumen && <div className={styles.resumen}>{ticket.resumen}</div>}
 
-      <div className={styles.metaRow}>
-        <span className={styles.metaItem}>
-          {ticket.severidad || 'Sin clasificar'}
-          <ProvenanceBadge origen={ticket.severidad_origen} />
-        </span>
-        <span className={styles.metaItem}>
-          {ticket.urgencia || 'Sin clasificar'}
-          <ProvenanceBadge origen={ticket.urgencia_origen} />
-        </span>
-      </div>
+      {/* Only render what is actually known. Repeating "Sin clasificar" once
+          per empty field is noise, not information — an unclassified card
+          should be visibly quiet, and a single marker says it once. */}
+      {(ticket.severidad || ticket.urgencia) ? (
+        <div className={styles.metaRow}>
+          {ticket.severidad && (
+            <span className={styles.metaItem}>
+              {ticket.severidad}
+              <ProvenanceBadge origen={ticket.severidad_origen} />
+            </span>
+          )}
+          {ticket.urgencia && (
+            <span className={styles.metaItem}>
+              {ticket.urgencia}
+              <ProvenanceBadge origen={ticket.urgencia_origen} />
+            </span>
+          )}
+        </div>
+      ) : (
+        <div className={styles.metaRow}>
+          <span className={styles.metaItemMuted}>Sin clasificar</span>
+        </div>
+      )}
     </button>
   );
 }
