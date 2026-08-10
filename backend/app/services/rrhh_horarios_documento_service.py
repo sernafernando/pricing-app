@@ -111,9 +111,11 @@ class HorariosDocumentoService:
         Args:
             fecha_desde: primer día del rango (inclusive).
             fecha_hasta: último día del rango (inclusive).
-            empleado_ids: si viene, limita a esos empleados. En todos los casos
-                se consideran sólo empleados vigentes (`activo=True` y
-                `estado != 'baja'`), igual que el resto del módulo RRHH.
+            empleado_ids: si viene, limita a esos empleados y se emite el
+                documento aunque estén dados de baja (hace falta para la
+                liquidación final). Si no viene, se listan sólo los empleados
+                vigentes (`activo=True` y `estado != 'baja'`), igual que el
+                resto del módulo RRHH.
 
         Raises:
             HTTPException 400: si el rango está invertido o supera
@@ -182,13 +184,25 @@ class HorariosDocumentoService:
     # ──────────────────────────────────────────
 
     def _empleados(self, empleado_ids: list[int] | None) -> list[RRHHEmpleado]:
-        """Empleados vigentes, ordenados como en el resto del módulo."""
-        query = self.db.query(RRHHEmpleado).filter(
-            RRHHEmpleado.activo.is_(True),
-            RRHHEmpleado.estado != "baja",
-        )
+        """
+        Empleados a incluir, ordenados como en el resto del módulo.
+
+        El filtro de vigencia (`activo=True` y `estado != 'baja'`) se aplica
+        SÓLO en modo lote, para que la emisión masiva no arrastre bajas viejas.
+
+        Cuando el caller nombra empleados explícitamente por `empleado_ids` el
+        filtro se omite a propósito: el registro de horarios del último mes es
+        parte del respaldo documental de la liquidación final, así que tiene
+        que poder emitirse justamente para alguien que ya no está vigente.
+        """
+        query = self.db.query(RRHHEmpleado)
         if empleado_ids:
             query = query.filter(RRHHEmpleado.id.in_(empleado_ids))
+        else:
+            query = query.filter(
+                RRHHEmpleado.activo.is_(True),
+                RRHHEmpleado.estado != "baja",
+            )
         return query.order_by(RRHHEmpleado.apellido, RRHHEmpleado.nombre).all()
 
     def _fichadas_por_empleado_dia(

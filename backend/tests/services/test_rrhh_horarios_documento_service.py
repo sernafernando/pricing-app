@@ -365,12 +365,34 @@ def test_empleado_ids_filtra_el_resultado(db, svc, empleado_lun_vie):
     assert [e["empleado_id"] for e in filtrado["empleados"]] == [empleado_lun_vie.id]
 
 
-def test_empleado_dado_de_baja_se_excluye(db, svc, empleado_lun_vie):
+def test_empleado_dado_de_baja_se_excluye_del_lote(db, svc, empleado_lun_vie):
+    """En emisión masiva las bajas no se arrastran."""
     empleado_lun_vie.estado = "baja"
     empleado_lun_vie.activo = False
     db.flush()
 
     assert svc.horarios_documento(LUNES, LUNES)["empleados"] == []
+
+
+def test_empleado_dado_de_baja_si_se_pide_explicitamente_por_id(db, svc, empleado_lun_vie):
+    """Pedido por ID, una baja SÍ se emite: hace falta para la liquidación final.
+
+    El registro de horarios del último mes respalda la liquidación que se le
+    entrega a alguien que ya se fue; si el filtro de vigencia también aplicara
+    acá, ese documento habría que armarlo a mano fuera del sistema.
+    """
+    _fichada(db, empleado_lun_vie, datetime(2026, 8, 3, 11, 57, tzinfo=timezone.utc))
+    _fichada(db, empleado_lun_vie, datetime(2026, 8, 3, 21, 3, tzinfo=timezone.utc))
+    empleado_lun_vie.estado = "baja"
+    empleado_lun_vie.activo = False
+    db.flush()
+
+    resultado = svc.horarios_documento(LUNES, LUNES, empleado_ids=[empleado_lun_vie.id])
+
+    assert [e["empleado_id"] for e in resultado["empleados"]] == [empleado_lun_vie.id]
+    dia = _dias(resultado, LUNES)
+    assert dia["entrada"] == "08:57"
+    assert dia["salida"] == "18:03"
 
 
 def test_rango_mayor_al_tope_se_rechaza(svc):
