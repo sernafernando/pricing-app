@@ -237,7 +237,21 @@ def sync_pxq_tiers(db: Session, usuario: Any, item_id: str, *, allow_clear: bool
         )
         return _read_unavailable_outcome("Live get_pxq_prices() read failed")
 
-    mirror_rows = db.query(MlPxqTier).filter(MlPxqTier.item_id == item_id).all()
+    # Ordered explicitly, because this list IS the array POSTed to ML under
+    # array-replace semantics -- the whole price ladder the publication will
+    # hold afterwards. Left to the query planner, the same mirror could emit
+    # two differently-ordered payloads on two runs, which makes the one call in
+    # this feature that cannot be undone irreproducible between them. It is
+    # also the likely reason ML hands the tiers back unordered: we send them
+    # that way, and `ml-webhook` preserves our order on purpose in both
+    # directions.
+    #
+    # It also gives `priceable_rows[0].publicacion_ml_id` below something
+    # defined to stand on. That read is positional and harmless in itself --
+    # every row for one `item_id` belongs to the same publication -- but
+    # "index 0" now means the lowest quantity instead of whatever surfaced
+    # first.
+    mirror_rows = db.query(MlPxqTier).filter(MlPxqTier.item_id == item_id).order_by(MlPxqTier.cantidad_minima).all()
     # Filtered ONCE. Two separate comprehensions applying the same predicate to
     # the same list were identical by construction, but only by construction —
     # touching one and not the other would have let a cost-less tier reach ML.

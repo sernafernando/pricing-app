@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { RefreshCw } from 'lucide-react';
 import { pxqAPI } from '../../services/api';
 import { useLazyResource } from '../../hooks/useLazyResource';
 import { usePermisos } from '../../contexts/PermisosContext';
@@ -665,6 +666,38 @@ function formatEstado(estado) {
   return ESTADO_LABELS.get(estado) ?? estado;
 }
 
+// Neither read column arrives in a usable order, for two unrelated reasons.
+//
+// MercadoLibre returns the wholesale tiers ARBITRARILY ordered — measured in
+// production for MLA1563835240 as quantities 5, 10, 2 — and the `ml-webhook`
+// service preserves ML's order deliberately in both directions, having stated
+// in writing that ordering is the CONSUMER's job. Nothing guarantees an order
+// by `quantity`, and nothing guarantees one by `id` either.
+//
+// The local mirror had the same defect from the other end: the query behind
+// `mirror_tiers` carried no `ORDER BY`, so the rows came back in whatever order
+// storage produced. `backend/app/routers/pxq.py` now orders that query, and
+// sorting here as well is NOT redundancy to delete later: the API is ordered so
+// that every consumer gets a deterministic response, while the panel is ordered
+// because it is the last thing standing between the data and the operator —
+// including when the data comes off the `useLazyResource` cache.
+//
+// A tier is a QUANTITY THRESHOLD ("from 5 units, this price"), so the order is
+// not decoration. Out of sequence the column stops being a scale and becomes
+// three unrelated prices the reader has to sort in his head before he can
+// answer the only question the panel exists for: does buying more get cheaper.
+//
+// COPIES before sorting, because `Array.prototype.sort` mutates in place. Both
+// arrays come straight out of the fetch and live in the resource cache, and
+// `mirror_tiers` has three readers: this column, `PxqTierAuthoring` (which
+// gets its own sorted copy below) and the `canImportLive` computation (which
+// reads the raw array). None of them depends on ORDER — two render a list, the
+// third only reads `.length` — but sorting a shared array where it lies would
+// still reorder it behind their backs, for good, on the first render.
+function sortedByQuantity(tiers, quantityKey) {
+  return [...tiers].sort((a, b) => a[quantityKey] - b[quantityKey]);
+}
+
 /**
  * PxQ (wholesale, price-by-quantity) panel.
  *
@@ -788,6 +821,30 @@ function PxqPanel({ itemId, pxqCacheRef }) {
 
   return (
     <div>
+      {/* Wired to `reload`, NOT to `handleAuthoringChanged`. Both reload, but
+          that one also clears the import and price-update outcomes, and it is
+          allowed to do so only because AUTHORING invalidates them — "cargá el
+          costo de envío del bulto" stops being true the moment he loads it.
+          Re-reading MercadoLibre invalidates nothing the operator did, so the
+          messages have to survive it.
+
+          No in-flight or disabled state: `reload()` sets `loading`, so the
+          panel returns its loading branch and this button is unmounted with
+          the rest of the subtree while the read is in flight. The loading
+          screen is the feedback. Until now the only way to re-read ML was to
+          close the panel and reopen it — "Reintentar" lives inside the error
+          branch, which is the one path where the operator is NOT comparing
+          the two columns. */}
+      <div className={styles.pxqHeader}>
+        <button
+          type="button"
+          className="btn-tesla outline-subtle-primary icon-only sm"
+          onClick={reload}
+          aria-label={`Refrescar precios mayoristas de ${itemId}`}
+        >
+          <RefreshCw size={14} />
+        </button>
+      </div>
       <div className={styles.pxqColumns}>
         <div className={styles.pxqColumn}>
           <div className={styles.pxqColumnTitle}>En MercadoLibre (en vivo)</div>
@@ -796,7 +853,7 @@ function PxqPanel({ itemId, pxqCacheRef }) {
           ) : liveTiers.length === 0 ? (
             <div className={styles.panelState}>ML no tiene tramos mayoristas para esta publicación.</div>
           ) : (
-            liveTiers.map((tier) => (
+            sortedByQuantity(liveTiers, 'quantity').map((tier) => (
               <div key={tier.id} className={styles.pxqTierRow}>
                 <span>{tier.quantity} u.</span>
                 <span>{formatMoney(tier.amount)}</span>
@@ -809,7 +866,7 @@ function PxqPanel({ itemId, pxqCacheRef }) {
           {mirrorTiers.length === 0 ? (
             <div className={styles.panelState}>Sin tramos mayoristas locales.</div>
           ) : (
-            mirrorTiers.map((tier) => {
+            sortedByQuantity(mirrorTiers, 'cantidad_minima').map((tier) => {
               const divergent = isDivergent(tier);
               return (
                 <div
@@ -828,7 +885,17 @@ function PxqPanel({ itemId, pxqCacheRef }) {
       </div>
       {canWrite && (
         <>
-          <PxqTierAuthoring itemId={itemId} mirrorTiers={mirrorTiers} onChanged={handleAuthoringChanged} />
+          {/* Sorted here too, not just in the read column above: the editing
+              list renders the SAME rows directly underneath it, and two
+              orderings of one list would make the operator map between them to
+              find the row he wants. It does arrive ordered from the backend's
+              `ORDER BY` today, but that is an implicit dependency on another
+              service rather than a guarantee this panel holds. */}
+          <PxqTierAuthoring
+            itemId={itemId}
+            mirrorTiers={sortedByQuantity(mirrorTiers, 'cantidad_minima')}
+            onChanged={handleAuthoringChanged}
+          />
           {/* The IMPORT ACTION is offered in exactly one state. An empty
               `liveTiers` means there is nothing on ML to import; a failed live
               read means we do not know what is there; a non-empty mirror means

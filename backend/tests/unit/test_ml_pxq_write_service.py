@@ -479,3 +479,97 @@ class TestBehaviourNotSourceText:
 
         assert outcome["synced"] is True
         assert created.ml_price_id == "OURS"
+
+
+class TestTheEmittedArrayIsOrdered:
+    """The array handed to `post_pxq_prices` is POSTed under ARRAY-REPLACE
+    semantics: it IS the entire price ladder MercadoLibre will hold afterwards.
+    It was built off a `db.query(...).all()` with no `ORDER BY`, so its order
+    was whatever plan the database happened to choose -- meaning the same
+    mirror could produce two different payloads on two runs, on the one call in
+    this feature that cannot be undone. It is also the likely reason ML hands
+    the tiers BACK unordered: we send them that way.
+
+    Rows are inserted 5, 10, 2 on purpose. SQLite scans in rowid order, so an
+    ascending INSERT would pass with no `ORDER BY` at all and prove nothing.
+    """
+
+    def test_emitted_array_is_ascending_by_quantity(self, db, publicacion, pxq_user, monkeypatch) -> None:
+        # Never-synced rows, so every one of them is a create and the emitted
+        # array is exactly the mirror in mirror order -- no keeps or untracked
+        # entries to muddy which order is being observed.
+        for cantidad in (5, 10, 2):
+            db.add(
+                MlPxqTier(
+                    publicacion_ml_id=publicacion.id,
+                    item_id=publicacion.mla,
+                    cantidad_minima=cantidad,
+                    precio_unitario=Decimal("500.00"),
+                    costo_envio_total=Decimal("50.00"),
+                    ml_price_id=None,
+                    estado=ESTADO_LISTO,
+                    usuario_id=pxq_user.id,
+                )
+            )
+        db.flush()
+
+        monkeypatch.setattr(write_service.settings, "PXQ_WRITE_ENABLED", True)
+        patcher, mock_client = _mock_client()
+        mock_client.get_pxq_prices = AsyncMock(
+            side_effect=[
+                # live read: ML holds nothing yet
+                [],
+                # confirmation re-read: the three creates came back
+                [
+                    {"id": "ML2", "quantity": 2, "amount": 500.0},
+                    {"id": "ML5", "quantity": 5, "amount": 500.0},
+                    {"id": "ML10", "quantity": 10, "amount": 500.0},
+                ],
+            ]
+        )
+        try:
+            outcome = write_service.sync_pxq_tiers(db, pxq_user, publicacion.mla)
+        finally:
+            patcher.stop()
+
+        assert outcome["synced"] is True
+        posted_array = mock_client.post_pxq_prices.await_args.args[1]
+        assert [entry["quantity"] for entry in posted_array] == [2, 5, 10]
+
+    def test_publicacion_ml_id_is_read_off_a_defined_row_not_an_arbitrary_one(
+        self, db, publicacion, pxq_user, monkeypatch
+    ) -> None:
+        """`priceable_rows[0].publicacion_ml_id` is a POSITIONAL read. It is
+        harmless in itself -- every row for one `item_id` shares a publication
+        -- but resting it on an undefined order means the log line it feeds is
+        reproducible only by luck. Ordering the query makes index 0 mean
+        something: the lowest quantity."""
+        for cantidad in (5, 10, 2):
+            db.add(
+                MlPxqTier(
+                    publicacion_ml_id=publicacion.id,
+                    item_id=publicacion.mla,
+                    cantidad_minima=cantidad,
+                    precio_unitario=Decimal("500.00"),
+                    costo_envio_total=Decimal("50.00"),
+                    ml_price_id=None,
+                    estado=ESTADO_LISTO,
+                    usuario_id=pxq_user.id,
+                )
+            )
+        db.flush()
+
+        captured: list = []
+        monkeypatch.setattr(write_service.settings, "PXQ_WRITE_ENABLED", True)
+        monkeypatch.setattr(
+            write_service,
+            "_desired_tiers_from_mirror",
+            lambda rows: (captured.append([row.cantidad_minima for row in rows]), [])[1],
+        )
+        patcher, _mock = _mock_client()
+        try:
+            write_service.sync_pxq_tiers(db, pxq_user, publicacion.mla)
+        finally:
+            patcher.stop()
+
+        assert captured == [[2, 5, 10]]
