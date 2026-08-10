@@ -759,6 +759,206 @@ def test_cross_moneda_dac_sin_tc_rechaza(db, empresa, proveedor, user) -> None:
 
 
 # ──────────────────────────────────────────────────────────────────────────
+# Pata destino del DAC — consumir() debe denominar la imputación en la
+# moneda del DESTINO, no en la del DAC.
+# ──────────────────────────────────────────────────────────────────────────
+
+
+def test_consumir_dac_cross_moneda_graba_las_dos_patas(db, empresa, proveedor, user) -> None:
+    """
+    DAC ARS consumido contra un pedido USD → la pata destino va en USD.
+
+    `consumir` grababa `moneda_imputada = dac.moneda` sin convertir nunca, así
+    que la fila quedaba denominada en la moneda del ORIGEN.
+    """
+    from decimal import Decimal
+
+    from app.services import dinero_a_cuenta_service
+
+    dac = _crear_dac_disponible(
+        db,
+        proveedor_id=proveedor.id,
+        empresa_id=empresa.id,
+        user_id=user.id,
+        monto=150_000,
+        moneda="ARS",
+        numero_op="OP-DACXM-001",
+    )
+
+    ped_usd = _insert_pedido(
+        db,
+        empresa_id=empresa.id,
+        proveedor_id=proveedor.id,
+        user_id=user.id,
+        monto=100,
+        moneda="USD",
+        numero="PED-DACXM-001",
+    )
+
+    imp = dinero_a_cuenta_service.consumir(
+        db,
+        dinero_a_cuenta_id=dac.id,
+        destino_tipo="pedido_compra",
+        destino_id=ped_usd,
+        monto=Decimal("150000"),
+        user_id=user.id,
+        op_proveedor_id=proveedor.id,
+        op_moneda="ARS",
+        op_tipo_cambio=Decimal("1500"),
+    )
+
+    assert imp.monto_imputado == Decimal("100.00")
+    assert imp.moneda_imputada == "USD"
+    assert imp.monto_origen == Decimal("150000")
+    assert imp.moneda_origen == "ARS"
+    assert imp.tipo_cambio == Decimal("1500")
+
+
+def test_consumir_dac_cross_moneda_reduce_el_saldo_del_pedido(db, empresa, proveedor, user) -> None:
+    """
+    El bug real: el DAC se gastaba pero el saldo del pedido no bajaba.
+
+    `calcular_saldo_pendiente_pedido` filtra
+    `Imputacion.moneda_imputada == pedido.moneda`, así que una fila denominada
+    en la moneda del DAC quedaba descartada: plata consumida, deuda intacta.
+    """
+    from decimal import Decimal
+
+    from app.services import dinero_a_cuenta_service, pedidos_service
+
+    dac = _crear_dac_disponible(
+        db,
+        proveedor_id=proveedor.id,
+        empresa_id=empresa.id,
+        user_id=user.id,
+        monto=150_000,
+        moneda="ARS",
+        numero_op="OP-DACXM-002",
+    )
+
+    ped_usd = _insert_pedido(
+        db,
+        empresa_id=empresa.id,
+        proveedor_id=proveedor.id,
+        user_id=user.id,
+        monto=100,
+        moneda="USD",
+        numero="PED-DACXM-002",
+    )
+    assert pedidos_service.calcular_saldo_pendiente_pedido(db, ped_usd) == Decimal("100")
+
+    dinero_a_cuenta_service.consumir(
+        db,
+        dinero_a_cuenta_id=dac.id,
+        destino_tipo="pedido_compra",
+        destino_id=ped_usd,
+        monto=Decimal("150000"),
+        user_id=user.id,
+        op_proveedor_id=proveedor.id,
+        op_moneda="ARS",
+        op_tipo_cambio=Decimal("1500"),
+    )
+    db.flush()
+
+    assert pedidos_service.calcular_saldo_pendiente_pedido(db, ped_usd) == Decimal("0.00")
+
+
+def test_consumir_dac_usd_contra_pedido_ars_espejo(db, empresa, proveedor, user) -> None:
+    """Espejo: DAC USD consumido contra un pedido ARS → pata destino en ARS."""
+    from decimal import Decimal
+
+    from app.services import dinero_a_cuenta_service
+
+    dac = _crear_dac_disponible(
+        db,
+        proveedor_id=proveedor.id,
+        empresa_id=empresa.id,
+        user_id=user.id,
+        monto=100,
+        moneda="USD",
+        numero_op="OP-DACXM-003",
+    )
+
+    ped_ars = _insert_pedido(
+        db,
+        empresa_id=empresa.id,
+        proveedor_id=proveedor.id,
+        user_id=user.id,
+        monto=150_000,
+        moneda="ARS",
+        numero="PED-DACXM-003",
+    )
+
+    imp = dinero_a_cuenta_service.consumir(
+        db,
+        dinero_a_cuenta_id=dac.id,
+        destino_tipo="pedido_compra",
+        destino_id=ped_ars,
+        monto=Decimal("100"),
+        user_id=user.id,
+        op_proveedor_id=proveedor.id,
+        op_moneda="USD",
+        op_tipo_cambio=Decimal("1500"),
+    )
+
+    assert imp.monto_imputado == Decimal("150000.00")
+    assert imp.moneda_imputada == "ARS"
+    assert imp.monto_origen == Decimal("100")
+    assert imp.moneda_origen == "USD"
+    assert imp.tipo_cambio == Decimal("1500")
+
+
+def test_consumir_dac_cross_moneda_vs_pedido_sin_tc_rechaza(db, empresa, proveedor, user) -> None:
+    """
+    DAC ARS + OP ARS (sin TC) contra un pedido USD → 422.
+
+    El guard DAC↔OP no dispara (misma moneda), pero la pata DAC↔pedido sí
+    necesita convertir. Sin TC se rechaza en vez de grabar una fila que el
+    saldo del pedido va a descartar.
+    """
+    from decimal import Decimal
+
+    from fastapi import HTTPException
+
+    from app.services import dinero_a_cuenta_service
+
+    dac = _crear_dac_disponible(
+        db,
+        proveedor_id=proveedor.id,
+        empresa_id=empresa.id,
+        user_id=user.id,
+        monto=150_000,
+        moneda="ARS",
+        numero_op="OP-DACXM-004",
+    )
+
+    ped_usd = _insert_pedido(
+        db,
+        empresa_id=empresa.id,
+        proveedor_id=proveedor.id,
+        user_id=user.id,
+        monto=100,
+        moneda="USD",
+        numero="PED-DACXM-004",
+    )
+
+    with pytest.raises(HTTPException) as exc_info:
+        dinero_a_cuenta_service.consumir(
+            db,
+            dinero_a_cuenta_id=dac.id,
+            destino_tipo="pedido_compra",
+            destino_id=ped_usd,
+            monto=Decimal("150000"),
+            user_id=user.id,
+            op_proveedor_id=proveedor.id,
+            op_moneda="ARS",
+            op_tipo_cambio=None,
+        )
+    assert exc_info.value.status_code == 422
+    assert "tipo_cambio" in exc_info.value.detail
+
+
+# ──────────────────────────────────────────────────────────────────────────
 # WARNING 2 — with_for_update: consumir sigue funcionando con el lock
 # ──────────────────────────────────────────────────────────────────────────
 

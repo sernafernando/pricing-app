@@ -52,7 +52,7 @@ from app.services import (
 )
 from app.services.banco_service import BancoService
 from app.services.caja_service import CajaService
-from app.services.fx_service import q_ars, q_usd
+from app.services.fx_service import convertir_entre_monedas, q_ars, q_usd
 
 logger = get_logger("services.ordenes_pago_service")
 
@@ -2667,23 +2667,6 @@ def _resolver_tc_nc(*candidatos: Optional[Decimal]) -> Optional[Decimal]:
     return None
 
 
-def _convertir_entre_monedas(monto: Decimal, *, desde: str, hacia: str, tc: Decimal) -> Decimal:
-    """Convierte `monto` de `desde` a `hacia` con la MISMA convención que la OP.
-
-    Espeja exactamente la conversión OP↔pedido de `ejecutar_pago`: ARS→USD
-    divide por el TC y cuantiza a USD, USD→ARS multiplica y cuantiza a ARS.
-    Cualquier otra combinación queda fuera de la whitelist ARS/USD.
-    """
-    if desde == "ARS" and hacia == "USD":
-        return q_usd(monto / tc)
-    if desde == "USD" and hacia == "ARS":
-        return q_ars(monto * tc)
-    raise HTTPException(
-        status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-        detail=f"Combinación de monedas no soportada: {desde} → {hacia}.",
-    )
-
-
 def _convertir_nc_por_cadena_op(
     *,
     nc_id: int,
@@ -2753,8 +2736,18 @@ def _convertir_nc_por_cadena_op(
 
     # Exactamente una de las dos patas convierte — ésa define el TC origen↔destino.
     tc_efectivo = tc_nc_op if tc_op_pedido is None else tc_op_pedido
-    assert tc_efectivo is not None  # noqa: S101 — garantizado por las ramas de arriba
-    monto_imputado = _convertir_entre_monedas(monto, desde=nc_moneda, hacia=pedido_moneda, tc=tc_efectivo)
+    try:
+        monto_imputado = convertir_entre_monedas(
+            monto,
+            desde=nc_moneda,
+            hacia=pedido_moneda,
+            tc=tc_efectivo,  # type: ignore[arg-type]
+        )
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"No se pudo convertir la NC id={nc_id}: {exc}",
+        ) from exc
     return monto_imputado, tc_efectivo
 
 
