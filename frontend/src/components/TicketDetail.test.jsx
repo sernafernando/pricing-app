@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, waitFor } from '@testing-library/react';
+import { render, screen, waitFor, fireEvent } from '@testing-library/react';
 import TicketDetail from './TicketDetail';
 import { ticketsAPI } from '../services/api';
 
@@ -26,6 +26,7 @@ vi.mock('../services/api', () => ({
     obtenerHistorial: vi.fn().mockResolvedValue({ data: [] }),
     listarAdjuntos: vi.fn().mockResolvedValue({ data: [] }),
     listarPropuestas: vi.fn().mockResolvedValue({ data: [] }),
+    triage: vi.fn(),
   },
   sectoresAPI: {
     listarWorkflows: vi.fn().mockResolvedValue({ data: [] }),
@@ -38,10 +39,11 @@ vi.mock('../services/api', () => ({
   },
 }));
 
+let mockTienePermiso = () => false;
 vi.mock('../contexts/PermisosContext', () => ({
   usePermisos: () => ({
     permisos: [],
-    tienePermiso: () => false,
+    tienePermiso: (codigo) => mockTienePermiso(codigo),
     cargandoPermisos: false,
   }),
   PermisosProvider: ({ children }) => children,
@@ -73,6 +75,7 @@ function baseTicket(overrides = {}) {
 describe('TicketDetail — marcarRevisado non-blocking catch', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mockTienePermiso = () => false;
   });
 
   it('calls ticketsAPI.marcarRevisado with the loaded ticket id', async () => {
@@ -102,6 +105,7 @@ describe('TicketDetail — marcarRevisado non-blocking catch', () => {
 describe('TicketDetail — AI triage provenance (tickets-ai-triage PR 4c)', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mockTienePermiso = () => false;
   });
 
   it('shows a provenance badge for an AI-confirmed severidad and fetches pending proposals for the ticket', async () => {
@@ -138,5 +142,77 @@ describe('TicketDetail — AI triage provenance (tickets-ai-triage PR 4c)', () =
     render(<TicketDetail ticketId={42} onClose={() => {}} />);
 
     await waitFor(() => expect(screen.getByText(/crear usuario del Pricing para Dani/)).toBeInTheDocument());
+  });
+});
+
+describe('TicketDetail — AI triage retrigger button (fix/tickets-triage-backfill)', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    ticketsAPI.obtener.mockResolvedValue({ data: baseTicket() });
+    ticketsAPI.marcarRevisado.mockResolvedValue({ data: { ok: true } });
+    ticketsAPI.listarPropuestas.mockResolvedValue({ data: [] });
+  });
+
+  it('is absent without tickets.triage.confirmar', async () => {
+    mockTienePermiso = () => false;
+
+    render(<TicketDetail ticketId={42} onClose={() => {}} />);
+
+    await waitFor(() => expect(screen.getByText('No puedo facturar desde ayer')).toBeInTheDocument());
+    expect(screen.queryByText(/Reintentar triage de IA/i)).not.toBeInTheDocument();
+  });
+
+  it('calls ticketsAPI.triage with only the ticket id when clicked (forzar is never exposed here)', async () => {
+    mockTienePermiso = (codigo) => codigo === 'tickets.triage.confirmar';
+    ticketsAPI.triage.mockResolvedValue({ data: { ok: true } });
+
+    render(<TicketDetail ticketId={42} onClose={() => {}} />);
+
+    const boton = await screen.findByText(/Reintentar triage de IA/i);
+    fireEvent.click(boton);
+
+    await waitFor(() => expect(ticketsAPI.triage).toHaveBeenCalledTimes(1));
+    expect(ticketsAPI.triage).toHaveBeenCalledWith(42);
+  });
+
+  it('refetches proposals a few seconds after a successful retrigger (the promised update actually happens)', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    mockTienePermiso = (codigo) => codigo === 'tickets.triage.confirmar';
+    ticketsAPI.triage.mockResolvedValue({ data: { ok: true } });
+
+    render(<TicketDetail ticketId={42} onClose={() => {}} />);
+
+    const boton = await screen.findByText(/Reintentar triage de IA/i);
+    fireEvent.click(boton);
+
+    await waitFor(() => expect(ticketsAPI.triage).toHaveBeenCalledTimes(1));
+    // One call on mount — the delayed refresh has not fired yet.
+    expect(ticketsAPI.listarPropuestas).toHaveBeenCalledTimes(1);
+
+    await vi.advanceTimersByTimeAsync(4000);
+
+    await waitFor(() => expect(ticketsAPI.listarPropuestas).toHaveBeenCalledTimes(2));
+    vi.useRealTimers();
+  });
+
+  it('a 409 (proposals already exist) surfaces the server Spanish detail inline', async () => {
+    mockTienePermiso = (codigo) => codigo === 'tickets.triage.confirmar';
+    ticketsAPI.triage.mockRejectedValue({
+      response: {
+        status: 409,
+        data: { detail: 'Ya existe una clasificación pendiente o confirmada para este ticket; use forzar=true para reintentar' },
+      },
+    });
+
+    render(<TicketDetail ticketId={42} onClose={() => {}} />);
+
+    const boton = await screen.findByText(/Reintentar triage de IA/i);
+    fireEvent.click(boton);
+
+    await waitFor(() =>
+      expect(
+        screen.getByText('Ya existe una clasificación pendiente o confirmada para este ticket; use forzar=true para reintentar')
+      ).toBeInTheDocument()
+    );
   });
 });
