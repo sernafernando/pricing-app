@@ -55,14 +55,15 @@ class PropuestaIA(Base):
         # allowlist enforced in `_aplicar_confirmacion()`: even a raw INSERT
         # or a future app bug can never smuggle in a value like 'estado_id'
         # that would let confirmation write straight through the
-        # workflow-transition engine (PR 1). If a future slice adds a 5th
+        # workflow-transition engine (PR 1). If a future slice adds another
         # confirmable field, THIS constraint AND
         # `confirmacion_service.CAMPOS_CONFIRMABLES` must both be updated,
         # plus a new migration (see
-        # alembic/versions/20260806_campo_check_ia.py).
+        # alembic/versions/20260806_campo_check_ia.py,
+        # 20260810_sector_tipo_metadata_check_ia.py).
         # VARCHAR + CHECK, not a PG ENUM — same rationale as `estado` above.
         CheckConstraint(
-            "campo IN ('severidad','urgencia','titulo','resumen')",
+            "campo IN ('severidad','urgencia','titulo','resumen','sector','tipo_ticket','metadata_ia')",
             name="ck_tickets_propuestas_ia_campo",
         ),
         # Partial unique index: only one PENDING proposal per (ticket_id,
