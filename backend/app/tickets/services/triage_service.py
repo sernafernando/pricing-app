@@ -263,16 +263,30 @@ async def run_triage(ticket_id: int, provider: LlmProvider) -> None:
 
     try:
         with get_background_db() as db:
-            for campo, valor, confianza in (
-                ("severidad", propuesta.severidad, propuesta.confianza_severidad),
-                ("urgencia", propuesta.urgencia, propuesta.confianza_urgencia),
-                # titulo/resumen have no per-field confidence of their own
-                # in the LLM contract — both gate on confianza_global
-                # (decision #1371, resolving the blocker PR 4b reported).
-                ("titulo", propuesta.titulo, propuesta.confianza_global),
-                ("resumen", propuesta.resumen, propuesta.confianza_global),
+            # Gate the JUDGEMENTS, not the TRANSFORMATIONS.
+            #
+            # severidad/urgencia are judgements: a confidently wrong "critica"
+            # sends attention to the wrong ticket and teaches the maintainer to
+            # distrust every badge, so the threshold earns its keep there.
+            #
+            # titulo/resumen are transformations the model can always perform.
+            # Gating them behind a confidence that measures CLASSIFICATION
+            # discarded perfectly good text in production: for ticket #34 the
+            # model wrote "Crear usuarios para GBP y Pricing" plus a clean
+            # one-line resumen, correctly returned severidad=null/urgencia=null
+            # for an administrative request carrying no impact information, and
+            # rated itself 0.0 throughout because it could not classify it. The
+            # gate then threw away work it had already done, leaving the board
+            # showing the first 80 raw characters instead.
+            #
+            # Supersedes decision #1371.
+            for campo, valor, confianza, exige_umbral in (
+                ("severidad", propuesta.severidad, propuesta.confianza_severidad, True),
+                ("urgencia", propuesta.urgencia, propuesta.confianza_urgencia, True),
+                ("titulo", propuesta.titulo, propuesta.confianza_global, False),
+                ("resumen", propuesta.resumen, propuesta.confianza_global, False),
             ):
-                if valor is None or not pasa_umbral_confianza(confianza):
+                if valor is None or (exige_umbral and not pasa_umbral_confianza(confianza)):
                     logger.info(
                         "tickets triage: campo '%s' gateado para ticket #%s (confianza=%s)",
                         campo,

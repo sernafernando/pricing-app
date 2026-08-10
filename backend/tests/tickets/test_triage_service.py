@@ -340,12 +340,62 @@ class TestConfidenceGatePerField:
         assert {p.campo for p in propuestas} == {"titulo", "resumen"}
 
 
-class TestTituloResumenConfianzaGlobalGate:
-    """Decision #1371: titulo/resumen have no field-specific confidence in
-    the LLM contract — both gate on `confianza_global`, independently of
-    severidad/urgencia's own per-field confidences."""
+class TestTituloResumenNoSeGatean:
+    """Supersedes decision #1371, which gated titulo/resumen on
+    `confianza_global`. That conflated two different kinds of work:
 
-    def test_confianza_global_above_threshold_writes_titulo_and_resumen(self, db, rol_ventas) -> None:
+    - severidad/urgencia are JUDGEMENTS. A confidently wrong "critica"
+      sends the maintainer to the wrong ticket and teaches him to distrust
+      every badge, so a threshold earns its keep.
+    - titulo/resumen are TRANSFORMATIONS. Summarising text is something the
+      model can always do; a mediocre title costs nothing, and is still far
+      better than the first 80 raw characters the server derives otherwise.
+
+    Real production evidence (ticket #34): for an administrative request
+    with no impact information the model correctly returned severidad=null
+    and urgencia=null, and rated ITSELF 0.0 across the board because it
+    could not classify the request. It had nonetheless written
+    "Crear usuarios para GBP y Pricing" and a clean one-line resumen — both
+    of which the old gate discarded. The model's doubt about CLASSIFYING
+    must not suppress work it already did.
+    """
+
+    def test_titulo_y_resumen_se_escriben_con_confianza_cero(self, db, rol_ventas) -> None:
+        """The exact production case that exposed this."""
+        ticket = _make_ticket(db, rol_ventas, "titulo-sin-gate")
+        payload = _valid_payload(
+            confianza_global=0.0,
+            severidad=None,
+            urgencia=None,
+            confianza_severidad=0.0,
+            confianza_urgencia=0.0,
+        )
+        provider = FakeProvider(response=json.dumps(payload))
+
+        with _patch_background_db(db):
+            asyncio.run(run_triage(ticket.id, provider))
+
+        propuestas = {p.campo: p for p in db.query(PropuestaIA).filter(PropuestaIA.ticket_id == ticket.id).all()}
+        assert propuestas["titulo"].valor_propuesto == {"valor": payload["titulo"]}
+        assert propuestas["resumen"].valor_propuesto == {"valor": payload["resumen"]}
+        # ...and the judgements the model declined to make stay unproposed.
+        assert "severidad" not in propuestas
+        assert "urgencia" not in propuestas
+
+    def test_severidad_y_urgencia_siguen_gateadas(self, db, rol_ventas) -> None:
+        """Regression guard: relaxing the text fields must NOT relax the
+        judgement fields. A low-confidence severidad still writes nothing."""
+        ticket = _make_ticket(db, rol_ventas, "juicios-gateados")
+        payload = _valid_payload(confianza_severidad=0.2, confianza_urgencia=0.2, confianza_global=0.0)
+        provider = FakeProvider(response=json.dumps(payload))
+
+        with _patch_background_db(db):
+            asyncio.run(run_triage(ticket.id, provider))
+
+        campos = {p.campo for p in db.query(PropuestaIA).filter(PropuestaIA.ticket_id == ticket.id).all()}
+        assert campos == {"titulo", "resumen"}
+
+    def test_confianza_alta_escribe_todo(self, db, rol_ventas) -> None:
         ticket = _make_ticket(db, rol_ventas, "titulo-gate-high")
         payload = _valid_payload(confianza_global=0.9)
         provider = FakeProvider(response=json.dumps(payload))
@@ -358,18 +408,6 @@ class TestTituloResumenConfianzaGlobalGate:
         assert propuestas["titulo"].estado == "pendiente"
         assert propuestas["resumen"].valor_propuesto == {"valor": payload["resumen"]}
         assert propuestas["resumen"].estado == "pendiente"
-
-    def test_confianza_global_below_threshold_writes_neither(self, db, rol_ventas) -> None:
-        ticket = _make_ticket(db, rol_ventas, "titulo-gate-low")
-        payload = _valid_payload(confianza_global=0.3)
-        provider = FakeProvider(response=json.dumps(payload))
-
-        with _patch_background_db(db):
-            asyncio.run(run_triage(ticket.id, provider))
-
-        campos = {p.campo for p in db.query(PropuestaIA).filter(PropuestaIA.ticket_id == ticket.id).all()}
-        # sibling fields (their own confidences, unaffected) still write:
-        assert campos == {"severidad", "urgencia"}
 
     def test_run_triage_degrades_to_nothing_when_titulo_too_long(self, db, rol_ventas) -> None:
         """The over-long titulo fails `TriagePropuesta` parsing entirely
