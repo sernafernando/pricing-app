@@ -379,6 +379,8 @@ class TestFlujoCompleto:
             destino_id=None,
             monto_imputado=Decimal("1500"),
             moneda_imputada="ARS",
+            monto_origen=Decimal("1500"),
+            moneda_origen="ARS",
             proveedor_id=proveedor.id,
             creado_por_id=1,
         )

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { ChevronDown, ChevronRight, Loader2 } from 'lucide-react';
 import useNCsLocales from '../../../hooks/useNCsLocales';
 import styles from './PanelNCsProveedor.module.css';
@@ -22,11 +22,12 @@ import styles from './PanelNCsProveedor.module.css';
  *     un único pedido en los items, o el backend lo resuelve con 422 si
  *     hace falta y el usuario no lo proveyó.
  *
+ * El panel NO filtra por moneda. Una NC es un medio de pago: viaja por la
+ * cadena NC → OP → pedido, así que ninguna moneda la descalifica. Filtrar
+ * escondía justamente las NCs cross-moneda que el usuario quería usar.
+ *
  * Props:
  *   proveedorId   (number|string)  — id del proveedor; si es falsy el panel no carga.
- *   moneda        (string)         — "ARS" | "USD"; solo para label de "sin NCs". NO filtra.
- *   monedasFiltro (string[])       — filtra NCs cuya moneda esté en este array.
- *                                    Si se omite, no filtra por moneda.
  *   opMoneda      (string)         — moneda de la OP; para mostrar TC cuando hay cross-moneda.
  *   mode          ("aplicar"|"seleccionar") — default "aplicar".
  *   onAplicar     (nc, monto) => Promise<void>  — sólo en mode="aplicar".
@@ -41,8 +42,6 @@ const formatCurrency = (value, moneda = 'ARS') => {
 
 export default function PanelNCsProveedor({
   proveedorId,
-  moneda,
-  monedasFiltro,
   opMoneda,
   mode = 'aplicar',
   onAplicar,
@@ -50,18 +49,6 @@ export default function PanelNCsProveedor({
   disabled = false,
 }) {
   const { listarDisponibles: listarNCs } = useNCsLocales();
-
-  // Parents often pass `monedasFiltro` as a fresh array literal on every render
-  // (e.g. computed inline). Depending on that reference would give `fetchNCs` a
-  // new identity each render → its effect refires → a backend refetch on every
-  // parent state change (every keystroke). Derive a stable primitive key and
-  // rebuild the array only when the *contents* change. Currency codes never
-  // contain commas, so join/split round-trips safely.
-  const monedasFiltroKey = (monedasFiltro || []).join(',');
-  const monedasFiltroStable = useMemo(
-    () => (monedasFiltroKey ? monedasFiltroKey.split(',') : []),
-    [monedasFiltroKey],
-  );
 
   const [abierto, setAbierto] = useState(false);
   const [ncsDisponibles, setNcsDisponibles] = useState([]);
@@ -82,21 +69,13 @@ export default function PanelNCsProveedor({
     setError(null);
     try {
       const result = await listarNCs({ proveedor_id: proveedorId, limit: 100, offset: 0 });
-      let items = Array.isArray(result) ? result : [];
-      // Filter by monedasFiltro (array of pedido monedas) when provided.
-      // Falls back to the legacy moneda string filter only for mode="aplicar".
-      if (monedasFiltroStable.length > 0) {
-        items = items.filter((nc) => monedasFiltroStable.includes(nc.moneda));
-      } else if (moneda && mode === 'aplicar') {
-        items = items.filter((nc) => nc.moneda === moneda);
-      }
-      setNcsDisponibles(items);
+      setNcsDisponibles(Array.isArray(result) ? result : []);
     } catch (err) {
       setError(err.response?.data?.detail || 'Error al cargar NCs del proveedor.');
     } finally {
       setLoading(false);
     }
-  }, [listarNCs, proveedorId, moneda, monedasFiltroStable, mode]);
+  }, [listarNCs, proveedorId]);
 
   useEffect(() => {
     if (abierto && proveedorId) {
@@ -230,8 +209,7 @@ export default function PanelNCsProveedor({
           {error && <div className={styles.errorBanner}>{error}</div>}
           {!loading && !error && ncsDisponibles.length === 0 && (
             <div className={styles.emptySection}>
-              Sin NCs aprobadas con saldo disponible para este proveedor
-              {moneda ? ` en ${moneda}` : ''}.
+              Sin NCs aprobadas con saldo disponible para este proveedor.
             </div>
           )}
           {!loading && ncsDisponibles.length > 0 && (

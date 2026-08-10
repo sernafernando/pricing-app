@@ -54,11 +54,16 @@ class NCAplicadaItem(BaseModel):
     Incluido en `ncs_aplicadas` de `OrdenPagoCreate` / `OrdenPagoCrearYPagar`.
     El `pedido_id` es opcional cuando la OP imputa un único pedido (se infiere);
     es obligatorio para OPs `a_cuenta` y para OPs con múltiples pedidos.
+
+    `tipo_cambio_override` es el TC de la pata NC→OP cuando la NC está en una
+    moneda distinta a la de la OP. Gana sobre `OrdenPago.tipo_cambio`. Cuando la
+    NC y la OP comparten moneda no se usa (la pata es la identidad).
     """
 
     nc_id: int = Field(..., ge=1)
     monto: Decimal = Field(..., gt=0)
     pedido_id: int | None = Field(None, ge=1)
+    tipo_cambio_override: Decimal | None = Field(None, gt=0)
 
 
 class OrdenPagoCreate(OrdenPagoBase):

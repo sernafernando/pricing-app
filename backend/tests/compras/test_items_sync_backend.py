@@ -374,7 +374,15 @@ def test_payload_nc_como_cobertura(db, empresa, proveedor, user, caja):
     from app.services.ordenes_pago_service import imputar_nc_a_pedido
 
     pedido_obj = db.get(PedidoCompra, pedido_id)
-    imputar_nc_a_pedido(db, nc=nc, pedido=pedido_obj, monto=Decimal(str(monto_nc)), creado_por_id=user.id)
+    imputar_nc_a_pedido(
+        db,
+        nc=nc,
+        pedido=pedido_obj,
+        monto=Decimal(str(monto_nc)),
+        creado_por_id=user.id,
+        op_moneda="ARS",
+        op_tipo_cambio=None,
+    )
     db.flush()
 
     # OP: item is NET (4.000), monto_total = 4.000.

@@ -102,6 +102,8 @@ class TestCCSignF2:
             destino_id=pedido.id,
             monto_imputado=Decimal("200"),
             moneda_imputada="ARS",
+            monto_origen=Decimal("200"),
+            moneda_origen="ARS",
             proveedor_id=proveedor.id,
             creado_por_id=active_user.id,
         )
@@ -125,6 +127,8 @@ class TestCCSignF2:
             destino_id=pedido.id,
             monto_imputado=Decimal("50000"),
             moneda_imputada="ARS",
+            monto_origen=Decimal("50000"),
+            moneda_origen="ARS",
             proveedor_id=proveedor.id,
             creado_por_id=active_user.id,
         )
@@ -148,6 +152,8 @@ class TestCCSignF2:
             destino_id=pedido.id,
             monto_imputado=Decimal("50000"),
             moneda_imputada="ARS",
+            monto_origen=Decimal("50000"),
+            moneda_origen="ARS",
             proveedor_id=proveedor.id,
             creado_por_id=active_user.id,
         )
@@ -196,6 +202,8 @@ class TestCCSignF2:
             destino_id=pedido.id,
             monto_imputado=Decimal("100"),
             moneda_imputada="ARS",
+            monto_origen=Decimal("100"),
+            moneda_origen="ARS",
             proveedor_id=proveedor.id,
             creado_por_id=active_user.id,
         )

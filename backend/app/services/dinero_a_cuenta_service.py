@@ -33,6 +33,8 @@ from sqlalchemy.orm import Session
 from app.core.logging import get_logger
 from app.models.dinero_a_cuenta import DineroACuenta
 from app.models.imputacion import Imputacion
+from app.models.pedido_compra import PedidoCompra
+from app.services.fx_service import convertir_entre_monedas
 
 logger = get_logger("services.dinero_a_cuenta_service")
 
@@ -136,8 +138,13 @@ def calcular_saldo_disponible(
             detail=f"DineroACuenta id={dinero_a_cuenta_id} no encontrado.",
         )
 
+    # Lectura ORIGIN-SIDE (compras_038): `dac.monto` está en la moneda del DAC,
+    # así que lo consumido se mide con la pata ORIGEN de cada imputación.
+    from app.services.imputaciones_service import monto_origen_efectivo  # noqa: PLC0415
+
+    consumido = monto_origen_efectivo()
     imputado_no_reversal = session.execute(
-        select(func.coalesce(func.sum(Imputacion.monto_imputado), 0)).where(
+        select(func.coalesce(func.sum(consumido), 0)).where(
             Imputacion.origen_tipo == "dinero_a_cuenta",
             Imputacion.origen_id == dinero_a_cuenta_id,
             Imputacion.es_reversal.is_(False),
@@ -145,7 +152,7 @@ def calcular_saldo_disponible(
     ).scalar_one()
 
     imputado_reversal = session.execute(
-        select(func.coalesce(func.sum(Imputacion.monto_imputado), 0)).where(
+        select(func.coalesce(func.sum(consumido), 0)).where(
             Imputacion.origen_tipo == "dinero_a_cuenta",
             Imputacion.origen_id == dinero_a_cuenta_id,
             Imputacion.es_reversal.is_(True),
@@ -316,10 +323,14 @@ def calcular_saldos_disponibles_batch(
     if not dac_ids:
         return {}
 
+    # Lectura ORIGIN-SIDE (compras_038) — ídem `calcular_saldo_disponible`.
+    from app.services.imputaciones_service import monto_origen_efectivo  # noqa: PLC0415
+
+    consumido = monto_origen_efectivo()
     neto_no_reversal: dict[int, Decimal] = {
         row.origen_id: Decimal(row.total)
         for row in session.execute(
-            select(Imputacion.origen_id, func.sum(Imputacion.monto_imputado).label("total"))
+            select(Imputacion.origen_id, func.sum(consumido).label("total"))
             .where(
                 Imputacion.origen_tipo == "dinero_a_cuenta",
                 Imputacion.origen_id.in_(dac_ids),
@@ -331,7 +342,7 @@ def calcular_saldos_disponibles_batch(
     neto_reversal: dict[int, Decimal] = {
         row.origen_id: Decimal(row.total)
         for row in session.execute(
-            select(Imputacion.origen_id, func.sum(Imputacion.monto_imputado).label("total"))
+            select(Imputacion.origen_id, func.sum(consumido).label("total"))
             .where(
                 Imputacion.origen_tipo == "dinero_a_cuenta",
                 Imputacion.origen_id.in_(dac_ids),
@@ -353,6 +364,51 @@ def calcular_saldos_disponibles_batch(
 # ──────────────────────────────────────────────────────────────────────────
 # consumir — PR4 (T4.3, AD-4)
 # ──────────────────────────────────────────────────────────────────────────
+
+
+def _convertir_a_moneda_destino(
+    monto: Decimal,
+    *,
+    dinero_a_cuenta_id: int,
+    moneda_dac: str,
+    moneda_destino: str,
+    op_tipo_cambio: Optional[Decimal],
+) -> tuple[Decimal, Optional[Decimal]]:
+    """Convierte lo consumido del DAC a la moneda del DESTINO.
+
+    Identidad cuando las monedas coinciden (y entonces la fila NO lleva TC:
+    `crear_imputacion` exige que en same-moneda las dos patas sean el mismo
+    número). Cuando difieren se usa el TC de la OP que consume — la misma
+    fuente que ya exige el guard cross-moneda DAC↔OP de más arriba, no una
+    segunda fuente inventada.
+
+    Returns:
+        (monto en `moneda_destino`, tipo_cambio origen↔destino o None).
+
+    Raises:
+        HTTPException 422: cross-moneda sin `op_tipo_cambio` > 0.
+    """
+    if moneda_dac == moneda_destino:
+        return monto, None
+
+    if op_tipo_cambio is None or Decimal(op_tipo_cambio) <= 0:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail=(
+                f"DineroACuenta id={dinero_a_cuenta_id} (moneda {moneda_dac}) "
+                f"contra un destino en {moneda_destino} requiere tipo_cambio > 0 "
+                f"en la OP. Recibido: {op_tipo_cambio}."
+            ),
+        )
+
+    tc = Decimal(op_tipo_cambio)
+    try:
+        return convertir_entre_monedas(monto, desde=moneda_dac, hacia=moneda_destino, tc=tc), tc
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"No se pudo convertir el DineroACuenta id={dinero_a_cuenta_id}: {exc}",
+        ) from exc
 
 
 def consumir(
@@ -378,6 +434,14 @@ def consumir(
     La cobertura de deuda en el pedido/factura sí se registra — el pedido
     verá la imputación y su saldo_pendiente se reducirá.
 
+    Cross-moneda DAC↔pedido (compras-imputacion-doble-pata): la fila se graba
+    con la pata DESTINO denominada en la moneda del PEDIDO, convertida con el
+    TC de la OP que consume, y la pata ORIGEN en la moneda del DAC. Antes se
+    grababa `moneda_imputada = dac.moneda` sin convertir nunca: como
+    `pedidos_service.calcular_saldo_pendiente_pedido` filtra
+    `moneda_imputada == pedido.moneda`, la fila quedaba descartada y el DAC se
+    gastaba sin bajar la deuda del pedido.
+
     Args:
         session: tx activa del caller.
         dinero_a_cuenta_id: PK del DineroACuenta a consumir.
@@ -399,6 +463,7 @@ def consumir(
         HTTPException 400: si el DAC no existe o el monto supera el saldo.
         HTTPException 422: si dac.proveedor_id != op_proveedor_id (guard WARNING 3).
         HTTPException 422: si cross-moneda DAC↔OP sin TC disponible (guard WARNING 1).
+        HTTPException 422: si cross-moneda DAC↔pedido sin TC disponible.
         La validación de COMBOS_VALIDOS_V1 se realiza transitivamente en
             imputaciones_service.crear_imputacion → _validar_whitelist.
     """
@@ -452,6 +517,23 @@ def consumir(
             ),
         )
 
+    # Resolver la pata DESTINO: sólo un pedido_compra tiene moneda propia
+    # distinta de la de la OP. Para `factura_erp` el destino vive en la moneda
+    # de la OP (misma política que `_validar_items_cross_moneda_con_tc`).
+    moneda_destino = str(dac.moneda)
+    if destino_tipo == "pedido_compra":
+        pedido_destino = session.get(PedidoCompra, destino_id)
+        if pedido_destino is not None:
+            moneda_destino = str(pedido_destino.moneda)
+
+    monto_imputado, tc_imputacion = _convertir_a_moneda_destino(
+        monto,
+        dinero_a_cuenta_id=dinero_a_cuenta_id,
+        moneda_dac=str(dac.moneda),
+        moneda_destino=moneda_destino,
+        op_tipo_cambio=op_tipo_cambio,
+    )
+
     # Crear imputación (dinero_a_cuenta → pedido_compra|factura_erp).
     # Luego llamamos cc_proveedor_service.aplicar_imputacion — que para
     # origen='dinero_a_cuenta' retorna [] SIN emitir movimiento CC (AD-4).
@@ -463,8 +545,13 @@ def consumir(
         origen_id=dinero_a_cuenta_id,
         destino_tipo=destino_tipo,
         destino_id=destino_id,
-        monto_imputado=monto,
-        moneda_imputada=dac.moneda,  # type: ignore[arg-type]
+        monto_imputado=monto_imputado,
+        moneda_imputada=moneda_destino,  # type: ignore[arg-type]
+        # Pata origen = lo que se consume del DAC, en SU moneda: es lo que
+        # descuenta su saldo disponible.
+        monto_origen=monto,
+        moneda_origen=dac.moneda,  # type: ignore[arg-type]
+        tipo_cambio=tc_imputacion,
         proveedor_id=dac.proveedor_id,
         creado_por_id=user_id,
     )
@@ -477,10 +564,13 @@ def consumir(
     recalcular_estado(session, dinero_a_cuenta_id)
 
     logger.info(
-        "✅ DAC consumido id=%s monto=%s %s → %s:%s (imputacion_id=%s)",
+        "✅ DAC consumido id=%s origen=%s %s destino=%s %s tc=%s → %s:%s (imputacion_id=%s)",
         dinero_a_cuenta_id,
         monto,
         dac.moneda,
+        monto_imputado,
+        moneda_destino,
+        tc_imputacion,
         destino_tipo,
         destino_id,
         imputacion.id,

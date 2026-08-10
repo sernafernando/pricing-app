@@ -69,6 +69,43 @@ def q_tc(x: Decimal) -> Decimal:
 # ---------------------------------------------------------------------------
 
 
+def convertir_entre_monedas(monto: Decimal, *, desde: str, hacia: str, tc: Decimal) -> Decimal:
+    """Convert `monto` from `desde` to `hacia` using the module's single convention.
+
+    This is the exact conversion `ordenes_pago_service.ejecutar_pago` applies to
+    an OP item when the OP and the destination pedido are in different
+    currencies, extracted so every consumer of the origin->destination leg
+    (OP items, NC credits, dinero-a-cuenta consumption) produces the same
+    number instead of re-deriving it:
+
+      - ARS -> USD: `q_usd(monto / tc)`
+      - USD -> ARS: `q_ars(monto * tc)`
+      - same currency: passthrough (identity, `tc` unused)
+
+    Args:
+        monto: Amount in `desde`.
+        desde: Source currency ('ARS' or 'USD').
+        hacia: Destination currency ('ARS' or 'USD').
+        tc: Tipo de cambio (ARS per 1 USD). Must be > 0 when the currencies differ.
+
+    Returns:
+        The amount denominated in `hacia`, quantized by the target currency's helper.
+
+    Raises:
+        ValueError: if the pair is outside the ARS/USD whitelist, or `tc` is not > 0
+            when a conversion is actually required.
+    """
+    if desde == hacia:
+        return monto
+    if tc is None or tc <= 0:
+        raise ValueError(f"convertir_entre_monedas: {desde} → {hacia} requiere tc > 0 (recibido: {tc})")
+    if desde == "ARS" and hacia == "USD":
+        return q_usd(monto / tc)
+    if desde == "USD" and hacia == "ARS":
+        return q_ars(monto * tc)
+    raise ValueError(f"convertir_entre_monedas: combinación de monedas no soportada ({desde} → {hacia})")
+
+
 def derivar_ars(
     monto: Decimal,
     moneda: str,

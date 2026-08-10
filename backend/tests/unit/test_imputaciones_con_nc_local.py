@@ -19,7 +19,6 @@ from decimal import Decimal
 import pytest
 
 from app.models.empresa import Empresa
-from app.models.imputacion import Imputacion
 from app.models.proveedor import OrigenProveedor, Proveedor
 from app.services import imputaciones_service, ncs_locales_service, pedidos_service
 
@@ -67,9 +66,7 @@ def pedido_aprobado(db, empresa, proveedor, active_user):
         monto=Decimal("700"),
         creado_por_id=active_user.id,
     )
-    pedidos_service.transicionar(
-        db, pedido_id=pedido.id, accion="enviar_aprobacion", user_id=active_user.id
-    )
+    pedidos_service.transicionar(db, pedido_id=pedido.id, accion="enviar_aprobacion", user_id=active_user.id)
     pedidos_service.transicionar(db, pedido_id=pedido.id, accion="aprobar", user_id=active_user.id)
     return pedido
 
@@ -109,14 +106,14 @@ class TestImputarNCLocalAPedido:
             destino_id=pedido_aprobado.id,
             monto_imputado=Decimal("300"),
             moneda_imputada="ARS",
+            monto_origen=Decimal("300"),
+            moneda_origen="ARS",
             proveedor_id=proveedor.id,
             creado_por_id=active_user.id,
         )
         cc_proveedor_service.aplicar_imputacion(db, imputacion_id=imp.id)
         # Caller orquesta el recalculo del pedido
-        pedidos_service.aplicar_imputacion_a_pedido(
-            db, pedido_id=pedido_aprobado.id, monto_imputado=Decimal("300")
-        )
+        pedidos_service.aplicar_imputacion_a_pedido(db, pedido_id=pedido_aprobado.id, monto_imputado=Decimal("300"))
         db.refresh(pedido_aprobado)
         db.refresh(nc_aprobada)
         assert pedido_aprobado.estado == "pagado_parcial"
@@ -137,22 +134,20 @@ class TestImputarNCLocalAPedido:
             destino_id=pedido_aprobado.id,
             monto_imputado=Decimal("700"),  # cubre el pedido completo
             moneda_imputada="ARS",
+            monto_origen=Decimal("700"),
+            moneda_origen="ARS",
             proveedor_id=proveedor.id,
             creado_por_id=active_user.id,
         )
         cc_proveedor_service.aplicar_imputacion(db, imputacion_id=imp.id)
-        pedidos_service.aplicar_imputacion_a_pedido(
-            db, pedido_id=pedido_aprobado.id, monto_imputado=Decimal("700")
-        )
+        pedidos_service.aplicar_imputacion_a_pedido(db, pedido_id=pedido_aprobado.id, monto_imputado=Decimal("700"))
         db.refresh(pedido_aprobado)
         db.refresh(nc_aprobada)
         assert pedido_aprobado.estado == "pagado"
         # NC tiene monto=1000 y solo se imputó 700 → aplicada_parcial
         assert nc_aprobada.estado == "aplicada_parcial"
 
-    def test_imputar_nc_completa_pasa_a_aplicada(
-        self, db, nc_aprobada, proveedor, active_user
-    ) -> None:
+    def test_imputar_nc_completa_pasa_a_aplicada(self, db, nc_aprobada, proveedor, active_user) -> None:
         imputaciones_service.crear_imputacion(
             db,
             origen_tipo="nota_credito_local",
@@ -161,6 +156,8 @@ class TestImputarNCLocalAPedido:
             destino_id=None,
             monto_imputado=Decimal("1000"),
             moneda_imputada="ARS",
+            monto_origen=Decimal("1000"),
+            moneda_origen="ARS",
             proveedor_id=proveedor.id,
             creado_por_id=active_user.id,
         )
@@ -176,15 +173,15 @@ class TestImputarNCLocalAPedido:
             destino_id=None,
             monto_imputado=Decimal("1000"),
             moneda_imputada="ARS",
+            monto_origen=Decimal("1000"),
+            moneda_origen="ARS",
             proveedor_id=proveedor.id,
             creado_por_id=active_user.id,
         )
         db.refresh(nc_aprobada)
         assert nc_aprobada.estado == "aplicada"
 
-        imputaciones_service.desimputar(
-            db, imputacion_id=imp.id, user_id=active_user.id, motivo="x"
-        )
+        imputaciones_service.desimputar(db, imputacion_id=imp.id, user_id=active_user.id, motivo="x")
         db.refresh(nc_aprobada)
         assert nc_aprobada.estado == "aprobado"
 
@@ -212,6 +209,8 @@ class TestImputarNCLocalAPedido:
                 destino_id=None,
                 monto_imputado=Decimal("50"),
                 moneda_imputada="ARS",
+                monto_origen=Decimal("50"),
+                moneda_origen="ARS",
                 proveedor_id=proveedor.id,
                 creado_por_id=active_user.id,
             )
@@ -224,9 +223,7 @@ class TestImputarNCLocalAPedido:
 
 
 class TestRevertirImputacionesDeOrigen:
-    def test_revertir_genera_reversal_por_imputacion_activa(
-        self, db, nc_aprobada, proveedor, active_user
-    ) -> None:
+    def test_revertir_genera_reversal_por_imputacion_activa(self, db, nc_aprobada, proveedor, active_user) -> None:
         # Crear 2 imputaciones de la misma NC
         imp1 = imputaciones_service.crear_imputacion(
             db,
@@ -236,6 +233,8 @@ class TestRevertirImputacionesDeOrigen:
             destino_id=None,
             monto_imputado=Decimal("400"),
             moneda_imputada="ARS",
+            monto_origen=Decimal("400"),
+            moneda_origen="ARS",
             proveedor_id=proveedor.id,
             creado_por_id=active_user.id,
         )
@@ -247,6 +246,8 @@ class TestRevertirImputacionesDeOrigen:
             destino_id=None,
             monto_imputado=Decimal("300"),
             moneda_imputada="ARS",
+            monto_origen=Decimal("300"),
+            moneda_origen="ARS",
             proveedor_id=proveedor.id,
             creado_por_id=active_user.id,
         )
@@ -265,9 +266,7 @@ class TestRevertirImputacionesDeOrigen:
         for rev in reversals:
             assert rev.es_reversal is True
 
-    def test_revertir_skipea_imputaciones_ya_reimputadas(
-        self, db, nc_aprobada, proveedor, active_user
-    ) -> None:
+    def test_revertir_skipea_imputaciones_ya_reimputadas(self, db, nc_aprobada, proveedor, active_user) -> None:
         imp1 = imputaciones_service.crear_imputacion(
             db,
             origen_tipo="nota_credito_local",
@@ -276,6 +275,8 @@ class TestRevertirImputacionesDeOrigen:
             destino_id=None,
             monto_imputado=Decimal("100"),
             moneda_imputada="ARS",
+            monto_origen=Decimal("100"),
+            moneda_origen="ARS",
             proveedor_id=proveedor.id,
             creado_por_id=active_user.id,
         )
@@ -292,9 +293,7 @@ class TestRevertirImputacionesDeOrigen:
         )
         assert len(reversals) == 0
 
-    def test_revertir_sin_imputaciones_devuelve_lista_vacia(
-        self, db, nc_aprobada, active_user
-    ) -> None:
+    def test_revertir_sin_imputaciones_devuelve_lista_vacia(self, db, nc_aprobada, active_user) -> None:
         reversals = imputaciones_service.revertir_imputaciones_de_origen(
             db,
             origen_tipo="nota_credito_local",

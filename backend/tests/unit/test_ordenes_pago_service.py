@@ -1574,3 +1574,163 @@ class TestOPArsPagandoDeudaUSD:
             # No tipo_cambio — same-moneda should be accepted.
         )
         assert op.id is not None
+
+
+class TestOPCrossMonedaPataOrigen:
+    """compras_038 — la imputación tiene que recordar LOS DOS lados del pago.
+
+    La pata destino (`monto_imputado`/`moneda_imputada`) ya se cubre en
+    `TestOPCrossMonedaImputacion`. Acá se verifica la pata ORIGEN: lo que
+    realmente sale de la OP, en la moneda de la OP.
+    """
+
+    def test_pata_origen_es_el_monto_ars_de_la_op(
+        self,
+        db,
+        empresa,
+        proveedor,
+        caja_ars,
+        tipos_doc_caja,
+        pedido_usd_aprobado,
+        active_user,
+    ) -> None:
+        op = ordenes_pago_service.crear(
+            db,
+            proveedor_id=proveedor.id,
+            empresa_id=empresa.id,
+            moneda="ARS",
+            monto_total=Decimal("1500000"),
+            modo_imputacion="especifica",
+            items=[
+                {
+                    "tipo": "pedido_compra",
+                    "id": pedido_usd_aprobado.id,
+                    "monto": Decimal("1500000"),
+                }
+            ],
+            tipo_cambio=Decimal("1500"),
+            creado_por_id=active_user.id,
+        )
+        ordenes_pago_service.ejecutar_pago(
+            db,
+            orden_pago_id=op.id,
+            caja_id=caja_ars.id,
+            fecha_pago_real=date.today(),
+            user_id=active_user.id,
+        )
+
+        imp = (
+            db.query(Imputacion)
+            .filter(
+                Imputacion.origen_tipo == "orden_pago",
+                Imputacion.origen_id == op.id,
+                Imputacion.destino_tipo == "pedido_compra",
+            )
+            .one()
+        )
+        # Pata origen: los ARS que salieron de la OP.
+        assert Decimal(imp.monto_origen) == Decimal("1500000")
+        assert imp.moneda_origen == "ARS"
+        # Pata destino: los USD que cubren la deuda del pedido.
+        assert Decimal(imp.monto_imputado) == Decimal("1000.00")
+        assert imp.moneda_imputada == "USD"
+
+    def test_pata_origen_no_arrastra_el_error_de_redondeo_de_la_conversion(
+        self,
+        db,
+        empresa,
+        proveedor,
+        caja_ars,
+        tipos_doc_caja,
+        pedido_usd_aprobado,
+        active_user,
+    ) -> None:
+        """1 ARS / 200 = 0.005 → se persiste 0.01 USD (HALF_UP).
+
+        Si la pata origen se reconstruyera invirtiendo la división daría
+        `0.01 * 200 = 2 ARS` — el DOBLE de lo que salió de la caja. Tiene que
+        ser el valor pre-conversión exacto.
+        """
+        op = ordenes_pago_service.crear(
+            db,
+            proveedor_id=proveedor.id,
+            empresa_id=empresa.id,
+            moneda="ARS",
+            monto_total=Decimal("1"),
+            modo_imputacion="especifica",
+            items=[
+                {
+                    "tipo": "pedido_compra",
+                    "id": pedido_usd_aprobado.id,
+                    "monto": Decimal("1"),
+                }
+            ],
+            tipo_cambio=Decimal("200"),
+            creado_por_id=active_user.id,
+        )
+        ordenes_pago_service.ejecutar_pago(
+            db,
+            orden_pago_id=op.id,
+            caja_id=caja_ars.id,
+            fecha_pago_real=date.today(),
+            user_id=active_user.id,
+        )
+
+        imp = (
+            db.query(Imputacion)
+            .filter(
+                Imputacion.origen_tipo == "orden_pago",
+                Imputacion.origen_id == op.id,
+                Imputacion.destino_tipo == "pedido_compra",
+            )
+            .one()
+        )
+        assert Decimal(imp.monto_imputado) == Decimal("0.01")
+        assert Decimal(imp.monto_origen) == Decimal("1")
+        assert imp.moneda_origen == "ARS"
+
+    def test_same_moneda_las_dos_patas_coinciden(
+        self,
+        db,
+        empresa,
+        proveedor,
+        caja_ars,
+        tipos_doc_caja,
+        pedido_aprobado,
+        active_user,
+    ) -> None:
+        op = ordenes_pago_service.crear(
+            db,
+            proveedor_id=proveedor.id,
+            empresa_id=empresa.id,
+            moneda="ARS",
+            monto_total=Decimal("5000"),
+            modo_imputacion="especifica",
+            items=[
+                {
+                    "tipo": "pedido_compra",
+                    "id": pedido_aprobado.id,
+                    "monto": Decimal("5000"),
+                }
+            ],
+            creado_por_id=active_user.id,
+        )
+        ordenes_pago_service.ejecutar_pago(
+            db,
+            orden_pago_id=op.id,
+            caja_id=caja_ars.id,
+            fecha_pago_real=date.today(),
+            user_id=active_user.id,
+        )
+
+        imp = (
+            db.query(Imputacion)
+            .filter(
+                Imputacion.origen_tipo == "orden_pago",
+                Imputacion.origen_id == op.id,
+                Imputacion.destino_tipo == "pedido_compra",
+            )
+            .one()
+        )
+        assert Decimal(imp.monto_origen) == Decimal(imp.monto_imputado)
+        assert imp.moneda_origen == imp.moneda_imputada == "ARS"

@@ -266,6 +266,8 @@ class TestCalcularVarianzaTC:
             destino_id=pedido.id,
             monto_imputado=varianza_antes,
             moneda_imputada="ARS",
+            monto_origen=varianza_antes,
+            moneda_origen="ARS",
             proveedor_id=proveedor.id,
             creado_por_id=uid,
         )

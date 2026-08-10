@@ -188,6 +188,76 @@ class TestCrearOPConNCEndpoint:
         assert nc_imp.destino_tipo == "pedido_compra"
         assert nc_imp.destino_id == pedido.id
 
+    def test_crear_con_nc_cross_moneda_honra_tipo_cambio_override_end_to_end(
+        self, client, auth_headers, db, empresa, proveedor, active_user, con_todos_los_permisos
+    ) -> None:
+        """`tipo_cambio_override` sobrevive HTTP → schema → servicio → fila.
+
+        El frontend lo mandaba desde el día uno pero `NCAplicadaItem` no lo
+        declaraba, así que Pydantic lo descartaba en la puerta y la columna
+        "TC (opcional)" del panel de NCs nunca hizo nada. Este test prueba que
+        el valor llega hasta `imputaciones.tipo_cambio`.
+        """
+        pedido_ars = PedidoCompra(
+            numero="PC-F7TCOV-00001",
+            empresa_id=empresa.id,
+            proveedor_id=proveedor.id,
+            moneda="ARS",
+            monto=Decimal("500000"),
+            tipo_cambio=None,
+            estado="aprobado",
+            creado_por_id=active_user.id,
+        )
+        nc_usd = NotaCreditoLocal(
+            numero="NC-F7TCOV-00001",
+            empresa_id=empresa.id,
+            proveedor_id=proveedor.id,
+            moneda="USD",
+            monto=Decimal("100"),
+            fecha_emision=date(2026, 1, 10),
+            motivo="NC en USD con TC propio",
+            estado="aprobado",
+            tipo="credito",
+            creado_por_id=active_user.id,
+        )
+        db.add_all([pedido_ars, nc_usd])
+        db.flush()
+
+        payload = {
+            "empresa_id": empresa.id,
+            "proveedor_id": proveedor.id,
+            "moneda": "ARS",
+            "monto_total": "10000",
+            "modo_imputacion": "a_cuenta",
+            "tipo_cambio": "1400",
+            "items": [],
+            "ncs_aplicadas": [
+                {
+                    "nc_id": nc_usd.id,
+                    "monto": "10",
+                    "pedido_id": pedido_ars.id,
+                    "tipo_cambio_override": "1500",
+                }
+            ],
+        }
+        resp = client.post(f"{BASE}/ordenes-pago", json=payload, headers=auth_headers)
+        assert resp.status_code == 201, resp.text
+
+        nc_imp = (
+            db.query(Imputacion)
+            .filter(
+                Imputacion.origen_tipo == "nota_credito_local",
+                Imputacion.origen_id == nc_usd.id,
+            )
+            .one()
+        )
+        # 1500 (override), no 1400 (TC de la OP).
+        assert nc_imp.tipo_cambio == Decimal("1500")
+        assert nc_imp.monto_imputado == Decimal("15000.00")
+        assert nc_imp.moneda_imputada == "ARS"
+        assert nc_imp.monto_origen == Decimal("10")
+        assert nc_imp.moneda_origen == "USD"
+
     def test_crear_nc_saldo_insuficiente_422(
         self, client, auth_headers, db, empresa, proveedor, pedido, nc_aprobada, active_user, con_todos_los_permisos
     ) -> None:

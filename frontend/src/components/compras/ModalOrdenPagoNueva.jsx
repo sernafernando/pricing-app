@@ -6,6 +6,7 @@ import useComprasOP from '../../hooks/useComprasOP';
 import ProveedorComprasAutocomplete from './ProveedorComprasAutocomplete';
 import PanelNCsProveedor from './_shared/PanelNCsProveedor';
 import PanelCheques from './_shared/PanelCheques';
+import { convertirMonto } from './_shared/formatMoneda';
 import styles from './ModalOrdenPagoNueva.module.css';
 
 /**
@@ -452,22 +453,46 @@ export default function ModalOrdenPagoNueva({
     .map((it) => String(it.id));
   const isSinglePedido = pedidoItemIds.length === 1;
 
+  // monedaDePedidoItem: native currency of a pedido item, falling back to the OP's
+  // currency for items with no pedido behind them (they live in the OP's currency).
+  const monedaDePedidoItem = (itemId) => {
+    const item = items.find((it) => String(it.id) === String(itemId) && it.tipo === 'pedido_compra');
+    const pedido = item ? pedidoDe(item.id) : null;
+    return pedido?.moneda ?? form.moneda;
+  };
+
+  // ncDeductForItem: sum of NC credits applying to this pedido item, expressed in
+  // the PEDIDO's native currency so it can be subtracted from the item's native monto.
+  //
+  // An NC is a means of payment: it lives in the OP's currency and rides the same
+  // OP→pedido conversion as the items. The backend walks NC → OP → pedido and, in
+  // the ARS/USD whitelist, at most one of those two legs actually converts, so the
+  // effective NC↔pedido rate is the per-NC `tipo_cambio_override` when present and
+  // the OP's TC otherwise — which is exactly what this reproduces.
+  // See backend imputar_nc_a_pedido / _convertir_nc_por_cadena_op.
+  //
+  // Cross-currency with no usable TC: the NC is skipped (safe — net won't go negative)
+  // rather than deducted at face value in the wrong currency.
   const ncDeductForItem = (itemId) => {
     const id = String(itemId);
+    const pedidoMoneda = monedaDePedidoItem(id);
+
     return ncsAplicadas.reduce((acc, nc) => {
       const ncPedidoId = nc.pedido_id != null ? String(nc.pedido_id) : null;
       // NC applies if explicitly targeting this pedido, or if null + single pedido (inferred).
-      if (ncPedidoId === id || (ncPedidoId === null && isSinglePedido && id === pedidoItemIds[0])) {
-        return acc + (parseFloat(nc.monto) || 0);
+      if (ncPedidoId !== id && !(ncPedidoId === null && isSinglePedido && id === pedidoItemIds[0])) {
+        return acc;
       }
-      return acc;
+      const ncMoneda = nc.moneda ?? form.moneda;
+      const tcOverride = parseFloat(nc.tipo_cambio_override);
+      const tc = Number.isFinite(tcOverride) && tcOverride > 0 ? tcOverride : tcNumLive;
+      const convertido = convertirMonto(nc.monto, ncMoneda, pedidoMoneda, tc);
+      return convertido === null ? acc : acc + convertido;
     }, 0);
   };
 
-  // chequeDeductForItem: mirrors ncDeductForItem exactly.
-  // Returns the sum of cheque amounts that apply to this pedido item, in the cheque's
-  // own currency (assumed same as the pedido's native currency — same assumption as NC).
-  // Cross-currency cheque vs pedido is an unsupported edge case (same as NC).
+  // chequeDeductForItem: mirrors ncDeductForItem exactly, minus the per-item TC
+  // override (the cheques panel has no such column — a cheque always rides the OP's TC).
   // Inference rule: if cheque.pedido_id is null AND isSinglePedido, it applies to the
   // single pedido (backend also infers this). Multi-pedido cheques require explicit
   // pedido_id — not yet supported in the UI (same scope as NC).
@@ -477,29 +502,17 @@ export default function ModalOrdenPagoNueva({
   // When cheque covers partial → netNative = remainder, item(remainder) + cheque(partial) = obligation.
   const chequeDeductForItem = (itemId) => {
     const id = String(itemId);
-    // Look up the pedido to know its native currency (for cross-currency conversion).
-    const item = items.find((it) => String(it.id) === id && it.tipo === 'pedido_compra');
-    const pedido = item ? pedidoDe(item.id) : null;
-    const pedidoMoneda = pedido?.moneda ?? form.moneda;
+    const pedidoMoneda = monedaDePedidoItem(id);
 
     return chequesAplicados.reduce((acc, ch) => {
       const chPedidoId = ch.pedido_id != null ? String(ch.pedido_id) : null;
       // Cheque applies if explicitly targeting this pedido, or if null + single pedido (inferred).
-      if (chPedidoId === id || (chPedidoId === null && isSinglePedido && id === pedidoItemIds[0])) {
-        const chMonto = parseFloat(ch.monto) || 0;
-        const chMoneda = ch.moneda ?? form.moneda;
-        // FIX 3: convert cheque amount to pedido native currency before deducting.
-        if (chMoneda === pedidoMoneda) {
-          return acc + chMonto;
-        }
-        // Cross-currency: require valid TC; if unavailable, skip deduction (safe: net won't go negative).
-        if (!tcValido) return acc;
-        let converted = chMonto;
-        if (chMoneda === 'USD' && pedidoMoneda === 'ARS') converted = chMonto * tcNumLive;
-        else if (chMoneda === 'ARS' && pedidoMoneda === 'USD') converted = chMonto / tcNumLive;
-        return acc + Math.round(converted * 100) / 100;
+      if (chPedidoId !== id && !(chPedidoId === null && isSinglePedido && id === pedidoItemIds[0])) {
+        return acc;
       }
-      return acc;
+      const chMoneda = ch.moneda ?? form.moneda;
+      const convertido = convertirMonto(ch.monto, chMoneda, pedidoMoneda, tcNumLive);
+      return convertido === null ? acc : acc + convertido;
     }, 0);
   };
 
@@ -1504,26 +1517,13 @@ export default function ModalOrdenPagoNueva({
                     Medios de pago
                   </h2>
 
-                  {/* F7 — NC como medio de pago */}
-                  {/* monedasFiltro: show NCs whose moneda matches any selected pedido's moneda
-                      (cross-moneda NCs are valid; filter by OP moneda would hide them). */}
+                  {/* F7 — NC como medio de pago. Se listan TODAS las NCs del
+                      proveedor: una NC es un medio de pago y viaja por la cadena
+                      NC → OP → pedido, así que ninguna moneda la descalifica.
+                      El panel marca las cross-moneda contra la OP y les pide TC. */}
                   <PanelNCsProveedor
                     key={`${form.proveedor_id}-${form.moneda}`}
                     proveedorId={Number(form.proveedor_id)}
-                    moneda={form.moneda || undefined}
-                    monedasFiltro={(() => {
-                      const monedas = new Set(
-                        items
-                          .filter((it) => it.tipo === 'pedido_compra' && it.id)
-                          .map((it) => {
-                            const p = pedidoDe(it.id);
-                            return p ? p.moneda : null;
-                          })
-                          .filter(Boolean)
-                      );
-                      // If no pedidos selected yet, fall back to OP moneda so panel isn't empty.
-                      return monedas.size > 0 ? Array.from(monedas) : [form.moneda];
-                    })()}
                     opMoneda={form.moneda}
                     mode="seleccionar"
                     onChange={setNcsAplicadas}

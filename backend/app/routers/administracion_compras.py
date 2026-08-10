@@ -4129,13 +4129,20 @@ def listar_ncs_disponibles(
 
     # Batch: saldo neto por NC = SUM(no-reversal) - SUM(reversal). Una sola
     # query agregada con case() (mismo patrón que calcular_saldos_pendientes_batch).
+    #
+    # Lectura ORIGIN-SIDE (compras_038): se agrega la pata ORIGEN, igual que
+    # `ncs_locales_service.calcular_saldo_pendiente`. Este panel es justamente
+    # el que mostraría saldos inflados si sumara la pata destino en cross-moneda.
     from sqlalchemy import case  # noqa: PLC0415
 
+    from app.services.imputaciones_service import monto_origen_efectivo  # noqa: PLC0415
+
     nc_ids = [nc.id for nc in candidatas]
+    consumido = monto_origen_efectivo()
     signed_sum = sa_func.sum(
         case(
-            (Imputacion.es_reversal.is_(True), -Imputacion.monto_imputado),
-            else_=Imputacion.monto_imputado,
+            (Imputacion.es_reversal.is_(True), -consumido),
+            else_=consumido,
         )
     )
     rows = db.execute(
@@ -4762,6 +4769,10 @@ def aplicar_nc_local(
             destino_id=body.destino_id,
             monto_imputado=body.monto_imputado,
             moneda_imputada=nc.moneda,  # type: ignore[arg-type]
+            # Cross-moneda NC↔pedido está rechazado arriba, así que las dos
+            # patas comparten moneda e importe.
+            monto_origen=body.monto_imputado,
+            moneda_origen=nc.moneda,  # type: ignore[arg-type]
             proveedor_id=nc.proveedor_id,
             creado_por_id=user.id,
         )

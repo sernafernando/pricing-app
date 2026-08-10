@@ -44,6 +44,38 @@ export const equivalenteEnArs = (monto, moneda, tc) => {
 };
 
 /**
+ * Converts an amount from one currency to another for an origin→destination leg.
+ *
+ * Mirrors the backend authority `fx_service.convertir_entre_monedas`
+ * (backend/app/services/fx_service.py) exactly, including its rounding:
+ *   - same currency  → identity (the TC is irrelevant and is not consulted)
+ *   - ARS → USD      → monto / tc
+ *   - USD → ARS      → monto * tc
+ *
+ * Returns `null` — never 0 and never the unconverted amount — when the
+ * conversion cannot be performed (unusable TC, non-numeric amount, currency
+ * pair outside the ARS/USD whitelist). Falling back to the raw amount would
+ * deduct a number denominated in the wrong currency, which is exactly how the
+ * on-screen total drifted away from what the backend records.
+ *
+ * @param {number|string} monto
+ * @param {string} desde - source currency
+ * @param {string} hacia - destination currency
+ * @param {number|string|null|undefined} tc - tipo de cambio (ARS per 1 USD)
+ * @returns {number|null}
+ */
+export const convertirMonto = (monto, desde, hacia, tc) => {
+  const montoNum = Number(monto);
+  if (monto === '' || monto === null || monto === undefined || !Number.isFinite(montoNum)) return null;
+  if (desde === hacia) return montoNum;
+  const tcNum = Number(tc);
+  if (!Number.isFinite(tcNum) || tcNum <= 0) return null;
+  if (desde === 'ARS' && hacia === 'USD') return Math.round((montoNum / tcNum) * 100) / 100;
+  if (desde === 'USD' && hacia === 'ARS') return Math.round(montoNum * tcNum * 100) / 100;
+  return null;
+};
+
+/**
  * ERP `curr_id_transaction` → módulo-compras currency code.
  *
  * Mirrors the backend authority `_curr_id_a_moneda`
