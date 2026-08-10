@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { render, screen, waitFor } from '@testing-library/react';
+import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import PxqPanel from './PxqPanel';
 import { pxqAPI } from '../../services/api';
@@ -1407,6 +1407,207 @@ describe('PxqPanel — the unparseable-error fallback names the action that fail
     await user.click(screen.getByRole('button', { name: /^guardar$/i }));
 
     expect(await screen.findByText(SAVE_FALLBACK)).toBeInTheDocument();
+  });
+});
+
+// MercadoLibre hands the wholesale tiers over in ARBITRARY order. Measured in
+// production for MLA1563835240, the live read came back as quantities 5, 10, 2
+// — and the `ml-webhook` service preserves ML's order on purpose in BOTH
+// directions, stating in writing that ordering is the consumer's job. There is
+// no guarantee by `quantity` and none by `id` either.
+//
+// The mirror column had the same defect from the other end: the query behind
+// `mirror_tiers` carried no `ORDER BY`, so the database returned rows in
+// whatever order it liked. Both columns therefore painted arbitrarily.
+//
+// A tier is a QUANTITY THRESHOLD ("from 5 units, this price"). Out of sequence
+// the column stops being a scale and becomes three unrelated prices that the
+// operator has to sort in his head before he can answer the only question the
+// panel exists for: does buying more get cheaper.
+describe('PxqPanel — tiers are read in quantity order, whatever order they arrive in', () => {
+  function mockLive({ mirror_tiers = [], live_tiers = [], live_status = 'ok' } = {}) {
+    return {
+      data: { item_id: 'MLA001', live_status, live_tiers, mirror_tiers, fetched_at: '2026-08-10T10:00:00Z' },
+    };
+  }
+
+  // The exact payload MercadoLibre returned in production, order included.
+  const mlOrder = () => [
+    { id: '3391', quantity: 5, amount: 72990 },
+    { id: '3392', quantity: 10, amount: 71000 },
+    { id: '3393', quantity: 2, amount: 73990 },
+  ];
+
+  const mirrorOutOfOrder = () => [
+    { id: 1, cantidad_minima: 10, precio_unitario: 71000, costo_envio_total: 500, ml_price_id: null, estado: 'listo' },
+    { id: 2, cantidad_minima: 2, precio_unitario: 73990, costo_envio_total: 500, ml_price_id: null, estado: 'listo' },
+    { id: 3, cantidad_minima: 5, precio_unitario: 72990, costo_envio_total: 500, ml_price_id: null, estado: 'listo' },
+  ];
+
+  // Scoped to ONE column on purpose. Both columns render "<n> u." spans, and so
+  // does the authoring list below them, so a document-wide query would prove
+  // nothing about which column is in which order. The anchored regex keeps the
+  // match on the span itself rather than on its containing row.
+  function quantitiesIn(columnTitle) {
+    const column = screen.getByText(columnTitle).parentElement;
+    return within(column)
+      .getAllByText(/^\d+ u\.$/)
+      .map((node) => node.textContent);
+  }
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockTienePermiso.mockImplementation(() => true);
+  });
+
+  afterEach(() => {
+    mockTienePermiso.mockImplementation(() => true);
+  });
+
+  it('paints the live column ascending when ML sends 5, 10, 2', async () => {
+    pxqAPI.getLive.mockResolvedValue(mockLive({ live_tiers: mlOrder() }));
+
+    renderPanel();
+
+    await screen.findByText('En MercadoLibre (en vivo)');
+    // The ORDER of the nodes, not their mere existence: the bug was never a
+    // missing row.
+    expect(quantitiesIn('En MercadoLibre (en vivo)')).toEqual(['2 u.', '5 u.', '10 u.']);
+  });
+
+  it('paints the mirror column ascending by cantidad_minima when the rows arrive unordered', async () => {
+    pxqAPI.getLive.mockResolvedValue(mockLive({ mirror_tiers: mirrorOutOfOrder() }));
+
+    renderPanel();
+
+    await screen.findByText('Mirror local');
+    expect(quantitiesIn('Mirror local')).toEqual(['2 u.', '5 u.', '10 u.']);
+  });
+
+  // The editing list renders the SAME rows as the mirror column, directly
+  // below it. Leaving it unsorted would have it read 10, 2, 5 next to a column
+  // reading 2, 5, 10 — the operator would have to map between two orderings of
+  // one list to find the row he wants to edit. It does arrive ordered from the
+  // backend's `ORDER BY` today, but that is an implicit dependency on another
+  // service, not a guarantee this panel holds.
+  it('lists the editable tiers ascending too, not just the read column', async () => {
+    pxqAPI.getLive.mockResolvedValue(mockLive({ mirror_tiers: mirrorOutOfOrder() }));
+
+    renderPanel();
+
+    await screen.findByText('Editar tramos');
+    expect(quantitiesIn('Editar tramos')).toEqual(['2 u.', '5 u.', '10 u.']);
+  });
+
+  // `Array.prototype.sort` sorts IN PLACE. These arrays come straight out of
+  // the fetch, are stored in the `useLazyResource` cache, and `mirror_tiers` is
+  // handed to `PxqTierAuthoring` and read by the `canImportLive` computation as
+  // well. Sorting either one where it lies would reorder it behind every other
+  // reader's back, on every render.
+  it('never mutates the arrays it was handed', async () => {
+    const liveTiers = mlOrder();
+    const mirrorTiers = mirrorOutOfOrder();
+    pxqAPI.getLive.mockResolvedValue(mockLive({ live_tiers: liveTiers, mirror_tiers: mirrorTiers }));
+
+    renderPanel();
+
+    await screen.findByText('Mirror local');
+    expect(quantitiesIn('En MercadoLibre (en vivo)')).toEqual(['2 u.', '5 u.', '10 u.']);
+    expect(quantitiesIn('Mirror local')).toEqual(['2 u.', '5 u.', '10 u.']);
+
+    // Asserted on the INPUT objects, which is the only place an in-place sort
+    // would show up — the rendered output looks identical either way.
+    expect(liveTiers.map((tier) => tier.quantity)).toEqual([5, 10, 2]);
+    expect(mirrorTiers.map((tier) => tier.cantidad_minima)).toEqual([10, 2, 5]);
+  });
+});
+
+// Until now the only way to re-read MercadoLibre was to close the panel and
+// open it again: "Reintentar" exists solely inside the error branch, so on the
+// happy path — the one where the operator is comparing two columns and wants to
+// know whether ML has moved — there was no way to ask again.
+describe('PxqPanel — refreshing the live state', () => {
+  function mockLive({ mirror_tiers = [], live_tiers = [], live_status = 'ok' } = {}) {
+    return {
+      data: { item_id: 'MLA001', live_status, live_tiers, mirror_tiers, fetched_at: '2026-08-10T10:00:00Z' },
+    };
+  }
+
+  const REFRESH_BUTTON = { name: /refrescar precios mayoristas/i };
+  const liveTiers = [{ id: 'PXQ1', quantity: 5, amount: 100 }];
+  const importedTier = [
+    { id: 9, cantidad_minima: 5, precio_unitario: 100, costo_envio_total: null, ml_price_id: 'PXQ1', estado: 'incompleto' },
+  ];
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockTienePermiso.mockImplementation(() => true);
+  });
+
+  afterEach(() => {
+    mockTienePermiso.mockImplementation(() => true);
+  });
+
+  it('offers the refresh on the happy path, not only inside the error branch', async () => {
+    const user = userEvent.setup();
+    pxqAPI.getLive.mockResolvedValue(mockLive({ mirror_tiers: [], live_tiers: [] }));
+
+    renderPanel();
+
+    await screen.findByText('Mirror local');
+    expect(screen.queryByText(/error al cargar precios mayoristas/i)).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', REFRESH_BUTTON));
+
+    await waitFor(() => expect(pxqAPI.getLive).toHaveBeenCalledTimes(2));
+  });
+
+  // THE guardrail. `reload()` flips `loading`, so the panel returns its loading
+  // branch and unmounts the whole subtree — which is fine for a refresh, since
+  // the loading screen IS the feedback. What must not happen is the refresh
+  // being wired to `handleAuthoringChanged` "because it also reloads": that
+  // function clears both outcomes, and it is allowed to only because AUTHORING
+  // invalidates them. Re-reading ML invalidates nothing the operator did.
+  it('does NOT clear the import or price-update feedback — a refresh is not an authoring mutation', async () => {
+    const user = userEvent.setup();
+    pxqAPI.getLive
+      .mockResolvedValueOnce(mockLive({ mirror_tiers: [], live_tiers: liveTiers }))
+      .mockResolvedValue(mockLive({ mirror_tiers: importedTier, live_tiers: liveTiers }));
+    pxqAPI.adoptLive.mockResolvedValue({ data: { item_id: 'MLA001', count: 2, imported: [] } });
+    pxqAPI.sync.mockRejectedValue({
+      response: {
+        status: 409,
+        data: {
+          detail: {
+            status: 'divergence',
+            divergences: [
+              { ml_price_id: 'PXQ1', reason: 'amount_mismatch', live: { quantity: 5, amount: 150 }, desired: { quantity: 5, amount: 100 } },
+            ],
+          },
+        },
+      },
+    });
+
+    renderPanel();
+
+    await user.click(await screen.findByRole('button', { name: /^importar de mercadolibre$/i }));
+    expect(await screen.findByText(/se importaron 2 tramos/i)).toBeInTheDocument();
+
+    // A 409 does not reload, so both outcomes are on screen at the same time.
+    await user.click(screen.getByRole('button', { name: /actualizar precios en mercadolibre/i }));
+    expect(await screen.findByText(/mercadolibre y el mirror local no coinciden/i)).toBeInTheDocument();
+
+    await waitFor(() => expect(pxqAPI.getLive).toHaveBeenCalledTimes(2));
+    await user.click(screen.getByRole('button', REFRESH_BUTTON));
+    // Proved to have actually re-read, so the assertions below are not passing
+    // on a refresh that never happened.
+    await waitFor(() => expect(pxqAPI.getLive).toHaveBeenCalledTimes(3));
+
+    expect(screen.getByText(/se importaron 2 tramos/i)).toBeInTheDocument();
+    expect(screen.getByText(/mercadolibre y el mirror local no coinciden/i)).toBeInTheDocument();
+    // The divergence rows are half of that outcome; losing them would leave
+    // "resolvé las diferencias" with nothing under it to resolve.
+    expect(screen.getByText(/amount_mismatch/i)).toBeInTheDocument();
   });
 });
 

@@ -26,10 +26,19 @@ class _FakeUsuario:
 
 
 class _SpyDb:
+    """Stands in for a Session in the tests that only care about WHEN the
+    session is used, not what it returns. It has to mirror the endpoint's whole
+    query chain -- `order_by` included -- or those tests fail on the double
+    rather than on the behaviour they exist to check. The ordering itself is
+    proved against a real session in `TestMirrorTiersComeBackOrdered`."""
+
     def query(self, *a, **k):
         return self
 
     def filter(self, *a, **k):
+        return self
+
+    def order_by(self, *a, **k):
         return self
 
     def all(self):
@@ -215,6 +224,76 @@ def test_read_permission_gate_actually_runs_against_a_real_user(db, rol_ventas):
         _require_pxq_read(user, db)
 
     assert exc.value.status_code == 403
+
+
+class TestMirrorTiersComeBackOrdered:
+    """`mirror_tiers` used to be whatever row order the database felt like:
+    the query had no `ORDER BY`, so the response ordering was an accident of
+    storage. A tier is a QUANTITY THRESHOLD, and an endpoint that returns
+    thresholds in arbitrary order is a latent defect for every consumer, not
+    just the panel that happens to read it today.
+
+    The rows below are inserted 5, 10, 2 on purpose. SQLite returns a
+    plain filtered scan in rowid order, so an ascending INSERT would pass
+    without any `ORDER BY` at all and prove nothing.
+    """
+
+    def test_mirror_tiers_are_ordered_by_cantidad_minima(self, db, monkeypatch, rol_ventas) -> None:
+        from app.core.security import get_password_hash
+        from app.models.ml_pxq_tier import MlPxqTier
+        from app.models.producto import ProductoERP
+        from app.models.publicacion_ml import PublicacionML
+        from app.models.usuario import AuthProvider, RolUsuario, Usuario
+
+        producto = ProductoERP(item_id=90301, codigo="SKU-PXQ-ORDER", descripcion="Producto PxQ orden", costo=1000.0)
+        db.add(producto)
+        db.flush()
+        publicacion = PublicacionML(mla="MLA930001", item_id=producto.item_id, codigo="SKU-PXQ-ORDER")
+        db.add(publicacion)
+        user = Usuario(
+            username="pxq_order_user",
+            email="pxq_order_user@example.com",
+            nombre="PxQ Order User",
+            password_hash=get_password_hash("TestPass123!"),
+            rol=RolUsuario.VENTAS,
+            rol_id=rol_ventas.id,
+            auth_provider=AuthProvider.LOCAL,
+            activo=True,
+        )
+        db.add(user)
+        db.flush()
+
+        for cantidad in (5, 10, 2):
+            db.add(
+                MlPxqTier(
+                    publicacion_ml_id=publicacion.id,
+                    item_id=publicacion.mla,
+                    cantidad_minima=cantidad,
+                    precio_unitario=100,
+                    usuario_id=user.id,
+                )
+            )
+        db.flush()
+
+        class _RealDbCM:
+            def __enter__(self):
+                return db
+
+            def __exit__(self, *exc):
+                return False
+
+        monkeypatch.setattr(pxq_router, "get_background_db", _RealDbCM)
+
+        async def _run():
+            with patch.object(pxq_router.ml_webhook_client, "get_pxq_prices", AsyncMock(return_value=[])):
+                with patch.object(pxq_router, "_require_pxq_read", return_value=None):
+                    return await pxq_router.obtener_estado_live_pxq(
+                        item_id=publicacion.mla, current_user=_FakeUsuario()
+                    )
+
+        response = asyncio.run(_run())
+
+        assert [tier.cantidad_minima for tier in response.mirror_tiers] == [2, 5, 10]
 
 
 class TestKillSwitchIsDistinguishableFromPermissionDenial:

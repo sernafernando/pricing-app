@@ -343,8 +343,18 @@ async def obtener_estado_live_pxq(
     module docstring / `backend/CLAUDE.md`."""
     with get_background_db() as db:
         _require_pxq_read(current_user, db)
+        # Explicitly ordered, not left to the storage engine. A tier is a
+        # QUANTITY THRESHOLD, so an endpoint that hands thresholds back in
+        # arbitrary row order is a latent defect for every consumer, not just
+        # the panel reading it today. The frontend sorts as well -- that is what
+        # guarantees what the operator actually sees, cache included -- but the
+        # API has to be deterministic on its own.
         mirror_tiers = [
-            PxqMirrorTier.model_validate(row) for row in db.query(MlPxqTier).filter(MlPxqTier.item_id == item_id).all()
+            PxqMirrorTier.model_validate(row)
+            for row in db.query(MlPxqTier)
+            .filter(MlPxqTier.item_id == item_id)
+            .order_by(MlPxqTier.cantidad_minima)
+            .all()
         ]
     # Session is closed here -- the proxy call below holds no DB session.
 

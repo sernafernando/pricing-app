@@ -532,6 +532,15 @@
   font-style: italic;
 }
 
+/* Holds the refresh affordance above the two columns. Same inline padding as
+   `.pxqColumns` so the button lines up with the column edge, and no bottom
+   padding because `.pxqColumns` already brings its own. */
+.pxqHeader {
+  display: flex;
+  justify-content: flex-end;
+  padding: 4px 4px 0;
+}
+
 /* Grouping-node child-kind count (familia/catalogo) — FE-computed, purely
    cosmetic, subtler than the promo summary since it carries no money-path
    meaning. */
