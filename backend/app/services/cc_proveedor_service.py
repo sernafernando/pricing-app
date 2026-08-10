@@ -991,11 +991,20 @@ def _calcular_componente_nc(
     nc_montos = {nc_id: Decimal(nc_monto) for nc_id, nc_monto in ncs}
 
     # Batch: saldo neto de imputaciones por NC en 2 queries en lugar de 2N.
+    #
+    # Lectura ORIGIN-SIDE (compras_038): `nc.monto` está en la moneda de la NC
+    # (ya filtrada arriba por `moneda`), así que lo consumido se mide con la
+    # pata ORIGEN. Ojo: esto NO cambia `aplicar_imputacion`, que proyecta al
+    # libro mayor con la pata DESTINO — ahí la moneda correcta es la de la
+    # deuda que se cancela.
+    from app.services.imputaciones_service import monto_origen_efectivo  # noqa: PLC0415
+
     nc_origen_tipos = ["nota_credito_local", "nota_credito_erp"]
+    consumido = monto_origen_efectivo()
     neto_no_reversal: dict[int, Decimal] = {
         row.origen_id: Decimal(row.total)
         for row in session.execute(
-            select(Imputacion.origen_id, func.sum(Imputacion.monto_imputado).label("total"))
+            select(Imputacion.origen_id, func.sum(consumido).label("total"))
             .where(
                 Imputacion.origen_tipo.in_(nc_origen_tipos),
                 Imputacion.origen_id.in_(nc_ids),
@@ -1007,7 +1016,7 @@ def _calcular_componente_nc(
     neto_reversal: dict[int, Decimal] = {
         row.origen_id: Decimal(row.total)
         for row in session.execute(
-            select(Imputacion.origen_id, func.sum(Imputacion.monto_imputado).label("total"))
+            select(Imputacion.origen_id, func.sum(consumido).label("total"))
             .where(
                 Imputacion.origen_tipo.in_(nc_origen_tipos),
                 Imputacion.origen_id.in_(nc_ids),

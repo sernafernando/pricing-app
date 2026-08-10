@@ -78,6 +78,24 @@ COMBOS_VALIDOS_V1: Final[frozenset[tuple[str, str]]] = frozenset(
 Moneda = Literal["ARS", "USD"]
 
 
+def monto_origen_efectivo():  # noqa: ANN201 — expresión SQLAlchemy, sin tipo público estable
+    """
+    Expresión SQL para el importe consumido del ORIGEN.
+
+    ÚSESE en toda agregación origin-side (saldo de una NC, de un dinero a
+    cuenta). Las agregaciones destination-side (saldo de un pedido, TC
+    ponderado, CC del proveedor) siguen usando `Imputacion.monto_imputado`:
+    en cross-moneda son dos números distintos en dos monedas distintas, y
+    mezclarlos es exactamente el bug que cierra compras_038.
+
+    El COALESCE cubre filas con la pata origen en NULL — sólo posibles si una
+    instancia de app pre-compras_038 insertó durante una ventana de deploy
+    rolling (la migración deja la tabla entera backfilleada). Sin él esas filas
+    contarían como 0 consumido y el origen se podría gastar de nuevo.
+    """
+    return func.coalesce(Imputacion.monto_origen, Imputacion.monto_imputado)
+
+
 def pata_origen_de(imp: Imputacion) -> tuple[Decimal, str]:
     """
     Devuelve `(monto_origen, moneda_origen)` de una imputación existente.
@@ -318,7 +336,7 @@ def crear_imputacion(
         _validar_origen_nc_local_disponible(
             session,
             nc_id=origen_id,
-            monto_imputado=monto_imputado,
+            monto_origen=monto_origen,
         )
 
     imp = Imputacion(
@@ -372,7 +390,7 @@ def _validar_origen_nc_local_disponible(
     session: Session,
     *,
     nc_id: int,
-    monto_imputado: Decimal,
+    monto_origen: Decimal,
 ) -> None:
     """
     Valida que la NC local esté en un estado que permita ser origen de una
@@ -380,11 +398,16 @@ def _validar_origen_nc_local_disponible(
 
     Estados válidos: 'aprobado', 'aplicada_parcial'.
 
+    Todo el cálculo es ORIGIN-SIDE: `nc.monto` está en la moneda de la NC, así
+    que lo consumido se mide con la pata origen (`monto_origen`), no con la
+    pata destino. En cross-moneda la pata destino está en otra moneda y
+    compararla contra `nc.monto` daría un saldo inflado.
+
     Raises:
         HTTPException 404: NC inexistente.
         HTTPException 409: NC en estado no aplicable (borrador, pendiente,
             rechazado, cancelado, aplicada).
-        HTTPException 400: monto_imputado supera el saldo pendiente.
+        HTTPException 400: monto_origen supera el saldo pendiente.
     """
     from app.models.nota_credito_local import NotaCreditoLocal  # noqa: PLC0415
 
@@ -406,15 +429,16 @@ def _validar_origen_nc_local_disponible(
     # Calcular saldo pendiente: monto - SUM(imputaciones no-reversal de esta NC)
     # + SUM(imputaciones reversal). Reusamos la query inline para evitar import
     # circular con ncs_locales_service.
+    consumido = monto_origen_efectivo()
     imputado_no_reversal = session.execute(
-        select(func.coalesce(func.sum(Imputacion.monto_imputado), 0)).where(
+        select(func.coalesce(func.sum(consumido), 0)).where(
             Imputacion.origen_tipo == "nota_credito_local",
             Imputacion.origen_id == nc_id,
             Imputacion.es_reversal.is_(False),
         )
     ).scalar_one()
     imputado_reversal = session.execute(
-        select(func.coalesce(func.sum(Imputacion.monto_imputado), 0)).where(
+        select(func.coalesce(func.sum(consumido), 0)).where(
             Imputacion.origen_tipo == "nota_credito_local",
             Imputacion.origen_id == nc_id,
             Imputacion.es_reversal.is_(True),
@@ -423,11 +447,11 @@ def _validar_origen_nc_local_disponible(
     imputado_efectivo = Decimal(imputado_no_reversal) - Decimal(imputado_reversal)
     saldo_pendiente = Decimal(nc.monto) - imputado_efectivo
 
-    if monto_imputado > saldo_pendiente:
+    if monto_origen > saldo_pendiente:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=(
-                f"monto_imputado={monto_imputado} excede el saldo pendiente "
+                f"monto_origen={monto_origen} excede el saldo pendiente "
                 f"({saldo_pendiente}) de la NC local id={nc_id} "
                 f"(monto={nc.monto}, ya imputado={imputado_efectivo})."
             ),
@@ -961,6 +985,7 @@ __all__ = [
     "listar_por_destino",
     "listar_por_origen",
     "monto_imputado_total_al_destino",
+    "monto_origen_efectivo",
     "pata_origen_de",
     "reimputar",
     "revertir_imputaciones_de_origen",

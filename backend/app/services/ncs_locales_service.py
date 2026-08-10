@@ -239,20 +239,29 @@ def calcular_saldo_pendiente(session: Session, nc_id: int) -> Decimal:
     Saldo pendiente = monto - (imputaciones no-reversal - imputaciones reversal)
     donde origen = ('nota_credito_local', nc_id).
 
+    Lectura ORIGIN-SIDE (compras_038): `nc.monto` está en la moneda de la NC,
+    así que lo consumido se mide con la pata ORIGEN de cada imputación
+    (`monto_origen`), no con `monto_imputado`. En cross-moneda la pata destino
+    está en la moneda del pedido y restarla acá dejaría a la NC con un saldo
+    inflado — gastable muchas veces.
+
     Append-only compliant: las desimputaciones SUMAN al saldo pendiente
     (porque inserta una fila reversal que compensa la original).
     """
+    from app.services.imputaciones_service import monto_origen_efectivo  # noqa: PLC0415
+
     nc = _obtener_nc_o_404(session, nc_id)
 
+    consumido = monto_origen_efectivo()
     imputado_no_reversal = session.execute(
-        select(func.coalesce(func.sum(Imputacion.monto_imputado), 0)).where(
+        select(func.coalesce(func.sum(consumido), 0)).where(
             Imputacion.origen_tipo == "nota_credito_local",
             Imputacion.origen_id == nc.id,
             Imputacion.es_reversal.is_(False),
         )
     ).scalar_one()
     imputado_reversal = session.execute(
-        select(func.coalesce(func.sum(Imputacion.monto_imputado), 0)).where(
+        select(func.coalesce(func.sum(consumido), 0)).where(
             Imputacion.origen_tipo == "nota_credito_local",
             Imputacion.origen_id == nc.id,
             Imputacion.es_reversal.is_(True),

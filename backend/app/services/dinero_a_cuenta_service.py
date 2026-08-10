@@ -136,8 +136,13 @@ def calcular_saldo_disponible(
             detail=f"DineroACuenta id={dinero_a_cuenta_id} no encontrado.",
         )
 
+    # Lectura ORIGIN-SIDE (compras_038): `dac.monto` está en la moneda del DAC,
+    # así que lo consumido se mide con la pata ORIGEN de cada imputación.
+    from app.services.imputaciones_service import monto_origen_efectivo  # noqa: PLC0415
+
+    consumido = monto_origen_efectivo()
     imputado_no_reversal = session.execute(
-        select(func.coalesce(func.sum(Imputacion.monto_imputado), 0)).where(
+        select(func.coalesce(func.sum(consumido), 0)).where(
             Imputacion.origen_tipo == "dinero_a_cuenta",
             Imputacion.origen_id == dinero_a_cuenta_id,
             Imputacion.es_reversal.is_(False),
@@ -145,7 +150,7 @@ def calcular_saldo_disponible(
     ).scalar_one()
 
     imputado_reversal = session.execute(
-        select(func.coalesce(func.sum(Imputacion.monto_imputado), 0)).where(
+        select(func.coalesce(func.sum(consumido), 0)).where(
             Imputacion.origen_tipo == "dinero_a_cuenta",
             Imputacion.origen_id == dinero_a_cuenta_id,
             Imputacion.es_reversal.is_(True),
@@ -316,10 +321,14 @@ def calcular_saldos_disponibles_batch(
     if not dac_ids:
         return {}
 
+    # Lectura ORIGIN-SIDE (compras_038) — ídem `calcular_saldo_disponible`.
+    from app.services.imputaciones_service import monto_origen_efectivo  # noqa: PLC0415
+
+    consumido = monto_origen_efectivo()
     neto_no_reversal: dict[int, Decimal] = {
         row.origen_id: Decimal(row.total)
         for row in session.execute(
-            select(Imputacion.origen_id, func.sum(Imputacion.monto_imputado).label("total"))
+            select(Imputacion.origen_id, func.sum(consumido).label("total"))
             .where(
                 Imputacion.origen_tipo == "dinero_a_cuenta",
                 Imputacion.origen_id.in_(dac_ids),
@@ -331,7 +340,7 @@ def calcular_saldos_disponibles_batch(
     neto_reversal: dict[int, Decimal] = {
         row.origen_id: Decimal(row.total)
         for row in session.execute(
-            select(Imputacion.origen_id, func.sum(Imputacion.monto_imputado).label("total"))
+            select(Imputacion.origen_id, func.sum(consumido).label("total"))
             .where(
                 Imputacion.origen_tipo == "dinero_a_cuenta",
                 Imputacion.origen_id.in_(dac_ids),
