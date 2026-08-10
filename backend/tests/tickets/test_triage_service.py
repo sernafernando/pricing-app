@@ -35,6 +35,7 @@ from app.tickets.models.tipo_ticket import TipoTicket
 from app.tickets.models.workflow import EstadoTicket, TransicionEstado, Workflow
 from app.tickets.services.triage_service import (
     TriagePropuesta,
+    catalogo_sectores_activos,
     pasa_umbral_confianza,
     run_triage,
 )
@@ -56,12 +57,14 @@ class FakeProvider:
         self.raises = raises
         self.model = model
         self.calls = 0
+        self.last_user_payload: str | None = None
 
     def is_configured(self) -> bool:
         return self._configured
 
     async def complete(self, system_prompt: str, user_payload: str) -> str:
         self.calls += 1
+        self.last_user_payload = user_payload
         if self.raises is not None:
             raise self.raises
         return self.response
@@ -91,8 +94,14 @@ def _patch_background_db(db):
 
 
 def _valid_payload(**overrides) -> dict:
+    """Placeholder `sector_codigo`/`tipo_ticket_codigo` — fine for tests that
+    parse `TriagePropuesta` with no `context` (schema-only checks). Tests
+    that drive `run_triage` against the real `db` fixture MUST override
+    both with values that actually exist in that session's catalogue (see
+    `_valid_payload_for_ticket`) or parsing rejects them as hallucinated."""
     payload = {
-        "tipo": "bug",
+        "sector_codigo": "catalogo_sector",
+        "tipo_ticket_codigo": "catalogo_tipo",
         "titulo": "Arreglar error de facturación",
         "resumen": "El usuario no puede facturar desde ayer",
         "severidad": "mayor",
@@ -113,6 +122,15 @@ def _valid_payload(**overrides) -> dict:
     }
     payload.update(overrides)
     return payload
+
+
+def _valid_payload_for_ticket(ticket, **overrides) -> dict:
+    """Same shape as `_valid_payload`, but `sector_codigo`/`tipo_ticket_codigo`
+    default to the REAL sector/tipo `_make_ticket` created for this ticket —
+    required whenever `run_triage` runs against the real `db` fixture, since
+    its catalogue is built live from whatever sectors/tipos exist in that
+    session (see `catalogo_sectores_activos`)."""
+    return _valid_payload(sector_codigo=ticket.sector.codigo, tipo_ticket_codigo=ticket.tipo_ticket.codigo, **overrides)
 
 
 def _make_sector(db, codigo: str) -> Sector:
@@ -181,7 +199,8 @@ class TestTriagePropuestaValidation:
 
     def test_valid_payload_parses(self) -> None:
         propuesta = TriagePropuesta(**_valid_payload())
-        assert propuesta.tipo == "bug"
+        assert propuesta.sector_codigo == "catalogo_sector"
+        assert propuesta.tipo_ticket_codigo == "catalogo_tipo"
         assert propuesta.severidad == "mayor"
         assert propuesta.detalle.pasos == ["Ir a Ventas", "Click en Facturar"]
 
@@ -191,7 +210,7 @@ class TestTriagePropuestaValidation:
 
     def test_missing_required_field_rejected(self) -> None:
         payload = _valid_payload()
-        del payload["tipo"]
+        del payload["sector_codigo"]
         with pytest.raises(ValidationError):
             TriagePropuesta(**payload)
 
@@ -201,7 +220,54 @@ class TestTriagePropuestaValidation:
 
     def test_unknown_enum_value_rejected(self) -> None:
         with pytest.raises(ValidationError):
-            TriagePropuesta(**_valid_payload(tipo="incidencia"))
+            TriagePropuesta(**_valid_payload(severidad="incidencia"))
+
+    def test_hallucinated_sector_codigo_rejected_by_catalogo(self) -> None:
+        """§1's extraction contract: 'a hallucinated code is a rejected
+        proposal, not a write' — enforced by `TriagePropuesta` itself when a
+        catalogue is passed as `context`, not by a later business-rule
+        filter."""
+        catalogo = {"sistema": {"bug", "feature"}}
+        with pytest.raises(ValidationError, match="sector_codigo"):
+            TriagePropuesta.model_validate(
+                _valid_payload(sector_codigo="sector_que_no_existe", tipo_ticket_codigo="bug"),
+                context={"catalogo_sectores": catalogo},
+            )
+
+    def test_hallucinated_tipo_ticket_codigo_rejected_by_catalogo(self) -> None:
+        """Triangulation: sector_codigo IS in the catalogue, but the tipo
+        doesn't belong to it — must still be rejected."""
+        catalogo = {"sistema": {"bug", "feature"}}
+        with pytest.raises(ValidationError, match="tipo_ticket_codigo"):
+            TriagePropuesta.model_validate(
+                _valid_payload(sector_codigo="sistema", tipo_ticket_codigo="acceso"),
+                context={"catalogo_sectores": catalogo},
+            )
+
+    def test_codigos_en_catalogo_son_aceptados(self) -> None:
+        """Companion GREEN case: codes that ARE in the catalogue parse."""
+        catalogo = {"sistema": {"bug", "feature"}}
+        propuesta = TriagePropuesta.model_validate(
+            _valid_payload(sector_codigo="sistema", tipo_ticket_codigo="feature"),
+            context={"catalogo_sectores": catalogo},
+        )
+        assert propuesta.sector_codigo == "sistema"
+        assert propuesta.tipo_ticket_codigo == "feature"
+
+    def test_empty_catalogo_dict_skips_validation_same_as_none(self) -> None:
+        """Real pre-push review finding: an EMPTY dict (no sectors
+        configured, or none with any tipo) is falsy but not None. Treating
+        only `None` as 'skip validation' would reject sector_codigo — and
+        because this schema is all-or-nothing, drag titulo/resumen/
+        metadata_ia down with it too, the exact regression commit 3cbb65db
+        ('gate the judgements, not the transformations') fixed, entering
+        through a different door."""
+        propuesta = TriagePropuesta.model_validate(
+            _valid_payload(sector_codigo="cualquiera", tipo_ticket_codigo="cualquiera"),
+            context={"catalogo_sectores": {}},
+        )
+        assert propuesta.sector_codigo == "cualquiera"
+        assert propuesta.titulo == _valid_payload()["titulo"]
 
     def test_null_severidad_and_confianza_is_valid(self) -> None:
         """'Return null with low confidence rather than guess' — null must
@@ -284,7 +350,7 @@ class TestParserIsolation:
         payload = _valid_payload()
 
         propuesta = TriagePropuesta(**payload)
-        assert propuesta.tipo == "bug"
+        assert propuesta.sector_codigo == "catalogo_sector"
 
         with pytest.raises(LlmProviderError):
             parse_llm_output(json.dumps(payload))
@@ -304,13 +370,60 @@ class TestPasaUmbralConfianza:
         assert pasa_umbral_confianza(0.85) is True
 
 
+class TestCatalogoSectoresActivos:
+    """SC: 'the payload includes the configured catalogue and excludes
+    INBOX' — `catalogo_sectores_activos` is the extraction contract's
+    source of truth for both the LLM user payload and the schema
+    validator's context."""
+
+    def test_excludes_inbox_and_includes_active_sectors(self, db) -> None:
+        _seed_inbox(db)
+        sector = _make_sector(db, codigo="CATALOGO_TEST_SECTOR")
+        _make_tipo_y_estado(db, sector)
+
+        catalogo = catalogo_sectores_activos(db)
+
+        codigos = {entry["sector_codigo"] for entry in catalogo}
+        assert INBOX_SECTOR_CODIGO not in codigos
+        assert "CATALOGO_TEST_SECTOR" in codigos
+        entry = next(e for e in catalogo if e["sector_codigo"] == "CATALOGO_TEST_SECTOR")
+        assert entry["tipos_ticket"] == ["consulta"]
+
+    def test_inactive_sector_excluded(self, db) -> None:
+        """Triangulation: an active sector is included (above), an inactive
+        one is dropped — proves the filter runs, not just present-by-luck."""
+        sector = _make_sector(db, codigo="CATALOGO_TEST_INACTIVO")
+        _make_tipo_y_estado(db, sector)
+        sector.activo = False
+        db.flush()
+
+        catalogo = catalogo_sectores_activos(db)
+
+        assert "CATALOGO_TEST_INACTIVO" not in {e["sector_codigo"] for e in catalogo}
+
+    def test_user_payload_carries_catalogo_and_excludes_inbox(self, db, rol_ventas) -> None:
+        """End-to-end: the JSON `run_triage` sends the model carries
+        `catalogo_sectores` and never offers Inbox as a destination."""
+        _seed_inbox(db)
+        ticket = _make_ticket(db, rol_ventas, "catalogo-payload")
+        provider = FakeProvider(response=json.dumps(_valid_payload_for_ticket(ticket)))
+
+        with _patch_background_db(db):
+            asyncio.run(run_triage(ticket.id, provider))
+
+        enviado = json.loads(provider.last_user_payload)
+        codigos = {entry["sector_codigo"] for entry in enviado["catalogo_sectores"]}
+        assert ticket.sector.codigo in codigos
+        assert INBOX_SECTOR_CODIGO not in codigos
+
+
 class TestConfidenceGatePerField:
     """4a.4/4a.6: fake-provider proof that the gate is per-field — a gated
     field writes zero rows while its sibling still writes one."""
 
     def test_gated_field_writes_nothing_sibling_still_writes(self, db, rol_ventas) -> None:
         ticket = _make_ticket(db, rol_ventas, "gate")
-        payload = _valid_payload(confianza_severidad=0.4, confianza_urgencia=0.85)
+        payload = _valid_payload_for_ticket(ticket, confianza_severidad=0.4, confianza_urgencia=0.85)
         provider = FakeProvider(response=json.dumps(payload))
 
         with _patch_background_db(db):
@@ -318,16 +431,23 @@ class TestConfidenceGatePerField:
 
         propuestas = db.query(PropuestaIA).filter(PropuestaIA.ticket_id == ticket.id).all()
         # `_valid_payload()`'s default confianza_global (0.85) still gates
-        # titulo/resumen above threshold, independently of the gated
-        # confianza_severidad here — sibling fields must not affect each
-        # other (PR 06, decision #1371).
-        assert {p.campo for p in propuestas} == {"urgencia", "titulo", "resumen"}
+        # sector/tipo_ticket/titulo/resumen/metadata_ia above threshold,
+        # independently of the gated confianza_severidad here — sibling
+        # fields must not affect each other (PR 06, decision #1371).
+        assert {p.campo for p in propuestas} == {
+            "sector",
+            "tipo_ticket",
+            "urgencia",
+            "titulo",
+            "resumen",
+            "metadata_ia",
+        }
         urgencia = next(p for p in propuestas if p.campo == "urgencia")
         assert urgencia.valor_propuesto == {"valor": "alta"}
 
     def test_null_confianza_treated_as_below_threshold(self, db, rol_ventas) -> None:
         ticket = _make_ticket(db, rol_ventas, "gate-null")
-        payload = _valid_payload(confianza_severidad=None, confianza_urgencia=None)
+        payload = _valid_payload_for_ticket(ticket, confianza_severidad=None, confianza_urgencia=None)
         provider = FakeProvider(response=json.dumps(payload))
 
         with _patch_background_db(db):
@@ -335,9 +455,10 @@ class TestConfidenceGatePerField:
 
         propuestas = db.query(PropuestaIA).filter(PropuestaIA.ticket_id == ticket.id).all()
         # severidad/urgencia are gated out by their own null confidences;
-        # titulo/resumen gate independently on confianza_global (0.85,
-        # unaffected by the null siblings) and still write.
-        assert {p.campo for p in propuestas} == {"titulo", "resumen"}
+        # sector/tipo_ticket/titulo/resumen/metadata_ia gate independently
+        # on confianza_global (0.85, unaffected by the null siblings) and
+        # still write.
+        assert {p.campo for p in propuestas} == {"sector", "tipo_ticket", "titulo", "resumen", "metadata_ia"}
 
 
 class TestTituloResumenNoSeGatean:
@@ -363,7 +484,8 @@ class TestTituloResumenNoSeGatean:
     def test_titulo_y_resumen_se_escriben_con_confianza_cero(self, db, rol_ventas) -> None:
         """The exact production case that exposed this."""
         ticket = _make_ticket(db, rol_ventas, "titulo-sin-gate")
-        payload = _valid_payload(
+        payload = _valid_payload_for_ticket(
+            ticket,
             confianza_global=0.0,
             severidad=None,
             urgencia=None,
@@ -378,26 +500,37 @@ class TestTituloResumenNoSeGatean:
         propuestas = {p.campo: p for p in db.query(PropuestaIA).filter(PropuestaIA.ticket_id == ticket.id).all()}
         assert propuestas["titulo"].valor_propuesto == {"valor": payload["titulo"]}
         assert propuestas["resumen"].valor_propuesto == {"valor": payload["resumen"]}
+        # metadata_ia is the same kind of ungated transformation.
+        assert propuestas["metadata_ia"].valor_propuesto["valor"]["area_probable"] == payload["area_probable"]
         # ...and the judgements the model declined to make stay unproposed.
         assert "severidad" not in propuestas
         assert "urgencia" not in propuestas
+        assert "sector" not in propuestas
+        assert "tipo_ticket" not in propuestas
 
     def test_severidad_y_urgencia_siguen_gateadas(self, db, rol_ventas) -> None:
         """Regression guard: relaxing the text fields must NOT relax the
-        judgement fields. A low-confidence severidad still writes nothing."""
+        judgement fields. A low-confidence severidad/sector/tipo_ticket
+        still write nothing — extends decision #1371 to the new campos this
+        change adds (sector/tipo_ticket are judgements too, see
+        `run_triage`'s write-loop comment)."""
         ticket = _make_ticket(db, rol_ventas, "juicios-gateados")
-        payload = _valid_payload(confianza_severidad=0.2, confianza_urgencia=0.2, confianza_global=0.0)
+        payload = _valid_payload_for_ticket(
+            ticket, confianza_severidad=0.2, confianza_urgencia=0.2, confianza_global=0.0
+        )
         provider = FakeProvider(response=json.dumps(payload))
 
         with _patch_background_db(db):
             asyncio.run(run_triage(ticket.id, provider))
 
         campos = {p.campo for p in db.query(PropuestaIA).filter(PropuestaIA.ticket_id == ticket.id).all()}
-        assert campos == {"titulo", "resumen"}
+        assert campos == {"titulo", "resumen", "metadata_ia"}
+        assert "sector" not in campos
+        assert "tipo_ticket" not in campos
 
     def test_confianza_alta_escribe_todo(self, db, rol_ventas) -> None:
         ticket = _make_ticket(db, rol_ventas, "titulo-gate-high")
-        payload = _valid_payload(confianza_global=0.9)
+        payload = _valid_payload_for_ticket(ticket, confianza_global=0.9)
         provider = FakeProvider(response=json.dumps(payload))
 
         with _patch_background_db(db):
@@ -408,13 +541,15 @@ class TestTituloResumenNoSeGatean:
         assert propuestas["titulo"].estado == "pendiente"
         assert propuestas["resumen"].valor_propuesto == {"valor": payload["resumen"]}
         assert propuestas["resumen"].estado == "pendiente"
+        assert propuestas["sector"].valor_propuesto == {"valor": payload["sector_codigo"]}
+        assert propuestas["tipo_ticket"].valor_propuesto == {"valor": payload["tipo_ticket_codigo"]}
 
     def test_run_triage_degrades_to_nothing_when_titulo_too_long(self, db, rol_ventas) -> None:
         """The over-long titulo fails `TriagePropuesta` parsing entirely
         (closed schema, all-or-nothing) — the proposal is rejected outright,
         never truncated and never written through."""
         ticket = _make_ticket(db, rol_ventas, "titulo-too-long")
-        payload = _valid_payload(titulo="x" * 121)
+        payload = _valid_payload_for_ticket(ticket, titulo="x" * 121)
         provider = FakeProvider(response=json.dumps(payload))
 
         with _patch_background_db(db):
@@ -429,14 +564,22 @@ class TestRunTriageDirectCall:
 
     def test_writes_pending_rows_with_zero_network(self, db, rol_ventas) -> None:
         ticket = _make_ticket(db, rol_ventas, "direct")
-        provider = FakeProvider(response=json.dumps(_valid_payload()))
+        provider = FakeProvider(response=json.dumps(_valid_payload_for_ticket(ticket)))
 
         with _patch_background_db(db):
             asyncio.run(run_triage(ticket.id, provider))
 
         assert provider.calls == 1
         propuestas = db.query(PropuestaIA).filter(PropuestaIA.ticket_id == ticket.id).all()
-        assert {p.campo for p in propuestas} == {"severidad", "urgencia", "titulo", "resumen"}
+        assert {p.campo for p in propuestas} == {
+            "sector",
+            "tipo_ticket",
+            "severidad",
+            "urgencia",
+            "titulo",
+            "resumen",
+            "metadata_ia",
+        }
         for p in propuestas:
             assert p.estado == "pendiente"
             assert p.modelo == provider.model
@@ -464,7 +607,7 @@ class TestSessionNotHeldAcrossNetworkCall:
                 events.append("exit")
                 return super().__exit__(exc_type, exc, tb)
 
-        provider = FakeProvider(response=json.dumps(_valid_payload()))
+        provider = FakeProvider(response=json.dumps(_valid_payload_for_ticket(ticket)))
         real_complete = provider.complete
 
         async def _tracked_complete(system_prompt: str, user_payload: str) -> str:
@@ -505,7 +648,7 @@ class TestWriteRaceDegradesGracefully:
         )
         db.flush()
 
-        provider = FakeProvider(response=json.dumps(_valid_payload()))
+        provider = FakeProvider(response=json.dumps(_valid_payload_for_ticket(ticket)))
 
         with _patch_background_db(db):
             asyncio.run(run_triage(ticket.id, provider))  # must not raise
@@ -562,7 +705,7 @@ class TestDuplicateProposalGuard:
         db.add(PropuestaIA(ticket_id=ticket.id, campo="severidad", valor_propuesto={"valor": "critica"}))
         db.flush()
 
-        provider = FakeProvider(response=json.dumps(_valid_payload()))
+        provider = FakeProvider(response=json.dumps(_valid_payload_for_ticket(ticket)))
 
         with _patch_background_db(db):
             asyncio.run(run_triage(ticket.id, provider))
