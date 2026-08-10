@@ -182,6 +182,8 @@ class TestCrearImputacion:
             destino_id=200,
             monto_imputado=Decimal("1500.00"),
             moneda_imputada="ARS",
+            monto_origen=Decimal("1500.00"),
+            moneda_origen="ARS",
             proveedor_id=proveedor.id,
             creado_por_id=user_id,
         )
@@ -200,6 +202,8 @@ class TestCrearImputacion:
             destino_id=None,
             monto_imputado=Decimal("500.00"),
             moneda_imputada="ARS",
+            monto_origen=Decimal("500.00"),
+            moneda_origen="ARS",
             proveedor_id=proveedor.id,
             creado_por_id=user_id,
         )
@@ -216,6 +220,8 @@ class TestCrearImputacion:
                 destino_id=200,
                 monto_imputado=Decimal("0"),
                 moneda_imputada="ARS",
+                monto_origen=Decimal("0"),
+                moneda_origen="ARS",
                 proveedor_id=proveedor.id,
                 creado_por_id=user_id,
             )
@@ -232,6 +238,8 @@ class TestCrearImputacion:
                 destino_id=200,
                 monto_imputado=Decimal("100"),
                 moneda_imputada="ARS",
+                monto_origen=Decimal("100"),
+                moneda_origen="ARS",
                 proveedor_id=proveedor.id,
                 creado_por_id=user_id,
             )
@@ -248,6 +256,8 @@ class TestCrearImputacion:
                 destino_id=999,  # inválido
                 monto_imputado=Decimal("100"),
                 moneda_imputada="ARS",
+                monto_origen=Decimal("100"),
+                moneda_origen="ARS",
                 proveedor_id=proveedor.id,
                 creado_por_id=user_id,
             )
@@ -265,6 +275,8 @@ class TestCrearImputacion:
                 destino_id=None,
                 monto_imputado=Decimal("100"),
                 moneda_imputada="ARS",
+                monto_origen=Decimal("100"),
+                moneda_origen="ARS",
                 proveedor_id=proveedor.id,
                 creado_por_id=user_id,
             )
@@ -287,6 +299,8 @@ class TestListados:
             destino_id=201,
             monto_imputado=Decimal("100"),
             moneda_imputada="ARS",
+            monto_origen=Decimal("100"),
+            moneda_origen="ARS",
             proveedor_id=proveedor.id,
             creado_por_id=user_id,
         )
@@ -298,6 +312,8 @@ class TestListados:
             destino_id=202,
             monto_imputado=Decimal("200"),
             moneda_imputada="ARS",
+            monto_origen=Decimal("200"),
+            moneda_origen="ARS",
             proveedor_id=proveedor.id,
             creado_por_id=user_id,
         )
@@ -309,6 +325,8 @@ class TestListados:
             destino_id=300,
             monto_imputado=Decimal("300"),
             moneda_imputada="ARS",
+            monto_origen=Decimal("300"),
+            moneda_origen="ARS",
             proveedor_id=proveedor.id,
             creado_por_id=user_id,
         )
@@ -326,6 +344,8 @@ class TestListados:
             destino_id=500,
             monto_imputado=Decimal("1000"),
             moneda_imputada="ARS",
+            monto_origen=Decimal("1000"),
+            moneda_origen="ARS",
             proveedor_id=proveedor.id,
             creado_por_id=user_id,
         )
@@ -337,6 +357,8 @@ class TestListados:
             destino_id=500,
             monto_imputado=Decimal("250"),
             moneda_imputada="ARS",
+            monto_origen=Decimal("250"),
+            moneda_origen="ARS",
             proveedor_id=proveedor.id,
             creado_por_id=user_id,
         )
@@ -361,6 +383,8 @@ class TestMontoImputadoTotal:
             destino_id=201,
             monto_imputado=Decimal("1000"),
             moneda_imputada="ARS",
+            monto_origen=Decimal("1000"),
+            moneda_origen="ARS",
             proveedor_id=proveedor.id,
             creado_por_id=user_id,
         )
@@ -373,6 +397,8 @@ class TestMontoImputadoTotal:
             destino_id=201,
             monto_imputado=Decimal("1000"),
             moneda_imputada="ARS",
+            monto_origen=Decimal("1000"),
+            moneda_origen="ARS",
             proveedor_id=proveedor.id,
             creado_por_id=user_id,
             es_reversal=True,
@@ -390,6 +416,8 @@ class TestMontoImputadoTotal:
             destino_id=500,
             monto_imputado=Decimal("300"),
             moneda_imputada="ARS",
+            monto_origen=Decimal("300"),
+            moneda_origen="ARS",
             proveedor_id=proveedor.id,
             creado_por_id=user_id,
         )
@@ -401,6 +429,8 @@ class TestMontoImputadoTotal:
             destino_id=500,
             monto_imputado=Decimal("700"),
             moneda_imputada="ARS",
+            monto_origen=Decimal("700"),
+            moneda_origen="ARS",
             proveedor_id=proveedor.id,
             creado_por_id=user_id,
         )
@@ -417,6 +447,8 @@ class TestMontoImputadoTotal:
             destino_id=500,
             monto_imputado=Decimal("1000"),
             moneda_imputada="ARS",
+            monto_origen=Decimal("1000"),
+            moneda_origen="ARS",
             proveedor_id=proveedor.id,
             creado_por_id=user_id,
         )
@@ -428,6 +460,8 @@ class TestMontoImputadoTotal:
             destino_id=500,
             monto_imputado=Decimal("50"),
             moneda_imputada="USD",
+            monto_origen=Decimal("50"),
+            moneda_origen="USD",
             proveedor_id=proveedor.id,
             creado_por_id=user_id,
         )
@@ -469,6 +503,8 @@ class TestDesimputar:
             destino_id=200,
             monto_imputado=Decimal("500"),
             moneda_imputada="ARS",
+            monto_origen=Decimal("500"),
+            moneda_origen="ARS",
             proveedor_id=proveedor.id,
             creado_por_id=user_id,
         )
@@ -497,6 +533,8 @@ class TestDesimputar:
             destino_id=200,
             monto_imputado=Decimal("500"),
             moneda_imputada="ARS",
+            monto_origen=Decimal("500"),
+            moneda_origen="ARS",
             proveedor_id=proveedor.id,
             creado_por_id=user_id,
             es_reversal=True,
@@ -528,6 +566,8 @@ class TestDesimputar:
             destino_id=200,
             monto_imputado=Decimal("666.67"),
             moneda_imputada="USD",
+            monto_origen=Decimal("666.67"),
+            moneda_origen="USD",
             proveedor_id=proveedor.id,
             creado_por_id=user_id,
             tipo_cambio=Decimal("1500"),
@@ -585,6 +625,8 @@ class TestReimputar:
             destino_id=200,
             monto_imputado=Decimal("500"),
             moneda_imputada="ARS",
+            monto_origen=Decimal("500"),
+            moneda_origen="ARS",
             proveedor_id=proveedor.id,
             creado_por_id=user_id,
         )
@@ -618,6 +660,8 @@ class TestReimputar:
             destino_id=200,
             monto_imputado=Decimal("500"),
             moneda_imputada="ARS",
+            monto_origen=Decimal("500"),
+            moneda_origen="ARS",
             proveedor_id=proveedor.id,
             creado_por_id=user_id,
         )
@@ -651,6 +695,8 @@ class TestReimputar:
             destino_id=200,
             monto_imputado=Decimal("500"),
             moneda_imputada="ARS",
+            monto_origen=Decimal("500"),
+            moneda_origen="ARS",
             proveedor_id=proveedor.id,
             creado_por_id=user_id,
         )
@@ -794,6 +840,8 @@ class TestDesimputarRecalculaEstadoPedido:
             destino_id=pedido.id,
             monto_imputado=Decimal("1000"),
             moneda_imputada="ARS",
+            monto_origen=Decimal("1000"),
+            moneda_origen="ARS",
             proveedor_id=proveedor.id,
             creado_por_id=user_id,
         )
@@ -863,6 +911,8 @@ class TestDesimputarRecalculaEstadoPedido:
             destino_id=pedido.id,
             monto_imputado=Decimal("1500"),
             moneda_imputada="ARS",
+            monto_origen=Decimal("1500"),
+            moneda_origen="ARS",
             proveedor_id=proveedor.id,
             creado_por_id=user_id,
         )

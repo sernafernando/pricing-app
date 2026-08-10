@@ -78,6 +78,25 @@ COMBOS_VALIDOS_V1: Final[frozenset[tuple[str, str]]] = frozenset(
 Moneda = Literal["ARS", "USD"]
 
 
+def pata_origen_de(imp: Imputacion) -> tuple[Decimal, str]:
+    """
+    Devuelve `(monto_origen, moneda_origen)` de una imputación existente.
+
+    Fallback a la pata DESTINO cuando la pata origen viene en NULL. Eso sólo
+    puede pasar con filas escritas por una instancia de app pre-compras_038
+    durante una ventana de deploy rolling (la migración deja backfilleada toda
+    la tabla). Para esas filas la pata destino es la mejor aproximación
+    disponible, y además es EXACTA para todo lo que ese código viejo escribía
+    same-moneda.
+
+    Se usa al copiar una imputación (reversals, reimputación, transferencia por
+    corrección de pedido): la copia tiene que arrastrar LAS DOS patas.
+    """
+    if imp.monto_origen is not None and imp.moneda_origen is not None:
+        return Decimal(imp.monto_origen), str(imp.moneda_origen)
+    return Decimal(imp.monto_imputado), str(imp.moneda_imputada)
+
+
 # ──────────────────────────────────────────────────────────────────────────
 # Validadores internos
 # ──────────────────────────────────────────────────────────────────────────
@@ -138,6 +157,57 @@ def _validar_monto_positivo(monto: Decimal) -> None:
         )
 
 
+def _validar_pata_origen(
+    *,
+    monto_origen: Decimal,
+    moneda_origen: str,
+    monto_imputado: Decimal,
+    moneda_imputada: str,
+    tipo_cambio: Optional[Decimal],
+) -> None:
+    """
+    Valida la coherencia entre la pata ORIGEN y la pata DESTINO (compras_038).
+
+    Reglas:
+      - `monto_origen > 0` (espeja `ck_imputaciones_monto_origen_positivo`).
+      - Cross-moneda (`moneda_origen != moneda_imputada`): `tipo_cambio > 0`
+        obligatorio. Sin TC la relación entre las dos patas no es auditable.
+      - Same-moneda: los dos importes DEBEN ser el mismo número. Si difieren,
+        el caller confundió las patas — es un error de programación, no un
+        caso de negocio.
+
+    Raises:
+        HTTPException 400: por cualquiera de las tres reglas.
+    """
+    if monto_origen <= 0:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"monto_origen debe ser > 0 (recibido: {monto_origen}).",
+        )
+
+    if moneda_origen != moneda_imputada:
+        if tipo_cambio is None or Decimal(tipo_cambio) <= 0:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=(
+                    f"Cross-moneda requiere tipo_cambio > 0. Origen: "
+                    f"{monto_origen} {moneda_origen}, destino: {monto_imputado} "
+                    f"{moneda_imputada}, TC recibido: {tipo_cambio}."
+                ),
+            )
+        return
+
+    if Decimal(monto_origen) != Decimal(monto_imputado):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=(
+                f"Con origen y destino en la misma moneda ({moneda_origen}), "
+                f"monto_origen debe ser igual a monto_imputado "
+                f"(recibido: monto_origen={monto_origen}, monto_imputado={monto_imputado})."
+            ),
+        )
+
+
 def _validar_saldo_destino_id(destino_tipo: str, destino_id: Optional[int]) -> None:
     """
     Enforce en aplicación la misma regla que el CHECK de la DB
@@ -172,6 +242,8 @@ def crear_imputacion(
     destino_id: Optional[int],
     monto_imputado: Decimal,
     moneda_imputada: Moneda,
+    monto_origen: Decimal,
+    moneda_origen: Moneda,
     proveedor_id: int,
     creado_por_id: int,
     tipo_cambio: Optional[Decimal] = None,
@@ -181,8 +253,11 @@ def crear_imputacion(
     """
     Inserta una fila en `imputaciones` validando:
       - `(origen_tipo, destino_tipo)` ∈ COMBOS_VALIDOS_V1.
-      - `monto_imputado > 0`.
-      - `moneda_imputada ∈ {'ARS','USD'}` (nominal — Literal en el signature).
+      - `monto_imputado > 0` y `monto_origen > 0`.
+      - `moneda_imputada` / `moneda_origen` ∈ {'ARS','USD'} (nominal — Literal
+        en el signature).
+      - Coherencia entre patas (`_validar_pata_origen`): cross-moneda exige
+        `tipo_cambio > 0`; same-moneda exige `monto_origen == monto_imputado`.
       - Coherencia `destino_tipo='saldo' <=> destino_id IS NULL`.
 
     NO dispara side-effects en CC. El caller (p. ej. `ejecutar_pago` en F4)
@@ -195,14 +270,22 @@ def crear_imputacion(
         origen_id: ID polimórfico del origen (p. ej. `orden_pago.id`).
         destino_tipo: uno de los tipos del lado "derecho".
         destino_id: ID polimórfico del destino. `None` solo si destino='saldo'.
-        monto_imputado: monto > 0.
-        moneda_imputada: 'ARS' o 'USD'. En cross-moneda (origen ≠ destino) DEBE
-            coincidir con la moneda del destino — el caller convierte el monto
-            usando `tipo_cambio` antes de invocar este método.
+        monto_imputado: monto aplicado al DESTINO, > 0.
+        moneda_imputada: moneda del DESTINO ('ARS' o 'USD'). En cross-moneda
+            OP↔pedido el caller convierte el monto usando `tipo_cambio` antes
+            de invocar este método.
+        monto_origen: monto consumido del ORIGEN, > 0, en `moneda_origen`.
+            REQUERIDO a propósito: es la razón de ser de compras_038. Un
+            default a la pata destino dejaría que un call site cross-moneda se
+            olvide en silencio y grabe un origen falso (p. ej. una NC de
+            1.000 ARS quedaría con saldo 999,34 tras imputarse a un pedido USD,
+            gastándose ~1.500 veces). En same-moneda vale `monto_imputado`.
+        moneda_origen: moneda del ORIGEN ('ARS' o 'USD'). En same-moneda vale
+            `moneda_imputada`.
         proveedor_id: FK a `proveedores`.
         creado_por_id: FK a `usuarios`.
-        tipo_cambio: TC origen↔destino. Obligatorio cuando origen.moneda ≠
-            destino.moneda; opcional (y típicamente `None`) cuando coinciden.
+        tipo_cambio: TC origen↔destino. Obligatorio cuando `moneda_origen` ≠
+            `moneda_imputada`; opcional (y típicamente `None`) cuando coinciden.
         es_reversal: si es True, apunta a una imputación previa.
         reimputada_desde_id: id de la imputación original que esta reimputa
             (sólo seteado por `reimputar` en F4).
@@ -216,12 +299,14 @@ def crear_imputacion(
     """
     _validar_whitelist(origen_tipo, destino_tipo)
     _validar_monto_positivo(monto_imputado)
+    _validar_pata_origen(
+        monto_origen=monto_origen,
+        moneda_origen=moneda_origen,
+        monto_imputado=monto_imputado,
+        moneda_imputada=moneda_imputada,
+        tipo_cambio=tipo_cambio,
+    )
     _validar_saldo_destino_id(destino_tipo, destino_id)
-
-    # La moneda del destino sólo se puede verificar si el caller la provee
-    # por separado. A este nivel confiamos en que el caller haya validado
-    # moneda + TC antes (vía `_validar_moneda_consistente`, que ahora admite
-    # cross-moneda cuando viene `tipo_cambio > 0`).
 
     # Validación específica para origen NCs locales (v2):
     #   - La NC origen debe existir y estar en estado 'aprobado' o 'aplicada_parcial'.
@@ -243,6 +328,8 @@ def crear_imputacion(
         destino_id=destino_id,
         monto_imputado=monto_imputado,
         moneda_imputada=moneda_imputada,
+        monto_origen=monto_origen,
+        moneda_origen=moneda_origen,
         tipo_cambio=tipo_cambio,
         proveedor_id=proveedor_id,
         es_reversal=es_reversal,
@@ -265,10 +352,12 @@ def crear_imputacion(
         )
 
     logger.info(
-        "imputacion_creada id=%s origen=%s:%s destino=%s:%s monto=%s %s reversal=%s proveedor_id=%s",
+        "imputacion_creada id=%s origen=%s:%s (%s %s) destino=%s:%s (%s %s) reversal=%s proveedor_id=%s",
         imp.id,
         origen_tipo,
         origen_id,
+        monto_origen,
+        moneda_origen,
         destino_tipo,
         destino_id,
         monto_imputado,
@@ -502,6 +591,10 @@ def distribuir_fifo(
             destino_id=pedido.id,
             monto_imputado=aplicar,
             moneda_imputada=op.moneda,  # type: ignore[arg-type]
+            # FIFO sólo toma pedidos de la misma moneda que la OP (ver stmt
+            # arriba), así que la pata origen es idéntica a la destino.
+            monto_origen=aplicar,
+            moneda_origen=op.moneda,  # type: ignore[arg-type]
             proveedor_id=op.proveedor_id,
             creado_por_id=user_id,
         )
@@ -530,6 +623,9 @@ def distribuir_fifo(
             destino_id=None,
             monto_imputado=remanente,
             moneda_imputada=op.moneda,  # type: ignore[arg-type]
+            # Saldo a cuenta: se queda en la moneda de la OP, sin conversión.
+            monto_origen=remanente,
+            moneda_origen=op.moneda,  # type: ignore[arg-type]
             proveedor_id=op.proveedor_id,
             creado_por_id=user_id,
         )
@@ -592,6 +688,9 @@ def desimputar(
             detail=(f"No se puede desimputar un reversal (imputacion_id={imputacion_id} ya tiene es_reversal=True)."),
         )
 
+    # Un reversal devuelve el importe ORIGEN al origen y el importe DESTINO al
+    # destino: copiamos LAS DOS patas verbatim.
+    monto_origen_orig, moneda_origen_orig = pata_origen_de(original)
     reversal = crear_imputacion(
         session,
         origen_tipo=original.origen_tipo,
@@ -600,6 +699,8 @@ def desimputar(
         destino_id=original.destino_id,
         monto_imputado=original.monto_imputado,
         moneda_imputada=original.moneda_imputada,  # type: ignore[arg-type]
+        monto_origen=monto_origen_orig,
+        moneda_origen=moneda_origen_orig,  # type: ignore[arg-type]
         proveedor_id=original.proveedor_id,
         creado_por_id=user_id,
         tipo_cambio=original.tipo_cambio,
@@ -722,6 +823,10 @@ def reimputar(
     _validar_whitelist(original.origen_tipo, nuevo_destino_tipo)
     _validar_saldo_destino_id(nuevo_destino_tipo, nuevo_destino_id)
 
+    # Ambas filas arrastran la pata origen de la original: el origen consumió
+    # lo mismo, sólo cambia a qué destino se aplica.
+    monto_origen_orig, moneda_origen_orig = pata_origen_de(original)
+
     # (a) Reversal de la original — mismo destino que la original
     reversal = crear_imputacion(
         session,
@@ -731,6 +836,8 @@ def reimputar(
         destino_id=original.destino_id,
         monto_imputado=original.monto_imputado,
         moneda_imputada=original.moneda_imputada,  # type: ignore[arg-type]
+        monto_origen=monto_origen_orig,
+        moneda_origen=moneda_origen_orig,  # type: ignore[arg-type]
         proveedor_id=original.proveedor_id,
         creado_por_id=user_id,
         tipo_cambio=original.tipo_cambio,
@@ -748,6 +855,8 @@ def reimputar(
         destino_id=nuevo_destino_id,
         monto_imputado=original.monto_imputado,
         moneda_imputada=original.moneda_imputada,  # type: ignore[arg-type]
+        monto_origen=monto_origen_orig,
+        moneda_origen=moneda_origen_orig,  # type: ignore[arg-type]
         proveedor_id=original.proveedor_id,
         creado_por_id=user_id,
         tipo_cambio=original.tipo_cambio,
@@ -852,6 +961,7 @@ __all__ = [
     "listar_por_destino",
     "listar_por_origen",
     "monto_imputado_total_al_destino",
+    "pata_origen_de",
     "reimputar",
     "revertir_imputaciones_de_origen",
 ]

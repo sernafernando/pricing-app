@@ -1031,6 +1031,10 @@ def _imputar_cheque_en_op(
             destino_id=pedido_id,
             monto_imputado=monto_op_moneda,
             moneda_imputada=str(op.moneda),  # type: ignore[arg-type]
+            # El cheque se emite/endosa en la moneda de la OP y se imputa sin
+            # conversión: las dos patas coinciden.
+            monto_origen=monto_op_moneda,
+            moneda_origen=str(op.moneda),  # type: ignore[arg-type]
             proveedor_id=op.proveedor_id,
             creado_por_id=user_id,
         )
@@ -1421,6 +1425,12 @@ def ejecutar_pago(
             destino_id=item.get("id"),
             monto_imputado=monto_imp,
             moneda_imputada=moneda_imp,  # type: ignore[arg-type]
+            # Pata origen = lo que sale de la OP, ANTES de convertir. Usamos
+            # `monto_item_origen` tal cual: invertir la división de arriba
+            # reintroduciría el error de redondeo que `q_usd`/`q_ars` acaban
+            # de aplicar.
+            monto_origen=monto_item_origen,
+            moneda_origen=str(op.moneda),  # type: ignore[arg-type]
             tipo_cambio=tc_imp,
             proveedor_id=op.proveedor_id,
             creado_por_id=user_id,
@@ -1460,6 +1470,9 @@ def ejecutar_pago(
             destino_id=dac.id,
             monto_imputado=monto_pac,
             moneda_imputada=str(op.moneda),  # type: ignore[arg-type]
+            # El DAC se crea en la moneda de la OP: sin conversión.
+            monto_origen=monto_pac,
+            moneda_origen=str(op.moneda),  # type: ignore[arg-type]
             tipo_cambio=None,
             proveedor_id=op.proveedor_id,
             creado_por_id=user_id,
@@ -2740,6 +2753,10 @@ def imputar_nc_a_pedido(
         destino_id=pedido.id,
         monto_imputado=monto,
         moneda_imputada=nc.moneda,  # type: ignore[arg-type]
+        # Cross-moneda NC↔pedido está rechazado arriba (paso 5b), así que las
+        # dos patas comparten moneda e importe.
+        monto_origen=monto,
+        moneda_origen=nc.moneda,  # type: ignore[arg-type]
         proveedor_id=nc.proveedor_id,
         creado_por_id=creado_por_id,
     )

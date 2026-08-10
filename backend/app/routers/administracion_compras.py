@@ -4762,6 +4762,10 @@ def aplicar_nc_local(
             destino_id=body.destino_id,
             monto_imputado=body.monto_imputado,
             moneda_imputada=nc.moneda,  # type: ignore[arg-type]
+            # Cross-moneda NC↔pedido está rechazado arriba, así que las dos
+            # patas comparten moneda e importe.
+            monto_origen=body.monto_imputado,
+            moneda_origen=nc.moneda,  # type: ignore[arg-type]
             proveedor_id=nc.proveedor_id,
             creado_por_id=user.id,
         )

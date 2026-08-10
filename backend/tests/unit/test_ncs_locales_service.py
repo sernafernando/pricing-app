@@ -101,9 +101,7 @@ class TestCrearNCLocal:
         assert nd.numero.startswith("ND-01-")
         assert not nd.numero.startswith("NC-")
 
-    def test_crear_nc_credito_y_nd_debito_secuencias_separadas(
-        self, db, empresa, proveedor, active_user
-    ) -> None:
+    def test_crear_nc_credito_y_nd_debito_secuencias_separadas(self, db, empresa, proveedor, active_user) -> None:
         """NC y ND llevan correlativos independientes: cada una arranca en 00001."""
         nc = ncs_locales_service.crear(
             db,
@@ -315,9 +313,7 @@ class TestTransicionarNCLocal:
 
     def test_borrador_a_pendiente(self, db, empresa, proveedor, active_user) -> None:
         nc = self._crear_nc(db, empresa, proveedor, active_user)
-        nc = ncs_locales_service.transicionar(
-            db, nc_id=nc.id, accion="enviar_aprobacion", user_id=active_user.id
-        )
+        nc = ncs_locales_service.transicionar(db, nc_id=nc.id, accion="enviar_aprobacion", user_id=active_user.id)
         assert nc.estado == "pendiente_aprobacion"
 
     def test_pendiente_a_aprobado_no_inserta_cc(self, db, empresa, proveedor, active_user) -> None:
@@ -362,9 +358,7 @@ class TestTransicionarNCLocal:
         nc = ncs_locales_service.transicionar(db, nc_id=nc.id, accion="reabrir", user_id=active_user.id)
         assert nc.estado == "borrador"
 
-    def test_aprobado_cancelar_aprobado_revierte_imputaciones(
-        self, db, empresa, proveedor, active_user
-    ) -> None:
+    def test_aprobado_cancelar_aprobado_revierte_imputaciones(self, db, empresa, proveedor, active_user) -> None:
         """cancelar_aprobado debe revertir imputaciones activas vía helper."""
         from app.services import imputaciones_service
 
@@ -381,6 +375,8 @@ class TestTransicionarNCLocal:
             destino_id=None,
             monto_imputado=Decimal("400"),
             moneda_imputada="ARS",
+            monto_origen=Decimal("400"),
+            moneda_origen="ARS",
             proveedor_id=proveedor.id,
             creado_por_id=active_user.id,
         )
@@ -443,6 +439,8 @@ class TestAplicarImputacionANC:
             destino_id=None,
             monto_imputado=Decimal("400"),
             moneda_imputada="ARS",
+            monto_origen=Decimal("400"),
+            moneda_origen="ARS",
             proveedor_id=proveedor.id,
             creado_por_id=active_user.id,
         )
@@ -460,6 +458,8 @@ class TestAplicarImputacionANC:
             destino_id=None,
             monto_imputado=Decimal("1000"),
             moneda_imputada="ARS",
+            monto_origen=Decimal("1000"),
+            moneda_origen="ARS",
             proveedor_id=proveedor.id,
             creado_por_id=active_user.id,
         )
@@ -478,6 +478,8 @@ class TestAplicarImputacionANC:
                 destino_id=None,
                 monto_imputado=Decimal("1500"),
                 moneda_imputada="ARS",
+                monto_origen=Decimal("1500"),
+                moneda_origen="ARS",
                 proveedor_id=proveedor.id,
                 creado_por_id=active_user.id,
             )
@@ -507,6 +509,8 @@ class TestAplicarImputacionANC:
                 destino_id=None,
                 monto_imputado=Decimal("50"),
                 moneda_imputada="ARS",
+                monto_origen=Decimal("50"),
+                moneda_origen="ARS",
                 proveedor_id=proveedor.id,
                 creado_por_id=active_user.id,
             )
@@ -546,6 +550,8 @@ class TestCCImpactoAlImputar:
             destino_id=None,
             monto_imputado=Decimal("500"),
             moneda_imputada="ARS",
+            monto_origen=Decimal("500"),
+            moneda_origen="ARS",
             proveedor_id=proveedor.id,
             creado_por_id=active_user.id,
         )
@@ -668,9 +674,7 @@ class TestVincularFacturaERP:
         assert ev.payload["monto_anterior"] == "700"
         assert ev.payload["monto_nuevo"] == "750"
 
-    def test_vincular_ya_vinculada_a_otra_raises_409(
-        self, db, empresa, proveedor, active_user, setup_erp_nc
-    ) -> None:
+    def test_vincular_ya_vinculada_a_otra_raises_409(self, db, empresa, proveedor, active_user, setup_erp_nc) -> None:
         nc = ncs_locales_service.crear(
             db,
             empresa_id=empresa.id,
@@ -692,9 +696,7 @@ class TestVincularFacturaERP:
             )
         assert exc.value.status_code == 409
 
-    def test_vincular_ct_inexistente_raises_400(
-        self, db, empresa, proveedor, active_user, setup_erp_nc
-    ) -> None:
+    def test_vincular_ct_inexistente_raises_400(self, db, empresa, proveedor, active_user, setup_erp_nc) -> None:
         nc = ncs_locales_service.crear(
             db,
             empresa_id=empresa.id,
@@ -725,9 +727,7 @@ class TestVincularFacturaERP:
             motivo="x",
             creado_por_id=active_user.id,
         )
-        ncs_locales_service.vincular_factura_erp(
-            db, nc_local_id=nc.id, ct_transaction=99001, user_id=active_user.id
-        )
+        ncs_locales_service.vincular_factura_erp(db, nc_local_id=nc.id, ct_transaction=99001, user_id=active_user.id)
         nc = ncs_locales_service.desvincular_factura_erp(db, nc_local_id=nc.id, user_id=active_user.id)
         assert nc.ct_transaction_id is None
 
@@ -753,9 +753,7 @@ class TestVincularFacturaERP:
 
 
 class TestRecalcularEstadoPorImputaciones:
-    def test_desimputar_nc_aplicada_total_vuelve_aprobado(
-        self, db, empresa, proveedor, active_user
-    ) -> None:
+    def test_desimputar_nc_aplicada_total_vuelve_aprobado(self, db, empresa, proveedor, active_user) -> None:
         from app.services import imputaciones_service
 
         nc = ncs_locales_service.crear(
@@ -779,6 +777,8 @@ class TestRecalcularEstadoPorImputaciones:
             destino_id=None,
             monto_imputado=Decimal("500"),
             moneda_imputada="ARS",
+            monto_origen=Decimal("500"),
+            moneda_origen="ARS",
             proveedor_id=proveedor.id,
             creado_por_id=active_user.id,
         )

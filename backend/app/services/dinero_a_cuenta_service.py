@@ -465,6 +465,10 @@ def consumir(
         destino_id=destino_id,
         monto_imputado=monto,
         moneda_imputada=dac.moneda,  # type: ignore[arg-type]
+        # `moneda_imputada` acá es la moneda del DAC (el ORIGEN), no la del
+        # destino — este camino nunca convirtió. Las dos patas coinciden.
+        monto_origen=monto,
+        moneda_origen=dac.moneda,  # type: ignore[arg-type]
         proveedor_id=dac.proveedor_id,
         creado_por_id=user_id,
     )

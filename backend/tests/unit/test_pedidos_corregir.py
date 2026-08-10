@@ -343,6 +343,8 @@ def _crear_imputacion_directa(db, *, pedido, monto, proveedor, active_user) -> I
         destino_id=pedido.id,
         monto_imputado=monto,
         moneda_imputada=pedido.moneda,
+        monto_origen=monto,
+        moneda_origen=pedido.moneda,
         proveedor_id=proveedor.id,
         creado_por_id=active_user.id,
     )

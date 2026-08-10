@@ -3025,6 +3025,9 @@ def corregir_pedido(
                 user_id=user_id,
                 motivo=f"Transferencia por corrección a {clon.numero}",
             )
+            # La transferencia al clon arrastra LAS DOS patas: el origen
+            # consumió lo mismo, sólo cambia el pedido destino.
+            monto_origen_imp, moneda_origen_imp = imputaciones_service.pata_origen_de(imp)
             imputaciones_service.crear_imputacion(
                 session,
                 origen_tipo=imp.origen_tipo,
@@ -3033,6 +3036,8 @@ def corregir_pedido(
                 destino_id=clon.id,
                 monto_imputado=imp.monto_imputado,
                 moneda_imputada=imp.moneda_imputada,
+                monto_origen=monto_origen_imp,
+                moneda_origen=moneda_origen_imp,  # type: ignore[arg-type]
                 proveedor_id=int(imp.proveedor_id),
                 creado_por_id=user_id,
                 tipo_cambio=imp.tipo_cambio,
@@ -3187,6 +3192,9 @@ def _aplicar_transferencia_correccion_al_aprobar(
             user_id=user_id,
             motivo=f"Transferencia por corrección a {clon.numero}",
         )
+        # Arrastra LAS DOS patas (ídem `corregir`): el origen consumió lo
+        # mismo, sólo cambia el pedido destino.
+        monto_origen_imp, moneda_origen_imp = imputaciones_service.pata_origen_de(imp)
         imputaciones_service.crear_imputacion(
             session,
             origen_tipo=imp.origen_tipo,
@@ -3195,6 +3203,8 @@ def _aplicar_transferencia_correccion_al_aprobar(
             destino_id=clon.id,
             monto_imputado=imp.monto_imputado,
             moneda_imputada=imp.moneda_imputada,
+            monto_origen=monto_origen_imp,
+            moneda_origen=moneda_origen_imp,  # type: ignore[arg-type]
             proveedor_id=int(imp.proveedor_id),
             creado_por_id=user_id,
             tipo_cambio=imp.tipo_cambio,

@@ -1137,6 +1137,11 @@ def resolver_varianza_tc(
         destino_id=pedido_id,
         monto_imputado=monto_abs,
         moneda_imputada="ARS",
+        # La ND/NC de varianza se emite en ARS y se imputa en ARS aunque el
+        # pedido sea USD: `moneda_imputada` acá ya es la moneda del ORIGEN.
+        # Las dos patas coinciden.
+        monto_origen=monto_abs,
+        moneda_origen="ARS",
         proveedor_id=pedido.proveedor_id,
         creado_por_id=user_id,
     )
