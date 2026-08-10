@@ -27,6 +27,22 @@ function ticket(overrides = {}) {
 }
 
 describe('TicketCard', () => {
+  it('says "Sin clasificar" exactly once when neither severity nor urgency is known', () => {
+    render(<TicketCard ticket={ticket({ severidad: null, urgencia: null })} />);
+
+    // Regression guard: the card used to render the placeholder once per empty
+    // field, so an untriaged ticket shouted "Sin clasificar Sin clasificar" and
+    // competed for attention with the cards that actually carry a severity.
+    expect(screen.getAllByText('Sin clasificar')).toHaveLength(1);
+  });
+
+  it('renders only the field that is known when the other is missing', () => {
+    render(<TicketCard ticket={ticket({ severidad: 'mayor', urgencia: null })} />);
+
+    expect(screen.getByText('mayor')).toBeInTheDocument();
+    expect(screen.queryByText('Sin clasificar')).not.toBeInTheDocument();
+  });
+
   it('shows titulo, resumen and severity/urgency with distinct provenance badges', () => {
     render(<TicketCard ticket={ticket()} />);
 

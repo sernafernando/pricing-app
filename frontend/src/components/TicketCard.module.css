@@ -83,3 +83,12 @@
   font-size: var(--font-xs);
   color: var(--cf-text-secondary);
 }
+
+/* An unclassified card says so once, quietly. Repeating "Sin clasificar"
+   per empty field competes for attention with the cards that DO carry a
+   severity, which is the opposite of what the board is for. */
+.metaItemMuted {
+  font-size: var(--font-xs);
+  color: var(--cf-text-tertiary);
+  font-style: italic;
+}

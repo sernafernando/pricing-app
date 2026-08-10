@@ -391,6 +391,18 @@ export default function TicketDetail({ ticketId, onClose, onTicketChanged }) {
         </button>
       </div>
 
+      {/* The body of the ticket. Nothing ever rendered this: while reporters
+          wrote their own `titulo` it carried the meaning on its own, so the
+          omission never showed. `titulo` is now DERIVED from the first ~80
+          characters of free text, which makes it a truncated fragment rather
+          than a title — without this block the ticket is literally unreadable. */}
+      {ticket.descripcion && (
+        <div className={styles.cuerpo}>
+          <span className={styles.infoLabel}>Descripción</span>
+          <p className={styles.cuerpoTexto}>{ticket.descripcion}</p>
+        </div>
+      )}
+
       {/* Info grid */}
       <div className={styles.infoGrid}>
         <div className={styles.infoItem}>
