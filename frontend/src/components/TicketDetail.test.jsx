@@ -126,6 +126,23 @@ describe('TicketDetail — AI triage provenance (tickets-ai-triage PR 4c)', () =
     // the same flush — under CI load they do not, and this failed with 0 calls.
     await waitFor(() => expect(ticketsAPI.listarPropuestas).toHaveBeenCalledWith(42));
   });
+
+  it('renders the ticket body so the report can actually be read', async () => {
+    // Regression guard for a real production report: single-box intake derives
+    // `titulo` from the first ~80 chars of free text, so the title is a
+    // truncated fragment. Nothing rendered `descripcion`, which meant the panel
+    // showed metadata and comments but never what the person actually wrote.
+    const cuerpo = 'crear usuario de GBP para MKT\ncrear usuario del Pricing para Dani';
+    ticketsAPI.obtener.mockResolvedValue({
+      data: baseTicket({ titulo: 'crear usuario de GBP para MKT crear usuario del', descripcion: cuerpo }),
+    });
+    ticketsAPI.marcarRevisado.mockResolvedValue({ data: { ok: true } });
+    ticketsAPI.listarPropuestas.mockResolvedValue({ data: [] });
+
+    render(<TicketDetail ticketId={42} onClose={() => {}} />);
+
+    await waitFor(() => expect(screen.getByText(/crear usuario del Pricing para Dani/)).toBeInTheDocument());
+  });
 });
 
 describe('TicketDetail — AI triage retrigger button (fix/tickets-triage-backfill)', () => {
