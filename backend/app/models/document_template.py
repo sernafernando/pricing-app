@@ -24,6 +24,7 @@ CONTEXTOS_VALIDOS = [
     "remito_manual",
     "sanciones",
     "vacaciones",
+    "horarios_empleado",
 ]
 
 
