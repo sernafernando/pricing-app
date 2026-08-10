@@ -7,6 +7,7 @@ Endpoints de solo lectura para reportes agregados:
 - Vacaciones resumen anual
 - Cuenta corriente resumen
 - Horas trabajadas (desde fichadas)
+- Documento de horarios por empleado (imprimible, para adjuntar al recibo)
 - Exportar a Excel (openpyxl)
 """
 
@@ -24,6 +25,7 @@ from app.core.database import get_db
 from app.api.deps import get_current_user
 from app.models.usuario import Usuario
 from app.services.permisos_service import PermisosService
+from app.services.rrhh_horarios_documento_service import HorariosDocumentoService
 from app.services.rrhh_reportes_service import ReportesService
 
 router = APIRouter(prefix="/rrhh/reportes", tags=["rrhh-reportes"])
@@ -159,6 +161,42 @@ class HorasTrabajadasResponse(BaseModel):
     items: list[HorasEmpleadoRow]
 
 
+class HorarioDocumentoDia(BaseModel):
+    """Un renglón del documento: un día hábil del empleado."""
+
+    fecha: str
+    fecha_label: str
+    dia_semana: str
+    entrada: str
+    salida: str
+    horas_decimal: float
+    horas_hhmm: str
+    estado: str
+    sin_fichadas: bool
+    incompleto: bool
+
+
+class HorarioDocumentoEmpleado(BaseModel):
+    empleado_id: int
+    legajo: str
+    nombre_completo: str
+    dni: str
+    cuil: str
+    puesto: str
+    area: str
+    dias: list[HorarioDocumentoDia]
+    total_horas_decimal: float
+    total_horas_hhmm: str
+    total_dias: int
+    dias_trabajados: int
+
+
+class HorariosDocumentoResponse(BaseModel):
+    fecha_desde: str
+    fecha_hasta: str
+    empleados: list[HorarioDocumentoEmpleado]
+
+
 # ──────────────────────────────────────────────
 # HELPERS
 # ──────────────────────────────────────────────
@@ -254,6 +292,31 @@ def reporte_horas_trabajadas(
     svc = ReportesService(db)
     data = svc.horas_trabajadas(mes, anio, empleado_id)
     return HorasTrabajadasResponse(**data)
+
+
+@router.get("/horarios-documento", response_model=HorariosDocumentoResponse)
+def reporte_horarios_documento(
+    fecha_desde: date = Query(),
+    fecha_hasta: date = Query(),
+    empleado_ids: list[int] | None = Query(default=None),
+    current_user: Usuario = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> HorariosDocumentoResponse:
+    """
+    Registro de horarios diarios por empleado, para imprimir y entregar con
+    el recibo de sueldo.
+
+    Un renglón por día hábil con entrada (primera fichada), salida (última
+    fichada) y horas. Los días sin fichadas muestran su estado de presentismo.
+    Ver `HorariosDocumentoService` para las reglas de negocio completas.
+
+    Rango máximo: 62 días (validado en el servicio, igual que los reportes
+    hermanos).
+    """
+    _check_permiso(db, current_user)
+    svc = HorariosDocumentoService(db)
+    data = svc.horarios_documento(fecha_desde, fecha_hasta, empleado_ids)
+    return HorariosDocumentoResponse(**data)
 
 
 @router.get("/presentismo-diario")
