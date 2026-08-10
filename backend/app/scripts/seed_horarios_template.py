@@ -6,10 +6,11 @@ un renglón por día hábil con entrada, salida y horas. Los datos los provee
 `GET /api/rrhh/reportes/horarios-documento`; el PDF lo arma el frontend con
 @pdfme/generator.
 
-Layout A4 vertical:
+Layout A4 vertical (modelado sobre `seed_sancion_template`, el template más
+terminado del repo: logo, línea corporativa y líneas de firma reales):
   ┌──────────────────────────────────────────────┐
-  │           REGISTRO DE HORARIOS               │
-  │ ──────────────────────────────────────────── │
+  │ [LOGO]     REGISTRO DE HORARIOS              │
+  │ ──────────────────────────────────────────── │  ← línea azul corporativa
   │ NOMBRE COMPLETO                 Legajo: XXXX │
   │ DNI: ...   CUIL: ...            Área: ...    │
   │ Puesto: ...                     Período: ... │
@@ -20,6 +21,7 @@ Layout A4 vertical:
   │ Total horas: HH:MM        Total días: NN     │
   │  ______________       ______________         │
   │  Firma del empleado   Por la empresa         │
+  │ Emitido el: dd/mm/aaaa                       │
   └──────────────────────────────────────────────┘
 
 Uso:
@@ -38,19 +40,84 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
 from app.core.database import SessionLocal
 from app.models.document_template import DocumentTemplate
 
-# Se reutilizan los helpers y las constantes de geometría del seed base en vez
-# de duplicarlos: cualquier ajuste de estilo (fuentes, línea del header, bloque
-# de firmas) queda en un solo lugar.
+# Se reutilizan las constantes de geometría y los helpers de texto del seed
+# base. NO se reutilizan `_header_block` ni `_firma_block`: ambos dibujan sus
+# líneas como campos `text` de 0.3-0.5mm de alto con `backgroundColor`, un
+# workaround que sobrevive de antes de que el plugin `line` estuviera
+# habilitado. Hoy `line` sí está en `frontend/src/utils/pdfmePlugins.js`, y el
+# template de sanciones —el más terminado del repo— ya usa el tipo real. Este
+# documento sigue ese modelo.
 from app.scripts.seed_document_templates import (
     A4_H,
     A4_W,
     CONTENT_W,
     MARGIN,
-    _firma_block,
-    _header_block,
     _label,
     _text,
 )
+
+# Azul corporativo, mismo valor que `seed_sancion_template.LINE_COLOR`.
+LINE_COLOR = "#1a6fa0"
+
+
+def _line(name: str, x: float, y: float, w: float, color: str = LINE_COLOR, height: float = 0.8) -> dict:
+    """Línea horizontal usando el tipo `line` real de pdfme."""
+    return {
+        "name": name,
+        "type": "line",
+        "position": {"x": x, "y": y},
+        "width": w,
+        "height": height,
+        "color": color,
+        "readOnly": True,
+        "content": "",
+    }
+
+
+def _image(name: str, x: float, y: float, w: float, h: float) -> dict:
+    """Placeholder de imagen (logo). Se carga desde el Diseñador de Documentos.
+
+    Queda con `content` vacío a propósito: mientras nadie suba el logo, el hook
+    `useDocumentGenerator` no lo incluye en `templateDefaults` y pdfme
+    simplemente no dibuja nada. Una vez cargado desde el Diseñador, el base64
+    queda persistido en `content` y viaja con el template.
+    """
+    return {
+        "name": name,
+        "type": "image",
+        "position": {"x": x, "y": y},
+        "width": w,
+        "height": h,
+        "content": "",
+    }
+
+
+def _firmas(y: float, labels: list[str]) -> list[dict]:
+    """Bloque de firmas al pie, con líneas reales en vez de campos con fondo.
+
+    Conserva los nombres `__firma_linea_N__` / `__firma_label_N__` del helper
+    base para no romper a quien ya lea esos campos.
+    """
+    fields: list[dict] = []
+    col_w = CONTENT_W / len(labels)
+    for i, label in enumerate(labels):
+        x = MARGIN + i * col_w
+        fields.append(_line(f"__firma_linea_{i}__", x + 10, y, col_w - 20, color="#333333", height=0.3))
+        fields.append(
+            _label(
+                f"__firma_label_{i}__",
+                x + 10,
+                y + 1,
+                col_w - 20,
+                6,
+                label,
+                fontSize=8,
+                alignment="center",
+                fontColor="#666666",
+            )
+        )
+    return fields
+
 
 # ── Geometría de las dos tablas ──────────────────────────────────────────────
 # 85mm + 10mm de gap + 85mm = 180mm = CONTENT_W.
@@ -133,11 +200,31 @@ def template_horarios() -> dict:
     abajo y pisa el bloque de totales.
     """
     fields = []
-    header, y = _header_block("REGISTRO DE HORARIOS")
-    fields.extend(header)
+
+    # ── Encabezado: logo + título + línea corporativa ────────────────────
+    # El logo va arriba a la izquierda y el título centrado sobre el ancho de
+    # contenido; a fontSize 18 el título ocupa el tercio central, así que no
+    # pisa el logo.
+    y = MARGIN
+    fields.append(_image("__logo__", MARGIN, y, 45, 18))
+    fields.append(
+        _label(
+            "__titulo__",
+            MARGIN,
+            y + 4,
+            CONTENT_W,
+            12,
+            "REGISTRO DE HORARIOS",
+            fontSize=18,
+            bold=True,
+            alignment="center",
+        )
+    )
+    y += 20
+    fields.append(_line("__linea_header__", MARGIN, y, CONTENT_W))
+    y += 5
 
     # ── Identidad del empleado ───────────────────────────────────────────
-    y += 3
     fields.append(_text("nombre_completo", MARGIN, y, 120, 8, content="Apellido, Nombre", bold=True, fontSize=12))
     fields.append(_label("__lbl_legajo__", MARGIN + 122, y, 20, 7, "Legajo:", fontSize=9, fontColor="#555555"))
     fields.append(_text("legajo", MARGIN + 142, y, 38, 7, content="0000", bold=True, fontSize=10))
@@ -196,7 +283,16 @@ def template_horarios() -> dict:
     )
 
     # ── Firmas: siempre al fondo de la página ────────────────────────────
-    fields.extend(_firma_block(A4_H - MARGIN - 15, ["Firma del empleado", "Por la empresa"]))
+    fields.extend(_firmas(A4_H - MARGIN - 15, ["Firma del empleado", "Por la empresa"]))
+
+    # ── Pie: fecha de emisión ────────────────────────────────────────────
+    # Un documento que respalda una liquidación tiene que decir cuándo se
+    # emitió; sin eso no se puede distinguir una reimpresión posterior.
+    # `- 6` y no `- 4`: con alto 5 el campo tiene que cerrar en el margen
+    # inferior (A4_H - MARGIN), no pasarse.
+    y_pie = A4_H - MARGIN - 6
+    fields.append(_label("__lbl_emision__", MARGIN, y_pie, 24, 5, "Emitido el:", fontSize=7, fontColor="#777777"))
+    fields.append(_text("fecha_emision", MARGIN + 24, y_pie, 60, 5, content="", fontSize=7, fontColor="#777777"))
 
     return {
         "basePdf": {"width": A4_W, "height": A4_H, "padding": [MARGIN, MARGIN, MARGIN, MARGIN]},

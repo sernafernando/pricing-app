@@ -12,6 +12,7 @@ import pytest
 
 from app.scripts.seed_document_templates import A4_H, A4_W, CONTENT_W, MARGIN
 from app.scripts.seed_horarios_template import (
+    LINE_COLOR,
     TABLE_GAP,
     TABLE_H,
     TABLE_HEAD,
@@ -49,6 +50,7 @@ def test_expone_los_campos_que_llena_el_frontend(campos):
         "puesto",
         "area",
         "periodo",
+        "fecha_emision",
         "total_horas",
         "total_dias",
         "tabla_dias_1",
@@ -101,3 +103,39 @@ def test_los_totales_quedan_debajo_de_las_tablas_y_arriba_de_las_firmas(campos):
 
     assert fondo_tabla < y_totales < y_firma
     assert y_firma + campos["__firma_label_0__"]["height"] < A4_H
+
+
+@pytest.mark.parametrize("nombre", ["__linea_header__", "__firma_linea_0__", "__firma_linea_1__"])
+def test_las_lineas_usan_el_tipo_line_real_y_no_un_texto_con_fondo(campos, nombre):
+    """Regresión: el helper base dibuja las líneas como campos `text` de 0.3mm
+    con `backgroundColor` y `fontSize: 1`, un workaround previo a que el plugin
+    `line` estuviera habilitado. Hoy `line` está en `pdfmePlugins.js` y el
+    template de sanciones ya usa el tipo real; si alguien vuelve a importar
+    `_header_block` / `_firma_block` del seed base, esto lo frena.
+    """
+    campo = campos[nombre]
+
+    assert campo["type"] == "line"
+    assert "color" in campo
+    assert "backgroundColor" not in campo
+
+
+def test_el_header_lleva_logo_y_linea_corporativa(campos):
+    """El documento se entrega en mano con el recibo: sin membrete parece una
+    planilla suelta en vez de un documento de la empresa.
+    """
+    logo = campos["__logo__"]
+    assert logo["type"] == "image"
+    # Vacío a propósito: se carga desde el Diseñador y queda persistido ahí.
+    assert logo["content"] == ""
+
+    # Mismo azul corporativo que el template de sanciones.
+    assert campos["__linea_header__"]["color"] == LINE_COLOR
+
+
+def test_la_fecha_de_emision_va_al_pie_sin_pisar_las_firmas(campos):
+    y_label_firma = campos["__firma_label_0__"]["position"]["y"]
+    emision = campos["fecha_emision"]
+
+    assert y_label_firma < emision["position"]["y"]
+    assert emision["position"]["y"] + emision["height"] <= A4_H - MARGIN

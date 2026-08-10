@@ -366,6 +366,12 @@ VARIABLES_POR_CONTEXTO: dict[str, List[VariableInfo]] = {
             descripcion="Período cubierto por el documento",
             ejemplo="01/08/2026 - 31/08/2026",
         ),
+        VariableInfo(
+            nombre="fecha_emision",
+            tipo="text",
+            descripcion="Fecha en que se emitió el documento (distingue una reimpresión posterior)",
+            ejemplo="10/08/2026",
+        ),
         # Pie: totales del período
         VariableInfo(
             nombre="total_horas",
