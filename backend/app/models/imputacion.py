@@ -11,8 +11,28 @@ DELETE — insertan filas nuevas con `es_reversal=True` y
 `reimputada_desde_id` apuntando a la original. El saldo neto contra el
 destino se obtiene agregando todas las filas.
 
-Cross-moneda prohibido en v1 (D3): origen y destino deben compartir
-moneda.
+**Doble pata** (compras_038): cada fila registra las DOS puntas del
+vínculo, porque en cross-moneda no son el mismo número:
+
+  - `monto_origen` / `moneda_origen`     → lo consumido del ORIGEN, en la
+                                           moneda del ORIGEN.
+  - `monto_imputado` / `moneda_imputada` → lo aplicado al DESTINO, en la
+                                           moneda del DESTINO.
+  - `tipo_cambio`                        → obligatorio si las monedas difieren.
+
+Regla de lectura: las agregaciones origin-side (saldo de una NC, de un
+dinero a cuenta) usan la pata ORIGEN; las destination-side (saldo de un
+pedido, TC ponderado, CC del proveedor) usan la pata DESTINO. Mezclarlas
+es exactamente el bug que `compras_038` cierra.
+
+Ambas columnas de la pata origen son NULLABLE a nivel DB sólo para
+tolerar filas escritas por instancias de app pre-compras_038 durante una
+ventana de deploy rolling; `imputaciones_service.crear_imputacion` las
+exige siempre. Los CHECK prohíben la pata a medias.
+
+Cross-moneda: soportado (OP↔pedido desde `compras-cross-moneda-y-ncs-cc`).
+El bloqueo que queda es puntual y de negocio —`imputar_nc_a_pedido`
+rechaza NC↔pedido de distinta moneda—, no una restricción del modelo.
 """
 
 from sqlalchemy import (
@@ -45,6 +65,10 @@ class Imputacion(Base):
     destino_id = Column(BigInteger, nullable=True)
     monto_imputado = Column(Numeric(18, 2), nullable=False)
     moneda_imputada = Column(String(3), nullable=False)
+    # Pata origen (compras_038). Nullable sólo por tolerancia a filas legacy /
+    # deploy rolling — `crear_imputacion` siempre las completa.
+    monto_origen = Column(Numeric(18, 2), nullable=True)
+    moneda_origen = Column(String(3), nullable=True)
     tipo_cambio = Column(Numeric(18, 6), nullable=True)
     proveedor_id = Column(
         Integer,
@@ -72,6 +96,19 @@ class Imputacion(Base):
         CheckConstraint("monto_imputado > 0", name="ck_imputaciones_monto_positivo"),
         CheckConstraint("moneda_imputada IN ('ARS','USD')", name="ck_imputaciones_moneda"),
         CheckConstraint(
+            "monto_origen IS NULL OR monto_origen > 0",
+            name="ck_imputaciones_monto_origen_positivo",
+        ),
+        CheckConstraint(
+            "moneda_origen IS NULL OR moneda_origen IN ('ARS','USD')",
+            name="ck_imputaciones_moneda_origen",
+        ),
+        CheckConstraint(
+            "(monto_origen IS NULL AND moneda_origen IS NULL) "
+            "OR (monto_origen IS NOT NULL AND moneda_origen IS NOT NULL)",
+            name="ck_imputaciones_origen_leg_completa",
+        ),
+        CheckConstraint(
             "(destino_tipo = 'saldo' AND destino_id IS NULL) OR (destino_tipo <> 'saldo' AND destino_id IS NOT NULL)",
             name="chk_imputacion_saldo_id",
         ),
@@ -97,6 +134,7 @@ class Imputacion(Base):
     def __repr__(self) -> str:
         return (
             f"<Imputacion(id={self.id}, {self.origen_tipo}:{self.origen_id} -> "
-            f"{self.destino_tipo}:{self.destino_id}, monto={self.monto_imputado} "
+            f"{self.destino_tipo}:{self.destino_id}, origen={self.monto_origen} "
+            f"{self.moneda_origen}, destino={self.monto_imputado} "
             f"{self.moneda_imputada}, reversal={self.es_reversal})>"
         )
