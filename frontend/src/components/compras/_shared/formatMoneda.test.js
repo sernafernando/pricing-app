@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { formatMoneda, formatMonedaErp, monedaDeCurrId } from './formatMoneda';
+import { convertirMonto, formatMoneda, formatMonedaErp, monedaDeCurrId } from './formatMoneda';
 
 /**
  * `curr_id_transaction` is the ERP's own currency on a factura / NC. The mapper
@@ -66,5 +66,51 @@ describe('formatMonedaErp — formats an ERP amount in its OWN currency', () => 
     // The ERP formatter must not drift from the module-wide convention.
     expect(formatMonedaErp(1500000, 1)).toBe(formatMoneda(1500000, 'ARS'));
     expect(formatMonedaErp(1500000, 2)).toBe(formatMoneda(1500000, 'USD'));
+  });
+});
+
+/**
+ * Mirrors the backend authority `fx_service.convertir_entre_monedas`
+ * (backend/app/services/fx_service.py). Any drift here shows up as an on-screen
+ * "Monto a cancelar" that disagrees with the amount the backend records.
+ */
+describe('convertirMonto — origin→destination leg conversion', () => {
+  it('is the identity when both sides share a currency (TC irrelevant)', () => {
+    expect(convertirMonto(1000, 'ARS', 'ARS', 1500)).toBe(1000);
+    expect(convertirMonto(100, 'USD', 'USD', null)).toBe(100);
+  });
+
+  it('divides by the TC going ARS→USD', () => {
+    expect(convertirMonto(150000, 'ARS', 'USD', 1500)).toBe(100);
+  });
+
+  it('multiplies by the TC going USD→ARS', () => {
+    expect(convertirMonto(100, 'USD', 'ARS', 1500)).toBe(150000);
+  });
+
+  it('rounds to 2 decimals, like the backend q_ars / q_usd helpers', () => {
+    expect(convertirMonto(1000, 'ARS', 'USD', 1500)).toBe(0.67);
+  });
+
+  it('accepts numeric strings, like a form field or a JSON payload carries them', () => {
+    expect(convertirMonto('150000', 'ARS', 'USD', '1500')).toBe(100);
+  });
+
+  it('returns null when a conversion is needed but the TC is unusable', () => {
+    // null — not 0, and not the unconverted amount: the caller must decide what
+    // to do rather than silently deduct a number in the wrong currency.
+    expect(convertirMonto(150000, 'ARS', 'USD', null)).toBeNull();
+    expect(convertirMonto(150000, 'ARS', 'USD', 0)).toBeNull();
+    expect(convertirMonto(150000, 'ARS', 'USD', -1)).toBeNull();
+    expect(convertirMonto(150000, 'ARS', 'USD', 'no-es-un-tc')).toBeNull();
+  });
+
+  it('returns null for an amount that is not a number', () => {
+    expect(convertirMonto('', 'ARS', 'USD', 1500)).toBeNull();
+    expect(convertirMonto(undefined, 'ARS', 'ARS', 1500)).toBeNull();
+  });
+
+  it('returns null for a currency pair outside the ARS/USD whitelist', () => {
+    expect(convertirMonto(100, 'EUR', 'ARS', 1500)).toBeNull();
   });
 });
