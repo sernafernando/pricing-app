@@ -19,6 +19,9 @@ from app.tickets.services.confirmacion_service import (
     PropuestaCampoNoPermitidoError,
     PropuestaNoEncontradaError,
     PropuestaNoPendienteError,
+    PropuestaSectorDejaTipoHuerfanoError,
+    PropuestaSectorInvalidoError,
+    PropuestaTipoSectorInvalidoError,
     TicketNoEncontradoError,
 )
 from app.tickets.services.triage_service import LlmProvider, run_triage
@@ -85,6 +88,12 @@ def confirmar_propuesta(
         raise HTTPException(status_code=404, detail=str(exc))
     except PropuestaCampoNoPermitidoError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
+    except (
+        PropuestaSectorInvalidoError,
+        PropuestaTipoSectorInvalidoError,
+        PropuestaSectorDejaTipoHuerfanoError,
+    ) as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
     except PropuestaNoPendienteError as exc:
         raise HTTPException(status_code=409, detail=str(exc))
 
@@ -122,6 +131,12 @@ def confirmar_propuestas_batch(
     except TicketNoEncontradoError as exc:
         raise HTTPException(status_code=404, detail=str(exc))
     except PropuestaCampoNoPermitidoError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    except (
+        PropuestaSectorInvalidoError,
+        PropuestaTipoSectorInvalidoError,
+        PropuestaSectorDejaTipoHuerfanoError,
+    ) as exc:
         raise HTTPException(status_code=400, detail=str(exc))
 
 

@@ -102,12 +102,31 @@ def _make_ticket(db, rol: Rol) -> Ticket:
 
 
 def _make_propuesta(
-    db, ticket: Ticket, campo: str = "severidad", valor: str = "mayor", estado: str = "pendiente"
+    db, ticket: Ticket, campo: str = "severidad", valor="mayor", estado: str = "pendiente"
 ) -> PropuestaIA:
     propuesta = PropuestaIA(ticket_id=ticket.id, campo=campo, valor_propuesto={"valor": valor}, estado=estado)
     db.add(propuesta)
     db.flush()
     return propuesta
+
+
+def _make_sector_con_workflow(db, tipo_codigo: str = "bug") -> tuple[Sector, TipoTicket, EstadoTicket]:
+    """A DESTINATION sector — distinct from `_make_ticket`'s own origin
+    sector — with its own default workflow, initial estado and one tipo.
+    Used by sector-confirmation tests (§3/§4)."""
+    sector = _make_sector(db)
+    workflow = Workflow(sector_id=sector.id, nombre="WF Destino", es_default=True, activo=True)
+    db.add(workflow)
+    db.flush()
+    estado_inicial = EstadoTicket(
+        workflow_id=workflow.id, codigo="nuevo_destino", nombre="Nuevo", orden=1, es_inicial=True, es_final=False
+    )
+    db.add(estado_inicial)
+    db.flush()
+    tipo = TipoTicket(sector_id=sector.id, codigo=tipo_codigo, nombre=tipo_codigo, workflow_id=workflow.id)
+    db.add(tipo)
+    db.flush()
+    return sector, tipo, estado_inicial
 
 
 def _give_permiso(db, user: Usuario, codigo: str = "tickets.triage.confirmar") -> None:
@@ -173,7 +192,8 @@ class FakeProvider:
 
 def _valid_triage_payload(**overrides) -> dict:
     payload = {
-        "tipo": "bug",
+        "sector_codigo": "catalogo_sector",
+        "tipo_ticket_codigo": "catalogo_tipo",
         "titulo": "Arreglar error de facturación",
         "resumen": "El usuario no puede facturar desde ayer",
         "severidad": "critica",
@@ -570,7 +590,15 @@ class TestDescartarNeverResurfaces:
         ticket.texto_original = "Sigue fallando, ahora es peor"
         db.commit()
 
-        fake_provider = FakeProvider(json.dumps(_valid_triage_payload(severidad="critica")))
+        fake_provider = FakeProvider(
+            json.dumps(
+                _valid_triage_payload(
+                    severidad="critica",
+                    sector_codigo=ticket.sector.codigo,
+                    tipo_ticket_codigo=ticket.tipo_ticket.codigo,
+                )
+            )
+        )
         with patch("app.tickets.services.triage_service.get_background_db", return_value=_FakeBackgroundDb(db)):
             asyncio.run(run_triage(ticket.id, fake_provider))
 
@@ -604,7 +632,15 @@ class TestDescartarNeverResurfaces:
         ticket.texto_original = "Sigue fallando, ahora con más detalle"
         db.commit()
 
-        fake_provider = FakeProvider(json.dumps(_valid_triage_payload(confianza_global=0.9)))
+        fake_provider = FakeProvider(
+            json.dumps(
+                _valid_triage_payload(
+                    confianza_global=0.9,
+                    sector_codigo=ticket.sector.codigo,
+                    tipo_ticket_codigo=ticket.tipo_ticket.codigo,
+                )
+            )
+        )
         with patch("app.tickets.services.triage_service.get_background_db", return_value=_FakeBackgroundDb(db)):
             asyncio.run(run_triage(ticket.id, fake_provider))
 
@@ -744,6 +780,295 @@ class TestConfirmarBatchAtomic:
 
         assert resp.status_code == 404
         assert resp.status_code != 500
+
+
+class TestConfirmarSectorMovesEstadoAndHistory:
+    """SC: 'confirming a sector moves sector_id AND estado_id to the
+    target workflow's initial state, and writes history for both' — §3's
+    domain dispatch. Confirming `sector` alone must never leave `estado_id`
+    pointing at the OLD workflow's graph."""
+
+    def test_confirmar_sector_moves_sector_and_estado_writes_history(self, db, rol_ventas):
+        """Confirmed via `confirmar_batch` (sector + its matching tipo,
+        auto-ordered): confirming `sector` ALONE now correctly requires the
+        ticket's tipo to already belong there — see
+        `test_confirmar_sector_solo_rejected_cuando_dejaria_tipo_huerfano`
+        below (real pre-push review finding #2)."""
+        ticket = _make_ticket(db, rol_ventas)
+        estado_origen_id = ticket.estado_id
+        sector_origen_id = ticket.sector_id
+        destino, tipo_destino, estado_inicial_destino = _make_sector_con_workflow(db)
+        usuario = _make_usuario(db, rol_ventas)
+        propuesta_sector = _make_propuesta(db, ticket, campo="sector", valor=destino.codigo)
+        propuesta_tipo = _make_propuesta(db, ticket, campo="tipo_ticket", valor=tipo_destino.codigo)
+
+        resultado = confirmacion_service.confirmar_batch(db, [propuesta_sector.id, propuesta_tipo.id], usuario)
+
+        assert {p.estado for p in resultado} == {"confirmada"}
+        ticket = _reload(db, ticket)
+        assert ticket.sector_id == destino.id
+        assert ticket.sector_id != sector_origen_id
+        assert ticket.tipo_ticket_id == tipo_destino.id
+        assert ticket.estado_id == estado_inicial_destino.id
+        assert ticket.estado_id != estado_origen_id
+
+        historial = (
+            db.query(HistorialTicket)
+            .filter(HistorialTicket.ticket_id == ticket.id, HistorialTicket.accion == "propuesta_confirmada")
+            .all()
+        )
+        assert len(historial) == 2
+        sector_hist = next(h for h in historial if h.cambios["campo"] == "sector")
+        assert sector_hist.estado_anterior_id == estado_origen_id
+        assert sector_hist.estado_nuevo_id == estado_inicial_destino.id
+
+    def test_confirmar_sector_invalido_rejected_and_ticket_unmodified(self, db, rol_ventas):
+        ticket = _make_ticket(db, rol_ventas)
+        sector_origen_id, estado_origen_id = ticket.sector_id, ticket.estado_id
+        usuario = _make_usuario(db, rol_ventas)
+        propuesta = _make_propuesta(db, ticket, campo="sector", valor="SECTOR_QUE_NO_EXISTE")
+
+        with pytest.raises(confirmacion_service.PropuestaSectorInvalidoError):
+            confirmacion_service.confirmar(db, propuesta.id, usuario)
+
+        # An exception raised AFTER a partial write is still a bug — assert
+        # the ticket's actual state, not just that an exception was raised.
+        ticket = _reload(db, ticket)
+        assert ticket.sector_id == sector_origen_id
+        assert ticket.estado_id == estado_origen_id
+        assert propuesta.estado == "pendiente"
+
+    def test_confirmar_sector_solo_rejected_cuando_dejaria_tipo_huerfano(self, db, rol_ventas):
+        """Real pre-push review finding #2, the mirror of
+        `TestConfirmarTipoTicketSectorMismatch`: confirming `sector` ALONE
+        (no `tipo_ticket` proposal in the same call) would leave
+        `tipo_ticket_id` pointing at a tipo from the OLD sector — rejected,
+        ticket left fully unmodified."""
+        ticket = _make_ticket(db, rol_ventas)
+        sector_origen_id = ticket.sector_id
+        estado_origen_id = ticket.estado_id
+        tipo_origen_id = ticket.tipo_ticket_id
+        destino, _tipo, _estado = _make_sector_con_workflow(db)
+        usuario = _make_usuario(db, rol_ventas)
+        propuesta = _make_propuesta(db, ticket, campo="sector", valor=destino.codigo)
+
+        with pytest.raises(confirmacion_service.PropuestaSectorDejaTipoHuerfanoError):
+            confirmacion_service.confirmar(db, propuesta.id, usuario)
+
+        ticket = _reload(db, ticket)
+        assert ticket.sector_id == sector_origen_id
+        assert ticket.estado_id == estado_origen_id
+        assert ticket.tipo_ticket_id == tipo_origen_id
+        assert propuesta.estado == "pendiente"
+
+    def test_confirmar_sector_huerfano_returns_400_over_http_not_500(self, client, db, rol_ventas):
+        """Real pre-push review finding (blocking): `PropuestaSectorDejaTipoHuerfanoError`
+        was raised by the service but never imported/handled in
+        `propuestas.py` — the common case of confirming a `sector`
+        proposal alone from the UI would 500 instead of returning the
+        explanatory 400. HTTP-level regression guard, per obs #1350's
+        pattern: the service-level test above alone did not catch this."""
+        ticket = _make_ticket(db, rol_ventas)
+        destino, _tipo, _estado = _make_sector_con_workflow(db)
+        usuario = _make_usuario(db, rol_ventas)
+        _give_permiso(db, usuario)
+        propuesta = _make_propuesta(db, ticket, campo="sector", valor=destino.codigo)
+
+        resp = client.post(
+            f"/api/tickets/propuestas/{propuesta.id}/confirmar",
+            headers=_headers(usuario),
+        )
+
+        assert resp.status_code == 400
+        assert resp.status_code != 500
+
+
+class TestConfirmarTipoTicketSectorMismatch:
+    """SC: 'confirming a tipo_ticket from a foreign sector is rejected and
+    the ticket is left unmodified' — §3 + §4's ordering decision (single
+    confirm REJECTS an out-of-order tipo_ticket)."""
+
+    def test_confirmar_tipo_ticket_de_sector_ajeno_rejected_and_unmodified(self, db, rol_ventas):
+        ticket = _make_ticket(db, rol_ventas)  # still in its ORIGIN sector
+        tipo_original_id = ticket.tipo_ticket_id
+        _destino, tipo_destino, _estado = _make_sector_con_workflow(db)  # ticket never moved here
+        usuario = _make_usuario(db, rol_ventas)
+        propuesta = _make_propuesta(db, ticket, campo="tipo_ticket", valor=tipo_destino.codigo)
+
+        with pytest.raises(confirmacion_service.PropuestaTipoSectorInvalidoError):
+            confirmacion_service.confirmar(db, propuesta.id, usuario)
+
+        ticket = _reload(db, ticket)
+        assert ticket.tipo_ticket_id == tipo_original_id
+        assert propuesta.estado == "pendiente"
+
+    def test_confirmar_tipo_ticket_after_sector_confirmed_succeeds(self, db, rol_ventas):
+        """Companion GREEN case: once a ticket IS already inside a sector,
+        confirming a tipo_ticket proposal for a DIFFERENT tipo within that
+        SAME sector succeeds, no sector move needed. Built directly inside
+        `destino` (rather than moving a ticket there first) to avoid a
+        second `tipo_ticket` proposal on the same ticket, which SQLite's
+        test-only FULL unique index on (ticket_id, campo) would reject
+        regardless of `estado` — see `propuesta_ia.py`'s own docstring."""
+        destino, tipo_destino, estado_inicial_destino = _make_sector_con_workflow(db, tipo_codigo="bug")
+        creador = _make_usuario(db, rol_ventas)
+        ticket = Ticket(
+            titulo="Ticket ya en sector destino",
+            prioridad=PrioridadTicket.MEDIA,
+            sector_id=destino.id,
+            tipo_ticket_id=tipo_destino.id,
+            estado_id=estado_inicial_destino.id,
+            creador_id=creador.id,
+            campos_metadata={},
+        )
+        db.add(ticket)
+        db.flush()
+        usuario = _make_usuario(db, rol_ventas)
+
+        otro_tipo = TipoTicket(
+            sector_id=destino.id, codigo="feature", nombre="Feature", workflow_id=tipo_destino.workflow_id
+        )
+        db.add(otro_tipo)
+        db.flush()
+        propuesta_tipo = _make_propuesta(db, ticket, campo="tipo_ticket", valor=otro_tipo.codigo)
+
+        resultado = confirmacion_service.confirmar(db, propuesta_tipo.id, usuario)
+
+        assert resultado.estado == "confirmada"
+        ticket = _reload(db, ticket)
+        assert ticket.tipo_ticket_id == otro_tipo.id
+
+
+class TestConfirmarTipoTicketMovesToOwnWorkflow:
+    """Real pre-push review finding #1: `crear_ticket` resolves the
+    workflow from the TIPO first, sector default only as fallback
+    (`tickets.py`). `_confirmar_sector` moves `estado_id` to the sector's
+    DEFAULT workflow's initial state; if the confirmed `tipo_ticket` has
+    its OWN non-default workflow, `_confirmar_tipo_ticket` must move
+    `estado_id` there too — never leave it stranded on the default
+    workflow's graph."""
+
+    def test_confirmar_tipo_con_workflow_propio_mueve_estado(self, db, rol_ventas):
+        destino, _tipo_default, estado_inicial_default = _make_sector_con_workflow(db, tipo_codigo="bug")
+        # A SECOND, non-default workflow in the SAME sector, with its own tipo.
+        workflow_b = Workflow(sector_id=destino.id, nombre="WF No Default", es_default=False, activo=True)
+        db.add(workflow_b)
+        db.flush()
+        estado_inicial_b = EstadoTicket(
+            workflow_id=workflow_b.id, codigo="nuevo_b", nombre="Nuevo B", orden=1, es_inicial=True, es_final=False
+        )
+        db.add(estado_inicial_b)
+        db.flush()
+        tipo_b = TipoTicket(sector_id=destino.id, codigo="acceso", nombre="Acceso", workflow_id=workflow_b.id)
+        db.add(tipo_b)
+        db.flush()
+
+        ticket = _make_ticket(db, rol_ventas)
+        usuario = _make_usuario(db, rol_ventas)
+        propuesta_sector = _make_propuesta(db, ticket, campo="sector", valor=destino.codigo)
+        propuesta_tipo = _make_propuesta(db, ticket, campo="tipo_ticket", valor=tipo_b.codigo)
+
+        confirmacion_service.confirmar_batch(db, [propuesta_sector.id, propuesta_tipo.id], usuario)
+
+        ticket = _reload(db, ticket)
+        assert ticket.sector_id == destino.id
+        assert ticket.tipo_ticket_id == tipo_b.id
+        # estado must be workflow_b's initial state, NOT the sector's
+        # default-workflow initial state `_confirmar_sector` set first.
+        assert ticket.estado_id == estado_inicial_b.id
+        assert ticket.estado_id != estado_inicial_default.id
+
+        historial = (
+            db.query(HistorialTicket)
+            .filter(HistorialTicket.ticket_id == ticket.id, HistorialTicket.accion == "propuesta_confirmada")
+            .all()
+        )
+        tipo_hist = next(h for h in historial if h.cambios["campo"] == "tipo_ticket")
+        assert tipo_hist.estado_anterior_id == estado_inicial_default.id
+        assert tipo_hist.estado_nuevo_id == estado_inicial_b.id
+
+
+class TestOrdenSectorAntesQueTipoEnBatch:
+    """§4: 'batch confirm must not be able to produce an inconsistent
+    pair.' Decision: single `confirmar()` REJECTS an out-of-order
+    tipo_ticket (see `TestConfirmarTipoTicketSectorMismatch` above);
+    `confirmar_batch()` instead AUTO-ORDERS — any `sector` proposal always
+    applies before any `tipo_ticket` proposal in the same call."""
+
+    def test_batch_confirms_sector_and_tipo_together_regardless_of_list_order(self, db, rol_ventas):
+        ticket = _make_ticket(db, rol_ventas)
+        destino, tipo_destino, estado_inicial_destino = _make_sector_con_workflow(db)
+        usuario = _make_usuario(db, rol_ventas)
+        propuesta_tipo = _make_propuesta(db, ticket, campo="tipo_ticket", valor=tipo_destino.codigo)
+        propuesta_sector = _make_propuesta(db, ticket, campo="sector", valor=destino.codigo)
+
+        # tipo_ticket's id sent FIRST in the batch — proves auto-ordering,
+        # not accidental list order.
+        resultado = confirmacion_service.confirmar_batch(db, [propuesta_tipo.id, propuesta_sector.id], usuario)
+
+        assert {p.estado for p in resultado} == {"confirmada"}
+        ticket = _reload(db, ticket)
+        assert ticket.sector_id == destino.id
+        assert ticket.tipo_ticket_id == tipo_destino.id
+        assert ticket.estado_id == estado_inicial_destino.id
+
+
+class TestConfirmarMetadataIa:
+    """SC: 'area_probable/tamano/detalle land in campos_metadata on
+    confirmation' — a MERGE into the existing JSONB blob, never an
+    overwrite of unrelated keys already there."""
+
+    def test_confirmar_metadata_ia_merges_into_campos_metadata(self, db, rol_ventas):
+        ticket = _make_ticket(db, rol_ventas)
+        ticket.campos_metadata = {"existing_key": "existing_value"}
+        db.commit()
+        usuario = _make_usuario(db, rol_ventas)
+        valor = {
+            "area_probable": "facturacion",
+            "tamano": "M",
+            "detalle": {"esperado": "x", "actual": "", "pasos": [], "alcance": "", "impacto": "", "workaround": ""},
+        }
+        propuesta = _make_propuesta(db, ticket, campo="metadata_ia", valor=valor)
+
+        resultado = confirmacion_service.confirmar(db, propuesta.id, usuario)
+
+        assert resultado.estado == "confirmada"
+        ticket = _reload(db, ticket)
+        assert ticket.campos_metadata["area_probable"] == "facturacion"
+        assert ticket.campos_metadata["tamano"] == "M"
+        assert ticket.campos_metadata["detalle"]["esperado"] == "x"
+        assert ticket.campos_metadata["existing_key"] == "existing_value"  # merge, not overwrite
+
+
+class TestCampoCheckConstraintPostgres:
+    """@pytest.mark.postgres: 'the CHECK constraint accepts the new campos
+    and still rejects garbage' — `ck_tickets_propuestas_ia_campo` mirrors
+    `confirmacion_service.CAMPOS_CONFIRMABLES` at the DB layer, defense in
+    depth added by PR #1095 and extended here."""
+
+    @pytest.mark.postgres
+    @pytest.mark.parametrize("campo", ["sector", "tipo_ticket", "metadata_ia"])
+    def test_new_campos_accepted_by_check_constraint(self, pg_tickets_db, campo):
+        db = pg_tickets_db
+        rol = Rol(codigo="VENTAS", nombre="Ventas", es_sistema=False, orden=10, activo=True)
+        db.add(rol)
+        db.flush()
+        ticket = _make_ticket(db, rol)
+
+        db.add(PropuestaIA(ticket_id=ticket.id, campo=campo, valor_propuesto={"valor": "x"}))
+        db.commit()  # must not raise
+
+    @pytest.mark.postgres
+    def test_garbage_campo_still_rejected_by_check_constraint(self, pg_tickets_db):
+        db = pg_tickets_db
+        rol = Rol(codigo="VENTAS", nombre="Ventas", es_sistema=False, orden=10, activo=True)
+        db.add(rol)
+        db.flush()
+        ticket = _make_ticket(db, rol)
+
+        db.add(PropuestaIA(ticket_id=ticket.id, campo="estado_id", valor_propuesto={"valor": 999}))
+        with pytest.raises(IntegrityError):
+            db.commit()
 
 
 TRIAGE_RETRIGGER_ENDPOINT = "/api/tickets/tickets/{id}/triage"
