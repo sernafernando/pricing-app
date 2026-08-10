@@ -17,7 +17,7 @@ const CAMPO_LABEL = {
  * confirm/discard/batch controls require `tickets.triage.confirmar`. Batch
  * confirm always sends exactly ONE request with every selected id.
  */
-export default function TicketProposals({ ticketId, onChanged }) {
+export default function TicketProposals({ ticketId, onChanged, refreshToken }) {
   const { tienePermiso } = usePermisos();
   const puedeConfirmar = tienePermiso('tickets.triage.confirmar');
 
@@ -38,7 +38,10 @@ export default function TicketProposals({ ticketId, onChanged }) {
 
   useEffect(() => {
     fetchPropuestas();
-  }, [fetchPropuestas]);
+    // refreshToken is an external re-fetch trigger (fix/tickets-triage-
+    // backfill) — bumping it forces this effect to rerun even when
+    // ticketId/fetchPropuestas are unchanged.
+  }, [fetchPropuestas, refreshToken]);
 
   const toggleSelected = (id) => {
     setSelected((prev) => {

@@ -103,6 +103,25 @@
   color: var(--cf-text-primary);
 }
 
+/* AI triage retrigger */
+.triageSection {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-sm);
+  padding: var(--spacing-sm) var(--spacing-md);
+  border-bottom: 1px solid var(--cf-border-default);
+  flex-wrap: wrap;
+}
+
+.btnRetriggerTriage {
+  composes: btn-tesla outline-subtle-primary sm from '../styles/buttons-tesla.css';
+}
+
+.inlineSuccess {
+  color: var(--cf-accent-green);
+  font-size: var(--font-xs);
+}
+
 /* Metadata */
 .metadataSection {
   padding: var(--spacing-sm) var(--spacing-md);

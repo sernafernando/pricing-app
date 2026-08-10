@@ -15,6 +15,7 @@ import {
   Send,
   UserPlus,
   ArrowRightCircle,
+  RefreshCw,
 } from 'lucide-react';
 import styles from './TicketDetail.module.css';
 
@@ -97,6 +98,7 @@ const getTransitionBtnClass = (trans) => {
 export default function TicketDetail({ ticketId, onClose, onTicketChanged }) {
   const { tienePermiso } = usePermisos();
   const puedeGestionar = tienePermiso('tickets.gestionar');
+  const puedeTriage = tienePermiso('tickets.triage.confirmar');
   const fileInputRef = useRef(null);
 
   // Ticket data
@@ -136,6 +138,14 @@ export default function TicketDetail({ ticketId, onClose, onTicketChanged }) {
   // Transition
   const [transitioning, setTransitioning] = useState(false);
   const [transitionError, setTransitionError] = useState(null);
+
+  // AI triage retrigger (fix/tickets-triage-backfill). `forzar` is
+  // deliberately NOT exposed here: it discards pending proposals, which
+  // deserves its own confirmation flow rather than a bare toggle.
+  const [triageBusy, setTriageBusy] = useState(false);
+  const [triageMessage, setTriageMessage] = useState(null);
+  const [triagePendingRefresh, setTriagePendingRefresh] = useState(false);
+  const [triageRefreshToken, setTriageRefreshToken] = useState(0);
 
   // Fetch ticket
   const fetchTicket = useCallback(async () => {
@@ -272,6 +282,42 @@ export default function TicketDetail({ ticketId, onClose, onTicketChanged }) {
       setAssigning(false);
     }
   };
+
+  const handleRetriggerTriage = async () => {
+    setTriageBusy(true);
+    setTriageMessage(null);
+    try {
+      await ticketsAPI.triage(ticketId);
+      setTriageMessage({
+        tipo: 'success',
+        texto: 'Triage de IA reencolada. Las propuestas nuevas van a aparecer en unos segundos.',
+      });
+      // run_triage is a BackgroundTasks job, not finished when the POST
+      // returns — TicketProposals only fetches on mount/ticketId change,
+      // so nothing would refresh it otherwise. Trigger one delayed refetch
+      // via refreshToken instead of promising an update that never shows up.
+      setTriagePendingRefresh(true);
+    } catch (err) {
+      setTriageMessage({
+        tipo: 'error',
+        texto: err.response?.data?.detail || 'Error al reintentar la triage de IA',
+      });
+    } finally {
+      setTriageBusy(false);
+    }
+  };
+
+  // Delayed proposals refetch after a successful triage retrigger (see
+  // handleRetriggerTriage above). Cleaned up on unmount/re-trigger so a
+  // closed panel never calls setState after unmounting.
+  useEffect(() => {
+    if (!triagePendingRefresh) return;
+    const timer = setTimeout(() => {
+      setTriageRefreshToken((t) => t + 1);
+      setTriagePendingRefresh(false);
+    }, 4000);
+    return () => clearTimeout(timer);
+  }, [triagePendingRefresh]);
 
   const handleSendComment = async () => {
     if (!commentText.trim()) return;
@@ -432,7 +478,26 @@ export default function TicketDetail({ ticketId, onClose, onTicketChanged }) {
       </div>
 
       {/* AI triage proposals — confirm affordance with confidence */}
-      <TicketProposals ticketId={ticketId} onChanged={fetchTicket} />
+      <TicketProposals ticketId={ticketId} onChanged={fetchTicket} refreshToken={triageRefreshToken} />
+
+      {/* AI triage retrigger (fix/tickets-triage-backfill) */}
+      {puedeTriage && (
+        <div className={styles.triageSection}>
+          <button
+            className={styles.btnRetriggerTriage}
+            onClick={handleRetriggerTriage}
+            disabled={triageBusy}
+          >
+            <RefreshCw size={14} />
+            {triageBusy ? 'Reintentando...' : 'Reintentar triage de IA'}
+          </button>
+          {triageMessage && (
+            <span className={triageMessage.tipo === 'error' ? styles.inlineError : styles.inlineSuccess}>
+              {triageMessage.texto}
+            </span>
+          )}
+        </div>
+      )}
 
       {/* Metadata fields */}
       {metadataEntries.length > 0 && (
