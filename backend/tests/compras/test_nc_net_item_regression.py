@@ -134,7 +134,15 @@ def _apply_nc_to_pedido(db, *, nc, pedido, monto, user_id) -> None:
     """Simula imputar_nc_a_pedido para setup del estado post-CREATE."""
     from app.services.ordenes_pago_service import imputar_nc_a_pedido
 
-    imputar_nc_a_pedido(db, nc=nc, pedido=pedido, monto=Decimal(str(monto)), creado_por_id=user_id)
+    imputar_nc_a_pedido(
+        db,
+        nc=nc,
+        pedido=pedido,
+        monto=Decimal(str(monto)),
+        creado_por_id=user_id,
+        op_moneda="ARS",
+        op_tipo_cambio=None,
+    )
     db.flush()
 
 

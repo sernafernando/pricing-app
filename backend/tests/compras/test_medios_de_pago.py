@@ -548,7 +548,15 @@ def test_nc_como_cobertura_reduce_diferencia(db, empresa, proveedor, user, caja)
     from app.models.pedido_compra import PedidoCompra as _PC
 
     pedido_obj = db.get(_PC, ped_id)
-    imputar_nc_a_pedido(db, nc=nc, pedido=pedido_obj, monto=Decimal("3000"), creado_por_id=user.id)
+    imputar_nc_a_pedido(
+        db,
+        nc=nc,
+        pedido=pedido_obj,
+        monto=Decimal("3000"),
+        creado_por_id=user.id,
+        op_moneda="ARS",
+        op_tipo_cambio=None,
+    )
     db.flush()
 
     # OP: item = 4.000 (net), monto_total = 4.000.
@@ -604,11 +612,12 @@ def test_dinero_a_cuenta_cero_disponible_no_seleccionable(db, empresa, proveedor
 
 def test_cross_moneda_nc_sin_tc_rechaza(db, empresa, proveedor, user, caja) -> None:
     """
-    AC-4.5: NC en USD aplicada a pedido ARS debe fallar.
+    AC-4.5: NC en USD aplicada a pedido ARS SIN TC debe fallar.
 
-    En el modelo net-item, el rechazo de NC cross-moneda ocurre en
-    imputar_nc_a_pedido (nc.moneda != pedido.moneda → 422).
-    La validación ya no es responsabilidad del balance check.
+    En el modelo net-item, el rechazo ocurre en imputar_nc_a_pedido. Desde
+    `compras-imputacion-doble-pata` la NC cross-moneda SÍ se soporta: lo que se
+    rechaza es no poder resolver un tipo_cambio para la pata NC→OP (acá la OP es
+    ARS y no declara TC, y la NC no trae override) → 422.
     """
     from fastapi import HTTPException
 
@@ -653,10 +662,12 @@ def test_cross_moneda_nc_sin_tc_rechaza(db, empresa, proveedor, user, caja) -> N
             pedido=pedido_obj,
             monto=Decimal("100"),
             creado_por_id=user.id,
+            op_moneda="ARS",
+            op_tipo_cambio=None,
         )
 
     assert exc_info.value.status_code == 422
-    assert "cross-moneda" in exc_info.value.detail.lower() or "moneda" in exc_info.value.detail.lower()
+    assert "tipo_cambio" in exc_info.value.detail
 
 
 # ──────────────────────────────────────────────────────────────────────────

@@ -464,12 +464,18 @@ class TestAplicarNCDesdeOP:
         assert mov_nc.tipo == "haber", f"El movimiento debe ser HABER, pero es '{mov_nc.tipo}'"
         assert mov_nc.monto == monto_aplicar, f"El monto del HABER debe ser {monto_aplicar}, pero es {mov_nc.monto}"
 
-    def test_cross_moneda_nc_vs_pedido_422(self, db, op, pedido_usd, nc_aprobada, active_user) -> None:
-        """NC ARS contra pedido USD → 422 (cross-moneda prohibido en v1, D3).
+    def test_cross_moneda_nc_ars_vs_pedido_usd_convierte(self, db, op, pedido_usd, nc_aprobada, active_user) -> None:
+        """NC ARS contra pedido USD → imputa en USD con el TC de la OP.
 
-        La OP debe tener una imputación al pedido_usd para que llegue a la
-        validación de moneda (AC4.5 se resuelve antes).
+        Invertido: antes esta combinación devolvía 422 ("cross-moneda prohibido
+        en v1, D3"). Hoy la NC es un medio de pago en moneda de la OP y viaja
+        por la conversión OP→pedido.
+
+        La OP debe tener una imputación al pedido_usd para que el pedido esté
+        "en la OP" (AC4.5 se resuelve antes).
         """
+        # La OP paga un pedido USD, así que declara su TC.
+        op.tipo_cambio = Decimal("1400")
         # Crear imputación OP→pedido_usd para que el pedido_usd esté "en la OP"
         imp_op_usd = Imputacion(
             origen_tipo="orden_pago",
@@ -485,17 +491,54 @@ class TestAplicarNCDesdeOP:
         db.add(imp_op_usd)
         db.flush()
 
+        result = ordenes_pago_service.aplicar_nc_desde_op(
+            db,
+            op_id=op.id,
+            nc_id=nc_aprobada.id,  # ARS
+            monto=Decimal("1400"),
+            pedido_id=pedido_usd.id,  # USD
+            creado_por_id=active_user.id,
+        )
+
+        imp = db.get(Imputacion, result["imputacion_id"])
+        assert imp.monto_imputado == Decimal("1.00")
+        assert imp.moneda_imputada == "USD"
+        assert imp.monto_origen == Decimal("1400")
+        assert imp.moneda_origen == "ARS"
+        assert imp.tipo_cambio == Decimal("1400")
+
+    def test_cross_moneda_sin_tc_en_la_op_422(self, db, op, pedido_usd, nc_aprobada, active_user) -> None:
+        """NC ARS + OP ARS sin `tipo_cambio` contra pedido USD → 422.
+
+        Sin TC declarado en la OP no hay forma auditable de convertir la pata
+        OP→pedido, así que se rechaza en vez de inventar un TC.
+        """
+        assert op.tipo_cambio is None
+        imp_op_usd = Imputacion(
+            origen_tipo="orden_pago",
+            origen_id=op.id,
+            destino_tipo="pedido_compra",
+            destino_id=pedido_usd.id,
+            monto_imputado=Decimal("700000"),
+            moneda_imputada="ARS",
+            proveedor_id=op.proveedor_id,
+            es_reversal=False,
+            creado_por_id=active_user.id,
+        )
+        db.add(imp_op_usd)
+        db.flush()
+
         with pytest.raises(HTTPException) as exc_info:
             ordenes_pago_service.aplicar_nc_desde_op(
                 db,
                 op_id=op.id,
-                nc_id=nc_aprobada.id,  # ARS
+                nc_id=nc_aprobada.id,
                 monto=Decimal("1000"),
-                pedido_id=pedido_usd.id,  # USD
+                pedido_id=pedido_usd.id,
                 creado_por_id=active_user.id,
             )
         assert exc_info.value.status_code == 422
-        assert "moneda" in exc_info.value.detail.lower() or "cross" in exc_info.value.detail.lower()
+        assert "tipo_cambio" in str(exc_info.value.detail)
 
     def test_pedido_id_no_en_op_422(
         self, db, op, pedido, pedido2, nc_aprobada, imputacion_op_pedido, active_user

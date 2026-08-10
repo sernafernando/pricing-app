@@ -842,7 +842,10 @@ def _aplicar_ncs_lista(
          - `pedido_id` omitido + OP tiene un único pedido en sus items → infiere.
          - `pedido_id` omitido + OP a_cuenta (sin items de pedido) → 422.
          - `pedido_id` omitido + OP con múltiples pedidos → 422.
-      4. Delega a `imputar_nc_a_pedido` (validaciones + imputación + CC + pedido state).
+      4. Delega a `imputar_nc_a_pedido` (validaciones + imputación + CC + pedido state),
+         reenviando la moneda y el TC de la OP más el `tipo_cambio_override`
+         opcional de cada NC: la NC es un medio de pago que viaja por la cadena
+         NC → OP → pedido.
 
     NO hace commit — responsabilidad del caller.
     """
@@ -863,6 +866,10 @@ def _aplicar_ncs_lista(
         nc_id: int = nc_item["nc_id"]
         monto: Decimal = Decimal(str(nc_item["monto"]))
         pedido_id: int | None = nc_item.get("pedido_id")
+        # TC específico de esta NC para la pata NC→OP (columna "TC (opcional)"
+        # del panel de NCs). Si viene en None se cae a `op.tipo_cambio`.
+        tc_override_raw = nc_item.get("tipo_cambio_override")
+        tipo_cambio_override: Decimal | None = Decimal(str(tc_override_raw)) if tc_override_raw is not None else None
 
         # 1. Cargar NC.
         nc = session.get(NotaCreditoLocal, nc_id)
@@ -923,6 +930,9 @@ def _aplicar_ncs_lista(
             pedido=pedido,
             monto=monto,
             creado_por_id=creado_por_id,
+            op_moneda=str(op.moneda),
+            op_tipo_cambio=op.tipo_cambio,
+            tipo_cambio_override=tipo_cambio_override,
         )
 
 
@@ -2649,6 +2659,105 @@ def crear_y_pagar(
     return op
 
 
+def _resolver_tc_nc(*candidatos: Optional[Decimal]) -> Optional[Decimal]:
+    """Primer TC > 0 de la lista de candidatos, o None si ninguno sirve."""
+    for candidato in candidatos:
+        if candidato is not None and Decimal(candidato) > 0:
+            return Decimal(candidato)
+    return None
+
+
+def _convertir_entre_monedas(monto: Decimal, *, desde: str, hacia: str, tc: Decimal) -> Decimal:
+    """Convierte `monto` de `desde` a `hacia` con la MISMA convención que la OP.
+
+    Espeja exactamente la conversión OP↔pedido de `ejecutar_pago`: ARS→USD
+    divide por el TC y cuantiza a USD, USD→ARS multiplica y cuantiza a ARS.
+    Cualquier otra combinación queda fuera de la whitelist ARS/USD.
+    """
+    if desde == "ARS" and hacia == "USD":
+        return q_usd(monto / tc)
+    if desde == "USD" and hacia == "ARS":
+        return q_ars(monto * tc)
+    raise HTTPException(
+        status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+        detail=f"Combinación de monedas no soportada: {desde} → {hacia}.",
+    )
+
+
+def _convertir_nc_por_cadena_op(
+    *,
+    nc_id: int,
+    monto: Decimal,
+    nc_moneda: str,
+    op_moneda: str,
+    pedido_moneda: str,
+    op_tipo_cambio: Optional[Decimal],
+    tipo_cambio_override: Optional[Decimal],
+) -> tuple[Decimal, Optional[Decimal]]:
+    """Convierte el monto de una NC a moneda del pedido por la cadena NC → OP → pedido.
+
+    Una NC es un MEDIO DE PAGO: vive en la moneda de la OP y desde ahí viaja
+    por la misma conversión OP→pedido que los items (`ejecutar_pago`). La
+    cadena tiene dos patas y en la whitelist ARS/USD como mucho UNA de las dos
+    no es la identidad:
+
+      1. NC → OP. Identidad si `nc_moneda == op_moneda` (no se pide TC). Si
+         difieren, se exige TC: primero el `tipo_cambio_override` de esta NC,
+         y si no hay, el `op_tipo_cambio`.
+      2. OP → pedido. Identidad si `op_moneda == pedido_moneda`. Si difieren,
+         usa `op_tipo_cambio` (el mismo TC con el que la OP paga el pedido).
+
+    Cuando `nc_moneda == pedido_moneda` pero ambas difieren de `op_moneda`, las
+    dos patas se cancelan y el resultado es la identidad. NO se propaga la
+    diferencia entre el override y `op_tipo_cambio` a la fila: la invariante de
+    `crear_imputacion` exige que en same-moneda las dos patas sean el mismo
+    número, y el TC de fondeo de la NC contra la OP es análogo al TC caja↔OP de
+    `ejecutar_pago`, que tampoco entra en la imputación. La varianza FX del
+    pedido se deriva aparte (`pedidos_service.calcular_varianza_tc`) y se
+    materializa como ND/NC propia (`ncs_locales_service.resolver_varianza_tc`).
+
+    Returns:
+        (monto_imputado en `pedido_moneda`, tipo_cambio origen↔destino o None).
+
+    Raises:
+        HTTPException 422: alguna pata cross-moneda sin TC > 0 resoluble.
+    """
+    tc_nc_op: Optional[Decimal] = None
+    if nc_moneda != op_moneda:
+        tc_nc_op = _resolver_tc_nc(tipo_cambio_override, op_tipo_cambio)
+        if tc_nc_op is None:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+                detail=(
+                    f"NC id={nc_id} en {nc_moneda} aplicada sobre una OP en {op_moneda} "
+                    f"requiere tipo_cambio > 0: informá `tipo_cambio_override` en la NC "
+                    f"o `tipo_cambio` en la OP."
+                ),
+            )
+
+    tc_op_pedido: Optional[Decimal] = None
+    if op_moneda != pedido_moneda:
+        tc_op_pedido = _resolver_tc_nc(op_tipo_cambio)
+        if tc_op_pedido is None:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+                detail=(
+                    f"OP en {op_moneda} contra un pedido en {pedido_moneda} requiere "
+                    f"tipo_cambio > 0 en la OP para imputar la NC id={nc_id}."
+                ),
+            )
+
+    if nc_moneda == pedido_moneda:
+        # Cadena identidad (misma moneda en las dos puntas): una sola pata.
+        return monto, None
+
+    # Exactamente una de las dos patas convierte — ésa define el TC origen↔destino.
+    tc_efectivo = tc_nc_op if tc_op_pedido is None else tc_op_pedido
+    assert tc_efectivo is not None  # noqa: S101 — garantizado por las ramas de arriba
+    monto_imputado = _convertir_entre_monedas(monto, desde=nc_moneda, hacia=pedido_moneda, tc=tc_efectivo)
+    return monto_imputado, tc_efectivo
+
+
 def imputar_nc_a_pedido(
     session: Session,
     *,
@@ -2656,6 +2765,9 @@ def imputar_nc_a_pedido(
     pedido: PedidoCompra,
     monto: Decimal,
     creado_por_id: int,
+    op_moneda: str,
+    op_tipo_cambio: Optional[Decimal],
+    tipo_cambio_override: Optional[Decimal] = None,
 ) -> "Imputacion":
     """Helper compartido F7: imputa una NC a un pedido de compra.
 
@@ -2667,10 +2779,13 @@ def imputar_nc_a_pedido(
       2. Valida que NC.proveedor_id == pedido.proveedor_id (403).
       3. Valida estado NC en {'aprobado', 'aplicada_parcial'} (409 si
          ya aplicada, 422 para estados no aplicables).
-      5. Valida estado pedido imputable; valida NC.moneda == pedido.moneda (422).
-      6. Valida saldo disponible NC >= monto (422).
-      7. Crea imputación NC→pedido_compra.
-      8. HABER en CC proveedor.
+      5. Valida estado pedido imputable y resuelve la cadena de conversión
+         NC → OP → pedido (422 si falta un TC necesario).
+      6. Valida saldo disponible NC >= monto (422). El saldo y el `monto`
+         viven en la moneda de la NC, así que se comparan sin convertir.
+      7. Crea imputación NC→pedido_compra con las DOS patas: origen en moneda
+         de la NC, destino en moneda del pedido.
+      8. HABER en CC proveedor (en moneda destino — convención FR-002).
       9. Recalcula estado del pedido.
 
     NOTE: La resolución del pedido (paso 4 en aplicar_nc_desde_op) es
@@ -2681,8 +2796,16 @@ def imputar_nc_a_pedido(
         session: tx activa — NO hace commit.
         nc: instancia cargada de NotaCreditoLocal.
         pedido: instancia cargada de PedidoCompra.
-        monto: monto a imputar (>0, validado por schema antes de llegar aquí).
+        monto: monto a imputar, EN LA MONEDA DE LA NC (>0, validado por schema
+            antes de llegar aquí).
         creado_por_id: FK a usuarios.
+        op_moneda: moneda de la OP que aplica la NC. La NC es un medio de pago:
+            se convierte primero a esta moneda y desde ahí al pedido.
+        op_tipo_cambio: TC declarado en la OP. Obligatorio (> 0) para cualquier
+            pata cross-moneda que no tenga override.
+        tipo_cambio_override: TC específico de ESTA NC para la pata NC→OP.
+            Gana sobre `op_tipo_cambio`. Sólo aplica cuando la NC y la OP están
+            en monedas distintas.
 
     Returns:
         La `Imputacion` creada.
@@ -2691,7 +2814,8 @@ def imputar_nc_a_pedido(
         HTTPException 403: NC pertenece a proveedor distinto al del pedido.
         HTTPException 409: NC en estado `aplicada` (totalmente consumida).
         HTTPException 422: NC en estado no aplicable, monto excede saldo,
-                           pedido en estado no imputable, cross-moneda NC↔pedido.
+                           pedido en estado no imputable, o pata cross-moneda
+                           de la cadena NC→OP→pedido sin tipo_cambio > 0.
     """
     from app.services import cc_proveedor_service  # noqa: PLC0415
     from app.services import ncs_locales_service  # noqa: PLC0415
@@ -2729,14 +2853,18 @@ def imputar_nc_a_pedido(
             detail=f"Pedido id={pedido.id} en estado '{pedido.estado}' no admite imputación.",
         )
 
-    # 5b. Validar coherencia de moneda NC↔pedido (cross-moneda prohibido en v1).
-    if nc.moneda != pedido.moneda:
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
-            detail=f"Cross-moneda no soportado en v1. NC moneda: {nc.moneda}, pedido moneda: {pedido.moneda}.",
-        )
+    # 5b. Resolver la cadena NC → OP → pedido (cross-moneda soportado).
+    monto_imputado, tc_imputacion = _convertir_nc_por_cadena_op(
+        nc_id=nc.id,
+        monto=monto,
+        nc_moneda=str(nc.moneda),
+        op_moneda=op_moneda,
+        pedido_moneda=str(pedido.moneda),
+        op_tipo_cambio=op_tipo_cambio,
+        tipo_cambio_override=tipo_cambio_override,
+    )
 
-    # 6. Validar saldo disponible NC >= monto.
+    # 6. Validar saldo disponible NC >= monto (ambos en moneda de la NC).
     saldo_nc = ncs_locales_service.calcular_saldo_pendiente(session, nc.id)
     if monto > saldo_nc:
         raise HTTPException(
@@ -2751,12 +2879,13 @@ def imputar_nc_a_pedido(
         origen_id=nc.id,
         destino_tipo="pedido_compra",
         destino_id=pedido.id,
-        monto_imputado=monto,
-        moneda_imputada=nc.moneda,  # type: ignore[arg-type]
-        # Cross-moneda NC↔pedido está rechazado arriba (paso 5b), así que las
-        # dos patas comparten moneda e importe.
+        monto_imputado=monto_imputado,
+        moneda_imputada=pedido.moneda,  # type: ignore[arg-type]
+        # Pata origen = lo que la NC entrega, en SU moneda. Es lo que descuenta
+        # su propio saldo; usar la pata destino la dejaría gastable de nuevo.
         monto_origen=monto,
         moneda_origen=nc.moneda,  # type: ignore[arg-type]
+        tipo_cambio=tc_imputacion,
         proveedor_id=nc.proveedor_id,
         creado_por_id=creado_por_id,
     )
@@ -2775,10 +2904,14 @@ def imputar_nc_a_pedido(
     session.refresh(nc)
 
     logger.info(
-        "imputar_nc_a_pedido nc_id=%s pedido_id=%s monto=%s imputacion_id=%s nc_estado=%s",
+        "imputar_nc_a_pedido nc_id=%s pedido_id=%s origen=%s %s destino=%s %s tc=%s imputacion_id=%s nc_estado=%s",
         nc.id,
         pedido.id,
         monto,
+        nc.moneda,
+        monto_imputado,
+        pedido.moneda,
+        tc_imputacion,
         imp.id,
         nc.estado,
     )
@@ -2794,6 +2927,7 @@ def aplicar_nc_desde_op(
     monto: Decimal,
     pedido_id: int | None,
     creado_por_id: int,
+    tipo_cambio_override: Decimal | None = None,
 ) -> dict:
     """F4 — Imputa una NC local directamente desde el detalle de una OP.
 
@@ -2805,7 +2939,8 @@ def aplicar_nc_desde_op(
       4. Resuelve pedido destino desde imputaciones activas OP→pedido_compra
          (AC4.5): un único pedido → infer; varios sin pedido_id → 422 con lista.
       5–9. Delega a `imputar_nc_a_pedido` (validaciones + creación imputación
-           + HABER CC + recálculo pedido).
+           + HABER CC + recálculo pedido), reenviando la moneda y el TC de la
+           OP más el `tipo_cambio_override` opcional de la NC.
 
     Nota sobre concurrencia: esta función no toma FOR UPDATE sobre la NC ni el
     pedido, consistente con el patrón actual de `aplicar_nc_local` en el router.
@@ -2820,8 +2955,9 @@ def aplicar_nc_desde_op(
         HTTPException 403: NC pertenece a proveedor distinto (AC4.3).
         HTTPException 409: NC en estado `aplicada` (totalmente consumida, AC4.4).
         HTTPException 422: NC en estado no aplicable (AC4.4), monto excede saldo
-                          (AC4.2), cross-moneda NC↔pedido, OP sin pedidos
-                          imputados, o múltiples pedidos sin pedido_id (AC4.5).
+                          (AC4.2), pata cross-moneda de la cadena NC→OP→pedido
+                          sin tipo_cambio, OP sin pedidos imputados, o múltiples
+                          pedidos sin pedido_id (AC4.5).
     """
     from app.models.nota_credito_local import NotaCreditoLocal  # noqa: PLC0415
 
@@ -2910,6 +3046,9 @@ def aplicar_nc_desde_op(
         pedido=pedido,
         monto=monto,
         creado_por_id=creado_por_id,
+        op_moneda=str(op.moneda),
+        op_tipo_cambio=op.tipo_cambio,
+        tipo_cambio_override=tipo_cambio_override,
     )
 
     logger.info(

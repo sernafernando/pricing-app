@@ -30,9 +30,9 @@ tolerar filas escritas por instancias de app pre-compras_038 durante una
 ventana de deploy rolling; `imputaciones_service.crear_imputacion` las
 exige siempre. Los CHECK prohíben la pata a medias.
 
-Cross-moneda: soportado (OP↔pedido desde `compras-cross-moneda-y-ncs-cc`).
-El bloqueo que queda es puntual y de negocio —`imputar_nc_a_pedido`
-rechaza NC↔pedido de distinta moneda—, no una restricción del modelo.
+Cross-moneda: soportado. OP↔pedido desde `compras-cross-moneda-y-ncs-cc`;
+NC↔pedido desde `compras-imputacion-doble-pata` (una NC es un medio de pago:
+viaja por la cadena NC → OP → pedido y se graba denominada en el destino).
 """
 
 from sqlalchemy import (
