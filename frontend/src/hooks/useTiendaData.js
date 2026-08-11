@@ -13,6 +13,9 @@ import api, { productosAPI } from '../services/api';
  * @param {string} params.debouncedSearch - Búsqueda con debounce
  * @param {Object} params.filters - Objeto con todos los filtros activos (para useEffect deps)
  * @param {Function} params.showToast - Función de notificación
+ * @param {boolean} params.puedeVerWebTarjeta - Permiso `tienda.ver_web_tarjeta`.
+ *   Cuando es false no se pide `markup_web_tarjeta`: la columna no se renderiza,
+ *   así que el request no tendría consumidor.
  */
 export function useTiendaData({
   construirFiltrosParams,
@@ -22,6 +25,7 @@ export function useTiendaData({
   debouncedSearch,
   filters,
   showToast,
+  puedeVerWebTarjeta,
 }) {
   // === ESTADO: Productos y carga principal ===
   const [productos, setProductos] = useState([]);
@@ -242,11 +246,11 @@ export function useTiendaData({
     cargarUsuariosAuditoria();
     cargarTiposAccion();
     cargarPMs();
-    cargarConfigWebTarjeta();
+    if (puedeVerWebTarjeta) cargarConfigWebTarjeta();
     cargarConfigPorcentajeTarjetaTn();
     cargarDolarVenta();
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [puedeVerWebTarjeta]);
 
   // Recargar marcas cuando cambien filtros (excepto marcasSeleccionadas)
   useEffect(() => {

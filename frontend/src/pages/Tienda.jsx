@@ -28,6 +28,10 @@ import { DollarSign, BarChart3, Check, X, RotateCcw, Ban, CreditCard } from 'luc
 export default function Tienda() {
   const { tienePermiso } = usePermisos();
   const puedeGestionarMarkups = tienePermiso('productos.gestionar_markups_tienda');
+  // Declarado acá y no en el bloque === PERMISOS === de más abajo porque
+  // useTiendaData lo recibe como parámetro: leerlo después de esa llamada
+  // caería en la TDZ del const.
+  const puedeVerWebTarjeta = tienePermiso('tienda.ver_web_tarjeta');
   const [tabActivo, setTabActivo] = useState('productos'); // 'productos' o 'setup-markups'
   const [productoSeleccionado, setProductoSeleccionado] = useState(null);
   
@@ -85,6 +89,7 @@ export default function Tienda() {
     debouncedSearch,
     filters,
     showToast,
+    puedeVerWebTarjeta,
   });
 
 
@@ -166,6 +171,8 @@ export default function Tienda() {
   const user = useAuthStore((state) => state.user);
 
   // === PERMISOS ===
+  // (`puedeVerWebTarjeta` se declara arriba, junto a `puedeGestionarMarkups`,
+  //  porque useTiendaData lo consume antes de este punto.)
   const puedeEditarPrecioGremioManual = tienePermiso('tienda.editar_precio_gremio_manual');
   const puedeEditarMarkupSugerido = tienePermiso('productos.gestionar_markups_tienda');
   const puedeEditarWebTransf = tienePermiso('tienda.editar_precio_web_transf');
@@ -1496,9 +1503,14 @@ export default function Tienda() {
                       <th onClick={(e) => handleOrdenar('web_transf', e)}>
                         Web Transf. {getIconoOrden('web_transf')} {getNumeroOrden('web_transf') && <span>{getNumeroOrden('web_transf')}</span>}
                       </th>
-                      <th onClick={(e) => handleOrdenar('web_tarjeta', e)}>
-                        Web Tarjeta {getIconoOrden('web_tarjeta')} {getNumeroOrden('web_tarjeta') && <span>{getNumeroOrden('web_tarjeta')}</span>}
-                      </th>
+                      {/* Mismo guard que el <td> de Web Tarjeta en el body:
+                          si se cambia uno hay que cambiar el otro o las
+                          columnas se desalinean. */}
+                      {puedeVerWebTarjeta && (
+                        <th onClick={(e) => handleOrdenar('web_tarjeta', e)}>
+                          Web Tarjeta {getIconoOrden('web_tarjeta')} {getNumeroOrden('web_tarjeta') && <span>{getNumeroOrden('web_tarjeta')}</span>}
+                        </th>
+                      )}
                     </>
                   ) : (
                     <>
@@ -1982,6 +1994,10 @@ export default function Tienda() {
                         )}
                       </div>
                     </td>
+                    {/* Mismo guard que el <th> de Web Tarjeta en el header:
+                        si se cambia uno hay que cambiar el otro o las
+                        columnas se desalinean. */}
+                    {puedeVerWebTarjeta && (
                     <td className={isRowActive && celdaActiva?.colIndex === 4 ? 'keyboard-cell-active' : ''}>
                       {p.precio_web_transferencia && markupWebTarjeta > 0 ? (
                         <div className="web-tarjeta-info">
@@ -2005,6 +2021,7 @@ export default function Tienda() {
                         <span className="text-muted">-</span>
                       )}
                     </td>
+                    )}
                     </>
                     ) : (
                       /* Vista Cuotas: 3, 6, 9, 12 cuotas */
