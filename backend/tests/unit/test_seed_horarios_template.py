@@ -189,3 +189,41 @@ def test_el_fixture_del_frontend_esta_al_dia():
         f"El fixture {FIXTURE_PATH.name} quedó desactualizado respecto de "
         f"`template_horarios()`. Regeneralo con:\n  {FIXTURE_REGEN_CMD}"
     )
+
+
+# ---------------------------------------------------------------------------
+# Reparación de una fila vieja en la base
+# ---------------------------------------------------------------------------
+
+
+def test_una_fila_con_el_esquema_viejo_se_detecta_incompatible():
+    """El template guardado en producción declara `tabla_dias_1` / `tabla_dias_2`.
+
+    pdfme casa por NOMBRE de campo: contra esa fila, un mapper que manda
+    `tabla_dias` no llena nada y el documento sale con la grilla VACÍA, sin
+    error. Sobre un papel que respalda una liquidación eso es peor que fallar,
+    así que el seed tiene que repararlo solo y no depender de que alguien se
+    acuerde de correr `--force-update`.
+    """
+    from app.scripts.seed_horarios_template import _es_incompatible
+
+    viejo = {"schemas": [[{"name": "tabla_dias_1", "type": "table"}, {"name": "tabla_dias_2", "type": "table"}]]}
+
+    assert _es_incompatible(viejo) is True
+    assert _es_incompatible(template_horarios()) is False
+
+
+def test_al_reparar_se_conserva_el_logo_cargado_desde_el_disenador():
+    """Regenerar a ciegas borraría el logo: vive en el `content` de `__logo__`."""
+    from app.scripts.seed_horarios_template import _con_logo, _logo_guardado
+
+    guardado = {"schemas": [[{"name": "__logo__", "type": "image", "content": "data:image/png;base64,AAA"}]]}
+    logo = _logo_guardado(guardado)
+    assert logo == "data:image/png;base64,AAA"
+
+    reparado = _con_logo(template_horarios(), logo)
+    campos = {c["name"]: c for c in reparado["schemas"][0]}
+    assert campos["__logo__"]["content"] == logo
+
+    # Sin logo previo, el campo queda vacío como en el template limpio.
+    assert _logo_guardado({"schemas": [[]]}) == ""

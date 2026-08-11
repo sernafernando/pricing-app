@@ -365,12 +365,67 @@ def dump_fixture() -> Path:
     return FIXTURE_PATH
 
 
+def _campos_rellenables(template_json: dict) -> set[str]:
+    """Nombres de campo que el frontend puede rellenar (los `__x__` son internos)."""
+    return {
+        campo.get("name")
+        for pagina in (template_json or {}).get("schemas", [])
+        for campo in pagina
+        if campo.get("name") and not campo["name"].startswith("__")
+    }
+
+
+def _es_incompatible(template_json: dict) -> bool:
+    """¿La fila guardada ya no habla el mismo idioma que el mapper del frontend?
+
+    pdfme casa por NOMBRE de campo: si el template guardado declara
+    `tabla_dias_1` / `tabla_dias_2` y el mapper manda `tabla_dias`, la tabla no
+    recibe ninguna fila y el documento sale con la grilla VACIA, sin error.
+    Sobre un papel que respalda una liquidacion, eso es peor que fallar.
+    """
+    return "tabla_dias" not in _campos_rellenables(template_json)
+
+
+def _logo_guardado(template_json: dict) -> str:
+    """El base64 del logo que alguien haya subido desde el Disenador.
+
+    Se conserva al reconstruir el template: el logo vive en el `content` del
+    campo `__logo__`, asi que regenerar a ciegas se lo lleva puesto.
+    """
+    for pagina in (template_json or {}).get("schemas", []):
+        for campo in pagina:
+            if campo.get("name") == "__logo__":
+                return campo.get("content") or ""
+    return ""
+
+
+def _con_logo(template_json: dict, logo: str) -> dict:
+    """Devuelve el template con el `content` del logo restaurado."""
+    if not logo:
+        return template_json
+    for pagina in template_json.get("schemas", []):
+        for campo in pagina:
+            if campo.get("name") == "__logo__":
+                campo["content"] = logo
+    return template_json
+
+
 def seed_horarios_template(user_id: int = 1, force_update: bool = False) -> int:
     """
     Inserta o actualiza SOLO el template de horarios.
 
     `user_id` es el `creado_por_id` (FK NOT NULL a `usuarios`); por defecto 1
     (admin), igual que el resto de los seeds de templates.
+
+    Una fila existente se reescribe en dos casos:
+
+    - `force_update=True`, o
+    - la fila guardada es INCOMPATIBLE con el mapper actual (no declara
+      `tabla_dias`). Ese caso se repara solo a proposito: dejarlo librado a que
+      alguien se acuerde de correr `--force-update` significa que el documento
+      sale con la grilla vacia hasta que alguien lo note.
+
+    En ambos casos se conserva el logo cargado desde el Disenador.
     """
     db = SessionLocal()
     try:
@@ -384,13 +439,19 @@ def seed_horarios_template(user_id: int = 1, force_update: bool = False) -> int:
         )
 
         if existing:
-            if force_update:
-                existing.template_json = TEMPLATE_HORARIOS["template_json"]()
-                db.commit()
-                print(f"  🔄 Actualizado: {TEMPLATE_HORARIOS['nombre']} ({TEMPLATE_HORARIOS['contexto']})")
-                return 1
-            print(f"  ⏭ Ya existe: {TEMPLATE_HORARIOS['nombre']} ({TEMPLATE_HORARIOS['contexto']})")
-            return 0
+            incompatible = _es_incompatible(existing.template_json)
+            if not (force_update or incompatible):
+                print(f"  ⏭ Ya existe: {TEMPLATE_HORARIOS['nombre']} ({TEMPLATE_HORARIOS['contexto']})")
+                return 0
+
+            logo = _logo_guardado(existing.template_json)
+            existing.template_json = _con_logo(TEMPLATE_HORARIOS["template_json"](), logo)
+            db.commit()
+            motivo = "no declaraba tabla_dias, habria salido vacio" if incompatible else "--force-update"
+            print(f"  🔄 Actualizado ({motivo}): {TEMPLATE_HORARIOS['nombre']}")
+            if logo:
+                print("     logo cargado desde el Diseñador: conservado")
+            return 1
 
         template = DocumentTemplate(
             nombre=TEMPLATE_HORARIOS["nombre"],
