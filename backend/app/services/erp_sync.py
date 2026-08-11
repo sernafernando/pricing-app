@@ -178,8 +178,44 @@ async def fetch_stock_erp() -> Dict[int, int]:
 
 
 def calcular_hash(producto: Dict) -> str:
-    """Calcula hash de los datos relevantes para detectar cambios"""
-    datos = f"{producto.get('Código', '')}{producto.get('coslis_price', 0)}{producto.get('Descripción', '')}{producto.get('Stock', 0)}{producto.get('Envío', 0)}{producto.get('IVA', 0)}"
+    """Calcula hash de los datos relevantes para detectar cambios.
+
+    Este hash es lo ÚNICO que decide si se reescriben las columnas de
+    `productos_erp` (ver el `elif hash_datos != hash_nuevo` más abajo; la rama
+    `else` solo parchea `stock`). Todo campo que se persista y pueda cambiar
+    solo en el ERP tiene que estar acá, o el cambio queda invisible.
+
+    Faltaban 4 de los campos que el sync persiste, y cada uno tenía el mismo
+    modo de falla — un cambio aislado en el ERP quedaba invisible para siempre:
+
+    - `Moneda_Costo`: cambiar `tb_item_cost_list.curr_id` sin tocar
+      `coslis_price` dejaba `moneda_costo` congelado en la moneda vieja, y el
+      mismo número de costo pasaba a leerse en la moneda equivocada (reportado
+      en el item_id 1972).
+    - `Marca` / `Categoría` / `subcat_id`: una recategorización sin cambio de
+      precio ni de stock no se propagaba. `subcategoria_id` alimenta
+      `obtener_grupo_subcategoria` -> comisión ML -> markup, así que el
+      producto seguía cotizando con el grupo de comisión viejo.
+
+    Cambiar esta lista invalida todos los `hash_datos` persistidos: el primer
+    sync posterior marca TODOS los productos como actualizados (una sola
+    corrida) y de paso corrige los que ya venían driftados.
+    """
+    campos = (
+        producto.get("Código", ""),
+        producto.get("coslis_price", 0),
+        producto.get("Moneda_Costo", ""),
+        producto.get("Descripción", ""),
+        producto.get("Marca", ""),
+        producto.get("Categoría", ""),
+        producto.get("subcat_id", ""),
+        producto.get("Stock", 0),
+        producto.get("Envío", 0),
+        producto.get("IVA", 0),
+    )
+    # Separador explícito: concatenar en crudo hace que Marca="AB" + Categoría="C"
+    # colisione con "A" + "BC". \x1f (unit separator) no aparece en datos del ERP.
+    datos = "\x1f".join(str(campo) for campo in campos)
     return hashlib.sha256(datos.encode()).hexdigest()
 
 
