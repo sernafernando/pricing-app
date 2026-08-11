@@ -257,8 +257,11 @@ const remitoManualMapper = (entity) => {
  *   fecha_desde, fecha_hasta, incluir_horas
  * }
  *
- * Los días se parten en dos mitades porque el template tiene DOS tablas lado a
- * lado: `ceil(n/2)` filas en la primera, el resto en la segunda.
+ * TODOS los días van a UNA sola tabla. No se parten en dos: pdfme modela la
+ * página como un único flujo vertical, así que dos tablas en el mismo `y`
+ * terminan una encima de la otra (ver el comentario de `TABLE_H` en
+ * `backend/app/scripts/seed_horarios_template.py`). Un rango largo lo pagina
+ * pdfme solo.
  */
 const horariosEmpleadoMapper = (entity) => {
   const dias = Array.isArray(entity.dias) ? entity.dias : [];
@@ -290,8 +293,6 @@ const horariosEmpleadoMapper = (entity) => {
     return incluirHoras ? [etiquetaDia, entrada, salida, horas] : [etiquetaDia, entrada, salida];
   });
 
-  const corte = Math.ceil(filas.length / 2);
-
   return {
     legajo: safe(entity.legajo),
     nombre_completo: safe(entity.nombre_completo),
@@ -307,8 +308,7 @@ const horariosEmpleadoMapper = (entity) => {
     }),
     total_horas: safe(entity.total_horas_hhmm),
     total_dias: safe(entity.total_dias),
-    tabla_dias_1: JSON.stringify(filas.slice(0, corte)),
-    tabla_dias_2: JSON.stringify(filas.slice(corte)),
+    tabla_dias: JSON.stringify(filas),
   };
 };
 

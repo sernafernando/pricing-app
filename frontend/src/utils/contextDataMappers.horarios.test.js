@@ -34,8 +34,7 @@ const empleado = (dias = [], extra = {}) => ({
 });
 
 const mapear = (...args) => mapEntityToInputs('horarios_empleado', empleado(...args));
-const tabla1 = (inputs) => JSON.parse(inputs.tabla_dias_1);
-const tabla2 = (inputs) => JSON.parse(inputs.tabla_dias_2);
+const tabla = (inputs) => JSON.parse(inputs.tabla_dias);
 
 describe('horariosEmpleadoMapper — cabecera', () => {
   beforeEach(() => {
@@ -73,7 +72,7 @@ describe('horariosEmpleadoMapper — cabecera', () => {
 describe('horariosEmpleadoMapper — filas', () => {
   it('un día normal rinde [Día, entrada, salida, horas]', () => {
     const inputs = mapear([dia()]);
-    expect(tabla1(inputs)).toEqual([['Lun 03/08', '08:57', '18:03', '09:06']]);
+    expect(tabla(inputs)).toEqual([['Lun 03/08', '08:57', '18:03', '09:06']]);
   });
 
   it('un día sin fichadas pone el estado EN MAYÚSCULAS en la columna Entrada', () => {
@@ -89,7 +88,7 @@ describe('horariosEmpleadoMapper — filas', () => {
       }),
     ]);
 
-    expect(tabla1(inputs)).toEqual([['Mié 05/08', 'VACACIONES', '', '']]);
+    expect(tabla(inputs)).toEqual([['Mié 05/08', 'VACACIONES', '', '']]);
   });
 
   it('un día incompleto conserva la entrada y deja salida y horas vacías', () => {
@@ -97,7 +96,7 @@ describe('horariosEmpleadoMapper — filas', () => {
       dia({ salida: '', horas_hhmm: '00:00', horas_decimal: 0, incompleto: true }),
     ]);
 
-    expect(tabla1(inputs)).toEqual([['Lun 03/08', '08:57', '', '']]);
+    expect(tabla(inputs)).toEqual([['Lun 03/08', '08:57', '', '']]);
   });
 
   it('sin la columna de horas las filas tienen 3 celdas', () => {
@@ -106,51 +105,56 @@ describe('horariosEmpleadoMapper — filas', () => {
       empleado([dia()], { incluir_horas: false })
     );
 
-    expect(tabla1(inputs)).toEqual([['Lun 03/08', '08:57', '18:03']]);
+    expect(tabla(inputs)).toEqual([['Lun 03/08', '08:57', '18:03']]);
   });
 });
 
-describe('horariosEmpleadoMapper — partición en dos tablas', () => {
+/**
+ * Antes esto verificaba la partición en DOS tablas (`ceil(n/2)` en la primera,
+ * el resto en la segunda). Esa partición era el bug: pdfme apila las tablas en
+ * un único flujo vertical, así que la segunda terminaba montada sobre el
+ * encabezado. Ahora va UNA sola clave con todos los días y la cobertura se
+ * convierte en "nada se pierde ni se reordena por el camino".
+ */
+describe('horariosEmpleadoMapper — una sola tabla con todos los días', () => {
   const dias = (n) =>
     Array.from({ length: n }, (_, i) => dia({ fecha_label: `${String(i + 1).padStart(2, '0')}/08` }));
 
-  it('con cantidad PAR reparte mitad y mitad', () => {
+  it('emite UNA sola clave de tabla, sin `tabla_dias_1` / `tabla_dias_2`', () => {
     const inputs = mapear(dias(10));
-    expect(tabla1(inputs)).toHaveLength(5);
-    expect(tabla2(inputs)).toHaveLength(5);
+
+    expect(Object.keys(inputs).filter((k) => k.startsWith('tabla_'))).toEqual(['tabla_dias']);
   });
 
-  it('con cantidad IMPAR la primera tabla se lleva ceil(n/2)', () => {
-    const inputs = mapear(dias(7));
-    expect(tabla1(inputs)).toHaveLength(4);
-    expect(tabla2(inputs)).toHaveLength(3);
+  it('mete TODOS los días en la misma tabla, sin partirlos', () => {
+    expect(tabla(mapear(dias(10)))).toHaveLength(10);
+    expect(tabla(mapear(dias(7)))).toHaveLength(7);
+    // Un mes largo entra igual: el tope de 32 días ya no existe, pdfme pagina.
+    expect(tabla(mapear(dias(45)))).toHaveLength(45);
   });
 
-  it('conserva el orden cronológico al partir', () => {
+  it('conserva el orden cronológico', () => {
     const inputs = mapear(dias(5));
-    expect(tabla1(inputs).map((f) => f[0])).toEqual([
+
+    expect(tabla(inputs).map((f) => f[0])).toEqual([
       'Lun 01/08',
       'Lun 02/08',
       'Lun 03/08',
+      'Lun 04/08',
+      'Lun 05/08',
     ]);
-    expect(tabla2(inputs).map((f) => f[0])).toEqual(['Lun 04/08', 'Lun 05/08']);
   });
 
-  it('con un solo día la segunda tabla queda vacía', () => {
-    const inputs = mapear(dias(1));
-    expect(tabla1(inputs)).toHaveLength(1);
-    expect(tabla2(inputs)).toEqual([]);
+  it('con un solo día la tabla tiene una fila', () => {
+    expect(tabla(mapear(dias(1)))).toHaveLength(1);
   });
 
-  it('sin días ambas tablas quedan vacías (y siguen siendo JSON válido)', () => {
-    const inputs = mapear([]);
-    expect(inputs.tabla_dias_1).toBe('[]');
-    expect(inputs.tabla_dias_2).toBe('[]');
+  it('sin días la tabla queda vacía (y sigue siendo JSON válido)', () => {
+    expect(mapear([]).tabla_dias).toBe('[]');
   });
 
   it('tolera un empleado sin la clave `dias`', () => {
     const inputs = mapEntityToInputs('horarios_empleado', { legajo: '1' });
-    expect(inputs.tabla_dias_1).toBe('[]');
-    expect(inputs.tabla_dias_2).toBe('[]');
+    expect(inputs.tabla_dias).toBe('[]');
   });
 });

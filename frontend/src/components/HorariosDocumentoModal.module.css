@@ -44,29 +44,6 @@
   color: var(--cf-text-tertiary);
 }
 
-.warning {
-  display: flex;
-  align-items: flex-start;
-  gap: var(--spacing-sm);
-  padding: var(--spacing-sm) var(--spacing-md);
-  border: 1px solid var(--cf-accent-orange);
-  border-radius: var(--radius-md);
-  background: var(--cf-bg-hover);
-  color: var(--cf-accent-orange);
-  font-size: var(--font-sm);
-}
-
-.warningTitle {
-  margin: 0;
-  font-weight: var(--font-medium);
-}
-
-.warningList {
-  margin: var(--spacing-xs) 0 0;
-  padding-left: var(--spacing-md);
-  color: var(--cf-text-secondary);
-}
-
 .error {
   display: flex;
   align-items: center;
