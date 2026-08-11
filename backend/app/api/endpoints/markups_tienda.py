@@ -601,6 +601,25 @@ def _build_markup_sugerido_response(
 # =============================================================================
 
 
+# Claves de `tienda_config` que puede leer cualquier usuario autenticado vía
+# `GET /config/{clave}`, sin `productos.gestionar_markups_tienda`.
+#
+# CRITERIO PARA AGREGAR UNA CLAVE ACÁ: tiene que ser un porcentaje de pricing NO
+# sensible que las grillas de Tienda/Productos necesitan sí o sí para mostrar
+# precios correctos. Cualquier otra cosa (credenciales, márgenes internos,
+# parámetros de negocio no expuestos en la UI) NO va acá.
+#
+# El endpoint es genérico sobre la tabla: sin esta whitelist, el día que alguien
+# guarde una clave sensible en `tienda_config` quedaría legible por todos en
+# silencio. Por eso la lista es cerrada y se amplía a mano, no por defecto.
+CLAVES_CONFIG_PUBLICAS: frozenset[str] = frozenset(
+    {
+        "markup_web_tarjeta",
+        "porcentaje_tarjeta_tn",
+    }
+)
+
+
 class ConfigUpdate(BaseModel):
     valor: float
 
@@ -624,17 +643,27 @@ def obtener_config_valor(clave: str, db: Session = Depends(get_db), current_user
     """
     Obtiene un valor de configuración específico.
 
-    Requiere autenticación pero NO `productos.gestionar_markups_tienda`, a
-    diferencia del dump completo (`GET /config`) y de la escritura
-    (`PUT /config/{clave}`), que siguen restringidos.
+    Reglas de acceso:
+    - Si `clave` está en `CLAVES_CONFIG_PUBLICAS`: alcanza con estar autenticado.
+    - Cualquier otra clave: requiere `productos.gestionar_markups_tienda`.
 
-    Motivo: estos valores son porcentajes de pricing no sensibles que las
-    grillas de Tienda y Productos necesitan para mostrar precios correctos.
-    Con el permiso exigido acá, cualquier usuario sin él recibía 403, el
-    frontend caía al valor por defecto y la UI mostraba números equivocados en
-    silencio (además, un valor ausente ya devuelve 0 en lugar de fallar).
-    Leer un porcentaje de configuración no habilita ninguna modificación.
+    El dump completo (`GET /config`) y la escritura (`PUT /config/{clave}`)
+    siguen exigiendo el permiso siempre, sin excepciones por clave.
+
+    Motivo de la whitelist: las claves públicas son porcentajes de pricing no
+    sensibles que las grillas de Tienda y Productos necesitan para mostrar
+    precios correctos. Exigiendo el permiso para ellas, cualquier usuario sin él
+    recibía 403, el frontend caía al valor por defecto y la UI mostraba números
+    equivocados en silencio. Leer uno de esos porcentajes no habilita ninguna
+    modificación. El resto de la tabla queda cerrado por defecto.
     """
+    if clave not in CLAVES_CONFIG_PUBLICAS and not verificar_permiso(
+        db, current_user, "productos.gestionar_markups_tienda"
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN, detail="No tienes permiso para gestionar markups de tienda"
+        )
+
     config = db.query(TiendaConfig).filter(TiendaConfig.clave == clave).first()
     if not config:
         return {"clave": clave, "valor": 0}
