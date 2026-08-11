@@ -3,6 +3,7 @@ import api from '../services/api';
 import { useToast } from '../hooks/useToast';
 import Toast from './Toast';
 import SearchInput from './SearchInput';
+import { Check, CreditCard, Pencil, Store, X } from 'lucide-react';
 import styles from './SetupMarkups.module.css';
 
 export default function SetupMarkups() {
@@ -34,10 +35,18 @@ export default function SetupMarkups() {
 
   const { toast, showToast, hideToast } = useToast();
 
-  // Estados para configuración global
+  // Estados para configuración global.
+  // Son DOS porcentajes distintos y no intercambiables:
+  //   markup_web_tarjeta    -> recargo sobre Web Transf para la columna Web Tarjeta
+  //   porcentaje_tarjeta_tn -> brecha entre el precio tarjeta publicado en
+  //                            Tienda Nube y el de transferencia
   const [markupWebTarjeta, setMarkupWebTarjeta] = useState('');
   const [editandoWebTarjeta, setEditandoWebTarjeta] = useState(false);
   const [guardandoWebTarjeta, setGuardandoWebTarjeta] = useState(false);
+
+  const [porcentajeTarjetaTn, setPorcentajeTarjetaTn] = useState('');
+  const [editandoTarjetaTn, setEditandoTarjetaTn] = useState(false);
+  const [guardandoTarjetaTn, setGuardandoTarjetaTn] = useState(false);
 
   // ========== FUNCIONES CONFIGURACIÓN ==========
   const cargarConfig = async () => {
@@ -46,6 +55,15 @@ export default function SetupMarkups() {
       setMarkupWebTarjeta(response.data.valor?.toString() || '0');
     } catch (error) {
       console.error('Error cargando config:', error);
+    }
+  };
+
+  const cargarConfigTarjetaTn = async () => {
+    try {
+      const response = await api.get('/markups-tienda/config/porcentaje_tarjeta_tn');
+      setPorcentajeTarjetaTn(response.data.valor?.toString() || '0');
+    } catch (error) {
+      console.error('Error cargando config tarjeta TN:', error);
     }
   };
 
@@ -66,6 +84,26 @@ export default function SetupMarkups() {
       showToast('Error al guardar', 'error');
     } finally {
       setGuardandoWebTarjeta(false);
+    }
+  };
+
+  const guardarTarjetaTn = async () => {
+    const valor = parseFloat(porcentajeTarjetaTn.replace(',', '.'));
+    if (isNaN(valor)) {
+      showToast('Ingresá un valor válido', 'error');
+      return;
+    }
+
+    setGuardandoTarjetaTn(true);
+    try {
+      await api.put('/markups-tienda/config/porcentaje_tarjeta_tn', { valor });
+      showToast('Configuración guardada', 'success');
+      setEditandoTarjetaTn(false);
+    } catch (error) {
+      console.error('Error guardando config tarjeta TN:', error);
+      showToast('Error al guardar', 'error');
+    } finally {
+      setGuardandoTarjetaTn(false);
     }
   };
 
@@ -300,6 +338,7 @@ export default function SetupMarkups() {
     cargarStats();
     cargarProductosConMarkup();
     cargarConfig();
+    cargarConfigTarjetaTn();
     // solo al montar — funciones de carga estables para este ciclo de vida
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -353,7 +392,9 @@ export default function SetupMarkups() {
         <h3 className={styles.sectionTitle}>Configuración Global</h3>
         <div className={styles.configRow}>
           <div className={styles.configLabel}>
-            <span className={styles.configIcon}>💳</span>
+            <span className={styles.configIcon}>
+              <CreditCard size={22} aria-hidden="true" />
+            </span>
             <div>
               <strong>Web Tarjeta %</strong>
               <small>Porcentaje adicional sobre Web Transf</small>
@@ -376,20 +417,23 @@ export default function SetupMarkups() {
                   }}
                   autoFocus
                   placeholder="0"
+                  aria-label="Web Tarjeta %"
                 />
                 <span className={styles.percentSign}>%</span>
                 <button
                   onClick={guardarWebTarjeta}
                   disabled={guardandoWebTarjeta}
                   className={`${styles.btn} ${styles.btnSave}`}
+                  aria-label="Guardar Web Tarjeta %"
                 >
-                  {guardandoWebTarjeta ? '...' : '✓'}
+                  {guardandoWebTarjeta ? '...' : <Check size={14} aria-hidden="true" />}
                 </button>
                 <button
                   onClick={() => { setEditandoWebTarjeta(false); cargarConfig(); }}
                   className={`${styles.btn} ${styles.btnCancel}`}
+                  aria-label="Cancelar edición de Web Tarjeta %"
                 >
-                  ✕
+                  <X size={14} aria-hidden="true" />
                 </button>
               </div>
             ) : (
@@ -399,7 +443,76 @@ export default function SetupMarkups() {
               >
                 <span className={styles.markupValue}>{markupWebTarjeta || '0'}</span>
                 <span className={styles.percentSign}>%</span>
-                <button className={`${styles.btn} ${styles.btnEdit}`}>✏️</button>
+                <button className={`${styles.btn} ${styles.btnEdit}`} aria-label="Editar Web Tarjeta %">
+                  <Pencil size={14} aria-hidden="true" />
+                </button>
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* Segundo porcentaje, INDEPENDIENTE del de arriba: es la brecha con la
+            que se publica en Tienda Nube y con la que se deriva el precio de
+            transferencia mostrado en las grillas. */}
+        <div className={styles.configRow}>
+          <div className={styles.configLabel}>
+            <span className={styles.configIcon}>
+              <Store size={22} aria-hidden="true" />
+            </span>
+            <div>
+              <strong>% Tarjeta Tienda Nube</strong>
+              <small>
+                Diferencia entre el precio tarjeta publicado en Tienda Nube y el precio transferencia.
+                Se usa al publicar y para mostrar el precio &quot;transf.&quot; en las grillas
+              </small>
+            </div>
+          </div>
+          <div className={styles.configValue}>
+            {editandoTarjetaTn ? (
+              <div className={styles.editInput}>
+                <input
+                  type="text"
+                  inputMode="decimal"
+                  value={porcentajeTarjetaTn}
+                  onChange={(e) => setPorcentajeTarjetaTn(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') guardarTarjetaTn();
+                    if (e.key === 'Escape') {
+                      setEditandoTarjetaTn(false);
+                      cargarConfigTarjetaTn();
+                    }
+                  }}
+                  autoFocus
+                  placeholder="0"
+                  aria-label="% Tarjeta Tienda Nube"
+                />
+                <span className={styles.percentSign}>%</span>
+                <button
+                  onClick={guardarTarjetaTn}
+                  disabled={guardandoTarjetaTn}
+                  className={`${styles.btn} ${styles.btnSave}`}
+                  aria-label="Guardar % Tarjeta Tienda Nube"
+                >
+                  {guardandoTarjetaTn ? '...' : <Check size={14} aria-hidden="true" />}
+                </button>
+                <button
+                  onClick={() => { setEditandoTarjetaTn(false); cargarConfigTarjetaTn(); }}
+                  className={`${styles.btn} ${styles.btnCancel}`}
+                  aria-label="Cancelar edición de % Tarjeta Tienda Nube"
+                >
+                  <X size={14} aria-hidden="true" />
+                </button>
+              </div>
+            ) : (
+              <div
+                className={`${styles.markupDisplay} ${styles.hasMarkup}`}
+                onClick={() => setEditandoTarjetaTn(true)}
+              >
+                <span className={styles.markupValue}>{porcentajeTarjetaTn || '0'}</span>
+                <span className={styles.percentSign}>%</span>
+                <button className={`${styles.btn} ${styles.btnEdit}`} aria-label="Editar % Tarjeta Tienda Nube">
+                  <Pencil size={14} aria-hidden="true" />
+                </button>
               </div>
             )}
           </div>

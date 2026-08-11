@@ -62,6 +62,10 @@ export function useProductosData({
   const [pms, setPms] = useState([]);
   const [marcasPorPM, setMarcasPorPM] = useState([]);
   const [subcategoriasPorPM, setSubcategoriasPorPM] = useState([]);
+  // Brecha % entre el precio tarjeta publicado en Tienda Nube y el de
+  // transferencia. Alimenta el hint "transf." de la grilla, que es la inversa
+  // exacta del recargo con el que TnPublishModal publica.
+  const [porcentajeTarjetaTn, setPorcentajeTarjetaTn] = useState(null);
 
   /**
    * cargarStats — OWNED here (ADR-2).
@@ -207,10 +211,27 @@ export function useProductosData({
     }
   }, [showToast]);
 
+  const cargarConfigPorcentajeTarjetaTn = useCallback(async () => {
+    try {
+      const response = await api.get('/markups-tienda/config/porcentaje_tarjeta_tn');
+      setPorcentajeTarjetaTn(response.data.valor);
+    } catch {
+      // Se deja en null a propósito: sin un porcentaje válido el hint "transf."
+      // no se renderiza, en vez de mostrar un precio derivado incorrecto.
+      setPorcentajeTarjetaTn(null);
+      showToast('Error al cargar porcentaje tarjeta Tienda Nube', 'error');
+    }
+  }, [showToast]);
+
   // Cargar PMs al montar
   useEffect(() => {
     cargarPMs();
   }, [cargarPMs]);
+
+  // Cargar configuración de porcentaje tarjeta TN al montar
+  useEffect(() => {
+    cargarConfigPorcentajeTarjetaTn();
+  }, [cargarConfigPorcentajeTarjetaTn]);
 
   // Cargar productos cuando cambian filtros / paginación
   useEffect(() => {
@@ -266,6 +287,7 @@ export function useProductosData({
     pms,
     marcasPorPM,
     subcategoriasPorPM,
+    porcentajeTarjetaTn,
     cargarProductos,
     cargarStats,
   };

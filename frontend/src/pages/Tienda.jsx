@@ -22,6 +22,7 @@ import ModalInfoProducto from '../components/ModalInfoProducto';
 import SetupMarkups from '../components/SetupMarkups';
 import StatCard from '../components/StatCard';
 import SearchInput from '../components/SearchInput';
+import PrecioTransfHint from '../components/PrecioTransfHint';
 import { DollarSign, BarChart3, Check, X, RotateCcw, Ban, CreditCard } from 'lucide-react';
 
 export default function Tienda() {
@@ -73,7 +74,7 @@ export default function Tienda() {
     stats,
     marcas, subcategorias, usuarios, tiposAccion, pms,
     marcasPorPM, subcategoriasPorPM,
-    markupWebTarjeta, dolarVenta,
+    markupWebTarjeta, porcentajeTarjetaTn, dolarVenta,
     auditoriaVisible, setAuditoriaVisible, auditoriaData, verAuditoria,
     cargarProductos, cargarStats,
   } = useTiendaData({
@@ -1872,9 +1873,11 @@ export default function Tienda() {
                               <div>
                                 <div className="promo-price-display">
                                   <span>${p.tn_promotional_price.toLocaleString('es-AR')}</span>
-                                  <span className="info-text-11">
-                                    ${(p.tn_promotional_price * 0.75).toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} transf.
-                                  </span>
+                                  <PrecioTransfHint
+                                    precioTarjeta={p.tn_promotional_price}
+                                    porcentaje={porcentajeTarjetaTn}
+                                    className="info-text-11"
+                                  />
                                 </div>
                                 {p.tn_price && (
                                   <div className="strikethrough-price">
@@ -1885,9 +1888,11 @@ export default function Tienda() {
                             ) : p.tn_price ? (
                               <div className="price-display-12">
                                 <span>${p.tn_price.toLocaleString('es-AR')}</span>
-                                <span className="info-text-11">
-                                  ${(p.tn_price * 0.75).toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} transf.
-                                </span>
+                                <PrecioTransfHint
+                                  precioTarjeta={p.tn_price}
+                                  porcentaje={porcentajeTarjetaTn}
+                                  className="info-text-11"
+                                />
                               </div>
                             ) : null}
                           </div>
