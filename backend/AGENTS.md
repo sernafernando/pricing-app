@@ -64,7 +64,15 @@ When performing these actions, ALWAYS invoke the corresponding skill FIRST:
 
 ## TECH STACK
 
-FastAPI 0.100+ | SQLAlchemy 2.0+ | Alembic 1.12+ | Python 3.11+ (ruff target; local venv runs 3.14.5) | PostgreSQL | bcrypt | PyJWT
+FastAPI 0.100+ | SQLAlchemy 2.0+ | Alembic 1.12+ | Python 3.11 (ruff target; also the version the pinned `requirements.txt` installs and runs on) | PostgreSQL | bcrypt | PyJWT
+
+> **Do NOT create the venv with Python 3.14 — it cannot run this repo.** Verified
+> empirically: `SQLAlchemy==2.0.23` blows up at import with
+> `AssertionError: SQLCoreOperations directly inherits TypingOnly but has additional attributes`,
+> and `scikit-learn==1.3.2` / `numpy==1.24.4` ship no 3.14 wheels, so pip builds
+> them from source and that build dies on `ModuleNotFoundError: No module named
+> 'distutils'` (removed from the stdlib in 3.12).
+> Use **Python 3.11** — `python3.11 -m venv venv`.
 
 ---
 
