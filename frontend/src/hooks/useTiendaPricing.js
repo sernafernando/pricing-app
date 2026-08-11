@@ -452,11 +452,20 @@ export function useTiendaPricing({
 
   const toggleWebTransfRapido = async (producto) => {
     try {
+      // El endpoint declara escalares planos (`participa`, `porcentaje_markup`,
+      // `preservar_porcentaje`), o sea QUERY PARAMS, no body. Mandarlos en el
+      // body devolvía 422 por `participa` faltante, y además el nombre correcto
+      // es `porcentaje_markup`, no `porcentaje`. Mismo shape que guardarWebTransf.
       const response = await api.patch(
         `/productos/${producto.item_id}/web-transferencia`,
+        null,
         {
-          participa: !producto.participa_web_transferencia,
-          porcentaje: producto.porcentaje_markup_web || 6.0
+          params: {
+            participa: !producto.participa_web_transferencia,
+            porcentaje_markup: producto.porcentaje_markup_web || 6.0,
+            // Preservamos el flag actual: omitirlo lo resetea a false en el server.
+            preservar_porcentaje: producto.preservar_porcentaje_web || false
+          }
         }
       );
 
@@ -570,7 +579,11 @@ export function useTiendaPricing({
       setEditandoWebTransf(producto.item_id);
       setWebTransfTemp({
         participa: producto.participa_web_transferencia || false,
-        porcentaje: producto.porcentaje_markup_web || 6.0
+        porcentaje: producto.porcentaje_markup_web || 6.0,
+        // Sin esto `guardarWebTransf` manda `preservar_porcentaje: undefined`,
+        // axios lo omite y el server lo resetea a false. Mismo shape que
+        // iniciarEdicionWebTransf (la ruta por clic).
+        preservar: producto.preservar_porcentaje_web || false
       });
     } else if (columna === 'cuotas_3') {
       iniciarEdicionCuota(producto, '3');
