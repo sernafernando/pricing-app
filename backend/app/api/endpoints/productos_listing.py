@@ -1996,6 +1996,106 @@ def listar_productos_tienda(
         fecha_limite = datetime.now(UTC) - timedelta(days=7)
         query = query.filter(ProductoERP.fecha_sync >= fecha_limite)
 
+    # ── Ordenamiento ────────────────────────────────────────────────────
+    # Mismo patrón que `listar_productos` (arriba en este mismo módulo):
+    # whitelist explícita de claves del frontend → columnas, `orden_campos`
+    # y `orden_direcciones` como listas paralelas separadas por comas, y
+    # `continue` silencioso para cualquier clave desconocida.
+    #
+    # CRÍTICO: este bloque va ANTES de `query.count()` / `.offset()` /
+    # `.limit()` de abajo, de modo que el ORDER BY forma parte de la MISMA
+    # consulta paginada. Si se ordenara después (sobre `results`) cada
+    # página quedaría ordenada internamente pero el conjunto global no,
+    # devolviendo filas equivocadas por página.
+    orden_aplicado = False
+    if orden_campos and orden_direcciones:
+        campos = orden_campos.split(",")
+        direcciones = orden_direcciones.split(",")
+
+        # `zip` trunca al más corto: si el cliente manda listas de largos
+        # distintos se aplican solo los pares completos en vez de fallar.
+        for campo, direccion in zip(campos, direcciones):
+            campo = campo.strip()
+            direccion = direccion.strip().lower()
+
+            # Mapeo de claves del header de Tienda a columnas de la DB
+            if campo == "item_id":
+                col = ProductoERP.item_id
+            elif campo == "codigo":
+                col = ProductoERP.codigo
+            elif campo == "descripcion":
+                col = ProductoERP.descripcion
+            elif campo == "marca":
+                col = ProductoERP.marca
+            elif campo == "stock":
+                col = ProductoERP.stock
+            elif campo == "costo":
+                col = ProductoERP.costo
+            elif campo == "precio_clasica":
+                # Igual que en `listar_productos`: la columna "Precio Clásica"
+                # se ordena por markup, no por precio. La celda muestra precio
+                # arriba y markup abajo en ambas páginas; mantener el mismo
+                # criterio evita que la misma clave signifique cosas distintas
+                # según el endpoint.
+                col = ProductoPricing.markup_calculado
+            elif campo == "web_transf":
+                # Idem `listar_productos`: la columna Web Transf. muestra el
+                # markup real como valor principal.
+                col = ProductoPricing.markup_web_real
+            elif campo == "web_tarjeta":
+                # NO TOCAR: "Web Tarjeta" no tiene columna propia en la DB.
+                # El frontend la calcula al renderizar como
+                #     precio_web_transferencia * (1 + porcentaje / 100)
+                # donde `porcentaje` es UN único valor global de config,
+                # idéntico para todos los productos de la página (ver
+                # `markupWebTarjeta` en frontend/src/hooks/useTiendaData.js).
+                # Multiplicar por una constante > 0 es una transformación
+                # estrictamente monótona: preserva el orden de la variable
+                # original. Por lo tanto ordenar por `web_tarjeta` es
+                # matemáticamente idéntico a ordenar por
+                # `precio_web_transferencia`, y esto NO es una aproximación.
+                # (Si algún día el porcentaje pasara a ser por producto o
+                # pudiera ser negativo, esta equivalencia deja de valer.)
+                col = ProductoPricing.precio_web_transferencia
+            elif campo == "precio_3_cuotas":
+                col = ProductoPricing.precio_3_cuotas
+            elif campo == "precio_6_cuotas":
+                col = ProductoPricing.precio_6_cuotas
+            elif campo == "precio_9_cuotas":
+                col = ProductoPricing.precio_9_cuotas
+            elif campo == "precio_12_cuotas":
+                col = ProductoPricing.precio_12_cuotas
+            elif campo in ("precio_sugerido", "precio_gremio"):
+                # Sin columna en la DB y sin equivalente monótono: ambos se
+                # derivan por producto de los markups de
+                # MarkupTiendaProducto / MarkupTiendaBrand (o del override
+                # manual en precio_gremio_overrides) sobre el costo ya
+                # convertido a ARS, todo resuelto en Python más abajo.
+                # Ordenar por ellos exigiría traer el catálogo completo sin
+                # paginar, como hace la rama `orden_requiere_calculo` de
+                # `listar_productos`. Este endpoint hace mucho más trabajo
+                # por fila (envío real cross-DB, PPP, catálogo, Tienda Nube),
+                # así que se ignoran igual que cualquier otra clave sin
+                # mapeo en vez de degradar la página entera.
+                continue
+            else:
+                continue
+
+            # Sólo "desc" invierte; cualquier otro valor (vacío, basura,
+            # mayúsculas raras) cae en ascendente, que es el default del
+            # frontend. Nunca lanza.
+            if direccion == "desc":
+                query = query.order_by(col.desc().nullslast())
+            else:
+                query = query.order_by(col.asc().nullslast())
+            orden_aplicado = True
+
+    if orden_aplicado:
+        # Desempate estable: sin esto, dos filas con el mismo valor de orden
+        # pueden intercambiarse entre llamadas y aparecer duplicadas o
+        # ausentes al paginar. `item_id` es la PK de productos_erp.
+        query = query.order_by(ProductoERP.item_id.asc())
+
     total = query.count()
     offset = (page - 1) * page_size
     results = query.offset(offset).limit(page_size).all()
