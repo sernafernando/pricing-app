@@ -16,6 +16,20 @@ const formatDate = (val) => {
   }
 };
 
+/**
+ * Formatea una fecha ISO (`YYYY-MM-DD`) como `dd/mm/aaaa`.
+ *
+ * El mediodía es a propósito: `new Date('2026-08-03')` se parsea como UTC, y
+ * en AR (UTC-3) eso imprime el día ANTERIOR. Anclar a las 12:00 locales deja
+ * el día correcto en cualquier huso realista.
+ */
+const formatDateOnly = (val) => {
+  if (!val) return '';
+  const d = new Date(`${val}T12:00:00`);
+  if (Number.isNaN(d.getTime())) return String(val);
+  return d.toLocaleDateString('es-AR', { day: '2-digit', month: '2-digit', year: 'numeric' });
+};
+
 const formatNumber = (val) => {
   if (val === null || val === undefined) return '';
   return Number(val).toLocaleString('es-AR', { minimumFractionDigits: 2 });
@@ -210,6 +224,75 @@ const remitoManualMapper = (entity) => {
   };
 };
 
+/**
+ * Mapper del registro de horarios (contexto `horarios_empleado`).
+ *
+ * Recibe UN empleado del array `empleados[]` que devuelve
+ * `GET /api/rrhh/reportes/horarios-documento`, con el rango y la preferencia
+ * de columnas mergeados encima por el caller:
+ * {
+ *   legajo, nombre_completo, dni, cuil, puesto, area,
+ *   dias: [{ fecha_label, dia_semana, entrada, salida, horas_hhmm,
+ *            estado, sin_fichadas, incompleto }],
+ *   total_horas_hhmm, total_dias,
+ *   fecha_desde, fecha_hasta, incluir_horas
+ * }
+ *
+ * Los días se parten en dos mitades porque el template tiene DOS tablas lado a
+ * lado: `ceil(n/2)` filas en la primera, el resto en la segunda.
+ */
+const horariosEmpleadoMapper = (entity) => {
+  const dias = Array.isArray(entity.dias) ? entity.dias : [];
+  // Ausente por omisión sería mentir por defecto: la columna va salvo que el
+  // caller pida explícitamente sacarla.
+  const incluirHoras = entity.incluir_horas !== false;
+
+  const filas = dias.map((dia) => {
+    const etiquetaDia = [dia.dia_semana, dia.fecha_label].filter(Boolean).join(' ');
+
+    // Un renglón en blanco no dice NADA: el documento respalda una
+    // liquidación, así que un día sin fichadas tiene que declarar por qué
+    // (AUSENTE / VACACIONES / ART / LICENCIA...) en la columna Entrada.
+    let entrada = safe(dia.entrada);
+    let salida = safe(dia.salida);
+    let horas = safe(dia.horas_hhmm);
+
+    if (dia.sin_fichadas) {
+      entrada = safe(dia.estado).toUpperCase();
+      salida = '';
+      horas = '';
+    } else if (dia.incompleto) {
+      // Fichada única: hay entrada, no hay salida y las horas no se pueden
+      // calcular. Mostrar 00:00 haría parecer que trabajó cero.
+      salida = '';
+      horas = '';
+    }
+
+    return incluirHoras ? [etiquetaDia, entrada, salida, horas] : [etiquetaDia, entrada, salida];
+  });
+
+  const corte = Math.ceil(filas.length / 2);
+
+  return {
+    legajo: safe(entity.legajo),
+    nombre_completo: safe(entity.nombre_completo),
+    dni: safe(entity.dni),
+    cuil: safe(entity.cuil),
+    puesto: safe(entity.puesto),
+    area: safe(entity.area),
+    periodo: `${formatDateOnly(entity.fecha_desde)} - ${formatDateOnly(entity.fecha_hasta)}`,
+    fecha_emision: new Date().toLocaleDateString('es-AR', {
+      day: '2-digit',
+      month: '2-digit',
+      year: 'numeric',
+    }),
+    total_horas: safe(entity.total_horas_hhmm),
+    total_dias: safe(entity.total_dias),
+    tabla_dias_1: JSON.stringify(filas.slice(0, corte)),
+    tabla_dias_2: JSON.stringify(filas.slice(corte)),
+  };
+};
+
 // =============================================================================
 // REGISTRY
 // =============================================================================
@@ -228,6 +311,7 @@ const contextDataMappers = {
   sanciones: sancionesMapper,
   vacaciones: vacacionesMapper,
   remito_manual: remitoManualMapper,
+  horarios_empleado: horariosEmpleadoMapper,
 };
 
 /**

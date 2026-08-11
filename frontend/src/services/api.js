@@ -401,6 +401,33 @@ export const permisosAPI = {
   verificarMultiples: (permisos) => api.post('/permisos/verificar-multiples', permisos),
 };
 
+/**
+ * Serializa params emitiendo un parámetro REPETIDO por cada elemento de un
+ * array: `{ empleado_ids: [1, 2] }` → `empleado_ids=1&empleado_ids=2`.
+ *
+ * El serializador por defecto de axios emite `empleado_ids[]=1&empleado_ids[]=2`,
+ * y FastAPI —que declara estos filtros como `list[int] = Query(default=None)`—
+ * NO lee esa forma: recibe la lista vacía y devuelve todos los empleados. Es un
+ * fallo silencioso (200 con datos de más), así que hay que serializar a mano.
+ *
+ * `null`/`undefined` se omiten en vez de mandarse como el string "null".
+ */
+export function serializeRepeatedParams(params) {
+  const search = new URLSearchParams();
+  for (const [key, value] of Object.entries(params || {})) {
+    if (value === null || value === undefined) continue;
+    if (Array.isArray(value)) {
+      for (const item of value) {
+        if (item === null || item === undefined) continue;
+        search.append(key, String(item));
+      }
+    } else {
+      search.append(key, String(value));
+    }
+  }
+  return search.toString();
+}
+
 export const rrhhAPI = {
   // Empleados
   listarEmpleados: (params) => api.get('/rrhh/empleados', { params }),
@@ -587,6 +614,13 @@ export const rrhhAPI = {
     api.get('/rrhh/reportes/horas-trabajadas', { params }),
   reportePresentismoDiario: (params) =>
     api.get('/rrhh/reportes/presentismo-diario', { params }),
+  // Registro de horarios imprimible. `empleado_ids` es un array y DEBE viajar
+  // como parámetro repetido — ver `serializeRepeatedParams`.
+  reporteHorariosDocumento: (params) =>
+    api.get('/rrhh/reportes/horarios-documento', {
+      params,
+      paramsSerializer: serializeRepeatedParams,
+    }),
   exportarPresentismoDiario: (params) =>
     api.get('/rrhh/reportes/exportar/presentismo-diario', { params, responseType: 'blob' }),
   exportarReporte: (tipo, params) =>

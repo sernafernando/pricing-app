@@ -1,0 +1,64 @@
+.container {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-sm);
+}
+
+.toolbar {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-sm);
+}
+
+.searchWrap {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-xs);
+  flex: 1;
+  color: var(--cf-text-tertiary);
+}
+
+.search {
+  composes: input inputSm from '../styles/forms-tesla.css';
+}
+
+.contador {
+  font-size: var(--font-xs);
+  color: var(--cf-text-tertiary);
+  white-space: nowrap;
+}
+
+.lista {
+  display: flex;
+  flex-direction: column;
+  max-height: 220px;
+  margin: 0;
+  padding: var(--spacing-xs);
+  overflow-y: auto;
+  list-style: none;
+  border: 1px solid var(--cf-border-default);
+  border-radius: var(--radius-md);
+  background: var(--cf-bg-card);
+}
+
+.item {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-sm);
+  padding: var(--spacing-xs) var(--spacing-sm);
+  border-radius: var(--radius-base);
+  font-size: var(--font-sm);
+  color: var(--cf-text-primary);
+  cursor: pointer;
+}
+
+.item:hover {
+  background: var(--cf-bg-hover);
+}
+
+.vacio {
+  padding: var(--spacing-md);
+  text-align: center;
+  font-size: var(--font-sm);
+  color: var(--cf-text-tertiary);
+}
