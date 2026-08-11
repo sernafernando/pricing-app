@@ -1,0 +1,498 @@
+{
+  "basePdf": {
+    "height": 297,
+    "padding": [
+      15,
+      15,
+      15,
+      15
+    ],
+    "width": 210
+  },
+  "schemas": [
+    [
+      {
+        "content": "",
+        "height": 13,
+        "name": "__logo__",
+        "position": {
+          "x": 15,
+          "y": 15
+        },
+        "type": "image",
+        "width": 34
+      },
+      {
+        "alignment": "center",
+        "content": "REGISTRO DE HORARIOS",
+        "fontColor": "#000000",
+        "fontName": "Arial Bold",
+        "fontSize": 15,
+        "height": 9,
+        "name": "__titulo__",
+        "position": {
+          "x": 15,
+          "y": 17
+        },
+        "readOnly": true,
+        "type": "text",
+        "width": 180
+      },
+      {
+        "color": "#1a6fa0",
+        "content": "",
+        "height": 0.8,
+        "name": "__linea_header__",
+        "position": {
+          "x": 15,
+          "y": 29
+        },
+        "readOnly": true,
+        "type": "line",
+        "width": 180
+      },
+      {
+        "alignment": "left",
+        "content": "Apellido, Nombre",
+        "fontColor": "#000000",
+        "fontName": "Arial Bold",
+        "fontSize": 11,
+        "height": 6.5,
+        "name": "nombre_completo",
+        "position": {
+          "x": 15,
+          "y": 32.5
+        },
+        "type": "text",
+        "width": 118
+      },
+      {
+        "alignment": "left",
+        "content": "Legajo:",
+        "fontColor": "#555555",
+        "fontName": "Arial",
+        "fontSize": 8,
+        "height": 6,
+        "name": "__lbl_legajo__",
+        "position": {
+          "x": 135,
+          "y": 32.5
+        },
+        "readOnly": true,
+        "type": "text",
+        "width": 18
+      },
+      {
+        "alignment": "right",
+        "content": "0000",
+        "fontColor": "#000000",
+        "fontName": "Arial Bold",
+        "fontSize": 10,
+        "height": 6,
+        "name": "legajo",
+        "position": {
+          "x": 153,
+          "y": 32.5
+        },
+        "type": "text",
+        "width": 42
+      },
+      {
+        "alignment": "left",
+        "content": "DNI:",
+        "fontColor": "#555555",
+        "fontName": "Arial",
+        "fontSize": 8,
+        "height": 5,
+        "name": "__lbl_dni__",
+        "position": {
+          "x": 15,
+          "y": 39.5
+        },
+        "readOnly": true,
+        "type": "text",
+        "width": 11
+      },
+      {
+        "alignment": "left",
+        "content": "",
+        "fontColor": "#000000",
+        "fontName": "Arial",
+        "fontSize": 9,
+        "height": 5,
+        "name": "dni",
+        "position": {
+          "x": 26,
+          "y": 39.5
+        },
+        "type": "text",
+        "width": 32
+      },
+      {
+        "alignment": "left",
+        "content": "CUIL:",
+        "fontColor": "#555555",
+        "fontName": "Arial",
+        "fontSize": 8,
+        "height": 5,
+        "name": "__lbl_cuil__",
+        "position": {
+          "x": 60,
+          "y": 39.5
+        },
+        "readOnly": true,
+        "type": "text",
+        "width": 13
+      },
+      {
+        "alignment": "left",
+        "content": "",
+        "fontColor": "#000000",
+        "fontName": "Arial",
+        "fontSize": 9,
+        "height": 5,
+        "name": "cuil",
+        "position": {
+          "x": 73,
+          "y": 39.5
+        },
+        "type": "text",
+        "width": 38
+      },
+      {
+        "alignment": "left",
+        "content": "Período:",
+        "fontColor": "#555555",
+        "fontName": "Arial",
+        "fontSize": 8,
+        "height": 5,
+        "name": "__lbl_periodo__",
+        "position": {
+          "x": 115,
+          "y": 39.5
+        },
+        "readOnly": true,
+        "type": "text",
+        "width": 19
+      },
+      {
+        "alignment": "right",
+        "content": "dd/mm/aaaa - dd/mm/aaaa",
+        "fontColor": "#000000",
+        "fontName": "Arial Bold",
+        "fontSize": 9,
+        "height": 5,
+        "name": "periodo",
+        "position": {
+          "x": 134,
+          "y": 39.5
+        },
+        "type": "text",
+        "width": 61
+      },
+      {
+        "alignment": "left",
+        "content": "Área:",
+        "fontColor": "#555555",
+        "fontName": "Arial",
+        "fontSize": 8,
+        "height": 5,
+        "name": "__lbl_area__",
+        "position": {
+          "x": 15,
+          "y": 45.5
+        },
+        "readOnly": true,
+        "type": "text",
+        "width": 13
+      },
+      {
+        "alignment": "left",
+        "content": "",
+        "fontColor": "#000000",
+        "fontName": "Arial",
+        "fontSize": 9,
+        "height": 5,
+        "name": "area",
+        "position": {
+          "x": 28,
+          "y": 45.5
+        },
+        "type": "text",
+        "width": 55
+      },
+      {
+        "alignment": "left",
+        "content": "Puesto:",
+        "fontColor": "#555555",
+        "fontName": "Arial",
+        "fontSize": 8,
+        "height": 5,
+        "name": "__lbl_puesto__",
+        "position": {
+          "x": 87,
+          "y": 45.5
+        },
+        "readOnly": true,
+        "type": "text",
+        "width": 17
+      },
+      {
+        "alignment": "left",
+        "content": "",
+        "fontColor": "#000000",
+        "fontName": "Arial",
+        "fontSize": 9,
+        "height": 5,
+        "name": "puesto",
+        "position": {
+          "x": 104,
+          "y": 45.5
+        },
+        "type": "text",
+        "width": 91
+      },
+      {
+        "bodyStyles": {
+          "alignment": "left",
+          "alternateBackgroundColor": "#f5f5f5",
+          "borderColor": "#cccccc",
+          "borderWidth": {
+            "bottom": 0.1,
+            "left": 0.1,
+            "right": 0.1,
+            "top": 0.1
+          },
+          "characterSpacing": 0,
+          "fontColor": "#333333",
+          "fontName": "Arial",
+          "fontSize": 8,
+          "lineHeight": 1,
+          "padding": {
+            "bottom": 1.0,
+            "left": 3,
+            "right": 3,
+            "top": 1.0
+          },
+          "verticalAlignment": "middle"
+        },
+        "columnStyles": {},
+        "content": "",
+        "head": [
+          "Día",
+          "Entrada",
+          "Salida",
+          "Hs"
+        ],
+        "headStyles": {
+          "alignment": "left",
+          "backgroundColor": "#333333",
+          "borderColor": "#333333",
+          "borderWidth": {
+            "bottom": 0,
+            "left": 0,
+            "right": 0,
+            "top": 0
+          },
+          "characterSpacing": 0,
+          "fontColor": "#ffffff",
+          "fontName": "Arial Bold",
+          "fontSize": 8,
+          "lineHeight": 1,
+          "padding": {
+            "bottom": 3,
+            "left": 3,
+            "right": 3,
+            "top": 3
+          },
+          "verticalAlignment": "middle"
+        },
+        "headWidthPercentages": [
+          34,
+          23,
+          23,
+          20
+        ],
+        "height": 150.0,
+        "name": "tabla_dias",
+        "position": {
+          "x": 15,
+          "y": 53.5
+        },
+        "tableStyles": {
+          "borderColor": "#999999",
+          "borderWidth": 0.3
+        },
+        "type": "table",
+        "width": 180
+      },
+      {
+        "alignment": "left",
+        "content": "Total horas:",
+        "fontColor": "#000000",
+        "fontName": "Arial",
+        "fontSize": 10,
+        "height": 7,
+        "name": "__lbl_total_horas__",
+        "position": {
+          "x": 15,
+          "y": 208.5
+        },
+        "readOnly": true,
+        "type": "text",
+        "width": 28
+      },
+      {
+        "alignment": "left",
+        "content": "0:00",
+        "fontColor": "#000000",
+        "fontName": "Arial Bold",
+        "fontSize": 12,
+        "height": 7,
+        "name": "total_horas",
+        "position": {
+          "x": 43,
+          "y": 208.5
+        },
+        "type": "text",
+        "width": 35
+      },
+      {
+        "alignment": "left",
+        "content": "Total días:",
+        "fontColor": "#000000",
+        "fontName": "Arial",
+        "fontSize": 10,
+        "height": 7,
+        "name": "__lbl_total_dias__",
+        "position": {
+          "x": 125,
+          "y": 208.5
+        },
+        "readOnly": true,
+        "type": "text",
+        "width": 28
+      },
+      {
+        "alignment": "right",
+        "content": "0",
+        "fontColor": "#000000",
+        "fontName": "Arial Bold",
+        "fontSize": 12,
+        "height": 7,
+        "name": "total_dias",
+        "position": {
+          "x": 153,
+          "y": 208.5
+        },
+        "type": "text",
+        "width": 42
+      },
+      {
+        "alignment": "left",
+        "content": "Entrada: primera marcación del día. Salida: última marcación del día. Los días sin marcaciones informan el estado registrado.",
+        "fontColor": "#777777",
+        "fontName": "Arial",
+        "fontSize": 7,
+        "height": 8,
+        "name": "__leyenda__",
+        "position": {
+          "x": 15,
+          "y": 218.5
+        },
+        "readOnly": true,
+        "type": "text",
+        "width": 180
+      },
+      {
+        "color": "#333333",
+        "content": "",
+        "height": 0.3,
+        "name": "__firma_linea_0__",
+        "position": {
+          "x": 25.0,
+          "y": 232.5
+        },
+        "readOnly": true,
+        "type": "line",
+        "width": 70.0
+      },
+      {
+        "alignment": "center",
+        "content": "Firma del empleado",
+        "fontColor": "#666666",
+        "fontName": "Arial",
+        "fontSize": 8,
+        "height": 6,
+        "name": "__firma_label_0__",
+        "position": {
+          "x": 25.0,
+          "y": 233.5
+        },
+        "readOnly": true,
+        "type": "text",
+        "width": 70.0
+      },
+      {
+        "color": "#333333",
+        "content": "",
+        "height": 0.3,
+        "name": "__firma_linea_1__",
+        "position": {
+          "x": 115.0,
+          "y": 232.5
+        },
+        "readOnly": true,
+        "type": "line",
+        "width": 70.0
+      },
+      {
+        "alignment": "center",
+        "content": "Por la empresa",
+        "fontColor": "#666666",
+        "fontName": "Arial",
+        "fontSize": 8,
+        "height": 6,
+        "name": "__firma_label_1__",
+        "position": {
+          "x": 115.0,
+          "y": 233.5
+        },
+        "readOnly": true,
+        "type": "text",
+        "width": 70.0
+      },
+      {
+        "alignment": "left",
+        "content": "Emitido el:",
+        "fontColor": "#777777",
+        "fontName": "Arial",
+        "fontSize": 7,
+        "height": 5,
+        "name": "__lbl_emision__",
+        "position": {
+          "x": 15,
+          "y": 244.5
+        },
+        "readOnly": true,
+        "type": "text",
+        "width": 24
+      },
+      {
+        "alignment": "left",
+        "content": "",
+        "fontColor": "#777777",
+        "fontName": "Arial",
+        "fontSize": 7,
+        "height": 5,
+        "name": "fecha_emision",
+        "position": {
+          "x": 39,
+          "y": 244.5
+        },
+        "type": "text",
+        "width": 60
+      }
+    ]
+  ]
+}

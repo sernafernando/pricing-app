@@ -385,19 +385,16 @@ VARIABLES_POR_CONTEXTO: dict[str, List[VariableInfo]] = {
             descripcion="Cantidad de días listados en el documento",
             ejemplo="22",
         ),
-        # Grilla de días: DOS tablas lado a lado para que ~6 semanas entren en
-        # una sola página. El frontend parte la lista de días por la mitad.
+        # Grilla de días: UNA sola tabla a ancho completo. No se parte en dos
+        # columnas porque pdfme modela la página como un único flujo vertical y
+        # desplaza la segunda tabla sobre el encabezado (ver el comentario de
+        # TABLE_H en seed_horarios_template). Un mes entero de 31 días entra en
+        # una página; rangos más largos los pagina pdfme solo.
         VariableInfo(
-            nombre="tabla_dias_1",
+            nombre="tabla_dias",
             tipo="table",
-            descripcion="Primera columna de días: día, entrada, salida, horas",
+            descripcion="Días del período: día, entrada, salida, horas",
             ejemplo='[["Lun 03/08","08:57","18:03","09:06"]]',
-        ),
-        VariableInfo(
-            nombre="tabla_dias_2",
-            tipo="table",
-            descripcion="Segunda columna de días: día, entrada, salida, horas",
-            ejemplo='[["Mar 18/08","09:02","18:00","08:58"]]',
         ),
     ],
     "remito_manual": [
