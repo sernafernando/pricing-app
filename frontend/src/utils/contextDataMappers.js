@@ -7,27 +7,46 @@
  * (GET /api/document-templates/variables/{contexto}).
  */
 
-const formatDate = (val) => {
-  if (!val) return '';
-  try {
-    return new Date(val).toLocaleDateString('es-AR');
-  } catch {
-    return String(val);
-  }
+/** Fecha ISO sin hora, como la serializa una columna `Date` del backend. */
+const SOLO_FECHA = /^\d{4}-\d{2}-\d{2}$/;
+
+/**
+ * Parsea un valor de fecha a `Date`, corrigiendo el corrimiento de zona horaria.
+ *
+ * Un `YYYY-MM-DD` pelado lo parsea el motor como medianoche UTC, así que en
+ * Argentina (UTC-3) `new Date('2026-08-03')` cae el 2 de agosto y el documento
+ * imprime el día ANTERIOR. Anclar al mediodía LOCAL deja el día correcto en
+ * cualquier huso realista (UTC-11 a UTC+12).
+ *
+ * Los valores que ya traen hora se parsean tal cual: ahí no hay corrimiento,
+ * porque un ISO con hora se interpreta en la zona local.
+ *
+ * @returns {Date|null} `null` si el valor no es una fecha parseable.
+ */
+const parseFecha = (val) => {
+  const raw = typeof val === 'string' && SOLO_FECHA.test(val.trim()) ? `${val.trim()}T12:00:00` : val;
+  const d = new Date(raw);
+  return Number.isNaN(d.getTime()) ? null : d;
 };
 
 /**
- * Formatea una fecha ISO (`YYYY-MM-DD`) como `dd/mm/aaaa`.
+ * Formatea una fecha como `d/m/aaaa`.
  *
- * El mediodía es a propósito: `new Date('2026-08-03')` se parsea como UTC, y
- * en AR (UTC-3) eso imprime el día ANTERIOR. Anclar a las 12:00 locales deja
- * el día correcto en cualquier huso realista.
+ * Un valor no parseable devuelve el original. El `try/catch` anterior era
+ * codigo muerto: `new Date()` no tira, devuelve `Invalid Date`, así que una
+ * fecha rota terminaba impresa como el texto "Invalid Date".
  */
+const formatDate = (val) => {
+  if (!val) return '';
+  const d = parseFecha(val);
+  return d ? d.toLocaleDateString('es-AR') : String(val);
+};
+
+/** Igual que `formatDate` pero con día y mes de dos dígitos: `dd/mm/aaaa`. */
 const formatDateOnly = (val) => {
   if (!val) return '';
-  const d = new Date(`${val}T12:00:00`);
-  if (Number.isNaN(d.getTime())) return String(val);
-  return d.toLocaleDateString('es-AR', { day: '2-digit', month: '2-digit', year: 'numeric' });
+  const d = parseFecha(val);
+  return d ? d.toLocaleDateString('es-AR', { day: '2-digit', month: '2-digit', year: 'numeric' }) : String(val);
 };
 
 const formatNumber = (val) => {
