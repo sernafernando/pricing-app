@@ -36,8 +36,13 @@
  *      quantity is in play:
  *        - `row.precio_web_transferencia` (when `row.participa_web_transferencia`
  *          is true): a PLAIN SURCHARGE — `base * (1 + offset / 100)` — never
- *          the pricing engine's markup/margin machinery. `offset` defaults to
- *          25, editable per-publish, never persisted anywhere.
+ *          the pricing engine's markup/margin machinery. `offset` DEFAULTS to
+ *          the `porcentaje_tarjeta_tn` config value (it used to be a hardcoded
+ *          25), stays editable per-publish, and the edited value is still
+ *          never persisted anywhere. The same config key drives the inverse
+ *          "transf." hint in the Tienda/Productos grids, so the surcharge
+ *          applied here and the transfer price displayed there can no longer
+ *          drift apart.
  *        - Otherwise: manual price entry, seeded from `row.precio_lista_ml`
  *          (the ML Clásica list price — a DIFFERENT business quantity, never
  *          silently substituted), freely editable by the operator.
@@ -191,13 +196,22 @@ export default function TnPublishModal({ row, isOpen, onClose, onPublished }) {
 
   // Precio de publicación (Slice 2, money path). `hasWebPrice` selects the
   // surcharge path vs. the manual-entry fallback — see the file header
-  // docstring for the two-base rule. `offsetPercent` is a modal-local
-  // preset only (default 25) — it is NEVER persisted anywhere server-side.
+  // docstring for the two-base rule. `offsetPercent` is seeded from the
+  // `porcentaje_tarjeta_tn` config key and stays modal-local from there: an
+  // edit here is NEVER persisted back server-side.
+  //
+  // It starts as `null` — NOT as some literal default — so that during the
+  // config fetch the input renders empty (never NaN/undefined) and
+  // `computedPrice` stays null, which keeps "Publicar" disabled. Publishing a
+  // price computed from a percentage we haven't read yet is exactly the bug
+  // this guard exists to prevent.
   const hasWebPrice =
     row?.precio_web_transferencia != null &&
     row?.precio_web_transferencia !== '' &&
     row?.participa_web_transferencia === true;
-  const [offsetPercent, setOffsetPercent] = useState(25);
+  const [offsetPercent, setOffsetPercent] = useState(null);
+  const [loadingOffset, setLoadingOffset] = useState(false);
+  const [offsetError, setOffsetError] = useState(null);
   const [manualPrice, setManualPrice] = useState(() =>
     row?.precio_lista_ml != null ? String(row.precio_lista_ml) : ''
   );
@@ -277,6 +291,46 @@ export default function TnPublishModal({ row, isOpen, onClose, onPublished }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isOpen, ean]);
 
+  // Default surcharge — read from `porcentaje_tarjeta_tn` only on the
+  // surcharge path (the manual-price path never uses an offset, so it would
+  // be a pointless request). A failed read or a non-numeric value leaves
+  // `offsetPercent` null on purpose: better to block the publish and say so
+  // than to silently fall back to a number nobody configured.
+  useEffect(() => {
+    if (!isOpen || !hasWebPrice) return undefined;
+    let cancelled = false;
+
+    async function loadOffset() {
+      setLoadingOffset(true);
+      setOffsetError(null);
+      try {
+        const response = await api.get('/markups-tienda/config/porcentaje_tarjeta_tn');
+        if (cancelled) return;
+        const valor = Number(response.data?.valor);
+        if (!Number.isFinite(valor)) {
+          throw new Error('El porcentaje configurado no es un número válido');
+        }
+        setOffsetPercent(valor);
+      } catch (err) {
+        if (!cancelled) {
+          setOffsetPercent(null);
+          setOffsetError(
+            err?.response?.data?.error?.message ||
+              err?.message ||
+              'No se pudo cargar el recargo configurado (porcentaje_tarjeta_tn)'
+          );
+        }
+      } finally {
+        if (!cancelled) setLoadingOffset(false);
+      }
+    }
+
+    loadOffset();
+    return () => {
+      cancelled = true;
+    };
+  }, [isOpen, hasWebPrice]);
+
   // Debounced category NAME search — the manual path that replaces the old
   // raw-id input. Empty/short queries clear the results without a request.
   useEffect(() => {
@@ -351,6 +405,10 @@ export default function TnPublishModal({ row, isOpen, onClose, onPublished }) {
   const basePrice = hasWebPrice ? Number(row.precio_web_transferencia) : null;
   const computedPrice = useMemo(() => {
     if (!hasWebPrice || basePrice == null || Number.isNaN(basePrice)) return null;
+    // `null` (config not loaded / failed) and `''` (operator cleared the box)
+    // are checked BEFORE Number(): both coerce to 0, which would quietly
+    // publish at the bare base price instead of blocking.
+    if (offsetPercent === null || offsetPercent === '') return null;
     const offset = Number(offsetPercent);
     if (Number.isNaN(offset)) return null;
     return (basePrice * (1 + offset / 100)).toFixed(2);
@@ -683,11 +741,14 @@ export default function TnPublishModal({ row, isOpen, onClose, onPublished }) {
               id="tn-publish-offset"
               type="number"
               className={styles.titleInput}
-              value={offsetPercent}
+              value={offsetPercent ?? ''}
               min={0}
               step="0.01"
+              disabled={loadingOffset || offsetPercent === null}
               onChange={(e) => setOffsetPercent(e.target.value === '' ? '' : Number(e.target.value))}
             />
+            {loadingOffset && <p className={styles.fieldHint}>Cargando recargo configurado...</p>}
+            {offsetError && <p className={styles.fieldError}>{offsetError}</p>}
             <p className={styles.selectedCategory}>
               <Check size={13} aria-hidden="true" />
               <span>
@@ -715,7 +776,9 @@ export default function TnPublishModal({ row, isOpen, onClose, onPublished }) {
             />
           </>
         )}
-        {!finalPriceIsValid && (
+        {/* Mientras se carga el recargo el precio todavía no existe: mostrar
+            "debe ser mayor a cero" ahí sería ruido, no un error del operador. */}
+        {!finalPriceIsValid && !loadingOffset && (
           <p className={styles.fieldError}>El precio de publicación debe ser mayor a cero.</p>
         )}
       </div>

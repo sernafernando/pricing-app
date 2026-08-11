@@ -634,8 +634,16 @@
   margin-top: 2px;
 }
 
+/* Dos filas de config apiladas necesitan separación: .configRow no trae margin
+   propio porque hasta ahora era única. */
+.configRow + .configRow {
+  margin-top: 12px;
+}
+
 .configIcon {
-  font-size: 24px;
+  display: flex;
+  align-items: center;
+  color: var(--text-secondary);
 }
 
 .configValue {

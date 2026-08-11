@@ -13,6 +13,9 @@ import api, { productosAPI } from '../services/api';
  * @param {string} params.debouncedSearch - Búsqueda con debounce
  * @param {Object} params.filters - Objeto con todos los filtros activos (para useEffect deps)
  * @param {Function} params.showToast - Función de notificación
+ * @param {boolean} params.puedeVerWebTarjeta - Permiso `tienda.ver_web_tarjeta`.
+ *   Cuando es false no se pide `markup_web_tarjeta`: la columna no se renderiza,
+ *   así que el request no tendría consumidor.
  */
 export function useTiendaData({
   construirFiltrosParams,
@@ -22,6 +25,7 @@ export function useTiendaData({
   debouncedSearch,
   filters,
   showToast,
+  puedeVerWebTarjeta,
 }) {
   // === ESTADO: Productos y carga principal ===
   const [productos, setProductos] = useState([]);
@@ -43,7 +47,12 @@ export function useTiendaData({
   const [subcategoriasPorPM, setSubcategoriasPorPM] = useState([]);
 
   // === ESTADO: Configuración y cotizaciones ===
+  // Dos porcentajes INDEPENDIENTES, no confundir:
+  //   markupWebTarjeta    -> columna Web Tarjeta = web transf * (1 + m/100)
+  //   porcentajeTarjetaTn -> brecha tarjeta/transferencia en Tienda Nube,
+  //                          usada para derivar el "transf." desde tn_price
   const [markupWebTarjeta, setMarkupWebTarjeta] = useState(0);
+  const [porcentajeTarjetaTn, setPorcentajeTarjetaTn] = useState(null);
   const [dolarVenta, setDolarVenta] = useState(null);
 
   // === ESTADO: Auditoría ===
@@ -141,6 +150,18 @@ export function useTiendaData({
     }
   }, [showToast]);
 
+  const cargarConfigPorcentajeTarjetaTn = useCallback(async () => {
+    try {
+      const response = await api.get('/markups-tienda/config/porcentaje_tarjeta_tn');
+      setPorcentajeTarjetaTn(response.data.valor);
+    } catch {
+      // Se deja en null a propósito: PrecioTransfHint no renderiza nada sin un
+      // porcentaje válido, en vez de mostrar un precio de transferencia falso.
+      setPorcentajeTarjetaTn(null);
+      showToast('Error cargando porcentaje tarjeta Tienda Nube', 'error');
+    }
+  }, [showToast]);
+
   const cargarDolarVenta = useCallback(async () => {
     try {
       const response = await api.get('/tipo-cambio/actual');
@@ -225,10 +246,11 @@ export function useTiendaData({
     cargarUsuariosAuditoria();
     cargarTiposAccion();
     cargarPMs();
-    cargarConfigWebTarjeta();
+    if (puedeVerWebTarjeta) cargarConfigWebTarjeta();
+    cargarConfigPorcentajeTarjetaTn();
     cargarDolarVenta();
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [puedeVerWebTarjeta]);
 
   // Recargar marcas cuando cambien filtros (excepto marcasSeleccionadas)
   useEffect(() => {
@@ -281,6 +303,7 @@ export function useTiendaData({
 
     // Config & rates
     markupWebTarjeta,
+    porcentajeTarjetaTn,
     dolarVenta,
 
     // Auditoría

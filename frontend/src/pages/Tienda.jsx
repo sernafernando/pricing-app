@@ -22,11 +22,16 @@ import ModalInfoProducto from '../components/ModalInfoProducto';
 import SetupMarkups from '../components/SetupMarkups';
 import StatCard from '../components/StatCard';
 import SearchInput from '../components/SearchInput';
+import PrecioTransfHint from '../components/PrecioTransfHint';
 import { DollarSign, BarChart3, Check, X, RotateCcw, Ban, CreditCard } from 'lucide-react';
 
 export default function Tienda() {
   const { tienePermiso } = usePermisos();
   const puedeGestionarMarkups = tienePermiso('productos.gestionar_markups_tienda');
+  // Declarado acá y no en el bloque === PERMISOS === de más abajo porque
+  // useTiendaData lo recibe como parámetro: leerlo después de esa llamada
+  // caería en la TDZ del const.
+  const puedeVerWebTarjeta = tienePermiso('tienda.ver_web_tarjeta');
   const [tabActivo, setTabActivo] = useState('productos'); // 'productos' o 'setup-markups'
   const [productoSeleccionado, setProductoSeleccionado] = useState(null);
   
@@ -73,7 +78,7 @@ export default function Tienda() {
     stats,
     marcas, subcategorias, usuarios, tiposAccion, pms,
     marcasPorPM, subcategoriasPorPM,
-    markupWebTarjeta, dolarVenta,
+    markupWebTarjeta, porcentajeTarjetaTn, dolarVenta,
     auditoriaVisible, setAuditoriaVisible, auditoriaData, verAuditoria,
     cargarProductos, cargarStats,
   } = useTiendaData({
@@ -84,6 +89,7 @@ export default function Tienda() {
     debouncedSearch,
     filters,
     showToast,
+    puedeVerWebTarjeta,
   });
 
 
@@ -165,6 +171,8 @@ export default function Tienda() {
   const user = useAuthStore((state) => state.user);
 
   // === PERMISOS ===
+  // (`puedeVerWebTarjeta` se declara arriba, junto a `puedeGestionarMarkups`,
+  //  porque useTiendaData lo consume antes de este punto.)
   const puedeEditarPrecioGremioManual = tienePermiso('tienda.editar_precio_gremio_manual');
   const puedeEditarMarkupSugerido = tienePermiso('productos.gestionar_markups_tienda');
   const puedeEditarWebTransf = tienePermiso('tienda.editar_precio_web_transf');
@@ -202,7 +210,9 @@ export default function Tienda() {
       setProductoInfo, setMostrarModalInfo,
       colorDropdownAbierto, setColorDropdownAbierto,
     },
-    permissions: { puedeEditar, puedeMarcarColor, puedeEditarWebTransf, puedeCalcularWebMasivo },
+    // `puedeVerWebTarjeta` también acá: decide si la columna Web Tarjeta es
+    // navegable, en sintonía con el guard del <th>/<td> más abajo.
+    permissions: { puedeEditar, puedeMarcarColor, puedeEditarWebTransf, puedeCalcularWebMasivo, puedeVerWebTarjeta },
     showToast,
   });
 
@@ -1495,9 +1505,14 @@ export default function Tienda() {
                       <th onClick={(e) => handleOrdenar('web_transf', e)}>
                         Web Transf. {getIconoOrden('web_transf')} {getNumeroOrden('web_transf') && <span>{getNumeroOrden('web_transf')}</span>}
                       </th>
-                      <th onClick={(e) => handleOrdenar('web_tarjeta', e)}>
-                        Web Tarjeta {getIconoOrden('web_tarjeta')} {getNumeroOrden('web_tarjeta') && <span>{getNumeroOrden('web_tarjeta')}</span>}
-                      </th>
+                      {/* Mismo guard que el <td> de Web Tarjeta en el body:
+                          si se cambia uno hay que cambiar el otro o las
+                          columnas se desalinean. */}
+                      {puedeVerWebTarjeta && (
+                        <th onClick={(e) => handleOrdenar('web_tarjeta', e)}>
+                          Web Tarjeta {getIconoOrden('web_tarjeta')} {getNumeroOrden('web_tarjeta') && <span>{getNumeroOrden('web_tarjeta')}</span>}
+                        </th>
+                      )}
                     </>
                   ) : (
                     <>
@@ -1872,9 +1887,11 @@ export default function Tienda() {
                               <div>
                                 <div className="promo-price-display">
                                   <span>${p.tn_promotional_price.toLocaleString('es-AR')}</span>
-                                  <span className="info-text-11">
-                                    ${(p.tn_promotional_price * 0.75).toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} transf.
-                                  </span>
+                                  <PrecioTransfHint
+                                    precioTarjeta={p.tn_promotional_price}
+                                    porcentaje={porcentajeTarjetaTn}
+                                    className="info-text-11"
+                                  />
                                 </div>
                                 {p.tn_price && (
                                   <div className="strikethrough-price">
@@ -1885,9 +1902,11 @@ export default function Tienda() {
                             ) : p.tn_price ? (
                               <div className="price-display-12">
                                 <span>${p.tn_price.toLocaleString('es-AR')}</span>
-                                <span className="info-text-11">
-                                  ${(p.tn_price * 0.75).toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} transf.
-                                </span>
+                                <PrecioTransfHint
+                                  precioTarjeta={p.tn_price}
+                                  porcentaje={porcentajeTarjetaTn}
+                                  className="info-text-11"
+                                />
                               </div>
                             ) : null}
                           </div>
@@ -1977,6 +1996,10 @@ export default function Tienda() {
                         )}
                       </div>
                     </td>
+                    {/* Mismo guard que el <th> de Web Tarjeta en el header:
+                        si se cambia uno hay que cambiar el otro o las
+                        columnas se desalinean. */}
+                    {puedeVerWebTarjeta && (
                     <td className={isRowActive && celdaActiva?.colIndex === 4 ? 'keyboard-cell-active' : ''}>
                       {p.precio_web_transferencia && markupWebTarjeta > 0 ? (
                         <div className="web-tarjeta-info">
@@ -2000,6 +2023,7 @@ export default function Tienda() {
                         <span className="text-muted">-</span>
                       )}
                     </td>
+                    )}
                     </>
                     ) : (
                       /* Vista Cuotas: 3, 6, 9, 12 cuotas */

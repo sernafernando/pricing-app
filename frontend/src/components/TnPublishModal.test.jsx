@@ -57,7 +57,11 @@ const SUGGESTIONS = {
   top: { tn_category_id: 10, category_path_text: 'Electrónica > Auriculares', similarity: 0.95 },
 };
 
-function setupApiMocks({ suggestions = SUGGESTIONS, categorySearchResults = [] } = {}) {
+function setupApiMocks({
+  suggestions = SUGGESTIONS,
+  categorySearchResults = [],
+  porcentajeTarjetaTn = 25,
+} = {}) {
   api.post.mockImplementation((url) => {
     if (url === '/tienda-nube-reconcile/categoria-sugerida') {
       return Promise.resolve({ data: suggestions });
@@ -70,6 +74,13 @@ function setupApiMocks({ suggestions = SUGGESTIONS, categorySearchResults = [] }
   api.get.mockImplementation((url) => {
     if (url === '/tienda-nube-reconcile/categorias') {
       return Promise.resolve({ data: categorySearchResults });
+    }
+    // The surcharge default is no longer a literal in the component — it is
+    // read from the `porcentaje_tarjeta_tn` config key. 25 keeps the money
+    // assertions below at the same numbers they always asserted, while now
+    // exercising the real (configured) path.
+    if (url === '/markups-tienda/config/porcentaje_tarjeta_tn') {
+      return Promise.resolve({ data: { clave: 'porcentaje_tarjeta_tn', valor: porcentajeTarjetaTn } });
     }
     return Promise.resolve({ data: {} });
   });
@@ -272,11 +283,41 @@ describe('Descripción — toolbar', () => {
 });
 
 describe('Precio de publicación', () => {
-  it('shows the computed surcharge price using the web-transferencia base and default offset 25%', async () => {
+  it('shows the computed surcharge price using the web-transferencia base and the configured offset', async () => {
     await renderModal();
 
     expect(screen.getByText(/Base: precio web transferencia/i)).toBeInTheDocument();
-    expect(screen.getByText(/1250\.00/)).toBeInTheDocument();
+    // findBy, not getBy: the offset now arrives from GET
+    // /markups-tienda/config/porcentaje_tarjeta_tn, and renderModal only
+    // awaits the categoria-sugerida CALL — a sync query would race the fetch.
+    expect(await screen.findByText(/1250\.00/)).toBeInTheDocument();
+  });
+
+  it('blocks publishing until the configured offset has loaded (never publishes a guessed default)', async () => {
+    await renderModal();
+
+    await screen.findByRole('radio', { name: /Electrónica > Auriculares/ });
+    // Once loaded the surcharge path is publishable...
+    await waitFor(() => expect(screen.getByRole('button', { name: /^publicar$/i })).toBeEnabled());
+    expect(screen.getByLabelText(/recargo/i)).toHaveValue(25);
+  });
+
+  it('blocks publishing when the configured offset cannot be read', async () => {
+    api.get.mockImplementation((url) => {
+      if (url === '/markups-tienda/config/porcentaje_tarjeta_tn') {
+        return Promise.reject(new Error('boom'));
+      }
+      return Promise.resolve({ data: {} });
+    });
+
+    await renderModal();
+
+    await screen.findByRole('radio', { name: /Electrónica > Auriculares/ });
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: /^publicar$/i })).toBeDisabled();
+    });
+    // Empty, never NaN/undefined.
+    expect(screen.getByLabelText(/recargo/i)).toHaveValue(null);
   });
 
   it('recomputes the price when the operator edits the offset, and submits the exact value', async () => {

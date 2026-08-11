@@ -623,12 +623,18 @@ def obtener_config_tienda(db: Session = Depends(get_db), current_user: Usuario =
 def obtener_config_valor(clave: str, db: Session = Depends(get_db), current_user: Usuario = Depends(get_current_user)):
     """
     Obtiene un valor de configuración específico.
-    """
-    if not verificar_permiso(db, current_user, "productos.gestionar_markups_tienda"):
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN, detail="No tienes permiso para gestionar markups de tienda"
-        )
 
+    Requiere autenticación pero NO `productos.gestionar_markups_tienda`, a
+    diferencia del dump completo (`GET /config`) y de la escritura
+    (`PUT /config/{clave}`), que siguen restringidos.
+
+    Motivo: estos valores son porcentajes de pricing no sensibles que las
+    grillas de Tienda y Productos necesitan para mostrar precios correctos.
+    Con el permiso exigido acá, cualquier usuario sin él recibía 403, el
+    frontend caía al valor por defecto y la UI mostraba números equivocados en
+    silencio (además, un valor ausente ya devuelve 0 en lugar de fallar).
+    Leer un porcentaje de configuración no habilita ninguna modificación.
+    """
     config = db.query(TiendaConfig).filter(TiendaConfig.clave == clave).first()
     if not config:
         return {"clave": clave, "valor": 0}

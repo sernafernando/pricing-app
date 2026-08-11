@@ -544,6 +544,8 @@ describe('CS-6b: webtransf toggle (keyboard)', () => {
       item_id: 'W1',
       participa_web_transferencia: false,
       precio_web_transferencia: null,
+      porcentaje_markup_web: 8.5,
+      preservar_porcentaje_web: true,
     });
     setupApiMocks({ productos: [producto], total: 1 });
     api.patch.mockResolvedValue({ data: { precio_web_transferencia: 106, markup_web_real: 4.0 } });
@@ -568,13 +570,30 @@ describe('CS-6b: webtransf toggle (keyboard)', () => {
       window.dispatchEvent(new KeyboardEvent('keydown', { key: 'w', bubbles: true }));
     });
 
-    // api.patch must have been called with participa: true
+    // The endpoint declares plain scalars, so these travel as QUERY PARAMS,
+    // not as a JSON body. Pin the exact shape: a body-shaped call used to 422
+    // on the required `participa` param and this test never noticed, because it
+    // only asserted the second argument.
     await waitFor(() => {
       expect(api.patch).toHaveBeenCalledWith(
         '/productos/W1/web-transferencia',
-        expect.objectContaining({ participa: true })
+        null,
+        {
+          params: {
+            participa: true,
+            porcentaje_markup: 8.5,
+            // The product's existing flag must survive the toggle, not reset.
+            preservar_porcentaje: true,
+          },
+        }
       );
     });
+
+    // Guard against a regression to the old body shape / old param name.
+    const [, segundoArg] = api.patch.mock.calls.find(
+      ([url]) => url === '/productos/W1/web-transferencia'
+    );
+    expect(segundoArg).toBeNull();
   });
 });
 

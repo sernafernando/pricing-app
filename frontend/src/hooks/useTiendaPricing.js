@@ -452,11 +452,20 @@ export function useTiendaPricing({
 
   const toggleWebTransfRapido = async (producto) => {
     try {
+      // El endpoint declara escalares planos (`participa`, `porcentaje_markup`,
+      // `preservar_porcentaje`), o sea QUERY PARAMS, no body. Mandarlos en el
+      // body devolvía 422 por `participa` faltante, y además el nombre correcto
+      // es `porcentaje_markup`, no `porcentaje`. Mismo shape que guardarWebTransf.
       const response = await api.patch(
         `/productos/${producto.item_id}/web-transferencia`,
+        null,
         {
-          participa: !producto.participa_web_transferencia,
-          porcentaje: producto.porcentaje_markup_web || 6.0
+          params: {
+            participa: !producto.participa_web_transferencia,
+            porcentaje_markup: producto.porcentaje_markup_web || 6.0,
+            // Preservamos el flag actual: omitirlo lo resetea a false en el server.
+            preservar_porcentaje: producto.preservar_porcentaje_web || false
+          }
         }
       );
 
@@ -553,13 +562,28 @@ export function useTiendaPricing({
     if (columna === 'precio_clasica') {
       setEditandoPrecio(producto.item_id);
       setPrecioTemp(producto.precio_lista_ml || '');
+    } else if (columna === 'precio_sugerido') {
+      // Lo editable de esta columna es el markup sugerido, no el precio.
+      // El permiso `productos.gestionar_markups_tienda` se chequea en Tienda.jsx:
+      // si el usuario no lo tiene, el input inline no se renderiza y esto queda
+      // en un no-op silencioso. Nunca tira.
+      iniciarEdicionMarkupSugerido(producto);
     } else if (columna === 'precio_gremio') {
-      // Precio Gremio es solo lectura - no se edita directamente
+      // No-op DELIBERADO: desde teclado Precio Gremio es solo lectura.
+      // La edición manual existe pero se dispara por clic y está gateada por
+      // `tienda.editar_precio_gremio_manual`. No es una rama faltante.
+    } else if (columna === 'web_tarjeta') {
+      // No-op DELIBERADO: Web Tarjeta es un valor calculado (precio web transf
+      // + markup de config), no tiene edición por celda. No es una rama faltante.
     } else if (columna === 'precio_web_transf') {
       setEditandoWebTransf(producto.item_id);
       setWebTransfTemp({
         participa: producto.participa_web_transferencia || false,
-        porcentaje: producto.porcentaje_markup_web || 6.0
+        porcentaje: producto.porcentaje_markup_web || 6.0,
+        // Sin esto `guardarWebTransf` manda `preservar_porcentaje: undefined`,
+        // axios lo omite y el server lo resetea a false. Mismo shape que
+        // iniciarEdicionWebTransf (la ruta por clic).
+        preservar: producto.preservar_porcentaje_web || false
       });
     } else if (columna === 'cuotas_3') {
       iniciarEdicionCuota(producto, '3');

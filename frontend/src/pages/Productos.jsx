@@ -28,6 +28,7 @@ import { TIENDAS_OFICIALES, TIENDAS_OFICIALES_ORDER } from '../constants/tiendas
 import { formatearFechaGMT3, getIconoOrden as getIconoOrdenFn, getNumeroOrden as getNumeroOrdenFn } from '../utils/productosFormat';
 import { useProductosOffsets } from '../hooks/useProductosOffsets';
 import PppLine from '../components/PppLine';
+import PrecioTransfHint from '../components/PrecioTransfHint';
 import { useProductosAuditoria } from '../hooks/useProductosAuditoria';
 import { useProductosSeleccion } from '../hooks/useProductosSeleccion';
 import { useProductosToggles } from '../hooks/useProductosToggles';
@@ -112,6 +113,7 @@ export default function Productos() {
     pms,
     marcasPorPM,
     subcategoriasPorPM,
+    porcentajeTarjetaTn,
     cargarProductos,
     cargarStats,
   } = useProductosData({
@@ -1968,9 +1970,11 @@ export default function Productos() {
                               <div>
                                 <div className="web-transf-precio-container">
                                   <span>${p.tn_promotional_price.toLocaleString('es-AR')}</span>
-                                  <span className="web-transf-porcentaje-info">
-                                    ${(p.tn_promotional_price * 0.75).toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} transf.
-                                  </span>
+                                  <PrecioTransfHint
+                                    precioTarjeta={p.tn_promotional_price}
+                                    porcentaje={porcentajeTarjetaTn}
+                                    className="web-transf-porcentaje-info"
+                                  />
                                 </div>
                                 {p.tn_price && (
                                   <div className="tn-price-strikethrough">
@@ -1981,9 +1985,11 @@ export default function Productos() {
                             ) : p.tn_price ? (
                               <div className="web-transf-info-row">
                                 <span>${p.tn_price.toLocaleString('es-AR')}</span>
-                                <span className="web-transf-porcentaje-info">
-                                  ${(p.tn_price * 0.75).toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} transf.
-                                </span>
+                                <PrecioTransfHint
+                                  precioTarjeta={p.tn_price}
+                                  porcentaje={porcentajeTarjetaTn}
+                                  className="web-transf-porcentaje-info"
+                                />
                               </div>
                             ) : null}
                           </div>
