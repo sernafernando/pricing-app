@@ -142,8 +142,11 @@ TABLE_W = CONTENT_W  # 180mm
 TABLE_ROWS = 31
 TABLE_H = 150.0
 # Padding vertical del cuerpo. Es la palanca que decide cuantos dias entran en
-# una pagina: a 1.5mm la fila mide ~5.8mm y el corte esta en 27 dias; a 1.0mm
-# mide ~4.8mm y entran los 31. Medido, no estimado.
+# una pagina. Medido renderizando PDFs reales contra ESTE encabezado compacto:
+# a 1.5mm el ultimo rango de una pagina es de 31 dias; a 1.0mm es de 37. Se usa
+# 1.0 para no dejar un mes de 31 dias justo en el borde: con 6 dias de aire, un
+# retoque chico del encabezado o del pie no manda el documento a dos paginas.
+# (Si se toca este valor, `horariosTemplateRender.test.js` lo verifica.)
 TABLE_PAD_Y = 1.0
 
 TABLE_HEAD = ["Día", "Entrada", "Salida", "Hs"]
