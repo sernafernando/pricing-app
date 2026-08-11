@@ -210,7 +210,9 @@ export default function Tienda() {
       setProductoInfo, setMostrarModalInfo,
       colorDropdownAbierto, setColorDropdownAbierto,
     },
-    permissions: { puedeEditar, puedeMarcarColor, puedeEditarWebTransf, puedeCalcularWebMasivo },
+    // `puedeVerWebTarjeta` también acá: decide si la columna Web Tarjeta es
+    // navegable, en sintonía con el guard del <th>/<td> más abajo.
+    permissions: { puedeEditar, puedeMarcarColor, puedeEditarWebTransf, puedeCalcularWebMasivo, puedeVerWebTarjeta },
     showToast,
   });
 

@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
 
 /**
  * Custom hook para manejar TODA la navegación por teclado y atajos en la vista Tienda.
@@ -27,10 +27,45 @@ export function useTiendaKeyboard({
   const [modoNavegacion, setModoNavegacion] = useState(false);
   const [mostrarShortcutsHelp, setMostrarShortcutsHelp] = useState(false);
 
-  // Columnas navegables según vista activa
-  const columnasNavegablesNormal = ['precio_clasica', 'precio_gremio', 'precio_web_transf', 'web_tarjeta'];
-  const columnasNavegablesCuotas = ['precio_clasica', 'cuotas_3', 'cuotas_6', 'cuotas_9', 'cuotas_12'];
+  // Columnas navegables según vista activa.
+  //
+  // El orden DEBE mapear 1:1 con los `colIndex` que resalta Tienda.jsx: si se
+  // agrega o saca una columna en el JSX hay que tocar este array o toda la
+  // navegación queda corrida (así se perdió `precio_sugerido` en su momento).
+  //   Vista normal → 0 Clásica, 1 Sugerido, 2 Gremio, 3 Web Transf, 4 Web Tarjeta
+  //   Vista cuotas → 0 Clásica, 1 c/3, 2 c/6, 3 c/9, 4 c/12
+  //
+  // `web_tarjeta` sólo entra si el usuario tiene `tienda.ver_web_tarjeta`: su
+  // <td>/<th> está detrás del mismo guard en Tienda.jsx, así que sin permiso la
+  // columna no existe y no debe ser navegable (si no, el último colIndex
+  // resaltaría la nada).
+  const { puedeVerWebTarjeta } = permissions;
+
+  // Memoizados para que `columnasEditables` mantenga una referencia estable y
+  // pueda ir en las deps del handler de teclado sin recrearlo en cada render.
+  const columnasNavegablesNormal = useMemo(() => (
+    puedeVerWebTarjeta
+      ? ['precio_clasica', 'precio_sugerido', 'precio_gremio', 'precio_web_transf', 'web_tarjeta']
+      : ['precio_clasica', 'precio_sugerido', 'precio_gremio', 'precio_web_transf']
+  ), [puedeVerWebTarjeta]);
+  const columnasNavegablesCuotas = useMemo(
+    () => ['precio_clasica', 'cuotas_3', 'cuotas_6', 'cuotas_9', 'cuotas_12'],
+    []
+  );
   const columnasEditables = ui.vistaModoCuotas ? columnasNavegablesCuotas : columnasNavegablesNormal;
+
+  // Al cambiar de vista o al perder `tienda.ver_web_tarjeta` el array se achica,
+  // y el colIndex actual puede quedar fuera de rango (resaltando una celda que
+  // ya no existe). Lo recortamos al último índice válido.
+  // Setter funcional a propósito: así no hace falta `celdaActiva` en las deps.
+  useEffect(() => {
+    setCeldaActiva((celda) => {
+      if (!celda) return celda;
+      const maxColIndex = columnasEditables.length - 1;
+      if (celda.colIndex <= maxColIndex) return celda;
+      return { ...celda, colIndex: maxColIndex };
+    });
+  }, [columnasEditables]);
 
   // === CLIPBOARD SHORTCUTS (Ctrl+F1/F2/F3) ===
   useEffect(() => {
@@ -485,6 +520,8 @@ export function useTiendaKeyboard({
       // Permisos
       permissions.puedeEditar, permissions.puedeMarcarColor,
       permissions.puedeEditarWebTransf, permissions.puedeCalcularWebMasivo,
+      // Columnas navegables (memoizadas: cambian sólo con vista/permiso)
+      columnasEditables,
       // Estado local
       modoNavegacion, celdaActiva, mostrarShortcutsHelp,
       // Setter local

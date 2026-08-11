@@ -553,8 +553,19 @@ export function useTiendaPricing({
     if (columna === 'precio_clasica') {
       setEditandoPrecio(producto.item_id);
       setPrecioTemp(producto.precio_lista_ml || '');
+    } else if (columna === 'precio_sugerido') {
+      // Lo editable de esta columna es el markup sugerido, no el precio.
+      // El permiso `productos.gestionar_markups_tienda` se chequea en Tienda.jsx:
+      // si el usuario no lo tiene, el input inline no se renderiza y esto queda
+      // en un no-op silencioso. Nunca tira.
+      iniciarEdicionMarkupSugerido(producto);
     } else if (columna === 'precio_gremio') {
-      // Precio Gremio es solo lectura - no se edita directamente
+      // No-op DELIBERADO: desde teclado Precio Gremio es solo lectura.
+      // La edición manual existe pero se dispara por clic y está gateada por
+      // `tienda.editar_precio_gremio_manual`. No es una rama faltante.
+    } else if (columna === 'web_tarjeta') {
+      // No-op DELIBERADO: Web Tarjeta es un valor calculado (precio web transf
+      // + markup de config), no tiene edición por celda. No es una rama faltante.
     } else if (columna === 'precio_web_transf') {
       setEditandoWebTransf(producto.item_id);
       setWebTransfTemp({
