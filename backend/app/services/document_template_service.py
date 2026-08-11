@@ -347,6 +347,59 @@ VARIABLES_POR_CONTEXTO: dict[str, List[VariableInfo]] = {
             ejemplo="Se le notifica que le corresponden...",
         ),
     ],
+    "horarios_empleado": [
+        # Encabezado: identidad del empleado + período
+        VariableInfo(nombre="legajo", tipo="text", descripcion="Número de legajo", ejemplo="0042"),
+        VariableInfo(
+            nombre="nombre_completo",
+            tipo="text",
+            descripcion="Nombre completo (apellido, nombre)",
+            ejemplo="Pérez, Juan",
+        ),
+        VariableInfo(nombre="dni", tipo="text", descripcion="DNI del empleado", ejemplo="30111222"),
+        VariableInfo(nombre="cuil", tipo="text", descripcion="CUIL del empleado", ejemplo="20301112223"),
+        VariableInfo(nombre="puesto", tipo="text", descripcion="Puesto del empleado", ejemplo="Operario"),
+        VariableInfo(nombre="area", tipo="text", descripcion="Área / sector del empleado", ejemplo="Depósito"),
+        VariableInfo(
+            nombre="periodo",
+            tipo="text",
+            descripcion="Período cubierto por el documento",
+            ejemplo="01/08/2026 - 31/08/2026",
+        ),
+        VariableInfo(
+            nombre="fecha_emision",
+            tipo="text",
+            descripcion="Fecha en que se emitió el documento (distingue una reimpresión posterior)",
+            ejemplo="10/08/2026",
+        ),
+        # Pie: totales del período
+        VariableInfo(
+            nombre="total_horas",
+            tipo="text",
+            descripcion="Total de horas del período (HH:MM)",
+            ejemplo="176:30",
+        ),
+        VariableInfo(
+            nombre="total_dias",
+            tipo="number",
+            descripcion="Cantidad de días listados en el documento",
+            ejemplo="22",
+        ),
+        # Grilla de días: DOS tablas lado a lado para que ~6 semanas entren en
+        # una sola página. El frontend parte la lista de días por la mitad.
+        VariableInfo(
+            nombre="tabla_dias_1",
+            tipo="table",
+            descripcion="Primera columna de días: día, entrada, salida, horas",
+            ejemplo='[["Lun 03/08","08:57","18:03","09:06"]]',
+        ),
+        VariableInfo(
+            nombre="tabla_dias_2",
+            tipo="table",
+            descripcion="Segunda columna de días: día, entrada, salida, horas",
+            ejemplo='[["Mar 18/08","09:02","18:00","08:58"]]',
+        ),
+    ],
     "remito_manual": [
         # Datos del cliente (manual o desde envío)
         VariableInfo(
