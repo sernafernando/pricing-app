@@ -12,8 +12,10 @@ import {
   Download,
   FileText,
   CalendarRange,
+  Clock,
   X,
 } from 'lucide-react';
+import HorariosDocumentoModal from '../components/HorariosDocumentoModal';
 import styles from './RRHHPresentismo.module.css';
 
 const ESTADOS_PRESENTISMO = [
@@ -67,6 +69,7 @@ const getWeekRange = () => {
 export default function RRHHPresentismo() {
   const { tienePermiso } = usePermisos();
   const puedeGestionar = tienePermiso('rrhh.gestionar');
+  const puedeImprimir = tienePermiso('documentos.imprimir');
 
   const [activeTab, setActiveTab] = useState('presentismo');
 
@@ -112,6 +115,9 @@ export default function RRHHPresentismo() {
   const [rangoSaving, setRangoSaving] = useState(false);
   const [rangoError, setRangoError] = useState(null);
   const [rangoSuccess, setRangoSuccess] = useState(null);
+
+  // ── Registro de horarios (PDF imprimible) ──
+  const [horariosModalOpen, setHorariosModalOpen] = useState(false);
 
   // --- Empleados for ART select ---
   const [empleados, setEmpleados] = useState([]);
@@ -911,6 +917,15 @@ export default function RRHHPresentismo() {
                 <CalendarRange size={14} /> Cargar por rango
               </button>
             )}
+            {puedeImprimir && (
+              <button
+                className={styles.btnCreate}
+                onClick={() => setHorariosModalOpen(true)}
+                title="Generar el registro de horarios imprimible por empleado"
+              >
+                <Clock size={14} /> Registro de horarios
+              </button>
+            )}
           </div>
           {markError && <div className={styles.formError} style={{ marginBottom: 'var(--spacing-sm)' }}>{markError}</div>}
           {renderPresentismoGrid()}
@@ -944,6 +959,16 @@ export default function RRHHPresentismo() {
       {/* Modals */}
       {renderArtFormModal()}
       {renderArtDetalleModal()}
+
+      {/* Registro de horarios imprimible */}
+      <HorariosDocumentoModal
+        isOpen={horariosModalOpen}
+        onClose={() => setHorariosModalOpen(false)}
+        empleados={empleados}
+        fechaDesde={fechaDesde}
+        fechaHasta={fechaHasta}
+      />
+
 
       {/* Range marking modal */}
       {rangoModalOpen && (
