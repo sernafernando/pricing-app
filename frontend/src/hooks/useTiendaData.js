@@ -241,14 +241,22 @@ export function useTiendaData({
     cargarDatosPorPM();
   }, [filters.pmsSeleccionados, showToast]);
 
-  // Cargar datos iniciales (mount only)
+  // Cargar datos iniciales (solo al montar)
+  // Ojo: NO agregar deps acá. Cualquier dep que cambie vuelve a disparar TODOS
+  // estos loaders, no solo el que le interesa a esa dep.
   useEffect(() => {
     cargarUsuariosAuditoria();
     cargarTiposAccion();
     cargarPMs();
-    if (puedeVerWebTarjeta) cargarConfigWebTarjeta();
     cargarConfigPorcentajeTarjetaTn();
     cargarDolarVenta();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Config de web tarjeta: efecto propio porque es el único request que depende
+  // del permiso. Sin el permiso la columna no se renderiza, así que no se pide.
+  useEffect(() => {
+    if (puedeVerWebTarjeta) cargarConfigWebTarjeta();
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [puedeVerWebTarjeta]);
 
