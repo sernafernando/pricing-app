@@ -149,6 +149,9 @@ TABLE_H = 150.0
 # (Si se toca este valor, `horariosTemplateRender.test.js` lo verifica.)
 TABLE_PAD_Y = 1.0
 
+# Separacion DECLARADA entre el fondo de la tabla y el pie (ver template_horarios).
+GAP_PIE = 14.0
+
 TABLE_HEAD = ["Día", "Entrada", "Salida", "Hs"]
 TABLE_HEAD_WIDTHS = [34, 23, 23, 20]  # suma 100
 
@@ -283,7 +286,19 @@ def template_horarios() -> dict:
     fields.append(_tabla_dias("tabla_dias", MARGIN, table_y))
 
     # ── Pie: va pegado a la tabla y fluye con ella ───────────────────────
-    y = table_y + TABLE_H + 5
+    #
+    # `GAP_PIE` es DECLARADO; el aire real que queda entre el borde inferior de
+    # la ultima celda y el texto del pie es `GAP_PIE - 8mm`. Ese corrimiento de
+    # 8mm es sistematico y no depende de la cantidad de filas: pdfme reubica el
+    # pie en `baseY + totalYOffset`, y su `totalYOffset` no contempla el alto
+    # completo de la ultima fila dibujada. Medido sobre PDFs reales con 10, 23 y
+    # 31 filas: con GAP_PIE=5 el pie caia 3mm DENTRO de la tabla — que es
+    # exactamente el bug que se vio en produccion, con "Total horas" impreso
+    # encima de los ultimos renglones.
+    #
+    # 14 deja 6mm de aire real. Si se toca, `horariosTemplateRender.test.js`
+    # lo verifica renderizando.
+    y = table_y + TABLE_H + GAP_PIE
     fields.append(_label("__lbl_total_horas__", MARGIN, y, 28, 7, "Total horas:", fontSize=10))
     fields.append(_text("total_horas", MARGIN + 28, y, 35, 7, content="0:00", bold=True, fontSize=12))
     fields.append(_label("__lbl_total_dias__", MARGIN + 110, y, 28, 7, "Total días:", fontSize=10))
