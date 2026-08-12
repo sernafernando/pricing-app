@@ -500,7 +500,7 @@ class MLWebhookClient:
 
         Returns:
             `{ok, status_code, ambiguous, body}` -- see
-            `_classify_write_response`.
+            `_classify_pxq_write_response`.
         """
         try:
             async with httpx.AsyncClient(timeout=15.0) as client:
@@ -509,7 +509,67 @@ class MLWebhookClient:
             logger.error(f"Error (ambiguo) escribiendo precios PxQ del item {item_id}: {e}")
             return {"ok": False, "status_code": None, "ambiguous": True, "body": None}
 
-        return self._classify_write_response(response)
+        return self._classify_pxq_write_response(response)
+
+    @classmethod
+    def _classify_pxq_write_response(cls, response: httpx.Response) -> Dict:
+        """Classifies a PxQ write, refining the shared status-only verdict
+        with the `pxq_write` field the proxy stamps on the responses IT
+        generates.
+
+        Status code alone cannot separate "the write never left" from "the
+        write may have landed": a 502 the proxy raises because its own
+        pre-write read failed is byte-identical to a 502 relayed from ML,
+        and the two mean opposite things. Hence the field, and hence its
+        ABSENCE being meaningful -- no field means the response is an ML
+        passthrough, untouched by the proxy.
+
+            2xx     / absent          -> written (ML passthrough)
+            400     / not_attempted   -> not written (payload refused by proxy)
+            502     / not_attempted   -> not written (pre-write read failed)
+            504     / ambiguous       -> maybe written (POST to ML timed out)
+            500     / ambiguous       -> maybe written (handler exception)
+            non-2xx / absent          -> ML error relayed as-is
+
+        DELIBERATE DEVIATION from the provider's stated rule. Theirs reads:
+        `not_attempted` means not written, ANY other non-2xx (`ambiguous`,
+        or field absent) is ambiguous. We follow it except for a 4xx with
+        no field, which we keep as a definitive rejection.
+
+        Why: on our side `ambiguous=True` is not merely a retry gate. In
+        `ml_pxq_write_service.sync_pxq_tiers` it writes `estado =
+        desconocido` across the mirror rows and commits, forcing a manual
+        reconciliation. A 4xx relayed from ML (e.g. "You can just send a
+        maximum of 5 prices per quantity") is ML refusing the payload after
+        looking at it -- we KNOW nothing was applied. Marking those tiers
+        `desconocido` would not be conservative, it would persist a
+        falsehood and send someone to reconcile a write that never
+        happened. The provider wrote their rule without knowing our flag
+        mutates state. The deviation was declared to them so they can veto
+        it; do not "fix" it back without that conversation.
+
+        Kept SEPARATE from `_classify_write_response` on purpose: that one
+        is shared with `enroll_item` / `remove_item` (promotions), whose
+        responses have no `pxq_write` field. Folding this rule in there
+        would turn every promotions non-2xx into an ambiguous write.
+        """
+        result = cls._classify_write_response(response)
+        if result["ok"]:
+            return result
+
+        body = result["body"]
+        # Guarded: an error body is whatever the proxy or ML happened to
+        # emit -- a list, a string, or nothing parseable at all.
+        pxq_write = body.get("pxq_write") if isinstance(body, dict) else None
+
+        if pxq_write == "not_attempted":
+            result["ambiguous"] = False
+        elif pxq_write == "ambiguous":
+            result["ambiguous"] = True
+        # Field absent: the shared status-only verdict already says the
+        # right thing (5xx unknown, 4xx definitive), including the
+        # deviation documented above.
+        return result
 
     async def get_pxq_eligibility(self, item_id: str) -> Optional[Dict]:
         """Fetches the eligibility facts for a PxQ sync: the item's own
