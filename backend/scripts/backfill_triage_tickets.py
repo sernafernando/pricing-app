@@ -1,10 +1,14 @@
-"""Backfill AI triage for tickets that predate the triage agent.
+"""Backfill AI triage for tickets that predate the triage agent, and for
+tickets missing only SOME proposable fields.
 
-Slice 3 (single-box intake) merged BEFORE slice 4a (the triage agent).
-Tickets created in that window have `texto_original` but ZERO `PropuestaIA`
-rows, and nothing else in the system ever reprocesses them (obs #1400: the
-board shows a truncated auto-title and nothing else for these — the worst
-case of unstructured free-text input with no AI structuring at all).
+Slice 3 (single-box intake) merged BEFORE slice 4a (the triage agent), and
+33/35 production tickets predate single-box intake entirely (they carry a
+human-written `titulo` + `descripcion` from the OLD two-field form instead
+of `texto_original`). Nothing else in the system ever reprocesses either
+group: obs #1400 (a truncated auto-title with no AI structuring at all) and
+obs #1409 (ticket #34 already had `titulo`/`resumen` but could never get
+`sector`/`tipo_ticket` because the old candidate query picked tickets with
+ZERO proposals, all-or-nothing per ticket instead of per field).
 
 Standalone script — same mapper-registry trap as
 `scripts/audit_transiciones_tickets.py` (obs #1323/#1350):
@@ -51,6 +55,7 @@ import logging
 import sys
 from typing import Optional
 
+from sqlalchemy import and_, or_
 from sqlalchemy.orm import Session
 
 from app.core.database import SessionLocal
@@ -73,34 +78,104 @@ _TRIAGE_LOGGER_NAME = "app.tickets.services.triage_service"
 _SLEEP_BETWEEN_CALLS_SECONDS = 3.0  # ~20 RPM, under Groq's 30 RPM cap (obs #1299)
 
 
-class _RateLimitDetector(logging.Handler):
-    """Attached around ONE `run_triage` call at a time so a 429 is
-    attributed to the right ticket. `run_triage` never re-raises the
-    provider's `LlmProviderError` — it logs it via
-    `logger.warning(..., exc_info=True)` and degrades to "unclassified".
-    Grepping that captured exception text for '429' is the only signal
-    available from outside `run_triage` without changing its contract.
+class _TriageOutcomeDetector(logging.Handler):
+    """Attached around ONE `run_triage` call at a time so its outcome is
+    attributed to the right ticket. `run_triage` never re-raises a
+    failure (spec: "Degradation When Groq Is Unavailable") — it always
+    logs a WARNING and returns, so this is the only signal available from
+    outside without changing that contract:
+
+    - `did_fail` + `hit_429`: the provider call itself failed with a 429
+      (rate limited — Groq never even returned a response to classify).
+    - `did_fail` + not `hit_429`: the call failed for another reason
+      (timeout, non-429 HTTP error, malformed/unparseable JSON, a schema
+      mismatch, or a write-phase failure such as the partial unique index
+      backstop) — a REAL problem worth investigating, distinct from a
+      rate limit that clears on its own.
+    - not `did_fail`: the call succeeded and parsed. Combined with "zero
+      NEW proposal rows written" (checked by the caller), this means every
+      applicable field was null or below the confidence threshold — a
+      LEGITIMATE, expected outcome (obs #1371's gate doing its job), not a
+      bug to chase. Previously lumped together with the line above under
+      one "sin propuestas por otra causa" bucket, which sent the
+      maintainer chasing the wrong cause.
+
     Substring match, not a parsed status code: a ticket whose own error
     text happened to contain '429' would false-positive here, but this
-    only feeds a report bucket, never a retry/skip decision."""
+    only feeds a report bucket, never a retry/skip decision.
+    """
 
     def __init__(self) -> None:
         super().__init__(level=logging.WARNING)
+        self.did_fail = False
         self.hit_429 = False
 
     def emit(self, record: logging.LogRecord) -> None:
+        # Common prefix, not the full "...failed for ticket" phrase: that
+        # only matched ONE of `run_triage`'s two failure warnings — a
+        # write-phase failure ("failed to write proposals for ticket #%s",
+        # the partial unique index backstop) slipped through and was
+        # miscounted as a legitimate confidence gate. Same review finding
+        # this bucket split was written to prevent, entering through the
+        # other message.
+        if "tickets triage: failed" not in record.getMessage():
+            return
+        self.did_fail = True
         if record.exc_info and record.exc_info[1] is not None and "429" in str(record.exc_info[1]):
             self.hit_429 = True
 
 
+# Fields `run_triage` always attempts for any ticket with text to classify
+# (obs #1409's gap). `titulo` is NOT here — it only applies when
+# `texto_original` is set (see below) — and `metadata_ia` is deliberately
+# excluded: it is optional BY DESIGN (`run_triage` only writes it when the
+# response actually carries something useful), so treating it as
+# "missing" would flag every ticket forever, not just genuine gaps. Kept
+# in sync with `run_triage`'s own write loop in `triage_service.py`.
+CAMPOS_PROPUESTA_BASE = ("sector", "tipo_ticket", "severidad", "urgencia", "resumen")
+
+# Same (ticket, campo) → "already has an active proposal" predicate as
+# `triage_service._ya_tiene_propuesta_activa` — kept consistent on
+# purpose: if the two drift apart, this script could pick up a ticket
+# `run_triage` will immediately skip for every field, wasting a Groq call.
+_ESTADOS_PROPUESTA_ACTIVA = ("pendiente", "confirmada")
+
+
 def find_candidate_tickets(db: Session, limit: Optional[int] = None) -> list:
-    """Tickets with `texto_original` set and ZERO `PropuestaIA` rows of any
-    `estado` — a discarded/replaced proposal still means triage RAN for
-    that ticket. Idempotent by construction: once a ticket has at least one
-    proposal, a re-run of this script never selects it again."""
-    tiene_propuesta = db.query(PropuestaIA.id).filter(PropuestaIA.ticket_id == Ticket.id)
+    """Tickets with SOME text to classify (`texto_original` OR, falling
+    back, `descripcion` — same fallback `run_triage` itself applies) that
+    are missing an active proposal for AT LEAST ONE applicable field —
+    reasoned PER FIELD, not per ticket. `titulo` only counts as
+    "applicable" when `texto_original` is set: a ticket predating
+    single-box intake never gets an AI titulo proposed at all (its titulo
+    is a person's own words), so a missing titulo there is not a gap.
+
+    Idempotent in the sense that matters: `_ya_tiene_propuesta_activa`
+    inside `run_triage` still refuses to duplicate a field that already
+    has an active proposal, so re-running this script never writes twice.
+    A ticket whose remaining gap is a genuinely confidence-gated judgement
+    field CAN be re-selected on a later run (there is no DB row to
+    distinguish "never attempted" from "attempted and gated") — a
+    conscious tradeoff for a manually-run maintenance script, not a
+    correctness bug.
+    """
+
+    def _sin_propuesta_activa(campo: str):
+        activa = db.query(PropuestaIA.id).filter(
+            PropuestaIA.ticket_id == Ticket.id,
+            PropuestaIA.campo == campo,
+            PropuestaIA.estado.in_(_ESTADOS_PROPUESTA_ACTIVA),
+        )
+        return ~activa.exists()
+
+    falta_campo_base = or_(*(_sin_propuesta_activa(campo) for campo in CAMPOS_PROPUESTA_BASE))
+    falta_titulo = and_(Ticket.texto_original.isnot(None), _sin_propuesta_activa("titulo"))
+
     query = (
-        db.query(Ticket).filter(Ticket.texto_original.isnot(None)).filter(~tiene_propuesta.exists()).order_by(Ticket.id)
+        db.query(Ticket)
+        .filter(or_(Ticket.texto_original.isnot(None), Ticket.descripcion.isnot(None)))
+        .filter(or_(falta_campo_base, falta_titulo))
+        .order_by(Ticket.id)
     )
     if limit is not None:
         query = query.limit(limit)
@@ -108,7 +183,7 @@ def find_candidate_tickets(db: Session, limit: Optional[int] = None) -> list:
 
 
 def _preview(ticket) -> str:
-    texto = (ticket.texto_original or "").replace("\n", " ").strip()
+    texto = (ticket.texto_original or ticket.descripcion or "").replace("\n", " ").strip()
     return texto[:60]
 
 
@@ -118,39 +193,57 @@ def _print_candidatos(tickets: list) -> None:
         print(f"  #{t.id} | creado {t.created_at} | {_preview(t)}")
 
 
-def _tiene_propuestas(ticket_id: int) -> bool:
-    db = SessionLocal()
-    try:
-        return db.query(PropuestaIA.id).filter(PropuestaIA.ticket_id == ticket_id).first() is not None
-    finally:
-        db.close()
+def _contar_propuestas(db: Session, ticket_id: int) -> int:
+    return db.query(PropuestaIA.id).filter(PropuestaIA.ticket_id == ticket_id).count()
 
 
 async def _procesar(tickets: list, provider: LlmProvider) -> dict:
-    resumen = {"procesados": 0, "con_propuestas": 0, "sin_clasificar_rate_limit": 0, "fallidos": 0}
+    resumen = {
+        "procesados": 0,
+        "con_propuestas": 0,
+        "rate_limit": 0,
+        "fallo_llm_o_parseo": 0,
+        "sin_propuestas_por_confianza": 0,
+        "fallidos": 0,
+    }
     triage_logger = logging.getLogger(_TRIAGE_LOGGER_NAME)
+    # ONE session reused for the (read-only) before/after COUNT check
+    # across the whole batch — real pre-push review finding: opening a
+    # throwaway SessionLocal() twice per ticket (up to 70 connections for
+    # 35 tickets) is exactly the disposable-session-in-a-loop pattern
+    # behind this project's 2026-06-24 pool exhaustion incident (PR #811).
+    # Never holds a transaction open across `run_triage`'s own network
+    # call — it is only ever touched here, between calls.
+    conteo_db = SessionLocal()
+    try:
+        for i, ticket in enumerate(tickets):
+            detector = _TriageOutcomeDetector()
+            triage_logger.addHandler(detector)
+            try:
+                antes = _contar_propuestas(conteo_db, ticket.id)
+                await run_triage(ticket.id, provider)
+                resumen["procesados"] += 1
+                if _contar_propuestas(conteo_db, ticket.id) > antes:
+                    resumen["con_propuestas"] += 1
+                elif detector.hit_429:
+                    resumen["rate_limit"] += 1
+                elif detector.did_fail:
+                    resumen["fallo_llm_o_parseo"] += 1
+                else:
+                    resumen["sin_propuestas_por_confianza"] += 1
+            except Exception:
+                # A per-ticket failure (including anything unexpected NOT
+                # already swallowed by run_triage's own contract) must not
+                # abort the whole batch — report it and move on.
+                logger.exception("backfill triage: fallo inesperado en ticket #%s", ticket.id)
+                resumen["fallidos"] += 1
+            finally:
+                triage_logger.removeHandler(detector)
 
-    for i, ticket in enumerate(tickets):
-        detector = _RateLimitDetector()
-        triage_logger.addHandler(detector)
-        try:
-            await run_triage(ticket.id, provider)
-            resumen["procesados"] += 1
-            if _tiene_propuestas(ticket.id):
-                resumen["con_propuestas"] += 1
-            elif detector.hit_429:
-                resumen["sin_clasificar_rate_limit"] += 1
-        except Exception:
-            # A per-ticket failure (including anything unexpected NOT
-            # already swallowed by run_triage's own contract) must not
-            # abort the whole batch — report it and move on.
-            logger.exception("backfill triage: fallo inesperado en ticket #%s", ticket.id)
-            resumen["fallidos"] += 1
-        finally:
-            triage_logger.removeHandler(detector)
-
-        if i < len(tickets) - 1:
-            await asyncio.sleep(_SLEEP_BETWEEN_CALLS_SECONDS)
+            if i < len(tickets) - 1:
+                await asyncio.sleep(_SLEEP_BETWEEN_CALLS_SECONDS)
+    finally:
+        conteo_db.close()
 
     return resumen
 
@@ -158,14 +251,14 @@ async def _procesar(tickets: list, provider: LlmProvider) -> dict:
 def _print_resumen(resumen: dict) -> None:
     print("Resumen del backfill de triage IA:")
     print(f"  Procesados: {resumen['procesados']}")
-    print(f"  Con propuestas escritas: {resumen['con_propuestas']}")
-    print(f"  Sin clasificar por rate limit de Groq (429, sin reintento): {resumen['sin_clasificar_rate_limit']}")
+    print(f"  Con propuestas nuevas escritas: {resumen['con_propuestas']}")
+    print(f"  Sin clasificar por rate limit de Groq (429, sin reintento): {resumen['rate_limit']}")
+    print(f"  Fallo del proveedor o respuesta no parseable (no es rate limit): {resumen['fallo_llm_o_parseo']}")
+    print(
+        "  Sin propuestas nuevas por confianza baja (gateado, comportamiento esperado): "
+        f"{resumen['sin_propuestas_por_confianza']}"
+    )
     print(f"  Fallidos (error inesperado del script): {resumen['fallidos']}")
-    sin_causa_identificada = resumen["procesados"] - resumen["con_propuestas"] - resumen["sin_clasificar_rate_limit"]
-    if sin_causa_identificada > 0:
-        print(
-            f"  Sin propuestas por otra causa (respuesta no parseable, confianza baja, etc.): {sin_causa_identificada}"
-        )
 
 
 def _parse_args(argv: Optional[list] = None) -> argparse.Namespace:

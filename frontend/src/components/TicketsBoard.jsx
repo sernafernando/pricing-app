@@ -38,7 +38,9 @@ function DraggableCard({ ticket, columnaClave, onClick }) {
 
 /** A column's item list as a dnd-kit droppable target, keyed by `columna.clave`. */
 function DroppableColumn({ columna, children }) {
-  const { setNodeRef, isOver } = useDroppable({ id: columna.clave });
+  // The 'inbox' column has no single estado_id to transition into — never
+  // a valid drop target (see ticketsBoardDnd.js's matching guard).
+  const { setNodeRef, isOver } = useDroppable({ id: columna.clave, disabled: columna.clave === 'inbox' });
 
   return (
     <div ref={setNodeRef} className={isOver ? `${styles.columnItems} ${styles.columnItemsOver}` : styles.columnItems}>
@@ -52,7 +54,7 @@ function DroppableColumn({ columna, children }) {
  * "Load more" reuses GET /tickets with a matching filter, never a second
  * board query — pagination has exactly one implementation (PR 5b).
  */
-export default function TicketsBoard({ agrupacion, onCardClick }) {
+export default function TicketsBoard({ agrupacion, sectorId, onCardClick }) {
   const [columnas, setColumnas] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -69,7 +71,7 @@ export default function TicketsBoard({ agrupacion, onCardClick }) {
     setLoading(true);
     setError(null);
     try {
-      const { data } = await boardAPI.obtener(agrupacion, ITEMS_POR_COLUMNA);
+      const { data } = await boardAPI.obtener(agrupacion, ITEMS_POR_COLUMNA, sectorId);
       setColumnas(data.columnas || []);
       setPaginas({});
     } catch {
@@ -78,7 +80,7 @@ export default function TicketsBoard({ agrupacion, onCardClick }) {
     } finally {
       setLoading(false);
     }
-  }, [agrupacion]);
+  }, [agrupacion, sectorId]);
 
   useEffect(() => {
     cargarTablero();
@@ -88,7 +90,15 @@ export default function TicketsBoard({ agrupacion, onCardClick }) {
     const nextPage = (paginas[columna.clave] || 1) + 1;
     setLoadingMore((prev) => ({ ...prev, [columna.clave]: true }));
     try {
-      const filtro = agrupacion === 'estado' ? { estado_id: columna.clave } : { urgencia: columna.clave };
+      // The 'inbox' column aggregates every estado in the Inbox workflow —
+      // it has no single estado_id to filter by, so it filters by the
+      // Inbox sector's own id instead (see `BoardColumnResponse.sector_id`).
+      const filtro =
+        agrupacion === 'estado'
+          ? columna.clave === 'inbox'
+            ? { sector_id: columna.sector_id }
+            : { estado_id: columna.clave }
+          : { urgencia: columna.clave };
       const { data } = await ticketsAPI.listar({ ...filtro, page: nextPage, page_size: ITEMS_POR_COLUMNA });
       setColumnas((prev) =>
         prev.map((c) => (c.clave === columna.clave ? { ...c, items: [...c.items, ...(data.items || [])] } : c))

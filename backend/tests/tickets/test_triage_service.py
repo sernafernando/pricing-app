@@ -173,14 +173,22 @@ def _make_usuario(db, rol: Rol, username: str) -> Usuario:
     return usuario
 
 
-def _make_ticket(db, rol: Rol, suffix: str, texto: str = "No puedo facturar desde ayer") -> Ticket:
+def _make_ticket(
+    db,
+    rol: Rol,
+    suffix: str,
+    texto: str | None = "No puedo facturar desde ayer",
+    *,
+    descripcion: str | None = None,
+    titulo: str = "Ticket para triage",
+) -> Ticket:
     _seq[0] += 1
     sector = _make_sector(db, codigo=f"TRIAGE_TEST_{suffix}_{_seq[0]}")
     tipo, estado = _make_tipo_y_estado(db, sector)
     creador = _make_usuario(db, rol, username=f"triage_test_user_{suffix}_{_seq[0]}")
 
     ticket = Ticket(
-        titulo="Ticket para triage",
+        titulo=titulo,
         prioridad=PrioridadTicket.MEDIA,
         sector_id=sector.id,
         tipo_ticket_id=tipo.id,
@@ -188,6 +196,7 @@ def _make_ticket(db, rol: Rol, suffix: str, texto: str = "No puedo facturar desd
         creador_id=creador.id,
         campos_metadata={},
         texto_original=texto,
+        descripcion=descripcion,
     )
     db.add(ticket)
     db.flush()
@@ -691,6 +700,62 @@ class TestDegradationProviderFails:
         with _patch_background_db(db):
             asyncio.run(run_triage(ticket.id, provider))
 
+        assert db.query(PropuestaIA).filter(PropuestaIA.ticket_id == ticket.id).count() == 0
+
+
+class TestFallbackToDescripcionForLegacyTickets:
+    """fix/tickets-board-scope-y-legacy — 33/35 production tickets predate
+    single-box intake: `texto_original IS NULL` but they carry a
+    human-written `titulo` + `descripcion` from the old two-field form.
+    `run_triage` must fall back to `descripcion` as the text SOURCE, but
+    must NEVER propose an AI `titulo` for these — that title is a
+    person's own words, not a machine-derived fragment (obs #1400: a
+    field's MEANING changing breaks every consumer that trusted the old
+    one, silently)."""
+
+    def test_falls_back_to_descripcion_when_texto_original_is_null(self, db, rol_ventas) -> None:
+        ticket = _make_ticket(db, rol_ventas, "legacy", texto=None, descripcion="Reclamo legado sin texto_original")
+        provider = FakeProvider(response=json.dumps(_valid_payload_for_ticket(ticket)))
+
+        with _patch_background_db(db):
+            asyncio.run(run_triage(ticket.id, provider))
+
+        assert provider.calls == 1
+        assert json.loads(provider.last_user_payload)["texto"] == "Reclamo legado sin texto_original"
+
+    def test_no_titulo_proposal_written_for_legacy_ticket_but_resumen_severidad_urgencia_still_are(
+        self, db, rol_ventas
+    ) -> None:
+        ticket = _make_ticket(db, rol_ventas, "legacy2", texto=None, descripcion="Otro reclamo legado")
+        provider = FakeProvider(response=json.dumps(_valid_payload_for_ticket(ticket)))
+
+        with _patch_background_db(db):
+            asyncio.run(run_triage(ticket.id, provider))
+
+        campos = {p.campo for p in db.query(PropuestaIA).filter(PropuestaIA.ticket_id == ticket.id).all()}
+        assert "titulo" not in campos
+        assert "resumen" in campos
+        assert "severidad" in campos
+        assert "urgencia" in campos
+
+    def test_ticket_with_texto_original_still_gets_titulo_proposal(self, db, rol_ventas) -> None:
+        ticket = _make_ticket(db, rol_ventas, "modern")  # default texto_original set
+        provider = FakeProvider(response=json.dumps(_valid_payload_for_ticket(ticket)))
+
+        with _patch_background_db(db):
+            asyncio.run(run_triage(ticket.id, provider))
+
+        campos = {p.campo for p in db.query(PropuestaIA).filter(PropuestaIA.ticket_id == ticket.id).all()}
+        assert "titulo" in campos
+
+    def test_ticket_with_neither_texto_original_nor_descripcion_is_skipped_cleanly(self, db, rol_ventas) -> None:
+        ticket = _make_ticket(db, rol_ventas, "empty", texto=None, descripcion=None)
+        provider = FakeProvider()
+
+        with _patch_background_db(db):
+            asyncio.run(run_triage(ticket.id, provider))
+
+        assert provider.calls == 0
         assert db.query(PropuestaIA).filter(PropuestaIA.ticket_id == ticket.id).count() == 0
 
 

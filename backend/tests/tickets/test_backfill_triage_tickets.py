@@ -15,6 +15,7 @@ Run:
     pytest tests/tickets/test_backfill_triage_tickets.py -v
 """
 
+import logging
 import subprocess
 import sys
 from pathlib import Path
@@ -111,7 +112,7 @@ def _make_usuario(db, rol: Rol) -> Usuario:
     return u
 
 
-def _make_ticket(db, rol: Rol, *, texto_original) -> Ticket:
+def _make_ticket(db, rol: Rol, *, texto_original=None, descripcion=None) -> Ticket:
     _seq[0] += 1
     sector = _make_sector(db)
     tipo, estado = _make_tipo_y_estado(db, sector)
@@ -125,46 +126,80 @@ def _make_ticket(db, rol: Rol, *, texto_original) -> Ticket:
         creador_id=creador.id,
         campos_metadata={},
         texto_original=texto_original,
+        descripcion=descripcion,
     )
     db.add(t)
     db.flush()
     return t
 
 
-def _make_propuesta(db, ticket: Ticket) -> PropuestaIA:
+def _make_propuesta(db, ticket: Ticket, *, campo="titulo", estado="pendiente") -> PropuestaIA:
     p = PropuestaIA(
         ticket_id=ticket.id,
-        campo="titulo",
+        campo=campo,
         valor_propuesto={"valor": "Ya clasificado"},
         confianza=0.9,
-        estado="pendiente",
+        estado=estado,
     )
     db.add(p)
     db.flush()
     return p
 
 
+def _make_todas_las_propuestas(db, ticket: Ticket) -> None:
+    """Fully classified — an active proposal for every field
+    `script.CAMPOS_PROPUESTA_BASE` covers, plus `titulo` when the ticket's
+    `texto_original` allows it (see `script.CAMPOS_PROPUESTA_BASE` /
+    `_debe_proponer_titulo`'s production counterpart)."""
+    campos = list(script.CAMPOS_PROPUESTA_BASE)
+    if ticket.texto_original is not None:
+        campos.append("titulo")
+    for campo in campos:
+        _make_propuesta(db, ticket, campo=campo)
+
+
 class TestFindCandidateTickets:
-    def test_ticket_without_proposals_is_selected_ticket_with_proposals_is_excluded(self, db, rol_ventas):
+    def test_ticket_without_proposals_is_selected_fully_classified_ticket_is_excluded(self, db, rol_ventas):
         """Both halves of the filter, in one test: a candidate ticket (has
         texto_original, zero proposals) IS returned; a ticket that already
-        has a proposal is NOT — proving the query actually filters instead
-        of returning everything."""
+        has an active proposal for EVERY applicable field is NOT — proving
+        the query actually filters instead of returning everything."""
         candidato = _make_ticket(db, rol_ventas, texto_original="Un reclamo que nadie clasificó")
-        ya_procesado = _make_ticket(db, rol_ventas, texto_original="Este ya tiene propuesta")
-        _make_propuesta(db, ya_procesado)
+        ya_procesado = _make_ticket(db, rol_ventas, texto_original="Este ya está completo")
+        _make_todas_las_propuestas(db, ya_procesado)
 
         resultado_ids = {t.id for t in script.find_candidate_tickets(db)}
 
         assert candidato.id in resultado_ids
         assert ya_procesado.id not in resultado_ids
 
-    def test_ticket_without_texto_original_is_excluded(self, db, rol_ventas):
-        sin_texto = _make_ticket(db, rol_ventas, texto_original=None)
+    def test_ticket_missing_only_some_fields_is_picked_up(self, db, rol_ventas):
+        """The core gap this fix closes: ticket #34 in production had
+        `titulo`/`resumen` already proposed but not `sector`/`tipo_ticket`
+        — the OLD zero-proposals query could never select it again."""
+        parcial = _make_ticket(db, rol_ventas, texto_original="Ticket con algunas propuestas")
+        _make_propuesta(db, parcial, campo="titulo")
+        _make_propuesta(db, parcial, campo="resumen")
+
+        resultado_ids = {t.id for t in script.find_candidate_tickets(db)}
+
+        assert parcial.id in resultado_ids
+
+    def test_ticket_with_neither_texto_original_nor_descripcion_is_excluded(self, db, rol_ventas):
+        sin_texto = _make_ticket(db, rol_ventas, texto_original=None, descripcion=None)
 
         resultado_ids = {t.id for t in script.find_candidate_tickets(db)}
 
         assert sin_texto.id not in resultado_ids
+
+    def test_ticket_with_only_descripcion_is_a_candidate(self, db, rol_ventas):
+        """The 33/35 legacy tickets: `texto_original IS NULL` but they
+        carry a human-written `descripcion` from the old two-field form."""
+        legado = _make_ticket(db, rol_ventas, texto_original=None, descripcion="Reclamo del formulario viejo")
+
+        resultado_ids = {t.id for t in script.find_candidate_tickets(db)}
+
+        assert legado.id in resultado_ids
 
     def test_limit_caps_the_number_returned(self, db, rol_ventas):
         _make_ticket(db, rol_ventas, texto_original="Uno")
@@ -244,6 +279,30 @@ class TestPerTicketFailureDoesNotAbort:
 
         assert resumen["fallidos"] == 1
         assert resumen["procesados"] == 1
+
+
+class TestOutcomeBucketsDistinguishFailureModes:
+    def test_write_phase_failure_counts_as_fallo_not_confianza_gateada(self, monkeypatch):
+        """Real pre-push review finding: the detector originally matched
+        ONLY the "failed for ticket" message, missing `run_triage`'s
+        SECOND failure warning ("failed to write proposals for ticket
+        #%s", the unique-index race backstop) — that write-phase failure
+        fell into `sin_propuestas_por_confianza`, exactly the
+        misattribution this bucket split exists to prevent."""
+        triage_logger = logging.getLogger(script._TRIAGE_LOGGER_NAME)
+
+        async def _fake_run_triage(ticket_id, provider):
+            triage_logger.warning("tickets triage: failed to write proposals for ticket #%s", ticket_id)
+
+        monkeypatch.setattr(script, "run_triage", _fake_run_triage)
+        monkeypatch.setattr(script, "_contar_propuestas", lambda db, ticket_id: 0)
+        monkeypatch.setattr(script, "_SLEEP_BETWEEN_CALLS_SECONDS", 0)
+
+        ticket = type("Ticket", (), {"id": 1})()
+        resumen = _run_async(script._procesar([ticket], FakeProvider()))
+
+        assert resumen["fallo_llm_o_parseo"] == 1
+        assert resumen["sin_propuestas_por_confianza"] == 0
 
 
 def _run_async(coro):

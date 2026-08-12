@@ -26,6 +26,7 @@ from app.tickets.models.tipo_ticket import TipoTicket
 from app.tickets.models.workflow import EstadoTicket, Workflow
 
 BOARD_ENDPOINT = "/api/tickets/tickets/board"
+INBOX_SECTOR_CODIGO = "INBOX"
 _seq = [0]
 
 
@@ -70,6 +71,39 @@ def _make_workflow(db, *, n_estados: int = 3):
     return sector, workflow, estados, tipo, creador
 
 
+def _make_inbox_sector(db):
+    """Mirrors production's real Inbox pair (Sector INBOX / workflow
+    "Bandeja de entrada" with Nuevo→Cerrado) in the SAME shape
+    `_make_workflow` returns, so `_make_ticket` works unmodified."""
+    _seq[0] += 1
+    sector = Sector(codigo=INBOX_SECTOR_CODIGO, nombre="Bandeja de entrada", activo=True, configuracion={})
+    db.add(sector)
+    db.flush()
+    workflow = Workflow(sector_id=sector.id, nombre="Bandeja de entrada", es_default=True, activo=True)
+    db.add(workflow)
+    db.flush()
+    nuevo = EstadoTicket(workflow_id=workflow.id, codigo="nuevo", nombre="Nuevo", orden=1, es_inicial=True)
+    cerrado = EstadoTicket(workflow_id=workflow.id, codigo="cerrado", nombre="Cerrado", orden=2, es_final=True)
+    db.add_all([nuevo, cerrado])
+    db.flush()
+    tipo = TipoTicket(sector_id=sector.id, codigo="SIN_CLASIFICAR", nombre="Sin clasificar", workflow_id=workflow.id)
+    db.add(tipo)
+    db.flush()
+    creador = Usuario(
+        username=f"board_inbox_creador_{_seq[0]}",
+        email=f"board_inbox_creador_{_seq[0]}@test.com",
+        nombre="Creador Inbox",
+        password_hash=get_password_hash("pass"),
+        rol=RolUsuario.VENTAS,
+        rol_id=None,
+        auth_provider=AuthProvider.LOCAL,
+        activo=True,
+    )
+    db.add(creador)
+    db.flush()
+    return sector, workflow, [nuevo, cerrado], tipo, creador
+
+
 def _make_ticket(db, sector, tipo, estado, creador, *, urgencia=None, severidad=None, titulo=None):
     _seq[0] += 1
     ticket = Ticket(
@@ -106,6 +140,34 @@ def _make_admin(db) -> Usuario:
     permiso = db.query(Permiso).filter(Permiso.codigo == "tickets.admin").first()
     if not permiso:
         permiso = Permiso(codigo="tickets.admin", nombre="tickets.admin", categoria="tickets")
+        db.add(permiso)
+        db.flush()
+    db.add(UsuarioPermisoOverride(usuario_id=usuario.id, permiso_id=permiso.id, concedido=True))
+    db.flush()
+    return usuario
+
+
+def _make_usuario_ver_sin_sector(db) -> Usuario:
+    """`tickets.ver` but NO `SectorUsuario` membership and no
+    `tickets.admin` — sees tickets in sectors they belong to (none) plus
+    what they created. Used to prove the default-sector fallback does not
+    leak a foreign sector's workflow structure to a non-admin viewer."""
+    _seq[0] += 1
+    usuario = Usuario(
+        username=f"board_ver_sin_sector_{_seq[0]}",
+        email=f"board_ver_sin_sector_{_seq[0]}@test.com",
+        nombre="Ver Sin Sector",
+        password_hash=get_password_hash("pass"),
+        rol=RolUsuario.VENTAS,
+        rol_id=None,
+        auth_provider=AuthProvider.LOCAL,
+        activo=True,
+    )
+    db.add(usuario)
+    db.flush()
+    permiso = db.query(Permiso).filter(Permiso.codigo == "tickets.ver").first()
+    if not permiso:
+        permiso = Permiso(codigo="tickets.ver", nombre="tickets.ver", categoria="tickets")
         db.add(permiso)
         db.flush()
     db.add(UsuarioPermisoOverride(usuario_id=usuario.id, permiso_id=permiso.id, concedido=True))
@@ -205,7 +267,8 @@ class TestBoardGroupedByEstado:
         resp = client.get(BOARD_ENDPOINT, params={"agrupacion": "estado"}, headers=_headers(admin))
 
         assert resp.status_code == 200
-        card = resp.json()["columnas"][0]["items"][0]
+        columnas = {c["clave"]: c for c in resp.json()["columnas"]}
+        card = columnas[str(estados[0].id)]["items"][0]
         assert card["id"] == ticket.id
         assert card["titulo"] == "Falla facturación"
         assert card["resumen"] == "No puede facturar"
@@ -216,6 +279,117 @@ class TestBoardGroupedByEstado:
         assert card["estado"]["id"] == estados[0].id
         assert card["sector"]["id"] == sector.id
         assert card["propuestas_pendientes"] == 1  # only the 'titulo' proposal is pendiente
+
+
+class TestBoardScopedToOneWorkflow:
+    """fix/tickets-board-scope-y-legacy — the estado board must scope to
+    ONE workflow (selected by sector), with the Inbox column always
+    prepended, always separate from that scope."""
+
+    def test_two_workflows_with_same_named_estado_produce_one_column_not_two(self, client, db):
+        """Production shape: workflow 'Soporte' (sector sistema) and
+        workflow 'Bandeja de entrada' (INBOX) each own a 'Cerrado' state
+        (#5 with 11 tickets, #9 with 1). The OLD board rendered BOTH as
+        separate, interleaved columns. Scoped to sector_a, only sector_a's
+        'Cerrado' appears — sector_b's is not on the board at all."""
+        sector_a, _, estados_a, tipo_a, creador_a = _make_workflow(db, n_estados=2)
+        estados_a[-1].nombre = "Cerrado"
+        sector_b, _, estados_b, tipo_b, creador_b = _make_workflow(db, n_estados=2)
+        estados_b[-1].nombre = "Cerrado"
+        admin = _make_admin(db)
+
+        for _ in range(3):
+            _make_ticket(db, sector_a, tipo_a, estados_a[-1], creador_a)
+        _make_ticket(db, sector_b, tipo_b, estados_b[-1], creador_b)
+        db.commit()
+
+        resp = client.get(
+            BOARD_ENDPOINT, params={"agrupacion": "estado", "sector_id": sector_a.id}, headers=_headers(admin)
+        )
+
+        assert resp.status_code == 200
+        columnas = resp.json()["columnas"]
+        cerrado_columnas = [c for c in columnas if c["etiqueta"] == "Cerrado"]
+        assert len(cerrado_columnas) == 1
+        assert cerrado_columnas[0]["clave"] == str(estados_a[-1].id)
+        assert cerrado_columnas[0]["total"] == 3  # only sector_a's tickets
+        assert str(estados_b[-1].id) not in {c["clave"] for c in columnas}
+
+    def test_column_order_is_inbox_first_then_selected_workflow_orden(self, client, db):
+        inbox_sector, _, inbox_estados, inbox_tipo, inbox_creador = _make_inbox_sector(db)
+        sector, _, estados, tipo, creador = _make_workflow(db, n_estados=3)
+        admin = _make_admin(db)
+        _make_ticket(db, inbox_sector, inbox_tipo, inbox_estados[0], inbox_creador)
+        db.commit()
+
+        resp = client.get(
+            BOARD_ENDPOINT, params={"agrupacion": "estado", "sector_id": sector.id}, headers=_headers(admin)
+        )
+
+        assert resp.status_code == 200
+        claves = [c["clave"] for c in resp.json()["columnas"]]
+        assert claves == ["inbox", str(estados[0].id), str(estados[1].id), str(estados[2].id)]
+
+    def test_inbox_column_always_shown_and_counts_regardless_of_own_estado(self, client, db):
+        inbox_sector, _, inbox_estados, inbox_tipo, inbox_creador = _make_inbox_sector(db)
+        sector, _, estados, tipo, creador = _make_workflow(db, n_estados=1)
+        admin = _make_admin(db)
+        _make_ticket(db, inbox_sector, inbox_tipo, inbox_estados[0], inbox_creador)  # Nuevo
+        _make_ticket(db, inbox_sector, inbox_tipo, inbox_estados[1], inbox_creador)  # Cerrado
+        db.commit()
+
+        resp = client.get(
+            BOARD_ENDPOINT, params={"agrupacion": "estado", "sector_id": sector.id}, headers=_headers(admin)
+        )
+
+        assert resp.status_code == 200
+        columnas = {c["clave"]: c for c in resp.json()["columnas"]}
+        assert columnas["inbox"]["total"] == 2  # both Inbox tickets, across both its own estados
+        assert columnas["inbox"]["sector_id"] == inbox_sector.id
+
+    def test_non_admin_with_no_sector_membership_gets_only_inbox_not_a_foreign_sector(self, client, db):
+        """Real pre-push review finding: the default-sector fallback was
+        "first active non-Inbox sector system-wide" for EVERYONE with no
+        membership, which leaked a foreign sector's workflow structure
+        (state names/colors) to a non-admin viewer who cannot see any of
+        its tickets. Only `tickets.admin` gets that global fallback."""
+        sector, _, estados, tipo, creador = _make_workflow(db, n_estados=2)
+        viewer = _make_usuario_ver_sin_sector(db)
+        db.commit()
+
+        resp = client.get(BOARD_ENDPOINT, params={"agrupacion": "estado"}, headers=_headers(viewer))
+
+        assert resp.status_code == 200
+        claves = {c["clave"] for c in resp.json()["columnas"]}
+        assert claves == {"inbox"}  # never the foreign sector's own states
+
+    def test_explicit_sector_id_the_viewer_cannot_access_is_rejected(self, client, db):
+        """Real pre-push review finding: `_default_sector_id_para_board`'s
+        access check only guarded the DEFAULT path — a non-admin viewer
+        could still request an explicit `sector_id` for a sector they
+        have no membership in and read its workflow structure anyway."""
+        sector, _, estados, tipo, creador = _make_workflow(db, n_estados=2)
+        viewer = _make_usuario_ver_sin_sector(db)
+        db.commit()
+
+        resp = client.get(
+            BOARD_ENDPOINT, params={"agrupacion": "estado", "sector_id": sector.id}, headers=_headers(viewer)
+        )
+
+        assert resp.status_code == 403
+
+    def test_explicit_inbox_sector_id_is_rejected(self, client, db):
+        inbox_sector, _, _, _, _ = _make_inbox_sector(db)
+        admin = _make_admin(db)
+        db.commit()
+
+        resp = client.get(
+            BOARD_ENDPOINT,
+            params={"agrupacion": "estado", "sector_id": inbox_sector.id},
+            headers=_headers(admin),
+        )
+
+        assert resp.status_code == 400
 
 
 class TestBoardGroupedByUrgencia:
@@ -257,7 +431,8 @@ class TestBoardOverflowHasNoOwnPagination:
         )
 
         assert resp.status_code == 200
-        columna = resp.json()["columnas"][0]
+        columnas = {c["clave"]: c for c in resp.json()["columnas"]}
+        columna = columnas[str(estados[0].id)]
         assert columna["total"] == 5
         assert len(columna["items"]) == 2
         # No page/page_size/pages/next_page/has_more — the ONLY count metadata

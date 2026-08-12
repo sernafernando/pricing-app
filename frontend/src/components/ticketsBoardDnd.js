@@ -45,6 +45,15 @@ export async function handleDragEnd(event, { columnas, agrupacion, setColumnas, 
     return;
   }
 
+  // The 'inbox' column aggregates every estado in the Inbox workflow — it
+  // has no single target estado_id to transition into. Without this guard
+  // `Number('inbox')` is NaN, which serializes to `nuevo_estado_id: null`
+  // and always 422s after an optimistic move the user then sees revert.
+  if (agrupacion === 'estado' && columnaDestino === 'inbox') {
+    onError?.('No se puede mover un ticket directamente a la Bandeja de entrada');
+    return;
+  }
+
   setColumnas(moverTicketEntreColumnas(columnas, ticketId, columnaOrigen, columnaDestino));
 
   try {

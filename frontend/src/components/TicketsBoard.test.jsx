@@ -96,7 +96,17 @@ describe('TicketsBoard', () => {
 
     render(<TicketsBoard agrupacion="urgencia" onCardClick={vi.fn()} />);
 
-    await waitFor(() => expect(boardAPI.obtener).toHaveBeenCalledWith('urgencia', expect.any(Number)));
+    await waitFor(() =>
+      expect(boardAPI.obtener).toHaveBeenCalledWith('urgencia', expect.any(Number), undefined)
+    );
+  });
+
+  it('passes sectorId through to the board request when grouping by estado', async () => {
+    boardAPI.obtener.mockResolvedValue({ data: boardResponse([]) });
+
+    render(<TicketsBoard agrupacion="estado" sectorId="5" onCardClick={vi.fn()} />);
+
+    await waitFor(() => expect(boardAPI.obtener).toHaveBeenCalledWith('estado', expect.any(Number), '5'));
   });
 
   it('"load more" on an estado column calls GET /tickets with estado_id, page and page_size — not a second board query', async () => {
@@ -133,6 +143,23 @@ describe('TicketsBoard', () => {
 
     await waitFor(() => expect(ticketsAPI.listar).toHaveBeenCalledTimes(1));
     expect(ticketsAPI.listar).toHaveBeenCalledWith({ urgencia: 'alta', page: 2, page_size: expect.any(Number) });
+  });
+
+  it('"load more" on the inbox column filters by its sector_id, not estado_id', async () => {
+    boardAPI.obtener.mockResolvedValue({
+      data: boardResponse([
+        { clave: 'inbox', etiqueta: 'Bandeja de entrada', color: null, sector_id: 3, total: 5, items: [card({ id: 1 })] },
+      ]),
+    });
+    ticketsAPI.listar.mockResolvedValue({ data: { items: [] } });
+
+    render(<TicketsBoard agrupacion="estado" onCardClick={vi.fn()} />);
+
+    await waitFor(() => expect(screen.getByText('Cargar más')).toBeInTheDocument());
+    fireEvent.click(screen.getByText('Cargar más'));
+
+    await waitFor(() => expect(ticketsAPI.listar).toHaveBeenCalledTimes(1));
+    expect(ticketsAPI.listar).toHaveBeenCalledWith({ sector_id: 3, page: 2, page_size: expect.any(Number) });
   });
 
   it('does not offer "load more" when a column has no overflow', async () => {
@@ -248,6 +275,21 @@ describe('handleDragEnd (pure function, fed synthetic dnd-kit events — no gest
     );
 
     expect(ticketsAPI.actualizar).toHaveBeenCalledWith(1, { urgencia: null, urgencia_origen: 'humano' });
+  });
+
+  it('rejects a drop onto the inbox column instead of sending a broken nuevo_estado_id', async () => {
+    const columnas = estadoColumnas();
+    const setColumnas = vi.fn();
+    const onError = vi.fn();
+
+    await handleDragEnd(
+      { active: { id: 'card-1', data: { current: { ticketId: 1, columnaClave: '1' } } }, over: { id: 'inbox' } },
+      { columnas, agrupacion: 'estado', setColumnas, onError }
+    );
+
+    expect(ticketsAPI.transicion).not.toHaveBeenCalled();
+    expect(setColumnas).not.toHaveBeenCalled();
+    expect(onError).toHaveBeenCalledWith('No se puede mover un ticket directamente a la Bandeja de entrada');
   });
 
   it('reordering within the same column makes no API call', async () => {

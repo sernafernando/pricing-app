@@ -8,7 +8,7 @@ from typing import Dict, List, Optional
 
 from fastapi import APIRouter, BackgroundTasks, Depends, File, HTTPException, Query, UploadFile
 from fastapi.responses import FileResponse
-from sqlalchemy import case, func, or_
+from sqlalchemy import String, case, cast, func, literal, or_
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_current_user
@@ -222,32 +222,135 @@ def _visible_tickets_filter(db: Session, current_user: Usuario):
     return Ticket.creador_id == current_user.id
 
 
-def _columnas_por_estado(db: Session, visible_filter) -> List[BoardColumnResponse]:
-    """One column per configured `EstadoTicket`, including states with zero
-    visible tickets — a column never disappears. A SINGLE query: LEFT JOIN
-    from `tickets_estados` (every configured state) to a per-estado COUNT
-    subquery over `tickets` (inlined SQL, not a second round-trip).
-    """
-    conteos = db.query(Ticket.estado_id.label("estado_id"), func.count(Ticket.id).label("total"))
-    if visible_filter is not None:
-        conteos = conteos.filter(visible_filter)
-    conteos = conteos.group_by(Ticket.estado_id).subquery()
+def _default_sector_id_para_board(db: Session, current_user: Usuario) -> Optional[int]:
+    """Sensible default for the estado board's scope sector when the
+    caller omits `sector_id`: the caller's OWN first active, non-Inbox
+    sector — the same source `_visible_tickets_filter` already uses to
+    scope ticket visibility, so the default board shown is one the viewer
+    can actually act on, not an arbitrary global pick. Never returns the
+    Inbox sector itself — it is always shown as its own fixed column,
+    never as the "selected workflow".
 
-    filas = (
-        db.query(
-            EstadoTicket.id,
-            EstadoTicket.nombre,
-            EstadoTicket.color,
-            func.coalesce(conteos.c.total, 0).label("total"),
+    The system-wide fallback (first active non-Inbox sector) is ONLY used
+    for `tickets.admin`, who can see every ticket anyway. A `tickets.ver`
+    or plain user with no sector membership must NOT get it: the board
+    would then show a foreign sector's workflow structure (state names,
+    colors) for a sector `_visible_tickets_filter` would return zero
+    items from — real pre-push review finding. Those users get `None`
+    instead, degrading the board to showing only the Inbox column, which
+    is exactly what they can see.
+    """
+    propio = (
+        db.query(Sector.id)
+        .join(SectorUsuario, SectorUsuario.sector_id == Sector.id)
+        .filter(
+            SectorUsuario.usuario_id == current_user.id,
+            SectorUsuario.activo.is_(True),
+            Sector.activo.is_(True),
+            Sector.codigo != INBOX_SECTOR_CODIGO,
         )
-        .outerjoin(conteos, conteos.c.estado_id == EstadoTicket.id)
+        .order_by(Sector.id)
+        .first()
+    )
+    if propio is not None:
+        return propio.id
+    if not _tiene_permiso(db, current_user, "tickets.admin"):
+        return None
+    fallback = (
+        db.query(Sector.id)
+        .filter(Sector.activo.is_(True), Sector.codigo != INBOX_SECTOR_CODIGO)
+        .order_by(Sector.id)
+        .first()
+    )
+    return fallback.id if fallback is not None else None
+
+
+def _estados_workflow_default(db: Session, sector_id: int) -> List[EstadoTicket]:
+    """The estado board's ONE workflow, resolved from `sector_id`'s ACTIVE
+    DEFAULT workflow — same lookup `crear_ticket`/`_confirmar_sector` use.
+    A board grouped by estado is only coherent within a single workflow's
+    own state machine (production had two independent "Cerrado" columns,
+    interleaved by a global ORDER BY across every configured EstadoTicket
+    row — states from different workflows share names but are unrelated
+    state machines). Empty when the sector has no default workflow
+    configured yet — the board then degrades to showing only the Inbox
+    column, not an error.
+    """
+    return (
+        db.query(EstadoTicket)
+        .join(Workflow, Workflow.id == EstadoTicket.workflow_id)
+        .filter(Workflow.sector_id == sector_id, Workflow.es_default.is_(True), Workflow.activo.is_(True))
         .order_by(EstadoTicket.orden)
         .all()
     )
-    return [
-        BoardColumnResponse(clave=str(fila.id), etiqueta=fila.nombre, color=fila.color, total=fila.total, items=[])
-        for fila in filas
+
+
+def _grupo_expr_estado():
+    """Synthetic grouping key for AgrupacionBoard.ESTADO: 'inbox' for any
+    ticket in the Inbox sector (regardless of its own Inbox-workflow
+    estado — unclassified tickets are one holding pen, not several), else
+    the ticket's real `estado_id` as a string. Requires `Sector` already
+    joined by the caller (both `_columnas_por_estado` and
+    `_items_del_board` join it for their own SELECT columns anyway)."""
+    return case(
+        (Sector.codigo == INBOX_SECTOR_CODIGO, literal("inbox")),
+        else_=cast(Ticket.estado_id, String),
+    )
+
+
+def _alcance_estado(estado_ids: List[int]):
+    """Tickets included in the estado board: the Inbox sector (always,
+    regardless of scope) OR the SELECTED workflow's own states. Anything
+    in a THIRD sector the viewer didn't pick is simply not on this board."""
+    alcance = Sector.codigo == INBOX_SECTOR_CODIGO
+    if estado_ids:
+        alcance = or_(alcance, Ticket.estado_id.in_(estado_ids))
+    return alcance
+
+
+def _columnas_por_estado(
+    db: Session, visible_filter, workflow_estados: List[EstadoTicket], inbox_sector: Optional[Sector]
+) -> List[BoardColumnResponse]:
+    """The Inbox column — unclassified tickets, ALWAYS shown, prepended —
+    followed by one column per state of the SELECTED workflow, in `orden`.
+    Still a SINGLE GROUP BY query for totals, keyed by the same
+    'inbox'/estado_id split `_items_del_board` uses for items, so the two
+    never disagree on which tickets belong to which column.
+    """
+    estado_ids = [estado.id for estado in workflow_estados]
+    grupo_expr = _grupo_expr_estado()
+
+    conteos_q = (
+        db.query(grupo_expr.label("clave"), func.count(Ticket.id).label("total"))
+        .select_from(Ticket)
+        .join(Sector, Sector.id == Ticket.sector_id)
+        .filter(_alcance_estado(estado_ids))
+    )
+    if visible_filter is not None:
+        conteos_q = conteos_q.filter(visible_filter)
+    totales = {fila.clave: fila.total for fila in conteos_q.group_by(grupo_expr).all()}
+
+    columnas = [
+        BoardColumnResponse(
+            clave="inbox",
+            etiqueta=inbox_sector.nombre if inbox_sector else "Bandeja de entrada",
+            color=inbox_sector.color if inbox_sector else None,
+            sector_id=inbox_sector.id if inbox_sector else None,
+            total=totales.get("inbox", 0),
+            items=[],
+        )
     ]
+    columnas.extend(
+        BoardColumnResponse(
+            clave=str(estado.id),
+            etiqueta=estado.nombre,
+            color=estado.color,
+            total=totales.get(str(estado.id), 0),
+            items=[],
+        )
+        for estado in workflow_estados
+    )
+    return columnas
 
 
 def _columnas_por_urgencia(db: Session, visible_filter) -> List[BoardColumnResponse]:
@@ -275,7 +378,11 @@ def _columnas_por_urgencia(db: Session, visible_filter) -> List[BoardColumnRespo
 
 
 def _items_del_board(
-    db: Session, agrupacion: AgrupacionBoard, visible_filter, items_por_columna: int
+    db: Session,
+    agrupacion: AgrupacionBoard,
+    visible_filter,
+    items_por_columna: int,
+    estado_ids: Optional[List[int]] = None,
 ) -> Dict[str, List[TicketCardResponse]]:
     """`ROW_NUMBER() OVER (PARTITION BY <agrupación> ORDER BY <rank>)` capped
     at `items_por_columna` — the board's SECOND and LAST query. Items within
@@ -287,9 +394,13 @@ def _items_del_board(
     part of THIS one statement — no extra round-trip, no N+1 from the app's
     perspective. Decided against a third query or a JOIN specifically to
     keep this endpoint's own query count at two.
+
+    For AgrupacionBoard.ESTADO, `estado_ids` (the selected workflow's own
+    states) scopes which tickets are even eligible — same split
+    `_columnas_por_estado` uses for its totals (see `_alcance_estado`).
     """
     grupo_expr = (
-        Ticket.estado_id
+        _grupo_expr_estado()
         if agrupacion == AgrupacionBoard.ESTADO
         else func.coalesce(Ticket.urgencia, URGENCIA_SIN_CLASIFICAR)
     )
@@ -328,6 +439,8 @@ def _items_del_board(
     )
     if visible_filter is not None:
         base = base.filter(visible_filter)
+    if agrupacion == AgrupacionBoard.ESTADO:
+        base = base.filter(_alcance_estado(estado_ids or []))
 
     row_number_col = (
         func.row_number().over(partition_by=grupo_expr, order_by=[rank_expr.desc(), Ticket.created_at.asc()])
@@ -367,6 +480,15 @@ def _items_del_board(
 @router.get("/tickets/board", response_model=BoardResponse)
 def obtener_board(
     agrupacion: AgrupacionBoard = Query(..., description="Agrupación de columnas: estado o urgencia"),
+    sector_id: Optional[int] = Query(
+        None,
+        description=(
+            "Sector cuyo workflow define las columnas de estado (fix/tickets-board-scope-y-legacy). "
+            "Ignorado para agrupacion=urgencia — esa agrupación usa un vocabulario global, no un workflow. "
+            "La Bandeja de entrada no es un sector seleccionable (se muestra siempre, aparte). "
+            "Si se omite, se usa un sector por defecto."
+        ),
+    ),
     items_por_columna: int = Query(ITEMS_POR_COLUMNA_DEFAULT, ge=1, le=ITEMS_POR_COLUMNA_MAX),
     db: Session = Depends(get_db),
     current_user: Usuario = Depends(get_current_user),
@@ -374,20 +496,64 @@ def obtener_board(
     """
     Tablero de tickets agrupado por estado o urgencia (tickets-ai-triage PR 5a).
 
-    Exactamente DOS queries sin importar la cantidad de columnas: una
-    GROUP BY para los totales por columna, una ROW_NUMBER() OVER (PARTITION
-    BY <agrupación> ORDER BY <rank>) acotada a items_por_columna para los
-    items. El overflow de una columna NO tiene paginación propia — el
-    cliente pide más vía GET /tickets con el filtro correspondiente.
+    Exactamente DOS queries contra `tickets` sin importar la cantidad de
+    columnas: una GROUP BY para los totales por columna, una ROW_NUMBER()
+    OVER (PARTITION BY <agrupación> ORDER BY <rank>) acotada a
+    items_por_columna para los items. El overflow de una columna NO tiene
+    paginación propia — el cliente pide más vía GET /tickets con el filtro
+    correspondiente.
+
+    La agrupación por estado está ACOTADA A UN SOLO WORKFLOW (fix/tickets-
+    board-scope-y-legacy): un tablero agrupado por estado solo tiene
+    sentido dentro de UN workflow — estados de workflows distintos son
+    máquinas de estado independientes que casualmente comparten nombre
+    (producción tenía DOS columnas "Cerrado", una por workflow,
+    intercaladas por el ORDER BY global anterior). La Bandeja de entrada
+    se muestra siempre primero, aparte del workflow elegido: son
+    justamente los tickets que necesitan atención.
     """
     visible_filter = _visible_tickets_filter(db, current_user)
 
     if agrupacion == AgrupacionBoard.ESTADO:
-        columnas = _columnas_por_estado(db, visible_filter)
+        inbox_sector = db.query(Sector).filter(Sector.codigo == INBOX_SECTOR_CODIGO).first()
+        if sector_id is not None and inbox_sector is not None and sector_id == inbox_sector.id:
+            raise HTTPException(
+                status_code=400,
+                detail="La Bandeja de entrada no es un sector seleccionable: se muestra siempre, aparte.",
+            )
+        sector_objetivo_id = sector_id
+        if sector_objetivo_id is None:
+            sector_objetivo_id = _default_sector_id_para_board(db, current_user)
+        else:
+            sector = db.query(Sector).filter(Sector.id == sector_objetivo_id, Sector.activo.is_(True)).first()
+            if sector is None:
+                raise HTTPException(status_code=404, detail="Sector no encontrado")
+            # Same access rule the default path enforces (real pre-push
+            # review finding: an EXPLICIT sector_id skipped this check
+            # entirely — any authenticated user could iterate sector_id
+            # values and read a foreign sector's workflow structure the
+            # default path was written specifically to withhold from them).
+            if not _tiene_permiso(db, current_user, "tickets.admin"):
+                es_propio = (
+                    db.query(SectorUsuario.id)
+                    .filter(
+                        SectorUsuario.sector_id == sector_objetivo_id,
+                        SectorUsuario.usuario_id == current_user.id,
+                        SectorUsuario.activo.is_(True),
+                    )
+                    .first()
+                )
+                if es_propio is None:
+                    raise HTTPException(status_code=403, detail="No tenés acceso a ese sector")
+
+        workflow_estados = _estados_workflow_default(db, sector_objetivo_id) if sector_objetivo_id else []
+        estado_ids = [estado.id for estado in workflow_estados]
+        columnas = _columnas_por_estado(db, visible_filter, workflow_estados, inbox_sector)
+        items_por_clave = _items_del_board(db, agrupacion, visible_filter, items_por_columna, estado_ids)
     else:
         columnas = _columnas_por_urgencia(db, visible_filter)
+        items_por_clave = _items_del_board(db, agrupacion, visible_filter, items_por_columna)
 
-    items_por_clave = _items_del_board(db, agrupacion, visible_filter, items_por_columna)
     for columna in columnas:
         columna.items = items_por_clave.get(columna.clave, [])
 
