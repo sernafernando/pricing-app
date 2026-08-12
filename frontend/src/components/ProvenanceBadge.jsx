@@ -11,8 +11,9 @@ import styles from './ProvenanceBadge.module.css';
 const ORIGEN_CONFIG = {
   humano: { label: 'Manual', Icon: User, className: 'humano' },
   ia_confirmada: { label: 'IA confirmada', Icon: Bot, className: 'iaConfirmada' },
-  // Reserved for a future auto-apply flag — currently never written by any
-  // code path, but must still render distinctly if a value ever carries it.
+  // Written by `run_triage`'s auto-apply branch (TICKETS_TRIAGE_AUTO_APPLY,
+  // default True, feat/tickets-triage-aplicar-directo): a threshold-passing
+  // value the AI applied with nobody having reviewed it yet.
   ia_auto: { label: 'IA automática', Icon: Sparkles, className: 'iaAuto' },
 };
 

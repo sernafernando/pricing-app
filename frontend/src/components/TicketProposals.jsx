@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { Check, X as XIcon } from 'lucide-react';
 import { usePermisos } from '../contexts/PermisosContext';
 import { ticketsAPI, propuestasAPI } from '../services/api';
+import ProvenanceBadge from './ProvenanceBadge';
 import styles from './TicketProposals.module.css';
 
 const CAMPO_LABEL = {
@@ -9,13 +10,37 @@ const CAMPO_LABEL = {
   urgencia: 'Urgencia',
   titulo: 'Título',
   resumen: 'Resumen',
+  sector: 'Sector',
+  tipo_ticket: 'Tipo de ticket',
+  metadata_ia: 'Metadata',
 };
 
+// `confirmado_por_id == null` (loose: catches both `null` and `undefined`)
+// on a `confirmada` row means the AI applied it and nobody has looked at
+// it yet — see `confirmacion_service`'s module docstring. Distinct from a
+// `pendiente` row, which never touched the ticket at all.
+const esAplicadoSinRevisar = (p) => p.estado === 'confirmada' && p.confirmado_por_id == null;
+
 /**
- * Pending AI-triage proposals for one ticket (tickets-ai-triage PR 4c).
+ * AI-triage proposals for one ticket that a human can still act on
+ * (tickets-ai-triage PR 4c, topology flipped by
+ * feat/tickets-triage-aplicar-directo). Two shapes, never mixed in the same
+ * list item:
+ *
+ * - `pendiente`: the original "AI proposes, human confirms" flow — nothing
+ *   was written to the ticket yet. Survives when `TICKETS_TRIAGE_AUTO_APPLY`
+ *   is off, or a field was gated by confidence. Confirm/discard here read
+ *   as "approve this proposal", same as before.
+ * - `confirmada` + `confirmado_por_id IS NULL` (`ia_auto`): the AI ALREADY
+ *   applied this value — the ticket shows it right now. There is nothing to
+ *   "confirm" (it is already live), so only a correction affordance makes
+ *   sense: "esto lo clasificó la IA — corregí si está mal".
+ *
  * Confidence is always visible, independent of permission — only the
  * confirm/discard/batch controls require `tickets.triage.confirmar`. Batch
- * confirm always sends exactly ONE request with every selected id.
+ * confirm always sends exactly ONE request with every selected id, and only
+ * ever includes `pendiente` proposals (nothing to batch-confirm on values
+ * already applied).
  */
 export default function TicketProposals({ ticketId, onChanged, refreshToken }) {
   const { tienePermiso } = usePermisos();
@@ -72,6 +97,12 @@ export default function TicketProposals({ ticketId, onChanged, refreshToken }) {
     try {
       await propuestasAPI.descartar(id);
       await fetchPropuestas();
+      // Real pre-push review finding: before this feature, `descartar()`
+      // never wrote to `tickets` — no need to refresh the parent's ticket
+      // view. Now it can clear an already-applied ia_auto value, so the
+      // ticket detail must refetch too, or it keeps showing the stale
+      // value until the user manually reloads.
+      onChanged?.();
     } catch (err) {
       setError(err.response?.data?.detail || 'Error al descartar la propuesta');
     } finally {
@@ -94,66 +125,115 @@ export default function TicketProposals({ ticketId, onChanged, refreshToken }) {
     }
   };
 
-  if (propuestas.length === 0) return null;
+  const pendientes = propuestas.filter((p) => p.estado === 'pendiente');
+  const aplicadas = propuestas.filter(esAplicadoSinRevisar);
+
+  // Nothing to show: no proposals at all, or every one of them is a shape
+  // this component doesn't render (e.g. a human-confirmed `ia_confirmada`
+  // row, which the backend already excludes but this guard agrees
+  // independently rather than rendering an empty shell).
+  if (pendientes.length === 0 && aplicadas.length === 0) return null;
 
   return (
     <div className={styles.container}>
-      <div className={styles.header}>
-        <span className={styles.title}>Propuestas de IA pendientes</span>
-        {puedeConfirmar && selected.size > 0 && (
-          <button className={styles.btnBatch} onClick={handleConfirmarSeleccionadas} disabled={batchBusy}>
-            <Check size={13} />
-            {batchBusy ? 'Confirmando...' : `Confirmar seleccionadas (${selected.size})`}
-          </button>
-        )}
-      </div>
-
       {error && <div className={styles.inlineError}>{error}</div>}
 
-      <ul className={styles.list}>
-        {propuestas.map((p) => {
-          const label = CAMPO_LABEL[p.campo] || p.campo;
-          return (
-            <li key={p.id} className={styles.item}>
-              {puedeConfirmar && (
-                <input
-                  type="checkbox"
-                  className={styles.checkbox}
-                  checked={selected.has(p.id)}
-                  onChange={() => toggleSelected(p.id)}
-                  aria-label={`Seleccionar propuesta ${label}`}
-                />
-              )}
-              <span className={styles.label}>
-                {label}: {String(p.valor_propuesto?.valor ?? '-')}
-                {typeof p.confianza === 'number' && (
-                  <span className={styles.confianza}> · IA {p.confianza.toFixed(2)}</span>
-                )}
-              </span>
-              {puedeConfirmar && (
-                <span className={styles.actions}>
-                  <button
-                    className={styles.btnConfirm}
-                    onClick={() => handleConfirmar(p.id)}
-                    disabled={busyId === p.id}
-                    aria-label={`Confirmar ${label}`}
-                  >
-                    <Check size={13} />
-                  </button>
-                  <button
-                    className={styles.btnDiscard}
-                    onClick={() => handleDescartar(p.id)}
-                    disabled={busyId === p.id}
-                    aria-label={`Descartar ${label}`}
-                  >
-                    <XIcon size={13} />
-                  </button>
-                </span>
-              )}
-            </li>
-          );
-        })}
-      </ul>
+      {pendientes.length > 0 && (
+        <>
+          <div className={styles.header}>
+            <span className={styles.title}>Propuestas de IA pendientes</span>
+            {puedeConfirmar && selected.size > 0 && (
+              <button className={styles.btnBatch} onClick={handleConfirmarSeleccionadas} disabled={batchBusy}>
+                <Check size={13} />
+                {batchBusy ? 'Confirmando...' : `Confirmar seleccionadas (${selected.size})`}
+              </button>
+            )}
+          </div>
+
+          <ul className={styles.list}>
+            {pendientes.map((p) => {
+              const label = CAMPO_LABEL[p.campo] || p.campo;
+              return (
+                <li key={p.id} className={styles.item}>
+                  {puedeConfirmar && (
+                    <input
+                      type="checkbox"
+                      className={styles.checkbox}
+                      checked={selected.has(p.id)}
+                      onChange={() => toggleSelected(p.id)}
+                      aria-label={`Seleccionar propuesta ${label}`}
+                    />
+                  )}
+                  <span className={styles.label}>
+                    {label}: {String(p.valor_propuesto?.valor ?? '-')}
+                    {typeof p.confianza === 'number' && (
+                      <span className={styles.confianza}> · IA {p.confianza.toFixed(2)}</span>
+                    )}
+                  </span>
+                  {puedeConfirmar && (
+                    <span className={styles.actions}>
+                      <button
+                        className={styles.btnConfirm}
+                        onClick={() => handleConfirmar(p.id)}
+                        disabled={busyId === p.id}
+                        aria-label={`Confirmar ${label}`}
+                      >
+                        <Check size={13} />
+                      </button>
+                      <button
+                        className={styles.btnDiscard}
+                        onClick={() => handleDescartar(p.id)}
+                        disabled={busyId === p.id}
+                        aria-label={`Descartar ${label}`}
+                      >
+                        <XIcon size={13} />
+                      </button>
+                    </span>
+                  )}
+                </li>
+              );
+            })}
+          </ul>
+        </>
+      )}
+
+      {aplicadas.length > 0 && (
+        <>
+          <div className={styles.header}>
+            <span className={styles.title}>Clasificado por IA — corregí si está mal</span>
+          </div>
+
+          <ul className={styles.list}>
+            {aplicadas.map((p) => {
+              const label = CAMPO_LABEL[p.campo] || p.campo;
+              return (
+                <li key={p.id} className={styles.item}>
+                  <span className={styles.label}>
+                    {label}: {String(p.valor_propuesto?.valor ?? '-')}
+                    {typeof p.confianza === 'number' && (
+                      <span className={styles.confianza}> · IA {p.confianza.toFixed(2)}</span>
+                    )}
+                    <ProvenanceBadge origen="ia_auto" />
+                  </span>
+                  {puedeConfirmar && (
+                    <span className={styles.actions}>
+                      <button
+                        className={styles.btnDiscard}
+                        onClick={() => handleDescartar(p.id)}
+                        disabled={busyId === p.id}
+                        aria-label={`Descartar ${label}`}
+                        title="Ya se aplicó automáticamente — descartalo si está mal"
+                      >
+                        <XIcon size={13} />
+                      </button>
+                    </span>
+                  )}
+                </li>
+              );
+            })}
+          </ul>
+        </>
+      )}
     </div>
   );
 }

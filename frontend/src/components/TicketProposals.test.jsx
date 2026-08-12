@@ -132,3 +132,110 @@ describe('TicketProposals', () => {
     expect(container).toBeEmptyDOMElement();
   });
 });
+
+/**
+ * Covers the topology flip (feat/tickets-triage-aplicar-directo): a
+ * `confirmada` proposal with `confirmado_por_id: null` is the AI having
+ * ALREADY applied the value — "this was set by the AI, correct it if
+ * wrong" — not "approve this suggestion". No Confirm button (nothing left
+ * to confirm), Discard reads as a correction, not a rejection of an
+ * unapplied guess.
+ */
+describe('TicketProposals — ia_auto applied values', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockTienePermiso = () => true;
+  });
+
+  function aplicada(overrides = {}) {
+    return propuesta({
+      id: 5,
+      campo: 'urgencia',
+      valor_propuesto: { valor: 'alta' },
+      confianza: 0.91,
+      estado: 'confirmada',
+      confirmado_por_id: null,
+      ...overrides,
+    });
+  }
+
+  it('shows an already-applied value with a correction affordance, not a Confirm button', async () => {
+    ticketsAPI.listarPropuestas.mockResolvedValue({ data: [aplicada()] });
+
+    render(<TicketProposals ticketId={42} />);
+
+    await waitFor(() =>
+      expect(screen.getByText((text) => text.includes('Urgencia') && text.includes('alta'))).toBeInTheDocument()
+    );
+    expect(screen.getByText('Clasificado por IA — corregí si está mal')).toBeInTheDocument();
+    expect(screen.getByLabelText(/Descartar Urgencia/i)).toBeInTheDocument();
+    expect(screen.queryByLabelText(/Confirmar Urgencia/i)).not.toBeInTheDocument();
+    // No checkbox either — nothing to batch-confirm on an already-applied value.
+    expect(screen.queryByRole('checkbox')).not.toBeInTheDocument();
+  });
+
+  it('a human-confirmed value (non-null confirmador) never appears here at all', async () => {
+    ticketsAPI.listarPropuestas.mockResolvedValue({
+      data: [aplicada({ confirmado_por_id: 7 })],
+    });
+
+    const { container } = render(<TicketProposals ticketId={42} />);
+
+    await waitFor(() => expect(ticketsAPI.listarPropuestas).toHaveBeenCalled());
+    // Backend never returns human-confirmed rows here — but the frontend's
+    // own filter must independently agree: nothing renders.
+    expect(container).toBeEmptyDOMElement();
+  });
+
+  it('discarding an applied value calls the same descartar endpoint as a pending one, and notifies the parent', async () => {
+    ticketsAPI.listarPropuestas.mockResolvedValue({ data: [aplicada()] });
+    propuestasAPI.descartar.mockResolvedValue({ data: {} });
+    const onChanged = vi.fn();
+
+    render(<TicketProposals ticketId={42} onChanged={onChanged} />);
+
+    await waitFor(() => expect(screen.getByLabelText(/Descartar Urgencia/i)).toBeInTheDocument());
+    fireEvent.click(screen.getByLabelText(/Descartar Urgencia/i));
+
+    await waitFor(() => expect(propuestasAPI.descartar).toHaveBeenCalledWith(5));
+    // Real pre-push review finding: discarding an ia_auto value now clears
+    // it on the ticket — the parent's ticket view must refetch, or it
+    // keeps showing the stale value.
+    await waitFor(() => expect(onChanged).toHaveBeenCalled());
+  });
+
+  it('a field the backend refuses to revert (e.g. titulo) surfaces the inline Spanish error', async () => {
+    ticketsAPI.listarPropuestas.mockResolvedValue({
+      data: [aplicada({ id: 9, campo: 'titulo', valor_propuesto: { valor: 'Titulo aplicado por IA' } })],
+    });
+    propuestasAPI.descartar.mockRejectedValue({
+      response: { data: { detail: "No se puede descartar un valor de 'titulo' ya aplicado por la IA" } },
+    });
+
+    render(<TicketProposals ticketId={42} />);
+
+    await waitFor(() => expect(screen.getByLabelText(/Descartar Título/i)).toBeInTheDocument());
+    fireEvent.click(screen.getByLabelText(/Descartar Título/i));
+
+    await waitFor(() =>
+      expect(
+        screen.getByText("No se puede descartar un valor de 'titulo' ya aplicado por la IA")
+      ).toBeInTheDocument()
+    );
+  });
+
+  it('pending and already-applied proposals render in separate sections at the same time', async () => {
+    ticketsAPI.listarPropuestas.mockResolvedValue({
+      data: [propuesta({ id: 1, campo: 'severidad' }), aplicada({ id: 5, campo: 'urgencia' })],
+    });
+
+    render(<TicketProposals ticketId={42} />);
+
+    await waitFor(() => expect(screen.getByText('Propuestas de IA pendientes')).toBeInTheDocument());
+    expect(screen.getByText('Clasificado por IA — corregí si está mal')).toBeInTheDocument();
+    expect(screen.getByLabelText(/Confirmar Severidad/i)).toBeInTheDocument();
+    expect(screen.getByLabelText(/Descartar Urgencia/i)).toBeInTheDocument();
+    // Only the PENDING item is selectable for batch confirm.
+    expect(screen.getAllByRole('checkbox')).toHaveLength(1);
+  });
+});
