@@ -336,7 +336,7 @@
         "name": "__lbl_total_horas__",
         "position": {
           "x": 15,
-          "y": 208.5
+          "y": 217.5
         },
         "readOnly": true,
         "type": "text",
@@ -352,7 +352,7 @@
         "name": "total_horas",
         "position": {
           "x": 43,
-          "y": 208.5
+          "y": 217.5
         },
         "type": "text",
         "width": 35
@@ -367,7 +367,7 @@
         "name": "__lbl_total_dias__",
         "position": {
           "x": 125,
-          "y": 208.5
+          "y": 217.5
         },
         "readOnly": true,
         "type": "text",
@@ -383,7 +383,7 @@
         "name": "total_dias",
         "position": {
           "x": 153,
-          "y": 208.5
+          "y": 217.5
         },
         "type": "text",
         "width": 42
@@ -398,7 +398,7 @@
         "name": "__leyenda__",
         "position": {
           "x": 15,
-          "y": 218.5
+          "y": 227.5
         },
         "readOnly": true,
         "type": "text",
@@ -411,7 +411,7 @@
         "name": "__firma_linea_0__",
         "position": {
           "x": 25.0,
-          "y": 232.5
+          "y": 241.5
         },
         "readOnly": true,
         "type": "line",
@@ -427,7 +427,7 @@
         "name": "__firma_label_0__",
         "position": {
           "x": 25.0,
-          "y": 233.5
+          "y": 242.5
         },
         "readOnly": true,
         "type": "text",
@@ -440,7 +440,7 @@
         "name": "__firma_linea_1__",
         "position": {
           "x": 115.0,
-          "y": 232.5
+          "y": 241.5
         },
         "readOnly": true,
         "type": "line",
@@ -456,7 +456,7 @@
         "name": "__firma_label_1__",
         "position": {
           "x": 115.0,
-          "y": 233.5
+          "y": 242.5
         },
         "readOnly": true,
         "type": "text",
@@ -472,7 +472,7 @@
         "name": "__lbl_emision__",
         "position": {
           "x": 15,
-          "y": 244.5
+          "y": 253.5
         },
         "readOnly": true,
         "type": "text",
@@ -488,7 +488,7 @@
         "name": "fecha_emision",
         "position": {
           "x": 39,
-          "y": 244.5
+          "y": 253.5
         },
         "type": "text",
         "width": 60

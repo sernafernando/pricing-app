@@ -42,6 +42,7 @@ import { describe, it, expect, beforeAll } from 'vitest';
 import { generate } from '@pdfme/generator';
 import { mm2pt, pt2mm } from '@pdfme/common';
 import { text, image, line, rectangle, ellipse, table } from '@pdfme/schemas';
+import { withOptionalLastColumn } from './pdfmeTableColumns';
 
 /**
  * `import.meta.dirname` y NO `new URL(rel, import.meta.url)`: Vite reescribe
@@ -329,5 +330,89 @@ describe('guarda: dos tablas no pueden compartir `y`', () => {
     };
 
     await expect(render(roto, input)).rejects.toThrow(/Cannot read properties of undefined/);
+  });
+});
+
+describe('el pie NO se monta sobre la tabla', () => {
+  /**
+   * ESTE es el test que faltaba.
+   *
+   * La primera versión de este archivo verificaba que la tabla no invadiera el
+   * ENCABEZADO, y con eso en verde el documento salió a producción con
+   * "Total horas: 200:35" impreso encima de los últimos renglones. Nadie miraba
+   * el otro extremo.
+   *
+   * pdfme reubica el pie en `baseY + totalYOffset`, y ese offset no contempla
+   * el alto completo de la última fila dibujada: el pie termina ~8mm más arriba
+   * de lo que dice la geometría declarada. Es sistemático y no depende de la
+   * cantidad de filas, así que alcanza con medirlo una vez por tamaño.
+   */
+  const template = leerTemplate();
+  const altoPagina = template.basePdf.height;
+  const bordes = bordesDeColumna(campoTabla(template));
+
+  /** Alto real de una fila, deducido del propio render: el paso entre filas. */
+  const pasoDeFila = (celdas) => {
+    const ys = [...new Set(celdas.map((c) => Number(c.y.toFixed(2))))].sort((a, b) => a - b);
+    const pasos = ys.slice(1).map((y, i) => y - ys[i]);
+    return Math.min(...pasos);
+  };
+
+  it.each([10, 23, 31])('con %i días el pie arranca por debajo de la última celda', async (dias) => {
+    const pdf = await render(template, inputPara(dias));
+    const dibujos = textosDibujados(pdf, altoPagina);
+
+    const celdas = dibujos.filter(esCelda(bordes));
+    const ultimaCelda = Math.max(...celdas.map((c) => c.y));
+    const fondoTabla = ultimaCelda + pasoDeFila(celdas);
+
+    // El pie: lo que se dibuja debajo del encabezado y no es celda.
+    const pie = dibujos
+      .filter((d) => !esCelda(bordes)(d) && d.y > pieDelEncabezado(template))
+      .map((d) => d.y);
+
+    expect(pie.length).toBeGreaterThan(0);
+    expect(Math.min(...pie)).toBeGreaterThan(fondoTabla);
+  });
+});
+
+describe('la cuenta de horas es todo o nada', () => {
+  /**
+   * Si se oculta el detalle de horas por fila, el TOTAL de horas también se va.
+   * Mostrar un agregado cuyos componentes se ocultaron a propósito es
+   * incoherente, y en un papel que acompaña un recibo de sueldo invita a
+   * preguntas que el documento ya no puede contestar.
+   *
+   * El total de DÍAS se queda: ese se puede verificar contando renglones.
+   */
+  const nombres = (t) => t.schemas.flat().map((f) => f.name);
+
+  it('con horas, el template conserva la columna y el total', () => {
+    const conHoras = withOptionalLastColumn(leerTemplate(), true);
+
+    expect(campoTabla(conHoras).head).toContain('Hs');
+    expect(nombres(conHoras)).toEqual(expect.arrayContaining(['total_horas', '__lbl_total_horas__']));
+  });
+
+  it('sin horas, se van la columna Hs Y el total de horas', () => {
+    const sinHoras = withOptionalLastColumn(leerTemplate(), false);
+
+    expect(campoTabla(sinHoras).head).not.toContain('Hs');
+    expect(nombres(sinHoras)).not.toContain('total_horas');
+    expect(nombres(sinHoras)).not.toContain('__lbl_total_horas__');
+  });
+
+  it('sin horas, el total de DÍAS se queda', () => {
+    const sinHoras = withOptionalLastColumn(leerTemplate(), false);
+
+    expect(nombres(sinHoras)).toEqual(expect.arrayContaining(['total_dias', '__lbl_total_dias__']));
+  });
+
+  it('no muta el template recibido', () => {
+    const original = leerTemplate();
+    const antes = JSON.stringify(original);
+    withOptionalLastColumn(original, false);
+
+    expect(JSON.stringify(original)).toBe(antes);
   });
 });

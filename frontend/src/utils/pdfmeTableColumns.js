@@ -65,11 +65,39 @@ export const dropLastTableColumn = (template) => {
 };
 
 /**
- * Aplica (o no) la última columna opcional de las tablas del template.
+ * Campos que solo tienen sentido si la cuenta de horas está visible.
+ *
+ * Si se oculta el detalle por fila, el TOTAL de horas también se va: mostrar un
+ * agregado cuyos componentes se ocultaron a propósito es incoherente, y encima
+ * en un papel que acompaña un recibo de sueldo invita a preguntas que el
+ * documento ya no puede contestar. El total de DÍAS se queda: ese sí se puede
+ * verificar contando los renglones.
+ */
+const CAMPOS_DE_HORAS = ['__lbl_total_horas__', 'total_horas'];
+
+/**
+ * Devuelve una COPIA del template sin los campos del total de horas.
  *
  * @param {object} template - template_json de pdfme
- * @param {boolean} incluir - true deja el template como está; false saca la columna
+ * @returns {object} template nuevo
+ */
+export const dropHoursTotal = (template) => {
+  if (!template) return template;
+
+  const clone = structuredClone(template);
+  clone.schemas = (clone.schemas || []).map((page) =>
+    page.filter((field) => !CAMPOS_DE_HORAS.includes(field.name))
+  );
+  return clone;
+};
+
+/**
+ * Aplica (o no) todo lo que depende de la cuenta de horas: la columna `Hs` de
+ * las tablas y el bloque de total de horas del pie.
+ *
+ * @param {object} template - template_json de pdfme
+ * @param {boolean} incluir - true deja el template como está; false saca ambos
  * @returns {object}
  */
 export const withOptionalLastColumn = (template, incluir) =>
-  incluir ? template : dropLastTableColumn(template);
+  incluir ? template : dropHoursTotal(dropLastTableColumn(template));
