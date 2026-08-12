@@ -12,6 +12,7 @@ Tests cover:
   - sync_full: termination driven by rows PERSISTED, not payload truthiness
   - sync_full: consecutive failures abort with a non-zero exit
   - sync_full: a failed batch retries the SAME its_id range, never skips it
+  - sync_full: a DB-side failure rolls the session back so the retry can work
   - sync_full: --max-id and the MAX_BATCHES safety valve
   - sync_incremental: ERP failure no longer exits 0
 
@@ -19,7 +20,8 @@ IMPORTANT: async functions are tested via asyncio.run() inside plain def tests.
 The project has NO pytest-asyncio configured — do NOT use @pytest.mark.asyncio.
 
 Nothing here touches the network or a real database: httpx.AsyncClient is
-stubbed and the Session is a MagicMock.
+stubbed and the Session is either the permissive `db` MagicMock or, for
+resilience claims, `StrictSessionDouble` (see its docstring).
 """
 
 from __future__ import annotations
@@ -29,6 +31,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import httpx
 import pytest
+from sqlalchemy.exc import OperationalError, PendingRollbackError
 
 import app.scripts.sync_item_transaction_serials as module
 from app.scripts.sync_item_transaction_serials import (
@@ -116,9 +119,79 @@ def make_rows(count: int, start: int = 1) -> list[dict]:
     ]
 
 
+class StrictSessionDouble:
+    """A Session double that honours SQLAlchemy's post-failure contract.
+
+    The permissive `db` MagicMock keeps answering happily after an exception,
+    which is precisely what hid the missing `db.rollback()`. A real Session
+    does not: once an operation raises, the transaction is left inactive and
+    every later operation raises PendingRollbackError until rollback() runs.
+
+    Use this double — never the MagicMock — whenever a test claims something
+    about RECOVERY after a DB-side failure.
+
+    `persisted` is keyed by the (comp_id, bra_id, its_id) triple so it models
+    the real ON CONFLICT DO UPDATE: re-upserting a range replaces rows instead
+    of duplicating them, which is exactly why retrying a range is safe.
+
+    Args:
+        fail_on_execute: 1-based indexes of the execute() calls that must blow
+            up with a DB-side error (deadlock, DataError, pool disconnect).
+    """
+
+    def __init__(self, fail_on_execute: set[int] | None = None) -> None:
+        self._fail_on_execute = set(fail_on_execute or ())
+        self._inactive = False
+        self._uncommitted: list[dict] = []
+        self.execute_count = 0
+        self.commit_count = 0
+        self.rollback_count = 0
+        self.persisted: dict[tuple[int, int, int], dict] = {}
+        self.operations: list[str] = []
+
+    def _guard(self, operation: str) -> None:
+        self.operations.append(operation)
+        if self._inactive:
+            raise PendingRollbackError(
+                "This Session's transaction has been rolled back due to a previous exception during flush."
+            )
+
+    def execute(self, statement: object, rows: list[dict] | None = None) -> MagicMock:
+        self._guard("execute")
+        self.execute_count += 1
+        if self.execute_count in self._fail_on_execute:
+            self._inactive = True
+            raise OperationalError(
+                "INSERT INTO tb_item_transaction_serials ...",
+                None,
+                Exception("deadlock detected"),
+            )
+        self._uncommitted.extend(rows or [])
+        return MagicMock()
+
+    def commit(self) -> None:
+        self._guard("commit")
+        self.commit_count += 1
+        for row in self._uncommitted:
+            self.persisted[(row["comp_id"], row["bra_id"], row["its_id"])] = row
+        self._uncommitted.clear()
+
+    def rollback(self) -> None:
+        self.operations.append("rollback")
+        self._inactive = False
+        self._uncommitted.clear()
+        self.rollback_count += 1
+
+
 @pytest.fixture()
 def db() -> MagicMock:
-    """A Session stub; _upsert_batch only needs execute() and commit()."""
+    """A Session stub; _upsert_batch only needs execute() and commit().
+
+    WARNING: this mock is PERMISSIVE. It never raises PendingRollbackError and
+    never demands a rollback, so it cannot prove that sync_full survives a
+    DB-side failure — it only records the calls that were made. For anything
+    about recovery after a failed upsert, use StrictSessionDouble instead.
+    """
     return MagicMock()
 
 
@@ -407,6 +480,130 @@ class TestSyncFullRetriesFailedRange:
 
         assert upserts == [500, 500, 500, 500]
         assert "Total: 1000 registros" in capsys.readouterr().out
+
+
+class TestSyncFullRollsBackPoisonedSession:
+    """A DB-side failure must not poison the session for the retry.
+
+    The try block guards TWO failure sources, not one: the ERP call AND the
+    `_upsert_batch` loop, which does real DB work (`db.execute` + `db.commit`).
+    When sub-batch N of a range explodes (deadlock, DataError, pool
+    disconnect), the Session is left inactive. Without a rollback the retry —
+    the whole point of this branch — dies with PendingRollbackError on its
+    first statement, burns MAX_CONSECUTIVE_FAILURES, and aborts blaming the
+    ERP for a failure the script inflicted on itself.
+    """
+
+    def test_rollback_runs_before_the_retry_touches_the_session(self, db: MagicMock) -> None:
+        """The rollback must land BETWEEN the failure and the retry's first statement."""
+        calls: list[dict] = []
+
+        async def fake_fetch(params: dict) -> list[dict]:
+            calls.append(dict(params))
+            if len(calls) <= 2:
+                return make_rows(1000, start=1)
+            return []
+
+        executes = {"count": 0}
+
+        def flaky_execute(*args: object, **kwargs: object) -> MagicMock:
+            # Sub-batch 1 commits fine; sub-batch 2 blows up mid-range.
+            executes["count"] += 1
+            if executes["count"] == 2:
+                raise OperationalError("INSERT ...", None, Exception("deadlock detected"))
+            return MagicMock()
+
+        db.execute.side_effect = flaky_execute
+
+        with patch.object(module, "_fetch_from_erp", side_effect=fake_fetch):
+            sync_full(db, batch_size=10000)
+
+        names = [name for name, _, _ in db.mock_calls]
+        assert "rollback" in names, "the failure path never rolled the session back"
+
+        execute_positions = [i for i, name in enumerate(names) if name == "execute"]
+        rollback_position = names.index("rollback")
+
+        # execute #1 and #2 belong to the failed attempt; execute #3 is the
+        # retry's first DB operation. The rollback has to sit strictly between.
+        assert execute_positions[1] < rollback_position < execute_positions[2]
+
+        # And the retry really did persist the range: 1 commit before the
+        # failure plus 2 from the successful retry.
+        assert db.commit.call_count == 3
+
+    def test_retry_persists_the_range_against_a_strict_session(self) -> None:
+        """Fail-then-succeed on a Session that models transaction invalidation.
+
+        This is the test the MagicMock could never be: StrictSessionDouble
+        raises PendingRollbackError on every statement issued after a failure
+        until rollback() runs, exactly like SQLAlchemy. Drop the rollback and
+        this run aborts with SyncAbortedError instead of persisting anything.
+        """
+        calls: list[dict] = []
+
+        async def fake_fetch(params: dict) -> list[dict]:
+            calls.append(dict(params))
+            if len(calls) <= 2:
+                return make_rows(1000, start=1)
+            return []
+
+        session = StrictSessionDouble(fail_on_execute={2})
+
+        with patch.object(module, "_fetch_from_erp", side_effect=fake_fetch):
+            sync_full(session, batch_size=10000)
+
+        assert session.rollback_count == 1
+        # The retry re-upserted the whole range: 1000 distinct its_id, none lost.
+        assert len(session.persisted) == 1000
+        assert {its_id for _, _, its_id in session.persisted} == set(range(1, 1001))
+        # The run ended normally instead of aborting, and never re-poisoned itself.
+        assert session.operations[-1] != "rollback"
+
+    def test_rollback_failure_does_not_bypass_the_guard_rails(self, db: MagicMock) -> None:
+        """A dead connection makes rollback() itself raise; accounting survives.
+
+        If that exception escaped the handler it would skip consecutive_failures,
+        the SyncAbortedError abort path and MAX_BATCHES entirely, surfacing as a
+        raw traceback from main() instead of the controlled abort.
+        """
+        calls: list[dict] = []
+
+        async def fake_fetch(params: dict) -> list[dict]:
+            calls.append(dict(params))
+            return make_rows(10, start=1)
+
+        db.execute.side_effect = OperationalError("INSERT ...", None, Exception("server closed the connection"))
+        db.rollback.side_effect = OperationalError("ROLLBACK", None, Exception("connection already closed"))
+
+        with patch.object(module, "_fetch_from_erp", side_effect=fake_fetch):
+            with pytest.raises(SyncAbortedError, match="errores consecutivos"):
+                sync_full(db, batch_size=10000)
+
+        # The abort came from the guard rails, after exactly the budgeted attempts.
+        assert len(calls) == module.MAX_CONSECUTIVE_FAILURES
+        assert db.rollback.call_count == module.MAX_CONSECUTIVE_FAILURES
+
+    def test_rollback_failure_is_reported_not_swallowed(
+        self, db: MagicMock, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """A failed rollback is a real problem and has to be visible in the log."""
+        calls: list[dict] = []
+
+        async def fake_fetch(params: dict) -> list[dict]:
+            calls.append(dict(params))
+            return make_rows(10, start=1)
+
+        db.execute.side_effect = OperationalError("INSERT ...", None, Exception("server closed the connection"))
+        db.rollback.side_effect = OperationalError("ROLLBACK", None, Exception("connection already closed"))
+
+        with patch.object(module, "_fetch_from_erp", side_effect=fake_fetch):
+            with pytest.raises(SyncAbortedError):
+                sync_full(db, batch_size=10000)
+
+        out = capsys.readouterr().out
+        assert "rollback" in out.lower()
+        assert "connection already closed" in out
 
 
 class TestSyncFullBounds:

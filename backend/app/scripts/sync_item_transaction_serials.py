@@ -199,6 +199,10 @@ def sync_full(db: Session, batch_size: int = 10000, max_id: int | None = None) -
     exact same its_id range instead of skipping it, so a transient ERP hiccup
     below the abort threshold can no longer lose `batch_size` ids in silence.
 
+    Every failed attempt rolls the Session back before retrying: `_upsert_batch`
+    commits, so a DB-side failure mid-range would otherwise leave the Session
+    unusable and make the retry impossible (see the handler's comment).
+
     Terminates on any of:
       - MAX_CONSECUTIVE_EMPTY_BATCHES batches that persist zero rows (normal end);
       - `max_id` reached, when supplied (normal end);
@@ -262,8 +266,30 @@ def sync_full(db: Session, batch_size: int = 10000, max_id: int | None = None) -
             for i in range(0, len(normalized), UPSERT_SUB_BATCH_SIZE):
                 rows_persisted += _upsert_batch(db, normalized[i : i + UPSERT_SUB_BATCH_SIZE])
         except Exception as exc:
+            # NO BORRAR: `_upsert_batch` hace COMMIT, así que este handler no
+            # sólo cubre la consulta al ERP sino trabajo real de base de datos.
+            # Si un sub-lote explota a mitad del rango (deadlock, DataError,
+            # desconexión del pool) la Session queda inactiva y SQLAlchemy
+            # rechaza toda operación posterior con PendingRollbackError hasta
+            # que se haga rollback. Sin este rollback el reintento de abajo
+            # está GARANTIZADO que falla: o el run aborta culpando al ERP por
+            # un error propio, o camina el rango siguiente informando 0
+            # registros y termina con exit 0 habiendo perdido el rango.
+            rollback_exc: Exception | None = None
+            try:
+                db.rollback()
+            except Exception as exc_from_rollback:
+                # Con la conexión muerta el propio rollback() puede fallar. Se
+                # reporta, nunca se propaga: una excepción escapando de este
+                # handler saltearía consecutive_failures, el abort vía
+                # SyncAbortedError y MAX_BATCHES, cambiando un corte controlado
+                # por un traceback crudo desde main().
+                rollback_exc = exc_from_rollback
+
             consecutive_failures += 1
             print(f"ERROR ({consecutive_failures}/{MAX_CONSECUTIVE_FAILURES}): {exc}")
+            if rollback_exc is not None:
+                print(f"  Además falló el rollback de la sesión: {rollback_exc}")
             if consecutive_failures >= MAX_CONSECUTIVE_FAILURES:
                 raise SyncAbortedError(
                     f"{MAX_CONSECUTIVE_FAILURES} errores consecutivos consultando el ERP "
