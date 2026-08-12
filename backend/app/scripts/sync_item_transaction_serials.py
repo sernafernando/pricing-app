@@ -18,6 +18,8 @@ Terminación del full sync (ver incidente de runaway):
     - Se frena tras MAX_CONSECUTIVE_EMPTY_BATCHES lotes que NO persisten ninguna
       fila. Cuenta filas realmente escritas, no "el payload venía con algo".
     - Se aborta con exit code 1 tras MAX_CONSECUTIVE_FAILURES errores seguidos.
+    - Un lote fallido REINTENTA el mismo rango de its_id: nunca se saltea. Un
+      rango perdido en silencio es tan mentiroso como el runaway original.
     - MAX_BATCHES es una válvula de seguridad absoluta: superarla es un fallo
       ruidoso, nunca un corte silencioso.
     - --max-id acota el rango de its_id explorado.
@@ -67,11 +69,14 @@ MAX_CONSECUTIVE_EMPTY_BATCHES = 3
 # One transient ERP hiccup must not kill a long run; a dead ERP must stop it.
 MAX_CONSECUTIVE_FAILURES = 3
 
-# Absolute safety valve. At the default batch_size of 10000 this caps the walk
-# at its_id 20_000_000 and at 2000 upstream requests. The production runaway
-# reached batch #370563 / its_id 3_705_620_001 sustaining ~25 req/s for hours
-# against the ERP webservice. Hitting this ceiling is a LOUD failure, never a
-# silent stop: either the ERP is misbehaving or the table outgrew this script.
+# Absolute safety valve, counted in ATTEMPTS rather than ranges: a failed batch
+# retries the same range, so batch_num no longer maps 1:1 to ranges walked. It
+# caps the run at 2000 upstream requests exactly, and therefore at its_id
+# <= 20_000_000 at the default batch_size of 10000 (an upper bound now, reached
+# only when nothing is ever retried). The production runaway reached batch
+# #370563 / its_id 3_705_620_001 sustaining ~25 req/s for hours against the ERP
+# webservice. Hitting this ceiling is a LOUD failure, never a silent stop:
+# either the ERP is misbehaving or the table outgrew this script.
 MAX_BATCHES = 2000
 
 # Single-element payloads carrying one of these keys are gbp-parser's error
@@ -190,11 +195,17 @@ def _upsert_batch(db: Session, rows: list[dict]) -> int:
 def sync_full(db: Session, batch_size: int = 10000, max_id: int | None = None) -> None:
     """Full sync by its_id ranges.
 
+    Only a SUCCESSFUL attempt advances the walk. A failed attempt retries the
+    exact same its_id range instead of skipping it, so a transient ERP hiccup
+    below the abort threshold can no longer lose `batch_size` ids in silence.
+
     Terminates on any of:
       - MAX_CONSECUTIVE_EMPTY_BATCHES batches that persist zero rows (normal end);
       - `max_id` reached, when supplied (normal end);
-      - MAX_CONSECUTIVE_FAILURES consecutive failing batches (SyncAbortedError);
-      - MAX_BATCHES batches walked (SyncAbortedError, safety valve).
+      - MAX_CONSECUTIVE_FAILURES consecutive failing attempts on the SAME range
+        (SyncAbortedError);
+      - MAX_BATCHES attempts issued, retries included (SyncAbortedError, safety
+        valve).
 
     Raises:
         SyncAbortedError: when a guard rail trips. The caller must exit non-zero.
@@ -205,7 +216,7 @@ def sync_full(db: Session, batch_size: int = 10000, max_id: int | None = None) -
         f"Batch size: {batch_size} | Frena con {MAX_CONSECUTIVE_EMPTY_BATCHES} lotes "
         f"sin registros | Aborta con {MAX_CONSECUTIVE_FAILURES} errores seguidos"
     )
-    print(f"Tope de lotes: {MAX_BATCHES} | max-id: {max_id if max_id is not None else 'sin tope'}\n")
+    print(f"Tope de intentos: {MAX_BATCHES} | max-id: {max_id if max_id is not None else 'sin tope'}\n")
 
     current_from = 1
     total_processed = 0
@@ -222,7 +233,7 @@ def sync_full(db: Session, batch_size: int = 10000, max_id: int | None = None) -
         # ERP is misbehaving or this script's assumptions no longer hold.
         if batch_num > MAX_BATCHES:
             raise SyncAbortedError(
-                f"Válvula de seguridad: se alcanzó el tope de {MAX_BATCHES} lotes "
+                f"Válvula de seguridad: se alcanzó el tope de {MAX_BATCHES} intentos "
                 f"(its_id {current_from}, {total_processed} registros persistidos). "
                 "Revisar el ERP o subir MAX_BATCHES deliberadamente."
             )
@@ -230,7 +241,11 @@ def sync_full(db: Session, batch_size: int = 10000, max_id: int | None = None) -
         current_to = current_from + batch_size - 1
         if max_id is not None:
             current_to = min(current_to, max_id)
-        print(f"Lote #{batch_num} (its_id: {current_from} - {current_to})...", end=" ")
+
+        # A failed attempt re-walks the same range, so the range alone no longer
+        # distinguishes a retry from progress. Say it out loud.
+        retry_label = f" [reintento {consecutive_failures}]" if consecutive_failures else ""
+        print(f"Lote #{batch_num} (its_id: {current_from} - {current_to}){retry_label}...", end=" ")
 
         params: dict[str, str | int] = {
             "strScriptLabel": SCRIPT_LABEL,
@@ -252,8 +267,17 @@ def sync_full(db: Session, batch_size: int = 10000, max_id: int | None = None) -
             if consecutive_failures >= MAX_CONSECUTIVE_FAILURES:
                 raise SyncAbortedError(
                     f"{MAX_CONSECUTIVE_FAILURES} errores consecutivos consultando el ERP "
-                    f"(último its_id {current_from}, {total_processed} registros persistidos): {exc}"
+                    f"(rango its_id {current_from}-{current_to}, "
+                    f"{total_processed} registros persistidos): {exc}"
                 ) from exc
+            # `current_from` deliberately stays put: the next iteration retries
+            # THIS range. Advancing here skipped it forever while still exiting 0.
+            #
+            # Rows this attempt may have persisted before failing are NOT added
+            # to total_processed on purpose. The retry re-upserts the same range
+            # and _upsert_batch is idempotent (ON CONFLICT DO UPDATE on
+            # comp_id/bra_id/its_id), so the successful attempt is what counts
+            # them — counting them here too would double count, not fix a leak.
         else:
             consecutive_failures = 0
             total_processed += rows_persisted
@@ -271,7 +295,13 @@ def sync_full(db: Session, batch_size: int = 10000, max_id: int | None = None) -
                 consecutive_empty = 0
                 print(f"{rows_persisted} registros (acum: {total_processed})")
 
-        current_from = current_to + 1
+            # Only a successful attempt moves the walk forward.
+            current_from = current_to + 1
+
+        # Counts upstream ATTEMPTS, retries included, and that is what keeps
+        # MAX_BATCHES a real bound: a flapping ERP (fail, succeed, fail,
+        # succeed, ...) never reaches MAX_CONSECUTIVE_FAILURES, so the valve is
+        # the only thing left to stop it.
         batch_num += 1
 
     print(f"\nSync full finalizado. Total: {total_processed} registros")

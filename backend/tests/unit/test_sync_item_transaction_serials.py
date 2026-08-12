@@ -11,6 +11,7 @@ Tests cover:
   - _fetch_from_erp: error sentinels raise instead of masquerading as rows
   - sync_full: termination driven by rows PERSISTED, not payload truthiness
   - sync_full: consecutive failures abort with a non-zero exit
+  - sync_full: a failed batch retries the SAME its_id range, never skips it
   - sync_full: --max-id and the MAX_BATCHES safety valve
   - sync_incremental: ERP failure no longer exits 0
 
@@ -284,6 +285,128 @@ class TestSyncFullTerminates:
 
         # 3 successful data batches + 2 transient errors + 3 empty batches
         assert len(calls) == 8
+
+
+class TestSyncFullRetriesFailedRange:
+    """A failing batch must retry its range, not lose it.
+
+    The two lines that advance the walk used to live OUTSIDE try/except/else,
+    so a failure below the abort threshold moved `current_from` forward anyway:
+    that its_id range was never requested again and the run still exited 0
+    printing 'Sync full finalizado'. For a table whose whole purpose is serial
+    traceability, one transient ERP hiccup silently lost `batch_size` ids.
+    """
+
+    def test_failed_batch_retries_the_same_range(self, db: MagicMock) -> None:
+        """THE regression: the retry must re-request the exact failed range."""
+        calls: list[dict] = []
+
+        async def fake_fetch(params: dict) -> list[dict]:
+            calls.append(dict(params))
+            if len(calls) == 2:
+                raise httpx.ConnectError("transient")
+            if len(calls) <= 4:
+                return make_rows(2, start=len(calls) * 10)
+            return []
+
+        with patch.object(module, "_fetch_from_erp", side_effect=fake_fetch):
+            sync_full(db, batch_size=10000)
+
+        ranges = [(c["itsIDfrom"], c["itsIDto"]) for c in calls]
+
+        # Attempt #2 failed on 10001-20000, so attempt #3 must re-request THAT
+        # range — not the next one.
+        assert ranges[1] == (10001, 20000)
+        assert ranges[2] == ranges[1]
+
+        # And no range is skipped anywhere in the run: collapsing the retries
+        # leaves a strictly contiguous walk.
+        walked = [r for i, r in enumerate(ranges) if i == 0 or r != ranges[i - 1]]
+        assert walked == [
+            (1, 10000),
+            (10001, 20000),
+            (20001, 30000),
+            (30001, 40000),
+            (40001, 50000),
+            (50001, 60000),
+        ]
+
+    def test_consecutive_failures_abort_reporting_the_stuck_range(self, db: MagicMock) -> None:
+        """The abort path is unchanged, and now names the range it got stuck on."""
+        calls: list[dict] = []
+
+        async def fake_fetch(params: dict) -> list[dict]:
+            calls.append(dict(params))
+            if len(calls) == 1:
+                return make_rows(2)
+            raise httpx.ConnectError("erp caido")
+
+        with patch.object(module, "_fetch_from_erp", side_effect=fake_fetch):
+            with pytest.raises(SyncAbortedError, match=r"10001-20000"):
+                sync_full(db, batch_size=10000)
+
+        # One good batch plus MAX_CONSECUTIVE_FAILURES attempts on the same range.
+        assert len(calls) == 1 + module.MAX_CONSECUTIVE_FAILURES
+        assert [(c["itsIDfrom"], c["itsIDto"]) for c in calls[1:]] == [(10001, 20000)] * module.MAX_CONSECUTIVE_FAILURES
+
+    def test_flapping_erp_is_bounded_by_max_batches(self, db: MagicMock) -> None:
+        """Retries must not make the walk unbounded.
+
+        Alternating failure/success never reaches MAX_CONSECUTIVE_FAILURES, so
+        only the safety valve can stop this run. That only works because
+        `batch_num` counts upstream ATTEMPTS, retries included.
+        """
+        calls: list[dict] = []
+
+        async def fake_fetch(params: dict) -> list[dict]:
+            calls.append(dict(params))
+            if len(calls) % 2 == 0:
+                raise httpx.ConnectError("flapping")
+            return make_rows(2, start=len(calls) * 10)
+
+        original = module.MAX_BATCHES
+        module.MAX_BATCHES = 6
+        try:
+            with patch.object(module, "_fetch_from_erp", side_effect=fake_fetch):
+                with pytest.raises(SyncAbortedError, match="[Vv]álvula de seguridad"):
+                    sync_full(db, batch_size=10000)
+        finally:
+            module.MAX_BATCHES = original
+
+        assert len(calls) == 6
+
+    def test_partially_persisted_failure_is_not_double_counted(
+        self, db: MagicMock, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """Rows persisted by a failed attempt are counted once, by the retry.
+
+        _upsert_batch is idempotent (ON CONFLICT DO UPDATE on the PK triple),
+        so the successful retry re-upserts the very same rows: adding the
+        failed attempt's partial count too would inflate the total.
+        """
+        calls: list[dict] = []
+
+        async def fake_fetch(params: dict) -> list[dict]:
+            calls.append(dict(params))
+            if len(calls) <= 2:
+                return make_rows(1000, start=1)
+            return []
+
+        upserts: list[int] = []
+
+        def flaky_upsert(session: object, rows: list[dict]) -> int:
+            upserts.append(len(rows))
+            # First attempt: sub-batch 1 persists, sub-batch 2 blows up.
+            if len(upserts) == 2:
+                raise RuntimeError("deadlock en el upsert")
+            return len(rows)
+
+        with patch.object(module, "_fetch_from_erp", side_effect=fake_fetch):
+            with patch.object(module, "_upsert_batch", side_effect=flaky_upsert):
+                sync_full(db, batch_size=10000)
+
+        assert upserts == [500, 500, 500, 500]
+        assert "Total: 1000 registros" in capsys.readouterr().out
 
 
 class TestSyncFullBounds:
