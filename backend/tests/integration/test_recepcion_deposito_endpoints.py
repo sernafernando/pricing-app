@@ -872,6 +872,70 @@ class TestConfirmarPedidoSinOc:
         result = recepcion_service.confirmar_pedido_sin_oc(db, p, active_user, req)
         assert result.estado_nuevo == "con_faltantes"
 
+    def test_confirmar_sin_oc_en_cuenta_corriente_da_recibido(self, db, empresa, proveedor, active_user):
+        """Regression (deposito-recibir-cuenta-corriente): SIN-OC + en_cuenta_corriente → recibido.
+
+        The arrival-entry state pair was hand-written in three places and this one
+        (`confirmar_pedido_sin_oc`) still read `estado == "pagado"`, so a SIN-OC pedido
+        marked as cuenta corriente fell through to the defensive `else` and got a 409
+        even though `_validar_estado_receptivo` had already let it in.
+        """
+        p = PedidoCompra(
+            numero="P-SINOC-CC",
+            empresa_id=empresa.id,
+            proveedor_id=proveedor.id,
+            moneda="ARS",
+            monto=Decimal("5000"),
+            estado="en_cuenta_corriente",
+            creado_por_id=active_user.id,
+        )
+        db.add(p)
+        db.flush()
+
+        req = ConfirmarPedidoRequest(completo=True)
+        result = recepcion_service.confirmar_pedido_sin_oc(db, p, active_user, req)
+
+        assert result.estado_nuevo == "recibido"
+        assert p.estado == "recibido"
+
+        evento = (
+            db.query(CompraEvento)
+            .filter_by(entidad_id=p.id, entidad_tipo="pedido_compra", tipo="recepcion_arribo")
+            .first()
+        )
+        assert evento is not None, "recepcion_arribo event must be emitted on SIN-OC arrival"
+
+    def test_confirmar_sin_oc_en_cuenta_corriente_completo_false_da_recibido(self, db, empresa, proveedor, active_user):
+        """SIN-OC + en_cuenta_corriente is an ARRIVAL step, so completo=False is ignored.
+
+        It must behave exactly like 'pagado': go to recibido, NOT con_faltantes.
+        Completeness is only evaluated later, at the control step.
+        """
+        p = PedidoCompra(
+            numero="P-SINOC-CC-INC",
+            empresa_id=empresa.id,
+            proveedor_id=proveedor.id,
+            moneda="ARS",
+            monto=Decimal("5000"),
+            estado="en_cuenta_corriente",
+            creado_por_id=active_user.id,
+        )
+        db.add(p)
+        db.flush()
+
+        req = ConfirmarPedidoRequest(completo=False, observaciones="Llegó parcial")
+        result = recepcion_service.confirmar_pedido_sin_oc(db, p, active_user, req)
+
+        assert result.estado_nuevo == "recibido"
+        assert p.estado == "recibido"
+
+        evento = (
+            db.query(CompraEvento)
+            .filter_by(entidad_id=p.id, entidad_tipo="pedido_compra", tipo="recepcion_arribo")
+            .first()
+        )
+        assert evento is not None, "arrival must emit recepcion_arribo even when completo=False"
+
     def test_confirmar_sin_oc_completo_false_sin_observaciones_422(self):
         """Schema-level: completo=False without observaciones raises ValidationError."""
         from pydantic import ValidationError
@@ -1229,6 +1293,48 @@ class TestConfirmarPedidoEndpoint:
         )
         assert r.status_code == 200
         assert r.json()["estado_nuevo"] == "recibido"
+
+    def test_confirmar_pedido_sin_oc_en_cuenta_corriente_da_recibido(
+        self, client, auth_headers, db, empresa, proveedor, active_user, con_permiso_deposito
+    ):
+        """Regression (deposito-recibir-cuenta-corriente): SIN-OC + en_cuenta_corriente → 200 recibido.
+
+        The router dispatch skips the CON-OC branch (no oc_poh_id) and lands on
+        `confirmar_pedido_sin_oc`, which used to reject this estado with a 409
+        reading "Pedido not in a receivable state (estado='en_cuenta_corriente')".
+        """
+        p = PedidoCompra(
+            numero="P-EP-CC-SINOC",
+            empresa_id=empresa.id,
+            proveedor_id=proveedor.id,
+            moneda="ARS",
+            monto=Decimal("5000"),
+            estado="en_cuenta_corriente",
+            creado_por_id=active_user.id,
+        )
+        db.add(p)
+        db.flush()
+
+        r = client.post(
+            f"{BASE}/pedidos/{p.id}/recepcion/confirmar-pedido",
+            json={"completo": True},
+            headers=auth_headers,
+        )
+
+        assert r.status_code == 200
+        assert r.json()["estado_nuevo"] == "recibido"
+
+        # Sentinel ingreso row (pod_id=NULL) must be persisted for WHO/WHEN auditing
+        sentinel = (
+            db.query(PedidoCompraIngreso)
+            .filter(
+                PedidoCompraIngreso.pedido_id == p.id,
+                PedidoCompraIngreso.pod_id.is_(None),
+            )
+            .all()
+        )
+        assert len(sentinel) == 1
+        assert sentinel[0].cantidad_recibida == Decimal("1")
 
 
 class TestEventosEndpoint:
@@ -1969,3 +2075,151 @@ class TestEstadoControladoTransitions:
         db.flush()
         r = client.get(f"{BASE}/pedidos/{p.id}/recepcion/saldos", headers=auth_headers)
         assert r.status_code == 409
+
+
+# ──────────────────────────────────────────────────────────────────────────
+# Arrival entry-state invariant — anti-drift guard
+# ──────────────────────────────────────────────────────────────────────────
+
+
+def _arribo_params() -> list[tuple[str, int]]:
+    """Build parametrize cases from ESTADOS_ARRIBO, one unique poh_id per estado.
+
+    Derived from the constant on purpose: adding a state to ESTADOS_ARRIBO
+    automatically produces a new case, so the new state cannot ship without both
+    arrival paths being exercised against it.
+    """
+    return [(estado, 8300 + idx) for idx, estado in enumerate(sorted(recepcion_service.ESTADOS_ARRIBO))]
+
+
+def _control_only_estados() -> list[str]:
+    """Receptive states that are NOT arrival-entry states (the CONTROL step)."""
+    return sorted(recepcion_service._ESTADOS_RECEPTIVOS - recepcion_service.ESTADOS_ARRIBO)
+
+
+class TestArriboEntryStatesInvariant:
+    """Pin the arrival entry-state set so the three-way literal drift cannot return.
+
+    The pair {'pagado', 'en_cuenta_corriente'} used to be hand-written in
+    `confirmar_pedido_sin_oc`, `confirmar_arribo_con_oc` and the router dispatch.
+    The SIN-OC copy was never updated when 'en_cuenta_corriente' landed, so a
+    SIN-OC pedido in cuenta corriente could not be received (409). These tests
+    derive everything from `recepcion_service.ESTADOS_ARRIBO` instead of re-typing
+    the literal, so both paths are always checked against the same source of truth.
+    """
+
+    def test_estados_arribo_es_subconjunto_de_estados_receptivos(self):
+        """ESTADOS_ARRIBO must stay inside the receptive gate, and be disjoint from control."""
+        assert recepcion_service.ESTADOS_ARRIBO <= recepcion_service._ESTADOS_RECEPTIVOS, (
+            "an arrival-entry state that _validar_estado_receptivo rejects is unreachable"
+        )
+        assert recepcion_service.ESTADOS_ARRIBO.isdisjoint({"recibido", "con_faltantes"}), (
+            "a state cannot be both an arrival-entry state and a control state"
+        )
+        assert recepcion_service._ESTADOS_RECEPTIVOS == recepcion_service.ESTADOS_ARRIBO | {
+            "recibido",
+            "con_faltantes",
+        }, "receptive states must be exactly arrival states plus control states"
+
+    @pytest.mark.parametrize("estado, poh_id", _arribo_params())
+    def test_arribo_sin_oc_y_con_oc_aceptan_los_mismos_estados_de_entrada(
+        self, db, empresa, proveedor, active_user, estado, poh_id
+    ):
+        """Both arrival paths accept every ESTADOS_ARRIBO state identically → recibido.
+
+        numero is built from poh_id (not estado) to stay inside PedidoCompra.numero
+        String(32) no matter how long a future state name is.
+        """
+        # SIN-OC path
+        p_sin_oc = PedidoCompra(
+            numero=f"P-INV-SINOC-{poh_id}",
+            empresa_id=empresa.id,
+            proveedor_id=proveedor.id,
+            moneda="ARS",
+            monto=Decimal("100"),
+            estado=estado,
+            creado_por_id=active_user.id,
+        )
+        db.add(p_sin_oc)
+        db.flush()
+        result_sin_oc = recepcion_service.confirmar_pedido_sin_oc(
+            db, p_sin_oc, active_user, ConfirmarPedidoRequest(completo=True)
+        )
+        assert result_sin_oc.estado_nuevo == "recibido", f"SIN-OC arrival must accept estado='{estado}'"
+        assert p_sin_oc.estado == "recibido"
+
+        # CON-OC path
+        _mk_oc_header(db, poh_id=poh_id, supp_id=proveedor.supp_id)
+        _mk_oc_detail(db, poh_id=poh_id, pod_id=1, qty=100.0, item_id=101)
+        _mk_storage(db, stor_id=1)
+        p_con_oc = PedidoCompra(
+            numero=f"P-INV-CONOC-{poh_id}",
+            empresa_id=empresa.id,
+            proveedor_id=proveedor.id,
+            moneda="ARS",
+            monto=Decimal("100"),
+            estado=estado,
+            oc_comp_id=1,
+            oc_bra_id=1,
+            oc_poh_id=poh_id,
+            creado_por_id=active_user.id,
+        )
+        db.add(p_con_oc)
+        db.flush()
+        result_con_oc = recepcion_service.confirmar_arribo_con_oc(db, p_con_oc, active_user)
+        assert result_con_oc.estado_nuevo == "recibido", f"CON-OC arrival must accept estado='{estado}'"
+        assert p_con_oc.estado == "recibido"
+
+        # Same outcome AND same event type on both paths
+        assert result_sin_oc.estado_nuevo == result_con_oc.estado_nuevo
+        for pedido in (p_sin_oc, p_con_oc):
+            evento = (
+                db.query(CompraEvento)
+                .filter_by(entidad_id=pedido.id, entidad_tipo="pedido_compra", tipo="recepcion_arribo")
+                .first()
+            )
+            assert evento is not None, f"recepcion_arribo missing for pedido {pedido.numero}"
+
+    @pytest.mark.parametrize("estado", _control_only_estados())
+    def test_estados_de_control_no_son_estados_de_arribo(self, db, empresa, proveedor, active_user, estado):
+        """The complement holds too: control states never take the arrival branch.
+
+        CON-OC rejects them with 409 (counting belongs to /recepcion/ingresos) and
+        SIN-OC routes them to the control step, never back to 'recibido' as an arrival.
+        """
+        from fastapi import HTTPException
+
+        p_con_oc = PedidoCompra(
+            numero=f"P-INV-CTL-{estado[:16]}",
+            empresa_id=empresa.id,
+            proveedor_id=proveedor.id,
+            moneda="ARS",
+            monto=Decimal("100"),
+            estado=estado,
+            oc_comp_id=1,
+            oc_bra_id=1,
+            oc_poh_id=8400,
+            creado_por_id=active_user.id,
+        )
+        db.add(p_con_oc)
+        db.flush()
+        with pytest.raises(HTTPException) as exc:
+            recepcion_service.confirmar_arribo_con_oc(db, p_con_oc, active_user)
+        assert exc.value.status_code == 409
+        assert "control step" in exc.value.detail
+
+        p_sin_oc = PedidoCompra(
+            numero=f"P-INV-CTLS-{estado[:15]}",
+            empresa_id=empresa.id,
+            proveedor_id=proveedor.id,
+            moneda="ARS",
+            monto=Decimal("100"),
+            estado=estado,
+            creado_por_id=active_user.id,
+        )
+        db.add(p_sin_oc)
+        db.flush()
+        result = recepcion_service.confirmar_pedido_sin_oc(
+            db, p_sin_oc, active_user, ConfirmarPedidoRequest(completo=True)
+        )
+        assert result.estado_nuevo == "controlado", f"estado='{estado}' must take the CONTROL branch"
