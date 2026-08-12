@@ -22,6 +22,7 @@ from decimal import Decimal
 from unittest.mock import AsyncMock, patch
 
 
+import httpx
 import pytest
 from fastapi import HTTPException
 
@@ -31,6 +32,7 @@ from app.models.producto import ProductoERP
 from app.models.publicacion_ml import PublicacionML
 from app.models.usuario import AuthProvider, RolUsuario, Usuario
 from app.services import ml_pxq_write_service as write_service
+from app.services.ml_webhook_client import MLWebhookClient
 from app.services.pxq_permissions_backfill import PXQ_ESCRIBIR_CODE
 
 
@@ -342,6 +344,54 @@ class TestSyncHappyPath:
         mock_client.post_pxq_prices.assert_not_called()
         db.refresh(synced_tier)
         assert synced_tier.estado == ESTADO_SINCRONIZADO  # unchanged, no write happened
+
+
+class TestProxyNotAttemptedIsNotAmbiguous:
+    """End-to-end over the REAL client classifier (not a hand-written
+    verdict), because the bug lived exactly in the seam between them.
+
+    When `ml-webhook` answers 502 with `{"pxq_write": "not_attempted"}` it
+    is stating that its own pre-write read failed and NOTHING reached ML.
+    Classifying that by status alone made it ambiguous, and an ambiguous
+    write here is not just a blocked retry: it marks every tier
+    `desconocido` and hands an operator a reconciliation for a write that
+    provably never happened."""
+
+    def _patch_transport(self, monkeypatch, response: httpx.Response) -> None:
+        transport = httpx.MockTransport(lambda request: response)
+        original_init = httpx.AsyncClient.__init__
+
+        def patched_init(self, *args, **kwargs):
+            kwargs["transport"] = transport
+            original_init(self, *args, **kwargs)
+
+        monkeypatch.setattr(httpx.AsyncClient, "__init__", patched_init)
+
+    def test_502_not_attempted_rejects_without_marking_desconocido(
+        self, db, publicacion, pxq_user, synced_tier, monkeypatch
+    ) -> None:
+        # Pending change so an array is actually built and POSTed.
+        synced_tier.precio_unitario = Decimal("999.00")
+        synced_tier.estado = ESTADO_LISTO
+        db.flush()
+
+        monkeypatch.setattr(write_service.settings, "PXQ_WRITE_ENABLED", True)
+        self._patch_transport(monkeypatch, httpx.Response(502, json={"pxq_write": "not_attempted"}))
+        patcher, mock_client = _mock_client(live_prices=[{"id": "ML1", "quantity": 10, "amount": 500.0}])
+        # The real POST method, so the real classifier decides -- mocking the
+        # outcome dict here would only re-test the branch, never the seam.
+        mock_client.post_pxq_prices = MLWebhookClient().post_pxq_prices
+        try:
+            outcome = write_service.sync_pxq_tiers(db, pxq_user, publicacion.mla)
+        finally:
+            patcher.stop()
+
+        assert outcome["synced"] is False
+        assert outcome["status"] == "rejected_by_proxy"
+        assert outcome["status_code"] == 502
+        db.refresh(synced_tier)
+        assert synced_tier.estado == ESTADO_LISTO  # NOT marked desconocido
+        assert synced_tier.precio_sincronizado == Decimal("500.00")  # snapshot untouched
 
 
 class TestUnconfirmedIsNotSuccess:
