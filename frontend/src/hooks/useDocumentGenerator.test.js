@@ -33,7 +33,7 @@ const TEMPLATE_JSON = {
       { name: '__titulo__', type: 'text', content: 'REGISTRO' },
       { name: 'legajo', type: 'text', content: '' },
       {
-        name: 'tabla_dias_1',
+        name: 'tabla_dias',
         type: 'table',
         content: '',
         head: ['Día', 'Entrada', 'Salida', 'Hs'],

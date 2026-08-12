@@ -4,7 +4,7 @@
  * sobre texto y roles.
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, waitFor, within } from '@testing-library/react';
+import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 
 const { reporteMock, listarTemplatesMock, obtenerTemplateMock, generateMock } = vi.hoisted(() => ({
@@ -24,7 +24,6 @@ vi.mock('../utils/pdfmePlugins', () => ({ plugins: {} }));
 vi.mock('../utils/pdfmeFonts', () => ({ getFont: () => Promise.resolve({}) }));
 
 const HorariosDocumentoModal = (await import('./HorariosDocumentoModal')).default;
-const { MAX_DIAS_DOCUMENTO } = await import('./HorariosDocumentoModal');
 
 const EMPLEADOS = [
   { id: 1, legajo: '0001', nombre: 'Juan', apellido: 'Pérez' },
@@ -37,7 +36,7 @@ const TEMPLATE_JSON = {
   schemas: [
     [
       {
-        name: 'tabla_dias_1',
+        name: 'tabla_dias',
         type: 'table',
         content: '',
         head: ['Día', 'Entrada', 'Salida', 'Hs'],
@@ -190,12 +189,18 @@ describe('HorariosDocumentoModal', () => {
     expect(template.schemas[0][0].head).toEqual(['Día', 'Entrada', 'Salida']);
   });
 
-  it(`avisa y BLOQUEA cuando un empleado supera los ${MAX_DIAS_DOCUMENTO} días`, async () => {
+  /**
+   * Antes esto verificaba que un rango de más de 32 días quedara BLOQUEADO.
+   * El tope existía porque se creía que el alto de la tabla era fijo; en
+   * realidad pdfme la pagina solo. La cobertura se convierte en lo contrario:
+   * un rango largo tiene que generar, no rebotar.
+   */
+  it('un rango largo GENERA (pdfme pagina solo), no lo bloquea', async () => {
     const user = userEvent.setup();
     reporteMock.mockResolvedValue(
       respuesta([
         { empleado_id: 1, nombre_completo: 'Pérez, Juan', dias: dias(10), total_horas_hhmm: '80:00' },
-        { empleado_id: 2, nombre_completo: 'Gómez, Ana', dias: dias(41), total_horas_hhmm: '300:00' },
+        { empleado_id: 2, nombre_completo: 'Gómez, Ana', dias: dias(90), total_horas_hhmm: '700:00' },
       ])
     );
     renderModal();
@@ -204,10 +209,13 @@ describe('HorariosDocumentoModal', () => {
     await user.click(screen.getByLabelText('0002 - Gómez, Ana'));
     await user.click(screen.getByRole('button', { name: 'Generar (2)' }));
 
-    const aviso = await screen.findByRole('alert');
-    expect(aviso).toHaveTextContent(`El documento entra hasta ${MAX_DIAS_DOCUMENTO} días`);
-    expect(within(aviso).getByText('Gómez, Ana: 41 días')).toBeInTheDocument();
-    expect(generateMock).not.toHaveBeenCalled();
+    await waitFor(() => expect(generateMock).toHaveBeenCalled());
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+
+    // Los 90 días viajan enteros en UNA sola tabla, sin truncar ni partir.
+    const { inputs } = generateMock.mock.calls[0][0];
+    expect(JSON.parse(inputs[1].tabla_dias)).toHaveLength(90);
+    expect(inputs[1].tabla_dias_1).toBeUndefined();
   });
 
   it('muestra el error del backend en línea, sin alert()', async () => {

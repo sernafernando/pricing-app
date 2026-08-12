@@ -1,20 +1,31 @@
 import { describe, it, expect } from 'vitest';
 import { dropLastTableColumn, withOptionalLastColumn } from './pdfmeTableColumns';
 
+/**
+ * DOS tablas a propósito, pero APILADAS (distinto `y`), no lado a lado.
+ *
+ * El helper recorre los campos `table` de forma genérica, así que el caso de
+ * varias tablas tiene que seguir cubierto aunque el template de horarios haya
+ * pasado a tener una sola. Lo que rompe en pdfme no es "dos tablas", es "dos
+ * tablas arrancando en el mismo `y`" — eso está prohibido y se verifica en
+ * `horariosTemplateRender.test.js`.
+ */
 const makeTemplate = () => ({
   basePdf: { width: 210, height: 297 },
   schemas: [
     [
       { name: '__titulo__', type: 'text', content: 'REGISTRO DE HORARIOS' },
       {
-        name: 'tabla_dias_1',
+        name: 'tabla_dias',
         type: 'table',
+        position: { x: 15, y: 53.5 },
         head: ['Día', 'Entrada', 'Salida', 'Hs'],
         headWidthPercentages: [34, 23, 23, 20],
       },
       {
-        name: 'tabla_dias_2',
+        name: 'tabla_extras',
         type: 'table',
+        position: { x: 15, y: 210 },
         head: ['Día', 'Entrada', 'Salida', 'Hs'],
         headWidthPercentages: [34, 23, 23, 20],
       },

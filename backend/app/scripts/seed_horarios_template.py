@@ -12,12 +12,12 @@ terminado del repo: logo, línea corporativa y líneas de firma reales):
   │ [LOGO]     REGISTRO DE HORARIOS              │
   │ ──────────────────────────────────────────── │  ← línea azul corporativa
   │ NOMBRE COMPLETO                 Legajo: XXXX │
-  │ DNI: ...   CUIL: ...            Área: ...    │
-  │ Puesto: ...                     Período: ... │
-  │ ┌────────────────┐  ┌────────────────┐       │
-  │ │ Día Ent Sal Hs │  │ Día Ent Sal Hs │       │
-  │ │  ...16 filas   │  │  ...16 filas   │       │
-  │ └────────────────┘  └────────────────┘       │
+  │ DNI: ...   CUIL: ...            Período: ... │
+  │ Área: ...            Puesto: ...             │
+  │ ┌──────────────────────────────────────────┐ │
+  │ │ Día         Entrada   Salida         Hs  │ │
+  │ │  ...un renglón por día del período       │ │
+  │ └──────────────────────────────────────────┘ │
   │ Total horas: HH:MM        Total días: NN     │
   │  ______________       ______________         │
   │  Firma del empleado   Por la empresa         │
@@ -27,11 +27,13 @@ terminado del repo: logo, línea corporativa y líneas de firma reales):
 Uso:
   cd backend
   source venv/bin/activate
-  python -m app.scripts.seed_horarios_template
+  python -m app.scripts.seed_horarios_template            # seed en la DB
+  python -m app.scripts.seed_horarios_template --dump-fixture  # regenera el fixture del frontend
 
 ⚠ NO modifica ningún otro template. Solo crea/actualiza el de horarios.
 """
 
+import json
 import sys
 from pathlib import Path
 
@@ -119,15 +121,33 @@ def _firmas(y: float, labels: list[str]) -> list[dict]:
     return fields
 
 
-# ── Geometría de las dos tablas ──────────────────────────────────────────────
-# 85mm + 10mm de gap + 85mm = 180mm = CONTENT_W.
-TABLE_W = 85.0
-TABLE_GAP = 10.0
-# Alto fijo dimensionado para ~16 filas + encabezado (fontSize 8 con padding
-# vertical 1.5mm ≈ 5.8mm por fila). Dos tablas de 16 ⇒ hasta ~32 días hábiles
-# (≈6 semanas) en UNA sola página.
-TABLE_ROWS = 16
-TABLE_H = 120.0
+# ── Geometría de la tabla de días ────────────────────────────────────────────
+#
+# UNA sola tabla a ancho completo. NO dos lado a lado: pdfme modela la página
+# como un ÚNICO FLUJO VERTICAL. En `dynamicTemplate.processDynamicPage` recorre
+# las tablas en secuencia acumulando un `totalYOffset`, y ubica cada una en
+# `baseY + totalYOffset`. Con dos tablas en el mismo `y`, la segunda recibe el
+# desplazamiento de la primera: si la primera encoge respecto de su alto
+# declarado, la segunda sube y se monta sobre el encabezado. Verificado
+# renderizando con @pdfme/generator 5.5.10.
+#
+# Corolario: el alto de una tabla es DECLARADO PERO NO RESPETADO. pdfme lo
+# recalcula segun el contenido y desplaza todo lo que va debajo. Por eso el pie
+# de este template va INMEDIATAMENTE despues de la tabla y no clavado al fondo
+# de la hoja: cualquier cosa fija cerca del margen inferior se cae a una
+# segunda pagina apenas la tabla crece.
+TABLE_W = CONTENT_W  # 180mm
+# Alto declarado para ~31 filas. Con `fontSize` 8 y padding vertical de 1.0mm
+# cada fila mide ~4.8mm, asi que un mes entero entra en UNA pagina.
+TABLE_ROWS = 31
+TABLE_H = 150.0
+# Padding vertical del cuerpo. Es la palanca que decide cuantos dias entran en
+# una pagina. Medido renderizando PDFs reales contra ESTE encabezado compacto:
+# a 1.5mm el ultimo rango de una pagina es de 31 dias; a 1.0mm es de 37. Se usa
+# 1.0 para no dejar un mes de 31 dias justo en el borde: con 6 dias de aire, un
+# retoque chico del encabezado o del pie no manda el documento a dos paginas.
+# (Si se toca este valor, `horariosTemplateRender.test.js` lo verifica.)
+TABLE_PAD_Y = 1.0
 
 TABLE_HEAD = ["Día", "Entrada", "Salida", "Hs"]
 TABLE_HEAD_WIDTHS = [34, 23, 23, 20]  # suma 100
@@ -135,7 +155,7 @@ TABLE_HEAD_WIDTHS = [34, 23, 23, 20]  # suma 100
 
 def _tabla_dias(name: str, x: float, y: float) -> dict:
     """
-    Una de las dos columnas de días.
+    La tabla de días del período.
 
     La estructura de estilos se copia del `tabla_items` que ya funciona en
     producción (`seed_document_templates.template_remito_manual`): pdfme v5
@@ -178,7 +198,7 @@ def _tabla_dias(name: str, x: float, y: float) -> dict:
             "fontColor": "#333333",
             "borderColor": "#cccccc",
             "alternateBackgroundColor": "#f5f5f5",
-            "padding": {"top": 1.5, "bottom": 1.5, "left": 3, "right": 3},
+            "padding": {"top": TABLE_PAD_Y, "bottom": TABLE_PAD_Y, "left": 3, "right": 3},
             "borderWidth": {"top": 0.1, "right": 0.1, "bottom": 0.1, "left": 0.1},
         },
         "columnStyles": {},
@@ -192,81 +212,83 @@ def template_horarios() -> dict:
     """
     Arma el schema pdfme del registro de horarios.
 
-    ⚠ GEOMETRÍA FIJA: las tablas NO reflowan. `TABLE_H` es alto declarado, no
-    alto calculado, así que todo lo que va debajo (totales, firmas) usa `y`
-    hardcodeado. Si se cambia `TABLE_H`, `TABLE_ROWS` o el `fontSize` del
-    cuerpo, hay que recalcular a mano las posiciones del pie — y si el
-    frontend manda más de `TABLE_ROWS` filas por tabla, la tabla crece hacia
-    abajo y pisa el bloque de totales.
+    ⚠ EL PIE FLUYE CON LA TABLA. pdfme recalcula el alto de una tabla segun su
+    contenido y desplaza todo lo que va debajo (ver el comentario de
+    `TABLE_H`). Por eso los totales, la leyenda, las firmas y la fecha de
+    emision van INMEDIATAMENTE despues de la tabla, con separaciones chicas, y
+    NO clavados al fondo de la hoja: cualquier elemento fijo cerca del margen
+    inferior se cae a una segunda pagina apenas la tabla crece unos milimetros.
+
+    El encabezado es deliberadamente compacto (~32mm): cada milimetro que se
+    le saca es una fila mas de la tabla que entra en la primera pagina.
     """
     fields = []
 
-    # ── Encabezado: logo + título + línea corporativa ────────────────────
-    # El logo va arriba a la izquierda y el título centrado sobre el ancho de
-    # contenido; a fontSize 18 el título ocupa el tercio central, así que no
-    # pisa el logo.
+    # ── Encabezado: logo + titulo + linea corporativa ────────────────────
+    # El titulo va centrado sobre el ancho de contenido; a fontSize 15 ocupa el
+    # tercio central, asi que no pisa el logo de la izquierda.
     y = MARGIN
-    fields.append(_image("__logo__", MARGIN, y, 45, 18))
+    fields.append(_image("__logo__", MARGIN, y, 34, 13))
     fields.append(
         _label(
             "__titulo__",
             MARGIN,
-            y + 4,
+            y + 2,
             CONTENT_W,
-            12,
+            9,
             "REGISTRO DE HORARIOS",
-            fontSize=18,
+            fontSize=15,
             bold=True,
             alignment="center",
         )
     )
-    y += 20
+    y += 14
     fields.append(_line("__linea_header__", MARGIN, y, CONTENT_W))
-    y += 5
+    y += 3.5
 
     # ── Identidad del empleado ───────────────────────────────────────────
-    fields.append(_text("nombre_completo", MARGIN, y, 120, 8, content="Apellido, Nombre", bold=True, fontSize=12))
-    fields.append(_label("__lbl_legajo__", MARGIN + 122, y, 20, 7, "Legajo:", fontSize=9, fontColor="#555555"))
-    fields.append(_text("legajo", MARGIN + 142, y, 38, 7, content="0000", bold=True, fontSize=10))
-    y += 10
+    fields.append(_text("nombre_completo", MARGIN, y, 118, 6.5, content="Apellido, Nombre", bold=True, fontSize=11))
+    fields.append(_label("__lbl_legajo__", MARGIN + 120, y, 18, 6, "Legajo:", fontSize=8, fontColor="#555555"))
+    fields.append(_text("legajo", MARGIN + 138, y, 42, 6, content="0000", bold=True, fontSize=10, alignment="right"))
+    y += 7
 
-    fields.append(_label("__lbl_dni__", MARGIN, y, 12, 6, "DNI:", fontSize=9, fontColor="#555555"))
-    fields.append(_text("dni", MARGIN + 12, y, 40, 6, content=""))
-    fields.append(_label("__lbl_cuil__", MARGIN + 55, y, 14, 6, "CUIL:", fontSize=9, fontColor="#555555"))
-    fields.append(_text("cuil", MARGIN + 69, y, 45, 6, content=""))
-    fields.append(_label("__lbl_area__", MARGIN + 122, y, 14, 6, "Área:", fontSize=9, fontColor="#555555"))
-    fields.append(_text("area", MARGIN + 136, y, 44, 6, content=""))
-    y += 8
-
-    fields.append(_label("__lbl_puesto__", MARGIN, y, 18, 6, "Puesto:", fontSize=9, fontColor="#555555"))
-    fields.append(_text("puesto", MARGIN + 18, y, 70, 6, content=""))
-    fields.append(_label("__lbl_periodo__", MARGIN + 100, y, 20, 6, "Período:", fontSize=9, fontColor="#555555"))
+    fields.append(_label("__lbl_dni__", MARGIN, y, 11, 5, "DNI:", fontSize=8, fontColor="#555555"))
+    fields.append(_text("dni", MARGIN + 11, y, 32, 5, content="", fontSize=9))
+    fields.append(_label("__lbl_cuil__", MARGIN + 45, y, 13, 5, "CUIL:", fontSize=8, fontColor="#555555"))
+    fields.append(_text("cuil", MARGIN + 58, y, 38, 5, content="", fontSize=9))
+    fields.append(_label("__lbl_periodo__", MARGIN + 100, y, 19, 5, "Período:", fontSize=8, fontColor="#555555"))
     fields.append(
         _text(
             "periodo",
-            MARGIN + 120,
+            MARGIN + 119,
             y,
-            60,
-            6,
+            61,
+            5,
             content="dd/mm/aaaa - dd/mm/aaaa",
             bold=True,
+            fontSize=9,
             alignment="right",
         )
     )
-    y += 10
+    y += 6
 
-    # ── Dos tablas de días, lado a lado ──────────────────────────────────
+    fields.append(_label("__lbl_area__", MARGIN, y, 13, 5, "Área:", fontSize=8, fontColor="#555555"))
+    fields.append(_text("area", MARGIN + 13, y, 55, 5, content="", fontSize=9))
+    fields.append(_label("__lbl_puesto__", MARGIN + 72, y, 17, 5, "Puesto:", fontSize=8, fontColor="#555555"))
+    fields.append(_text("puesto", MARGIN + 89, y, 91, 5, content="", fontSize=9))
+    y += 8
+
+    # ── Tabla de dias (UNA sola, ancho completo) ─────────────────────────
     table_y = y
-    fields.append(_tabla_dias("tabla_dias_1", MARGIN, table_y))
-    fields.append(_tabla_dias("tabla_dias_2", MARGIN + TABLE_W + TABLE_GAP, table_y))
+    fields.append(_tabla_dias("tabla_dias", MARGIN, table_y))
 
-    # ── Totales (posición fija: no dependen de cuántos días haya) ────────
-    y = table_y + TABLE_H + 6
-    fields.append(_label("__lbl_total_horas__", MARGIN, y, 30, 7, "Total horas:", fontSize=10))
-    fields.append(_text("total_horas", MARGIN + 30, y, 35, 7, content="0:00", bold=True, fontSize=12))
+    # ── Pie: va pegado a la tabla y fluye con ella ───────────────────────
+    y = table_y + TABLE_H + 5
+    fields.append(_label("__lbl_total_horas__", MARGIN, y, 28, 7, "Total horas:", fontSize=10))
+    fields.append(_text("total_horas", MARGIN + 28, y, 35, 7, content="0:00", bold=True, fontSize=12))
     fields.append(_label("__lbl_total_dias__", MARGIN + 110, y, 28, 7, "Total días:", fontSize=10))
     fields.append(_text("total_dias", MARGIN + 138, y, 42, 7, content="0", bold=True, fontSize=12, alignment="right"))
-    y += 12
+    y += 10
 
     fields.append(
         _label(
@@ -274,25 +296,20 @@ def template_horarios() -> dict:
             MARGIN,
             y,
             CONTENT_W,
-            10,
+            8,
             "Entrada: primera marcación del día. Salida: última marcación del día. "
             "Los días sin marcaciones informan el estado registrado.",
             fontSize=7,
             fontColor="#777777",
         )
     )
+    y += 14
 
-    # ── Firmas: siempre al fondo de la página ────────────────────────────
-    fields.extend(_firmas(A4_H - MARGIN - 15, ["Firma del empleado", "Por la empresa"]))
+    fields.extend(_firmas(y, ["Firma del empleado", "Por la empresa"]))
+    y += 12
 
-    # ── Pie: fecha de emisión ────────────────────────────────────────────
-    # Un documento que respalda una liquidación tiene que decir cuándo se
-    # emitió; sin eso no se puede distinguir una reimpresión posterior.
-    # `- 6` y no `- 4`: con alto 5 el campo tiene que cerrar en el margen
-    # inferior (A4_H - MARGIN), no pasarse.
-    y_pie = A4_H - MARGIN - 6
-    fields.append(_label("__lbl_emision__", MARGIN, y_pie, 24, 5, "Emitido el:", fontSize=7, fontColor="#777777"))
-    fields.append(_text("fecha_emision", MARGIN + 24, y_pie, 60, 5, content="", fontSize=7, fontColor="#777777"))
+    fields.append(_label("__lbl_emision__", MARGIN, y, 24, 5, "Emitido el:", fontSize=7, fontColor="#777777"))
+    fields.append(_text("fecha_emision", MARGIN + 24, y, 60, 5, content="", fontSize=7, fontColor="#777777"))
 
     return {
         "basePdf": {"width": A4_W, "height": A4_H, "padding": [MARGIN, MARGIN, MARGIN, MARGIN]},
@@ -308,12 +325,89 @@ TEMPLATE_HORARIOS = {
     "nombre": "Registro de Horarios (base)",
     "descripcion": (
         "Registro imprimible de entradas y salidas diarias por empleado, "
-        "para entregar junto con el recibo de sueldo. Dos tablas de días "
-        "lado a lado (~32 días hábiles en una página), totales y firmas."
+        "para entregar junto con el recibo de sueldo. Una tabla de días a "
+        "ancho completo (un mes entero en una página), totales y firmas."
     ),
     "contexto": "horarios_empleado",
     "template_json": template_horarios,
 }
+
+
+# =============================================================================
+# FIXTURE COMPARTIDO CON EL FRONTEND
+# =============================================================================
+#
+# El test de render del frontend (`horariosTemplateRender.test.js`) genera un
+# PDF REAL contra este mismo template. Para eso necesita el schema en un
+# archivo que pueda leer sin levantar Python, así que se commitea serializado.
+#
+# La serialización vive acá y no en el test para que el comando que regenera el
+# fixture y el comando que lo verifica no puedan divergir.
+FIXTURE_PATH = Path(__file__).resolve().parents[3] / "frontend/src/test/fixtures/horarios-template.json"
+
+# Comando exacto que regenera el fixture. Se cita en el mensaje de falla del
+# test que lo verifica, así el desarrollador no tiene que ir a buscarlo.
+FIXTURE_REGEN_CMD = "cd backend && python -m app.scripts.seed_horarios_template --dump-fixture"
+
+
+def serializar_fixture() -> str:
+    """Serializa el template tal cual queda commiteado en el fixture del frontend.
+
+    `sort_keys` hace el diff legible y estable: sin él, reordenar dos claves en
+    el builder produce un diff gigante que no cambia nada del PDF.
+    """
+    return json.dumps(template_horarios(), ensure_ascii=False, indent=2, sort_keys=True) + "\n"
+
+
+def dump_fixture() -> Path:
+    """Reescribe el fixture del frontend con el template actual."""
+    FIXTURE_PATH.write_text(serializar_fixture(), encoding="utf-8")
+    return FIXTURE_PATH
+
+
+def _campos_rellenables(template_json: dict) -> set[str]:
+    """Nombres de campo que el frontend puede rellenar (los `__x__` son internos)."""
+    return {
+        campo.get("name")
+        for pagina in (template_json or {}).get("schemas", [])
+        for campo in pagina
+        if campo.get("name") and not campo["name"].startswith("__")
+    }
+
+
+def _es_incompatible(template_json: dict) -> bool:
+    """¿La fila guardada ya no habla el mismo idioma que el mapper del frontend?
+
+    pdfme casa por NOMBRE de campo: si el template guardado declara
+    `tabla_dias_1` / `tabla_dias_2` y el mapper manda `tabla_dias`, la tabla no
+    recibe ninguna fila y el documento sale con la grilla VACIA, sin error.
+    Sobre un papel que respalda una liquidacion, eso es peor que fallar.
+    """
+    return "tabla_dias" not in _campos_rellenables(template_json)
+
+
+def _logo_guardado(template_json: dict) -> str:
+    """El base64 del logo que alguien haya subido desde el Disenador.
+
+    Se conserva al reconstruir el template: el logo vive en el `content` del
+    campo `__logo__`, asi que regenerar a ciegas se lo lleva puesto.
+    """
+    for pagina in (template_json or {}).get("schemas", []):
+        for campo in pagina:
+            if campo.get("name") == "__logo__":
+                return campo.get("content") or ""
+    return ""
+
+
+def _con_logo(template_json: dict, logo: str) -> dict:
+    """Devuelve el template con el `content` del logo restaurado."""
+    if not logo:
+        return template_json
+    for pagina in template_json.get("schemas", []):
+        for campo in pagina:
+            if campo.get("name") == "__logo__":
+                campo["content"] = logo
+    return template_json
 
 
 def seed_horarios_template(user_id: int = 1, force_update: bool = False) -> int:
@@ -322,6 +416,16 @@ def seed_horarios_template(user_id: int = 1, force_update: bool = False) -> int:
 
     `user_id` es el `creado_por_id` (FK NOT NULL a `usuarios`); por defecto 1
     (admin), igual que el resto de los seeds de templates.
+
+    Una fila existente se reescribe en dos casos:
+
+    - `force_update=True`, o
+    - la fila guardada es INCOMPATIBLE con el mapper actual (no declara
+      `tabla_dias`). Ese caso se repara solo a proposito: dejarlo librado a que
+      alguien se acuerde de correr `--force-update` significa que el documento
+      sale con la grilla vacia hasta que alguien lo note.
+
+    En ambos casos se conserva el logo cargado desde el Disenador.
     """
     db = SessionLocal()
     try:
@@ -335,13 +439,19 @@ def seed_horarios_template(user_id: int = 1, force_update: bool = False) -> int:
         )
 
         if existing:
-            if force_update:
-                existing.template_json = TEMPLATE_HORARIOS["template_json"]()
-                db.commit()
-                print(f"  🔄 Actualizado: {TEMPLATE_HORARIOS['nombre']} ({TEMPLATE_HORARIOS['contexto']})")
-                return 1
-            print(f"  ⏭ Ya existe: {TEMPLATE_HORARIOS['nombre']} ({TEMPLATE_HORARIOS['contexto']})")
-            return 0
+            incompatible = _es_incompatible(existing.template_json)
+            if not (force_update or incompatible):
+                print(f"  ⏭ Ya existe: {TEMPLATE_HORARIOS['nombre']} ({TEMPLATE_HORARIOS['contexto']})")
+                return 0
+
+            logo = _logo_guardado(existing.template_json)
+            existing.template_json = _con_logo(TEMPLATE_HORARIOS["template_json"](), logo)
+            db.commit()
+            motivo = "no declaraba tabla_dias, habria salido vacio" if incompatible else "--force-update"
+            print(f"  🔄 Actualizado ({motivo}): {TEMPLATE_HORARIOS['nombre']}")
+            if logo:
+                print("     logo cargado desde el Diseñador: conservado")
+            return 1
 
         template = DocumentTemplate(
             nombre=TEMPLATE_HORARIOS["nombre"],
@@ -369,7 +479,17 @@ if __name__ == "__main__":
         action="store_true",
         help="Actualizar template existente con la versión del seed",
     )
+    parser.add_argument(
+        "--dump-fixture",
+        action="store_true",
+        help="Regenerar el fixture del frontend y salir (no toca la DB)",
+    )
     args = parser.parse_args()
+
+    if args.dump_fixture:
+        destino = dump_fixture()
+        print(f"Fixture regenerado: {destino}")
+        raise SystemExit(0)
 
     print("Seeding template de registro de horarios...")
     result = seed_horarios_template(user_id=args.user_id, force_update=args.force_update)

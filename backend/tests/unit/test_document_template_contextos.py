@@ -38,7 +38,7 @@ def test_todas_las_variables_usan_un_tipo_soportado_por_pdfme():
     assert invalidas == []
 
 
-def test_contexto_horarios_empleado_expone_header_totales_y_las_dos_tablas():
+def test_contexto_horarios_empleado_expone_header_totales_y_la_tabla():
     variables = obtener_variables_contexto("horarios_empleado")
     assert variables is not None
 
@@ -54,11 +54,14 @@ def test_contexto_horarios_empleado_expone_header_totales_y_las_dos_tablas():
         "periodo",
         "total_horas",
         "total_dias",
-        "tabla_dias_1",
-        "tabla_dias_2",
+        "tabla_dias",
     }
     assert esperadas <= set(por_nombre)
 
-    # Las dos columnas de días son tablas pdfme, no texto.
-    assert por_nombre["tabla_dias_1"].tipo == "table"
-    assert por_nombre["tabla_dias_2"].tipo == "table"
+    # Los días son una tabla pdfme, no texto.
+    assert por_nombre["tabla_dias"].tipo == "table"
+
+    # UNA sola tabla: dos tablas es la forma que rompía en producción, porque
+    # pdfme apila las tablas en un único flujo vertical y la segunda terminaba
+    # montada sobre el encabezado.
+    assert [v.nombre for v in variables if v.tipo == "table"] == ["tabla_dias"]

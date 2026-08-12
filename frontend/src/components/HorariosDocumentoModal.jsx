@@ -1,8 +1,9 @@
 /**
  * HorariosDocumentoModal — genera el REGISTRO DE HORARIOS imprimible.
  *
- * Un PDF con una página por empleado seleccionado, para entregar junto con el
- * recibo de sueldo. Los datos salen de
+ * Un PDF con un registro por empleado seleccionado, para entregar junto con el
+ * recibo de sueldo. Un rango de un mes entra en una página; los más largos los
+ * pagina pdfme solo. Los datos salen de
  * `GET /api/rrhh/reportes/horarios-documento` y el PDF lo arma pdfme en el
  * browser vía `useDocumentGenerator`.
  *
@@ -14,7 +15,7 @@
  *   fechaHasta  - string YYYY-MM-DD
  */
 import { useEffect, useState } from 'react';
-import { AlertCircle, AlertTriangle, FileDown, Loader2, Search } from 'lucide-react';
+import { AlertCircle, FileDown, Loader2, Search } from 'lucide-react';
 import { rrhhAPI } from '../services/api';
 import { useDocumentGenerator } from '../hooks/useDocumentGenerator';
 import { withOptionalLastColumn } from '../utils/pdfmeTableColumns';
@@ -23,14 +24,6 @@ import EmpleadoMultiSelect from './EmpleadoMultiSelect';
 import styles from './HorariosDocumentoModal.module.css';
 
 export const CONTEXTO = 'horarios_empleado';
-
-/**
- * El template tiene DOS tablas de 16 filas con alto DECLARADO, no calculado:
- * la fila 17 no pagina, crece hacia abajo y pisa el bloque de totales y firmas.
- * Por eso 32 es un tope duro y no una sugerencia.
- */
-export const FILAS_POR_TABLA = 16;
-export const MAX_DIAS_DOCUMENTO = FILAS_POR_TABLA * 2;
 
 const detalleDeError = (err, fallback) => {
   const detail = err?.response?.data?.detail;
@@ -54,7 +47,6 @@ export default function HorariosDocumentoModal({
   const [templateId, setTemplateId] = useState('');
   const [cargandoDatos, setCargandoDatos] = useState(false);
   const [errorDatos, setErrorDatos] = useState(null);
-  const [excedidos, setExcedidos] = useState([]);
 
   // Al abrir: templates frescos y el rango que el usuario ya tenía en pantalla.
   useEffect(() => {
@@ -64,7 +56,6 @@ export default function HorariosDocumentoModal({
     setHasta(fechaHasta || '');
     setSeleccionados([]);
     setErrorDatos(null);
-    setExcedidos([]);
   }, [isOpen, fechaDesde, fechaHasta, fetchTemplates]);
 
   // Derivado, no estado: con un solo template no hay nada que elegir.
@@ -72,7 +63,6 @@ export default function HorariosDocumentoModal({
 
   const handleGenerar = async () => {
     setErrorDatos(null);
-    setExcedidos([]);
 
     if (!templateElegido) {
       setErrorDatos('Elegí un template para generar el documento');
@@ -93,20 +83,9 @@ export default function HorariosDocumentoModal({
         return;
       }
 
-      // Bloquea, no advierte: el template no pagina, así que "seguir igual"
-      // significa entregar un documento con los totales tapados por la tabla.
-      const desbordados = filas.filter((e) => (e.dias?.length || 0) > MAX_DIAS_DOCUMENTO);
-      if (desbordados.length > 0) {
-        setExcedidos(
-          desbordados.map((e) => ({
-            id: e.empleado_id,
-            nombre: e.nombre_completo,
-            dias: e.dias.length,
-          }))
-        );
-        return;
-      }
-
+      // Sin tope de días: el template declara UNA tabla y pdfme la pagina
+      // solo. Un rango de tres meses sale como un documento de varias páginas
+      // en vez de rebotar.
       await generatePdf(
         Number(templateElegido),
         filas.map((e) => ({
@@ -132,7 +111,7 @@ export default function HorariosDocumentoModal({
       isOpen={isOpen}
       onClose={onClose}
       title="Registro de horarios"
-      subtitle="Una página por empleado, para entregar con el recibo de sueldo"
+      subtitle="Un registro por empleado, para entregar con el recibo de sueldo"
       size="lg"
       closeOnOverlay={false}
       footer={
@@ -227,24 +206,6 @@ export default function HorariosDocumentoModal({
             No hay templates activos para este documento. Un usuario con permiso de diseño tiene que
             crear uno.
           </p>
-        )}
-
-        {excedidos.length > 0 && (
-          <div className={styles.warning} role="alert">
-            <AlertTriangle size={16} />
-            <div>
-              <p className={styles.warningTitle}>
-                El documento entra hasta {MAX_DIAS_DOCUMENTO} días. Acortá el rango.
-              </p>
-              <ul className={styles.warningList}>
-                {excedidos.map((e) => (
-                  <li key={e.id}>
-                    {e.nombre}: {e.dias} días
-                  </li>
-                ))}
-              </ul>
-            </div>
-          </div>
         )}
 
         {error && (
