@@ -7,7 +7,7 @@ closed-schema `TriagePropuesta` model, applies a PER-FIELD confidence gate,
 and writes one `PropuestaIA` row per surviving field — the audit trail,
 always. With `TICKETS_TRIAGE_AUTO_APPLY=True` (default) it ALSO writes the
 value onto `tickets.<campo>` in the same transaction, via
-`confirmacion_service._aplicar_confirmacion(usuario=None, origen="ia_auto")`
+`confirmacion_service.aplicar_confirmacion(usuario=None, origen="ia_auto")`
 — the proposal is born `estado='confirmada'` with `confirmado_por_id=NULL`,
 that NULL being the signal no human ratified it. With the flag `False` (or
 when a field is gated out), the proposal stays `pendiente` and `tickets`
@@ -366,7 +366,7 @@ def _auto_aplicar_sector_tipo_ticket(
         with db.begin_nested():
             for campo, valor, confianza in entradas:
                 permite = campo == "sector" and permite_huerfano
-                confirmacion_service._aplicar_confirmacion(
+                confirmacion_service.aplicar_confirmacion(
                     db, ticket_actual, nuevas[campo], None, valor, permite_tipo_huerfano=permite, origen="ia_auto"
                 )
     except (
@@ -593,7 +593,7 @@ async def run_triage(ticket_id: int, provider: LlmProvider) -> None:
                     )
 
                 if auto_apply and ticket_actual is not None and origen_actual != "humano":
-                    confirmacion_service._aplicar_confirmacion(
+                    confirmacion_service.aplicar_confirmacion(
                         db, ticket_actual, nueva_propuesta, None, valor, origen="ia_auto"
                     )
                     nueva_propuesta.estado = "confirmada"

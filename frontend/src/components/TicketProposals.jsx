@@ -15,6 +15,25 @@ const CAMPO_LABEL = {
   metadata_ia: 'Metadata',
 };
 
+// Fields `descartar()` can revert to a clean "unset" state once already
+// applied by auto-apply — MUST mirror `CAMPOS_REVERTIBLES` in
+// `backend/app/tickets/services/confirmacion_service.py` exactly. The
+// backend is the enforced source of truth (409 `PropuestaNoDescartableError`
+// if bypassed, e.g. a stale tab); this copy only decides whether the
+// Discard button is offered at all, so a human is never shown a button
+// guaranteed to fail. `titulo` is NOT NULL (no unset state), `sector`/
+// `tipo_ticket` have no origen column and moving them is a domain
+// operation with no defined "undo", and `metadata_ia` was a JSONB MERGE —
+// there is no record of which keys it added. Adding a new revertible field
+// on the backend MUST update this set too, or the two drift out of sync.
+//
+// NOT gating whether Confirm (ratify) renders — every already-applied
+// field gets that one, revertible or not (see `handleConfirmar`'s use in
+// the "aplicadas" section below).
+// ponytail: ask the backend for a `descartable: bool` per proposal
+// instead of duplicating this vocabulary here.
+const CAMPOS_REVERTIBLES = new Set(['severidad', 'urgencia', 'resumen']);
+
 // `confirmado_por_id == null` (loose: catches both `null` and `undefined`)
 // on a `confirmada` row means the AI applied it and nobody has looked at
 // it yet — see `confirmacion_service`'s module docstring. Distinct from a
@@ -32,9 +51,14 @@ const esAplicadoSinRevisar = (p) => p.estado === 'confirmada' && p.confirmado_po
  *   is off, or a field was gated by confidence. Confirm/discard here read
  *   as "approve this proposal", same as before.
  * - `confirmada` + `confirmado_por_id IS NULL` (`ia_auto`): the AI ALREADY
- *   applied this value — the ticket shows it right now. There is nothing to
- *   "confirm" (it is already live), so only a correction affordance makes
- *   sense: "esto lo clasificó la IA — corregí si está mal".
+ *   applied this value — the ticket shows it right now. "Confirm" here
+ *   RATIFIES it (marks it reviewed, never rewrites the ticket — the value
+ *   is already there); "Discard" CORRECTS it, only offered for
+ *   `CAMPOS_REVERTIBLES` (real pre-push review finding: without ratify, a
+ *   non-revertible field like titulo/sector/tipo_ticket/metadata_ia had NO
+ *   way to ever leave "unreviewed" — the exact eternal-pending-count
+ *   problem this feature was built to eliminate, for a different subset
+ *   of fields).
  *
  * Confidence is always visible, independent of permission — only the
  * confirm/discard/batch controls require `tickets.triage.confirmar`. Batch
@@ -206,6 +230,7 @@ export default function TicketProposals({ ticketId, onChanged, refreshToken }) {
           <ul className={styles.list}>
             {aplicadas.map((p) => {
               const label = CAMPO_LABEL[p.campo] || p.campo;
+              const esRevertible = CAMPOS_REVERTIBLES.has(p.campo);
               return (
                 <li key={p.id} className={styles.item}>
                   <span className={styles.label}>
@@ -218,14 +243,25 @@ export default function TicketProposals({ ticketId, onChanged, refreshToken }) {
                   {puedeConfirmar && (
                     <span className={styles.actions}>
                       <button
-                        className={styles.btnDiscard}
-                        onClick={() => handleDescartar(p.id)}
+                        className={styles.btnConfirm}
+                        onClick={() => handleConfirmar(p.id)}
                         disabled={busyId === p.id}
-                        aria-label={`Descartar ${label}`}
-                        title="Ya se aplicó automáticamente — descartalo si está mal"
+                        aria-label={`Confirmar ${label}`}
+                        title="Ya se aplicó automáticamente — marcalo como revisado si está bien"
                       >
-                        <XIcon size={13} />
+                        <Check size={13} />
                       </button>
+                      {esRevertible && (
+                        <button
+                          className={styles.btnDiscard}
+                          onClick={() => handleDescartar(p.id)}
+                          disabled={busyId === p.id}
+                          aria-label={`Descartar ${label}`}
+                          title="Ya se aplicó automáticamente — descartalo si está mal"
+                        >
+                          <XIcon size={13} />
+                        </button>
+                      )}
                     </span>
                   )}
                 </li>

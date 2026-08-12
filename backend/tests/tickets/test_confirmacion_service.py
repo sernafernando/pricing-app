@@ -317,10 +317,15 @@ class TestConfirmarServiceErrors:
         with pytest.raises(confirmacion_service.PropuestaNoEncontradaError):
             confirmacion_service.confirmar(db, 999999, usuario)
 
-    def test_confirmar_already_confirmed_raises_not_pending(self, db, rol_ventas):
+    def test_confirmar_human_confirmed_raises_not_pending(self, db, rol_ventas):
+        """A row with a NON-null `confirmado_por_id` (a human already
+        ratified or confirmed it) is genuinely settled — still rejected.
+        `confirmado_por_id=None` (`ia_auto`, unreviewed) is a DIFFERENT
+        case, covered by `TestConfirmarRatificaAplicadoIaAuto` — it now
+        ratifies instead of raising, real pre-push review finding."""
         ticket = _make_ticket(db, rol_ventas)
         usuario = _make_usuario(db, rol_ventas)
-        propuesta = _make_propuesta(db, ticket, estado="confirmada")
+        propuesta = _make_propuesta(db, ticket, estado="confirmada", confirmado_por_id=usuario.id)
 
         with pytest.raises(confirmacion_service.PropuestaNoPendienteError):
             confirmacion_service.confirmar(db, propuesta.id, usuario)
@@ -803,6 +808,123 @@ class TestDescartarAplicadoIaAuto:
 
         with pytest.raises(confirmacion_service.PropuestaNoPendienteError):
             confirmacion_service.descartar(db, propuesta.id, usuario)
+
+
+class TestConfirmarRatificaAplicadoIaAuto:
+    """Real pre-push review finding (BLOCKING): before this, an already-
+    applied `ia_auto` proposal outside `CAMPOS_REVERTIBLES` (titulo/sector/
+    tipo_ticket/metadata_ia) had NO exit from "unreviewed" at all —
+    `confirmar()` rejected it (`estado != 'pendiente'`) and `descartar()`
+    rejected it too (`PropuestaNoDescartableError`). Every ticket
+    auto-classified on one of those fields stayed in the board's
+    unreviewed count FOREVER — exactly the "eternal pending" problem this
+    feature (`TICKETS_TRIAGE_AUTO_APPLY`) was built to eliminate, just for
+    a different subset of fields.
+
+    `confirmar()` now RATIFIES an `ia_auto` row (sets `confirmado_por_id`/
+    `confirmado_at` only) instead of rejecting it — the value is already on
+    the ticket, so there is nothing to re-apply. This works for EVERY
+    field, revertible or not: ratify ("I looked, it's fine") and discard
+    ("correct it") are orthogonal actions; only discard is limited to
+    `CAMPOS_REVERTIBLES`.
+    """
+
+    def test_confirmar_ia_auto_titulo_ratifies_without_touching_ticket(self, db, rol_ventas):
+        """The exact non-revertible case with the worst gap: titulo has no
+        clean 'unset' state, so before this fix there was NO way to mark it
+        reviewed short of a full retrigger."""
+        ticket = _make_ticket(db, rol_ventas)
+        ticket.titulo = "Titulo aplicado por la IA"
+        ticket.titulo_origen = "ia_auto"
+        db.commit()
+        usuario = _make_usuario(db, rol_ventas)
+        propuesta = _make_propuesta(db, ticket, campo="titulo", valor="Titulo aplicado por la IA", estado="confirmada")
+        assert propuesta.confirmado_por_id is None  # the ia_auto shape
+
+        resultado = confirmacion_service.confirmar(db, propuesta.id, usuario)
+
+        assert resultado.estado == "confirmada"
+        assert resultado.confirmado_por_id == usuario.id
+        assert resultado.confirmado_at is not None
+        ticket = _reload(db, ticket)
+        # Untouched — ratify never re-applies the value or origen.
+        assert ticket.titulo == "Titulo aplicado por la IA"
+        assert ticket.titulo_origen == "ia_auto"
+
+        historial = (
+            db.query(HistorialTicket)
+            .filter(HistorialTicket.ticket_id == ticket.id, HistorialTicket.accion == "propuesta_ratificada")
+            .all()
+        )
+        assert len(historial) == 1
+        assert historial[0].cambios["campo"] == "titulo"
+
+    def test_confirmar_ia_auto_sector_ratifies_without_domain_write(self, db, rol_ventas):
+        """`sector` is the field with the strictest 'no revert' rule
+        (moving it is a domain operation, `_confirmar_sector`) — ratify
+        must never invoke that logic, only mark the proposal reviewed."""
+        ticket = _make_ticket(db, rol_ventas)
+        sector_original_id = ticket.sector_id
+        usuario = _make_usuario(db, rol_ventas)
+        # `valor_propuesto` deliberately does NOT reference a real sector
+        # codigo — proving ratify never calls `_confirmar_sector` at all
+        # (that call would fail loudly on a bogus codigo).
+        propuesta = _make_propuesta(db, ticket, campo="sector", valor="codigo-inexistente", estado="confirmada")
+
+        resultado = confirmacion_service.confirmar(db, propuesta.id, usuario)
+
+        assert resultado.estado == "confirmada"
+        assert resultado.confirmado_por_id == usuario.id
+        ticket = _reload(db, ticket)
+        assert ticket.sector_id == sector_original_id  # untouched
+
+    def test_confirmar_ia_auto_severidad_ratify_leaves_revertible_value_untouched(self, db, rol_ventas):
+        """Triangulation: ratify works identically for a REVERTIBLE field —
+        it is orthogonal to `CAMPOS_REVERTIBLES`, which only gates
+        `descartar()`."""
+        ticket = _make_ticket(db, rol_ventas)
+        ticket.severidad = "mayor"
+        ticket.severidad_origen = "ia_auto"
+        db.commit()
+        usuario = _make_usuario(db, rol_ventas)
+        propuesta = _make_propuesta(db, ticket, campo="severidad", valor="mayor", estado="confirmada")
+
+        resultado = confirmacion_service.confirmar(db, propuesta.id, usuario)
+
+        assert resultado.confirmado_por_id == usuario.id
+        ticket = _reload(db, ticket)
+        assert ticket.severidad == "mayor"
+        assert ticket.severidad_origen == "ia_auto"  # still ia_auto, NOT bumped to ia_confirmada
+
+    def test_confirmar_ia_auto_returns_200_over_http_not_409(self, client, db, rol_ventas):
+        ticket = _make_ticket(db, rol_ventas)
+        ticket.titulo = "Titulo aplicado por la IA"
+        ticket.titulo_origen = "ia_auto"
+        db.commit()
+        usuario = _make_usuario(db, rol_ventas)
+        _give_permiso(db, usuario)
+        propuesta = _make_propuesta(db, ticket, campo="titulo", valor="Titulo aplicado por la IA", estado="confirmada")
+
+        resp = client.post(
+            f"/api/tickets/propuestas/{propuesta.id}/confirmar",
+            headers=_headers(usuario),
+        )
+
+        assert resp.status_code == 200
+        assert resp.json()["confirmado_por_id"] == usuario.id
+
+    def test_confirmar_human_confirmed_row_still_rejected(self, db, rol_ventas):
+        """A `confirmada` row with a NON-null `confirmado_por_id` (already
+        ratified, or human-confirmed via the pendiente path) is a
+        DIFFERENT, already-settled case — must stay rejected."""
+        ticket = _make_ticket(db, rol_ventas)
+        usuario = _make_usuario(db, rol_ventas)
+        propuesta = _make_propuesta(db, ticket, campo="severidad", valor="mayor", estado="confirmada")
+        propuesta.confirmado_por_id = usuario.id
+        db.commit()
+
+        with pytest.raises(confirmacion_service.PropuestaNoPendienteError):
+            confirmacion_service.confirmar(db, propuesta.id, usuario)
 
 
 class TestConfirmarBatchAtomic:

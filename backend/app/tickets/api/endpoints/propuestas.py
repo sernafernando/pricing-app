@@ -95,7 +95,9 @@ def confirmar_propuesta(
     db: Session = Depends(get_db),
     current_user: Usuario = Depends(get_current_user),
 ) -> PropuestaResponse:
-    """Confirma una propuesta de IA pendiente. Requiere: tickets.triage.confirmar"""
+    """Confirma una propuesta de IA `pendiente`, o ratifica una ya aplicada
+    automáticamente (`confirmada` con `confirmado_por_id` nulo) sin
+    reescribir el ticket. Requiere: tickets.triage.confirmar"""
     _check_permiso(db, current_user, PERMISO_CONFIRMAR)
     try:
         return confirmacion_service.confirmar(db, propuesta_id, current_user)

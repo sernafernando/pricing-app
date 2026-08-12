@@ -4,7 +4,7 @@ code path allowed to write `tickets.<campo>` from a proposal.
 
 Auto-apply seam (design's "Architecture Decisions" #1, now the DEFAULT):
 `TICKETS_TRIAGE_AUTO_APPLY=True` (`triage_service.run_triage`) calls
-`_aplicar_confirmacion()` directly with `usuario=None` and
+`aplicar_confirmacion()` directly with `usuario=None` and
 `origen="ia_auto"` — no human in the loop, `confirmado_por_id` stays NULL as
 the signal that nobody ratified it. `confirmar()`/`confirmar_batch()` remain
 the human path (`origen="ia_confirmada"`) for whatever a low-confidence
@@ -62,7 +62,7 @@ class PropuestaCampoNoPermitidoError(Exception):
     """`propuesta.campo` is outside `CAMPOS_CONFIRMABLES`. Without this
     guard, confirmation is an arbitrary-attribute-write primitive on
     `Ticket` (any column, e.g. `estado_id`) — enforced at the WRITE POINT
-    in `_aplicar_confirmacion`, not only where proposals are created, so it
+    in `aplicar_confirmacion`, not only where proposals are created, so it
     also covers batch confirms and any future proposal-creation path."""
 
     def __init__(self, campo: str) -> None:
@@ -93,7 +93,7 @@ class PropuestaNoDescartableError(Exception):
 class TicketNoEncontradoError(Exception):
     """The ticket referenced by `propuesta.ticket_id` does not exist. FK
     constraints make this unlikely, not impossible — without this guard,
-    `_aplicar_confirmacion` would call `setattr(None, ...)`, an unhandled
+    `aplicar_confirmacion` would call `setattr(None, ...)`, an unhandled
     500 instead of a clean 404."""
 
     def __init__(self, ticket_id: int) -> None:
@@ -162,6 +162,18 @@ CAMPOS_CONFIRMABLES = frozenset({"severidad", "urgencia", "titulo", "resumen", "
 # moving them is a domain operation with no defined "undo", and
 # `metadata_ia` was a JSONB MERGE — there is no record of which keys it
 # added. See `PropuestaNoDescartableError`.
+#
+# Real pre-push review finding: `frontend/src/components/TicketProposals.jsx`
+# keeps its OWN copy of this exact set (`CAMPOS_REVERTIBLES`) to decide
+# whether to render the Discard button at all — this is the enforced
+# source of truth (this function still raises `PropuestaNoDescartableError`
+# for anything outside this set, in case a stale tab renders the button
+# anyway), but a UI that offers a button guaranteed to 409 is a broken
+# affordance. A future slice adding a field here MUST update the frontend
+# copy too, or the two drift out of sync the same way `CAMPOS_CONFIRMABLES`
+# and the DB CHECK constraint above would.
+# ponytail: expose this as a `descartable: bool` on PropuestaResponse
+# instead, so the frontend needs zero copy of the vocabulary at all.
 CAMPOS_REVERTIBLES = frozenset({"severidad", "urgencia", "resumen"})
 
 
@@ -321,7 +333,7 @@ def _confirmar_metadata_ia(
     )
 
 
-def _aplicar_confirmacion(
+def aplicar_confirmacion(
     db: Session,
     ticket: Ticket,
     propuesta: PropuestaIA,
@@ -371,22 +383,60 @@ def _aplicar_confirmacion(
 
 
 def confirmar(db: Session, propuesta_id: int, usuario: Usuario) -> PropuestaIA:
-    """Confirms a pending proposal: writes its value + provenance onto the
-    ticket, marks the proposal `confirmada`, and logs a `tickets_historial`
-    row — all in one transaction."""
+    """Confirms a proposal. Two shapes, mirroring `descartar()`'s own split
+    (feat/tickets-triage-aplicar-directo):
+
+    - `pendiente`: writes its value + provenance onto the ticket (via
+      `aplicar_confirmacion`), marks the proposal `confirmada`, and logs
+      a `tickets_historial` row — unchanged from PR 4b.
+    - `confirmada` with `confirmado_por_id IS NULL` (`ia_auto`, already
+      applied by auto-apply, nobody has looked at it yet): RATIFIES it —
+      sets `confirmado_por_id`/`confirmado_at` only, without calling
+      `aplicar_confirmacion` again (the value is already on the ticket).
+
+    Real pre-push review finding (BLOCKING): before this second shape
+    existed, a proposal outside `CAMPOS_REVERTIBLES` (titulo/sector/
+    tipo_ticket/metadata_ia) had NO exit from "unreviewed" at all —
+    `confirmar()` rejected it (not pendiente) and `descartar()` rejected it
+    too (`PropuestaNoDescartableError`, not revertible). Every ticket
+    auto-classified on one of those fields stayed counted as unreviewed
+    forever, on the board badge and in `GET /propuestas` — reproducing,
+    for a different subset of fields, the exact "eternal pending
+    proposals" problem `TICKETS_TRIAGE_AUTO_APPLY` was built to eliminate.
+    Ratify ("I looked, it's fine") and discard ("correct it") are
+    orthogonal: ratify works for EVERY field; only discard is limited to
+    `CAMPOS_REVERTIBLES`, since only those have a clean "unset" state.
+
+    Anything else (human-confirmed `ia_confirmada`, `descartada`,
+    `reemplazada`): rejected with `PropuestaNoPendienteError`, unchanged.
+    """
     propuesta = db.query(PropuestaIA).filter(PropuestaIA.id == propuesta_id).first()
     if propuesta is None:
         raise PropuestaNoEncontradaError(propuesta_id)
-    if propuesta.estado != "pendiente":
+
+    es_ia_auto_sin_revisar = propuesta.estado == "confirmada" and propuesta.confirmado_por_id is None
+    if propuesta.estado != "pendiente" and not es_ia_auto_sin_revisar:
         raise PropuestaNoPendienteError(propuesta_id, propuesta.estado)
 
     ticket = db.query(Ticket).filter(Ticket.id == propuesta.ticket_id).first()
     if ticket is None:
         raise TicketNoEncontradoError(propuesta.ticket_id)
-    valor = propuesta.valor_propuesto["valor"]
-    _aplicar_confirmacion(db, ticket, propuesta, usuario, valor)
 
-    propuesta.estado = "confirmada"
+    if es_ia_auto_sin_revisar:
+        db.add(
+            HistorialTicket(
+                ticket_id=ticket.id,
+                usuario_id=usuario.id,
+                accion="propuesta_ratificada",
+                descripcion=f"Valor de IA ratificado sin cambios: {propuesta.campo}",
+                cambios={"campo": propuesta.campo, "valor": propuesta.valor_propuesto.get("valor")},
+            )
+        )
+    else:
+        valor = propuesta.valor_propuesto["valor"]
+        aplicar_confirmacion(db, ticket, propuesta, usuario, valor)
+        propuesta.estado = "confirmada"
+
     propuesta.confirmado_por_id = usuario.id
     propuesta.confirmado_at = datetime.now(UTC)
 
@@ -519,7 +569,7 @@ def confirmar_batch(db: Session, propuesta_ids: List[int], usuario: Usuario) -> 
                     raise TicketNoEncontradoError(propuesta.ticket_id)
                 tickets_por_id[propuesta.ticket_id] = ticket
             permite_huerfano = propuesta.campo == "sector" and propuesta.ticket_id in tickets_con_tipo_en_batch
-            _aplicar_confirmacion(
+            aplicar_confirmacion(
                 db,
                 ticket,
                 propuesta,
