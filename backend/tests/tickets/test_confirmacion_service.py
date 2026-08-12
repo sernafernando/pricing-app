@@ -23,6 +23,7 @@ import pytest
 from sqlalchemy.exc import IntegrityError
 
 import app.tickets.api.endpoints.propuestas as propuestas_module
+from app.core.config import settings
 from app.core.security import create_access_token, get_password_hash
 from app.main import app
 from app.models.permiso import Permiso, UsuarioPermisoOverride
@@ -102,9 +103,15 @@ def _make_ticket(db, rol: Rol) -> Ticket:
 
 
 def _make_propuesta(
-    db, ticket: Ticket, campo: str = "severidad", valor="mayor", estado: str = "pendiente"
+    db, ticket: Ticket, campo: str = "severidad", valor="mayor", estado: str = "pendiente", confirmado_por_id=None
 ) -> PropuestaIA:
-    propuesta = PropuestaIA(ticket_id=ticket.id, campo=campo, valor_propuesto={"valor": valor}, estado=estado)
+    propuesta = PropuestaIA(
+        ticket_id=ticket.id,
+        campo=campo,
+        valor_propuesto={"valor": valor},
+        estado=estado,
+        confirmado_por_id=confirmado_por_id,
+    )
     db.add(propuesta)
     db.flush()
     return propuesta
@@ -571,12 +578,19 @@ class TestDescartarNeverResurfaces:
         assert ticket.severidad is None  # descartar never writes to tickets
 
     @pytest.mark.postgres
-    def test_discarded_row_stays_discarded_when_new_triage_run_proposes_again(self, pg_tickets_db):
+    def test_discarded_row_stays_discarded_when_new_triage_run_proposes_again(self, pg_tickets_db, monkeypatch):
         """Partial unique index only covers `estado='pendiente'` (Postgres
         semantics) — SQLite's `db` fixture builds a FULL unique index on
         `(ticket_id, campo)` instead (documented in `propuesta_ia.py`), so
         this scenario is only real on `pg_tickets_db` per that model's own
-        guidance."""
+        guidance.
+
+        Pins `TICKETS_TRIAGE_AUTO_APPLY=False`: this test's own invariant is
+        proposal LIFECYCLE (`descartada` never resurfaces), independent of
+        the auto-apply topology — and `pg_tickets_db`'s minimal schema
+        (tickets + propuestas_ia only, no `tickets_historial`) doesn't carry
+        the table auto-apply's domain write would need."""
+        monkeypatch.setattr(settings, "TICKETS_TRIAGE_AUTO_APPLY", False)
         db = pg_tickets_db
         rol = Rol(codigo="VENTAS", nombre="Ventas", es_sistema=False, orden=10, activo=True)
         db.add(rol)
@@ -616,9 +630,11 @@ class TestDescartarNeverResurfaces:
         assert nuevas[0].estado == "pendiente"
 
     @pytest.mark.postgres
-    def test_discarded_titulo_stays_discarded_when_new_triage_run_proposes_again(self, pg_tickets_db):
+    def test_discarded_titulo_stays_discarded_when_new_triage_run_proposes_again(self, pg_tickets_db, monkeypatch):
         """SCOPE: 'a discarded title proposal never resurfaces' — same
-        invariant as severidad above, proven for the new `titulo` campo."""
+        invariant as severidad above, proven for the new `titulo` campo.
+        Same `TICKETS_TRIAGE_AUTO_APPLY=False` pin, same reason."""
+        monkeypatch.setattr(settings, "TICKETS_TRIAGE_AUTO_APPLY", False)
         db = pg_tickets_db
         rol = Rol(codigo="VENTAS", nombre="Ventas", es_sistema=False, orden=10, activo=True)
         db.add(rol)
@@ -654,6 +670,139 @@ class TestDescartarNeverResurfaces:
         )
         assert len(nuevas) == 1
         assert nuevas[0].estado == "pendiente"
+
+
+class TestDescartarAplicadoIaAuto:
+    """feat/tickets-triage-aplicar-directo: 'discarding an already-applied
+    value must be expressible' — the UI consequence of the topology flip.
+    A `confirmada` proposal with `confirmado_por_id IS NULL` (`ia_auto`,
+    never reviewed) is the human REJECTING a value already live on the
+    ticket, not approving a suggestion — `descartar()` must clear the
+    ticket value AND its `<campo>_origen` for `CAMPOS_REVERTIBLES`, and
+    still respect the 'never resurfaces' invariant on the proposal itself."""
+
+    def test_descartar_ia_auto_severidad_clears_ticket_value_and_origen(self, db, rol_ventas):
+        ticket = _make_ticket(db, rol_ventas)
+        ticket.severidad = "critica"
+        ticket.severidad_origen = "ia_auto"
+        db.commit()
+        usuario = _make_usuario(db, rol_ventas)
+        propuesta = _make_propuesta(db, ticket, campo="severidad", valor="critica", estado="confirmada")
+        assert propuesta.confirmado_por_id is None  # the ia_auto shape
+
+        resultado = confirmacion_service.descartar(db, propuesta.id, usuario)
+
+        assert resultado.estado == "descartada"
+        assert resultado.confirmado_por_id == usuario.id  # who rejected it, recorded
+        ticket = _reload(db, ticket)
+        # decision #3: an ia_auto value being corrected/rejected must never
+        # keep reading as 'IA automática' — the origen is cleared, not left
+        # stale, the same "clearing clears provenance too" rule
+        # `actualizar_ticket` already applies to urgencia.
+        assert ticket.severidad is None
+        assert ticket.severidad_origen is None
+
+        historial = (
+            db.query(HistorialTicket)
+            .filter(HistorialTicket.ticket_id == ticket.id, HistorialTicket.accion == "propuesta_descartada")
+            .all()
+        )
+        assert len(historial) == 1
+        assert historial[0].cambios["campo"] == "severidad"
+
+    def test_descartar_ia_auto_never_resurfaces_as_pendiente(self, db, rol_ventas):
+        """Same hard invariant as the pendiente-discard case above, proven
+        for the NEW ia_auto-discard path."""
+        ticket = _make_ticket(db, rol_ventas)
+        ticket.urgencia = "alta"
+        ticket.urgencia_origen = "ia_auto"
+        db.commit()
+        usuario = _make_usuario(db, rol_ventas)
+        propuesta = _make_propuesta(db, ticket, campo="urgencia", valor="alta", estado="confirmada")
+
+        confirmacion_service.descartar(db, propuesta.id, usuario)
+
+        db.refresh(propuesta)
+        assert propuesta.estado == "descartada"
+
+    def test_descartar_ia_auto_titulo_rejected_not_revertible(self, db, rol_ventas):
+        """`titulo` is NOT NULL — there is no clean 'unset' state to revert
+        to, so `descartar()` must refuse rather than guess, leaving both the
+        ticket and the proposal exactly as they were."""
+        ticket = _make_ticket(db, rol_ventas)
+        ticket.titulo = "Titulo aplicado por la IA"
+        ticket.titulo_origen = "ia_auto"
+        db.commit()
+        usuario = _make_usuario(db, rol_ventas)
+        propuesta = _make_propuesta(db, ticket, campo="titulo", valor="Titulo aplicado por la IA", estado="confirmada")
+
+        with pytest.raises(confirmacion_service.PropuestaNoDescartableError):
+            confirmacion_service.descartar(db, propuesta.id, usuario)
+
+        ticket = _reload(db, ticket)
+        assert ticket.titulo == "Titulo aplicado por la IA"
+        assert ticket.titulo_origen == "ia_auto"
+        db.refresh(propuesta)
+        assert propuesta.estado == "confirmada"  # untouched, not silently discarded
+
+    def test_descartar_ia_auto_titulo_returns_409_over_http_not_500(self, client, db, rol_ventas):
+        ticket = _make_ticket(db, rol_ventas)
+        ticket.titulo = "Titulo aplicado por la IA"
+        ticket.titulo_origen = "ia_auto"
+        db.commit()
+        usuario = _make_usuario(db, rol_ventas)
+        _give_permiso(db, usuario)
+        propuesta = _make_propuesta(db, ticket, campo="titulo", valor="Titulo aplicado por la IA", estado="confirmada")
+
+        resp = client.post(
+            f"/api/tickets/propuestas/{propuesta.id}/descartar",
+            headers=_headers(usuario),
+        )
+
+        assert resp.status_code == 409
+        assert resp.status_code != 500
+
+    def test_descartar_ia_auto_stale_row_does_not_wipe_a_newer_human_correction(self, db, rol_ventas):
+        """Real pre-push review finding: this proposal represents the value
+        it applied at auto-apply time — but nothing keeps it in sync if a
+        human corrects the SAME field through a different path
+        (`actualizar_ticket`'s PATCH, e.g. a board drag), which never
+        touches `tickets_propuestas_ia`. Discarding this now-STALE record
+        must never destroy the newer human value — only mark it
+        `descartada`."""
+        ticket = _make_ticket(db, rol_ventas)
+        ticket.urgencia = "baja"
+        ticket.urgencia_origen = "ia_auto"
+        db.commit()
+        usuario = _make_usuario(db, rol_ventas)
+        propuesta = _make_propuesta(db, ticket, campo="urgencia", valor="baja", estado="confirmada")
+
+        # A human corrects it through the PATCH path — `descartar()` never
+        # sees this write, exactly the gap the guard closes.
+        ticket.urgencia = "inmediata"
+        ticket.urgencia_origen = "humano"
+        db.commit()
+
+        resultado = confirmacion_service.descartar(db, propuesta.id, usuario)
+
+        assert resultado.estado == "descartada"  # the stale record IS resolved
+        ticket = _reload(db, ticket)
+        assert ticket.urgencia == "inmediata"  # the human's newer value survives
+        assert ticket.urgencia_origen == "humano"
+
+    def test_descartar_human_confirmed_row_still_rejected_as_no_pendiente(self, db, rol_ventas):
+        """A `confirmada` row with a NON-null `confirmado_por_id` (a human
+        already ratified it via `confirmar()`) is a DIFFERENT case from
+        ia_auto — nothing changed here, still rejected exactly like before
+        this feature."""
+        ticket = _make_ticket(db, rol_ventas)
+        usuario = _make_usuario(db, rol_ventas)
+        propuesta = _make_propuesta(db, ticket, campo="severidad", valor="mayor", estado="confirmada")
+        propuesta.confirmado_por_id = usuario.id
+        db.commit()
+
+        with pytest.raises(confirmacion_service.PropuestaNoPendienteError):
+            confirmacion_service.descartar(db, propuesta.id, usuario)
 
 
 class TestConfirmarBatchAtomic:
@@ -1120,11 +1269,14 @@ class TestRetriggerSingleFlightGuard:
         db.refresh(pendiente)
         assert pendiente.estado == "reemplazada"
 
-    def test_forzar_leaves_confirmada_untouched(self, client, db, rol_ventas):
+    def test_forzar_leaves_human_confirmed_untouched(self, client, db, rol_ventas):
+        """A HUMAN-confirmed proposal (`confirmado_por_id` set — a decision
+        a person already ratified) must never be silently replaced by a
+        forced retrigger, unlike the `ia_auto` shape below."""
         ticket = _make_ticket(db, rol_ventas)
         usuario = _make_usuario(db, rol_ventas)
         _give_permiso(db, usuario)
-        confirmada = _make_propuesta(db, ticket, estado="confirmada")
+        confirmada = _make_propuesta(db, ticket, estado="confirmada", confirmado_por_id=usuario.id)
 
         app.dependency_overrides[get_triage_provider] = lambda: FakeProvider("{}")
         with patch.object(propuestas_module.BackgroundTasks, "add_task") as mock_add_task:
@@ -1136,6 +1288,29 @@ class TestRetriggerSingleFlightGuard:
         mock_add_task.assert_called_once()
         db.refresh(confirmada)
         assert confirmada.estado == "confirmada"
+
+    def test_forzar_degrades_unreviewed_ia_auto_to_reemplazada(self, client, db, rol_ventas):
+        """Real pre-push review finding: with auto-apply, most proposals
+        arrive already `confirmada` with `confirmado_por_id IS NULL`
+        (`ia_auto`, never reviewed). Only degrading `pendiente` rows left
+        every one of THESE active forever — `_ya_tiene_propuesta_activa`
+        would then block EVERY field on the next `run_triage` call, making
+        `forzar=true` return 200 and silently do nothing."""
+        ticket = _make_ticket(db, rol_ventas)
+        usuario = _make_usuario(db, rol_ventas)
+        _give_permiso(db, usuario)
+        ia_auto = _make_propuesta(db, ticket, estado="confirmada", confirmado_por_id=None)
+
+        app.dependency_overrides[get_triage_provider] = lambda: FakeProvider("{}")
+        with patch.object(propuestas_module.BackgroundTasks, "add_task") as mock_add_task:
+            resp = client.post(
+                TRIAGE_RETRIGGER_ENDPOINT.format(id=ticket.id), params={"forzar": "true"}, headers=_headers(usuario)
+            )
+
+        assert resp.status_code == 200
+        mock_add_task.assert_called_once()
+        db.refresh(ia_auto)
+        assert ia_auto.estado == "reemplazada"
 
     def test_retrigger_without_permiso_returns_403(self, client, db, rol_ventas):
         ticket = _make_ticket(db, rol_ventas)

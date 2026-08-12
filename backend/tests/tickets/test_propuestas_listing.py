@@ -87,13 +87,16 @@ def _make_usuario(db, rol) -> Usuario:
     return usuario
 
 
-def _make_propuesta(db, ticket: Ticket, campo: str, valor: str, confianza: float, estado: str = "pendiente"):
+def _make_propuesta(
+    db, ticket: Ticket, campo: str, valor: str, confianza: float, estado: str = "pendiente", confirmado_por_id=None
+):
     p = PropuestaIA(
         ticket_id=ticket.id,
         campo=campo,
         valor_propuesto={"valor": valor},
         confianza=confianza,
         estado=estado,
+        confirmado_por_id=confirmado_por_id,
     )
     db.add(p)
     db.flush()
@@ -123,7 +126,9 @@ class TestListarPropuestasPendientes:
         _give_permiso(db, usuario, "tickets.ver")
 
         pendiente = _make_propuesta(db, ticket, "severidad", "mayor", 0.82)
-        _make_propuesta(db, ticket, "urgencia", "alta", 0.5, estado="confirmada")
+        # Human-confirmed (`confirmado_por_id` set) — a decision a person
+        # already ratified, nothing left to review. Excluded.
+        _make_propuesta(db, ticket, "urgencia", "alta", 0.5, estado="confirmada", confirmado_por_id=usuario.id)
         _make_propuesta(db, ticket, "titulo", "x", 0.9, estado="descartada")
         _make_propuesta(db, otro_ticket, "severidad", "critica", 0.99)
 
@@ -134,6 +139,28 @@ class TestListarPropuestasPendientes:
         assert [p["id"] for p in body] == [pendiente.id]
         assert body[0]["campo"] == "severidad"
         assert body[0]["confianza"] == 0.82
+
+    def test_includes_unreviewed_ia_auto_alongside_pending(self, client, db, rol_ventas):
+        """feat/tickets-triage-aplicar-directo: a `confirmada` proposal with
+        `confirmado_por_id IS NULL` is the AI having already applied it —
+        still a human's job to review, so it belongs in this listing next to
+        genuinely `pendiente` ones. A human-confirmed row (non-null
+        confirmador, previous test) stays excluded either way."""
+        ticket = _make_ticket(db, rol_ventas)
+        usuario = _make_usuario(db, rol_ventas)
+        _give_permiso(db, usuario, "tickets.ver")
+
+        pendiente = _make_propuesta(db, ticket, "severidad", "mayor", 0.82)
+        ia_auto = _make_propuesta(db, ticket, "urgencia", "alta", 0.91, estado="confirmada", confirmado_por_id=None)
+
+        resp = client.get(ENDPOINT.format(id=ticket.id), headers=_headers(usuario))
+
+        assert resp.status_code == 200
+        body = resp.json()
+        assert {p["id"] for p in body} == {pendiente.id, ia_auto.id}
+        ia_auto_body = next(p for p in body if p["id"] == ia_auto.id)
+        assert ia_auto_body["estado"] == "confirmada"
+        assert ia_auto_body["confirmado_por_id"] is None
 
     def test_visible_without_triage_confirmar_permission(self, client, db, rol_ventas):
         """SC: confidence must be visible before confirming, independent of
