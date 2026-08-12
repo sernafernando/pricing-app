@@ -24,7 +24,11 @@ vi.mock('../services/api', () => ({
 vi.mock('../hooks/useSSEChannel', () => ({ useSSEChannel: vi.fn() }));
 
 vi.mock('../components/TicketsBoard', () => ({
-  default: ({ agrupacion }) => <div data-testid="board">board:{agrupacion}</div>,
+  default: ({ agrupacion, sectorId }) => (
+    <div data-testid="board">
+      board:{agrupacion}:{sectorId || 'auto'}
+    </div>
+  ),
 }));
 
 vi.mock('../components/TicketCreateModal', () => ({ default: () => null }));
@@ -74,5 +78,45 @@ describe('Tickets — segmented view control', () => {
     await waitFor(() => expect(ticketsAPI.listar).toHaveBeenCalled());
     expect(screen.queryByTestId('board')).not.toBeInTheDocument();
     expect(screen.getByRole('tab', { name: /Tabla/ })).toHaveAttribute('aria-selected', 'true');
+  });
+});
+
+describe('Tickets — estado board sector selector', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    localStorage.clear();
+    ticketsAPI.listar.mockResolvedValue({ data: { items: [], total: 0 } });
+    sectoresAPI.listar.mockResolvedValue({
+      data: [
+        { id: 1, codigo: 'INBOX', nombre: 'Bandeja de entrada' },
+        { id: 2, codigo: 'sistema', nombre: 'Sistema' },
+      ],
+    });
+  });
+
+  it('the sector selector is absent for tabla and urgencia, present only for estado', async () => {
+    renderWithRouter(<Tickets />, { initialEntries: ['/tickets'] });
+    await waitFor(() => expect(ticketsAPI.listar).toHaveBeenCalled());
+    expect(screen.queryByLabelText('Sector del tablero')).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByText('Tablero por urgencia'));
+    await waitFor(() => expect(screen.getByTestId('board')).toHaveTextContent('board:urgencia'));
+    expect(screen.queryByLabelText('Sector del tablero')).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByText('Tablero por estado'));
+    await waitFor(() => expect(screen.getByLabelText('Sector del tablero')).toBeInTheDocument());
+    // Inbox is never offered as a selectable scope.
+    expect(screen.queryByText('Bandeja de entrada')).not.toBeInTheDocument();
+    expect(screen.getByText('Sistema')).toBeInTheDocument();
+  });
+
+  it('selecting a sector drives the board request via the sectorId prop', async () => {
+    renderWithRouter(<Tickets />, { initialEntries: ['/tickets?vista=estado'] });
+    await waitFor(() => expect(screen.getByLabelText('Sector del tablero')).toBeInTheDocument());
+    expect(screen.getByTestId('board')).toHaveTextContent('board:estado:auto');
+
+    fireEvent.change(screen.getByLabelText('Sector del tablero'), { target: { value: '2' } });
+
+    await waitFor(() => expect(screen.getByTestId('board')).toHaveTextContent('board:estado:2'));
   });
 });

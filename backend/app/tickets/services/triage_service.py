@@ -209,6 +209,26 @@ class TriagePropuesta(BaseModel):
         return self
 
 
+def _debe_proponer_titulo(ticket: Ticket) -> bool:
+    """Whether an AI `titulo` proposal is even ALLOWED for this ticket.
+
+    `texto_original` is set ONLY for tickets created through the
+    single-box intake form (PR 3): their `titulo` is DERIVED by
+    `_derivar_titulo()` (the ticket endpoint's own first-~80-characters
+    helper) — a machine artifact, always safe to replace with something
+    better.
+
+    A ticket predating that form (`texto_original IS NULL`, 33/35 of
+    production's tickets) was created with the OLD two-field form: its
+    `titulo` is exactly what a person typed. Proposing an AI titulo there
+    would OVERWRITE human work instead of filling a gap — propose into the
+    gaps a ticket has, never over something a person already wrote (obs
+    #1400: changing what a field means breaks every consumer that trusted
+    the old meaning, silently).
+    """
+    return ticket.texto_original is not None
+
+
 def catalogo_sectores_activos(db: Session) -> List[dict]:
     """Configured, active sectors and their ticket types, by CODE — the
     extraction contract's allowed destinations (design §1). Always excludes
@@ -289,9 +309,23 @@ async def run_triage(ticket_id: int, provider: LlmProvider) -> None:
 
     with get_background_db() as db:
         ticket = db.query(Ticket).filter(Ticket.id == ticket_id).first()
-        if ticket is None or not ticket.texto_original:
-            logger.warning("tickets triage: ticket #%s has no texto_original to triage", ticket_id)
+        if ticket is None:
+            logger.warning("tickets triage: ticket #%s not found", ticket_id)
             return
+
+        # Fall back to `descripcion` when `texto_original` is null (fix/
+        # tickets-board-scope-y-legacy): 33/35 production tickets predate
+        # single-box intake and were created with the OLD two-field form,
+        # so they carry a human-written `titulo` + `descripcion` instead
+        # of `texto_original` — perfectly good text, just in a different
+        # column. This is a TEXT SOURCE fallback only; see
+        # `_debe_proponer_titulo` for why `titulo` itself still needs
+        # separate protection regardless of which source was used.
+        texto = ticket.texto_original or ticket.descripcion
+        if not texto:
+            logger.warning("tickets triage: ticket #%s has no texto_original or descripcion to triage", ticket_id)
+            return
+        propone_titulo = _debe_proponer_titulo(ticket)
 
         # Resolve lazy-loaded relationships HERE, inside the short session
         # — the payload dict below only holds plain scalars, safe to use
@@ -299,7 +333,7 @@ async def run_triage(ticket_id: int, provider: LlmProvider) -> None:
         catalogo = catalogo_sectores_activos(db)
         user_payload = json.dumps(
             {
-                "texto": ticket.texto_original,
+                "texto": texto,
                 "sector_actual": ticket.sector.codigo if ticket.sector else None,
                 "creador_rol": ticket.creador.rol_codigo if ticket.creador else None,
                 "catalogo_sectores": catalogo,
@@ -372,7 +406,12 @@ async def run_triage(ticket_id: int, provider: LlmProvider) -> None:
                 ("tipo_ticket", propuesta.tipo_ticket_codigo, propuesta.confianza_global, True),
                 ("severidad", propuesta.severidad, propuesta.confianza_severidad, True),
                 ("urgencia", propuesta.urgencia, propuesta.confianza_urgencia, True),
-                ("titulo", propuesta.titulo, propuesta.confianza_global, False),
+                # `propone_titulo` gates on WHO wrote the current titulo, not
+                # confidence — see `_debe_proponer_titulo`. Reuses the loop's
+                # existing "valor is None → skip" path rather than adding a
+                # second branch, so a legacy ticket's titulo is skipped
+                # exactly like any other ungated-but-empty field.
+                ("titulo", propuesta.titulo if propone_titulo else None, propuesta.confianza_global, False),
                 ("resumen", propuesta.resumen, propuesta.confianza_global, False),
                 ("metadata_ia", metadata_ia, propuesta.confianza_global, False),
             ):

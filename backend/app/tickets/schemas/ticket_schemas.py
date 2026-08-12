@@ -403,6 +403,12 @@ class BoardColumnResponse(BaseModel):
     clave: str
     etiqueta: str
     color: Optional[str] = None
+    # Only populated for the synthetic 'inbox' column (fix/tickets-board-scope-y-legacy):
+    # the Inbox holding pen has no single `estado_id` to filter "load more"
+    # by (it aggregates every estado in the Inbox workflow), so the client
+    # needs the Inbox SECTOR's id instead. Every other column keeps using
+    # `clave` (a real `estado_id`) for that, same as before.
+    sector_id: Optional[int] = None
     total: int
     items: List[TicketCardResponse] = Field(default_factory=list)
 

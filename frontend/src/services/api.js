@@ -713,9 +713,11 @@ export const propuestasAPI = {
 
 // ── Tablero (tickets-ai-triage PR 5b) ────────────────────────
 export const boardAPI = {
-  obtener: (agrupacion, itemsPorColumna) =>
+  // `sectorId` scopes the estado grouping's workflow (fix/tickets-board-
+  // scope-y-legacy); ignored server-side for agrupacion=urgencia.
+  obtener: (agrupacion, itemsPorColumna, sectorId) =>
     api.get('/tickets/tickets/board', {
-      params: { agrupacion, items_por_columna: itemsPorColumna },
+      params: { agrupacion, items_por_columna: itemsPorColumna, sector_id: sectorId || undefined },
     }),
 };
 

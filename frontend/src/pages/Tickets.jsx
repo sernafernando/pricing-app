@@ -54,6 +54,10 @@ const PRIORIDAD_CLASS = {
 
 const PAGE_SIZE = 50;
 
+// Never a selectable scope for the estado board — it is always shown as
+// its own fixed column (see TicketsBoard's 'inbox' column).
+const INBOX_SECTOR_CODIGO = 'INBOX';
+
 const formatDate = (dateStr) => {
   if (!dateStr) return '-';
   const d = new Date(dateStr);
@@ -79,6 +83,10 @@ export default function Tickets() {
   // Filters
   const [page, setPage] = useState(1);
   const [sectorId, setSectorId] = useState('');
+  // Empty string = let the backend pick a sensible default sector for the
+  // estado board (fix/tickets-board-scope-y-legacy). Only relevant for the
+  // 'estado' grouping — urgencia uses a global vocabulary, no scoping.
+  const [estadoSectorId, setEstadoSectorId] = useState('');
   const [prioridad, setPrioridad] = useState('');
   const [estaCerrado, setEstaCerrado] = useState('');
   const [search, setSearch] = useState('');
@@ -226,6 +234,23 @@ export default function Tickets() {
               );
             })}
           </div>
+          {vista === 'estado' && (
+            <select
+              value={estadoSectorId}
+              onChange={(e) => setEstadoSectorId(e.target.value)}
+              className={styles.filterSelect}
+              aria-label="Sector del tablero"
+            >
+              <option value="">Sector (automático)</option>
+              {sectores
+                .filter((s) => s.codigo !== INBOX_SECTOR_CODIGO)
+                .map((s) => (
+                  <option key={s.id} value={s.id}>
+                    {s.nombre}
+                  </option>
+                ))}
+            </select>
+          )}
           {puedeCrear && (
             <button
               className={styles.btnCreate}
@@ -296,7 +321,7 @@ export default function Tickets() {
       <div className={styles.layout}>
         <div className={styles.listPanel}>
           {vista !== 'tabla' ? (
-            <TicketsBoard agrupacion={vista} onCardClick={handleRowClick} />
+            <TicketsBoard agrupacion={vista} sectorId={estadoSectorId} onCardClick={handleRowClick} />
           ) : (
             <>
           {/* Table */}
