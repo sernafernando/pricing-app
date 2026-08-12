@@ -105,6 +105,175 @@ def _resolve_and_fold_mlas(query, db: Session, resolver, log_context: str):
     return query.filter(ProductoERP.item_id.in_(items_subquery))
 
 
+def construir_orden_precios_derivados(varios_porcentaje: float, tipo_cambio_usd: Optional[float]):
+    """Build the LEFT JOIN plan and the ORDER BY expressions that reproduce, in
+    SQL, the `precio_gremio_sin_iva` / `precio_sugerido_sin_iva` values that
+    `listar_productos_tienda` computes per row in Python.
+
+    Both columns render `*_sin_iva` as their primary value (see
+    `frontend/src/pages/Tienda.jsx`), so IVA — the only genuinely per-row
+    factor of the `_con_iva` variants — never enters the sort key.
+
+    Every input is either a plain DB column or a REQUEST-LEVEL SCALAR:
+
+    - `varios_porcentaje` comes from `obtener_constantes_pricing(db)`: one row
+      for the whole request, identical for every product.
+    - `tipo_cambio_usd` comes from `obtener_tipo_cambio_actual(db, "USD")`:
+      also one scalar for the whole request. `convertir_a_pesos` only branches
+      on `moneda_costo`, which IS a column, so the conversion is a plain CASE
+      with the rate bound as a literal — it does NOT vary per row.
+
+    Therefore no step needs Python: the whole thing is expressible over the
+    already-filtered query, and the endpoint can keep paginating in SQL
+    instead of materialising the catalog like `orden_requiere_calculo` does in
+    `listar_productos`.
+
+    ── Row-multiplication safety (the real risk of this change) ─────────────
+    An ORDER BY that silently duplicates or drops rows is far worse than a
+    missing sort, so every join target below is provably at most ONE row per
+    join key:
+
+    1. `markups_tienda_producto` — `ix_markups_tienda_producto_item_id` is
+       UNIQUE on `item_id` (migration 20251215_101438). Filtering by `activo`
+       can only shrink that.
+    2. `precio_gremio_override` — `item_id` is declared UNIQUE on the model.
+    3. the brand subquery — built with GROUP BY, so it is unique on `marca`
+       by construction, then joined back to `markups_tienda_brand` on its
+       PRIMARY KEY.
+
+    ── Tie-break, and why it matches the Python path exactly ───────────────
+    `markups_tienda_brand` is unique on (comp_id, brand_id), NOT on brand_id
+    alone, and `tb_brand`'s PK is (comp_id, brand_id) so the same
+    `brand_desc` can map to several `brand_id`s. The Python path resolves
+    both collisions with a dict comprehension, i.e. "last row wins". The
+    prefetch queries in `listar_productos_tienda` are ordered so that "last"
+    means "greatest id", which is exactly what the MAX() picks below
+    reproduce. Keep the two in sync: if one side's tie-break changes, the
+    displayed value and the sort key drift apart on collision.
+
+    `markup_sugerido` is picked independently of `markup_porcentaje` because
+    the Python path builds two separate dicts, and the sugerido one skips
+    NULL values — so a brand can legitimately take `markup_porcentaje` from
+    one row and `markup_sugerido` from another.
+
+    Args:
+        varios_porcentaje: Operating-cost percentage for this request (e.g. 6.5).
+        tipo_cambio_usd: USD→ARS rate for this request, or None when no rate
+            is available (in which case `convertir_a_pesos` leaves the cost
+            untouched — mirrored here).
+
+    Returns:
+        Tuple `(joins, expresiones)` where `joins` is a list of
+        `(target, onclause)` pairs to feed to `query.outerjoin(...)` and
+        `expresiones` maps the frontend sort key to its SQL expression.
+    """
+    from sqlalchemy import case
+    from sqlalchemy.orm import aliased
+
+    from app.models.markup_tienda import MarkupTiendaBrand, MarkupTiendaProducto
+    from app.models.precio_gremio_override import PrecioGremioOverride
+    from app.models.producto import TipoMoneda
+    from app.models.tb_brand import TBBrand
+
+    # brand_desc → a single brand_id (greatest wins, see docstring).
+    marca_a_brand = (
+        select(
+            TBBrand.brand_desc.label("brand_desc"),
+            func.max(TBBrand.brand_id).label("brand_id"),
+        )
+        .group_by(TBBrand.brand_desc)
+        .subquery()
+    )
+
+    # brand_id → the active markup row that wins `markup_porcentaje`.
+    pick_markup = (
+        select(
+            MarkupTiendaBrand.brand_id.label("brand_id"),
+            func.max(MarkupTiendaBrand.id).label("markup_id"),
+        )
+        .where(MarkupTiendaBrand.activo.is_(True))
+        .group_by(MarkupTiendaBrand.brand_id)
+        .subquery()
+    )
+
+    # brand_id → the active markup row that wins `markup_sugerido`. NULLs are
+    # excluded here exactly like `markups_sugerido_marca_dict` excludes them.
+    pick_sugerido = (
+        select(
+            MarkupTiendaBrand.brand_id.label("brand_id"),
+            func.max(MarkupTiendaBrand.id).label("markup_id"),
+        )
+        .where(MarkupTiendaBrand.activo.is_(True), MarkupTiendaBrand.markup_sugerido.isnot(None))
+        .group_by(MarkupTiendaBrand.brand_id)
+        .subquery()
+    )
+
+    mb_markup = aliased(MarkupTiendaBrand)
+    mb_sugerido = aliased(MarkupTiendaBrand)
+    marca_markups = (
+        select(
+            marca_a_brand.c.brand_desc.label("marca"),
+            mb_markup.markup_porcentaje.label("markup_porcentaje"),
+            mb_sugerido.markup_sugerido.label("markup_sugerido"),
+        )
+        .select_from(marca_a_brand)
+        .outerjoin(pick_markup, pick_markup.c.brand_id == marca_a_brand.c.brand_id)
+        .outerjoin(mb_markup, mb_markup.id == pick_markup.c.markup_id)
+        .outerjoin(pick_sugerido, pick_sugerido.c.brand_id == marca_a_brand.c.brand_id)
+        .outerjoin(mb_sugerido, mb_sugerido.id == pick_sugerido.c.markup_id)
+        .subquery()
+    )
+
+    markup_producto = aliased(MarkupTiendaProducto)
+    override_gremio = aliased(PrecioGremioOverride)
+
+    joins = [
+        (markup_producto, and_(markup_producto.item_id == ProductoERP.item_id, markup_producto.activo.is_(True))),
+        (override_gremio, override_gremio.item_id == ProductoERP.item_id),
+        (marca_markups, marca_markups.c.marca == ProductoERP.marca),
+    ]
+
+    # `convertir_a_pesos(costo, moneda_costo, tipo_cambio)`: ARS passes
+    # through, anything else (including NULL `moneda_costo`, which is not
+    # equal to 'ARS' in Python either) is multiplied by the rate — but only
+    # when a rate exists, otherwise the raw cost is returned untouched.
+    if tipo_cambio_usd:
+        costo_ars = case(
+            (ProductoERP.moneda_costo == TipoMoneda.ARS, ProductoERP.costo),
+            else_=ProductoERP.costo * float(tipo_cambio_usd),
+        )
+    else:
+        costo_ars = ProductoERP.costo
+
+    factor_varios = 1.0 + varios_porcentaje / 100.0
+
+    # Gremio: product markup overrides brand markup. `markup_porcentaje` is
+    # NOT NULL in both tables, so "the Python dict has this key" and "the
+    # COALESCE argument is not NULL" are the same condition.
+    markup_gremio = func.coalesce(markup_producto.markup_porcentaje, marca_markups.c.markup_porcentaje)
+    gremio_calculado = case(
+        (
+            and_(markup_gremio.isnot(None), costo_ars > 0),
+            costo_ars * factor_varios * (1.0 + markup_gremio / 100.0),
+        )
+    )
+    # A manual override wins outright, cost and markup irrelevant. The column
+    # is NOT NULL, so COALESCE is exactly "an override row exists".
+    expr_gremio = func.coalesce(override_gremio.precio_gremio_sin_iva_manual, gremio_calculado)
+
+    # Sugerido: `computar_precio_sugerido` returns None unless markup_clasica
+    # is set AND costo_ars > 0; the extra sugerido markup defaults to 0.
+    markup_sugerido = func.coalesce(markup_producto.markup_sugerido, marca_markups.c.markup_sugerido, 0.0)
+    expr_sugerido = case(
+        (
+            and_(ProductoPricing.markup_calculado.isnot(None), costo_ars > 0),
+            costo_ars * factor_varios * (1.0 + (ProductoPricing.markup_calculado + markup_sugerido) / 100.0),
+        )
+    )
+
+    return joins, {"precio_gremio": expr_gremio, "precio_sugerido": expr_sugerido}
+
+
 @router.get("/productos", response_model=ProductoListResponse)
 def listar_productos(
     page: int = Query(1, ge=1),
@@ -1679,7 +1848,7 @@ def listar_productos_tienda(
 ):
     """Endpoint específico para la página de Tienda con precio_gremio."""
     from app.models.markup_tienda import MarkupTiendaBrand, MarkupTiendaProducto
-    from app.services.pricing_calculator import obtener_constantes_pricing
+    from app.services.pricing_calculator import obtener_constantes_pricing, obtener_tipo_cambio_actual
     from sqlalchemy import text
 
     global_layer_id_t = get_global_equipo_id(db)
@@ -2007,7 +2176,18 @@ def listar_productos_tienda(
     # consulta paginada. Si se ordenara después (sobre `results`) cada
     # página quedaría ordenada internamente pero el conjunto global no,
     # devolviendo filas equivocadas por página.
+    #
+    # `varios_porcentaje` y el tipo de cambio se resuelven ACÁ, antes del
+    # ORDER BY, porque `precio_sugerido` / `precio_gremio` los necesitan como
+    # escalares ligados a la consulta. Son dos lecturas de una sola fila cada
+    # una y valen para todo el request, así que adelantarlas no agrega
+    # trabajo: más abajo se reutilizan tal cual para el cálculo por fila.
+    constantes_pricing = obtener_constantes_pricing(db)
+    varios_porcentaje = constantes_pricing.get("varios", 6.5)
+    tipo_cambio_usd_t = obtener_tipo_cambio_actual(db, "USD")
+
     orden_aplicado = False
+    expresiones_derivadas = None
     if orden_campos and orden_direcciones:
         campos = orden_campos.split(",")
         direcciones = orden_direcciones.split(",")
@@ -2066,18 +2246,26 @@ def listar_productos_tienda(
             elif campo == "precio_12_cuotas":
                 col = ProductoPricing.precio_12_cuotas
             elif campo in ("precio_sugerido", "precio_gremio"):
-                # Sin columna en la DB y sin equivalente monótono: ambos se
-                # derivan por producto de los markups de
-                # MarkupTiendaProducto / MarkupTiendaBrand (o del override
-                # manual en precio_gremio_overrides) sobre el costo ya
-                # convertido a ARS, todo resuelto en Python más abajo.
-                # Ordenar por ellos exigiría traer el catálogo completo sin
-                # paginar, como hace la rama `orden_requiere_calculo` de
-                # `listar_productos`. Este endpoint hace mucho más trabajo
-                # por fila (envío real cross-DB, PPP, catálogo, Tienda Nube),
-                # así que se ignoran igual que cualquier otra clave sin
-                # mapeo en vez de degradar la página entera.
-                continue
+                # Ninguno de los dos tiene columna propia: se derivan por
+                # producto de MarkupTiendaProducto / MarkupTiendaBrand (o del
+                # override manual de `precio_gremio_override`) sobre el costo
+                # convertido a ARS. Pero TODOS esos insumos son columnas o
+                # escalares del request, así que la fórmula se replica en SQL
+                # y el endpoint sigue paginando en la DB — sin la rama
+                # `orden_requiere_calculo` de `listar_productos`, que trae el
+                # catálogo entero sin paginar. Ver
+                # `construir_orden_precios_derivados` para la equivalencia y
+                # para la prueba de que los JOIN no multiplican filas.
+                if expresiones_derivadas is None:
+                    joins_derivados, expresiones_derivadas = construir_orden_precios_derivados(
+                        varios_porcentaje=varios_porcentaje,
+                        tipo_cambio_usd=tipo_cambio_usd_t,
+                    )
+                    # Se agregan una sola vez aunque el cliente ordene por las
+                    # dos claves a la vez.
+                    for destino, onclause in joins_derivados:
+                        query = query.outerjoin(destino, onclause)
+                col = expresiones_derivadas[campo]
             else:
                 continue
 
@@ -2100,9 +2288,8 @@ def listar_productos_tienda(
     offset = (page - 1) * page_size
     results = query.offset(offset).limit(page_size).all()
 
-    # Obtener constantes de pricing (VARIOS)
-    constantes_pricing = obtener_constantes_pricing(db)
-    varios_porcentaje = constantes_pricing.get("varios", 6.5)
+    # `constantes_pricing` / `varios_porcentaje` ya se resolvieron arriba del
+    # bloque de ordenamiento, que los necesita como escalares.
 
     # Precargar markups de tienda
     item_ids_results = [r[0].item_id for r in results]
@@ -2137,8 +2324,18 @@ def listar_productos_tienda(
     markups_marca_dict = {}
     markups_sugerido_marca_dict = {}
     if marcas_unicas:
+        # ORDER BY explícito en las dos consultas: ni `tb_brand.brand_desc` ni
+        # `markups_tienda_brand.brand_id` son únicos por sí solos (las PK /
+        # índices únicos incluyen `comp_id`), así que los dict-comprehensions
+        # de abajo resuelven colisiones con "gana la última fila". Sin orden
+        # esa última fila la elige la DB y el valor mostrado sería
+        # no-determinista. Con `ORDER BY ... id` "la última" pasa a ser "la de
+        # mayor id", que es exactamente el criterio que replican los MAX() de
+        # `construir_orden_precios_derivados`: así el orden SQL y el valor
+        # mostrado no pueden divergir.
         brand_query = db.execute(
-            text("SELECT brand_desc, brand_id FROM tb_brand WHERE brand_desc = ANY(:marcas)"), {"marcas": marcas_unicas}
+            text("SELECT brand_desc, brand_id FROM tb_brand WHERE brand_desc = ANY(:marcas) ORDER BY brand_id"),
+            {"marcas": marcas_unicas},
         ).fetchall()
         marca_to_brand_id = {row[0]: row[1] for row in brand_query}
         brand_ids = list(marca_to_brand_id.values())
@@ -2146,6 +2343,7 @@ def listar_productos_tienda(
             markups_marca = (
                 db.query(MarkupTiendaBrand)
                 .filter(MarkupTiendaBrand.brand_id.in_(brand_ids), MarkupTiendaBrand.activo == True)
+                .order_by(MarkupTiendaBrand.id)
                 .all()
             )
             brand_id_to_markup = {m.brand_id: m.markup_porcentaje for m in markups_marca}
@@ -2182,9 +2380,10 @@ def listar_productos_tienda(
     hoy = date.today()
     productos = []
 
-    # ── T-8/T-3: Prefetch tipo_cambio + constantes (reuse constantes_pricing) ──
-    tipo_cambio_usd_t = obtener_tipo_cambio_actual(db, "USD")
-    constantes_t = constantes_pricing  # Already fetched above
+    # ── T-8/T-3: Prefetch tipo_cambio + constantes ───────────────────────
+    # Ambos ya se resolvieron arriba del bloque de ordenamiento (una sola
+    # lectura cada uno); acá sólo se reusan.
+    constantes_t = constantes_pricing
 
     # ── T-8/T-4: Prefetch SubcategoriaGrupo mapping ─────────────────────
     all_subcat_grupos_t = db.query(SubcategoriaGrupo).all()
