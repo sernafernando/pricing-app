@@ -5151,16 +5151,18 @@ def post_confirmar_pedido_recepcion(
     """Confirm reception at pedido level (D-SINOC / D-CONOC router).
 
     Routes by estado + oc_poh_id:
-      - CON-OC + pagado/en_cuenta_corriente → arrival (state-only, no ingresos lines)
-      - SIN-OC → D-SINOC truth table (arrival if pagado; control if recibido/con_faltantes)
+      - CON-OC + estado in recepcion_service.ESTADOS_ARRIBO → arrival (state-only,
+        no ingresos lines)
+      - SIN-OC → D-SINOC truth table (arrival if estado in ESTADOS_ARRIBO, i.e.
+        pagado/en_cuenta_corriente; control if recibido/con_faltantes)
       - controlado → 409 (terminal)
 
     Permission required: deposito.recibir_mercaderia.
     """
     pedido = _obtener_pedido_recepcion_o_404(db, pedido_id)
     try:
-        # CON-OC arrival path: pagado/en_cuenta_corriente → recibido (state-only, no line counting)
-        if pedido.oc_poh_id is not None and pedido.estado in {"pagado", "en_cuenta_corriente"}:
+        # CON-OC arrival path: ESTADOS_ARRIBO → recibido (state-only, no line counting)
+        if pedido.oc_poh_id is not None and pedido.estado in recepcion_service.ESTADOS_ARRIBO:
             result = recepcion_service.confirmar_arribo_con_oc(db, pedido, user)
         else:
             result = recepcion_service.confirmar_pedido_sin_oc(db, pedido, user, request)

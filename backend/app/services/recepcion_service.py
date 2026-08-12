@@ -46,12 +46,23 @@ logger = get_logger("services.recepcion_service")
 # Permission constant — used by the router to avoid hardcoded strings.
 PERMISO_RECEPCION: str = "deposito.recibir_mercaderia"
 
-# States that accept incoming receipt operations.
-# 'recibido' added: it is now the intermediate state after arrival (D-CONOC).
-# 'en_cuenta_corriente' added (compras-cuenta-corriente): a pedido marked as
-# cuenta corriente has its OP still `pendiente` but is otherwise fully
-# eligible for depósito/recepción — payment settles independently (pagado_en).
-_ESTADOS_RECEPTIVOS: frozenset[str] = frozenset({"pagado", "en_cuenta_corriente", "recibido", "con_faltantes"})
+# States from which the ARRIVAL step is valid — the entry gate of both reception
+# paths. 'pagado' and 'en_cuenta_corriente' are logistically equivalent here: the
+# goods may physically arrive either way, only the payment settlement differs (a
+# pedido marked as cuenta corriente keeps its OP `pendiente` and settles
+# independently via pagado_en). PUBLIC on purpose: the router MUST derive its
+# CON-OC/SIN-OC dispatch from here instead of re-typing the pair. This exact pair
+# had been hand-copied in three places (SIN-OC arrival, CON-OC arrival, router
+# dispatch) and the SIN-OC one was never updated when 'en_cuenta_corriente'
+# landed — that drift is what made a SIN-OC pedido in cuenta corriente impossible
+# to receive (409).
+ESTADOS_ARRIBO: frozenset[str] = frozenset({"pagado", "en_cuenta_corriente"})
+
+# States that accept incoming receipt operations = ARRIVAL states plus the CONTROL
+# states. 'recibido' is the intermediate state after arrival (D-CONOC) and
+# 'con_faltantes' still admits a further control pass. Derived from ESTADOS_ARRIBO
+# so the arrival pair is spelled out in exactly one place.
+_ESTADOS_RECEPTIVOS: frozenset[str] = ESTADOS_ARRIBO | {"recibido", "con_faltantes"}
 
 # Read access to saldos = receptive states PLUS 'controlado'. 'controlado' is
 # terminal (no receipt may be registered) but its saldos stay queryable for
@@ -69,7 +80,8 @@ ESTADOS_CONSULTA_SALDOS: frozenset[str] = _ESTADOS_RECEPTIVOS | {"controlado"}
 def _validar_estado_receptivo(pedido: PedidoCompra) -> None:
     """Raise 409 if the pedido cannot accept a receipt operation.
 
-    Allowed entry states: 'pagado', 'en_cuenta_corriente', 'recibido', 'con_faltantes'.
+    Allowed entry states are `_ESTADOS_RECEPTIVOS` = ESTADOS_ARRIBO ('pagado',
+    'en_cuenta_corriente') plus the control states ('recibido', 'con_faltantes').
     'controlado' raises a distinct 409 — it is the terminal state (D-SINOC).
     All other states raise a generic 409.
     """
@@ -417,7 +429,8 @@ def confirmar_pedido_sin_oc(
     """Confirm reception at pedido level — SIN-OC path (D-SINOC truth table).
 
     Two-step logic derived from current estado:
-      - pagado + any      → recibido    (ARRIVAL step; completo ignored)
+      - estado in ESTADOS_ARRIBO + any → recibido  (ARRIVAL step; completo ignored)
+        i.e. 'pagado' or 'en_cuenta_corriente' — both are arrival-entry states
       - recibido + True   → controlado  (CONTROL step: complete)
       - recibido + False  → con_faltantes
       - con_faltantes + True  → controlado
@@ -441,7 +454,7 @@ def confirmar_pedido_sin_oc(
     _validar_estado_receptivo(pedido)
 
     # D-SINOC routing: arrival vs control step
-    if pedido.estado == "pagado":
+    if pedido.estado in ESTADOS_ARRIBO:
         # ARRIVAL step — record logistics fact; completo is ignored
         nuevo_estado = "recibido"
         tipo_evento = "recepcion_arribo"
@@ -450,8 +463,10 @@ def confirmar_pedido_sin_oc(
         nuevo_estado = "controlado" if request.completo else "con_faltantes"
         tipo_evento = "recepcion_registrada" if request.completo else "recepcion_con_faltantes"
     else:
-        # Should not reach here since _validar_estado_receptivo guards above,
-        # but guard defensively.
+        # Unreachable while ESTADOS_ARRIBO | {'recibido', 'con_faltantes'} covers
+        # every state `_validar_estado_receptivo` lets through. Kept as a fail-loud
+        # net: if a new receptive state is added upstream without a branch here,
+        # this rejects it explicitly instead of silently mis-transitioning.
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail=f"Pedido not in a receivable state (estado='{pedido.estado}')",
@@ -514,8 +529,8 @@ def confirmar_arribo_con_oc(
 
     Raises:
         HTTPException 409 — pedido has no OC linked (use confirmar_pedido_sin_oc).
-        HTTPException 409 — pedido not in estado='pagado'/'en_cuenta_corriente' (only
-            arrival step accepted here).
+        HTTPException 409 — pedido estado not in ESTADOS_ARRIBO ('pagado' /
+            'en_cuenta_corriente') — only the arrival step is accepted here.
     """
     if pedido.oc_poh_id is None:
         raise HTTPException(
@@ -525,11 +540,12 @@ def confirmar_arribo_con_oc(
 
     _validar_estado_receptivo(pedido)
 
-    if pedido.estado not in {"pagado", "en_cuenta_corriente"}:
+    if pedido.estado not in ESTADOS_ARRIBO:
+        estados_validos = " or ".join(f"'{e}'" for e in sorted(ESTADOS_ARRIBO))
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail=(
-                f"CON-OC arrival only valid from 'pagado' or 'en_cuenta_corriente' "
+                f"CON-OC arrival only valid from {estados_validos} "
                 f"(current estado='{pedido.estado}'). Use /recepcion/ingresos for the control step."
             ),
         )
