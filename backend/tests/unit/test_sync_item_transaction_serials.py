@@ -1,0 +1,481 @@
+"""
+Unit tests for app.scripts.sync_item_transaction_serials.
+
+Regression suite for the production runaway: `--full` reached its_id
+3_705_620_001 (batch #370563) sustaining ~25 req/s against the ERP webservice
+for hours, because `/api/gbp-parser` answers HTTP 200 with `[{"error": ...}]`
+or `[{"raw": ...}]` on upstream failure and the script read those sentinels as
+data.
+
+Tests cover:
+  - _fetch_from_erp: error sentinels raise instead of masquerading as rows
+  - sync_full: termination driven by rows PERSISTED, not payload truthiness
+  - sync_full: consecutive failures abort with a non-zero exit
+  - sync_full: --max-id and the MAX_BATCHES safety valve
+  - sync_incremental: ERP failure no longer exits 0
+
+IMPORTANT: async functions are tested via asyncio.run() inside plain def tests.
+The project has NO pytest-asyncio configured — do NOT use @pytest.mark.asyncio.
+
+Nothing here touches the network or a real database: httpx.AsyncClient is
+stubbed and the Session is a MagicMock.
+"""
+
+from __future__ import annotations
+
+import asyncio
+from unittest.mock import AsyncMock, MagicMock, patch
+
+import httpx
+import pytest
+
+import app.scripts.sync_item_transaction_serials as module
+from app.scripts.sync_item_transaction_serials import (
+    ErpPayloadError,
+    SyncAbortedError,
+    _fetch_from_erp,
+    _is_erp_error_sentinel,
+    sync_full,
+    sync_incremental,
+)
+
+
+# ---------------------------------------------------------------------------
+# Test harness
+# ---------------------------------------------------------------------------
+
+# Hard ceiling on ERP calls any test may make. Deliberately a BaseException so
+# it escapes the `except Exception` batch handler in sync_full: a regression
+# must surface as a LOUD test failure, never as a hanging test suite.
+FETCH_TRIPWIRE = 25
+
+
+class FetchLimitExceeded(BaseException):
+    """Tripwire tripped: the loop under test is not terminating."""
+
+
+class HttpStub:
+    """Stands in for httpx.AsyncClient, recording every gbp-parser request.
+
+    Args:
+        responses: JSON payload returned for every call, or a list of payloads
+            consumed in order (the last one repeats once exhausted).
+        raises: exception raised instead of answering, for failure-path tests.
+    """
+
+    def __init__(
+        self,
+        responses: object = None,
+        raises: BaseException | None = None,
+    ) -> None:
+        self._responses = responses
+        self._raises = raises
+        self.calls: list[dict] = []
+
+    def _next_payload(self) -> object:
+        if isinstance(self._responses, list) and self._responses and isinstance(self._responses[0], list):
+            index = min(len(self.calls) - 1, len(self._responses) - 1)
+            return self._responses[index]
+        return self._responses
+
+    async def _get(self, url: str, params: dict | None = None) -> MagicMock:
+        self.calls.append(dict(params or {}))
+        if len(self.calls) > FETCH_TRIPWIRE:
+            raise FetchLimitExceeded(f"sync made more than {FETCH_TRIPWIRE} ERP requests — the loop is not terminating")
+        if self._raises is not None:
+            raise self._raises
+        response = MagicMock()
+        response.raise_for_status = MagicMock()
+        response.json.return_value = self._next_payload()
+        return response
+
+    def patcher(self):
+        client = AsyncMock()
+        client.get = AsyncMock(side_effect=self._get)
+        ctx = MagicMock()
+        ctx.__aenter__ = AsyncMock(return_value=client)
+        ctx.__aexit__ = AsyncMock(return_value=False)
+        return patch.object(module.httpx, "AsyncClient", return_value=ctx)
+
+
+def make_rows(count: int, start: int = 1) -> list[dict]:
+    """Build `count` ERP rows that normalize successfully."""
+    return [
+        {
+            "comp_id": "1",
+            "bra_id": "1",
+            "its_id": str(start + i),
+            "it_transaction": "100",
+            "is_id": "200",
+            "ct_transaction": "300",
+            "impData_id": "400",
+            "import_id": "500",
+        }
+        for i in range(count)
+    ]
+
+
+@pytest.fixture()
+def db() -> MagicMock:
+    """A Session stub; _upsert_batch only needs execute() and commit()."""
+    return MagicMock()
+
+
+# ---------------------------------------------------------------------------
+# _is_erp_error_sentinel / _fetch_from_erp
+# ---------------------------------------------------------------------------
+
+
+class TestErrorSentinelDetection:
+    @pytest.mark.parametrize(
+        "payload",
+        [
+            [{"error": "No se encontró el tag result"}],
+            [{"raw": "<html><h1>503 Service Unavailable</h1></html>"}],
+        ],
+    )
+    def test_sentinels_are_detected(self, payload: list[dict]) -> None:
+        assert _is_erp_error_sentinel(payload) is True
+
+    @pytest.mark.parametrize(
+        "payload",
+        [
+            [],
+            [{"Column1": "no data"}],
+            make_rows(1),
+            make_rows(2),
+            [{"error": "x"}, {"error": "y"}],  # two elements: not the sentinel shape
+        ],
+    )
+    def test_real_payloads_are_not_sentinels(self, payload: list[dict]) -> None:
+        assert _is_erp_error_sentinel(payload) is False
+
+    @pytest.mark.parametrize(
+        "payload",
+        [
+            [{"error": "No se encontró el tag result"}],
+            [{"raw": "<html>503</html>"}],
+        ],
+    )
+    def test_fetch_raises_on_sentinel(self, payload: list[dict]) -> None:
+        """An upstream outage must NOT be indistinguishable from 'no more rows'."""
+        stub = HttpStub(responses=payload)
+        with stub.patcher():
+            with pytest.raises(ErpPayloadError):
+                asyncio.run(_fetch_from_erp({"strScriptLabel": "x"}))
+
+    def test_fetch_maps_column1_sentinel_to_empty(self) -> None:
+        """The legitimate GBP 'no data' sentinel still maps to []."""
+        stub = HttpStub(responses=[{"Column1": "sin datos"}])
+        with stub.patcher():
+            assert asyncio.run(_fetch_from_erp({"strScriptLabel": "x"})) == []
+
+    def test_fetch_returns_rows_untouched(self) -> None:
+        rows = make_rows(3)
+        stub = HttpStub(responses=rows)
+        with stub.patcher():
+            assert asyncio.run(_fetch_from_erp({"strScriptLabel": "x"})) == rows
+
+    def test_fetch_raises_on_non_list_payload(self) -> None:
+        stub = HttpStub(responses={"unexpected": "object"})
+        with stub.patcher():
+            with pytest.raises(ErpPayloadError):
+                asyncio.run(_fetch_from_erp({"strScriptLabel": "x"}))
+
+    def test_fetch_uses_settings_url(self) -> None:
+        """The gbp-parser URL comes from settings, not a hardcoded literal."""
+        stub = HttpStub(responses=[])
+        with stub.patcher() as _:
+            with patch.object(module.settings, "GBP_PARSER_URL", "http://configured:9999/api/gbp-parser"):
+                client_ctx = module.httpx.AsyncClient()
+                asyncio.run(_fetch_from_erp({"strScriptLabel": "x"}))
+
+        called_url = client_ctx.__aenter__.return_value.get.call_args[0][0]
+        assert called_url == "http://configured:9999/api/gbp-parser"
+
+    def test_fetch_propagates_http_status_error(self) -> None:
+        """raise_for_status() is preserved: a 502 from gbp-parser is a failure."""
+        stub = HttpStub(responses=[])
+        with stub.patcher() as _:
+            client_ctx = module.httpx.AsyncClient()
+            response = MagicMock()
+            response.raise_for_status.side_effect = httpx.HTTPStatusError(
+                "502", request=MagicMock(), response=MagicMock()
+            )
+            client_ctx.__aenter__.return_value.get = AsyncMock(return_value=response)
+            with pytest.raises(httpx.HTTPStatusError):
+                asyncio.run(_fetch_from_erp({"strScriptLabel": "x"}))
+
+
+# ---------------------------------------------------------------------------
+# sync_full — the runaway regressions
+# ---------------------------------------------------------------------------
+
+
+class TestSyncFullTerminates:
+    @pytest.mark.parametrize(
+        "sentinel",
+        [
+            [{"error": "No se encontró el tag result"}],
+            [{"raw": "<html><h1>503 Service Unavailable</h1></html>"}],
+        ],
+    )
+    def test_permanent_error_sentinel_stops_promptly(self, db: MagicMock, sentinel: list[dict]) -> None:
+        """THE regression: a gbp-parser error sentinel used to loop forever.
+
+        Before the fix `_fetch_from_erp` returned the sentinel as data, so the
+        payload was truthy, `consecutive_empty` reset to 0 every batch, zero
+        rows normalized, and the loop printed '0 registros' until the ERP died.
+        """
+        stub = HttpStub(responses=sentinel)
+        with stub.patcher():
+            with pytest.raises(SyncAbortedError):
+                sync_full(db, batch_size=10000)
+
+        assert len(stub.calls) == module.MAX_CONSECUTIVE_FAILURES
+        db.execute.assert_not_called()
+
+    def test_permanent_transport_error_aborts(self, db: MagicMock) -> None:
+        """A dead ERP (connection refused) aborts instead of retrying forever."""
+        stub = HttpStub(raises=httpx.ConnectError("connection refused"))
+        with stub.patcher():
+            with pytest.raises(SyncAbortedError, match="errores consecutivos"):
+                sync_full(db, batch_size=10000)
+
+        assert len(stub.calls) == module.MAX_CONSECUTIVE_FAILURES
+
+    def test_unnormalizable_rows_count_as_empty(self, db: MagicMock) -> None:
+        """Payload truthiness must not reset the stop counter (defect B2).
+
+        These rows are well formed JSON but every one fails _normalize_row
+        (no comp_id/bra_id/its_id), so ZERO rows are persisted. That is an
+        empty batch, whatever the payload looked like.
+        """
+        garbage = [{"something_else": "1"}, {"another": "2"}]
+        stub = HttpStub(responses=garbage)
+        with stub.patcher():
+            sync_full(db, batch_size=10000)
+
+        assert len(stub.calls) == module.MAX_CONSECUTIVE_EMPTY_BATCHES
+        db.execute.assert_not_called()
+
+    def test_column1_sentinel_counts_toward_termination(self, db: MagicMock) -> None:
+        """The legitimate 'no data' sentinel still ends the run normally."""
+        stub = HttpStub(responses=[{"Column1": "sin datos"}])
+        with stub.patcher():
+            sync_full(db, batch_size=10000)
+
+        assert len(stub.calls) == module.MAX_CONSECUTIVE_EMPTY_BATCHES
+
+    def test_transient_error_does_not_abort_a_healthy_run(self, db: MagicMock) -> None:
+        """One hiccup must not kill a long run; the counter resets on success."""
+        calls: list[dict] = []
+
+        async def fake_fetch(params: dict) -> list[dict]:
+            calls.append(params)
+            if len(calls) in (2, 4):
+                raise httpx.ConnectError("transient")
+            if len(calls) <= 5:
+                return make_rows(3, start=len(calls) * 10)
+            return []
+
+        with patch.object(module, "_fetch_from_erp", side_effect=fake_fetch):
+            sync_full(db, batch_size=10000)
+
+        # 3 successful data batches + 2 transient errors + 3 empty batches
+        assert len(calls) == 8
+
+
+class TestSyncFullBounds:
+    def test_max_id_is_honored(self, db: MagicMock) -> None:
+        """The loop must never request a range beyond --max-id."""
+        stub = HttpStub(responses=make_rows(2))
+        with stub.patcher():
+            sync_full(db, batch_size=10000, max_id=25000)
+
+        assert len(stub.calls) == 3
+        assert [(c["itsIDfrom"], c["itsIDto"]) for c in stub.calls] == [
+            (1, 10000),
+            (10001, 20000),
+            (20001, 25000),
+        ]
+        assert all(c["itsIDto"] <= 25000 for c in stub.calls)
+
+    def test_max_id_smaller_than_batch_size(self, db: MagicMock) -> None:
+        """A --max-id below one batch clamps the very first range."""
+        stub = HttpStub(responses=make_rows(1))
+        with stub.patcher():
+            sync_full(db, batch_size=10000, max_id=50)
+
+        assert [(c["itsIDfrom"], c["itsIDto"]) for c in stub.calls] == [(1, 50)]
+
+    def test_safety_valve_fails_loudly(self, db: MagicMock) -> None:
+        """MAX_BATCHES makes an unbounded walk structurally impossible.
+
+        Every batch returns real rows, so neither the empty-batch counter nor
+        the failure counter ever trips — only the valve can stop this.
+        """
+        original = module.MAX_BATCHES
+        module.MAX_BATCHES = 5
+        stub = HttpStub(responses=make_rows(2))
+        try:
+            with stub.patcher():
+                with pytest.raises(SyncAbortedError, match="[Vv]álvula de seguridad"):
+                    sync_full(db, batch_size=10000)
+        finally:
+            module.MAX_BATCHES = original
+
+        assert len(stub.calls) == 5
+
+    def test_safety_valve_is_below_the_tripwire_by_construction(self) -> None:
+        """The shipped ceiling is finite and far below the observed runaway."""
+        assert 0 < module.MAX_BATCHES < 370_563
+
+
+class TestSyncFullHappyPath:
+    def test_rows_are_normalized_upserted_and_run_ends(self, db: MagicMock) -> None:
+        """Regression guard: normal syncing behaviour is unchanged."""
+        payloads = [make_rows(1200, start=1), make_rows(3, start=20000), [], [], []]
+        stub = HttpStub(responses=payloads)
+
+        captured: list[list[dict]] = []
+        real_upsert = module._upsert_batch
+
+        def spy(session: object, rows: list[dict]) -> int:
+            captured.append(list(rows))
+            return real_upsert(session, rows)
+
+        with stub.patcher():
+            with patch.object(module, "_upsert_batch", side_effect=spy):
+                sync_full(db, batch_size=10000)
+
+        # 1200 rows -> 500/500/200 sub-batches, then 3 rows -> one sub-batch
+        assert [len(b) for b in captured] == [500, 500, 200, 3]
+
+        first = captured[0][0]
+        assert first == {
+            "comp_id": 1,
+            "bra_id": 1,
+            "its_id": 1,
+            "it_transaction": 100,
+            "is_id": 200,
+            "ct_transaction": 300,
+            "impdata_id": 400,
+            "import_id": 500,
+        }
+
+        # 2 data batches + 3 genuinely empty batches
+        assert len(stub.calls) == 5
+        assert db.commit.call_count == 4
+
+    def test_upsert_uses_on_conflict_do_update(self, db: MagicMock) -> None:
+        """Upsert semantics preserved: ON CONFLICT DO UPDATE on the PK triple."""
+        from sqlalchemy.dialects import postgresql
+
+        module._upsert_batch(db, make_rows(1))
+
+        stmt = db.execute.call_args[0][0]
+        sql = str(stmt.compile(dialect=postgresql.dialect())).lower()
+        assert "on conflict" in sql
+        assert "do update" in sql
+        for column in ("it_transaction", "is_id", "ct_transaction", "impdata_id", "import_id"):
+            assert column in sql
+
+    def test_partially_valid_batch_resets_the_empty_counter(self, db: MagicMock) -> None:
+        """A batch persisting >= 1 row is not empty, even if other rows are junk."""
+        mixed = make_rows(1) + [{"comp_id": None, "bra_id": None, "its_id": None}]
+        stub = HttpStub(responses=[mixed, mixed, [], [], []])
+
+        with stub.patcher():
+            sync_full(db, batch_size=10000)
+
+        assert len(stub.calls) == 5
+
+
+# ---------------------------------------------------------------------------
+# sync_incremental
+# ---------------------------------------------------------------------------
+
+
+class TestSyncIncremental:
+    def _db_with_last_id(self, last_id: int | None) -> MagicMock:
+        db = MagicMock()
+        db.query.return_value.scalar.return_value = last_id
+        return db
+
+    def test_erp_failure_aborts_instead_of_exiting_zero(self) -> None:
+        """A failed incremental run must not look like a successful one."""
+        db = self._db_with_last_id(500)
+        stub = HttpStub(responses=[{"error": "No se encontró el tag result"}])
+
+        with stub.patcher():
+            with pytest.raises(SyncAbortedError, match="Error consultando el ERP"):
+                sync_incremental(db)
+
+        assert len(stub.calls) == 1
+
+    def test_no_previous_data_returns_early(self) -> None:
+        db = self._db_with_last_id(None)
+        stub = HttpStub(responses=make_rows(1))
+
+        with stub.patcher():
+            sync_incremental(db)
+
+        assert stub.calls == []
+
+    def test_new_rows_are_upserted_in_sub_batches(self) -> None:
+        db = self._db_with_last_id(1000)
+        stub = HttpStub(responses=make_rows(700, start=1001))
+
+        captured: list[list[dict]] = []
+        with stub.patcher():
+            with patch.object(
+                module,
+                "_upsert_batch",
+                side_effect=lambda s, rows: captured.append(list(rows)) or len(rows),
+            ):
+                sync_incremental(db)
+
+        assert [len(b) for b in captured] == [500, 200]
+        assert stub.calls[0]["itsID"] == 1000
+
+
+# ---------------------------------------------------------------------------
+# CLI wiring
+# ---------------------------------------------------------------------------
+
+
+class TestCli:
+    def test_max_id_flag_is_forwarded(self) -> None:
+        """--max-id is real now, not just documented in the docstring."""
+        with patch.object(module.sys, "argv", ["prog", "--full", "--max-id", "500000"]):
+            with patch.object(module, "SessionLocal", return_value=MagicMock()):
+                with patch.object(module, "sync_full") as mock_full:
+                    module.main()
+
+        assert mock_full.call_args.kwargs["max_id"] == 500000
+
+    def test_max_id_defaults_to_none(self) -> None:
+        with patch.object(module.sys, "argv", ["prog", "--full"]):
+            with patch.object(module, "SessionLocal", return_value=MagicMock()):
+                with patch.object(module, "sync_full") as mock_full:
+                    module.main()
+
+        assert mock_full.call_args.kwargs["max_id"] is None
+
+    def test_aborted_sync_exits_non_zero(self) -> None:
+        with patch.object(module.sys, "argv", ["prog", "--full"]):
+            with patch.object(module, "SessionLocal", return_value=MagicMock()):
+                with patch.object(module, "sync_full", side_effect=SyncAbortedError("boom")):
+                    with pytest.raises(SystemExit) as exc:
+                        module.main()
+
+        assert exc.value.code == 1
+
+    @pytest.mark.parametrize("argv", [["prog", "--full", "--max-id", "0"], ["prog", "--full", "--batch-size", "0"]])
+    def test_invalid_bounds_exit_non_zero(self, argv: list[str]) -> None:
+        with patch.object(module.sys, "argv", argv):
+            with pytest.raises(SystemExit) as exc:
+                module.main()
+
+        assert exc.value.code == 1
