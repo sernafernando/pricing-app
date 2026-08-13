@@ -1,6 +1,6 @@
 # Runbooks - Pricing App
 
-Last update: 2026-02-10
+Last update: 2026-08-13
 Audience: On-call / solo developer
 
 ## 1) API Degraded or Down
@@ -521,3 +521,160 @@ sudo cat /etc/wabot-client.env >/dev/null && echo "token file present"
   own; do not retry in a loop.
 - Persistent `503` or `state: "qr"`: the session needs a manual QR re-scan on
   the wabot LXC (`ssh wabot`). Deploys keep working meanwhile.
+
+---
+
+## 5) Gentle AI Review Blocked Across Git Worktrees
+
+### Context
+
+This repo is developed from multiple Git worktrees (`pricing-app`,
+`pricing-app-2` … `pricing-app-7`, plus ad-hoc ones). They all share a
+single Git common dir, and therefore a single Gentle AI review store at
+`<main-worktree>/.git/gentle-ai/`. Several editor instances routinely run
+at once, one per worktree. Observed 2026-08-04: 3 live instances, 41
+review lineages in the shared store.
+
+### Symptoms
+
+- `gentle-ai review validate` fails with `receipt_ambiguous`.
+- `gentle-ai review validate` fails with `scope-changed` on a candidate
+  that was already approved.
+- `gentle-ai review capture-result` fails with
+  `repository_context_capture_failed`, leaving the lineage in `reviewing`
+  with no captured result.
+
+### Quick Checks
+
+```bash
+# Which worktrees exist and where they point
+git worktree list
+
+# Live editor instances and their working directory
+for p in $(pgrep opencode); do echo -n "$p "; readlink /proc/$p/cwd; done
+
+# Lineages in the shared store
+ls -1 <main-worktree>/.git/gentle-ai/review-transactions/v2/
+```
+
+### Known Causes and Fixes
+
+**`receipt_ambiguous` — several worktrees hold terminal receipts.**
+Confirmed. The gate cannot pick a receipt on its own. Always pass the
+lineage explicitly:
+
+```bash
+gentle-ai review validate --gate pre-commit --lineage <lineage-id>
+```
+
+**`scope-changed` — a live CodeGraph index inside the reviewed worktree.**
+Confirmed. `.codegraph/` holds a multi-hundred-MB SQLite database whose
+watcher rewrites it every few minutes. Because the projection includes
+intended-untracked paths, the frozen candidate is invalidated mid-review
+and an already-approved receipt is lost. Remove `.codegraph/` from a
+worktree before starting a review there, or keep the index out of
+worktrees used for delivery.
+
+**`scope-changed` — the candidate is empty, not broken.** Confirmed
+2026-08-13 in a worktree with no `.codegraph/` at all, so the cause above
+did not apply. After committing a `projection=workspace` review the tree
+is clean, so the default projection has nothing to compare: it reports
+`base_tree == candidate_tree` and `paths: []`. The receipt is fine. Pass
+the base explicitly and route from the transition it returns:
+
+```bash
+gentle-ai review status --contract gentle-ai.review-integration/v2 \
+  --base-ref origin/main --gate pre-pr --next-transition
+```
+
+That reports `applicability: current_target`, `receipt: present`, and the
+exact `validate` command that returns `allow`.
+
+**`scope-changed` — the receipt covers less than the PR delivers.**
+Confirmed 2026-08-13. Reviewing a multi-commit range and then adding
+another commit on top leaves the range covered by two chained receipts
+and none matching the live gate target, so the gate refuses. This one is
+the gate being right: do not force it. Rebasing onto the current `main`
+produced a fresh target and `fresh_target_ready`, and a single full-range
+review then passed both `pre-push` and `pre-pr` — no recovery
+authorization was needed, even though status had been asking for one.
+
+**`repository_context_capture_failed` — recovery procedure established.**
+Superseded the earlier "cause NOT established" note. The root cause is
+still unknown, but recovery is now known and worked first try on
+2026-08-13: do NOT relaunch based on the error text. Re-query negotiated
+status, and relaunch the lens reviewer only if the fresh `next_transition`
+reoffers the exact same bound slot — identical `lineage`,
+`expected-revision`, `target`, `repository-context`, `lens`, `order` and
+`subject-hash`. If status instead reports the capture as already
+committed, continue without relaunching. The preserved `rinc1_…` result is
+not reusable: the same result cannot be re-admitted.
+
+### `--base-ref` is blind to the working tree
+
+Confirmed 2026-08-13, and this one can ship unreviewed code. `--base-ref`
+pins the projection to base-against-HEAD, meaning **committed** content.
+With uncommitted changes in the tree, status can report `receipt: present`
+and `approved_receipt_ready` while describing the OLD content. Trusting it
+and committing delivers unreviewed lines under a receipt that never saw
+them.
+
+Always confirm the authority is looking at your actual work:
+
+```bash
+# What status says it is reviewing
+gentle-ai review status --contract gentle-ai.review-integration/v2 \
+  --base-ref origin/main --next-transition   # read current_candidate_tree
+
+# What your tree actually is
+git add -A && git write-tree && git reset
+```
+
+If those two trees differ, status is not looking at your changes. Drop
+`--base-ref` to get the workspace projection, which does see them.
+
+### A fast-moving `main` invalidates full-range receipts
+
+Confirmed 2026-08-13: four PRs merged into `main` during a single working
+session. A full-range (`base-diff`) review binds the receipt to the base
+tree, so every `main` advance changes the target and expires it. Reviewing
+the workspace change and pushing promptly is more robust. When a single
+receipt over the whole PR range is genuinely required, rebase and review
+immediately before pushing, not hours earlier.
+
+### Do NOT assume a queue is missing
+
+The store lock at
+`<main-worktree>/.git/gentle-ai/review-transactions/v2/LOCK` is advisory
+and tolerates a dead owner. Verified on 2026-08-04: PIDs 1714802 and
+1728186 both appeared as lock owners while already dead, the file
+persisted, and the owner PID kept rotating; reviews completed
+successfully in the same window. Do not serialize work or delete the lock
+based on its contents alone — always check owner liveness first
+(`ps -p <pid>`).
+
+### Safe Mitigation
+
+- Prefer running one review at a time per repository when practical, but
+  do not treat that as a fix — it is noise reduction, not a root cause.
+- Never hand-edit files under `.git/gentle-ai/`. Use the supported
+  subcommands (`review status`, `review recover`, `review abandon`,
+  `review reclaim`) and read their `--help` first.
+- Never chain a push behind a pipe that filters gate output. `validate ...
+  | rg '"result"' && git push` pushes even when the gate says
+  `invalidated`, because the exit code belongs to `rg`, not to the gate.
+  Read the gate result, then push as a separate step. Hit on 2026-08-13.
+- Route only from the `next_transition` a status query returns. When a gate
+  refuses, re-query status instead of improvising a flag: on 2026-08-13 the
+  refusals were resolved by an explicit `--base-ref` and by a rebase, and
+  the `recovery_authorization_required` state that status kept reporting
+  turned out not to need a maintainer override at all.
+- If a lineage is stuck with no captured result and cannot be recovered,
+  abandon it and start a fresh review rather than forcing the gate.
+
+### Escalation
+
+- Owner: repository maintainer.
+- Escalate upstream to `Gentleman-Programming/gentle-ai` when a failure is
+  reproducible and the consumer workflow stays blocked. Scrub absolute
+  paths, hostnames, usernames and tokens before filing.
