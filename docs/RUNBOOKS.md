@@ -467,8 +467,10 @@ echo "WABOT_TOKEN='<value>'" | sudo tee /etc/wabot-client.env >/dev/null
 # Verify the token was stored literally, not expanded into something else
 sudo grep WABOT_TOKEN /etc/wabot-client.env
 
-# Confirm the helper reaches the service
-/var/www/html/pricing-app/scripts/notify-wabot.sh "prueba de deploy notifications"
+# Confirm the helper reaches the service.
+# Invoke it through `bash`: the repo versions .sh files as 100644, so the file
+# arrives from git without the executable bit and `./notify-wabot.sh` would fail.
+bash /var/www/html/pricing-app/scripts/notify-wabot.sh "prueba de deploy notifications"
 ```
 
 Only `192.168.1.219`, `192.168.1.228` and `192.168.1.230` are allowed through
@@ -504,6 +506,37 @@ git pull            # updates deploy.sh on disk BEFORE bash starts reading it
 
 Skipping this can end the deploy right after the pull: no build, no backend
 restart, and no notification. Tracked in `docs/tech-debt-ledger.md`.
+
+### `git pull` Refuses to Touch `deploy.sh`
+
+```
+error: Your local changes to the following files would be overwritten by merge:
+        deploy.sh
+```
+
+Usually **not** a content change: the repo versions `deploy.sh` as `100644`,
+but on the server it was made executable to run it as `./deploy.sh`. With
+git's default `core.fileMode=true` that mode difference counts as a local
+modification. Confirm before touching anything:
+
+```bash
+cd /var/www/html/pricing-app
+git diff -- deploy.sh              # empty output = only the mode differs
+git diff --summary -- deploy.sh    # shows "mode change 100755 => 100644"
+```
+
+If the content diff is empty, stop tracking the mode in this clone — it is
+the permanent fix and loses nothing:
+
+```bash
+git config core.fileMode false
+git pull
+```
+
+If the content diff is **not** empty, someone edited the script on the server.
+Save that first (`cp deploy.sh /root/deploy.sh.server`), review the diff, and
+port anything worth keeping into the repo instead of discarding it. Never
+`git reset --hard` or `git checkout -- .` before reading that diff.
 
 ### Quick Checks
 
