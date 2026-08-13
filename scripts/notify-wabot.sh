@@ -10,27 +10,57 @@
 #   - Uses a hard timeout.
 #   - Does not retry.
 #
-# Reads WABOT_TOKEN from the environment, or from /etc/wabot-client.env when
-# present. Never hardcode the token in this file.
+# Reads WABOT_URL / WABOT_TOKEN / WABOT_TIMEOUT from the environment, and
+# otherwise from the project's own .env — which is where the wabot contract says
+# the caller's token lives. Never hardcode the token in this file.
 #
 # Only these hosts can reach the service (firewall): 192.168.1.219,
 # 192.168.1.228, 192.168.1.230.
 
 set -uo pipefail
 
+SCRIPT_DIR=$(cd "$(dirname "$0")" && pwd)
+PROJECT_DIR=$(dirname "$SCRIPT_DIR")
+
+# Orden de resolucion: entorno > .env del proyecto > .env del backend >
+# /etc/wabot-client.env (para instalaciones fuera del arbol del proyecto).
+WABOT_ENV_FILES="$PROJECT_DIR/.env $PROJECT_DIR/backend/.env /etc/wabot-client.env"
+
+# Extrae UNA clave de un archivo .env sin sourcearlo. Sourcear no es opcion:
+# estos archivos traen credenciales de DB y tokens de terceros que no tienen por
+# que entrar al entorno de un proceso que sale a la red, y ademas cualquier $VAR
+# sin definir adentro mataria este helper por el `set -u` de arriba, rompiendo su
+# contrato de salir siempre 0.
+read_env_key() {
+    local file=$1 key=$2 value
+    [ -r "$file" ] || return 1
+
+    value=$(sed -n "s/^[[:space:]]*\(export[[:space:]]\{1,\}\)\{0,1\}${key}[[:space:]]*=[[:space:]]*//p" "$file" | tail -n 1)
+    value=${value%$'\r'}
+
+    # Saca comillas envolventes si el valor viene citado.
+    case $value in
+        \"*\") value=${value#\"}; value=${value%\"} ;;
+        \'*\') value=${value#\'}; value=${value%\'} ;;
+    esac
+
+    [ -n "$value" ] || return 1
+    printf '%s' "$value"
+}
+
+WABOT_URL="${WABOT_URL:-}"
+WABOT_TOKEN="${WABOT_TOKEN:-}"
+WABOT_TIMEOUT="${WABOT_TIMEOUT:-}"
+
+for env_file in $WABOT_ENV_FILES; do
+    [ -r "$env_file" ] || continue
+    [ -n "$WABOT_TOKEN" ]   || WABOT_TOKEN=$(read_env_key "$env_file" WABOT_TOKEN || true)
+    [ -n "$WABOT_URL" ]     || WABOT_URL=$(read_env_key "$env_file" WABOT_URL || true)
+    [ -n "$WABOT_TIMEOUT" ] || WABOT_TIMEOUT=$(read_env_key "$env_file" WABOT_TIMEOUT || true)
+done
+
 WABOT_URL="${WABOT_URL:-http://192.168.1.232:3000}"
 WABOT_TIMEOUT="${WABOT_TIMEOUT:-8}"
-
-# El `set -u` de arriba convierte cualquier $VAR sin definir dentro del archivo
-# (un placeholder sin expandir, un token mal pegado) en un error fatal que mata
-# este helper y rompe su contrato de salir siempre 0. Se relaja solo acá: con un
-# token invalido preferimos un 401 legible antes que una muerte silenciosa.
-if [ -z "${WABOT_TOKEN:-}" ] && [ -r /etc/wabot-client.env ]; then
-    set +u
-    # shellcheck disable=SC1091
-    . /etc/wabot-client.env
-    set -u
-fi
 
 MESSAGE="${1:-}"
 
@@ -40,7 +70,16 @@ if [ -z "$MESSAGE" ]; then
 fi
 
 if [ -z "${WABOT_TOKEN:-}" ]; then
-    echo "notify-wabot: WABOT_TOKEN not set, skipping" >&2
+    # Decir DONDE se busco: sin esto, un token puesto en el archivo equivocado se
+    # ve exactamente igual que no haber puesto ninguno.
+    echo "notify-wabot: WABOT_TOKEN not set, skipping. Looked in: \$WABOT_TOKEN," >&2
+    for env_file in $WABOT_ENV_FILES; do
+        if [ -r "$env_file" ]; then
+            echo "  $env_file (readable, no WABOT_TOKEN key)" >&2
+        else
+            echo "  $env_file (not readable)" >&2
+        fi
+    done
     exit 0
 fi
 
