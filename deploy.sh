@@ -127,6 +127,11 @@ cd "$PROJECT_DIR"
 if [ "$SKIP_PULL" = false ]; then
   CURRENT_STEP="git pull"
   log "Pulling latest changes..."
+  # ponytail: este pull puede reescribir deploy.sh mientras bash todavia lo esta
+  # leyendo, y bash sigue leyendo por offset de byte sobre el archivo nuevo — el
+  # deploy se corta en silencio. Blindaje: envolver el cuerpo en main() { ... }.
+  # Mientras tanto: git pull a mano ANTES de correr ./deploy.sh cuando este
+  # archivo cambio. Ver docs/tech-debt-ledger.md.
   git pull
 else
   warn "Skipping git pull"

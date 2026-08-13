@@ -490,6 +490,21 @@ report a permanent false outage.
 Use `./deploy.sh --no-notify` for test or repeated deploys so the group is not
 spammed.
 
+### First Deploy After `deploy.sh` Itself Changed
+
+`deploy.sh` runs `git pull` on itself while bash is still reading it, so the
+running (old) copy can be cut short mid-execution — silently, with no error.
+Whenever a deploy brings a new `deploy.sh`, pull first and deploy second:
+
+```bash
+cd /var/www/html/pricing-app
+git pull            # updates deploy.sh on disk BEFORE bash starts reading it
+./deploy.sh         # the internal pull is now a no-op, nothing gets rewritten
+```
+
+Skipping this can end the deploy right after the pull: no build, no backend
+restart, and no notification. Tracked in `docs/tech-debt-ledger.md`.
+
 ### Quick Checks
 
 ```bash
