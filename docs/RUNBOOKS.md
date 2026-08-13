@@ -454,23 +454,43 @@ Without `WABOT_TOKEN` the helper logs a warning to stderr and sends nothing.
 The deploy still succeeds, so a missing token fails **silently** from the
 group's point of view. Verify it after any server rebuild.
 
+The token lives in the project's own `.env`, which is where the wabot contract
+says the caller's token belongs. Resolution order, first hit wins:
+
+| # | Source | Use it when |
+|---|---|---|
+| 1 | `$WABOT_TOKEN` in the environment | One-off runs and overrides |
+| 2 | `<project>/.env` | **Default for this deploy** |
+| 3 | `<project>/backend/.env` | The token already lives with the backend config |
+| 4 | `/etc/wabot-client.env` | Callers outside the project tree (cron in another path) |
+
+Only the `WABOT_*` keys are read out of those files — they are never sourced,
+so the DB credentials and third-party tokens sitting next to them never enter
+the helper's environment.
+
 ```bash
 # Read the current token from the service itself — never copy it between docs
 ssh wabot 'grep WABOT_TOKEN /etc/wabot.env'
 
-# Store it on the deploy host (192.168.1.219), root-only.
-# Single quotes matter: the file is sourced by bash, so an unquoted $, { or }
-# in the token would be expanded or mangled instead of sent verbatim.
-sudo install -m 600 /dev/null /etc/wabot-client.env
-echo "WABOT_TOKEN='<value>'" | sudo tee /etc/wabot-client.env >/dev/null
-
-# Verify the token was stored literally, not expanded into something else
-sudo grep WABOT_TOKEN /etc/wabot-client.env
+# Add it to the project .env on the deploy host (192.168.1.219)
+cd /var/www/html/pricing-app
+printf "WABOT_URL=http://192.168.1.232:3000\nWABOT_TOKEN='<value>'\nWABOT_TIMEOUT=8\n" >> .env
 
 # Confirm the helper reaches the service.
 # Invoke it through `bash`: the repo versions .sh files as 100644, so the file
 # arrives from git without the executable bit and `./notify-wabot.sh` would fail.
-bash /var/www/html/pricing-app/scripts/notify-wabot.sh "prueba de deploy notifications"
+bash scripts/notify-wabot.sh "prueba de deploy notifications"
+```
+
+If the token is missing the helper prints **every path it looked at**, so a
+token sitting in the wrong file is visible immediately instead of looking
+identical to no token at all:
+
+```
+notify-wabot: WABOT_TOKEN not set, skipping. Looked in: $WABOT_TOKEN,
+  /var/www/html/pricing-app/.env (readable, no WABOT_TOKEN key)
+  /var/www/html/pricing-app/backend/.env (readable, no WABOT_TOKEN key)
+  /etc/wabot-client.env (not readable)
 ```
 
 Only `192.168.1.219`, `192.168.1.228` and `192.168.1.230` are allowed through
