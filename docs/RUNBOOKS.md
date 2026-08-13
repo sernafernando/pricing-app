@@ -427,3 +427,77 @@ CRUD).
 
 - Owner: ML Bot maintainer.
 - Escalate if data mismatch persists after one controlled backfill.
+
+---
+
+## 4) Deploy Notifications (wabot / WhatsApp)
+
+### Overview
+
+`deploy.sh` announces itself to the internal WhatsApp group through the wabot
+service: one message when it starts, one when it finishes. Sending is
+best-effort via `scripts/notify-wabot.sh`, which always exits 0 — a WhatsApp
+outage can never break or delay a deploy.
+
+Messages sent:
+
+| Moment | Content |
+| --- | --- |
+| Start | Backend is going to restart, estimated duration, "we'll tell you when it's up" |
+| End (OK) | Backend confirmed up via health check, real duration, and — only when the frontend was rebuilt — the Ctrl+Shift+R reminder |
+| End (degraded) | Deploy finished but `/health` never answered; tells people **not** to use the app yet |
+| Failure / Ctrl+C | Which step it died on and how long it ran, so nobody waits for an "it's up" that will never arrive |
+
+### Required Setup on the Server (one time)
+
+Without `WABOT_TOKEN` the helper logs a warning to stderr and sends nothing.
+The deploy still succeeds, so a missing token fails **silently** from the
+group's point of view. Verify it after any server rebuild.
+
+```bash
+# Read the current token from the service itself — never copy it between docs
+ssh wabot 'grep WABOT_TOKEN /etc/wabot.env'
+
+# Store it on the deploy host (192.168.1.219), root-only
+sudo install -m 600 /dev/null /etc/wabot-client.env
+echo 'WABOT_TOKEN=<value>' | sudo tee /etc/wabot-client.env >/dev/null
+
+# Confirm the helper reaches the service
+/var/www/html/pricing-app/scripts/notify-wabot.sh "prueba de deploy notifications"
+```
+
+Only `192.168.1.219`, `192.168.1.228` and `192.168.1.230` are allowed through
+the firewall to wabot (TCP 3000). From any other host the call times out and
+the helper prints `unreachable (timeout or firewall)`.
+
+### Tuning
+
+| Variable | Default | Purpose |
+| --- | --- | --- |
+| `DEPLOY_ETA_MIN` | `5` | Estimated minutes announced in the start message |
+| `HEALTHCHECK_URL` | `https://pricing.gaussonline.com.ar/health` | Polled to confirm the backend is really up |
+| `HEALTHCHECK_TIMEOUT` | `120` | Seconds to wait before declaring the backend degraded |
+
+Do **not** point `HEALTHCHECK_URL` at `http://192.168.1.219:8000/health`: that
+path is not mounted on the raw backend port and answers 404, which would
+report a permanent false outage.
+
+Use `./deploy.sh --no-notify` for test or repeated deploys so the group is not
+spammed.
+
+### Quick Checks
+
+```bash
+# Is the WhatsApp session linked? 200 = ok, 503 = not linked (self-heals)
+curl -s http://192.168.1.232:3000/health
+
+# Deploy silent but succeeding? The reason is on stderr
+sudo cat /etc/wabot-client.env >/dev/null && echo "token file present"
+```
+
+### Escalation
+
+- `503` on `/health`: the WhatsApp session is reconnecting. It recovers on its
+  own; do not retry in a loop.
+- Persistent `503` or `state: "qr"`: the session needs a manual QR re-scan on
+  the wabot LXC (`ssh wabot`). Deploys keep working meanwhile.
