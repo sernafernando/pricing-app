@@ -131,7 +131,7 @@ export default function TicketDetail({ ticketId, onClose, onTicketChanged }) {
   const [adjuntoError, setAdjuntoError] = useState(null);
 
   // Assign
-  const [sectorUsuarios, setSectorUsuarios] = useState([]);
+  const [usuariosAsignables, setUsuariosAsignables] = useState([]);
   const [assignUserId, setAssignUserId] = useState('');
   const [assigning, setAssigning] = useState(false);
 
@@ -186,19 +186,21 @@ export default function TicketDetail({ ticketId, onClose, onTicketChanged }) {
     fetchWorkflows();
   }, [ticket?.sector?.id, puedeGestionar]);
 
-  // Load sector users for assignment
+  // Load users this ticket can be assigned to. Not the same as "who
+  // belongs to this sector" — an Inbox ticket has no sector members (0 by
+  // design), so /asignables answers "who can pick this up" instead.
   useEffect(() => {
-    if (!ticket?.sector?.id || !puedeGestionar) return;
-    const fetchUsers = async () => {
+    if (!ticketId || !puedeGestionar) return;
+    const fetchUsuariosAsignables = async () => {
       try {
-        const { data } = await sectoresAPI.listarUsuarios(ticket.sector.id);
-        setSectorUsuarios(Array.isArray(data) ? data : []);
+        const { data } = await ticketsAPI.usuariosAsignables(ticketId);
+        setUsuariosAsignables(Array.isArray(data) ? data : []);
       } catch {
-        setSectorUsuarios([]);
+        setUsuariosAsignables([]);
       }
     };
-    fetchUsers();
-  }, [ticket?.sector?.id, puedeGestionar]);
+    fetchUsuariosAsignables();
+  }, [ticketId, puedeGestionar]);
 
   // Load tab data
   useEffect(() => {
@@ -552,9 +554,9 @@ export default function TicketDetail({ ticketId, onClose, onTicketChanged }) {
             onChange={(e) => setAssignUserId(e.target.value)}
           >
             <option value="">Asignar a...</option>
-            {sectorUsuarios.map((su) => (
-              <option key={su.usuario?.id || su.id} value={su.usuario?.id || su.id}>
-                {su.usuario?.nombre || '-'}
+            {usuariosAsignables.map((usuario) => (
+              <option key={usuario.id} value={usuario.id}>
+                {usuario.nombre}
               </option>
             ))}
           </select>
