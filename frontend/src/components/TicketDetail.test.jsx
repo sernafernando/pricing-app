@@ -27,10 +27,11 @@ vi.mock('../services/api', () => ({
     listarAdjuntos: vi.fn().mockResolvedValue({ data: [] }),
     listarPropuestas: vi.fn().mockResolvedValue({ data: [] }),
     triage: vi.fn(),
+    usuariosAsignables: vi.fn().mockResolvedValue({ data: [] }),
+    asignar: vi.fn(),
   },
   sectoresAPI: {
     listarWorkflows: vi.fn().mockResolvedValue({ data: [] }),
-    listarUsuarios: vi.fn().mockResolvedValue({ data: [] }),
   },
   propuestasAPI: {
     confirmar: vi.fn(),
@@ -214,5 +215,49 @@ describe('TicketDetail — AI triage retrigger button (fix/tickets-triage-backfi
         screen.getByText('Ya existe una clasificación pendiente o confirmada para este ticket; use forzar=true para reintentar')
       ).toBeInTheDocument()
     );
+  });
+});
+
+describe('TicketDetail — assign dropdown (fix/tickets-usuarios-asignables)', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockTienePermiso = (codigo) => codigo === 'tickets.gestionar';
+    ticketsAPI.obtener.mockResolvedValue({ data: baseTicket() });
+    ticketsAPI.marcarRevisado.mockResolvedValue({ data: { ok: true } });
+    ticketsAPI.listarPropuestas.mockResolvedValue({ data: [] });
+  });
+
+  it('loads the dropdown from ticketsAPI.usuariosAsignables (not sector membership) and renders its users', async () => {
+    ticketsAPI.usuariosAsignables.mockResolvedValue({
+      data: [
+        { id: 7, nombre: 'Ana Gómez', email: 'ana@test.com' },
+        { id: 9, nombre: 'Luis Pérez', email: 'luis@test.com' },
+      ],
+    });
+
+    render(<TicketDetail ticketId={42} onClose={() => {}} />);
+
+    await waitFor(() => expect(ticketsAPI.usuariosAsignables).toHaveBeenCalledWith(42));
+    expect(await screen.findByRole('option', { name: 'Ana Gómez' })).toBeInTheDocument();
+    expect(screen.getByRole('option', { name: 'Luis Pérez' })).toBeInTheDocument();
+  });
+
+  it('assigns the selected user id via ticketsAPI.asignar and refetches the ticket', async () => {
+    ticketsAPI.usuariosAsignables.mockResolvedValue({
+      data: [{ id: 7, nombre: 'Ana Gómez', email: 'ana@test.com' }],
+    });
+    ticketsAPI.asignar.mockResolvedValue({ data: { ok: true } });
+
+    render(<TicketDetail ticketId={42} onClose={() => {}} />);
+
+    const select = await screen.findByDisplayValue('Asignar a...');
+    fireEvent.change(select, { target: { value: '7' } });
+
+    const boton = await screen.findByText('Asignar');
+    fireEvent.click(boton);
+
+    await waitFor(() => expect(ticketsAPI.asignar).toHaveBeenCalledWith(42, { usuario_id: 7 }));
+    // Ticket refetched after a successful assignment (fetchTicket runs again).
+    await waitFor(() => expect(ticketsAPI.obtener).toHaveBeenCalledTimes(2));
   });
 });
