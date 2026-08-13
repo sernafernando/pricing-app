@@ -40,15 +40,40 @@ class PropuestaIA(Base):
 
     estado = Column(String(20), nullable=False, default="pendiente", server_default="pendiente")
 
+    # NULL for every outcome except a correction (tickets-triage-feedback
+    # PR1): the human-picked value on a `corregida` row. Together with
+    # `estado`, the four proposal outcomes (ratified/corrected/discarded/
+    # from scratch) become structurally distinguishable with no timestamp
+    # or value-inequality inference — see the table in
+    # `confirmacion_service.confirmar()`'s docstring.
+    valor_corregido = Column(String(20), nullable=True)
+
     confirmado_por_id = Column(Integer, ForeignKey("usuarios.id"), nullable=True)
     confirmado_at = Column(DateTime(timezone=True), nullable=True)
 
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
 
     __table_args__ = (
+        # 'corregida' added by tickets-triage-feedback PR1
+        # (alembic/versions/20260813_propuesta_corregida.py): a confirm
+        # carrying a corrected value for severidad/urgencia. Still
+        # VARCHAR + CHECK, not a PG ENUM — an enum value can never be
+        # dropped, so that migration's `downgrade()` would be a lie.
         CheckConstraint(
-            "estado IN ('pendiente','confirmada','descartada','reemplazada')",
+            "estado IN ('pendiente','confirmada','descartada','reemplazada','corregida')",
             name="ck_tickets_propuestas_ia_estado",
+        ),
+        # Campo-agnostic union of both correctable vocabularies
+        # (severidad ∪ urgencia, see `vocabularios.VOCABULARIOS`) — mirrors
+        # the two-layer shape `campo`'s own CHECK below already uses: the
+        # per-campo correlation (severidad values only make sense on a
+        # severidad proposal) stays in the app
+        # (`vocabularios.CAMPOS_CORREGIBLES` + `_resolver_correccion`), the
+        # DB only blocks a value outside EITHER vocabulary entirely.
+        CheckConstraint(
+            "valor_corregido IS NULL OR valor_corregido IN "
+            "('trivial','menor','mayor','critica','baja','normal','alta','inmediata')",
+            name="ck_tickets_propuestas_ia_valor_corregido",
         ),
         # DB-level mirror of `confirmacion_service.CAMPOS_CONFIRMABLES` — a
         # second, independent enforcement layer on top of the app-level
