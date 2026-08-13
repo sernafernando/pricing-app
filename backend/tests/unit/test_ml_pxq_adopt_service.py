@@ -83,13 +83,19 @@ def _mock_client(live_prices: Optional[List[Dict[str, Any]]]):
     return patcher, mock_client
 
 
-def _adopt(db, usuario, publicacion) -> List[MlPxqTier]:
+def _adopt_outcome(db, usuario, publicacion) -> adopt_service.AdoptOutcome:
     return adopt_service.adopt_live_pxq_tiers(
         db,
         usuario,
         publicacion.mla,
         publicacion_ml_id=publicacion.id,
     )
+
+
+def _adopt(db, usuario, publicacion) -> List[MlPxqTier]:
+    """The imported rows alone. Most tests here only care about those; the
+    ones that assert on what was SKIPPED use `_adopt_outcome` instead."""
+    return _adopt_outcome(db, usuario, publicacion).imported
 
 
 def _tier_count(db, publicacion) -> int:
@@ -116,6 +122,72 @@ def test_happy_path_imports_every_live_tier_with_its_snapshot(db, publicacion, p
         assert row.costo_envio_total is None
         assert row.estado == ESTADO_INCOMPLETO
     assert _tier_count(db, publicacion) == 3
+
+
+def test_a_live_entry_of_one_unit_is_skipped_and_the_rest_import_and_commit(db, publicacion, pxq_user) -> None:
+    """MercadoLibre accepts a B2B price with `min_purchase_unit: 1` and does
+    hold them in production (MLA1563835240 carries one). Our mirror cannot
+    represent it -- `ck_ml_pxq_tier_cantidad_minima_gt_1` and
+    `create_pxq_tier`'s 422 -- and that restriction STAYS, by decision.
+
+    What must not stay is the all-or-nothing import: that single entry used to
+    abort the whole request, so the one publication the recovery path was
+    being tested against could not be recovered at all. The other two tiers
+    are perfectly representable and are what the operator came for.
+    """
+    commit_spy = MagicMock(wraps=db.commit)
+    patcher, _ = _mock_client([_live("ML1", 1, 999.0), _live("ML2", 2, 900.0), _live("ML3", 5, 800.0)])
+    try:
+        with patch.object(db, "commit", commit_spy):
+            outcome = _adopt_outcome(db, pxq_user, publicacion)
+    finally:
+        patcher.stop()
+
+    assert [r.cantidad_minima for r in outcome.imported] == [2, 5]
+    assert [r.precio_unitario for r in outcome.imported] == [Decimal("900.0"), Decimal("800.0")]
+    assert [s.cantidad_minima for s in outcome.skipped] == [1]
+
+    # The point of the whole change: the rows are PERSISTED, not staged and
+    # then thrown away with the session.
+    commit_spy.assert_called_once()
+    assert _tier_count(db, publicacion) == 2
+
+
+def test_a_skipped_entry_is_reported_with_its_ml_price_id_and_quantity(db, publicacion, pxq_user) -> None:
+    """A silent skip is worse than the abort it replaces: the operator would
+    read "2 tramos importados" and believe the mirror now matches ML, while
+    the panel's live column keeps rendering an entry the mirror column will
+    never match. The identifiers are what tie the report back to that exact
+    entry on MercadoLibre."""
+    patcher, _ = _mock_client([_live(3396, 1, 80999), _live("ML2", 2, 900.0)])
+    try:
+        outcome = _adopt_outcome(db, pxq_user, publicacion)
+    finally:
+        patcher.stop()
+
+    assert len(outcome.skipped) == 1
+    skipped = outcome.skipped[0]
+    # `str()`-coerced for the same reason `ml_price_id` is everywhere else in
+    # this feature: MercadoLibre returns the id as a NUMBER.
+    assert skipped.ml_price_id == "3396"
+    assert skipped.cantidad_minima == 1
+
+
+def test_an_entirely_irrepresentable_live_set_imports_nothing_without_raising(db, publicacion, pxq_user) -> None:
+    """Not an error. MercadoLibre genuinely holds a price here -- it is just
+    one this panel cannot mirror -- so a 503/422 would tell the operator to go
+    fix something that is not broken. Zero imported and one skip is the honest
+    answer, and it is a DIFFERENT fact from "ML holds no tiers": the frontend
+    has to be able to tell those two apart."""
+    patcher, _ = _mock_client([_live("ML1", 1, 999.0)])
+    try:
+        outcome = _adopt_outcome(db, pxq_user, publicacion)
+    finally:
+        patcher.stop()
+
+    assert outcome.imported == []
+    assert [s.cantidad_minima for s in outcome.skipped] == [1]
+    assert _tier_count(db, publicacion) == 0
 
 
 def test_failed_live_read_refuses_with_503_and_writes_nothing(db, publicacion, pxq_user) -> None:

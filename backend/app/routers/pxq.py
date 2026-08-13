@@ -18,7 +18,7 @@ from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, status
-from pydantic import BaseModel, ConfigDict, ValidationError
+from pydantic import BaseModel, ConfigDict, Field, ValidationError
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_current_user, get_current_user_transient
@@ -116,16 +116,42 @@ class PxqSyncResult(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
 
+class PxqSkippedLiveTier(BaseModel):
+    """One live MercadoLibre price the import knowingly did NOT mirror.
+
+    Its own shape, NOT `PxqMirrorTier`: there is no mirror row behind it and
+    there never will be, so every other field of that model would be a
+    fabrication. What it carries is the minimum that identifies the entry on
+    MercadoLibre -- `GET /{item_id}/live` will keep reporting it in
+    `live_tiers` forever while the mirror column stays one row short, and
+    this is what says why.
+    """
+
+    ml_price_id: str
+    cantidad_minima: int
+
+    model_config = ConfigDict(from_attributes=True)
+
+
 class PxqAdoptResult(BaseModel):
     """Result of `POST /pxq/{item_id}/adopt-live`.
 
     `imported` reuses `PxqMirrorTier` rather than declaring a parallel shape:
     these ARE mirror rows, and a second shape for the same table is how the
-    panel's rendering and the import's response drift apart."""
+    panel's rendering and the import's response drift apart.
+
+    `skipped_count`/`skipped` are ADDITIVE -- both default to empty, so a
+    client that predates them reads exactly the response it always did. They
+    exist because `count` alone is ambiguous: `count == 0` with an empty
+    `skipped` means MercadoLibre holds no tiers, and `count == 0` with a
+    non-empty one means it holds prices this mirror cannot represent. Those
+    are opposite facts and the panel says opposite things about them."""
 
     item_id: str
     count: int
     imported: List[PxqMirrorTier]
+    skipped_count: int = 0
+    skipped: List[PxqSkippedLiveTier] = Field(default_factory=list)
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -429,6 +455,13 @@ def adoptar_tramos_live_pxq(
     `adopt_read_unavailable`) propagate untouched: their `detail` dicts carry
     the conflicting quantities and tier ids the operator needs, and flattening
     them to a status string leaves a refusal with nothing to act on.
+
+    A PARTIAL import is a 200, not a refusal: the service skips live prices
+    this mirror cannot represent (`cantidad_minima <= 1`) and reports them in
+    `skipped`. Surfaced rather than swallowed because no mirror row is created
+    for them, while `GET /{item_id}/live` goes on reporting them in
+    `live_tiers` -- so the panel shows a live tier with no counterpart, and
+    this response is the only thing that accounts for the difference.
     """
     # Defence in depth: `adopt_live_pxq_tiers` checks `pxq.escribir` again.
     # That duplication is DELIBERATE -- do not "de-duplicate" it. It mirrors
@@ -439,9 +472,11 @@ def adoptar_tramos_live_pxq(
     publicacion = _get_publicacion_or_404(db, item_id)
     # The service commits exactly once, and that commit is what releases the
     # publication row lock -- so the router must NOT commit as well.
-    rows = adopt_live_pxq_tiers(db, current_user, item_id, publicacion_ml_id=publicacion.id)
+    outcome = adopt_live_pxq_tiers(db, current_user, item_id, publicacion_ml_id=publicacion.id)
     return PxqAdoptResult(
         item_id=item_id,
-        count=len(rows),
-        imported=[PxqMirrorTier.model_validate(row) for row in rows],
+        count=len(outcome.imported),
+        imported=[PxqMirrorTier.model_validate(row) for row in outcome.imported],
+        skipped_count=len(outcome.skipped),
+        skipped=[PxqSkippedLiveTier.model_validate(entry) for entry in outcome.skipped],
     )

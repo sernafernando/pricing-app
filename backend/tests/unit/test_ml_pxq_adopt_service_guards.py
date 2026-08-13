@@ -97,8 +97,14 @@ def _mock_client(live_prices: Optional[List[Dict[str, Any]]]):
     return patcher, mock_client
 
 
-def _adopt(db, usuario, publicacion) -> List[MlPxqTier]:
+def _adopt_outcome(db, usuario, publicacion) -> adopt_service.AdoptOutcome:
     return adopt_service.adopt_live_pxq_tiers(db, usuario, publicacion.mla, publicacion_ml_id=publicacion.id)
+
+
+def _adopt(db, usuario, publicacion) -> List[MlPxqTier]:
+    """The imported rows alone. Guards that assert on what was SKIPPED use
+    `_adopt_outcome` instead."""
+    return _adopt_outcome(db, usuario, publicacion).imported
 
 
 def _tier_count(db, publicacion) -> int:
@@ -487,20 +493,18 @@ def test_a_second_import_against_a_non_empty_mirror_gets_a_clean_409_not_an_inte
 # --- Guard 7: the mid-loop 422 the design said could not happen -----------
 
 
-@pytest.mark.parametrize(
-    "live_prices",
-    [
-        pytest.param([_live("ML1", 3, 900.0), _live("ML2", 3, 850.0)], id="duplicate-quantity"),
-        pytest.param([_live("ML1", 3, 900.0), _live("ML2", 1, 850.0)], id="quantity-of-one"),
-    ],
-)
-def test_a_422_raised_mid_loop_persists_nothing(db, publicacion, pxq_user, live_prices) -> None:
+def test_a_422_raised_mid_loop_persists_nothing(db, publicacion, pxq_user) -> None:
     """The design claims "every refusal path raises before any `db.add`, so
-    the transaction has nothing to roll back". THAT CLAIM IS FALSE, and these
-    two payloads are the counterexample: `create_pxq_tier`'s OWN validations
-    (`cantidad_minima <= 1`, and duplicate `cantidad_minima`) fire INSIDE the
-    import loop, after the earlier entries were already `db.add`-ed AND
-    flushed. The first assertion below pins that reality.
+    the transaction has nothing to roll back". THAT CLAIM IS FALSE, and this
+    payload is the counterexample: `create_pxq_tier`'s duplicate
+    `cantidad_minima` validation fires INSIDE the import loop, after the
+    earlier entry was already `db.add`-ed AND flushed. The first assertion
+    below pins that reality.
+
+    This used to be parametrized with a second payload, `quantity-of-one`.
+    That one no longer raises at all -- it is SKIPPED now (guard 8) -- and
+    leaving it here would have asserted the abort this change exists to
+    remove.
 
     The SPEC still holds — zero rows are persisted — but for a different
     reason than the design gives: `get_db` never commits, and closes the
@@ -516,7 +520,7 @@ def test_a_422_raised_mid_loop_persists_nothing(db, publicacion, pxq_user, live_
     """
     commit_spy = MagicMock(wraps=db.commit)
     rollback_spy = MagicMock(wraps=db.rollback)
-    patcher, mock_client = _mock_client(live_prices)
+    patcher, mock_client = _mock_client([_live("ML1", 3, 900.0), _live("ML2", 3, 850.0)])
     try:
         with patch.object(db, "commit", commit_spy):
             with patch.object(db, "rollback", rollback_spy):
@@ -537,3 +541,50 @@ def test_a_422_raised_mid_loop_persists_nothing(db, publicacion, pxq_user, live_
     commit_spy.assert_not_called()
     rollback_spy.assert_not_called()
     _assert_no_ml_write(mock_client)
+
+
+# --- Guard 8: the skip is narrow, and stays narrow ------------------------
+
+
+def test_a_duplicate_quantity_still_aborts_because_nothing_says_which_entry_wins(db, publicacion, pxq_user) -> None:
+    """The skip covers ONE condition and must never be widened into "swallow
+    any 422 the import loop raises".
+
+    `cantidad_minima <= 1` is individually decidable and known by design: that
+    entry cannot be a tier here, no other entry changes that, and there is
+    exactly one right thing to do with it. Two entries sharing a quantity is
+    the opposite -- WHICH price wins is a question the payload does not
+    answer, and picking one silently would write a money value nobody chose.
+    Failing loud is the correct outcome there, and it stays that way.
+
+    Both payloads are asserted in ONE test on purpose: the property being
+    guarded is the ASYMMETRY, and split across two tests each half would still
+    pass under an implementation that catches `HTTPException` and skips
+    everything.
+    """
+    skippable = [_live("ML1", 1, 999.0), _live("ML2", 4, 900.0)]
+    ambiguous = [_live("ML3", 4, 900.0), _live("ML4", 4, 850.0)]
+
+    patcher, _ = _mock_client(skippable)
+    try:
+        outcome = _adopt_outcome(db, pxq_user, publicacion)
+    finally:
+        patcher.stop()
+    assert [s.cantidad_minima for s in outcome.skipped] == [1]
+    assert [r.cantidad_minima for r in outcome.imported] == [4]
+
+    # Same publication, now non-empty -- so a second import would 409 before
+    # reaching the loop. A fresh one is what isolates the 422.
+    otro = PublicacionML(mla="MLA930012", item_id=publicacion.item_id, codigo="SKU-PXQ-GUARD")
+    db.add(otro)
+    db.flush()
+
+    patcher, _ = _mock_client(ambiguous)
+    try:
+        with pytest.raises(HTTPException) as exc_info:
+            _adopt(db, pxq_user, otro)
+    finally:
+        patcher.stop()
+
+    assert exc_info.value.status_code == 422
+    assert "cantidad_minima=4" in str(exc_info.value.detail)
