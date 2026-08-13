@@ -183,7 +183,7 @@ function PxqTierAuthoring({ itemId, mirrorTiers, onChanged }) {
                 id={`pxq-edit-cantidad-${tier.id}`}
                 className={styles.pxqInput}
                 type="number"
-                min="2"
+                min="1"
                 value={editForm.cantidad_minima}
                 onChange={(e) => setEditForm((f) => ({ ...f, cantidad_minima: e.target.value }))}
                 required
@@ -267,7 +267,7 @@ function PxqTierAuthoring({ itemId, mirrorTiers, onChanged }) {
               id="pxq-new-cantidad"
               className={styles.pxqInput}
               type="number"
-              min="2"
+              min="1"
               value={createForm.cantidad_minima}
               onChange={(e) => setCreateForm((f) => ({ ...f, cantidad_minima: e.target.value }))}
               required

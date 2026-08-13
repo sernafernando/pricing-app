@@ -385,6 +385,80 @@ describe('PxqPanel — tier authoring (PR 4c)', () => {
     );
   });
 
+  // The row adopt-live writes for a "Venta para negocios" price: quantity 1,
+  // no shipping cost, `incompleto`. The import's own success copy tells the
+  // operator to load `costo_envio_total` on exactly this row, so the form has
+  // to accept it — the quantity input's `min` gates the WHOLE row through
+  // native constraint validation, not just its own field. With `min="2"` the
+  // value "1" raises rangeUnderflow and the submit never fires, so the panel
+  // would demand a next step it physically refuses to take.
+  it('lets the operator complete a one-unit tier the import just wrote', async () => {
+    const user = userEvent.setup();
+    const imported = {
+      id: 9,
+      cantidad_minima: 1,
+      precio_unitario: 80999,
+      costo_envio_total: null,
+      ml_price_id: '3396',
+      estado: 'incompleto',
+    };
+    pxqAPI.getLive
+      .mockResolvedValueOnce(mockLive({ mirror_tiers: [imported] }))
+      .mockResolvedValueOnce(mockLive({ mirror_tiers: [{ ...imported, costo_envio_total: 30, estado: 'listo' }] }));
+    pxqAPI.updateTier.mockResolvedValue({ data: { ...imported, costo_envio_total: 30 } });
+
+    renderPanel();
+
+    await waitFor(() => expect(screen.getByRole('button', { name: /^editar$/i })).toBeInTheDocument());
+    await user.click(screen.getByRole('button', { name: /^editar$/i }));
+
+    // The quantity stays at 1: the operator is completing the row, not fixing it.
+    await user.type(screen.getByLabelText(/costo de envío/i), '30');
+    await user.click(screen.getByRole('button', { name: /guardar/i }));
+
+    await waitFor(() =>
+      expect(pxqAPI.updateTier).toHaveBeenCalledWith('MLA001', 9, {
+        cantidad_minima: 1,
+        precio_unitario: 80999,
+        costo_envio_total: 30,
+      }),
+    );
+  });
+
+  // Same gate on the creation form. A tier of 1 is what turns "Venta para
+  // negocios" on, so authoring one by hand has to be possible too.
+  it('lets the operator author a one-unit tier by hand', async () => {
+    const user = userEvent.setup();
+    pxqAPI.getLive
+      .mockResolvedValueOnce(mockLive({ mirror_tiers: [] }))
+      .mockResolvedValueOnce(
+        mockLive({
+          mirror_tiers: [
+            { id: 3, cantidad_minima: 1, precio_unitario: 80999, costo_envio_total: 30, ml_price_id: null, estado: 'listo' },
+          ],
+        }),
+      );
+    pxqAPI.createTier.mockResolvedValue({
+      data: { id: 3, cantidad_minima: 1, precio_unitario: 80999, costo_envio_total: 30, ml_price_id: null, estado: 'listo' },
+    });
+
+    renderPanel();
+
+    await screen.findByText('Editar tramos');
+    await user.type(screen.getByLabelText(/cantidad mínima/i), '1');
+    await user.type(screen.getByLabelText(/precio unitario/i), '80999');
+    await user.type(screen.getByLabelText(/costo de envío/i), '30');
+    await user.click(screen.getByRole('button', { name: /agregar tramo/i }));
+
+    await waitFor(() =>
+      expect(pxqAPI.createTier).toHaveBeenCalledWith('MLA001', {
+        cantidad_minima: 1,
+        precio_unitario: 80999,
+        costo_envio_total: 30,
+      }),
+    );
+  });
+
   it('deletes a tier only after explicit confirmation', async () => {
     const user = userEvent.setup();
     pxqAPI.getLive
