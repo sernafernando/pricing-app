@@ -213,6 +213,15 @@ class Settings(BaseSettings):
     # instead of `0.6` in .env silently disable triage forever (no
     # confianza value would ever reach it) — fail loudly at startup instead.
     TICKETS_TRIAGE_MIN_CONFIANZA: float = Field(default=0.6, ge=0.0, le=1.0)
+    # Confirmation topology (feat/tickets-triage-aplicar-directo): a
+    # threshold-passing proposal now applies straight onto the ticket
+    # (estado='confirmada', confirmado_por_id=NULL, origen='ia_auto') instead
+    # of sitting `pendiente` until a human clicks confirm. Production data
+    # proved confirm-first doesn't scale past a handful of tickets (164
+    # pending proposals across 35 tickets, board showing everything as "Sin
+    # clasificar"). Kill switch: set False to restore the old confirm-first
+    # behavior without a deploy — see `triage_service.run_triage`.
+    TICKETS_TRIAGE_AUTO_APPLY: bool = True
 
     # Prearmados stats cache
     PREARMADAS_STATS_CACHE_TTL_SECONDS: int = 15

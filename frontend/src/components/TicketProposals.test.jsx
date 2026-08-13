@@ -132,3 +132,153 @@ describe('TicketProposals', () => {
     expect(container).toBeEmptyDOMElement();
   });
 });
+
+/**
+ * Covers the topology flip (feat/tickets-triage-aplicar-directo): a
+ * `confirmada` proposal with `confirmado_por_id: null` is the AI having
+ * ALREADY applied the value — "this was set by the AI, correct it if
+ * wrong" — not "approve this suggestion". Confirm here RATIFIES (marks
+ * reviewed, never rewrites the ticket — the value is already there, real
+ * pre-push review finding: without it, a non-revertible field had no exit
+ * from "unreviewed" at all); Discard CORRECTS, only where
+ * CAMPOS_REVERTIBLES allows a clean revert.
+ */
+describe('TicketProposals — ia_auto applied values', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockTienePermiso = () => true;
+  });
+
+  function aplicada(overrides = {}) {
+    return propuesta({
+      id: 5,
+      campo: 'urgencia',
+      valor_propuesto: { valor: 'alta' },
+      confianza: 0.91,
+      estado: 'confirmada',
+      confirmado_por_id: null,
+      ...overrides,
+    });
+  }
+
+  it('shows an already-applied value with BOTH a ratify (Confirm) and a correction (Discard) affordance', async () => {
+    // Real pre-push review finding (BLOCKING): a Confirm without any
+    // pre-existing value would "approve a suggestion" — here it means "I
+    // looked, this is fine" (ratify), which never rewrites the ticket.
+    // Discard still means "correct it", only for CAMPOS_REVERTIBLES.
+    ticketsAPI.listarPropuestas.mockResolvedValue({ data: [aplicada()] });
+
+    render(<TicketProposals ticketId={42} />);
+
+    await waitFor(() =>
+      expect(screen.getByText((text) => text.includes('Urgencia') && text.includes('alta'))).toBeInTheDocument()
+    );
+    expect(screen.getByText('Clasificado por IA — corregí si está mal')).toBeInTheDocument();
+    expect(screen.getByLabelText(/Confirmar Urgencia/i)).toBeInTheDocument();
+    expect(screen.getByLabelText(/Descartar Urgencia/i)).toBeInTheDocument();
+    // No checkbox either — nothing to batch-confirm on an already-applied value.
+    expect(screen.queryByRole('checkbox')).not.toBeInTheDocument();
+  });
+
+  it('ratifying an already-applied value calls confirmar (not descartar) and notifies the parent', async () => {
+    ticketsAPI.listarPropuestas.mockResolvedValue({ data: [aplicada()] });
+    propuestasAPI.confirmar.mockResolvedValue({ data: {} });
+    const onChanged = vi.fn();
+
+    render(<TicketProposals ticketId={42} onChanged={onChanged} />);
+
+    await waitFor(() => expect(screen.getByLabelText(/Confirmar Urgencia/i)).toBeInTheDocument());
+    fireEvent.click(screen.getByLabelText(/Confirmar Urgencia/i));
+
+    await waitFor(() => expect(propuestasAPI.confirmar).toHaveBeenCalledWith(5));
+    expect(propuestasAPI.descartar).not.toHaveBeenCalled();
+    await waitFor(() => expect(onChanged).toHaveBeenCalled());
+  });
+
+  it('a human-confirmed value (non-null confirmador) never appears here at all', async () => {
+    ticketsAPI.listarPropuestas.mockResolvedValue({
+      data: [aplicada({ confirmado_por_id: 7 })],
+    });
+
+    const { container } = render(<TicketProposals ticketId={42} />);
+
+    await waitFor(() => expect(ticketsAPI.listarPropuestas).toHaveBeenCalled());
+    // Backend never returns human-confirmed rows here — but the frontend's
+    // own filter must independently agree: nothing renders.
+    expect(container).toBeEmptyDOMElement();
+  });
+
+  it('discarding an applied value calls the same descartar endpoint as a pending one, and notifies the parent', async () => {
+    ticketsAPI.listarPropuestas.mockResolvedValue({ data: [aplicada()] });
+    propuestasAPI.descartar.mockResolvedValue({ data: {} });
+    const onChanged = vi.fn();
+
+    render(<TicketProposals ticketId={42} onChanged={onChanged} />);
+
+    await waitFor(() => expect(screen.getByLabelText(/Descartar Urgencia/i)).toBeInTheDocument());
+    fireEvent.click(screen.getByLabelText(/Descartar Urgencia/i));
+
+    await waitFor(() => expect(propuestasAPI.descartar).toHaveBeenCalledWith(5));
+    // Real pre-push review finding: discarding an ia_auto value now clears
+    // it on the ticket — the parent's ticket view must refetch, or it
+    // keeps showing the stale value.
+    await waitFor(() => expect(onChanged).toHaveBeenCalled());
+  });
+
+  it('does not offer Discard for a field the backend cannot revert (e.g. titulo) — Confirm (ratify) still works', async () => {
+    // Real pre-push review finding (BLOCKING, two parts):
+    // 1. `descartar()` only reverts CAMPOS_REVERTIBLES (severidad/
+    //    urgencia/resumen) — titulo/sector/tipo_ticket/metadata_ia raise a
+    //    409. Offering a Discard button guaranteed to fail is a broken
+    //    affordance, so it must not render for these fields.
+    // 2. Without ratify, a non-revertible field had NO way to ever leave
+    //    "unreviewed" — Confirm now ratifies it (sets confirmado_por_id
+    //    without rewriting the ticket), closing that gap.
+    ticketsAPI.listarPropuestas.mockResolvedValue({
+      data: [aplicada({ id: 9, campo: 'titulo', valor_propuesto: { valor: 'Titulo aplicado por IA' } })],
+    });
+
+    render(<TicketProposals ticketId={42} />);
+
+    await waitFor(() =>
+      expect(screen.getByText((text) => text.includes('Título') && text.includes('Titulo aplicado por IA'))).toBeInTheDocument()
+    );
+    expect(screen.queryByLabelText(/Descartar Título/i)).not.toBeInTheDocument();
+    expect(screen.getByLabelText(/Confirmar Título/i)).toBeInTheDocument();
+    expect(propuestasAPI.descartar).not.toHaveBeenCalled();
+  });
+
+  it('does not offer Discard for sector either — same non-revertible set as titulo, Confirm still ratifies it', async () => {
+    ticketsAPI.listarPropuestas.mockResolvedValue({
+      data: [aplicada({ id: 10, campo: 'sector', valor_propuesto: { valor: 'Ventas' } })],
+    });
+    propuestasAPI.confirmar.mockResolvedValue({ data: {} });
+
+    render(<TicketProposals ticketId={42} />);
+
+    await waitFor(() =>
+      expect(screen.getByText((text) => text.includes('Sector') && text.includes('Ventas'))).toBeInTheDocument()
+    );
+    expect(screen.queryByLabelText(/Descartar Sector/i)).not.toBeInTheDocument();
+    expect(screen.getByLabelText(/Confirmar Sector/i)).toBeInTheDocument();
+
+    fireEvent.click(screen.getByLabelText(/Confirmar Sector/i));
+    await waitFor(() => expect(propuestasAPI.confirmar).toHaveBeenCalledWith(10));
+  });
+
+  it('pending and already-applied proposals render in separate sections at the same time', async () => {
+    ticketsAPI.listarPropuestas.mockResolvedValue({
+      data: [propuesta({ id: 1, campo: 'severidad' }), aplicada({ id: 5, campo: 'urgencia' })],
+    });
+
+    render(<TicketProposals ticketId={42} />);
+
+    await waitFor(() => expect(screen.getByText('Propuestas de IA pendientes')).toBeInTheDocument());
+    expect(screen.getByText('Clasificado por IA — corregí si está mal')).toBeInTheDocument();
+    expect(screen.getByLabelText(/Confirmar Severidad/i)).toBeInTheDocument();
+    expect(screen.getByLabelText(/Confirmar Urgencia/i)).toBeInTheDocument(); // ratify, aplicada section
+    expect(screen.getByLabelText(/Descartar Urgencia/i)).toBeInTheDocument();
+    // Only the PENDING item is selectable for batch confirm.
+    expect(screen.getAllByRole('checkbox')).toHaveLength(1);
+  });
+});

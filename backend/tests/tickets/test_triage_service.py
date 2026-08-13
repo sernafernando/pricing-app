@@ -21,7 +21,7 @@ import pytest
 from pydantic import ValidationError
 
 import app.tickets.api.endpoints.tickets as tickets_module
-from app.core.config import Settings
+from app.core.config import Settings, settings
 from app.core.security import create_access_token, get_password_hash
 from app.main import app
 from app.models.rol import Rol
@@ -537,7 +537,12 @@ class TestTituloResumenNoSeGatean:
         assert "sector" not in campos
         assert "tipo_ticket" not in campos
 
-    def test_confianza_alta_escribe_todo(self, db, rol_ventas) -> None:
+    def test_confianza_alta_escribe_todo(self, db, rol_ventas, monkeypatch) -> None:
+        """Isolates GATING (which fields become proposals) from auto-apply
+        ROUTING (feat/tickets-triage-aplicar-directo) — the topology flip
+        has its own dedicated test class below; this one keeps testing the
+        original `estado='pendiente'` shape it was written for."""
+        monkeypatch.setattr(settings, "TICKETS_TRIAGE_AUTO_APPLY", False)
         ticket = _make_ticket(db, rol_ventas, "titulo-gate-high")
         payload = _valid_payload_for_ticket(ticket, confianza_global=0.9)
         provider = FakeProvider(response=json.dumps(payload))
@@ -571,7 +576,11 @@ class TestRunTriageDirectCall:
     """4a.6: `run_triage` called directly with a fake provider writes
     proposal rows, exactly one in-process call, zero network."""
 
-    def test_writes_pending_rows_with_zero_network(self, db, rol_ventas) -> None:
+    def test_writes_pending_rows_with_zero_network(self, db, rol_ventas, monkeypatch) -> None:
+        """Isolates the write LOOP (one proposal row per surviving field)
+        from auto-apply ROUTING — see `test_confianza_alta_escribe_todo`'s
+        docstring above for why the flag is pinned False here."""
+        monkeypatch.setattr(settings, "TICKETS_TRIAGE_AUTO_APPLY", False)
         ticket = _make_ticket(db, rol_ventas, "direct")
         provider = FakeProvider(response=json.dumps(_valid_payload_for_ticket(ticket)))
 
@@ -874,3 +883,240 @@ class TestCrearTicketSchedulesTriage:
 
         assert resp.status_code == 201
         mock_add_task.assert_not_called()
+
+
+class TestAutoApplyTopology:
+    """feat/tickets-triage-aplicar-directo: the confirm-first topology PR 4b
+    shipped never scaled past a handful of tickets (164 pending proposals
+    across 35 tickets in production). `TICKETS_TRIAGE_AUTO_APPLY` (default
+    True) flips it: a threshold-passing field writes straight onto the
+    ticket instead of sitting `pendiente`. The proposal row is STILL
+    created — the audit trail — but born `estado='confirmada'` with
+    `confirmado_por_id=NULL`; that NULL is the signal nobody has reviewed
+    it. The flag is a real kill switch: `False` restores PR 4b's original
+    behavior exactly, without a deploy."""
+
+    def test_threshold_passing_field_writes_ticket_value_and_confirmada_ia_auto_row(self, db, rol_ventas) -> None:
+        ticket = _make_ticket(db, rol_ventas, "auto-apply")
+        payload = _valid_payload_for_ticket(ticket, confianza_severidad=0.9)
+        provider = FakeProvider(response=json.dumps(payload))
+
+        with _patch_background_db(db):
+            asyncio.run(run_triage(ticket.id, provider))
+
+        db.refresh(ticket)
+        assert ticket.severidad == payload["severidad"]
+        assert ticket.severidad_origen == "ia_auto"
+
+        propuesta = (
+            db.query(PropuestaIA).filter(PropuestaIA.ticket_id == ticket.id, PropuestaIA.campo == "severidad").first()
+        )
+        assert propuesta is not None
+        assert propuesta.estado == "confirmada"
+        assert propuesta.confirmado_por_id is None
+        assert propuesta.confirmado_at is not None
+
+    def test_gated_field_applies_nothing_column_stays_null(self, db, rol_ventas) -> None:
+        """A field that fails the confidence gate never even becomes a
+        proposal row (unchanged from PR 4b) — auto-apply has nothing to
+        apply, so the ticket column stays untouched."""
+        ticket = _make_ticket(db, rol_ventas, "auto-apply-gated")
+        payload = _valid_payload_for_ticket(ticket, confianza_severidad=0.3)
+        provider = FakeProvider(response=json.dumps(payload))
+
+        with _patch_background_db(db):
+            asyncio.run(run_triage(ticket.id, provider))
+
+        db.refresh(ticket)
+        assert ticket.severidad is None
+        assert ticket.severidad_origen is None
+        assert (
+            db.query(PropuestaIA).filter(PropuestaIA.ticket_id == ticket.id, PropuestaIA.campo == "severidad").first()
+            is None
+        )
+
+    def test_auto_apply_false_restores_old_behavior_exactly(self, db, rol_ventas, monkeypatch) -> None:
+        """The kill switch: value stays NULL, proposal stays `pendiente`,
+        `confirmado_por_id`/`confirmado_at` stay unset — exactly PR 4b's
+        original shape, without a deploy."""
+        monkeypatch.setattr(settings, "TICKETS_TRIAGE_AUTO_APPLY", False)
+        ticket = _make_ticket(db, rol_ventas, "auto-apply-off")
+        payload = _valid_payload_for_ticket(ticket, confianza_severidad=0.9)
+        provider = FakeProvider(response=json.dumps(payload))
+
+        with _patch_background_db(db):
+            asyncio.run(run_triage(ticket.id, provider))
+
+        db.refresh(ticket)
+        assert ticket.severidad is None
+        assert ticket.severidad_origen is None
+
+        propuesta = (
+            db.query(PropuestaIA).filter(PropuestaIA.ticket_id == ticket.id, PropuestaIA.campo == "severidad").first()
+        )
+        assert propuesta is not None
+        assert propuesta.estado == "pendiente"
+        assert propuesta.confirmado_por_id is None
+        assert propuesta.confirmado_at is None
+
+    def test_sector_and_tipo_ticket_auto_apply_together_moves_estado(self, db, rol_ventas) -> None:
+        """Sector is a DOMAIN OPERATION (obs #1409), not a column write —
+        auto-apply must go through the SAME `_aplicar_confirmacion` dispatch
+        a human confirm uses, moving `estado_id` to the destination
+        workflow's initial state in the same transaction."""
+        ticket = _make_ticket(db, rol_ventas, "auto-apply-sector")
+        estado_origen_id = ticket.estado_id
+        destino = _make_sector(db, codigo=f"AUTO_APPLY_DESTINO_{ticket.id}")
+        tipo_destino, estado_inicial_destino = _make_tipo_y_estado(db, destino)
+        db.flush()
+
+        payload = _valid_payload(sector_codigo=destino.codigo, tipo_ticket_codigo=tipo_destino.codigo)
+        provider = FakeProvider(response=json.dumps(payload))
+
+        with _patch_background_db(db):
+            asyncio.run(run_triage(ticket.id, provider))
+
+        db.refresh(ticket)
+        assert ticket.sector_id == destino.id
+        assert ticket.tipo_ticket_id == tipo_destino.id
+        assert ticket.estado_id == estado_inicial_destino.id
+        assert ticket.estado_id != estado_origen_id
+
+        sector_prop = (
+            db.query(PropuestaIA).filter(PropuestaIA.ticket_id == ticket.id, PropuestaIA.campo == "sector").first()
+        )
+        tipo_prop = (
+            db.query(PropuestaIA).filter(PropuestaIA.ticket_id == ticket.id, PropuestaIA.campo == "tipo_ticket").first()
+        )
+        assert sector_prop.estado == "confirmada"
+        assert sector_prop.confirmado_por_id is None
+        assert tipo_prop.estado == "confirmada"
+        assert tipo_prop.confirmado_por_id is None
+
+    def test_sector_auto_apply_domain_error_falls_back_to_pendiente_for_that_field_only(self, db, rol_ventas) -> None:
+        """Confirming `sector` ALONE (no `tipo_ticket` applying alongside it
+        in the SAME run) would orphan the ticket's CURRENT `tipo_ticket_id`
+        — still pointing at its ORIGIN sector — the exact
+        `PropuestaSectorDejaTipoHuerfanoError` shape `confirmar_batch` also
+        guards against for humans. Forces "tipo_ticket NOT applying
+        alongside" via a pre-existing active proposal for that field (an
+        earlier triage run's un-reviewed tipo_ticket classification), which
+        is what `_ya_tiene_propuesta_activa` — and therefore this test's own
+        `tipo_se_aplicara_junto` precheck — actually blocks on in
+        production, not merely a confidence gate (sector/tipo_ticket share
+        `confianza_global`, so gating one always gates the other too).
+        Sector must degrade to a `pendiente` proposal for THAT field, never
+        crash the whole run nor silently drop the classification."""
+        ticket = _make_ticket(db, rol_ventas, "auto-apply-sector-fail")
+        destino = _make_sector(db, codigo=f"AUTO_APPLY_FAIL_{ticket.id}")
+        tipo_destino, _estado_destino = _make_tipo_y_estado(db, destino)
+        db.add(
+            PropuestaIA(
+                ticket_id=ticket.id,
+                campo="tipo_ticket",
+                valor_propuesto={"valor": "algun_tipo_previo"},
+                estado="pendiente",
+            )
+        )
+        db.flush()
+
+        payload = _valid_payload(sector_codigo=destino.codigo, tipo_ticket_codigo=tipo_destino.codigo)
+        provider = FakeProvider(response=json.dumps(payload))
+
+        with _patch_background_db(db):
+            asyncio.run(run_triage(ticket.id, provider))
+
+        db.refresh(ticket)
+        # Sector write failed domain validation — ticket never moved.
+        assert ticket.sector_id != destino.id
+        assert ticket.tipo_ticket_id != tipo_destino.id
+
+        sector_prop = (
+            db.query(PropuestaIA).filter(PropuestaIA.ticket_id == ticket.id, PropuestaIA.campo == "sector").first()
+        )
+        assert sector_prop is not None
+        assert sector_prop.estado == "pendiente"  # degraded, not lost
+        assert sector_prop.valor_propuesto == {"valor": destino.codigo}
+
+        # `_ya_tiene_propuesta_activa` blocked a NEW tipo_ticket proposal
+        # this run — only the pre-existing one exists, untouched.
+        tipo_props = (
+            db.query(PropuestaIA).filter(PropuestaIA.ticket_id == ticket.id, PropuestaIA.campo == "tipo_ticket").all()
+        )
+        assert len(tipo_props) == 1
+        assert tipo_props[0].valor_propuesto == {"valor": "algun_tipo_previo"}
+
+    def test_auto_apply_never_overwrites_a_humano_origen_value(self, db, rol_ventas) -> None:
+        """Real pre-push review finding: a human can set this field through
+        an entirely DIFFERENT path (`actualizar_ticket`'s PATCH, e.g. the
+        board's urgency-column drag) that never touches
+        `tickets_propuestas_ia` — so `_ya_tiene_propuesta_activa` cannot see
+        it and would otherwise let a later triage run clobber it. 'Nunca
+        pisar lo que puso una persona' — the same invariant the data
+        migration's own `WHERE tickets.{campo} IS NULL` guard enforces,
+        checked here against `_origen` because `run_triage` (unlike the
+        migration's one-time backfill) can be RE-TRIGGERED after a human
+        has already classified the field by hand."""
+        ticket = _make_ticket(db, rol_ventas, "auto-apply-humano-guard")
+        ticket.urgencia = "inmediata"
+        ticket.urgencia_origen = "humano"
+        db.commit()
+        payload = _valid_payload_for_ticket(ticket, urgencia="baja", confianza_urgencia=0.95)
+        provider = FakeProvider(response=json.dumps(payload))
+
+        with _patch_background_db(db):
+            asyncio.run(run_triage(ticket.id, provider))
+
+        db.refresh(ticket)
+        assert ticket.urgencia == "inmediata"  # untouched
+        assert ticket.urgencia_origen == "humano"  # untouched
+
+        propuesta = (
+            db.query(PropuestaIA).filter(PropuestaIA.ticket_id == ticket.id, PropuestaIA.campo == "urgencia").first()
+        )
+        assert propuesta is not None  # not lost — a human can still review the AI's disagreement
+        assert propuesta.estado == "pendiente"
+        assert propuesta.valor_propuesto == {"valor": "baja"}
+
+    def test_sector_and_tipo_ticket_apply_atomically_neither_or_both(self, db, rol_ventas, monkeypatch) -> None:
+        """Real pre-push review finding: `sector` succeeding while
+        `tipo_ticket` then fails its OWN domain check must NOT leave the
+        ticket with a NEW sector and its OLD `tipo_ticket_id` — the exact
+        orphaned pair `PropuestaSectorDejaTipoHuerfanoError` exists to
+        prevent, reached through a different door when the two writes
+        aren't atomic WITH EACH OTHER. Forces `tipo_ticket`'s OWN domain
+        validation to fail (independent of sector's) to prove the
+        SAVEPOINT rolls back sector's mutation too, not just tipo_ticket's."""
+        ticket = _make_ticket(db, rol_ventas, "auto-apply-pair-atomic")
+        sector_origen_id = ticket.sector_id
+        destino = _make_sector(db, codigo=f"AUTO_APPLY_ATOMIC_{ticket.id}")
+        tipo_destino, _estado_destino = _make_tipo_y_estado(db, destino)
+        db.flush()
+
+        payload = _valid_payload(sector_codigo=destino.codigo, tipo_ticket_codigo=tipo_destino.codigo)
+        provider = FakeProvider(response=json.dumps(payload))
+
+        import app.tickets.services.confirmacion_service as confirmacion_service_module
+
+        def _falla_siempre(*args, **kwargs):
+            raise confirmacion_service_module.PropuestaTipoSectorInvalidoError(tipo_destino.codigo, destino.id)
+
+        monkeypatch.setattr(confirmacion_service_module, "_confirmar_tipo_ticket", _falla_siempre)
+
+        with _patch_background_db(db):
+            asyncio.run(run_triage(ticket.id, provider))
+
+        db.refresh(ticket)
+        # `_confirmar_sector` itself would have succeeded — the SAVEPOINT
+        # around the pair must have rolled it back anyway.
+        assert ticket.sector_id == sector_origen_id
+        assert ticket.sector_id != destino.id
+
+        sector_prop = (
+            db.query(PropuestaIA).filter(PropuestaIA.ticket_id == ticket.id, PropuestaIA.campo == "sector").first()
+        )
+        tipo_prop = (
+            db.query(PropuestaIA).filter(PropuestaIA.ticket_id == ticket.id, PropuestaIA.campo == "tipo_ticket").first()
+        )
+        assert sector_prop.estado == "pendiente"  # degraded TOGETHER with tipo_ticket, not applied alone
+        assert tipo_prop.estado == "pendiente"

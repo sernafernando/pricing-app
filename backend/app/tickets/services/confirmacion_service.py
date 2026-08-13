@@ -1,12 +1,14 @@
 """Confirmation lifecycle for AI-generated ticket proposals (tickets-ai-triage
-PR 4b). The ONLY code path allowed to write `tickets.<campo>` from a
-proposal (`run_triage`, PR 4a, only ever INSERTs `estado='pendiente'` rows).
+PR 4b, topology flipped by feat/tickets-triage-aplicar-directo). The ONLY
+code path allowed to write `tickets.<campo>` from a proposal.
 
-Auto-apply seam (design's "Architecture Decisions" #1): a future
-`TICKETS_TRIAGE_AUTO_APPLY=True` branch attaches here by calling
-`confirmar()`/`confirmar_batch()` with `usuario` bound to the service user
-(`agente-ia`, slice 6) instead of a human — a config flag choosing WHO
-confirms, not a different write path. See `_aplicar_confirmacion()`.
+Auto-apply seam (design's "Architecture Decisions" #1, now the DEFAULT):
+`TICKETS_TRIAGE_AUTO_APPLY=True` (`triage_service.run_triage`) calls
+`aplicar_confirmacion()` directly with `usuario=None` and
+`origen="ia_auto"` — no human in the loop, `confirmado_por_id` stays NULL as
+the signal that nobody ratified it. `confirmar()`/`confirmar_batch()` remain
+the human path (`origen="ia_confirmada"`) for whatever a low-confidence
+field or `TICKETS_TRIAGE_AUTO_APPLY=False` still leaves `pendiente`.
 
 Hard invariant: a `descartada` proposal is NEVER reset to `pendiente` by any
 code path here or in `run_triage` — no function assigns `estado='pendiente'`
@@ -60,7 +62,7 @@ class PropuestaCampoNoPermitidoError(Exception):
     """`propuesta.campo` is outside `CAMPOS_CONFIRMABLES`. Without this
     guard, confirmation is an arbitrary-attribute-write primitive on
     `Ticket` (any column, e.g. `estado_id`) — enforced at the WRITE POINT
-    in `_aplicar_confirmacion`, not only where proposals are created, so it
+    in `aplicar_confirmacion`, not only where proposals are created, so it
     also covers batch confirms and any future proposal-creation path."""
 
     def __init__(self, campo: str) -> None:
@@ -68,10 +70,30 @@ class PropuestaCampoNoPermitidoError(Exception):
         super().__init__(f"Campo no permitido para confirmación: '{campo}'")
 
 
+class PropuestaNoDescartableError(Exception):
+    """`campo` was already applied by auto-apply (`estado='confirmada'`,
+    `confirmado_por_id IS NULL`) but has no clean "unset" state to revert
+    to: `titulo` is a NOT NULL column on `Ticket` (no origen-less default to
+    fall back to); `sector`/`tipo_ticket` (really `sector_id`/
+    `tipo_ticket_id`, also NOT NULL) have no `_origen` column at all, and
+    moving either is a DOMAIN OPERATION with no defined "undo" (see
+    `_confirmar_sector`); `metadata_ia` was a JSONB MERGE, so there is no
+    record of which keys it added. Discarding those must happen by
+    CORRECTING the value directly (PATCH the ticket, or re-run triage/
+    reassign sector), never by a blind revert that could destroy an
+    unrelated write."""
+
+    def __init__(self, campo: str) -> None:
+        self.campo = campo
+        super().__init__(
+            f"No se puede descartar un valor de '{campo}' ya aplicado por la IA; corregilo directamente en el ticket"
+        )
+
+
 class TicketNoEncontradoError(Exception):
     """The ticket referenced by `propuesta.ticket_id` does not exist. FK
     constraints make this unlikely, not impossible — without this guard,
-    `_aplicar_confirmacion` would call `setattr(None, ...)`, an unhandled
+    `aplicar_confirmacion` would call `setattr(None, ...)`, an unhandled
     500 instead of a clean 404."""
 
     def __init__(self, ticket_id: int) -> None:
@@ -133,6 +155,27 @@ class PropuestaSectorDejaTipoHuerfanoError(Exception):
 # vocabulary (plus a new migration), or the two layers drift out of sync.
 CAMPOS_CONFIRMABLES = frozenset({"severidad", "urgencia", "titulo", "resumen", "sector", "tipo_ticket", "metadata_ia"})
 
+# Subset of CAMPOS_CONFIRMABLES that `descartar()` can revert to a clean
+# "unset" state once already applied by auto-apply: nullable plain columns
+# with a matching `<campo>_origen` to clear alongside them. `titulo` is NOT
+# NULL (no unset state), `sector`/`tipo_ticket` have no origen column and
+# moving them is a domain operation with no defined "undo", and
+# `metadata_ia` was a JSONB MERGE — there is no record of which keys it
+# added. See `PropuestaNoDescartableError`.
+#
+# Real pre-push review finding: `frontend/src/components/TicketProposals.jsx`
+# keeps its OWN copy of this exact set (`CAMPOS_REVERTIBLES`) to decide
+# whether to render the Discard button at all — this is the enforced
+# source of truth (this function still raises `PropuestaNoDescartableError`
+# for anything outside this set, in case a stale tab renders the button
+# anyway), but a UI that offers a button guaranteed to 409 is a broken
+# affordance. A future slice adding a field here MUST update the frontend
+# copy too, or the two drift out of sync the same way `CAMPOS_CONFIRMABLES`
+# and the DB CHECK constraint above would.
+# ponytail: expose this as a `descartable: bool` on PropuestaResponse
+# instead, so the frontend needs zero copy of the vocabulary at all.
+CAMPOS_REVERTIBLES = frozenset({"severidad", "urgencia", "resumen"})
+
 
 def _estado_inicial_de_workflow(db: Session, workflow_id: int) -> EstadoTicket | None:
     return (
@@ -159,7 +202,13 @@ def _workflow_de_tipo_o_default(db: Session, tipo: TipoTicket, sector_id: int) -
 
 
 def _confirmar_sector(
-    db: Session, ticket: Ticket, usuario: Usuario, sector_codigo: str, *, permite_tipo_huerfano: bool = False
+    db: Session,
+    ticket: Ticket,
+    usuario: Usuario | None,
+    sector_codigo: str,
+    *,
+    permite_tipo_huerfano: bool = False,
+    origen: str = "ia_confirmada",
 ) -> None:
     """Moving `sector` is a DOMAIN OPERATION, not a column write: the
     ticket's `estado_id` belongs to the OLD sector's workflow graph, so
@@ -199,7 +248,7 @@ def _confirmar_sector(
     db.add(
         HistorialTicket(
             ticket_id=ticket.id,
-            usuario_id=usuario.id,
+            usuario_id=usuario.id if usuario else None,
             accion="propuesta_confirmada",
             descripcion=f"Propuesta IA confirmada: sector = {sector_codigo} (estado inicial '{estado_inicial.nombre}')",
             estado_anterior_id=estado_anterior_id,
@@ -211,13 +260,15 @@ def _confirmar_sector(
                 "sector_nuevo_id": sector.id,
                 "estado_anterior_id": estado_anterior_id,
                 "estado_nuevo_id": estado_inicial.id,
-                "origen": "ia_confirmada",
+                "origen": origen,
             },
         )
     )
 
 
-def _confirmar_tipo_ticket(db: Session, ticket: Ticket, usuario: Usuario, tipo_codigo: str) -> None:
+def _confirmar_tipo_ticket(
+    db: Session, ticket: Ticket, usuario: Usuario | None, tipo_codigo: str, *, origen: str = "ia_confirmada"
+) -> None:
     """`tipo_ticket` must belong to the ticket's CURRENT `sector_id` — see
     `PropuestaTipoSectorInvalidoError`. Also re-resolves `estado_id` when
     the confirmed tipo's own workflow differs from the ticket's current
@@ -239,7 +290,7 @@ def _confirmar_tipo_ticket(db: Session, ticket: Ticket, usuario: Usuario, tipo_c
         "valor_nuevo": tipo_codigo,
         "tipo_anterior_id": tipo_anterior_id,
         "tipo_nuevo_id": tipo.id,
-        "origen": "ia_confirmada",
+        "origen": origen,
     }
 
     workflow_destino = _workflow_de_tipo_o_default(db, tipo, ticket.sector_id)
@@ -254,7 +305,7 @@ def _confirmar_tipo_ticket(db: Session, ticket: Ticket, usuario: Usuario, tipo_c
     db.add(
         HistorialTicket(
             ticket_id=ticket.id,
-            usuario_id=usuario.id,
+            usuario_id=usuario.id if usuario else None,
             accion="propuesta_confirmada",
             descripcion=f"Propuesta IA confirmada: tipo_ticket = {tipo_codigo}",
             estado_anterior_id=cambios.get("estado_anterior_id"),
@@ -264,7 +315,9 @@ def _confirmar_tipo_ticket(db: Session, ticket: Ticket, usuario: Usuario, tipo_c
     )
 
 
-def _confirmar_metadata_ia(db: Session, ticket: Ticket, usuario: Usuario, valor: dict) -> None:
+def _confirmar_metadata_ia(
+    db: Session, ticket: Ticket, usuario: Usuario | None, valor: dict, *, origen: str = "ia_confirmada"
+) -> None:
     """`area_probable`/`tamano`/`detalle` land in `campos_metadata` (design:
     a JSONB blob, not new columns) — a MERGE, never an overwrite, since
     `campos_metadata` may already carry values from the advanced form."""
@@ -272,20 +325,30 @@ def _confirmar_metadata_ia(db: Session, ticket: Ticket, usuario: Usuario, valor:
     db.add(
         HistorialTicket(
             ticket_id=ticket.id,
-            usuario_id=usuario.id,
+            usuario_id=usuario.id if usuario else None,
             accion="propuesta_confirmada",
             descripcion="Propuesta IA confirmada: metadata_ia",
-            cambios={"campo": "metadata_ia", "valor_nuevo": valor, "origen": "ia_confirmada"},
+            cambios={"campo": "metadata_ia", "valor_nuevo": valor, "origen": origen},
         )
     )
 
 
-def _aplicar_confirmacion(
-    db: Session, ticket: Ticket, propuesta: PropuestaIA, usuario: Usuario, valor, *, permite_tipo_huerfano: bool = False
+def aplicar_confirmacion(
+    db: Session,
+    ticket: Ticket,
+    propuesta: PropuestaIA,
+    usuario: Usuario | None,
+    valor,
+    *,
+    permite_tipo_huerfano: bool = False,
+    origen: str = "ia_confirmada",
 ) -> None:
     """Write one proposal's value + provenance + history onto its ticket.
-    Shared by `confirmar()`/`confirmar_batch()` — the AUTO-APPLY SEAM: this
-    function only needs a real `Usuario` row, human or service user.
+    Shared by `confirmar()`/`confirmar_batch()` (human confirms, `usuario`
+    always set, `origen="ia_confirmada"`) AND `triage_service.run_triage`'s
+    auto-apply branch (`usuario=None`, `origen="ia_auto"`) — the ONE domain
+    write path both go through, so sector/tipo_ticket movement and history
+    stay identical regardless of who — or what — triggered the write.
 
     Rejects `propuesta.campo` outside `CAMPOS_CONFIRMABLES` BEFORE any
     write — see `PropuestaCampoNoPermitidoError`. `sector`/`tipo_ticket`/
@@ -296,46 +359,84 @@ def _aplicar_confirmacion(
         raise PropuestaCampoNoPermitidoError(propuesta.campo)
 
     if propuesta.campo == "sector":
-        _confirmar_sector(db, ticket, usuario, valor, permite_tipo_huerfano=permite_tipo_huerfano)
+        _confirmar_sector(db, ticket, usuario, valor, permite_tipo_huerfano=permite_tipo_huerfano, origen=origen)
         return
     if propuesta.campo == "tipo_ticket":
-        _confirmar_tipo_ticket(db, ticket, usuario, valor)
+        _confirmar_tipo_ticket(db, ticket, usuario, valor, origen=origen)
         return
     if propuesta.campo == "metadata_ia":
-        _confirmar_metadata_ia(db, ticket, usuario, valor)
+        _confirmar_metadata_ia(db, ticket, usuario, valor, origen=origen)
         return
 
     setattr(ticket, propuesta.campo, valor)
-    setattr(ticket, f"{propuesta.campo}_origen", "ia_confirmada")
+    setattr(ticket, f"{propuesta.campo}_origen", origen)
 
     db.add(
         HistorialTicket(
             ticket_id=ticket.id,
-            usuario_id=usuario.id,
+            usuario_id=usuario.id if usuario else None,
             accion="propuesta_confirmada",
             descripcion=f"Propuesta IA confirmada: {propuesta.campo} = {valor}",
-            cambios={"campo": propuesta.campo, "valor_nuevo": valor, "origen": "ia_confirmada"},
+            cambios={"campo": propuesta.campo, "valor_nuevo": valor, "origen": origen},
         )
     )
 
 
 def confirmar(db: Session, propuesta_id: int, usuario: Usuario) -> PropuestaIA:
-    """Confirms a pending proposal: writes its value + provenance onto the
-    ticket, marks the proposal `confirmada`, and logs a `tickets_historial`
-    row — all in one transaction."""
+    """Confirms a proposal. Two shapes, mirroring `descartar()`'s own split
+    (feat/tickets-triage-aplicar-directo):
+
+    - `pendiente`: writes its value + provenance onto the ticket (via
+      `aplicar_confirmacion`), marks the proposal `confirmada`, and logs
+      a `tickets_historial` row — unchanged from PR 4b.
+    - `confirmada` with `confirmado_por_id IS NULL` (`ia_auto`, already
+      applied by auto-apply, nobody has looked at it yet): RATIFIES it —
+      sets `confirmado_por_id`/`confirmado_at` only, without calling
+      `aplicar_confirmacion` again (the value is already on the ticket).
+
+    Real pre-push review finding (BLOCKING): before this second shape
+    existed, a proposal outside `CAMPOS_REVERTIBLES` (titulo/sector/
+    tipo_ticket/metadata_ia) had NO exit from "unreviewed" at all —
+    `confirmar()` rejected it (not pendiente) and `descartar()` rejected it
+    too (`PropuestaNoDescartableError`, not revertible). Every ticket
+    auto-classified on one of those fields stayed counted as unreviewed
+    forever, on the board badge and in `GET /propuestas` — reproducing,
+    for a different subset of fields, the exact "eternal pending
+    proposals" problem `TICKETS_TRIAGE_AUTO_APPLY` was built to eliminate.
+    Ratify ("I looked, it's fine") and discard ("correct it") are
+    orthogonal: ratify works for EVERY field; only discard is limited to
+    `CAMPOS_REVERTIBLES`, since only those have a clean "unset" state.
+
+    Anything else (human-confirmed `ia_confirmada`, `descartada`,
+    `reemplazada`): rejected with `PropuestaNoPendienteError`, unchanged.
+    """
     propuesta = db.query(PropuestaIA).filter(PropuestaIA.id == propuesta_id).first()
     if propuesta is None:
         raise PropuestaNoEncontradaError(propuesta_id)
-    if propuesta.estado != "pendiente":
+
+    es_ia_auto_sin_revisar = propuesta.estado == "confirmada" and propuesta.confirmado_por_id is None
+    if propuesta.estado != "pendiente" and not es_ia_auto_sin_revisar:
         raise PropuestaNoPendienteError(propuesta_id, propuesta.estado)
 
     ticket = db.query(Ticket).filter(Ticket.id == propuesta.ticket_id).first()
     if ticket is None:
         raise TicketNoEncontradoError(propuesta.ticket_id)
-    valor = propuesta.valor_propuesto["valor"]
-    _aplicar_confirmacion(db, ticket, propuesta, usuario, valor)
 
-    propuesta.estado = "confirmada"
+    if es_ia_auto_sin_revisar:
+        db.add(
+            HistorialTicket(
+                ticket_id=ticket.id,
+                usuario_id=usuario.id,
+                accion="propuesta_ratificada",
+                descripcion=f"Valor de IA ratificado sin cambios: {propuesta.campo}",
+                cambios={"campo": propuesta.campo, "valor": propuesta.valor_propuesto.get("valor")},
+            )
+        )
+    else:
+        valor = propuesta.valor_propuesto["valor"]
+        aplicar_confirmacion(db, ticket, propuesta, usuario, valor)
+        propuesta.estado = "confirmada"
+
     propuesta.confirmado_por_id = usuario.id
     propuesta.confirmado_at = datetime.now(UTC)
 
@@ -345,14 +446,69 @@ def confirmar(db: Session, propuesta_id: int, usuario: Usuario) -> PropuestaIA:
 
 
 def descartar(db: Session, propuesta_id: int, usuario: Usuario) -> PropuestaIA:
-    """Discards a pending proposal. Never writes to `tickets` — only the
-    proposal's own `estado` changes. See module docstring for the
-    never-resurfaces invariant."""
+    """Discards a proposal. Never resurfaces (module docstring's hard
+    invariant): a `descartada` row is never reset to `pendiente` by any
+    code path.
+
+    Two shapes, since auto-apply (`TICKETS_TRIAGE_AUTO_APPLY=True`) means
+    most proposals now arrive already `confirmada`, not `pendiente`:
+
+    - `pendiente`: unchanged from PR 4b — nothing was ever written to
+      `tickets`, so discarding only flips the proposal's own `estado`.
+    - `confirmada` with `confirmado_por_id IS NULL` (i.e. `ia_auto`, never
+      reviewed by a human): the human is REJECTING an already-applied AI
+      value — "correct it if wrong" from the UI's own copy. For
+      `CAMPOS_REVERTIBLES` (nullable, origen-tracked plain columns) this
+      clears the ticket value AND its `<campo>_origen`, mirroring
+      `actualizar_ticket`'s own "clearing a value clears its origen too"
+      rule — but ONLY when the ticket's CURRENT origen still says
+      `ia_auto` (staleness guard: a human may have already overwritten the
+      field through a different path since this proposal applied). Every
+      other campo (`titulo` is NOT NULL; `sector`/`tipo_ticket` have no
+      origen column and moving them has no defined "undo"; `metadata_ia`
+      was a JSONB merge with no record of which keys it added) raises
+      `PropuestaNoDescartableError` — correct those by editing the ticket
+      directly instead.
+    - Anything else (human-confirmed `ia_confirmada`, `descartada`,
+      `reemplazada`): unchanged, `PropuestaNoPendienteError`.
+    """
     propuesta = db.query(PropuestaIA).filter(PropuestaIA.id == propuesta_id).first()
     if propuesta is None:
         raise PropuestaNoEncontradaError(propuesta_id)
-    if propuesta.estado != "pendiente":
+
+    es_ia_auto_sin_revisar = propuesta.estado == "confirmada" and propuesta.confirmado_por_id is None
+    if propuesta.estado != "pendiente" and not es_ia_auto_sin_revisar:
         raise PropuestaNoPendienteError(propuesta_id, propuesta.estado)
+
+    if es_ia_auto_sin_revisar:
+        if propuesta.campo not in CAMPOS_REVERTIBLES:
+            raise PropuestaNoDescartableError(propuesta.campo)
+        ticket = db.query(Ticket).filter(Ticket.id == propuesta.ticket_id).first()
+        if ticket is None:
+            raise TicketNoEncontradoError(propuesta.ticket_id)
+        # STALENESS GUARD (real pre-push review finding): this proposal
+        # represents the value it applied at auto-apply time — but nothing
+        # keeps it in sync if a human later overwrites the SAME field
+        # through a different path (`actualizar_ticket`'s PATCH, e.g. a
+        # board drag), which never touches `tickets_propuestas_ia` at all.
+        # Only clear the ticket when its CURRENT origen still says
+        # `ia_auto` — i.e. nothing has changed it since. If a human already
+        # corrected it, this proposal is simply stale: mark it `descartada`
+        # (below, unconditionally) without touching a ticket value that no
+        # longer belongs to it — discarding a stale record must never
+        # destroy a newer human correction.
+        if getattr(ticket, f"{propuesta.campo}_origen", None) == "ia_auto":
+            setattr(ticket, propuesta.campo, None)
+            setattr(ticket, f"{propuesta.campo}_origen", None)
+            db.add(
+                HistorialTicket(
+                    ticket_id=ticket.id,
+                    usuario_id=usuario.id,
+                    accion="propuesta_descartada",
+                    descripcion=f"Valor de IA descartado: {propuesta.campo}",
+                    cambios={"campo": propuesta.campo, "valor_anterior": propuesta.valor_propuesto.get("valor")},
+                )
+            )
 
     propuesta.estado = "descartada"
     propuesta.confirmado_por_id = usuario.id
@@ -413,7 +569,7 @@ def confirmar_batch(db: Session, propuesta_ids: List[int], usuario: Usuario) -> 
                     raise TicketNoEncontradoError(propuesta.ticket_id)
                 tickets_por_id[propuesta.ticket_id] = ticket
             permite_huerfano = propuesta.campo == "sector" and propuesta.ticket_id in tickets_con_tipo_en_batch
-            _aplicar_confirmacion(
+            aplicar_confirmacion(
                 db,
                 ticket,
                 propuesta,

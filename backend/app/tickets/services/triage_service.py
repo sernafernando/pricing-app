@@ -1,10 +1,17 @@
-"""AI triage for newly-created tickets (tickets-ai-triage PR 4a).
+"""AI triage for newly-created tickets (tickets-ai-triage PR 4a, confirmation
+topology flipped by feat/tickets-triage-aplicar-directo).
 
 Runs as a `BackgroundTasks` job after `crear_ticket` commits (design §6):
 calls an LLM via a swap-safe `LlmProvider`, parses the raw text with the
 closed-schema `TriagePropuesta` model, applies a PER-FIELD confidence gate,
-and writes `PropuestaIA(estado='pendiente')` rows — never `tickets` columns
-directly (that's the confirmation service, PR 4b).
+and writes one `PropuestaIA` row per surviving field — the audit trail,
+always. With `TICKETS_TRIAGE_AUTO_APPLY=True` (default) it ALSO writes the
+value onto `tickets.<campo>` in the same transaction, via
+`confirmacion_service.aplicar_confirmacion(usuario=None, origen="ia_auto")`
+— the proposal is born `estado='confirmada'` with `confirmado_por_id=NULL`,
+that NULL being the signal no human ratified it. With the flag `False` (or
+when a field is gated out), the proposal stays `pendiente` and `tickets`
+stays untouched, exactly as PR 4b originally shipped.
 
 CRITICAL — parser isolation (spec: "Parser Isolation from the ML-Bot
 Schema"): this module reuses ONLY `OpenAICompatProvider.complete()`, which
@@ -20,6 +27,7 @@ from __future__ import annotations
 import json
 import logging
 import uuid
+from datetime import UTC, datetime
 from typing import List, Literal, Optional, Protocol
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationInfo, model_validator
@@ -30,6 +38,7 @@ from app.core.database import get_background_db
 from app.tickets.models.propuesta_ia import PropuestaIA
 from app.tickets.models.sector import Sector
 from app.tickets.models.ticket import Ticket
+from app.tickets.services import confirmacion_service
 
 # Duplicated on purpose (established convention in this module set — see
 # `propuestas.py::_check_permiso`'s own docstring): the Inbox is never a
@@ -276,6 +285,115 @@ def _ya_tiene_propuesta_activa(db: Session, ticket_id: int, campo: str) -> bool:
     )
 
 
+def _auto_aplicar_sector_tipo_ticket(
+    db: Session,
+    ticket_id: int,
+    ticket_actual: Optional[Ticket],
+    propuesta: "TriagePropuesta",
+    auto_apply: bool,
+    modelo: Optional[str],
+    run_id: str,
+) -> None:
+    """`sector`/`tipo_ticket` are a DOMAIN-OPERATION PAIR (obs #1409), not
+    two independent plain-column writes — real pre-push review finding:
+    applying them as separate iterations of the generic per-field loop let
+    `sector` commit successfully (mutating `ticket.sector_id`/`estado_id`)
+    and THEN `tipo_ticket` fail its OWN domain check right after, leaving
+    the ticket with a NEW sector but its OLD `tipo_ticket_id` — the exact
+    orphaned pair `PropuestaSectorDejaTipoHuerfanoError` exists to prevent,
+    reached through a different door because the two writes were not
+    atomic WITH EACH OTHER. A SAVEPOINT (`db.begin_nested()`) wraps both
+    attempts here: either both apply, or neither does — mirrors
+    `confirmar_batch`'s own `db.rollback()` on any failure, scoped to just
+    this pair instead of the whole triage run.
+
+    Called BEFORE the generic per-field loop in `run_triage` (sector must
+    resolve before tipo_ticket regardless of auto-apply), which is why
+    these two campos are absent from that loop's own tuple.
+    """
+    entradas: list[tuple[str, str, Optional[float]]] = []
+    for campo, valor in (("sector", propuesta.sector_codigo), ("tipo_ticket", propuesta.tipo_ticket_codigo)):
+        confianza = propuesta.confianza_global
+        if valor is None or not pasa_umbral_confianza(confianza):
+            logger.info(
+                "tickets triage: campo '%s' gateado para ticket #%s (confianza=%s)", campo, ticket_id, confianza
+            )
+            continue
+        if _ya_tiene_propuesta_activa(db, ticket_id, campo):
+            logger.info(
+                "tickets triage: ya existe una propuesta activa para ticket #%s campo '%s', se omite",
+                ticket_id,
+                campo,
+            )
+            continue
+        entradas.append((campo, valor, confianza))
+
+    if not entradas:
+        return
+
+    nuevas = {
+        campo: PropuestaIA(
+            ticket_id=ticket_id,
+            campo=campo,
+            valor_propuesto={"valor": valor},
+            confianza=confianza,
+            modelo=modelo,
+            run_id=run_id,
+        )
+        for campo, valor, confianza in entradas
+    }
+
+    if not (auto_apply and ticket_actual is not None):
+        # `db.flush()` per row (not just `db.add()`): two `PropuestaIA` rows
+        # created back-to-back with nothing else in between can otherwise
+        # get batched into ONE multi-row INSERT by SQLAlchemy's
+        # insertmanyvalues optimization — a real failure surfaced under
+        # Postgres, where the batched form's generated SQL casts `run_id`
+        # as `::VARCHAR` instead of `::UUID`, tripping
+        # `psycopg2.errors.DatatypeMismatch`. Flushing immediately keeps
+        # each INSERT singular, matching how the rest of this module writes.
+        for p in nuevas.values():
+            db.add(p)
+            db.flush()
+        return
+
+    # Both apply together (permite_tipo_huerfano=True) only when BOTH
+    # entries survived the gate above — the same condition
+    # `confirmar_batch` uses to decide `permite_tipo_huerfano` for a human
+    # batch confirm.
+    permite_huerfano = len(entradas) == 2
+    try:
+        with db.begin_nested():
+            for campo, valor, confianza in entradas:
+                permite = campo == "sector" and permite_huerfano
+                confirmacion_service.aplicar_confirmacion(
+                    db, ticket_actual, nuevas[campo], None, valor, permite_tipo_huerfano=permite, origen="ia_auto"
+                )
+    except (
+        confirmacion_service.PropuestaSectorInvalidoError,
+        confirmacion_service.PropuestaTipoSectorInvalidoError,
+        confirmacion_service.PropuestaSectorDejaTipoHuerfanoError,
+    ):
+        # The SAVEPOINT rollback above already undid any partial mutation
+        # (e.g. sector moving while tipo_ticket then failed) — both degrade
+        # to `pendiente` together, never a half-applied pair.
+        logger.warning(
+            "tickets triage: auto-apply de sector/tipo_ticket falló para ticket #%s, quedan pendientes",
+            ticket_id,
+            exc_info=True,
+        )
+    else:
+        ahora = datetime.now(UTC)
+        for p in nuevas.values():
+            p.estado = "confirmada"
+            p.confirmado_por_id = None
+            p.confirmado_at = ahora
+
+    for p in nuevas.values():
+        db.add(p)
+        db.flush()  # see the early-return branch's comment above for why
+
+
 # ---------------------------------------------------------------------------
 # Entrypoint (task 4a.7)
 # ---------------------------------------------------------------------------
@@ -359,9 +477,25 @@ async def run_triage(ticket_id: int, provider: LlmProvider) -> None:
     # (`conftest.py::_PG_TYPE_MAP`) — a raw `uuid.UUID` object does not.
     run_id = str(uuid.uuid4())
     modelo = getattr(provider, "model", None)
+    auto_apply = settings.TICKETS_TRIAGE_AUTO_APPLY
 
     try:
         with get_background_db() as db:
+            # Auto-apply (feat/tickets-triage-aplicar-directo, kill switch
+            # `TICKETS_TRIAGE_AUTO_APPLY`, default True): a threshold-passing
+            # field writes straight onto the ticket instead of sitting
+            # `pendiente` for a human to click confirm — see
+            # `confirmacion_service`'s module docstring for why. `ticket_actual`
+            # is a FRESH query in THIS session: the `ticket` object read at the
+            # top of this function belongs to the earlier, now-closed session.
+            ticket_actual = db.query(Ticket).filter(Ticket.id == ticket_id).first() if auto_apply else None
+
+            # sector/tipo_ticket: handled as one atomic pair BEFORE the
+            # generic loop below — see `_auto_aplicar_sector_tipo_ticket`'s
+            # own docstring for why they can't be two independent
+            # iterations of that loop.
+            _auto_aplicar_sector_tipo_ticket(db, ticket_id, ticket_actual, propuesta, auto_apply, modelo, run_id)
+
             # Gate the JUDGEMENTS, not the TRANSFORMATIONS.
             #
             # severidad/urgencia are judgements: a confidently wrong "critica"
@@ -402,8 +536,6 @@ async def run_triage(ticket_id: int, provider: LlmProvider) -> None:
                 else None
             )
             for campo, valor, confianza, exige_umbral in (
-                ("sector", propuesta.sector_codigo, propuesta.confianza_global, True),
-                ("tipo_ticket", propuesta.tipo_ticket_codigo, propuesta.confianza_global, True),
                 ("severidad", propuesta.severidad, propuesta.confianza_severidad, True),
                 ("urgencia", propuesta.urgencia, propuesta.confianza_urgencia, True),
                 # `propone_titulo` gates on WHO wrote the current titulo, not
@@ -430,16 +562,45 @@ async def run_triage(ticket_id: int, provider: LlmProvider) -> None:
                         campo,
                     )
                     continue
-                db.add(
-                    PropuestaIA(
-                        ticket_id=ticket_id,
-                        campo=campo,
-                        valor_propuesto={"valor": valor},
-                        confianza=confianza,
-                        modelo=modelo,
-                        run_id=run_id,
-                    )
+
+                nueva_propuesta = PropuestaIA(
+                    ticket_id=ticket_id,
+                    campo=campo,
+                    valor_propuesto={"valor": valor},
+                    confianza=confianza,
+                    modelo=modelo,
+                    run_id=run_id,
                 )
+
+                # NEVER PISAR LO QUE PUSO UNA PERSONA (real pre-push review
+                # finding): a human can set this field through an entirely
+                # DIFFERENT path (`actualizar_ticket`'s PATCH, e.g. a board
+                # drag) that never touches `tickets_propuestas_ia` — so
+                # `_ya_tiene_propuesta_activa` above cannot see it.
+                # `getattr(..., f"{campo}_origen", None)` is `None` for
+                # `metadata_ia` (no such column on `Ticket`), so this never
+                # blocks that campo. Mirrors the data migration's own
+                # `WHERE tickets.{campo} IS NULL` guard, checked against
+                # `_origen` here because — unlike the migration's one-time
+                # backfill — `run_triage` can be RE-TRIGGERED after a human
+                # has already classified the field by hand.
+                origen_actual = getattr(ticket_actual, f"{campo}_origen", None) if ticket_actual is not None else None
+                if origen_actual == "humano":
+                    logger.info(
+                        "tickets triage: ticket #%s campo '%s' ya tiene un valor humano, auto-apply omitido (queda pendiente)",
+                        ticket_id,
+                        campo,
+                    )
+
+                if auto_apply and ticket_actual is not None and origen_actual != "humano":
+                    confirmacion_service.aplicar_confirmacion(
+                        db, ticket_actual, nueva_propuesta, None, valor, origen="ia_auto"
+                    )
+                    nueva_propuesta.estado = "confirmada"
+                    nueva_propuesta.confirmado_por_id = None
+                    nueva_propuesta.confirmado_at = datetime.now(UTC)
+
+                db.add(nueva_propuesta)
     except Exception:
         # Real review finding: `_ya_tiene_propuesta_activa` shrinks the
         # race window but does not close it — a true concurrent run can

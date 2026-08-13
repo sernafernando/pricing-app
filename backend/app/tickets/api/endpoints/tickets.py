@@ -8,7 +8,7 @@ from typing import Dict, List, Optional
 
 from fastapi import APIRouter, BackgroundTasks, Depends, File, HTTPException, Query, UploadFile
 from fastapi.responses import FileResponse
-from sqlalchemy import String, case, cast, func, literal, or_
+from sqlalchemy import String, and_, case, cast, func, literal, or_
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_current_user
@@ -393,7 +393,12 @@ def _items_del_board(
     `tickets_propuestas_ia`, evaluated inline per-row by the DB engine as
     part of THIS one statement — no extra round-trip, no N+1 from the app's
     perspective. Decided against a third query or a JOIN specifically to
-    keep this endpoint's own query count at two.
+    keep this endpoint's own query count at two. Counts the SAME set
+    `GET /tickets/{id}/propuestas` lists (real pre-push review finding:
+    this predicate drifted from that endpoint's own OR when auto-apply
+    shipped) — `pendiente` OR `confirmada` with `confirmado_por_id IS NULL`
+    (`ia_auto`, unreviewed) — so the badge never reads 0 while the card
+    itself is showing an AI value nobody has looked at yet.
 
     For AgrupacionBoard.ESTADO, `estado_ids` (the selected workflow's own
     states) scopes which tickets are even eligible — same split
@@ -407,7 +412,13 @@ def _items_del_board(
     rank_expr = _rank_case(Ticket.severidad, SEVERIDAD_VOCAB)
     propuestas_pendientes = (
         db.query(func.count(PropuestaIA.id))
-        .filter(PropuestaIA.ticket_id == Ticket.id, PropuestaIA.estado == "pendiente")
+        .filter(
+            PropuestaIA.ticket_id == Ticket.id,
+            or_(
+                PropuestaIA.estado == "pendiente",
+                and_(PropuestaIA.estado == "confirmada", PropuestaIA.confirmado_por_id.is_(None)),
+            ),
+        )
         .correlate(Ticket)
         .scalar_subquery()
     )
@@ -1125,9 +1136,19 @@ async def actualizar_ticket(
     # Registrar cambios en historial
     cambios_realizados = {}
 
-    if ticket_data.titulo is not None and ticket_data.titulo != ticket.titulo:
-        cambios_realizados["titulo"] = {"valor_anterior": ticket.titulo, "valor_nuevo": ticket_data.titulo}
-        ticket.titulo = ticket_data.titulo
+    # `titulo_origen` is DERIVED here, never taken from the client — same
+    # rule as `urgencia_origen` below, extended to titulo (real gap: this
+    # endpoint could rewrite `titulo` without ever touching `titulo_origen`,
+    # so a human correction of an `ia_auto` title left the stale AI
+    # provenance badge showing). "humano" whenever titulo changes OR the
+    # origen itself is stale — repairs a missing/AI origen on a resend of
+    # the same text, mirroring urgencia's own repair behavior.
+    if ticket_data.titulo is not None:
+        origen_nuevo = "humano"
+        if ticket_data.titulo != ticket.titulo or origen_nuevo != ticket.titulo_origen:
+            cambios_realizados["titulo"] = {"valor_anterior": ticket.titulo, "valor_nuevo": ticket_data.titulo}
+            ticket.titulo = ticket_data.titulo
+            ticket.titulo_origen = origen_nuevo
 
     if ticket_data.descripcion is not None and ticket_data.descripcion != ticket.descripcion:
         cambios_realizados["descripcion"] = {

@@ -205,6 +205,26 @@ class TestPatchUrgenciaWriteSemantics:
         assert ticket.urgencia == "alta"
         assert ticket.urgencia_origen == "humano"
 
+    def test_patch_urgencia_flips_ia_auto_origen_to_humano(self, db, client, rol_ventas):
+        """feat/tickets-triage-aplicar-directo, decision #3: correcting an
+        `ia_auto` value must flip `*_origen` to `humano` — the board's
+        URGENCY-column drag-and-drop is exactly this endpoint
+        (`ticketsBoardDnd.js` PATCHes `{urgencia, urgencia_origen:'humano'}`),
+        so this doubles as the board-drag regression guard."""
+        user = _make_user(db, rol_ventas)
+        ticket = _make_ticket(db, user, urgencia="baja", urgencia_origen="ia_auto")
+
+        resp = client.patch(
+            f"{TICKETS_ENDPOINT}/{ticket.id}",
+            json={"urgencia": "alta", "urgencia_origen": "humano"},
+            headers=_headers(user),
+        )
+
+        assert resp.status_code == 200
+        db.refresh(ticket)
+        assert ticket.urgencia == "alta"
+        assert ticket.urgencia_origen == "humano"
+
     def test_patch_urgencia_unchanged_still_repairs_stale_origen(self, db, client, rol_ventas):
         """GGA pre-push finding: the change-tracking block was nested inside
         `urgencia != ticket.urgencia`, so correcting only a stale provenance
@@ -242,3 +262,71 @@ class TestPatchUrgenciaWriteSemantics:
         db.refresh(ticket)
         assert ticket.urgencia is None
         assert ticket.urgencia_origen is None
+
+
+class TestPatchTituloOrigenFlip:
+    """feat/tickets-triage-aplicar-directo, decision #3: 'correcting an
+    ia_auto value must flip *_origen to humano', verified across every path
+    a value can change. `urgencia` above already derives 'humano'
+    unconditionally; `titulo` had a real gap — `actualizar_ticket` could
+    rewrite `titulo` (min_length=5, always a string when sent) without ever
+    touching `titulo_origen`, so correcting an AI-auto-applied title via
+    this endpoint left the stale 'IA automática' badge showing."""
+
+    def test_patch_titulo_flips_ia_auto_origen_to_humano(self, db, client, rol_ventas):
+        user = _make_user(db, rol_ventas)
+        ticket = _make_ticket(db, user)
+        ticket.titulo = "Titulo propuesto por la IA"
+        ticket.titulo_origen = "ia_auto"
+        db.commit()
+
+        resp = client.patch(
+            f"{TICKETS_ENDPOINT}/{ticket.id}",
+            json={"titulo": "Titulo corregido por un humano"},
+            headers=_headers(user),
+        )
+
+        assert resp.status_code == 200
+        assert resp.json()["titulo"] == "Titulo corregido por un humano"
+        assert resp.json()["titulo_origen"] == "humano"
+        db.refresh(ticket)
+        assert ticket.titulo == "Titulo corregido por un humano"
+        assert ticket.titulo_origen == "humano"
+
+    def test_patch_titulo_unchanged_still_repairs_stale_origen(self, db, client, rol_ventas):
+        """Mirrors `test_patch_urgencia_unchanged_still_repairs_stale_origen`:
+        resending the SAME titulo text must still repair a stale/AI origen,
+        not just a genuine text change."""
+        user = _make_user(db, rol_ventas)
+        ticket = _make_ticket(db, user)
+        ticket.titulo = "Titulo sin cambios"
+        ticket.titulo_origen = "ia_auto"
+        db.commit()
+
+        resp = client.patch(
+            f"{TICKETS_ENDPOINT}/{ticket.id}",
+            json={"titulo": "Titulo sin cambios"},
+            headers=_headers(user),
+        )
+
+        assert resp.status_code == 200
+        db.refresh(ticket)
+        assert ticket.titulo_origen == "humano"
+
+    def test_patch_without_titulo_field_leaves_origen_unchanged(self, db, client, rol_ventas):
+        user = _make_user(db, rol_ventas)
+        ticket = _make_ticket(db, user)
+        ticket.titulo = "Titulo intacto"
+        ticket.titulo_origen = "ia_auto"
+        db.commit()
+
+        resp = client.patch(
+            f"{TICKETS_ENDPOINT}/{ticket.id}",
+            json={"urgencia": "alta"},
+            headers=_headers(user),
+        )
+
+        assert resp.status_code == 200
+        db.refresh(ticket)
+        assert ticket.titulo == "Titulo intacto"
+        assert ticket.titulo_origen == "ia_auto"

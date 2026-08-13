@@ -257,9 +257,18 @@ class TestBoardGroupedByEstado:
         ticket.urgencia_origen = "humano"
         ticket.resumen = "No puede facturar"
         db.add(PropuestaIA(ticket_id=ticket.id, campo="titulo", valor_propuesto={"valor": "x"}, estado="pendiente"))
+        # Human-confirmed (`confirmado_por_id` set) — a decision a person
+        # already ratified, excluded from the badge just like from
+        # GET /tickets/{id}/propuestas (feat/tickets-triage-aplicar-directo:
+        # an UNREVIEWED ia_auto row — confirmado_por_id NULL — DOES count,
+        # see the sibling test below).
         db.add(
             PropuestaIA(
-                ticket_id=ticket.id, campo="severidad", valor_propuesto={"valor": "critica"}, estado="confirmada"
+                ticket_id=ticket.id,
+                campo="severidad",
+                valor_propuesto={"valor": "critica"},
+                estado="confirmada",
+                confirmado_por_id=admin.id,
             )
         )
         db.commit()
@@ -279,6 +288,34 @@ class TestBoardGroupedByEstado:
         assert card["estado"]["id"] == estados[0].id
         assert card["sector"]["id"] == sector.id
         assert card["propuestas_pendientes"] == 1  # only the 'titulo' proposal is pendiente
+
+    def test_propuestas_pendientes_counts_unreviewed_ia_auto_alongside_pendiente(self, client, db):
+        """feat/tickets-triage-aplicar-directo: a `confirmada` proposal with
+        `confirmado_por_id IS NULL` is the AI having already applied it —
+        still a human's job to review, so it must count toward this badge
+        the same way `GET /tickets/{id}/propuestas` lists it. Without this,
+        the badge reads 0 exactly when there IS something to review."""
+        sector, workflow, estados, tipo, creador = _make_workflow(db, n_estados=1)
+        admin = _make_admin(db)
+        ticket = _make_ticket(db, sector, tipo, estados[0], creador, titulo="Ticket auto-clasificado")
+        db.add(PropuestaIA(ticket_id=ticket.id, campo="titulo", valor_propuesto={"valor": "x"}, estado="pendiente"))
+        db.add(
+            PropuestaIA(
+                ticket_id=ticket.id,
+                campo="severidad",
+                valor_propuesto={"valor": "critica"},
+                estado="confirmada",
+                confirmado_por_id=None,
+            )
+        )
+        db.commit()
+
+        resp = client.get(BOARD_ENDPOINT, params={"agrupacion": "estado"}, headers=_headers(admin))
+
+        assert resp.status_code == 200
+        columnas = {c["clave"]: c for c in resp.json()["columnas"]}
+        card = columnas[str(estados[0].id)]["items"][0]
+        assert card["propuestas_pendientes"] == 2
 
 
 class TestBoardScopedToOneWorkflow:

@@ -3,6 +3,7 @@ a proposal, batch-confirm several, and the human retrigger with its
 single-flight guard. Kept out of `tickets.py` (already large)."""
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
+from sqlalchemy import and_, or_
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_current_user
@@ -17,6 +18,7 @@ from app.tickets.services import confirmacion_service
 from app.tickets.services.confirmacion_service import (
     PropuestaBatchInvalidaError,
     PropuestaCampoNoPermitidoError,
+    PropuestaNoDescartableError,
     PropuestaNoEncontradaError,
     PropuestaNoPendienteError,
     PropuestaSectorDejaTipoHuerfanoError,
@@ -54,11 +56,20 @@ def listar_propuestas_pendientes(
     db: Session = Depends(get_db),
     current_user: Usuario = Depends(get_current_user),
 ) -> list[PropuestaResponse]:
-    """Lista las propuestas de IA `pendiente` de un ticket. Visible con solo
-    acceso al ticket (creador o tickets.ver) — NO requiere
-    tickets.triage.confirmar: la confianza debe verse antes de confirmar,
-    independientemente de quién puede confirmar (spec: "Provenance Is
-    Always Visible" / "Confidence is visible before confirming")."""
+    """Lista las propuestas de IA de un ticket que un humano todavía puede
+    revisar. Visible con solo acceso al ticket (creador o tickets.ver) — NO
+    requiere tickets.triage.confirmar: la confianza debe verse antes de
+    confirmar, independientemente de quién puede confirmar (spec:
+    "Provenance Is Always Visible" / "Confidence is visible before
+    confirming").
+
+    Dos formas (feat/tickets-triage-aplicar-directo): `pendiente` (el flujo
+    original — nada se aplicó todavía, sobrevive cuando
+    TICKETS_TRIAGE_AUTO_APPLY=False o un campo quedó gateado por confianza)
+    y `confirmada` con `confirmado_por_id IS NULL` (`ia_auto` — YA se
+    aplicó, y nadie lo revisó todavía). Un `confirmada` con confirmador NO
+    nulo (humano ya confirmó, o `ia_confirmada`) nunca aparece acá — ya no
+    hay nada pendiente de revisión."""
     ticket = db.query(Ticket).filter(Ticket.id == ticket_id).first()
     if not ticket:
         raise HTTPException(status_code=404, detail=f"Ticket {ticket_id} no encontrado")
@@ -66,7 +77,13 @@ def listar_propuestas_pendientes(
 
     return (
         db.query(PropuestaIA)
-        .filter(PropuestaIA.ticket_id == ticket_id, PropuestaIA.estado == "pendiente")
+        .filter(
+            PropuestaIA.ticket_id == ticket_id,
+            or_(
+                PropuestaIA.estado == "pendiente",
+                and_(PropuestaIA.estado == "confirmada", PropuestaIA.confirmado_por_id.is_(None)),
+            ),
+        )
         .order_by(PropuestaIA.campo)
         .all()
     )
@@ -78,7 +95,9 @@ def confirmar_propuesta(
     db: Session = Depends(get_db),
     current_user: Usuario = Depends(get_current_user),
 ) -> PropuestaResponse:
-    """Confirma una propuesta de IA pendiente. Requiere: tickets.triage.confirmar"""
+    """Confirma una propuesta de IA `pendiente`, o ratifica una ya aplicada
+    automáticamente (`confirmada` con `confirmado_por_id` nulo) sin
+    reescribir el ticket. Requiere: tickets.triage.confirmar"""
     _check_permiso(db, current_user, PERMISO_CONFIRMAR)
     try:
         return confirmacion_service.confirmar(db, propuesta_id, current_user)
@@ -104,13 +123,20 @@ def descartar_propuesta(
     db: Session = Depends(get_db),
     current_user: Usuario = Depends(get_current_user),
 ) -> PropuestaResponse:
-    """Descarta una propuesta de IA pendiente (nunca vuelve a `pendiente`).
-    Requiere: tickets.triage.confirmar"""
+    """Descarta una propuesta de IA (nunca vuelve a `pendiente`): si está
+    `pendiente`, no toca el ticket (comportamiento original PR 4b); si ya
+    fue aplicada automáticamente (`confirmada` con `confirmado_por_id`
+    nulo) y su campo admite revertirse, limpia el valor del ticket y su
+    origen. Requiere: tickets.triage.confirmar"""
     _check_permiso(db, current_user, PERMISO_CONFIRMAR)
     try:
         return confirmacion_service.descartar(db, propuesta_id, current_user)
     except PropuestaNoEncontradaError:
         raise HTTPException(status_code=404, detail=f"Propuesta {propuesta_id} no encontrada")
+    except TicketNoEncontradoError as exc:
+        raise HTTPException(status_code=404, detail=str(exc))
+    except PropuestaNoDescartableError as exc:
+        raise HTTPException(status_code=409, detail=str(exc))
     except PropuestaNoPendienteError as exc:
         raise HTTPException(status_code=409, detail=str(exc))
 
@@ -151,7 +177,9 @@ async def retriggerar_triage(
 ) -> dict:
     """Reintenta la triage de IA (single-flight guard): rechaza con 409 si ya
     existe una propuesta `confirmada`/`pendiente`, salvo `forzar=true` (marca
-    las `pendiente` como `reemplazada` primero). Requiere: tickets.triage.confirmar"""
+    como `reemplazada` las `pendiente` y las `confirmada` sin revisar
+    —`ia_auto`, `confirmado_por_id` nulo— primero; una `confirmada` que un
+    HUMANO ya ratificó nunca se toca). Requiere: tickets.triage.confirmar"""
     _check_permiso(db, current_user, PERMISO_CONFIRMAR)
 
     ticket = db.query(Ticket).filter(Ticket.id == ticket_id).first()
@@ -171,8 +199,19 @@ async def retriggerar_triage(
         )
 
     if forzar:
+        # Real pre-push review finding: with auto-apply, most proposals now
+        # arrive already `confirmada` — only degrading `pendiente` ones (the
+        # ORIGINAL PR 4b shape) left every `confirmada`/`ia_auto` row active
+        # forever, so `_ya_tiene_propuesta_activa` silently blocked EVERY
+        # field on the next `run_triage` call: `forzar=true` returned
+        # `{"ok": True}` and did nothing on any auto-classified ticket. A
+        # HUMAN-confirmed row (`confirmado_por_id` set) is a decision a
+        # person already ratified and must never be silently replaced by a
+        # forced retrigger — only the unreviewed `ia_auto` shape degrades.
         for propuesta in activas:
-            if propuesta.estado == "pendiente":
+            if propuesta.estado == "pendiente" or (
+                propuesta.estado == "confirmada" and propuesta.confirmado_por_id is None
+            ):
                 propuesta.estado = "reemplazada"
         db.commit()
 
