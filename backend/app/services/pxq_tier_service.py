@@ -1,9 +1,16 @@
 """Service-layer creation/validation for `MlPxqTier` rows.
 
 Max 5 tiers per publication is enforced HERE (422), not as a DB constraint
-(design D-table note). `cantidad_minima > 1` is validated here too, ahead of
-the DB CheckConstraint, so the caller gets a clean 422 instead of an
+(design D-table note). The `cantidad_minima` floor is validated here too,
+ahead of the DB CheckConstraint, so the caller gets a clean 422 instead of an
 `IntegrityError`.
+
+That floor is `>= 1` on BOTH write paths — `create_pxq_tier` and
+`update_pxq_tier` — and the two must not drift apart. It matches
+`ck_ml_pxq_tier_cantidad_minima_ge_1`, which carries the reasoning: a one-unit
+tier is what turns on "Venta para negocios" on MercadoLibre. A path that
+accepted a quantity the other refused would let the import write a row the
+operator could not then edit.
 
 This module must NEVER import `ProductoPricing` — PxQ tiers are additional
 quantity prices that never touch the base price (enforced by an AST
@@ -68,15 +75,22 @@ def create_pxq_tier(
     must never advance them; see `update_pxq_tier`.
 
     Raises:
-        HTTPException(422): `cantidad_minima <= 1`; exactly one half of the
+        HTTPException(422): `cantidad_minima < 1`; exactly one half of the
             snapshot pair supplied; the publication does not exist or already
             has `MAX_TIERS_PER_PUBLICATION` tiers; `item_id` does not match
             the publication; duplicate `cantidad_minima`.
     """
-    if cantidad_minima <= 1:
+    # `< 1`, not `<= 1`. A tier of ONE unit is legal here on purpose: it is
+    # what makes the publication appear as "Venta para negocios" on
+    # MercadoLibre, and ML accepts and holds it in production despite its own
+    # documentation saying `min_purchase_unit` must be greater than 1. The full
+    # reasoning, and the evidence, live on the CheckConstraint in
+    # `app/models/ml_pxq_tier.py` -- this validation only mirrors it so the
+    # caller gets a 422 instead of an IntegrityError surfacing as a 500.
+    if cantidad_minima < 1:
         raise HTTPException(
             status_code=422,
-            detail=f"cantidad_minima must be > 1 (got {cantidad_minima})",
+            detail=f"cantidad_minima must be >= 1 (got {cantidad_minima})",
         )
 
     # Both-or-neither. `pxq_diff.DesiredTier.has_snapshot` requires BOTH
@@ -206,17 +220,26 @@ def update_pxq_tier(
 
     Raises:
         HTTPException(404): no tier with `tier_id`.
-        HTTPException(422): `cantidad_minima <= 1`, or the new
+        HTTPException(422): `cantidad_minima < 1`, or the new
             `cantidad_minima` collides with another tier on the same
             publication.
     """
     tier = _get_tier_or_404(db, tier_id)
 
     if cantidad_minima is not None:
-        if cantidad_minima <= 1:
+        # Same floor as `create_pxq_tier`, and it has to stay the same one. A
+        # tier of ONE unit is what makes the publication appear as "Venta para
+        # negocios" on MercadoLibre; the reasoning and the production evidence
+        # live on `ck_ml_pxq_tier_cantidad_minima_ge_1`.
+        #
+        # This path refusing `1` while create and the import ACCEPT it was not
+        # a harmless inconsistency: `adopt-live` writes one-unit rows, the
+        # panel renders them, and the operator correcting one by hand would
+        # have hit a 422 about a row the system itself had just imported.
+        if cantidad_minima < 1:
             raise HTTPException(
                 status_code=422,
-                detail=f"cantidad_minima must be > 1 (got {cantidad_minima})",
+                detail=f"cantidad_minima must be >= 1 (got {cantidad_minima})",
             )
         duplicate = (
             db.query(MlPxqTier.id)

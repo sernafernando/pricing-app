@@ -137,7 +137,7 @@ def adopt_live_pxq_tiers(
             least one local row. Nothing is written.
         HTTPException(422): propagated from `create_pxq_tier` when a live
             entry cannot be a valid tier -- e.g. two entries sharing a
-            quantity. NOT `quantity <= 1`, which is the one condition this
+            quantity. NOT `quantity < 1`, which is the one condition this
             service skips ahead of the call instead of propagating; see the
             partition below for why that one and only that one. These fire
             INSIDE the import loop, AFTER earlier rows were already
@@ -247,18 +247,24 @@ def adopt_live_pxq_tiers(
         )
         raise _read_unavailable("Live payload could not be parsed; nothing was imported")
 
-    # MercadoLibre ACCEPTS a B2B price with `min_purchase_unit: 1` and holds
-    # them in production -- MLA1563835240 carries
-    # `{"id": "3396", "amount": 80999, "min_purchase_unit": 1}` alongside two
-    # ordinary tiers. This mirror cannot represent one:
-    # `ck_ml_pxq_tier_cantidad_minima_gt_1` and `create_pxq_tier`'s 422 both
-    # refuse it, and that restriction STAYS by decision -- MercadoLibre shows
-    # that price nowhere in its own price-by-quantity panel, so mirroring it as
-    # a "tramo" would invent a meaning it does not have.
+    # The partition STAYS; what falls on which side moved. The property this
+    # implements is general and unchanged: import every entry this mirror can
+    # represent, REPORT the ones it cannot, never abort the whole request over
+    # a single entry. Only the definition of "irrepresentable" narrowed.
     #
-    # What could not stay is the all-or-nothing import: that single entry
-    # aborted the WHOLE request, so the publication the recovery path was being
-    # tested against was the one publication it could not recover.
+    # It used to be `<= 1`, on the belief that a one-unit price was not a
+    # tramo. That was wrong twice over. MercadoLibre ACCEPTS
+    # `min_purchase_unit: 1` and holds it in production -- MLA1563835240
+    # carries `{"id": "3396", "amount": 80999, "min_purchase_unit": 1}` with
+    # both `context_restrictions` -- and, decisively, that entry is what makes
+    # the publication appear as "Venta para negocios". It is the switch for the
+    # B2B shelf, so dropping it meant the mirror could not describe whether the
+    # listing was on that shelf at all. `ck_ml_pxq_tier_cantidad_minima_ge_1`
+    # carries the full reasoning.
+    #
+    # So today's trigger is `< 1` -- zero or negative -- a DEFENSIVE case ML
+    # should never produce. If it ever does, the entry still cannot be a tier
+    # and the import still must not die on it.
     #
     # Skipping is safe, and that is a property of `pxq_diff`, not an
     # assumption: every live tier no local row references is re-emitted as an
@@ -276,11 +282,11 @@ def adopt_live_pxq_tiers(
     # `cantidad_minima` is AMBIGUOUS (nothing says which price wins), and
     # picking one silently would persist a money value nobody chose. Guarded by
     # `test_a_duplicate_quantity_still_aborts_because_nothing_says_which_entry_wins`.
-    importable = [f for f in fields if f.cantidad_minima > 1]
+    importable = [f for f in fields if f.cantidad_minima >= 1]
     skipped = [
         SkippedLiveEntry(ml_price_id=f.ml_price_id, cantidad_minima=f.cantidad_minima)
         for f in fields
-        if f.cantidad_minima <= 1
+        if f.cantidad_minima < 1
     ]
 
     # --- LOCK OPENS ------------------------------------------------------
@@ -368,7 +374,7 @@ def adopt_live_pxq_tiers(
         # never reaches here, and logging a skip for a request that persisted
         # nothing would be a false record on a money path.
         logger.warning(
-            "PxQ adopt-live skipped %s live price(s) this mirror cannot represent (cantidad_minima <= 1) "
+            "PxQ adopt-live skipped %s live price(s) this mirror cannot represent (cantidad_minima < 1) "
             "item_id=%s publicacion_ml_id=%s ml_price_ids=%s cantidades=%s usuario_id=%s",
             len(skipped),
             item_id,

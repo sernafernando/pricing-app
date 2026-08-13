@@ -502,9 +502,10 @@ def test_a_422_raised_mid_loop_persists_nothing(db, publicacion, pxq_user) -> No
     below pins that reality.
 
     This used to be parametrized with a second payload, `quantity-of-one`.
-    That one no longer raises at all -- it is SKIPPED now (guard 8) -- and
-    leaving it here would have asserted the abort this change exists to
-    remove.
+    That one no longer raises at all -- first because it became a SKIP
+    (guard 8), and now because it is imported outright: a one-unit tier is
+    what turns on "Venta para negocios" on MercadoLibre. Leaving it here would
+    have asserted an abort that no longer exists.
 
     The SPEC still holds — zero rows are persisted — but for a different
     reason than the design gives: `get_db` never commits, and closes the
@@ -550,19 +551,24 @@ def test_a_duplicate_quantity_still_aborts_because_nothing_says_which_entry_wins
     """The skip covers ONE condition and must never be widened into "swallow
     any 422 the import loop raises".
 
-    `cantidad_minima <= 1` is individually decidable and known by design: that
+    `cantidad_minima < 1` is individually decidable and known by design: that
     entry cannot be a tier here, no other entry changes that, and there is
     exactly one right thing to do with it. Two entries sharing a quantity is
     the opposite -- WHICH price wins is a question the payload does not
     answer, and picking one silently would write a money value nobody chose.
     Failing loud is the correct outcome there, and it stays that way.
 
+    The skippable half used to be a quantity of ONE. It is not skippable any
+    more -- a one-unit tier is what turns on "Venta para negocios" and is now
+    imported like any other -- so the defensive `< 1` case takes its place.
+    The asymmetry being guarded is unchanged; only its left-hand example moved.
+
     Both payloads are asserted in ONE test on purpose: the property being
     guarded is the ASYMMETRY, and split across two tests each half would still
     pass under an implementation that catches `HTTPException` and skips
     everything.
     """
-    skippable = [_live("ML1", 1, 999.0), _live("ML2", 4, 900.0)]
+    skippable = [_live("ML1", 0, 999.0), _live("ML2", 4, 900.0)]
     ambiguous = [_live("ML3", 4, 900.0), _live("ML4", 4, 850.0)]
 
     patcher, _ = _mock_client(skippable)
@@ -570,7 +576,7 @@ def test_a_duplicate_quantity_still_aborts_because_nothing_says_which_entry_wins
         outcome = _adopt_outcome(db, pxq_user, publicacion)
     finally:
         patcher.stop()
-    assert [s.cantidad_minima for s in outcome.skipped] == [1]
+    assert [s.cantidad_minima for s in outcome.skipped] == [0]
     assert [r.cantidad_minima for r in outcome.imported] == [4]
 
     # Same publication, now non-empty -- so a second import would 409 before

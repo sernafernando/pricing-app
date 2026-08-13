@@ -1,6 +1,6 @@
 """Model tests for `MlPxqTier` (ml-wholesale-pxq-pricing PR2).
 
-Spec coverage: tier CRUD constraints — `cantidad_minima > 1` (CheckConstraint),
+Spec coverage: tier CRUD constraints — `cantidad_minima >= 1` (CheckConstraint),
 unique `(publicacion_ml_id, cantidad_minima)`, nullable `costo_envio_total` /
 `ml_price_id`. Max-5-tiers-per-publication is a SERVICE-layer rule (422), not a
 DB constraint, and is covered separately.
@@ -91,12 +91,23 @@ def test_costo_envio_total_and_ml_price_id_are_nullable(db, publicacion, pxq_use
     assert tier.ml_price_id is None
 
 
-def test_cantidad_minima_of_one_violates_check_constraint(db, publicacion, pxq_user) -> None:
+def test_a_one_unit_row_is_accepted_because_it_is_what_turns_on_venta_para_negocios(db, publicacion, pxq_user) -> None:
+    """MercadoLibre accepts `min_purchase_unit: 1` in production
+    (MLA1563835240, price id 3396) even though its documentation says the value
+    must be greater than 1 — and that entry is what makes the publication
+    appear as "Venta para negocios". It is not a residue: it is the switch for
+    the B2B shelf, so the mirror has to be able to hold it.
+
+    The constraint that used to reject it was derived from the documentation
+    alone. Reality contradicts the documentation at both ends, which is exactly
+    why this row is a test and not a comment: reading the same doc again in six
+    months is what would "restore" the old rule."""
     tier = _make_tier(publicacion, pxq_user, cantidad_minima=1)
     db.add(tier)
-    with pytest.raises(IntegrityError):
-        db.flush()
-    db.rollback()
+    db.flush()
+
+    assert tier.id is not None
+    assert tier.cantidad_minima == 1
 
 
 def test_cantidad_minima_of_zero_or_negative_violates_check_constraint(db, publicacion, pxq_user) -> None:
