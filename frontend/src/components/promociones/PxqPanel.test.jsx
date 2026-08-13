@@ -861,7 +861,9 @@ describe('PxqPanel — adopt-live import (PR 4e)', () => {
   it('does not claim an import happened when ML turned out to have nothing left', async () => {
     const user = userEvent.setup();
     pxqAPI.getLive.mockResolvedValue(mockLive(liveOnly));
-    pxqAPI.adoptLive.mockResolvedValue({ data: { item_id: 'MLA001', count: 0, imported: [] } });
+    // `skipped_count: 0` is explicit, not incidental: this is the ONLY branch
+    // still allowed to claim MercadoLibre has nothing.
+    pxqAPI.adoptLive.mockResolvedValue({ data: { item_id: 'MLA001', count: 0, imported: [], skipped_count: 0, skipped: [] } });
 
     renderPanel();
     await user.click(await screen.findByRole('button', IMPORT_BUTTON));
@@ -869,6 +871,64 @@ describe('PxqPanel — adopt-live import (PR 4e)', () => {
     expect(await screen.findByText(/ya no tiene tramos mayoristas para importar/i)).toBeInTheDocument();
     expect(screen.queryByText(/se importaron 0/i)).not.toBeInTheDocument();
     // No next step is named, because no rows were created to have one.
+    expect(screen.queryByText(/cargá el costo de envío del bulto/i)).not.toBeInTheDocument();
+  });
+
+  // MercadoLibre accepts a B2B price with `min_purchase_unit: 1` and this
+  // mirror cannot hold one — by decision, not by oversight. The backend now
+  // imports the rest and reports the skip instead of aborting the whole
+  // request, and the skip must NEVER be silent: the operator is looking at a
+  // panel that will not show that price anywhere.
+  it('names the skipped price alongside the imported count', async () => {
+    const user = userEvent.setup();
+    pxqAPI.getLive.mockResolvedValue(mockLive(liveOnly));
+    pxqAPI.adoptLive.mockResolvedValue({
+      data: {
+        item_id: 'MLA001',
+        count: 2,
+        imported: [],
+        skipped_count: 1,
+        skipped: [{ ml_price_id: '3396', cantidad_minima: 1 }],
+      },
+    });
+
+    renderPanel();
+    await user.click(await screen.findByRole('button', IMPORT_BUTTON));
+
+    const message = await screen.findByText(/se importaron 2 tramos/i);
+    // The success copy is not replaced by the skip — both facts are true and
+    // the operator needs both.
+    expect(message).toHaveTextContent(/cargá el costo de envío del bulto en cada uno/i);
+    expect(message).toHaveTextContent(/no se importó/i);
+    expect(message).toHaveTextContent(/menos de 2 unidades/i);
+    // And the reassurance that matters on a money path: skipping is not
+    // deleting. `pxq_diff` re-emits every untracked live tier as a keep.
+    expect(message).toHaveTextContent(/sigue.*mercadolibre/i);
+  });
+
+  // The branch that used to LIE. `count === 0` alone routed to "MercadoLibre
+  // ya no tiene tramos mayoristas", and with a skip present that is false:
+  // ML has a price, it is this panel that cannot represent it.
+  it('does not claim MercadoLibre has nothing when everything was skipped', async () => {
+    const user = userEvent.setup();
+    pxqAPI.getLive.mockResolvedValue(mockLive(liveOnly));
+    pxqAPI.adoptLive.mockResolvedValue({
+      data: {
+        item_id: 'MLA001',
+        count: 0,
+        imported: [],
+        skipped_count: 1,
+        skipped: [{ ml_price_id: '3396', cantidad_minima: 1 }],
+      },
+    });
+
+    renderPanel();
+    await user.click(await screen.findByRole('button', IMPORT_BUTTON));
+
+    const message = await screen.findByText(/no se importó nada/i);
+    expect(message).toHaveTextContent(/menos de 2 unidades/i);
+    expect(screen.queryByText(/ya no tiene tramos mayoristas/i)).not.toBeInTheDocument();
+    // Nothing landed, so there is no shipping cost to go and load.
     expect(screen.queryByText(/cargá el costo de envío del bulto/i)).not.toBeInTheDocument();
   });
 

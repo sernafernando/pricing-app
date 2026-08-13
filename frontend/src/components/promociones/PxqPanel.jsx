@@ -539,6 +539,30 @@ function adoptOutcomeMessage(httpStatus, detail) {
   return { kind: 'error', text: 'No se pudieron importar los tramos desde MercadoLibre.' };
 }
 
+// MercadoLibre accepts a B2B price with `min_purchase_unit: 1`; this panel's
+// mirror only holds tiers from 2 units up, by decision on the backend. The
+// import skips those entries instead of aborting.
+//
+// This sentence is what accounts for the gap the operator can SEE: the live
+// column renders every entry MercadoLibre reports, including the skipped one,
+// and the mirror column next to it will never grow a row to match. Without
+// this, a successful import leaves two columns that disagree by a row and
+// nothing on screen saying why.
+//
+// It always ends with "sigue vivo en MercadoLibre" because the reflex on a
+// money path is to read "no se importó" as "se perdió". It did not: `pxq_diff`
+// re-emits every live tier no local row references as an untracked keep, so the
+// skipped price is left exactly as it is.
+//
+// The reason is stated as the RULE ("menos de 2 unidades"), not as a quantity
+// read off the payload — the backend skips `cantidad_minima <= 1`, so naming
+// "1 unidad" would be a guess the response does not guarantee.
+function skippedAdoptSentence(skippedCount) {
+  return skippedCount === 1
+    ? 'Hay 1 precio en MercadoLibre que no se importó porque es para menos de 2 unidades, y este panel solo maneja tramos desde 2. Sigue vivo en MercadoLibre: no se borra ni se toca.'
+    : `Hay ${skippedCount} precios en MercadoLibre que no se importaron porque son para menos de 2 unidades, y este panel solo maneja tramos desde 2. Siguen vivos en MercadoLibre: no se borran ni se tocan.`;
+}
+
 /**
  * Import action (PR 4e): pulls MercadoLibre's live tiers DOWN into an empty
  * local mirror. `POST /pxq/{item_id}/adopt-live` writes only local rows and
@@ -579,7 +603,18 @@ function PxqAdoptControl({ itemId, canImport, feedback, onFeedback, onAdopted })
     try {
       const { data } = await pxqAPI.adoptLive(itemId);
       const count = data?.count ?? 0;
-      if (count === 0) {
+      const skippedCount = data?.skipped_count ?? 0;
+      if (count === 0 && skippedCount > 0) {
+        // Its OWN branch, ahead of the one below, because that one would LIE
+        // here: MercadoLibre does have prices on this publication — none of
+        // them is a tier this panel can hold. Routing both through "ML ya no
+        // tiene tramos" would tell the operator the listing is empty when it
+        // is not, and nothing else on screen would contradict it.
+        onFeedback({
+          kind: 'warn',
+          text: `No se importó nada. ${skippedAdoptSentence(skippedCount)}`,
+        });
+      } else if (count === 0) {
         // Reachable, not defensive: the mount condition reads the live state
         // fetched when the panel opened, and ML can lose its tiers between then
         // and this click. The backend answers that with 200 + count 0. Claiming
@@ -595,11 +630,17 @@ function PxqAdoptControl({ itemId, canImport, feedback, onFeedback, onAdopted })
         // eligibility is decided by the cost alone (`pxq_confirm.is_priceable`)
         // and nothing in the backend ever writes `ESTADO_LISTO`. A tier that
         // silently cannot be written back to ML is a trap, so the copy says so.
+        //
+        // The skip is APPENDED, never substituted: both facts are true at once
+        // and each has its own consequence — the shipping cost has to be loaded
+        // on the rows that landed, and the operator has to know MercadoLibre
+        // holds something this panel will never show him.
         onFeedback({
           kind: 'ok',
           text:
             `${count === 1 ? 'Se importó 1 tramo' : `Se importaron ${count} tramos`} desde MercadoLibre. ` +
-            'Todavía no podés actualizar precios con ellos: cargá el costo de envío del bulto en cada uno.',
+            'Todavía no podés actualizar precios con ellos: cargá el costo de envío del bulto en cada uno.' +
+            (skippedCount > 0 ? ` ${skippedAdoptSentence(skippedCount)}` : ''),
         });
       }
       await onAdopted();
