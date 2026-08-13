@@ -21,9 +21,15 @@ set -uo pipefail
 WABOT_URL="${WABOT_URL:-http://192.168.1.232:3000}"
 WABOT_TIMEOUT="${WABOT_TIMEOUT:-8}"
 
+# El `set -u` de arriba convierte cualquier $VAR sin definir dentro del archivo
+# (un placeholder sin expandir, un token mal pegado) en un error fatal que mata
+# este helper y rompe su contrato de salir siempre 0. Se relaja solo acá: con un
+# token invalido preferimos un 401 legible antes que una muerte silenciosa.
 if [ -z "${WABOT_TOKEN:-}" ] && [ -r /etc/wabot-client.env ]; then
+    set +u
     # shellcheck disable=SC1091
     . /etc/wabot-client.env
+    set -u
 fi
 
 MESSAGE="${1:-}"

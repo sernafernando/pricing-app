@@ -458,9 +458,14 @@ group's point of view. Verify it after any server rebuild.
 # Read the current token from the service itself — never copy it between docs
 ssh wabot 'grep WABOT_TOKEN /etc/wabot.env'
 
-# Store it on the deploy host (192.168.1.219), root-only
+# Store it on the deploy host (192.168.1.219), root-only.
+# Single quotes matter: the file is sourced by bash, so an unquoted $, { or }
+# in the token would be expanded or mangled instead of sent verbatim.
 sudo install -m 600 /dev/null /etc/wabot-client.env
-echo 'WABOT_TOKEN=<value>' | sudo tee /etc/wabot-client.env >/dev/null
+echo "WABOT_TOKEN='<value>'" | sudo tee /etc/wabot-client.env >/dev/null
+
+# Verify the token was stored literally, not expanded into something else
+sudo grep WABOT_TOKEN /etc/wabot-client.env
 
 # Confirm the helper reaches the service
 /var/www/html/pricing-app/scripts/notify-wabot.sh "prueba de deploy notifications"
