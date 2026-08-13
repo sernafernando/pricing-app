@@ -874,11 +874,11 @@ describe('PxqPanel — adopt-live import (PR 4e)', () => {
     expect(screen.queryByText(/cargá el costo de envío del bulto/i)).not.toBeInTheDocument();
   });
 
-  // MercadoLibre accepts a B2B price with `min_purchase_unit: 1` and this
-  // mirror cannot hold one — by decision, not by oversight. The backend now
-  // imports the rest and reports the skip instead of aborting the whole
-  // request, and the skip must NEVER be silent: the operator is looking at a
-  // panel that will not show that price anywhere.
+  // The skip survives, its trigger moved. A one-unit tier is imported now —
+  // it is what turns on "Venta para negocios" on MercadoLibre — so the only
+  // thing left that this mirror cannot represent is a quantity below 1. The
+  // copy has to state THAT rule, because a sentence naming the old floor would
+  // be a false explanation for a gap the operator can see on screen.
   it('names the skipped price alongside the imported count', async () => {
     const user = userEvent.setup();
     pxqAPI.getLive.mockResolvedValue(mockLive(liveOnly));
@@ -888,7 +888,7 @@ describe('PxqPanel — adopt-live import (PR 4e)', () => {
         count: 2,
         imported: [],
         skipped_count: 1,
-        skipped: [{ ml_price_id: '3396', cantidad_minima: 1 }],
+        skipped: [{ ml_price_id: '3396', cantidad_minima: 0 }],
       },
     });
 
@@ -900,7 +900,11 @@ describe('PxqPanel — adopt-live import (PR 4e)', () => {
     // the operator needs both.
     expect(message).toHaveTextContent(/cargá el costo de envío del bulto en cada uno/i);
     expect(message).toHaveTextContent(/no se importó/i);
-    expect(message).toHaveTextContent(/menos de 2 unidades/i);
+    expect(message).toHaveTextContent(/no llega a 1 unidad/i);
+    // The old floor must be GONE from the copy, not merely joined by the new
+    // one: it now describes a rule the backend no longer applies.
+    expect(message).not.toHaveTextContent(/menos de 2 unidades/i);
+    expect(message).not.toHaveTextContent(/tramos desde 2/i);
     // And the reassurance that matters on a money path: skipping is not
     // deleting. `pxq_diff` re-emits every untracked live tier as a keep.
     expect(message).toHaveTextContent(/sigue.*mercadolibre/i);
@@ -918,7 +922,7 @@ describe('PxqPanel — adopt-live import (PR 4e)', () => {
         count: 0,
         imported: [],
         skipped_count: 1,
-        skipped: [{ ml_price_id: '3396', cantidad_minima: 1 }],
+        skipped: [{ ml_price_id: '3396', cantidad_minima: 0 }],
       },
     });
 
@@ -926,7 +930,7 @@ describe('PxqPanel — adopt-live import (PR 4e)', () => {
     await user.click(await screen.findByRole('button', IMPORT_BUTTON));
 
     const message = await screen.findByText(/no se importó nada/i);
-    expect(message).toHaveTextContent(/menos de 2 unidades/i);
+    expect(message).toHaveTextContent(/no llega a 1 unidad/i);
     expect(screen.queryByText(/ya no tiene tramos mayoristas/i)).not.toBeInTheDocument();
     // Nothing landed, so there is no shipping cost to go and load.
     expect(screen.queryByText(/cargá el costo de envío del bulto/i)).not.toBeInTheDocument();

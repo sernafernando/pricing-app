@@ -124,16 +124,29 @@ def test_happy_path_imports_every_live_tier_with_its_snapshot(db, publicacion, p
     assert _tier_count(db, publicacion) == 3
 
 
-def test_a_live_entry_of_one_unit_is_skipped_and_the_rest_import_and_commit(db, publicacion, pxq_user) -> None:
-    """MercadoLibre accepts a B2B price with `min_purchase_unit: 1` and does
-    hold them in production (MLA1563835240 carries one). Our mirror cannot
-    represent it -- `ck_ml_pxq_tier_cantidad_minima_gt_1` and
-    `create_pxq_tier`'s 422 -- and that restriction STAYS, by decision.
+def test_the_one_unit_tier_that_turns_on_venta_para_negocios_is_imported_with_the_rest(
+    db, publicacion, pxq_user
+) -> None:
+    """INVERTED on purpose. This test used to fix the opposite behaviour: a
+    live entry of one unit was SKIPPED and only the 2 and the 5 landed.
 
-    What must not stay is the all-or-nothing import: that single entry used to
-    abort the whole request, so the one publication the recovery path was
-    being tested against could not be recovered at all. The other two tiers
-    are perfectly representable and are what the operator came for.
+    Two facts killed that rule, and the second is the decisive one.
+
+    MercadoLibre ACCEPTS `min_purchase_unit: 1` and holds it in production --
+    MLA1563835240 carries `{"id": "3396", "amount": 80999,
+    "min_purchase_unit": 1}` with both `context_restrictions`
+    (`channel_marketplace`, `user_type_business`) -- so ML's own documentation,
+    which says the value must be greater than 1, is wrong about what ML
+    accepts.
+
+    And that entry is not inert: the one-unit tier is what makes the
+    publication appear as "Venta para negocios". It is the switch for the B2B
+    shelf, not a stray row beside the wholesale table. A mirror that drops it
+    cannot describe whether the listing is on that shelf at all -- which is
+    precisely the state the operator opens this panel to see.
+
+    So the number here is not the point. The point is that skipping it hid a
+    business fact, and 1/2/5 must land as three tiers with no skip reported.
     """
     commit_spy = MagicMock(wraps=db.commit)
     patcher, _ = _mock_client([_live("ML1", 1, 999.0), _live("ML2", 2, 900.0), _live("ML3", 5, 800.0)])
@@ -143,34 +156,39 @@ def test_a_live_entry_of_one_unit_is_skipped_and_the_rest_import_and_commit(db, 
     finally:
         patcher.stop()
 
-    assert [r.cantidad_minima for r in outcome.imported] == [2, 5]
-    assert [r.precio_unitario for r in outcome.imported] == [Decimal("900.0"), Decimal("800.0")]
-    assert [s.cantidad_minima for s in outcome.skipped] == [1]
+    assert [r.cantidad_minima for r in outcome.imported] == [1, 2, 5]
+    assert [r.precio_unitario for r in outcome.imported] == [Decimal("999.0"), Decimal("900.0"), Decimal("800.0")]
+    assert outcome.skipped == []
 
-    # The point of the whole change: the rows are PERSISTED, not staged and
-    # then thrown away with the session.
+    # The rows are PERSISTED, not staged and then thrown away with the session.
     commit_spy.assert_called_once()
-    assert _tier_count(db, publicacion) == 2
+    assert _tier_count(db, publicacion) == 3
 
 
 def test_a_skipped_entry_is_reported_with_its_ml_price_id_and_quantity(db, publicacion, pxq_user) -> None:
-    """A silent skip is worse than the abort it replaces: the operator would
-    read "2 tramos importados" and believe the mirror now matches ML, while
-    the panel's live column keeps rendering an entry the mirror column will
-    never match. The identifiers are what tie the report back to that exact
-    entry on MercadoLibre."""
-    patcher, _ = _mock_client([_live(3396, 1, 80999), _live("ML2", 2, 900.0)])
+    """The skip did NOT go away with the one-unit rule -- what it triggers on
+    did. The general property is unchanged: import what this mirror understands,
+    REPORT what it does not, never abort the whole request over one entry.
+
+    Today the only irrepresentable quantity is below 1, which MercadoLibre
+    should never produce; this is the defensive half of the partition. A silent
+    skip would still be worse than the abort it replaced: the operator would
+    read "1 tramo importado" and believe the mirror now matches ML, while the
+    panel's live column keeps rendering an entry the mirror column will never
+    match. The identifiers are what tie the report back to that exact entry."""
+    patcher, _ = _mock_client([_live(3396, 0, 80999), _live("ML2", 2, 900.0)])
     try:
         outcome = _adopt_outcome(db, pxq_user, publicacion)
     finally:
         patcher.stop()
 
+    assert [r.cantidad_minima for r in outcome.imported] == [2]
     assert len(outcome.skipped) == 1
     skipped = outcome.skipped[0]
     # `str()`-coerced for the same reason `ml_price_id` is everywhere else in
     # this feature: MercadoLibre returns the id as a NUMBER.
     assert skipped.ml_price_id == "3396"
-    assert skipped.cantidad_minima == 1
+    assert skipped.cantidad_minima == 0
 
 
 def test_an_entirely_irrepresentable_live_set_imports_nothing_without_raising(db, publicacion, pxq_user) -> None:
@@ -179,14 +197,14 @@ def test_an_entirely_irrepresentable_live_set_imports_nothing_without_raising(db
     fix something that is not broken. Zero imported and one skip is the honest
     answer, and it is a DIFFERENT fact from "ML holds no tiers": the frontend
     has to be able to tell those two apart."""
-    patcher, _ = _mock_client([_live("ML1", 1, 999.0)])
+    patcher, _ = _mock_client([_live("ML1", 0, 999.0)])
     try:
         outcome = _adopt_outcome(db, pxq_user, publicacion)
     finally:
         patcher.stop()
 
     assert outcome.imported == []
-    assert [s.cantidad_minima for s in outcome.skipped] == [1]
+    assert [s.cantidad_minima for s in outcome.skipped] == [0]
     assert _tier_count(db, publicacion) == 0
 
 

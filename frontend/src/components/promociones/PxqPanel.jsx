@@ -539,9 +539,12 @@ function adoptOutcomeMessage(httpStatus, detail) {
   return { kind: 'error', text: 'No se pudieron importar los tramos desde MercadoLibre.' };
 }
 
-// MercadoLibre accepts a B2B price with `min_purchase_unit: 1`; this panel's
-// mirror only holds tiers from 2 units up, by decision on the backend. The
-// import skips those entries instead of aborting.
+// The backend skips `cantidad_minima < 1`, and this sentence has to state THAT
+// rule. It used to say "menos de 2 unidades": the mirror refused a one-unit
+// tier back then. It does not any more — a price with `min_purchase_unit: 1` is
+// what makes the publication show up as "Venta para negocios" on MercadoLibre,
+// so it is imported like any other tier now. Leaving the old wording here would
+// have kept explaining a gap with a rule the backend no longer applies.
 //
 // This sentence is what accounts for the gap the operator can SEE: the live
 // column renders every entry MercadoLibre reports, including the skipped one,
@@ -554,13 +557,14 @@ function adoptOutcomeMessage(httpStatus, detail) {
 // re-emits every live tier no local row references as an untracked keep, so the
 // skipped price is left exactly as it is.
 //
-// The reason is stated as the RULE ("menos de 2 unidades"), not as a quantity
-// read off the payload — the backend skips `cantidad_minima <= 1`, so naming
-// "1 unidad" would be a guess the response does not guarantee.
+// The reason is still stated as the RULE, not as a quantity read off the
+// payload — the response carries `cantidad_minima` per skipped entry, but the
+// copy is built from `skipped_count` alone and must not imply a number it was
+// not given.
 function skippedAdoptSentence(skippedCount) {
   return skippedCount === 1
-    ? 'Hay 1 precio en MercadoLibre que no se importó porque es para menos de 2 unidades, y este panel solo maneja tramos desde 2. Sigue vivo en MercadoLibre: no se borra ni se toca.'
-    : `Hay ${skippedCount} precios en MercadoLibre que no se importaron porque son para menos de 2 unidades, y este panel solo maneja tramos desde 2. Siguen vivos en MercadoLibre: no se borran ni se tocan.`;
+    ? 'Hay 1 precio en MercadoLibre que no se importó porque la cantidad que informa no llega a 1 unidad, y este panel solo maneja tramos desde 1. Sigue vivo en MercadoLibre: no se borra ni se toca.'
+    : `Hay ${skippedCount} precios en MercadoLibre que no se importaron porque la cantidad que informan no llega a 1 unidad, y este panel solo maneja tramos desde 1. Siguen vivos en MercadoLibre: no se borran ni se tocan.`;
 }
 
 /**

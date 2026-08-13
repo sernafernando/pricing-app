@@ -457,7 +457,7 @@ def adoptar_tramos_live_pxq(
     them to a status string leaves a refusal with nothing to act on.
 
     A PARTIAL import is a 200, not a refusal: the service skips live prices
-    this mirror cannot represent (`cantidad_minima <= 1`) and reports them in
+    this mirror cannot represent (`cantidad_minima < 1`) and reports them in
     `skipped`. Surfaced rather than swallowed because no mirror row is created
     for them, while `GET /{item_id}/live` goes on reporting them in
     `live_tiers` -- so the panel shows a live tier with no counterpart, and

@@ -1,6 +1,6 @@
 """Service-layer validation for creating `MlPxqTier` rows (PR2, task 9/10).
 
-Max 5 tiers per publication and `cantidad_minima > 1` are validated here
+Max 5 tiers per publication and `cantidad_minima >= 1` are validated here
 (422) BEFORE hitting the DB — the DB CheckConstraint/UniqueConstraint are a
 second, independent line of defense (see tests/models/test_ml_pxq_tier.py),
 not the primary UX-facing validation path.
@@ -72,13 +72,43 @@ def test_create_tier_happy_path(db, publicacion, pxq_user) -> None:
     assert tier.estado == "incompleto"
 
 
-def test_cantidad_minima_of_one_rejected_with_422(db, publicacion, pxq_user) -> None:
+def test_a_one_unit_tier_is_created_because_it_is_what_turns_on_venta_para_negocios(db, publicacion, pxq_user) -> None:
+    """The one-unit tier is not a leftover: it is what makes the publication
+    show up as "Venta para negocios" on MercadoLibre. Without it the listing
+    does not appear in that B2B shelf at all, so a mirror that cannot hold it
+    cannot describe the state that matters.
+
+    The previous 422 came from reading ML's documentation literally
+    (`min_purchase_unit` must be greater than 1). Production contradicts the
+    documentation on both counts: ML ACCEPTS it -- MLA1563835240 holds
+    `{"id": "3396", "amount": 80999, "min_purchase_unit": 1}` with both
+    `context_restrictions` -- and the entry does a job.
+    """
+    tier = create_pxq_tier(
+        db,
+        publicacion_ml_id=publicacion.id,
+        item_id=publicacion.mla,
+        cantidad_minima=1,
+        precio_unitario=500.0,
+        usuario_id=pxq_user.id,
+    )
+
+    assert tier.id is not None
+    assert tier.cantidad_minima == 1
+    assert db.query(MlPxqTier).filter_by(publicacion_ml_id=publicacion.id, cantidad_minima=1).count() == 1
+
+
+def test_cantidad_minima_of_zero_is_still_rejected_with_422(db, publicacion, pxq_user) -> None:
+    """The floor moved from 2 to 1, it did not disappear. A tier for zero units
+    is not a quantity MercadoLibre can express and not a price anyone can buy;
+    it would reach the DB CheckConstraint as an IntegrityError surfacing as a
+    500 where this service promises a 422."""
     with pytest.raises(HTTPException) as exc_info:
         create_pxq_tier(
             db,
             publicacion_ml_id=publicacion.id,
             item_id=publicacion.mla,
-            cantidad_minima=1,
+            cantidad_minima=0,
             precio_unitario=500.0,
             usuario_id=pxq_user.id,
         )
@@ -353,7 +383,45 @@ def test_update_unknown_tier_is_a_clean_404(db) -> None:
     assert exc.value.status_code == 404
 
 
-def test_update_rejects_cantidad_minima_of_one(db, publicacion, pxq_user) -> None:
+def test_update_accepts_cantidad_minima_of_one_because_it_turns_on_venta_para_negocios(
+    db, publicacion, pxq_user
+) -> None:
+    """INVERTED, and the asymmetry it removes was ours.
+
+    A tier of ONE unit is what makes the publication appear as "Venta para
+    negocios" on MercadoLibre -- the switch for the B2B shelf, which ML accepts
+    and holds in production (MLA1563835240, price id 3396) despite its own
+    documentation saying `min_purchase_unit` must be greater than 1.
+
+    `create_pxq_tier` and the DB CheckConstraint already agreed on that. This
+    path did not, and the gap only existed BECAUSE of that change: before it,
+    neither create nor update took a one-unit tier, which was wrong but at
+    least coherent. Leaving it half-moved would have shipped a state where the
+    operator sees an imported one-unit tier in the panel, tries to fix its
+    quantity by hand, and gets a 422 explaining nothing -- about a row the
+    system itself had just written.
+    """
+    tier = create_pxq_tier(
+        db,
+        publicacion_ml_id=publicacion.id,
+        item_id=publicacion.mla,
+        cantidad_minima=5,
+        precio_unitario=Decimal("500.00"),
+        usuario_id=pxq_user.id,
+    )
+    db.flush()
+
+    updated = update_pxq_tier(db, tier_id=tier.id, cantidad_minima=1)
+
+    assert updated.cantidad_minima == 1
+    assert db.query(MlPxqTier).filter_by(id=tier.id).one().cantidad_minima == 1
+
+
+def test_update_still_rejects_cantidad_minima_of_zero(db, publicacion, pxq_user) -> None:
+    """The floor moved from 2 to 1 on this path too; it did not disappear.
+    Zero is not a quantity MercadoLibre can express, and reaching the DB
+    CheckConstraint with it would surface an IntegrityError as a 500 where this
+    service promises a 422."""
     tier = create_pxq_tier(
         db,
         publicacion_ml_id=publicacion.id,
@@ -365,9 +433,10 @@ def test_update_rejects_cantidad_minima_of_one(db, publicacion, pxq_user) -> Non
     db.flush()
 
     with pytest.raises(HTTPException) as exc:
-        update_pxq_tier(db, tier_id=tier.id, cantidad_minima=1)
+        update_pxq_tier(db, tier_id=tier.id, cantidad_minima=0)
 
     assert exc.value.status_code == 422
+    assert db.query(MlPxqTier).filter_by(id=tier.id).one().cantidad_minima == 5
 
 
 def test_update_rejects_duplicate_cantidad_minima_on_the_same_publication(db, publicacion, pxq_user) -> None:

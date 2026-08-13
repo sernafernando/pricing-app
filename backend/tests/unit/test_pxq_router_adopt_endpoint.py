@@ -165,7 +165,7 @@ def test_a_skipped_entry_is_reported_with_its_ml_price_id_and_quantity(db, publi
     column that will never match. A count alone would leave "2 imported"
     reading as "the mirror matches ML" -- exactly the false belief this
     reporting exists to prevent."""
-    patcher, _ = _mock_client([_live(3396, 1, 80999), _live("ML2", 3, 900.5), _live("ML3", 6, 850.25)])
+    patcher, _ = _mock_client([_live(3396, 0, 80999), _live("ML2", 3, 900.5), _live("ML3", 6, 850.25)])
     try:
         result = _adopt(db, pxq_user, publicacion.mla)
     finally:
@@ -174,7 +174,7 @@ def test_a_skipped_entry_is_reported_with_its_ml_price_id_and_quantity(db, publi
     assert result.count == 2
     assert [t.cantidad_minima for t in result.imported] == [3, 6]
     assert result.skipped_count == 1
-    assert [s.cantidad_minima for s in result.skipped] == [1]
+    assert [s.cantidad_minima for s in result.skipped] == [0]
     assert [s.ml_price_id for s in result.skipped] == ["3396"]
     assert db.query(MlPxqTier).filter(MlPxqTier.publicacion_ml_id == publicacion.id).count() == 2
 
@@ -184,7 +184,7 @@ def test_a_fully_skipped_live_set_is_count_zero_WITH_a_skip_reported(db, publica
     different messages off it: "MercadoLibre ya no tiene tramos" is FALSE
     here -- ML has a price, it is just not one this mirror can hold. The skip
     list is what disambiguates them."""
-    patcher, _ = _mock_client([_live("ML1", 1, 999.0)])
+    patcher, _ = _mock_client([_live("ML1", 0, 999.0)])
     try:
         result = _adopt(db, pxq_user, publicacion.mla)
     finally:
@@ -193,7 +193,7 @@ def test_a_fully_skipped_live_set_is_count_zero_WITH_a_skip_reported(db, publica
     assert result.count == 0
     assert result.imported == []
     assert result.skipped_count == 1
-    assert [s.cantidad_minima for s in result.skipped] == [1]
+    assert [s.cantidad_minima for s in result.skipped] == [0]
 
 
 def test_conflict_detail_passes_through_untouched(db, publicacion, pxq_user) -> None:
