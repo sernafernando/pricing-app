@@ -35,6 +35,7 @@ from app.tickets.models.tipo_ticket import TipoTicket
 from app.tickets.models.workflow import EstadoTicket, TransicionEstado, Workflow
 from app.tickets.services.triage_service import (
     TriagePropuesta,
+    _ya_tiene_propuesta_activa,
     catalogo_sectores_activos,
     pasa_umbral_confianza,
     run_triage,
@@ -794,6 +795,56 @@ class TestDuplicateProposalGuard:
             db.query(PropuestaIA).filter(PropuestaIA.ticket_id == ticket.id, PropuestaIA.campo == "urgencia").all()
         )
         assert len(urgencia_rows) == 1  # sibling field still writes
+
+
+class TestYaTienePropuestaActivaIncludesCorregida:
+    """Design's `estado` consumer audit, item 1 of 3 (the CRITICAL one):
+    without `corregida` in this guard's `estado.in_(...)` tuple, a
+    re-triage after a correction would re-surface a field the human
+    already decided — breaking spec #1304's "human rejection never
+    re-surfaces" invariant, extended to `corregida`, with NO visible
+    change at this call site (the exact #1400 failure shape)."""
+
+    def test_returns_true_for_corregida(self, db, rol_ventas) -> None:
+        ticket = _make_ticket(db, rol_ventas, "corregida_guard")
+        db.add(
+            PropuestaIA(
+                ticket_id=ticket.id,
+                campo="severidad",
+                valor_propuesto={"valor": "mayor"},
+                valor_corregido="menor",
+                estado="corregida",
+            )
+        )
+        db.flush()
+
+        assert _ya_tiene_propuesta_activa(db, ticket.id, "severidad") is True
+
+    def test_re_triage_after_correction_writes_no_new_proposal_for_that_campo(self, db, rol_ventas) -> None:
+        """End-to-end regression, the #1400 shape through `run_triage`
+        itself: a corrected field must never re-surface as a fresh
+        `pendiente` proposal on the next triage run."""
+        ticket = _make_ticket(db, rol_ventas, "corregida_retriage")
+        db.add(
+            PropuestaIA(
+                ticket_id=ticket.id,
+                campo="severidad",
+                valor_propuesto={"valor": "mayor"},
+                valor_corregido="menor",
+                estado="corregida",
+            )
+        )
+        db.flush()
+
+        provider = FakeProvider(response=json.dumps(_valid_payload_for_ticket(ticket)))
+        with _patch_background_db(db):
+            asyncio.run(run_triage(ticket.id, provider))
+
+        severidad_rows = (
+            db.query(PropuestaIA).filter(PropuestaIA.ticket_id == ticket.id, PropuestaIA.campo == "severidad").all()
+        )
+        assert len(severidad_rows) == 1  # only the original corregida row — no new pendiente sibling
+        assert severidad_rows[0].estado == "corregida"
 
 
 TICKETS_ENDPOINT = "/api/tickets/tickets"

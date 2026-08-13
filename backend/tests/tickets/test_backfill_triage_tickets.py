@@ -210,6 +210,35 @@ class TestFindCandidateTickets:
         assert len(resultado) == 1
 
 
+class TestEstadosPropuestaActivaIncludesCorregida:
+    """Design's `estado` consumer audit, item 3 of 3: this script's own
+    docstring requires `_ESTADOS_PROPUESTA_ACTIVA` to stay in parity with
+    `triage_service._ya_tiene_propuesta_activa` — without `corregida` here,
+    a ticket whose only gap is a HUMAN-corrected field would be
+    re-selected as a backfill candidate, wasting a Groq call to propose
+    something a human already decided."""
+
+    def test_constant_includes_corregida(self) -> None:
+        assert "corregida" in script._ESTADOS_PROPUESTA_ACTIVA
+
+    def test_ticket_with_only_corregida_proposals_is_not_a_candidate(self, db, rol_ventas):
+        ticket = _make_ticket(db, rol_ventas, texto_original="Ya todo corregido a mano")
+        campos = list(script.CAMPOS_PROPUESTA_BASE) + ["titulo"]
+        for campo in campos:
+            p = PropuestaIA(
+                ticket_id=ticket.id,
+                campo=campo,
+                valor_propuesto={"valor": "x"},
+                estado="corregida",
+            )
+            db.add(p)
+        db.flush()
+
+        resultado_ids = {t.id for t in script.find_candidate_tickets(db)}
+
+        assert ticket.id not in resultado_ids
+
+
 class TestDryRunMakesNoProviderCalls:
     def test_dry_run_never_builds_the_provider(self, db, rol_ventas, monkeypatch, capsys):
         ticket = _make_ticket(db, rol_ventas, texto_original="Reclamo sin clasificar")

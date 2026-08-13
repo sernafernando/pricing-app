@@ -138,7 +138,10 @@ CAMPOS_PROPUESTA_BASE = ("sector", "tipo_ticket", "severidad", "urgencia", "resu
 # `triage_service._ya_tiene_propuesta_activa` — kept consistent on
 # purpose: if the two drift apart, this script could pick up a ticket
 # `run_triage` will immediately skip for every field, wasting a Groq call.
-_ESTADOS_PROPUESTA_ACTIVA = ("pendiente", "confirmada")
+# `corregida` (tickets-triage-feedback PR1) MUST stay in this tuple for
+# the same reason it was added to `_ya_tiene_propuesta_activa` — a field
+# a human already corrected is exactly as settled as one they ratified.
+_ESTADOS_PROPUESTA_ACTIVA = ("pendiente", "confirmada", "corregida")
 
 
 def find_candidate_tickets(db: Session, limit: Optional[int] = None) -> list:
