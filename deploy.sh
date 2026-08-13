@@ -59,12 +59,15 @@ CURRENT_STEP="inicio"
 notify() {
   [ "$NOTIFY" = true ] || return 0
 
-  if [ ! -x "$NOTIFY_SCRIPT" ]; then
-    warn "No se encontró $NOTIFY_SCRIPT — sin aviso por WhatsApp"
+  # Se chequea -r y se invoca con `bash` explicito, NO -x: el repo versiona los
+  # .sh como 100644 (core.fileMode=false), asi que el archivo llega del git pull
+  # sin bit ejecutable y un guard por -x dejaria la feature muda en silencio.
+  if [ ! -r "$NOTIFY_SCRIPT" ]; then
+    warn "No se pudo leer $NOTIFY_SCRIPT — sin aviso por WhatsApp"
     return 0
   fi
 
-  "$NOTIFY_SCRIPT" "$1" || true
+  bash "$NOTIFY_SCRIPT" "$1" || true
 }
 
 fmt_duration() {
