@@ -13,9 +13,11 @@ from app.services.permisos_service import PermisosService
 from app.tickets.api.deps import get_triage_provider
 from app.tickets.models.propuesta_ia import PropuestaIA
 from app.tickets.models.ticket import Ticket
-from app.tickets.schemas.ticket_schemas import ConfirmarBatchRequest, PropuestaResponse
+from app.tickets.schemas.ticket_schemas import ConfirmarBatchRequest, ConfirmarRequest, PropuestaResponse
 from app.tickets.services import confirmacion_service
 from app.tickets.services.confirmacion_service import (
+    CorreccionCampoNoPermitidoError,
+    CorreccionValorInvalidoError,
     PropuestaBatchInvalidaError,
     PropuestaCampoNoPermitidoError,
     PropuestaNoDescartableError,
@@ -92,19 +94,25 @@ def listar_propuestas_pendientes(
 @router.post("/propuestas/{propuesta_id}/confirmar", response_model=PropuestaResponse)
 def confirmar_propuesta(
     propuesta_id: int,
+    payload: ConfirmarRequest | None = None,
     db: Session = Depends(get_db),
     current_user: Usuario = Depends(get_current_user),
 ) -> PropuestaResponse:
-    """Confirma una propuesta de IA `pendiente`, o ratifica una ya aplicada
+    """Confirma una propuesta de IA `pendiente`, ratifica una ya aplicada
     automáticamente (`confirmada` con `confirmado_por_id` nulo) sin
-    reescribir el ticket. Requiere: tickets.triage.confirmar"""
+    reescribir el ticket, o la CORRIGE si el body incluye
+    `valor_corregido` (sólo severidad/urgencia). Requiere:
+    tickets.triage.confirmar"""
     _check_permiso(db, current_user, PERMISO_CONFIRMAR)
+    valor_corregido = payload.valor_corregido if payload else None
     try:
-        return confirmacion_service.confirmar(db, propuesta_id, current_user)
+        return confirmacion_service.confirmar(db, propuesta_id, current_user, valor_corregido)
     except PropuestaNoEncontradaError:
         raise HTTPException(status_code=404, detail=f"Propuesta {propuesta_id} no encontrada")
     except TicketNoEncontradoError as exc:
         raise HTTPException(status_code=404, detail=str(exc))
+    except (CorreccionCampoNoPermitidoError, CorreccionValorInvalidoError) as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
     except PropuestaCampoNoPermitidoError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
     except (
@@ -188,7 +196,18 @@ async def retriggerar_triage(
 
     activas = (
         db.query(PropuestaIA)
-        .filter(PropuestaIA.ticket_id == ticket_id, PropuestaIA.estado.in_(("pendiente", "confirmada")))
+        .filter(
+            PropuestaIA.ticket_id == ticket_id,
+            # 'corregida' added by tickets-triage-feedback PR1 (design's
+            # `estado` consumer audit, item 2 of 3): a corrected proposal
+            # is a settled human decision — without it here, a plain
+            # retrigger (no `forzar`) would silently proceed instead of
+            # 409ing, and re-surface a field the human already corrected.
+            # The `forzar` degrade loop below deliberately does NOT touch
+            # `corregida` rows (only `pendiente`/unreviewed `confirmada`)
+            # — a human correction is never silently replaced.
+            PropuestaIA.estado.in_(("pendiente", "confirmada", "corregida")),
+        )
         .all()
     )
 
