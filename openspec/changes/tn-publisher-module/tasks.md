@@ -95,10 +95,10 @@ and mirror `variant_id` are proposal "Known Defects", not formal spec requiremen
 
 - [x] 2.1 RED: test `GET /tienda-nube/productos` is gone (404) or requires auth (401/403) (SEC1).
 - [x] 2.2 GREEN: remove the route, or gate it with `verificar_permiso` + a typed `response_model`.
-- [ ] 2.3 RED: frontend test — a user with `admin.ver_items_sin_mla` but not
+- [x] 2.3 RED: frontend test — a user with `admin.ver_items_sin_mla` but not
       `admin.gestionar_mla_banlist` sees the nav entry; a user with only
       `admin.gestionar_mla_banlist` does not (UI5, D9).
-- [ ] 2.4 GREEN: change the gate in `Navbar.jsx`, `Sidebar.jsx`, `SmartRedirect.jsx` to
+- [x] 2.4 GREEN: change the gate in `Navbar.jsx`, `Sidebar.jsx`, `SmartRedirect.jsx` to
       `admin.ver_items_sin_mla`.
 - [ ] 2.5 RED: test the BANLIST sub-tab paginates against banlist rows only, not the full `reporte`
       (`TiendaNubeReconcile.jsx:676`).
