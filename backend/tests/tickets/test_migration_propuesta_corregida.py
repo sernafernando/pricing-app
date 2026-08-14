@@ -36,7 +36,11 @@ from alembic.script import ScriptDirectory
 
 _BACKEND_ROOT = Path(__file__).resolve().parents[2]
 _REVISION = "20260813_propuesta_corregida"
-_DOWN_REVISION = "20260812_triage_auto_apply"
+# The merge revision, not `20260812_triage_auto_apply` directly: that one
+# stopped being a head once `7f4b76219e4c` merged it with the pxq branch.
+# Hanging off a revision that already has a child re-forks the chain, which
+# is what the single-head assertion below exists to catch.
+_DOWN_REVISION = "7f4b76219e4c"
 
 POSTGRES_TEST_URL = os.environ.get("POSTGRES_TEST_URL", "postgresql+psycopg2://postgres@localhost:5432/pricing_test")
 

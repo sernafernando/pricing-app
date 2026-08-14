@@ -42,7 +42,7 @@ there is no "put the AI's original guess back as the ticket's live value"
 operation that makes sense to ask an operator to perform manually.
 
 Revision ID: 20260813_propuesta_corregida
-Revises: 20260812_triage_auto_apply
+Revises: 7f4b76219e4c
 Create Date: 2026-08-13
 """
 
@@ -51,7 +51,11 @@ import sqlalchemy as sa
 
 # revision identifiers, used by Alembic.
 revision = "20260813_propuesta_corregida"
-down_revision = "20260812_triage_auto_apply"
+# Rebased onto the merge revision, not onto `20260812_triage_auto_apply`
+# directly. That revision stopped being a head when `7f4b76219e4c` merged it
+# with the pxq branch; hanging off it again re-forked the chain and broke the
+# seven `TestMigrationGraph` single-head assertions spread across the suite.
+down_revision = "7f4b76219e4c"
 branch_labels = None
 depends_on = None
 
