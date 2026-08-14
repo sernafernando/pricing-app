@@ -103,9 +103,9 @@ and mirror `variant_id` are proposal "Known Defects", not formal spec requiremen
 - [x] 2.5 RED: test the BANLIST sub-tab paginates against banlist rows only, not the full `reporte`
       (`TiendaNubeReconcile.jsx:676`).
 - [x] 2.6 GREEN: fix `currentTabItems` fallback.
-- [ ] 2.7 RED: test the local mirror does not fabricate `variant_id = product_id`
+- [x] 2.7 RED: test the local mirror does not fabricate `variant_id = product_id`
       (`tn_publish_service.py:357`).
-- [ ] 2.8 GREEN: fix the mirror write (leave null/pending until the next full sync resolves the real
+- [x] 2.8 GREEN: fix the mirror write (leave null/pending until the next full sync resolves the real
       variant id, per existing mirror semantics).
 
 **Estimated lines**: ~250. **Budget verdict**: well under 800. **Dependencies**: PR-0 (independent of
