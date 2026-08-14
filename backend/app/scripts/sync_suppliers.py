@@ -1,6 +1,13 @@
 """
-Script para sincronizar tb_supplier desde el ERP (tbSupplier)
-Tabla de lookup chica - siempre hace full sync.
+Script para sincronizar proveedores desde el ERP.
+
+Es un wrapper delgado sobre `ProveedoresService.sync_desde_erp()`, la función
+canónica que ejecuta la cadena completa: GBP → tb_supplier → proveedores →
+rma_proveedores. El cliente HTTP es `erp_worker_client` (usa
+`settings.GBP_PARSER_URL`, sin hosts hardcodeados).
+
+Falla fuerte: si el ERP no responde o devuelve vacío, el script termina con
+exit code 1 y la excepción se propaga al runner del cron.
 
 Modos de uso:
     # Full (toda la tabla)
@@ -24,122 +31,53 @@ load_dotenv(dotenv_path=env_path)
 
 import argparse
 import asyncio
-import httpx
-from sqlalchemy import text
+
 from sqlalchemy.orm import Session
-from sqlalchemy.dialects.postgresql import insert
 
 from app.core.database import SessionLocal
-from app.models.tb_supplier import TBSupplier
-
-# URL del gbp-parser
-GBP_PARSER_URL = "http://localhost:8002/api/gbp-parser"
-
-VALID_FIELDS = {"comp_id", "supp_id", "supp_name", "supp_tax_number"}
-
-# Campos renombrados del ERP
-FIELD_MAP = {
-    "supp_taxNumber": "supp_tax_number",
-}
+from app.services.proveedores_service import ErpSyncError, ProveedoresService
 
 
-def is_erp_error(data: list) -> bool:
-    """Detecta respuestas de error del ERP (ej: [{"Column1":"-9"}])"""
-    if len(data) == 1 and isinstance(data[0], dict):
-        first = data[0]
-        if "Column1" in first:
-            try:
-                return int(first["Column1"]) < 0
-            except (ValueError, TypeError):
-                return False
-        if not any(field in first for field in {"comp_id", "supp_id", "supp_name"}):
-            return True
-    return False
+def sync_full(db: Session, supp_id: int | None = None) -> dict[str, int]:
+    """
+    Sincronización completa vía ProveedoresService.sync_desde_erp().
 
-
-async def fetch_from_erp(params: dict) -> list:
-    """Consulta el ERP vía gbp-parser."""
-    async with httpx.AsyncClient(timeout=60.0) as client:
-        response = await client.get(GBP_PARSER_URL, params=params)
-        response.raise_for_status()
-        data = response.json()
-        if not data or not isinstance(data, list) or is_erp_error(data):
-            return []
-        return data
-
-
-def normalize_row(row: dict) -> dict | None:
-    """Normaliza y filtra una fila del ERP."""
-    # Renombrar campos del ERP
-    for erp_name, local_name in FIELD_MAP.items():
-        if erp_name in row:
-            row[local_name] = row.pop(erp_name)
-
-    if not row.get("comp_id") or row.get("supp_id") is None:
-        return None
-
-    return {k: v for k, v in row.items() if k in VALID_FIELDS}
-
-
-def sync_full(db: Session, supp_id: int | None = None) -> None:
-    """Sincronización completa de tb_supplier"""
+    Levanta ErpSyncError si el ERP no devolvió datos utilizables.
+    """
     label = f"supp_id={supp_id}" if supp_id else "toda la tabla"
-    print(f"\n🔄 Sincronización de tb_supplier ({label})")
+    print(f"\n🔄 Sincronización de proveedores ({label})")
     print("=" * 60)
 
-    params: dict = {"strScriptLabel": "scriptSupplier"}
-    if supp_id is not None:
-        params["suppID"] = supp_id
-
-    print("📡 Consultando ERP...")
-    data = asyncio.run(fetch_from_erp(params))
-
-    if not data:
-        print("⚠️  No se obtuvieron datos del ERP")
-        return
-
-    print(f"✓ Obtenidos {len(data)} registros del ERP")
-    print("💾 Actualizando base de datos...")
-
-    normalized_data = []
-    for row in data:
-        normalized = normalize_row(row)
-        if normalized:
-            normalized_data.append(normalized)
-
-    if not normalized_data:
-        print("⚠️  Ningún registro válido para insertar")
-        return
-
-    # Upsert todo de una (tabla chica)
-    stmt = insert(TBSupplier)
-    stmt = stmt.on_conflict_do_update(
-        index_elements=["comp_id", "supp_id"],
-        set_={
-            "supp_name": stmt.excluded.supp_name,
-            "supp_tax_number": stmt.excluded.supp_tax_number,
-        },
-    )
-    db.execute(stmt, normalized_data)
-    db.commit()
+    print("📡 Consultando ERP y proyectando a proveedores...")
+    result = asyncio.run(ProveedoresService(db).sync_desde_erp(supp_id=supp_id))
 
     print("\n✅ Sincronización finalizada")
-    print(f"   Total actualizado: {len(normalized_data)} registros")
+    print(f"   Recibidos del ERP:   {result['total_erp']}")
+    print(f"   Proveedores nuevos:  {result['insertados']}")
+    print(f"   Actualizados:        {result['actualizados']}")
+    print(f"   RMA creados:         {result['rma_insertados']}")
+    print(f"   RMA vinculados:      {result['vinculados_rma']}")
+
+    return result
 
 
 def sync_suppliers() -> tuple[int, int]:
-    """Entry point para sync_master_tables_small (sin args, maneja su propia session)."""
+    """
+    Entry point para sync_master_tables_small (sin args, maneja su propia session).
+
+    Retorna (insertados, actualizados) reales. La ErpSyncError se propaga a
+    propósito para que el runner del cron la registre como error.
+    """
     db = SessionLocal()
     try:
-        sync_full(db)
-        count = db.execute(text("SELECT count(*) FROM tb_supplier")).scalar() or 0
-        return (count, 0)
+        result = sync_full(db)
+        return (result["insertados"], result["actualizados"])
     finally:
         db.close()
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Sincronizar tb_supplier (proveedores)")
+    parser = argparse.ArgumentParser(description="Sincronizar proveedores desde el ERP")
     parser.add_argument("--supp-id", type=int, default=None, help="Sincronizar un proveedor específico")
 
     args = parser.parse_args()
@@ -148,6 +86,9 @@ def main() -> None:
 
     try:
         sync_full(db, supp_id=args.supp_id)
+    except ErpSyncError as e:
+        print(f"\n❌ Error de sincronización con el ERP: {str(e)}")
+        sys.exit(1)
     except Exception as e:
         print(f"\n❌ Error: {str(e)}")
         import traceback

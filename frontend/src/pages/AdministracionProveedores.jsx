@@ -138,8 +138,10 @@ export default function AdministracionProveedores() {
       const { data } = await api.post('/administracion/proveedores/sync-erp');
       setSyncResult(data);
       fetchProveedores();
-    } catch {
-      setSyncResult({ success: false, error: 'Error sincronizando' });
+    } catch (err) {
+      const detail = err.response?.data?.detail;
+      const mensaje = typeof detail === 'object' ? detail?.message : detail;
+      setSyncResult({ success: false, error: mensaje || 'Error sincronizando con el ERP' });
     } finally {
       setSyncing(false);
     }
@@ -202,8 +204,9 @@ export default function AdministracionProveedores() {
           {syncResult.success ? (
             <>
               <CheckCircle size={16} />
-              Sync completado: {syncResult.insertados} nuevos, {syncResult.actualizados} actualizados,
-              {' '}{syncResult.vinculados_rma} vinculados RMA
+              Sync completado: {syncResult.total_erp} proveedores recibidos del ERP —
+              {' '}{syncResult.insertados} nuevos, {syncResult.actualizados} actualizados,
+              {' '}{syncResult.rma_insertados} RMA creados, {syncResult.vinculados_rma} RMA vinculados
             </>
           ) : (
             <><AlertCircle size={16} /> {syncResult.error}</>

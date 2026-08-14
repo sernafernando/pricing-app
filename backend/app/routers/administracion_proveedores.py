@@ -6,7 +6,7 @@ Endpoints:
   GET    /administracion/proveedores/{id}          — detalle (con datos fiscales)
   POST   /administracion/proveedores               — crear proveedor manual
   PUT    /administracion/proveedores/{id}          — actualizar datos
-  POST   /administracion/proveedores/sync-erp      — sincronizar desde tb_supplier
+  POST   /administracion/proveedores/sync-erp      — sincronizar desde el ERP (GBP)
   POST   /administracion/proveedores/{id}/consultar-afip — consultar Padrón A4
   GET    /administracion/proveedores/{id}/datos-fiscales — ver datos fiscales cacheados
 """
@@ -22,7 +22,7 @@ from app.core.database import get_db, get_async_db
 from app.api.deps import get_current_user
 from app.models.usuario import Usuario
 from app.services.permisos_service import PermisosService
-from app.services.proveedores_service import ProveedoresService
+from app.services.proveedores_service import ErpSyncError, ProveedoresService
 from app.services.afip_service import AfipServiceError
 
 router = APIRouter(prefix="/administracion/proveedores", tags=["Administración - Proveedores"])
@@ -446,18 +446,29 @@ def actualizar_proveedor(
 
 
 @router.post("/sync-erp", status_code=status.HTTP_200_OK)
-def sync_proveedores_erp(
-    db: Session = Depends(get_db),
+async def sync_proveedores_erp(
+    supp_id: Optional[int] = Query(None, description="ID de proveedor del ERP a sincronizar (opcional)"),
+    db: Session = Depends(get_async_db),
     current_user: Usuario = Depends(get_current_user),
 ) -> dict:
     """
-    Sincroniza proveedores desde tb_supplier (ERP) a la tabla central.
-    Vincula rma_proveedores existentes al proveedor central.
+    Sincroniza proveedores ejecutando la cadena completa contra el ERP (GBP).
+
+    Consulta el gbp-parser, actualiza el mirror local `tb_supplier`, proyecta a
+    la tabla central `proveedores` y crea/vincula los `rma_proveedores`.
+    Si se indica `supp_id`, trae únicamente ese proveedor del ERP.
+
+    Si el ERP falla o no devuelve datos responde 502: nunca un éxito con
+    contadores en cero.
     """
     _check_permiso(db, current_user, "administracion.gestionar_proveedores")
 
     svc = ProveedoresService(db)
-    result = svc.sync_desde_erp()
+
+    try:
+        result = await svc.sync_desde_erp(supp_id=supp_id)
+    except ErpSyncError as e:
+        raise HTTPException(status_code=502, detail=str(e))
 
     return {"success": True, **result}
 
