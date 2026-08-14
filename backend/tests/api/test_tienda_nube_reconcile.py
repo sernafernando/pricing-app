@@ -867,6 +867,51 @@ class TestCategoriaSugeridaEndpoint:
         assert body["top"] is None
 
 
+class TestCategoriasSyncEndpoint:
+    """PR-1 (tn-publisher-module) — gives the already-implemented, already-
+    tested `sync_category_embeddings()` a real, permissioned HTTP trigger.
+    Reuses `admin.gestionar_tn_publicacion` (design Decision 8 — sync is
+    maintenance on the publish path, no new permission for this PR)."""
+
+    def test_requires_permission(self, client, db, user_no_perm):
+        response = client.post(
+            "/api/tienda-nube-reconcile/categorias/sync",
+            headers=_bearer(user_no_perm),
+        )
+        assert response.status_code == 403
+
+    def test_authorized_call_runs_sync_and_reports_count(self, client, db, user_publicacion):
+        fake_result = {"synced": 3, "skipped": False, "reason": None}
+        with patch(
+            "app.api.endpoints.tienda_nube_reconcile.sync_category_embeddings", return_value=fake_result
+        ) as mocked:
+            response = client.post(
+                "/api/tienda-nube-reconcile/categorias/sync",
+                headers=_bearer(user_publicacion),
+            )
+        assert response.status_code == 200
+        body = response.json()
+        assert body["synced"] == 3
+        assert body["skipped"] is False
+        mocked.assert_called_once()
+
+    def test_skipped_sync_reports_zero_count_and_reason(self, client, db, user_publicacion):
+        """Triangulation — a different `sync_category_embeddings()` outcome
+        (fetch/embedder failure, `skipped=True`) must be reported accurately
+        too, proving the response isn't hardcoded to the happy path."""
+        fake_result = {"synced": 0, "skipped": True, "reason": "fetch_categories_failed"}
+        with patch("app.api.endpoints.tienda_nube_reconcile.sync_category_embeddings", return_value=fake_result):
+            response = client.post(
+                "/api/tienda-nube-reconcile/categorias/sync",
+                headers=_bearer(user_publicacion),
+            )
+        assert response.status_code == 200
+        body = response.json()
+        assert body["synced"] == 0
+        assert body["skipped"] is True
+        assert body["reason"] == "fetch_categories_failed"
+
+
 class TestReporteStockExposed:
     """Slice 4: `stock` (already parsed for the DESPUBLICAR check but
     discarded before this slice) is now surfaced on the response row so the

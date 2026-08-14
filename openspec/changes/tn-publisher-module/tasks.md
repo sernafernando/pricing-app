@@ -66,17 +66,17 @@ retargeted to skip PR-4, treat it as a chain-integrity bug and stop.
 **Spec IDs**: ECS1 (operator-triggerable endpoint), ECS2 (script-reachable trigger), ECS3 (table gets
 populated).
 
-- [ ] 1.1 RED: test `POST /api/tienda-nube-reconcile/categorias/sync` returns `403` without
+- [x] 1.1 RED: test `POST /api/tienda-nube-reconcile/categorias/sync` returns `403` without
       `admin.gestionar_tn_publicacion` (ECS1).
-- [ ] 1.2 GREEN: add the endpoint, gated on `admin.gestionar_tn_publicacion` (Decision 8 — no new
+- [x] 1.2 GREEN: add the endpoint, gated on `admin.gestionar_tn_publicacion` (Decision 8 — no new
       permission), calling `sync_category_embeddings()` and returning the embedded-category count.
-- [ ] 1.3 RED: test authorized call executes the sync and reports a non-zero/zero count accurately
+- [x] 1.3 RED: test authorized call executes the sync and reports a non-zero/zero count accurately
       (ECS1, ECS3).
-- [ ] 1.4 GREEN: wire response shape.
-- [ ] 1.5 RED: test the script entry point exits non-zero when `sync_category_embeddings()` reports
+- [x] 1.4 GREEN: wire response shape.
+- [x] 1.5 RED: test the script entry point exits non-zero when `sync_category_embeddings()` reports
       `skipped=True` (ECS2).
-- [ ] 1.6 GREEN: implement `backend/app/scripts/sync_tn_category_embeddings.py`.
-- [ ] 1.7 Regression: `tests/services/test_tn_category_embedding_service.py` stays green untouched
+- [x] 1.6 GREEN: implement `backend/app/scripts/sync_tn_category_embeddings.py`.
+- [x] 1.7 Regression: `tests/services/test_tn_category_embedding_service.py` stays green untouched
       (implementation is not modified — wiring only).
 
 **Estimated lines**: ~200. **Budget verdict**: well under 800. **Dependencies**: PR-0.
