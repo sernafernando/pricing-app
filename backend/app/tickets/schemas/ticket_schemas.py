@@ -359,11 +359,28 @@ class PropuestaResponse(BaseModel):
     confianza: Optional[float] = None
     modelo: Optional[str] = None
     estado: str
+    # tickets-triage-feedback PR1: set only when estado='corregida' — the
+    # human-picked value, distinguishing "corrected" from "ratified"
+    # structurally (see PropuestaIA.valor_corregido's own docstring).
+    valor_corregido: Optional[str] = None
     confirmado_por_id: Optional[int] = None
     confirmado_at: Optional[datetime] = None
     created_at: datetime
 
     model_config = ConfigDict(from_attributes=True)
+
+
+class ConfirmarRequest(BaseModel):
+    """Body opcional de `POST /propuestas/{id}/confirmar` (tickets-triage-
+    feedback PR1). `valor_corregido` sólo se acepta para severidad/urgencia
+    (`vocabularios.CAMPOS_CORREGIBLES`); repetir el valor propuesto por la
+    IA equivale a omitirlo — el confirm se resuelve como ratificación, no
+    como corrección (decidido server-side, ver `confirmacion_service.
+    _resolver_correccion`)."""
+
+    valor_corregido: Optional[str] = Field(default=None, max_length=20)
+
+    model_config = ConfigDict(extra="forbid")
 
 
 class ConfirmarBatchRequest(BaseModel):

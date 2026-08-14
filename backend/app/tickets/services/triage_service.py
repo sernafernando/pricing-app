@@ -269,16 +269,25 @@ def pasa_umbral_confianza(confianza: Optional[float]) -> bool:
 
 def _ya_tiene_propuesta_activa(db: Session, ticket_id: int, campo: str) -> bool:
     """Single-flight guard (spec: "Human-triggered retry, single-flight
-    guard"): a `pendiente`/`confirmada` row for this (ticket, campo) already
-    covers the field — writing a second one would be a duplicate proposal.
-    The partial unique index is the last-resort backstop for a true race,
-    not the primary mechanism."""
+    guard"): a `pendiente`/`confirmada`/`corregida` row for this
+    (ticket, campo) already covers the field — writing a second one would
+    be a duplicate proposal. The partial unique index is the last-resort
+    backstop for a true race, not the primary mechanism.
+
+    `corregida` (tickets-triage-feedback PR1) is THE critical entry in
+    this tuple — design's `estado` consumer audit, item 1 of 3: without
+    it, a re-triage after a human correction would write a fresh
+    `pendiente` row for a field the human already decided, re-surfacing it
+    as unreviewed and breaking spec #1304's "human rejection never
+    re-surfaces" invariant (which extends unchanged to `corregida`, also
+    terminal) — with no other code at this call site changing (obs
+    #1400's exact failure shape)."""
     return (
         db.query(PropuestaIA.id)
         .filter(
             PropuestaIA.ticket_id == ticket_id,
             PropuestaIA.campo == campo,
-            PropuestaIA.estado.in_(("pendiente", "confirmada")),
+            PropuestaIA.estado.in_(("pendiente", "confirmada", "corregida")),
         )
         .first()
         is not None

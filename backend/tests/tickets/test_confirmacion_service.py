@@ -1441,3 +1441,238 @@ class TestRetriggerSingleFlightGuard:
         resp = client.post(TRIAGE_RETRIGGER_ENDPOINT.format(id=ticket.id), headers=_headers(usuario))
 
         assert resp.status_code == 403
+
+    def test_refuses_without_forzar_when_corregida_exists(self, client, db, rol_ventas):
+        """Audit item 2 of 3 (design's `estado` consumer audit,
+        propuestas.py:189-193): a `corregida` proposal is a settled human
+        decision — the retrigger guard's `estado.in_(...)` tuple must
+        include it, or a plain retrigger (no `forzar`) would silently
+        proceed and re-surface a field the human already corrected."""
+        ticket = _make_ticket(db, rol_ventas)
+        usuario = _make_usuario(db, rol_ventas)
+        _give_permiso(db, usuario)
+        _make_propuesta(db, ticket, estado="corregida")
+
+        app.dependency_overrides[get_triage_provider] = lambda: FakeProvider("{}")
+        with patch.object(propuestas_module.BackgroundTasks, "add_task") as mock_add_task:
+            resp = client.post(TRIAGE_RETRIGGER_ENDPOINT.format(id=ticket.id), headers=_headers(usuario))
+
+        assert resp.status_code == 409
+        mock_add_task.assert_not_called()
+
+    def test_forzar_leaves_corregida_untouched(self, client, db, rol_ventas):
+        """The `forzar` degrade loop (propuestas.py:211-215) must NOT touch
+        a `corregida` row — a human correction is exactly as settled as a
+        human ratification (`ia_confirmada`), never silently replaced."""
+        ticket = _make_ticket(db, rol_ventas)
+        usuario = _make_usuario(db, rol_ventas)
+        _give_permiso(db, usuario)
+        corregida = _make_propuesta(db, ticket, estado="corregida", confirmado_por_id=usuario.id)
+
+        app.dependency_overrides[get_triage_provider] = lambda: FakeProvider("{}")
+        with patch.object(propuestas_module.BackgroundTasks, "add_task") as mock_add_task:
+            resp = client.post(
+                TRIAGE_RETRIGGER_ENDPOINT.format(id=ticket.id), params={"forzar": "true"}, headers=_headers(usuario)
+            )
+
+        assert resp.status_code == 200
+        mock_add_task.assert_called_once()
+        db.refresh(corregida)
+        assert corregida.estado == "corregida"
+
+
+class TestResolverCorreccion:
+    """Task 3: `confirmacion_service._resolver_correccion` — pure unit,
+    no DB. Normalises a corrected value into `str | None` BEFORE the
+    existing two-shape branch in `confirmar()`: `None` means "treat as a
+    plain ratification", collapsing a same-value confirm to `None` too."""
+
+    def test_none_input_returns_none(self, db, rol_ventas):
+        ticket = _make_ticket(db, rol_ventas)
+        propuesta = _make_propuesta(db, ticket, campo="severidad", valor="mayor")
+
+        assert confirmacion_service._resolver_correccion(propuesta, None) is None
+
+    def test_ineligible_campo_raises(self, db, rol_ventas):
+        ticket = _make_ticket(db, rol_ventas)
+        propuesta = _make_propuesta(db, ticket, campo="titulo", valor="Un titulo")
+
+        with pytest.raises(confirmacion_service.CorreccionCampoNoPermitidoError):
+            confirmacion_service._resolver_correccion(propuesta, "cualquier cosa")
+
+    def test_out_of_vocabulary_value_raises(self, db, rol_ventas):
+        ticket = _make_ticket(db, rol_ventas)
+        propuesta = _make_propuesta(db, ticket, campo="urgencia", valor="baja")
+
+        with pytest.raises(confirmacion_service.CorreccionValorInvalidoError):
+            confirmacion_service._resolver_correccion(propuesta, "urgentisimo")
+
+    def test_same_value_as_proposed_collapses_to_none(self, db, rol_ventas):
+        """Spec: 'A Confirm Carrying The Same Value Is A Ratification, Not
+        A Correction' — collapsing to `None` HERE is what lets both shapes
+        of `confirmar()` stay unchanged for a same-value confirm."""
+        ticket = _make_ticket(db, rol_ventas)
+        propuesta = _make_propuesta(db, ticket, campo="severidad", valor="mayor")
+
+        assert confirmacion_service._resolver_correccion(propuesta, "mayor") is None
+
+    def test_differing_valid_value_returns_it(self, db, rol_ventas):
+        ticket = _make_ticket(db, rol_ventas)
+        propuesta = _make_propuesta(db, ticket, campo="severidad", valor="mayor")
+
+        assert confirmacion_service._resolver_correccion(propuesta, "menor") == "menor"
+
+
+class TestConfirmarConValorCorregido:
+    """Task 7: the corrected-confirm integration tests, both shapes."""
+
+    def test_pending_proposal_correction_writes_ticket_origen_and_historial(self, db, rol_ventas):
+        """SC: Corrected confirm updates ticket, origen, and historial in
+        one transaction."""
+        ticket = _make_ticket(db, rol_ventas)
+        usuario = _make_usuario(db, rol_ventas)
+        propuesta = _make_propuesta(db, ticket, campo="severidad", valor="mayor")
+
+        resultado = confirmacion_service.confirmar(db, propuesta.id, usuario, valor_corregido="menor")
+
+        assert resultado.estado == "corregida"
+        assert resultado.valor_corregido == "menor"
+        assert resultado.confirmado_por_id == usuario.id
+
+        ticket = _reload(db, ticket)
+        assert ticket.severidad == "menor"
+        assert ticket.severidad_origen == "humano"
+
+        historial = (
+            db.query(HistorialTicket)
+            .filter(HistorialTicket.ticket_id == ticket.id, HistorialTicket.accion == "propuesta_corregida")
+            .all()
+        )
+        assert len(historial) == 1
+        assert historial[0].cambios["campo"] == "severidad"
+        assert historial[0].cambios["valor_propuesto"] == "mayor"
+        assert historial[0].cambios["valor_corregido"] == "menor"
+
+    def test_unreviewed_ia_auto_correction_overwrites_applied_value(self, db, rol_ventas):
+        """The second shape: an unreviewed `ia_auto` proposal
+        (`estado='confirmada'`, `confirmado_por_id IS NULL`) that already
+        applied its value onto the ticket — a corrected confirm must
+        OVERWRITE that value, not merely ratify it."""
+        ticket = _make_ticket(db, rol_ventas)
+        ticket.urgencia = "baja"
+        ticket.urgencia_origen = "ia_auto"
+        db.commit()
+        usuario = _make_usuario(db, rol_ventas)
+        propuesta = _make_propuesta(db, ticket, campo="urgencia", valor="baja", estado="confirmada")
+        assert propuesta.confirmado_por_id is None  # the ia_auto shape
+
+        resultado = confirmacion_service.confirmar(db, propuesta.id, usuario, valor_corregido="inmediata")
+
+        assert resultado.estado == "corregida"
+        assert resultado.valor_corregido == "inmediata"
+        ticket = _reload(db, ticket)
+        assert ticket.urgencia == "inmediata"
+        assert ticket.urgencia_origen == "humano"
+
+    def test_same_value_confirm_ratifies_not_corrects(self, db, rol_ventas):
+        ticket = _make_ticket(db, rol_ventas)
+        usuario = _make_usuario(db, rol_ventas)
+        propuesta = _make_propuesta(db, ticket, campo="severidad", valor="mayor")
+
+        resultado = confirmacion_service.confirmar(db, propuesta.id, usuario, valor_corregido="mayor")
+
+        assert resultado.estado == "confirmada"
+        assert resultado.valor_corregido is None
+        ticket = _reload(db, ticket)
+        assert ticket.severidad == "mayor"
+        assert ticket.severidad_origen == "ia_confirmada"
+
+    def test_ineligible_campo_returns_400_and_leaves_ticket_untouched(self, db, rol_ventas):
+        ticket = _make_ticket(db, rol_ventas)
+        usuario = _make_usuario(db, rol_ventas)
+        propuesta = _make_propuesta(db, ticket, campo="titulo", valor="Titulo original")
+
+        with pytest.raises(confirmacion_service.CorreccionCampoNoPermitidoError):
+            confirmacion_service.confirmar(db, propuesta.id, usuario, valor_corregido="Otro titulo")
+
+        ticket = _reload(db, ticket)
+        assert ticket.titulo != "Otro titulo"
+        db.refresh(propuesta)
+        assert propuesta.estado == "pendiente"
+
+    def test_out_of_vocabulary_value_returns_400_and_leaves_proposal_pendiente(self, db, rol_ventas):
+        ticket = _make_ticket(db, rol_ventas)
+        usuario = _make_usuario(db, rol_ventas)
+        propuesta = _make_propuesta(db, ticket, campo="urgencia", valor="baja")
+
+        with pytest.raises(confirmacion_service.CorreccionValorInvalidoError):
+            confirmacion_service.confirmar(db, propuesta.id, usuario, valor_corregido="urgentisimo")
+
+        db.refresh(propuesta)
+        assert propuesta.estado == "pendiente"
+        ticket = _reload(db, ticket)
+        assert ticket.urgencia is None
+
+    def test_ineligible_campo_returns_400_over_http(self, client, db, rol_ventas):
+        ticket = _make_ticket(db, rol_ventas)
+        usuario = _make_usuario(db, rol_ventas)
+        _give_permiso(db, usuario)
+        propuesta = _make_propuesta(db, ticket, campo="titulo", valor="Titulo original")
+
+        resp = client.post(
+            f"/api/tickets/propuestas/{propuesta.id}/confirmar",
+            json={"valor_corregido": "Otro titulo"},
+            headers=_headers(usuario),
+        )
+
+        assert resp.status_code == 400
+        ticket = _reload(db, ticket)
+        assert ticket.titulo != "Otro titulo"
+
+    def test_out_of_vocabulary_value_returns_400_over_http(self, client, db, rol_ventas):
+        ticket = _make_ticket(db, rol_ventas)
+        usuario = _make_usuario(db, rol_ventas)
+        _give_permiso(db, usuario)
+        propuesta = _make_propuesta(db, ticket, campo="urgencia", valor="baja")
+
+        resp = client.post(
+            f"/api/tickets/propuestas/{propuesta.id}/confirmar",
+            json={"valor_corregido": "urgentisimo"},
+            headers=_headers(usuario),
+        )
+
+        assert resp.status_code == 400
+        db.refresh(propuesta)
+        assert propuesta.estado == "pendiente"
+
+    def test_corrected_confirm_without_permiso_returns_403(self, client, db, rol_ventas):
+        ticket = _make_ticket(db, rol_ventas)
+        usuario = _make_usuario(db, rol_ventas)
+        propuesta = _make_propuesta(db, ticket, campo="severidad", valor="mayor")
+
+        resp = client.post(
+            f"/api/tickets/propuestas/{propuesta.id}/confirmar",
+            json={"valor_corregido": "menor"},
+            headers=_headers(usuario),
+        )
+
+        assert resp.status_code == 403
+        ticket = _reload(db, ticket)
+        assert ticket.severidad is None
+
+    def test_corrected_confirm_succeeds_over_http(self, client, db, rol_ventas):
+        ticket = _make_ticket(db, rol_ventas)
+        usuario = _make_usuario(db, rol_ventas)
+        _give_permiso(db, usuario)
+        propuesta = _make_propuesta(db, ticket, campo="severidad", valor="mayor")
+
+        resp = client.post(
+            f"/api/tickets/propuestas/{propuesta.id}/confirmar",
+            json={"valor_corregido": "menor"},
+            headers=_headers(usuario),
+        )
+
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["estado"] == "corregida"
+        assert body["valor_corregido"] == "menor"

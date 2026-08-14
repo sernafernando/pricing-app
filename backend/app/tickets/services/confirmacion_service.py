@@ -29,6 +29,7 @@ from app.tickets.models.sector import Sector
 from app.tickets.models.ticket import Ticket
 from app.tickets.models.tipo_ticket import TipoTicket
 from app.tickets.models.workflow import EstadoTicket, Workflow
+from app.tickets.services.vocabularios import CAMPOS_CORREGIBLES, VOCABULARIOS
 
 
 class PropuestaNoEncontradaError(Exception):
@@ -88,6 +89,29 @@ class PropuestaNoDescartableError(Exception):
         super().__init__(
             f"No se puede descartar un valor de '{campo}' ya aplicado por la IA; corregilo directamente en el ticket"
         )
+
+
+class CorreccionCampoNoPermitidoError(Exception):
+    """A corrected value was supplied for a `campo` outside
+    `vocabularios.CAMPOS_CORREGIBLES` (only severidad/urgencia are
+    correctable — spec: "Confirm Accepts An Optional Corrected Value,
+    Severidad/Urgencia Only"). Raised BEFORE the ticket is loaded, so
+    rejection never touches it."""
+
+    def __init__(self, campo: str) -> None:
+        self.campo = campo
+        super().__init__(f"No se puede corregir el valor de una propuesta de tipo '{campo}'")
+
+
+class CorreccionValorInvalidoError(Exception):
+    """A corrected value outside the campo's closed vocabulary
+    (`vocabularios.VOCABULARIOS`) — spec: "Corrected Value Must Validate
+    Against The Field's Vocabulary". Raised BEFORE the ticket is loaded."""
+
+    def __init__(self, campo: str, valor: str) -> None:
+        self.campo = campo
+        self.valor = valor
+        super().__init__(f"'{valor}' no es un valor válido para {campo}")
 
 
 class TicketNoEncontradoError(Exception):
@@ -175,6 +199,28 @@ CAMPOS_CONFIRMABLES = frozenset({"severidad", "urgencia", "titulo", "resumen", "
 # ponytail: expose this as a `descartable: bool` on PropuestaResponse
 # instead, so the frontend needs zero copy of the vocabulary at all.
 CAMPOS_REVERTIBLES = frozenset({"severidad", "urgencia", "resumen"})
+
+
+def _resolver_correccion(propuesta: PropuestaIA, valor: str | None) -> str | None:
+    """Normalises an optional corrected value into `str | None` BEFORE
+    `confirmar()`'s existing two-shape branch (design: "`corregida` is
+    normalised before the two-shape branch") — `None` means "treat this
+    as a plain ratification", including an explicit repeat of the AI's
+    own value (spec: same-value confirm is NOT a correction). Collapsing
+    to `None` HERE is what lets both existing shapes of `confirmar()`
+    below stay unchanged; only ONE new branch is added.
+
+    Both raises happen before the caller loads `ticket` — the ticket must
+    stay unmodified on rejection (spec scenarios for both error cases)."""
+    if valor is None:
+        return None
+    if propuesta.campo not in CAMPOS_CORREGIBLES:
+        raise CorreccionCampoNoPermitidoError(propuesta.campo)
+    if valor not in VOCABULARIOS[propuesta.campo]:
+        raise CorreccionValorInvalidoError(propuesta.campo, valor)
+    if valor == propuesta.valor_propuesto.get("valor"):
+        return None
+    return valor
 
 
 def _estado_inicial_de_workflow(db: Session, workflow_id: int) -> EstadoTicket | None:
@@ -342,6 +388,8 @@ def aplicar_confirmacion(
     *,
     permite_tipo_huerfano: bool = False,
     origen: str = "ia_confirmada",
+    accion: str = "propuesta_confirmada",
+    valor_ia: str | None = None,
 ) -> None:
     """Write one proposal's value + provenance + history onto its ticket.
     Shared by `confirmar()`/`confirmar_batch()` (human confirms, `usuario`
@@ -354,7 +402,16 @@ def aplicar_confirmacion(
     write — see `PropuestaCampoNoPermitidoError`. `sector`/`tipo_ticket`/
     `metadata_ia` dispatch to dedicated domain logic; everything else keeps
     the plain column write. `permite_tipo_huerfano` only affects `sector`
-    — see `_confirmar_sector`."""
+    — see `_confirmar_sector`.
+
+    `accion`/`valor_ia` (tickets-triage-feedback PR1, keyword-only,
+    defaulted so every existing call site is unaffected): used only in the
+    plain-column branch below, by `confirmar()`'s corrected-confirm
+    branch, recording `accion='propuesta_corregida'` with both the AI's
+    original value and the human's corrected one. Safe by construction —
+    `vocabularios.CAMPOS_CORREGIBLES` is a strict subset of the
+    plain-column campos, so the sector/tipo_ticket/metadata_ia dispatch
+    branches above never see a non-default value here."""
     if propuesta.campo not in CAMPOS_CONFIRMABLES:
         raise PropuestaCampoNoPermitidoError(propuesta.campo)
 
@@ -371,44 +428,50 @@ def aplicar_confirmacion(
     setattr(ticket, propuesta.campo, valor)
     setattr(ticket, f"{propuesta.campo}_origen", origen)
 
+    cambios = {"campo": propuesta.campo, "valor_nuevo": valor, "origen": origen}
+    descripcion = f"Propuesta IA confirmada: {propuesta.campo} = {valor}"
+    if accion == "propuesta_corregida":
+        cambios = {"campo": propuesta.campo, "valor_propuesto": valor_ia, "valor_corregido": valor, "origen": origen}
+        descripcion = f"Propuesta IA corregida: {propuesta.campo} = {valor} (IA proponía {valor_ia})"
+
     db.add(
         HistorialTicket(
             ticket_id=ticket.id,
             usuario_id=usuario.id if usuario else None,
-            accion="propuesta_confirmada",
-            descripcion=f"Propuesta IA confirmada: {propuesta.campo} = {valor}",
-            cambios={"campo": propuesta.campo, "valor_nuevo": valor, "origen": origen},
+            accion=accion,
+            descripcion=descripcion,
+            cambios=cambios,
         )
     )
 
 
-def confirmar(db: Session, propuesta_id: int, usuario: Usuario) -> PropuestaIA:
-    """Confirms a proposal. Two shapes, mirroring `descartar()`'s own split
+def confirmar(db: Session, propuesta_id: int, usuario: Usuario, valor_corregido: str | None = None) -> PropuestaIA:
+    """Confirms a proposal. THREE shapes (tickets-triage-feedback PR1 adds
+    the third), mirroring `descartar()`'s own split
     (feat/tickets-triage-aplicar-directo):
 
-    - `pendiente`: writes its value + provenance onto the ticket (via
-      `aplicar_confirmacion`), marks the proposal `confirmada`, and logs
-      a `tickets_historial` row — unchanged from PR 4b.
-    - `confirmada` with `confirmado_por_id IS NULL` (`ia_auto`, already
-      applied by auto-apply, nobody has looked at it yet): RATIFIES it —
-      sets `confirmado_por_id`/`confirmado_at` only, without calling
-      `aplicar_confirmacion` again (the value is already on the ticket).
+    - Corrected (`valor_corregido` resolves to a real correction — see
+      `_resolver_correccion`): writes the HUMAN's value onto the ticket
+      (`origen="humano"`), marks the proposal `corregida`, records
+      `valor_corregido`, and logs a `tickets_historial` row carrying both
+      the AI's and the human's value. Composes with BOTH shapes below —
+      `_resolver_correccion` only inspects the PROPOSAL, never `estado`,
+      so it applies to a still-`pendiente` row or to an unreviewed
+      `ia_auto` row (whose own value it then overwrites) alike.
+    - `pendiente`, no correction: unchanged from PR 4b.
+    - Unreviewed `ia_auto` (`confirmada`, `confirmado_por_id IS NULL`), no
+      correction: RATIFIES it — value is already on the ticket.
 
-    Real pre-push review finding (BLOCKING): before this second shape
-    existed, a proposal outside `CAMPOS_REVERTIBLES` (titulo/sector/
-    tipo_ticket/metadata_ia) had NO exit from "unreviewed" at all —
-    `confirmar()` rejected it (not pendiente) and `descartar()` rejected it
-    too (`PropuestaNoDescartableError`, not revertible). Every ticket
-    auto-classified on one of those fields stayed counted as unreviewed
-    forever, on the board badge and in `GET /propuestas` — reproducing,
-    for a different subset of fields, the exact "eternal pending
-    proposals" problem `TICKETS_TRIAGE_AUTO_APPLY` was built to eliminate.
-    Ratify ("I looked, it's fine") and discard ("correct it") are
-    orthogonal: ratify works for EVERY field; only discard is limited to
-    `CAMPOS_REVERTIBLES`, since only those have a clean "unset" state.
+    Four structurally distinct outcomes on `PropuestaIA` alone, no
+    timestamp/value-inequality inference: ratified
+    (`confirmada`+`valor_corregido IS NULL`), corrected
+    (`corregida`+`valor_corregido` set), discarded (`descartada`), from
+    scratch (no row).
 
     Anything else (human-confirmed `ia_confirmada`, `descartada`,
-    `reemplazada`): rejected with `PropuestaNoPendienteError`, unchanged.
+    `reemplazada`): rejected with `PropuestaNoPendienteError`, unchanged —
+    a corrected value against a terminal proposal never reaches
+    `_resolver_correccion`'s campo/vocabulary checks.
     """
     propuesta = db.query(PropuestaIA).filter(PropuestaIA.id == propuesta_id).first()
     if propuesta is None:
@@ -418,11 +481,35 @@ def confirmar(db: Session, propuesta_id: int, usuario: Usuario) -> PropuestaIA:
     if propuesta.estado != "pendiente" and not es_ia_auto_sin_revisar:
         raise PropuestaNoPendienteError(propuesta_id, propuesta.estado)
 
+    # Normalised BEFORE the two-shape branch below (design: "corregida is
+    # normalised before the two-shape branch") — `None` here means "treat
+    # as a plain ratification", so both shapes below inherit the
+    # ratification rule unchanged for a same-value confirm.
+    correccion = _resolver_correccion(propuesta, valor_corregido)
+
     ticket = db.query(Ticket).filter(Ticket.id == propuesta.ticket_id).first()
     if ticket is None:
         raise TicketNoEncontradoError(propuesta.ticket_id)
 
-    if es_ia_auto_sin_revisar:
+    if correccion is not None:
+        # ONE branch serving BOTH existing shapes. For a `pendiente`
+        # proposal it applies the human's value instead of the AI's; for
+        # an unreviewed `ia_auto` (already `confirmada`) it OVERWRITES the
+        # value the AI already put on the ticket. Either way the ticket
+        # ends up with the human's value and `<campo>_origen='humano'`.
+        aplicar_confirmacion(
+            db,
+            ticket,
+            propuesta,
+            usuario,
+            correccion,
+            origen="humano",
+            accion="propuesta_corregida",
+            valor_ia=propuesta.valor_propuesto.get("valor"),
+        )
+        propuesta.estado = "corregida"
+        propuesta.valor_corregido = correccion
+    elif es_ia_auto_sin_revisar:
         db.add(
             HistorialTicket(
                 ticket_id=ticket.id,
@@ -522,6 +609,11 @@ def descartar(db: Session, propuesta_id: int, usuario: Usuario) -> PropuestaIA:
 def confirmar_batch(db: Session, propuesta_ids: List[int], usuario: Usuario) -> List[PropuestaIA]:
     """Confirms N proposals — possibly across several tickets — as ONE
     atomic operation: all succeed or all fail, never a partial batch.
+
+    Deliberately stays PURE RATIFICATION (tickets-triage-feedback PR1):
+    the batch affordance is a checkbox multi-select with no per-row value
+    input, so a corrected value is out of scope here — only single
+    `confirmar()` accepts one. See `confirmacion_service`'s design notes.
 
     Ticket writes differ per proposal (different campo/valor/ticket), so
     they can't be one literal `UPDATE...IN`; the proposals' own lifecycle
