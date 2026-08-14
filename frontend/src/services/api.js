@@ -642,6 +642,11 @@ export const ticketsAPI = {
   // Transiciones & asignación
   transicion: (id, data) => api.post(`/tickets/tickets/${id}/transicion`, data),
   asignar: (id, data) => api.post(`/tickets/tickets/${id}/asignar`, data),
+  // Who can THIS ticket be assigned to — its own sector's members, or (for
+  // Inbox tickets) any active member of any sector. Distinct from
+  // sectoresAPI.listarUsuarios, which answers "who belongs to this sector"
+  // and stays empty for the Inbox by design.
+  usuariosAsignables: (id) => api.get(`/tickets/tickets/${id}/asignables`),
 
   // Comentarios
   listarComentarios: (id, params) =>

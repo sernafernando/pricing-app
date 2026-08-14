@@ -62,7 +62,27 @@ class MlPxqTier(Base):
     usuario = relationship("Usuario")
 
     __table_args__ = (
-        CheckConstraint("cantidad_minima > 1", name="ck_ml_pxq_tier_cantidad_minima_gt_1"),
+        # `>= 1`, NOT `> 1`, and this is the one constraint on this table most
+        # likely to be "restored for tidiness" by someone reading MercadoLibre's
+        # documentation. Do not. The doc says `min_purchase_unit` must be
+        # greater than 1; production contradicts it at BOTH ends.
+        #
+        # ML ACCEPTS IT: the raw node for MLA1563835240 carries
+        # `{"id": "3396", "amount": 80999, "min_purchase_unit": 1}` alongside
+        # two ordinary tiers, with both `context_restrictions`
+        # (`channel_marketplace`, `user_type_business`).
+        #
+        # AND IT DOES A JOB -- the decisive half. The one-unit tier is what
+        # makes the publication appear as "Venta para negocios" on
+        # MercadoLibre. It is not a residue and not a foreign entity beside the
+        # wholesale table: it is the switch for the B2B shelf. Without it the
+        # listing is not on that shelf at all, so a mirror that cannot hold it
+        # cannot describe the state the operator opens the panel to check.
+        #
+        # The old `> 1` was derived from the documentation alone. `>= 1` is
+        # derived from the platform. What the constraint still refuses -- zero
+        # and negatives -- is not a quantity MercadoLibre can express.
+        CheckConstraint("cantidad_minima >= 1", name="ck_ml_pxq_tier_cantidad_minima_ge_1"),
         CheckConstraint(
             "estado IN ('incompleto', 'listo', 'sincronizado', 'desconocido')",
             name="ck_ml_pxq_tier_estado_valido",

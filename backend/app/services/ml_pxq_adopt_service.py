@@ -33,6 +33,7 @@ import `ProductoPricing` (design D3).
 from __future__ import annotations
 
 import logging
+from dataclasses import dataclass, field
 from typing import Any, Dict, List
 
 from fastapi import HTTPException
@@ -52,6 +53,41 @@ from app.utils.async_bridge import resolve_maybe_async as _resolve
 logger = logging.getLogger(__name__)
 
 
+@dataclass(frozen=True)
+class SkippedLiveEntry:
+    """One live MercadoLibre price this mirror deliberately does not import.
+
+    Reported rather than dropped because the panel puts the LIVE column beside
+    the mirror column: the skipped price is visible on the left and will never
+    appear on the right, and nothing on that screen explains why the two
+    disagree by a row. A bare count would leave the operator reading "2 tramos
+    importados" as "the mirror now matches ML".
+
+    `ml_price_id` is what ties this back to the exact entry on MercadoLibre --
+    the quantity alone does not, and it is the id the logs and the live read
+    both key on.
+    """
+
+    ml_price_id: str
+    cantidad_minima: int
+
+
+@dataclass(frozen=True)
+class AdoptOutcome:
+    """What one `adopt-live` actually did: the rows it created, and the live
+    entries it knowingly left behind.
+
+    A bare `List[MlPxqTier]` cannot express the second half, and the caller
+    genuinely needs both -- `imported == []` means two DIFFERENT things
+    depending on whether `skipped` is empty ("MercadoLibre holds no tiers")
+    or not ("MercadoLibre holds prices this panel cannot represent"), and the
+    frontend renders different copy for each.
+    """
+
+    imported: List[MlPxqTier] = field(default_factory=list)
+    skipped: List[SkippedLiveEntry] = field(default_factory=list)
+
+
 def _read_unavailable(reason: str) -> HTTPException:
     """The single shape for "we have no trustworthy view of live state".
 
@@ -69,7 +105,7 @@ def adopt_live_pxq_tiers(
     item_id: str,
     *,
     publicacion_ml_id: int,
-) -> List[MlPxqTier]:
+) -> AdoptOutcome:
     """Imports MercadoLibre's live PxQ tiers for `item_id` into an EMPTY local
     mirror. Import-only: no ML write endpoint is called on any path.
 
@@ -86,7 +122,9 @@ def adopt_live_pxq_tiers(
     by `costo_envio_total`, never by `estado` (`pxq_confirm.is_priceable`).
 
     Returns:
-        The rows it created, empty when MercadoLibre holds no tiers.
+        An `AdoptOutcome`: the rows it created, plus the live entries it
+        skipped because this mirror cannot represent them (see the partition
+        below). Both lists are empty when MercadoLibre holds no tiers.
 
     Raises:
         HTTPException(403): missing `pxq.escribir`.
@@ -98,11 +136,14 @@ def adopt_live_pxq_tiers(
         HTTPException(409): `adopt_conflict` -- the publication already has at
             least one local row. Nothing is written.
         HTTPException(422): propagated from `create_pxq_tier` when a live
-            entry cannot be a valid tier (e.g. `quantity <= 1`, or two entries
-            sharing a quantity). These fire INSIDE the import loop, AFTER
-            earlier rows were already `db.add`-ed and flushed -- so rows do
-            exist, pending, when this raises. Nothing is COMMITTED, so nothing
-            is persisted: the request's session is closed without a commit.
+            entry cannot be a valid tier -- e.g. two entries sharing a
+            quantity. NOT `quantity < 1`, which is the one condition this
+            service skips ahead of the call instead of propagating; see the
+            partition below for why that one and only that one. These fire
+            INSIDE the import loop, AFTER earlier rows were already
+            `db.add`-ed and flushed -- so rows do exist, pending, when this
+            raises. Nothing is COMMITTED, so nothing is persisted: the
+            request's session is closed without a commit.
 
             No explicit `db.rollback()` here, deliberately. This service does
             not own the session it was handed -- `get_db` opens it, never
@@ -158,7 +199,7 @@ def adopt_live_pxq_tiers(
             item_id,
             usuario_id,
         )
-        return []
+        return AdoptOutcome()
 
     if len(live_raw) > MAX_TIERS:
         # `MAX_TIERS` is MercadoLibre's OWN platform limit (see the constant in
@@ -205,6 +246,48 @@ def adopt_live_pxq_tiers(
             usuario_id,
         )
         raise _read_unavailable("Live payload could not be parsed; nothing was imported")
+
+    # The partition STAYS; what falls on which side moved. The property this
+    # implements is general and unchanged: import every entry this mirror can
+    # represent, REPORT the ones it cannot, never abort the whole request over
+    # a single entry. Only the definition of "irrepresentable" narrowed.
+    #
+    # It used to be `<= 1`, on the belief that a one-unit price was not a
+    # tramo. That was wrong twice over. MercadoLibre ACCEPTS
+    # `min_purchase_unit: 1` and holds it in production -- MLA1563835240
+    # carries `{"id": "3396", "amount": 80999, "min_purchase_unit": 1}` with
+    # both `context_restrictions` -- and, decisively, that entry is what makes
+    # the publication appear as "Venta para negocios". It is the switch for the
+    # B2B shelf, so dropping it meant the mirror could not describe whether the
+    # listing was on that shelf at all. `ck_ml_pxq_tier_cantidad_minima_ge_1`
+    # carries the full reasoning.
+    #
+    # So today's trigger is `< 1` -- zero or negative -- a DEFENSIVE case ML
+    # should never produce. If it ever does, the entry still cannot be a tier
+    # and the import still must not die on it.
+    #
+    # Skipping is safe, and that is a property of `pxq_diff`, not an
+    # assumption: every live tier no local row references is re-emitted as an
+    # untracked keep (`array.append({"id": live.id})`), so the skipped node
+    # survives untouched on MercadoLibre even though nothing here mirrors it.
+    #
+    # Checked EXPLICITLY here rather than by catching `create_pxq_tier`'s
+    # HTTPException and reading its message: a skip that depends on the wording
+    # of an error string breaks silently the day someone rephrases it, and this
+    # is a money path.
+    #
+    # And ONLY this condition. It is individually decidable -- no other entry
+    # can change the verdict on it -- and known by design. Every other 422 the
+    # loop can raise still propagates and aborts: two entries sharing a
+    # `cantidad_minima` is AMBIGUOUS (nothing says which price wins), and
+    # picking one silently would persist a money value nobody chose. Guarded by
+    # `test_a_duplicate_quantity_still_aborts_because_nothing_says_which_entry_wins`.
+    importable = [f for f in fields if f.cantidad_minima >= 1]
+    skipped = [
+        SkippedLiveEntry(ml_price_id=f.ml_price_id, cantidad_minima=f.cantidad_minima)
+        for f in fields
+        if f.cantidad_minima < 1
+    ]
 
     # --- LOCK OPENS ------------------------------------------------------
     # Once, on the publication row -- not per tier. Held from here through the
@@ -262,7 +345,7 @@ def adopt_live_pxq_tiers(
             cantidad_sincronizada=f.cantidad_sincronizada,
             precio_sincronizado=f.precio_sincronizado,
         )
-        for f in fields
+        for f in importable
     ]
 
     # D3 runtime guard, immediately before the ONE commit -- the sibling write
@@ -285,4 +368,19 @@ def adopt_live_pxq_tiers(
         [row.cantidad_minima for row in rows],
         usuario_id,
     )
-    return rows
+    if skipped:
+        # WARNING, and only AFTER the commit: this records what the import
+        # actually left behind, not what it was about to. A 422 raised mid-loop
+        # never reaches here, and logging a skip for a request that persisted
+        # nothing would be a false record on a money path.
+        logger.warning(
+            "PxQ adopt-live skipped %s live price(s) this mirror cannot represent (cantidad_minima < 1) "
+            "item_id=%s publicacion_ml_id=%s ml_price_ids=%s cantidades=%s usuario_id=%s",
+            len(skipped),
+            item_id,
+            publicacion_ml_id,
+            [s.ml_price_id for s in skipped],
+            [s.cantidad_minima for s in skipped],
+            usuario_id,
+        )
+    return AdoptOutcome(imported=rows, skipped=skipped)

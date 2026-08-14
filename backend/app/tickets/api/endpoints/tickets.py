@@ -47,6 +47,7 @@ from app.tickets.schemas.ticket_schemas import (
     TicketResponse,
     TicketUpdate,
     TransicionRequest,
+    UsuarioSimple,
 )
 
 router = APIRouter()
@@ -118,6 +119,34 @@ def _check_acceso_ticket(db: Session, user: Usuario, ticket: Ticket) -> None:
     if ticket.creador_id == user.id:
         return
     raise HTTPException(status_code=403, detail="No tenés acceso a este ticket")
+
+
+def _usuarios_asignables_query(db: Session, ticket: Ticket):
+    """Usuarios elegibles para ser asignados a `ticket` — SQLAlchemy query,
+    not yet executed (caller decides `.all()` vs membership check).
+
+    - Sector normal: miembros activos de ESE sector (comportamiento actual,
+      sin cambios — mismo criterio que `listar_usuarios_sector`).
+    - Sector Inbox: miembros activos de CUALQUIER sector, sin duplicados. La
+      Inbox es una cola compartida de triage que nadie "pertenece" por
+      diseño (0 miembros) — la pregunta correcta no es "¿quién es miembro
+      del Inbox?" sino "¿quién trabaja tickets en general?".
+
+    En ambos casos se excluyen usuarios inactivos (`Usuario.activo`) además
+    de membresías inactivas (`SectorUsuario.activo`).
+
+    THIS is the single source of truth for "who can be assigned to this
+    ticket" — both `listar_usuarios_asignables` (read) and `asignar_ticket`
+    (write) call it, so the two sides cannot drift independently.
+    """
+    query = (
+        db.query(Usuario)
+        .join(SectorUsuario, SectorUsuario.usuario_id == Usuario.id)
+        .filter(SectorUsuario.activo == True, Usuario.activo == True)  # noqa: E712
+    )
+    if ticket.sector.codigo != INBOX_SECTOR_CODIGO:
+        query = query.filter(SectorUsuario.sector_id == ticket.sector_id)
+    return query.distinct()
 
 
 # ── Board + explicit ordering (tickets-ai-triage PR 5a) ────────────────
@@ -1301,6 +1330,31 @@ async def cambiar_estado_ticket(
     return ticket
 
 
+@router.get("/tickets/{ticket_id}/asignables", response_model=List[UsuarioSimple])
+def listar_usuarios_asignables(
+    ticket_id: int,
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(get_current_user),
+) -> List[UsuarioSimple]:
+    """
+    Lista los usuarios que pueden ser asignados a este ticket.
+
+    - Sector normal: sus miembros activos (igual que `GET /sectores/{id}/usuarios`).
+    - Sector Inbox: los miembros activos de CUALQUIER sector — es una cola
+      compartida de triage, nadie "pertenece" a ella (0 miembros por diseño).
+
+    Requiere: tickets.gestionar (mismo permiso que `POST /asignar`, para no
+    exponer una superficie de lectura más amplia que la acción que alimenta).
+    """
+    _check_permiso(db, current_user, "tickets.gestionar")
+
+    ticket = db.query(Ticket).filter(Ticket.id == ticket_id).first()
+    if not ticket:
+        raise HTTPException(status_code=404, detail=f"Ticket {ticket_id} no encontrado")
+
+    return _usuarios_asignables_query(db, ticket).all()
+
+
 @router.post("/tickets/{ticket_id}/asignar", response_model=TicketResponse)
 async def asignar_ticket(
     ticket_id: int,
@@ -1310,6 +1364,11 @@ async def asignar_ticket(
 ) -> TicketResponse:
     """
     Asigna un ticket a un usuario.
+
+    El usuario a asignar debe ser uno de los usuarios asignables para este
+    ticket (ver `GET /asignables`) — mismo criterio en ambos lados: miembro
+    activo del sector del ticket, o de cualquier sector si el ticket está
+    en la Bandeja de entrada (Inbox).
 
     Requiere: tickets.gestionar
     """
@@ -1323,6 +1382,13 @@ async def asignar_ticket(
     usuario_asignar = db.query(Usuario).filter(Usuario.id == asignacion_data.usuario_id).first()
     if not usuario_asignar:
         raise HTTPException(status_code=404, detail=f"Usuario {asignacion_data.usuario_id} no encontrado")
+
+    usuarios_asignables_ids = {u.id for u in _usuarios_asignables_query(db, ticket).all()}
+    if usuario_asignar.id not in usuarios_asignables_ids:
+        raise HTTPException(
+            status_code=400,
+            detail=f"{usuario_asignar.nombre} no puede ser asignado a este ticket",
+        )
 
     asignacion_actual = ticket.asignacion_actual
     if asignacion_actual:

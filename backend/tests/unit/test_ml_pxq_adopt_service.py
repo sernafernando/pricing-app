@@ -83,13 +83,19 @@ def _mock_client(live_prices: Optional[List[Dict[str, Any]]]):
     return patcher, mock_client
 
 
-def _adopt(db, usuario, publicacion) -> List[MlPxqTier]:
+def _adopt_outcome(db, usuario, publicacion) -> adopt_service.AdoptOutcome:
     return adopt_service.adopt_live_pxq_tiers(
         db,
         usuario,
         publicacion.mla,
         publicacion_ml_id=publicacion.id,
     )
+
+
+def _adopt(db, usuario, publicacion) -> List[MlPxqTier]:
+    """The imported rows alone. Most tests here only care about those; the
+    ones that assert on what was SKIPPED use `_adopt_outcome` instead."""
+    return _adopt_outcome(db, usuario, publicacion).imported
 
 
 def _tier_count(db, publicacion) -> int:
@@ -116,6 +122,90 @@ def test_happy_path_imports_every_live_tier_with_its_snapshot(db, publicacion, p
         assert row.costo_envio_total is None
         assert row.estado == ESTADO_INCOMPLETO
     assert _tier_count(db, publicacion) == 3
+
+
+def test_the_one_unit_tier_that_turns_on_venta_para_negocios_is_imported_with_the_rest(
+    db, publicacion, pxq_user
+) -> None:
+    """INVERTED on purpose. This test used to fix the opposite behaviour: a
+    live entry of one unit was SKIPPED and only the 2 and the 5 landed.
+
+    Two facts killed that rule, and the second is the decisive one.
+
+    MercadoLibre ACCEPTS `min_purchase_unit: 1` and holds it in production --
+    MLA1563835240 carries `{"id": "3396", "amount": 80999,
+    "min_purchase_unit": 1}` with both `context_restrictions`
+    (`channel_marketplace`, `user_type_business`) -- so ML's own documentation,
+    which says the value must be greater than 1, is wrong about what ML
+    accepts.
+
+    And that entry is not inert: the one-unit tier is what makes the
+    publication appear as "Venta para negocios". It is the switch for the B2B
+    shelf, not a stray row beside the wholesale table. A mirror that drops it
+    cannot describe whether the listing is on that shelf at all -- which is
+    precisely the state the operator opens this panel to see.
+
+    So the number here is not the point. The point is that skipping it hid a
+    business fact, and 1/2/5 must land as three tiers with no skip reported.
+    """
+    commit_spy = MagicMock(wraps=db.commit)
+    patcher, _ = _mock_client([_live("ML1", 1, 999.0), _live("ML2", 2, 900.0), _live("ML3", 5, 800.0)])
+    try:
+        with patch.object(db, "commit", commit_spy):
+            outcome = _adopt_outcome(db, pxq_user, publicacion)
+    finally:
+        patcher.stop()
+
+    assert [r.cantidad_minima for r in outcome.imported] == [1, 2, 5]
+    assert [r.precio_unitario for r in outcome.imported] == [Decimal("999.0"), Decimal("900.0"), Decimal("800.0")]
+    assert outcome.skipped == []
+
+    # The rows are PERSISTED, not staged and then thrown away with the session.
+    commit_spy.assert_called_once()
+    assert _tier_count(db, publicacion) == 3
+
+
+def test_a_skipped_entry_is_reported_with_its_ml_price_id_and_quantity(db, publicacion, pxq_user) -> None:
+    """The skip did NOT go away with the one-unit rule -- what it triggers on
+    did. The general property is unchanged: import what this mirror understands,
+    REPORT what it does not, never abort the whole request over one entry.
+
+    Today the only irrepresentable quantity is below 1, which MercadoLibre
+    should never produce; this is the defensive half of the partition. A silent
+    skip would still be worse than the abort it replaced: the operator would
+    read "1 tramo importado" and believe the mirror now matches ML, while the
+    panel's live column keeps rendering an entry the mirror column will never
+    match. The identifiers are what tie the report back to that exact entry."""
+    patcher, _ = _mock_client([_live(3396, 0, 80999), _live("ML2", 2, 900.0)])
+    try:
+        outcome = _adopt_outcome(db, pxq_user, publicacion)
+    finally:
+        patcher.stop()
+
+    assert [r.cantidad_minima for r in outcome.imported] == [2]
+    assert len(outcome.skipped) == 1
+    skipped = outcome.skipped[0]
+    # `str()`-coerced for the same reason `ml_price_id` is everywhere else in
+    # this feature: MercadoLibre returns the id as a NUMBER.
+    assert skipped.ml_price_id == "3396"
+    assert skipped.cantidad_minima == 0
+
+
+def test_an_entirely_irrepresentable_live_set_imports_nothing_without_raising(db, publicacion, pxq_user) -> None:
+    """Not an error. MercadoLibre genuinely holds a price here -- it is just
+    one this panel cannot mirror -- so a 503/422 would tell the operator to go
+    fix something that is not broken. Zero imported and one skip is the honest
+    answer, and it is a DIFFERENT fact from "ML holds no tiers": the frontend
+    has to be able to tell those two apart."""
+    patcher, _ = _mock_client([_live("ML1", 0, 999.0)])
+    try:
+        outcome = _adopt_outcome(db, pxq_user, publicacion)
+    finally:
+        patcher.stop()
+
+    assert outcome.imported == []
+    assert [s.cantidad_minima for s in outcome.skipped] == [0]
+    assert _tier_count(db, publicacion) == 0
 
 
 def test_failed_live_read_refuses_with_503_and_writes_nothing(db, publicacion, pxq_user) -> None:
