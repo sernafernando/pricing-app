@@ -100,9 +100,9 @@ and mirror `variant_id` are proposal "Known Defects", not formal spec requiremen
       `admin.gestionar_mla_banlist` does not (UI5, D9).
 - [x] 2.4 GREEN: change the gate in `Navbar.jsx`, `Sidebar.jsx`, `SmartRedirect.jsx` to
       `admin.ver_items_sin_mla`.
-- [ ] 2.5 RED: test the BANLIST sub-tab paginates against banlist rows only, not the full `reporte`
+- [x] 2.5 RED: test the BANLIST sub-tab paginates against banlist rows only, not the full `reporte`
       (`TiendaNubeReconcile.jsx:676`).
-- [ ] 2.6 GREEN: fix `currentTabItems` fallback.
+- [x] 2.6 GREEN: fix `currentTabItems` fallback.
 - [ ] 2.7 RED: test the local mirror does not fabricate `variant_id = product_id`
       (`tn_publish_service.py:357`).
 - [ ] 2.8 GREEN: fix the mirror write (leave null/pending until the next full sync resolves the real

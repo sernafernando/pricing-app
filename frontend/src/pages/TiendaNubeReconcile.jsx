@@ -49,6 +49,7 @@ import { useToast } from '../hooks/useToast';
 import Toast from '../components/Toast';
 import TnPublishModal from '../components/TnPublishModal';
 import api from '../services/api';
+import { selectTabItems } from './tiendaNubeReconcileHelpers';
 import styles from './TiendaNubeReconcile.module.css';
 
 export const COLUMN_SIZING_STORAGE_KEY = 'tnreconcile:colsizing:reporte';
@@ -672,10 +673,10 @@ export default function TiendaNubeReconcile() {
 
   // Client-side filter (by sub-tab) over the ONE fetched set — the backend
   // is called once, not once per tab.
-  const currentTabItems = useMemo(() => {
-    if (subTab === 'todos' || subTab === 'BANLIST') return reporte;
-    return reporte.filter((r) => r.verdict === subTab);
-  }, [reporte, subTab]);
+  const currentTabItems = useMemo(
+    () => selectTabItems(subTab, reporte, baneados),
+    [reporte, baneados, subTab],
+  );
 
   // Sort applied AFTER filter, BEFORE pagination (filter -> sort ->
   // paginate), so page 1 always shows the true extreme of the sorted set.
@@ -688,10 +689,11 @@ export default function TiendaNubeReconcile() {
   // Global sync trigger visibility (Slice 3): shown only when the operator
   // holds the permission AND at least one row in the CURRENT view actually
   // needs it — never shown as a standing, always-available action.
-  // The BANLIST tab is excluded explicitly: `currentTabItems` falls back to
-  // the whole report there (it is a banned-EAN view, not a verdict view), so
-  // without this guard the button would surface on a tab that never renders
-  // a reconciliation row.
+  // The BANLIST tab is excluded explicitly, kept as a defensive guard even
+  // though `selectTabItems` now returns `baneados` (never `reporte`) there:
+  // banlist rows have no `tn_presence` field, so `.some(...)` below would
+  // already evaluate to false — this stays as a second, explicit safety net
+  // documenting intent (a banned-EAN view, not a verdict view).
   const mostrarSincronizarTn =
     puedeGestionarPublicacion &&
     subTab !== 'BANLIST' &&
