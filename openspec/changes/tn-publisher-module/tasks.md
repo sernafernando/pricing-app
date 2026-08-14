@@ -93,8 +93,8 @@ written are additive/harmless.
 **Spec IDs**: SEC1 (dead ungated endpoint), UI5 (nav gate matches route gate / D9). Banlist pagination
 and mirror `variant_id` are proposal "Known Defects", not formal spec requirements.
 
-- [ ] 2.1 RED: test `GET /tienda-nube/productos` is gone (404) or requires auth (401/403) (SEC1).
-- [ ] 2.2 GREEN: remove the route, or gate it with `verificar_permiso` + a typed `response_model`.
+- [x] 2.1 RED: test `GET /tienda-nube/productos` is gone (404) or requires auth (401/403) (SEC1).
+- [x] 2.2 GREEN: remove the route, or gate it with `verificar_permiso` + a typed `response_model`.
 - [ ] 2.3 RED: frontend test — a user with `admin.ver_items_sin_mla` but not
       `admin.gestionar_mla_banlist` sees the nav entry; a user with only
       `admin.gestionar_mla_banlist` does not (UI5, D9).
