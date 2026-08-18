@@ -330,7 +330,35 @@ def _audit_publish(
         logger.error("Audit log failed for TN publish item_id=%s: %s", item_id, e, exc_info=True)
 
 
-def _upsert_publish_mirror(db: Session, product_id: Optional[int], ean: str, product_name: Optional[str]) -> None:
+def _extract_variant_id(product_body: Optional[Dict[str, Any]]) -> Optional[int]:
+    """Extract the REAL per-variant TN id from a full product response body.
+
+    `create_product`/`get_product_by_sku` both return TN's product shape —
+    `{"id": <product_id>, "variants": [{"id": <variant_id>, ...}], ...}` —
+    the same shape `tienda_nube_sync_shared.extract_variantes` reads from
+    the catalog sync. Returns `None` when the body has no usable variant
+    data, so the caller never falls back to fabricating a value (e.g. the
+    product id) in its place.
+    """
+    if not isinstance(product_body, dict):
+        return None
+    variants = product_body.get("variants")
+    if not isinstance(variants, list) or not variants:
+        return None
+    first_variant = variants[0]
+    if not isinstance(first_variant, dict):
+        return None
+    variant_id = first_variant.get("id")
+    return variant_id if isinstance(variant_id, int) else None
+
+
+def _upsert_publish_mirror(
+    db: Session,
+    product_id: Optional[int],
+    ean: str,
+    product_name: Optional[str],
+    variant_id: Optional[int] = None,
+) -> None:
     """Best-effort local-mirror sync after ANY publish outcome that confirms
     a TN product exists for `ean` (a fresh create, an `already_exists` live
     pre-check hit, or a recovered-via-read-back ambiguous outcome). A
@@ -341,6 +369,13 @@ def _upsert_publish_mirror(db: Session, product_id: Optional[int], ean: str, pro
     (e.g. discovered live but not yet locally known), otherwise inserts a
     new row — same shape `unpublish_product`'s success path assumes
     elsewhere in this module.
+
+    `variant_id` (the REAL id, from `_extract_variant_id`) is REQUIRED to
+    insert a new row: `TiendaNubeProducto.variant_id` is NOT NULL, so this
+    can't leave it null/pending the way the nullable `published` column
+    does. When `variant_id` is unknown, the insert is skipped entirely
+    (logged, not fatal) rather than fabricating one (e.g. `product_id`) —
+    the row is created correctly by the next full catalog sync instead.
     """
     if product_id is None:
         return
@@ -349,16 +384,25 @@ def _upsert_publish_mirror(db: Session, product_id: Optional[int], ean: str, pro
         if existing_row is not None:
             existing_row.variant_sku = existing_row.variant_sku or ean
             existing_row.published = True
-        else:
+        elif variant_id is not None:
             db.add(
                 TiendaNubeProducto(
                     product_id=product_id,
                     product_name=product_name,
-                    variant_id=product_id,
+                    variant_id=variant_id,
                     variant_sku=ean,
                     published=True,
                 )
             )
+        else:
+            logger.warning(
+                "Local mirror insert skipped for product_id=%s ean=%s: TN's response carried no "
+                "usable variant id, and variant_id is NOT NULL — the row will be created correctly "
+                "by the next full catalog sync instead of being fabricated.",
+                product_id,
+                ean,
+            )
+            return
         db.commit()
     except Exception as e:
         db.rollback()
@@ -499,7 +543,7 @@ def publish_product(
         }
         # Best-effort: bring the local mirror in sync with what TN actually
         # has, even though this call didn't create it.
-        _upsert_publish_mirror(db, live_product_id, ean, product_name)
+        _upsert_publish_mirror(db, live_product_id, ean, product_name, _extract_variant_id(live_existing))
         _audit_publish(db, usuario, live_product_id, outcome)
         return outcome
 
@@ -578,7 +622,7 @@ def publish_product(
             "product_id": product_id,
             "skipped_image_srcs": skipped_srcs,
         }
-        _upsert_publish_mirror(db, product_id, ean, product_name)
+        _upsert_publish_mirror(db, product_id, ean, product_name, _extract_variant_id(body))
         _audit_publish(
             db,
             usuario,
@@ -626,7 +670,7 @@ def publish_product(
             "skipped_image_srcs": skipped_srcs,
             "detail": "Recovered via read-back after an ambiguous create outcome.",
         }
-        _upsert_publish_mirror(db, recovered_product_id, ean, product_name)
+        _upsert_publish_mirror(db, recovered_product_id, ean, product_name, _extract_variant_id(readback))
         _audit_publish(
             db,
             usuario,

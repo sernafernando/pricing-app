@@ -93,19 +93,19 @@ written are additive/harmless.
 **Spec IDs**: SEC1 (dead ungated endpoint), UI5 (nav gate matches route gate / D9). Banlist pagination
 and mirror `variant_id` are proposal "Known Defects", not formal spec requirements.
 
-- [ ] 2.1 RED: test `GET /tienda-nube/productos` is gone (404) or requires auth (401/403) (SEC1).
-- [ ] 2.2 GREEN: remove the route, or gate it with `verificar_permiso` + a typed `response_model`.
-- [ ] 2.3 RED: frontend test — a user with `admin.ver_items_sin_mla` but not
+- [x] 2.1 RED: test `GET /tienda-nube/productos` is gone (404) or requires auth (401/403) (SEC1).
+- [x] 2.2 GREEN: remove the route, or gate it with `verificar_permiso` + a typed `response_model`.
+- [x] 2.3 RED: frontend test — a user with `admin.ver_items_sin_mla` but not
       `admin.gestionar_mla_banlist` sees the nav entry; a user with only
       `admin.gestionar_mla_banlist` does not (UI5, D9).
-- [ ] 2.4 GREEN: change the gate in `Navbar.jsx`, `Sidebar.jsx`, `SmartRedirect.jsx` to
+- [x] 2.4 GREEN: change the gate in `Navbar.jsx`, `Sidebar.jsx`, `SmartRedirect.jsx` to
       `admin.ver_items_sin_mla`.
-- [ ] 2.5 RED: test the BANLIST sub-tab paginates against banlist rows only, not the full `reporte`
+- [x] 2.5 RED: test the BANLIST sub-tab paginates against banlist rows only, not the full `reporte`
       (`TiendaNubeReconcile.jsx:676`).
-- [ ] 2.6 GREEN: fix `currentTabItems` fallback.
-- [ ] 2.7 RED: test the local mirror does not fabricate `variant_id = product_id`
+- [x] 2.6 GREEN: fix `currentTabItems` fallback.
+- [x] 2.7 RED: test the local mirror does not fabricate `variant_id = product_id`
       (`tn_publish_service.py:357`).
-- [ ] 2.8 GREEN: fix the mirror write (leave null/pending until the next full sync resolves the real
+- [x] 2.8 GREEN: fix the mirror write (leave null/pending until the next full sync resolves the real
       variant id, per existing mirror semantics).
 
 **Estimated lines**: ~250. **Budget verdict**: well under 800. **Dependencies**: PR-0 (independent of

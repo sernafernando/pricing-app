@@ -10,7 +10,7 @@ from starlette.concurrency import run_in_threadpool
 import httpx
 import logging
 
-from app.core.database import get_db, get_async_db
+from app.core.database import get_async_db
 from app.core.config import settings
 from app.api.deps import get_current_user
 from app.models.tienda_nube_producto import TiendaNubeProducto
@@ -78,7 +78,7 @@ async def sincronizar_tienda_nube(
     }
 
     # Phase 1: HTTP fetch — collect ALL products before touching DB.
-    # The `db` session from Depends(get_db) is idle during this phase.
+    # The `db` session from Depends(get_async_db) is idle during this phase.
     # This is intentional: all DB writes happen in Phase 2 (lines 100+)
     # after the HTTP loop completes, keeping the session hold time short.
     async with httpx.AsyncClient(timeout=30.0) as client:
@@ -274,18 +274,3 @@ async def sincronizar_tienda_nube(
         actualizados=actualizados,
         errores=errores,
     )
-
-
-@router.get("/productos")
-def listar_productos_tienda_nube(
-    skip: int = 0, limit: int = 100, db: Session = Depends(get_db), current_user: Usuario = Depends(get_current_user)
-):
-    """
-    Lista productos sincronizados de Tienda Nube
-    """
-    productos = db.query(TiendaNubeProducto).filter(TiendaNubeProducto.activo == True).offset(skip).limit(limit).all()
-
-    return {
-        "productos": productos,
-        "total": db.query(TiendaNubeProducto).filter(TiendaNubeProducto.activo == True).count(),
-    }

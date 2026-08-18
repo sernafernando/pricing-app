@@ -245,7 +245,12 @@ class TestPublishSuccessfulWrite:
     def test_submitted_creates_product_adds_images_and_updates_mirror(self, db):
         user = _make_user(db)
         fake_client = _FakePublishClient(
-            create_outcome={"ok": True, "status_code": 201, "ambiguous": False, "body": {"id": 999}},
+            create_outcome={
+                "ok": True,
+                "status_code": 201,
+                "ambiguous": False,
+                "body": {"id": 999, "variants": [{"id": 9990}]},
+            },
         )
         outcome = publish_product(db, user, client=fake_client, **_publish_kwargs())
         assert outcome["status"] == "submitted"
@@ -263,6 +268,9 @@ class TestPublishSuccessfulWrite:
         row = db.query(TiendaNubeProducto).filter(TiendaNubeProducto.variant_sku == "EAN-PUB-1").first()
         assert row is not None
         assert row.product_id == 999
+        # The REAL per-variant id from TN's response — never the product id
+        # (see TestPublishMirrorVariantId below for the fabrication defect).
+        assert row.variant_id == 9990
 
     def test_submitted_writes_an_audit_row(self, db):
         user = _make_user(db)
@@ -291,6 +299,67 @@ class TestPublishSuccessfulWrite:
         assert outcome["status"] == "submitted"
         assert fake_client.image_calls == [(997, "https://cdn.example.com/img1.jpg")]
         assert outcome["skipped_image_srcs"] == ["http://127.0.0.1/evil.jpg"]
+
+
+class TestPublishMirrorVariantId:
+    """Defect fix (tn-publisher-module PR-2): the local mirror insert used to
+    set `variant_id = product_id` — a fabricated id the reconciliation UI
+    then rendered as if it were real, until the next full catalog sync
+    overwrote it. `variant_id` is NOT NULL on `TiendaNubeProducto` (see the
+    model), so "leave it null" isn't an option — the fix instead extracts
+    the REAL per-variant id from TN's response body (`variants[0]["id"]`,
+    the same shape `tienda_nube_sync_shared.extract_variantes` reads from
+    the catalog sync) and, when that's genuinely unavailable, skips the
+    mirror insert entirely rather than fabricating a value — the row is
+    created correctly by the next full sync instead (`published`'s
+    established "unknown until backfilled" pattern, adapted for a NOT NULL
+    column: skip instead of null)."""
+
+    def test_submitted_with_no_variant_data_in_response_does_not_fabricate_row(self, db):
+        user = _make_user(db)
+        fake_client = _FakePublishClient(
+            # No "variants" key at all — TN's response didn't carry per-variant
+            # data (or a malformed/unexpected shape). The mirror MUST NOT be
+            # created with variant_id=product_id in this case.
+            create_outcome={"ok": True, "status_code": 201, "ambiguous": False, "body": {"id": 5001}},
+        )
+        outcome = publish_product(db, user, client=fake_client, **_publish_kwargs())
+        assert outcome["status"] == "submitted"
+        assert outcome["submitted"] is True
+        assert outcome["product_id"] == 5001
+        # No fabricated row — pending until the next full sync knows the
+        # real variant id.
+        assert db.query(TiendaNubeProducto).filter(TiendaNubeProducto.product_id == 5001).count() == 0
+
+    def test_submitted_with_empty_variants_list_does_not_fabricate_row(self, db):
+        user = _make_user(db)
+        fake_client = _FakePublishClient(
+            create_outcome={
+                "ok": True,
+                "status_code": 201,
+                "ambiguous": False,
+                "body": {"id": 5002, "variants": []},
+            },
+        )
+        publish_product(db, user, client=fake_client, **_publish_kwargs())
+        assert db.query(TiendaNubeProducto).filter(TiendaNubeProducto.product_id == 5002).count() == 0
+
+    def test_submitted_with_real_variant_data_uses_the_real_variant_id(self, db):
+        user = _make_user(db)
+        fake_client = _FakePublishClient(
+            create_outcome={
+                "ok": True,
+                "status_code": 201,
+                "ambiguous": False,
+                "body": {"id": 5003, "variants": [{"id": 50030}]},
+            },
+        )
+        publish_product(db, user, client=fake_client, **_publish_kwargs())
+        row = db.query(TiendaNubeProducto).filter(TiendaNubeProducto.product_id == 5003).first()
+        assert row is not None
+        assert row.variant_id == 50030
+        # Never the product_id — that's exactly the fabrication this fixes.
+        assert row.variant_id != row.product_id
 
 
 class TestPublishPriceGuard:
@@ -652,7 +721,7 @@ class TestPublishLivePrecheck:
         user = _make_user(db)
         fake_client = _FakePublishClient(
             create_outcome={"ok": True, "status_code": 201, "ambiguous": False, "body": {}},
-            get_by_sku_results=[{"id": 111}],
+            get_by_sku_results=[{"id": 111, "variants": [{"id": 1110}]}],
         )
         outcome = publish_product(db, user, client=fake_client, **_publish_kwargs())
         assert outcome["status"] == "already_exists"
@@ -663,6 +732,7 @@ class TestPublishLivePrecheck:
         row = db.query(TiendaNubeProducto).filter(TiendaNubeProducto.product_id == 111).first()
         assert row is not None
         assert row.variant_sku == "EAN-PUB-1"
+        assert row.variant_id == 1110
 
     def test_live_precheck_confirms_absent_creates(self, db):
         user = _make_user(db)
@@ -708,7 +778,7 @@ class TestPublishAmbiguousReadBack:
             create_outcome={"ok": False, "status_code": 503, "ambiguous": True, "body": None},
             # First call = live pre-check (confirmed absent) -> proceed to create.
             # Second call = read-back after the ambiguous create -> found.
-            get_by_sku_results=[None, {"id": 333}],
+            get_by_sku_results=[None, {"id": 333, "variants": [{"id": 3330}]}],
         )
         outcome = publish_product(db, user, client=fake_client, **_publish_kwargs())
         assert outcome["status"] == "submitted"
@@ -716,6 +786,7 @@ class TestPublishAmbiguousReadBack:
         assert outcome["product_id"] == 333
         row = db.query(TiendaNubeProducto).filter(TiendaNubeProducto.product_id == 333).first()
         assert row is not None
+        assert row.variant_id == 3330
 
     def test_readback_confirms_absent_stays_ambiguous(self, db):
         user = _make_user(db)

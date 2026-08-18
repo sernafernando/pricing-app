@@ -25,7 +25,7 @@ export default function Navbar() {
   const puedeVerGestionPMs = tienePermiso('admin.gestionar_pms');
   const puedeVerHistorial = tienePermiso('productos.ver_auditoria');
   const puedeVerBanlist = tienePermiso('admin.gestionar_mla_banlist');
-  const puedeVerItemsSinMLA = tienePermiso('admin.gestionar_mla_banlist');
+  const puedeVerItemsSinMLA = tienePermiso('admin.ver_items_sin_mla');
   const puedeVerPedidosPreparacion = tienePermiso('ordenes.ver_preparacion');
   const puedeGestionarTurbo = tienePermiso('ordenes.gestionar_turbo_routing');
   const puedeVerTienda = tienePermiso('productos.ver_tienda');

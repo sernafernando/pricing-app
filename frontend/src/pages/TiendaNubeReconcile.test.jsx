@@ -26,6 +26,7 @@ import { screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { renderWithRouter } from '../test/renderWithRouter';
 import TiendaNubeReconcile, { COLUMN_SIZING_STORAGE_KEY } from './TiendaNubeReconcile';
+import { selectTabItems } from './tiendaNubeReconcileHelpers';
 import api from '../services/api';
 
 const mockTienePermiso = vi.fn(() => true);
@@ -1610,5 +1611,33 @@ describe('Stock column (Slice 4)', () => {
     await waitFor(() => {
       expect(screen.getByRole('button', { name: /Anterior/i })).toBeDisabled();
     });
+  });
+});
+
+describe('selectTabItems — BANLIST sub-tab must paginate against banlist rows only', () => {
+  const reporte = manyFaltaPublicar(120);
+  const baneados = [
+    { id: 1, ean: 'BANNED-1', motivo: 'x', usuario_nombre: 'Op', fecha_creacion: '2026-07-01T00:00:00Z' },
+    { id: 2, ean: 'BANNED-2', motivo: 'x', usuario_nombre: 'Op', fecha_creacion: '2026-07-01T00:00:00Z' },
+  ];
+
+  it('returns the banlist rows, not the full reporte, for the BANLIST sub-tab', () => {
+    // Before the fix, `currentTabItems`/`selectTabItems` fell back to the
+    // WHOLE `reporte` (120 rows) on 'BANLIST' — total/totalPages/filasVisibles
+    // were then computed against unrelated FALTA_PUBLICAR rows instead of the
+    // 2 banned EANs actually rendered on that tab.
+    const result = selectTabItems('BANLIST', reporte, baneados);
+    expect(result).toBe(baneados);
+    expect(result).toHaveLength(2);
+  });
+
+  it('still returns the whole reporte for the "todos" sub-tab', () => {
+    expect(selectTabItems('todos', reporte, baneados)).toBe(reporte);
+  });
+
+  it('still filters by verdict for a verdict sub-tab', () => {
+    const result = selectTabItems('FALTA_PUBLICAR', reporte, baneados);
+    expect(result).toHaveLength(120);
+    expect(result.every((r) => r.verdict === 'FALTA_PUBLICAR')).toBe(true);
   });
 });
