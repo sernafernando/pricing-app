@@ -1,13 +1,24 @@
-"""Tests for `GET /pxq/{item_id}/markup` (slice A1, task 1.6).
+"""Tests for `GET /pxq/{item_id}/markup` (slice A1, task 1.6; pool-safety
+fix in slice B).
 
-Pure DB read (no ML proxy call), so like the CRUD routes -- and unlike
-`GET /{item_id}/live` -- it uses the ordinary `get_current_user` +
-`Depends(get_db)` pair; tests call the router function directly with the
-real `db` fixture and monkeypatch `PermisosService.tiene_permiso`, same
-convention as `test_pxq_router_tier_crud.py`. Authentication itself (401) is
-enforced by the `get_current_user` JWT dependency at the FastAPI layer, out
-of scope for this direct-function unit test -- same scope boundary the
-existing CRUD router tests already draw; only the `pxq.ver` permission check
+NOT a pure DB read anymore (slice B): the endpoint runs a TTL-gated shipping
+auto-fetch (`pxq_markup_service.refresh_stale_tier_shipping`) before the
+markup read, so -- like `GET /{item_id}/live` -- it now uses
+`get_current_user_transient` with short `get_background_db()` blocks
+instead of `Depends(get_db)`. Tests call the router function directly and
+monkeypatch BOTH `pxq_router.get_background_db` AND
+`pxq_markup_service.get_background_db` to a double wrapping the real `db`
+fixture (same technique `test_pxq_router_live_endpoint.py` uses for
+`GET /{item_id}/live`) -- `refresh_stale_tier_shipping` lives in a
+different module and opens its OWN sessions, so both call sites need the
+double independently. `tests/conftest.py`'s autouse guard already pins the
+proxy fetch itself to `None` for every test here (today's real production
+answer, proxy route absent), so these tests keep exercising the
+degrade-to-`shipping_unavailable` path exactly as before, plus the
+`costo_envio_total` set directly by `_add_tier` (bypassing the fetch)
+covers the resolved-markup path. Authentication itself (401) is enforced by
+the `get_current_user` JWT dependency at the FastAPI layer, out of scope for
+this direct-function unit test; only the `pxq.ver` permission check
 (`_require_pxq_read`, 403) is exercised here.
 """
 
@@ -25,6 +36,7 @@ from app.models.ml_pxq_tier import MlPxqTier
 from app.models.producto import ProductoERP
 from app.models.publicacion_ml import PublicacionML
 from app.models.usuario import AuthProvider, RolUsuario, Usuario
+from app.services import pxq_markup_service
 from app.routers import pxq as pxq_router
 from app.routers.pxq import obtener_markup_pxq
 
@@ -87,6 +99,33 @@ def _grant_pxq_ver(monkeypatch):
     monkeypatch.setattr(pxq_router.PermisosService, "tiene_permiso", lambda self, usuario, codigo: True)
 
 
+class _RealDbCM:
+    """Wraps the REAL test `db` fixture session so the endpoint's short
+    `get_background_db()` blocks -- and `refresh_stale_tier_shipping`'s own,
+    separate ones in `pxq_markup_service` -- see the fixture-created data,
+    instead of the disjoint production `SessionLocal`/`DATABASE_URL`
+    `get_background_db` is bound to by default in tests."""
+
+    def __init__(self, db):
+        self._db = db
+
+    def __call__(self):
+        return self
+
+    def __enter__(self):
+        return self._db
+
+    def __exit__(self, *exc):
+        return False
+
+
+@pytest.fixture(autouse=True)
+def _real_background_db(db, monkeypatch):
+    double = _RealDbCM(db)
+    monkeypatch.setattr(pxq_router, "get_background_db", double)
+    monkeypatch.setattr(pxq_markup_service, "get_background_db", double)
+
+
 def _add_tier(db, publicacion, pxq_user, *, cantidad_minima, precio_unitario, costo_envio_total=None):
     tier = MlPxqTier(
         publicacion_ml_id=publicacion.id,
@@ -106,7 +145,7 @@ def test_get_markup_returns_resolved_markup_for_a_tier(db, publicacion, pxq_user
         db, publicacion, pxq_user, cantidad_minima=10, precio_unitario="500.00", costo_envio_total="200.00"
     )
 
-    response = obtener_markup_pxq(item_id=publicacion.mla, current_user=pxq_user, db=db)
+    response = obtener_markup_pxq(item_id=publicacion.mla, current_user=pxq_user)
 
     assert response.item_id == publicacion.mla
     entries = {t.tier_id: t for t in response.tiers}
@@ -121,7 +160,7 @@ def test_get_markup_returns_resolved_markup_for_a_tier(db, publicacion, pxq_user
 def test_get_markup_response_omits_numeric_fields_when_unresolved(db, publicacion, pxq_user, comision_fixtures) -> None:
     tier = _add_tier(db, publicacion, pxq_user, cantidad_minima=5, precio_unitario="300.00", costo_envio_total=None)
 
-    response = obtener_markup_pxq(item_id=publicacion.mla, current_user=pxq_user, db=db)
+    response = obtener_markup_pxq(item_id=publicacion.mla, current_user=pxq_user)
 
     entries = {t.tier_id: t for t in response.tiers}
     unresolved = entries[tier.id]
@@ -143,7 +182,7 @@ def test_get_markup_batch_covers_all_tiers(db, publicacion, pxq_user, comision_f
     )
     tier_b = _add_tier(db, publicacion, pxq_user, cantidad_minima=10, precio_unitario="500.00", costo_envio_total=None)
 
-    response = obtener_markup_pxq(item_id=publicacion.mla, current_user=pxq_user, db=db)
+    response = obtener_markup_pxq(item_id=publicacion.mla, current_user=pxq_user)
 
     tier_ids = {t.tier_id for t in response.tiers}
     assert tier_ids == {tier_a.id, tier_b.id}
@@ -153,6 +192,6 @@ def test_get_markup_without_permission_is_403(db, publicacion, pxq_user, monkeyp
     monkeypatch.setattr(pxq_router.PermisosService, "tiene_permiso", lambda self, usuario, codigo: False)
 
     with pytest.raises(HTTPException) as exc:
-        obtener_markup_pxq(item_id=publicacion.mla, current_user=pxq_user, db=db)
+        obtener_markup_pxq(item_id=publicacion.mla, current_user=pxq_user)
 
     assert exc.value.status_code == 403

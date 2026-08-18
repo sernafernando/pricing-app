@@ -37,6 +37,18 @@ class MlPxqTier(Base):
     cantidad_minima = Column(Integer, nullable=False)
     precio_unitario = Column(Numeric(14, 2), nullable=False)
     costo_envio_total = Column(Numeric(14, 2), nullable=True)
+
+    # Freshness of the VALUE, not authorship (D3, slice B). A manual write
+    # to `costo_envio_total` stamps `now()` here too — the operator does not
+    # own this field, their value is valid for exactly the same 24h TTL and
+    # then the auto-fetch (`pxq_markup_service.refresh_tier_shipping`) wins
+    # over it. A write to `precio_unitario`/`cantidad_minima` NULLs this
+    # column instead: shipping cost depends on both, so the previously
+    # fetched/stamped value is invalidated. NULL means "never fetched or
+    # invalidated," which forces the very first auto-fetch. See
+    # `app/services/pxq_tier_service.update_pxq_tier` for the write rules.
+    costo_envio_fetched_at = Column(DateTime(timezone=True), nullable=True)
+
     ml_price_id = Column(String(64), nullable=True)
 
     # Snapshot of what MercadoLibre confirmed at the last successful sync — the

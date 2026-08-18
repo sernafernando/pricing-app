@@ -52,7 +52,7 @@ from app.services.auditoria_service import registrar_auditoria
 from app.services.permisos_service import PermisosService
 from app.services.pxq_confirm import is_keep, remap_and_confirm
 from app.services.pxq_diff import DesiredTier, LiveTier, diff_pxq_tiers
-from app.services.pxq_markup_service import TierMarkup, markup_for_tiers, markup_resolved
+from app.services.pxq_markup_service import TierMarkup, markup_for_tiers, markup_resolved, refresh_stale_tier_shipping
 from app.services.pxq_permissions_backfill import PXQ_ESCRIBIR_CODE
 from app.services.ml_webhook_client import ml_webhook_client
 from app.utils.async_bridge import resolve_maybe_async as _resolve
@@ -322,9 +322,20 @@ def sync_pxq_tiers(
     # "index 0" now means the lowest quantity instead of whatever surfaced
     # first.
     mirror_rows = db.query(MlPxqTier).filter(MlPxqTier.item_id == item_id).order_by(MlPxqTier.cantidad_minima).all()
+    # Slice B pool-safety fix: the TTL-gated shipping auto-fetch runs in ITS
+    # OWN isolated sessions (never `db`, never a commit on `db`) BEFORE the
+    # markup read below. This is what keeps D6's business commit (A) the
+    # FIRST commit this function's own `db` session ever makes -- an
+    # accidental commit inside `markup_for_tiers` would have broken that
+    # invariant; `refresh_stale_tier_shipping` structurally cannot cause one,
+    # because it never touches this `db` at all. A failed refresh degrades to
+    # "no refresh this time" and never raises -- see its own docstring.
+    refresh_stale_tier_shipping(item_id)
     # Resolved ONCE for the whole publication, same discipline as
     # `markup_for_tiers` itself (all tiers of one MLA share the pricing
-    # context) -- and reused by BOTH gate call sites below (D4).
+    # context) -- and reused by BOTH gate call sites below (D4). PURE DB READ
+    # (slice A1 invariant) -- the refresh above is what may have called the
+    # proxy, not this.
     markup_map = markup_for_tiers(db, item_id)
     # Filtered ONCE. Two separate comprehensions applying the same predicate to
     # the same list were identical by construction, but only by construction —

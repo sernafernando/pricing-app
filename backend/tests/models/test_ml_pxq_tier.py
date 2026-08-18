@@ -91,6 +91,30 @@ def test_costo_envio_total_and_ml_price_id_are_nullable(db, publicacion, pxq_use
     assert tier.ml_price_id is None
 
 
+def test_costo_envio_fetched_at_defaults_to_null(db, publicacion, pxq_user) -> None:
+    """NULL means "never fetched" — it forces the first auto-fetch on the
+    next read-path open (slice B, `pxq_markup_service.refresh_tier_shipping`).
+    A manually-created tier must never appear artificially fresh."""
+    tier = _make_tier(publicacion, pxq_user)
+    db.add(tier)
+    db.flush()
+    assert tier.costo_envio_fetched_at is None
+
+
+def test_costo_envio_fetched_at_accepts_a_tz_aware_timestamp(db, publicacion, pxq_user) -> None:
+    """`DateTime(timezone=True)` — the column's freshness comparison (D3/TTL)
+    is meaningless against a naive timestamp. SQLite loses tzinfo after
+    flush (documented repo trap); the column TYPE is what this test proves."""
+    from datetime import datetime, timezone
+
+    stamp = datetime(2026, 8, 18, 12, 0, 0, tzinfo=timezone.utc)
+    tier = _make_tier(publicacion, pxq_user, costo_envio_fetched_at=stamp)
+    db.add(tier)
+    db.flush()
+    db.refresh(tier)
+    assert tier.costo_envio_fetched_at is not None
+
+
 def test_a_one_unit_row_is_accepted_because_it_is_what_turns_on_venta_para_negocios(db, publicacion, pxq_user) -> None:
     """MercadoLibre accepts `min_purchase_unit: 1` in production
     (MLA1563835240, price id 3396) even though its documentation says the value

@@ -30,7 +30,7 @@ from app.services.ml_pxq_adopt_service import adopt_live_pxq_tiers
 from app.services.ml_pxq_write_service import sync_pxq_tiers
 from app.services.ml_webhook_client import ml_webhook_client
 from app.services.permisos_service import PermisosService
-from app.services.pxq_markup_service import markup_for_tiers
+from app.services.pxq_markup_service import markup_for_tiers, refresh_stale_tier_shipping
 from app.services.pxq_permissions_backfill import PXQ_ESCRIBIR_CODE, PXQ_VER_CODE
 from app.services.pxq_tier_service import create_pxq_tier, delete_pxq_tier, update_pxq_tier
 
@@ -402,29 +402,44 @@ def eliminar_tier_pxq(
 @router.get("/{item_id}/markup", response_model=PxqMarkupBatchResponse, response_model_exclude_none=True)
 def obtener_markup_pxq(
     item_id: str,
-    current_user: Usuario = Depends(get_current_user),
-    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(get_current_user_transient),
 ) -> PxqMarkupBatchResponse:
     """Batch markup read for every mirrored tier of `item_id` (slice A1 of
-    `pxq-markup-antes-de-publicar`). Pure DB read -- no ML proxy call -- so
-    unlike `GET /{item_id}/live` this uses the ordinary `get_current_user` +
-    `Depends(get_db)` pair, same as the CRUD routes above.
+    `pxq-markup-antes-de-publicar`).
+
+    NOT a pure DB read anymore (slice B): a TTL-gated shipping auto-fetch
+    (`pxq_markup_service.refresh_stale_tier_shipping`) may call the
+    ml-webhook proxy once per stale tier before the markup is computed. Uses
+    `get_current_user_transient` (NOT `Depends(get_db)`), same pool-safety
+    pair as `GET /{item_id}/live` -- see that endpoint's docstring and
+    `backend/CLAUDE.md`'s QueuePool rule: the refresh function owns its own
+    short sessions end-to-end and this endpoint never holds a session across
+    that outbound call either.
 
     Gated by `pxq.ver` (read), mirroring `_require_pxq_read`, NOT
-    `pxq.escribir` -- this endpoint never writes.
+    `pxq.escribir` -- this endpoint never writes anything itself (the
+    refresh's own writes are its own isolated unit of work, see that
+    function's docstring for the D3/failure-isolation contract).
     """
-    _require_pxq_read(current_user, db)
-    markups = markup_for_tiers(db, item_id)
-    tiers = [
-        PxqTierMarkupResult(
-            tier_id=m.tier_id,
-            reason=m.reason,
-            markup=m.markup,
-            limpio=m.limpio,
-            comision_total=m.comision_total,
-        )
-        for m in markups.values()
-    ]
+    with get_background_db() as db:
+        _require_pxq_read(current_user, db)
+    # Session closed here -- no session is held while the refresh below
+    # makes its own (also short-lived) proxy calls.
+
+    refresh_stale_tier_shipping(item_id)
+
+    with get_background_db() as db:
+        markups = markup_for_tiers(db, item_id)
+        tiers = [
+            PxqTierMarkupResult(
+                tier_id=m.tier_id,
+                reason=m.reason,
+                markup=m.markup,
+                limpio=m.limpio,
+                comision_total=m.comision_total,
+            )
+            for m in markups.values()
+        ]
     return PxqMarkupBatchResponse(item_id=item_id, tiers=tiers)
 
 

@@ -324,9 +324,12 @@ export const promocionesAPI = {
 // `PxqCreateTierRequest`/`PxqUpdateTierRequest`.
 export const pxqAPI = {
   getLive: (itemId) => api.get(`/pxq/${itemId}/live`),
-  // Batch markup read (slice A1 of `pxq-markup-antes-de-publicar`): pure DB
-  // read, no ML proxy call -- unlike `getLive` above this needs no special
-  // handling on the caller's side.
+  // Batch markup read (`pxq-markup-antes-de-publicar`). NOT a pure DB read
+  // (slice B): the backend may make its own short-lived ML proxy calls
+  // server-side to refresh a stale shipping cost before computing the
+  // markup -- still no special handling needed on the caller's side (no
+  // `null`-vs-`[]` distinction like `getLive`), just a response that may
+  // take slightly longer on a cold/stale tier.
   getMarkup: (itemId) => api.get(`/pxq/${itemId}/markup`),
   createTier: (itemId, body) => api.post(`/pxq/${itemId}/tiers`, body),
   updateTier: (itemId, tierId, body) => api.patch(`/pxq/${itemId}/tiers/${tierId}`, body),
