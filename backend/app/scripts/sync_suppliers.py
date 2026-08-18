@@ -48,7 +48,7 @@ def sync_full(db: Session, supp_id: int | None = None) -> dict[str, int]:
     SyncEnCursoError si otro sync ya está persistiendo. Ninguna de las dos se
     traga acá: el caller decide cómo reportarlas.
     """
-    label = f"supp_id={supp_id}" if supp_id else "toda la tabla"
+    label = f"supp_id={supp_id}" if supp_id is not None else "toda la tabla"
     print(f"\n🔄 Sincronización de proveedores ({label})")
     print("=" * 60)
 

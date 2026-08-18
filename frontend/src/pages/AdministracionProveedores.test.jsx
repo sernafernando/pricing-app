@@ -198,7 +198,7 @@ describe('AdministracionProveedores — contrato del sync ERP en background', ()
   });
 
   // BUG C
-  it('un evento SSE de OTRA corrida no toca nada: el banner sigue, el timeout no se cancela y syncResult queda intacto', async () => {
+  it('un evento SSE de OTRA corrida no resuelve la propia: el banner sigue, el timeout no se cancela y syncResult queda intacto', async () => {
     vi.useFakeTimers({ shouldAdvanceTime: true });
     api.post.mockResolvedValue(RESPUESTA_202_CORRELACIONADA);
     await montarPagina();
@@ -219,8 +219,9 @@ describe('AdministracionProveedores — contrato del sync ERP en background', ()
     expect(botonSync()).toBeDisabled();
     expect(screen.queryByText(/Sync completado/)).not.toBeInTheDocument();
     expect(screen.queryByText(/999 proveedores/)).not.toBeInTheDocument();
-    // La tabla tampoco se refetchea con el resultado ajeno.
-    expect(llamadasALaLista()).toBe(1);
+    // El sync ajeno terminó bien y dejó datos nuevos: la tabla SÍ se refresca,
+    // pero en silencio (sin banner, sin resultado, sin tocar la corrida propia).
+    await waitFor(() => expect(llamadasALaLista()).toBe(2));
 
     // Y el timeout propio NO fue cancelado: sigue vigente y vence a los 90 s.
     await act(async () => {
@@ -304,6 +305,101 @@ describe('AdministracionProveedores — contrato del sync ERP en background', ()
     expect(screen.queryByText('Sync de otro usuario')).not.toBeInTheDocument();
     expect(screen.getByText(RE_EN_CURSO)).toBeInTheDocument();
     expect(botonSync()).toBeDisabled();
+  });
+
+  // El buffer de eventos en vuelo no es de un solo slot: un evento ajeno que
+  // llega DESPUÉS del propio (ambos con el POST en vuelo) no lo pisa.
+  it('dos eventos en vuelo (propio y después ajeno): el propio se reconcilia igual', async () => {
+    let resolverPost;
+    api.post.mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          resolverPost = resolve;
+        }),
+    );
+    await montarPagina();
+
+    fireEvent.click(botonSync());
+    await waitFor(() => expect(api.post).toHaveBeenCalledTimes(1));
+
+    await act(async () => {
+      sseCallback({ channel: 'proveedores:sync', data: { ...CONTADORES, run_id: RUN_ID } });
+    });
+    await act(async () => {
+      sseCallback({
+        channel: 'proveedores:sync',
+        data: { success: false, error: 'Sync de otro usuario', run_id: RUN_ID_AJENO },
+      });
+    });
+
+    await act(async () => {
+      resolverPost(RESPUESTA_202_CORRELACIONADA);
+    });
+
+    expect(screen.queryByText(RE_EN_CURSO)).not.toBeInTheDocument();
+    expect(screen.getByText(/Sync completado: 120 proveedores/)).toBeInTheDocument();
+    expect(screen.queryByText('Sync de otro usuario')).not.toBeInTheDocument();
+    expect(botonSync()).not.toBeDisabled();
+  });
+
+  it('dos eventos en vuelo (ajeno y después propio): también gana el propio', async () => {
+    let resolverPost;
+    api.post.mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          resolverPost = resolve;
+        }),
+    );
+    await montarPagina();
+
+    fireEvent.click(botonSync());
+    await waitFor(() => expect(api.post).toHaveBeenCalledTimes(1));
+
+    await act(async () => {
+      sseCallback({
+        channel: 'proveedores:sync',
+        data: { success: false, error: 'Sync de otro usuario', run_id: RUN_ID_AJENO },
+      });
+    });
+    await act(async () => {
+      sseCallback({ channel: 'proveedores:sync', data: { ...CONTADORES, run_id: RUN_ID } });
+    });
+
+    await act(async () => {
+      resolverPost(RESPUESTA_202_CORRELACIONADA);
+    });
+
+    expect(screen.queryByText(RE_EN_CURSO)).not.toBeInTheDocument();
+    expect(screen.getByText(/Sync completado: 120 proveedores/)).toBeInTheDocument();
+    expect(screen.queryByText('Sync de otro usuario')).not.toBeInTheDocument();
+    expect(botonSync()).not.toBeDisabled();
+  });
+
+  it('un evento ajeno exitoso sin corrida propia refresca la lista en silencio', async () => {
+    await montarPagina();
+
+    await act(async () => {
+      sseCallback({ channel: 'proveedores:sync', data: { ...CONTADORES, run_id: RUN_ID_AJENO } });
+    });
+
+    await waitFor(() => expect(llamadasALaLista()).toBe(2));
+    expect(screen.queryByText(RE_EN_CURSO)).not.toBeInTheDocument();
+    expect(screen.queryByText(/Sync completado/)).not.toBeInTheDocument();
+    expect(botonSync()).not.toBeDisabled();
+  });
+
+  it('un evento ajeno FALLIDO no refresca la lista: no hay datos nuevos que buscar', async () => {
+    await montarPagina();
+
+    await act(async () => {
+      sseCallback({
+        channel: 'proveedores:sync',
+        data: { success: false, error: 'El ERP no devolvió proveedores', run_id: RUN_ID_AJENO },
+      });
+    });
+
+    expect(llamadasALaLista()).toBe(1);
+    expect(screen.queryByText('El ERP no devolvió proveedores')).not.toBeInTheDocument();
   });
 
   it('no deja timers colgados: desmontar con un sync en curso no dispara setState después', async () => {

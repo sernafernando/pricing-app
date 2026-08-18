@@ -113,10 +113,11 @@ export default function AdministracionProveedores() {
   // El POST sigue en vuelo: todavía NO conocemos el `run_id`, así que ningún
   // evento se puede correlacionar todavía.
   const syncPostEnVueloRef = useRef(false);
-  // Último evento llegado mientras el POST estaba en vuelo. Se guarda en vez de
-  // aplicarlo o descartarlo a ciegas: cuando llegue la 202 con el `run_id` recién
-  // ahí se puede decidir honestamente si era nuestro.
-  const syncEventoPendienteRef = useRef(null);
+  // Eventos llegados mientras el POST estaba en vuelo. Se guardan TODOS en vez
+  // de aplicarlos o descartarlos a ciegas: cuando llegue la 202 con el `run_id`
+  // recién ahí se puede decidir honestamente cuál era nuestro. Es una lista y
+  // no un slot único porque un evento ajeno posterior no puede pisar al propio.
+  const syncEventosPendientesRef = useRef([]);
 
   // ── Estado modal crear ─────────────────────────────────────────
   const [showCrear, setShowCrear] = useState(false);
@@ -211,7 +212,7 @@ export default function AdministracionProveedores() {
       // Marca la corrida en vuelo como resuelta ANTES de tocar el estado: si el
       // POST todavía no resolvió, su `setSyncEnCurso(true)` posterior se descarta.
       syncResueltoRef.current = syncRunIdRef.current;
-      syncEventoPendienteRef.current = null;
+      syncEventosPendientesRef.current = [];
       // La corrida ya no espera nada: cualquier evento posterior (una
       // re-entrega, o el sync de otro usuario) vuelve a ser ajeno.
       syncRunIdServidorRef.current = null;
@@ -228,7 +229,7 @@ export default function AdministracionProveedores() {
     const runId = syncRunIdRef.current + 1;
     syncRunIdRef.current = runId;
     syncRunIdServidorRef.current = null;
-    syncEventoPendienteRef.current = null;
+    syncEventosPendientesRef.current = [];
     syncPostEnVueloRef.current = true;
     limpiarTimeoutSync();
     setSyncing(true);
@@ -246,14 +247,15 @@ export default function AdministracionProveedores() {
         syncRunIdServidorRef.current = runIdServidor;
         syncPostEnVueloRef.current = false;
 
-        // Reconciliación del evento temprano: el job puede haber publicado su
-        // resultado ANTES de que la 202 llegara. Ese evento quedó en el buffer
-        // porque no se podía correlacionar todavía; recién ahora conocemos el
-        // `run_id` y se puede decidir si era nuestro o de otra corrida.
-        const pendiente = syncEventoPendienteRef.current;
-        syncEventoPendienteRef.current = null;
-        if (pendiente && eventoDeEstaCorrida(pendiente, runIdServidor)) {
-          aplicarResultadoSync(pendiente);
+        // Reconciliación de los eventos tempranos: el job puede haber publicado
+        // su resultado ANTES de que la 202 llegara. Esos eventos quedaron en el
+        // buffer porque no se podían correlacionar todavía; recién ahora
+        // conocemos el `run_id` y se puede buscar el nuestro entre ellos.
+        const pendientes = syncEventosPendientesRef.current;
+        syncEventosPendientesRef.current = [];
+        const propio = pendientes.find((evento) => eventoDeEstaCorrida(evento, runIdServidor));
+        if (propio) {
+          aplicarResultadoSync(propio);
           return;
         }
 
@@ -294,17 +296,22 @@ export default function AdministracionProveedores() {
       // descartarlo a ciegas dejaría la UI esperando hasta el timeout un
       // resultado que YA llegó.
       if (syncPostEnVueloRef.current) {
-        syncEventoPendienteRef.current = data;
+        syncEventosPendientesRef.current.push(data);
         return;
       }
 
       // Evento de otra corrida (otro usuario, otra pestaña, un job tardío): no
-      // limpia el banner, no cancela el timeout y no pisa `syncResult`.
-      if (!eventoDeEstaCorrida(data, syncRunIdServidorRef.current)) return;
+      // limpia el banner, no cancela el timeout y no pisa `syncResult`. Pero un
+      // sync ajeno exitoso dejó datos nuevos en la tabla: se refresca en
+      // silencio para que esta pestaña no muestre proveedores viejos.
+      if (!eventoDeEstaCorrida(data, syncRunIdServidorRef.current)) {
+        if (data?.success) fetchProveedores();
+        return;
+      }
 
       aplicarResultadoSync(data);
     },
-    [aplicarResultadoSync],
+    [aplicarResultadoSync, fetchProveedores],
   );
 
   useSSEChannel('proveedores:sync', handleSyncEvent);
