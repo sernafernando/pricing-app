@@ -8,14 +8,20 @@ precedence, a stored override (already in kg/cm) would be divided by 1000 a
 second time on re-publish.
 """
 
+from datetime import date, timedelta
+
 import pytest
 
 from app.services.tn_publish_core.extract import Absent, extract_report_row
 from app.services.tn_publish_core.resolve import (
     InvalidReportValueError,
+    MissingExchangeRateError,
+    Resolved,
     ResolvedDimensions,
     convert_weight_to_kg,
     map_dimensions,
+    resolve_cost,
+    resolve_field,
     resolve_gbp_fields,
 )
 
@@ -143,3 +149,88 @@ class TestUnparseableValueRaisesInvalidReportValueError:
         assert exc_info.value.raw_value == "not-a-number"
         assert "large" in str(exc_info.value)
         assert "not-a-number" in str(exc_info.value)
+
+
+class TestPrecedenceLadder:
+    """PC4/D2/D8 — `empty < profile < gbp < stored override < operator
+    in-session edit`."""
+
+    def test_stored_override_outranks_a_fresh_gbp_value(self):
+        resolved = resolve_field(gbp_value=13.0, override_value=15.0, profile_value=Absent)
+        assert resolved == Resolved(15.0, "override")
+
+    def test_in_session_edit_outranks_the_stored_override(self):
+        resolved = resolve_field(gbp_value=13.0, override_value=15.0, operator_value=20.0)
+        assert resolved == Resolved(20.0, "operator")
+
+    def test_profile_fills_a_gap_gbp_and_override_leave_empty(self):
+        resolved = resolve_field(gbp_value=Absent, override_value=Absent, profile_value=30.0)
+        assert resolved == Resolved(30.0, "profile")
+
+    def test_full_ladder_empty_below_profile_below_gbp_below_override_below_operator(self):
+        assert resolve_field() == Resolved(None, "empty")
+        assert resolve_field(profile_value=30.0) == Resolved(30.0, "profile")
+        assert resolve_field(profile_value=30.0, gbp_value=13.0) == Resolved(13.0, "gbp")
+        assert resolve_field(profile_value=30.0, gbp_value=13.0, override_value=15.0) == Resolved(15.0, "override")
+        assert resolve_field(profile_value=30.0, gbp_value=13.0, override_value=15.0, operator_value=20.0) == Resolved(
+            20.0, "operator"
+        )
+
+    def test_none_at_a_layer_falls_through_like_absent(self):
+        resolved = resolve_field(gbp_value=None, override_value=None, profile_value=30.0)
+        assert resolved == Resolved(30.0, "profile")
+
+
+class TestConvertThenResolveOverrideNotReDivided:
+    """design Decision 1's ordering constraint, at the precedence-merge
+    layer this time: a stored override is ALREADY in kg/cm/ARS — merging it
+    via `resolve_field` must never re-run GBP-layer conversion on it."""
+
+    def test_stored_weight_override_already_in_kg_is_not_re_divided_by_1000(self):
+        gbp_weight_kg = convert_weight_to_kg("1000")  # -> 1.000 kg
+        stored_override_kg = 2.5  # operator previously stored 2.5 kg, verbatim
+
+        resolved = resolve_field(gbp_value=gbp_weight_kg, override_value=stored_override_kg)
+
+        assert resolved.value == pytest.approx(2.5)
+        assert resolved.source == "override"
+
+
+class TestResolveCostD6:
+    """PC8/D6 — ARS passes through; USD converts at today's
+    `TipoCambio.venta` with fallback-to-latest; an empty `TipoCambio` table
+    BLOCKS the cost field rather than sending unconverted USD as ARS."""
+
+    def _seed_usd_rate(self, db, *, fecha, venta):
+        from app.models.tipo_cambio import TipoCambio
+
+        db.add(TipoCambio(fecha=fecha, moneda="USD", compra=venta, venta=venta))
+        db.commit()
+
+    def test_ars_cost_passes_through_unconverted(self, db):
+        resolved = resolve_cost(db, "100.00", "ARS")
+        assert resolved.value == pytest.approx(100.00)
+        assert resolved.source == "gbp"
+
+    def test_usd_cost_converts_at_todays_rate(self, db):
+        self._seed_usd_rate(db, fecha=date.today(), venta=1000.0)
+
+        resolved = resolve_cost(db, "100.00", "USD")
+
+        assert resolved.value == pytest.approx(100000.0)
+        assert resolved.source == "gbp"
+
+    def test_usd_cost_falls_back_to_latest_rate_when_no_rate_today(self, db):
+        self._seed_usd_rate(db, fecha=date.today() - timedelta(days=3), venta=900.0)
+
+        resolved = resolve_cost(db, "100.00", "USD")
+
+        assert resolved.value == pytest.approx(90000.0)
+
+    def test_empty_tipo_cambio_table_blocks_the_cost_field(self, db):
+        with pytest.raises(MissingExchangeRateError):
+            resolve_cost(db, "100.00", "USD")
+
+    def test_absent_cost_resolves_empty_not_a_rate_problem(self, db):
+        resolved = resolve_cost(db, Absent, "USD")
+        assert resolved == Resolved(None, "empty")
