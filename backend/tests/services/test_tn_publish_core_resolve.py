@@ -12,6 +12,7 @@ import pytest
 
 from app.services.tn_publish_core.extract import Absent, extract_report_row
 from app.services.tn_publish_core.resolve import (
+    InvalidReportValueError,
     ResolvedDimensions,
     convert_weight_to_kg,
     map_dimensions,
@@ -115,3 +116,30 @@ class TestResolveGbpFieldsAppliesConversionBeforePrecedence:
         resolved = resolve_gbp_fields(extracted)
 
         assert resolved.weight_kg is Absent
+
+
+class TestUnparseableValueRaisesInvalidReportValueError:
+    """Junk is NOT absence (S1's core distinction, restated in resolve.py's
+    module docstring). A present KEY whose VALUE is non-numeric and
+    non-blank (e.g. `weight = "N/A"`) is neither a real measurement nor
+    GBP's "no data" convention (`Absent`) — it is a schema/data problem
+    that must surface as a typed, field-and-value-naming error instead of
+    an uncaught `ValueError` bubbling out of `float(...)`."""
+
+    def test_convert_weight_to_kg_raises_on_non_numeric_junk(self):
+        with pytest.raises(InvalidReportValueError) as exc_info:
+            convert_weight_to_kg("N/A")
+
+        assert exc_info.value.field_name == "weight"
+        assert exc_info.value.raw_value == "N/A"
+        assert "weight" in str(exc_info.value)
+        assert "N/A" in str(exc_info.value)
+
+    def test_map_dimensions_raises_naming_the_offending_field_and_value(self):
+        with pytest.raises(InvalidReportValueError) as exc_info:
+            map_dimensions(large_cm="not-a-number", wide_cm="2", height_cm="8")
+
+        assert exc_info.value.field_name == "large"
+        assert exc_info.value.raw_value == "not-a-number"
+        assert "large" in str(exc_info.value)
+        assert "not-a-number" in str(exc_info.value)

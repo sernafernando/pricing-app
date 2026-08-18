@@ -13,9 +13,30 @@ would be divided by 1000 a second time on re-publish.
 from dataclasses import dataclass
 from typing import Any
 
-from app.services.tn_publish_core.extract import Absent, ExtractedReportRow
+from app.services.tn_publish_core.extract import Absent, ExtractedReportRow, ReportFieldError
 
 GRAMS_PER_KILOGRAM = 1000
+
+
+class InvalidReportValueError(ReportFieldError):
+    """Raised when a report-78 row's field KEY is present but its VALUE
+    cannot be coerced to the type this publisher needs (e.g. non-numeric,
+    non-blank junk like `"N/A"` in a measurement field).
+
+    Distinct from BOTH `Absent` (GBP explicitly reports "no value" via a
+    blank/zero convention — `extract.py`'s `_is_absent_value`) and
+    `MissingReportFieldError` (the KEY itself is missing). Junk is not
+    absence: `_is_absent_value` deliberately treats unparseable values as
+    "present" so this error can fire instead of silently discarding a data
+    problem as if GBP had reported nothing. `str(...)` names both the
+    offending field and the offending raw value, so the operator/log can
+    tell a GBP schema/data problem apart from a normal absence.
+    """
+
+    def __init__(self, field_name: str, raw_value: Any):
+        super().__init__(f"Report 78 row field {field_name!r} has an unparseable value: {raw_value!r}")
+        self.field_name = field_name
+        self.raw_value = raw_value
 
 
 def convert_weight_to_kg(weight_grams: Any) -> Any:
@@ -24,11 +45,16 @@ def convert_weight_to_kg(weight_grams: Any) -> Any:
     Verified 36/36 against the live store (engram
     architecture/tn-api-field-map, #1517): GBP `1000` -> TN `1.000` kg,
     GBP `250` -> TN `0.250` kg. `Absent` passes through unconverted — there
-    is no weight to convert.
+    is no weight to convert. A present-but-unparseable value (e.g. `"N/A"`)
+    raises `InvalidReportValueError` naming the field and the raw value,
+    instead of letting a bare `ValueError` from `float(...)` escape.
     """
     if weight_grams is Absent:
         return Absent
-    return float(weight_grams) / GRAMS_PER_KILOGRAM
+    try:
+        return float(weight_grams) / GRAMS_PER_KILOGRAM
+    except (TypeError, ValueError) as exc:
+        raise InvalidReportValueError("weight", weight_grams) from exc
 
 
 @dataclass(frozen=True)
@@ -54,13 +80,18 @@ def map_dimensions(large_cm: Any, wide_cm: Any, height_cm: Any) -> ResolvedDimen
     no swap on that axis.
     """
 
-    def _to_float(value: Any) -> Any:
-        return Absent if value is Absent else float(value)
+    def _to_float(field_name: str, value: Any) -> Any:
+        if value is Absent:
+            return Absent
+        try:
+            return float(value)
+        except (TypeError, ValueError) as exc:
+            raise InvalidReportValueError(field_name, value) from exc
 
     return ResolvedDimensions(
-        width=_to_float(large_cm),
-        depth=_to_float(wide_cm),
-        height=_to_float(height_cm),
+        width=_to_float("large", large_cm),
+        depth=_to_float("wide", wide_cm),
+        height=_to_float("height", height_cm),
     )
 
 

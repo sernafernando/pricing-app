@@ -28,7 +28,19 @@ from dataclasses import dataclass
 from typing import Any, Optional
 
 
-class MissingReportFieldError(KeyError):
+class ReportFieldError(Exception):
+    """Common base for report-78 row extraction/conversion failures.
+
+    Lets callers like `build_publish_fields` catch ONE type instead of a
+    growing tuple, while still distinguishing the two failure classes via
+    the concrete subclass: `MissingReportFieldError` (a required KEY is
+    absent from the row entirely) vs `InvalidReportValueError`
+    (`resolve.py` — the KEY is present but its VALUE cannot be coerced to
+    the expected type, e.g. non-numeric junk like `"N/A"` in a measurement
+    field). Both subclasses expose `field_name`."""
+
+
+class MissingReportFieldError(ReportFieldError, KeyError):
     """Raised when a report-78 row is missing a key this publisher depends
     on. A `KeyError` subclass so existing `except KeyError` handling (if
     any) still catches it, but `str(...)` names the exact missing column
