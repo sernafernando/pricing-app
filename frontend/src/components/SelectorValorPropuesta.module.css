@@ -1,0 +1,23 @@
+.container {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--spacing-xs);
+  flex-wrap: wrap;
+}
+
+.propuesto {
+  color: var(--cf-text-tertiary);
+  font-size: var(--font-xs);
+}
+
+.select {
+  composes: select selectSm from '../styles/forms-tesla.css';
+  width: auto;
+  min-width: 110px;
+}
+
+.corregido {
+  color: var(--cf-accent-orange);
+  font-size: var(--font-xs);
+  font-weight: var(--font-medium);
+}
