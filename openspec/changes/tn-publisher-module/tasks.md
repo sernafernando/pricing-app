@@ -341,7 +341,11 @@ selector + suggestion, D5/D11), UI4 (blocked-publication state, D3).
       a path to resolve (pick a profile or type values), when the item has no resolvable weight or
       dimensions (UI4, D3).
 - [ ] 7.12 GREEN: implement the blocked-publication banner in `MeasurementSection.jsx`.
-- [ ] 7.13 Regression: full `TnPublishModal.test.jsx` + `TiendaNubeReconcile.test.jsx` suite green;
+- [ ] 7.13 **D13**: RED — test a row carrying `publish_fields_error` (PR-3, schema/extraction break)
+      renders visually distinct from a row with genuinely absent measurements, and its blocked-publish
+      banner reads "schema/extraction error — contact an administrator", NOT "load the measurements"
+      (which stays the copy for the genuinely-absent case). GREEN: implement the distinct treatment.
+- [ ] 7.14 Regression: full `TnPublishModal.test.jsx` + `TiendaNubeReconcile.test.jsx` suite green;
       new tests live under `tn-publisher/` per design's file table.
 
 **Estimated lines**: ~740 (was ~700; +D11 confirm flow, +D12 seeding). **Budget verdict**: under 800
@@ -381,3 +385,9 @@ and usable by a future bulk view.
 2. Encoding a hard cross-PR dependency (D3 must never ship without D5) as branch-parent topology is stronger than a documentation note — it makes the unsafe sequencing structurally unreachable, not just discouraged.
 3. D11's "preselected but not applied" answer is a materially different UX from the design's original `uso_count >= 3` threshold proposal — it replaces a numeric confidence gate with an explicit operator confirm action, which is simpler to test and review.
 4. Several existing alembic migrations (`20260723_tn_publicacion_permiso.py`) already establish the exact permission-seeding pattern needed for D10, avoiding any new migration idiom.
+5. **D13** (maintainer decision, applied to PR-3's `build_publish_fields`/`ReconcileRowResponse`): a
+   row's `MissingReportFieldError` (report-78 schema break) must surface as an explicit,
+   machine-readable `publish_fields_error` field on the row response — not only a warning log —
+   because PR-5's D3 blocked-publication gate would otherwise be unable to distinguish a schema break
+   from a row whose measurements are genuinely absent, letting an operator mask a systemic break by
+   hand-typing a value. See task 7.13 (PR-7) for the UI treatment this enables.

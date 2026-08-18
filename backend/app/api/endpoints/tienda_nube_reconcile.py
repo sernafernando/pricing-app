@@ -301,6 +301,13 @@ class ReconcileRowResponse(BaseModel):
     width_cm: Optional[float] = None
     depth_cm: Optional[float] = None
     height_cm: Optional[float] = None
+    # D13: explicit, machine-readable signal that THIS row's extraction hit
+    # `MissingReportFieldError` (a report-78 schema break), distinct from a
+    # row whose measurements are genuinely absent (which leaves this
+    # `None` but the fields above still populate/resolve normally). PR-5's
+    # D3 blocked-publication gate must be able to tell the two apart from
+    # the response alone, not only from the service's warning log.
+    publish_fields_error: Optional[str] = None
 
 
 def _tn_admin_url_for(product_id: Optional[int]) -> Optional[str]:

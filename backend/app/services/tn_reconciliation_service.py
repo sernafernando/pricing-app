@@ -149,6 +149,15 @@ def build_publish_fields(row: "ReconcileRow") -> Dict[str, Any]:
     value-level "GBP reports no data", e.g. a blank dimension) is a
     completely different, expected case already resolved to `None` below —
     it never reaches this `except` clause.
+
+    D13: a `MissingReportFieldError` (schema break) is a DIFFERENT failure
+    class than a genuinely absent measurement, and PR-5's D3 blocked-
+    publication gate must be able to tell them apart from the API response
+    alone — not only from this warning log. So on that path the returned
+    dict also carries `publish_fields_error` (the exception message,
+    naming the missing key) instead of a bare `{}`, and on the success
+    path it's explicit `None` rather than an implicit response-model
+    default, so both branches are equally assertable.
     """
     if row.verdict not in PUBLISH_CANDIDATE_VERDICTS:
         return {}
@@ -161,7 +170,7 @@ def build_publish_fields(row: "ReconcileRow") -> Dict[str, Any]:
             row.ean,
             exc.field_name,
         )
-        return {}
+        return {"publish_fields_error": str(exc)}
 
     def _or_none(value: Any) -> Any:
         return None if value is Absent else value
@@ -175,6 +184,7 @@ def build_publish_fields(row: "ReconcileRow") -> Dict[str, Any]:
         "width_cm": _or_none(resolved.width_cm),
         "depth_cm": _or_none(resolved.depth_cm),
         "height_cm": _or_none(resolved.height_cm),
+        "publish_fields_error": None,
     }
 
 

@@ -1023,16 +1023,31 @@ class TestReconcilePublishFieldsPassthrough:
         row. `extract_report_row` still raises internally (proven directly
         in `test_tn_publish_core_extract.py`); this test proves the
         endpoint-level wiring catches it per-row and leaves the new fields
-        `null` rather than propagating a 500 across the whole response."""
-        incomplete_row = {"Código": "EAN-PARTIAL", "tnr_id": 0, "tnr_variationID": 0}
+        `null` rather than propagating a 500 across the whole response.
 
-        response = _fetch_report(client, user_ver, gbp_rows=[incomplete_row])
+        D13: the broken row must ALSO carry an explicit, non-null
+        `publish_fields_error` naming the missing key — distinguishable
+        from a row whose measurements are simply absent — and a healthy
+        row in the SAME response must stay entirely unaffected
+        (`publish_fields_error is None`, fields populated)."""
+        incomplete_row = {"Código": "EAN-PARTIAL", "tnr_id": 0, "tnr_variationID": 0}
+        healthy_row = self._complete_gbp_row(Código="EAN-HEALTHY", tnr_id=0, tnr_variationID=0)
+
+        response = _fetch_report(client, user_ver, gbp_rows=[incomplete_row, healthy_row])
 
         assert response.status_code == 200
-        row = response.json()["items"][0]
-        assert row["verdict"] == "FALTA_PUBLICAR"
-        assert row["marca"] is None
-        assert row["weight_kg"] is None
+        items = {row["barcode"] or row["ean"]: row for row in response.json()["items"]}
+        broken = items["EAN-PARTIAL"]
+        assert broken["verdict"] == "FALTA_PUBLICAR"
+        assert broken["marca"] is None
+        assert broken["weight_kg"] is None
+        assert broken["publish_fields_error"] is not None
+        assert "weight" in broken["publish_fields_error"]
+
+        healthy = items["EAN-HEALTHY"]
+        assert healthy["verdict"] == "FALTA_PUBLICAR"
+        assert healthy["marca"] == "ADATA"
+        assert healthy["publish_fields_error"] is None
 
 
 class TestReporteMlTitleAndAdminUrl:
