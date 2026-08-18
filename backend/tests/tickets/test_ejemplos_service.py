@@ -22,7 +22,7 @@ Run:
 from __future__ import annotations
 
 import asyncio
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
@@ -169,6 +169,16 @@ class TestCapturarCorreccionDirect:
 
         embed_passage.assert_not_called()
         assert db.query(EjemploCorreccion).count() == 0
+
+    def test_flag_off_never_opens_a_db_session(self, monkeypatch) -> None:
+        """Flag off must be a true no-op at the pool level too: the flag check
+        runs BEFORE `get_background_db`, so a flag-off capture never checks a
+        session out of the pool (PR #811 pool-exhaustion lesson)."""
+        monkeypatch.setattr(settings, "TICKETS_TRIAGE_EJEMPLOS_CAPTURE", False)
+        background_db = MagicMock()
+        with patch("app.tickets.services.ejemplos_service.get_background_db", new=background_db):
+            asyncio.run(ejemplos_service.capturar_correccion(propuesta_id=1))
+        background_db.assert_not_called()
 
     def test_flag_on_and_embed_ok_inserts_one_row(self, db, rol, monkeypatch) -> None:
         monkeypatch.setattr(settings, "TICKETS_TRIAGE_EJEMPLOS_CAPTURE", True)

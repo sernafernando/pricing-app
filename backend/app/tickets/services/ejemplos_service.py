@@ -34,14 +34,17 @@ logger = logging.getLogger(__name__)
 async def capturar_correccion(propuesta_id: int) -> None:
     """Best-effort: loads the confirmed correction, embeds its ticket's
     original text, and inserts one `tickets_triage_ejemplos` row. Never
-    raises — any failure (flag off, missing row, embed failure, DB error)
-    is swallowed here, logged, and skips the capture entirely (design:
-    never insert a dead row with a null/placeholder embedding)."""
+    raises — flag off returns before any DB work, and any failure (missing
+    row, embed failure, DB error) is swallowed here, logged, and skips the
+    capture entirely (design: never insert a dead row with a
+    null/placeholder embedding)."""
+    if not settings.TICKETS_TRIAGE_EJEMPLOS_CAPTURE:
+        # Checked BEFORE any session work: a flag-off capture must be a true
+        # no-op, never a pool checkout (PR #811 pool-exhaustion lesson).
+        return
+
     try:
         with get_background_db() as db:
-            if not settings.TICKETS_TRIAGE_EJEMPLOS_CAPTURE:
-                return
-
             propuesta = db.query(PropuestaIA).filter(PropuestaIA.id == propuesta_id).first()
             if propuesta is None:
                 return
