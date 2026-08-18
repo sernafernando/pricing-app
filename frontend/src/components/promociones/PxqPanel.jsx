@@ -710,19 +710,28 @@ function formatMarkupPercent(markup) {
  * a resolved percentage, the human reason it could not be computed, a
  * "calculando…" placeholder while the fetch is in flight, or nothing at all
  * when the batch response never mentioned this tier -- never a fabricated
- * number for any of those last three cases.
+ * number for any of those cases.
+ *
+ * `markupLoading` alone does NOT mean "show the placeholder": `entry` comes
+ * from the PREVIOUS batch response until the in-flight one resolves (design
+ * D2, "editing tier B leaves tier A's rendered state untouched"), so a tier
+ * that already has a known value keeps showing it through a reload triggered
+ * by editing a DIFFERENT tier. The placeholder is reserved for a tier that
+ * has never had a value to show.
  */
-function PxqTierMarkup({ markupLoading, markupError, entry }) {
+function PxqTierMarkup({ markupLoading, entry }) {
+  if (entry) {
+    if (entry.reason) {
+      return <span className={styles.pxqMarkupUnavailable}>{formatMarkupReason(entry.reason)}</span>;
+    }
+    return <span>Markup: {formatMarkupPercent(entry.markup)}</span>;
+  }
   if (markupLoading) {
     return <span className={styles.pxqMarkupPending}>Calculando markup…</span>;
   }
-  if (markupError || !entry) {
-    return null;
-  }
-  if (entry.reason) {
-    return <span className={styles.pxqMarkupUnavailable}>{formatMarkupReason(entry.reason)}</span>;
-  }
-  return <span>Markup: {formatMarkupPercent(entry.markup)}</span>;
+  // markupError or "batch response never mentioned this tier": nothing to
+  // fabricate.
+  return null;
 }
 
 // `estado` is a PERSISTED DOMAIN VALUE, not UI copy: the four members of
@@ -822,7 +831,11 @@ function PxqPanel({ itemId, pxqCacheRef }) {
   // not share `pxqCacheRef`. `useRef` (not module scope) so each mounted
   // panel keeps its own map, same lifetime as the component itself.
   const markupCacheRef = useRef(new Map());
-  const { data: markupById, loading: markupLoading, error: markupError } = usePxqMarkup(markupCacheRef, itemId, canRead);
+  const {
+    data: markupById,
+    loading: markupLoading,
+    reload: reloadMarkup,
+  } = usePxqMarkup(markupCacheRef, itemId, canRead);
 
   // Held here, not inside `PxqAdoptControl`: a successful import calls
   // `reload()`, which flips `loading` and makes this component return its
@@ -869,7 +882,12 @@ function PxqPanel({ itemId, pxqCacheRef }) {
     setAdoptFeedback(null);
     setSyncFeedback(null);
     setSyncDivergences(null);
-    await reload();
+    // Both resources describe the SAME authored data (D2, "Recompute on
+    // relevant data change"): reloading only the mirror left `usePxqMarkup`
+    // serving its pre-edit cache entry, so a tier's markup kept showing the
+    // OLD price/shipping cost after the operator changed them -- exactly the
+    // stale/fabricated number this feature exists to prevent.
+    await Promise.all([reload(), reloadMarkup()]);
   }
 
   // Invisible rather than an error/403 for a user without the permission —
@@ -970,11 +988,7 @@ function PxqPanel({ itemId, pxqCacheRef }) {
                   <span>{tier.cantidad_minima} u.</span>
                   <span>{formatMoney(tier.precio_unitario)}</span>
                   <span>{formatEstado(tier.estado)}</span>
-                  <PxqTierMarkup
-                    markupLoading={markupLoading}
-                    markupError={markupError}
-                    entry={markupById?.get(tier.id)}
-                  />
+                  <PxqTierMarkup markupLoading={markupLoading} entry={markupById?.get(tier.id)} />
                   {divergent && <span>Diverge de ML</span>}
                 </div>
               );

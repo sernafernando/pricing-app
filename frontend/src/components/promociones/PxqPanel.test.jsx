@@ -1878,3 +1878,102 @@ describe('PxqPanel — per-tier markup display (slice A2)', () => {
     expect(screen.queryByText(/%$/)).not.toBeInTheDocument();
   });
 });
+
+// Follow-up to slice A2: `handleAuthoringChanged` reloaded the MIRROR
+// (`reload()`) but never the MARKUP resource, so `usePxqMarkup`'s cache kept
+// serving the pre-edit percentage after a tier's price/shipping changed --
+// exactly the stale/fabricated number the spec forbids. See design D2,
+// "Recompute on relevant data change".
+describe('PxqPanel — markup recompute on authoring change (design D2)', () => {
+  function mockLive({ mirror_tiers = [], live_tiers = [], live_status = 'ok' } = {}) {
+    return {
+      data: { item_id: 'MLA001', live_status, live_tiers, mirror_tiers, fetched_at: '2026-08-18T10:00:00Z' },
+    };
+  }
+
+  function mockMarkup(tiers) {
+    return { data: { item_id: 'MLA001', tiers } };
+  }
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockTienePermiso.mockImplementation(() => true);
+  });
+
+  afterEach(() => {
+    mockTienePermiso.mockImplementation(() => true);
+  });
+
+  it('refetches markup after editing a tier and shows the recomputed value', async () => {
+    const user = userEvent.setup();
+    const tierBefore = { id: 1, cantidad_minima: 5, precio_unitario: 100, costo_envio_total: 20, ml_price_id: null, estado: 'listo' };
+    const tierAfter = { ...tierBefore, precio_unitario: 150 };
+
+    pxqAPI.getLive
+      .mockResolvedValueOnce(mockLive({ mirror_tiers: [tierBefore] }))
+      .mockResolvedValueOnce(mockLive({ mirror_tiers: [tierAfter] }));
+    pxqAPI.getMarkup
+      .mockResolvedValueOnce(mockMarkup([{ tier_id: 1, markup: 0.1 }]))
+      .mockResolvedValueOnce(mockMarkup([{ tier_id: 1, markup: 0.4 }]));
+    pxqAPI.updateTier.mockResolvedValue({ data: tierAfter });
+
+    renderPanel();
+
+    await screen.findByText(/10[.,]0%/);
+
+    await user.click(screen.getByRole('button', { name: /^editar$/i }));
+    const precioInput = screen.getByLabelText(/precio unitario/i);
+    await user.clear(precioInput);
+    await user.type(precioInput, '150');
+    await user.click(screen.getByRole('button', { name: /guardar/i }));
+
+    await waitFor(() => expect(pxqAPI.getMarkup).toHaveBeenCalledTimes(2));
+    await screen.findByText(/40[.,]0%/);
+    expect(screen.queryByText(/10[.,]0%/)).not.toBeInTheDocument();
+  });
+
+  it('keeps an already-rendered tier markup on screen while the post-authoring refetch is in flight, without an intervening "Calculando" placeholder', async () => {
+    const user = userEvent.setup();
+    const tierA = { id: 1, cantidad_minima: 5, precio_unitario: 100, costo_envio_total: 20, ml_price_id: null, estado: 'listo' };
+    const tierB = { id: 2, cantidad_minima: 10, precio_unitario: 200, costo_envio_total: 40, ml_price_id: null, estado: 'listo' };
+    const tierBAfter = { ...tierB, precio_unitario: 250 };
+
+    pxqAPI.getLive
+      .mockResolvedValueOnce(mockLive({ mirror_tiers: [tierA, tierB] }))
+      .mockResolvedValueOnce(mockLive({ mirror_tiers: [tierA, tierBAfter] }));
+    pxqAPI.getMarkup.mockResolvedValueOnce(
+      mockMarkup([
+        { tier_id: 1, markup: 0.2 },
+        { tier_id: 2, markup: 0.3 },
+      ]),
+    );
+    let resolveSecondMarkup;
+    pxqAPI.getMarkup.mockReturnValueOnce(
+      new Promise((resolve) => {
+        resolveSecondMarkup = resolve;
+      }),
+    );
+    pxqAPI.updateTier.mockResolvedValue({ data: tierBAfter });
+
+    renderPanel();
+
+    await screen.findByText(/20[.,]0%/);
+    await screen.findByText(/30[.,]0%/);
+
+    const editButtons = screen.getAllByRole('button', { name: /^editar$/i });
+    await user.click(editButtons[1]);
+    const precioInput = screen.getByLabelText(/precio unitario/i);
+    await user.clear(precioInput);
+    await user.type(precioInput, '250');
+    await user.click(screen.getByRole('button', { name: /guardar/i }));
+
+    await waitFor(() => expect(pxqAPI.getMarkup).toHaveBeenCalledTimes(2));
+
+    // Tier A's already-known markup stays visible -- no placeholder pushed it out.
+    expect(screen.getByText(/20[.,]0%/)).toBeInTheDocument();
+    expect(screen.queryByText(/calculando/i)).not.toBeInTheDocument();
+
+    resolveSecondMarkup(mockMarkup([{ tier_id: 1, markup: 0.2 }, { tier_id: 2, markup: 0.5 }]));
+    await screen.findByText(/50[.,]0%/);
+  });
+});
