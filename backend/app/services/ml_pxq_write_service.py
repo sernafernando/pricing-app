@@ -41,13 +41,18 @@ import logging
 from typing import Any, Dict, List, Optional
 
 from fastapi import HTTPException
+from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
-from app.models.ml_pxq_tier import ESTADO_DESCONOCIDO, MlPxqTier
+from app.models.auditoria import TipoAccion
+from app.models.ml_pxq_tier import ESTADO_DESCONOCIDO, ESTADO_SINCRONIZADO, MlPxqTier
+from app.models.publicacion_ml import PublicacionML
+from app.services.auditoria_service import registrar_auditoria
 from app.services.permisos_service import PermisosService
-from app.services.pxq_confirm import is_priceable, remap_and_confirm
+from app.services.pxq_confirm import is_keep, remap_and_confirm
 from app.services.pxq_diff import DesiredTier, LiveTier, diff_pxq_tiers
+from app.services.pxq_markup_service import TierMarkup, markup_for_tiers, markup_resolved
 from app.services.pxq_permissions_backfill import PXQ_ESCRIBIR_CODE
 from app.services.ml_webhook_client import ml_webhook_client
 from app.utils.async_bridge import resolve_maybe_async as _resolve
@@ -101,17 +106,80 @@ def _live_tiers_from_raw(raw: List[Dict[str, Any]]) -> Optional[List[LiveTier]]:
         return None
 
 
-def _desired_tiers_from_mirror(rows: List[MlPxqTier]) -> List[DesiredTier]:
-    """Turns priceable mirror rows into desired-state.
+def _tier_gate_open(row: MlPxqTier, markup_map: Dict[int, TierMarkup], *, override: bool = False) -> bool:
+    """D4 (slice C): the gate is `markup_resolved`, not `is_priceable`. A
+    tier can carry `costo_envio_total` and still be unresolved -- e.g. its
+    commission base cannot be resolved -- and the old gate let that tier
+    reach MercadoLibre anyway, because it only checked the shipping cost.
+
+    `is_priceable` is retained (`pxq_confirm.py`), but ONLY for matching
+    confirmed rows against the re-read there -- that is not a pricing
+    decision, so it keeps its own name and this gate does not call it.
+
+    A tier missing from `markup_map` entirely (should not happen -- every
+    mirror row for this MLA is looked up together) is treated as unresolved,
+    never as an accidental pass.
+
+    `override` (`publicar_sin_markup`, per-request, never sticky) lets an
+    unresolved tier through this gate anyway -- it does NOT exempt it from
+    `diff_pxq_tiers`'s divergence refusal or from CRUD validation, and there
+    is no per-tier override: it is all-or-nothing for this one sync call.
+    """
+    entry = markup_map.get(row.id)
+    if entry is not None and markup_resolved(entry):
+        return True
+    return override
+
+
+def _classify_tier(row: MlPxqTier) -> str:
+    """D5: classifies ONE mirror row as `"create"`, `"modify"`, or `"keep"`,
+    off the row's PRE-POST shape. Must be called BEFORE `remap_and_confirm`
+    mutates the row -- afterwards every surviving row's values equal its own
+    snapshot, so `is_keep` would report every one of them as a keep."""
+    if row.ml_price_id is None:
+        return "create"
+    return "keep" if is_keep(row) else "modify"
+
+
+def _audit_payload(row: MlPxqTier, accion: str, markup_map: Dict[int, TierMarkup]) -> Dict[str, Any]:
+    """Plain-dict audit payload for ONE published price (D6). Built from
+    already-in-memory row attributes -- never re-queried -- so it can be
+    captured before the business commit expires the ORM instance.
+
+    `markup`/`limpio`/`comision_total` are present ONLY when this tier's
+    markup actually resolved: a tier published via `publicar_sin_markup`
+    carries no such figure to fabricate, only `override_used: true`.
+    """
+    entry = markup_map.get(row.id)
+    resolved = entry is not None and markup_resolved(entry)
+    payload: Dict[str, Any] = {
+        "mla": row.item_id,
+        "tier_id": row.id,
+        "cantidad_minima": row.cantidad_minima,
+        "precio_unitario": str(row.precio_unitario),
+        "accion": accion,
+        "override_used": not resolved,
+    }
+    if resolved:
+        payload["markup"] = entry.markup
+        payload["limpio"] = entry.limpio
+        payload["comision_total"] = entry.comision_total
+    return payload
+
+
+def _desired_tiers_from_mirror(
+    rows: List[MlPxqTier], markup_map: Dict[int, TierMarkup], *, override: bool = False
+) -> List[DesiredTier]:
+    """Turns gated mirror rows into desired-state.
 
     `diff_pxq_tiers` decides keep/create/modify/refuse from the snapshot, so
-    nothing branches here beyond the priceability filter.
+    nothing branches here beyond the gate filter.
 
-    That filter is redundant — the caller applies the same `is_priceable` —
-    and it is kept on purpose: it holds the rule that a tier without a
-    resolved whole-shipment cost never reaches MercadoLibre. Both sites call
-    the SAME function; what caused the earlier drift was two hand-written
-    copies of the condition, not the redundancy.
+    That filter is redundant — the caller applies the same `_tier_gate_open`
+    — and it is kept on purpose: it holds the rule that a tier whose markup
+    never resolved never reaches MercadoLibre. Both sites call the SAME
+    function; what caused the earlier drift (`is_priceable`) was two
+    hand-written copies of the condition, not the redundancy.
     """
     return [
         DesiredTier(
@@ -122,7 +190,7 @@ def _desired_tiers_from_mirror(rows: List[MlPxqTier]) -> List[DesiredTier]:
             synced_amount=row.precio_sincronizado,
         )
         for row in rows
-        if is_priceable(row)
+        if _tier_gate_open(row, markup_map, override=override)
     ]
 
 
@@ -170,7 +238,9 @@ def _unconfirmed_outcome() -> Dict[str, Any]:
     }
 
 
-def sync_pxq_tiers(db: Session, usuario: Any, item_id: str, *, allow_clear: bool = False) -> Dict[str, Any]:
+def sync_pxq_tiers(
+    db: Session, usuario: Any, item_id: str, *, allow_clear: bool = False, publicar_sin_markup: bool = False
+) -> Dict[str, Any]:
     """Orchestrates one PxQ sync for `item_id`. See module docstring for
     the full gate order and the snapshot rule.
 
@@ -252,11 +322,15 @@ def sync_pxq_tiers(db: Session, usuario: Any, item_id: str, *, allow_clear: bool
     # "index 0" now means the lowest quantity instead of whatever surfaced
     # first.
     mirror_rows = db.query(MlPxqTier).filter(MlPxqTier.item_id == item_id).order_by(MlPxqTier.cantidad_minima).all()
+    # Resolved ONCE for the whole publication, same discipline as
+    # `markup_for_tiers` itself (all tiers of one MLA share the pricing
+    # context) -- and reused by BOTH gate call sites below (D4).
+    markup_map = markup_for_tiers(db, item_id)
     # Filtered ONCE. Two separate comprehensions applying the same predicate to
     # the same list were identical by construction, but only by construction —
-    # touching one and not the other would have let a cost-less tier reach ML.
-    priceable_rows = [row for row in mirror_rows if is_priceable(row)]
-    desired = _desired_tiers_from_mirror(priceable_rows)
+    # touching one and not the other would have let an unresolved tier reach ML.
+    priceable_rows = [row for row in mirror_rows if _tier_gate_open(row, markup_map, override=publicar_sin_markup)]
+    desired = _desired_tiers_from_mirror(priceable_rows, markup_map, override=publicar_sin_markup)
     live_tiers = _live_tiers_from_raw(live_raw)
     if live_tiers is None:
         logger.warning(
@@ -333,6 +407,13 @@ def sync_pxq_tiers(db: Session, usuario: Any, item_id: str, *, allow_clear: bool
                 getattr(usuario, "id", None),
             )
             return _unconfirmed_outcome()
+
+        # D5: classified from the PRE-POST shape of each row, strictly BEFORE
+        # `remap_and_confirm` runs below -- once it has run, every surviving
+        # row's values equal its own snapshot, so every one of them would
+        # read as a keep.
+        classification = {row.id: _classify_tier(row) for row in priceable_rows}
+
         if not diff_result.array:
             # allow_clear: with nothing sent, `remap_and_confirm` would return
             # True vacuously and report a deletion nobody verified. The only
@@ -347,8 +428,55 @@ def sync_pxq_tiers(db: Session, usuario: Any, item_id: str, *, allow_clear: bool
                 _mark_desconocido(priceable_rows)
         else:
             all_confirmed = remap_and_confirm(priceable_rows, confirm_raw, untracked_ids=diff_result.untracked_ids)
+
+        # D6/corrección 3: audit scope is create/modify rows CONFIRMED by ML
+        # (`estado == ESTADO_SINCRONIZADO` after `remap_and_confirm`). A row
+        # that was not confirmed has an unknown live price -- zero audit rows
+        # for it. Keeps are never audited. Captured as PLAIN DICTS here, from
+        # the in-memory rows, BEFORE the business commit below expires them.
+        audit_payloads = [
+            _audit_payload(row, classification[row.id], markup_map)
+            for row in priceable_rows
+            if classification[row.id] in ("create", "modify") and row.estado == ESTADO_SINCRONIZADO
+        ]
+
         _assert_no_base_price_dirty(db)
-        db.commit()
+        db.commit()  # (A) the snapshot lands -- business commit, unchanged, still first.
+
+        audit_warning: Optional[str] = None
+        if audit_payloads:
+            try:  # (B) a separate, LATER unit of work -- never before (A).
+                # `publicacion_ml_id` is shared by every row of one MLA (see
+                # the comment above `mirror_rows` for why index 0 is
+                # well-defined). This lookup is PART of unit (B), not a
+                # precondition to it: a pool exhaustion or dropped connection
+                # here is exactly the failure this except exists to isolate
+                # from the already-committed snapshot (A) -- it must not
+                # propagate uncaught into a 500 after ML already confirmed.
+                publicacion_obj = db.query(PublicacionML).filter(PublicacionML.id == publicacion_ml_id).first()
+                item_id_erp = publicacion_obj.item_id if publicacion_obj is not None else None
+                for payload in audit_payloads:
+                    registrar_auditoria(
+                        db,
+                        usuario_id=getattr(usuario, "id", None),
+                        tipo_accion=TipoAccion.PXQ_PRECIO_PUBLICADO,
+                        item_id=item_id_erp,
+                        valores_nuevos=payload,
+                    )
+            except SQLAlchemyError as e:
+                # Scoped to THIS unit of work: the already-committed snapshot
+                # (A) is untouched, and `synced: true` below must not degrade
+                # for a failure that has nothing to do with whether the
+                # prices actually landed on MercadoLibre.
+                db.rollback()
+                logger.error(
+                    "PxQ audit registration failed item_id=%s usuario_id=%s error=%s",
+                    item_id,
+                    getattr(usuario, "id", None),
+                    e,
+                )
+                audit_warning = "Precios actualizados en MercadoLibre, pero no se pudo registrar la auditoría."
+
         if not all_confirmed:
             # At least one row could not be matched in the re-read. Its state is
             # unknown, so the sync as a whole is not finished — reporting
@@ -373,7 +501,10 @@ def sync_pxq_tiers(db: Session, usuario: Any, item_id: str, *, allow_clear: bool
             len(diff_result.array),
             getattr(usuario, "id", None),
         )
-        return {"synced": True, "status": "sincronizado", "array": diff_result.array}
+        outcome: Dict[str, Any] = {"synced": True, "status": "sincronizado", "array": diff_result.array}
+        if audit_warning:
+            outcome["audit_warning"] = audit_warning
+        return outcome
 
     if write_result["ambiguous"]:
         _mark_desconocido(priceable_rows)

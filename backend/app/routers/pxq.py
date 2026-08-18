@@ -113,6 +113,11 @@ class PxqSyncResult(BaseModel):
     divergences: Optional[List[PxqDivergenceItem]] = None
     array: Optional[List[Dict[str, Any]]] = None
     status_code: Optional[int] = None
+    # D6: present only when a confirmed publish could not be audited --
+    # `synced` stays true, this is an ADDITIONAL warning, never a downgrade.
+    # `PxqSyncResult(**outcome)` below silently drops any key not modeled
+    # here, so leaving this field out would silently swallow the warning.
+    audit_warning: Optional[str] = None
 
     model_config = ConfigDict(from_attributes=True)
 
