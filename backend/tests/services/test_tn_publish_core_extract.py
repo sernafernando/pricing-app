@@ -70,6 +70,21 @@ class TestMissingKeyRaises:
 
         assert exc_info.value.field_name == "height"
 
+    def test_str_has_no_embedded_quotes(self):
+        """Regression (pre-push code review, PR #1139): `MissingReportFieldError`
+        inherits from `KeyError`, whose `__str__` returns `repr(args[0])` —
+        wrapping the whole message in an extra pair of double quotes. That
+        string is propagated verbatim into the `publish_fields_error` API
+        field (D13) and would render literal quote characters to the
+        operator. The other tests in this class assert with `in`, which is
+        exactly why this slipped through — this test pins the EXACT
+        rendered string instead of a substring."""
+        exc = MissingReportFieldError("weight")
+
+        assert str(exc) == "Report 78 row is missing required field 'weight'"
+        assert not str(exc).startswith('"')
+        assert not str(exc).endswith('"')
+
 
 class TestCompleteRowExtractsCleanly:
     """PC1 — a row with every key present extracts to a typed projection

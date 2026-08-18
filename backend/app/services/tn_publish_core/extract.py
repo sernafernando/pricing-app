@@ -44,11 +44,22 @@ class MissingReportFieldError(ReportFieldError, KeyError):
     """Raised when a report-78 row is missing a key this publisher depends
     on. A `KeyError` subclass so existing `except KeyError` handling (if
     any) still catches it, but `str(...)` names the exact missing column
-    instead of a bare key repr."""
+    instead of a bare key repr.
+
+    `KeyError.__str__` returns `repr(args[0])`, which would wrap this
+    message in an extra pair of literal double quotes (e.g.
+    `"Report 78 row is missing required field 'weight'"`) — that string
+    is propagated verbatim into the `publish_fields_error` API field and
+    rendered to the operator. `__str__` is overridden below so the
+    message renders as a clean sentence instead, without giving up the
+    `KeyError` inheritance."""
 
     def __init__(self, field_name: str):
         super().__init__(f"Report 78 row is missing required field {field_name!r}")
         self.field_name = field_name
+
+    def __str__(self) -> str:
+        return self.args[0]
 
 
 class _AbsentType:
