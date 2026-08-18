@@ -51,6 +51,22 @@ def _postgres_reachable() -> bool:
         return False
 
 
+def _pgvector_available() -> bool:
+    """True when the server can CREATE EXTENSION vector. The migration's real
+    vector DDL runs only where pgvector is installed (the deploy target) —
+    CI's postgres service has no pgvector, by design: see the DDL guard note
+    in `20260721_ml_bot_answer_history.py` and the `pg_engine` rationale in
+    `tests/conftest.py`."""
+    try:
+        probe = sa.create_engine(POSTGRES_TEST_URL)
+        with probe.connect() as conn:
+            row = conn.execute(sa.text("SELECT 1 FROM pg_available_extensions WHERE name = 'vector'")).first()
+        probe.dispose()
+        return row is not None
+    except Exception:
+        return False
+
+
 def _script_directory() -> ScriptDirectory:
     config = Config(str(_BACKEND_ROOT / "alembic.ini"))
     config.set_main_option("script_location", str(_BACKEND_ROOT / "alembic"))
@@ -109,6 +125,13 @@ def pg_upgraded_conn():
         pytest.skip(
             f"PostgreSQL not reachable at {POSTGRES_TEST_URL} — set POSTGRES_TEST_URL "
             "or start a local PostgreSQL to run @pytest.mark.postgres tests."
+        )
+    if not _pgvector_available():
+        pytest.skip(
+            "pgvector extension not available on this PostgreSQL server — the "
+            "migration's vector DDL is exercised only on the deploy target, same "
+            "as the two prior pgvector migrations (neither CI's postgres service "
+            "nor a plain local PostgreSQL ships pgvector)."
         )
     engine = sa.create_engine(POSTGRES_TEST_URL)
     schema = f"migr_ejemplos_{uuid.uuid4().hex[:8]}"
