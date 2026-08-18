@@ -29,6 +29,7 @@ vi.mock('../../contexts/PermisosContext', () => ({
 vi.mock('../../services/api', () => ({
   pxqAPI: {
     getLive: vi.fn(),
+    getMarkup: vi.fn(),
     createTier: vi.fn(),
     updateTier: vi.fn(),
     deleteTier: vi.fn(),
@@ -1776,5 +1777,104 @@ describe('PxqPanel — primary actions look like buttons', () => {
     for (const button of [agregar, actualizar]) {
       expect(button.className).toMatch(/\bprimary\b/);
     }
+  });
+});
+
+// Slice A2 of `pxq-markup-antes-de-publicar`: the mirror column shows each
+// tier's markup (from `GET /pxq/{item_id}/markup`, slice A1) so the operator
+// sees the number BEFORE publishing, instead of only after.
+describe('PxqPanel — per-tier markup display (slice A2)', () => {
+  function mockLive({ mirror_tiers = [], live_tiers = [], live_status = 'ok' } = {}) {
+    return {
+      data: { item_id: 'MLA001', live_status, live_tiers, mirror_tiers, fetched_at: '2026-08-18T10:00:00Z' },
+    };
+  }
+
+  function mockMarkup(tiers) {
+    return { data: { item_id: 'MLA001', tiers } };
+  }
+
+  const oneTier = () => [
+    { id: 1, cantidad_minima: 5, precio_unitario: 100, costo_envio_total: 20, ml_price_id: null, estado: 'listo' },
+  ];
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockTienePermiso.mockImplementation(() => true);
+  });
+
+  afterEach(() => {
+    mockTienePermiso.mockImplementation(() => true);
+  });
+
+  it('renders the resolved markup percentage next to its mirror tier', async () => {
+    pxqAPI.getLive.mockResolvedValue(mockLive({ mirror_tiers: oneTier() }));
+    pxqAPI.getMarkup.mockResolvedValue(mockMarkup([{ tier_id: 1, markup: 0.25, limpio: 500, comision_total: 75 }]));
+
+    renderPanel();
+
+    await screen.findByText('Mirror local');
+    expect(pxqAPI.getMarkup).toHaveBeenCalledWith('MLA001');
+    await screen.findByText(/25[.,]0%/);
+  });
+
+  it('renders a human reason instead of a number when the markup could not be computed', async () => {
+    pxqAPI.getLive.mockResolvedValue(mockLive({ mirror_tiers: oneTier() }));
+    pxqAPI.getMarkup.mockResolvedValue(mockMarkup([{ tier_id: 1, reason: 'shipping_unavailable' }]));
+
+    renderPanel();
+
+    await screen.findByText('Mirror local');
+    expect(await screen.findByText(/falta el costo de env[ií]o/i)).toBeInTheDocument();
+    // Never a fabricated number for an unresolved tier.
+    expect(screen.queryByText(/%$/)).not.toBeInTheDocument();
+  });
+
+  it('renders a different reason for missing product pricing data', async () => {
+    pxqAPI.getLive.mockResolvedValue(mockLive({ mirror_tiers: oneTier() }));
+    pxqAPI.getMarkup.mockResolvedValue(mockMarkup([{ tier_id: 1, reason: 'product_data_missing' }]));
+
+    renderPanel();
+
+    await screen.findByText('Mirror local');
+    expect(await screen.findByText(/datos del producto/i)).toBeInTheDocument();
+  });
+
+  it('shows a neutral placeholder while the markup fetch is still in flight', async () => {
+    pxqAPI.getLive.mockResolvedValue(mockLive({ mirror_tiers: oneTier() }));
+    let resolveMarkup;
+    pxqAPI.getMarkup.mockReturnValue(
+      new Promise((resolve) => {
+        resolveMarkup = resolve;
+      }),
+    );
+
+    renderPanel();
+
+    await screen.findByText('Mirror local');
+    expect(screen.getByText(/calculando/i)).toBeInTheDocument();
+
+    resolveMarkup(mockMarkup([{ tier_id: 1, markup: 0.1 }]));
+    await screen.findByText(/10[.,]0%/);
+  });
+
+  it('never calls the markup endpoint for a pxq.ver-only user (canRead gate holds for markup too)', async () => {
+    pxqAPI.getLive.mockResolvedValue(mockLive({ mirror_tiers: oneTier() }));
+    pxqAPI.getMarkup.mockResolvedValue(mockMarkup([{ tier_id: 1, markup: 0.25 }]));
+
+    renderPanel();
+    await screen.findByText('Mirror local');
+    expect(pxqAPI.getMarkup).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not fabricate a markup for a tier the batch response never mentions', async () => {
+    pxqAPI.getLive.mockResolvedValue(mockLive({ mirror_tiers: oneTier() }));
+    pxqAPI.getMarkup.mockResolvedValue(mockMarkup([]));
+
+    renderPanel();
+
+    await screen.findByText('Mirror local');
+    expect(screen.queryByText(/calculando/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/%$/)).not.toBeInTheDocument();
   });
 });

@@ -24,7 +24,13 @@ import { useLazyResource } from './useLazyResource';
  * @returns {{ data: Map<number, object>|null, loading: boolean, error: any, reload: () => void }}
  */
 export function usePxqMarkup(cacheRef, itemId, canRead) {
-  const fetcher = (id) => (canRead ? pxqAPI.getMarkup(id).then((r) => indexByTierId(r.data)) : Promise.resolve(null));
+  // Wrapped in `Promise.resolve` before `.then`, not chained straight off the
+  // call: a caller that stubs `pxqAPI.getMarkup` without configuring a return
+  // value (every OTHER PxqPanel test, which never touches markup at all) gets
+  // `undefined` back, and `undefined.then(...)` would throw synchronously
+  // instead of resolving to an empty result.
+  const fetcher = (id) =>
+    canRead ? Promise.resolve(pxqAPI.getMarkup(id)).then((r) => indexByTierId(r?.data)) : Promise.resolve(null);
   return useLazyResource(cacheRef, itemId, fetcher);
 }
 
