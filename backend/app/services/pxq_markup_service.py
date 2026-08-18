@@ -21,7 +21,7 @@ from typing import Dict, Literal, Optional
 from sqlalchemy.orm import Session
 
 from app.models.ml_pxq_tier import MlPxqTier
-from app.services.ml_webhook_client import MLWebhookClient
+from app.services.ml_webhook_client import ml_webhook_client
 from app.services.pricing_calculator import obtener_constantes_pricing
 from app.services.pxq_markup import calcular_markup_pxq, resolve_order_cost, resolve_tier_shipping
 from app.services.pxq_pricing_context import resolve_pxq_pricing_context
@@ -63,9 +63,13 @@ def refresh_tier_shipping(db: Session, tier: MlPxqTier) -> None:
         if datetime.now(timezone.utc) - fetched_at < _SHIPPING_TTL:
             return
 
-    client = MLWebhookClient()
+    # The MODULE-LEVEL singleton, not a fresh instance -- same convention
+    # `ml_pxq_write_service.py`/`routers/pxq.py` use, and required for
+    # tests (and the sync flow, which shares this exact call path via
+    # `markup_for_tiers`) to be able to mock it with
+    # `monkeypatch.setattr(pxq_markup_service, "ml_webhook_client", fake)`.
     amount = asyncio.run(
-        client.get_pxq_seller_shipping_cost(tier.item_id, tier.cantidad_minima, float(tier.precio_unitario))
+        ml_webhook_client.get_pxq_seller_shipping_cost(tier.item_id, tier.cantidad_minima, float(tier.precio_unitario))
     )
     if amount is None:
         # Fetch failed or the route degraded (404 -- the current production

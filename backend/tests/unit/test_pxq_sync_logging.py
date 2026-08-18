@@ -104,9 +104,31 @@ def _eligible() -> dict:
     return {"item_tags": ["standard_price_by_quantity"], "seller_tags": ["business"]}
 
 
+class _CombinedPatcher:
+    """`.stop()`-compatible wrapper stopping BOTH patches together, so every
+    existing `patcher.stop()` call site keeps working unchanged."""
+
+    def __init__(self, *patchers) -> None:
+        self._patchers = patchers
+
+    def stop(self) -> None:
+        for p in self._patchers:
+            p.stop()
+
+
 def _mock_client(**overrides):
     """Patches `write_service.ml_webhook_client` with AsyncMocks; overrides
-    replace individual method return values."""
+    replace individual method return values.
+
+    ALSO patches `pxq_markup_service.ml_webhook_client` (slice B) -- the sync
+    flow calls `markup_for_tiers`, which now runs `refresh_tier_shipping`
+    per tier, and that reads the module-level singleton in
+    `pxq_markup_service.py`, a SEPARATE name binding from `write_service`'s.
+    Unpatched, that call would hit the real ml-webhook proxy over the
+    network on every test in this file. `shipping_cost` defaults to `None`
+    -- the current real-world response (the proxy route does not exist
+    yet), so the default here matches production exactly.
+    """
     patcher = patch.object(write_service, "ml_webhook_client")
     mock_client = patcher.start()
     mock_client.get_pxq_eligibility = AsyncMock(return_value=overrides.get("eligibility", _eligible()))
@@ -114,7 +136,15 @@ def _mock_client(**overrides):
     mock_client.post_pxq_prices = AsyncMock(
         return_value=overrides.get("post_result", {"ok": True, "status_code": 200, "ambiguous": False, "body": None})
     )
-    return patcher, mock_client
+    mock_client.get_pxq_seller_shipping_cost = AsyncMock(return_value=overrides.get("shipping_cost", None))
+
+    from app.services import pxq_markup_service
+
+    markup_patcher = patch.object(pxq_markup_service, "ml_webhook_client")
+    markup_mock_client = markup_patcher.start()
+    markup_mock_client.get_pxq_seller_shipping_cost = AsyncMock(return_value=overrides.get("shipping_cost", None))
+
+    return _CombinedPatcher(patcher, markup_patcher), mock_client
 
 
 def _assert_lazy_formatting(records) -> None:

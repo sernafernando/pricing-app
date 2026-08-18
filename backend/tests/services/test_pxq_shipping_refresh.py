@@ -105,7 +105,7 @@ class _FakeClient:
 
 
 def _install_fake_client(monkeypatch: pytest.MonkeyPatch, fake: _FakeClient) -> None:
-    monkeypatch.setattr(pxq_markup_service, "MLWebhookClient", lambda: fake)
+    monkeypatch.setattr(pxq_markup_service, "ml_webhook_client", fake)
 
 
 class TestTtlGating:
