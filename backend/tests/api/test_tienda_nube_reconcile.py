@@ -1049,6 +1049,51 @@ class TestReconcilePublishFieldsPassthrough:
         assert healthy["marca"] == "ADATA"
         assert healthy["publish_fields_error"] is None
 
+    def test_row_with_unparseable_measurement_value_degrades_gracefully_no_500(self, client, db, user_ver):
+        """A publish-candidate row where GBP sends a non-numeric, non-blank
+        value for a measurement field (e.g. `weight = "N/A"`, a broken GBP
+        schema/data export) MUST NOT 500 the whole report. Before the fix,
+        `_is_absent_value` treated the junk value as "present", so it flowed
+        straight into `float(...)` in the conversion layer and raised an
+        uncaught `ValueError` `build_publish_fields` did not catch — the
+        same failure mode `test_row_missing_a_required_key_degrades_
+        gracefully_no_500` covers, reached through the VALUE path instead
+        of the KEY path.
+
+        Junk is NOT absence (S1's core distinction): a genuinely absent
+        measurement (`weight = "0.000000000"`) resolves to `None`; a junk
+        measurement (`weight = "N/A"`) must surface as an explicit,
+        non-null `publish_fields_error` naming both the offending field
+        and the offending raw value, distinguishable from plain absence —
+        and a healthy row in the SAME response must stay entirely
+        unaffected."""
+        junk_weight_row = self._complete_gbp_row(Código="EAN-JUNK-WEIGHT", weight="N/A")
+        junk_dimension_row = self._complete_gbp_row(Código="EAN-JUNK-DIM", large="not-a-number")
+        healthy_row = self._complete_gbp_row(Código="EAN-HEALTHY-2")
+
+        response = _fetch_report(client, user_ver, gbp_rows=[junk_weight_row, junk_dimension_row, healthy_row])
+
+        assert response.status_code == 200
+        items = {row["barcode"] or row["ean"]: row for row in response.json()["items"]}
+
+        junk_weight = items["EAN-JUNK-WEIGHT"]
+        assert junk_weight["verdict"] == "FALTA_PUBLICAR"
+        assert junk_weight["weight_kg"] is None
+        assert junk_weight["publish_fields_error"] is not None
+        assert "weight" in junk_weight["publish_fields_error"]
+        assert "N/A" in junk_weight["publish_fields_error"]
+
+        junk_dimension = items["EAN-JUNK-DIM"]
+        assert junk_dimension["verdict"] == "FALTA_PUBLICAR"
+        assert junk_dimension["width_cm"] is None
+        assert junk_dimension["publish_fields_error"] is not None
+        assert "large" in junk_dimension["publish_fields_error"]
+
+        healthy = items["EAN-HEALTHY-2"]
+        assert healthy["verdict"] == "FALTA_PUBLICAR"
+        assert healthy["marca"] == "ADATA"
+        assert healthy["publish_fields_error"] is None
+
 
 class TestReporteMlTitleAndAdminUrl:
     """Response fields the UI rebuild needs: `ml_title` (editable title field

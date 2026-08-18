@@ -30,7 +30,7 @@ from app.api.endpoints.gbp_parser import (
     parse_soap_response,
 )
 from app.models.tienda_nube_producto import TiendaNubeProducto
-from app.services.tn_publish_core.extract import Absent, MissingReportFieldError, extract_report_row
+from app.services.tn_publish_core.extract import Absent, ReportFieldError, extract_report_row
 from app.services.tn_publish_core.resolve import resolve_gbp_fields
 
 logger = logging.getLogger(__name__)
@@ -141,34 +141,40 @@ def build_publish_fields(row: "ReconcileRow") -> Dict[str, Any]:
     the caller's response model keeps those fields at their `None` default.
 
     A missing report-78 KEY (e.g. a live ERP column rename — see
-    `extract_report_row`'s docstring) makes extraction raise loudly (S1) at
-    the unit level; that is caught HERE and logged with the exact missing
-    field and EAN so a schema break stays visible in logs, and only THIS
-    row's new fields degrade to `None` rather than a single bad row
-    crashing the whole one-shot report for every other row. `Absent` (a
-    value-level "GBP reports no data", e.g. a blank dimension) is a
-    completely different, expected case already resolved to `None` below —
-    it never reaches this `except` clause.
+    `extract_report_row`'s docstring) or an unparseable VALUE for a KEY
+    that IS present (e.g. `weight = "N/A"` — see `resolve.py`'s
+    `InvalidReportValueError`) makes extraction/conversion raise loudly
+    (S1) at the unit level; both are caught HERE, via their shared
+    `ReportFieldError` base, and logged with the offending field and EAN
+    so the break stays visible in logs, and only THIS row's new fields
+    degrade to `None` rather than a single bad row crashing the whole
+    one-shot report for every other row. `Absent` (a value-level "GBP
+    reports no data", e.g. a blank dimension) is a completely different,
+    expected case already resolved to `None` below — it never reaches this
+    `except` clause.
 
-    D13: a `MissingReportFieldError` (schema break) is a DIFFERENT failure
-    class than a genuinely absent measurement, and PR-5's D3 blocked-
-    publication gate must be able to tell them apart from the API response
-    alone — not only from this warning log. So on that path the returned
-    dict also carries `publish_fields_error` (the exception message,
-    naming the missing key) instead of a bare `{}`, and on the success
-    path it's explicit `None` rather than an implicit response-model
-    default, so both branches are equally assertable.
+    D13: a `ReportFieldError` (schema break or unparseable value) is a
+    DIFFERENT failure class than a genuinely absent measurement, and
+    PR-5's D3 blocked-publication gate must be able to tell them apart
+    from the API response alone — not only from this warning log. So on
+    that path the returned dict also carries `publish_fields_error` (the
+    exception message, naming the offending field) instead of a bare
+    `{}`, and on the success path it's explicit `None` rather than an
+    implicit response-model default, so both branches are equally
+    assertable. Junk is NOT absence: an unparseable value must never be
+    silently swallowed into the same `None` a real absence produces.
     """
     if row.verdict not in PUBLISH_CANDIDATE_VERDICTS:
         return {}
 
     try:
         resolved = resolve_gbp_fields(extract_report_row(row.gbp_row))
-    except MissingReportFieldError as exc:
+    except ReportFieldError as exc:
         logger.warning(
-            "Report 78 row ean=%s is missing required field %r — publish fields left empty for this row",
+            "Report 78 row ean=%s failed publish-field extraction/conversion (field=%r): %s",
             row.ean,
             exc.field_name,
+            exc,
         )
         return {"publish_fields_error": str(exc)}
 
