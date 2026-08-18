@@ -26,7 +26,7 @@ Notas de mocking:
 from __future__ import annotations
 
 import asyncio
-from contextlib import contextmanager
+from contextlib import ExitStack, contextmanager
 from unittest.mock import AsyncMock, patch
 
 import pytest
@@ -35,8 +35,11 @@ from fastapi import BackgroundTasks
 from app.models.proveedor import Proveedor
 from app.routers import administracion_proveedores as router_mod
 from app.services.erp_worker_client import erp_worker_client
+from app.services.proveedores_service import ProveedoresService
 
 URL = "/api/administracion/proveedores/sync-erp"
+
+RUN_ID = "0123456789abcdef0123456789abcdef"
 
 
 @pytest.fixture
@@ -122,6 +125,51 @@ class TestSuppIdSincronico:
         assert r.status_code == 403
         assert add_task_espia == []
 
+    def test_sync_en_curso_responde_409(self, client, auth_headers, con_permiso_gestionar, add_task_espia) -> None:
+        """
+        409 Conflict y no 503/429: el servicio está sano (el resto de la API
+        responde) y no es una cuota por cliente — el request choca con el estado
+        actual del recurso, que es exactamente lo que 409 significa.
+        """
+        with (
+            patch.object(erp_worker_client, "get_suppliers", new=_erp([_fila(11)])),
+            patch.object(ProveedoresService, "_intentar_lock_sync", autospec=True, return_value=False),
+        ):
+            r = client.post(f"{URL}?supp_id=11", headers=auth_headers)
+
+        assert r.status_code == 409
+        assert "en curso" in r.json()["error"]["message"]
+
+
+# =============================================================================
+# DEFECTO 1 — `?supp_id=0` NO puede disparar el sync FULL dentro del request
+# =============================================================================
+
+
+class TestSuppIdInvalido:
+    """
+    La rama se elige por `supp_id is None`, así que `?supp_id=0` tomaba el
+    camino SINCRÓNICO; y el cliente del ERP filtraba por truthiness, así que
+    omitía `suppID` y traía la tabla ENTERA, persistiéndola dentro del request.
+    Un sync full completo alcanzable con un query param por cualquiera que
+    tenga `administracion.gestionar_proveedores`.
+    """
+
+    @pytest.mark.parametrize("valor", [0, -1], ids=["cero", "negativo"])
+    def test_supp_id_fuera_de_rango_se_rechaza_con_422_sin_tocar_el_erp(
+        self, client, auth_headers, db, con_permiso_gestionar, add_task_espia, valor
+    ) -> None:
+        erp = _erp([_fila(11)])
+
+        with patch.object(erp_worker_client, "get_suppliers", new=erp):
+            r = client.post(f"{URL}?supp_id={valor}", headers=auth_headers)
+
+        assert r.status_code == 422
+        # Lo importante: el ERP nunca se consultó y nada se persistió.
+        erp.assert_not_awaited()
+        assert add_task_espia == []
+        assert db.query(Proveedor).count() == 0
+
 
 # =============================================================================
 # Camino 2 — sync full: 202, no corre en el request, queda encolado
@@ -158,8 +206,25 @@ class TestFullEncolado:
         assert len(add_task_espia) == 1
         func, args, kwargs = add_task_espia[0]
         assert func is router_mod._sync_proveedores_erp_background
-        assert args == ()
+        # El job recibe el MISMO `run_id` que se devolvió en la 202: es lo único
+        # que permite al cliente correlacionar el evento SSE con su corrida.
+        assert args == (r.json()["run_id"],)
         assert kwargs == {}
+
+    def test_la_202_devuelve_un_run_id_distinto_por_corrida(
+        self, client, auth_headers, con_permiso_gestionar, add_task_espia
+    ) -> None:
+        """
+        `proveedores:sync` es un canal de broadcast global. Si dos corridas
+        compartieran identificador, el resultado de una resolvería la otra y el
+        defecto seguiría abierto.
+        """
+        with patch.object(erp_worker_client, "get_suppliers", new=_erp([_fila(11)])):
+            primera = client.post(URL, headers=auth_headers).json()["run_id"]
+            segunda = client.post(URL, headers=auth_headers).json()["run_id"]
+
+        assert primera and segunda
+        assert primera != segunda
 
 
 # =============================================================================
@@ -167,10 +232,10 @@ class TestFullEncolado:
 # =============================================================================
 
 
-def _correr_job(db, erp_mock, sse_mock):
+def _correr_job(db, erp_mock, sse_mock, run_id: str = RUN_ID, extra_patches=()):
     """
-    Corre `_sync_proveedores_erp_background()` con la sesión de test, el ERP y
-    el publisher SSE mockeados.
+    Corre `_sync_proveedores_erp_background(run_id)` con la sesión de test, el
+    ERP y el publisher SSE mockeados.
 
     `get_background_db` se reemplaza por un contextmanager que cede la sesión
     del fixture `db` sin commitear ni cerrarla: `_persistir_sync` ya commitea, y
@@ -181,12 +246,13 @@ def _correr_job(db, erp_mock, sse_mock):
     def fake_background_db():
         yield db
 
-    with (
-        patch.object(router_mod, "get_background_db", fake_background_db),
-        patch.object(router_mod, "sse_publish", sse_mock),
-        patch.object(erp_worker_client, "get_suppliers", new=erp_mock),
-    ):
-        asyncio.run(router_mod._sync_proveedores_erp_background())
+    with ExitStack() as stack:
+        stack.enter_context(patch.object(router_mod, "get_background_db", fake_background_db))
+        stack.enter_context(patch.object(router_mod, "sse_publish", sse_mock))
+        stack.enter_context(patch.object(erp_worker_client, "get_suppliers", new=erp_mock))
+        for p in extra_patches:
+            stack.enter_context(p)
+        asyncio.run(router_mod._sync_proveedores_erp_background(run_id))
 
 
 class TestJobDeBackground:
@@ -223,7 +289,7 @@ class TestJobDeBackground:
             patch.object(router_mod, "sse_publish", AsyncMock()),
             patch.object(erp_worker_client, "get_suppliers", new=_erp([_fila(11)])),
         ):
-            asyncio.run(router_mod._sync_proveedores_erp_background())
+            asyncio.run(router_mod._sync_proveedores_erp_background(RUN_ID))
 
         assert llamadas == [1]
 
@@ -263,3 +329,92 @@ class TestJobDeBackground:
 
         sse.assert_awaited_once()
         assert db.query(Proveedor).filter(Proveedor.supp_id == 11).count() == 1
+
+    # DEFECTO 2 — sync ya en curso
+    def test_sync_en_curso_publica_su_propio_payload_y_no_levanta(self, db) -> None:
+        """
+        Con el lock tomado por otro sync el job NO puede propagar (quedaría una
+        excepción huérfana en la task de Starlette) ni inventar un fallo del
+        ERP: publica un payload explícito de "ya hay un sync en curso" y no
+        toca los contadores.
+        """
+        sse = AsyncMock()
+
+        # `asyncio.run` re-lanzaría cualquier excepción que escape del job.
+        _correr_job(
+            db,
+            _erp([_fila(11)]),
+            sse,
+            extra_patches=[patch.object(ProveedoresService, "_intentar_lock_sync", autospec=True, return_value=False)],
+        )
+
+        sse.assert_awaited_once()
+        canal, payload = sse.await_args.args
+        assert canal == "proveedores:sync"
+        assert payload["success"] is False
+        assert payload["en_curso"] is True
+        assert "en curso" in payload["error"]
+        # No se persistió nada y no se reportaron contadores falsos.
+        assert "insertados" not in payload
+        assert db.query(Proveedor).count() == 0
+
+
+# =============================================================================
+# DEFECTO 3 — todo payload SSE viaja correlacionado con su corrida
+# =============================================================================
+
+
+class TestCorrelacionRunId:
+    """
+    El canal es un broadcast global: sin `run_id` el resultado del sync de un
+    usuario limpiaba el banner de otro, cancelaba su timeout y le mostraba
+    contadores ajenos como propios. La correlación solo sirve si viaja en
+    TODOS los caminos, incluidos los de error.
+    """
+
+    @pytest.mark.parametrize(
+        "erp_mock, extra_patches, id_caso",
+        [
+            pytest.param(_erp([_fila(11)]), (), "exito", id="exito"),
+            pytest.param(_erp([]), (), "erp-vacio", id="erp-sync-error"),
+            pytest.param(AsyncMock(side_effect=RuntimeError("boom")), (), "inesperado", id="error-inesperado"),
+        ],
+    )
+    def test_todos_los_payloads_llevan_el_run_id(self, db, erp_mock, extra_patches, id_caso) -> None:
+        sse = AsyncMock()
+
+        _correr_job(db, erp_mock, sse, run_id=RUN_ID, extra_patches=extra_patches)
+
+        payload = sse.await_args.args[1]
+        assert payload["run_id"] == RUN_ID
+
+    def test_el_payload_de_sync_en_curso_tambien_lleva_el_run_id(self, db) -> None:
+        sse = AsyncMock()
+
+        _correr_job(
+            db,
+            _erp([_fila(11)]),
+            sse,
+            run_id=RUN_ID,
+            extra_patches=[patch.object(ProveedoresService, "_intentar_lock_sync", autospec=True, return_value=False)],
+        )
+
+        assert sse.await_args.args[1]["run_id"] == RUN_ID
+
+    def test_el_run_id_de_la_202_es_el_que_viaja_por_sse(
+        self, client, auth_headers, db, con_permiso_gestionar, add_task_espia
+    ) -> None:
+        """
+        Cierra el circuito completo: el identificador que el cliente guarda del
+        202 es EXACTAMENTE el que después tiene que matchear contra el evento.
+        """
+        with patch.object(erp_worker_client, "get_suppliers", new=_erp([_fila(11)])):
+            r = client.post(URL, headers=auth_headers)
+
+        run_id_202 = r.json()["run_id"]
+        func, args, _ = add_task_espia[0]
+
+        sse = AsyncMock()
+        _correr_job(db, _erp([_fila(11)]), sse, run_id=args[0])
+
+        assert sse.await_args.args[1]["run_id"] == run_id_202

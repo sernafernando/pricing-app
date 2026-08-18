@@ -19,6 +19,11 @@ import api from '../services/api';
  *     el camino de "el ERP no devolvió nada") puede publicar su resultado
  *     mientras el POST sigue en vuelo. El `setSyncEnCurso(true)` posterior
  *     pisaba el resultado ya recibido y nada volvía a limpiarlo.
+ *   BUG C — `proveedores:sync` es un canal de BROADCAST GLOBAL: el evento del
+ *     sync de otro usuario (o de un job viejo que llega tarde) resolvía la
+ *     corrida en vuelo de esta pestaña, cancelaba su timeout y renderizaba
+ *     contadores ajenos como propios. Se corrige correlacionando por el
+ *     `run_id` que el backend devuelve en la 202 y repite en cada payload SSE.
  *
  * `services/api` y `PermisosContext` los mockea el setup global (`src/test/setup.js`,
  * `tienePermiso` siempre true). `useSSEChannel` se mockea acá para capturar el
@@ -50,6 +55,15 @@ const CONTADORES = {
   actualizados: 5,
   rma_insertados: 2,
   vinculados_rma: 1,
+};
+
+const RUN_ID = '0123456789abcdef0123456789abcdef';
+const RUN_ID_AJENO = 'ffffffffffffffffffffffffffffffff';
+
+/** 202 del backend actual: trae el `run_id` de la corrida. */
+const RESPUESTA_202_CORRELACIONADA = {
+  status: 202,
+  data: { ...RESPUESTA_202.data, run_id: RUN_ID },
 };
 
 const RE_EN_CURSO = /Sincronización con el ERP en curso/;
@@ -181,6 +195,115 @@ describe('AdministracionProveedores — contrato del sync ERP en background', ()
     expect(screen.queryByText(RE_SIN_CONFIRMAR)).not.toBeInTheDocument();
     expect(botonSync()).not.toBeDisabled();
     await waitFor(() => expect(llamadasALaLista()).toBe(2));
+  });
+
+  // BUG C
+  it('un evento SSE de OTRA corrida no toca nada: el banner sigue, el timeout no se cancela y syncResult queda intacto', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    api.post.mockResolvedValue(RESPUESTA_202_CORRELACIONADA);
+    await montarPagina();
+
+    fireEvent.click(botonSync());
+    await waitFor(() => expect(screen.getByText(RE_EN_CURSO)).toBeInTheDocument());
+
+    // El sync de otro usuario termina y publica en el canal global.
+    await act(async () => {
+      sseCallback({
+        channel: 'proveedores:sync',
+        data: { ...CONTADORES, run_id: RUN_ID_AJENO, total_erp: 999 },
+      });
+    });
+
+    // Nada de eso es nuestro: la corrida propia sigue esperando su resultado.
+    expect(screen.getByText(RE_EN_CURSO)).toBeInTheDocument();
+    expect(botonSync()).toBeDisabled();
+    expect(screen.queryByText(/Sync completado/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/999 proveedores/)).not.toBeInTheDocument();
+    // La tabla tampoco se refetchea con el resultado ajeno.
+    expect(llamadasALaLista()).toBe(1);
+
+    // Y el timeout propio NO fue cancelado: sigue vigente y vence a los 90 s.
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(91_000);
+    });
+    expect(screen.queryByText(RE_EN_CURSO)).not.toBeInTheDocument();
+    expect(screen.getByText(RE_SIN_CONFIRMAR)).toBeInTheDocument();
+  });
+
+  it('un evento SSE con el run_id propio resuelve la corrida normalmente', async () => {
+    api.post.mockResolvedValue(RESPUESTA_202_CORRELACIONADA);
+    await montarPagina();
+
+    fireEvent.click(botonSync());
+    await waitFor(() => expect(screen.getByText(RE_EN_CURSO)).toBeInTheDocument());
+
+    await act(async () => {
+      sseCallback({ channel: 'proveedores:sync', data: { ...CONTADORES, run_id: RUN_ID } });
+    });
+
+    expect(screen.queryByText(RE_EN_CURSO)).not.toBeInTheDocument();
+    expect(screen.getByText(/Sync completado: 120 proveedores/)).toBeInTheDocument();
+    expect(botonSync()).not.toBeDisabled();
+    await waitFor(() => expect(llamadasALaLista()).toBe(2));
+  });
+
+  // BUG B + BUG C: el evento temprano no se puede correlacionar todavía, porque
+  // el `run_id` recién se conoce cuando resuelve la 202. Se retiene y se
+  // reconcilia ahí — ni se aplica a ciegas ni se descarta a ciegas.
+  it('un evento propio que llega ANTES de la 202 se reconcilia al conocer el run_id', async () => {
+    let resolverPost;
+    api.post.mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          resolverPost = resolve;
+        }),
+    );
+    await montarPagina();
+
+    fireEvent.click(botonSync());
+    await waitFor(() => expect(api.post).toHaveBeenCalledTimes(1));
+
+    await act(async () => {
+      sseCallback({ channel: 'proveedores:sync', data: { ...CONTADORES, run_id: RUN_ID } });
+    });
+
+    await act(async () => {
+      resolverPost(RESPUESTA_202_CORRELACIONADA);
+    });
+
+    expect(screen.queryByText(RE_EN_CURSO)).not.toBeInTheDocument();
+    expect(screen.getByText(/Sync completado: 120 proveedores/)).toBeInTheDocument();
+    expect(botonSync()).not.toBeDisabled();
+  });
+
+  it('un evento AJENO que llega antes de la 202 se descarta y la corrida propia sigue en curso', async () => {
+    let resolverPost;
+    api.post.mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          resolverPost = resolve;
+        }),
+    );
+    await montarPagina();
+
+    fireEvent.click(botonSync());
+    await waitFor(() => expect(api.post).toHaveBeenCalledTimes(1));
+
+    await act(async () => {
+      sseCallback({
+        channel: 'proveedores:sync',
+        data: { success: false, error: 'Sync de otro usuario', run_id: RUN_ID_AJENO },
+      });
+    });
+
+    await act(async () => {
+      resolverPost(RESPUESTA_202_CORRELACIONADA);
+    });
+
+    // Al reconciliar contra el run_id propio se ve que el evento no era nuestro.
+    expect(screen.queryByText('Sync de otro usuario')).not.toBeInTheDocument();
+    expect(screen.getByText(RE_EN_CURSO)).toBeInTheDocument();
+    expect(botonSync()).toBeDisabled();
   });
 
   it('no deja timers colgados: desmontar con un sync en curso no dispara setState después', async () => {

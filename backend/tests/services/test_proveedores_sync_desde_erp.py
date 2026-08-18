@@ -19,7 +19,7 @@ producción.
 
 import asyncio
 import threading
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import httpx
 import pytest
@@ -30,8 +30,10 @@ from app.models.tb_supplier import TBSupplier
 from app.services.erp_worker_client import erp_worker_client
 from app.services.proveedores_service import (
     SUPPLIER_VALID_FIELDS,
+    SYNC_PROVEEDORES_LOCK_KEY,
     ErpSyncError,
     ProveedoresService,
+    SyncEnCursoError,
     normalize_supplier_row,
 )
 
@@ -294,3 +296,126 @@ class TestPersistenciaFueraDelEventLoop:
 
         assert result["insertados"] == 1
         assert hilos["persistencia"] != hilos["event_loop"]
+
+
+# =============================================================================
+# DEFECTO 1 (nuevo) — `get_suppliers(supp_id=0)` NO puede pedir la tabla entera
+# =============================================================================
+
+
+class TestFiltroSuppIdDelClienteErp:
+    """
+    `get_suppliers` filtraba por truthiness (`if supp_id:`), así que `supp_id=0`
+    caía en el `params` vacío y el gbp-parser devolvía TODA la tabla de
+    proveedores. Combinado con la rama `if supp_id is None` del endpoint, eso
+    hacía que `?supp_id=0` corriera un sync FULL dentro del request — justo lo
+    que el camino 202 vino a eliminar.
+    """
+
+    @pytest.mark.parametrize(
+        "supp_id, params_esperados",
+        [
+            pytest.param(0, {"suppID": 0}, id="cero-filtra-igual"),
+            pytest.param(11, {"suppID": 11}, id="id-normal"),
+            pytest.param(None, {}, id="none-es-la-tabla-entera"),
+        ],
+    )
+    def test_el_filtro_se_arma_por_is_none_y_no_por_truthiness(self, supp_id, params_esperados) -> None:
+        fetch = AsyncMock(return_value=[])
+
+        with patch.object(erp_worker_client, "_fetch", new=fetch):
+            asyncio.run(erp_worker_client.get_suppliers(supp_id=supp_id))
+
+        fetch.assert_awaited_once_with("scriptSupplier", params_esperados)
+
+
+# =============================================================================
+# DEFECTO 2 (nuevo) — advisory lock: un solo sync persistiendo a la vez
+# =============================================================================
+
+
+def _session_falsa(dialecto: str, lock_otorgado: bool) -> MagicMock:
+    """Session mockeada con dialecto y resultado del advisory lock a medida."""
+    session = MagicMock()
+    session.get_bind.return_value.dialect.name = dialecto
+    session.execute.return_value.scalar.return_value = lock_otorgado
+    return session
+
+
+class TestAdvisoryLock:
+    """
+    Sin lock, N syncs full concurrentes (dos pestañas, dos usuarios, un curl en
+    loop) hacen cada uno su `SELECT` completo y después insertan. `proveedores`
+    NO tiene UNIQUE sobre (comp_id, supp_id), así que el read-then-write puede
+    dar de alta el mismo proveedor dos veces.
+    """
+
+    def test_en_postgres_pide_el_lock_transaccional_con_la_clave_documentada(self) -> None:
+        session = _session_falsa("postgresql", lock_otorgado=True)
+
+        assert ProveedoresService(session)._intentar_lock_sync() is True
+
+        sql, params = session.execute.call_args.args
+        # Transaccional (`_xact_`), no de sesión: se libera solo en el commit o
+        # el rollback, así que un job que se cae no deja el lock trabado.
+        assert "pg_try_advisory_xact_lock" in str(sql)
+        assert params == {"key": SYNC_PROVEEDORES_LOCK_KEY}
+
+    def test_en_postgres_lock_denegado_devuelve_false(self) -> None:
+        session = _session_falsa("postgresql", lock_otorgado=False)
+
+        assert ProveedoresService(session)._intentar_lock_sync() is False
+
+    def test_en_sqlite_el_lock_se_saltea_sin_ejecutar_sql(self) -> None:
+        """
+        `pg_try_advisory_xact_lock` es una función propia de PostgreSQL: en
+        SQLite (el dialecto de esta suite) ejecutarla sería un OperationalError.
+        La condición es explícita sobre el dialecto, no un try/except que se
+        tragaría también un fallo real del lock en producción.
+        """
+        session = _session_falsa("sqlite", lock_otorgado=False)
+
+        assert ProveedoresService(session)._intentar_lock_sync() is True
+        session.execute.assert_not_called()
+
+    def test_segundo_sync_concurrente_levanta_sync_en_curso_y_no_escribe(self, db) -> None:
+        """
+        Dos `_persistir_sync` sobre el mismo lock: el primero lo toma y persiste,
+        el segundo se lo encuentra tomado, levanta `SyncEnCursoError` y NO
+        duplica el proveedor.
+
+        La ADQUISICIÓN del lock va forzada (`_intentar_lock_sync` mockeado con
+        [True, False]) porque SQLite no implementa advisory locks y no hay forma
+        honesta de disputarlo a este nivel. Lo que se afirma de verdad acá es la
+        REACCIÓN de `_persistir_sync` al lock denegado — que es donde vivía el
+        defecto. La adquisición real está cubierta arriba contra el dialecto.
+        """
+        fila = normalize_supplier_row(_fila(11, "Único"))
+
+        with patch.object(
+            ProveedoresService,
+            "_intentar_lock_sync",
+            autospec=True,
+            side_effect=[True, False],
+        ):
+            primero = ProveedoresService(db)._persistir_sync([fila], 1)
+
+            with pytest.raises(SyncEnCursoError, match="sincronización de proveedores en curso"):
+                ProveedoresService(db)._persistir_sync([fila], 1)
+
+        assert primero["insertados"] == 1
+        assert db.query(Proveedor).filter(Proveedor.supp_id == 11).count() == 1
+
+    def test_sync_desde_erp_propaga_sync_en_curso_sin_convertirla_en_erp_sync_error(self, db) -> None:
+        """
+        `SyncEnCursoError` es hermana de `ErpSyncError`, no subclase: el caller
+        tiene que poder distinguir "el ERP falló" (502) de "no es tu turno"
+        (409). Si la cadena la convirtiera o la tragara, el panel reportaría un
+        problema del ERP que no existe.
+        """
+        with patch.object(ProveedoresService, "_intentar_lock_sync", autospec=True, return_value=False):
+            with pytest.raises(SyncEnCursoError):
+                _sync(db, [_fila(11)])
+
+        assert not issubclass(SyncEnCursoError, ErpSyncError)
+        assert db.query(Proveedor).count() == 0

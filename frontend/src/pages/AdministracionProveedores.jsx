@@ -43,6 +43,29 @@ registrarPagina({
  */
 const SYNC_SSE_TIMEOUT_MS = 90_000;
 
+/**
+ * ¿Este evento SSE pertenece a la corrida que disparó ESTA pestaña?
+ *
+ * `proveedores:sync` es un canal de broadcast global: publica ahí el job de
+ * cualquier usuario. Sin correlación, el sync de otro operador (o un job viejo
+ * que llega tarde) limpiaba el banner de esta pestaña, cancelaba su timeout y
+ * renderizaba contadores ajenos como propios.
+ *
+ * @param {object} evento - payload del evento SSE.
+ * @param {string|null} runIdEsperado - `run_id` que devolvió la 202 de esta
+ *   corrida. `null` cuando no hay ninguna corrida propia esperando resultado:
+ *   ahí todo evento es ajeno. La cadena vacía marca el caso degradado en que el
+ *   backend no devolvió `run_id` (deploy viejo): sin identificador no hay
+ *   correlación posible y se conserva el comportamiento anterior de aceptar el
+ *   evento, en vez de dejar la UI colgada hasta el timeout.
+ * @returns {boolean}
+ */
+const eventoDeEstaCorrida = (evento, runIdEsperado) => {
+  if (runIdEsperado === null) return false;
+  if (runIdEsperado === '') return true;
+  return evento?.run_id === runIdEsperado;
+};
+
 export default function AdministracionProveedores() {
   const { tienePermiso } = usePermisos();
 
@@ -79,9 +102,21 @@ export default function AdministracionProveedores() {
   // viva, así que un job rápido puede publicar su resultado ANTES de que el POST
   // resuelva; sin esta correlación el `setSyncEnCurso(true)` posterior pisaría un
   // resultado ya recibido y dejaría la UI trabada en "en curso" para siempre.
-  const syncRunIdRef = useRef(0); // corrida actual (se incrementa en cada click)
-  const syncResueltoRef = useRef(0); // última corrida cuyo resultado ya llegó
+  const syncRunIdRef = useRef(0); // corrida local actual (se incrementa en cada click)
+  const syncResueltoRef = useRef(0); // última corrida local cuyo resultado ya llegó
   const syncTimeoutRef = useRef(null);
+
+  // `run_id` que devolvió la 202: identifica la corrida del SERVIDOR y es lo
+  // único que permite distinguir nuestro evento del de otro usuario. `null`
+  // mientras no haya corrida propia esperando resultado.
+  const syncRunIdServidorRef = useRef(null);
+  // El POST sigue en vuelo: todavía NO conocemos el `run_id`, así que ningún
+  // evento se puede correlacionar todavía.
+  const syncPostEnVueloRef = useRef(false);
+  // Último evento llegado mientras el POST estaba en vuelo. Se guarda en vez de
+  // aplicarlo o descartarlo a ciegas: cuando llegue la 202 con el `run_id` recién
+  // ahí se puede decidir honestamente si era nuestro.
+  const syncEventoPendienteRef = useRef(null);
 
   // ── Estado modal crear ─────────────────────────────────────────
   const [showCrear, setShowCrear] = useState(false);
@@ -170,9 +205,31 @@ export default function AdministracionProveedores() {
   // Sin timers colgados ni setState sobre un componente ya desmontado.
   useEffect(() => limpiarTimeoutSync, [limpiarTimeoutSync]);
 
+  /** Aplica un resultado de sync YA correlacionado con esta corrida. */
+  const aplicarResultadoSync = useCallback(
+    (data) => {
+      // Marca la corrida en vuelo como resuelta ANTES de tocar el estado: si el
+      // POST todavía no resolvió, su `setSyncEnCurso(true)` posterior se descarta.
+      syncResueltoRef.current = syncRunIdRef.current;
+      syncEventoPendienteRef.current = null;
+      // La corrida ya no espera nada: cualquier evento posterior (una
+      // re-entrega, o el sync de otro usuario) vuelve a ser ajeno.
+      syncRunIdServidorRef.current = null;
+      limpiarTimeoutSync();
+      setSyncEnCurso(false);
+      setSyncSinConfirmar(false);
+      setSyncResult(data);
+      if (data?.success) fetchProveedores();
+    },
+    [fetchProveedores, limpiarTimeoutSync],
+  );
+
   const handleSyncErp = async () => {
     const runId = syncRunIdRef.current + 1;
     syncRunIdRef.current = runId;
+    syncRunIdServidorRef.current = null;
+    syncEventoPendienteRef.current = null;
+    syncPostEnVueloRef.current = true;
     limpiarTimeoutSync();
     setSyncing(true);
     setSyncResult(null);
@@ -182,8 +239,26 @@ export default function AdministracionProveedores() {
       const { status, data } = await api.post('/administracion/proveedores/sync-erp');
       if (status === 202) {
         // Sync full encolado: los contadores reales llegan por SSE.
-        // Si el evento ya llegó mientras el POST estaba en vuelo, esta corrida
-        // ya está resuelta y marcarla "en curso" ahora sería un dato viejo.
+        if (syncRunIdRef.current !== runId) return; // hubo otro click más nuevo
+        // Cadena vacía = el backend no mandó `run_id` (deploy viejo): sin
+        // identificador no hay correlación posible, ver `eventoDeEstaCorrida`.
+        const runIdServidor = data?.run_id ?? '';
+        syncRunIdServidorRef.current = runIdServidor;
+        syncPostEnVueloRef.current = false;
+
+        // Reconciliación del evento temprano: el job puede haber publicado su
+        // resultado ANTES de que la 202 llegara. Ese evento quedó en el buffer
+        // porque no se podía correlacionar todavía; recién ahora conocemos el
+        // `run_id` y se puede decidir si era nuestro o de otra corrida.
+        const pendiente = syncEventoPendienteRef.current;
+        syncEventoPendienteRef.current = null;
+        if (pendiente && eventoDeEstaCorrida(pendiente, runIdServidor)) {
+          aplicarResultadoSync(pendiente);
+          return;
+        }
+
+        // Si el evento ya se aplicó, esta corrida está resuelta y marcarla
+        // "en curso" ahora sería un dato viejo.
         if (syncResueltoRef.current === runId) return;
         setSyncEnCurso(true);
         // La notificación puede perderse: liberamos la UI al vencer la ventana.
@@ -203,6 +278,9 @@ export default function AdministracionProveedores() {
       const mensaje = error?.message ?? (typeof detail === 'object' ? detail?.message : detail);
       setSyncResult({ success: false, error: mensaje || 'Error sincronizando con el ERP' });
     } finally {
+      // El camino sincrónico y el de error no esperan ningún evento: se cierra
+      // la ventana de buffering para que un evento ajeno no quede retenido.
+      syncPostEnVueloRef.current = false;
       setSyncing(false);
     }
   };
@@ -210,16 +288,23 @@ export default function AdministracionProveedores() {
   // ── Resultado del sync full (llega por SSE cuando el job termina) ──
   const handleSyncEvent = useCallback(
     ({ data }) => {
-      // Marca la corrida en vuelo como resuelta ANTES de tocar el estado: si el
-      // POST todavía no resolvió, su `setSyncEnCurso(true)` posterior se descarta.
-      syncResueltoRef.current = syncRunIdRef.current;
-      limpiarTimeoutSync();
-      setSyncEnCurso(false);
-      setSyncSinConfirmar(false);
-      setSyncResult(data);
-      if (data?.success) fetchProveedores();
+      // El POST sigue en vuelo: no conocemos el `run_id` con el que comparar.
+      // Se retiene el evento y se decide al resolver la 202. Aplicarlo a ciegas
+      // sería el bug original (un evento ajeno resuelve nuestra corrida) y
+      // descartarlo a ciegas dejaría la UI esperando hasta el timeout un
+      // resultado que YA llegó.
+      if (syncPostEnVueloRef.current) {
+        syncEventoPendienteRef.current = data;
+        return;
+      }
+
+      // Evento de otra corrida (otro usuario, otra pestaña, un job tardío): no
+      // limpia el banner, no cancela el timeout y no pisa `syncResult`.
+      if (!eventoDeEstaCorrida(data, syncRunIdServidorRef.current)) return;
+
+      aplicarResultadoSync(data);
     },
-    [fetchProveedores, limpiarTimeoutSync],
+    [aplicarResultadoSync],
   );
 
   useSSEChannel('proveedores:sync', handleSyncEvent);

@@ -12,7 +12,7 @@ from datetime import UTC, datetime
 from typing import Any, Optional
 
 import httpx
-from sqlalchemy import func as sa_func
+from sqlalchemy import func as sa_func, text
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.orm import Session, joinedload
 from starlette.concurrency import run_in_threadpool
@@ -36,9 +36,33 @@ SUPPLIER_FIELD_MAP = {
     "supp_taxNumber": "supp_tax_number",
 }
 
+# Clave del advisory lock que serializa la persistencia del sync de proveedores.
+# Es una constante estable: si cambia entre deploys, dos versiones distintas
+# corriendo a la vez dejarían de excluirse.
+#
+# Convive con las claves ya en uso en el proyecto sin colisionar:
+#   84_217_001 → app/scripts/drain_promo_refresh.py
+#   84_217_002 → app/scripts/sync_publication_links.py
+#   84_217_003 → app/services/ml_publication_link_service.py
+SYNC_PROVEEDORES_LOCK_KEY = 84_217_004
+
 
 class ErpSyncError(Exception):
     """El ERP (gbp-parser) no devolvió datos utilizables para sincronizar."""
+
+
+class SyncEnCursoError(Exception):
+    """
+    Ya hay otro sync de proveedores persistiendo en este momento.
+
+    Hermana de `ErpSyncError` (no subclase): son condiciones distintas y los
+    callers las mapean distinto. `ErpSyncError` significa "el ERP falló";
+    esta significa "el ERP puede estar perfecto, pero no es tu turno".
+
+    Se levanta en vez de no-opear en silencio: devolver contadores en cero
+    haría que el panel y el cron reportaran un sync exitoso que nunca ocurrió,
+    exactamente el bug que el contrato fail-loud ya cerró para el ERP.
+    """
 
 
 def is_erp_error(data: list[Any]) -> bool:
@@ -244,6 +268,8 @@ class ProveedoresService:
                 respuesta con forma de error. Nunca se retornan contadores en
                 cero ante un fetch fallido: eso hacía que un cron o el botón
                 mostraran éxito sin haber sincronizado nada.
+            SyncEnCursoError: si ya hay otro sync persistiendo (ver
+                `_persistir_sync`). Se propaga tal cual desde el worker thread.
         """
         # ponytail: `app/routers/rma_proveedores.py:181` y
         # `app/api/endpoints/erp_sync.py:407` todavía tienen su propia copia del
@@ -290,6 +316,49 @@ class ProveedoresService:
         # ── Pasos 2, 3 y 4: persistencia (bloqueante) fuera del event loop ──
         return await run_in_threadpool(self._persistir_sync, normalized, len(suppliers))
 
+    def _intentar_lock_sync(self) -> bool:
+        """
+        Intenta tomar el advisory lock que serializa la persistencia del sync.
+
+        Es TRANSACCIONAL (`pg_try_advisory_xact_lock`) y no de sesión a
+        propósito: se libera solo en el commit o en el rollback de la
+        transacción que lo tomó. Un job que se cae con la sesión abierta —o un
+        worker de uvicorn que muere— no puede dejar el lock trabado y bloquear
+        todos los syncs siguientes, que es justo lo que pasaría con
+        `pg_advisory_lock`.
+
+        La variante `try_` no espera: devuelve False de inmediato si otra
+        transacción ya lo tiene. Un sync que se queda esperando su turno sería
+        peor que uno que reporta honestamente que no es su turno.
+
+        Dialecto: `pg_try_advisory_xact_lock` es una función propia de
+        PostgreSQL. La suite de tests corre sobre SQLite, donde ejecutarla
+        levantaría OperationalError. La condición es explícita y angosta
+        (`!= "postgresql"` sobre el dialecto del bind real), NO un try/except
+        genérico: un try/except se tragaría también un fallo real del lock en
+        producción y desactivaría la protección justo donde hace falta. En
+        SQLite el lock se saltea y se devuelve True — la suite no ejercita
+        concurrencia real de escritura.
+
+        Returns:
+            True si el lock se tomó (o si el dialecto no lo soporta),
+            False si otro sync lo tiene.
+        """
+        dialecto = self.db.get_bind().dialect.name
+        if dialecto != "postgresql":
+            logger.debug(
+                "Sync proveedores: advisory lock omitido, el dialecto '%s' no implementa pg_try_advisory_xact_lock",
+                dialecto,
+            )
+            return True
+
+        return bool(
+            self.db.execute(
+                text("SELECT pg_try_advisory_xact_lock(:key)"),
+                {"key": SYNC_PROVEEDORES_LOCK_KEY},
+            ).scalar()
+        )
+
     def _persistir_sync(self, normalized: list[dict[str, Any]], total_erp: int) -> dict[str, int]:
         """
         Persiste el resultado del fetch al ERP: mirror `tb_supplier`, proyección
@@ -308,8 +377,23 @@ class ProveedoresService:
         Returns:
             Contadores: {insertados, actualizados, vinculados_rma,
                          rma_insertados, total_erp}.
+
+        Raises:
+            SyncEnCursoError: si otro sync ya tiene el advisory lock. Sin él,
+                N syncs concurrentes (dos pestañas, dos usuarios, un curl en
+                loop) hacen cada uno su propio SELECT completo y después
+                insertan: un read-then-write clásico. `proveedores` no tiene
+                UNIQUE sobre (comp_id, supp_id) —solo `tb_supplier` tiene su PK
+                compuesta—, así que dos corridas pueden dar de alta el MISMO
+                proveedor dos veces, además de quedar como candidatas a
+                deadlock entre transacciones. Un flag en proceso no alcanza:
+                con varios workers de uvicorn cada proceso tendría el suyo.
         """
         try:
+            # ── Paso 0: exclusión mutua entre syncs ───────────────────────
+            if not self._intentar_lock_sync():
+                raise SyncEnCursoError("Ya hay una sincronización de proveedores en curso. Esperá a que termine.")
+
             # ── Paso 2: upsert del mirror tb_supplier ─────────────────────
             stmt = pg_insert(TBSupplier)
             stmt = stmt.on_conflict_do_update(
@@ -402,6 +486,10 @@ class ProveedoresService:
             # Amplio a propósito: un IntegrityError entra por SQLAlchemyError,
             # pero cualquier otro error dentro del loop (ej. AttributeError)
             # dejaría la sesión sucia si no se hiciera rollback acá.
+            #
+            # `SyncEnCursoError` también pasa por acá y debe hacerlo: el propio
+            # `SELECT pg_try_advisory_xact_lock(...)` abrió una transacción que
+            # hay que cerrar aunque el lock no se haya conseguido.
             self.db.rollback()
             raise
 

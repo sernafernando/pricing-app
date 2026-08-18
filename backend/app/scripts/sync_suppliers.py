@@ -7,7 +7,9 @@ rma_proveedores. El cliente HTTP es `erp_worker_client` (usa
 `settings.GBP_PARSER_URL`, sin hosts hardcodeados).
 
 Falla fuerte: si el ERP no responde o devuelve vacío, el script termina con
-exit code 1 y la excepción se propaga al runner del cron.
+exit code 1 y la excepción se propaga al runner del cron. Lo mismo si ya hay
+otra sincronización de proveedores en curso (`SyncEnCursoError`): el cron NO
+puede reportar un sync exitoso que nunca llegó a persistir nada.
 
 Modos de uso:
     # Full (toda la tabla)
@@ -35,14 +37,16 @@ import asyncio
 from sqlalchemy.orm import Session
 
 from app.core.database import SessionLocal
-from app.services.proveedores_service import ErpSyncError, ProveedoresService
+from app.services.proveedores_service import ErpSyncError, ProveedoresService, SyncEnCursoError
 
 
 def sync_full(db: Session, supp_id: int | None = None) -> dict[str, int]:
     """
     Sincronización completa vía ProveedoresService.sync_desde_erp().
 
-    Levanta ErpSyncError si el ERP no devolvió datos utilizables.
+    Levanta ErpSyncError si el ERP no devolvió datos utilizables y
+    SyncEnCursoError si otro sync ya está persistiendo. Ninguna de las dos se
+    traga acá: el caller decide cómo reportarlas.
     """
     label = f"supp_id={supp_id}" if supp_id else "toda la tabla"
     print(f"\n🔄 Sincronización de proveedores ({label})")
@@ -65,8 +69,10 @@ def sync_suppliers() -> tuple[int, int]:
     """
     Entry point para sync_master_tables_small (sin args, maneja su propia session).
 
-    Retorna (insertados, actualizados) reales. La ErpSyncError se propaga a
-    propósito para que el runner del cron la registre como error.
+    Retorna (insertados, actualizados) reales. Tanto ErpSyncError como
+    SyncEnCursoError se propagan a propósito: `sync_master_tables_small` las
+    registra en `resultados["errores"]` y devuelve exit code 1. Tragarlas acá
+    reportaría un sync exitoso que nunca corrió.
     """
     db = SessionLocal()
     try:
@@ -86,6 +92,12 @@ def main() -> None:
 
     try:
         sync_full(db, supp_id=args.supp_id)
+    except SyncEnCursoError as e:
+        # Exit code 1, igual que cualquier otro fallo: el cron NO sincronizó.
+        # Reportarlo como éxito (exit 0) escondería que los datos quedaron
+        # viejos porque esta corrida no llegó a persistir nada.
+        print(f"\n❌ Sincronización no ejecutada: {str(e)}")
+        sys.exit(1)
     except ErpSyncError as e:
         print(f"\n❌ Error de sincronización con el ERP: {str(e)}")
         sys.exit(1)

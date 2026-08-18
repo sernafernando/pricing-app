@@ -172,8 +172,20 @@ class ERPWorkerClient:
         Returns:
             Lista de proveedores: [{"comp_id": 1, "supp_id": 11, "supp_name": "...", "supp_taxNumber": "..."}]
         """
+        # El chequeo es explícito contra None, NO por truthiness: con `if supp_id`
+        # un supp_id = 0 caía en el filtro vacío y el gbp-parser devolvía la tabla
+        # ENTERA de proveedores. Quien pedía un proveedor puntual se llevaba un
+        # sync full silencioso dentro del request.
+        #
+        # ponytail: el resto de los getters de esta clase (`get_brands`,
+        # `get_categories`, `get_items`, `get_customers`, `get_branches`, ...)
+        # arrastran exactamente el mismo bug de truthiness: un ID = 0 se
+        # descarta y la consulta termina sin filtro. Se corrigió solo
+        # `get_suppliers` porque es el único alcanzable hoy desde un endpoint
+        # con query param libre; el barrido completo queda fuera del alcance de
+        # este fix para no inflar el diff.
         params = {}
-        if supp_id:
+        if supp_id is not None:
             params["suppID"] = supp_id
 
         return await self._fetch("scriptSupplier", params)
