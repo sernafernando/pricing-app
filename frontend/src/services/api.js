@@ -324,6 +324,10 @@ export const promocionesAPI = {
 // `PxqCreateTierRequest`/`PxqUpdateTierRequest`.
 export const pxqAPI = {
   getLive: (itemId) => api.get(`/pxq/${itemId}/live`),
+  // Batch markup read (slice A1 of `pxq-markup-antes-de-publicar`): pure DB
+  // read, no ML proxy call -- unlike `getLive` above this needs no special
+  // handling on the caller's side.
+  getMarkup: (itemId) => api.get(`/pxq/${itemId}/markup`),
   createTier: (itemId, body) => api.post(`/pxq/${itemId}/tiers`, body),
   updateTier: (itemId, tierId, body) => api.patch(`/pxq/${itemId}/tiers/${tierId}`, body),
   deleteTier: (itemId, tierId) => api.delete(`/pxq/${itemId}/tiers/${tierId}`),
