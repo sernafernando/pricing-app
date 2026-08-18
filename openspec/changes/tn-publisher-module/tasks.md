@@ -166,26 +166,26 @@ will consume them.
 **Spec IDs**: MP1 (CRUD behind dedicated permission, D5/D10), MP2 (seed data), MP3 (category
 suggestion), MP4 (availability precedes the publish gate).
 
-- [ ] 4.1 RED: migration test — after `alembic upgrade head`, exactly 4 seed profiles exist
+- [x] 4.1 RED: migration test — after `alembic upgrade head`, exactly 4 seed profiles exist
       (30×20×20, 30×40×10, 50×40×20, 45×55×25), each with all four measurement fields populated (MP2).
-- [ ] 4.2 GREEN: write the migration (3 tables: `tn_measurement_profile`, `tn_publish_override`,
+- [x] 4.2 GREEN: write the migration (3 tables: `tn_measurement_profile`, `tn_publish_override`,
       `tn_category_profile_hint`) + `op.bulk_insert` seed, following the seeding pattern of
       `backend/alembic/versions/20260723_tn_publicacion_permiso.py`.
-- [ ] 4.3 RED: **D10** — seed the NEW permission `admin.gestionar_tn_perfiles` in the same migration
+- [x] 4.3 RED: **D10** — seed the NEW permission `admin.gestionar_tn_perfiles` in the same migration
       (or a companion migration) using the existing permission-seeding pattern; test it exists and is
       distinct from `admin.gestionar_tn_publicacion`.
-- [ ] 4.4 GREEN: add the permission-seed migration step.
-- [ ] 4.5 RED: test a user holding only `admin.gestionar_tn_publicacion` gets `403` on profile
+- [x] 4.4 GREEN: add the permission-seed migration step.
+- [x] 4.5 RED: test a user holding only `admin.gestionar_tn_publicacion` gets `403` on profile
       create/update/delete (MP1, D10).
-- [ ] 4.6 RED: test a user holding only `admin.gestionar_tn_perfiles` gets `403` on the publish
+- [x] 4.6 RED: test a user holding only `admin.gestionar_tn_perfiles` gets `403` on the publish
       endpoint (MP1, D10) — separability in both directions.
-- [ ] 4.7 GREEN: implement CRUD endpoints in `tn_measurement_profiles.py`, gated on
+- [x] 4.7 GREEN: implement CRUD endpoints in `tn_measurement_profiles.py`, gated on
       `admin.gestionar_tn_perfiles`.
-- [ ] 4.8 RED: test suggestion returns a profile id for a category with prior usage history, and an
+- [x] 4.8 RED: test suggestion returns a profile id for a category with prior usage history, and an
       empty result (not an error) for a category with none (MP3).
-- [ ] 4.9 GREEN: implement suggestion via `tn_category_profile_hint` lookup: exact
+- [x] 4.9 GREEN: implement suggestion via `tn_category_profile_hint` lookup: exact
       `(categoria, subcategoria)` → else `(categoria, NULL)` → else none.
-- [ ] 4.10 Downgrade test: `alembic downgrade -1` drops all 3 tables cleanly on sqlite.
+- [x] 4.10 Downgrade test: `alembic downgrade -1` drops all 3 tables cleanly on sqlite.
 
 **Estimated lines**: ~570 (was ~550; +permission migration for D10). **Budget verdict**: under 800.
 **Dependencies**: PR-3 (targets PR-3's branch — Feature Branch Chain link 2).
