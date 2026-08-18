@@ -12,17 +12,70 @@ unrelated to fetch timing and more actionable.
 
 from __future__ import annotations
 
+import asyncio
 from dataclasses import dataclass
+from datetime import datetime, timedelta, timezone
+from decimal import Decimal
 from typing import Dict, Literal, Optional
 
 from sqlalchemy.orm import Session
 
 from app.models.ml_pxq_tier import MlPxqTier
+from app.services.ml_webhook_client import MLWebhookClient
 from app.services.pricing_calculator import obtener_constantes_pricing
 from app.services.pxq_markup import calcular_markup_pxq, resolve_order_cost, resolve_tier_shipping
 from app.services.pxq_pricing_context import resolve_pxq_pricing_context
 
 PxqMarkupReason = Literal["shipping_unavailable", "product_data_missing"]
+
+# 24h TTL, slice B design. Anything fresher than this makes ZERO calls to the
+# ml-webhook proxy; NULL (never fetched) or older always calls it.
+_SHIPPING_TTL = timedelta(hours=24)
+
+
+def refresh_tier_shipping(db: Session, tier: MlPxqTier) -> None:
+    """TTL-gated auto-fetch of a PxQ tier's whole-shipment shipping cost,
+    via the ml-webhook proxy (`MLWebhookClient.get_pxq_seller_shipping_cost`).
+
+    Wired into `markup_for_tiers` BEFORE `resolve_tier_shipping`, per open
+    of the markup read path.
+
+    TTL: `tier.costo_envio_fetched_at` fresher than 24h -> zero proxy calls.
+    NULL or older -> calls the proxy exactly once.
+
+    Degrades ALWAYS to state, never to a fabricated value: a failed fetch
+    (`None` from the client -- collapses 404/non-2xx/timeout/malformed body,
+    see `MLWebhookClient.get_pxq_seller_shipping_cost`) touches NEITHER
+    `costo_envio_total` NOR `costo_envio_fetched_at`. The row stays exactly
+    as stale as it was, so the NEXT open retries -- self-healing without a
+    second column tracking failure separately. A successful fetch writes
+    BOTH columns together, same "freshness of the VALUE" contract D3 gives
+    the manual write path in `pxq_tier_service.update_pxq_tier`.
+    """
+    fetched_at = tier.costo_envio_fetched_at
+    if fetched_at is not None:
+        if fetched_at.tzinfo is None:
+            # SQLite loses tzinfo after flush/refresh (documented repo
+            # trap) -- values written by THIS module are always tz-aware,
+            # so a naive value here can only originate from that round-trip
+            # and is safely reinterpreted as UTC, never a different zone.
+            fetched_at = fetched_at.replace(tzinfo=timezone.utc)
+        if datetime.now(timezone.utc) - fetched_at < _SHIPPING_TTL:
+            return
+
+    client = MLWebhookClient()
+    amount = asyncio.run(
+        client.get_pxq_seller_shipping_cost(tier.item_id, tier.cantidad_minima, float(tier.precio_unitario))
+    )
+    if amount is None:
+        # Fetch failed or the route degraded (404 -- the current production
+        # reality, proxy route not deployed yet). NEVER write 0, NEVER
+        # touch either column -- see module docstring above.
+        return
+
+    tier.costo_envio_total = Decimal(str(amount))
+    tier.costo_envio_fetched_at = datetime.now(timezone.utc)
+    db.flush()
 
 
 @dataclass(frozen=True)
@@ -73,6 +126,12 @@ def markup_for_tiers(db: Session, item_id: str) -> Dict[int, TierMarkup]:
 
     result: Dict[int, TierMarkup] = {}
     for tier in tiers:
+        # TTL-gated auto-fetch (slice B), cabled BEFORE the shipping read so
+        # a stale/never-fetched tier gets one chance to resolve on THIS
+        # open. Degrades to state on failure -- never touches either
+        # column, so `resolve_tier_shipping` below reads whatever was
+        # already there (fresh, stale, or still NULL).
+        refresh_tier_shipping(db, tier)
         shipping = resolve_tier_shipping(tier)
 
         # Precedence when both are unresolved: product_data_missing wins --
