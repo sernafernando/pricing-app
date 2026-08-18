@@ -46,8 +46,9 @@ from sqlalchemy.orm import Session
 from app.core.config import settings
 from app.models.ml_pxq_tier import ESTADO_DESCONOCIDO, MlPxqTier
 from app.services.permisos_service import PermisosService
-from app.services.pxq_confirm import is_priceable, remap_and_confirm
+from app.services.pxq_confirm import remap_and_confirm
 from app.services.pxq_diff import DesiredTier, LiveTier, diff_pxq_tiers
+from app.services.pxq_markup_service import TierMarkup, markup_for_tiers, markup_resolved
 from app.services.pxq_permissions_backfill import PXQ_ESCRIBIR_CODE
 from app.services.ml_webhook_client import ml_webhook_client
 from app.utils.async_bridge import resolve_maybe_async as _resolve
@@ -101,17 +102,35 @@ def _live_tiers_from_raw(raw: List[Dict[str, Any]]) -> Optional[List[LiveTier]]:
         return None
 
 
-def _desired_tiers_from_mirror(rows: List[MlPxqTier]) -> List[DesiredTier]:
-    """Turns priceable mirror rows into desired-state.
+def _tier_gate_open(row: MlPxqTier, markup_map: Dict[int, TierMarkup]) -> bool:
+    """D4 (slice C): the gate is `markup_resolved`, not `is_priceable`. A
+    tier can carry `costo_envio_total` and still be unresolved -- e.g. its
+    commission base cannot be resolved -- and the old gate let that tier
+    reach MercadoLibre anyway, because it only checked the shipping cost.
+
+    `is_priceable` is retained (`pxq_confirm.py`), but ONLY for matching
+    confirmed rows against the re-read there -- that is not a pricing
+    decision, so it keeps its own name and this gate does not call it.
+
+    A tier missing from `markup_map` entirely (should not happen -- every
+    mirror row for this MLA is looked up together) is treated as unresolved,
+    never as an accidental pass.
+    """
+    entry = markup_map.get(row.id)
+    return entry is not None and markup_resolved(entry)
+
+
+def _desired_tiers_from_mirror(rows: List[MlPxqTier], markup_map: Dict[int, TierMarkup]) -> List[DesiredTier]:
+    """Turns gated mirror rows into desired-state.
 
     `diff_pxq_tiers` decides keep/create/modify/refuse from the snapshot, so
-    nothing branches here beyond the priceability filter.
+    nothing branches here beyond the gate filter.
 
-    That filter is redundant — the caller applies the same `is_priceable` —
-    and it is kept on purpose: it holds the rule that a tier without a
-    resolved whole-shipment cost never reaches MercadoLibre. Both sites call
-    the SAME function; what caused the earlier drift was two hand-written
-    copies of the condition, not the redundancy.
+    That filter is redundant — the caller applies the same `_tier_gate_open`
+    — and it is kept on purpose: it holds the rule that a tier whose markup
+    never resolved never reaches MercadoLibre. Both sites call the SAME
+    function; what caused the earlier drift (`is_priceable`) was two
+    hand-written copies of the condition, not the redundancy.
     """
     return [
         DesiredTier(
@@ -122,7 +141,7 @@ def _desired_tiers_from_mirror(rows: List[MlPxqTier]) -> List[DesiredTier]:
             synced_amount=row.precio_sincronizado,
         )
         for row in rows
-        if is_priceable(row)
+        if _tier_gate_open(row, markup_map)
     ]
 
 
@@ -252,11 +271,15 @@ def sync_pxq_tiers(db: Session, usuario: Any, item_id: str, *, allow_clear: bool
     # "index 0" now means the lowest quantity instead of whatever surfaced
     # first.
     mirror_rows = db.query(MlPxqTier).filter(MlPxqTier.item_id == item_id).order_by(MlPxqTier.cantidad_minima).all()
+    # Resolved ONCE for the whole publication, same discipline as
+    # `markup_for_tiers` itself (all tiers of one MLA share the pricing
+    # context) -- and reused by BOTH gate call sites below (D4).
+    markup_map = markup_for_tiers(db, item_id)
     # Filtered ONCE. Two separate comprehensions applying the same predicate to
     # the same list were identical by construction, but only by construction —
-    # touching one and not the other would have let a cost-less tier reach ML.
-    priceable_rows = [row for row in mirror_rows if is_priceable(row)]
-    desired = _desired_tiers_from_mirror(priceable_rows)
+    # touching one and not the other would have let an unresolved tier reach ML.
+    priceable_rows = [row for row in mirror_rows if _tier_gate_open(row, markup_map)]
+    desired = _desired_tiers_from_mirror(priceable_rows, markup_map)
     live_tiers = _live_tiers_from_raw(live_raw)
     if live_tiers is None:
         logger.warning(

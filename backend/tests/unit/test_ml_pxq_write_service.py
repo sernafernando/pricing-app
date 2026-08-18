@@ -18,6 +18,7 @@ All ml_webhook_client calls are mocked. No live-prod calls ever.
 
 from __future__ import annotations
 
+from datetime import date
 from decimal import Decimal
 from unittest.mock import AsyncMock, patch
 
@@ -27,6 +28,7 @@ import pytest
 from fastapi import HTTPException
 
 from app.core.security import get_password_hash
+from app.models.comision_versionada import ComisionBase, ComisionVersion
 from app.models.ml_pxq_tier import ESTADO_DESCONOCIDO, ESTADO_LISTO, ESTADO_SINCRONIZADO, MlPxqTier
 from app.models.producto import ProductoERP
 from app.models.publicacion_ml import PublicacionML
@@ -73,6 +75,20 @@ def pxq_user_no_permission(db, rol_ventas) -> Usuario:
 
 
 @pytest.fixture()
+def comision_fixtures(db) -> ComisionVersion:
+    """Resolvable commission-base context (D4/3.3): `markup_resolved` needs
+    `markup_for_tiers` to resolve BOTH the pricing context (this fixture) and
+    a tier's `costo_envio_total` -- the old gate only needed the second.
+    Mirrors `test_pxq_markup_service.py`'s `comision_fixtures` fixture."""
+    version = ComisionVersion(nombre="Test PxQ Write", fecha_desde=date(2000, 1, 1), activo=True)
+    db.add(version)
+    db.flush()
+    db.add(ComisionBase(version_id=version.id, grupo_id=1, comision_base=20.0))
+    db.flush()
+    return version
+
+
+@pytest.fixture()
 def producto(db) -> ProductoERP:
     p = ProductoERP(item_id=90201, codigo="SKU-PXQ-WRITE", descripcion="Producto PxQ Write", costo=1000.0)
     db.add(p)
@@ -81,8 +97,8 @@ def producto(db) -> ProductoERP:
 
 
 @pytest.fixture()
-def publicacion(db, producto) -> PublicacionML:
-    pub = PublicacionML(mla="MLA920001", item_id=producto.item_id, codigo="SKU-PXQ-WRITE")
+def publicacion(db, producto, comision_fixtures) -> PublicacionML:
+    pub = PublicacionML(mla="MLA920001", item_id=producto.item_id, codigo="SKU-PXQ-WRITE", pricelist_id=4)
     db.add(pub)
     db.flush()
     return pub
@@ -211,6 +227,53 @@ class TestLiveReadUnavailable:
 
         assert outcome["status"] == "rejected_read_unavailable"
         mock_client.post_pxq_prices.assert_not_called()
+
+
+class TestMarkupResolvedGate:
+    """D4 (slice C): the gate is `markup_resolved`, not `is_priceable`. A tier
+    can carry a whole-shipment cost (`costo_envio_total`) and STILL be
+    unresolved when the commission base cannot be resolved -- the old gate
+    let that tier reach MercadoLibre anyway, because it only ever checked the
+    shipping cost."""
+
+    def test_unresolvable_commission_base_excludes_the_tier_by_default(self, db, pxq_user, monkeypatch) -> None:
+        # Deliberately NO `comision_fixtures`: no `ComisionBase` row exists, so
+        # `markup_for_tiers` cannot resolve a commission base for this tier
+        # even though `costo_envio_total` is set.
+        producto = ProductoERP(
+            item_id=90301, codigo="SKU-PXQ-UNRESOLVED", descripcion="Producto sin comision", costo=1000.0
+        )
+        db.add(producto)
+        db.flush()
+        pub = PublicacionML(mla="MLA930001", item_id=producto.item_id, codigo="SKU-PXQ-UNRESOLVED", pricelist_id=4)
+        db.add(pub)
+        db.flush()
+        tier = MlPxqTier(
+            publicacion_ml_id=pub.id,
+            item_id=pub.mla,
+            cantidad_minima=10,
+            precio_unitario=Decimal("500.00"),
+            costo_envio_total=Decimal("50.00"),
+            ml_price_id=None,
+            estado=ESTADO_LISTO,
+            usuario_id=pxq_user.id,
+        )
+        db.add(tier)
+        db.flush()
+
+        monkeypatch.setattr(write_service.settings, "PXQ_WRITE_ENABLED", True)
+        patcher, mock_client = _mock_client(live_prices=[])
+        try:
+            outcome = write_service.sync_pxq_tiers(db, pxq_user, pub.mla)
+        finally:
+            patcher.stop()
+
+        # Nothing to send: the only tier is excluded by the gate, so the diff
+        # is empty and the POST is never attempted.
+        mock_client.post_pxq_prices.assert_not_called()
+        assert outcome["status"] in ("sincronizado", "divergence")
+        db.refresh(tier)
+        assert tier.estado == ESTADO_LISTO  # untouched: never considered for write
 
 
 class TestBoundaryAssert:
@@ -614,7 +677,7 @@ class TestTheEmittedArrayIsOrdered:
         monkeypatch.setattr(
             write_service,
             "_desired_tiers_from_mirror",
-            lambda rows: (captured.append([row.cantidad_minima for row in rows]), [])[1],
+            lambda rows, markup_map: (captured.append([row.cantidad_minima for row in rows]), [])[1],
         )
         patcher, _mock = _mock_client()
         try:

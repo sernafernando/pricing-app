@@ -18,12 +18,14 @@ the moment someone reaches for an f-string instead of lazy `%s` args.
 from __future__ import annotations
 
 import logging
+from datetime import date
 from decimal import Decimal
 from unittest.mock import AsyncMock, patch
 
 import pytest
 
 from app.core.security import get_password_hash
+from app.models.comision_versionada import ComisionBase, ComisionVersion
 from app.models.ml_pxq_tier import ESTADO_LISTO, ESTADO_SINCRONIZADO, MlPxqTier
 from app.models.producto import ProductoERP
 from app.models.publicacion_ml import PublicacionML
@@ -59,8 +61,20 @@ def producto(db) -> ProductoERP:
 
 
 @pytest.fixture()
-def publicacion(db, producto) -> PublicacionML:
-    pub = PublicacionML(mla="MLA930001", item_id=producto.item_id, codigo="SKU-PXQ-LOG")
+def comision_fixtures(db) -> ComisionVersion:
+    """Resolvable commission-base context (D4): the write gate now needs
+    `markup_resolved`, which needs both `costo_envio_total` AND this."""
+    version = ComisionVersion(nombre="Test PxQ Logging", fecha_desde=date(2000, 1, 1), activo=True)
+    db.add(version)
+    db.flush()
+    db.add(ComisionBase(version_id=version.id, grupo_id=1, comision_base=20.0))
+    db.flush()
+    return version
+
+
+@pytest.fixture()
+def publicacion(db, producto, comision_fixtures) -> PublicacionML:
+    pub = PublicacionML(mla="MLA930001", item_id=producto.item_id, codigo="SKU-PXQ-LOG", pricelist_id=4)
     db.add(pub)
     db.flush()
     return pub
