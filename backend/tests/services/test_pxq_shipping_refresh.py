@@ -473,6 +473,27 @@ class TestRealPersistenceAcrossASession:
             setup.close()
         # First session is FULLY closed -- nothing left checked out.
 
+        try:
+            self._run_refresh_and_verify(monkeypatch, Session, tier_id)
+        finally:
+            # The commits above are REAL and the `engine` fixture is
+            # session-scoped: without this cleanup, producto 93999 (and its
+            # rol/user/pub/tier) outlive this test and leak into every later
+            # test in the run -- which broke `test_productos_colors_read_layer`'s
+            # exact-set assertions in CI. Delete in FK order, committed, even
+            # when an assertion above already failed.
+            cleanup = Session()
+            try:
+                cleanup.query(MlPxqTier).filter(MlPxqTier.item_id == "MLA9399901").delete()
+                cleanup.query(PublicacionML).filter(PublicacionML.mla == "MLA9399901").delete()
+                cleanup.query(ProductoERP).filter(ProductoERP.item_id == 93999).delete()
+                cleanup.query(Usuario).filter(Usuario.username == "pxq_persist_user").delete()
+                cleanup.query(Rol).filter(Rol.codigo == "VENTAS_PERSIST").delete()
+                cleanup.commit()
+            finally:
+                cleanup.close()
+
+    def _run_refresh_and_verify(self, monkeypatch, Session, tier_id) -> None:
         fake = _FakeClient(amount=321.5)
         _install_fake_client(monkeypatch, fake)
         # `get_background_db` is left as the REAL production function --
