@@ -17,8 +17,6 @@ Create Date: 2026-08-18 00:00:00.000000
 
 """
 
-from datetime import datetime
-
 import sqlalchemy as sa
 from alembic import op
 
@@ -67,7 +65,10 @@ def upgrade():
         sa.UniqueConstraint("categoria", "subcategoria", "profile_id", name="uq_tn_category_profile_hint"),
     )
 
-    now = datetime.utcnow()
+    # created_at is deliberately omitted from the seed rows: the column's
+    # server_default (func.now()) fills it DB-side, tz-aware. Seeding a
+    # Python datetime here would inject a tz-naive value into a
+    # timezone-aware column.
     profile_table = sa.table(
         "tn_measurement_profile",
         sa.column("name", sa.String),
@@ -75,15 +76,14 @@ def upgrade():
         sa.column("width", sa.Numeric),
         sa.column("height", sa.Numeric),
         sa.column("depth", sa.Numeric),
-        sa.column("created_at", sa.DateTime),
     )
     op.bulk_insert(
         profile_table,
         [
-            {"name": "30x20x20", "weight": 0.3, "width": 30, "height": 20, "depth": 20, "created_at": now},
-            {"name": "30x40x10", "weight": 0.4, "width": 30, "height": 40, "depth": 10, "created_at": now},
-            {"name": "50x40x20", "weight": 0.6, "width": 50, "height": 40, "depth": 20, "created_at": now},
-            {"name": "45x55x25", "weight": 0.8, "width": 45, "height": 55, "depth": 25, "created_at": now},
+            {"name": "30x20x20", "weight": 0.3, "width": 30, "height": 20, "depth": 20},
+            {"name": "30x40x10", "weight": 0.4, "width": 30, "height": 40, "depth": 10},
+            {"name": "50x40x20", "weight": 0.6, "width": 50, "height": 40, "depth": 20},
+            {"name": "45x55x25", "weight": 0.8, "width": 45, "height": 55, "depth": 25},
         ],
     )
 

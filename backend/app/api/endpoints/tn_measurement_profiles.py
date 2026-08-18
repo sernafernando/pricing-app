@@ -15,7 +15,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, ConfigDict
 from sqlalchemy.orm import Session
 
-from app.api.deps import require_permiso
+from app.api.deps import get_current_user, require_permiso
 from app.core.database import get_db
 from app.models.tn_category_profile_hint import TnCategoryProfileHint
 from app.models.tn_measurement_profile import TnMeasurementProfile
@@ -48,10 +48,20 @@ class ProfileSuggestionResponse(BaseModel):
     profile_id: Optional[int] = None
 
 
-@router.get("/tn-measurement-profiles", response_model=List[MeasurementProfileResponse])
+class DeleteProfileResponse(BaseModel):
+    message: str
+    profile_id: int
+
+
+@router.get(
+    "/tn-measurement-profiles",
+    response_model=List[MeasurementProfileResponse],
+    dependencies=[Depends(get_current_user)],
+)
 def listar_perfiles(db: Session = Depends(get_db)):
-    """Lists all measurement profiles. Read-only — no permission gate, mirrors
-    the read-side of `produccion_banlist`'s GET endpoints."""
+    """Lists all measurement profiles. Read-only — authenticated but with no
+    permission gate: any logged-in user may read, mirroring the read-side of
+    `produccion_banlist`'s GET endpoints."""
     return db.query(TnMeasurementProfile).order_by(TnMeasurementProfile.id).all()
 
 
@@ -96,19 +106,24 @@ def actualizar_perfil(profile_id: int, request: MeasurementProfileRequest, db: S
 
 @router.delete(
     "/tn-measurement-profiles/{profile_id}",
+    response_model=DeleteProfileResponse,
     dependencies=[Depends(require_permiso(_PERMISO))],
 )
-def eliminar_perfil(profile_id: int, db: Session = Depends(get_db)):
+def eliminar_perfil(profile_id: int, db: Session = Depends(get_db)) -> DeleteProfileResponse:
     perfil = db.query(TnMeasurementProfile).filter(TnMeasurementProfile.id == profile_id).first()
     if not perfil:
         raise HTTPException(status_code=404, detail="Perfil de medidas no encontrado")
 
     db.delete(perfil)
     db.commit()
-    return {"message": "Perfil de medidas eliminado", "profile_id": profile_id}
+    return DeleteProfileResponse(message="Perfil de medidas eliminado", profile_id=profile_id)
 
 
-@router.get("/tn-measurement-profiles/suggestion", response_model=ProfileSuggestionResponse)
+@router.get(
+    "/tn-measurement-profiles/suggestion",
+    response_model=ProfileSuggestionResponse,
+    dependencies=[Depends(get_current_user)],
+)
 def sugerir_perfil(categoria: str, subcategoria: Optional[str] = None, db: Session = Depends(get_db)):
     """Category-based suggestion (MP3). Lookup order: exact
     `(categoria, subcategoria)` → highest `uso_count`, else `(categoria, NULL)`

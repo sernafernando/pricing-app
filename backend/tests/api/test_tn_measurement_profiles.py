@@ -159,6 +159,45 @@ class TestProfileCrudPermissionGate:
         assert resp.status_code == 403
 
 
+class TestReadEndpointsRequireAuthentication:
+    """Pre-push review finding: "no permission gate" must not mean "no
+    authentication". Every endpoint still requires a valid bearer token
+    (repo Security Checklist) — the read side is merely permission-free,
+    not anonymous."""
+
+    def test_list_without_token_is_rejected(self, client):
+        resp = client.get("/api/tn-measurement-profiles")
+        assert resp.status_code == 401
+
+    def test_suggestion_without_token_is_rejected(self, client):
+        resp = client.get(
+            "/api/tn-measurement-profiles/suggestion",
+            params={"categoria": "Hogar"},
+        )
+        assert resp.status_code == 401
+
+    def test_list_with_token_needs_no_permission(self, client, db, user_no_perm):
+        resp = client.get("/api/tn-measurement-profiles", headers=_bearer(user_no_perm))
+        assert resp.status_code == 200
+
+
+class TestDeleteResponseContract:
+    def test_delete_returns_typed_response(self, client, db, user_only_perfiles):
+        profile = TnMeasurementProfile(name="seed", weight=1, width=10, height=10, depth=10)
+        db.add(profile)
+        db.flush()
+
+        resp = client.delete(
+            f"/api/tn-measurement-profiles/{profile.id}",
+            headers=_bearer(user_only_perfiles),
+        )
+        assert resp.status_code == 200
+        assert resp.json() == {
+            "message": "Perfil de medidas eliminado",
+            "profile_id": profile.id,
+        }
+
+
 class TestProfileSuggestion:
     def test_suggestion_returns_profile_id_for_category_with_history(self, client, db, user_no_perm):
         profile = TnMeasurementProfile(name="30x20x20", weight=0.3, width=30, height=20, depth=20)
