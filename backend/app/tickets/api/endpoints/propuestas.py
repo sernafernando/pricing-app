@@ -14,7 +14,7 @@ from app.tickets.api.deps import get_triage_provider
 from app.tickets.models.propuesta_ia import PropuestaIA
 from app.tickets.models.ticket import Ticket
 from app.tickets.schemas.ticket_schemas import ConfirmarBatchRequest, ConfirmarRequest, PropuestaResponse
-from app.tickets.services import confirmacion_service
+from app.tickets.services import confirmacion_service, ejemplos_service
 from app.tickets.services.confirmacion_service import (
     CorreccionCampoNoPermitidoError,
     CorreccionValorInvalidoError,
@@ -94,6 +94,7 @@ def listar_propuestas_pendientes(
 @router.post("/propuestas/{propuesta_id}/confirmar", response_model=PropuestaResponse)
 def confirmar_propuesta(
     propuesta_id: int,
+    background_tasks: BackgroundTasks,
     payload: ConfirmarRequest | None = None,
     db: Session = Depends(get_db),
     current_user: Usuario = Depends(get_current_user),
@@ -102,11 +103,22 @@ def confirmar_propuesta(
     automáticamente (`confirmada` con `confirmado_por_id` nulo) sin
     reescribir el ticket, o la CORRIGE si el body incluye
     `valor_corregido` (sólo severidad/urgencia). Requiere:
-    tickets.triage.confirmar"""
+    tickets.triage.confirmar
+
+    Best-effort correction capture (tickets-triage-feedback PR3): scheduled
+    ONLY when the confirm resolved to a genuine correction
+    (`estado == 'corregida'`) — a plain ratification or a low-confidence
+    `pendiente` confirm never schedules capture. Dark-launched behind
+    `TICKETS_TRIAGE_EJEMPLOS_CAPTURE`; the flag check itself lives inside
+    `ejemplos_service.capturar_correccion` so this endpoint stays a single
+    unconditional `add_task` call regardless of the flag's value."""
     _check_permiso(db, current_user, PERMISO_CONFIRMAR)
     valor_corregido = payload.valor_corregido if payload else None
     try:
-        return confirmacion_service.confirmar(db, propuesta_id, current_user, valor_corregido)
+        resultado = confirmacion_service.confirmar(db, propuesta_id, current_user, valor_corregido)
+        if resultado.estado == "corregida":
+            background_tasks.add_task(ejemplos_service.capturar_correccion, resultado.id)
+        return resultado
     except PropuestaNoEncontradaError:
         raise HTTPException(status_code=404, detail=f"Propuesta {propuesta_id} no encontrada")
     except TicketNoEncontradoError as exc:
