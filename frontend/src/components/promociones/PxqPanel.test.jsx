@@ -823,6 +823,69 @@ describe('PxqPanel — publish-without-markup override checkbox (slice C2)', () 
   });
 });
 
+describe('PxqPanel — audit_warning renders alongside success, never in place of it (D6)', () => {
+  function mockLive({ mirror_tiers = [], live_tiers = [], live_status = 'ok' } = {}) {
+    return {
+      data: {
+        item_id: 'MLA001',
+        live_status,
+        live_tiers,
+        mirror_tiers,
+        fetched_at: '2026-08-01T10:00:00Z',
+      },
+    };
+  }
+
+  const oneTier = [{ id: 1, cantidad_minima: 5, precio_unitario: 100, costo_envio_total: 20, ml_price_id: null, estado: 'listo' }];
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockTienePermiso.mockImplementation(() => true);
+  });
+
+  afterEach(() => {
+    mockTienePermiso.mockImplementation(() => true);
+  });
+
+  it('shows both the success message and the audit warning when the response carries one', async () => {
+    const user = userEvent.setup();
+    pxqAPI.getLive.mockResolvedValue(mockLive({ mirror_tiers: oneTier }));
+    pxqAPI.sync.mockResolvedValue({
+      data: {
+        synced: true,
+        status: 'sincronizado',
+        audit_warning: 'Precios actualizados en MercadoLibre, pero no se pudo registrar la auditoría.',
+      },
+    });
+
+    renderPanel();
+
+    await waitFor(() => expect(screen.getByRole('button', { name: /actualizar precios en mercadolibre/i })).toBeInTheDocument());
+    await user.click(screen.getByRole('button', { name: /actualizar precios en mercadolibre/i }));
+
+    // The success message: sync DID succeed, and this must not be degraded.
+    await waitFor(() => expect(screen.getByText(/precios actualizados en mercadolibre\./i)).toBeInTheDocument());
+    // A DISTINCT warning, not folded into (or replacing) the success text.
+    expect(
+      screen.getByText(/no se pudo registrar la auditoría/i),
+    ).toBeInTheDocument();
+  });
+
+  it('shows only the success message when the response carries no audit_warning', async () => {
+    const user = userEvent.setup();
+    pxqAPI.getLive.mockResolvedValue(mockLive({ mirror_tiers: oneTier }));
+    pxqAPI.sync.mockResolvedValue({ data: { synced: true, status: 'sincronizado' } });
+
+    renderPanel();
+
+    await waitFor(() => expect(screen.getByRole('button', { name: /actualizar precios en mercadolibre/i })).toBeInTheDocument());
+    await user.click(screen.getByRole('button', { name: /actualizar precios en mercadolibre/i }));
+
+    await waitFor(() => expect(screen.getByText(/precios actualizados en mercadolibre\./i)).toBeInTheDocument());
+    expect(screen.queryByText(/no se pudo registrar la auditoría/i)).not.toBeInTheDocument();
+  });
+});
+
 describe('PxqPanel — adopt-live import (PR 4e)', () => {
   function mockLive({ mirror_tiers = [], live_tiers = [], live_status = 'ok' } = {}) {
     return {

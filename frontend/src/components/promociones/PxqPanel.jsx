@@ -431,7 +431,7 @@ function emptyMirrorRefusal(liveTiers, liveUnavailable) {
  * `syncing` stays local on purpose — it is this button's in-flight state, not
  * an outcome, and it has nothing to survive.
  */
-function PxqSyncControl({ itemId, hasTiers, liveTiers, liveUnavailable, feedback, onFeedback, divergences, onDivergences, onSynced }) {
+function PxqSyncControl({ itemId, hasTiers, liveTiers, liveUnavailable, feedback, onFeedback, divergences, onDivergences, auditWarning, onAuditWarning, onSynced }) {
   const [syncing, setSyncing] = useState(false);
   // D4 (slice C2): ONE checkbox for the whole publication, never per tier —
   // there is no per-tier override on the backend
@@ -446,9 +446,15 @@ function PxqSyncControl({ itemId, hasTiers, liveTiers, liveUnavailable, feedback
     setSyncing(true);
     onFeedback(null);
     onDivergences(null);
+    onAuditWarning(null);
     try {
-      await pxqAPI.sync(itemId, { publicarSinMarkup });
+      const { data } = await pxqAPI.sync(itemId, { publicarSinMarkup });
       onFeedback({ kind: 'ok', text: 'Precios actualizados en MercadoLibre.' });
+      // D6: a DISTINCT, ADDITIONAL warning -- the sync itself succeeded, so
+      // this must never replace or degrade the success message above.
+      if (data?.audit_warning) {
+        onAuditWarning(data.audit_warning);
+      }
       await onSynced();
     } catch (err) {
       const httpStatus = err?.response?.status;
@@ -493,6 +499,7 @@ function PxqSyncControl({ itemId, hasTiers, liveTiers, liveUnavailable, feedback
         Actualizar precios en MercadoLibre
       </button>
       {feedback && <div className={feedbackClass}>{feedback.text}</div>}
+      {auditWarning && <div className={styles.feedbackWarn}>{auditWarning}</div>}
       {divergences && (
         <div className={styles.pxqDivergenceBanner}>
           <div className={styles.pxqColumnTitle}>Diferencias que impiden actualizar los precios</div>
@@ -864,6 +871,10 @@ function PxqPanel({ itemId, pxqCacheRef }) {
   // are part of that same outcome. See `PxqSyncControl`'s docstring.
   const [syncFeedback, setSyncFeedback] = useState(null);
   const [syncDivergences, setSyncDivergences] = useState(null);
+  // D6: SEPARATE from `syncFeedback` on purpose -- an audit failure is an
+  // ADDITIONAL warning alongside a successful sync, never a replacement for
+  // the success message, and the two must be able to render together.
+  const [syncAuditWarning, setSyncAuditWarning] = useState(null);
 
   // Outliving the control is not the same as outliving the PUBLICATION. The
   // messages survive `reload()` deliberately (above); they must NOT survive a
@@ -880,6 +891,7 @@ function PxqPanel({ itemId, pxqCacheRef }) {
     setAdoptFeedback(null);
     setSyncFeedback(null);
     setSyncDivergences(null);
+    setSyncAuditWarning(null);
   }
 
   // A feedback message describes the RESULT of an action taken against a state.
@@ -898,6 +910,7 @@ function PxqPanel({ itemId, pxqCacheRef }) {
     setAdoptFeedback(null);
     setSyncFeedback(null);
     setSyncDivergences(null);
+    setSyncAuditWarning(null);
     // Both resources describe the SAME authored data (D2, "Recompute on
     // relevant data change"): reloading only the mirror left `usePxqMarkup`
     // serving its pre-edit cache entry, so a tier's markup kept showing the
@@ -1056,6 +1069,8 @@ function PxqPanel({ itemId, pxqCacheRef }) {
             onFeedback={setSyncFeedback}
             divergences={syncDivergences}
             onDivergences={setSyncDivergences}
+            auditWarning={syncAuditWarning}
+            onAuditWarning={setSyncAuditWarning}
             onSynced={reload}
           />
         </>
