@@ -14,8 +14,8 @@ from typing import Any, Optional
 import httpx
 from sqlalchemy import func as sa_func
 from sqlalchemy.dialects.postgresql import insert as pg_insert
-from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session, joinedload
+from starlette.concurrency import run_in_threadpool
 
 from app.core.logging import get_logger
 from app.models.proveedor import OrigenProveedor, Proveedor
@@ -64,9 +64,19 @@ def normalize_supplier_row(row: dict[str, Any]) -> Optional[dict[str, Any]]:
     """
     Normaliza y filtra una fila de proveedor del ERP.
 
-    Renombra los campos según SUPPLIER_FIELD_MAP y descarta las filas sin
-    clave primaria (comp_id / supp_id). El chequeo es explícito contra None:
-    comp_id = 0 es una clave válida y no debe descartarse.
+    Renombra los campos según SUPPLIER_FIELD_MAP y descarta las filas que no
+    son utilizables:
+
+      - Sin clave ERP (comp_id / supp_id). El chequeo es explícito contra
+        None: comp_id = 0 es una clave válida y no debe descartarse.
+      - Con clave ERP no casteable a entero. El gbp-parser puede devolver
+        "11" (string) en lugar de 11; sin castear, la clave del payload no
+        matchea contra la de los objetos ORM (ints) y se daría de alta un
+        proveedor duplicado en lugar de actualizar el existente.
+      - Sin `supp_name` utilizable. `tb_supplier.supp_name`,
+        `proveedores.nombre` y `rma_proveedores.nombre` son NOT NULL: una
+        sola fila sin nombre revienta la transacción completa y deja el sync
+        en cero.
 
     Retorna None si la fila no es utilizable.
     """
@@ -76,7 +86,17 @@ def normalize_supplier_row(row: dict[str, Any]) -> Optional[dict[str, Any]]:
         if erp_name in row:
             row[local_name] = row.pop(erp_name)
 
-    if row.get("comp_id") is None or row.get("supp_id") is None:
+    for campo in ("comp_id", "supp_id"):
+        valor = row.get(campo)
+        if valor is None:
+            return None
+        try:
+            row[campo] = int(valor)
+        except (ValueError, TypeError):
+            return None
+
+    nombre = row.get("supp_name")
+    if nombre is None or not str(nombre).strip():
         return None
 
     # Todas las filas salen con EXACTAMENTE las mismas claves. `execute(stmt, lista)`
@@ -195,13 +215,21 @@ class ProveedoresService:
         "Sincronizar con ERP" del panel de Administración.
 
         Pasos:
-          1. Consulta el ERP (GBP) vía `erp_worker_client`.
+          1. Consulta el ERP (GBP) vía `erp_worker_client` (I/O async) y
+             normaliza las filas recibidas.
           2. Upsert de las filas recibidas en el mirror local `tb_supplier`.
           3. Proyección a la tabla central `proveedores`: alta de los nuevos y
              actualización de nombre/CUIT en los existentes (nunca pisa datos
              extendidos cargados a mano).
           4. Alta de los `rma_proveedores` faltantes y vinculación de los que
              ya existían sin `proveedor_id`.
+
+        Los pasos 2/3/4 viven en `_persistir_sync`, un método sincrónico que se
+        ejecuta en un worker thread vía `run_in_threadpool`. La sesión que usa
+        el servicio es sincrónica (`SessionLocal`, ver `app/core/database.py`):
+        correr el upsert masivo, los dos `query(...).all()`, los `flush()` por
+        proveedor nuevo y el commit directamente en la corrutina bloquearía el
+        event loop y congelaría la API entera durante todo el sync.
 
         Args:
             supp_id: si se indica, sincroniza solo ese proveedor del ERP.
@@ -249,14 +277,38 @@ class ProveedoresService:
             normalized.append(norm)
 
         if not normalized:
-            raise ErpSyncError(f"El ERP devolvió {len(suppliers)} filas pero ninguna tiene comp_id/supp_id utilizables")
+            raise ErpSyncError(
+                f"El ERP devolvió {len(suppliers)} filas pero ninguna tiene comp_id/supp_id/supp_name utilizables"
+            )
 
         if descartados:
             logger.warning(
-                "Sync proveedores ERP: %d filas descartadas por falta de comp_id/supp_id",
+                "Sync proveedores ERP: %d filas descartadas por comp_id/supp_id/supp_name inválidos",
                 descartados,
             )
 
+        # ── Pasos 2, 3 y 4: persistencia (bloqueante) fuera del event loop ──
+        return await run_in_threadpool(self._persistir_sync, normalized, len(suppliers))
+
+    def _persistir_sync(self, normalized: list[dict[str, Any]], total_erp: int) -> dict[str, int]:
+        """
+        Persiste el resultado del fetch al ERP: mirror `tb_supplier`, proyección
+        a `proveedores` y alta/vinculación de `rma_proveedores`.
+
+        Método sincrónico a propósito: lo llama `sync_desde_erp` vía
+        `run_in_threadpool` para no bloquear el event loop de FastAPI. Toda la
+        operación va en una única transacción; ante cualquier error se hace
+        rollback y se re-lanza (no se dejan sesiones sucias).
+
+        Args:
+            normalized: filas ya normalizadas por `normalize_supplier_row`.
+            total_erp: cantidad de filas que devolvió el ERP (incluye las
+                descartadas), para reportarla tal cual en los contadores.
+
+        Returns:
+            Contadores: {insertados, actualizados, vinculados_rma,
+                         rma_insertados, total_erp}.
+        """
         try:
             # ── Paso 2: upsert del mirror tb_supplier ─────────────────────
             stmt = pg_insert(TBSupplier)
@@ -346,7 +398,10 @@ class ProveedoresService:
                     rma_insertados += 1
 
             self.db.commit()
-        except SQLAlchemyError:
+        except Exception:
+            # Amplio a propósito: un IntegrityError entra por SQLAlchemyError,
+            # pero cualquier otro error dentro del loop (ej. AttributeError)
+            # dejaría la sesión sucia si no se hiciera rollback acá.
             self.db.rollback()
             raise
 
@@ -356,7 +411,7 @@ class ProveedoresService:
             actualizados,
             vinculados_rma,
             rma_insertados,
-            len(suppliers),
+            total_erp,
         )
 
         return {
@@ -364,7 +419,7 @@ class ProveedoresService:
             "actualizados": actualizados,
             "vinculados_rma": vinculados_rma,
             "rma_insertados": rma_insertados,
-            "total_erp": len(suppliers),
+            "total_erp": total_erp,
         }
 
     # =====================================================================
