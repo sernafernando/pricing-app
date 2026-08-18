@@ -1976,4 +1976,29 @@ describe('PxqPanel — markup recompute on authoring change (design D2)', () => 
     resolveSecondMarkup(mockMarkup([{ tier_id: 1, markup: 0.2 }, { tier_id: 2, markup: 0.5 }]));
     await screen.findByText(/50[.,]0%/);
   });
+
+  it('refetches markup after importing tiers from ML so the new rows get their reason, not a blank cell', async () => {
+    const user = userEvent.setup();
+
+    pxqAPI.getLive
+      .mockResolvedValueOnce(mockLive({ mirror_tiers: [], live_tiers: [{ id: 'PXQ1', quantity: 5, amount: 100 }] }))
+      .mockResolvedValueOnce(
+        mockLive({
+          mirror_tiers: [{ id: 9, cantidad_minima: 5, precio_unitario: 100, costo_envio_total: null, ml_price_id: 'PXQ1', estado: 'incompleto' }],
+          live_tiers: [{ id: 'PXQ1', quantity: 5, amount: 100 }],
+        }),
+      );
+    // First markup batch runs against the empty mirror; the post-import one is
+    // the first that can mention the adopted row.
+    pxqAPI.getMarkup
+      .mockResolvedValueOnce(mockMarkup([]))
+      .mockResolvedValueOnce(mockMarkup([{ tier_id: 9, reason: 'shipping_unavailable' }]));
+    pxqAPI.adoptLive.mockResolvedValue({ data: { item_id: 'MLA001', count: 1, imported: [] } });
+
+    renderPanel();
+    await user.click(await screen.findByRole('button', { name: /^importar de mercadolibre$/i }));
+
+    await waitFor(() => expect(pxqAPI.getMarkup).toHaveBeenCalledTimes(2));
+    await screen.findByText(/^falta el costo de envío del bulto$/i);
+  });
 });

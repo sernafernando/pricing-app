@@ -1023,7 +1023,12 @@ function PxqPanel({ itemId, pxqCacheRef }) {
               canImport={canImportLive}
               feedback={adoptFeedback}
               onFeedback={setAdoptFeedback}
-              onAdopted={reload}
+              // Not `handleAuthoringChanged`: that would clear the import's
+              // own feedback message the moment it succeeds. But the import IS
+              // an authoring change for the markup column -- without the
+              // refetch the adopted rows render a blank cell (the cached batch
+              // never mentioned them) instead of their reason.
+              onAdopted={() => Promise.all([reload(), reloadMarkup()])}
             />
           )}
           <PxqSyncControl
