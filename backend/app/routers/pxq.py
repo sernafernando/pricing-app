@@ -77,6 +77,11 @@ class PxqLiveStateResponse(BaseModel):
 
 class PxqSyncRequest(BaseModel):
     allow_clear: bool = False
+    # D4/slice C: per-request opt-in to publish tiers whose markup never
+    # resolved. Defaults False and carries NO server-side memory across
+    # requests -- there is no per-tier variant, it is all-or-nothing for
+    # THIS one sync call (`ml_pxq_write_service.sync_pxq_tiers`).
+    publicar_sin_markup: bool = False
 
 
 class PxqCreateTierRequest(BaseModel):
@@ -477,7 +482,9 @@ def sincronizar_pxq(
     (not `async def`): the service performs synchronous DB writes bridged
     with the async client via `resolve_maybe_async` -- same pattern as
     `refrescar_competencia_catalogo_item`."""
-    outcome = sync_pxq_tiers(db, current_user, item_id, allow_clear=body.allow_clear)
+    outcome = sync_pxq_tiers(
+        db, current_user, item_id, allow_clear=body.allow_clear, publicar_sin_markup=body.publicar_sin_markup
+    )
     http_status = _SYNC_STATUS_TO_HTTP.get(outcome["status"])
     if http_status is not None:
         raise HTTPException(status_code=http_status, detail=_error_detail_from_outcome(outcome))
