@@ -76,6 +76,7 @@ from app.models.usuario import Usuario
 from app.services.permisos_service import verificar_permiso
 from app.services.tn_category_embedding_service import suggest_category, sync_category_embeddings
 from app.services.tn_publish_service import publish_product, unpublish_product
+from app.services.tn_publish_core import OVERRIDABLE_FIELDS, latest_usd_rate
 from app.services.tn_reconciliation_service import (
     PUBLISH_CANDIDATE_VERDICTS,
     ErpPriceInfo,
@@ -345,15 +346,16 @@ class ReconcileRowResponse(BaseModel):
 
 
 def _safe_publish_draft(
-    db: Session, row: Any, overrides_by_ean: Dict[str, Dict[str, str]]
+    row: Any, overrides_by_ean: Dict[str, Dict[str, str]], usd_rate: Optional[float]
 ) -> Optional[PublishDraftResponse]:
     """Per-row containment for `build_publish_draft` (task 5.19): a draft
     assembly failure (e.g. an unexpected exception from the resolver) must
     degrade to `None` for THIS row only, never 500 the whole `/reporte`
     response — same pattern `build_publish_fields`'s caller already relies
-    on for `publish_fields_error`."""
+    on for `publish_fields_error`. Takes no DB session: everything row-rate
+    related (`usd_rate`, overrides) was bulk-loaded once by the caller."""
     try:
-        draft = build_publish_draft(db, row, overrides_by_ean.get(row.ean, {}))
+        draft = build_publish_draft(row, overrides_by_ean.get(row.ean, {}), usd_rate)
     except Exception:
         logger.exception("publish_draft assembly failed for ean=%s — omitting draft for this row only", row.ean)
         return None
@@ -472,13 +474,24 @@ class PublicarRequest(BaseModel):
     # number actually is.
     price_base_source: Optional[Literal["web_transferencia", "manual"]] = None
     # design's typed model (PC5/D8, task 5.4/5.5): operator-edited fields,
-    # keyed by field name (`weight`/`width`/`depth`/`height`/... — validated
-    # against the per-stage field lists in `tn_publish_core`, not a
-    # `catalog.py` that was never built, see design.md's "As built" note).
+    # keyed by field name. Keys are validated by `_overrides_keys_must_be_known`
+    # below against `tn_publish_core.OVERRIDABLE_FIELDS` (an unknown key is a
+    # 422, never silently persisted), and `_upsert_publish_overrides` filters
+    # against the same tuple as defense in depth.
     # Persisted into `tn_publish_override` ONLY on a `submitted` outcome.
     # Defaults to `{}` — the current modal sends nothing here yet (PR-7).
     overrides: Dict[str, str] = {}
     profile_id: Optional[int] = None
+
+    @field_validator("overrides")
+    @classmethod
+    def _overrides_keys_must_be_known(cls, value: Dict[str, str]) -> Dict[str, str]:
+        unknown = sorted(set(value) - set(OVERRIDABLE_FIELDS))
+        if unknown:
+            raise ValueError(
+                f"Campos de override desconocidos: {', '.join(unknown)}. Permitidos: {', '.join(OVERRIDABLE_FIELDS)}"
+            )
+        return value
 
     @field_validator("ean")
     @classmethod
@@ -590,12 +603,19 @@ async def get_reconciliation_report(
         if candidate_eans:
             for override_row in db.query(TnPublishOverride).filter(TnPublishOverride.ean.in_(candidate_eans)).all():
                 overrides_by_ean.setdefault(override_row.ean, {})[override_row.campo] = override_row.valor
+        # Decision 3: the USD exchange rate is resolved ONCE per report
+        # (1-2 `TipoCambio` queries total) and handed to every draft as a
+        # value — ~99% of report rows are USD-costed, so a per-row lookup
+        # would multiply into hundreds of queries per `/reporte` on this
+        # checked-out pooled connection (see the pool-exhaustion history in
+        # this module's docstring).
+        usd_rate = latest_usd_rate(db) if candidate_rows else None
         # Decision 3: drafts are also built HERE, inside the same
-        # threadpool call as the DB queries `resolve_cost` may issue
-        # (`TipoCambio` lookups) — never on the event loop thread, matching
-        # this module's existing pool-safety pattern for `/reporte`.
+        # threadpool call as the bulk queries above — never on the event
+        # loop thread, matching this module's existing pool-safety pattern
+        # for `/reporte`.
         drafts_by_ean: Dict[str, Optional[PublishDraftResponse]] = {
-            v.ean: _safe_publish_draft(db, v, overrides_by_ean) for v in candidate_rows
+            v.ean: _safe_publish_draft(v, overrides_by_ean, usd_rate) for v in candidate_rows
         }
         return verdicts, cap_hit, erp_cap_hit, drafts_by_ean
 

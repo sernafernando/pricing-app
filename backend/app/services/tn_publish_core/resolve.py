@@ -193,13 +193,19 @@ class MissingExchangeRateError(ReportFieldError):
         self.field_name = "cost"
 
 
-def _latest_usd_rate(db: Any) -> Optional[float]:
+def latest_usd_rate(db: Any) -> Optional[float]:
     """Today's `TipoCambio.venta` for USD, falling back to the most recent
     row available (design Decision D6) — mirrors the existing
     `pedidos_service`/`ncs_locales_service` today's-rate lookup, but adds
     the fallback-to-latest step those two stop short of (they return `None`
     when today's row is missing; here that would incorrectly present a
-    genuinely-populated `tipo_cambio` table as "empty")."""
+    genuinely-populated `tipo_cambio` table as "empty").
+
+    Call this ONCE per report/batch and hand the resulting VALUE to
+    `resolve_cost` (design Decision 3: overrides / hints / exchange rate
+    load in bulk, never per row) — a per-row call multiplies into hundreds
+    of `TipoCambio` queries per `/reporte` while the pooled connection
+    stays checked out."""
     from app.models.tipo_cambio import TipoCambio  # noqa: PLC0415
 
     today = date.today()
@@ -221,12 +227,14 @@ def _latest_usd_rate(db: Any) -> Optional[float]:
     return float(row.venta)
 
 
-def resolve_cost(db: Any, raw_cost: Any, moneda_costo: str) -> Resolved:
+def resolve_cost(raw_cost: Any, moneda_costo: str, usd_rate: Optional[float]) -> Resolved:
     """D6 cost currency resolution: `ARS` passes through unconverted; `USD`
-    converts at `_latest_usd_rate`; an `Absent`/missing cost resolves
-    `empty` (no cost reported, not a rate problem). Raises
+    converts at `usd_rate` — a VALUE the caller resolved ONCE via
+    `latest_usd_rate` (never a session: per-row rate queries are the exact
+    bulk-rule violation design Decision 3 forbids). An `Absent`/missing
+    cost resolves `empty` (no cost reported, not a rate problem). Raises
     `MissingExchangeRateError` — never silently sends an unconverted USD
-    figure as ARS — when the currency is `USD` and no usable rate exists.
+    figure as ARS — when the currency is `USD` and `usd_rate` is `None`.
     """
     if raw_cost is Absent or raw_cost is None:
         return Resolved(None, "empty")
@@ -239,8 +247,7 @@ def resolve_cost(db: Any, raw_cost: Any, moneda_costo: str) -> Resolved:
     if moneda == "ARS":
         return Resolved(amount, "gbp")
     if moneda == "USD":
-        rate = _latest_usd_rate(db)
-        if rate is None:
+        if usd_rate is None:
             raise MissingExchangeRateError()
-        return Resolved(amount * rate, "gbp")
+        return Resolved(amount * usd_rate, "gbp")
     raise InvalidReportValueError("Moneda_Costo", moneda_costo)

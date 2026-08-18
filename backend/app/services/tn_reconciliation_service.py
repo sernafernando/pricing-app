@@ -32,6 +32,7 @@ from app.api.endpoints.gbp_parser import (
 from app.models.tienda_nube_producto import TiendaNubeProducto
 from app.services.tn_publish_core.extract import Absent, ReportFieldError, extract_report_row
 from app.services.tn_publish_core.resolve import (
+    InvalidReportValueError,
     MissingExchangeRateError,
     resolve_cost,
     resolve_field,
@@ -200,7 +201,9 @@ def build_publish_fields(row: "ReconcileRow") -> Dict[str, Any]:
     }
 
 
-def build_publish_draft(db: Any, row: "ReconcileRow", overrides: Dict[str, str]) -> Optional[Dict[str, Any]]:
+def build_publish_draft(
+    row: "ReconcileRow", overrides: Dict[str, str], usd_rate: Optional[float]
+) -> Optional[Dict[str, Any]]:
     """PC11/D3 (design Decision 3, task 5.19): the resolved-draft envelope
     for ONE publish-candidate row — `{fields, blocked, blocked_reasons,
     suggested_profile_id, exchange_rate}`. `None` for any non-candidate
@@ -217,7 +220,11 @@ def build_publish_draft(db: Any, row: "ReconcileRow", overrides: Dict[str, str])
 
     `overrides` is this row's `{campo: valor}` slice of a bulk
     `tn_publish_override` query (`WHERE ean IN (...)`, loaded ONCE per
-    report by the caller — never per row).
+    report by the caller — never per row). `usd_rate` is likewise the
+    report-wide value from ONE `latest_usd_rate(db)` call before the row
+    loop (design Decision 3: no per-row `TipoCambio` queries — with ~99%
+    of report rows in USD, a per-row lookup multiplies into hundreds of
+    queries per `/reporte` on a checked-out pooled connection).
     """
     if row.verdict not in PUBLISH_CANDIDATE_VERDICTS:
         return None
@@ -250,15 +257,23 @@ def build_publish_draft(db: Any, row: "ReconcileRow", overrides: Dict[str, str])
     validation = validate_measurements(resolved_fields)
 
     exchange_rate: Optional[Dict[str, Any]] = None
+    cost_block_reason: Optional[str] = None
     try:
-        cost_resolved = resolve_cost(db, resolved_gbp.coslis_price, resolved_gbp.moneda_costo)
-        cost_blocked = False
+        cost_resolved = resolve_cost(resolved_gbp.coslis_price, resolved_gbp.moneda_costo, usd_rate)
     except MissingExchangeRateError:
         # D6/D3: an unresolvable USD cost blocks the field, never
         # publishes an unconverted figure — surfaced here as a blocked
         # `cost` field, not a 500 or a swallowed exception.
         cost_resolved = None
-        cost_blocked = True
+        cost_block_reason = "Falta tipo de cambio para convertir el costo (USD)"
+    except InvalidReportValueError as exc:
+        # D13: junk is not absence. A non-numeric cost or an unknown
+        # `Moneda_Costo` must block THIS field with a reason that names
+        # the junk — silently dropping the whole draft (the broad per-row
+        # containment upstream) would leave the row with no draft and no
+        # signal of why.
+        cost_resolved = None
+        cost_block_reason = f"Valor de costo inválido en el reporte GBP: {exc}"
 
     fields: Dict[str, Any] = {
         name: {"value": resolved.value, "source": resolved.source, "editable": True}
@@ -270,12 +285,12 @@ def build_publish_draft(db: Any, row: "ReconcileRow", overrides: Dict[str, str])
         fields["cost"] = {"value": None, "source": "empty", "editable": True}
 
     blocked_reasons = list(validation.blocked_reasons)
-    if cost_blocked:
-        blocked_reasons.append("Falta tipo de cambio para convertir el costo (USD)")
+    if cost_block_reason is not None:
+        blocked_reasons.append(cost_block_reason)
 
     return {
         "fields": fields,
-        "blocked": validation.blocked or cost_blocked,
+        "blocked": validation.blocked or cost_block_reason is not None,
         "blocked_reasons": blocked_reasons,
         "suggested_profile_id": None,
         "exchange_rate": exchange_rate,

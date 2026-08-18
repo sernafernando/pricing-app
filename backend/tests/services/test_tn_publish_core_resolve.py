@@ -19,6 +19,7 @@ from app.services.tn_publish_core.resolve import (
     Resolved,
     ResolvedDimensions,
     convert_weight_to_kg,
+    latest_usd_rate,
     map_dimensions,
     resolve_cost,
     resolve_field,
@@ -196,10 +197,11 @@ class TestConvertThenResolveOverrideNotReDivided:
         assert resolved.source == "override"
 
 
-class TestResolveCostD6:
-    """PC8/D6 — ARS passes through; USD converts at today's
-    `TipoCambio.venta` with fallback-to-latest; an empty `TipoCambio` table
-    BLOCKS the cost field rather than sending unconverted USD as ARS."""
+class TestLatestUsdRate:
+    """The D6 rate lookup, isolated from `resolve_cost` (post-review split:
+    `resolve_cost` takes the rate as a VALUE so callers bulk-resolve it once
+    per report — design Decision 3 — instead of querying `TipoCambio`
+    per row)."""
 
     def _seed_usd_rate(self, db, *, fecha, venta):
         from app.models.tipo_cambio import TipoCambio
@@ -207,30 +209,38 @@ class TestResolveCostD6:
         db.add(TipoCambio(fecha=fecha, moneda="USD", compra=venta, venta=venta))
         db.commit()
 
-    def test_ars_cost_passes_through_unconverted(self, db):
-        resolved = resolve_cost(db, "100.00", "ARS")
+    def test_todays_rate_wins(self, db):
+        self._seed_usd_rate(db, fecha=date.today() - timedelta(days=3), venta=900.0)
+        self._seed_usd_rate(db, fecha=date.today(), venta=1000.0)
+        assert latest_usd_rate(db) == pytest.approx(1000.0)
+
+    def test_falls_back_to_latest_rate_when_no_rate_today(self, db):
+        self._seed_usd_rate(db, fecha=date.today() - timedelta(days=3), venta=900.0)
+        assert latest_usd_rate(db) == pytest.approx(900.0)
+
+    def test_empty_tipo_cambio_table_yields_none(self, db):
+        assert latest_usd_rate(db) is None
+
+
+class TestResolveCostD6:
+    """PC8/D6 — ARS passes through; USD converts at the caller-supplied
+    rate; `usd_rate=None` (empty `TipoCambio` table) BLOCKS the cost field
+    rather than sending unconverted USD as ARS. Pure function: no DB."""
+
+    def test_ars_cost_passes_through_unconverted(self):
+        resolved = resolve_cost("100.00", "ARS", None)
         assert resolved.value == pytest.approx(100.00)
         assert resolved.source == "gbp"
 
-    def test_usd_cost_converts_at_todays_rate(self, db):
-        self._seed_usd_rate(db, fecha=date.today(), venta=1000.0)
-
-        resolved = resolve_cost(db, "100.00", "USD")
-
+    def test_usd_cost_converts_at_the_supplied_rate(self):
+        resolved = resolve_cost("100.00", "USD", 1000.0)
         assert resolved.value == pytest.approx(100000.0)
         assert resolved.source == "gbp"
 
-    def test_usd_cost_falls_back_to_latest_rate_when_no_rate_today(self, db):
-        self._seed_usd_rate(db, fecha=date.today() - timedelta(days=3), venta=900.0)
-
-        resolved = resolve_cost(db, "100.00", "USD")
-
-        assert resolved.value == pytest.approx(90000.0)
-
-    def test_empty_tipo_cambio_table_blocks_the_cost_field(self, db):
+    def test_missing_rate_blocks_the_cost_field(self):
         with pytest.raises(MissingExchangeRateError):
-            resolve_cost(db, "100.00", "USD")
+            resolve_cost("100.00", "USD", None)
 
-    def test_absent_cost_resolves_empty_not_a_rate_problem(self, db):
-        resolved = resolve_cost(db, Absent, "USD")
+    def test_absent_cost_resolves_empty_not_a_rate_problem(self):
+        resolved = resolve_cost(Absent, "USD", None)
         assert resolved == Resolved(None, "empty")

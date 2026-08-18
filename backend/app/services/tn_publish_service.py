@@ -51,6 +51,7 @@ from app.services.tienda_nube_product_client import (
     is_publicly_reachable_url,
 )
 from app.services.tn_publish_core.batch import execute_batch
+from app.services.tn_publish_core.validate import OVERRIDABLE_FIELDS
 from app.utils.async_bridge import resolve_maybe_async as _resolve
 
 logger = logging.getLogger(__name__)
@@ -349,6 +350,20 @@ def _upsert_publish_overrides(db: Session, usuario: Usuario, ean: str, overrides
     """
     if not overrides:
         return
+    # Defense in depth behind `PublicarRequest`'s 422 validator: only
+    # known overridable fields are ever persisted. A stray key reaching
+    # this layer (a future caller bypassing the endpoint model) is skipped
+    # LOUDLY — silently swallowing it at the DB layer (e.g. a >50-char
+    # campo failing the column constraint inside this best-effort block)
+    # would lose the operator's edit with no signal at all.
+    unknown = set(overrides) - set(OVERRIDABLE_FIELDS)
+    if unknown:
+        logger.warning(
+            "_upsert_publish_overrides: skipping unknown override field(s) %s for ean=%s",
+            sorted(unknown),
+            ean,
+        )
+        overrides = {campo: valor for campo, valor in overrides.items() if campo in OVERRIDABLE_FIELDS}
     try:
         existing_by_campo = {
             row.campo: row for row in db.query(TnPublishOverride).filter(TnPublishOverride.ean == ean).all()

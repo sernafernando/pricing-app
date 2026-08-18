@@ -625,6 +625,25 @@ class TestPublishOverridePersistence:
     write client on its call path); this only proves the upsert itself
     fires on success and stays silent on every other outcome."""
 
+    def test_unknown_override_field_is_skipped_never_persisted(self, db):
+        # Defense in depth behind the endpoint's 422 validator: a caller
+        # bypassing `PublicarRequest` (a future internal consumer) must not
+        # be able to persist arbitrary campos — the unknown key is skipped
+        # with a warning while the known one still persists.
+        user = _make_user(db)
+        fake_client = _FakePublishClient(
+            create_outcome={"ok": True, "status_code": 201, "ambiguous": False, "body": {"id": 993}},
+        )
+        publish_product(
+            db,
+            user,
+            client=fake_client,
+            overrides={"weight": "1.200", "campo_inventado": "zzz"},
+            **_publish_kwargs(ean="EAN-OVR-UNK"),
+        )
+        campos = {row.campo for row in db.query(TnPublishOverride).filter(TnPublishOverride.ean == "EAN-OVR-UNK")}
+        assert campos == {"weight"}
+
     def test_successful_publish_upserts_every_overridden_field(self, db):
         user = _make_user(db)
         fake_client = _FakePublishClient(

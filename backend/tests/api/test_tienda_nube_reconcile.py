@@ -727,6 +727,19 @@ class TestPublicarEndpoint:
         )
         assert response.status_code == 403
 
+    def test_unknown_override_key_is_rejected_with_422(self, client, db, user_publicacion):
+        # Pre-push review finding: override keys are VALIDATED against
+        # `tn_publish_core.OVERRIDABLE_FIELDS` — an unknown key must fail
+        # loudly at the request boundary, never be silently persisted (or
+        # silently dropped at the DB layer).
+        response = client.post(
+            "/api/tienda-nube-reconcile/publicar",
+            json=self._payload(overrides={"campo_inventado": "1.0"}),
+            headers=_bearer(user_publicacion),
+        )
+        assert response.status_code == 422
+        assert "campo_inventado" in response.text
+
     def test_successful_publish_returns_submitted_and_audits(self, client, db, user_publicacion):
         fake_outcome = {
             "submitted": True,
@@ -1051,6 +1064,34 @@ class TestReportePublishDraft:
         draft = row["publish_draft"]
         assert draft["blocked"] is True
         assert any("tipo de cambio" in reason.lower() for reason in draft["blocked_reasons"])
+
+    def test_usd_rate_is_resolved_once_for_the_whole_report_never_per_row(self, client, db, user_ver):
+        # Pre-push review finding + design Decision 3: with ~99% of report
+        # rows USD-costed, a per-row `TipoCambio` lookup multiplies into
+        # hundreds of queries per /reporte on a checked-out pooled
+        # connection (this repo has a documented pool-exhaustion incident).
+        gbp_rows = [
+            self._complete_gbp_row(**{"Código": "EAN-USD-1", "Moneda_Costo": "USD"}),
+            self._complete_gbp_row(**{"Código": "EAN-USD-2", "Moneda_Costo": "USD"}),
+            self._complete_gbp_row(**{"Código": "EAN-USD-3", "Moneda_Costo": "USD"}),
+        ]
+        with patch("app.api.endpoints.tienda_nube_reconcile.latest_usd_rate", return_value=1000.0) as mocked_rate:
+            response = _fetch_report(client, user_ver, gbp_rows=gbp_rows)
+        assert response.status_code == 200
+        assert mocked_rate.call_count == 1
+        for row in response.json()["items"]:
+            assert row["publish_draft"]["fields"]["cost"]["value"] == pytest.approx(100000.0)
+
+    def test_junk_cost_blocks_the_field_with_a_reason_not_a_vanished_draft(self, client, db, user_ver):
+        # D13: junk is not absence — a non-numeric cost must surface as a
+        # blocked cost field naming the junk, never as a silently-missing
+        # draft swallowed by the per-row containment.
+        response = _fetch_report(client, user_ver, gbp_rows=[self._complete_gbp_row(coslis_price="N/A")])
+        assert response.status_code == 200
+        draft = response.json()["items"][0]["publish_draft"]
+        assert draft is not None
+        assert draft["blocked"] is True
+        assert any("costo" in reason.lower() for reason in draft["blocked_reasons"])
 
     def test_non_candidate_verdict_has_no_draft(self, client, db, user_ver):
         gbp_rows = [
