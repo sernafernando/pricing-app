@@ -20,7 +20,7 @@ from __future__ import annotations
 
 from datetime import date
 from decimal import Decimal
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 
 import httpx
@@ -677,7 +677,7 @@ class TestTheEmittedArrayIsOrdered:
         monkeypatch.setattr(
             write_service,
             "_desired_tiers_from_mirror",
-            lambda rows, markup_map: (captured.append([row.cantidad_minima for row in rows]), [])[1],
+            lambda rows, markup_map, **kwargs: (captured.append([row.cantidad_minima for row in rows]), [])[1],
         )
         patcher, _mock = _mock_client()
         try:
@@ -686,3 +686,467 @@ class TestTheEmittedArrayIsOrdered:
             patcher.stop()
 
         assert captured == [[2, 5, 10]]
+
+
+class TestClassificationHappensBeforeConfirmation:
+    """D5: `sync_pxq_tiers` must classify keep/create/modify from the PRE-POST
+    shape of each row. Once `remap_and_confirm` has run, every surviving row
+    looks like a keep (its snapshot now equals its own values), so the
+    classification has to be captured strictly BEFORE that call -- this test
+    proves the ORDER, not just that a classification exists."""
+
+    def test_classification_runs_before_remap_and_confirm(self, db, publicacion, pxq_user, monkeypatch) -> None:
+        create_tier = MlPxqTier(
+            publicacion_ml_id=publicacion.id,
+            item_id=publicacion.mla,
+            cantidad_minima=10,
+            precio_unitario=Decimal("500.00"),
+            costo_envio_total=Decimal("50.00"),
+            ml_price_id=None,
+            estado=ESTADO_LISTO,
+            usuario_id=pxq_user.id,
+        )
+        modify_tier = MlPxqTier(
+            publicacion_ml_id=publicacion.id,
+            item_id=publicacion.mla,
+            cantidad_minima=20,
+            precio_unitario=Decimal("999.00"),
+            costo_envio_total=Decimal("50.00"),
+            ml_price_id="ML20",
+            cantidad_sincronizada=20,
+            precio_sincronizado=Decimal("800.00"),
+            estado=ESTADO_LISTO,
+            usuario_id=pxq_user.id,
+        )
+        keep_tier = MlPxqTier(
+            publicacion_ml_id=publicacion.id,
+            item_id=publicacion.mla,
+            cantidad_minima=30,
+            precio_unitario=Decimal("700.00"),
+            costo_envio_total=Decimal("50.00"),
+            ml_price_id="ML30",
+            cantidad_sincronizada=30,
+            precio_sincronizado=Decimal("700.00"),
+            estado=ESTADO_SINCRONIZADO,
+            usuario_id=pxq_user.id,
+        )
+        db.add_all([create_tier, modify_tier, keep_tier])
+        db.flush()
+
+        monkeypatch.setattr(write_service.settings, "PXQ_WRITE_ENABLED", True)
+        patcher, mock_client = _mock_client(
+            live_prices=[
+                {"id": "ML20", "quantity": 20, "amount": 800.0},
+                {"id": "ML30", "quantity": 30, "amount": 700.0},
+            ],
+            post_result={"ok": True, "status_code": 200, "ambiguous": False, "body": None},
+        )
+        mock_client.get_pxq_prices.side_effect = [
+            [
+                {"id": "ML20", "quantity": 20, "amount": 800.0},
+                {"id": "ML30", "quantity": 30, "amount": 700.0},
+            ],
+            [
+                {"id": "ML10-NEW", "quantity": 10, "amount": 500.0},
+                {"id": "ML20-NEW", "quantity": 20, "amount": 999.0},
+                {"id": "ML30", "quantity": 30, "amount": 700.0},
+            ],
+        ]
+
+        call_order: list = []
+        real_classify = write_service._classify_tier
+        real_remap = write_service.remap_and_confirm
+
+        def spy_classify(row):
+            call_order.append(("classify", row.id))
+            return real_classify(row)
+
+        def spy_remap(*args, **kwargs):
+            call_order.append(("remap", None))
+            return real_remap(*args, **kwargs)
+
+        monkeypatch.setattr(write_service, "_classify_tier", spy_classify)
+        monkeypatch.setattr(write_service, "remap_and_confirm", spy_remap)
+        try:
+            outcome = write_service.sync_pxq_tiers(db, pxq_user, publicacion.mla)
+        finally:
+            patcher.stop()
+
+        assert outcome["synced"] is True
+        classify_calls = [c for c in call_order if c[0] == "classify"]
+        remap_calls = [c for c in call_order if c[0] == "remap"]
+        assert classify_calls, "classification must run"
+        assert remap_calls, "remap_and_confirm must run"
+        assert max(i for i, c in enumerate(call_order) if c[0] == "classify") < min(
+            i for i, c in enumerate(call_order) if c[0] == "remap"
+        ), "every classify call must happen BEFORE remap_and_confirm"
+
+
+class TestOverridePublicarSinMarkup:
+    """D4/D7: `publicar_sin_markup` is a PER-REQUEST override, never sticky,
+    and there is no per-tier override -- it either lets every unresolved tier
+    of this sync through the gate, or it does not."""
+
+    def _make_unresolved_tier(self, db, pxq_user) -> tuple:
+        # No comision_fixtures for THIS publication -> markup never resolves,
+        # even with costo_envio_total set.
+        producto = ProductoERP(item_id=90401, codigo="SKU-PXQ-OVERRIDE", descripcion="Producto override", costo=1000.0)
+        db.add(producto)
+        db.flush()
+        pub = PublicacionML(mla="MLA940001", item_id=producto.item_id, codigo="SKU-PXQ-OVERRIDE", pricelist_id=4)
+        db.add(pub)
+        db.flush()
+        tier = MlPxqTier(
+            publicacion_ml_id=pub.id,
+            item_id=pub.mla,
+            cantidad_minima=10,
+            precio_unitario=Decimal("500.00"),
+            costo_envio_total=Decimal("50.00"),
+            ml_price_id=None,
+            estado=ESTADO_LISTO,
+            usuario_id=pxq_user.id,
+        )
+        db.add(tier)
+        db.flush()
+        return pub, tier
+
+    def test_override_unset_excludes_unresolved_tier(self, db, pxq_user, monkeypatch) -> None:
+        pub, tier = self._make_unresolved_tier(db, pxq_user)
+        monkeypatch.setattr(write_service.settings, "PXQ_WRITE_ENABLED", True)
+        patcher, mock_client = _mock_client(live_prices=[])
+        try:
+            write_service.sync_pxq_tiers(db, pxq_user, pub.mla, publicar_sin_markup=False)
+        finally:
+            patcher.stop()
+        mock_client.post_pxq_prices.assert_not_called()
+
+    def test_override_set_includes_unresolved_tier_subject_to_diff(self, db, pxq_user, monkeypatch) -> None:
+        pub, tier = self._make_unresolved_tier(db, pxq_user)
+        monkeypatch.setattr(write_service.settings, "PXQ_WRITE_ENABLED", True)
+        patcher, mock_client = _mock_client(
+            live_prices=[],
+            post_result={"ok": True, "status_code": 200, "ambiguous": False, "body": None},
+        )
+        mock_client.get_pxq_prices.side_effect = [
+            [],
+            [{"id": "ML10", "quantity": 10, "amount": 500.0}],
+        ]
+        try:
+            outcome = write_service.sync_pxq_tiers(db, pxq_user, pub.mla, publicar_sin_markup=True)
+        finally:
+            patcher.stop()
+        mock_client.post_pxq_prices.assert_called_once()
+        assert outcome["synced"] is True
+
+    def test_override_still_refused_by_divergence(self, db, pxq_user, monkeypatch) -> None:
+        pub, tier = self._make_unresolved_tier(db, pxq_user)
+        monkeypatch.setattr(write_service.settings, "PXQ_WRITE_ENABLED", True)
+        # Live moved since last sync would matter for a modify; here it's a
+        # create with an untracked live entry of DIFFERENT shape than what we
+        # are about to send is fine (creates never diverge) -- so force a
+        # divergence via an existing ml_price_id with no snapshot instead.
+        tier.ml_price_id = "GHOST"
+        db.flush()
+        patcher, mock_client = _mock_client(live_prices=[])
+        try:
+            outcome = write_service.sync_pxq_tiers(db, pxq_user, pub.mla, publicar_sin_markup=True)
+        finally:
+            patcher.stop()
+        assert outcome["status"] == "divergence"
+        mock_client.post_pxq_prices.assert_not_called()
+
+    def test_override_is_per_request_not_sticky(self, db, pxq_user, monkeypatch) -> None:
+        pub, tier = self._make_unresolved_tier(db, pxq_user)
+        monkeypatch.setattr(write_service.settings, "PXQ_WRITE_ENABLED", True)
+        patcher, mock_client = _mock_client(live_prices=[])
+        try:
+            write_service.sync_pxq_tiers(db, pxq_user, pub.mla, publicar_sin_markup=True)
+            mock_client.post_pxq_prices.reset_mock()
+            mock_client.get_pxq_prices = AsyncMock(return_value=[])
+            write_service.sync_pxq_tiers(db, pxq_user, pub.mla)
+        finally:
+            patcher.stop()
+        mock_client.post_pxq_prices.assert_not_called()
+
+
+class TestAuditTrailForPublishedPrices:
+    """D6/corrección 3: exactly one `Auditoria` row per create/modify tier
+    CONFIRMED by ML (`estado == ESTADO_SINCRONIZADO` post-confirm). Keeps and
+    unconfirmed rows never get one."""
+
+    def test_confirmed_creates_and_modifies_get_one_audit_row_each(
+        self, db, publicacion, pxq_user, monkeypatch
+    ) -> None:
+        from app.models.auditoria import Auditoria, TipoAccion
+
+        create_tier = MlPxqTier(
+            publicacion_ml_id=publicacion.id,
+            item_id=publicacion.mla,
+            cantidad_minima=10,
+            precio_unitario=Decimal("500.00"),
+            costo_envio_total=Decimal("50.00"),
+            ml_price_id=None,
+            estado=ESTADO_LISTO,
+            usuario_id=pxq_user.id,
+        )
+        modify_tier = MlPxqTier(
+            publicacion_ml_id=publicacion.id,
+            item_id=publicacion.mla,
+            cantidad_minima=20,
+            precio_unitario=Decimal("999.00"),
+            costo_envio_total=Decimal("50.00"),
+            ml_price_id="ML20",
+            cantidad_sincronizada=20,
+            precio_sincronizado=Decimal("800.00"),
+            estado=ESTADO_LISTO,
+            usuario_id=pxq_user.id,
+        )
+        keep_tier = MlPxqTier(
+            publicacion_ml_id=publicacion.id,
+            item_id=publicacion.mla,
+            cantidad_minima=30,
+            precio_unitario=Decimal("700.00"),
+            costo_envio_total=Decimal("50.00"),
+            ml_price_id="ML30",
+            cantidad_sincronizada=30,
+            precio_sincronizado=Decimal("700.00"),
+            estado=ESTADO_SINCRONIZADO,
+            usuario_id=pxq_user.id,
+        )
+        db.add_all([create_tier, modify_tier, keep_tier])
+        db.flush()
+
+        monkeypatch.setattr(write_service.settings, "PXQ_WRITE_ENABLED", True)
+        patcher, mock_client = _mock_client(
+            live_prices=[
+                {"id": "ML20", "quantity": 20, "amount": 800.0},
+                {"id": "ML30", "quantity": 30, "amount": 700.0},
+            ],
+            post_result={"ok": True, "status_code": 200, "ambiguous": False, "body": None},
+        )
+        mock_client.get_pxq_prices.side_effect = [
+            [
+                {"id": "ML20", "quantity": 20, "amount": 800.0},
+                {"id": "ML30", "quantity": 30, "amount": 700.0},
+            ],
+            [
+                {"id": "ML10-NEW", "quantity": 10, "amount": 500.0},
+                {"id": "ML20-NEW", "quantity": 20, "amount": 999.0},
+                {"id": "ML30", "quantity": 30, "amount": 700.0},
+            ],
+        ]
+        try:
+            outcome = write_service.sync_pxq_tiers(db, pxq_user, publicacion.mla)
+        finally:
+            patcher.stop()
+
+        assert outcome["synced"] is True
+        rows = db.query(Auditoria).filter(Auditoria.tipo_accion == TipoAccion.PXQ_PRECIO_PUBLICADO).all()
+        assert len(rows) == 2
+        acciones = sorted(r.valores_nuevos["accion"] for r in rows)
+        assert acciones == ["create", "modify"]
+        for r in rows:
+            assert r.item_id == publicacion.item_id  # ERP int, never the MLA
+            assert r.valores_nuevos["mla"] == publicacion.mla
+            assert r.valores_nuevos["override_used"] is False
+            assert "markup" in r.valores_nuevos
+            assert "limpio" in r.valores_nuevos
+            assert "comision_total" in r.valores_nuevos
+
+    def test_unconfirmed_create_gets_zero_audit_rows(self, db, publicacion, pxq_user, monkeypatch) -> None:
+        from app.models.auditoria import Auditoria, TipoAccion
+
+        create_tier = MlPxqTier(
+            publicacion_ml_id=publicacion.id,
+            item_id=publicacion.mla,
+            cantidad_minima=10,
+            precio_unitario=Decimal("500.00"),
+            costo_envio_total=Decimal("50.00"),
+            ml_price_id=None,
+            estado=ESTADO_LISTO,
+            usuario_id=pxq_user.id,
+        )
+        db.add(create_tier)
+        db.flush()
+
+        monkeypatch.setattr(write_service.settings, "PXQ_WRITE_ENABLED", True)
+        patcher, mock_client = _mock_client(
+            live_prices=[],
+            post_result={"ok": True, "status_code": 200, "ambiguous": False, "body": None},
+        )
+        # Confirmation re-read comes back with NOTHING matching -> unconfirmed.
+        mock_client.get_pxq_prices.side_effect = [[], []]
+        try:
+            outcome = write_service.sync_pxq_tiers(db, pxq_user, publicacion.mla)
+        finally:
+            patcher.stop()
+
+        assert outcome["synced"] is False
+        rows = db.query(Auditoria).filter(Auditoria.tipo_accion == TipoAccion.PXQ_PRECIO_PUBLICADO).all()
+        assert rows == []
+
+    def test_keeps_are_never_audited(self, db, publicacion, pxq_user, synced_tier, monkeypatch) -> None:
+        from app.models.auditoria import Auditoria, TipoAccion
+
+        monkeypatch.setattr(write_service.settings, "PXQ_WRITE_ENABLED", True)
+        patcher, mock_client = _mock_client(
+            live_prices=[{"id": "ML1", "quantity": 10, "amount": 500.0}],
+            post_result={"ok": True, "status_code": 200, "ambiguous": False, "body": None},
+        )
+        mock_client.get_pxq_prices.side_effect = [
+            [{"id": "ML1", "quantity": 10, "amount": 500.0}],
+            [{"id": "ML1", "quantity": 10, "amount": 500.0}],
+        ]
+        try:
+            outcome = write_service.sync_pxq_tiers(db, pxq_user, publicacion.mla)
+        finally:
+            patcher.stop()
+        assert outcome["synced"] is True
+        rows = db.query(Auditoria).filter(Auditoria.tipo_accion == TipoAccion.PXQ_PRECIO_PUBLICADO).all()
+        assert rows == []
+
+    def test_override_published_tier_has_no_markup_figure_but_marks_override_used(
+        self, db, pxq_user, monkeypatch
+    ) -> None:
+        from app.models.auditoria import Auditoria, TipoAccion
+
+        producto = ProductoERP(
+            item_id=90402, codigo="SKU-PXQ-OVERRIDE-AUDIT", descripcion="Producto override audit", costo=1000.0
+        )
+        db.add(producto)
+        db.flush()
+        pub = PublicacionML(mla="MLA940002", item_id=producto.item_id, codigo="SKU-PXQ-OVERRIDE-AUDIT", pricelist_id=4)
+        db.add(pub)
+        db.flush()
+        tier = MlPxqTier(
+            publicacion_ml_id=pub.id,
+            item_id=pub.mla,
+            cantidad_minima=10,
+            precio_unitario=Decimal("500.00"),
+            costo_envio_total=Decimal("50.00"),
+            ml_price_id=None,
+            estado=ESTADO_LISTO,
+            usuario_id=pxq_user.id,
+        )
+        db.add(tier)
+        db.flush()
+
+        monkeypatch.setattr(write_service.settings, "PXQ_WRITE_ENABLED", True)
+        patcher, mock_client = _mock_client(
+            live_prices=[],
+            post_result={"ok": True, "status_code": 200, "ambiguous": False, "body": None},
+        )
+        mock_client.get_pxq_prices.side_effect = [
+            [],
+            [{"id": "ML10", "quantity": 10, "amount": 500.0}],
+        ]
+        try:
+            outcome = write_service.sync_pxq_tiers(db, pxq_user, pub.mla, publicar_sin_markup=True)
+        finally:
+            patcher.stop()
+
+        assert outcome["synced"] is True
+        rows = db.query(Auditoria).filter(Auditoria.tipo_accion == TipoAccion.PXQ_PRECIO_PUBLICADO).all()
+        assert len(rows) == 1
+        payload = rows[0].valores_nuevos
+        assert payload["override_used"] is True
+        assert "markup" not in payload
+        assert "limpio" not in payload
+        assert "comision_total" not in payload
+
+
+class TestAuditOrderAndFailureIsolation:
+    """D6: the business commit is a separate, EARLIER unit of work from the
+    audit write. A failure in `registrar_auditoria` must never roll back the
+    already-committed snapshot and must never degrade `synced: true`."""
+
+    def test_business_commit_happens_before_any_audit_write(self, db, publicacion, pxq_user, monkeypatch) -> None:
+        create_tier = MlPxqTier(
+            publicacion_ml_id=publicacion.id,
+            item_id=publicacion.mla,
+            cantidad_minima=10,
+            precio_unitario=Decimal("500.00"),
+            costo_envio_total=Decimal("50.00"),
+            ml_price_id=None,
+            estado=ESTADO_LISTO,
+            usuario_id=pxq_user.id,
+        )
+        db.add(create_tier)
+        db.flush()
+
+        monkeypatch.setattr(write_service.settings, "PXQ_WRITE_ENABLED", True)
+        patcher, mock_client = _mock_client(
+            live_prices=[],
+            post_result={"ok": True, "status_code": 200, "ambiguous": False, "body": None},
+        )
+        mock_client.get_pxq_prices.side_effect = [
+            [],
+            [{"id": "ML10", "quantity": 10, "amount": 500.0}],
+        ]
+
+        call_order: list = []
+        commit_spy = MagicMock(wraps=db.commit)
+        real_registrar = write_service.registrar_auditoria
+
+        def spy_registrar(db_arg, **kwargs):
+            call_order.append("audit")
+            return real_registrar(db_arg, **kwargs)
+
+        def spy_commit():
+            call_order.append("commit")
+            return commit_spy()
+
+        monkeypatch.setattr(write_service, "registrar_auditoria", spy_registrar)
+        monkeypatch.setattr(db, "commit", spy_commit)
+        try:
+            write_service.sync_pxq_tiers(db, pxq_user, publicacion.mla)
+        finally:
+            patcher.stop()
+
+        assert "commit" in call_order and "audit" in call_order
+        assert call_order.index("commit") < call_order.index("audit")
+
+    def test_audit_failure_does_not_revert_snapshot_or_degrade_synced(
+        self, db, publicacion, pxq_user, monkeypatch
+    ) -> None:
+        from sqlalchemy.exc import SQLAlchemyError
+
+        create_tier = MlPxqTier(
+            publicacion_ml_id=publicacion.id,
+            item_id=publicacion.mla,
+            cantidad_minima=10,
+            precio_unitario=Decimal("500.00"),
+            costo_envio_total=Decimal("50.00"),
+            ml_price_id=None,
+            estado=ESTADO_LISTO,
+            usuario_id=pxq_user.id,
+        )
+        db.add(create_tier)
+        db.flush()
+        tier_id = create_tier.id
+
+        monkeypatch.setattr(write_service.settings, "PXQ_WRITE_ENABLED", True)
+        patcher, mock_client = _mock_client(
+            live_prices=[],
+            post_result={"ok": True, "status_code": 200, "ambiguous": False, "body": None},
+        )
+        mock_client.get_pxq_prices.side_effect = [
+            [],
+            [{"id": "ML10", "quantity": 10, "amount": 500.0}],
+        ]
+
+        def failing_registrar(*args, **kwargs):
+            raise SQLAlchemyError("boom")
+
+        monkeypatch.setattr(write_service, "registrar_auditoria", failing_registrar)
+        try:
+            outcome = write_service.sync_pxq_tiers(db, pxq_user, publicacion.mla)
+        finally:
+            patcher.stop()
+
+        assert outcome["synced"] is True
+        assert outcome["status"] == "sincronizado"
+        assert outcome.get("audit_warning")
+        refreshed = db.get(MlPxqTier, tier_id)
+        assert refreshed.estado == ESTADO_SINCRONIZADO
+        assert refreshed.ml_price_id == "ML10"
