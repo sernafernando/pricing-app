@@ -172,6 +172,72 @@ class TestPxqWriteSuccess:
         assert result["status_code"] == 200
 
 
+class TestGetPxqSellerShippingCost:
+    """`get_pxq_seller_shipping_cost` (slice B, task 4.3/4.4) -- the client
+    half of the auto-fetch TTL trigger. Same None-on-anything collapse
+    shape as `get_pxq_prices`/`get_item_full`: the proxy route
+    `GET /api/shipping/seller-cost` does not exist in production yet, so a
+    404 here is the CURRENT real-world response, not a hypothetical -- it
+    must degrade to None, never to 0 or a fabricated markup input."""
+
+    def _run(self, monkeypatch: pytest.MonkeyPatch, response: httpx.Response = None, raise_exc: Exception = None):
+        def handler(request: httpx.Request) -> httpx.Response:
+            assert request.method == "GET"
+            assert request.url.path == "/api/shipping/seller-cost"
+            if raise_exc is not None:
+                raise raise_exc
+            return response
+
+        _patch_client(monkeypatch, _mock_transport(handler))
+        client = MLWebhookClient()
+        return asyncio.run(client.get_pxq_seller_shipping_cost("MLA123456789", 10, 500.0))
+
+    def test_404_route_absent_collapses_to_none(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        # THE production case today: the proxy route does not exist yet.
+        result = self._run(monkeypatch, httpx.Response(404, json={"message": "not found"}))
+        assert result is None
+
+    def test_non_2xx_collapses_to_none(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        result = self._run(monkeypatch, httpx.Response(500, json={"message": "boom"}))
+        assert result is None
+
+    def test_timeout_collapses_to_none(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        result = self._run(monkeypatch, raise_exc=httpx.TimeoutException("timed out"))
+        assert result is None
+
+    def test_non_numeric_body_collapses_to_none(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        result = self._run(monkeypatch, httpx.Response(200, json={"amount": "not-a-number"}))
+        assert result is None
+
+    def test_missing_amount_field_collapses_to_none(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        result = self._run(monkeypatch, httpx.Response(200, json={}))
+        assert result is None
+
+    def test_non_json_body_collapses_to_none(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        result = self._run(monkeypatch, httpx.Response(200, content=b"not json"))
+        assert result is None
+
+    def test_success_returns_the_amount(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        result = self._run(monkeypatch, httpx.Response(200, json={"amount": 1234.5}))
+        assert result == 1234.5
+
+    def test_request_carries_item_id_quantity_and_tier_price(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        captured = {}
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            captured["params"] = dict(request.url.params)
+            return httpx.Response(200, json={"amount": 42.0})
+
+        _patch_client(monkeypatch, _mock_transport(handler))
+        client = MLWebhookClient()
+        result = asyncio.run(client.get_pxq_seller_shipping_cost("MLA123456789", 10, 500.0))
+
+        assert result == 42.0
+        assert captured["params"]["item_id"] == "MLA123456789"
+        assert captured["params"]["quantity"] == "10"
+        assert captured["params"]["tier_price"] == "500.0"
+
+
 class TestSharedClassifierNotRegressed:
     """GUARDRAIL. `_classify_write_response` is shared with the promotions
     write path (`enroll_item` / `remove_item`), where `pxq_write` does not

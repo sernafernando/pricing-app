@@ -571,6 +571,50 @@ class MLWebhookClient:
         # deviation documented above.
         return result
 
+    async def get_pxq_seller_shipping_cost(self, item_id: str, quantity: int, tier_price: float) -> Optional[float]:
+        """Fetches the whole-shipment shipping cost for an N-unit PxQ tier
+        order, via the proxy route `GET /api/shipping/seller-cost`.
+
+        NOTE: this route does not exist on the ml-webhook proxy yet. A 404
+        is the CURRENT real-world response and is treated identically to
+        every other failure mode -- there is no special-casing "route
+        absent" as distinct from "server error." Callers (`refresh_tier_shipping`
+        in `pxq_markup_service.py`) treat None as `shipping_unavailable` and
+        MUST NOT fabricate a 0 or a markup from it.
+
+        Same None-on-anything collapse shape as `get_item_full`
+        (:479-494) / `post_pxq_prices` classification (:574-599): 404,
+        any other non-2xx, a timeout, or a body that does not carry a
+        numeric `amount` field all collapse to None. Only a 2xx body with
+        a numeric `amount` returns a value.
+
+        Args:
+            item_id: The item ID (e.g. MLA2361127120).
+            quantity: The tier's `cantidad_minima`.
+            tier_price: The tier's `precio_unitario`.
+
+        Returns:
+            The whole-shipment cost as a float, or None on any error.
+        """
+        try:
+            async with httpx.AsyncClient(timeout=10.0) as client:
+                response = await client.get(
+                    f"{self.base_url}/api/shipping/seller-cost",
+                    params={"item_id": item_id, "quantity": quantity, "tier_price": tier_price},
+                )
+                response.raise_for_status()
+                body = response.json()
+        except Exception as e:
+            logger.error(f"Error obteniendo costo de envío PxQ del item {item_id}: {e}")
+            return None
+
+        if not isinstance(body, dict):
+            return None
+        amount = body.get("amount")
+        if isinstance(amount, bool) or not isinstance(amount, (int, float)):
+            return None
+        return float(amount)
+
     async def get_pxq_eligibility(self, item_id: str) -> Optional[Dict]:
         """Fetches the eligibility facts for a PxQ sync: the item's own
         `tags` (must include `standard_price_by_quantity`) and the
