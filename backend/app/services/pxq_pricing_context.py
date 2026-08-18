@@ -2,10 +2,23 @@
 a PxQ tier's MLA (slice A1 of `pxq-markup-antes-de-publicar`).
 
 Mirrors `ml_promotions_pricing._resolve_pricing_context`'s discipline: every
-irresolvable input -- unlinked MLA, zero/missing product cost, no resolvable
-commission base -- collapses to a single `None`, never a partial context and
-never a raised exception. `markup_for_tiers` (`pxq_markup_service.py`) reads
-this as "product_data_missing" when `None`.
+irresolvable input -- unlinked MLA, zero/missing product cost, unconvertible
+currency, missing IVA, no resolvable commission base -- collapses to a
+single `None`, never a partial context and never a raised exception.
+`markup_for_tiers` (`pxq_markup_service.py`) reads this as
+"product_data_missing" when `None`.
+
+`producto.moneda_costo`/`producto.iva` carry `default=` at the ORM level
+only (`ProductoERP`, `app/models/producto.py`) -- rows written by the ERP
+sync bypass that default entirely, so `moneda_costo IS NULL` and
+`iva IS NULL` are both reachable in production data. Handing a USD cost to
+`convertir_a_pesos` (`pricing_calculator.py`) without a resolved
+`tipo_cambio`, or an unrecognized/`None` currency, falls through to
+`return costo` UNCONVERTED -- silently fabricating a plausible-looking but
+wrong ARS figure instead of reporting an unresolved context. `producto.iva`
+being `None` would instead pass validation here and raise a `TypeError`
+later inside `calcular_markup_pxq`. Both collapse to `None` here, before
+either can happen.
 
 Deliberately does NOT call `resolver_costo_envio`: that resolves the
 PER-UNIT `producto.envio` field, and feeding a per-unit shipping figure to a
@@ -68,9 +81,20 @@ def resolve_pxq_pricing_context(db: Session, mla: str) -> Optional[PxqPricingCon
         if not producto or not producto.costo:
             return None
 
+        if producto.iva is None:
+            return None
+
         tipo_cambio = None
         if producto.moneda_costo == "USD":
             tipo_cambio = obtener_tipo_cambio_actual(db, "USD")
+            if tipo_cambio is None:
+                return None
+        elif producto.moneda_costo != "ARS":
+            # Unrecognized/`None` currency (e.g. an ERP-synced row with
+            # `moneda_costo IS NULL`) -- `convertir_a_pesos` only special-
+            # cases the literal string "ARS", so anything else must NOT
+            # fall through to its unconverted-passthrough branch.
+            return None
 
         costo_ars = convertir_a_pesos(producto.costo, producto.moneda_costo, tipo_cambio)
         grupo_id = obtener_grupo_subcategoria(db, producto.subcategoria_id)

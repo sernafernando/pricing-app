@@ -11,6 +11,7 @@ from __future__ import annotations
 from datetime import date
 
 import pytest
+from sqlalchemy import text
 
 from app.models.comision_versionada import ComisionBase, ComisionVersion
 from app.models.producto import ProductoERP
@@ -130,3 +131,108 @@ class TestUsdCostConversion:
         assert context.comision_base_pct == pytest.approx(15.5)
         assert context.iva == pytest.approx(21.0)
         assert context.grupo_id == 1
+
+
+class TestUsdCostWithoutTipoCambio:
+    def test_usd_cost_without_any_tipo_cambio_row_resolves_to_none(self, db, comision_fixtures) -> None:
+        """No `TipoCambio` row exists at all (not just missing today's) --
+        `obtener_tipo_cambio_actual` returns `None`. A USD cost must NEVER be
+        handed to the caller as if it were ARS: `convertir_a_pesos` falls
+        through to `return costo` unconverted when `tipo_cambio` is falsy,
+        which would silently produce a ~1000x inflated markup with no
+        `reason` attached. This is the un-exercised branch of
+        `TestUsdCostConversion`, which always inserts a `TipoCambio` row and
+        therefore never proves the missing-quote path."""
+        producto = ProductoERP(
+            item_id=91004,
+            codigo="SKU-PXQ-CTX-USD-NOTC",
+            descripcion="Producto USD sin cotizacion",
+            costo=100.0,
+            moneda_costo="USD",
+            iva=21.0,
+        )
+        db.add(producto)
+        db.flush()
+        pub = PublicacionML(mla="MLA9100004", item_id=producto.item_id, codigo="SKU-PXQ-CTX-USD-NOTC", pricelist_id=4)
+        db.add(pub)
+        db.flush()
+        # Deliberately no TipoCambio row at all -- not even for another date.
+
+        context = resolve_pxq_pricing_context(db, pub.mla)
+
+        assert context is None
+
+
+class TestMissingIva:
+    def test_null_iva_resolves_to_none_never_raises(self, db, comision_fixtures) -> None:
+        """`ProductoERP.iva` has `default=21.0` at the ORM level only -- rows
+        written by the ERP sync (outside this app's ORM insert path) can
+        land with `iva IS NULL`. That must collapse to the same `None`
+        contract as every other irresolvable input here, never leak a
+        `None` into `PxqPricingContext.iva` that later raises a `TypeError`
+        deep inside `calcular_markup_pxq`.
+
+        Constructing `ProductoERP(iva=None)` through the ORM is NOT enough
+        to reproduce this: SQLAlchemy's Python-side `default=` fires
+        whenever the attribute is `None` at flush time regardless of
+        whether it was explicitly set, masking exactly the bug this test
+        exists to catch. A raw `UPDATE` after flush is required to land a
+        real `iva IS NULL` row, matching how the ERP sync writes it."""
+        producto = ProductoERP(
+            item_id=91005,
+            codigo="SKU-PXQ-CTX-NOIVA",
+            descripcion="Producto sin iva",
+            costo=1000.0,
+            moneda_costo="ARS",
+            iva=21.0,
+        )
+        db.add(producto)
+        db.flush()
+        pub = PublicacionML(mla="MLA9100005", item_id=producto.item_id, codigo="SKU-PXQ-CTX-NOIVA", pricelist_id=4)
+        db.add(pub)
+        db.flush()
+        db.execute(text("UPDATE productos_erp SET iva = NULL WHERE item_id = :item_id"), {"item_id": producto.item_id})
+        db.flush()
+        db.expire_all()
+
+        context = resolve_pxq_pricing_context(db, pub.mla)
+
+        assert context is None
+
+
+class TestUnresolvableCurrency:
+    def test_null_moneda_costo_resolves_to_none_never_assumes_ars(self, db, comision_fixtures) -> None:
+        """`ProductoERP.moneda_costo` has `default=TipoMoneda.ARS` at the ORM
+        level only -- an ERP-synced row with `moneda_costo IS NULL` must NOT
+        be silently treated as ARS: `convertir_a_pesos` only special-cases
+        the literal string `"ARS"`, so any other value (including `None`)
+        falls through to `return costo` unconverted -- the exact same
+        fabricated-number shape as the missing-`tipo_cambio` case, just for
+        a different unresolvable input.
+
+        Same reasoning as `TestMissingIva`: the ORM-level default also
+        fires for an explicit `None` at insert time, so a raw `UPDATE`
+        after flush is required to reproduce a real `moneda_costo IS NULL`
+        row."""
+        producto = ProductoERP(
+            item_id=91006,
+            codigo="SKU-PXQ-CTX-NOMONEDA",
+            descripcion="Producto sin moneda",
+            costo=1000.0,
+            moneda_costo="ARS",
+            iva=21.0,
+        )
+        db.add(producto)
+        db.flush()
+        pub = PublicacionML(mla="MLA9100006", item_id=producto.item_id, codigo="SKU-PXQ-CTX-NOMONEDA", pricelist_id=4)
+        db.add(pub)
+        db.flush()
+        db.execute(
+            text("UPDATE productos_erp SET moneda_costo = NULL WHERE item_id = :item_id"), {"item_id": producto.item_id}
+        )
+        db.flush()
+        db.expire_all()
+
+        context = resolve_pxq_pricing_context(db, pub.mla)
+
+        assert context is None
