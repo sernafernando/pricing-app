@@ -11,6 +11,7 @@ missing key, for every field this publisher depends on — never default to
 import pytest
 
 from app.services.tn_publish_core.extract import (
+    OPTIONAL_REPORT_FIELDS,
     REQUIRED_REPORT_FIELDS,
     Absent,
     ExtractedReportRow,
@@ -133,3 +134,43 @@ class TestAbsentVsZero:
 
         assert result.height_cm is not Absent
         assert result.height_cm == "8.000000000"
+
+
+class TestOptionalTnFieldKeyEntirelyAbsent:
+    """`tnr_lastPromotionalPrice` is a Tienda Nube field: GBP omits the key
+    entirely for an item never published on TN, not just a blank value. A
+    live probe of report-78 confirmed 0 of 335 actual publish-candidate
+    rows (no `tnr_id`) carry this key at all. That absence is meaningful
+    data ("not yet published on TN"), not a schema break, so it MUST
+    degrade to `Absent` — exactly like a present-but-blank value — and
+    MUST NOT raise `MissingReportFieldError`."""
+
+    def test_tn_promo_price_is_optional_not_required(self):
+        assert "tnr_lastPromotionalPrice" not in REQUIRED_REPORT_FIELDS
+        assert "tnr_lastPromotionalPrice" in OPTIONAL_REPORT_FIELDS
+
+    def test_publish_candidate_row_without_tn_promo_key_extracts_cleanly(self):
+        """The real shape of a publish candidate: all 10 required keys
+        present, `tnr_lastPromotionalPrice` key entirely absent from the
+        row (not merely blank)."""
+        row = _complete_row()
+        del row["tnr_lastPromotionalPrice"]
+
+        result = extract_report_row(row)
+
+        assert isinstance(result, ExtractedReportRow)
+        assert result.promotional_price is Absent
+
+    def test_required_field_absence_still_raises_alongside_optional_field(self):
+        """Guard against the fix silently degrading into "nothing is
+        required": a REQUIRED key's absence must still raise even when an
+        OPTIONAL key (`tnr_lastPromotionalPrice`) is also absent from the
+        same row."""
+        row = _complete_row()
+        del row["weight"]
+        del row["tnr_lastPromotionalPrice"]
+
+        with pytest.raises(MissingReportFieldError) as exc_info:
+            extract_report_row(row)
+
+        assert exc_info.value.field_name == "weight"
