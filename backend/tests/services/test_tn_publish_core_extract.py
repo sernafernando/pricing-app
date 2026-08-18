@@ -10,12 +10,14 @@ missing key, for every field this publisher depends on — never default to
 
 import pytest
 
+import app.services.tn_publish_core.extract as extract_module
 from app.services.tn_publish_core.extract import (
     OPTIONAL_REPORT_FIELDS,
     REQUIRED_REPORT_FIELDS,
     Absent,
     ExtractedReportRow,
     MissingReportFieldError,
+    _is_absent_value,
     extract_report_row,
 )
 
@@ -189,3 +191,42 @@ class TestOptionalTnFieldKeyEntirelyAbsent:
             extract_report_row(row)
 
         assert exc_info.value.field_name == "weight"
+
+
+class TestIsAbsentValueHandlesTypeErrorFromCoercion:
+    """Pre-push code review of PR #1139: `_is_absent_value`'s `try/except`
+    around `float(text)` only caught `ValueError`. Today that is safe
+    because `text = str(raw).strip()` runs unconditionally before the
+    `try` block, so `text` is always a `str` and `float(text)` cannot
+    actually raise `TypeError` — but that safety is an IMPLICIT invariant
+    of the current implementation, not a guarantee the function's
+    signature makes. If the `str(...)` coercion is ever removed, a
+    `TypeError` would escape uncaught into the caller. `resolve.py` already
+    catches `(TypeError, ValueError)` for the equivalent conversion; this
+    widens `_is_absent_value` to match."""
+
+    def test_list_and_dict_raw_values_are_already_handled_via_value_error(self):
+        """Baseline, not a regression test: `list`/`dict` raw values do NOT
+        reach `TypeError` today. `str(raw)` converts them to a non-numeric
+        string first, and `float(...)` on that string raises `ValueError`,
+        already caught by the existing except clause. This is why those
+        inputs (suggested as examples in the review) cannot be used to pin
+        the `TypeError`-handling fix directly — this class's other test
+        does that by simulating the coercion failure instead."""
+        assert _is_absent_value([1, 2, 3]) is False
+        assert _is_absent_value({"a": 1}) is False
+
+    def test_type_error_from_float_coercion_is_handled_not_escaped(self, monkeypatch):
+        """Pins the fix: widen the `except` in `_is_absent_value` to also
+        catch `TypeError` from `float(text)`, matching `resolve.py`'s
+        pattern. Simulated via monkeypatching `float` in the module's
+        namespace, because — as documented on this class — no natural
+        `raw` value reaches `float()` with a non-`str` `text` under the
+        current implementation."""
+
+        def _raising_float(_value):
+            raise TypeError("simulated non-coercible value")
+
+        monkeypatch.setattr(extract_module, "float", _raising_float, raising=False)
+
+        assert _is_absent_value("not-actually-checked") is False

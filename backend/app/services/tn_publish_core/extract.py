@@ -128,7 +128,14 @@ _ABSENT_CLASS_FIELDS = frozenset({"weight", "wide", "large", "height", "tnr_last
 def _is_absent_value(raw: Any) -> bool:
     """True when a present KEY still carries GBP's "no data" convention:
     blank, or a numeric zero. Non-numeric non-blank values (unexpected, but
-    not this function's job to validate further) are treated as present."""
+    not this function's job to validate further) are treated as present.
+
+    Catches `(TypeError, ValueError)` around the `float(...)` coercion —
+    matching `resolve.py`'s pattern. `text` is always a `str` today (the
+    `str(raw).strip()` call above guarantees it), so `TypeError` cannot
+    currently escape here; the wider except clause guards against that
+    invariant being broken by a future edit (e.g. removing the `str(...)`
+    coercion) rather than a failure this function can hit today."""
     if raw is None:
         return True
     text = str(raw).strip()
@@ -136,7 +143,7 @@ def _is_absent_value(raw: Any) -> bool:
         return True
     try:
         return float(text) == 0.0
-    except ValueError:
+    except (TypeError, ValueError):
         return False
 
 
