@@ -6,26 +6,35 @@ Endpoints:
   GET    /administracion/proveedores/{id}          — detalle (con datos fiscales)
   POST   /administracion/proveedores               — crear proveedor manual
   PUT    /administracion/proveedores/{id}          — actualizar datos
-  POST   /administracion/proveedores/sync-erp      — sincronizar desde tb_supplier
+  POST   /administracion/proveedores/sync-erp      — sincronizar desde el ERP (GBP)
   POST   /administracion/proveedores/{id}/consultar-afip — consultar Padrón A4
   GET    /administracion/proveedores/{id}/datos-fiscales — ver datos fiscales cacheados
 """
 
 from datetime import datetime
 from typing import Optional
+from uuid import uuid4
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, Response, status
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy.orm import Session
 
-from app.core.database import get_db, get_async_db
+from app.core.database import get_db, get_async_db, get_background_db
+from app.core.logging import get_logger
+from app.core.sse import sse_publish
 from app.api.deps import get_current_user
 from app.models.usuario import Usuario
 from app.services.permisos_service import PermisosService
-from app.services.proveedores_service import ProveedoresService
+from app.services.proveedores_service import ErpSyncError, ProveedoresService, SyncEnCursoError
 from app.services.afip_service import AfipServiceError
 
+logger = get_logger(__name__)
+
 router = APIRouter(prefix="/administracion/proveedores", tags=["Administración - Proveedores"])
+
+# Canal SSE por el que el sync full publica su resultado. Registrado en
+# `app/routers/sse.py::VALID_CHANNELS` (sin eso el frontend no puede suscribirse).
+SYNC_ERP_CHANNEL = "proveedores:sync"
 
 
 # =============================================================================
@@ -445,21 +454,183 @@ def actualizar_proveedor(
     return _proveedor_to_response(prov)
 
 
-@router.post("/sync-erp", status_code=status.HTTP_200_OK)
-def sync_proveedores_erp(
-    db: Session = Depends(get_db),
+async def _publicar_resultado_sync(run_id: str, payload: dict) -> None:
+    """
+    Publica el resultado del sync full en el canal SSE `proveedores:sync`.
+
+    `run_id` es un parámetro propio y no una clave más del `payload` para que
+    sea estructuralmente imposible publicar un evento sin correlación: el canal
+    es un broadcast global (lo recibe TODA pestaña suscripta, no solo la que
+    disparó el sync). Sin `run_id` el resultado de un usuario limpiaba el
+    banner, cancelaba el timeout y pintaba contadores ajenos en la pantalla de
+    otro.
+
+    Se usa `sse_publish` (la variante async) y no `sse_publish_bg` porque el job
+    de background es `async def`: FastAPI lo corre en el event loop principal,
+    que es exactamente donde `sse_publish` necesita estar. `sse_publish_bg` solo
+    existe para saltar desde un thread del threadpool al event loop.
+
+    Fail-soft por contrato: `sse_publish` ya se traga los errores de Redis y, si
+    Redis nunca se configuró (`set_redis`), solo loguea un warning y retorna. El
+    try/except adicional protege de que un refactor futuro allí tire abajo un
+    sync que YA commiteó: la notificación es un aviso, nunca un motivo para
+    perder el resultado.
+    """
+    try:
+        await sse_publish(SYNC_ERP_CHANNEL, {"run_id": run_id, **payload})
+    except Exception:  # noqa: BLE001 — SSE es best-effort, nunca rompe el sync.
+        logger.warning(
+            "Sync proveedores ERP: falló la publicación SSE (canal=%s, run_id=%s)",
+            SYNC_ERP_CHANNEL,
+            run_id,
+            exc_info=True,
+        )
+
+
+async def _sync_proveedores_erp_background(run_id: str) -> None:
+    """
+    Job de background del sync FULL de proveedores contra el ERP (GBP).
+
+    Vive acá y no en el servicio a propósito: es orquestación de transporte
+    (ciclo de vida de la sesión + notificación al panel), no lógica de dominio.
+    `ProveedoresService.sync_desde_erp()` sigue siendo la cadena canónica y la
+    comparte con el cron (`app.scripts.sync_suppliers`), que no debe arrastrar
+    una dependencia de Redis/SSE.
+
+    Abre su PROPIA sesión con `get_background_db()`: la sesión del endpoint ya
+    está cerrada cuando esta tarea corre (la respuesta 202 se envió antes).
+    La sesión no toma una conexión del pool hasta el primer query, así que la
+    llamada HTTP al ERP no retiene conexión.
+
+    Nunca levanta: el resultado (contadores o error) se publica por SSE y se
+    loguea. Una excepción acá quedaría huérfana en el task de Starlette.
+
+    Args:
+        run_id: identificador de ESTA corrida, generado por el endpoint y
+            devuelto en el cuerpo del 202. Viaja en TODOS los payloads SSE que
+            publica el job (éxito, ERP caído, error inesperado y sync ya en
+            curso) para que el cliente descarte los eventos de otras corridas.
+    """
+    try:
+        with get_background_db() as db:
+            result = await ProveedoresService(db).sync_desde_erp()
+    except SyncEnCursoError as e:
+        # No es un error del sync: es otro sync que ya está corriendo. Se
+        # reporta como tal para no ensuciar los contadores ni inventar un
+        # fallo del ERP que no ocurrió.
+        logger.info("Sync proveedores ERP (background, run_id=%s): ya hay otro sync en curso — %s", run_id, e)
+        await _publicar_resultado_sync(run_id, {"success": False, "en_curso": True, "error": str(e)})
+        return
+    except ErpSyncError as e:
+        logger.warning(
+            "Sync proveedores ERP (background, run_id=%s): el ERP no devolvió datos utilizables — %s", run_id, e
+        )
+        await _publicar_resultado_sync(run_id, {"success": False, "error": str(e)})
+        return
+    except Exception as e:  # noqa: BLE001 — el job no puede propagar nada.
+        logger.exception("Sync proveedores ERP (background, run_id=%s): error inesperado", run_id)
+        await _publicar_resultado_sync(run_id, {"success": False, "error": f"Error inesperado en el sync: {e}"})
+        return
+
+    logger.info(
+        "Sync proveedores ERP (background, run_id=%s) finalizado: total_erp=%d, insertados=%d, actualizados=%d, "
+        "rma_insertados=%d, vinculados_rma=%d",
+        run_id,
+        result["total_erp"],
+        result["insertados"],
+        result["actualizados"],
+        result["rma_insertados"],
+        result["vinculados_rma"],
+    )
+    await _publicar_resultado_sync(run_id, {"success": True, **result})
+
+
+@router.post(
+    "/sync-erp",
+    status_code=status.HTTP_200_OK,
+    responses={
+        202: {"description": "Sync full encolado; el resultado llega por SSE (canal `proveedores:sync`)"},
+        409: {"description": "Ya hay otra sincronización de proveedores persistiendo"},
+        422: {"description": "`supp_id` fuera de rango (debe ser >= 1)"},
+        502: {"description": "El ERP falló o no devolvió datos (solo en el camino sincrónico con `supp_id`)"},
+    },
+)
+async def sync_proveedores_erp(
+    background_tasks: BackgroundTasks,
+    response: Response,
+    # `ge=1` NO es cosmético: la rama se elige por `supp_id is None`, así que
+    # `?supp_id=0` tomaba el camino sincrónico y el cliente del ERP —que
+    # filtraba por truthiness— terminaba pidiendo la tabla ENTERA y
+    # persistiéndola dentro del request. Justo lo que el camino 202 vino a
+    # eliminar, y alcanzable con un query param por cualquiera que tenga
+    # `administracion.gestionar_proveedores`. Los IDs del ERP arrancan en 1:
+    # 0 y los negativos no identifican nada y se rechazan con 422.
+    supp_id: Optional[int] = Query(
+        None,
+        ge=1,
+        description="ID de proveedor del ERP a sincronizar (opcional; debe ser >= 1)",
+    ),
+    db: Session = Depends(get_async_db),
     current_user: Usuario = Depends(get_current_user),
 ) -> dict:
     """
-    Sincroniza proveedores desde tb_supplier (ERP) a la tabla central.
-    Vincula rma_proveedores existentes al proveedor central.
+    Sincroniza proveedores contra el ERP (GBP). Tiene dos caminos:
+
+    1. Con `supp_id` → SINCRÓNICO, **200**. Es una sola fila del ERP y tarda
+       menos de un segundo: se ejecuta dentro del request y se devuelven los
+       contadores reales. Es el camino que usa el operador para traer un
+       proveedor puntual y verlo al instante. Si el ERP falla o no devuelve
+       datos responde **502**: nunca un éxito con contadores en cero.
+
+    2. Sin `supp_id` (sync full) → ENCOLADO, **202**. La cadena completa
+       (gbp-parser → mirror `tb_supplier` → tabla `proveedores` →
+       `rma_proveedores`) recorre toda la tabla del ERP y no puede retener el
+       request, un worker del threadpool y la transacción durante todo el
+       round-trip. Se encola con `BackgroundTasks` y se responde de inmediato;
+       el job publica los contadores (o el error) en el canal SSE
+       `proveedores:sync` cuando termina.
+
+    El 202 devuelve un `run_id` propio de la corrida. El job lo repite en cada
+    payload que publica por SSE: el canal es un broadcast global y sin esa
+    correlación el resultado de otro usuario se renderizaba como propio.
+
+    Si ya hay otro sync persistiendo, el camino sincrónico responde **409
+    Conflict**: es el código honesto porque el request choca con el estado
+    actual del recurso y reintentarlo más tarde tiene sentido. No es un 503
+    (el servicio está perfectamente sano y el resto de la API responde) ni un
+    429 (no es una cuota por cliente: un solo request puede recibirlo).
+
+    El permiso se verifica SIEMPRE en el request, antes de encolar: el job de
+    background no tiene usuario ni sesión de request para chequearlo.
     """
     _check_permiso(db, current_user, "administracion.gestionar_proveedores")
 
-    svc = ProveedoresService(db)
-    result = svc.sync_desde_erp()
+    if supp_id is None:
+        # `response.status_code` (y no un JSONResponse) para que las dos ramas
+        # sigan devolviendo un dict por el pipeline normal de FastAPI: con
+        # JSONResponse habría que serializar a mano también la rama sincrónica
+        # solo por simetría, y el contrato del 200 no cambió.
+        run_id = uuid4().hex
+        background_tasks.add_task(_sync_proveedores_erp_background, run_id)
+        response.status_code = status.HTTP_202_ACCEPTED
+        return {
+            "success": True,
+            "queued": True,
+            "run_id": run_id,
+            "channel": SYNC_ERP_CHANNEL,
+            "message": "Sincronización con el ERP en curso. El resultado llega al finalizar.",
+        }
 
-    return {"success": True, **result}
+    svc = ProveedoresService(db)
+
+    try:
+        result = await svc.sync_desde_erp(supp_id=supp_id)
+    except SyncEnCursoError as e:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(e)) from e
+    except ErpSyncError as e:
+        raise HTTPException(status_code=502, detail=str(e)) from e
+
+    return {"success": True, "queued": False, **result}
 
 
 @router.post("/{proveedor_id}/consultar-afip")
