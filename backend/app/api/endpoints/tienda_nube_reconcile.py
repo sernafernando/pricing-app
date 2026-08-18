@@ -73,7 +73,7 @@ from app.models.tn_category_embedding import TnCategoryEmbedding
 from app.models.tn_reconcile_banlist import TnReconcileBanlist
 from app.models.usuario import Usuario
 from app.services.permisos_service import verificar_permiso
-from app.services.tn_category_embedding_service import suggest_category
+from app.services.tn_category_embedding_service import suggest_category, sync_category_embeddings
 from app.services.tn_publish_service import publish_product, unpublish_product
 from app.services.tn_reconciliation_service import (
     ErpPriceInfo,
@@ -424,6 +424,12 @@ class CategoriaSearchItem(BaseModel):
     category_path: str
 
 
+class CategoriaSyncResponse(BaseModel):
+    synced: int
+    skipped: bool
+    reason: Optional[str] = None
+
+
 CATEGORIAS_SEARCH_DEFAULT_LIMIT = 20
 
 
@@ -732,3 +738,21 @@ def buscar_categorias(
     return [
         CategoriaSearchItem(tn_category_id=row.tn_category_id, category_path=row.category_path_text) for row in rows
     ]
+
+
+@router.post("/categorias/sync", response_model=CategoriaSyncResponse)
+def sync_categorias(db: Session = Depends(get_db), current_user: Usuario = Depends(get_current_user)):
+    """Operator-triggered refresh of `tn_category_embedding` (PR-1,
+    tn-publisher-module — design Decision 8). Wiring only: delegates to the
+    already-implemented, already-tested `sync_category_embeddings()`, never
+    modified by this endpoint.
+
+    Reuses `admin.gestionar_tn_publicacion` — sync is maintenance on the
+    publish path, not a distinct capability (minimalism ladder rung 2, no
+    new permission for this PR).
+    """
+    if not verificar_permiso(db, current_user, "admin.gestionar_tn_publicacion"):
+        raise HTTPException(status_code=403, detail="No tienes permiso para gestionar la publicación de Tienda Nube")
+
+    result = sync_category_embeddings(db)
+    return CategoriaSyncResponse(synced=result["synced"], skipped=result["skipped"], reason=result.get("reason"))
