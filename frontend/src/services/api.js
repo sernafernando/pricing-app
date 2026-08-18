@@ -335,10 +335,18 @@ export const pxqAPI = {
   // clear the live array. The backend still accepts `allow_clear` (see
   // `backend/app/routers/pxq.py`'s `PxqSyncRequest`), but a full-array wipe is
   // a destructive operation that needs its own explicitly-labelled verb — not
-  // a default argument on a verb the UI calls "sincronizar". Taking the
-  // parameter away removes the syntactic path that let a caller ask for a
-  // wipe by accident.
-  sync: (itemId) => api.post(`/pxq/${itemId}/sync`, { allow_clear: false }),
+  // a default argument on a verb the UI calls "sincronizar". `allow_clear`
+  // stays HARDCODED `false` here on purpose (slice C2): the second argument
+  // below is an options object, and `publicarSinMarkup` is the ONLY thing it
+  // can express — there is deliberately no `allowClear` passthrough, so a
+  // caller cannot resurrect the wipe by widening the options bag.
+  //
+  // `publicarSinMarkup` (D4 of `pxq-markup-antes-de-publicar`, slice C):
+  // per-request opt-in to publish tiers whose markup never resolved. Mirrors
+  // `backend/app/routers/pxq.py`'s `PxqSyncRequest.publicar_sin_markup` —
+  // same default (`false`), same "no server-side memory across requests".
+  sync: (itemId, { publicarSinMarkup = false } = {}) =>
+    api.post(`/pxq/${itemId}/sync`, { allow_clear: false, publicar_sin_markup: publicarSinMarkup }),
   // Import path (PR 4e): pulls ML's LIVE tiers into an EMPTY local mirror.
   // The opposite direction from `sync` and the only non-destructive way out of
   // "ML holds tiers we never mirrored".

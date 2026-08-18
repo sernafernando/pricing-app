@@ -526,7 +526,7 @@ describe('PxqPanel — price update to ML (PR 4d)', () => {
     await user.click(screen.getByRole('button', { name: /actualizar precios en mercadolibre/i }));
 
     await waitFor(() => expect(pxqAPI.sync).toHaveBeenCalledTimes(1));
-    expect(pxqAPI.sync).toHaveBeenCalledWith('MLA001');
+    expect(pxqAPI.sync).toHaveBeenCalledWith('MLA001', { publicarSinMarkup: false });
     await waitFor(() => expect(pxqAPI.getLive).toHaveBeenCalledTimes(2));
   });
 
@@ -728,6 +728,98 @@ describe('PxqPanel — price update to ML (PR 4d)', () => {
     await user.click(screen.getByRole('button', { name: /actualizar precios en mercadolibre/i }));
 
     await waitFor(() => expect(screen.getByText(/mercadolibre rechazó/i)).toBeInTheDocument());
+  });
+});
+
+describe('PxqPanel — publish-without-markup override checkbox (slice C2)', () => {
+  function mockLive({ mirror_tiers = [], live_tiers = [], live_status = 'ok' } = {}) {
+    return {
+      data: {
+        item_id: 'MLA001',
+        live_status,
+        live_tiers,
+        mirror_tiers,
+        fetched_at: '2026-08-01T10:00:00Z',
+      },
+    };
+  }
+
+  // Two tiers, so a per-TIER checkbox (the shape explicitly rejected by
+  // design) would render two boxes and this suite would catch it via the
+  // count assertion below.
+  const twoTiers = [
+    { id: 1, cantidad_minima: 5, precio_unitario: 100, costo_envio_total: 20, ml_price_id: null, estado: 'listo' },
+    { id: 2, cantidad_minima: 10, precio_unitario: 90, costo_envio_total: 20, ml_price_id: null, estado: 'listo' },
+  ];
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockTienePermiso.mockImplementation(() => true);
+  });
+
+  afterEach(() => {
+    mockTienePermiso.mockImplementation(() => true);
+  });
+
+  it('renders exactly one checkbox for the whole publication, not one per tier', async () => {
+    pxqAPI.getLive.mockResolvedValue(mockLive({ mirror_tiers: twoTiers }));
+
+    renderPanel();
+
+    await waitFor(() => expect(screen.getByRole('button', { name: /actualizar precios en mercadolibre/i })).toBeInTheDocument());
+
+    expect(screen.getAllByRole('checkbox')).toHaveLength(1);
+  });
+
+  it('defaults to unchecked and sends publicarSinMarkup: false when left alone', async () => {
+    const user = userEvent.setup();
+    pxqAPI.getLive.mockResolvedValue(mockLive({ mirror_tiers: twoTiers }));
+    pxqAPI.sync.mockResolvedValue({ data: { synced: true, status: 'sincronizado' } });
+
+    renderPanel();
+
+    await waitFor(() => expect(screen.getByRole('checkbox')).toBeInTheDocument());
+    expect(screen.getByRole('checkbox')).not.toBeChecked();
+
+    await user.click(screen.getByRole('button', { name: /actualizar precios en mercadolibre/i }));
+
+    await waitFor(() => expect(pxqAPI.sync).toHaveBeenCalledTimes(1));
+    expect(pxqAPI.sync).toHaveBeenCalledWith('MLA001', { publicarSinMarkup: false });
+  });
+
+  it('checking it includes pending tiers via the single override flag', async () => {
+    const user = userEvent.setup();
+    pxqAPI.getLive.mockResolvedValue(mockLive({ mirror_tiers: twoTiers }));
+    pxqAPI.sync.mockResolvedValue({ data: { synced: true, status: 'sincronizado' } });
+
+    renderPanel();
+
+    await waitFor(() => expect(screen.getByRole('checkbox')).toBeInTheDocument());
+    await user.click(screen.getByRole('checkbox'));
+    expect(screen.getByRole('checkbox')).toBeChecked();
+
+    await user.click(screen.getByRole('button', { name: /actualizar precios en mercadolibre/i }));
+
+    await waitFor(() => expect(pxqAPI.sync).toHaveBeenCalledTimes(1));
+    expect(pxqAPI.sync).toHaveBeenCalledWith('MLA001', { publicarSinMarkup: true });
+  });
+
+  it('checking then unchecking before sync reverts to the excluded default', async () => {
+    const user = userEvent.setup();
+    pxqAPI.getLive.mockResolvedValue(mockLive({ mirror_tiers: twoTiers }));
+    pxqAPI.sync.mockResolvedValue({ data: { synced: true, status: 'sincronizado' } });
+
+    renderPanel();
+
+    await waitFor(() => expect(screen.getByRole('checkbox')).toBeInTheDocument());
+    await user.click(screen.getByRole('checkbox'));
+    await user.click(screen.getByRole('checkbox'));
+    expect(screen.getByRole('checkbox')).not.toBeChecked();
+
+    await user.click(screen.getByRole('button', { name: /actualizar precios en mercadolibre/i }));
+
+    await waitFor(() => expect(pxqAPI.sync).toHaveBeenCalledTimes(1));
+    expect(pxqAPI.sync).toHaveBeenCalledWith('MLA001', { publicarSinMarkup: false });
   });
 });
 

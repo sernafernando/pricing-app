@@ -433,13 +433,21 @@ function emptyMirrorRefusal(liveTiers, liveUnavailable) {
  */
 function PxqSyncControl({ itemId, hasTiers, liveTiers, liveUnavailable, feedback, onFeedback, divergences, onDivergences, onSynced }) {
   const [syncing, setSyncing] = useState(false);
+  // D4 (slice C2): ONE checkbox for the whole publication, never per tier —
+  // there is no per-tier override on the backend
+  // (`ml_pxq_write_service.sync_pxq_tiers`'s `publicar_sin_markup`), so a
+  // per-tier control here would offer a choice the API cannot express.
+  // Local `useState`, not lifted: it is per-request and must NOT survive a
+  // sync the way `feedback`/`divergences` do — the next click starts from
+  // the same excluded default until the operator opts in again.
+  const [publicarSinMarkup, setPublicarSinMarkup] = useState(false);
 
   async function runSync() {
     setSyncing(true);
     onFeedback(null);
     onDivergences(null);
     try {
-      await pxqAPI.sync(itemId);
+      await pxqAPI.sync(itemId, { publicarSinMarkup });
       onFeedback({ kind: 'ok', text: 'Precios actualizados en MercadoLibre.' });
       await onSynced();
     } catch (err) {
@@ -473,6 +481,14 @@ function PxqSyncControl({ itemId, hasTiers, liveTiers, liveUnavailable, feedback
 
   return (
     <div className={styles.pxqAuthoring}>
+      <label className={styles.pxqField}>
+        <input
+          type="checkbox"
+          checked={publicarSinMarkup}
+          onChange={(e) => setPublicarSinMarkup(e.target.checked)}
+        />
+        {' '}Publicar precios sin markup calculado (tramos pendientes de costo/comisión)
+      </label>
       <button type="button" className="btn-tesla primary sm" disabled={syncing} onClick={handleSyncClick}>
         Actualizar precios en MercadoLibre
       </button>
