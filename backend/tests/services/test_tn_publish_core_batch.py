@@ -5,7 +5,7 @@ TDD instructions for this slice.
 """
 
 from app.services.tienda_nube_product_client import TnRateLimited
-from app.services.tn_publish_core.batch import execute_batch
+from app.services.tn_publish_core.batch import RETRY_AFTER_CAP_SECONDS, execute_batch
 
 
 class _FakeSleep:
@@ -120,3 +120,20 @@ class TestRateLimitDistinctFromAmbiguousNoRetryRule:
         outcomes = execute_batch([{"ean": "111"}], publish_fn, sleep_fn=sleep_fn)
 
         assert outcomes[0].status == "rate_limited"
+
+    def test_absurd_retry_after_is_capped_never_slept_verbatim(self):
+        # A misbehaving/proxy-mangled `Retry-After: 3600` must not park the
+        # batch for an hour on a synchronous sleep.
+        attempts = {"111": 0}
+
+        def publish_fn(item):
+            if attempts["111"] == 0:
+                attempts["111"] += 1
+                raise TnRateLimited(retry_after=3600)
+            return {"status": "submitted", "product_id": 1}
+
+        sleep_fn = _FakeSleep()
+        outcomes = execute_batch([{"ean": "111"}], publish_fn, sleep_fn=sleep_fn)
+
+        assert outcomes[0].status == "submitted"
+        assert max(sleep_fn.calls) <= RETRY_AFTER_CAP_SECONDS

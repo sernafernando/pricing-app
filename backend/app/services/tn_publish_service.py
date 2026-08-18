@@ -47,6 +47,7 @@ from app.models.usuario import Usuario
 from app.services.tienda_nube_product_client import (
     TiendaNubeProductClient,
     TnProductLookupError,
+    TnRateLimited,
     is_publicly_reachable_url,
 )
 from app.utils.async_bridge import resolve_maybe_async as _resolve
@@ -585,7 +586,26 @@ def publish_product(
     # wait on / depend on Slice 3c's frontend DOMPurify pass.
     payload["description"] = {"es": sanitize_description_html(description_html)}
 
-    write_result = _resolve(active_client.create_product(payload))
+    # `create_product` raises `TnRateLimited` on a 429 for `execute_batch`'s
+    # wait-and-retry loop — but that batch path is not wired into THIS live
+    # path yet (next slice). Until it is, a 429 here must keep degrading to
+    # a structured outcome with its audit row, exactly like any other
+    # definitive rejection: letting the exception escape would 500 the
+    # operator and skip `_audit_publish` entirely.
+    try:
+        write_result = _resolve(active_client.create_product(payload))
+    except TnRateLimited as e:
+        outcome = {
+            "submitted": False,
+            "status": "rate_limited",
+            "status_code": 429,
+            "detail": (
+                "TN rate limit (429) — nothing was created. Wait a moment and retry."
+                + (f" TN asks to retry after {e.retry_after:g}s." if e.retry_after is not None else "")
+            ),
+        }
+        _audit_publish(db, usuario, None, outcome)
+        return outcome
 
     def _attach_images(product_id: Any) -> List[str]:
         reachable_srcs = [src for src in image_srcs if is_publicly_reachable_url(src)]

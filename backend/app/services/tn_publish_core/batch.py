@@ -24,6 +24,9 @@ logger = logging.getLogger(__name__)
 
 DEFAULT_BACKOFF_STEPS = (1.0, 2.0, 4.0, 8.0)
 MAX_RATE_LIMIT_ATTEMPTS = 4
+# `Retry-After` is honoured but never verbatim: a misbehaving/proxy-mangled
+# header (e.g. 3600) must not park the whole batch on a synchronous sleep.
+RETRY_AFTER_CAP_SECONDS = 60.0
 
 
 @dataclass
@@ -43,8 +46,12 @@ def execute_batch(
 ) -> List[ItemOutcome]:
     """Runs `publish_fn` once per item, sequentially (TN's Weighted Token
     Bucket makes concurrency a guaranteed 429 storm — see design Decision
-    6). Every item gets exactly one `ItemOutcome`, so a caller can never
-    lose track of a partially-processed batch."""
+    6). Only `TnRateLimited` is handled here: every 429-resolved item gets
+    an `ItemOutcome`. Any OTHER exception from `publish_fn` propagates
+    immediately and the outcomes of already-processed items are discarded
+    with it — deliberate, mirroring the no-blind-retry rule for ambiguous
+    failures (a caller needing partial results must make `publish_fn`
+    return them as outcome dicts instead of raising)."""
     outcomes: List[ItemOutcome] = []
     inter_item_delay = 0.0
 
@@ -72,7 +79,7 @@ def execute_batch(
                     outcomes.append(ItemOutcome(ean=ean, status="rate_limited", detail=str(exc)))
                     break
                 wait = (
-                    exc.retry_after
+                    min(exc.retry_after, RETRY_AFTER_CAP_SECONDS)
                     if exc.retry_after
                     else DEFAULT_BACKOFF_STEPS[min(attempt, len(DEFAULT_BACKOFF_STEPS) - 1)]
                 )
