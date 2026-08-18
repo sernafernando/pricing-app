@@ -18,9 +18,10 @@ MAL_PUBLICADO, DUPLICADO) — banning is never a way to sweep an existing
 mis-publication out of the review view.
 """
 
+import logging
 from dataclasses import dataclass, field
 from decimal import Decimal
-from typing import Optional
+from typing import Any, Dict, Optional
 
 from app.api.endpoints.gbp_parser import (
     OPERATION_CONFIG,
@@ -29,6 +30,10 @@ from app.api.endpoints.gbp_parser import (
     parse_soap_response,
 )
 from app.models.tienda_nube_producto import TiendaNubeProducto
+from app.services.tn_publish_core.extract import Absent, MissingReportFieldError, extract_report_row
+from app.services.tn_publish_core.resolve import resolve_gbp_fields
+
+logger = logging.getLogger(__name__)
 
 GBP_REPORT_ID_TN_RECONCILE = 78
 
@@ -119,6 +124,58 @@ class ReconcileRow:
     precio_web_transferencia: Optional[Decimal] = None
     participa_web_transferencia: Optional[bool] = None
     precio_lista_ml: Optional[Decimal] = None
+
+
+# Only these verdicts have a Publicar action in the UI — `build_publish_fields`
+# is scoped to them to control response payload growth across the other
+# ~800 non-candidate rows in a typical report-78 fetch.
+PUBLISH_CANDIDATE_VERDICTS = frozenset({"FALTA_PUBLICAR", "FALTA_VINCULAR"})
+
+
+def build_publish_fields(row: "ReconcileRow") -> Dict[str, Any]:
+    """Strictly extracts + GBP-layer-converts the publish field set for a
+    publish-candidate row (PC1/PC2/PC3, `tn_publish_core.extract`/
+    `.resolve`), returning endpoint-ready kwargs
+    (`marca`/`cost`/`barcode`/`promotional_price`/`weight_kg`/`width_cm`/
+    `depth_cm`/`height_cm`). Returns `{}` for any non-candidate verdict, so
+    the caller's response model keeps those fields at their `None` default.
+
+    A missing report-78 KEY (e.g. a live ERP column rename — see
+    `extract_report_row`'s docstring) makes extraction raise loudly (S1) at
+    the unit level; that is caught HERE and logged with the exact missing
+    field and EAN so a schema break stays visible in logs, and only THIS
+    row's new fields degrade to `None` rather than a single bad row
+    crashing the whole one-shot report for every other row. `Absent` (a
+    value-level "GBP reports no data", e.g. a blank dimension) is a
+    completely different, expected case already resolved to `None` below —
+    it never reaches this `except` clause.
+    """
+    if row.verdict not in PUBLISH_CANDIDATE_VERDICTS:
+        return {}
+
+    try:
+        resolved = resolve_gbp_fields(extract_report_row(row.gbp_row))
+    except MissingReportFieldError as exc:
+        logger.warning(
+            "Report 78 row ean=%s is missing required field %r — publish fields left empty for this row",
+            row.ean,
+            exc.field_name,
+        )
+        return {}
+
+    def _or_none(value: Any) -> Any:
+        return None if value is Absent else value
+
+    return {
+        "marca": resolved.marca,
+        "cost": resolved.coslis_price,
+        "barcode": resolved.codigo,
+        "promotional_price": _or_none(resolved.promotional_price),
+        "weight_kg": _or_none(resolved.weight_kg),
+        "width_cm": _or_none(resolved.width_cm),
+        "depth_cm": _or_none(resolved.depth_cm),
+        "height_cm": _or_none(resolved.height_cm),
+    }
 
 
 def _build_reason_detail(

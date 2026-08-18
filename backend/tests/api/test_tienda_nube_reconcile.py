@@ -928,6 +928,113 @@ class TestReportePublishPriceFieldsExposed:
         assert row["precio_lista_ml"] is None
 
 
+class TestReconcilePublishFieldsPassthrough:
+    """PR-3 (tn-publish-core foundation, PC1/PC2/PC3): the row response now
+    carries the full publish field set — sourced through the strict
+    extract -> resolve conversion layer — replacing the earlier discard
+    where the row only carried a hand-picked subset of `gbp_row`. Only
+    emitted for publish-candidate verdicts (FALTA_PUBLICAR/FALTA_VINCULAR)
+    to control response payload growth across the other ~800 rows."""
+
+    def _complete_gbp_row(self, **overrides) -> dict:
+        row = {
+            "Código": "EAN-FULL",
+            "tnr_id": 0,
+            "tnr_variationID": 0,
+            "Stock_Disponible": "5",
+            "weight": "1000.000000000",
+            "wide": "2.000000000",
+            "large": "13.000000000",
+            "height": "8.000000000",
+            "Marca": "ADATA",
+            "coslis_price": "100.00",
+            "iclh_price": "95.00",
+            "Moneda_Costo": "USD",
+            "tnr_lastPromotionalPrice": "45000.00",
+        }
+        row.update(overrides)
+        return row
+
+    def test_falta_publicar_row_carries_full_field_set_converted(self, client, db, user_ver):
+        response = _fetch_report(client, user_ver, gbp_rows=[self._complete_gbp_row()])
+
+        assert response.status_code == 200
+        row = response.json()["items"][0]
+        assert row["verdict"] == "FALTA_PUBLICAR"
+        assert row["marca"] == "ADATA"
+        assert row["cost"] == "100.00"
+        assert row["barcode"] == "EAN-FULL"
+        assert row["promotional_price"] == "45000.00"
+        assert row["weight_kg"] == pytest.approx(1.000)
+        assert row["width_cm"] == pytest.approx(13.0)
+        assert row["depth_cm"] == pytest.approx(2.0)
+        assert row["height_cm"] == pytest.approx(8.0)
+
+    def test_falta_vincular_row_also_carries_full_field_set(self, client, db, user_ver):
+        tn = TiendaNubeProducto(product_id=61, variant_id=9, variant_sku="EAN-FULL-2", activo=True)
+        db.add(tn)
+        db.flush()
+
+        gbp_rows = [self._complete_gbp_row(Código="EAN-FULL-2")]
+        response = _fetch_report(client, user_ver, gbp_rows=gbp_rows)
+
+        assert response.status_code == 200
+        row = response.json()["items"][0]
+        assert row["verdict"] == "FALTA_VINCULAR"
+        assert row["marca"] == "ADATA"
+        assert row["weight_kg"] == pytest.approx(1.000)
+
+    def test_non_candidate_verdict_leaves_publish_fields_null(self, client, db, user_ver):
+        """MAL_VINCULADO is a data-quality anomaly, not a publish candidate
+        — the new fields must stay `null` even when the GBP row is
+        complete, so the payload-growth guardrail actually holds."""
+        gbp_rows = [self._complete_gbp_row(Código="123", tnr_id=501, tnr_variationID=0)]
+        response = _fetch_report(client, user_ver, gbp_rows=gbp_rows)
+
+        assert response.status_code == 200
+        row = response.json()["items"][0]
+        assert row["verdict"] == "MAL_VINCULADO"
+        assert row["marca"] is None
+        assert row["cost"] is None
+        assert row["barcode"] is None
+        assert row["promotional_price"] is None
+        assert row["weight_kg"] is None
+        assert row["width_cm"] is None
+        assert row["depth_cm"] is None
+        assert row["height_cm"] is None
+
+    def test_absent_measurement_serializes_as_null_not_zero(self, client, db, user_ver):
+        gbp_rows = [self._complete_gbp_row(weight="0.000000000", height="0.000000000")]
+        response = _fetch_report(client, user_ver, gbp_rows=gbp_rows)
+
+        assert response.status_code == 200
+        row = response.json()["items"][0]
+        assert row["weight_kg"] is None
+        assert row["height_cm"] is None
+        # A real, present dimension on the SAME row must not be swept into
+        # `None` by the absent ones — proves the per-field Absent handling,
+        # not a blanket "something was blank so null everything" fallback.
+        assert row["width_cm"] == pytest.approx(13.0)
+
+    def test_row_missing_a_required_key_degrades_gracefully_no_500(self, client, db, user_ver):
+        """A publish-candidate row with an incomplete GBP payload (e.g. an
+        older/partial fixture, or a live ERP column rename affecting the
+        whole report) MUST NOT crash the one-shot report for every other
+        row. `extract_report_row` still raises internally (proven directly
+        in `test_tn_publish_core_extract.py`); this test proves the
+        endpoint-level wiring catches it per-row and leaves the new fields
+        `null` rather than propagating a 500 across the whole response."""
+        incomplete_row = {"Código": "EAN-PARTIAL", "tnr_id": 0, "tnr_variationID": 0}
+
+        response = _fetch_report(client, user_ver, gbp_rows=[incomplete_row])
+
+        assert response.status_code == 200
+        row = response.json()["items"][0]
+        assert row["verdict"] == "FALTA_PUBLICAR"
+        assert row["marca"] is None
+        assert row["weight_kg"] is None
+
+
 class TestReporteMlTitleAndAdminUrl:
     """Response fields the UI rebuild needs: `ml_title` (editable title field
     source) and `tn_admin_url` (link to the matched TN product in the TN

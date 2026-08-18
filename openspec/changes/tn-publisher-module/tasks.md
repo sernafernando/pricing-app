@@ -124,29 +124,29 @@ behavior changes yet.
 **Spec IDs**: PC1 (fail-loud extraction, S1), PC2 (grams→kg, U1), PC3 (dimension mapping, U2) —
 foundation only; full precedence/validate/assemble lands in PR-5.
 
-- [ ] 3.1 RED: test extraction raises naming the missing key when `height` (or any of `weight`,
+- [x] 3.1 RED: test extraction raises naming the missing key when `height` (or any of `weight`,
       `wide`, `large`, `Marca`, `Stock_Disponible`, `coslis_price`/`iclh_price`, `Moneda_Costo`,
       `Código`, `tnr_lastPromotionalPrice`) is absent — never defaults (PC1, S1).
-- [ ] 3.2 GREEN: implement `extract.py` with the `Absent` sentinel (distinct from `None`/`0`) and the
+- [x] 3.2 GREEN: implement `extract.py` with the `Absent` sentinel (distinct from `None`/`0`) and the
       raise-on-missing-key behavior.
-- [ ] 3.3 RED: test a complete row extracts cleanly with nothing defaulted (PC1).
-- [ ] 3.4 RED: **golden test** — `weight = 1000` → `1.000` kg, `weight = 250` → `0.250` kg (PC2, U1).
-- [ ] 3.5 GREEN: implement the ÷1000 conversion in `resolve.py`'s GBP layer, applied before any
+- [x] 3.3 RED: test a complete row extracts cleanly with nothing defaulted (PC1).
+- [x] 3.4 RED: **golden test** — `weight = 1000` → `1.000` kg, `weight = 250` → `0.250` kg (PC2, U1).
+- [x] 3.5 GREEN: implement the ÷1000 conversion in `resolve.py`'s GBP layer, applied before any
       precedence merge (ordering constraint from design Decision 1).
-- [ ] 3.6 RED: **named test** — e.g.
+- [x] 3.6 RED: **named test** — e.g.
       `test_dimension_mapping_large_to_width_wide_to_depth_verified_36_of_36_live_products` — asserting
       GBP `large=13, wide=2, height=8` → TN `width=13, depth=2, height=8` (PC3, U2). The rationale MUST
       be in the test name, not only in a comment.
-- [ ] 3.7 GREEN: implement the mapping in `resolve.py`, **with an explanatory code comment at the
+- [x] 3.7 GREEN: implement the mapping in `resolve.py`, **with an explanatory code comment at the
       mapping site** stating the mapping is confirmed correct (36/36 live), not a swap error. Comment
-      and named test are two separate, independently-required acceptance criteria — neither substitutes
+      and named test are two separate, independently-required acceptance criteria; neither substitutes
       for the other.
-- [ ] 3.8 RED: test `ReconcileRowResponse` now includes `Marca`, `Stock_Disponible`, `cost` (raw,
+- [x] 3.8 RED: test `ReconcileRowResponse` now includes `Marca`, `Stock_Disponible`, `cost` (raw,
       pre-currency-conversion — D6 lands in PR-5), `barcode` source, `promotional_price` source, weight
       (kg), and all three dimensions for `FALTA_PUBLICAR`/`FALTA_VINCULAR` rows.
-- [ ] 3.9 GREEN: modify `tn_reconciliation_service.py` to project the full field set through
+- [x] 3.9 GREEN: modify `tn_reconciliation_service.py` to project the full field set through
       `extract`/`resolve`'s conversion layer.
-- [ ] 3.10 Regression: `tests/api/test_tienda_nube_reconcile.py` and `tests/services/test_tn_publish_service.py`
+- [x] 3.10 Regression: `tests/api/test_tienda_nube_reconcile.py` and `tests/services/test_tn_publish_service.py`
       stay green.
 
 **Estimated lines**: ~450. **Budget verdict**: under 800. **Dependencies**: PR-0 (does not depend on
