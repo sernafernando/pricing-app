@@ -1150,3 +1150,72 @@ class TestAuditOrderAndFailureIsolation:
         refreshed = db.get(MlPxqTier, tier_id)
         assert refreshed.estado == ESTADO_SINCRONIZADO
         assert refreshed.ml_price_id == "ML10"
+
+
+class TestAuditPublicacionLookupFailureIsIsolatedToo:
+    """D6 real bug (GGA pre-push finding): the `PublicacionML` lookup used to
+    resolve the ERP `item_id` for the audit row ran OUTSIDE the
+    `try/except SQLAlchemyError` that protects `registrar_auditoria`. A pool
+    exhaustion or dropped connection on THAT query propagated uncaught -- a
+    500 after ML already confirmed and the business commit (A) already
+    landed, exactly what the except exists to prevent."""
+
+    def test_publicacion_lookup_failure_does_not_revert_snapshot_or_degrade_synced(
+        self, db, publicacion, pxq_user, monkeypatch
+    ) -> None:
+        from sqlalchemy.exc import SQLAlchemyError
+
+        create_tier = MlPxqTier(
+            publicacion_ml_id=publicacion.id,
+            item_id=publicacion.mla,
+            cantidad_minima=10,
+            precio_unitario=Decimal("500.00"),
+            costo_envio_total=Decimal("50.00"),
+            ml_price_id=None,
+            estado=ESTADO_LISTO,
+            usuario_id=pxq_user.id,
+        )
+        db.add(create_tier)
+        db.flush()
+        tier_id = create_tier.id
+
+        monkeypatch.setattr(write_service.settings, "PXQ_WRITE_ENABLED", True)
+        patcher, mock_client = _mock_client(
+            live_prices=[],
+            post_result={"ok": True, "status_code": 200, "ambiguous": False, "body": None},
+        )
+        mock_client.get_pxq_prices.side_effect = [
+            [],
+            [{"id": "ML10", "quantity": 10, "amount": 500.0}],
+        ]
+
+        # `resolve_pxq_pricing_context` (via `markup_for_tiers`, called EARLY in
+        # the gate) also queries `PublicacionML` -- so the failure has to be
+        # scoped to the SECOND such query (the audit lookup), not the first,
+        # or the sync would refuse before it ever reaches the write path and
+        # prove nothing about the bug under test.
+        real_query = db.query
+        publicacion_query_count = {"n": 0}
+
+        def failing_query(model, *args, **kwargs):
+            if model is write_service.PublicacionML:
+                publicacion_query_count["n"] += 1
+                if publicacion_query_count["n"] >= 2:
+                    raise SQLAlchemyError("pool exhausted")
+            return real_query(model, *args, **kwargs)
+
+        monkeypatch.setattr(db, "query", failing_query)
+        try:
+            outcome = write_service.sync_pxq_tiers(db, pxq_user, publicacion.mla)
+        finally:
+            patcher.stop()
+
+        assert outcome["synced"] is True
+        assert outcome["status"] == "sincronizado"
+        assert outcome.get("audit_warning")
+        # `db.query` is monkeypatched for the whole test, so re-reading via a
+        # fresh query would recurse into the same failure -- use `db.get`
+        # instead, exactly as the OTHER D6 failure-isolation test does.
+        refreshed = db.get(MlPxqTier, tier_id)
+        assert refreshed.estado == ESTADO_SINCRONIZADO
+        assert refreshed.ml_price_id == "ML10"

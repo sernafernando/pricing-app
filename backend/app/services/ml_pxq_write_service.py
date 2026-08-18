@@ -445,11 +445,16 @@ def sync_pxq_tiers(
 
         audit_warning: Optional[str] = None
         if audit_payloads:
-            # `publicacion_ml_id` is shared by every row of one MLA (see the
-            # comment above `mirror_rows` for why index 0 is well-defined).
-            publicacion_obj = db.query(PublicacionML).filter(PublicacionML.id == publicacion_ml_id).first()
-            item_id_erp = publicacion_obj.item_id if publicacion_obj is not None else None
             try:  # (B) a separate, LATER unit of work -- never before (A).
+                # `publicacion_ml_id` is shared by every row of one MLA (see
+                # the comment above `mirror_rows` for why index 0 is
+                # well-defined). This lookup is PART of unit (B), not a
+                # precondition to it: a pool exhaustion or dropped connection
+                # here is exactly the failure this except exists to isolate
+                # from the already-committed snapshot (A) -- it must not
+                # propagate uncaught into a 500 after ML already confirmed.
+                publicacion_obj = db.query(PublicacionML).filter(PublicacionML.id == publicacion_ml_id).first()
+                item_id_erp = publicacion_obj.item_id if publicacion_obj is not None else None
                 for payload in audit_payloads:
                     registrar_auditoria(
                         db,
