@@ -31,7 +31,13 @@ from app.api.endpoints.gbp_parser import (
 )
 from app.models.tienda_nube_producto import TiendaNubeProducto
 from app.services.tn_publish_core.extract import Absent, ReportFieldError, extract_report_row
-from app.services.tn_publish_core.resolve import resolve_gbp_fields
+from app.services.tn_publish_core.resolve import (
+    MissingExchangeRateError,
+    resolve_cost,
+    resolve_field,
+    resolve_gbp_fields,
+)
+from app.services.tn_publish_core.validate import validate_measurements
 
 logger = logging.getLogger(__name__)
 
@@ -191,6 +197,88 @@ def build_publish_fields(row: "ReconcileRow") -> Dict[str, Any]:
         "depth_cm": _or_none(resolved.depth_cm),
         "height_cm": _or_none(resolved.height_cm),
         "publish_fields_error": None,
+    }
+
+
+def build_publish_draft(db: Any, row: "ReconcileRow", overrides: Dict[str, str]) -> Optional[Dict[str, Any]]:
+    """PC11/D3 (design Decision 3, task 5.19): the resolved-draft envelope
+    for ONE publish-candidate row — `{fields, blocked, blocked_reasons,
+    suggested_profile_id, exchange_rate}`. `None` for any non-candidate
+    verdict (mirrors `build_publish_fields`'s scoping) and also `None` when
+    this row's report-78 extraction/conversion itself failed — that failure
+    is already surfaced via `publish_fields_error` (D13); a draft over
+    broken data would be misleading, not merely incomplete.
+
+    Per-row containment (same pattern as `build_publish_fields`): this is
+    called once per candidate row inside the `/reporte` response loop, and
+    ANY failure here (a bad override value, a missing exchange rate) must
+    degrade to a blocked/absent field rather than 500 the whole report —
+    the caller is expected to wrap this in a broad `except Exception`.
+
+    `overrides` is this row's `{campo: valor}` slice of a bulk
+    `tn_publish_override` query (`WHERE ean IN (...)`, loaded ONCE per
+    report by the caller — never per row).
+    """
+    if row.verdict not in PUBLISH_CANDIDATE_VERDICTS:
+        return None
+
+    try:
+        extracted = extract_report_row(row.gbp_row)
+        resolved_gbp = resolve_gbp_fields(extracted)
+    except ReportFieldError:
+        return None
+
+    def _override_float(campo: str) -> Any:
+        raw = overrides.get(campo)
+        if raw is None:
+            return Absent
+        try:
+            return float(raw)
+        except (TypeError, ValueError):
+            return Absent
+
+    gbp_by_field = {
+        "weight": resolved_gbp.weight_kg,
+        "width": resolved_gbp.width_cm,
+        "depth": resolved_gbp.depth_cm,
+        "height": resolved_gbp.height_cm,
+    }
+    resolved_fields = {
+        name: resolve_field(gbp_value=gbp_value, override_value=_override_float(name))
+        for name, gbp_value in gbp_by_field.items()
+    }
+    validation = validate_measurements(resolved_fields)
+
+    exchange_rate: Optional[Dict[str, Any]] = None
+    try:
+        cost_resolved = resolve_cost(db, resolved_gbp.coslis_price, resolved_gbp.moneda_costo)
+        cost_blocked = False
+    except MissingExchangeRateError:
+        # D6/D3: an unresolvable USD cost blocks the field, never
+        # publishes an unconverted figure — surfaced here as a blocked
+        # `cost` field, not a 500 or a swallowed exception.
+        cost_resolved = None
+        cost_blocked = True
+
+    fields: Dict[str, Any] = {
+        name: {"value": resolved.value, "source": resolved.source, "editable": True}
+        for name, resolved in resolved_fields.items()
+    }
+    if cost_resolved is not None:
+        fields["cost"] = {"value": cost_resolved.value, "source": cost_resolved.source, "editable": True}
+    else:
+        fields["cost"] = {"value": None, "source": "empty", "editable": True}
+
+    blocked_reasons = list(validation.blocked_reasons)
+    if cost_blocked:
+        blocked_reasons.append("Falta tipo de cambio para convertir el costo (USD)")
+
+    return {
+        "fields": fields,
+        "blocked": validation.blocked or cost_blocked,
+        "blocked_reasons": blocked_reasons,
+        "suggested_profile_id": None,
+        "exchange_rate": exchange_rate,
     }
 
 

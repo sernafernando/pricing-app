@@ -70,15 +70,18 @@ from app.core.database import get_async_db, get_db
 from app.models.producto import ProductoERP, ProductoPricing
 from app.models.tienda_nube_producto import TiendaNubeProducto
 from app.models.tn_category_embedding import TnCategoryEmbedding
+from app.models.tn_publish_override import TnPublishOverride
 from app.models.tn_reconcile_banlist import TnReconcileBanlist
 from app.models.usuario import Usuario
 from app.services.permisos_service import verificar_permiso
 from app.services.tn_category_embedding_service import suggest_category, sync_category_embeddings
 from app.services.tn_publish_service import publish_product, unpublish_product
 from app.services.tn_reconciliation_service import (
+    PUBLISH_CANDIDATE_VERDICTS,
     ErpPriceInfo,
     GBPFetchError,
     _as_optional_int,
+    build_publish_draft,
     build_publish_fields,
     compute_verdicts,
     fetch_gbp_report_78,
@@ -227,6 +230,30 @@ def _gbp_images(gbp_row: Dict[str, Any]) -> List[str]:
     return images
 
 
+class PublishFieldDraftResponse(BaseModel):
+    """One resolved field in a `PublishDraftResponse` (D2 — the audit
+    primitive: every transmitted field can answer "why is this the value
+    the operator sees" from `source` alone)."""
+
+    value: Optional[Any] = None
+    source: Literal["operator", "override", "gbp", "profile", "empty"]
+    editable: bool = True
+
+
+class PublishDraftResponse(BaseModel):
+    """PC11/D3 (design Decision 3, task 5.19): the pre-resolved draft for a
+    publish-candidate row, built server-side from the same report-78 data
+    already in hand for this request — see `build_publish_draft`. `None`
+    when this row isn't a publish candidate, or its report-78 extraction
+    itself failed (see `publish_fields_error` on the row for that case)."""
+
+    fields: Dict[str, PublishFieldDraftResponse]
+    blocked: bool
+    blocked_reasons: List[str]
+    suggested_profile_id: Optional[int] = None
+    exchange_rate: Optional[Dict[str, Any]] = None
+
+
 class ReconcileRowResponse(BaseModel):
     ean: str
     verdict: str
@@ -308,6 +335,31 @@ class ReconcileRowResponse(BaseModel):
     # D3 blocked-publication gate must be able to tell the two apart from
     # the response alone, not only from the service's warning log.
     publish_fields_error: Optional[str] = None
+    # PR-5b (task 5.19, design Decision 3): the resolved draft envelope for
+    # a publish-candidate row (precedence-resolved measurements + cost,
+    # D3's blocked/blocked_reasons). `None` for every non-candidate verdict
+    # AND for a candidate row whose draft assembly itself failed — same
+    # per-row containment as `publish_fields_error` above, never a 500 for
+    # the whole report.
+    publish_draft: Optional[PublishDraftResponse] = None
+
+
+def _safe_publish_draft(
+    db: Session, row: Any, overrides_by_ean: Dict[str, Dict[str, str]]
+) -> Optional[PublishDraftResponse]:
+    """Per-row containment for `build_publish_draft` (task 5.19): a draft
+    assembly failure (e.g. an unexpected exception from the resolver) must
+    degrade to `None` for THIS row only, never 500 the whole `/reporte`
+    response — same pattern `build_publish_fields`'s caller already relies
+    on for `publish_fields_error`."""
+    try:
+        draft = build_publish_draft(db, row, overrides_by_ean.get(row.ean, {}))
+    except Exception:
+        logger.exception("publish_draft assembly failed for ean=%s — omitting draft for this row only", row.ean)
+        return None
+    if draft is None:
+        return None
+    return PublishDraftResponse(**draft)
 
 
 def _tn_admin_url_for(product_id: Optional[int]) -> Optional[str]:
@@ -382,6 +434,23 @@ class DespublicarResponse(BaseModel):
 
 
 class PublicarRequest(BaseModel):
+    """PC11/D7's typed publish request. design.md's Interfaces/Contracts
+    section specifies this as REPLACING `product_data: Dict[str, Any]`
+    outright with fully-typed operator-intent fields (`overrides`,
+    `profile_id`, `visibility`, `free_shipping`, `seo_*`, `tags`, `price`).
+
+    As-built deviation (PR-5b, task 5.18): `product_data` is kept, not
+    removed. `TnPublishModal.jsx` still sends the OLD wire shape
+    (`product_data: {name: {es}, price}`) until PR-7 rebuilds it against
+    this typed model — an SDD PR must not break the live modal publish flow
+    (`_publish_kwargs`'s `product_data` remains `publish_product`'s
+    documented product-shape parameter; see that module's docstring). The
+    NEW typed fields below are additive: they are accepted now so the
+    backend pipeline (override persistence, PC5/D8) is wired end-to-end,
+    and PR-7 switches the frontend to send them instead of `product_data`
+    without requiring another backend contract change.
+    """
+
     ean: str
     product_data: Dict[str, Any]
     category_id: int
@@ -402,6 +471,14 @@ class PublicarRequest(BaseModel):
     # submitting, so recording it as its own origin would misreport what the
     # number actually is.
     price_base_source: Optional[Literal["web_transferencia", "manual"]] = None
+    # design's typed model (PC5/D8, task 5.4/5.5): operator-edited fields,
+    # keyed by field name (`weight`/`width`/`depth`/`height`/... — validated
+    # against the per-stage field lists in `tn_publish_core`, not a
+    # `catalog.py` that was never built, see design.md's "As built" note).
+    # Persisted into `tn_publish_override` ONLY on a `submitted` outcome.
+    # Defaults to `{}` — the current modal sends nothing here yet (PR-7).
+    overrides: Dict[str, str] = {}
+    profile_id: Optional[int] = None
 
     @field_validator("ean")
     @classmethod
@@ -504,12 +581,28 @@ async def get_reconciliation_report(
         item_ids = {iid for row in gbp_rows if (iid := _gbp_item_id(row)) is not None}
         erp_by_item_id, erp_cap_hit = _load_erp_price_index(db, item_ids)
         verdicts = compute_verdicts(gbp_rows, tn_productos, banned_eans=banned_eans, erp_by_item_id=erp_by_item_id)
-        return verdicts, cap_hit, erp_cap_hit
+        # Decision 3: overrides loaded as ONE bulk query
+        # (`WHERE ean IN (...)`), never per row — scoped to only the
+        # publish-candidate EANs actually present in this report.
+        candidate_rows = [v for v in verdicts if v.verdict in PUBLISH_CANDIDATE_VERDICTS]
+        candidate_eans = {v.ean for v in candidate_rows}
+        overrides_by_ean: Dict[str, Dict[str, str]] = {}
+        if candidate_eans:
+            for override_row in db.query(TnPublishOverride).filter(TnPublishOverride.ean.in_(candidate_eans)).all():
+                overrides_by_ean.setdefault(override_row.ean, {})[override_row.campo] = override_row.valor
+        # Decision 3: drafts are also built HERE, inside the same
+        # threadpool call as the DB queries `resolve_cost` may issue
+        # (`TipoCambio` lookups) — never on the event loop thread, matching
+        # this module's existing pool-safety pattern for `/reporte`.
+        drafts_by_ean: Dict[str, Optional[PublishDraftResponse]] = {
+            v.ean: _safe_publish_draft(db, v, overrides_by_ean) for v in candidate_rows
+        }
+        return verdicts, cap_hit, erp_cap_hit, drafts_by_ean
 
     # Sync DB query + CPU-bound verdict computation off the event loop —
     # this is the only `async def` in the module, so without this it would
     # block every other request for the whole computation window.
-    verdicts, cap_hit, erp_cap_hit = await run_in_threadpool(_load_and_compute)
+    verdicts, cap_hit, erp_cap_hit, drafts_by_ean = await run_in_threadpool(_load_and_compute)
 
     verdict_counts: Dict[str, int] = dict(Counter(v.verdict for v in verdicts if v.verdict != "OK"))
 
@@ -551,6 +644,7 @@ async def get_reconciliation_report(
             ),
             participa_web_transferencia=v.participa_web_transferencia,
             precio_lista_ml=(str(v.precio_lista_ml) if v.precio_lista_ml is not None else None),
+            publish_draft=drafts_by_ean.get(v.ean),
             **build_publish_fields(v),
         )
         for v in filtered
@@ -690,6 +784,7 @@ def publicar_producto(
         image_srcs=request.image_srcs,
         offset_percent=request.offset_percent,
         price_base_source=request.price_base_source,
+        overrides=request.overrides,
     )
     if outcome["status"] == "rejected_invalid_price":
         raise HTTPException(status_code=400, detail=outcome.get("detail"))
