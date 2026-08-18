@@ -79,6 +79,7 @@ from app.services.tn_reconciliation_service import (
     ErpPriceInfo,
     GBPFetchError,
     _as_optional_int,
+    build_publish_fields,
     compute_verdicts,
     fetch_gbp_report_78,
 )
@@ -283,6 +284,30 @@ class ReconcileRowResponse(BaseModel):
     precio_web_transferencia: Optional[str] = None
     participa_web_transferencia: Optional[bool] = None
     precio_lista_ml: Optional[str] = None
+    # PR-3 (tn-publish-core foundation, PC1/PC2/PC3): full publish field set
+    # sourced through the strict extract -> resolve conversion layer (see
+    # `_publish_fields_for_row`), replacing the earlier discard where the
+    # row only carried a hand-picked subset of `gbp_row`. Only populated for
+    # publish-candidate verdicts (FALTA_PUBLICAR/FALTA_VINCULAR) — `None`
+    # for every other verdict, and also `None` when this specific row's
+    # report-78 data was incomplete (see `_publish_fields_for_row`'s
+    # graceful degradation). `cost` is RAW, pre-currency-conversion — D6
+    # (USD->ARS) lands in PR-5.
+    marca: Optional[str] = None
+    cost: Optional[str] = None
+    barcode: Optional[str] = None
+    promotional_price: Optional[str] = None
+    weight_kg: Optional[float] = None
+    width_cm: Optional[float] = None
+    depth_cm: Optional[float] = None
+    height_cm: Optional[float] = None
+    # D13: explicit, machine-readable signal that THIS row's extraction hit
+    # `MissingReportFieldError` (a report-78 schema break), distinct from a
+    # row whose measurements are genuinely absent (which leaves this
+    # `None` but the fields above still populate/resolve normally). PR-5's
+    # D3 blocked-publication gate must be able to tell the two apart from
+    # the response alone, not only from the service's warning log.
+    publish_fields_error: Optional[str] = None
 
 
 def _tn_admin_url_for(product_id: Optional[int]) -> Optional[str]:
@@ -526,6 +551,7 @@ async def get_reconciliation_report(
             ),
             participa_web_transferencia=v.participa_web_transferencia,
             precio_lista_ml=(str(v.precio_lista_ml) if v.precio_lista_ml is not None else None),
+            **build_publish_fields(v),
         )
         for v in filtered
     ]
