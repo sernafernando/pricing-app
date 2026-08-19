@@ -24,7 +24,7 @@ export default function CategorySection({
   pickSearchResult,
 }) {
   return (
-    <div className={styles.section}>
+    <div className={styles.section} data-testid="tn-publish-field-categories">
       <h3 className={styles.sectionTitle}>Categoría</h3>
       {loadingSuggestion ? (
         <p className={styles.fieldHint}>Buscando categoría sugerida...</p>

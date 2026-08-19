@@ -60,7 +60,7 @@ export default function ImageGallery({ images, imageIds, onDragEnd, onDelete }) 
   );
 
   return (
-    <div className={styles.section}>
+    <div className={styles.section} data-testid="tn-publish-field-images">
       <h3 className={styles.sectionTitle}>Imágenes ({images.length})</h3>
       {images.length === 0 ? (
         <p className={styles.fieldHint}>Sin imágenes para publicar.</p>

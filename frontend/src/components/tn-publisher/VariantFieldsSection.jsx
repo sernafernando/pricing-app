@@ -7,6 +7,7 @@
  * stock…) land in PR-7's UI1.
  */
 import { Check } from 'lucide-react';
+import PublishFieldRow from './PublishFieldRow';
 import styles from './TnPublishModal.module.css';
 
 export default function VariantFieldsSection({
@@ -20,9 +21,58 @@ export default function VariantFieldsSection({
   manualPrice,
   setManualPrice,
   finalPriceIsValid,
+  sku,
+  onSkuChange,
+  barcode,
+  onBarcodeChange,
+  cost,
+  onCostChange,
+  stock,
+  onStockChange,
+  promotionalPrice,
+  onPromotionalPriceChange,
 }) {
   return (
-    <div className={styles.section}>
+    <>
+      <PublishFieldRow
+        id="tn-publish-sku"
+        label="SKU"
+        value={sku}
+        onChange={onSkuChange}
+        testId="tn-publish-field-sku"
+      />
+      <PublishFieldRow
+        id="tn-publish-barcode"
+        label="Código de barras"
+        value={barcode}
+        onChange={onBarcodeChange}
+        testId="tn-publish-field-barcode"
+      />
+      <PublishFieldRow
+        id="tn-publish-cost"
+        label="Costo"
+        type="number"
+        value={cost}
+        onChange={onCostChange}
+        testId="tn-publish-field-cost"
+      />
+      <PublishFieldRow
+        id="tn-publish-stock"
+        label="Stock"
+        type="number"
+        value={stock}
+        onChange={onStockChange}
+        testId="tn-publish-field-stock"
+      />
+      <PublishFieldRow
+        id="tn-publish-promotional-price"
+        label="Precio promocional"
+        type="number"
+        value={promotionalPrice}
+        onChange={onPromotionalPriceChange}
+        testId="tn-publish-field-promotional_price"
+      />
+      <div className={styles.section} data-testid="tn-publish-field-price">
       <h3 className={styles.sectionTitle}>Precio de publicación</h3>
       {hasWebPrice ? (
         <>
@@ -74,6 +124,7 @@ export default function VariantFieldsSection({
       {!finalPriceIsValid && !loadingOffset && (
         <p className={styles.fieldError}>El precio de publicación debe ser mayor a cero.</p>
       )}
-    </div>
+      </div>
+    </>
   );
 }
