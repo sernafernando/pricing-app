@@ -174,6 +174,27 @@ class TestListado:
         assert body[0]["campo"] == "severidad"
         assert body[0]["id"] == sev1.id
 
+    def test_limit_over_the_cap_is_rejected_not_silently_clamped(self, client, db, rol_ventas):
+        """The 200-row cap must REJECT (422), never quietly serve a smaller
+        page as if the request had been honoured — a caller asking for 500
+        has to learn it cannot have them."""
+        usuario = _make_usuario(db, rol_ventas)
+        _give_permiso(db, usuario, "tickets.triage.ejemplos")
+
+        resp = client.get(LIST_ENDPOINT, params={"limit": 201}, headers=_headers(usuario))
+
+        assert resp.status_code == 422
+
+    def test_limit_at_the_cap_is_allowed(self, client, db, rol_ventas):
+        """Guards the boundary from the other side: 200 is inclusive, so a
+        later tightening to `lt=200` cannot pass unnoticed."""
+        usuario = _make_usuario(db, rol_ventas)
+        _give_permiso(db, usuario, "tickets.triage.ejemplos")
+
+        resp = client.get(LIST_ENDPOINT, params={"limit": 200}, headers=_headers(usuario))
+
+        assert resp.status_code == 200
+
 
 def _similarity_query_without_pgvector_order(db, campo, query_embedding, k):
     """Mirrors `_similarity_query`'s exact `active`/`campo` filter (the part
