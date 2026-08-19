@@ -233,6 +233,24 @@ def _aplicar_orden(query, order_by: TicketOrderBy, order_dir: TicketOrderDir):
     return query.order_by(columna.desc() if order_dir == TicketOrderDir.DESC else columna.asc())
 
 
+def _abiertos_filter():
+    """THE open/closed predicate for tickets — shared, deliberately, by the
+    board (`GET /tickets/board`) and the badge (`GET
+    /tickets/mis-pendientes/count`).
+
+    The board and the badge MUST agree: they are read side by side on the
+    same screen, so any drift between them is a bug the user sees directly.
+    It happened (fix/tickets-board-oculta-cerrados): the badge filtered out
+    tickets in a final estado, the board did not, and a ticket the user had
+    just closed stayed in "Bandeja de entrada" forever while the badge
+    already reported it handled. Both now call THIS function, so the two
+    can only drift by someone editing it — and then both move together.
+
+    Requires `EstadoTicket` already joined by the caller.
+    """
+    return EstadoTicket.es_final.is_(False)
+
+
 def _visible_tickets_filter(db: Session, current_user: Usuario):
     """Access-scope filter for the board — same visibility rule as
     `listar_tickets` (admin sees all; `tickets.ver` sees their sectores +
@@ -353,7 +371,8 @@ def _columnas_por_estado(
         db.query(grupo_expr.label("clave"), func.count(Ticket.id).label("total"))
         .select_from(Ticket)
         .join(Sector, Sector.id == Ticket.sector_id)
-        .filter(_alcance_estado(estado_ids))
+        .join(EstadoTicket, EstadoTicket.id == Ticket.estado_id)
+        .filter(_alcance_estado(estado_ids), _abiertos_filter())
     )
     if visible_filter is not None:
         conteos_q = conteos_q.filter(visible_filter)
@@ -389,7 +408,12 @@ def _columnas_por_urgencia(db: Session, visible_filter) -> List[BoardColumnRespo
     totals come from the DB, in a SINGLE GROUP BY query.
     """
     conteo_expr = func.coalesce(Ticket.urgencia, URGENCIA_SIN_CLASIFICAR).label("clave")
-    conteo_query = db.query(conteo_expr, func.count(Ticket.id).label("total"))
+    conteo_query = (
+        db.query(conteo_expr, func.count(Ticket.id).label("total"))
+        .select_from(Ticket)
+        .join(EstadoTicket, EstadoTicket.id == Ticket.estado_id)
+        .filter(_abiertos_filter())
+    )
     if visible_filter is not None:
         conteo_query = conteo_query.filter(visible_filter)
     totales = {fila.clave: fila.total for fila in conteo_query.group_by(conteo_expr).all()}
@@ -476,6 +500,7 @@ def _items_del_board(
         )
         .join(EstadoTicket, EstadoTicket.id == Ticket.estado_id)
         .join(Sector, Sector.id == Ticket.sector_id)
+        .filter(_abiertos_filter())
     )
     if visible_filter is not None:
         base = base.filter(visible_filter)
@@ -551,6 +576,12 @@ def obtener_board(
     intercaladas por el ORDER BY global anterior). La Bandeja de entrada
     se muestra siempre primero, aparte del workflow elegido: son
     justamente los tickets que necesitan atención.
+
+    Los tickets en un estado FINAL no aparecen en el tablero (ni en los
+    items ni en los totales), en ninguna agrupación ni en la Bandeja de
+    entrada: usan el MISMO predicado que el badge (`_abiertos_filter`),
+    porque tablero y badge se leen juntos y no pueden contradecirse. La
+    columna Inbox se sigue mostrando aunque quede vacía.
     """
     visible_filter = _visible_tickets_filter(db, current_user)
 
@@ -712,7 +743,7 @@ def badge_count(
     else:
         scope_filter = Ticket.creador_id == current_user.id
 
-    open_filter = EstadoTicket.es_final.is_(False)
+    open_filter = _abiertos_filter()  # same predicate the board uses — they must agree
 
     # ── Base query factory (open + in-scope tickets, joined to estado) ─
     def _base() -> object:
