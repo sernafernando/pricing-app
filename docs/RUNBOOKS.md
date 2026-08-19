@@ -448,7 +448,57 @@ Messages sent:
 | End (OK) | Backend confirmed up via health check, real duration, and — only when the frontend was rebuilt — the Ctrl+Shift+R reminder |
 | End (degraded) | Deploy finished but `/health` never answered; tells people **not** to use the app yet |
 | Failure / Ctrl+C | Which step it died on and how long it ran, so nobody waits for an "it's up" that will never arrive |
+| Vetoed from the group (`--minutes` only) | Someone replied `stop`; nothing was touched and the deploy exited 75 |
 | Cancelled during the heads-up wait | Nothing was touched and the announced deploy is off — cancelling before any work started must not read like a half-applied deploy |
+
+### The Panic Button (`stop`)
+
+During a `--minutes N` window anyone in the ops group can reply `stop` and the
+deploy aborts **before** touching the repo or any service. `stop` is the only
+command the bot listens to: it can cancel an announced deploy and nothing else,
+so being in the group is the whole authorization model.
+
+| Behaviour | Detail |
+| --- | --- |
+| Match | The whole message, trimmed, case-insensitive. "no pares el stop" does **not** veto |
+| Where | The ops group only. A DM to the bot is ignored |
+| Which deploy | The most recent still-live announcement. Each one carries its own id and TTL, so a `stop` cannot hit yesterday's or tomorrow's deploy |
+| Once the window closes | The bot answers `Ese deploy ya arrancó, no se puede frenar.` — it never claims to have stopped something already running |
+| Nothing announced | `No hay ningún deploy anunciado ahora mismo.` |
+| After a veto | Single-shot. Nothing reschedules itself; re-run `./deploy.sh` by hand |
+
+Exit codes, so a log tells you what actually happened:
+
+| Code | Meaning |
+| --- | --- |
+| `75` | Vetoed from the group. Nothing was touched |
+| `130` | Ctrl+C during the wait. Nothing was touched |
+| `1` | The deploy genuinely failed; the message names the step |
+
+#### If you see the red "NO SE PUEDE CONSULTAR EL FRENO" banner
+
+wabot is not answering, so the deploy **keeps going** — that is deliberate: a
+wabot outage must never block deploys, the same rule the notifications follow.
+But the group already saw the announcement and believes their `stop` works, so
+the banner repeats on every failed poll. Ctrl+C if you would rather play it safe,
+then check the service (`ssh wabot 'systemctl status wabot'`).
+
+#### Emergency deploys that cannot be stopped
+
+```bash
+./deploy.sh --minutes 5 --unstoppable
+```
+
+Announces and waits exactly the same, but no polling happens and the group
+cannot veto it. The announcement says so in plain words, and a `stop` gets an
+explicit refusal — an announcement that looked stoppable while quietly ignoring
+`stop` would be worse than having no panic button at all.
+
+#### Known limitation
+
+A `stop` sent inside an ephemeral, view-once, or edited message is **not seen**.
+Only plain text messages are read. This fails towards "the deploy goes ahead",
+so a veto that must land should be sent as an ordinary message.
 
 ### Announcing a Deploy in Advance
 
@@ -456,9 +506,17 @@ Messages sent:
 ./deploy.sh --minutes 5     # heads-up now, deploy starts 5 minutes later
 ```
 
-`--minutes N` sends the heads-up message, sleeps N minutes and only then runs
-the deploy, so nobody has to warn the group by hand. `--minutes=N` works too.
-A non-numeric value exits before anything is announced.
+`--minutes N` sends the heads-up message, then polls wabot every 10s
+(`VETO_POLL_SECONDS`) until the window closes, so a `stop` from the group is
+picked up within seconds. `--minutes=N` works too. A non-numeric value exits
+before anything is announced.
+
+The announcement goes through `scripts/announce-deploy.sh`, which both sends the
+message and registers the deploy id wabot will hold the veto against; the poll
+goes through `scripts/check-deploy-veto.sh`, whose exit codes are `0` proceed,
+`10` vetoed, `20` cannot tell. The verdict travels in the HTTP status code, never
+in the JSON body, because `jq` is optional on this host and a body parser that
+guesses wrong would run a deploy somebody asked to stop.
 
 ### Required Setup on the Server (one time)
 

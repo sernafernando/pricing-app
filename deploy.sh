@@ -1,11 +1,17 @@
 #!/bin/bash
 # Deploy script - Pricing App Frontend
 # Uso: ./deploy.sh [--skip-pull] [--skip-build] [--skip-backend] [--no-notify]
-#                  [--minutes N]
+#                  [--minutes N] [--unstoppable]
 #
 # --minutes N avisa por WhatsApp que en ~N minutos arranca el deploy, espera ese
 # rato y recién después empieza. Sirve para que el equipo corte lo que está
-# haciendo sin tener que avisar a mano.
+# haciendo sin tener que avisar a mano. Durante esa espera cualquiera del grupo
+# puede responder "stop" y el deploy se cancela antes de tocar nada.
+#
+# --unstoppable es para el deploy urgente que va igual. Avisa y espera lo mismo,
+# pero no se puede frenar desde el grupo -- y el aviso lo dice con todas las
+# letras, porque un botón de pánico que a veces no funciona es peor que no
+# tenerlo.
 #
 # Avisa por WhatsApp (wabot) al arrancar y al terminar. El aviso es best-effort:
 # nunca puede romper ni frenar el deploy.
@@ -25,6 +31,10 @@ FRONTEND_DIR="$PROJECT_DIR/frontend"
 BACKEND_DIR="$PROJECT_DIR/backend"
 
 NOTIFY_SCRIPT="$PROJECT_DIR/scripts/notify-wabot.sh"
+ANNOUNCE_SCRIPT="$PROJECT_DIR/scripts/announce-deploy.sh"
+VETO_SCRIPT="$PROJECT_DIR/scripts/check-deploy-veto.sh"
+# Cada cuánto se le pregunta a wabot si alguien frenó el deploy.
+VETO_POLL_SECONDS="${VETO_POLL_SECONDS:-10}"
 DEPLOY_ETA_MIN="${DEPLOY_ETA_MIN:-5}"
 # El /health se sirve por el reverse proxy. El puerto crudo del backend
 # (8000) devuelve 404 en esa ruta, así que no sirve para verificar nada.
@@ -59,6 +69,7 @@ SKIP_BUILD=false
 SKIP_BACKEND=false
 NOTIFY=true
 WAIT_MINUTES=0
+UNSTOPPABLE=false
 
 while [ $# -gt 0 ]; do
   case $1 in
@@ -66,6 +77,7 @@ while [ $# -gt 0 ]; do
     --skip-build) SKIP_BUILD=true ;;
     --skip-backend) SKIP_BACKEND=true ;;
     --no-notify) NOTIFY=false ;;
+    --unstoppable) UNSTOPPABLE=true ;;
     --minutes=*) WAIT_MINUTES="${1#*=}" ;;
     --minutes)
       # El valor viene en el argumento siguiente; consumirlo acá evita que el
@@ -106,6 +118,40 @@ notify() {
 
 fmt_duration() {
   printf '%dm %02ds' $(($1 / 60)) $(($1 % 60))
+}
+
+# El deploy se cancela porque alguien lo frenó desde el grupo. NO es una falla:
+# se desarma el trap ANTES de avisar, si no on_failure manda "EL DEPLOY FALLÓ"
+# por un final perfectamente ordenado en el que no se tocó una sola línea.
+abort_vetoed() {
+  local quien=${1:-}
+  [ -n "$quien" ] || quien="alguien del grupo"
+
+  trap - ERR INT TERM
+
+  warn "Deploy frenado desde el grupo por ${quien}. No se tocó nada."
+  notify "Pricing App - deploy cancelado
+
+Lo frenó ${quien} desde el grupo. No se tocó nada, la app sigue funcionando normalmente.
+
+Avisamos cuando lo reprogramemos."
+
+  exit 75
+}
+
+# Se imprime en CADA poll fallido, no una sola vez. Si el preaviso salió bien y
+# después wabot se cayó, el grupo cree que su "stop" sirve y no sirve: el deploy
+# sigue igual (fail-open, a propósito) y el que lo está corriendo tiene que
+# poder enterarse sin leer un log.
+veto_banner() {
+  echo -e "${RED}" >&2
+  echo "  ###############################################################" >&2
+  echo "  #  NO SE PUEDE CONSULTAR EL FRENO                             #" >&2
+  echo "  #  wabot no contesta. El deploy SIGUE porque así está pensado, #" >&2
+  echo "  #  pero si alguien mandó 'stop' al grupo no nos vamos a        #" >&2
+  echo "  #  enterar. Cortá con Ctrl+C si querés jugar a lo seguro.      #" >&2
+  echo "  ###############################################################" >&2
+  echo -e "${NC}" >&2
 }
 
 # Espera a que el backend conteste el health check. El systemctl restart
@@ -164,16 +210,68 @@ if [ "$WAIT_MINUTES" -gt 0 ]; then
     WAIT_LABEL="${WAIT_MINUTES} min"
   fi
 
-  notify "Pricing App - deploy en ${WAIT_LABEL}
+  DEPLOY_ID="$(date +%s)-$$"
+
+  if [ "$UNSTOPPABLE" = true ]; then
+    ANNOUNCE_MSG="Pricing App - deploy en ${WAIT_LABEL}
 
 En aproximadamente ${WAIT_LABEL} vamos a realizar un deploy.
 
 Durante el proceso la app puede quedar sin responder por unos minutos.
 
-Avisamos cuando arranque y nuevamente cuando esté todo arriba."
+Este deploy NO se puede frenar: es urgente y va igual.
 
-  log "Preaviso enviado. Esperando ${WAIT_LABEL} antes de arrancar..."
-  sleep $((WAIT_MINUTES * 60))
+Avisamos cuando arranque y nuevamente cuando esté todo arriba."
+  else
+    ANNOUNCE_MSG="Pricing App - deploy en ${WAIT_LABEL}
+
+En aproximadamente ${WAIT_LABEL} vamos a realizar un deploy.
+
+Durante el proceso la app puede quedar sin responder por unos minutos.
+
+Si justo estás en el medio de algo, respondé *stop* en este grupo y lo frenamos.
+
+Avisamos cuando arranque y nuevamente cuando esté todo arriba."
+  fi
+
+  # El anuncio manda el mensaje Y registra el deploy para que el "stop" del
+  # grupo tenga algo que vetar. Si falla no se corta nada: se sigue esperando y
+  # el poll de abajo va a contestar "no puedo saber", que es la verdad.
+  if [ "$NOTIFY" = true ] && [ -r "$ANNOUNCE_SCRIPT" ]; then
+    bash "$ANNOUNCE_SCRIPT" "$DEPLOY_ID" "$WAIT_MINUTES" "$UNSTOPPABLE" "$ANNOUNCE_MSG" || \
+      warn "No se pudo anunciar el deploy a wabot"
+  else
+    warn "Sin aviso por WhatsApp: nadie se entera de este deploy ni puede frenarlo"
+  fi
+
+  if [ "$UNSTOPPABLE" = true ]; then
+    log "Preaviso enviado (deploy NO frenable). Esperando ${WAIT_LABEL}..."
+    sleep $((WAIT_MINUTES * 60))
+  else
+    log "Preaviso enviado. Esperando ${WAIT_LABEL} — el grupo puede frenarlo con 'stop'..."
+
+    VETO_DEADLINE=$((SECONDS + WAIT_MINUTES * 60))
+    while [ "$SECONDS" -lt "$VETO_DEADLINE" ]; do
+      # La llamada va en contexto de condición a propósito: el helper sale
+      # distinto de 0 por diseño, y bajo `set -eE` eso dispararía el trap ERR
+      # convirtiendo un veto limpio en un "EL DEPLOY FALLÓ".
+      VETO_OUT=$(bash "$VETO_SCRIPT" "$DEPLOY_ID") && VETO_RC=0 || VETO_RC=$?
+
+      case "$VETO_RC" in
+        0)  ;;
+        10) abort_vetoed "$VETO_OUT" ;;
+        *)  veto_banner ;;
+      esac
+
+      VETO_LEFT=$((VETO_DEADLINE - SECONDS))
+      [ "$VETO_LEFT" -le 0 ] && break
+      if [ "$VETO_LEFT" -lt "$VETO_POLL_SECONDS" ]; then
+        sleep "$VETO_LEFT"
+      else
+        sleep "$VETO_POLL_SECONDS"
+      fi
+    done
+  fi
 fi
 
 # 1) Aviso de inicio
