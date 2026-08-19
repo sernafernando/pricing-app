@@ -20,6 +20,7 @@ from app.services.tn_publish_core.resolve import (
     ResolvedDimensions,
     convert_weight_to_kg,
     latest_usd_rate,
+    latest_usd_rate_with_date,
     map_dimensions,
     resolve_cost,
     resolve_field,
@@ -220,6 +221,36 @@ class TestLatestUsdRate:
 
     def test_empty_tipo_cambio_table_yields_none(self, db):
         assert latest_usd_rate(db) is None
+
+
+class TestLatestUsdRateWithDate:
+    """PR-7 gap fix: the operator must be able to SEE which rate is used and
+    its date — `latest_usd_rate_with_date` is the same lookup as
+    `latest_usd_rate`, plus the row's `fecha`."""
+
+    def _seed_usd_rate(self, db, *, fecha, venta):
+        from app.models.tipo_cambio import TipoCambio
+
+        db.add(TipoCambio(fecha=fecha, moneda="USD", compra=venta, venta=venta))
+        db.commit()
+
+    def test_returns_value_and_date_of_todays_rate(self, db):
+        today = date.today()
+        self._seed_usd_rate(db, fecha=today - timedelta(days=3), venta=900.0)
+        self._seed_usd_rate(db, fecha=today, venta=1000.0)
+        value, fecha = latest_usd_rate_with_date(db)
+        assert value == pytest.approx(1000.0)
+        assert fecha == today
+
+    def test_returns_value_and_date_of_fallback_rate(self, db):
+        stale_date = date.today() - timedelta(days=3)
+        self._seed_usd_rate(db, fecha=stale_date, venta=900.0)
+        value, fecha = latest_usd_rate_with_date(db)
+        assert value == pytest.approx(900.0)
+        assert fecha == stale_date
+
+    def test_empty_tipo_cambio_table_yields_none(self, db):
+        assert latest_usd_rate_with_date(db) is None
 
 
 class TestResolveCostD6:

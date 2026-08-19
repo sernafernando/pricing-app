@@ -16,7 +16,7 @@ def assemble_payload(
     *,
     name_es: str,
     price: str,
-    stock: int,
+    stock: Optional[int] = None,
     category_id: int,
     visibility: str = "visible",
     free_shipping: bool = False,
@@ -37,6 +37,14 @@ def assemble_payload(
     [{"stock": N}]`; NO top-level `variant["stock"]` key is ever set — TN
     v1 has no such field, and a legacy `stock` key would simply be ignored
     by TN with no error, silently losing the operator's stock value.
+
+    `stock=None` (genuinely absent — never coerced from a caller's `""`/
+    junk value, that coercion is the caller's job): `inventory_levels` is
+    OMITTED entirely, never fabricated as `[{"stock": 0}]`. TN then applies
+    its own product-create default rather than this module inventing a
+    number the operator never provided — the same "absence over a
+    fabricated number" discipline `_upsert_publish_mirror` already applies
+    to `variant_id`.
     """
     variant: Dict[str, Any] = {
         "price": price,
@@ -44,8 +52,9 @@ def assemble_payload(
         "width": resolved_fields["width"].value,
         "depth": resolved_fields["depth"].value,
         "height": resolved_fields["height"].value,
-        "inventory_levels": [{"stock": stock}],
     }
+    if stock is not None:
+        variant["inventory_levels"] = [{"stock": stock}]
     if sku is not None:
         variant["sku"] = sku
 
