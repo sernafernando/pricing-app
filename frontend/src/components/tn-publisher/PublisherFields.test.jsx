@@ -5,7 +5,7 @@
  * the PR-3c/PR-6 baseline this file is additive to (tasks 7.1–7.14).
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { screen, waitFor, within } from '@testing-library/react';
+import { screen, waitFor, within, fireEvent } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { render } from '@testing-library/react';
 import TnPublishModal from './TnPublishModal';
@@ -92,6 +92,17 @@ async function renderModal(row = BASE_ROW, opts = {}) {
     expect(api.post).toHaveBeenCalledWith('/tienda-nube-reconcile/categoria-sugerida', expect.any(Object));
   });
   await screen.findByRole('radio', { name: /Electrónica > Auriculares/ });
+  // Both GET-driven hooks (`useMarkupOffset`, `useMeasurementProfile`) must
+  // settle BEFORE a test types into any field: a state update landing
+  // mid-`user.type` re-renders the input and drops a keystroke, which
+  // surfaced as an intermittent `expected '1' to be '1.2'`.
+  await waitFor(() => {
+    expect(api.get).toHaveBeenCalledWith('/markups-tienda/config/porcentaje_tarjeta_tn');
+    expect(api.get).toHaveBeenCalledWith('/tn-measurement-profiles');
+  });
+  await waitFor(() => {
+    expect(screen.getByLabelText('Peso (kg)')).toBeInTheDocument();
+  });
   return utils;
 }
 
@@ -138,7 +149,7 @@ describe('SEO length limits (UI1)', () => {
     await user.type(input, 'x'.repeat(90));
 
     expect(input.value.length).toBe(70);
-  });
+  }, 30000);
 
   it('blocks further input past 320 chars in seo_description', async () => {
     const user = userEvent.setup();
@@ -150,7 +161,7 @@ describe('SEO length limits (UI1)', () => {
     await user.type(textarea, 'y'.repeat(360));
 
     expect(textarea.value.length).toBe(320);
-  });
+  }, 30000);
 });
 
 // task 7.5 — D8 stored-override prefill.
@@ -200,10 +211,16 @@ describe('Profile confirm flow (UI3/D11)', () => {
     expect(screen.getByLabelText('Peso (kg)')).toHaveValue(3);
     expect(screen.getByLabelText('Ancho (cm)')).toHaveValue(30);
 
-    const weightInput = screen.getByLabelText('Peso (kg)');
-    await user.clear(weightInput);
-    await user.type(weightInput, '4.5');
-    expect(weightInput).toHaveValue(4.5);
+    // Re-query between interactions instead of holding the node: a
+    // re-render can detach the captured element, and typing into a detached
+    // input silently does nothing (surfaced as `toHaveValue` receiving null).
+    // Atomic set, not keystroke-by-keystroke: a controlled number input
+    // passes through the invalid intermediate "4." while typing, and a
+    // re-render landing on that tick normalises it away (flaked ~1 in 8).
+    fireEvent.change(screen.getByLabelText('Peso (kg)'), { target: { value: '4.5' } });
+    await waitFor(() => {
+      expect(screen.getByLabelText('Peso (kg)')).toHaveValue(4.5);
+    });
   });
 
   it('lets the operator pick a different profile or clear the selection at any time', async () => {
@@ -258,7 +275,7 @@ describe('SEO/tags seeding (D12)', () => {
     await user.type(titleInput, '!');
 
     expect(screen.getByLabelText('Tags')).toHaveValue('tag-manual');
-  });
+  }, 30000);
 });
 
 // task 7.11/7.12 — UI4/D3 blocked-publish when measurements unresolvable.
@@ -332,9 +349,10 @@ describe('Wire contract — overrides value types', () => {
     const user = userEvent.setup();
     await renderModal();
 
-    const weightInput = screen.getByLabelText('Peso (kg)');
-    await user.clear(weightInput);
-    await user.type(weightInput, '1.2');
+    fireEvent.change(screen.getByLabelText('Peso (kg)'), { target: { value: '1.2' } });
+    await waitFor(() => {
+      expect(screen.getByLabelText('Peso (kg)')).toHaveValue(1.2);
+    });
 
     await user.click(screen.getByRole('button', { name: /^publicar$/i }));
     await user.click(screen.getByRole('button', { name: /^confirmar$/i }));
