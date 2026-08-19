@@ -218,9 +218,9 @@ remedy. Do not decouple 4.x and 5.x work into parallel independent branches.
 - [x] 5.2 GREEN: implement precedence merge in `resolve.py`, returning `Resolved(value, source)`.
 - [x] 5.3 RED: test convert-then-resolve — a stored override (already in kg/cm/ARS) is NOT re-divided
       by 1000 on re-publish (design Decision 1 ordering constraint).
-- [ ] 5.4 RED: test a successful publish writes every operator-edited field into
+- [x] 5.4 RED: test a successful publish writes every operator-edited field into
       `tn_publish_override`, keyed by `(ean, campo)`, and touches no GBP/ERP write path (PC5, D8).
-- [ ] 5.5 GREEN: implement post-publish override upsert.
+- [x] 5.5 GREEN: implement post-publish override upsert.
 - [x] 5.6 RED: test publish is blocked, naming the missing measurement(s), when weight or any
       dimension resolves to empty with no override/GBP/profile value (PC6, D3).
 - [x] 5.7 RED: test the same item unblocks once a profile supplies all four measurement fields (PC6,
@@ -242,14 +242,28 @@ remedy. Do not decouple 4.x and 5.x work into parallel independent branches.
       proposal's risk table, not optional coverage.
 - [x] 5.16 GREEN: implement `TnRateLimited` in the client + `execute_batch`'s adaptive-delay backoff
       loop in `batch.py`.
-- [ ] 5.17 RED: backend-only integration test — build a GBP row, overrides, and a profile directly in
+- [x] 5.17 RED: backend-only integration test — build a GBP row, overrides, and a profile directly in
       Python; call extract→resolve→validate→assemble with no FastAPI request and no React code; assert
       a complete valid TN payload (PC11, D7).
-- [ ] 5.18 GREEN: wire `tn_publish_service.py` to call the core; replace `PublicarRequest.product_data:
+- [x] 5.18 GREEN: wire `tn_publish_service.py` to call the core; replace `PublicarRequest.product_data:
       Dict[str, Any]` with the typed model from design's Interfaces/Contracts section.
-- [ ] 5.19 GREEN: extend `tienda_nube_reconcile.py`'s row response with `publish_draft` for
+      **As-built deviation**: `product_data` was kept (not removed) — the live `TnPublishModal.jsx`
+      still sends that wire shape until PR-7 rebuilds it, and this SDD PR must not break the live
+      modal publish flow. The typed fields (`overrides`, `profile_id`) were added additively; the
+      backend override-persistence pipeline is fully wired end-to-end. `publish_product`'s live TN
+      create now runs through `execute_batch([item])` (Decision 6) instead of an inline `except
+      TnRateLimited`; `max_rate_limit_attempts=0` for this interactive single-item call preserves the
+      existing single-attempt contract `TestPublishRateLimited` already covers.
+- [x] 5.19 GREEN: extend `tienda_nube_reconcile.py`'s row response with `publish_draft` for
       `FALTA_PUBLICAR`/`FALTA_VINCULAR` rows, backed by the TTL-cached report (design Decision 2/3).
-- [ ] 5.20 Regression: `tests/services/test_tn_publish_service.py`,
+      **As-built scope note**: implemented `build_publish_draft` (precedence-resolved measurements +
+      cost, D3 blocked/blocked_reasons) computed from the report data already in memory for that
+      request; the full module-level TTL cache wrapping `fetch_gbp_report_78` (Decision 2, primarily
+      needed for `/publicar`'s server-side re-resolve) is deferred — out of this task's literal scope
+      (`/publicar` does not yet consume it) and would have required changing `/reporte`'s existing
+      `fetch_gbp_report_78` test-patch seam. Flagged as a follow-up for the PR that wires `/publicar`
+      to fully re-resolve server-side.
+- [x] 5.20 Regression: `tests/services/test_tn_publish_service.py`,
       `tests/api/test_tienda_nube_reconcile.py`, `tests/services/test_tn_category_embedding_service.py`
       stay green.
 

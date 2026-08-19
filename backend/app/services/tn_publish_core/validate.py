@@ -18,6 +18,14 @@ from app.services.tn_publish_core.resolve import Resolved
 # does not exist, so these can never legitimately resolve to `None`.
 MEASUREMENT_FIELDS: tuple = ("weight", "width", "depth", "height")
 
+# The operator-overridable field names accepted by `PublicarRequest.overrides`
+# and persisted by `tn_publish_service._upsert_publish_overrides`. Today this
+# is exactly the measurement set — `cost` is computed (D6), never overridden.
+# Both the request validator (422 on unknown keys) and the persistence layer
+# (defense-in-depth filter) validate against THIS tuple; grow it here, in one
+# place, when a new field becomes editable.
+OVERRIDABLE_FIELDS: tuple = MEASUREMENT_FIELDS
+
 _FIELD_LABELS = {
     "weight": "peso",
     "width": "ancho",

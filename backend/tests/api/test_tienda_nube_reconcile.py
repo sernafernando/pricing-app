@@ -28,6 +28,7 @@ from app.models.permiso import Permiso, UsuarioPermisoOverride
 from app.models.producto import ProductoERP, ProductoPricing
 from app.models.rol import Rol
 from app.models.tienda_nube_producto import TiendaNubeProducto
+from app.models.tn_publish_override import TnPublishOverride
 from app.models.tn_reconcile_banlist import TnReconcileBanlist
 from app.models.usuario import AuthProvider, RolUsuario, Usuario
 
@@ -726,6 +727,19 @@ class TestPublicarEndpoint:
         )
         assert response.status_code == 403
 
+    def test_unknown_override_key_is_rejected_with_422(self, client, db, user_publicacion):
+        # Pre-push review finding: override keys are VALIDATED against
+        # `tn_publish_core.OVERRIDABLE_FIELDS` — an unknown key must fail
+        # loudly at the request boundary, never be silently persisted (or
+        # silently dropped at the DB layer).
+        response = client.post(
+            "/api/tienda-nube-reconcile/publicar",
+            json=self._payload(overrides={"campo_inventado": "1.0"}),
+            headers=_bearer(user_publicacion),
+        )
+        assert response.status_code == 422
+        assert "campo_inventado" in response.text
+
     def test_successful_publish_returns_submitted_and_audits(self, client, db, user_publicacion):
         fake_outcome = {
             "submitted": True,
@@ -798,6 +812,23 @@ class TestPublicarEndpoint:
             headers=_bearer(user_publicacion),
         )
         assert response.status_code == 422
+
+    def test_overrides_are_forwarded_to_publish_product(self, client, db, user_publicacion):
+        """Task 5.18 — the typed `PublicarRequest.overrides` field (design's
+        Interfaces/Contracts) reaches `publish_product` as its `overrides`
+        kwarg, which persists them into `tn_publish_override` on success
+        (5.4/5.5). The old `product_data` wire shape stays supported for the
+        live modal (PR-6/7 transition — see the module docstring)."""
+        fake_outcome = {"submitted": True, "status": "submitted", "product_id": 1, "skipped_image_srcs": []}
+        with patch("app.api.endpoints.tienda_nube_reconcile.publish_product", return_value=fake_outcome) as mocked:
+            response = client.post(
+                "/api/tienda-nube-reconcile/publicar",
+                json=self._payload(overrides={"weight": "1.200"}),
+                headers=_bearer(user_publicacion),
+            )
+        assert response.status_code == 200
+        _, kwargs = mocked.call_args
+        assert kwargs["overrides"] == {"weight": "1.200"}
 
     def test_empty_image_srcs_is_valid(self, client, db, user_publicacion):
         """No images is allowed (some products may legitimately have none
@@ -971,6 +1002,123 @@ class TestReportePublishPriceFieldsExposed:
         assert row["precio_web_transferencia"] is None
         assert row["participa_web_transferencia"] is None
         assert row["precio_lista_ml"] is None
+
+
+class TestReportePublishDraft:
+    """Task 5.19 (design Decision 3): `publish_draft` is populated for
+    publish-candidate rows only, resolves measurements through the same
+    precedence ladder the core pipeline uses, and never 500s the whole
+    report on a bad row."""
+
+    def _complete_gbp_row(self, **overrides) -> dict:
+        row = {
+            "Código": "EAN-DRAFT",
+            "tnr_id": 0,
+            "tnr_variationID": 0,
+            "Stock_Disponible": "5",
+            "weight": "1000.000000000",
+            "wide": "2.000000000",
+            "large": "13.000000000",
+            "height": "8.000000000",
+            "Marca": "ADATA",
+            "coslis_price": "100.00",
+            "iclh_price": "95.00",
+            "Moneda_Costo": "ARS",
+            "tnr_lastPromotionalPrice": "45000.00",
+        }
+        row.update(overrides)
+        return row
+
+    def test_falta_publicar_row_carries_a_resolved_draft(self, client, db, user_ver):
+        response = _fetch_report(client, user_ver, gbp_rows=[self._complete_gbp_row()])
+        assert response.status_code == 200
+        row = response.json()["items"][0]
+        assert row["verdict"] == "FALTA_PUBLICAR"
+        draft = row["publish_draft"]
+        assert draft is not None
+        assert draft["blocked"] is False
+        assert draft["fields"]["weight"]["value"] == pytest.approx(1.0)
+        assert draft["fields"]["weight"]["source"] == "gbp"
+        assert draft["fields"]["cost"]["value"] == pytest.approx(100.0)
+
+    def test_stored_override_wins_over_gbp_in_the_draft(self, client, db, user_ver):
+        db.add(TnPublishOverride(ean="EAN-DRAFT", campo="weight", valor="9.500", usuario_id=1))
+        db.commit()
+        response = _fetch_report(client, user_ver, gbp_rows=[self._complete_gbp_row()])
+        row = response.json()["items"][0]
+        draft = row["publish_draft"]
+        assert draft["fields"]["weight"]["value"] == pytest.approx(9.5)
+        assert draft["fields"]["weight"]["source"] == "override"
+
+    def test_missing_measurement_blocks_the_draft_and_names_the_field(self, client, db, user_ver):
+        response = _fetch_report(client, user_ver, gbp_rows=[self._complete_gbp_row(weight="0")])
+        row = response.json()["items"][0]
+        draft = row["publish_draft"]
+        assert draft["blocked"] is True
+        assert any("weight" in reason for reason in draft["blocked_reasons"])
+
+    def test_empty_exchange_rate_table_blocks_a_usd_cost_field_not_the_whole_report(self, client, db, user_ver):
+        response = _fetch_report(client, user_ver, gbp_rows=[self._complete_gbp_row(Moneda_Costo="USD")])
+        assert response.status_code == 200
+        row = response.json()["items"][0]
+        draft = row["publish_draft"]
+        assert draft["blocked"] is True
+        assert any("tipo de cambio" in reason.lower() for reason in draft["blocked_reasons"])
+
+    def test_usd_rate_is_resolved_once_for_the_whole_report_never_per_row(self, client, db, user_ver):
+        # Pre-push review finding + design Decision 3: with ~99% of report
+        # rows USD-costed, a per-row `TipoCambio` lookup multiplies into
+        # hundreds of queries per /reporte on a checked-out pooled
+        # connection (this repo has a documented pool-exhaustion incident).
+        gbp_rows = [
+            self._complete_gbp_row(**{"Código": "EAN-USD-1", "Moneda_Costo": "USD"}),
+            self._complete_gbp_row(**{"Código": "EAN-USD-2", "Moneda_Costo": "USD"}),
+            self._complete_gbp_row(**{"Código": "EAN-USD-3", "Moneda_Costo": "USD"}),
+        ]
+        with patch("app.api.endpoints.tienda_nube_reconcile.latest_usd_rate", return_value=1000.0) as mocked_rate:
+            response = _fetch_report(client, user_ver, gbp_rows=gbp_rows)
+        assert response.status_code == 200
+        assert mocked_rate.call_count == 1
+        for row in response.json()["items"]:
+            assert row["publish_draft"]["fields"]["cost"]["value"] == pytest.approx(100000.0)
+
+    def test_junk_cost_blocks_the_field_with_a_reason_not_a_vanished_draft(self, client, db, user_ver):
+        # D13: junk is not absence — a non-numeric cost must surface as a
+        # blocked cost field naming the junk, never as a silently-missing
+        # draft swallowed by the per-row containment.
+        response = _fetch_report(client, user_ver, gbp_rows=[self._complete_gbp_row(coslis_price="N/A")])
+        assert response.status_code == 200
+        draft = response.json()["items"][0]["publish_draft"]
+        assert draft is not None
+        assert draft["blocked"] is True
+        assert any("costo" in reason.lower() for reason in draft["blocked_reasons"])
+
+    def test_non_candidate_verdict_has_no_draft(self, client, db, user_ver):
+        gbp_rows = [
+            {"Código": "EAN-100", "tnr_id": 0, "tnr_variationID": 0, "Stock_Disponible": 5},
+        ]
+        tn_producto = TiendaNubeProducto(
+            product_id=1, variant_id=1, variant_sku="EAN-100", product_name="x", published=True, activo=True
+        )
+        db.add(tn_producto)
+        db.commit()
+        response = _fetch_report(client, user_ver, gbp_rows=gbp_rows)
+        row = next(r for r in response.json()["items"] if r["ean"] == "EAN-100")
+        assert row["verdict"] == "OK" or row["publish_draft"] is None
+
+    def test_broken_row_extraction_omits_the_draft_without_500(self, client, db, user_ver):
+        broken_row = {
+            "Código": "EAN-BROKEN",
+            "tnr_id": 0,
+            "tnr_variationID": 0,
+            "Stock_Disponible": "5",
+            # missing `weight`/`wide`/`large`/`height`/etc — schema break.
+        }
+        response = _fetch_report(client, user_ver, gbp_rows=[broken_row])
+        assert response.status_code == 200
+        row = response.json()["items"][0]
+        assert row["publish_fields_error"] is not None
+        assert row["publish_draft"] is None
 
 
 class TestReconcilePublishFieldsPassthrough:

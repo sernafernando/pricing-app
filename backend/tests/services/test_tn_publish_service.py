@@ -16,6 +16,7 @@ import pytest
 
 from app.models.auditoria import Auditoria, TipoAccion
 from app.models.tienda_nube_producto import TiendaNubeProducto
+from app.models.tn_publish_override import TnPublishOverride
 from app.models.usuario import AuthProvider, RolUsuario, Usuario
 from app.services.tienda_nube_product_client import TnProductLookupError, TnRateLimited
 from app.services.tn_publish_service import (
@@ -615,6 +616,101 @@ class TestPublishRejectedByProxy:
         assert isinstance(outcome["detail"], str)
         assert fake_client.image_calls == []
         assert db.query(TiendaNubeProducto).filter(TiendaNubeProducto.variant_sku == "EAN-PUB-1").count() == 0
+
+
+class TestPublishOverridePersistence:
+    """PC5/D8 (task 5.4/5.5): a SUCCESSFUL publish upserts every
+    operator-edited field into `tn_publish_override`, keyed by `(ean,
+    campo)`. D8 is enforced structurally elsewhere (the core has no GBP
+    write client on its call path); this only proves the upsert itself
+    fires on success and stays silent on every other outcome."""
+
+    def test_unknown_override_field_is_skipped_never_persisted(self, db):
+        # Defense in depth behind the endpoint's 422 validator: a caller
+        # bypassing `PublicarRequest` (a future internal consumer) must not
+        # be able to persist arbitrary campos — the unknown key is skipped
+        # with a warning while the known one still persists.
+        user = _make_user(db)
+        fake_client = _FakePublishClient(
+            create_outcome={"ok": True, "status_code": 201, "ambiguous": False, "body": {"id": 993}},
+        )
+        publish_product(
+            db,
+            user,
+            client=fake_client,
+            overrides={"weight": "1.200", "campo_inventado": "zzz"},
+            **_publish_kwargs(ean="EAN-OVR-UNK"),
+        )
+        campos = {row.campo for row in db.query(TnPublishOverride).filter(TnPublishOverride.ean == "EAN-OVR-UNK")}
+        assert campos == {"weight"}
+
+    def test_successful_publish_upserts_every_overridden_field(self, db):
+        user = _make_user(db)
+        fake_client = _FakePublishClient(
+            create_outcome={"ok": True, "status_code": 201, "ambiguous": False, "body": {"id": 991}},
+        )
+        publish_product(
+            db,
+            user,
+            client=fake_client,
+            overrides={"weight": "1.200", "width": "13"},
+            **_publish_kwargs(),
+        )
+        rows = {
+            row.campo: row.valor
+            for row in db.query(TnPublishOverride).filter(TnPublishOverride.ean == "EAN-PUB-1").all()
+        }
+        assert rows == {"weight": "1.200", "width": "13"}
+
+    def test_re_publish_updates_the_existing_override_row_not_a_duplicate(self, db):
+        user = _make_user(db)
+        db.add(TnPublishOverride(ean="EAN-PUB-1", campo="weight", valor="0.900", usuario_id=user.id))
+        db.commit()
+        fake_client = _FakePublishClient(
+            create_outcome={"ok": True, "status_code": 201, "ambiguous": False, "body": {"id": 992}},
+        )
+        publish_product(db, user, client=fake_client, overrides={"weight": "1.200"}, **_publish_kwargs(ean="EAN-PUB-1"))
+        rows = db.query(TnPublishOverride).filter(TnPublishOverride.ean == "EAN-PUB-1").all()
+        assert len(rows) == 1
+        assert rows[0].valor == "1.200"
+
+    def test_no_overrides_is_a_no_op(self, db):
+        user = _make_user(db)
+        fake_client = _FakePublishClient(
+            create_outcome={"ok": True, "status_code": 201, "ambiguous": False, "body": {"id": 993}},
+        )
+        publish_product(db, user, client=fake_client, **_publish_kwargs())
+        assert db.query(TnPublishOverride).count() == 0
+
+    def test_rejected_invalid_price_persists_no_override(self, db):
+        user = _make_user(db)
+        publish_product(
+            db,
+            user,
+            client=_FakePublishClient(create_outcome={"ok": True, "status_code": 201, "ambiguous": False, "body": {}}),
+            overrides={"weight": "1.200"},
+            **_publish_kwargs(product_data={"name": {"es": "x"}, "price": None}),
+        )
+        assert db.query(TnPublishOverride).count() == 0
+
+    def test_ambiguous_outcome_with_no_readback_persists_no_override(self, db):
+        user = _make_user(db)
+        fake_client = _FakePublishClient(
+            create_outcome={"ok": False, "status_code": 503, "ambiguous": True, "body": None},
+        )
+        publish_product(db, user, client=fake_client, overrides={"weight": "1.200"}, **_publish_kwargs())
+        assert db.query(TnPublishOverride).count() == 0
+
+    def test_no_gbp_erp_write_client_used_no_side_effect_beyond_override_table(self, db):
+        """D8 structural proof: the override upsert touches ONLY
+        `tn_publish_override` — it never calls any GBP/ERP write method on
+        the injected client (which has none to call in the first place)."""
+        user = _make_user(db)
+        fake_client = _FakePublishClient(
+            create_outcome={"ok": True, "status_code": 201, "ambiguous": False, "body": {"id": 994}},
+        )
+        publish_product(db, user, client=fake_client, overrides={"weight": "1.200"}, **_publish_kwargs())
+        assert not hasattr(fake_client, "update_erp") and not hasattr(fake_client, "write_gbp")
 
 
 class TestPublishRateLimited:

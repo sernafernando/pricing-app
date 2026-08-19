@@ -14,11 +14,16 @@ from app.services.tn_publish_core.extract import Absent, ExtractedReportRow, ext
 from app.services.tn_publish_core.resolve import (
     Resolved,
     ResolvedGbpFields,
+    latest_usd_rate,
     resolve_cost,
     resolve_field,
     resolve_gbp_fields,
 )
-from app.services.tn_publish_core.validate import ValidationResult, validate_measurements
+from app.services.tn_publish_core.validate import (
+    OVERRIDABLE_FIELDS,
+    ValidationResult,
+    validate_measurements,
+)
 
 __all__ = [
     "Absent",
@@ -26,9 +31,11 @@ __all__ = [
     "extract_report_row",
     "Resolved",
     "ResolvedGbpFields",
+    "latest_usd_rate",
     "resolve_cost",
     "resolve_field",
     "resolve_gbp_fields",
+    "OVERRIDABLE_FIELDS",
     "ValidationResult",
     "validate_measurements",
     "assemble_payload",

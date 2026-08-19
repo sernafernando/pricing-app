@@ -43,6 +43,7 @@ def execute_batch(
     *,
     sleep_fn: Callable[[float], None] = time.sleep,
     ean_of: Callable[[Any], str] = lambda item: item["ean"],
+    max_rate_limit_attempts: int = MAX_RATE_LIMIT_ATTEMPTS,
 ) -> List[ItemOutcome]:
     """Runs `publish_fn` once per item, sequentially (TN's Weighted Token
     Bucket makes concurrency a guaranteed 429 storm — see design Decision
@@ -51,7 +52,17 @@ def execute_batch(
     immediately and the outcomes of already-processed items are discarded
     with it — deliberate, mirroring the no-blind-retry rule for ambiguous
     failures (a caller needing partial results must make `publish_fn`
-    return them as outcome dicts instead of raising)."""
+    return them as outcome dicts instead of raising).
+
+    `max_rate_limit_attempts` defaults to `MAX_RATE_LIMIT_ATTEMPTS` for a
+    real multi-item batch. `tn_publish_service.publish_product` (PR-5b, the
+    single-item interactive live path — still `execute_batch([item])`, per
+    Decision 6, no second code path) passes `0`: an interactive click must
+    surface a structured `rate_limited` outcome immediately rather than
+    block synchronously for the multi-second backoff window a bulk job can
+    afford. Both paths share the exact same classification/audit contract —
+    only the wait budget differs.
+    """
     outcomes: List[ItemOutcome] = []
     inter_item_delay = 0.0
 
@@ -74,7 +85,7 @@ def execute_batch(
                 )
                 break
             except TnRateLimited as exc:
-                if attempt >= MAX_RATE_LIMIT_ATTEMPTS:
+                if attempt >= max_rate_limit_attempts:
                     logger.warning("execute_batch: ean=%s exhausted rate-limit retries", ean)
                     outcomes.append(ItemOutcome(ean=ean, status="rate_limited", detail=str(exc)))
                     break
