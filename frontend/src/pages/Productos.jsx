@@ -13,6 +13,7 @@ import { useToast } from '../hooks/useToast';
 import Toast from '../components/Toast';
 import { usePrearmadasStats } from '../hooks/usePrearmadasStats';
 import PrearmadaBadge from '../components/PrearmadaBadge';
+import PxqTramosBadge from '../components/PxqTramosBadge';
 import { ChevronDown, ChevronRight, Users } from 'lucide-react';
 import { useExpandedSet } from '../hooks/useExpandedSet';
 import ProductoMLAsPanel from '../components/promociones/ProductoMLAsPanel';
@@ -87,6 +88,7 @@ export default function Productos() {
     coloresSeleccionados, setColoresSeleccionados,
     equipoActivoId, setEquipoActivoId,
     filtroPromoTipos, setFiltroPromoTipos, filtroPromoEstado, setFiltroPromoEstado,
+    filtroPxq, setFiltroPxq,
     filtrosAuditoria, setFiltrosAuditoria,
     panelFiltroActivo, setPanelFiltroActivo,
     mostrarFiltrosAvanzados, setMostrarFiltrosAvanzados,
@@ -129,7 +131,7 @@ export default function Productos() {
       filtroMarkupClasica, filtroMarkupRebate, filtroMarkupOferta, filtroMarkupWebTransf,
       filtroOutOfCards, filtroMLA, filtroEstadoMLA, filtroNuevos, filtroTiendaOficial,
       coloresSeleccionados, pmsSeleccionados, filtrosAuditoria,
-      filtroPromoTipos, filtroPromoEstado,
+      filtroPromoTipos, filtroPromoEstado, filtroPxq,
     },
     showToast,
   });
@@ -670,12 +672,12 @@ export default function Productos() {
 
           <button
             onClick={() => setMostrarFiltrosAvanzados(!mostrarFiltrosAvanzados)}
-            className={`filter-button ${(filtroRebate || filtroOferta || filtroWebTransf || filtroMarkupClasica || filtroMarkupRebate || filtroMarkupOferta || filtroMarkupWebTransf || filtroOutOfCards || coloresSeleccionados.length > 0 || filtroPromoTipos.length > 0) ? 'active' : ''}`}
+            className={`filter-button ${(filtroRebate || filtroOferta || filtroWebTransf || filtroMarkupClasica || filtroMarkupRebate || filtroMarkupOferta || filtroMarkupWebTransf || filtroOutOfCards || coloresSeleccionados.length > 0 || filtroPromoTipos.length > 0 || filtroPxq) ? 'active' : ''}`}
           >
             Avanzados
-            {(filtroRebate || filtroOferta || filtroWebTransf || filtroMarkupClasica || filtroMarkupRebate || filtroMarkupOferta || filtroMarkupWebTransf || filtroOutOfCards || coloresSeleccionados.length > 0 || filtroPromoTipos.length > 0) && (
+            {(filtroRebate || filtroOferta || filtroWebTransf || filtroMarkupClasica || filtroMarkupRebate || filtroMarkupOferta || filtroMarkupWebTransf || filtroOutOfCards || coloresSeleccionados.length > 0 || filtroPromoTipos.length > 0 || filtroPxq) && (
               <span className="filter-badge">
-                {[filtroRebate, filtroOferta, filtroWebTransf, filtroMarkupClasica, filtroMarkupRebate, filtroMarkupOferta, filtroMarkupWebTransf, filtroOutOfCards].filter(Boolean).length + coloresSeleccionados.length + filtroPromoTipos.length}
+                {[filtroRebate, filtroOferta, filtroWebTransf, filtroMarkupClasica, filtroMarkupRebate, filtroMarkupOferta, filtroMarkupWebTransf, filtroOutOfCards, filtroPxq].filter(Boolean).length + coloresSeleccionados.length + filtroPromoTipos.length}
               </span>
             )}
           </button>
@@ -1443,6 +1445,18 @@ export default function Productos() {
                 </div>
 
                 <div className="filter-item">
+                  <label>📦 Precios mayoristas</label>
+                  <select
+                    value={filtroPxq || 'todos'}
+                    onChange={(e) => { setFiltroPxq(e.target.value === 'todos' ? null : e.target.value); setPage(1); }}
+                    className="filter-select"
+                  >
+                    <option value="todos">Todos</option>
+                    <option value="con_pxq">Con precios mayoristas</option>
+                  </select>
+                </div>
+
+                <div className="filter-item">
                   <label>✨ Productos Nuevos</label>
                   <select
                     value={filtroNuevos || 'todos'}
@@ -1693,6 +1707,7 @@ export default function Productos() {
                     <td>
                       {p.descripcion}
                       <PrearmadaBadge stats={prearmadasStats[p.item_id]} />
+                      <PxqTramosBadge tramos={p.pxq_tramos} precioDesde={p.pxq_precio_desde} />
                       {p.has_catalog && p.catalog_status && (
                         <span
                           style={{

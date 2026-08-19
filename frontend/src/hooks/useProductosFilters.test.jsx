@@ -266,3 +266,70 @@ describe('useProductosFilters — after clearing, no filter reaches the API', ()
     expect(result.current.construirFiltrosParams()).toEqual({});
   });
 });
+
+describe('useProductosFilters — wholesale (PxQ) filter', () => {
+  it('defaults filtroPxq to null and sends no param', () => {
+    const { result } = renderHook(() => useProductosFilters(), { wrapper });
+    expect(result.current.filtroPxq).toBeNull();
+    expect(result.current.construirFiltrosParams().con_pxq).toBeUndefined();
+  });
+
+  it('construirFiltrosParams sends con_pxq=true when the filter is on', () => {
+    const { result } = renderHook(() => useProductosFilters(), { wrapper });
+
+    act(() => {
+      result.current.setFiltroPxq('con_pxq');
+    });
+
+    expect(result.current.construirFiltrosParams().con_pxq).toBe(true);
+  });
+
+  it('keeps every other active filter alongside it (they add up, never replace)', () => {
+    const { result } = renderHook(() => useProductosFilters(), { wrapper });
+
+    act(() => {
+      result.current.setFiltroPxq('con_pxq');
+      result.current.setFiltroPromoTipos(['SMART']);
+      result.current.setMarcasSeleccionadas(['Epson']);
+    });
+
+    const params = result.current.construirFiltrosParams();
+    expect(params.con_pxq).toBe(true);
+    expect(params.promo_tipos).toBe('SMART');
+    expect(params.marcas).toBe('Epson');
+  });
+
+  it('loadFiltersFromURL round-trips pxq from the URL', () => {
+    const { result } = renderHook(() => useProductosFilters(), {
+      wrapper: wrapperWithURL(['/?pxq=con_pxq']),
+    });
+    expect(result.current.filtroPxq).toBe('con_pxq');
+  });
+
+  it('limpiarTodosFiltros resets it', () => {
+    const { result } = renderHook(() => useProductosFilters(), { wrapper });
+
+    act(() => {
+      result.current.setFiltroPxq('con_pxq');
+    });
+    act(() => {
+      result.current.limpiarTodosFiltros();
+    });
+
+    expect(result.current.filtroPxq).toBeNull();
+    expect(result.current.construirFiltrosParams().con_pxq).toBeUndefined();
+  });
+
+  it('limpiarFiltros (advanced-panel reset) resets it too', () => {
+    const { result } = renderHook(() => useProductosFilters(), { wrapper });
+
+    act(() => {
+      result.current.setFiltroPxq('con_pxq');
+    });
+    act(() => {
+      result.current.limpiarFiltros();
+    });
+
+    expect(result.current.filtroPxq).toBeNull();
+  });
+});
