@@ -2478,6 +2478,7 @@ export default function Productos() {
                               promoTipos={filtroPromoTipos}
                               promoEstado={filtroPromoEstado}
                               tiendaOficial={filtroTiendaOficial}
+                              conPxq={filtroPxq}
                             />
                           </div>
                         </td>

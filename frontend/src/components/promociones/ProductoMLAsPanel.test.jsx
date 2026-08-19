@@ -403,3 +403,43 @@ describe('ProductoMLAsPanel — tree controls look like buttons', () => {
     }
   });
 });
+
+describe('ProductoMLAsPanel — wholesale (PxQ) filter forwarding', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    localStorage.clear();
+    useTreeViewStore.setState({ showFamilia: false });
+  });
+
+  it('sends con_pxq to the tree endpoint when the filter is on', async () => {
+    productosAPI.getProductoTree.mockResolvedValue(treeResponse([]));
+
+    renderPanel({ conPxq: 'con_pxq' });
+
+    await waitFor(() => expect(productosAPI.getProductoTree).toHaveBeenCalled());
+    expect(productosAPI.getProductoTree).toHaveBeenCalledWith('ITEM001', expect.objectContaining({ con_pxq: true }));
+  });
+
+  it('sends no con_pxq when the filter is off', async () => {
+    productosAPI.getProductoTree.mockResolvedValue(treeResponse([]));
+
+    renderPanel();
+
+    await waitFor(() => expect(productosAPI.getProductoTree).toHaveBeenCalled());
+    expect(productosAPI.getProductoTree.mock.calls[0][1]).not.toHaveProperty('con_pxq');
+  });
+
+  it('hides a publication the backend excluded, with PxQ as the only active filter', async () => {
+    productosAPI.getProductoTree.mockResolvedValue(
+      treeResponse([
+        { level: 1, kind: 'publicacion', mla: 'MLA_CON', label: 'MLA_CON', matches_filter: true, children: [] },
+        { level: 1, kind: 'publicacion', mla: 'MLA_SIN', label: 'MLA_SIN', matches_filter: false, children: [] },
+      ]),
+    );
+
+    renderPanel({ conPxq: 'con_pxq' });
+
+    await waitFor(() => expect(screen.getByText(/MLA_CON/)).toBeTruthy());
+    expect(screen.queryByText(/MLA_SIN/)).toBeNull();
+  });
+});
