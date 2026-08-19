@@ -28,11 +28,14 @@ import { useCategoryPicker } from './hooks/useCategoryPicker';
 import { useMarkupOffset } from './hooks/useMarkupOffset';
 import { usePublishSubmit } from './hooks/usePublishSubmit';
 import { useDescriptionEditor } from './hooks/useDescriptionEditor';
+import { useDraftFields, MEASUREMENT_FIELDS } from './hooks/useDraftFields';
+import { useMeasurementProfile } from './hooks/useMeasurementProfile';
 import ProductFieldsSection from './ProductFieldsSection';
 import VariantFieldsSection from './VariantFieldsSection';
 import CategorySection from './CategorySection';
 import DescriptionEditor from './DescriptionEditor';
 import ImageGallery from './ImageGallery';
+import MeasurementSection from './MeasurementSection';
 import styles from './TnPublishModal.module.css';
 
 export default function TnPublishModal({ row, isOpen, onClose, onPublished }) {
@@ -58,6 +61,22 @@ export default function TnPublishModal({ row, isOpen, onClose, onPublished }) {
   } = useCategoryPicker({ isOpen, ean, row });
 
   const { editor, editorState } = useDescriptionEditor({ isOpen, ean, initialHtml: row?.ml_desc });
+
+  const draftFields = useDraftFields(row);
+  const {
+    profiles,
+    loadingProfiles,
+    profileError,
+    selectedProfileId,
+    setSelectedProfileId,
+    clearProfile,
+  } = useMeasurementProfile({ isOpen, suggestedProfileId: row?.publish_draft?.suggested_profile_id ?? null });
+
+  const publishFieldsError = row?.publish_fields_error ?? null;
+  const missingMeasurementFields = MEASUREMENT_FIELDS.filter(
+    (f) => draftFields[f] === '' || draftFields[f] == null
+  );
+  const measurementsBlocked = publishFieldsError != null || missingMeasurementFields.length > 0;
 
   // Precio de publicación (Slice 2, money path) — see VariantFieldsSection
   // for the full two-base rule. `hasWebPrice` selects the surcharge path vs.
@@ -101,10 +120,16 @@ export default function TnPublishModal({ row, isOpen, onClose, onPublished }) {
       hasWebPrice,
       offsetPercent,
       priceBaseSource,
+      draftFields,
     });
 
   const canPublish =
-    selectedCategory != null && title.trim().length > 0 && !loadingSuggestion && !submitting && finalPriceIsValid;
+    selectedCategory != null &&
+    title.trim().length > 0 &&
+    !loadingSuggestion &&
+    !submitting &&
+    finalPriceIsValid &&
+    !measurementsBlocked;
 
   if (!isOpen) return null;
 
@@ -119,7 +144,22 @@ export default function TnPublishModal({ row, isOpen, onClose, onPublished }) {
       {loadError && <div className={styles.errorBanner}>{loadError}</div>}
       {submitError && <div className={styles.errorBanner}>{submitError}</div>}
 
-      <ProductFieldsSection title={title} onTitleChange={setTitle} />
+      <ProductFieldsSection
+        title={title}
+        onTitleChange={setTitle}
+        brand={draftFields.brand}
+        onBrandChange={(v) => draftFields.setField('brand', v)}
+        visibility={draftFields.visibility}
+        onVisibilityChange={(v) => draftFields.setField('visibility', v)}
+        freeShipping={draftFields.freeShipping}
+        onFreeShippingChange={(v) => draftFields.setField('freeShipping', v)}
+        seoTitle={draftFields.seoTitle}
+        onSeoTitleChange={(v) => draftFields.setField('seoTitle', v)}
+        seoDescription={draftFields.seoDescription}
+        onSeoDescriptionChange={(v) => draftFields.setField('seoDescription', v)}
+        tags={draftFields.tags}
+        onTagsChange={(v) => draftFields.setField('tags', v)}
+      />
 
       <CategorySection
         loadingSuggestion={loadingSuggestion}
@@ -151,6 +191,31 @@ export default function TnPublishModal({ row, isOpen, onClose, onPublished }) {
         manualPrice={manualPrice}
         setManualPrice={setManualPrice}
         finalPriceIsValid={finalPriceIsValid}
+        sku={draftFields.sku}
+        onSkuChange={(v) => draftFields.setField('sku', v)}
+        barcode={draftFields.barcode}
+        onBarcodeChange={(v) => draftFields.setField('barcode', v)}
+        cost={draftFields.cost}
+        onCostChange={(v) => draftFields.setField('cost', v)}
+        stock={draftFields.stock}
+        onStockChange={(v) => draftFields.setField('stock', v)}
+        promotionalPrice={draftFields.promotionalPrice}
+        onPromotionalPriceChange={(v) => draftFields.setField('promotionalPrice', v)}
+      />
+
+      <MeasurementSection
+        fields={draftFields}
+        setField={draftFields.setField}
+        profiles={profiles}
+        loadingProfiles={loadingProfiles}
+        profileError={profileError}
+        selectedProfileId={selectedProfileId}
+        setSelectedProfileId={setSelectedProfileId}
+        onApplyProfile={draftFields.applyProfile}
+        onClearProfile={clearProfile}
+        missingFields={missingMeasurementFields}
+        blocked={measurementsBlocked && !publishFieldsError}
+        publishFieldsError={publishFieldsError}
       />
 
       {/* ------------------------------------------------------ Submit --- */}
