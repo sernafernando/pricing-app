@@ -506,6 +506,12 @@ class PublicarRequest(BaseModel):
     # server-side, never trusted from the client.
     moneda_costo: Optional[str] = None
     profile_id: Optional[int] = None
+    # PR-8 gap A/B: the GBP category/subcategory for this row — forwarded so
+    # `publish_product` can write the `tn_category_profile_hint` usage row on
+    # a successful publish where `profile_id` was applied. Report facts, not
+    # operator input — same status as `moneda_costo` above.
+    categoria: Optional[str] = None
+    subcategoria: Optional[str] = None
 
     @field_validator("overrides", "measurements")
     @classmethod
@@ -865,6 +871,9 @@ def publicar_producto(
         overrides=request.overrides,
         measurements=request.measurements,
         moneda_costo=request.moneda_costo,
+        profile_id=request.profile_id,
+        categoria=request.categoria,
+        subcategoria=request.subcategoria,
     )
     if outcome["status"] in ("rejected_invalid_price", "blocked_measurements", "blocked_cost"):
         raise HTTPException(status_code=400, detail=outcome.get("detail"))

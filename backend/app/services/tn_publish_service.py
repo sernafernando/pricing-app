@@ -41,8 +41,11 @@ from typing import Any, Dict, List, Optional
 import nh3
 from sqlalchemy.orm import Session
 
+from sqlalchemy.exc import IntegrityError
+
 from app.models.auditoria import Auditoria, TipoAccion
 from app.models.tienda_nube_producto import TiendaNubeProducto
+from app.models.tn_category_profile_hint import TnCategoryProfileHint
 from app.models.tn_publish_override import TnPublishOverride
 from app.models.usuario import Usuario
 from app.services.tienda_nube_product_client import (
@@ -423,6 +426,99 @@ def _upsert_publish_overrides(db: Session, usuario: Usuario, ean: str, overrides
         logger.error("Override upsert failed for ean=%s: %s", ean, e, exc_info=True)
 
 
+def _upsert_category_profile_hint(
+    db: Session,
+    categoria: Optional[str],
+    subcategoria: Optional[str],
+    profile_id: Optional[int],
+) -> None:
+    """PR-8 gap B: writes the `tn_category_profile_hint` row that feeds
+    `GET /tn-measurement-profiles/suggestion` (MP3). Called ONLY after a
+    `submitted` outcome, mirroring `_upsert_publish_overrides` — best-effort,
+    wrapped so a failure here never masks or reverses the TN write outcome
+    the caller already computed.
+
+    No-op when either `categoria` or `profile_id` is missing: no category
+    context or no profile applied means there is nothing meaningful to
+    attribute the usage to.
+
+    Postgres gotcha (verified, not assumed): `uq_tn_category_profile_hint`
+    is a UNIQUE constraint over `(categoria, subcategoria, profile_id)`, but
+    Postgres treats every NULL as distinct for uniqueness purposes — so two
+    concurrent/sequential publishes to a category-only hint (`subcategoria
+    IS NULL`) would NOT collide on the constraint and could insert two rows
+    instead of incrementing one. This function always queries-then-updates
+    rather than relying on the constraint to dedupe, which sidesteps that
+    gap for both the NULL and non-NULL subcategoria cases alike. A genuine
+    race between two concurrent requests inserting the same key is instead
+    handled by catching `IntegrityError` and retrying as an update.
+    """
+    if not categoria or profile_id is None:
+        return
+    try:
+        existing = (
+            db.query(TnCategoryProfileHint)
+            .filter(
+                TnCategoryProfileHint.categoria == categoria,
+                TnCategoryProfileHint.subcategoria.is_(None)
+                if subcategoria is None
+                else TnCategoryProfileHint.subcategoria == subcategoria,
+                TnCategoryProfileHint.profile_id == profile_id,
+            )
+            .first()
+        )
+        if existing is not None:
+            existing.uso_count = (existing.uso_count or 0) + 1
+            db.commit()
+            return
+        db.add(
+            TnCategoryProfileHint(
+                categoria=categoria,
+                subcategoria=subcategoria,
+                profile_id=profile_id,
+                uso_count=1,
+            )
+        )
+        db.commit()
+    except IntegrityError:
+        # Lost a race against a concurrent insert of the exact same key —
+        # the other request's row now exists; fall back to an update.
+        db.rollback()
+        try:
+            existing = (
+                db.query(TnCategoryProfileHint)
+                .filter(
+                    TnCategoryProfileHint.categoria == categoria,
+                    TnCategoryProfileHint.subcategoria.is_(None)
+                    if subcategoria is None
+                    else TnCategoryProfileHint.subcategoria == subcategoria,
+                    TnCategoryProfileHint.profile_id == profile_id,
+                )
+                .first()
+            )
+            if existing is not None:
+                existing.uso_count = (existing.uso_count or 0) + 1
+                db.commit()
+        except Exception as e:
+            db.rollback()
+            logger.error(
+                "Category profile hint retry-after-race failed for categoria=%s profile_id=%s: %s",
+                categoria,
+                profile_id,
+                e,
+                exc_info=True,
+            )
+    except Exception as e:
+        db.rollback()
+        logger.error(
+            "Category profile hint upsert failed for categoria=%s profile_id=%s: %s",
+            categoria,
+            profile_id,
+            e,
+            exc_info=True,
+        )
+
+
 def _extract_variant_id(product_body: Optional[Dict[str, Any]]) -> Optional[int]:
     """Extract the REAL per-variant TN id from a full product response body.
 
@@ -516,6 +612,9 @@ def publish_product(
     overrides: Optional[Dict[str, str]] = None,
     measurements: Optional[Dict[str, str]] = None,
     moneda_costo: Optional[str] = None,
+    profile_id: Optional[int] = None,
+    categoria: Optional[str] = None,
+    subcategoria: Optional[str] = None,
 ) -> Dict[str, Any]:
     """Creates a single TN product from GBP-derived data (Slice 3a).
 
@@ -546,6 +645,15 @@ def publish_product(
             not fatal to the publish) and reported back in
             `skipped_image_srcs` so the operator can see what didn't make it.
         client: Optional injected `TiendaNubeProductClient` (tests only).
+        profile_id: PR-8 gap A/B — the measurement profile the operator
+            applied (if any). Forwarded so `_upsert_category_profile_hint`
+            can attribute a `submitted` outcome to it; plays no role in the
+            TN payload itself (that's `measurements`/`overrides`).
+        categoria: GBP report category for this row — the hint key's
+            primary component. `None`/no `profile_id` is a no-op write.
+        subcategoria: GBP report subcategory — the hint key's optional
+            secondary component (see `TnCategoryProfileHint`'s docstring for
+            the fallback lookup order this feeds).
 
     Idempotency (check-before-POST, local-mirror-only): before creating,
     this checks whether ANY `tienda_nube_productos` row already has this EAN
@@ -870,6 +978,7 @@ def publish_product(
             price_base_source=price_base_source,
         )
         _upsert_publish_overrides(db, usuario, ean, overrides)
+        _upsert_category_profile_hint(db, categoria, subcategoria, profile_id)
         return outcome
 
     if item_outcome.status == "rejected_by_proxy":
