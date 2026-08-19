@@ -2,7 +2,7 @@
 a proposal, batch-confirm several, and the human retrigger with its
 single-flight guard. Kept out of `tickets.py` (already large)."""
 
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query
 from sqlalchemy import and_, or_
 from sqlalchemy.orm import Session
 
@@ -264,8 +264,8 @@ async def retriggerar_triage(
 @router.get("/tickets/triage/ejemplos", response_model=list[EjemploResponse])
 def listar_ejemplos(
     campo: str | None = None,
-    skip: int = 0,
-    limit: int = 50,
+    skip: int = Query(default=0, ge=0),
+    limit: int = Query(default=50, ge=1, le=200),
     db: Session = Depends(get_db),
     current_user: Usuario = Depends(get_current_user),
 ) -> list[EjemploResponse]:
