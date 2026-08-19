@@ -40,7 +40,7 @@ from app.tickets.models.propuesta_ia import PropuestaIA
 from app.tickets.models.sector import Sector
 from app.tickets.models.ticket import Ticket
 from app.tickets.services import confirmacion_service, ejemplos_service
-from app.tickets.services.ejemplos_service import append_ejemplos_bloque
+from app.tickets.services.ejemplos_service import append_ejemplos_bloque, recuperar_ejemplos_con_embedding
 from app.tickets.services.vocabularios import CAMPOS_CORREGIBLES
 
 # Duplicated on purpose (established convention in this module set — see
@@ -489,21 +489,11 @@ async def run_triage(ticket_id: int, provider: LlmProvider) -> None:
         if query_embedding is not None:
             with get_background_db() as db:
                 for campo in sorted(CAMPOS_CORREGIBLES):
-                    try:
-                        rows = ejemplos_service._similarity_query(
-                            db, campo, query_embedding, ejemplos_service._EJEMPLOS_K
-                        )
-                    except Exception:  # noqa: BLE001 — retrieval must never break triage.
-                        logger.warning(
-                            "tickets triage: ejemplos similarity query failed for campo=%r", campo, exc_info=True
-                        )
-                        rows = []
-                    filtrados = [
-                        row
-                        for row in rows
-                        if ejemplos_service._cosine_distance(row.embedding, query_embedding)
-                        <= (1 - ejemplos_service._EJEMPLOS_SIMILARITY_MIN)
-                    ]
+                    # Reuses `ejemplos_service`'s OWN retrieval rule (query,
+                    # threshold, degradation) via its public embedding-aware
+                    # entrypoint — this module never reaches into that
+                    # module's private query/threshold internals directly.
+                    filtrados = recuperar_ejemplos_con_embedding(db, campo, query_embedding)
                     bloques_por_campo[campo] = ejemplos_service._assemble_bloques(filtrados)
 
     todos_los_bloques = [bloque for campo in sorted(bloques_por_campo) for bloque in bloques_por_campo[campo]]
