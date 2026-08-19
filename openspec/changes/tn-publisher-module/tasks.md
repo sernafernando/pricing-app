@@ -285,24 +285,24 @@ components, per design's file table), delete `frontend/src/components/TnPublishM
 **Spec IDs**: None new — this PR satisfies no new UI requirement; it is the structural precondition
 for PR-7's UI1–UI4.
 
-- [ ] 6.1 Baseline: run `TnPublishModal.test.jsx` (473 l) and `TiendaNubeReconcile.test.jsx` (1614 l)
+- [x] 6.1 Baseline: run `TnPublishModal.test.jsx` (473 l) and `TiendaNubeReconcile.test.jsx` (1614 l)
       green before any file move, capture the pass count.
-- [ ] 6.2 Extract `hooks/usePublishFields.js` (one reducer replacing the 17 `useState`, returns
+- [x] 6.2 Extract `hooks/usePublishFields.js` (one reducer replacing the 17 `useState`, returns
       dirty-only edits) — no behavior change.
-- [ ] 6.3 Extract `hooks/useCategoryPicker.js`, `hooks/usePublishSubmit.js`, `hooks/useMarkupOffset.js`
+- [x] 6.3 Extract `hooks/useCategoryPicker.js`, `hooks/usePublishSubmit.js`, `hooks/useMarkupOffset.js`
       (existing offset fetch, moved verbatim).
-- [ ] 6.4 Extract `PublishFieldRow.jsx`, `ProductFieldsSection.jsx`, `VariantFieldsSection.jsx`,
+- [x] 6.4 Extract `PublishFieldRow.jsx`, `ProductFieldsSection.jsx`, `VariantFieldsSection.jsx`,
       `MeasurementSection.jsx`, `CategorySection.jsx`, `DescriptionEditor.jsx` (TipTap, moved
       verbatim — non-goal to touch), `ImageGallery.jsx`.
-- [ ] 6.5 Reassemble `tn-publisher/TnPublishModal.jsx` (shell, ~120 l) from the extracted pieces.
-- [ ] 6.6 Update the import in `TiendaNubeReconcile.jsx` to the new path; retain the load-bearing
+- [x] 6.5 Reassemble `tn-publisher/TnPublishModal.jsx` (shell, ~120 l) from the extracted pieces.
+- [x] 6.6 Update the import in `TiendaNubeReconcile.jsx` to the new path; retain the load-bearing
       `key={publishingRow.ean}` remount at `:1229` with its explanatory comment (same treatment as
       U2 — do not let it be "optimized" away).
-- [ ] 6.7 **Acceptance gate**: `TnPublishModal.test.jsx` and `TiendaNubeReconcile.test.jsx` change by
+- [x] 6.7 **Acceptance gate**: `TnPublishModal.test.jsx` and `TiendaNubeReconcile.test.jsx` change by
       import path only. If any assertion needs editing, STOP — the refactor changed behavior, not just
       structure — and report before continuing. This is a hard acceptance criterion, not a
       nice-to-have.
-- [ ] 6.8 Delete the old `TnPublishModal.jsx`.
+- [x] 6.8 Delete the old `TnPublishModal.jsx`.
 
 **Estimated lines**: ~700. **Budget verdict**: under 800; this is a move/split-heavy PR so raw diff
 size is dominated by file relocation, not new logic — call this out explicitly in the PR description
