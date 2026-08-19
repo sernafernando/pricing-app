@@ -76,6 +76,37 @@ describe('TriageEjemplos — entry-point permission gate', () => {
   });
 });
 
+describe('TriageEjemplos — counter honesty at the page cap', () => {
+  function unosCuantos(n) {
+    return Array.from({ length: n }, (_, i) => ({
+      ...EJEMPLO_SEVERIDAD,
+      id: i + 1,
+      texto: `Ejemplo numero ${i + 1}`,
+    }));
+  }
+
+  it('does not present a full page as if it were the whole corpus', async () => {
+    // A full page means the endpoint hit its cap: there may be more examples
+    // we never received, so the denominator must not read as a total.
+    mockListar(unosCuantos(200));
+    render(<TriageEjemplos />);
+
+    const contador = await screen.findByText(/influyen en el triage/i);
+    expect(contador).toHaveTextContent('200+');
+    expect(screen.getByText(/mostrando los primeros 200/i)).toBeInTheDocument();
+  });
+
+  it('states the total plainly when the whole corpus fits in one page', async () => {
+    mockListar(unosCuantos(199));
+    render(<TriageEjemplos />);
+
+    const contador = await screen.findByText(/influyen en el triage/i);
+    expect(contador).toHaveTextContent('199 de 199');
+    expect(contador).not.toHaveTextContent('+');
+    expect(screen.queryByText(/mostrando los primeros/i)).not.toBeInTheDocument();
+  });
+});
+
 describe('TriageEjemplos — panel', () => {
   it('renders rows for the selected campo (severidad by default)', async () => {
     mockListar([EJEMPLO_SEVERIDAD, EJEMPLO_URGENCIA]);

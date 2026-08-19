@@ -9,6 +9,11 @@ const CAMPOS = [
   { value: 'urgencia', label: 'Urgencia' },
 ];
 
+// The listing endpoint caps a page at 200 rows and sends no total, so a full
+// page is the only signal that more may exist. The counter says so instead of
+// passing the page size off as the size of the corpus.
+const LIMITE_LISTADO = 200;
+
 // Accent by corrected value — direction B row anatomy, PR5b. All colors are
 // design tokens (`--cf-accent-*`) so they adapt across themes — no literal
 // hex, matching the rest of the CSS module (`.rowError`, `.counterDot`).
@@ -121,7 +126,7 @@ export default function TriageEjemplos() {
     setLoading(true);
     setErrorCarga(null);
     ejemplosAPI
-      .listar(campo, { limit: 200 })
+      .listar(campo, { limit: LIMITE_LISTADO })
       .then(({ data }) => {
         if (!cancelado) setEjemplos(data);
       })
@@ -165,6 +170,7 @@ export default function TriageEjemplos() {
 
   const total = ejemplos.length;
   const activos = ejemplos.filter((e) => e.active).length;
+  const paginaLlena = total === LIMITE_LISTADO;
 
   return (
     <div className={styles.container}>
@@ -192,7 +198,10 @@ export default function TriageEjemplos() {
         {total > 0 && (
           <div className={styles.counter}>
             <span className={styles.counterDot} />
-            <span>{activos} de {total} influyen en el triage</span>
+            <span>
+              {activos} de {total}
+              {paginaLlena ? '+' : ''} influyen en el triage
+            </span>
           </div>
         )}
       </div>
@@ -239,6 +248,13 @@ export default function TriageEjemplos() {
             />
           ))}
         </div>
+      )}
+
+      {!loading && paginaLlena && (
+        <p className={styles.footnote}>
+          Mostrando los primeros {LIMITE_LISTADO} ejemplos de este campo, los más antiguos
+          primero. Puede haber más.
+        </p>
       )}
 
       <p className={styles.footnote}>
