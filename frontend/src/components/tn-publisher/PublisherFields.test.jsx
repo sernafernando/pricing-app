@@ -320,3 +320,34 @@ describe('D13 — schema/extraction error vs. genuinely-absent measurements', ()
     expect(screen.getByRole('button', { name: /^publicar$/i })).toBeDisabled();
   });
 });
+
+// Pre-push review finding: `overrides` must match the backend's
+// `Dict[str, str]` — Pydantic v2 does NOT coerce number -> str, so a float
+// here is a guaranteed 422 in production. The pre-existing backend test
+// passed a hand-written `{"weight": "1.200"}` string fixture, so it stayed
+// green while the frontend shipped numbers: this test asserts the shape the
+// frontend ACTUALLY sends, which is the only shape that matters.
+describe('Wire contract — overrides value types', () => {
+  it('sends every override value as a string, never a number', async () => {
+    const user = userEvent.setup();
+    await renderModal();
+
+    const weightInput = screen.getByLabelText('Peso (kg)');
+    await user.clear(weightInput);
+    await user.type(weightInput, '1.2');
+
+    await user.click(screen.getByRole('button', { name: /^publicar$/i }));
+    await user.click(screen.getByRole('button', { name: /^confirmar$/i }));
+
+    await waitFor(() => {
+      expect(api.post).toHaveBeenCalledWith('/tienda-nube-reconcile/publicar', expect.any(Object));
+    });
+    const call = api.post.mock.calls.find(([url]) => url === '/tienda-nube-reconcile/publicar');
+    const overrides = call[1].overrides;
+    expect(Object.keys(overrides).length).toBeGreaterThan(0);
+    Object.entries(overrides).forEach(([campo, valor]) => {
+      expect(typeof valor, `overrides.${campo} must be a string`).toBe('string');
+    });
+    expect(overrides.weight).toBe('1.2');
+  });
+});

@@ -21,7 +21,11 @@ function buildOverrides(draftFields) {
   MEASUREMENT_FIELDS.forEach((field) => {
     const raw = draftFields[field];
     if (raw !== '' && raw != null && !Number.isNaN(Number(raw))) {
-      overrides[field] = Number(raw);
+      // String, never Number: the backend types `overrides` as
+      // `Dict[str, str]` and Pydantic v2 does NOT coerce number -> str,
+      // so a float here is a guaranteed 422 the operator only sees as
+      // "Error al publicar el producto".
+      overrides[field] = String(Number(raw));
     }
   });
   return overrides;
