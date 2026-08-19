@@ -1,11 +1,12 @@
 /**
- * MeasurementSection — profile selector (D11 preselect-not-apply confirm
- * flow, UI3) + the four measurement controls (weight/width/height/depth,
- * UI1) + the D3/UI4 blocked-publish banner. Distinguishes a D13
- * schema/extraction error (`publishFieldsError`) from a genuinely-absent
- * measurement — the two MUST read differently so an operator can't mask a
- * systemic report-78 break by hand-typing a value.
+ * MeasurementSection — "Medidas" card (PR-9 design item b): a tinted
+ * sub-block for the D11 preselect-not-apply profile confirm flow, then the
+ * 4-column measurement grid (weight/width/height/depth, UI1). The D3/UI4
+ * blocked-publish banner moved to `RightSummaryPane`/`BlockedPublishBanner`
+ * (design item e) — this card only owns the controls, never the block
+ * copy, so D13 vs. genuinely-absent stays a single source of truth there.
  */
+import shellStyles from './TnPublisherShell.module.css';
 import styles from './TnPublishModal.module.css';
 import { MEASUREMENT_FIELDS } from './hooks/useDraftFields';
 
@@ -26,75 +27,55 @@ export default function MeasurementSection({
   setSelectedProfileId,
   onApplyProfile,
   onClearProfile,
-  missingFields,
-  backendReasons = [],
-  blocked,
-  publishFieldsError,
+  categoria,
 }) {
   return (
-    <div className={styles.section} data-testid="tn-publish-field-measurements">
-      <h3 className={styles.sectionTitle}>Medidas y perfil</h3>
-
-      {publishFieldsError ? (
-        <p className={styles.fieldError} data-testid="blocked-banner-error">
-          Error de esquema/extracción en los datos del reporte — contactá a un administrador.
-        </p>
-      ) : (
-        blocked &&
-        (missingFields.length > 0 ? (
-          <p className={styles.fieldError} data-testid="blocked-banner-missing">
-            Faltan medidas: {missingFields.map((f) => MEASUREMENT_LABELS[f]).join(', ')}. Elegí un perfil de medidas
-            o completá los valores manualmente para poder publicar.
-          </p>
-        ) : (
-          // Blocked by the backend for something other than a measurement
-          // the operator can type here — today that means an unresolvable
-          // USD cost. Naming the real reason beats showing an empty
-          // "Faltan medidas:" list.
-          backendReasons.length > 0 && (
-            <p className={styles.fieldError} data-testid="blocked-banner-backend">
-              No se puede publicar: {backendReasons.join('; ')}.
-            </p>
-          )
-        ))
-      )}
+    <div className={shellStyles.card} data-testid="tn-publish-field-measurements">
+      <div className={shellStyles.cardHeaderRow}>
+        <h3 className={shellStyles.cardTitle} style={{ margin: 0 }}>
+          Medidas
+        </h3>
+        <span className={shellStyles.cardHeaderHint}>Del reporte GBP · editable</span>
+      </div>
 
       {loadingProfiles && <p className={styles.fieldHint}>Cargando perfiles de medidas...</p>}
       {profileError && <p className={styles.fieldError}>{profileError}</p>}
 
       {!loadingProfiles && profiles.length > 0 && (
-        <div className={styles.subSection}>
+        <div className={styles.subSectionTinted}>
           <label className={styles.searchLabel} htmlFor="tn-publish-profile">
-            Perfil de medidas sugerido
+            Perfil de medidas sugerido{categoria ? ` para "${categoria}"` : ''}
           </label>
-          <select
-            id="tn-publish-profile"
-            className={styles.titleInput}
-            value={selectedProfileId ?? ''}
-            onChange={(e) => setSelectedProfileId(e.target.value === '' ? null : Number(e.target.value))}
-          >
-            <option value="">Sin perfil</option>
-            {profiles.map((p) => (
-              <option key={p.id} value={p.id}>
-                {p.name}
-              </option>
-            ))}
-          </select>
-          <button
-            type="button"
-            className="btn-tesla outline-subtle-success sm"
-            disabled={selectedProfileId == null}
-            onClick={() => onApplyProfile(profiles.find((p) => p.id === selectedProfileId))}
-          >
-            Aplicar perfil
-          </button>
-          <button type="button" className="btn-tesla ghost sm" onClick={onClearProfile}>
-            Limpiar selección
-          </button>
+          <div className={styles.profileRow}>
+            <select
+              id="tn-publish-profile"
+              className={styles.titleInput}
+              value={selectedProfileId ?? ''}
+              onChange={(e) => setSelectedProfileId(e.target.value === '' ? null : Number(e.target.value))}
+            >
+              <option value="">Sin perfil</option>
+              {profiles.map((p) => (
+                <option key={p.id} value={p.id}>
+                  {p.name}
+                </option>
+              ))}
+            </select>
+            <button
+              type="button"
+              className="btn-tesla outline-subtle-success sm"
+              disabled={selectedProfileId == null}
+              onClick={() => onApplyProfile(profiles.find((p) => p.id === selectedProfileId))}
+            >
+              Aplicar perfil
+            </button>
+            <button type="button" className="btn-tesla ghost sm" onClick={onClearProfile}>
+              Limpiar selección
+            </button>
+          </div>
         </div>
       )}
 
-      <div className={styles.measurementsGrid} data-testid="tn-publish-measurements-grid">
+      <div className={shellStyles.grid4} data-testid="tn-publish-measurements-grid">
         {MEASUREMENT_FIELDS.map((name) => (
           <div key={name} className={styles.subSection} data-testid={`tn-publish-field-${name}`}>
             <label className={styles.sectionTitle} htmlFor={`tn-publish-${name}`}>
