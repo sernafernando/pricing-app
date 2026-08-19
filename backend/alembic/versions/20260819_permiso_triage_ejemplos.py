@@ -12,19 +12,13 @@ currently holds `tickets.triage.confirmar` — a reasonable default starting
 population; per-role curation access can be tightened later via the
 permissions panel without another migration.
 
-REBASE WARNING: this migration chains on `20260818_pxq_tier_costo_envio_fetched_at`
-— this branch's ACTUAL base HEAD at authoring time (NOT
-`20260814_tickets_triage_ejemplos`, which is an ancestor of it, not the
-head). PR4b (#1157, MERGED to main separately) added
-`20260819_ejemplos_usados` on top of that SAME `20260818_...` revision, so
-`main` now has TWO divergent branches off it: this migration, and
-`20260819_ejemplos_usados`. This PR MUST be rebased onto `main` before
-merging, re-pointing `down_revision` to `20260819_ejemplos_usados` (making
-the graph a single chain again) — do not merge as-is, it would create two
-alembic heads.
+Chains on `20260819_ejemplos_usados` (PR4b, #1157). Both slices were authored
+off the same `20260818_pxq_tier_costo_envio_fetched_at` head while PR4b was
+still open; this branch was rebased onto main afterwards and re-pointed here,
+so the graph stays a single chain instead of two divergent alembic heads.
 
 Revision ID: 20260819_triage_ejemplos_permiso
-Revises: 20260818_pxq_tier_costo_envio_fetched_at
+Revises: 20260819_ejemplos_usados
 Create Date: 2026-08-19
 """
 
@@ -33,7 +27,7 @@ from typing import Sequence, Union
 from alembic import op
 
 revision: str = "20260819_triage_ejemplos_permiso"
-down_revision: Union[str, None] = "20260818_pxq_tier_costo_envio_fetched_at"
+down_revision: Union[str, None] = "20260819_ejemplos_usados"
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
