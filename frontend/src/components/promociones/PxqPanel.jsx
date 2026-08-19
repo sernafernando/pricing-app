@@ -69,7 +69,7 @@ function buildBody(form) {
  * `pxq.ver`-only user sees the read columns above with no editing affordance
  * at all, rather than buttons that would 403.
  */
-function PxqTierAuthoring({ itemId, mirrorTiers, onChanged }) {
+function PxqTierAuthoring({ itemId, mirrorTiers, onChanged, editRequest = null }) {
   const [createForm, setCreateForm] = useState(emptyForm);
   const [createError, setCreateError] = useState(null);
   const [creating, setCreating] = useState(false);
@@ -91,6 +91,17 @@ function PxqTierAuthoring({ itemId, mirrorTiers, onChanged }) {
   const [deleteError, setDeleteError] = useState(null);
 
   const atMax = mirrorTiers.length >= MAX_TIERS;
+
+  // The read table's "Cargar costo" button opens THIS form on that tier — the
+  // affordance sits where the hole is, the editing stays where it always was.
+  // Synced during render, not in an effect: an effect runs after commit, so
+  // the operator would see one frame of the closed form before it opened.
+  const [seenEditRequest, setSeenEditRequest] = useState(editRequest);
+  if (editRequest !== seenEditRequest) {
+    setSeenEditRequest(editRequest);
+    const requested = editRequest && mirrorTiers.find((tier) => tier.id === editRequest.tierId);
+    if (requested) startEdit(requested);
+  }
 
   function startEdit(tier) {
     setEditingId(tier.id);
@@ -572,21 +583,18 @@ function PxqTierMarkup({ markupLoading, entry }) {
     if (entry.reason) {
       return <span className={styles.pxqMarkupUnavailable}>{formatMarkupReason(entry.reason)}</span>;
     }
-    // The label and the number are SEPARATE elements so the stylesheet can
-    // emphasise the number alone: "Markup:" is scaffolding, the percentage is
-    // what the operator opened the panel to read.
-    return (
-      <span className={styles.pxqMarkupLabel}>
-        Markup: <span className={styles.pxqMarkupValue}>{formatMarkupPercent(entry.markup)}</span>
-      </span>
-    );
+    // No "Markup:" label any more: the column heading names the figure, so
+    // repeating it on every row was scaffolding competing with the number the
+    // operator opened the panel to read.
+    return <span className={styles.pxqMarkupValue}>{formatMarkupPercent(entry.markup)}</span>;
   }
   if (markupLoading) {
     return <span className={styles.pxqMarkupPending}>Calculando markup…</span>;
   }
   // markupError or "batch response never mentioned this tier": nothing to
-  // fabricate.
-  return null;
+  // fabricate. An em dash, not a blank cell — in a grid an empty cell reads as
+  // a rendering fault, while a dash states that there is no number.
+  return <span className={styles.pxqEmpty}>—</span>;
 }
 
 // `estado` is a PERSISTED DOMAIN VALUE, not UI copy: the four members of
@@ -697,6 +705,13 @@ function PxqPanel({ itemId, pxqCacheRef }) {
   // order stays fixed whatever branch renders.
   const [adoptFeedback, setAdoptFeedback] = useState(null);
 
+  // Which tier the operator asked to complete from the read table's "Cargar
+  // costo" button. A fresh OBJECT per press, never the bare id: pressing it
+  // twice for the same tier must reopen the form, and an id compared by value
+  // would look unchanged the second time.
+  const [costEditRequest, setCostEditRequest] = useState(null);
+  const requestCostEdit = (tierId) => setCostEditRequest({ tierId });
+
   // Outliving the control is not the same as outliving the PUBLICATION. The
   // messages survive `reload()` deliberately (above); they must NOT survive a
   // change of `itemId`, because `useLazyResource` re-keys on the new id without
@@ -773,6 +788,66 @@ function PxqPanel({ itemId, pxqCacheRef }) {
     return liveTier.quantity !== mirrorTier.cantidad_minima || Number(liveTier.amount) !== Number(mirrorTier.precio_unitario);
   }
 
+  // ONE list of rows for ONE table. A mirror tier carries what we know locally
+  // (shipping cost, markup) and is matched to its live tier when ML answered
+  // for it; a live tier no mirror tier claims still gets a row, because hiding
+  // a tramo ML is actually selling would be the panel lying by omission.
+  //
+  // Sorted as a whole rather than concatenated: a quantity scale that jumps
+  // back down mid-table stops being a scale.
+  //
+  // A mirror tier is paired with its live tier by `ml_price_id` first and by
+  // QUANTITY second. The second pass is what keeps a never-synced tier from
+  // rendering twice — once as "local" and once as ML's — for one tramo the
+  // operator thinks of as a single thing. A quantity pairing whose amounts
+  // disagree is flagged like any other divergence: both figures exist, we show
+  // ML's and say the mirror does not match it.
+  //
+  // TWO passes, and the second is a CASCADE rather than an alternative. The id
+  // pass runs first and claims what it matches; the quantity pass then fills in
+  // every mirror tier still unpaired — including one whose `ml_price_id` did
+  // NOT resolve. ML re-emits price ids when it recreates a price, so a synced
+  // tier can hold `P1` while ML now answers `P2` for the same tramo; treating
+  // the two rules as exclusive painted that tramo twice, once as an unmatched
+  // mirror row and once as an unclaimed live row.
+  //
+  // Two passes rather than one loop because a single pass would let an early
+  // tier claim by quantity a live tier that a later one owns by id.
+  const liveByQuantity = new Map((liveTiers || []).map((tier) => [tier.quantity, tier]));
+  const claimedLiveIds = new Set();
+  const pairedLive = new Map();
+  for (const tier of mirrorTiers) {
+    const byId = tier.ml_price_id ? liveById.get(tier.ml_price_id) : null;
+    if (byId) {
+      pairedLive.set(tier.id, byId);
+      claimedLiveIds.add(byId.id);
+    }
+  }
+  for (const tier of mirrorTiers) {
+    if (pairedLive.has(tier.id)) continue;
+    const byQuantity = liveByQuantity.get(tier.cantidad_minima);
+    if (byQuantity && !claimedLiveIds.has(byQuantity.id)) {
+      pairedLive.set(tier.id, byQuantity);
+      claimedLiveIds.add(byQuantity.id);
+    }
+  }
+  const mirrorRows = mirrorTiers.map((tier) => {
+    const liveTier = pairedLive.get(tier.id) || null;
+    return {
+      key: `mirror-${tier.id}`,
+      cantidad: tier.cantidad_minima,
+      tier,
+      liveTier,
+      divergent: isDivergent(tier) || (Boolean(liveTier) && Number(liveTier.amount) !== Number(tier.precio_unitario)),
+    };
+  });
+  const rows = [
+    ...mirrorRows,
+    ...(liveTiers || [])
+      .filter((tier) => !claimedLiveIds.has(tier.id))
+      .map((tier) => ({ key: `live-${tier.id}`, cantidad: tier.quantity, tier: null, liveTier: tier, divergent: false })),
+  ].sort((a, b) => a.cantidad - b.cantidad);
+
   return (
     <div>
       {/* Wired to `reload`, NOT to `handleAuthoringChanged`. Both reload, but
@@ -810,45 +885,90 @@ function PxqPanel({ itemId, pxqCacheRef }) {
           <RefreshCw size={14} /> Volver a leer de ML
         </button>
       </div>
-      <div className={styles.pxqColumns}>
-        <div className={styles.pxqColumn}>
-          <div className={styles.pxqColumnTitle}>En MercadoLibre (en vivo)</div>
-          {liveUnavailable ? (
-            <div className={styles.pxqUnavailable}>No se pudo leer el estado en vivo de MercadoLibre.</div>
-          ) : liveTiers.length === 0 ? (
-            <div className={styles.panelState}>ML no tiene tramos mayoristas para esta publicación.</div>
-          ) : (
-            sortedByQuantity(liveTiers, 'quantity').map((tier) => (
-              <div key={tier.id} className={styles.pxqTierRow}>
-                <span>{tier.quantity} u.</span>
-                <span>{formatMoney(tier.amount)}</span>
-              </div>
-            ))
-          )}
+      {/* Read failures are stated ABOVE the table, never folded into it: a
+          row whose ML price we could not read is a different fact from a row
+          that has no price. */}
+      {liveUnavailable && <div className={styles.pxqUnavailable}>No se pudo leer el estado en vivo de MercadoLibre.</div>}
+      {rows.length === 0 ? (
+        <div className={styles.panelState}>
+          {liveUnavailable ? 'Sin tramos mayoristas locales.' : 'ML no tiene tramos mayoristas para esta publicación.'}
         </div>
-        <div className={styles.pxqColumn}>
-          <div className={styles.pxqColumnTitle}>Mirror local</div>
-          {mirrorTiers.length === 0 ? (
-            <div className={styles.panelState}>Sin tramos mayoristas locales.</div>
-          ) : (
-            sortedByQuantity(mirrorTiers, 'cantidad_minima').map((tier) => {
-              const divergent = isDivergent(tier);
+      ) : (
+        /* The grid is built out of `div`s, so the column/cell relationship the
+           headings give the EYE has to be declared for everyone else — without
+           these roles a screen reader reads the tramo as a flat run of strings
+           and nothing ties "Markup" to the percentage on the row. The roles
+           change no pixel: `display: grid` and the ARIA table structure are
+           independent. */
+        <div className={styles.pxqTable} data-testid="pxq-tramos" role="table" aria-label="Tramos mayoristas">
+          <div className={styles.pxqTableHead} role="row">
+            <div role="columnheader">Cant.</div>
+            <div role="columnheader">Precio en ML</div>
+            <div role="columnheader">Costo del envío</div>
+            <div className={styles.pxqRight} role="columnheader">
+              Markup
+            </div>
+            <div className={styles.pxqRight} role="columnheader">
+              Limpio por u.
+            </div>
+          </div>
+          <div className={styles.pxqTableBody} role="rowgroup">
+            {rows.map(({ key, cantidad, tier, liveTier, divergent }) => {
+              const entry = tier ? markupById?.get(tier.id) : null;
               return (
-                <div
-                  key={tier.id}
-                  className={`${styles.pxqTierRow} ${divergent ? styles.pxqTierRowDivergent : ''}`}
-                >
-                  <span>{tier.cantidad_minima} u.</span>
-                  <span>{formatMoney(tier.precio_unitario)}</span>
-                  <span>{formatEstado(tier.estado)}</span>
-                  <PxqTierMarkup markupLoading={markupLoading} entry={markupById?.get(tier.id)} />
-                  {divergent && <span>Diverge de ML</span>}
+                <div key={key} className={`${styles.pxqRow} ${divergent ? styles.pxqRowDivergent : ''}`} role="row">
+                  <div role="cell">
+                    <span className={styles.pxqNum}>{cantidad} u.</span>
+                    {tier && <span className={styles.pxqEstado}>{formatEstado(tier.estado)}</span>}
+                  </div>
+                  {/* The live amount when ML answered for this tier, the local
+                      one otherwise — and the chip says which, so the operator
+                      never reads a mirror figure as MercadoLibre's. */}
+                  <div className={styles.pxqCell} role="cell">
+                    <span className={styles.pxqNum}>{formatMoney(liveTier ? liveTier.amount : tier?.precio_unitario)}</span>
+                    {divergent ? (
+                      <span className={`${styles.pxqChip} ${styles.pxqChipWarning}`}>Diverge de ML</span>
+                    ) : (
+                      !liveTier && <span className={styles.pxqChip}>local</span>
+                    )}
+                  </div>
+                  {/* No tier means ML has a tramo we never mirrored: there is
+                      nothing local to hang a cost on, so the cell says so
+                      instead of offering an action that would fail. */}
+                  <div className={styles.pxqCell} role="cell">
+                    {!tier ? (
+                      <span className={styles.pxqEmpty}>—</span>
+                    ) : isIncomplete(tier) ? (
+                      canWrite ? (
+                        <button type="button" className={styles.pxqLoadCost} onClick={() => requestCostEdit(tier.id)}>
+                          Cargar costo
+                        </button>
+                      ) : (
+                        <span className={styles.pxqEmpty}>—</span>
+                      )
+                    ) : (
+                      <>
+                        <span className={styles.pxqNum}>{formatMoney(tier.costo_envio_total)}</span>
+                        <span className={styles.pxqChip}>a mano</span>
+                      </>
+                    )}
+                  </div>
+                  <div className={`${styles.pxqRight} ${styles.pxqNum}`} role="cell">
+                    {tier ? <PxqTierMarkup markupLoading={markupLoading} entry={entry} /> : <span className={styles.pxqEmpty}>—</span>}
+                  </div>
+                  <div className={`${styles.pxqRight} ${styles.pxqNum} ${styles.pxqLimpio}`} role="cell">
+                    {entry && entry.limpio !== null && entry.limpio !== undefined ? (
+                      formatMoney(entry.limpio)
+                    ) : (
+                      <span className={styles.pxqEmpty}>—</span>
+                    )}
+                  </div>
                 </div>
               );
-            })
-          )}
+            })}
+          </div>
         </div>
-      </div>
+      )}
       {canWrite && (
         <>
           {/* Sorted here too, not just in the read column above: the editing
@@ -861,6 +981,7 @@ function PxqPanel({ itemId, pxqCacheRef }) {
             itemId={itemId}
             mirrorTiers={sortedByQuantity(mirrorTiers, 'cantidad_minima')}
             onChanged={handleAuthoringChanged}
+            editRequest={costEditRequest}
           />
           {/* The IMPORT ACTION is offered in exactly one state. An empty
               `liveTiers` means there is nothing on ML to import; a failed live

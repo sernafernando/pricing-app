@@ -147,11 +147,77 @@ describe('PxqPanel', () => {
 
     renderPanel();
 
-    // Matched on the full column heading, not a bare /en mercadolibre/: the
-    // write button below now reads "Actualizar precios en MercadoLibre", so the
-    // loose matcher would resolve to two nodes and throw.
-    await waitFor(() => expect(screen.getByText(/en mercadolibre \(en vivo\)/i)).toBeInTheDocument());
-    expect(screen.getByText(/mirror local/i)).toBeInTheDocument();
+    // ONE table now, with named columns: the live price and everything we
+    // compute locally about it sit on the same row, so the operator no longer
+    // has to map a figure in one column onto a figure in another.
+    await waitFor(() => expect(screen.getByText('Precio en ML')).toBeInTheDocument());
+    expect(screen.getByText('Costo del envío')).toBeInTheDocument();
+    expect(screen.getByText('Markup')).toBeInTheDocument();
+    expect(screen.getByText('Limpio por u.')).toBeInTheDocument();
+  });
+
+  // The grid is `div`s. Without explicit roles the column headings relate the
+  // figures for the EYE and for nobody else: a screen reader gets a flat run of
+  // strings with nothing tying "Markup" to the percentage on the row. Queried
+  // BY ROLE on purpose — that is the same tree assistive technology walks, and
+  // it is a stronger anchor than the text queries it replaces.
+  it('exposes the tramos as a real table, not five columns of loose text', async () => {
+    pxqAPI.getLive.mockResolvedValue({
+      data: {
+        item_id: 'MLA001',
+        live_status: 'ok',
+        live_tiers: [{ id: 'PXQ1', quantity: 5, amount: 100 }],
+        mirror_tiers: [
+          { id: 1, cantidad_minima: 5, precio_unitario: 100, costo_envio_total: 20, ml_price_id: 'PXQ1', estado: 'listo' },
+        ],
+        fetched_at: '2026-08-01T10:00:00Z',
+      },
+    });
+
+    renderPanel();
+
+    const table = await screen.findByRole('table', { name: /tramos mayoristas/i });
+    expect(
+      within(table)
+        .getAllByRole('columnheader')
+        .map((node) => node.textContent),
+    ).toEqual(['Cant.', 'Precio en ML', 'Costo del envío', 'Markup', 'Limpio por u.']);
+    // Heading row + one tier row, and the tier row carries one cell per column
+    // — the association that makes the heading mean anything.
+    const rows = within(table).getAllByRole('row');
+    expect(rows).toHaveLength(2);
+    expect(within(rows[1]).getAllByRole('cell')).toHaveLength(5);
+  });
+
+  // ML RE-EMITS PRICE IDS when it recreates a price, so a synced mirror tier
+  // can hold `P1` while ML now answers `P2` for the very same tramo. The
+  // pairing used to be `ml_price_id` OR quantity, never both in cascade, so
+  // that tier rendered TWICE: once as an unmatched mirror row and once as an
+  // unclaimed live row — one tramo, two rows, which is the exact confusion the
+  // quantity fallback exists to prevent.
+  it('pairs a re-emitted price id by quantity instead of painting the tramo twice', async () => {
+    pxqAPI.getLive.mockResolvedValue({
+      data: {
+        item_id: 'MLA001',
+        live_status: 'ok',
+        live_tiers: [{ id: 'P2', quantity: 5, amount: 150 }],
+        mirror_tiers: [
+          { id: 1, cantidad_minima: 5, precio_unitario: 100, costo_envio_total: 20, ml_price_id: 'P1', estado: 'sincronizado' },
+        ],
+        fetched_at: '2026-08-01T10:00:00Z',
+      },
+    });
+
+    renderPanel();
+
+    await screen.findByText('Precios mayoristas');
+    const rows = within(screen.getByTestId('pxq-tramos')).getAllByRole('row');
+    // One heading row plus ONE tier row.
+    expect(rows).toHaveLength(2);
+    expect(within(screen.getByTestId('pxq-tramos')).getAllByText(/^\d+ u\.$/)).toHaveLength(1);
+    // Still divergent: the mirror's `ml_price_id` did not resolve, which is a
+    // real disagreement with ML and must stay visible.
+    expect(screen.getByText(/diverge/i)).toBeInTheDocument();
   });
 
   it('marks a divergent tier visibly (no resolution action offered — read only)', async () => {
@@ -279,7 +345,7 @@ describe('PxqPanel — tier authoring (PR 4c)', () => {
 
     renderPanel();
 
-    await waitFor(() => expect(screen.getByText(/mirror local/i)).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText('Precios mayoristas')).toBeInTheDocument());
     expect(screen.queryByRole('button', { name: /agregar tramo/i })).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /editar/i })).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /eliminar/i })).not.toBeInTheDocument();
@@ -519,7 +585,7 @@ describe('PxqPanel — adopt-live import (PR 4e)', () => {
     );
     renderPanel();
 
-    await waitFor(() => expect(screen.getByText(/mirror local/i)).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText('Precios mayoristas')).toBeInTheDocument());
     expect(screen.queryByRole('button', IMPORT_BUTTON)).not.toBeInTheDocument();
   });
 
@@ -527,7 +593,7 @@ describe('PxqPanel — adopt-live import (PR 4e)', () => {
     pxqAPI.getLive.mockResolvedValue(mockLive({ mirror_tiers: [], live_tiers: [] }));
     renderPanel();
 
-    await waitFor(() => expect(screen.getByText(/mirror local/i)).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText('Precios mayoristas')).toBeInTheDocument());
     expect(screen.queryByRole('button', IMPORT_BUTTON)).not.toBeInTheDocument();
   });
 
@@ -535,7 +601,7 @@ describe('PxqPanel — adopt-live import (PR 4e)', () => {
     pxqAPI.getLive.mockResolvedValue(mockLive({ mirror_tiers: [], live_tiers: null, live_status: 'unavailable' }));
     renderPanel();
 
-    await waitFor(() => expect(screen.getByText(/mirror local/i)).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText('Precios mayoristas')).toBeInTheDocument());
     expect(screen.queryByRole('button', IMPORT_BUTTON)).not.toBeInTheDocument();
   });
 
@@ -544,7 +610,7 @@ describe('PxqPanel — adopt-live import (PR 4e)', () => {
     pxqAPI.getLive.mockResolvedValue(mockLive(liveOnly));
     renderPanel();
 
-    await waitFor(() => expect(screen.getByText(/mirror local/i)).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText('Precios mayoristas')).toBeInTheDocument());
     expect(screen.queryByRole('button', IMPORT_BUTTON)).not.toBeInTheDocument();
   });
 
@@ -808,7 +874,7 @@ describe('PxqPanel — adopt-live import (PR 4e)', () => {
     // loading branch: the loading branch hides everything, so checking there
     // would pass even with the message still held in state.
     await waitFor(() => expect(pxqAPI.getLive).toHaveBeenLastCalledWith('MLA002'));
-    await screen.findByText(/mirror local/i);
+    await screen.findByText('Precios mayoristas');
     expect(screen.queryByText(/se importaron 2 tramos/i)).not.toBeInTheDocument();
   });
 
@@ -1220,6 +1286,84 @@ describe('PxqPanel — the unparseable-error fallback names the action that fail
 // the column stops being a scale and becomes three unrelated prices that the
 // operator has to sort in his head before he can answer the only question the
 // panel exists for: does buying more get cheaper.
+// The read table's "Cargar costo" button is the only interaction the redesign
+// added, and it is the most fragile chain in it: click -> `costEditRequest` ->
+// a state sync during `PxqTierAuthoring`'s RENDER phase -> `startEdit`. The
+// visual suite only proves the button is painted and dashed; nothing proved it
+// opens anything, let alone the right thing.
+describe('PxqPanel — the "Cargar costo" affordance', () => {
+  const TIERS = [
+    { id: 1, cantidad_minima: 2, precio_unitario: 111, costo_envio_total: 500, ml_price_id: null, estado: 'listo' },
+    { id: 2, cantidad_minima: 5, precio_unitario: 222, costo_envio_total: null, ml_price_id: null, estado: 'listo' },
+  ];
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockTienePermiso.mockImplementation(() => true);
+    pxqAPI.getLive.mockResolvedValue({
+      data: { item_id: 'MLA001', live_status: 'ok', live_tiers: [], mirror_tiers: TIERS, fetched_at: '2026-08-01T10:00:00Z' },
+    });
+  });
+
+  // Offered on the tier that is MISSING the cost, and only on that one: an
+  // affordance on a complete row would be an invitation to edit something the
+  // operator did not ask about.
+  it('opens the authoring form on the tier whose cost is missing, not on another one', async () => {
+    const user = userEvent.setup();
+    renderPanel();
+
+    const button = await screen.findByRole('button', { name: /cargar costo/i });
+    expect(screen.getAllByRole('button', { name: /cargar costo/i })).toHaveLength(1);
+
+    await user.click(button);
+
+    // The PRICE proves WHICH tier opened. Asserting merely that "a form is
+    // open" would pass just as well with the wrong row loaded, which is the
+    // failure this button can actually have.
+    // Queried by the EDIT form's own input id: the create form below carries an
+    // identically labelled field, so a label query cannot tell which of the two
+    // is open — which is the very thing this test exists to pin down.
+    const precio = await waitFor(() => {
+      const input = document.getElementById('pxq-edit-precio-2');
+      if (!input) throw new Error('the edit form did not open');
+      return input;
+    });
+    expect(precio).toHaveValue(222);
+    // The tier with the cost already loaded stayed shut.
+    expect(document.getElementById('pxq-edit-precio-1')).toBeNull();
+  });
+
+  // `costEditRequest` is a fresh OBJECT per press rather than the bare id
+  // precisely so this works. With the id compared by value the second press
+  // would look unchanged and the form would stay shut.
+  it('reopens the form when the button is pressed a second time', async () => {
+    const user = userEvent.setup();
+    renderPanel();
+
+    const openEditForm = () => document.getElementById('pxq-edit-precio-2');
+
+    await user.click(await screen.findByRole('button', { name: /cargar costo/i }));
+    await waitFor(() => expect(openEditForm()).not.toBeNull());
+
+    await user.click(screen.getByRole('button', { name: /^cancelar$/i }));
+    await waitFor(() => expect(openEditForm()).toBeNull());
+
+    await user.click(screen.getByRole('button', { name: /cargar costo/i }));
+    await waitFor(() => expect(openEditForm()).not.toBeNull());
+    expect(openEditForm()).toHaveValue(222);
+  });
+
+  // A `pxq.ver`-only user has nothing to open: offering the action would just
+  // walk him into a control that is not there.
+  it('is not offered to a user who cannot write', async () => {
+    mockTienePermiso.mockImplementation((code) => code === 'pxq.ver');
+    renderPanel();
+
+    await screen.findByText('Precios mayoristas');
+    expect(screen.queryByRole('button', { name: /cargar costo/i })).not.toBeInTheDocument();
+  });
+});
+
 describe('PxqPanel — tiers are read in quantity order, whatever order they arrive in', () => {
   function mockLive({ mirror_tiers = [], live_tiers = [], live_status = 'ok' } = {}) {
     return {
@@ -1240,16 +1384,18 @@ describe('PxqPanel — tiers are read in quantity order, whatever order they arr
     { id: 3, cantidad_minima: 5, precio_unitario: 72990, costo_envio_total: 500, ml_price_id: null, estado: 'listo' },
   ];
 
-  // Scoped to ONE column on purpose. Both columns render "<n> u." spans, and so
-  // does the authoring list below them, so a document-wide query would prove
-  // nothing about which column is in which order. The anchored regex keeps the
-  // match on the span itself rather than on its containing row.
-  function quantitiesIn(columnTitle) {
-    const column = screen.getByText(columnTitle).parentElement;
-    return within(column)
+  // Scoped to ONE region on purpose. The read table and the authoring list
+  // below it both render "<n> u." nodes, so a document-wide query would prove
+  // nothing about which of them is in which order. The anchored regex keeps the
+  // match on the quantity node itself rather than on its containing row.
+  function quantitiesIn(region) {
+    return within(region)
       .getAllByText(/^\d+ u\.$/)
       .map((node) => node.textContent);
   }
+
+  const readTable = () => screen.getByTestId('pxq-tramos');
+  const editingList = () => screen.getByText('Editar tramos').parentElement;
 
   beforeEach(() => {
     vi.clearAllMocks();
@@ -1265,10 +1411,10 @@ describe('PxqPanel — tiers are read in quantity order, whatever order they arr
 
     renderPanel();
 
-    await screen.findByText('En MercadoLibre (en vivo)');
+    await screen.findByText('Precios mayoristas');
     // The ORDER of the nodes, not their mere existence: the bug was never a
     // missing row.
-    expect(quantitiesIn('En MercadoLibre (en vivo)')).toEqual(['2 u.', '5 u.', '10 u.']);
+    expect(quantitiesIn(readTable())).toEqual(['2 u.', '5 u.', '10 u.']);
   });
 
   it('paints the mirror column ascending by cantidad_minima when the rows arrive unordered', async () => {
@@ -1276,8 +1422,8 @@ describe('PxqPanel — tiers are read in quantity order, whatever order they arr
 
     renderPanel();
 
-    await screen.findByText('Mirror local');
-    expect(quantitiesIn('Mirror local')).toEqual(['2 u.', '5 u.', '10 u.']);
+    await screen.findByText('Precios mayoristas');
+    expect(quantitiesIn(readTable())).toEqual(['2 u.', '5 u.', '10 u.']);
   });
 
   // The editing list renders the SAME rows as the mirror column, directly
@@ -1292,7 +1438,7 @@ describe('PxqPanel — tiers are read in quantity order, whatever order they arr
     renderPanel();
 
     await screen.findByText('Editar tramos');
-    expect(quantitiesIn('Editar tramos')).toEqual(['2 u.', '5 u.', '10 u.']);
+    expect(quantitiesIn(editingList())).toEqual(['2 u.', '5 u.', '10 u.']);
   });
 
   // `Array.prototype.sort` sorts IN PLACE. These arrays come straight out of
@@ -1307,9 +1453,9 @@ describe('PxqPanel — tiers are read in quantity order, whatever order they arr
 
     renderPanel();
 
-    await screen.findByText('Mirror local');
-    expect(quantitiesIn('En MercadoLibre (en vivo)')).toEqual(['2 u.', '5 u.', '10 u.']);
-    expect(quantitiesIn('Mirror local')).toEqual(['2 u.', '5 u.', '10 u.']);
+    await screen.findByText('Precios mayoristas');
+    expect(quantitiesIn(readTable())).toEqual(['2 u.', '5 u.', '10 u.']);
+    expect(quantitiesIn(readTable())).toEqual(['2 u.', '5 u.', '10 u.']);
 
     // Asserted on the INPUT objects, which is the only place an in-place sort
     // would show up — the rendered output looks identical either way.
@@ -1350,7 +1496,7 @@ describe('PxqPanel — refreshing the live state', () => {
 
     renderPanel();
 
-    await screen.findByText('Mirror local');
+    await screen.findByText('Precios mayoristas');
     expect(screen.queryByText(/error al cargar precios mayoristas/i)).not.toBeInTheDocument();
 
     await user.click(screen.getByRole('button', REFRESH_BUTTON));
@@ -1431,7 +1577,7 @@ describe('PxqPanel — the refresh names itself and the reading states its age',
 
     renderPanel();
 
-    await screen.findByText('Mirror local');
+    await screen.findByText('Precios mayoristas');
     expect(screen.queryByText(/hace /i)).not.toBeInTheDocument();
     expect(screen.queryByText(/reci\u00e9n/i)).not.toBeInTheDocument();
   });
@@ -1459,7 +1605,7 @@ describe('PxqPanel — every age bucket, at its boundary', () => {
       data: { item_id: 'MLA001', live_status: 'ok', live_tiers: [], mirror_tiers: [], fetched_at },
     });
     renderPanel();
-    await screen.findByText('Mirror local');
+    await screen.findByText('Precios mayoristas');
   }
 
   it.each([
@@ -1581,7 +1727,7 @@ describe('PxqPanel — prices are changed on MercadoLibre, through a link', () =
 
     renderPanel();
 
-    await screen.findByText('Mirror local');
+    await screen.findByText('Precios mayoristas');
     expect(screen.queryByRole('button', { name: /actualizar precios en mercadolibre/i })).not.toBeInTheDocument();
     expect(screen.queryByRole('checkbox')).not.toBeInTheDocument();
     expect(screen.queryByText(/publicar precios sin markup/i)).not.toBeInTheDocument();
@@ -1630,7 +1776,7 @@ describe('PxqPanel — per-tier markup display (slice A2)', () => {
 
     renderPanel();
 
-    await screen.findByText('Mirror local');
+    await screen.findByText('Precios mayoristas');
     expect(pxqAPI.getMarkup).toHaveBeenCalledWith('MLA001');
     await screen.findByText(/25[.,]0%/);
   });
@@ -1641,7 +1787,7 @@ describe('PxqPanel — per-tier markup display (slice A2)', () => {
 
     renderPanel();
 
-    await screen.findByText('Mirror local');
+    await screen.findByText('Precios mayoristas');
     expect(await screen.findByText(/falta el costo de env[ií]o/i)).toBeInTheDocument();
     // Never a fabricated number for an unresolved tier.
     expect(screen.queryByText(/%$/)).not.toBeInTheDocument();
@@ -1653,7 +1799,7 @@ describe('PxqPanel — per-tier markup display (slice A2)', () => {
 
     renderPanel();
 
-    await screen.findByText('Mirror local');
+    await screen.findByText('Precios mayoristas');
     expect(await screen.findByText(/datos del producto/i)).toBeInTheDocument();
   });
 
@@ -1668,7 +1814,7 @@ describe('PxqPanel — per-tier markup display (slice A2)', () => {
 
     renderPanel();
 
-    await screen.findByText('Mirror local');
+    await screen.findByText('Precios mayoristas');
     expect(screen.getByText(/calculando/i)).toBeInTheDocument();
 
     resolveMarkup(mockMarkup([{ tier_id: 1, markup: 0.1 }]));
@@ -1680,7 +1826,7 @@ describe('PxqPanel — per-tier markup display (slice A2)', () => {
     pxqAPI.getMarkup.mockResolvedValue(mockMarkup([{ tier_id: 1, markup: 0.25 }]));
 
     renderPanel();
-    await screen.findByText('Mirror local');
+    await screen.findByText('Precios mayoristas');
     expect(pxqAPI.getMarkup).toHaveBeenCalledTimes(1);
   });
 
@@ -1690,7 +1836,7 @@ describe('PxqPanel — per-tier markup display (slice A2)', () => {
 
     renderPanel();
 
-    await screen.findByText('Mirror local');
+    await screen.findByText('Precios mayoristas');
     expect(screen.queryByText(/calculando/i)).not.toBeInTheDocument();
     expect(screen.queryByText(/%$/)).not.toBeInTheDocument();
   });
