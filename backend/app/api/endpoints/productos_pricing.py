@@ -11,6 +11,7 @@ from app.services.envio_real_service import resolver_costos_envio_batch
 import logging
 
 from app.api.endpoints.productos_shared import (  # noqa: F401
+    aplicar_filtros_cross_db_masivo,
     PrecioUpdate,
     RebateUpdate,
     ExportRebateRequest,
@@ -507,6 +508,16 @@ def calcular_web_masivo(
             )
             query = query.filter(ProductoERP.item_id.in_(item_ids_tienda))
 
+    # Cross-DB (mlwebhook) filters — promos y precios mayoristas — con el
+    # MISMO alcance que el listado. Fail-CLOSED: ver
+    # `aplicar_filtros_cross_db_masivo` (este path escribe).
+    # ponytail: `con_mla`, `estado_mla` y `nuevos_ultimos_7_dias` llegan en
+    # `filtros` desde los modales y este endpoint los ignora — el conjunto es
+    # más amplio que el del listado para esos tres. Revisitar unificando con
+    # los helpers equivalentes de productos_export.py. Ver
+    # docs/tech-debt-ledger.md.
+    query = aplicar_filtros_cross_db_masivo(query, db, request.filtros)
+
     productos = query.all()
 
     procesados = 0
@@ -674,6 +685,16 @@ def calcular_pvp_masivo(
                 query = query.filter(
                     (ProductoPricing.markup_calculado <= 0) | (ProductoPricing.markup_calculado.is_(None))
                 )
+
+    # Cross-DB (mlwebhook) filters — promos y precios mayoristas — con el
+    # MISMO alcance que el listado. Fail-CLOSED: ver
+    # `aplicar_filtros_cross_db_masivo` (este path escribe).
+    # ponytail: `con_mla`, `estado_mla` y `nuevos_ultimos_7_dias` llegan en
+    # `filtros` desde los modales y este endpoint los ignora — el conjunto es
+    # más amplio que el del listado para esos tres. Revisitar unificando con
+    # los helpers equivalentes de productos_export.py. Ver
+    # docs/tech-debt-ledger.md.
+    query = aplicar_filtros_cross_db_masivo(query, db, request.filtros)
 
     productos = query.all()
 
@@ -952,6 +973,16 @@ def recalcular_cuotas_masivo(
                 query = query.filter(
                     (ProductoPricing.markup_calculado <= 0) | (ProductoPricing.markup_calculado.is_(None))
                 )
+
+    # Cross-DB (mlwebhook) filters — promos y precios mayoristas — con el
+    # MISMO alcance que el listado. Fail-CLOSED: ver
+    # `aplicar_filtros_cross_db_masivo` (este path escribe).
+    # ponytail: `con_mla`, `estado_mla` y `nuevos_ultimos_7_dias` llegan en
+    # `filtros` desde los modales y este endpoint los ignora — el conjunto es
+    # más amplio que el del listado para esos tres. Revisitar unificando con
+    # los helpers equivalentes de productos_export.py. Ver
+    # docs/tech-debt-ledger.md.
+    query = aplicar_filtros_cross_db_masivo(query, db, request.filtros)
 
     productos = query.all()
 
