@@ -303,6 +303,40 @@ export function useProductosFilters() {
   };
 
   /**
+   * Every filter rendered inside the "Filtros Avanzados" panel.
+   *
+   * Bound to that panel's "Limpiar Todos" button, which used to keep its own
+   * hand-written list of setters in Productos.jsx. That list fell behind
+   * twice — filtroTiendaOficial and then filtroPxq kept filtering the listing
+   * after the user had cleared the panel, which is worse than not clearing at
+   * all: it lies about the state. `resetAllFilters` delegates here so the two
+   * scopes can never drift again.
+   *
+   * Does NOT touch the main bar (search, stock, precio, marcas,
+   * subcategorías, PMs, auditoría): the panel clears the panel.
+   */
+  const limpiarFiltrosAvanzados = () => {
+    setFiltroRebate(null);
+    setFiltroOferta(null);
+    setFiltroWebTransf(null);
+    setFiltroTiendaNube(null);
+    setFiltroMarkupClasica(null);
+    setFiltroMarkupRebate(null);
+    setFiltroMarkupOferta(null);
+    setFiltroMarkupWebTransf(null);
+    setFiltroOutOfCards(null);
+    setFiltroMLA(null);
+    setFiltroEstadoMLA(null);
+    setFiltroNuevos(null);
+    setFiltroTiendaOficial(null);
+    setFiltroPxq(null);
+    setColoresSeleccionados([]);
+    setFiltroPromoTipos([]);
+    setFiltroPromoEstado('disponible');
+    setPage(1);
+  };
+
+  /**
    * Single source of truth for "no filters".
    *
    * Both clear affordances delegate here so they cannot drift: they used to
@@ -328,23 +362,7 @@ export function useProductosFilters() {
       fecha_desde: '',
       fecha_hasta: ''
     });
-    setFiltroRebate(null);
-    setFiltroOferta(null);
-    setFiltroWebTransf(null);
-    setFiltroTiendaNube(null);
-    setFiltroMarkupClasica(null);
-    setFiltroMarkupRebate(null);
-    setFiltroMarkupOferta(null);
-    setFiltroMarkupWebTransf(null);
-    setFiltroOutOfCards(null);
-    setFiltroMLA(null);
-    setFiltroEstadoMLA(null);
-    setFiltroNuevos(null);
-    setFiltroTiendaOficial(null);
-    setColoresSeleccionados([]);
-    setFiltroPromoTipos([]);
-    setFiltroPromoEstado('disponible');
-    setFiltroPxq(null);
+    limpiarFiltrosAvanzados();
     setPage(1);
   };
 
@@ -521,6 +539,7 @@ export function useProductosFilters() {
     // Handlers
     handleOrdenar,
     limpiarTodosFiltros,
+    limpiarFiltrosAvanzados,
     limpiarFiltros,
     aplicarFiltroStat,
     // Memoized params builder (for useProductosData in Slice 8b)

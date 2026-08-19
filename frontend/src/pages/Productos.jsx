@@ -93,7 +93,7 @@ export default function Productos() {
     panelFiltroActivo, setPanelFiltroActivo,
     mostrarFiltrosAvanzados, setMostrarFiltrosAvanzados,
     ordenColumnas,
-    handleOrdenar, limpiarTodosFiltros, limpiarFiltros, aplicarFiltroStat,
+    handleOrdenar, limpiarTodosFiltros, limpiarFiltros, limpiarFiltrosAvanzados, aplicarFiltroStat,
     construirFiltrosParams,
   } = useProductosFilters();
   // Color-layer teams (productos-color-teams). Feeds the layer selector.
@@ -1218,24 +1218,7 @@ export default function Productos() {
           <div className="advanced-filters-header">
             <h3>Filtros Avanzados</h3>
             <button
-              onClick={() => {
-                setFiltroRebate(null);
-                setFiltroOferta(null);
-                setFiltroWebTransf(null);
-                setFiltroTiendaNube(null);
-                setFiltroMarkupClasica(null);
-                setFiltroMarkupRebate(null);
-                setFiltroMarkupOferta(null);
-                setFiltroMarkupWebTransf(null);
-                setFiltroOutOfCards(null);
-                setFiltroMLA(null);
-                setFiltroEstadoMLA(null);
-                setFiltroNuevos(null);
-                setColoresSeleccionados([]);
-                setFiltroPromoTipos([]);
-                setFiltroPromoEstado('disponible');
-                setPage(1);
-              }}
+              onClick={limpiarFiltrosAvanzados}
               className="btn-tesla outline-subtle-danger sm"
             >
               Limpiar Todos
