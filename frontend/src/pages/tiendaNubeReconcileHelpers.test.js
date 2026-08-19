@@ -1,5 +1,13 @@
 import { describe, expect, it } from 'vitest';
-import { selectTabItems, computeSummaryCounts, matchesSearch, matchesSummaryFilter } from './tiendaNubeReconcileHelpers';
+import {
+  selectTabItems,
+  computeSummaryCounts,
+  matchesSearch,
+  matchesSummaryFilter,
+  resolvePrimaryAction,
+  pickEditorTnMatch,
+  resolveSecondaryActions,
+} from './tiendaNubeReconcileHelpers';
 
 describe('selectTabItems', () => {
   const reporte = [
@@ -108,5 +116,150 @@ describe('matchesSummaryFilter', () => {
 
   it('"total" matches every row', () => {
     expect(matchesSummaryFilter({ verdict: 'OK' }, 'total')).toBe(true);
+  });
+});
+
+function despublicarTargetProductId(row) {
+  const published = row.tn_matches.find((tn) => tn.published === true);
+  if (published) return published.product_id;
+  return row.tn_matches[0]?.product_id ?? null;
+}
+
+describe('resolvePrimaryAction', () => {
+  it('is Publicar for FALTA_PUBLICAR when the operator can publish', () => {
+    expect(resolvePrimaryAction({ verdict: 'FALTA_PUBLICAR' }, true)).toEqual({
+      id: 'publicar',
+      label: 'Publicar',
+    });
+  });
+
+  it('is Revisar for FALTA_PUBLICAR without the publish permission', () => {
+    expect(resolvePrimaryAction({ verdict: 'FALTA_PUBLICAR' }, false)).toEqual({
+      id: 'revisar',
+      label: 'Revisar',
+    });
+  });
+
+  it('is Vincular for FALTA_VINCULAR regardless of permission', () => {
+    expect(resolvePrimaryAction({ verdict: 'FALTA_VINCULAR' }, false)).toEqual({
+      id: 'vincular',
+      label: 'Vincular',
+    });
+  });
+
+  it('is null for verdicts with no primary action (e.g. OK, MAL_PUBLICADO)', () => {
+    expect(resolvePrimaryAction({ verdict: 'OK' }, true)).toBeNull();
+    expect(resolvePrimaryAction({ verdict: 'MAL_PUBLICADO' }, true)).toBeNull();
+  });
+});
+
+describe('pickEditorTnMatch', () => {
+  it('prefers the match TN reports as published: true', () => {
+    const row = {
+      tn_matches: [
+        { product_id: 1, tn_admin_url: 'https://tn/1', published: false },
+        { product_id: 2, tn_admin_url: 'https://tn/2', published: true },
+      ],
+    };
+    expect(pickEditorTnMatch(row)).toEqual(row.tn_matches[1]);
+  });
+
+  it('falls back to the first match carrying a URL when none is published', () => {
+    const row = {
+      tn_matches: [
+        { product_id: 1, tn_admin_url: null, published: false },
+        { product_id: 2, tn_admin_url: 'https://tn/2', published: false },
+      ],
+    };
+    expect(pickEditorTnMatch(row)).toEqual(row.tn_matches[1]);
+  });
+
+  it('returns null when no match carries a URL', () => {
+    expect(pickEditorTnMatch({ tn_matches: [{ product_id: 1, tn_admin_url: null }] })).toBeNull();
+    expect(pickEditorTnMatch({ tn_matches: [] })).toBeNull();
+  });
+});
+
+describe('resolveSecondaryActions', () => {
+  const perms = (overrides = {}) => ({
+    canBanlist: true,
+    canPublish: true,
+    despublicarTargetProductId,
+    ...overrides,
+  });
+
+  it('includes Banear for FALTA_PUBLICAR when canBanlist is true', () => {
+    const row = { verdict: 'FALTA_PUBLICAR', despublicar: false, tn_matches: [] };
+    const actions = resolveSecondaryActions(row, perms());
+    expect(actions.some((a) => a.id === 'banear')).toBe(true);
+  });
+
+  it('includes Banear for FALTA_VINCULAR too, not only FALTA_PUBLICAR', () => {
+    const row = { verdict: 'FALTA_VINCULAR', despublicar: false, tn_matches: [] };
+    const actions = resolveSecondaryActions(row, perms());
+    expect(actions.some((a) => a.id === 'banear')).toBe(true);
+  });
+
+  it('hides Banear without canBanlist', () => {
+    const row = { verdict: 'FALTA_PUBLICAR', despublicar: false, tn_matches: [] };
+    const actions = resolveSecondaryActions(row, perms({ canBanlist: false }));
+    expect(actions.some((a) => a.id === 'banear')).toBe(false);
+  });
+
+  it('hides Banear on verdicts other than FALTA_PUBLICAR/FALTA_VINCULAR', () => {
+    const row = { verdict: 'MAL_PUBLICADO', despublicar: false, tn_matches: [] };
+    const actions = resolveSecondaryActions(row, perms());
+    expect(actions.some((a) => a.id === 'banear')).toBe(false);
+  });
+
+  it('includes Despublicar with its resolved target product id when flagged and permitted', () => {
+    const row = {
+      verdict: 'MAL_VINCULADO',
+      despublicar: true,
+      tn_matches: [{ product_id: 555, published: true }],
+    };
+    const actions = resolveSecondaryActions(row, perms());
+    expect(actions.find((a) => a.id === 'despublicar')).toEqual({
+      id: 'despublicar',
+      label: 'Despublicar',
+      productId: 555,
+    });
+  });
+
+  it('hides Despublicar without canPublish', () => {
+    const row = {
+      verdict: 'MAL_VINCULADO',
+      despublicar: true,
+      tn_matches: [{ product_id: 555, published: true }],
+    };
+    const actions = resolveSecondaryActions(row, perms({ canPublish: false }));
+    expect(actions.some((a) => a.id === 'despublicar')).toBe(false);
+  });
+
+  it('hides Despublicar when the row is not flagged despublicar', () => {
+    const row = { verdict: 'MAL_VINCULADO', despublicar: false, tn_matches: [{ product_id: 555 }] };
+    const actions = resolveSecondaryActions(row, perms());
+    expect(actions.some((a) => a.id === 'despublicar')).toBe(false);
+  });
+
+  it('includes Editar en TN with the resolved match href when available', () => {
+    const row = {
+      verdict: 'MAL_PUBLICADO',
+      despublicar: false,
+      tn_matches: [{ product_id: 9, tn_admin_url: 'https://tn/9', published: true }],
+    };
+    const actions = resolveSecondaryActions(row, perms());
+    expect(actions.find((a) => a.id === 'editar_tn')).toEqual({
+      id: 'editar_tn',
+      label: 'Editar en TN',
+      href: 'https://tn/9',
+      productId: 9,
+    });
+  });
+
+  it('omits Editar en TN when no match has a URL', () => {
+    const row = { verdict: 'MAL_PUBLICADO', despublicar: false, tn_matches: [] };
+    const actions = resolveSecondaryActions(row, perms());
+    expect(actions.some((a) => a.id === 'editar_tn')).toBe(false);
   });
 });

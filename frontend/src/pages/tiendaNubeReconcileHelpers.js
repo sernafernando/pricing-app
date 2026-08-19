@@ -84,3 +84,72 @@ export function matchesSearch(row, query) {
   const haystacks = [row.ean, row.ml_title, row.erp_desc, row.tn_matches?.[0]?.variant_sku];
   return haystacks.some((value) => typeof value === 'string' && value.toLowerCase().includes(q));
 }
+
+/**
+ * Row actions cell (PR-A of the reconcile table redesign): consolidates
+ * what used to be scattered across the `Coincidencias TN (IDs)` and
+ * `Despublicar` columns into one `Acciones` cell. This module owns the pure
+ * "what applies to this row" decisions; `RowActionsCell` owns rendering.
+ *
+ * Primary action is always a REAL, interactive button (never a disabled
+ * placeholder) so an operator without `admin.gestionar_tn_publicacion` still
+ * has something useful to do: `Revisar`/`Vincular` route to nothing
+ * server-side (there is no dedicated review/link endpoint yet) but they are
+ * kept clickable — `onAction` fires with the row so a caller CAN wire one up
+ * later without another RowActionsCell contract change.
+ */
+export function resolvePrimaryAction(row, canPublish) {
+  if (row.verdict === 'FALTA_PUBLICAR') {
+    return canPublish ? { id: 'publicar', label: 'Publicar' } : { id: 'revisar', label: 'Revisar' };
+  }
+  if (row.verdict === 'FALTA_VINCULAR') {
+    return { id: 'vincular', label: 'Vincular' };
+  }
+  return null;
+}
+
+/**
+ * Picks WHICH tn_match "Editar en TN" targets, mirroring
+ * `despublicarTargetProductId`'s preference (the match TN itself reports as
+ * `published: true`, else the first match that actually carries a URL) — the
+ * same "pick the one that's actually live" reasoning, now shared by two
+ * actions instead of re-implemented per action.
+ */
+export function pickEditorTnMatch(row) {
+  const matches = row.tn_matches || [];
+  const withUrl = matches.filter((tn) => tn.tn_admin_url);
+  if (withUrl.length === 0) return null;
+  const published = withUrl.find((tn) => tn.published === true);
+  return published || withUrl[0];
+}
+
+/**
+ * Secondary (overflow-menu) actions that apply to this row, permission-gated
+ * exactly as the pre-extraction inline ternaries were:
+ * - Banear: FALTA_PUBLICAR or FALTA_VINCULAR, gated by `canBanlist`.
+ * - Despublicar: `row.despublicar` AND a resolvable target product id,
+ *   gated by `canPublish`.
+ * - Editar en TN: any resolvable match with a `tn_admin_url`, ungated (was
+ *   never permission-gated in the original inline link either).
+ */
+export function resolveSecondaryActions(row, { canBanlist, canPublish, despublicarTargetProductId }) {
+  const actions = [];
+
+  if (canBanlist && (row.verdict === 'FALTA_PUBLICAR' || row.verdict === 'FALTA_VINCULAR')) {
+    actions.push({ id: 'banear', label: 'Banear' });
+  }
+
+  if (row.despublicar && canPublish) {
+    const productId = despublicarTargetProductId(row);
+    if (productId !== null && productId !== undefined) {
+      actions.push({ id: 'despublicar', label: 'Despublicar', productId });
+    }
+  }
+
+  const editorMatch = pickEditorTnMatch(row);
+  if (editorMatch) {
+    actions.push({ id: 'editar_tn', label: 'Editar en TN', href: editorMatch.tn_admin_url, productId: editorMatch.product_id });
+  }
+
+  return actions;
+}

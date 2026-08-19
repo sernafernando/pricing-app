@@ -107,6 +107,14 @@ function manyFaltaPublicar(count) {
   }));
 }
 
+// Secondary row actions (Banear, Despublicar, Editar en TN) moved behind the
+// Acciones column's overflow menu (PR-A of the table redesign) — tests that
+// used to click these buttons directly now open the menu first.
+async function openRowMenu(user, ean) {
+  const trigger = await screen.findByRole('button', { name: new RegExp(`Más acciones para ${ean}`, 'i') });
+  await user.click(trigger);
+}
+
 beforeEach(() => {
   localStorage.clear();
   mockTienePermiso.mockReset();
@@ -342,8 +350,8 @@ describe('Anomaly sub-tabs', () => {
       expect(screen.getByText('FP-50')).toBeInTheDocument();
     });
 
-    const banButton = await screen.findByRole('button', { name: /Banear/i });
-    await user.click(banButton);
+    await openRowMenu(user, 'FP-50');
+    await user.click(screen.getByRole('menuitem', { name: 'Banear' }));
 
     // The set shrank to 50 (exactly one page) — the view must recover with
     // real rows, never a stuck-on-page-2 "No hay filas" dead end.
@@ -364,8 +372,8 @@ describe('Anomaly sub-tabs', () => {
     const tab = await screen.findByRole('tab', { name: /Falta vincular/i });
     await user.click(tab);
 
-    const banButton = await screen.findByRole('button', { name: /Banear/i });
-    await user.click(banButton);
+    await openRowMenu(user, 'FV-1');
+    await user.click(screen.getByRole('menuitem', { name: 'Banear' }));
 
     await waitFor(() => {
       expect(api.post).toHaveBeenCalledWith('/tienda-nube-reconcile/banear', { ean: 'FV-1' });
@@ -781,7 +789,8 @@ describe('Despublicar action (Slice 2)', () => {
     const tab = await screen.findByRole('tab', { name: /Mal vinculado/i });
     await user.click(tab);
 
-    expect(await screen.findByRole('button', { name: /^Despublicar$/i })).toBeInTheDocument();
+    await openRowMenu(user, 'DP-1');
+    expect(screen.getByRole('menuitem', { name: 'Despublicar' })).toBeInTheDocument();
   });
 
   it('requires an explicit confirmation step before calling the endpoint', async () => {
@@ -792,8 +801,8 @@ describe('Despublicar action (Slice 2)', () => {
     const tab = await screen.findByRole('tab', { name: /Mal vinculado/i });
     await user.click(tab);
 
-    const despublicarButton = await screen.findByRole('button', { name: /^Despublicar$/i });
-    await user.click(despublicarButton);
+    await openRowMenu(user, 'DP-1');
+    await user.click(screen.getByRole('menuitem', { name: 'Despublicar' }));
 
     // Not yet called — a confirm step must appear first.
     expect(api.post).not.toHaveBeenCalledWith('/tienda-nube-reconcile/despublicar', expect.anything());
@@ -814,14 +823,15 @@ describe('Despublicar action (Slice 2)', () => {
     const tab = await screen.findByRole('tab', { name: /Mal vinculado/i });
     await user.click(tab);
 
-    const despublicarButton = await screen.findByRole('button', { name: /^Despublicar$/i });
-    await user.click(despublicarButton);
+    await openRowMenu(user, 'DP-1');
+    await user.click(screen.getByRole('menuitem', { name: 'Despublicar' }));
 
     const cancelButton = await screen.findByRole('button', { name: /Cancelar/i });
     await user.click(cancelButton);
 
     expect(api.post).not.toHaveBeenCalledWith('/tienda-nube-reconcile/despublicar', expect.anything());
-    expect(await screen.findByRole('button', { name: /^Despublicar$/i })).toBeInTheDocument();
+    await openRowMenu(user, 'DP-1');
+    expect(screen.getByRole('menuitem', { name: 'Despublicar' })).toBeInTheDocument();
   });
 
   it('shows a success toast and reloads the report after a successful unpublish', async () => {
@@ -838,8 +848,8 @@ describe('Despublicar action (Slice 2)', () => {
     const tab = await screen.findByRole('tab', { name: /Mal vinculado/i });
     await user.click(tab);
 
-    const despublicarButton = await screen.findByRole('button', { name: /^Despublicar$/i });
-    await user.click(despublicarButton);
+    await openRowMenu(user, 'DP-1');
+    await user.click(screen.getByRole('menuitem', { name: 'Despublicar' }));
     const confirmButton = await screen.findByRole('button', { name: /Confirmar/i });
     await user.click(confirmButton);
 
@@ -862,8 +872,8 @@ describe('Despublicar action (Slice 2)', () => {
     const tab = await screen.findByRole('tab', { name: /Mal vinculado/i });
     await user.click(tab);
 
-    const despublicarButton = await screen.findByRole('button', { name: /^Despublicar$/i });
-    await user.click(despublicarButton);
+    await openRowMenu(user, 'DP-1');
+    await user.click(screen.getByRole('menuitem', { name: 'Despublicar' }));
     const confirmButton = await screen.findByRole('button', { name: /Confirmar/i });
     await user.click(confirmButton);
 
@@ -879,7 +889,7 @@ describe('Despublicar action (Slice 2)', () => {
     await waitFor(() => {
       expect(screen.getByText('111')).toBeInTheDocument();
     });
-    expect(screen.queryByRole('button', { name: /^Despublicar$/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole('menuitem', { name: 'Despublicar' })).not.toBeInTheDocument();
   });
 });
 
@@ -888,8 +898,8 @@ describe('Ban/unban error handling', () => {
     const user = userEvent.setup();
     await renderWithRouter(<TiendaNubeReconcile />);
 
-    const banButton = await screen.findByRole('button', { name: /Banear/i });
-    await user.click(banButton);
+    await openRowMenu(user, '111');
+    await user.click(screen.getByRole('menuitem', { name: 'Banear' }));
 
     await waitFor(() => {
       expect(api.post).toHaveBeenCalledWith('/tienda-nube-reconcile/banear', { ean: '111' });
@@ -906,8 +916,8 @@ describe('Ban/unban error handling', () => {
     const user = userEvent.setup();
     await renderWithRouter(<TiendaNubeReconcile />);
 
-    const banButton = await screen.findByRole('button', { name: /Banear/i });
-    await user.click(banButton);
+    await openRowMenu(user, '111');
+    await user.click(screen.getByRole('menuitem', { name: 'Banear' }));
 
     await waitFor(() => {
       expect(screen.getByText(/El EAN ya está en la banlist/i)).toBeInTheDocument();
@@ -966,8 +976,8 @@ describe('Banlist view', () => {
     await screen.findByRole('tab', { name: /Banlist \(1\)/i });
     const initialBaneadosCalls = api.get.mock.calls.filter(([url]) => url === '/tienda-nube-reconcile/baneados').length;
 
-    const banButton = await screen.findByRole('button', { name: /Banear/i });
-    await user.click(banButton);
+    await openRowMenu(user, '111');
+    await user.click(screen.getByRole('menuitem', { name: 'Banear' }));
 
     await waitFor(() => {
       const callsAfter = api.get.mock.calls.filter(([url]) => url === '/tienda-nube-reconcile/baneados').length;
@@ -1157,11 +1167,13 @@ describe('Product identity in rows (rebuilt UI)', () => {
     });
   });
 
-  it('offers an "Editar en TN" link per match that opens the MATCH\'s own tn_admin_url in a new tab', async () => {
+  it('offers an "Editar en TN" action (now in the Acciones overflow menu) that opens the resolved match\'s tn_admin_url in a new tab', async () => {
     setupEnriched();
+    const user = userEvent.setup();
     await renderWithRouter(<TiendaNubeReconcile />);
 
-    const link = await screen.findByRole('link', { name: /editar en tn/i });
+    await openRowMenu(user, 'RICH-1');
+    const link = screen.getByRole('menuitem', { name: /editar en tn/i });
     expect(link).toHaveAttribute('href', 'https://admin.tiendanube.com/products/123');
     expect(link).toHaveAttribute('target', '_blank');
     expect(link).toHaveAttribute('rel', expect.stringContaining('noopener'));

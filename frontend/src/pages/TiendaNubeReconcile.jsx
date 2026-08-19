@@ -48,6 +48,7 @@ import { usePermisos } from '../contexts/PermisosContext';
 import { useToast } from '../hooks/useToast';
 import Toast from '../components/Toast';
 import TnPublishModal from '../components/tn-publisher/TnPublishModal';
+import RowActionsCell from '../components/tn-reconcile/RowActionsCell';
 import api from '../services/api';
 import {
   selectTabItems,
@@ -318,10 +319,19 @@ function ProductoCell({ row }) {
 
 // Fail-safe persistence — absent/corrupt/disabled localStorage MUST never
 // throw (mirrors MLQuestions.jsx's loadColumnSizing/saveColumnSizing).
+// Adding/removing a COLUMNS entry (like this PR's new `acciones` column)
+// changes the stored-size shape: a stale saved entry may carry sizes for
+// columns that no longer exist, or simply lack one for a brand-new column.
+// TanStack tolerates extra unknown keys harmlessly and a missing key just
+// falls back to that column's own default `size` — but we filter to KNOWN
+// ids here anyway so a corrupted/foreign localStorage payload can never
+// grow unbounded or leak an unrelated column's stale width into this table.
 function loadColumnSizing() {
   try {
     const parsed = JSON.parse(localStorage.getItem(COLUMN_SIZING_STORAGE_KEY) || '{}');
-    return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : {};
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return {};
+    const knownIds = new Set(COLUMNS.map((c) => c.id));
+    return Object.fromEntries(Object.entries(parsed).filter(([id]) => knownIds.has(id)));
   } catch {
     return {};
   }
@@ -375,8 +385,9 @@ const COLUMNS = [
     sortable: true,
     cell: (row) => <StockCell row={row} />,
   },
-  { id: 'despublicar', header: 'Despublicar', size: 170, cell: null }, // rendered specially — carries the unpublish action
-  { id: 'matches', header: 'Coincidencias TN (IDs)', size: 300, cell: null }, // rendered specially — carries IDs + acciones
+  { id: 'despublicar', header: 'Despublicar', size: 170, cell: null }, // rendered specially — Sí/— text only, action lives in Acciones now
+  { id: 'matches', header: 'Coincidencias TN (IDs)', size: 300, cell: null }, // rendered specially — carries only the IDs list now
+  { id: 'acciones', header: 'Acciones', size: 190, cell: null }, // rendered specially — RowActionsCell (primary + overflow menu)
 ];
 
 // Slice 4: client-side sort over `currentTabItems`, BEFORE pagination —
@@ -1253,21 +1264,15 @@ export default function TiendaNubeReconcile() {
                                       {tn.product_id}/{tn.variant_id}
                                     </span>
                                     {tn.variant_sku ? <span className={styles.matchSku}> · {tn.variant_sku}</span> : null}
-                                    {/* Per-match link (each match carries its OWN
-                                        tn_admin_url) — never a single row-level
-                                        link that would implicitly privilege one
-                                        match over the others. */}
-                                    {tn.tn_admin_url && (
-                                      <a
-                                        href={tn.tn_admin_url}
-                                        target="_blank"
-                                        rel="noopener noreferrer"
-                                        className={styles.tnLinkInline}
-                                        aria-label={`Editar en TN el producto ${tn.product_id}`}
-                                      >
-                                        Editar en TN <ExternalLink size={11} aria-hidden="true" />
-                                      </a>
-                                    )}
+                                    {/* "Editar en TN" moved to the Acciones column's
+                                        overflow menu (PR-A of the table redesign) —
+                                        it now targets the SAME single match
+                                        `pickEditorTnMatch` resolves for the whole
+                                        row (published match, else first with a
+                                        URL), mirroring `despublicarTargetProductId`'s
+                                        "pick the one that's actually live" choice.
+                                        The DUPLICADO view keeps its own per-match
+                                        links untouched — see its own render branch. */}
                                   </li>
                                 ))}
                               </ul>
@@ -1279,64 +1284,24 @@ export default function TiendaNubeReconcile() {
                                 TN product_id: {row.product_id} / variant_id: {row.variant_id}
                               </div>
                             )}
-                            {puedeGestionarBanlist &&
-                              (row.verdict === 'FALTA_PUBLICAR' || row.verdict === 'FALTA_VINCULAR') && (
-                              <button
-                                type="button"
-                                className={`btn-tesla ghost sm ${styles.btnSpaced}`}
-                                onClick={() => banearEan(row.ean)}
-                              >
-                                Banear
-                              </button>
-                            )}
-                            {puedeGestionarPublicacion && row.verdict === 'FALTA_PUBLICAR' && (
-                              <button
-                                type="button"
-                                className={`btn-tesla outline sm ${styles.btnSpaced}`}
-                                onClick={() => setPublishingRow(row)}
-                              >
-                                Publicar
-                              </button>
-                            )}
                           </td>
                         ) : col.id === 'despublicar' ? (
+                          <td key={col.id}>{row.despublicar ? 'Sí' : '—'}</td>
+                        ) : col.id === 'acciones' ? (
                           <td key={col.id}>
-                            {row.despublicar ? 'Sí' : '—'}
-                            {row.despublicar && puedeGestionarPublicacion && (() => {
-                              const productId = despublicarTargetProductId(row);
-                              if (productId === null) return null;
-                              if (confirmingProductId === productId) {
-                                return (
-                                  <span className={styles.btnSpaced}>
-                                    <button
-                                      type="button"
-                                      className="btn-tesla outline-subtle-danger sm"
-                                      disabled={despublicando}
-                                      onClick={() => despublicarProducto(productId)}
-                                    >
-                                      Confirmar
-                                    </button>
-                                    <button
-                                      type="button"
-                                      className={`btn-tesla ghost sm ${styles.btnSpaced}`}
-                                      disabled={despublicando}
-                                      onClick={() => setConfirmingProductId(null)}
-                                    >
-                                      Cancelar
-                                    </button>
-                                  </span>
-                                );
-                              }
-                              return (
-                                <button
-                                  type="button"
-                                  className={`btn-tesla ghost sm ${styles.btnSpaced}`}
-                                  onClick={() => setConfirmingProductId(productId)}
-                                >
-                                  Despublicar
-                                </button>
-                              );
-                            })()}
+                            <RowActionsCell
+                              row={row}
+                              canBanlist={puedeGestionarBanlist}
+                              canPublish={puedeGestionarPublicacion}
+                              despublicarTargetProductId={despublicarTargetProductId}
+                              onPublicar={setPublishingRow}
+                              onBanear={banearEan}
+                              confirmingProductId={confirmingProductId}
+                              despublicando={despublicando}
+                              onStartDespublicarConfirm={setConfirmingProductId}
+                              onCancelDespublicarConfirm={() => setConfirmingProductId(null)}
+                              onConfirmDespublicar={despublicarProducto}
+                            />
                           </td>
                         ) : (
                           <td key={col.id}>{col.cell(row)}</td>
