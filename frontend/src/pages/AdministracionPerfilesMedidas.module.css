@@ -311,3 +311,16 @@
   text-align: center;
   margin: 0 0 4px;
 }
+
+/* El spinner de carga usaba una clase global `spinning` que no existe en
+   ningún stylesheet del proyecto, así que no giraba — en silencio. */
+.spinner {
+  animation: perfilesSpin 0.9s linear infinite;
+  color: var(--cf-text-tertiary);
+}
+
+@keyframes perfilesSpin {
+  to {
+    transform: rotate(360deg);
+  }
+}
