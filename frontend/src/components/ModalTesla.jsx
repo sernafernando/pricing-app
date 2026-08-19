@@ -31,6 +31,7 @@ export default function ModalTesla({
   tabs,
   activeTab,
   onTabChange,
+  initialFocusRef,
 }) {
   const modalRef = useRef(null);
   const overlayRef = useRef(null);
@@ -84,12 +85,14 @@ export default function ModalTesla({
     };
 
     document.addEventListener('keydown', handleTab);
-    
-    // Auto-focus en primer elemento
-    setTimeout(() => firstElement?.focus(), 100);
+
+    // Auto-focus: caller-provided target (e.g. the first meaningful field)
+    // takes priority over the DOM-order first focusable element, which in
+    // practice is almost always the close button.
+    setTimeout(() => (initialFocusRef?.current ?? firstElement)?.focus(), 100);
 
     return () => document.removeEventListener('keydown', handleTab);
-  }, [isOpen]);
+  }, [isOpen, initialFocusRef]);
 
   // Prevenir scroll del body cuando modal está abierto
   useEffect(() => {

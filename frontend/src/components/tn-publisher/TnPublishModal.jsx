@@ -21,25 +21,23 @@
  * (`admin.gestionar_tn_publicacion`) happens at the caller — this modal is
  * only ever rendered for operators holding it.
  */
-import { useMemo } from 'react';
+import { useRef } from 'react';
 import ModalTesla from '../ModalTesla';
 import { usePublishFields } from './hooks/usePublishFields';
 import { useCategoryPicker } from './hooks/useCategoryPicker';
-import { useMarkupOffset } from './hooks/useMarkupOffset';
+import { usePublishPricing } from './hooks/usePublishPricing';
 import { usePublishSubmit } from './hooks/usePublishSubmit';
 import { useDescriptionEditor } from './hooks/useDescriptionEditor';
 import { useDraftFields, MEASUREMENT_FIELDS } from './hooks/useDraftFields';
 import { useMeasurementProfile } from './hooks/useMeasurementProfile';
-import ProductFieldsSection from './ProductFieldsSection';
-import VariantFieldsSection from './VariantFieldsSection';
-import CategorySection from './CategorySection';
-import DescriptionEditor from './DescriptionEditor';
-import ImageGallery from './ImageGallery';
-import MeasurementSection from './MeasurementSection';
-import styles from './TnPublishModal.module.css';
+import PublisherHeader from './PublisherHeader';
+import PublisherLeftPane from './PublisherLeftPane';
+import RightSummaryPane from './RightSummaryPane';
+import shellStyles from './TnPublisherShell.module.css';
 
 export default function TnPublishModal({ row, isOpen, onClose, onPublished }) {
   const ean = row?.ean;
+  const titleInputRef = useRef(null);
 
   const { title, setTitle, images, imageIds, handleDragEnd, deleteImage, manualPrice, setManualPrice } =
     usePublishFields(row);
@@ -88,34 +86,18 @@ export default function TnPublishModal({ row, isOpen, onClose, onPublished }) {
     publishFieldsError != null || missingMeasurementFields.length > 0 || draftBlocked;
 
   // Precio de publicación (Slice 2, money path) — see VariantFieldsSection
-  // for the full two-base rule. `hasWebPrice` selects the surcharge path vs.
-  // the manual-entry fallback.
-  const hasWebPrice =
-    row?.precio_web_transferencia != null &&
-    row?.precio_web_transferencia !== '' &&
-    row?.participa_web_transferencia === true;
-
-  const { offsetPercent, setOffsetPercent, loadingOffset, offsetError } = useMarkupOffset({ isOpen, hasWebPrice });
-
-  const basePrice = hasWebPrice ? Number(row.precio_web_transferencia) : null;
-  const computedPrice = useMemo(() => {
-    if (!hasWebPrice || basePrice == null || Number.isNaN(basePrice)) return null;
-    // `null` (config not loaded / failed) and `''` (operator cleared the box)
-    // are checked BEFORE Number(): both coerce to 0, which would quietly
-    // publish at the bare base price instead of blocking.
-    if (offsetPercent === null || offsetPercent === '') return null;
-    const offset = Number(offsetPercent);
-    if (Number.isNaN(offset)) return null;
-    return (basePrice * (1 + offset / 100)).toFixed(2);
-  }, [hasWebPrice, basePrice, offsetPercent]);
-
-  const finalPrice = hasWebPrice
-    ? computedPrice
-    : manualPrice !== '' && !Number.isNaN(Number(manualPrice))
-      ? Number(manualPrice).toFixed(2)
-      : null;
-  const finalPriceIsValid = finalPrice != null && Number(finalPrice) > 0;
-  const priceBaseSource = hasWebPrice ? 'web_transferencia' : 'manual';
+  // for the full two-base rule, extracted into `usePublishPricing`.
+  const {
+    hasWebPrice,
+    basePrice,
+    offsetPercent,
+    setOffsetPercent,
+    loadingOffset,
+    offsetError,
+    finalPrice,
+    finalPriceIsValid,
+    priceBaseSource,
+  } = usePublishPricing({ isOpen, row, manualPrice });
 
   const { confirming, submitting, submitError, handlePublishClick, handleCancelConfirm, handleConfirm } =
     usePublishSubmit({
@@ -145,113 +127,83 @@ export default function TnPublishModal({ row, isOpen, onClose, onPublished }) {
 
   if (!isOpen) return null;
 
+  const suggestedProfile = profiles.find((p) => p.id === selectedProfileId) ?? null;
+
   return (
     <ModalTesla
       isOpen={isOpen}
       onClose={onClose}
-      title="Publicar producto en Tienda Nube"
-      subtitle={ean ? `EAN ${ean}` : undefined}
-      size="xl"
+      title={<PublisherHeader title={title} ean={ean} thumbSrc={images[0]?.src} />}
+      size="full"
+      bodyClassName={shellStyles.shellBody}
+      initialFocusRef={titleInputRef}
     >
-      {loadError && <div className={styles.errorBanner}>{loadError}</div>}
-      {submitError && <div className={styles.errorBanner}>{submitError}</div>}
+      <div className={shellStyles.twoPane}>
+        <PublisherLeftPane
+          loadError={loadError}
+          submitError={submitError}
+          title={title}
+          setTitle={setTitle}
+          titleInputRef={titleInputRef}
+          draftFields={draftFields}
+          row={row}
+          profiles={profiles}
+          loadingProfiles={loadingProfiles}
+          profileError={profileError}
+          selectedProfileId={selectedProfileId}
+          setSelectedProfileId={setSelectedProfileId}
+          clearProfile={clearProfile}
+          hasWebPrice={hasWebPrice}
+          basePrice={basePrice}
+          offsetPercent={offsetPercent}
+          setOffsetPercent={setOffsetPercent}
+          loadingOffset={loadingOffset}
+          offsetError={offsetError}
+          manualPrice={manualPrice}
+          setManualPrice={setManualPrice}
+          finalPriceIsValid={finalPriceIsValid}
+          loadingSuggestion={loadingSuggestion}
+          suggestions={suggestions}
+          selectedCategory={selectedCategory}
+          setSelectedCategory={setSelectedCategory}
+          selectionOutsideSuggestions={selectionOutsideSuggestions}
+          categoryQuery={categoryQuery}
+          setCategoryQuery={setCategoryQuery}
+          debouncedCategoryQuery={debouncedCategoryQuery}
+          searchResults={searchResults}
+          searching={searching}
+          searchError={searchError}
+          pickSearchResult={pickSearchResult}
+          images={images}
+          imageIds={imageIds}
+          handleDragEnd={handleDragEnd}
+          deleteImage={deleteImage}
+          editor={editor}
+          editorState={editorState}
+        />
 
-      <ProductFieldsSection
-        title={title}
-        onTitleChange={setTitle}
-        brand={draftFields.brand}
-        onBrandChange={(v) => draftFields.setField('brand', v)}
-        visibility={draftFields.visibility}
-        onVisibilityChange={(v) => draftFields.setField('visibility', v)}
-        freeShipping={draftFields.freeShipping}
-        onFreeShippingChange={(v) => draftFields.setField('freeShipping', v)}
-        seoTitle={draftFields.seoTitle}
-        onSeoTitleChange={(v) => draftFields.setField('seoTitle', v)}
-        seoDescription={draftFields.seoDescription}
-        onSeoDescriptionChange={(v) => draftFields.setField('seoDescription', v)}
-        tags={draftFields.tags}
-        onTagsChange={(v) => draftFields.setField('tags', v)}
-      />
-
-      <CategorySection
-        loadingSuggestion={loadingSuggestion}
-        suggestions={suggestions}
-        selectedCategory={selectedCategory}
-        setSelectedCategory={setSelectedCategory}
-        selectionOutsideSuggestions={selectionOutsideSuggestions}
-        categoryQuery={categoryQuery}
-        setCategoryQuery={setCategoryQuery}
-        debouncedCategoryQuery={debouncedCategoryQuery}
-        searchResults={searchResults}
-        searching={searching}
-        searchError={searchError}
-        pickSearchResult={pickSearchResult}
-      />
-
-      <ImageGallery images={images} imageIds={imageIds} onDragEnd={handleDragEnd} onDelete={deleteImage} />
-
-      <DescriptionEditor editor={editor} editorState={editorState} />
-
-      <VariantFieldsSection
-        hasWebPrice={hasWebPrice}
-        basePrice={basePrice}
-        offsetPercent={offsetPercent}
-        setOffsetPercent={setOffsetPercent}
-        loadingOffset={loadingOffset}
-        offsetError={offsetError}
-        computedPrice={computedPrice}
-        manualPrice={manualPrice}
-        setManualPrice={setManualPrice}
-        finalPriceIsValid={finalPriceIsValid}
-        sku={draftFields.sku}
-        onSkuChange={(v) => draftFields.setField('sku', v)}
-        barcode={draftFields.barcode}
-        onBarcodeChange={(v) => draftFields.setField('barcode', v)}
-        cost={draftFields.cost}
-        onCostChange={(v) => draftFields.setField('cost', v)}
-        stock={draftFields.stock}
-        onStockChange={(v) => draftFields.setField('stock', v)}
-        promotionalPrice={draftFields.promotionalPrice}
-        onPromotionalPriceChange={(v) => draftFields.setField('promotionalPrice', v)}
-      />
-
-      <MeasurementSection
-        fields={draftFields}
-        setField={draftFields.setField}
-        profiles={profiles}
-        loadingProfiles={loadingProfiles}
-        profileError={profileError}
-        selectedProfileId={selectedProfileId}
-        setSelectedProfileId={setSelectedProfileId}
-        onApplyProfile={draftFields.applyProfile}
-        onClearProfile={clearProfile}
-        missingFields={missingMeasurementFields}
-        blocked={measurementsBlocked && !publishFieldsError}
-        backendReasons={draftBlockedReasons}
-        publishFieldsError={publishFieldsError}
-      />
-
-      {/* ------------------------------------------------------ Submit --- */}
-      {confirming ? (
-        <div className={styles.confirmBar}>
-          <span className={styles.confirmQuestion}>¿Publicar este producto en Tienda Nube?</span>
-          <button
-            type="button"
-            className="btn-tesla outline-subtle-success sm"
-            disabled={submitting}
-            onClick={handleConfirm}
-          >
-            Confirmar
-          </button>
-          <button type="button" className="btn-tesla ghost sm" disabled={submitting} onClick={handleCancelConfirm}>
-            Cancelar
-          </button>
+        <div className={shellStyles.rightPane}>
+          <RightSummaryPane
+            selectedCategory={selectedCategory}
+            draftFields={draftFields}
+            publishDraftFields={row?.publish_draft?.fields}
+            monedaCosto={row?.moneda_costo}
+            finalPrice={finalPrice}
+            measurementsBlocked={measurementsBlocked}
+            publishFieldsError={publishFieldsError}
+            missingMeasurementFields={missingMeasurementFields}
+            backendReasons={draftBlockedReasons}
+            suggestedProfile={suggestedProfile}
+            onApplyProfile={draftFields.applyProfile}
+            canPublish={canPublish}
+            confirming={confirming}
+            submitting={submitting}
+            onPublishClick={handlePublishClick}
+            onConfirm={handleConfirm}
+            onCancelConfirm={handleCancelConfirm}
+          />
         </div>
-      ) : (
-        <button type="button" className="btn-tesla outline sm" disabled={!canPublish} onClick={handlePublishClick}>
-          Publicar
-        </button>
-      )}
+      </div>
     </ModalTesla>
   );
 }
