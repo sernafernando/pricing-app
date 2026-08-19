@@ -73,57 +73,57 @@ export default function VariantFieldsSection({
         testId="tn-publish-field-promotional_price"
       />
       <div className={styles.section} data-testid="tn-publish-field-price">
-      <h3 className={styles.sectionTitle}>Precio de publicación</h3>
-      {hasWebPrice ? (
-        <>
-          <p className={styles.fieldHint}>Base: precio web transferencia (${basePrice.toFixed(2)})</p>
-          <label className={styles.searchLabel} htmlFor="tn-publish-offset">
-            Recargo (%)
-          </label>
-          <input
-            id="tn-publish-offset"
-            type="number"
-            className={styles.titleInput}
-            value={offsetPercent ?? ''}
-            min={0}
-            step="0.01"
-            disabled={loadingOffset || offsetPercent === null}
-            onChange={(e) => setOffsetPercent(e.target.value === '' ? '' : Number(e.target.value))}
-          />
-          {loadingOffset && <p className={styles.fieldHint}>Cargando recargo configurado...</p>}
-          {offsetError && <p className={styles.fieldError}>{offsetError}</p>}
-          <p className={styles.selectedCategory}>
-            <Check size={13} aria-hidden="true" />
-            <span>
-              Precio final a publicar: <strong>${computedPrice ?? '—'}</strong>
-            </span>
-          </p>
-        </>
-      ) : (
-        <>
-          <p className={styles.fieldHint}>
-            Base: precio lista ML (Clásica) — no hay precio web transferencia para este producto. Editá el
-            precio antes de publicar.
-          </p>
-          <label className={styles.searchLabel} htmlFor="tn-publish-manual-price">
-            Precio de publicación
-          </label>
-          <input
-            id="tn-publish-manual-price"
-            type="number"
-            className={styles.titleInput}
-            value={manualPrice}
-            min={0}
-            step="0.01"
-            onChange={(e) => setManualPrice(e.target.value)}
-          />
-        </>
-      )}
-      {/* Mientras se carga el recargo el precio todavía no existe: mostrar
-          "debe ser mayor a cero" ahí sería ruido, no un error del operador. */}
-      {!finalPriceIsValid && !loadingOffset && (
-        <p className={styles.fieldError}>El precio de publicación debe ser mayor a cero.</p>
-      )}
+        <h3 className={styles.sectionTitle}>Precio de publicación</h3>
+        {hasWebPrice ? (
+          <>
+            <p className={styles.fieldHint}>Base: precio web transferencia (${basePrice.toFixed(2)})</p>
+            <label className={styles.searchLabel} htmlFor="tn-publish-offset">
+              Recargo (%)
+            </label>
+            <input
+              id="tn-publish-offset"
+              type="number"
+              className={styles.titleInput}
+              value={offsetPercent ?? ''}
+              min={0}
+              step="0.01"
+              disabled={loadingOffset || offsetPercent === null}
+              onChange={(e) => setOffsetPercent(e.target.value === '' ? '' : Number(e.target.value))}
+            />
+            {loadingOffset && <p className={styles.fieldHint}>Cargando recargo configurado...</p>}
+            {offsetError && <p className={styles.fieldError}>{offsetError}</p>}
+            <p className={styles.selectedCategory}>
+              <Check size={13} aria-hidden="true" />
+              <span>
+                Precio final a publicar: <strong>${computedPrice ?? '—'}</strong>
+              </span>
+            </p>
+          </>
+        ) : (
+          <>
+            <p className={styles.fieldHint}>
+              Base: precio lista ML (Clásica) — no hay precio web transferencia para este producto. Editá el
+              precio antes de publicar.
+            </p>
+            <label className={styles.searchLabel} htmlFor="tn-publish-manual-price">
+              Precio de publicación
+            </label>
+            <input
+              id="tn-publish-manual-price"
+              type="number"
+              className={styles.titleInput}
+              value={manualPrice}
+              min={0}
+              step="0.01"
+              onChange={(e) => setManualPrice(e.target.value)}
+            />
+          </>
+        )}
+        {/* Mientras se carga el recargo el precio todavía no existe: mostrar
+            "debe ser mayor a cero" ahí sería ruido, no un error del operador. */}
+        {!finalPriceIsValid && !loadingOffset && (
+          <p className={styles.fieldError}>El precio de publicación debe ser mayor a cero.</p>
+        )}
       </div>
     </>
   );

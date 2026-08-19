@@ -51,7 +51,7 @@ export default function MeasurementSection({
       {profileError && <p className={styles.fieldError}>{profileError}</p>}
 
       {!loadingProfiles && profiles.length > 0 && (
-        <div className={styles.section}>
+        <div className={styles.subSection}>
           <label className={styles.searchLabel} htmlFor="tn-publish-profile">
             Perfil de medidas sugerido
           </label>
@@ -83,7 +83,7 @@ export default function MeasurementSection({
       )}
 
       {MEASUREMENT_FIELDS.map((name) => (
-        <div key={name} className={styles.section} data-testid={`tn-publish-field-${name}`}>
+        <div key={name} className={styles.subSection} data-testid={`tn-publish-field-${name}`}>
           <label className={styles.sectionTitle} htmlFor={`tn-publish-${name}`}>
             {MEASUREMENT_LABELS[name]}
           </label>
