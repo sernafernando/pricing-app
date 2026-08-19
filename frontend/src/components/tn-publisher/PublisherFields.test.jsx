@@ -360,6 +360,15 @@ describe('Overrides are dirty-only (PC5/D8)', () => {
     // override (precedence is override > gbp), hiding any later ERP
     // correction behind a value nobody ever typed.
     expect(call[1].overrides).toEqual({});
+    // …but the measurements themselves DO travel, or the backend's D3 gate
+    // would reject the happy path. Two fields, two questions: what to
+    // publish vs. what the operator edited.
+    expect(call[1].measurements).toEqual({
+      weight: '1.2',
+      width: '10',
+      height: '5',
+      depth: '15',
+    });
   });
 
   it('sends only the measurement the operator actually changed', async () => {

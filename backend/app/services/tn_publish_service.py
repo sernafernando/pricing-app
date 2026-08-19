@@ -133,23 +133,32 @@ def _validate_publish_price(product_data: Dict[str, Any]) -> Decimal:
     return price
 
 
-def _resolved_measurements_from_overrides(overrides: Optional[Dict[str, str]]) -> Dict[str, Resolved]:
-    """PR-7 gap fix (task A): builds the `Dict[str, Resolved]` the D3 gate
-    (`validate_measurements`) and `assemble_payload` both need, from the
-    REQUEST's `overrides` — the operator's current draft state, NOT a fresh
-    server-side GBP re-resolution (that full re-resolve needs design
-    Decision 2's TTL-cached report, explicitly deferred past this PR — see
-    `publish_product`'s docstring). `overrides` already carries whichever
-    value the modal was showing (GBP-, profile-, or operator-sourced —
-    `usePublishSubmit.buildOverrides` sends all four non-empty measurement
-    fields regardless of their original source), so `source="operator"`
-    here means "supplied by this request", not literally hand-typed.
+def _resolved_measurements(measurements: Optional[Dict[str, str]]) -> Dict[str, Resolved]:
+    """Builds the `Dict[str, Resolved]` the D3 gate (`validate_measurements`)
+    and `assemble_payload` both need, from the request's `measurements` —
+    the COMPLETE set of values the modal was showing, whatever their source
+    (GBP, profile, stored override, or a fresh operator edit).
+
+    `measurements` is deliberately NOT `overrides`. They answer two
+    different questions and must never be conflated:
+      - `measurements` = what to PUBLISH (all four, always).
+      - `overrides`    = what the operator EDITED in-session and therefore
+                         what may be persisted (PC5/D8, dirty-only —
+                         persisting an untouched GBP value would freeze it
+                         behind the `override > gbp` precedence forever).
+    Reading the gate off `overrides` made the happy path (nothing edited,
+    so no overrides) fail closed on every normal publish.
+
+    Not a server-side GBP re-resolution: that needs design Decision 2's
+    TTL-cached report, explicitly deferred past this PR (see
+    `publish_product`'s docstring). `source="operator"` here means
+    "supplied by this request", not literally hand-typed.
 
     A missing/unparseable value resolves `Resolved(None, "empty")` — the
     same "no value" `validate_measurements` already treats every other
     absence as; it is never defaulted to 0 or dropped silently.
     """
-    overrides = overrides or {}
+    overrides = measurements or {}
     resolved: Dict[str, Resolved] = {}
     for field_name in MEASUREMENT_FIELDS:
         raw = overrides.get(field_name)
@@ -504,6 +513,7 @@ def publish_product(
     offset_percent: Optional[float] = None,
     price_base_source: Optional[str] = None,
     overrides: Optional[Dict[str, str]] = None,
+    measurements: Optional[Dict[str, str]] = None,
 ) -> Dict[str, Any]:
     """Creates a single TN product from GBP-derived data (Slice 3a).
 
@@ -574,9 +584,9 @@ def publish_product(
     alongside the submitted price for after-the-fact traceability (R2.5) —
     they play no role in this validation.
 
-    D3 measurement gate (PR-7 gap fix, task A): `overrides` MUST resolve all
+    D3 measurement gate (PR-7 gap fix, task A): `measurements` MUST resolve all
     four of `weight`/`width`/`depth`/`height` (via
-    `_resolved_measurements_from_overrides`) or the publish is rejected with
+    `_resolved_measurements`) or the publish is rejected with
     `status="blocked_measurements"`, BEFORE any local-mirror query or TN
     call — the same fail-closed placement as the price guard above. This
     reads the operator's already-resolved draft state from the REQUEST, not
@@ -604,7 +614,7 @@ def publish_product(
     # built from the REQUEST's `overrides` only (see
     # `_resolved_measurements_from_overrides`'s docstring for the scope
     # decision behind that).
-    resolved_fields = _resolved_measurements_from_overrides(overrides)
+    resolved_fields = _resolved_measurements(measurements)
     measurement_validation = validate_measurements(resolved_fields)
     if measurement_validation.blocked:
         outcome = {

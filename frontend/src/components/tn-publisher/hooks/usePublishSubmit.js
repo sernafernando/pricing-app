@@ -41,6 +41,23 @@ function splitTags(raw) {
  * precedence is `override > gbp`, so a later ERP correction would stay
  * hidden behind a value nobody ever typed.
  */
+/**
+ * The COMPLETE resolved measurement set — what to PUBLISH. The backend's D3
+ * gate and `assemble_payload` both read THIS, never `overrides`: a normal
+ * publish edits nothing, so gating on the dirty-only set would reject every
+ * happy-path item.
+ */
+function buildMeasurements(draftFields) {
+  const measurements = {};
+  MEASUREMENT_FIELDS.forEach((field) => {
+    const raw = draftFields[field];
+    if (raw !== '' && raw != null && !Number.isNaN(Number(raw))) {
+      measurements[field] = String(Number(raw));
+    }
+  });
+  return measurements;
+}
+
 function buildOverrides(draftFields) {
   const overrides = {};
   const dirty = draftFields.dirtyMeasurements || [];
@@ -121,6 +138,7 @@ export function usePublishSubmit({
         offset_percent: hasWebPrice ? Number(offsetPercent) : null,
         price_base_source: priceBaseSource,
         overrides: buildOverrides(draftFields),
+        measurements: buildMeasurements(draftFields),
         profile_id: draftFields.appliedProfileId ?? null,
       });
       setConfirming(false);

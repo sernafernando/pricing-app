@@ -494,9 +494,15 @@ class PublicarRequest(BaseModel):
     # Persisted into `tn_publish_override` ONLY on a `submitted` outcome.
     # Defaults to `{}` — the current modal sends nothing here yet (PR-7).
     overrides: Dict[str, str] = {}
+    # The COMPLETE resolved measurement set the modal was showing — what to
+    # PUBLISH. Distinct from `overrides`, which is dirty-only (what the
+    # operator edited, and therefore what may be persisted). Reading the D3
+    # gate off `overrides` would fail-close every publish where nothing was
+    # edited, i.e. the happy path.
+    measurements: Dict[str, str] = {}
     profile_id: Optional[int] = None
 
-    @field_validator("overrides")
+    @field_validator("overrides", "measurements")
     @classmethod
     def _overrides_keys_must_be_known(cls, value: Dict[str, str]) -> Dict[str, str]:
         unknown = sorted(set(value) - set(OVERRIDABLE_FIELDS))
@@ -852,6 +858,7 @@ def publicar_producto(
         offset_percent=request.offset_percent,
         price_base_source=request.price_base_source,
         overrides=request.overrides,
+        measurements=request.measurements,
     )
     if outcome["status"] in ("rejected_invalid_price", "blocked_measurements"):
         raise HTTPException(status_code=400, detail=outcome.get("detail"))

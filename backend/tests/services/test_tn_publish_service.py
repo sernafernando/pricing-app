@@ -233,7 +233,12 @@ def _publish_kwargs(**overrides):
         category_id=123,
         description_html="<p>Descripcion</p>",
         image_srcs=["https://cdn.example.com/img1.jpg", "https://cdn.example.com/img2.jpg"],
-        overrides=dict(_VALID_MEASUREMENT_OVERRIDES),
+        # `measurements` is what the D3 gate reads (what to publish);
+        # `overrides` is dirty-only (what the operator edited) and is
+        # DELIBERATELY empty by default — the happy path edits nothing, and
+        # gating on it once made every normal publish fail closed.
+        measurements=dict(_VALID_MEASUREMENT_OVERRIDES),
+        overrides={},
     )
     kwargs.update(overrides)
     return kwargs
@@ -657,7 +662,7 @@ class TestPublishMeasurementGate:
         fake_client = _FakePublishClient(
             create_outcome={"ok": True, "status_code": 201, "ambiguous": False, "body": {"id": 1}},
         )
-        outcome = publish_product(db, user, client=fake_client, **_publish_kwargs(overrides={}))
+        outcome = publish_product(db, user, client=fake_client, **_publish_kwargs(measurements={}))
         assert outcome["status"] == "blocked_measurements"
         assert outcome["submitted"] is False
         assert fake_client.create_calls == []
@@ -669,7 +674,7 @@ class TestPublishMeasurementGate:
             create_outcome={"ok": True, "status_code": 201, "ambiguous": False, "body": {"id": 1}},
         )
         overrides = {k: v for k, v in _VALID_MEASUREMENT_OVERRIDES.items() if k != "height"}
-        outcome = publish_product(db, user, client=fake_client, **_publish_kwargs(overrides=overrides))
+        outcome = publish_product(db, user, client=fake_client, **_publish_kwargs(measurements=overrides))
         assert outcome["status"] == "blocked_measurements"
         assert len(outcome["blocked_reasons"]) == 1
         assert "height" in outcome["blocked_reasons"][0]
@@ -681,7 +686,7 @@ class TestPublishMeasurementGate:
             create_outcome={"ok": True, "status_code": 201, "ambiguous": False, "body": {"id": 1}},
         )
         overrides = {**_VALID_MEASUREMENT_OVERRIDES, "weight": "not-a-number"}
-        outcome = publish_product(db, user, client=fake_client, **_publish_kwargs(overrides=overrides))
+        outcome = publish_product(db, user, client=fake_client, **_publish_kwargs(measurements=overrides))
         assert outcome["status"] == "blocked_measurements"
         assert any("weight" in reason for reason in outcome["blocked_reasons"])
 
@@ -690,7 +695,7 @@ class TestPublishMeasurementGate:
         fake_client = _FakePublishClient(
             create_outcome={"ok": True, "status_code": 201, "ambiguous": False, "body": {"id": 1}},
         )
-        publish_product(db, user, client=fake_client, **_publish_kwargs(overrides={}))
+        publish_product(db, user, client=fake_client, **_publish_kwargs(measurements={}))
         audit_rows = db.query(Auditoria).filter(Auditoria.tipo_accion == TipoAccion.TN_PUBLICAR).all()
         assert len(audit_rows) == 1
         assert audit_rows[0].valores_nuevos is None
@@ -712,7 +717,7 @@ class TestPublishAssembledFieldsReachTn:
     reach the TN create payload through the live `publish_product` path,
     not just through `assemble_payload`'s own unit tests."""
 
-    def test_measurements_from_overrides_reach_the_variant(self, db):
+    def test_measurements_reach_the_variant(self, db):
         user = _make_user(db)
         fake_client = _FakePublishClient(
             create_outcome={"ok": True, "status_code": 201, "ambiguous": False, "body": {"id": 1}},
@@ -721,7 +726,7 @@ class TestPublishAssembledFieldsReachTn:
             db,
             user,
             client=fake_client,
-            **_publish_kwargs(overrides={"weight": "1.5", "width": "10", "depth": "20", "height": "30"}),
+            **_publish_kwargs(measurements={"weight": "1.5", "width": "10", "depth": "20", "height": "30"}),
         )
         assert outcome["status"] == "submitted"
         variant = fake_client.create_calls[0]["variants"][0]
@@ -905,18 +910,22 @@ class TestPublishOverridePersistence:
         assert len(rows) == 4
         assert next(r for r in rows if r.campo == "weight").valor == "1.200"
 
-    def test_no_overrides_is_a_no_op(self, db):
-        """No override -> the D3 measurement gate blocks the publish before
-        any write is attempted (see `TestPublishMeasurementGate`), so no
-        `tn_publish_override` row is ever created — the historical "empty
-        overrides = no persistence" behavior now happens via the blocking
-        gate rather than an empty dict falling through to a live write."""
+    def test_the_happy_path_publishes_and_persists_nothing(self, db):
+        """The operator edited nothing: the item still PUBLISHES (its
+        measurements travel in `measurements`), and precisely because
+        nothing was edited, no `tn_publish_override` row is written.
+
+        This is the end-to-end shape a previous revision got wrong by
+        reading the D3 gate off `overrides`: dirty-only overrides meant an
+        untouched item sent `{}` and every normal publish failed closed.
+        Frontend and backend tests each passed in isolation while the flow
+        between them was broken — hence this one asserts both halves."""
         user = _make_user(db)
         fake_client = _FakePublishClient(
             create_outcome={"ok": True, "status_code": 201, "ambiguous": False, "body": {"id": 993}},
         )
         outcome = publish_product(db, user, client=fake_client, **_publish_kwargs(overrides={}))
-        assert outcome["status"] == "blocked_measurements"
+        assert outcome["status"] == "submitted"
         assert db.query(TnPublishOverride).count() == 0
 
     def test_rejected_invalid_price_persists_no_override(self, db):
