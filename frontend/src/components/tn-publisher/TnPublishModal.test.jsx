@@ -122,9 +122,12 @@ beforeEach(() => {
 // ModalTesla auto-focuses its first focusable element ~100ms after mount —
 // typing before that fires gets its focus stolen mid-keystroke. Any test
 // that TYPES must wait for the auto-focus to settle first.
+// PR-9 moved the target from the close button (DOM-order first focusable,
+// but useless to land on) to the Título field via ModalTesla's opt-in
+// `initialFocusRef`.
 async function waitForModalAutofocus() {
   await waitFor(() => {
-    expect(screen.getByRole('button', { name: /cerrar modal/i })).toHaveFocus();
+    expect(screen.getByLabelText('Título')).toHaveFocus();
   });
 }
 

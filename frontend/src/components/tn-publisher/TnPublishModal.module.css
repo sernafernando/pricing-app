@@ -57,6 +57,22 @@
   border-color: var(--cf-accent-blue);
 }
 
+/* ------------------------------------------------------------ Medidas --- */
+
+/* The single most important layout fix in PR-9: four measurement fields
+   used to each be a full-width `.titleInput` (~1088px for a 3-char value).
+   A 4-column grid keeps every control at a sane, comparable width. */
+.measurementsGrid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 14px;
+}
+
+.numericInput {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
 /* --------------------------------------------------------- Categoría --- */
 
 .categoryList {

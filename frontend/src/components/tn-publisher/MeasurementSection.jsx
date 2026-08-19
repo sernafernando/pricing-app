@@ -94,22 +94,24 @@ export default function MeasurementSection({
         </div>
       )}
 
-      {MEASUREMENT_FIELDS.map((name) => (
-        <div key={name} className={styles.subSection} data-testid={`tn-publish-field-${name}`}>
-          <label className={styles.sectionTitle} htmlFor={`tn-publish-${name}`}>
-            {MEASUREMENT_LABELS[name]}
-          </label>
-          <input
-            id={`tn-publish-${name}`}
-            type="number"
-            className={styles.titleInput}
-            value={fields[name]}
-            step="0.01"
-            min={0}
-            onChange={(e) => setField(name, e.target.value)}
-          />
-        </div>
-      ))}
+      <div className={styles.measurementsGrid} data-testid="tn-publish-measurements-grid">
+        {MEASUREMENT_FIELDS.map((name) => (
+          <div key={name} className={styles.subSection} data-testid={`tn-publish-field-${name}`}>
+            <label className={styles.sectionTitle} htmlFor={`tn-publish-${name}`}>
+              {MEASUREMENT_LABELS[name]}
+            </label>
+            <input
+              id={`tn-publish-${name}`}
+              type="number"
+              className={`${styles.titleInput} ${styles.numericInput}`}
+              value={fields[name]}
+              step="0.01"
+              min={0}
+              onChange={(e) => setField(name, e.target.value)}
+            />
+          </div>
+        ))}
+      </div>
     </div>
   );
 }

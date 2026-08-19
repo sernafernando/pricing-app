@@ -24,6 +24,7 @@ export default function ProductFieldsSection({
   onSeoDescriptionChange,
   tags,
   onTagsChange,
+  titleInputRef,
 }) {
   return (
     <>
@@ -36,6 +37,7 @@ export default function ProductFieldsSection({
         placeholder="Título del producto en Tienda Nube"
         hint={title.trim().length === 0 ? 'El título no puede quedar vacío.' : null}
         testId="tn-publish-field-name"
+        inputRef={titleInputRef}
       />
 
       <PublishFieldRow

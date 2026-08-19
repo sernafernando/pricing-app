@@ -21,7 +21,7 @@
  * (`admin.gestionar_tn_publicacion`) happens at the caller — this modal is
  * only ever rendered for operators holding it.
  */
-import { useMemo } from 'react';
+import { useMemo, useRef } from 'react';
 import ModalTesla from '../ModalTesla';
 import { usePublishFields } from './hooks/usePublishFields';
 import { useCategoryPicker } from './hooks/useCategoryPicker';
@@ -40,6 +40,7 @@ import styles from './TnPublishModal.module.css';
 
 export default function TnPublishModal({ row, isOpen, onClose, onPublished }) {
   const ean = row?.ean;
+  const titleInputRef = useRef(null);
 
   const { title, setTitle, images, imageIds, handleDragEnd, deleteImage, manualPrice, setManualPrice } =
     usePublishFields(row);
@@ -152,6 +153,7 @@ export default function TnPublishModal({ row, isOpen, onClose, onPublished }) {
       title="Publicar producto en Tienda Nube"
       subtitle={ean ? `EAN ${ean}` : undefined}
       size="xl"
+      initialFocusRef={titleInputRef}
     >
       {loadError && <div className={styles.errorBanner}>{loadError}</div>}
       {submitError && <div className={styles.errorBanner}>{submitError}</div>}
@@ -171,6 +173,7 @@ export default function TnPublishModal({ row, isOpen, onClose, onPublished }) {
         onSeoDescriptionChange={(v) => draftFields.setField('seoDescription', v)}
         tags={draftFields.tags}
         onTagsChange={(v) => draftFields.setField('tags', v)}
+        titleInputRef={titleInputRef}
       />
 
       <CategorySection
