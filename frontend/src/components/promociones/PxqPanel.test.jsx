@@ -1701,6 +1701,42 @@ describe('PxqPanel — per-tier markup display (slice A2)', () => {
 // serving the pre-edit percentage after a tier's price/shipping changed --
 // exactly the stale/fabricated number the spec forbids. See design D2,
 // "Recompute on relevant data change".
+// The markup is the number the operator opened this panel for, and it used to
+// render as loose plain text among the other cells. This suite pins the
+// STRUCTURE -- the percentage is its own element, separable from the label
+// around it, which is what lets the stylesheet give it any emphasis at all.
+describe('PxqPanel — the markup cell has a visual hierarchy', () => {
+  function mockLive({ mirror_tiers = [] } = {}) {
+    return {
+      data: { item_id: 'MLA001', live_status: 'ok', live_tiers: [], mirror_tiers, fetched_at: '2026-08-18T10:00:00Z' },
+    };
+  }
+  const oneTier = [{ id: 1, cantidad_minima: 5, precio_unitario: 100, costo_envio_total: 20, ml_price_id: null, estado: 'listo' }];
+  const mockMarkup = (tiers) => ({ data: { item_id: 'MLA001', tiers } });
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockTienePermiso.mockReturnValue(true);
+  });
+
+  it('gives the resolved percentage its own class, distinct from the label around it', async () => {
+    pxqAPI.getLive.mockResolvedValue(mockLive({ mirror_tiers: oneTier }));
+    pxqAPI.getMarkup.mockResolvedValue(mockMarkup([{ tier_id: 1, markup: 0.184 }]));
+
+    renderPanel();
+
+    const percent = await screen.findByText(/18[.,]4%/);
+    expect(percent.className).toMatch(/pxqMarkupValue/);
+  });
+
+  // The COLOURS of these three states are asserted in
+  // `src/test/visual/pxqPanel.visual.test.jsx`, not here: the unit project runs
+  // with `css: false`, so `styles.whatever` is a proxy that echoes back any key
+  // it is asked for. A class the CSS module never defined looks identical to a
+  // defined one in this project -- which is precisely how
+  // `.pxqMarkupPending`/`.pxqMarkupUnavailable` shipped referenced-but-missing.
+});
+
 describe('PxqPanel — markup recompute on authoring change (design D2)', () => {
   function mockLive({ mirror_tiers = [], live_tiers = [], live_status = 'ok' } = {}) {
     return {

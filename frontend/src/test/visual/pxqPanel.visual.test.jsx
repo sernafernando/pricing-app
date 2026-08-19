@@ -491,3 +491,65 @@ describe('PxQ mirror row — the presented estado label fits its column', () => 
     expect(row.getBoundingClientRect().right).toBeLessThanOrEqual(column.getBoundingClientRect().right + 1);
   });
 });
+
+/**
+ * The markup cell, in real CSS.
+ *
+ * This is the layer that had to catch it: `PxqPanel` referenced
+ * `styles.pxqMarkupPending` and `styles.pxqMarkupUnavailable` while
+ * `promociones.module.css` defined NEITHER, so both resolved to `undefined`
+ * and the cell painted with no styling at all. The unit project cannot see
+ * that -- it runs with `css: false`, where the CSS-module object echoes back
+ * any key it is handed. Only a real stylesheet tells a defined class from an
+ * imagined one.
+ */
+describe('PxQ markup cell — the number is emphasised, the excuse is not', () => {
+  const MIRROR_TIER = { id: 1, cantidad_minima: 3, precio_unitario: 900, costo_envio_total: 1500, estado: 'listo', ml_price_id: null };
+
+  async function renderWithMarkup(tiers) {
+    pxqAPI.getLive.mockResolvedValue({
+      data: { item_id: 'MLA001', live_status: 'ok', live_tiers: [], mirror_tiers: [MIRROR_TIER], fetched_at: '2026-08-18T10:00:00Z' },
+    });
+    pxqAPI.getMarkup.mockResolvedValue({ data: { item_id: 'MLA001', tiers } });
+    const { container } = await render(<PxqPanel itemId="MLA001" pxqCacheRef={{ current: new Map() }} />);
+    return container;
+  }
+
+  const findByText = async (container, re) => {
+    let found;
+    await vi.waitFor(() => {
+      found = [...container.querySelectorAll('span')].find((el) => re.test(el.textContent) && el.children.length === 0);
+      if (!found) throw new Error(`no element matching ${re}`);
+    });
+    return found;
+  };
+
+  it('paints a resolved percentage in the success tone', async () => {
+    const container = await renderWithMarkup([{ tier_id: 1, markup: 0.184 }]);
+    const percent = await findByText(container, /18,4%/);
+
+    expect(getComputedStyle(percent).color).toBe(tokenColor('--success-text'));
+    // Emphasis is what separates it from the cells around it; equal weight
+    // would put the panel's whole point back into the visual noise.
+    expect(Number(getComputedStyle(percent).fontWeight)).toBeGreaterThanOrEqual(600);
+  });
+
+  it('paints the unavailable reason in a muted tone, never like a value', async () => {
+    const container = await renderWithMarkup([{ tier_id: 1, reason: 'shipping_unavailable' }]);
+    const reason = await findByText(container, /Falta el costo de env/);
+
+    expect(getComputedStyle(reason).color).toBe(tokenColor('--text-tertiary'));
+    expect(getComputedStyle(reason).color).not.toBe(tokenColor('--success-text'));
+  });
+
+  it('paints the in-flight placeholder in a muted tone too', async () => {
+    pxqAPI.getLive.mockResolvedValue({
+      data: { item_id: 'MLA001', live_status: 'ok', live_tiers: [], mirror_tiers: [MIRROR_TIER], fetched_at: '2026-08-18T10:00:00Z' },
+    });
+    pxqAPI.getMarkup.mockReturnValue(new Promise(() => {}));
+    const { container } = await render(<PxqPanel itemId="MLA001" pxqCacheRef={{ current: new Map() }} />);
+
+    const pending = await findByText(container, /Calculando markup/);
+    expect(getComputedStyle(pending).color).toBe(tokenColor('--text-tertiary'));
+  });
+});

@@ -563,7 +563,14 @@ function PxqTierMarkup({ markupLoading, entry }) {
     if (entry.reason) {
       return <span className={styles.pxqMarkupUnavailable}>{formatMarkupReason(entry.reason)}</span>;
     }
-    return <span>Markup: {formatMarkupPercent(entry.markup)}</span>;
+    // The label and the number are SEPARATE elements so the stylesheet can
+    // emphasise the number alone: "Markup:" is scaffolding, the percentage is
+    // what the operator opened the panel to read.
+    return (
+      <span className={styles.pxqMarkupLabel}>
+        Markup: <span className={styles.pxqMarkupValue}>{formatMarkupPercent(entry.markup)}</span>
+      </span>
+    );
   }
   if (markupLoading) {
     return <span className={styles.pxqMarkupPending}>Calculando markup…</span>;
