@@ -185,6 +185,7 @@ export default function Sidebar({ mobileOpen = false, onMobileClose }) {
       items: [
         { label: 'Tickets', path: '/tickets', permiso: 'tickets.ver' },
         { label: 'Configuración Tickets', path: '/tickets/admin', permiso: 'tickets.admin' },
+        { label: 'Ejemplos de Corrección', path: '/tickets/triage/ejemplos', permiso: 'tickets.triage.ejemplos' },
       ],
     },
     {
