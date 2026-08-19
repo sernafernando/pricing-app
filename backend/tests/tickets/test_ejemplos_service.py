@@ -1,8 +1,9 @@
-"""Tests for `ejemplos_service.capturar_correccion` (tickets-triage-feedback
-PR3, design "Best-effort correction capture behind a flag"). Capture-only —
-this PR ships no retrieval.
+"""Tests for `ejemplos_service` (tickets-triage-feedback PR3 capture +
+PR4a retrieval core). PR4a adds pure retrieval functions
+(`recuperar_ejemplos`, block assembly, neutralisation, label
+revalidation) — nothing production-wired yet (PR4b's job).
 
-Covers:
+Covers (PR3, capture):
 - Flag off (default): confirming a correction does not call `embed_passage`
   and writes no row.
 - Flag on + embed succeeds: exactly one `EjemploCorreccion` row for that
@@ -11,6 +12,14 @@ Covers:
 - Capture never fails a confirm — flag on with embed returning `None`, or
   the capture hook raising, both still leave the confirm HTTP response and
   the committed proposal state untouched.
+
+Covers (PR4a, retrieval core):
+- Delimiter-tag neutralisation applied BEFORE truncation.
+- Label revalidation drops an out-of-vocabulary corrected value entirely.
+- `recuperar_ejemplos` returns `[]` on every degradation path (similarity
+  query raises, zero rows, all rows below threshold, `embed_query` None).
+- Prompt-block assembly is append-only and byte-identical when there are no
+  blocks to append.
 
 Written FIRST (RED phase) per strict TDD.
 
@@ -299,3 +308,134 @@ class TestCaptureNeverFailsAConfirm:
         assert propuesta.valor_corregido == "menor"
         assert db.query(EjemploCorreccion).count() == 0
         assert any("correction capture failed" in record.message for record in caplog.records)
+
+
+def _fake_ejemplo_row(
+    texto: str,
+    valor_corregido: str,
+    campo: str = "severidad",
+    embedding: list | None = None,
+) -> EjemploCorreccion:
+    """Build a fake `EjemploCorreccion`-shaped row for monkeypatching
+    `_similarity_query` (mirrors `test_ml_bot_context_builder._fake_history_row`
+    — sqlite CI has no real pgvector cosine operator)."""
+    row = EjemploCorreccion()
+    row.texto = texto
+    row.campo = campo
+    row.valor_ia = "menor"
+    row.valor_corregido = valor_corregido
+    row.embedding = embedding if embedding is not None else [1.0, 0.0, 0.0]
+    row.active = True
+    return row
+
+
+class TestAssembleBloqueNeutralisation:
+    """PR4a task 1 (RED — injection: delimiter). Neutralisation must run
+    BEFORE truncation — proven by placing the delimiter PAST the truncation
+    point and asserting it still gets neutralised."""
+
+    def test_delimiter_tag_neutralised_before_truncation(self) -> None:
+        # `padding` (390) + the full tag (22 chars) = 412 chars, PAST
+        # `_EJEMPLO_MAX_CHARS` (400) — if truncation ran first, the naive
+        # 400-char cut would land MID-TAG (at padding+10), leaving an
+        # unmatched half-tag literally in the output. Neutralising first
+        # replaces the whole tag with the shorter "[etiqueta]" (10 chars,
+        # bringing the pre-truncation length to exactly 400), so the intact
+        # replacement survives truncation — proving neutralise-then-truncate
+        # ordering, not just the final absence of the tag.
+        padding = "x" * 390
+        texto = padding + "<ejemplos_corregidos>"
+        assert len(texto) > ejemplos_service._EJEMPLO_MAX_CHARS
+        row = _fake_ejemplo_row(texto=texto, valor_corregido="mayor")
+        bloque = ejemplos_service._assemble_bloque(row)
+        assert "<ejemplos_corregidos>" not in bloque
+        assert "<ejemplos_corr" not in bloque  # no truncated half-tag leaked either
+        assert "[etiqueta]" in bloque
+
+
+class TestAssembleBloquesLabelRevalidation:
+    """PR4a task 2 (RED — injection: out-of-vocabulary label). A corrupted
+    direct-DB row with a `valor_corregido` outside the field's vocabulary
+    must be dropped entirely from the assembled examples block."""
+
+    def test_out_of_vocabulary_label_dropped_entirely(self) -> None:
+        bad_row = _fake_ejemplo_row(texto="texto normal", valor_corregido="urgentisimo", campo="urgencia")
+        bloques = ejemplos_service._assemble_bloques([bad_row])
+        assert bloques == []
+        joined = "".join(bloques)
+        assert "urgentisimo" not in joined
+
+    def test_valid_label_kept(self) -> None:
+        good_row = _fake_ejemplo_row(texto="texto normal", valor_corregido="alta", campo="urgencia")
+        bloques = ejemplos_service._assemble_bloques([good_row])
+        assert len(bloques) == 1
+        assert "alta" in bloques[0]
+
+
+class TestRecuperarEjemplosFallback:
+    """PR4a task 4 (RED — fallback branches), mirroring
+    `TestLoadFewShotExamplesDynamic`. `recuperar_ejemplos` must return `[]`
+    on every degradation path and never raise."""
+
+    def test_similarity_query_raising_returns_empty(self, db, monkeypatch) -> None:
+        def _raise(db_, campo, query_vec, k):
+            raise RuntimeError("sqlite has no cosine_distance")
+
+        monkeypatch.setattr(ejemplos_service, "_similarity_query", _raise)
+        monkeypatch.setattr(
+            ejemplos_service,
+            "embed_query",
+            AsyncMock(return_value=[1.0, 0.0, 0.0]),
+        )
+        result = asyncio.run(ejemplos_service.recuperar_ejemplos(db, "severidad", "texto de prueba"))
+        assert result == []
+
+    def test_zero_rows_returns_empty(self, db, monkeypatch) -> None:
+        monkeypatch.setattr(ejemplos_service, "_similarity_query", lambda db_, campo, qvec, k: [])
+        monkeypatch.setattr(
+            ejemplos_service,
+            "embed_query",
+            AsyncMock(return_value=[1.0, 0.0, 0.0]),
+        )
+        result = asyncio.run(ejemplos_service.recuperar_ejemplos(db, "severidad", "texto de prueba"))
+        assert result == []
+
+    def test_all_rows_below_threshold_returns_empty(self, db, monkeypatch) -> None:
+        far_row = _fake_ejemplo_row(texto="lejano", valor_corregido="mayor", embedding=[0.0, 1.0, 0.0])
+        monkeypatch.setattr(ejemplos_service, "_similarity_query", lambda db_, campo, qvec, k: [far_row])
+        monkeypatch.setattr(
+            ejemplos_service,
+            "embed_query",
+            AsyncMock(return_value=[1.0, 0.0, 0.0]),
+        )
+        result = asyncio.run(ejemplos_service.recuperar_ejemplos(db, "severidad", "texto de prueba"))
+        assert result == []
+
+    def test_embed_query_none_returns_empty_and_never_calls_similarity(self, db, monkeypatch) -> None:
+        monkeypatch.setattr(
+            ejemplos_service,
+            "_similarity_query",
+            lambda db_, campo, qvec, k: (_ for _ in ()).throw(AssertionError("must not be called")),
+        )
+        monkeypatch.setattr(ejemplos_service, "embed_query", AsyncMock(return_value=None))
+        result = asyncio.run(ejemplos_service.recuperar_ejemplos(db, "severidad", "texto de prueba"))
+        assert result == []
+
+
+class TestAppendEjemplosBloqueAssembly:
+    """PR4a task 6 (RED — prompt append not interpolated). An empty
+    `bloques` list must return the system prompt UNCHANGED — string
+    equality, not "close enough"."""
+
+    def test_empty_bloques_returns_prompt_unchanged(self) -> None:
+        base = "Sos un clasificador de tickets.\nSegunda linea."
+        result = ejemplos_service.append_ejemplos_bloque(base, [])
+        assert result == base
+
+    def test_nonempty_bloques_appended_after_base(self) -> None:
+        base = "Sos un clasificador de tickets."
+        bloque = "\nEjemplo 1: texto -> mayor\n"
+        result = ejemplos_service.append_ejemplos_bloque(base, [bloque])
+        assert result.startswith(base)
+        assert bloque in result
+        assert result != base
