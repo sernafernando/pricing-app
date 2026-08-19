@@ -221,6 +221,22 @@ describe('Category picker', () => {
     const call = api.post.mock.calls.find(([url]) => url === '/tienda-nube-reconcile/publicar');
     expect(call[1].category_id).toBe(77);
   });
+
+  it('forwards row.categoria/subcategoria — feeds the category-profile usage hint (PR-8)', async () => {
+    const user = userEvent.setup();
+    await renderModal();
+
+    await screen.findByRole('radio', { name: /Electrónica > Auriculares/ });
+    await user.click(screen.getByRole('button', { name: /^publicar$/i }));
+    await user.click(screen.getByRole('button', { name: /^confirmar$/i }));
+
+    await waitFor(() => {
+      expect(api.post).toHaveBeenCalledWith('/tienda-nube-reconcile/publicar', expect.any(Object));
+    });
+    const call = api.post.mock.calls.find(([url]) => url === '/tienda-nube-reconcile/publicar');
+    expect(call[1].categoria).toBe('Electrónica');
+    expect(call[1].subcategoria).toBe('Auriculares');
+  });
 });
 
 describe('Título', () => {

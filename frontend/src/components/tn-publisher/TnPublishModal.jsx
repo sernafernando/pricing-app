@@ -131,6 +131,8 @@ export default function TnPublishModal({ row, isOpen, onClose, onPublished }) {
       priceBaseSource,
       draftFields,
       monedaCosto: row?.moneda_costo ?? null,
+      categoria: row?.categoria ?? null,
+      subcategoria: row?.subcategoria ?? null,
     });
 
   const canPublish =

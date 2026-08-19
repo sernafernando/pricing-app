@@ -87,6 +87,8 @@ export function usePublishSubmit({
   priceBaseSource,
   draftFields,
   monedaCosto,
+  categoria,
+  subcategoria,
 }) {
   const [confirming, setConfirming] = useState(false);
   const [submitting, setSubmitting] = useState(false);
@@ -144,6 +146,12 @@ export function usePublishSubmit({
         // whether a missing TipoCambio must block the publish (D6/PC8).
         moneda_costo: monedaCosto ?? null,
         profile_id: draftFields.appliedProfileId ?? null,
+        // PR-8 gap B: forwarded so the backend can write the category ->
+        // profile usage hint on a submitted publish (`row.categoria`/
+        // `row.subcategoria` — same GBP report fields `useDraftFields`
+        // already reads).
+        categoria: categoria ?? null,
+        subcategoria: subcategoria ?? null,
       });
       setConfirming(false);
       onPublished?.(ean, response.data);
@@ -166,6 +174,8 @@ export function usePublishSubmit({
     priceBaseSource,
     draftFields,
     monedaCosto,
+    categoria,
+    subcategoria,
   ]);
 
   return { confirming, submitting, submitError, handlePublishClick, handleCancelConfirm, handleConfirm };
