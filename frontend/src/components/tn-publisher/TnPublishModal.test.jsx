@@ -29,7 +29,7 @@ import { screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { render } from '@testing-library/react';
 import TnPublishModal from './TnPublishModal';
-import api from '../services/api';
+import api from '../../services/api';
 
 const ROW = {
   ean: '7791234567890',

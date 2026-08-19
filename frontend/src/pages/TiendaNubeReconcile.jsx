@@ -47,7 +47,7 @@ import { ExternalLink } from 'lucide-react';
 import { usePermisos } from '../contexts/PermisosContext';
 import { useToast } from '../hooks/useToast';
 import Toast from '../components/Toast';
-import TnPublishModal from '../components/TnPublishModal';
+import TnPublishModal from '../components/tn-publisher/TnPublishModal';
 import api from '../services/api';
 import { selectTabItems } from './tiendaNubeReconcileHelpers';
 import styles from './TiendaNubeReconcile.module.css';
