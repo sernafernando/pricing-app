@@ -55,6 +55,7 @@ import {
   computeSummaryCounts,
   matchesSearch,
   matchesSummaryFilter,
+  primaryTnMatch,
 } from './tiendaNubeReconcileHelpers';
 import styles from './TiendaNubeReconcile.module.css';
 import { stripHtmlToText } from '../utils/htmlText';
@@ -133,37 +134,57 @@ function tnPresenceLabelFor(presence) {
   return TN_PRESENCE_LABELS[presence] || TN_PRESENCE_LABELS.not_in_tn;
 }
 
-/**
- * Presence cell: plain relabeled text, no per-row action. `tn_presence ==
- * "unknown"` communicates the actionable truth (TN row exists, its
- * `published` flag has not been re-synced) but the remediation — a FULL
- * catalog sync via the existing `POST /tienda-nube/sync` — is a single
- * global action, not a per-row one. A button here would render one
- * identical control per "unknown" row, all triggering the exact same
- * global side effect — misrepresenting the action's scope. The single
- * trigger lives once in the page header instead (see `mostrarSincronizarTn`).
- */
-function TnPresenceCell({ row }) {
-  return tnPresenceLabelFor(row.tn_presence);
+// Table redesign pass B: the old long, one-of-a-kind sentence per state
+// (e.g. "Existe en TN, publicación no sincronizada") is replaced by a short
+// coloured label — `tnPresenceLabelFor` (the long sentence) still backs the
+// label's tooltip so the fuller explanation isn't lost, only demoted from
+// "the whole cell" to "on hover/focus".
+const TN_PRESENCE_SHORT_LABELS = {
+  published: 'Publicado',
+  draft: 'Borrador',
+  unknown: 'Sin sincronizar',
+  not_in_tn: 'No está',
+};
+
+const TN_PRESENCE_CLASS = {
+  published: 'presenceGreen',
+  draft: 'presenceOrange',
+  unknown: 'presenceOrange',
+  not_in_tn: 'presenceTertiary',
+};
+
+function tnPresenceShortLabelFor(presence) {
+  return TN_PRESENCE_SHORT_LABELS[presence] || TN_PRESENCE_SHORT_LABELS.not_in_tn;
 }
 
 /**
- * EAN cell: for POR_CORREGIR rows (linked, but the TN SKU differs from the
- * GBP EAN only by leading zeros/formatting) shows both values side by side
- * so the operator sees exactly what needs canonicalizing. Every other
- * verdict renders the EAN alone, unchanged.
+ * "En Tienda Nube" cell (pass B: merges the old Presencia en TN, Motivo and
+ * Coincidencias TN (IDs) columns into one). No per-row action here —
+ * `tn_presence == "unknown"`'s remediation is the single global sync
+ * trigger in the page header (see `mostrarSincronizarTn`), never a per-row
+ * button (would misrepresent the action's scope, see the original
+ * `TnPresenceCell` reasoning this cell now carries forward).
  */
-function EanCell({ row }) {
-  const tnSku = row.tn_matches?.[0]?.variant_sku;
-  // Only render the comparison layout when there is an actual TN match to
-  // compare against — a POR_CORREGIR row without a resolved match renders
-  // its EAN exactly as any other verdict does.
-  if (row.verdict !== 'POR_CORREGIR' || !tnSku) return row.ean;
+function TnPresenceCell({ row }) {
+  const presenceClass = TN_PRESENCE_CLASS[row.tn_presence] || TN_PRESENCE_CLASS.not_in_tn;
+  const primaryMatch = primaryTnMatch(row);
+  const extraMatches = Math.max(0, (row.tn_matches?.length || 0) - 1);
 
   return (
-    <div className={styles.eanCompareCell}>
-      <div>EAN: {row.ean}</div>
-      <div>SKU TN: {tnSku}</div>
+    <div className={styles.presenceCell}>
+      <span
+        className={`${styles.presenceLabel} ${styles[presenceClass]}`}
+        title={tnPresenceLabelFor(row.tn_presence)}
+      >
+        {tnPresenceShortLabelFor(row.tn_presence)}
+      </span>
+      <MotivoInline row={row} />
+      {primaryMatch && (
+        <div className={styles.presenceIds}>
+          {primaryMatch.product_id}/{primaryMatch.variant_id}
+          {extraMatches > 0 && <span className={styles.presenceExtra}> +{extraMatches}</span>}
+        </div>
+      )}
     </div>
   );
 }
@@ -179,11 +200,16 @@ const REASON_LABELS = {
   NO_VARIANT_LINK: 'Sin vínculo de variante',
 };
 
-function ReasonCell({ row }) {
-  if (!row.reason) return '—';
+// Pass B: Motivo is no longer its own column — it renders inline, under the
+// presence label, inside the "En Tienda Nube" cell, and simply renders
+// nothing when there is no reason (there is no longer a standalone column
+// to keep non-empty/aligned, so unlike the old ReasonCell there is no '—'
+// placeholder).
+function MotivoInline({ row }) {
+  if (!row.reason) return null;
   // An unmapped code (a reason the backend added before this map caught up)
-  // renders as its raw code rather than collapsing into the same '—' that
-  // means "no reason at all" — degrading safely must not erase the signal.
+  // renders as its raw code rather than disappearing like "no reason at
+  // all" would — degrading safely must not erase the signal.
   const label = REASON_LABELS[row.reason] || row.reason;
 
   const detail = row.reason_detail || {};
@@ -193,7 +219,11 @@ function ReasonCell({ row }) {
   if (detail.claimed_tnr_id) parts.push(`tnr_id declarado: ${detail.claimed_tnr_id}`);
   if (detail.claimed_tnr_variation_id) parts.push(`tnr_variationID declarado: ${detail.claimed_tnr_variation_id}`);
 
-  return <span title={parts.join(' · ')}>{label}</span>;
+  return (
+    <span className={styles.presenceMotivo} title={parts.join(' · ')}>
+      {label}
+    </span>
+  );
 }
 
 // Stock cell: unknown stock (`null`) MUST render distinctly from a real
@@ -247,7 +277,14 @@ function ProductoCell({ row }) {
   // real ML title.
   const { text: titleText, fromErp: usingErpFallback } = rowIdentity(row);
 
-  if (!thumbSrc && !titleText && !descText) return '—';
+  // POR_CORREGIR (linked, but the TN SKU differs from the GBP EAN only by
+  // leading zeros/formatting): show both values side by side so the
+  // operator sees exactly what needs canonicalizing. Every other verdict
+  // renders the EAN alone. Only rendered when there is an actual TN match
+  // to compare against — a POR_CORREGIR row without a resolved match
+  // renders its EAN exactly as any other verdict does.
+  const tnSku = row.tn_matches?.[0]?.variant_sku;
+  const showEanCompare = row.verdict === 'POR_CORREGIR' && Boolean(tnSku);
 
   const showPreview = (target) => {
     const rect = target.getBoundingClientRect();
@@ -312,6 +349,14 @@ function ProductoCell({ row }) {
           ) : (
             <span className={`${styles.prodDesc} ${styles.prodDescStatic}`}>{descText}</span>
           ))}
+        {showEanCompare ? (
+          <div className={styles.eanCompareCell}>
+            <div>EAN: {row.ean}</div>
+            <div>SKU TN: {tnSku}</div>
+          </div>
+        ) : (
+          <div className={styles.prodEan}>{row.ean}</div>
+        )}
       </div>
     </div>
   );
@@ -348,12 +393,17 @@ function saveColumnSizing(state) {
 // Single source of truth for the reporte table's columns: both the header
 // (via TanStack) AND the body cells render from this list, so adding/
 // removing a column can never desync header and body.
+// Table redesign pass B: collapsed from 9 columns to 5. `EAN` moved into
+// `Producto`; `Presencia en TN` + `Motivo` + `Coincidencias TN (IDs)` merged
+// into `En Tienda Nube`; `Despublicar` dropped outright — the flag it showed
+// (`row.despublicar` as Sí/—) is redundant with the presence label plus the
+// action already living in the Acciones menu, and carries no information a
+// human needs at a glance that those two don't already cover.
 const COLUMNS = [
-  { id: 'ean', header: 'EAN', size: 130, cell: (row) => <EanCell row={row} /> },
   {
     id: 'producto',
     header: 'Producto',
-    size: 320,
+    size: 340,
     cell: (row) => <ProductoCell row={row} />,
   },
   {
@@ -368,15 +418,9 @@ const COLUMNS = [
   },
   {
     id: 'tn_presence',
-    header: 'Presencia en TN',
-    size: 220,
+    header: 'En Tienda Nube',
+    size: 260,
     cell: (row) => <TnPresenceCell row={row} />,
-  },
-  {
-    id: 'reason',
-    header: 'Motivo',
-    size: 220,
-    cell: (row) => <ReasonCell row={row} />,
   },
   {
     id: 'stock',
@@ -385,8 +429,6 @@ const COLUMNS = [
     sortable: true,
     cell: (row) => <StockCell row={row} />,
   },
-  { id: 'despublicar', header: 'Despublicar', size: 170, cell: null }, // rendered specially — Sí/— text only, action lives in Acciones now
-  { id: 'matches', header: 'Coincidencias TN (IDs)', size: 300, cell: null }, // rendered specially — carries only the IDs list now
   { id: 'acciones', header: 'Acciones', size: 190, cell: null }, // rendered specially — RowActionsCell (primary + overflow menu)
 ];
 
@@ -1252,41 +1294,14 @@ export default function TiendaNubeReconcile() {
                   filasVisibles.map((row, idx) => (
                     <tr key={`${row.ean}-${idx}`}>
                       {COLUMNS.map((col) =>
-                        col.id === 'matches' ? (
+                        col.id === 'tn_presence' && row.verdict === 'FALTA_VINCULAR' &&
+                        row.product_id != null && row.variant_id != null ? (
                           <td key={col.id}>
-                            {row.tn_matches.length === 0 ? (
-                              '—'
-                            ) : (
-                              <ul className={styles.matchList}>
-                                {row.tn_matches.map((tn) => (
-                                  <li key={`${tn.product_id}-${tn.variant_id}`} className={styles.matchItem}>
-                                    <span className={styles.matchIds}>
-                                      {tn.product_id}/{tn.variant_id}
-                                    </span>
-                                    {tn.variant_sku ? <span className={styles.matchSku}> · {tn.variant_sku}</span> : null}
-                                    {/* "Editar en TN" moved to the Acciones column's
-                                        overflow menu (PR-A of the table redesign) —
-                                        it now targets the SAME single match
-                                        `pickEditorTnMatch` resolves for the whole
-                                        row (published match, else first with a
-                                        URL), mirroring `despublicarTargetProductId`'s
-                                        "pick the one that's actually live" choice.
-                                        The DUPLICADO view keeps its own per-match
-                                        links untouched — see its own render branch. */}
-                                  </li>
-                                ))}
-                              </ul>
-                            )}
-                            {row.verdict === 'FALTA_VINCULAR' &&
-                              row.product_id != null &&
-                              row.variant_id != null && (
-                              <div className={styles.matchedIds}>
-                                TN product_id: {row.product_id} / variant_id: {row.variant_id}
-                              </div>
-                            )}
+                            {col.cell(row)}
+                            <div className={styles.matchedIds}>
+                              TN product_id: {row.product_id} / variant_id: {row.variant_id}
+                            </div>
                           </td>
-                        ) : col.id === 'despublicar' ? (
-                          <td key={col.id}>{row.despublicar ? 'Sí' : '—'}</td>
                         ) : col.id === 'acciones' ? (
                           <td key={col.id}>
                             <RowActionsCell

@@ -7,6 +7,7 @@ import {
   resolvePrimaryAction,
   pickEditorTnMatch,
   resolveSecondaryActions,
+  primaryTnMatch,
 } from './tiendaNubeReconcileHelpers';
 
 describe('selectTabItems', () => {
@@ -261,5 +262,38 @@ describe('resolveSecondaryActions', () => {
     const row = { verdict: 'MAL_PUBLICADO', despublicar: false, tn_matches: [] };
     const actions = resolveSecondaryActions(row, perms());
     expect(actions.some((a) => a.id === 'editar_tn')).toBe(false);
+  });
+});
+
+describe('primaryTnMatch', () => {
+  it('returns null when there are no matches', () => {
+    expect(primaryTnMatch({ tn_matches: [] })).toBeNull();
+    expect(primaryTnMatch({})).toBeNull();
+  });
+
+  it('prefers the match TN reports as published: true', () => {
+    const row = {
+      tn_matches: [
+        { product_id: 1, variant_id: 1, published: false },
+        { product_id: 2, variant_id: 2, published: true },
+      ],
+    };
+    expect(primaryTnMatch(row)).toEqual({ product_id: 2, variant_id: 2, published: true });
+  });
+
+  it('falls back to the first match when none is published: true', () => {
+    const row = {
+      tn_matches: [
+        { product_id: 1, variant_id: 1, published: null },
+        { product_id: 2, variant_id: 2, published: false },
+      ],
+    };
+    expect(primaryTnMatch(row)).toEqual({ product_id: 1, variant_id: 1, published: null });
+  });
+
+  it('does not require a tn_admin_url, unlike pickEditorTnMatch', () => {
+    const row = { tn_matches: [{ product_id: 1, variant_id: 1, published: true }] };
+    expect(primaryTnMatch(row)).toEqual({ product_id: 1, variant_id: 1, published: true });
+    expect(pickEditorTnMatch(row)).toBeNull();
   });
 });

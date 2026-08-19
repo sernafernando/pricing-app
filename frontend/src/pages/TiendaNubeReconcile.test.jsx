@@ -517,7 +517,11 @@ describe('tn_presence display', () => {
     const texts = rows.map((r) => r.textContent);
     // Four distinct, non-ambiguous presence labels — no bare "Desconocido".
     expect(new Set(texts).size).toBe(4);
-    expect(texts.some((t) => /no.*tienda nube|no está en tn|not_in_tn/i.test(t))).toBe(true);
+    expect(texts.some((t) => /no está/i.test(t))).toBe(true);
+    // Pass B: the short label is backed by the full explanatory sentence as
+    // a tooltip, so the detail isn't lost, only demoted from cell text.
+    const notInTnLabel = rows.find((r) => /^D/.test(r.textContent)).querySelector(`[title]`);
+    expect(notInTnLabel).toHaveAttribute('title', expect.stringMatching(/no está en tienda nube/i));
   });
 
   it('splits DUPLICADO rows by tn_presence: "sin presencia en TN" vs "existe en TN"', async () => {
@@ -577,7 +581,12 @@ describe('tn_presence "unknown" relabel + sync trigger (Slice 3)', () => {
       expect(screen.getAllByText('UNK-1').length).toBeGreaterThan(0);
     });
     expect(screen.queryByText('Presencia en TN desconocida')).not.toBeInTheDocument();
-    expect(screen.getByText(/publicaci[oó]n.*no.*sincroniz/i)).toBeInTheDocument();
+    expect(screen.queryByText(/desconocid/i)).not.toBeInTheDocument();
+    // Pass B: the cell shows a short label ("Sin sincronizar"), with the
+    // full "publish state not synced" sentence carried as its tooltip — the
+    // actionable truth still reaches the operator, just not as raw cell text.
+    expect(screen.getByText('Sin sincronizar')).toBeInTheDocument();
+    expect(screen.getByTitle(/publicaci[oó]n.*no.*sincroniz/i)).toBeInTheDocument();
   });
 
   it('offers a control to trigger the existing sync endpoint, gated by admin.gestionar_tn_publicacion', async () => {
@@ -611,7 +620,8 @@ describe('tn_presence "unknown" relabel + sync trigger (Slice 3)', () => {
       expect(screen.getAllByText('UNK-1').length).toBeGreaterThan(0);
     });
     expect(screen.queryByRole('button', { name: /sincronizar/i })).not.toBeInTheDocument();
-    expect(screen.getByText(/publicaci[oó]n.*no.*sincroniz/i)).toBeInTheDocument();
+    expect(screen.getByText('Sin sincronizar')).toBeInTheDocument();
+    expect(screen.getByTitle(/publicaci[oó]n.*no.*sincroniz/i)).toBeInTheDocument();
   });
 
   it('renders a single global trigger (not one per row) even with many unknown rows, and never inside a row cell', async () => {
@@ -1167,6 +1177,47 @@ describe('Product identity in rows (rebuilt UI)', () => {
     });
   });
 
+  // Coverage added in pass B: the "Coincidencias TN (IDs)" column that used
+  // to list EVERY match is gone — the "En Tienda Nube" cell now shows only
+  // the primary match's IDs plus a "+N" indicator, so this must be verified
+  // explicitly (nothing in the pre-existing suite covered "more than one
+  // match" for the general table branch, only for DUPLICADO's own view).
+  it('shows a "+N" indicator when a row has more than one TN match (pass B collapse)', async () => {
+    setupApiMocks({
+      items: [
+        {
+          ean: 'MULTI-1',
+          verdict: 'MAL_PUBLICADO',
+          despublicar: false,
+          tn_presence: 'published',
+          tn_matches: [
+            { product_id: 1, variant_id: 1, variant_sku: 'MULTI-1', published: true },
+            { product_id: 2, variant_id: 1, variant_sku: 'MULTI-1', published: false },
+            { product_id: 3, variant_id: 1, variant_sku: 'MULTI-1', published: false },
+          ],
+        },
+      ],
+      verdictCounts: { MAL_PUBLICADO: 1 },
+    });
+    await renderWithRouter(<TiendaNubeReconcile />);
+
+    await waitFor(() => {
+      // Primary match preferred: the one TN reports as published: true.
+      expect(screen.getByText('1/1')).toBeInTheDocument();
+    });
+    expect(screen.getByText('+2')).toBeInTheDocument();
+  });
+
+  it('shows no "+N" indicator for a row with a single TN match', async () => {
+    setupEnriched();
+    await renderWithRouter(<TiendaNubeReconcile />);
+
+    await waitFor(() => {
+      expect(screen.getByText('123/456')).toBeInTheDocument();
+    });
+    expect(screen.queryByText(/^\+\d+$/)).not.toBeInTheDocument();
+  });
+
   it('offers an "Editar en TN" action (now in the Acciones overflow menu) that opens the resolved match\'s tn_admin_url in a new tab', async () => {
     setupEnriched();
     const user = userEvent.setup();
@@ -1319,6 +1370,22 @@ describe('Product identity in rows (rebuilt UI)', () => {
     });
     expect(screen.queryByText(/undefined/i)).not.toBeInTheDocument();
   });
+
+  // Coverage added in pass B: the standalone EAN column is gone — the EAN
+  // now renders inside the Producto cell, under the title. Nothing in the
+  // pre-existing suite asserted the EAN renders ALONGSIDE a title (only that
+  // each renders somewhere on the page independently).
+  it('renders the EAN under the product title, inside the Producto cell (pass B collapse)', async () => {
+    setupEnriched();
+    await renderWithRouter(<TiendaNubeReconcile />);
+
+    await waitFor(() => {
+      expect(screen.getByText('Auricular Bluetooth XYZ')).toBeInTheDocument();
+    });
+    const title = screen.getByText('Auricular Bluetooth XYZ');
+    const productoCell = title.closest('td');
+    expect(within(productoCell).getByText('RICH-1')).toBeInTheDocument();
+  });
 });
 
 describe('Motivo column (PR1 reason/cause taxonomy)', () => {
@@ -1342,7 +1409,9 @@ describe('Motivo column (PR1 reason/cause taxonomy)', () => {
     await waitFor(() => {
       expect(screen.getByText('DL-1')).toBeInTheDocument();
     });
-    expect(screen.getByRole('columnheader', { name: /^motivo/i })).toBeInTheDocument();
+    // Motivo is no longer its own column (pass B: merged into "En Tienda
+    // Nube") — it renders inline under the presence label instead.
+    expect(screen.getByRole('columnheader', { name: /^en tienda nube/i })).toBeInTheDocument();
     expect(screen.getByText(/enlace inexistente en tienda nube/i)).toBeInTheDocument();
   });
 
@@ -1418,7 +1487,10 @@ describe('Motivo column (PR1 reason/cause taxonomy)', () => {
     await waitFor(() => {
       expect(screen.getByText('111')).toBeInTheDocument();
     });
-    expect(screen.getByRole('columnheader', { name: /^motivo/i })).toBeInTheDocument();
+    // No standalone Motivo column any more — a null reason simply renders
+    // nothing under the presence label, no layout regression either way.
+    expect(screen.getByRole('columnheader', { name: /^en tienda nube/i })).toBeInTheDocument();
+    expect(screen.queryByText(/undefined/i)).not.toBeInTheDocument();
   });
 });
 
@@ -1442,6 +1514,75 @@ describe('Column resize persist/reset', () => {
     await waitFor(() => {
       expect(screen.getAllByRole('table').length).toBeGreaterThan(0);
     });
+  });
+
+  // Coverage added in pass B: `loadColumnSizing` filters persisted sizing to
+  // known column ids (added in pass A) — verify it still holds after this
+  // pass drops 4 column ids (ean/reason/despublicar/matches) from `COLUMNS`.
+  // A stale localStorage entry for a since-removed column id must not leak
+  // through and must not throw.
+  it('drops sizing for columns removed by this pass (ean/reason/despublicar/matches) without throwing', async () => {
+    localStorage.setItem(
+      COLUMN_SIZING_STORAGE_KEY,
+      JSON.stringify({ ean: 999, reason: 999, despublicar: 999, matches: 999, producto: 400 })
+    );
+
+    await renderWithRouter(<TiendaNubeReconcile />);
+
+    await waitFor(() => {
+      expect(screen.getAllByRole('table').length).toBeGreaterThan(0);
+    });
+    // The still-valid entry (producto) survives; nothing throws over the
+    // stale ones for columns this pass removed.
+    expect(screen.getByRole('columnheader', { name: /^producto/i })).toBeInTheDocument();
+  });
+});
+
+describe('Column set (pass B: 5-column collapse)', () => {
+  it('renders exactly the 5 target columns, in order, with EAN/Motivo/Despublicar/Coincidencias no longer standalone', async () => {
+    await renderWithRouter(<TiendaNubeReconcile />);
+
+    await waitFor(() => {
+      expect(screen.getByText('111')).toBeInTheDocument();
+    });
+    const headers = screen.getAllByRole('columnheader').map((h) => h.textContent.replace(/\s+/g, ' ').trim());
+    // Exactly 5 headers, matching column order.
+    expect(headers).toHaveLength(5);
+    expect(headers[0]).toMatch(/^Producto/i);
+    expect(headers[1]).toMatch(/^Veredicto/i);
+    expect(headers[2]).toMatch(/^En Tienda Nube/i);
+    expect(headers[3]).toMatch(/^Stock/i);
+    expect(headers[4]).toMatch(/^Acciones/i);
+
+    expect(screen.queryByRole('columnheader', { name: /^ean$/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole('columnheader', { name: /^motivo/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole('columnheader', { name: /^despublicar/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole('columnheader', { name: /coincidencias/i })).not.toBeInTheDocument();
+  });
+
+  it('drops the redundant Sí/— despublicar flag column — the info lives in the presence label and the Acciones menu instead', async () => {
+    setupApiMocks({
+      items: [
+        {
+          ean: 'DESP-1',
+          verdict: 'MAL_VINCULADO',
+          despublicar: true,
+          tn_matches: [{ product_id: 555, variant_id: 1, variant_sku: 'DESP-1', published: true }],
+        },
+      ],
+      verdictCounts: { MAL_VINCULADO: 1 },
+    });
+
+    await renderWithRouter(<TiendaNubeReconcile />);
+
+    await waitFor(() => {
+      expect(screen.getByText('DESP-1')).toBeInTheDocument();
+    });
+    // No standalone "Sí" flag cell for the despublicar-flagged row (the
+    // action itself is still reachable — covered by the "Despublicar
+    // action" describe block above via the Acciones menu).
+    const row = screen.getByText('DESP-1').closest('tr');
+    expect(within(row).queryByText(/^Sí$/)).not.toBeInTheDocument();
   });
 });
 
@@ -1487,7 +1628,9 @@ describe('Stock column (Slice 4)', () => {
       expect(screen.getByText('ST-NULL')).toBeInTheDocument();
     });
     const row = screen.getByText('ST-NULL').closest('tr');
-    const stockCell = within(row).getAllByRole('cell')[5];
+    // 5-column layout (pass B): Producto · Veredicto · En Tienda Nube ·
+    // Stock · Acciones — Stock is index 3.
+    const stockCell = within(row).getAllByRole('cell')[3];
     expect(stockCell.textContent.trim()).toBe('—');
     expect(stockCell.textContent.trim()).not.toBe('0');
   });
@@ -1509,7 +1652,9 @@ describe('Stock column (Slice 4)', () => {
     // level — this assertion's actual subject is the STOCK CELL, not any
     // other zero on the page.
     const row = screen.getByText('ST-ZERO').closest('tr');
-    const stockCell = within(row).getAllByRole('cell')[5];
+    // 5-column layout (pass B): Producto · Veredicto · En Tienda Nube ·
+    // Stock · Acciones — Stock is index 3.
+    const stockCell = within(row).getAllByRole('cell')[3];
     expect(stockCell.textContent.trim()).toBe('0');
   });
 

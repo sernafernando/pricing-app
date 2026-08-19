@@ -161,31 +161,52 @@
   color: var(--cf-text-primary);
 }
 
-/* Per-match TN IDs list in the Coincidencias column */
-.matchList {
-  list-style: none;
-  margin: 0;
-  padding: 0;
+/* EAN line under the product title (pass B: EAN column collapsed into
+   Producto) */
+.prodEan {
+  font-family: var(--font-mono);
+  font-size: 0.72rem;
+  color: var(--cf-text-tertiary);
+}
+
+/* En Tienda Nube column (pass B: Presencia + Motivo + Coincidencias TN
+   merged into one column) */
+.presenceCell {
   display: flex;
   flex-direction: column;
   gap: 2px;
 }
 
-.matchItem {
-  font-size: 0.78rem;
-  color: var(--cf-text-secondary);
+.presenceLabel {
+  font-size: 0.8rem;
+  font-weight: 600;
   white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
 }
 
-.matchIds {
-  font-family: var(--font-mono, ui-monospace, monospace);
-  font-size: 0.75rem;
-  color: var(--cf-text-primary);
+.presenceTertiary {
+  color: var(--cf-text-tertiary);
 }
 
-.matchSku {
+.presenceOrange {
+  color: var(--cf-accent-orange);
+}
+
+.presenceGreen {
+  color: var(--cf-accent-green);
+}
+
+.presenceMotivo {
+  font-size: 0.72rem;
+  color: var(--cf-text-tertiary);
+}
+
+.presenceIds {
+  font-family: var(--font-mono);
+  font-size: 0.72rem;
+  color: var(--cf-text-secondary);
+}
+
+.presenceExtra {
   color: var(--cf-text-tertiary);
 }
 

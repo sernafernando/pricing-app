@@ -124,6 +124,21 @@ export function pickEditorTnMatch(row) {
 }
 
 /**
+ * Table-redesign pass B: picks WHICH tn_match the collapsed `En Tienda
+ * Nube` column shows as "the" match (product_id/variant_id pair), mirroring
+ * `despublicarTargetProductId`'s same "the one actually live" preference —
+ * prefer a match TN itself reports as `published: true`, else the first
+ * match. Unlike `pickEditorTnMatch` this does NOT require a `tn_admin_url`
+ * (the IDs are worth showing even when there is nothing to link to).
+ */
+export function primaryTnMatch(row) {
+  const matches = row.tn_matches || [];
+  if (matches.length === 0) return null;
+  const published = matches.find((tn) => tn.published === true);
+  return published || matches[0];
+}
+
+/**
  * Secondary (overflow-menu) actions that apply to this row, permission-gated
  * exactly as the pre-extraction inline ternaries were:
  * - Banear: FALTA_PUBLICAR or FALTA_VINCULAR, gated by `canBanlist`.
