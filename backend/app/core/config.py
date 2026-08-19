@@ -223,6 +223,17 @@ class Settings(BaseSettings):
     # behavior without a deploy — see `triage_service.run_triage`.
     TICKETS_TRIAGE_AUTO_APPLY: bool = True
 
+    # Best-effort correction capture (tickets-triage-feedback PR3, design
+    # "Best-effort correction capture behind a flag"): dark-launched (default
+    # False, same pattern as ml-bot's `fewshot_capture_enabled`) — when on,
+    # confirming a GENUINE correction (`confirmar()` resolves the proposal to
+    # `estado='corregida'`) schedules a best-effort background capture of the
+    # (original text, AI value, human value) triple into
+    # `tickets_triage_ejemplos`, embedded for future few-shot retrieval.
+    # Capture failure or a `False` flag must never affect the confirm
+    # response — see `ejemplos_service.capturar_correccion`.
+    TICKETS_TRIAGE_EJEMPLOS_CAPTURE: bool = False
+
     # Prearmados stats cache
     PREARMADAS_STATS_CACHE_TTL_SECONDS: int = 15
     PREARMADAS_STATS_VOLUME_WARN: int = 5000

@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { usePermisos } from '../contexts/PermisosContext';
 import api from '../services/api';
 import styles from './AdministracionProveedores.module.css';
@@ -22,12 +22,49 @@ import {
   EyeOff,
 } from 'lucide-react';
 import SearchInput from '../components/SearchInput';
+import { useSSEChannel } from '../hooks/useSSEChannel';
 
 registrarPagina({
   pagePath: '/administracion/proveedores',
   pageLabel: 'Administración - Proveedores',
   tabs: [],
 });
+
+/**
+ * Cota máxima de espera del resultado del sync full por SSE.
+ *
+ * La entrega por SSE es best-effort por diseño: el backend traga los errores de
+ * publicación y, si Redis nunca se configuró, ni siquiera publica. Sin esta cota
+ * un evento perdido dejaría el botón deshabilitado hasta recargar la página.
+ *
+ * 90 s cubre con margen la cadena real del job: la consulta al ERP tiene un
+ * timeout de 30 s en `erp_worker_client` y después se persiste toda la tabla de
+ * proveedores (mirror + proyección + RMA) en un worker thread.
+ */
+const SYNC_SSE_TIMEOUT_MS = 90_000;
+
+/**
+ * ¿Este evento SSE pertenece a la corrida que disparó ESTA pestaña?
+ *
+ * `proveedores:sync` es un canal de broadcast global: publica ahí el job de
+ * cualquier usuario. Sin correlación, el sync de otro operador (o un job viejo
+ * que llega tarde) limpiaba el banner de esta pestaña, cancelaba su timeout y
+ * renderizaba contadores ajenos como propios.
+ *
+ * @param {object} evento - payload del evento SSE.
+ * @param {string|null} runIdEsperado - `run_id` que devolvió la 202 de esta
+ *   corrida. `null` cuando no hay ninguna corrida propia esperando resultado:
+ *   ahí todo evento es ajeno. La cadena vacía marca el caso degradado en que el
+ *   backend no devolvió `run_id` (deploy viejo): sin identificador no hay
+ *   correlación posible y se conserva el comportamiento anterior de aceptar el
+ *   evento, en vez de dejar la UI colgada hasta el timeout.
+ * @returns {boolean}
+ */
+const eventoDeEstaCorrida = (evento, runIdEsperado) => {
+  if (runIdEsperado === null) return false;
+  if (runIdEsperado === '') return true;
+  return evento?.run_id === runIdEsperado;
+};
 
 export default function AdministracionProveedores() {
   const { tienePermiso } = usePermisos();
@@ -51,8 +88,36 @@ export default function AdministracionProveedores() {
   const [afipError, setAfipError] = useState(null);
 
   // ── Estado sync ────────────────────────────────────────────────
+  // El sync full se encola en el backend (202) y publica su resultado por SSE:
+  // `syncing` queda en true hasta que llega el evento, no hasta que responde
+  // el POST. El sync puntual (`supp_id`) sigue siendo sincrónico.
   const [syncing, setSyncing] = useState(false);
   const [syncResult, setSyncResult] = useState(null);
+  const [syncEnCurso, setSyncEnCurso] = useState(false);
+  // El resultado no llegó dentro de la ventana de espera. NO significa que el
+  // sync haya fallado: casi seguro terminó bien y se perdió la notificación.
+  const [syncSinConfirmar, setSyncSinConfirmar] = useState(false);
+
+  // Correlación entre el POST y el evento SSE. La suscripción SSE está siempre
+  // viva, así que un job rápido puede publicar su resultado ANTES de que el POST
+  // resuelva; sin esta correlación el `setSyncEnCurso(true)` posterior pisaría un
+  // resultado ya recibido y dejaría la UI trabada en "en curso" para siempre.
+  const syncRunIdRef = useRef(0); // corrida local actual (se incrementa en cada click)
+  const syncResueltoRef = useRef(0); // última corrida local cuyo resultado ya llegó
+  const syncTimeoutRef = useRef(null);
+
+  // `run_id` que devolvió la 202: identifica la corrida del SERVIDOR y es lo
+  // único que permite distinguir nuestro evento del de otro usuario. `null`
+  // mientras no haya corrida propia esperando resultado.
+  const syncRunIdServidorRef = useRef(null);
+  // El POST sigue en vuelo: todavía NO conocemos el `run_id`, así que ningún
+  // evento se puede correlacionar todavía.
+  const syncPostEnVueloRef = useRef(false);
+  // Eventos llegados mientras el POST estaba en vuelo. Se guardan TODOS en vez
+  // de aplicarlos o descartarlos a ciegas: cuando llegue la 202 con el `run_id`
+  // recién ahí se puede decidir honestamente cuál era nuestro. Es una lista y
+  // no un slot único porque un evento ajeno posterior no puede pisar al propio.
+  const syncEventosPendientesRef = useRef([]);
 
   // ── Estado modal crear ─────────────────────────────────────────
   const [showCrear, setShowCrear] = useState(false);
@@ -131,19 +196,125 @@ export default function AdministracionProveedores() {
     }
   };
 
+  const limpiarTimeoutSync = useCallback(() => {
+    if (syncTimeoutRef.current) {
+      clearTimeout(syncTimeoutRef.current);
+      syncTimeoutRef.current = null;
+    }
+  }, []);
+
+  // Sin timers colgados ni setState sobre un componente ya desmontado.
+  useEffect(() => limpiarTimeoutSync, [limpiarTimeoutSync]);
+
+  /** Aplica un resultado de sync YA correlacionado con esta corrida. */
+  const aplicarResultadoSync = useCallback(
+    (data) => {
+      // Marca la corrida en vuelo como resuelta ANTES de tocar el estado: si el
+      // POST todavía no resolvió, su `setSyncEnCurso(true)` posterior se descarta.
+      syncResueltoRef.current = syncRunIdRef.current;
+      syncEventosPendientesRef.current = [];
+      // La corrida ya no espera nada: cualquier evento posterior (una
+      // re-entrega, o el sync de otro usuario) vuelve a ser ajeno.
+      syncRunIdServidorRef.current = null;
+      limpiarTimeoutSync();
+      setSyncEnCurso(false);
+      setSyncSinConfirmar(false);
+      setSyncResult(data);
+      if (data?.success) fetchProveedores();
+    },
+    [fetchProveedores, limpiarTimeoutSync],
+  );
+
   const handleSyncErp = async () => {
+    const runId = syncRunIdRef.current + 1;
+    syncRunIdRef.current = runId;
+    syncRunIdServidorRef.current = null;
+    syncEventosPendientesRef.current = [];
+    syncPostEnVueloRef.current = true;
+    limpiarTimeoutSync();
     setSyncing(true);
     setSyncResult(null);
+    setSyncEnCurso(false);
+    setSyncSinConfirmar(false);
     try {
-      const { data } = await api.post('/administracion/proveedores/sync-erp');
+      const { status, data } = await api.post('/administracion/proveedores/sync-erp');
+      if (status === 202) {
+        // Sync full encolado: los contadores reales llegan por SSE.
+        if (syncRunIdRef.current !== runId) return; // hubo otro click más nuevo
+        // Cadena vacía = el backend no mandó `run_id` (deploy viejo): sin
+        // identificador no hay correlación posible, ver `eventoDeEstaCorrida`.
+        const runIdServidor = data?.run_id ?? '';
+        syncRunIdServidorRef.current = runIdServidor;
+        syncPostEnVueloRef.current = false;
+
+        // Reconciliación de los eventos tempranos: el job puede haber publicado
+        // su resultado ANTES de que la 202 llegara. Esos eventos quedaron en el
+        // buffer porque no se podían correlacionar todavía; recién ahora
+        // conocemos el `run_id` y se puede buscar el nuestro entre ellos.
+        const pendientes = syncEventosPendientesRef.current;
+        syncEventosPendientesRef.current = [];
+        const propio = pendientes.find((evento) => eventoDeEstaCorrida(evento, runIdServidor));
+        if (propio) {
+          aplicarResultadoSync(propio);
+          return;
+        }
+
+        // Si el evento ya se aplicó, esta corrida está resuelta y marcarla
+        // "en curso" ahora sería un dato viejo.
+        if (syncResueltoRef.current === runId) return;
+        setSyncEnCurso(true);
+        // La notificación puede perderse: liberamos la UI al vencer la ventana.
+        syncTimeoutRef.current = setTimeout(() => {
+          syncTimeoutRef.current = null;
+          setSyncEnCurso(false);
+          setSyncSinConfirmar(true);
+        }, SYNC_SSE_TIMEOUT_MS);
+        return;
+      }
       setSyncResult(data);
       fetchProveedores();
-    } catch {
-      setSyncResult({ success: false, error: 'Error sincronizando' });
+    } catch (err) {
+      // El backend normaliza los errores al envelope `{ error: { code, message } }`;
+      // `detail` queda como fallback para las rutas legacy.
+      const { error, detail } = err.response?.data ?? {};
+      const mensaje = error?.message ?? (typeof detail === 'object' ? detail?.message : detail);
+      setSyncResult({ success: false, error: mensaje || 'Error sincronizando con el ERP' });
     } finally {
+      // El camino sincrónico y el de error no esperan ningún evento: se cierra
+      // la ventana de buffering para que un evento ajeno no quede retenido.
+      syncPostEnVueloRef.current = false;
       setSyncing(false);
     }
   };
+
+  // ── Resultado del sync full (llega por SSE cuando el job termina) ──
+  const handleSyncEvent = useCallback(
+    ({ data }) => {
+      // El POST sigue en vuelo: no conocemos el `run_id` con el que comparar.
+      // Se retiene el evento y se decide al resolver la 202. Aplicarlo a ciegas
+      // sería el bug original (un evento ajeno resuelve nuestra corrida) y
+      // descartarlo a ciegas dejaría la UI esperando hasta el timeout un
+      // resultado que YA llegó.
+      if (syncPostEnVueloRef.current) {
+        syncEventosPendientesRef.current.push(data);
+        return;
+      }
+
+      // Evento de otra corrida (otro usuario, otra pestaña, un job tardío): no
+      // limpia el banner, no cancela el timeout y no pisa `syncResult`. Pero un
+      // sync ajeno exitoso dejó datos nuevos en la tabla: se refresca en
+      // silencio para que esta pestaña no muestre proveedores viejos.
+      if (!eventoDeEstaCorrida(data, syncRunIdServidorRef.current)) {
+        if (data?.success) fetchProveedores();
+        return;
+      }
+
+      aplicarResultadoSync(data);
+    },
+    [aplicarResultadoSync, fetchProveedores],
+  );
+
+  useSSEChannel('proveedores:sync', handleSyncEvent);
 
   const handleCrear = async (e) => {
     e.preventDefault();
@@ -179,10 +350,10 @@ export default function AdministracionProveedores() {
               <button
                 className={styles.btnSecondary}
                 onClick={handleSyncErp}
-                disabled={syncing}
+                disabled={syncing || syncEnCurso}
               >
-                <RefreshCw size={16} className={syncing ? styles.spinning : ''} />
-                {syncing ? 'Sincronizando...' : 'Sync ERP'}
+                <RefreshCw size={16} className={syncing || syncEnCurso ? styles.spinning : ''} />
+                {syncing || syncEnCurso ? 'Sincronizando...' : 'Sync ERP'}
               </button>
               <button
                 className={styles.btnPrimary}
@@ -196,19 +367,49 @@ export default function AdministracionProveedores() {
         </div>
       </div>
 
+      {/* Sync full encolado: el resultado llega por SSE */}
+      {syncEnCurso && (
+        <div className={styles.alertInfo} role="status">
+          <Loader2 size={16} className={styles.spinning} />
+          Sincronización con el ERP en curso. Los resultados aparecen al finalizar.
+        </div>
+      )}
+
+      {/* El resultado no llegó a tiempo. El sync sigue corriendo en el servidor:
+          no se reporta como error, solo como resultado no confirmado. */}
+      {syncSinConfirmar && (
+        <div className={styles.alertWarning} role="status">
+          <AlertCircle size={16} />
+          No se pudo confirmar el resultado de la sincronización. Es probable que siga
+          ejecutándose en el servidor: actualizá la página en unos minutos para ver el resultado.
+          <button
+            className={styles.alertClose}
+            onClick={() => setSyncSinConfirmar(false)}
+            aria-label="Cerrar aviso"
+          >
+            <X size={14} />
+          </button>
+        </div>
+      )}
+
       {/* Sync result */}
       {syncResult && (
         <div className={syncResult.success ? styles.alertSuccess : styles.alertError}>
           {syncResult.success ? (
             <>
               <CheckCircle size={16} />
-              Sync completado: {syncResult.insertados} nuevos, {syncResult.actualizados} actualizados,
-              {' '}{syncResult.vinculados_rma} vinculados RMA
+              Sync completado: {syncResult.total_erp} proveedores recibidos del ERP —
+              {' '}{syncResult.insertados} nuevos, {syncResult.actualizados} actualizados,
+              {' '}{syncResult.rma_insertados} RMA creados, {syncResult.vinculados_rma} RMA vinculados
             </>
           ) : (
             <><AlertCircle size={16} /> {syncResult.error}</>
           )}
-          <button className={styles.alertClose} onClick={() => setSyncResult(null)}>
+          <button
+            className={styles.alertClose}
+            onClick={() => setSyncResult(null)}
+            aria-label="Cerrar resultado del sync"
+          >
             <X size={14} />
           </button>
         </div>

@@ -64,7 +64,10 @@ describe('TicketProposals', () => {
     await waitFor(() =>
       expect(screen.getByText((text) => text.includes('IA 0.82'))).toBeInTheDocument()
     );
-    expect(screen.getByText((text) => text.includes('Severidad') && text.includes('mayor'))).toBeInTheDocument();
+    // severidad is correctable (PR2): the plain "Severidad: mayor" text is
+    // replaced by the label prefix + SelectorValorPropuesta.
+    expect(screen.getByText('Severidad:')).toBeInTheDocument();
+    expect(screen.getByRole('combobox')).toHaveValue('mayor');
     expect(propuestasAPI.confirmar).not.toHaveBeenCalled();
   });
 
@@ -134,6 +137,96 @@ describe('TicketProposals', () => {
 });
 
 /**
+ * Covers spec `frontend/tickets-correction-ui` (tickets-triage-feedback
+ * PR2): the value selector wired into the confirm affordance for
+ * severidad/urgencia only.
+ */
+describe('TicketProposals — corrected confirm (PR2)', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockTienePermiso = () => true;
+  });
+
+  it('selecting a different value and confirming sends exactly ONE request carrying the corrected value', async () => {
+    ticketsAPI.listarPropuestas.mockResolvedValue({ data: [propuesta()] });
+    propuestasAPI.confirmar.mockResolvedValue({ data: {} });
+
+    render(<TicketProposals ticketId={42} />);
+
+    await waitFor(() => expect(screen.getByRole('combobox')).toBeInTheDocument());
+    fireEvent.change(screen.getByRole('combobox'), { target: { value: 'menor' } });
+
+    fireEvent.click(screen.getByLabelText(/Confirmar severidad/i));
+
+    await waitFor(() => expect(propuestasAPI.confirmar).toHaveBeenCalledTimes(1));
+    // Asserts the ARGUMENTS handed to the API layer — the actual request
+    // payload shape (`{valor_corregido}`) is proven separately in
+    // `api.propuestas.test.js`, per obs #1350's "capa salteada" lesson.
+    expect(propuestasAPI.confirmar).toHaveBeenCalledWith(1, 'menor');
+  });
+
+  it('confirming without touching the selector sends no corrected value — ratification stays one click', async () => {
+    ticketsAPI.listarPropuestas.mockResolvedValue({ data: [propuesta()] });
+    propuestasAPI.confirmar.mockResolvedValue({ data: {} });
+
+    render(<TicketProposals ticketId={42} />);
+
+    await waitFor(() => expect(screen.getByRole('combobox')).toBeInTheDocument());
+    fireEvent.click(screen.getByLabelText(/Confirmar severidad/i));
+
+    await waitFor(() => expect(propuestasAPI.confirmar).toHaveBeenCalledTimes(1));
+    // Exactly ONE argument — no `valor_corregido`, not even `undefined`.
+    expect(propuestasAPI.confirmar).toHaveBeenCalledWith(1);
+  });
+
+  it('offers exactly the vocabulary for the proposal\'s own campo (urgencia)', async () => {
+    ticketsAPI.listarPropuestas.mockResolvedValue({
+      data: [propuesta({ campo: 'urgencia', valor_propuesto: { valor: 'alta' } })],
+    });
+
+    render(<TicketProposals ticketId={42} />);
+
+    await waitFor(() => expect(screen.getByRole('combobox')).toBeInTheDocument());
+    const opciones = screen.getAllByRole('option').map((o) => o.value);
+    expect(opciones).toEqual(['baja', 'normal', 'alta', 'inmediata']);
+  });
+
+  it('does not render the selector for a campo the backend cannot correct (titulo)', async () => {
+    ticketsAPI.listarPropuestas.mockResolvedValue({
+      data: [propuesta({ campo: 'titulo', valor_propuesto: { valor: 'Falla de fuente' } })],
+    });
+
+    render(<TicketProposals ticketId={42} />);
+
+    await waitFor(() =>
+      expect(screen.getByText((text) => text.includes('Título') && text.includes('Falla de fuente'))).toBeInTheDocument()
+    );
+    expect(screen.queryByRole('combobox')).not.toBeInTheDocument();
+  });
+
+  it('a failed corrected confirm surfaces the Spanish detail inline and does not leave the UI claiming success', async () => {
+    ticketsAPI.listarPropuestas.mockResolvedValue({ data: [propuesta()] });
+    propuestasAPI.confirmar.mockRejectedValue({
+      response: { data: { detail: "'urgentisimo' no es un valor válido para severidad" } },
+    });
+
+    render(<TicketProposals ticketId={42} />);
+
+    await waitFor(() => expect(screen.getByRole('combobox')).toBeInTheDocument());
+    fireEvent.change(screen.getByRole('combobox'), { target: { value: 'critica' } });
+    fireEvent.click(screen.getByLabelText(/Confirmar severidad/i));
+
+    await waitFor(() =>
+      expect(screen.getByText("'urgentisimo' no es un valor válido para severidad")).toBeInTheDocument()
+    );
+    // Still showing the pending proposal, still defaulted from the AI value
+    // — never re-fetched into a false "confirmed" state after a rejection.
+    expect(screen.getByRole('combobox')).toBeInTheDocument();
+    expect(ticketsAPI.listarPropuestas).toHaveBeenCalledTimes(1);
+  });
+});
+
+/**
  * Covers the topology flip (feat/tickets-triage-aplicar-directo): a
  * `confirmada` proposal with `confirmado_por_id: null` is the AI having
  * ALREADY applied the value — "this was set by the AI, correct it if
@@ -170,9 +263,10 @@ describe('TicketProposals — ia_auto applied values', () => {
 
     render(<TicketProposals ticketId={42} />);
 
-    await waitFor(() =>
-      expect(screen.getByText((text) => text.includes('Urgencia') && text.includes('alta'))).toBeInTheDocument()
-    );
+    // urgencia is correctable (PR2): the selector replaces the plain
+    // "Urgencia: alta" text, defaulted to the AI-applied value.
+    await waitFor(() => expect(screen.getByText('Urgencia:')).toBeInTheDocument());
+    expect(screen.getByRole('combobox')).toHaveValue('alta');
     expect(screen.getByText('Clasificado por IA — corregí si está mal')).toBeInTheDocument();
     expect(screen.getByLabelText(/Confirmar Urgencia/i)).toBeInTheDocument();
     expect(screen.getByLabelText(/Descartar Urgencia/i)).toBeInTheDocument();

@@ -34,6 +34,20 @@ describe('propuestasAPI request wiring', () => {
     const { propuestasAPI } = await import('./api');
     propuestasAPI.confirmar(7);
     expect(mockPost).toHaveBeenCalledWith('/tickets/propuestas/7/confirmar');
+    // Regression guard: no stray second argument (not even `undefined`) —
+    // ratification must stay byte-identical to today's request shape.
+    expect(mockPost.mock.calls[0]).toHaveLength(1);
+  });
+
+  it('confirmar sends the corrected value as {valor_corregido} when provided (PR2)', async () => {
+    const { propuestasAPI } = await import('./api');
+    propuestasAPI.confirmar(7, 'menor');
+    expect(mockPost).toHaveBeenCalledWith('/tickets/propuestas/7/confirmar', {
+      valor_corregido: 'menor',
+    });
+    // Regression guard for the PR 4b class of bug (obs #1350): no stray
+    // extra keys beyond the one the backend's `ConfirmarRequest` accepts.
+    expect(Object.keys(mockPost.mock.calls[0][1])).toEqual(['valor_corregido']);
   });
 
   it('descartar posts to the single-discard route with no body', async () => {

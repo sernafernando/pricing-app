@@ -725,7 +725,15 @@ export const sectoresAPI = {
 
 // ── Propuestas IA (tickets-ai-triage) ────────────────────────
 export const propuestasAPI = {
-  confirmar: (id) => api.post(`/tickets/propuestas/${id}/confirmar`),
+  // `valorCorregido` (tickets-triage-feedback PR2) is optional and only
+  // meaningful for severidad/urgencia — the backend's `ConfirmarRequest`
+  // rejects it for other campos with 400. Omitted entirely (not sent as
+  // `undefined`) when there's no correction, so a plain ratification stays
+  // byte-identical to the pre-PR2 request — one click, no extra payload.
+  confirmar: (id, valorCorregido) =>
+    valorCorregido != null
+      ? api.post(`/tickets/propuestas/${id}/confirmar`, { valor_corregido: valorCorregido })
+      : api.post(`/tickets/propuestas/${id}/confirmar`),
   descartar: (id) => api.post(`/tickets/propuestas/${id}/descartar`),
   confirmarBatch: (propuestaIds) =>
     api.post('/tickets/propuestas/confirmar-batch', { propuesta_ids: propuestaIds }),
