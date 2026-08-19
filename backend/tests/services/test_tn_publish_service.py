@@ -9,6 +9,7 @@ issued and no `httpx.AsyncClient` patching is needed here.
 
 from __future__ import annotations
 
+from datetime import date
 from decimal import Decimal
 from unittest.mock import MagicMock
 
@@ -846,6 +847,55 @@ class TestPublishAssembledFieldsReachTn:
         assert payload["tags"] == ["Marca", "Categoria"]
         assert payload["seo_title"] == {"es": "Titulo SEO"}
         assert payload["seo_description"] == {"es": "Descripcion SEO"}
+
+
+class TestPublishCostGate:
+    """D6/PC8, fail-closed: a USD cost with no `TipoCambio` row must block
+    the publish server-side. The draft already refused to resolve it, but
+    that verdict was decorative until the write path enforced it too — the
+    item published with a null/unconverted cost and nothing named the
+    missing rate."""
+
+    def test_usd_cost_with_no_rate_blocks_before_any_tn_call(self, db):
+        user = _make_user(db)
+        fake_client = _FakePublishClient(
+            create_outcome={"ok": True, "status_code": 201, "ambiguous": False, "body": {"id": 1}},
+        )
+        outcome = publish_product(db, user, client=fake_client, **_publish_kwargs(moneda_costo="USD"))
+        assert outcome["status"] == "blocked_cost"
+        assert outcome["submitted"] is False
+        assert fake_client.create_calls == []
+        assert any("tipo de cambio" in r.lower() for r in outcome["blocked_reasons"])
+
+    def test_blocked_cost_is_audit_logged(self, db):
+        user = _make_user(db)
+        fake_client = _FakePublishClient(
+            create_outcome={"ok": True, "status_code": 201, "ambiguous": False, "body": {"id": 1}},
+        )
+        publish_product(db, user, client=fake_client, **_publish_kwargs(moneda_costo="USD"))
+        audit = db.query(Auditoria).filter(Auditoria.tipo_accion == TipoAccion.TN_PUBLICAR).one()
+        assert "blocked_cost" in audit.comentario
+        assert audit.valores_nuevos is None
+
+    def test_ars_cost_publishes_without_needing_a_rate(self, db):
+        user = _make_user(db)
+        fake_client = _FakePublishClient(
+            create_outcome={"ok": True, "status_code": 201, "ambiguous": False, "body": {"id": 1}},
+        )
+        outcome = publish_product(db, user, client=fake_client, **_publish_kwargs(moneda_costo="ARS"))
+        assert outcome["status"] == "submitted"
+
+    def test_usd_cost_with_a_rate_available_publishes(self, db):
+        from app.models.tipo_cambio import TipoCambio
+
+        db.add(TipoCambio(fecha=date.today(), moneda="USD", compra=1000.0, venta=1000.0))
+        db.commit()
+        user = _make_user(db)
+        fake_client = _FakePublishClient(
+            create_outcome={"ok": True, "status_code": 201, "ambiguous": False, "body": {"id": 1}},
+        )
+        outcome = publish_product(db, user, client=fake_client, **_publish_kwargs(moneda_costo="USD"))
+        assert outcome["status"] == "submitted"
 
 
 class TestPublishOverridePersistence:

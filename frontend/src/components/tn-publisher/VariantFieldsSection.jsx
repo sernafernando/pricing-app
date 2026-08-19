@@ -34,11 +34,17 @@ export default function VariantFieldsSection({
 }) {
   return (
     <>
+      {/* Read-only on purpose: `publish_product` always writes the EAN as
+          the variant SKU — both the idempotency pre-check and the
+          ambiguous-outcome read-back look the product up by it. An editable
+          control here would swallow the operator's edit with no feedback. */}
       <PublishFieldRow
         id="tn-publish-sku"
-        label="SKU"
+        label="SKU (lo asigna el sistema)"
         value={sku}
         onChange={onSkuChange}
+        readOnly
+        hint="Se publica siempre con el EAN del producto."
         testId="tn-publish-field-sku"
       />
       <PublishFieldRow

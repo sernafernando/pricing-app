@@ -500,6 +500,11 @@ class PublicarRequest(BaseModel):
     # gate off `overrides` would fail-close every publish where nothing was
     # edited, i.e. the happy path.
     measurements: Dict[str, str] = {}
+    # GBP's own currency for this row's cost — a report fact, not an operator
+    # input. The backend needs it to decide whether a missing `TipoCambio`
+    # must block the publish (D6/PC8); the RATE itself is always read
+    # server-side, never trusted from the client.
+    moneda_costo: Optional[str] = None
     profile_id: Optional[int] = None
 
     @field_validator("overrides", "measurements")
@@ -859,8 +864,9 @@ def publicar_producto(
         price_base_source=request.price_base_source,
         overrides=request.overrides,
         measurements=request.measurements,
+        moneda_costo=request.moneda_costo,
     )
-    if outcome["status"] in ("rejected_invalid_price", "blocked_measurements"):
+    if outcome["status"] in ("rejected_invalid_price", "blocked_measurements", "blocked_cost"):
         raise HTTPException(status_code=400, detail=outcome.get("detail"))
     return PublicarResponse(
         submitted=outcome["submitted"],

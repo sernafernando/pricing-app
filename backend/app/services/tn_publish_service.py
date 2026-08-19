@@ -52,6 +52,7 @@ from app.services.tienda_nube_product_client import (
 )
 from app.services.tn_publish_core.assemble import assemble_payload
 from app.services.tn_publish_core.batch import execute_batch
+from app.services.tn_publish_core.resolve import latest_usd_rate
 from app.services.tn_publish_core.resolve import Resolved
 from app.services.tn_publish_core.validate import MEASUREMENT_FIELDS, OVERRIDABLE_FIELDS, validate_measurements
 from app.utils.async_bridge import resolve_maybe_async as _resolve
@@ -514,6 +515,7 @@ def publish_product(
     price_base_source: Optional[str] = None,
     overrides: Optional[Dict[str, str]] = None,
     measurements: Optional[Dict[str, str]] = None,
+    moneda_costo: Optional[str] = None,
 ) -> Dict[str, Any]:
     """Creates a single TN product from GBP-derived data (Slice 3a).
 
@@ -622,6 +624,23 @@ def publish_product(
             "status": "blocked_measurements",
             "detail": "; ".join(measurement_validation.blocked_reasons),
             "blocked_reasons": measurement_validation.blocked_reasons,
+        }
+        _audit_publish(db, usuario, None, outcome)
+        return outcome
+
+    # D6/PC8 cost gate, fail-closed like the measurement gate above. The
+    # draft already refuses to resolve a USD cost with no `TipoCambio` row,
+    # but that block was decorative until here: nothing stopped the publish
+    # itself, so the item shipped with a null/unconverted cost and nothing
+    # named the missing rate. The currency comes from the request because it
+    # is a GBP fact, never an operator input; the RATE — the part that
+    # decides — is read from the DB right here, server-side.
+    if (moneda_costo or "").strip().upper() == "USD" and latest_usd_rate(db) is None:
+        outcome = {
+            "submitted": False,
+            "status": "blocked_cost",
+            "detail": "Falta tipo de cambio para convertir el costo (USD). No se publica un costo sin convertir.",
+            "blocked_reasons": ["Falta tipo de cambio para convertir el costo (USD)"],
         }
         _audit_publish(db, usuario, None, outcome)
         return outcome

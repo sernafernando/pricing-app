@@ -27,6 +27,7 @@ export default function MeasurementSection({
   onApplyProfile,
   onClearProfile,
   missingFields,
+  backendReasons = [],
   blocked,
   publishFieldsError,
 }) {
@@ -39,12 +40,23 @@ export default function MeasurementSection({
           Error de esquema/extracción en los datos del reporte — contactá a un administrador.
         </p>
       ) : (
-        blocked && (
+        blocked &&
+        (missingFields.length > 0 ? (
           <p className={styles.fieldError} data-testid="blocked-banner-missing">
             Faltan medidas: {missingFields.map((f) => MEASUREMENT_LABELS[f]).join(', ')}. Elegí un perfil de medidas
             o completá los valores manualmente para poder publicar.
           </p>
-        )
+        ) : (
+          // Blocked by the backend for something other than a measurement
+          // the operator can type here — today that means an unresolvable
+          // USD cost. Naming the real reason beats showing an empty
+          // "Faltan medidas:" list.
+          backendReasons.length > 0 && (
+            <p className={styles.fieldError} data-testid="blocked-banner-backend">
+              No se puede publicar: {backendReasons.join('; ')}.
+            </p>
+          )
+        ))
       )}
 
       {loadingProfiles && <p className={styles.fieldHint}>Cargando perfiles de medidas...</p>}

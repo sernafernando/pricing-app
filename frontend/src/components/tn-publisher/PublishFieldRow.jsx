@@ -17,6 +17,7 @@ export default function PublishFieldRow({
   as = 'input',
   maxLength,
   placeholder,
+  readOnly = false,
   testId,
 }) {
   const Control = as === 'textarea' ? 'textarea' : 'input';
@@ -32,6 +33,7 @@ export default function PublishFieldRow({
         value={value}
         maxLength={maxLength}
         placeholder={placeholder}
+        readOnly={readOnly}
         onChange={(e) => onChange(e.target.value)}
       />
       {hint && <p className={styles.fieldHint}>{hint}</p>}

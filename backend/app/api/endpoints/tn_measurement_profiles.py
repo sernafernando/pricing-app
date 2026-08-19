@@ -102,6 +102,12 @@ def sugerir_perfil(categoria: str, subcategoria: Optional[str] = None, db: Sessi
     `GET /{profile_id}` is added, `"suggestion"` would parse as `int` against
     that route first and 422. See `TestSuggestionRouteRegisteredBeforeProfileId`.
     """
+    # Same guard as the bulk path's `_select_hint_profile_id`: both docstrings
+    # claim an identical lookup order, so they must not diverge on a blank
+    # `categoria=` (which would otherwise run a real lookup against "").
+    if not categoria.strip():
+        return ProfileSuggestionResponse(profile_id=None)
+
     if subcategoria:
         hint = (
             db.query(TnCategoryProfileHint)

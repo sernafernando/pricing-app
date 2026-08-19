@@ -86,6 +86,7 @@ export function usePublishSubmit({
   offsetPercent,
   priceBaseSource,
   draftFields,
+  monedaCosto,
 }) {
   const [confirming, setConfirming] = useState(false);
   const [submitting, setSubmitting] = useState(false);
@@ -139,6 +140,9 @@ export function usePublishSubmit({
         price_base_source: priceBaseSource,
         overrides: buildOverrides(draftFields),
         measurements: buildMeasurements(draftFields),
+        // GBP's currency for this row — the backend needs it to decide
+        // whether a missing TipoCambio must block the publish (D6/PC8).
+        moneda_costo: monedaCosto ?? null,
         profile_id: draftFields.appliedProfileId ?? null,
       });
       setConfirming(false);
@@ -161,6 +165,7 @@ export function usePublishSubmit({
     offsetPercent,
     priceBaseSource,
     draftFields,
+    monedaCosto,
   ]);
 
   return { confirming, submitting, submitError, handlePublishClick, handleCancelConfirm, handleConfirm };

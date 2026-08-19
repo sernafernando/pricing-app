@@ -76,7 +76,16 @@ export default function TnPublishModal({ row, isOpen, onClose, onPublished }) {
   const missingMeasurementFields = MEASUREMENT_FIELDS.filter(
     (f) => draftFields[f] === '' || draftFields[f] == null
   );
-  const measurementsBlocked = publishFieldsError != null || missingMeasurementFields.length > 0;
+  // The backend's own verdict for this row (D3 measurements AND D6 cost)
+  // is authoritative — the local `missingMeasurementFields` check only keeps
+  // the UI live while the operator edits. Ignoring `draft.blocked` let an
+  // item the backend had blocked for an unresolvable USD cost sail through
+  // to a publish that then failed (or shipped a null cost) with nothing
+  // naming the missing rate.
+  const draftBlocked = row?.publish_draft?.blocked === true;
+  const draftBlockedReasons = row?.publish_draft?.blocked_reasons || [];
+  const measurementsBlocked =
+    publishFieldsError != null || missingMeasurementFields.length > 0 || draftBlocked;
 
   // Precio de publicación (Slice 2, money path) — see VariantFieldsSection
   // for the full two-base rule. `hasWebPrice` selects the surcharge path vs.
@@ -121,6 +130,7 @@ export default function TnPublishModal({ row, isOpen, onClose, onPublished }) {
       offsetPercent,
       priceBaseSource,
       draftFields,
+      monedaCosto: row?.moneda_costo ?? null,
     });
 
   const canPublish =
@@ -215,6 +225,7 @@ export default function TnPublishModal({ row, isOpen, onClose, onPublished }) {
         onClearProfile={clearProfile}
         missingFields={missingMeasurementFields}
         blocked={measurementsBlocked && !publishFieldsError}
+        backendReasons={draftBlockedReasons}
         publishFieldsError={publishFieldsError}
       />
 
