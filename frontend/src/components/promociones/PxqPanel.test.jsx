@@ -156,6 +156,70 @@ describe('PxqPanel', () => {
     expect(screen.getByText('Limpio por u.')).toBeInTheDocument();
   });
 
+  // The grid is `div`s. Without explicit roles the column headings relate the
+  // figures for the EYE and for nobody else: a screen reader gets a flat run of
+  // strings with nothing tying "Markup" to the percentage on the row. Queried
+  // BY ROLE on purpose — that is the same tree assistive technology walks, and
+  // it is a stronger anchor than the text queries it replaces.
+  it('exposes the tramos as a real table, not five columns of loose text', async () => {
+    pxqAPI.getLive.mockResolvedValue({
+      data: {
+        item_id: 'MLA001',
+        live_status: 'ok',
+        live_tiers: [{ id: 'PXQ1', quantity: 5, amount: 100 }],
+        mirror_tiers: [
+          { id: 1, cantidad_minima: 5, precio_unitario: 100, costo_envio_total: 20, ml_price_id: 'PXQ1', estado: 'listo' },
+        ],
+        fetched_at: '2026-08-01T10:00:00Z',
+      },
+    });
+
+    renderPanel();
+
+    const table = await screen.findByRole('table', { name: /tramos mayoristas/i });
+    expect(
+      within(table)
+        .getAllByRole('columnheader')
+        .map((node) => node.textContent),
+    ).toEqual(['Cant.', 'Precio en ML', 'Costo del envío', 'Markup', 'Limpio por u.']);
+    // Heading row + one tier row, and the tier row carries one cell per column
+    // — the association that makes the heading mean anything.
+    const rows = within(table).getAllByRole('row');
+    expect(rows).toHaveLength(2);
+    expect(within(rows[1]).getAllByRole('cell')).toHaveLength(5);
+  });
+
+  // ML RE-EMITS PRICE IDS when it recreates a price, so a synced mirror tier
+  // can hold `P1` while ML now answers `P2` for the very same tramo. The
+  // pairing used to be `ml_price_id` OR quantity, never both in cascade, so
+  // that tier rendered TWICE: once as an unmatched mirror row and once as an
+  // unclaimed live row — one tramo, two rows, which is the exact confusion the
+  // quantity fallback exists to prevent.
+  it('pairs a re-emitted price id by quantity instead of painting the tramo twice', async () => {
+    pxqAPI.getLive.mockResolvedValue({
+      data: {
+        item_id: 'MLA001',
+        live_status: 'ok',
+        live_tiers: [{ id: 'P2', quantity: 5, amount: 150 }],
+        mirror_tiers: [
+          { id: 1, cantidad_minima: 5, precio_unitario: 100, costo_envio_total: 20, ml_price_id: 'P1', estado: 'sincronizado' },
+        ],
+        fetched_at: '2026-08-01T10:00:00Z',
+      },
+    });
+
+    renderPanel();
+
+    await screen.findByText('Precios mayoristas');
+    const rows = within(screen.getByTestId('pxq-tramos')).getAllByRole('row');
+    // One heading row plus ONE tier row.
+    expect(rows).toHaveLength(2);
+    expect(within(screen.getByTestId('pxq-tramos')).getAllByText(/^\d+ u\.$/)).toHaveLength(1);
+    // Still divergent: the mirror's `ml_price_id` did not resolve, which is a
+    // real disagreement with ML and must stay visible.
+    expect(screen.getByText(/diverge/i)).toBeInTheDocument();
+  });
+
   it('marks a divergent tier visibly (no resolution action offered — read only)', async () => {
     pxqAPI.getLive.mockResolvedValue({
       data: {
@@ -1222,6 +1286,84 @@ describe('PxqPanel — the unparseable-error fallback names the action that fail
 // the column stops being a scale and becomes three unrelated prices that the
 // operator has to sort in his head before he can answer the only question the
 // panel exists for: does buying more get cheaper.
+// The read table's "Cargar costo" button is the only interaction the redesign
+// added, and it is the most fragile chain in it: click -> `costEditRequest` ->
+// a state sync during `PxqTierAuthoring`'s RENDER phase -> `startEdit`. The
+// visual suite only proves the button is painted and dashed; nothing proved it
+// opens anything, let alone the right thing.
+describe('PxqPanel — the "Cargar costo" affordance', () => {
+  const TIERS = [
+    { id: 1, cantidad_minima: 2, precio_unitario: 111, costo_envio_total: 500, ml_price_id: null, estado: 'listo' },
+    { id: 2, cantidad_minima: 5, precio_unitario: 222, costo_envio_total: null, ml_price_id: null, estado: 'listo' },
+  ];
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockTienePermiso.mockImplementation(() => true);
+    pxqAPI.getLive.mockResolvedValue({
+      data: { item_id: 'MLA001', live_status: 'ok', live_tiers: [], mirror_tiers: TIERS, fetched_at: '2026-08-01T10:00:00Z' },
+    });
+  });
+
+  // Offered on the tier that is MISSING the cost, and only on that one: an
+  // affordance on a complete row would be an invitation to edit something the
+  // operator did not ask about.
+  it('opens the authoring form on the tier whose cost is missing, not on another one', async () => {
+    const user = userEvent.setup();
+    renderPanel();
+
+    const button = await screen.findByRole('button', { name: /cargar costo/i });
+    expect(screen.getAllByRole('button', { name: /cargar costo/i })).toHaveLength(1);
+
+    await user.click(button);
+
+    // The PRICE proves WHICH tier opened. Asserting merely that "a form is
+    // open" would pass just as well with the wrong row loaded, which is the
+    // failure this button can actually have.
+    // Queried by the EDIT form's own input id: the create form below carries an
+    // identically labelled field, so a label query cannot tell which of the two
+    // is open — which is the very thing this test exists to pin down.
+    const precio = await waitFor(() => {
+      const input = document.getElementById('pxq-edit-precio-2');
+      if (!input) throw new Error('the edit form did not open');
+      return input;
+    });
+    expect(precio).toHaveValue(222);
+    // The tier with the cost already loaded stayed shut.
+    expect(document.getElementById('pxq-edit-precio-1')).toBeNull();
+  });
+
+  // `costEditRequest` is a fresh OBJECT per press rather than the bare id
+  // precisely so this works. With the id compared by value the second press
+  // would look unchanged and the form would stay shut.
+  it('reopens the form when the button is pressed a second time', async () => {
+    const user = userEvent.setup();
+    renderPanel();
+
+    const openEditForm = () => document.getElementById('pxq-edit-precio-2');
+
+    await user.click(await screen.findByRole('button', { name: /cargar costo/i }));
+    await waitFor(() => expect(openEditForm()).not.toBeNull());
+
+    await user.click(screen.getByRole('button', { name: /^cancelar$/i }));
+    await waitFor(() => expect(openEditForm()).toBeNull());
+
+    await user.click(screen.getByRole('button', { name: /cargar costo/i }));
+    await waitFor(() => expect(openEditForm()).not.toBeNull());
+    expect(openEditForm()).toHaveValue(222);
+  });
+
+  // A `pxq.ver`-only user has nothing to open: offering the action would just
+  // walk him into a control that is not there.
+  it('is not offered to a user who cannot write', async () => {
+    mockTienePermiso.mockImplementation((code) => code === 'pxq.ver');
+    renderPanel();
+
+    await screen.findByText('Precios mayoristas');
+    expect(screen.queryByRole('button', { name: /cargar costo/i })).not.toBeInTheDocument();
+  });
+});
+
 describe('PxqPanel — tiers are read in quantity order, whatever order they arrive in', () => {
   function mockLive({ mirror_tiers = [], live_tiers = [], live_status = 'ok' } = {}) {
     return {

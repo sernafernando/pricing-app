@@ -648,3 +648,59 @@ describe('PxQ read table — limpio por unidad', () => {
     expect(getComputedStyle(limpio).fontVariantNumeric).toContain('tabular-nums');
   });
 });
+
+/**
+ * The longest thing the Markup column can ever be handed, measured.
+ *
+ * The column is a FIXED track — that is what keeps the figures in a line — and
+ * `PxqTierMarkup` can put a 47-character sentence in it ("Faltan datos del
+ * producto para calcular el markup") when the markup cannot be computed. The
+ * existing tests all feed it either a percentage or a shorter reason, so the
+ * one input that can stretch a row was never put in front of a layout engine.
+ *
+ * WRAPPING IS THE ACCEPTED OUTCOME, stated here rather than merely tolerated,
+ * the same way the old `estado` test stated it: the row has no fixed height and
+ * grows. What is NOT accepted is the sentence being clipped, escaping its
+ * column, or turning one tier into a five-line block — hence the track is wide
+ * enough (128px) to hold it in a few lines, and this test pins the ceiling.
+ */
+describe('PxQ read table — the longest markup reason', () => {
+  it('wraps inside its column, without clipping, spilling or exploding the row', async () => {
+    pxqAPI.getLive.mockResolvedValue({
+      data: {
+        item_id: 'MLA001',
+        live_status: 'ok',
+        live_tiers: [],
+        mirror_tiers: [{ id: 1, cantidad_minima: 3, precio_unitario: 900, costo_envio_total: 1500, estado: 'listo', ml_price_id: null }],
+        fetched_at: '2026-08-18T10:00:00Z',
+      },
+    });
+    pxqAPI.getMarkup.mockResolvedValue({ data: { item_id: 'MLA001', tiers: [{ tier_id: 1, reason: 'product_data_missing' }] } });
+    const { container } = await render(<PxqPanel itemId="MLA001" pxqCacheRef={{ current: new Map() }} />);
+
+    let reason;
+    await vi.waitFor(() => {
+      reason = container.querySelector('[class*="pxqMarkupUnavailable"]');
+      if (!reason) throw new Error('reason not painted yet');
+    });
+    expect(reason.textContent).toBe('Faltan datos del producto para calcular el markup');
+
+    const cell = reason.closest('[role="cell"]');
+    const row = cell.closest('[role="row"]');
+    // One line, measured rather than assumed: `line-height` on these cells
+    // resolves to `normal`, which `getComputedStyle` reports as the keyword and
+    // not as a length. The quantity can only ever be one line, so it is the
+    // reference.
+    const oneLine = row.querySelector('[class*="pxqNum"]').getBoundingClientRect().height;
+    // It DOES wrap here — a single line would mean the track grew and the
+    // columns stopped lining up.
+    const lines = Math.round(reason.getBoundingClientRect().height / oneLine);
+    expect(lines).toBeGreaterThan(1);
+    // …but not into a block that dwarfs every other tier on the panel.
+    expect(lines).toBeLessThanOrEqual(3);
+    // Not paid for with clipped text…
+    expect(reason.scrollWidth).toBeLessThanOrEqual(cell.clientWidth + 1);
+    // …nor with a cell that spills past the row it belongs to.
+    expect(cell.getBoundingClientRect().right).toBeLessThanOrEqual(row.getBoundingClientRect().right + 1);
+  });
+});

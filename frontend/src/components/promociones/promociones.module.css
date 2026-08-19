@@ -513,13 +513,21 @@
    three numeric columns are fixed because they hold formatted money and a
    percentage (bounded width); the two text columns take the slack and are
    `minmax(0, …)` so long content shrinks them instead of blowing the grid
-   past its track sizes. */
+   past its track sizes.
+ 
+   The Markup track is 128px rather than the 96px the figures need, because
+   that cell does not only hold a percentage: when the markup cannot be
+   computed it holds the REASON, and the longest of those is 49 characters.
+   The track stays fixed — a track that grows to fit a sentence takes the
+   column alignment with it — so the sentence wraps, and the extra 32px are
+   what keep it to three lines instead of five. Measured in
+   `src/test/visual/pxqPanel.visual.test.jsx`. */
 .pxqTableHead,
 .pxqRow {
   display: grid;
-  grid-template-columns: 88px minmax(0, 1fr) minmax(0, 1.2fr) 96px 104px;
+  grid-template-columns: 88px minmax(0, 1fr) minmax(0, 1.2fr) 128px 104px;
   gap: 8px;
-  min-width: 420px;
+  min-width: 452px;
 }
 
 /* Quiet, small and uppercase: headings are the map, never the content. Without
@@ -795,6 +803,9 @@
   font-size: 12px;
   font-style: italic;
   color: var(--text-tertiary);
+  /* A reason is a sentence in a fixed track: it has to break INSIDE a word if
+     that is what it takes, rather than push its column out of line. */
+  overflow-wrap: anywhere;
 }
 
 /* Transient, and quieter still than the reason: nothing has been decided yet. */

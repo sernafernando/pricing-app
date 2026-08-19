@@ -802,11 +802,37 @@ function PxqPanel({ itemId, pxqCacheRef }) {
   // operator thinks of as a single thing. A quantity pairing whose amounts
   // disagree is flagged like any other divergence: both figures exist, we show
   // ML's and say the mirror does not match it.
+  //
+  // TWO passes, and the second is a CASCADE rather than an alternative. The id
+  // pass runs first and claims what it matches; the quantity pass then fills in
+  // every mirror tier still unpaired — including one whose `ml_price_id` did
+  // NOT resolve. ML re-emits price ids when it recreates a price, so a synced
+  // tier can hold `P1` while ML now answers `P2` for the same tramo; treating
+  // the two rules as exclusive painted that tramo twice, once as an unmatched
+  // mirror row and once as an unclaimed live row.
+  //
+  // Two passes rather than one loop because a single pass would let an early
+  // tier claim by quantity a live tier that a later one owns by id.
   const liveByQuantity = new Map((liveTiers || []).map((tier) => [tier.quantity, tier]));
   const claimedLiveIds = new Set();
+  const pairedLive = new Map();
+  for (const tier of mirrorTiers) {
+    const byId = tier.ml_price_id ? liveById.get(tier.ml_price_id) : null;
+    if (byId) {
+      pairedLive.set(tier.id, byId);
+      claimedLiveIds.add(byId.id);
+    }
+  }
+  for (const tier of mirrorTiers) {
+    if (pairedLive.has(tier.id)) continue;
+    const byQuantity = liveByQuantity.get(tier.cantidad_minima);
+    if (byQuantity && !claimedLiveIds.has(byQuantity.id)) {
+      pairedLive.set(tier.id, byQuantity);
+      claimedLiveIds.add(byQuantity.id);
+    }
+  }
   const mirrorRows = mirrorTiers.map((tier) => {
-    const liveTier = (tier.ml_price_id ? liveById.get(tier.ml_price_id) : liveByQuantity.get(tier.cantidad_minima)) || null;
-    if (liveTier) claimedLiveIds.add(liveTier.id);
+    const liveTier = pairedLive.get(tier.id) || null;
     return {
       key: `mirror-${tier.id}`,
       cantidad: tier.cantidad_minima,
@@ -868,27 +894,37 @@ function PxqPanel({ itemId, pxqCacheRef }) {
           {liveUnavailable ? 'Sin tramos mayoristas locales.' : 'ML no tiene tramos mayoristas para esta publicación.'}
         </div>
       ) : (
-        <div className={styles.pxqTable} data-testid="pxq-tramos">
-          <div className={styles.pxqTableHead}>
-            <div>Cant.</div>
-            <div>Precio en ML</div>
-            <div>Costo del envío</div>
-            <div className={styles.pxqRight}>Markup</div>
-            <div className={styles.pxqRight}>Limpio por u.</div>
+        /* The grid is built out of `div`s, so the column/cell relationship the
+           headings give the EYE has to be declared for everyone else — without
+           these roles a screen reader reads the tramo as a flat run of strings
+           and nothing ties "Markup" to the percentage on the row. The roles
+           change no pixel: `display: grid` and the ARIA table structure are
+           independent. */
+        <div className={styles.pxqTable} data-testid="pxq-tramos" role="table" aria-label="Tramos mayoristas">
+          <div className={styles.pxqTableHead} role="row">
+            <div role="columnheader">Cant.</div>
+            <div role="columnheader">Precio en ML</div>
+            <div role="columnheader">Costo del envío</div>
+            <div className={styles.pxqRight} role="columnheader">
+              Markup
+            </div>
+            <div className={styles.pxqRight} role="columnheader">
+              Limpio por u.
+            </div>
           </div>
-          <div className={styles.pxqTableBody}>
+          <div className={styles.pxqTableBody} role="rowgroup">
             {rows.map(({ key, cantidad, tier, liveTier, divergent }) => {
               const entry = tier ? markupById?.get(tier.id) : null;
               return (
-                <div key={key} className={`${styles.pxqRow} ${divergent ? styles.pxqRowDivergent : ''}`}>
-                  <div>
+                <div key={key} className={`${styles.pxqRow} ${divergent ? styles.pxqRowDivergent : ''}`} role="row">
+                  <div role="cell">
                     <span className={styles.pxqNum}>{cantidad} u.</span>
                     {tier && <span className={styles.pxqEstado}>{formatEstado(tier.estado)}</span>}
                   </div>
                   {/* The live amount when ML answered for this tier, the local
                       one otherwise — and the chip says which, so the operator
                       never reads a mirror figure as MercadoLibre's. */}
-                  <div className={styles.pxqCell}>
+                  <div className={styles.pxqCell} role="cell">
                     <span className={styles.pxqNum}>{formatMoney(liveTier ? liveTier.amount : tier?.precio_unitario)}</span>
                     {divergent ? (
                       <span className={`${styles.pxqChip} ${styles.pxqChipWarning}`}>Diverge de ML</span>
@@ -899,7 +935,7 @@ function PxqPanel({ itemId, pxqCacheRef }) {
                   {/* No tier means ML has a tramo we never mirrored: there is
                       nothing local to hang a cost on, so the cell says so
                       instead of offering an action that would fail. */}
-                  <div className={styles.pxqCell}>
+                  <div className={styles.pxqCell} role="cell">
                     {!tier ? (
                       <span className={styles.pxqEmpty}>—</span>
                     ) : isIncomplete(tier) ? (
@@ -917,10 +953,10 @@ function PxqPanel({ itemId, pxqCacheRef }) {
                       </>
                     )}
                   </div>
-                  <div className={`${styles.pxqRight} ${styles.pxqNum}`}>
+                  <div className={`${styles.pxqRight} ${styles.pxqNum}`} role="cell">
                     {tier ? <PxqTierMarkup markupLoading={markupLoading} entry={entry} /> : <span className={styles.pxqEmpty}>—</span>}
                   </div>
-                  <div className={`${styles.pxqRight} ${styles.pxqNum} ${styles.pxqLimpio}`}>
+                  <div className={`${styles.pxqRight} ${styles.pxqNum} ${styles.pxqLimpio}`} role="cell">
                     {entry && entry.limpio !== null && entry.limpio !== undefined ? (
                       formatMoney(entry.limpio)
                     ) : (
