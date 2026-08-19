@@ -41,6 +41,34 @@ logger = logging.getLogger(__name__)
 _UNSET = object()
 
 
+class TnRateLimited(Exception):
+    """Raised on a 429 response (TN's Weighted Token Bucket exhausted).
+
+    Categorically distinct from the `{ok, ambiguous, ...}` dict contract
+    the write methods return for a timeout/5xx (design Decision 6/R1): a
+    429 is a definitive REJECTION — nothing was created — so
+    `tn_publish_core.batch.execute_batch` may safely wait and retry it,
+    unlike an ambiguous 5xx/timeout which must NEVER be blind-retried (see
+    this module's docstring). `retry_after` is TN's own `Retry-After`
+    header value in seconds, or `None` when TN did not send one (the
+    caller then falls back to its own exponential backoff).
+    """
+
+    def __init__(self, retry_after: Optional[float] = None):
+        self.retry_after = retry_after
+        super().__init__(f"TN rate limited (429), retry_after={retry_after!r}")
+
+
+def _parse_retry_after(response: httpx.Response) -> Optional[float]:
+    raw = response.headers.get("Retry-After")
+    if raw is None:
+        return None
+    try:
+        return float(raw)
+    except (TypeError, ValueError):
+        return None
+
+
 class TnProductLookupError(Exception):
     """Raised by `get_product_by_sku` when TN's existence CANNOT be
     confirmed (missing credentials, timeout, connection error, or a 5xx
@@ -136,6 +164,9 @@ class TiendaNubeProductClient:
         except Exception as e:
             logger.error("Error (ambiguo) creando producto TN: %s", e)
             return {"ok": False, "status_code": None, "ambiguous": True, "body": None}
+
+        if response.status_code == 429:
+            raise TnRateLimited(_parse_retry_after(response))
 
         return self._classify_write_response(response)
 

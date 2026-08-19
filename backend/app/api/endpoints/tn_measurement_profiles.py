@@ -137,7 +137,7 @@ def sugerir_perfil(categoria: str, subcategoria: Optional[str] = None, db: Sessi
                 TnCategoryProfileHint.categoria == categoria,
                 TnCategoryProfileHint.subcategoria == subcategoria,
             )
-            .order_by(TnCategoryProfileHint.uso_count.desc())
+            .order_by(TnCategoryProfileHint.uso_count.desc(), TnCategoryProfileHint.id)
             .first()
         )
         if hint:
@@ -149,7 +149,7 @@ def sugerir_perfil(categoria: str, subcategoria: Optional[str] = None, db: Sessi
             TnCategoryProfileHint.categoria == categoria,
             TnCategoryProfileHint.subcategoria.is_(None),
         )
-        .order_by(TnCategoryProfileHint.uso_count.desc())
+        .order_by(TnCategoryProfileHint.uso_count.desc(), TnCategoryProfileHint.id)
         .first()
     )
     if hint:

@@ -17,7 +17,7 @@ import pytest
 from app.models.auditoria import Auditoria, TipoAccion
 from app.models.tienda_nube_producto import TiendaNubeProducto
 from app.models.usuario import AuthProvider, RolUsuario, Usuario
-from app.services.tienda_nube_product_client import TnProductLookupError
+from app.services.tienda_nube_product_client import TnProductLookupError, TnRateLimited
 from app.services.tn_publish_service import (
     InvalidPublishPriceError,
     _validate_publish_price,
@@ -61,6 +61,10 @@ class _FakePublishClient:
 
     async def create_product(self, payload):
         self.create_calls.append(payload)
+        # Same convention as `get_by_sku_results`: an Exception instance is
+        # raised instead of returned — simulates `TnRateLimited` on a 429.
+        if isinstance(self._create_outcome, Exception):
+            raise self._create_outcome
         return self._create_outcome
 
     async def add_product_image(self, product_id, src):
@@ -611,6 +615,41 @@ class TestPublishRejectedByProxy:
         assert isinstance(outcome["detail"], str)
         assert fake_client.image_calls == []
         assert db.query(TiendaNubeProducto).filter(TiendaNubeProducto.variant_sku == "EAN-PUB-1").count() == 0
+
+
+class TestPublishRateLimited:
+    """`create_product` raises `TnRateLimited` on a 429 (added for
+    `execute_batch`, which is not wired into this live path until the next
+    slice). The live path must degrade to a structured outcome — before
+    this handler existed, the exception escaped as an unhandled 500 and
+    `_audit_publish` never ran."""
+
+    def test_429_on_create_returns_structured_rate_limited_outcome(self, db):
+        user = _make_user(db)
+        fake_client = _FakePublishClient(create_outcome=TnRateLimited(retry_after=2.0))
+        outcome = publish_product(db, user, client=fake_client, **_publish_kwargs())
+        assert outcome["status"] == "rate_limited"
+        assert outcome["submitted"] is False
+        assert outcome["status_code"] == 429
+        # A 429 is a definitive rejection: exactly one attempt, no images,
+        # no local mirror row.
+        assert len(fake_client.create_calls) == 1
+        assert fake_client.image_calls == []
+        assert db.query(TiendaNubeProducto).filter(TiendaNubeProducto.variant_sku == "EAN-PUB-1").count() == 0
+
+    def test_rate_limited_outcome_is_audit_logged(self, db):
+        user = _make_user(db)
+        fake_client = _FakePublishClient(create_outcome=TnRateLimited(retry_after=None))
+        publish_product(db, user, client=fake_client, **_publish_kwargs())
+        audit = (
+            db.query(Auditoria)
+            .filter(Auditoria.tipo_accion == TipoAccion.TN_PUBLICAR, Auditoria.item_id.is_(None))
+            .one()
+        )
+        # Nothing was created at TN, so no published-state transition may be
+        # claimed — mirrors the rejected_by_proxy audit contract.
+        assert audit.valores_nuevos is None
+        assert "rate_limited" in audit.comentario
 
 
 class TestPublishAmbiguousOutcome:

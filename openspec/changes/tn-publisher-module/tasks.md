@@ -212,35 +212,35 @@ PR-4's branch. The D3 validation gate implemented here MUST NOT be exercised in 
 PR-4's profiles are live — 97 of 324 publishable items would become silently unpublishable with no
 remedy. Do not decouple 4.x and 5.x work into parallel independent branches.
 
-- [ ] 5.1 RED: test precedence — stored override outranks a fresh GBP value; in-session edit outranks
+- [x] 5.1 RED: test precedence — stored override outranks a fresh GBP value; in-session edit outranks
       the stored override; profile fills a gap GBP/override leave empty; full ladder `empty < profile <
       GBP < stored override < in-session edit` (PC4, D2/D8).
-- [ ] 5.2 GREEN: implement precedence merge in `resolve.py`, returning `Resolved(value, source)`.
-- [ ] 5.3 RED: test convert-then-resolve — a stored override (already in kg/cm/ARS) is NOT re-divided
+- [x] 5.2 GREEN: implement precedence merge in `resolve.py`, returning `Resolved(value, source)`.
+- [x] 5.3 RED: test convert-then-resolve — a stored override (already in kg/cm/ARS) is NOT re-divided
       by 1000 on re-publish (design Decision 1 ordering constraint).
 - [ ] 5.4 RED: test a successful publish writes every operator-edited field into
       `tn_publish_override`, keyed by `(ean, campo)`, and touches no GBP/ERP write path (PC5, D8).
 - [ ] 5.5 GREEN: implement post-publish override upsert.
-- [ ] 5.6 RED: test publish is blocked, naming the missing measurement(s), when weight or any
+- [x] 5.6 RED: test publish is blocked, naming the missing measurement(s), when weight or any
       dimension resolves to empty with no override/GBP/profile value (PC6, D3).
-- [ ] 5.7 RED: test the same item unblocks once a profile supplies all four measurement fields (PC6,
+- [x] 5.7 RED: test the same item unblocks once a profile supplies all four measurement fields (PC6,
       MP4 — proves the gate and the profile fallback ship as one working unit).
-- [ ] 5.8 GREEN: implement `validate.py`'s measurement gate.
-- [ ] 5.9 RED: test the assembled payload has `visibility` and never `published` (PC7, D4).
-- [ ] 5.10 RED: `Moneda_Costo = ARS` passes through unconverted; `= USD` converts at today's
+- [x] 5.8 GREEN: implement `validate.py`'s measurement gate.
+- [x] 5.9 RED: test the assembled payload has `visibility` and never `published` (PC7, D4).
+- [x] 5.10 RED: `Moneda_Costo = ARS` passes through unconverted; `= USD` converts at today's
       `TipoCambio.venta` with fallback-to-latest; an empty `TipoCambio` table blocks the cost field
       rather than sending an unconverted USD figure as ARS (PC8, D6).
-- [ ] 5.11 GREEN: implement cost resolution reusing the existing `TipoCambio` fallback pattern.
-- [ ] 5.12 RED: test the variant payload has `inventory_levels: [{"stock": N}]` and no top-level
+- [x] 5.11 GREEN: implement cost resolution reusing the existing `TipoCambio` fallback pattern.
+- [x] 5.12 RED: test the variant payload has `inventory_levels: [{"stock": N}]` and no top-level
       `stock` key (PC9, D1).
-- [ ] 5.13 GREEN: implement `assemble.py`.
-- [ ] 5.14 RED: test a single-item publish runs through the same `execute_batch` path as a multi-item
+- [x] 5.13 GREEN: implement `assemble.py`.
+- [x] 5.14 RED: test a single-item publish runs through the same `execute_batch` path as a multi-item
       call — no second code path exists (PC10, R1, design Decision 6).
-- [ ] 5.15 RED: **distinctness test** — a `429` with `Retry-After: 2` waits ≥2s and continues the
+- [x] 5.15 RED: **distinctness test** — a `429` with `Retry-After: 2` waits ≥2s and continues the
       batch, and this path is asserted as categorically distinct from the existing no-blind-retry rule
       for ambiguous 5xx/timeout on `publish_product` (PC10, R1). This is a required test per the
       proposal's risk table, not optional coverage.
-- [ ] 5.16 GREEN: implement `TnRateLimited` in the client + `execute_batch`'s adaptive-delay backoff
+- [x] 5.16 GREEN: implement `TnRateLimited` in the client + `execute_batch`'s adaptive-delay backoff
       loop in `batch.py`.
 - [ ] 5.17 RED: backend-only integration test — build a GBP row, overrides, and a profile directly in
       Python; call extract→resolve→validate→assemble with no FastAPI request and no React code; assert

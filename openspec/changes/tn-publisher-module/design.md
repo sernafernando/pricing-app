@@ -20,6 +20,8 @@ Implements proposal D1–D9, U1, U2, S1, R1 and the `tn-publish-core` / `tn-meas
 
 **Rationale**: identical behaviour between the two consumers is a *structural* property, not a discipline property. 18 hand-written per-field branches would also make S1's fail-loud check 18 places to forget; as a catalog it is one loop.
 
+**As built (PR-3/PR-5a)**: the backend-resolver choice stands, but no `catalog.py`/`FIELD_CATALOG` module was created. The field definitions live as per-stage tuples/constants (`REQUIRED_REPORT_FIELDS`/`OPTIONAL_REPORT_FIELDS` in `extract.py`, the conversion table in `resolve.py`, `MEASUREMENT_FIELDS` in `validate.py`) — each stage's fail-loud behaviour is enforced by its own tests rather than a shared declarative loop. If a future PR adds transmitted fields and the per-stage lists start drifting, extracting the originally-planned catalog is the documented follow-up.
+
 **Absent vs zero** — the catalog's per-field `absence_predicate`, never an inline `if x == 0`:
 
 | Field class | `"0.000000000"` / blank means | Why |
@@ -103,7 +105,7 @@ Precedence, low → high: `empty < profile < GBP < stored override < operator in
 | File | Action | Description |
 |---|---|---|
 | `backend/app/services/tn_publish_core/__init__.py` | Create | Public surface: `build_draft`, `resolve_batch`, `execute_batch` |
-| `backend/app/services/tn_publish_core/catalog.py` | Create | `FIELD_CATALOG`; U2 mapping site + mandatory explanatory comment |
+| `backend/app/services/tn_publish_core/catalog.py` | ~~Create~~ Not built | Superseded — see "As built" under Decision 1; U2 mapping + comment live in `resolve.py` |
 | `backend/app/services/tn_publish_core/extract.py` | Create | Strict report-78 projection, `Absent` sentinel, S1 raise |
 | `backend/app/services/tn_publish_core/resolve.py` | Create | Precedence, U1, U2, D6 conversion, `Resolved(value, source)` |
 | `backend/app/services/tn_publish_core/validate.py` | Create | D3 measurement gate, D6 no-rate block |

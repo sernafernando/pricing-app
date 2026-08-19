@@ -235,6 +235,27 @@ class TestProfileSuggestion:
         assert resp.status_code == 200
         assert resp.json()["profile_id"] == profile.id
 
+    def test_tied_uso_count_resolves_deterministically_to_lowest_id(self, client, db, user_no_perm):
+        profile_a = TnMeasurementProfile(name="A", weight=1, width=10, height=10, depth=10)
+        profile_b = TnMeasurementProfile(name="B", weight=2, width=20, height=20, depth=20)
+        db.add_all([profile_a, profile_b])
+        db.flush()
+
+        hint_a = TnCategoryProfileHint(categoria="Empate", subcategoria=None, profile_id=profile_a.id, uso_count=3)
+        hint_b = TnCategoryProfileHint(categoria="Empate", subcategoria=None, profile_id=profile_b.id, uso_count=3)
+        db.add_all([hint_a, hint_b])
+        db.flush()
+
+        # Tie on uso_count: the secondary `id` ordering makes the answer
+        # stable across query plans instead of arbitrary.
+        resp = client.get(
+            "/api/tn-measurement-profiles/suggestion",
+            params={"categoria": "Empate"},
+            headers=_bearer(user_no_perm),
+        )
+        assert resp.status_code == 200
+        assert resp.json()["profile_id"] == profile_a.id
+
     def test_no_suggestion_available_returns_empty_not_error(self, client, db, user_no_perm):
         resp = client.get(
             "/api/tn-measurement-profiles/suggestion",
