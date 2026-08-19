@@ -38,6 +38,19 @@ function isPublishBlocked(row) {
  * approved design's 4 cards: ready to publish / blocked / needs review /
  * total.
  */
+/**
+ * Predicate for the summary strip's click-to-filter behaviour (PR-10) — one
+ * function shared by `computeSummaryCounts` semantics and the actual table
+ * filter, so the card's number and what clicking it shows can never drift
+ * apart.
+ */
+export function matchesSummaryFilter(row, filterId) {
+  if (filterId === 'ready') return row.verdict === 'FALTA_PUBLICAR' && !isPublishBlocked(row);
+  if (filterId === 'bloqueados') return row.verdict === 'FALTA_PUBLICAR' && isPublishBlocked(row);
+  if (filterId === 'revision') return REVIEW_VERDICTS.has(row.verdict);
+  return true; // 'total' — every row
+}
+
 export function computeSummaryCounts(reporte) {
   let readyToPublish = 0;
   let bloqueados = 0;

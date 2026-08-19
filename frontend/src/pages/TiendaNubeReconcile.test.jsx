@@ -1491,7 +1491,14 @@ describe('Stock column (Slice 4)', () => {
     await waitFor(() => {
       expect(screen.getByText('ST-ZERO')).toBeInTheDocument();
     });
-    expect(screen.getByText('0')).toBeInTheDocument();
+    // Scoped to the row (not a bare screen.getByText('0')): PR-10's summary
+    // strip renders its own "0" counts as sibling text (e.g. an empty
+    // "Bloqueados" card), which now makes "0" ambiguous at the document
+    // level — this assertion's actual subject is the STOCK CELL, not any
+    // other zero on the page.
+    const row = screen.getByText('ST-ZERO').closest('tr');
+    const stockCell = within(row).getAllByRole('cell')[5];
+    expect(stockCell.textContent.trim()).toBe('0');
   });
 
   it('sorts descending by stock on first click, nulls last', async () => {

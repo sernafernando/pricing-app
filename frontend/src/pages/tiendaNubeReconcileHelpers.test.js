@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { selectTabItems, computeSummaryCounts, matchesSearch } from './tiendaNubeReconcileHelpers';
+import { selectTabItems, computeSummaryCounts, matchesSearch, matchesSummaryFilter } from './tiendaNubeReconcileHelpers';
 
 describe('selectTabItems', () => {
   const reporte = [
@@ -84,5 +84,29 @@ describe('matchesSearch', () => {
 
   it('never throws on a row with no tn_matches', () => {
     expect(matchesSearch({ ean: '1', ml_title: null, tn_matches: [] }, 'x')).toBe(false);
+  });
+});
+
+describe('matchesSummaryFilter', () => {
+  it('"ready" matches only unblocked FALTA_PUBLICAR rows', () => {
+    expect(matchesSummaryFilter({ verdict: 'FALTA_PUBLICAR' }, 'ready')).toBe(true);
+    expect(matchesSummaryFilter({ verdict: 'FALTA_PUBLICAR', publish_fields_error: 'x' }, 'ready')).toBe(false);
+    expect(matchesSummaryFilter({ verdict: 'MAL_VINCULADO' }, 'ready')).toBe(false);
+  });
+
+  it('"bloqueados" matches only blocked FALTA_PUBLICAR rows', () => {
+    expect(matchesSummaryFilter({ verdict: 'FALTA_PUBLICAR', publish_draft: { blocked: true } }, 'bloqueados')).toBe(true);
+    expect(matchesSummaryFilter({ verdict: 'FALTA_PUBLICAR' }, 'bloqueados')).toBe(false);
+  });
+
+  it('"revision" matches the 4 review verdicts only', () => {
+    for (const verdict of ['DUPLICADO', 'MAL_VINCULADO', 'MAL_PUBLICADO', 'POR_CORREGIR']) {
+      expect(matchesSummaryFilter({ verdict }, 'revision')).toBe(true);
+    }
+    expect(matchesSummaryFilter({ verdict: 'FALTA_PUBLICAR' }, 'revision')).toBe(false);
+  });
+
+  it('"total" matches every row', () => {
+    expect(matchesSummaryFilter({ verdict: 'OK' }, 'total')).toBe(true);
   });
 });

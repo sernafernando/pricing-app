@@ -43,13 +43,18 @@
 
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { useReactTable, getCoreRowModel, flexRender } from '@tanstack/react-table';
-import { ExternalLink } from 'lucide-react';
+import { ExternalLink, Search, Loader2 } from 'lucide-react';
 import { usePermisos } from '../contexts/PermisosContext';
 import { useToast } from '../hooks/useToast';
 import Toast from '../components/Toast';
 import TnPublishModal from '../components/tn-publisher/TnPublishModal';
 import api from '../services/api';
-import { selectTabItems } from './tiendaNubeReconcileHelpers';
+import {
+  selectTabItems,
+  computeSummaryCounts,
+  matchesSearch,
+  matchesSummaryFilter,
+} from './tiendaNubeReconcileHelpers';
 import styles from './TiendaNubeReconcile.module.css';
 import { stripHtmlToText } from '../utils/htmlText';
 
@@ -79,13 +84,16 @@ const VERDICT_LABELS = {
   OK: 'OK',
 };
 
+// One distinct colour per verdict (previously FALTA_PUBLICAR/MAL_VINCULADO/
+// POR_CORREGIR all shared the same orange, and MAL_PUBLICADO/DUPLICADO
+// shared the same red — the badge colour carried no signal).
 const VERDICT_BADGE_CLASS = {
   FALTA_VINCULAR: 'badgeInfo',
-  FALTA_PUBLICAR: 'badgeWarning',
+  FALTA_PUBLICAR: 'badgeSuccess',
   MAL_VINCULADO: 'badgeWarning',
   MAL_PUBLICADO: 'badgeDanger',
-  DUPLICADO: 'badgeDanger',
-  POR_CORREGIR: 'badgeWarning',
+  DUPLICADO: 'badgePurple',
+  POR_CORREGIR: 'badgeTeal',
   OK: 'badge',
 };
 
@@ -450,6 +458,47 @@ function Paginador({ page, totalPages, rangeStart, rangeEnd, total, onPrev, onNe
 
 const EMPTY_TABLE_DATA = [];
 
+// Summary strip cards (PR-10) — answer the operator's real question, not
+// the raw verdict taxonomy. `targetSubTab` is what a click switches the
+// verdict chips to; `filterId` is the extra predicate applied on top
+// (`matchesSummaryFilter`), since "ready"/"bloqueados" are both a SPLIT of
+// the single FALTA_PUBLICAR verdict that the existing chip set can't
+// express on its own.
+const SUMMARY_CARDS = [
+  {
+    id: 'ready',
+    label: 'Listo para publicar',
+    dot: 'summaryDotGreen',
+    hint: 'sin bloqueos',
+    targetSubTab: 'FALTA_PUBLICAR',
+    countKey: 'readyToPublish',
+  },
+  {
+    id: 'bloqueados',
+    label: 'Bloqueados',
+    dot: 'summaryDotRed',
+    hint: 'faltan medidas o cotización',
+    targetSubTab: 'FALTA_PUBLICAR',
+    countKey: 'bloqueados',
+  },
+  {
+    id: 'revision',
+    label: 'Necesitan revisión',
+    dot: 'summaryDotPurple',
+    hint: 'duplicados y mal vinculados',
+    targetSubTab: 'todos',
+    countKey: 'necesitanRevision',
+  },
+  {
+    id: 'total',
+    label: 'Total del reporte',
+    dot: 'summaryDotGrey',
+    hint: 'filas comparadas',
+    targetSubTab: 'todos',
+    countKey: 'total',
+  },
+];
+
 export default function TiendaNubeReconcile() {
   const { tienePermiso } = usePermisos();
   const puedeVer = tienePermiso('admin.ver_tn_reconciliacion');
@@ -484,6 +533,29 @@ export default function TiendaNubeReconcile() {
   // (original fetch order); `column`/`direction` otherwise. See `sortItems`.
   const [sortState, setSortState] = useState(null);
 
+  // Client-side search (PR-10) — EAN/title/TN SKU, debounced. `searchInput`
+  // is the raw controlled value; `searchQuery` is what actually filters,
+  // updated after a short debounce so every keystroke doesn't re-filter 300+
+  // rows synchronously.
+  const [searchInput, setSearchInput] = useState('');
+  const [searchQuery, setSearchQuery] = useState('');
+  const searchDebounceRef = useRef(null);
+
+  const handleSearchChange = useCallback((event) => {
+    const value = event.target.value;
+    setSearchInput(value);
+    if (searchDebounceRef.current) clearTimeout(searchDebounceRef.current);
+    searchDebounceRef.current = setTimeout(() => setSearchQuery(value), 200);
+  }, []);
+
+  useEffect(() => () => {
+    if (searchDebounceRef.current) clearTimeout(searchDebounceRef.current);
+  }, []);
+
+  // Last successful "Actualizar"/mount fetch timestamp, shown next to the
+  // header actions.
+  const [lastUpdatedAt, setLastUpdatedAt] = useState(null);
+
   // Toggle sequence: unsorted -> descending (highest stock first, the more
   // useful default for "what to publish first") -> ascending -> unsorted.
   // Changing the sort always resets to page 1 in the same event — the
@@ -499,9 +571,31 @@ export default function TiendaNubeReconcile() {
     setPage(1);
   }, []);
 
-  // Changing sub-tab always resets to page 1 in the same event.
+  // Changing sub-tab always resets to page 1 in the same event. Picking a
+  // verdict chip directly is a DIFFERENT filter dimension than the summary
+  // strip (see `summaryFilter` below) — it always clears whichever summary
+  // card was active, so the two never silently combine into an
+  // impossible/empty intersection (e.g. "Bloqueados" card + "Mal vinculado"
+  // chip, which share no rows).
   const setSubTab = useCallback((tab) => {
     setSubTabState(tab);
+    setPage(1);
+    setSummaryFilterActive(false);
+  }, []);
+
+  // Summary-strip click-to-filter (PR-10). `summaryFilter` starts as
+  // 'ready' purely for the FIRST CARD'S VISUAL highlight (per the approved
+  // design: "the first card is the active one on load") — `summaryFilterActive`
+  // stays false until the operator actually clicks a card, so the initial
+  // view is still the full, unfiltered "Todos" tab (no behavior change on
+  // mount).
+  const [summaryFilter, setSummaryFilter] = useState('ready');
+  const [summaryFilterActive, setSummaryFilterActive] = useState(false);
+
+  const selectSummaryCard = useCallback((card) => {
+    setSummaryFilter(card.id);
+    setSummaryFilterActive(true);
+    setSubTabState(card.targetSubTab);
     setPage(1);
   }, []);
 
@@ -529,6 +623,7 @@ export default function TiendaNubeReconcile() {
       setVerdictCounts(response.data?.verdict_counts || {});
       setCatalogCapHit(Boolean(response.data?.catalog_cap_hit));
       setGbpRowsCapHit(Boolean(response.data?.gbp_rows_cap_hit));
+      setLastUpdatedAt(new Date());
     } catch (err) {
       setError(err?.response?.data?.error?.message || err?.message || 'No se pudo cargar la reconciliación');
     } finally {
@@ -661,10 +756,18 @@ export default function TiendaNubeReconcile() {
 
   // Client-side filter (by sub-tab) over the ONE fetched set — the backend
   // is called once, not once per tab.
-  const currentTabItems = useMemo(
-    () => selectTabItems(subTab, reporte, baneados),
-    [reporte, baneados, subTab],
-  );
+  const currentTabItems = useMemo(() => {
+    let tabItems = selectTabItems(subTab, reporte, baneados);
+    if (subTab === 'BANLIST') return tabItems;
+    if (summaryFilterActive) tabItems = tabItems.filter((row) => matchesSummaryFilter(row, summaryFilter));
+    if (searchQuery.trim()) tabItems = tabItems.filter((row) => matchesSearch(row, searchQuery));
+    return tabItems;
+  }, [reporte, baneados, subTab, searchQuery, summaryFilterActive, summaryFilter]);
+
+  // Summary strip (PR-10) — derived from the full `reporte`, never from the
+  // active sub-tab/search, so the 4 cards always answer "across the whole
+  // report", independent of whatever the operator is currently filtering.
+  const summaryCounts = useMemo(() => computeSummaryCounts(reporte), [reporte]);
 
   // Sort applied AFTER filter, BEFORE pagination (filter -> sort ->
   // paginate), so page 1 always shows the true extreme of the sorted set.
@@ -787,6 +890,12 @@ export default function TiendaNubeReconcile() {
           </p>
         </div>
         <div className={styles.headerActions}>
+          {lastUpdatedAt && (
+            <span className={styles.updatedAt}>
+              Actualizado{' '}
+              {lastUpdatedAt.toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit' })}
+            </span>
+          )}
           {mostrarSincronizarTn && (
             <button
               type="button"
@@ -817,47 +926,83 @@ export default function TiendaNubeReconcile() {
         </div>
       )}
 
-      <div
-        className={styles.subTabBar}
-        role="tablist"
-        aria-label="Veredictos de reconciliación"
-        onKeyDown={handleTabKeyDown}
-      >
-        {VERDICT_SUB_TABS.map((tab) => (
+      <div className={styles.summaryStrip}>
+        {SUMMARY_CARDS.map((card) => (
           <button
-            key={tab.id}
-            ref={(el) => {
-              tabRefs.current[tab.id] = el;
-            }}
+            key={card.id}
             type="button"
-            role="tab"
-            id={`tn-tab-${tab.id}`}
-            aria-selected={subTab === tab.id}
-            aria-controls={TAB_PANEL_ID}
-            tabIndex={subTab === tab.id ? 0 : -1}
-            className={`${styles.subTab} ${subTab === tab.id ? styles.subTabActive : ''}`}
-            onClick={() => setSubTab(tab.id)}
+            className={`${styles.summaryCard} ${
+              summaryFilterActive && summaryFilter === card.id ? styles.summaryCardActive : ''
+            }`}
+            onClick={() => selectSummaryCard(card)}
           >
-            {tab.label} ({tab.id === 'todos' ? totalTodos : verdictCounts[tab.id] || 0})
+            <span className={styles.summaryCardLabel}>
+              <span className={`${styles.summaryDot} ${styles[card.dot]}`} aria-hidden="true" />
+              {card.label}
+            </span>
+            <span className={styles.summaryValue}>{summaryCounts[card.countKey]}</span>
+            <span className={styles.summaryHint}>{card.hint}</span>
           </button>
         ))}
-        {puedeGestionarBanlist && (
-          <button
-            ref={(el) => {
-              tabRefs.current.BANLIST = el;
-            }}
-            type="button"
-            role="tab"
-            id="tn-tab-BANLIST"
-            aria-selected={subTab === 'BANLIST'}
-            aria-controls={TAB_PANEL_ID}
-            tabIndex={subTab === 'BANLIST' ? 0 : -1}
-            className={`${styles.subTab} ${subTab === 'BANLIST' ? styles.subTabActive : ''}`}
-            onClick={() => setSubTab('BANLIST')}
-          >
-            Banlist ({baneados.length})
-          </button>
-        )}
+      </div>
+
+      <div className={styles.filterBar}>
+        <div className={styles.searchWrap}>
+          <Search size={14} className={styles.searchIcon} aria-hidden="true" />
+          <input
+            type="search"
+            className={styles.searchInput}
+            placeholder="Buscar por EAN, título o SKU de TN"
+            value={searchInput}
+            onChange={handleSearchChange}
+            aria-label="Buscar por EAN, título o SKU de TN"
+          />
+        </div>
+        <div
+          className={styles.subTabBar}
+          role="tablist"
+          aria-label="Veredictos de reconciliación"
+          onKeyDown={handleTabKeyDown}
+        >
+          {VERDICT_SUB_TABS.map((tab) => (
+            <button
+              key={tab.id}
+              ref={(el) => {
+                tabRefs.current[tab.id] = el;
+              }}
+              type="button"
+              role="tab"
+              id={`tn-tab-${tab.id}`}
+              aria-selected={subTab === tab.id}
+              aria-controls={TAB_PANEL_ID}
+              tabIndex={subTab === tab.id ? 0 : -1}
+              className={`${styles.subTab} ${subTab === tab.id ? styles.subTabActive : ''}`}
+              onClick={() => setSubTab(tab.id)}
+            >
+              {tab.label}{' '}
+              <span className={styles.subTabCount}>
+                ({tab.id === 'todos' ? totalTodos : verdictCounts[tab.id] || 0})
+              </span>
+            </button>
+          ))}
+          {puedeGestionarBanlist && (
+            <button
+              ref={(el) => {
+                tabRefs.current.BANLIST = el;
+              }}
+              type="button"
+              role="tab"
+              id="tn-tab-BANLIST"
+              aria-selected={subTab === 'BANLIST'}
+              aria-controls={TAB_PANEL_ID}
+              tabIndex={subTab === 'BANLIST' ? 0 : -1}
+              className={`${styles.subTab} ${subTab === 'BANLIST' ? styles.subTabActive : ''}`}
+              onClick={() => setSubTab('BANLIST')}
+            >
+              Banlist <span className={styles.subTabCount}>({baneados.length})</span>
+            </button>
+          )}
+        </div>
       </div>
 
       <div
@@ -884,7 +1029,10 @@ export default function TiendaNubeReconcile() {
             </div>
           )}
           {loadingBaneados ? (
-            <div>Cargando banlist...</div>
+            <div className={styles.loadingState}>
+              <Loader2 size={24} className={styles.spinner} aria-hidden="true" />
+              Cargando banlist...
+            </div>
           ) : (
             <table className="table-tesla striped">
               <thead>
@@ -936,7 +1084,10 @@ export default function TiendaNubeReconcile() {
           )}
         </div>
       ) : loading ? (
-        <div>Cargando reconciliación...</div>
+        <div className={styles.loadingState}>
+          <Loader2 size={24} className={styles.spinner} aria-hidden="true" />
+          Cargando reconciliación...
+        </div>
       ) : subTab === 'DUPLICADO' ? (
         <div>
           {filasVisibles.length === 0 ? (
