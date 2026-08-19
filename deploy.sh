@@ -237,8 +237,18 @@ Avisamos cuando arranque y nuevamente cuando esté todo arriba."
   # El anuncio manda el mensaje Y registra el deploy para que el "stop" del
   # grupo tenga algo que vetar. Si falla no se corta nada: se sigue esperando y
   # el poll de abajo va a contestar "no puedo saber", que es la verdad.
+  # OJO con la doble negacion: el helper recibe `stoppable`, no `unstoppable`.
+  # Pasar $UNSTOPPABLE directo anunciaba stoppable=false en los deploys que SI
+  # se podian frenar, y el bot rechazaba el "stop" con el mensaje de emergencia
+  # aunque el aviso acabara de invitar a frenarlo.
+  if [ "$UNSTOPPABLE" = true ]; then
+    STOPPABLE_FLAG=false
+  else
+    STOPPABLE_FLAG=true
+  fi
+
   if [ "$NOTIFY" = true ] && [ -r "$ANNOUNCE_SCRIPT" ]; then
-    bash "$ANNOUNCE_SCRIPT" "$DEPLOY_ID" "$WAIT_MINUTES" "$UNSTOPPABLE" "$ANNOUNCE_MSG" || \
+    bash "$ANNOUNCE_SCRIPT" "$DEPLOY_ID" "$WAIT_MINUTES" "$STOPPABLE_FLAG" "$ANNOUNCE_MSG" || \
       warn "No se pudo anunciar el deploy a wabot"
   else
     warn "Sin aviso por WhatsApp: nadie se entera de este deploy ni puede frenarlo"
