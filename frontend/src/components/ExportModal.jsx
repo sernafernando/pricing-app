@@ -3,6 +3,7 @@ import { X } from 'lucide-react';
 import api from '../services/api';
 import { toLocalTimestamp } from '../utils/dateUtils';
 import styles from './ExportModal.module.css';
+import FiltrosNoAplicablesAviso from './FiltrosNoAplicablesAviso';
 import { usePermisos } from '../contexts/PermisosContext';
 
 /**
@@ -88,8 +89,17 @@ const buildFilterQueryString = (filtrosActivos) => {
  * Display de filtros activos — definido fuera del componente
  * para evitar re-creación en cada render (rompe reconciliación React).
  */
+// ponytail: este modal deja caer filtros que el listado SÍ aplica (con_pxq y
+// promo_tipos/promo_estado llegan en `filtrosActivos` y nadie los lee, y el
+// backend masivo tampoco los acepta), así que la operación corre sobre un
+// conjunto MÁS AMPLIO que el de la pantalla. Mitigado con
+// FiltrosNoAplicablesAviso, que se lo dice al usuario. Revisar cuando el
+// backend de export/cálculo masivo acepte el mismo set de filtros que
+// /productos (incluye decidir qué hace un fold cross-DB si mlwebhook cae en
+// mitad de una escritura de precios). Ver docs/tech-debt-ledger.md.
 const FiltrosActivosDisplay = ({ filtrosActivos }) => (
   <div className={styles.filtrosActivos}>
+    <FiltrosNoAplicablesAviso filtrosActivos={filtrosActivos} />
     {filtrosActivos?.search && <div>• Búsqueda: &quot;{filtrosActivos.search}&quot;</div>}
     {filtrosActivos?.con_stock === true && <div>• Con stock</div>}
     {filtrosActivos?.con_stock === false && <div>• Sin stock</div>}
