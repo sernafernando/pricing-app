@@ -70,18 +70,20 @@ from app.core.database import get_async_db, get_db
 from app.models.producto import ProductoERP, ProductoPricing
 from app.models.tienda_nube_producto import TiendaNubeProducto
 from app.models.tn_category_embedding import TnCategoryEmbedding
+from app.models.tn_category_profile_hint import TnCategoryProfileHint
 from app.models.tn_publish_override import TnPublishOverride
 from app.models.tn_reconcile_banlist import TnReconcileBanlist
 from app.models.usuario import Usuario
 from app.services.permisos_service import verificar_permiso
 from app.services.tn_category_embedding_service import suggest_category, sync_category_embeddings
+from app.services.tn_publish_core import OVERRIDABLE_FIELDS, latest_usd_rate_with_date
 from app.services.tn_publish_service import publish_product, unpublish_product
-from app.services.tn_publish_core import OVERRIDABLE_FIELDS, latest_usd_rate
 from app.services.tn_reconciliation_service import (
     PUBLISH_CANDIDATE_VERDICTS,
     ErpPriceInfo,
     GBPFetchError,
     _as_optional_int,
+    _select_hint_profile_id,
     build_publish_draft,
     build_publish_fields,
     compute_verdicts,
@@ -346,16 +348,27 @@ class ReconcileRowResponse(BaseModel):
 
 
 def _safe_publish_draft(
-    row: Any, overrides_by_ean: Dict[str, Dict[str, str]], usd_rate: Optional[float]
+    row: Any,
+    overrides_by_ean: Dict[str, Dict[str, str]],
+    usd_rate: Optional[float],
+    usd_rate_date: Optional[Any] = None,
+    suggested_profile_id: Optional[int] = None,
 ) -> Optional[PublishDraftResponse]:
     """Per-row containment for `build_publish_draft` (task 5.19): a draft
     assembly failure (e.g. an unexpected exception from the resolver) must
     degrade to `None` for THIS row only, never 500 the whole `/reporte`
     response — same pattern `build_publish_fields`'s caller already relies
     on for `publish_fields_error`. Takes no DB session: everything row-rate
-    related (`usd_rate`, overrides) was bulk-loaded once by the caller."""
+    related (`usd_rate`, overrides, `suggested_profile_id`) was bulk-loaded
+    once by the caller."""
     try:
-        draft = build_publish_draft(row, overrides_by_ean.get(row.ean, {}), usd_rate)
+        draft = build_publish_draft(
+            row,
+            overrides_by_ean.get(row.ean, {}),
+            usd_rate,
+            usd_rate_date=usd_rate_date,
+            suggested_profile_id=suggested_profile_id,
+        )
     except Exception:
         logger.exception("publish_draft assembly failed for ean=%s — omitting draft for this row only", row.ean)
         return None
@@ -481,9 +494,20 @@ class PublicarRequest(BaseModel):
     # Persisted into `tn_publish_override` ONLY on a `submitted` outcome.
     # Defaults to `{}` — the current modal sends nothing here yet (PR-7).
     overrides: Dict[str, str] = {}
+    # The COMPLETE resolved measurement set the modal was showing — what to
+    # PUBLISH. Distinct from `overrides`, which is dirty-only (what the
+    # operator edited, and therefore what may be persisted). Reading the D3
+    # gate off `overrides` would fail-close every publish where nothing was
+    # edited, i.e. the happy path.
+    measurements: Dict[str, str] = {}
+    # GBP's own currency for this row's cost — a report fact, not an operator
+    # input. The backend needs it to decide whether a missing `TipoCambio`
+    # must block the publish (D6/PC8); the RATE itself is always read
+    # server-side, never trusted from the client.
+    moneda_costo: Optional[str] = None
     profile_id: Optional[int] = None
 
-    @field_validator("overrides")
+    @field_validator("overrides", "measurements")
     @classmethod
     def _overrides_keys_must_be_known(cls, value: Dict[str, str]) -> Dict[str, str]:
         unknown = sorted(set(value) - set(OVERRIDABLE_FIELDS))
@@ -605,17 +629,51 @@ async def get_reconciliation_report(
                 overrides_by_ean.setdefault(override_row.ean, {})[override_row.campo] = override_row.valor
         # Decision 3: the USD exchange rate is resolved ONCE per report
         # (1-2 `TipoCambio` queries total) and handed to every draft as a
-        # value — ~99% of report rows are USD-costed, so a per-row lookup
-        # would multiply into hundreds of queries per `/reporte` on this
-        # checked-out pooled connection (see the pool-exhaustion history in
-        # this module's docstring).
-        usd_rate = latest_usd_rate(db) if candidate_rows else None
+        # value+date pair (PR-7 gap fix, task B) — ~99% of report rows are
+        # USD-costed, so a per-row lookup would multiply into hundreds of
+        # queries per `/reporte` on this checked-out pooled connection (see
+        # the pool-exhaustion history in this module's docstring).
+        usd_rate_with_date = latest_usd_rate_with_date(db) if candidate_rows else None
+        usd_rate = usd_rate_with_date[0] if usd_rate_with_date is not None else None
+        usd_rate_date = usd_rate_with_date[1] if usd_rate_with_date is not None else None
+        # Decision 3 (PR-7 gap fix, task C): the D11 category-profile hints
+        # are bulk-loaded ONCE (`WHERE categoria IN (...)`), never one
+        # `TnCategoryProfileHint` query per row — mirrors the overrides/
+        # usd_rate bulk pattern above. Ordered so the FIRST row seen per
+        # `(categoria, subcategoria)` key is the highest-`uso_count` winner
+        # (ties broken by lowest id), exactly like `sugerir_perfil`'s query.
+        candidate_categorias = {v.gbp_row.get("Categoría") for v in candidate_rows if v.gbp_row.get("Categoría")}
+        hints_by_key: Dict[Any, int] = {}
+        if candidate_categorias:
+            hint_rows = (
+                db.query(TnCategoryProfileHint)
+                .filter(TnCategoryProfileHint.categoria.in_(candidate_categorias))
+                .order_by(
+                    TnCategoryProfileHint.categoria,
+                    TnCategoryProfileHint.subcategoria,
+                    TnCategoryProfileHint.uso_count.desc(),
+                    TnCategoryProfileHint.id,
+                )
+                .all()
+            )
+            for hint in hint_rows:
+                key = (hint.categoria, hint.subcategoria)
+                hints_by_key.setdefault(key, hint.profile_id)
         # Decision 3: drafts are also built HERE, inside the same
         # threadpool call as the bulk queries above — never on the event
         # loop thread, matching this module's existing pool-safety pattern
         # for `/reporte`.
         drafts_by_ean: Dict[str, Optional[PublishDraftResponse]] = {
-            v.ean: _safe_publish_draft(v, overrides_by_ean, usd_rate) for v in candidate_rows
+            v.ean: _safe_publish_draft(
+                v,
+                overrides_by_ean,
+                usd_rate,
+                usd_rate_date=usd_rate_date,
+                suggested_profile_id=_select_hint_profile_id(
+                    hints_by_key, v.gbp_row.get("Categoría"), v.gbp_row.get("SubCategoría")
+                ),
+            )
+            for v in candidate_rows
         }
         return verdicts, cap_hit, erp_cap_hit, drafts_by_ean
 
@@ -805,8 +863,10 @@ def publicar_producto(
         offset_percent=request.offset_percent,
         price_base_source=request.price_base_source,
         overrides=request.overrides,
+        measurements=request.measurements,
+        moneda_costo=request.moneda_costo,
     )
-    if outcome["status"] == "rejected_invalid_price":
+    if outcome["status"] in ("rejected_invalid_price", "blocked_measurements", "blocked_cost"):
         raise HTTPException(status_code=400, detail=outcome.get("detail"))
     return PublicarResponse(
         submitted=outcome["submitted"],

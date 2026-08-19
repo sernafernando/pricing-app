@@ -84,6 +84,58 @@ def crear_perfil(request: MeasurementProfileRequest, db: Session = Depends(get_d
     return perfil
 
 
+@router.get(
+    "/tn-measurement-profiles/suggestion",
+    response_model=ProfileSuggestionResponse,
+    dependencies=[Depends(get_current_user)],
+)
+def sugerir_perfil(categoria: str, subcategoria: Optional[str] = None, db: Session = Depends(get_db)):
+    """Category-based suggestion (MP3). Lookup order: exact
+    `(categoria, subcategoria)` → highest `uso_count`, else `(categoria, NULL)`
+    → highest `uso_count`, else no suggestion (empty result, not an error) —
+    cold start for a never-used category returns `profile_id: null`.
+
+    Registration order note (PR-7 D task): this route MUST stay registered
+    BEFORE the `PUT/DELETE /tn-measurement-profiles/{profile_id}` routes
+    below. There is no `GET /{profile_id}` today, so the bug is currently
+    latent — but FastAPI matches routes in registration order, and the day a
+    `GET /{profile_id}` is added, `"suggestion"` would parse as `int` against
+    that route first and 422. See `TestSuggestionRouteRegisteredBeforeProfileId`.
+    """
+    # Same guard as the bulk path's `_select_hint_profile_id`: both docstrings
+    # claim an identical lookup order, so they must not diverge on a blank
+    # `categoria=` (which would otherwise run a real lookup against "").
+    if not categoria.strip():
+        return ProfileSuggestionResponse(profile_id=None)
+
+    if subcategoria:
+        hint = (
+            db.query(TnCategoryProfileHint)
+            .filter(
+                TnCategoryProfileHint.categoria == categoria,
+                TnCategoryProfileHint.subcategoria == subcategoria,
+            )
+            .order_by(TnCategoryProfileHint.uso_count.desc(), TnCategoryProfileHint.id)
+            .first()
+        )
+        if hint:
+            return ProfileSuggestionResponse(profile_id=hint.profile_id)
+
+    hint = (
+        db.query(TnCategoryProfileHint)
+        .filter(
+            TnCategoryProfileHint.categoria == categoria,
+            TnCategoryProfileHint.subcategoria.is_(None),
+        )
+        .order_by(TnCategoryProfileHint.uso_count.desc(), TnCategoryProfileHint.id)
+        .first()
+    )
+    if hint:
+        return ProfileSuggestionResponse(profile_id=hint.profile_id)
+
+    return ProfileSuggestionResponse(profile_id=None)
+
+
 @router.put(
     "/tn-measurement-profiles/{profile_id}",
     response_model=MeasurementProfileResponse,
@@ -117,42 +169,3 @@ def eliminar_perfil(profile_id: int, db: Session = Depends(get_db)) -> DeletePro
     db.delete(perfil)
     db.commit()
     return DeleteProfileResponse(message="Perfil de medidas eliminado", profile_id=profile_id)
-
-
-@router.get(
-    "/tn-measurement-profiles/suggestion",
-    response_model=ProfileSuggestionResponse,
-    dependencies=[Depends(get_current_user)],
-)
-def sugerir_perfil(categoria: str, subcategoria: Optional[str] = None, db: Session = Depends(get_db)):
-    """Category-based suggestion (MP3). Lookup order: exact
-    `(categoria, subcategoria)` → highest `uso_count`, else `(categoria, NULL)`
-    → highest `uso_count`, else no suggestion (empty result, not an error) —
-    cold start for a never-used category returns `profile_id: null`.
-    """
-    if subcategoria:
-        hint = (
-            db.query(TnCategoryProfileHint)
-            .filter(
-                TnCategoryProfileHint.categoria == categoria,
-                TnCategoryProfileHint.subcategoria == subcategoria,
-            )
-            .order_by(TnCategoryProfileHint.uso_count.desc(), TnCategoryProfileHint.id)
-            .first()
-        )
-        if hint:
-            return ProfileSuggestionResponse(profile_id=hint.profile_id)
-
-    hint = (
-        db.query(TnCategoryProfileHint)
-        .filter(
-            TnCategoryProfileHint.categoria == categoria,
-            TnCategoryProfileHint.subcategoria.is_(None),
-        )
-        .order_by(TnCategoryProfileHint.uso_count.desc(), TnCategoryProfileHint.id)
-        .first()
-    )
-    if hint:
-        return ProfileSuggestionResponse(profile_id=hint.profile_id)
-
-    return ProfileSuggestionResponse(profile_id=None)

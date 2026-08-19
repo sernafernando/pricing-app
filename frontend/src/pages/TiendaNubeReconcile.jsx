@@ -51,6 +51,7 @@ import TnPublishModal from '../components/tn-publisher/TnPublishModal';
 import api from '../services/api';
 import { selectTabItems } from './tiendaNubeReconcileHelpers';
 import styles from './TiendaNubeReconcile.module.css';
+import { stripHtmlToText } from '../utils/htmlText';
 
 export const COLUMN_SIZING_STORAGE_KEY = 'tnreconcile:colsizing:reporte';
 
@@ -195,19 +196,6 @@ const STOCK_UNKNOWN_LABEL = '—';
 
 function StockCell({ row }) {
   return row.stock === null || row.stock === undefined ? STOCK_UNKNOWN_LABEL : String(row.stock);
-}
-
-// `ml_desc` arrives as ML HTML — for the LIST we only ever show plain text
-// (the full rich description belongs to the publish modal). DOMParser does
-// not execute scripts, so this is a safe text extraction, not a sanitizer.
-function stripHtmlToText(html) {
-  if (!html) return '';
-  try {
-    const doc = new DOMParser().parseFromString(html, 'text/html');
-    return (doc.body.textContent || '').replace(/\s+/g, ' ').trim();
-  } catch {
-    return '';
-  }
 }
 
 const DESC_SNIPPET_LENGTH = 140;

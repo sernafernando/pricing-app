@@ -18,6 +18,7 @@ Two layers, mirroring `test_migration_tn_publicacion_permiso.py` and
 
 from __future__ import annotations
 
+import ast
 import importlib.util
 import inspect
 import os
@@ -42,6 +43,25 @@ def _load_migration():
     mod = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(mod)
     return mod
+
+
+def _extract_bulk_insert_rows(upgrade_src: str) -> list[dict]:
+    """Parses `upgrade()`'s source and literal_eval's the `op.bulk_insert(
+    profile_table, [...])` call's row list — so the assertions below check
+    what the migration ACTUALLY seeds, not a hand-copied literal that could
+    silently drift from the real migration (pre-push review finding: a
+    fabricated `seed_rows` list disconnected from the source would still
+    pass even if the real migration's seed data broke)."""
+    tree = ast.parse(upgrade_src)
+    for node in ast.walk(tree):
+        if (
+            isinstance(node, ast.Call)
+            and isinstance(node.func, ast.Attribute)
+            and node.func.attr == "bulk_insert"
+            and len(node.args) >= 2
+        ):
+            return ast.literal_eval(node.args[1])
+    raise AssertionError("No op.bulk_insert(...) call found in upgrade() source")
 
 
 class TestMigrationGraph:
@@ -76,16 +96,12 @@ class TestMigrationSchema:
         for cluster in expected_clusters:
             assert cluster in src
 
-        # Actually execute the bulk_insert payload construction to assert
-        # each seed row has all four measurement fields populated (not just
-        # that the literals appear in source).
-        seed_rows = [
-            {"name": "30x20x20", "weight": 0.3, "width": 30, "height": 20, "depth": 20},
-            {"name": "30x40x10", "weight": 0.4, "width": 30, "height": 40, "depth": 10},
-            {"name": "50x40x20", "weight": 0.6, "width": 50, "height": 40, "depth": 20},
-            {"name": "45x55x25", "weight": 0.8, "width": 45, "height": 55, "depth": 25},
-        ]
+        # Parsed straight out of the migration's actual `op.bulk_insert(...)`
+        # call (see `_extract_bulk_insert_rows`) — NOT a hand-copied literal,
+        # so this fails if the real seed data ever breaks.
+        seed_rows = _extract_bulk_insert_rows(src)
         assert len(seed_rows) == 4
+        assert {row["name"] for row in seed_rows} == set(expected_clusters)
         for row in seed_rows:
             for field in ("weight", "width", "height", "depth"):
                 assert row[field] is not None

@@ -4,6 +4,13 @@
   margin-bottom: var(--spacing-lg);
 }
 
+/* Sub-block inside a .section — smaller rhythm, so nesting .section
+   inside .section (which would stack the full spacing token twice) is
+   never needed. */
+.subSection {
+  margin-bottom: var(--spacing-md);
+}
+
 .sectionTitle {
   display: block;
   font-size: 0.9rem;

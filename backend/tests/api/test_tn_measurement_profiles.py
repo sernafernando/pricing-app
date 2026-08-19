@@ -264,3 +264,24 @@ class TestProfileSuggestion:
         )
         assert resp.status_code == 200
         assert resp.json()["profile_id"] is None
+
+
+class TestSuggestionRouteRegisteredBeforeProfileId:
+    """PR-7 task D — route ordering bomb. There is no `GET /{profile_id}`
+    today, so `GET /suggestion` happens to work regardless of registration
+    order; but FastAPI matches routes in REGISTRATION order, and the day a
+    `GET /{profile_id}` is added, a `/suggestion` request registered AFTER
+    it would parse `"suggestion"` as `int` against `{profile_id}` first and
+    422. Pinning the registration order itself — not just the current
+    200 — is what actually prevents that regression."""
+
+    def test_suggestion_route_index_precedes_every_profile_id_route(self):
+        from app.api.endpoints.tn_measurement_profiles import router
+
+        route_paths = [route.path for route in router.routes]
+        suggestion_index = route_paths.index("/tn-measurement-profiles/suggestion")
+        profile_id_indexes = [
+            i for i, path in enumerate(route_paths) if path == "/tn-measurement-profiles/{profile_id}"
+        ]
+        assert profile_id_indexes, "expected PUT/DELETE /{profile_id} routes to exist"
+        assert all(suggestion_index < i for i in profile_id_indexes)

@@ -50,8 +50,11 @@ from app.services.tienda_nube_product_client import (
     TnProductLookupError,
     is_publicly_reachable_url,
 )
+from app.services.tn_publish_core.assemble import assemble_payload
 from app.services.tn_publish_core.batch import execute_batch
-from app.services.tn_publish_core.validate import OVERRIDABLE_FIELDS
+from app.services.tn_publish_core.resolve import latest_usd_rate
+from app.services.tn_publish_core.resolve import Resolved
+from app.services.tn_publish_core.validate import MEASUREMENT_FIELDS, OVERRIDABLE_FIELDS, validate_measurements
 from app.utils.async_bridge import resolve_maybe_async as _resolve
 
 logger = logging.getLogger(__name__)
@@ -129,6 +132,45 @@ def _validate_publish_price(product_data: Dict[str, Any]) -> Decimal:
     if price <= 0:
         raise InvalidPublishPriceError(f"Precio de publicación inválido (debe ser mayor a cero): {raw!r}")
     return price
+
+
+def _resolved_measurements(measurements: Optional[Dict[str, str]]) -> Dict[str, Resolved]:
+    """Builds the `Dict[str, Resolved]` the D3 gate (`validate_measurements`)
+    and `assemble_payload` both need, from the request's `measurements` —
+    the COMPLETE set of values the modal was showing, whatever their source
+    (GBP, profile, stored override, or a fresh operator edit).
+
+    `measurements` is deliberately NOT `overrides`. They answer two
+    different questions and must never be conflated:
+      - `measurements` = what to PUBLISH (all four, always).
+      - `overrides`    = what the operator EDITED in-session and therefore
+                         what may be persisted (PC5/D8, dirty-only —
+                         persisting an untouched GBP value would freeze it
+                         behind the `override > gbp` precedence forever).
+    Reading the gate off `overrides` made the happy path (nothing edited,
+    so no overrides) fail closed on every normal publish.
+
+    Not a server-side GBP re-resolution: that needs design Decision 2's
+    TTL-cached report, explicitly deferred past this PR (see
+    `publish_product`'s docstring). `source="operator"` here means
+    "supplied by this request", not literally hand-typed.
+
+    A missing/unparseable value resolves `Resolved(None, "empty")` — the
+    same "no value" `validate_measurements` already treats every other
+    absence as; it is never defaulted to 0 or dropped silently.
+    """
+    overrides = measurements or {}
+    resolved: Dict[str, Resolved] = {}
+    for field_name in MEASUREMENT_FIELDS:
+        raw = overrides.get(field_name)
+        if raw is None:
+            resolved[field_name] = Resolved(None, "empty")
+            continue
+        try:
+            resolved[field_name] = Resolved(float(raw), "operator")
+        except (TypeError, ValueError):
+            resolved[field_name] = Resolved(None, "empty")
+    return resolved
 
 
 def sanitize_description_html(html: str) -> str:
@@ -472,6 +514,8 @@ def publish_product(
     offset_percent: Optional[float] = None,
     price_base_source: Optional[str] = None,
     overrides: Optional[Dict[str, str]] = None,
+    measurements: Optional[Dict[str, str]] = None,
+    moneda_costo: Optional[str] = None,
 ) -> Dict[str, Any]:
     """Creates a single TN product from GBP-derived data (Slice 3a).
 
@@ -541,6 +585,18 @@ def publish_product(
     `offset_percent`/`price_base_source` are recorded on the audit row
     alongside the submitted price for after-the-fact traceability (R2.5) —
     they play no role in this validation.
+
+    D3 measurement gate (PR-7 gap fix, task A): `measurements` MUST resolve all
+    four of `weight`/`width`/`depth`/`height` (via
+    `_resolved_measurements`) or the publish is rejected with
+    `status="blocked_measurements"`, BEFORE any local-mirror query or TN
+    call — the same fail-closed placement as the price guard above. This
+    reads the operator's already-resolved draft state from the REQUEST, not
+    a fresh server-side GBP re-resolution: full server-side re-resolution
+    (recomputing from the live report rather than trusting the client's
+    `overrides`) needs design Decision 2's TTL-cached report, which PR-5b
+    explicitly deferred and which remains a documented follow-up, not done
+    in this PR.
     """
     try:
         price = _validate_publish_price(product_data)
@@ -553,6 +609,41 @@ def publish_product(
         _audit_publish(db, usuario, None, outcome)
         return outcome
     submitted_price = str(price)
+
+    # D3 measurement gate (PR-7 gap fix, task A): fail-closed, BEFORE any
+    # local-mirror query or TN call — a blocked measurement must never reach
+    # a write, exactly like the price guard above. `resolved_fields` is
+    # built from the REQUEST's `overrides` only (see
+    # `_resolved_measurements_from_overrides`'s docstring for the scope
+    # decision behind that).
+    resolved_fields = _resolved_measurements(measurements)
+    measurement_validation = validate_measurements(resolved_fields)
+    if measurement_validation.blocked:
+        outcome = {
+            "submitted": False,
+            "status": "blocked_measurements",
+            "detail": "; ".join(measurement_validation.blocked_reasons),
+            "blocked_reasons": measurement_validation.blocked_reasons,
+        }
+        _audit_publish(db, usuario, None, outcome)
+        return outcome
+
+    # D6/PC8 cost gate, fail-closed like the measurement gate above. The
+    # draft already refuses to resolve a USD cost with no `TipoCambio` row,
+    # but that block was decorative until here: nothing stopped the publish
+    # itself, so the item shipped with a null/unconverted cost and nothing
+    # named the missing rate. The currency comes from the request because it
+    # is a GBP fact, never an operator input; the RATE — the part that
+    # decides — is read from the DB right here, server-side.
+    if (moneda_costo or "").strip().upper() == "USD" and latest_usd_rate(db) is None:
+        outcome = {
+            "submitted": False,
+            "status": "blocked_cost",
+            "detail": "Falta tipo de cambio para convertir el costo (USD). No se publica un costo sin convertir.",
+            "blocked_reasons": ["Falta tipo de cambio para convertir el costo (USD)"],
+        }
+        _audit_publish(db, usuario, None, outcome)
+        return outcome
 
     existing = db.query(TiendaNubeProducto).filter(TiendaNubeProducto.variant_sku == ean).first()
     if existing is not None:
@@ -599,43 +690,58 @@ def publish_product(
         _audit_publish(db, usuario, live_product_id, outcome)
         return outcome
 
-    # Bugfix (out-of-band, post-Slice-3a): the price MUST live on the
-    # variant, not the product root — this repo's own TN READ path
-    # (`tienda_nube_sync_shared.py`) only ever reads `variant["price"]`, so a
-    # root-level `price` may simply be ignored by TN on create. Worse, a
-    # product created with no `sku` at all breaks this module's entire
-    # write-safety design: both the idempotency pre-check above
-    # (`get_product_by_sku`) and the ambiguous-outcome read-back below
-    # depend on TN being able to find the product by SKU. Built here
-    # (server-side) rather than trusted from the caller, because `ean` is
-    # authoritative at this point (already used for the pre-check) and this
-    # keeps a single variant shape regardless of what `product_data` looked
-    # like historically.
+    # PR-7 gap fix (task A): `assemble_payload` is now the ONLY place this
+    # module builds the TN create body — no more hand-rolled dict. This
+    # closes the real production gap `assemble_payload`'s own docstring
+    # warned about (measurements never reaching TN, stock landing at the
+    # product root where TN silently ignores it, barcode/cost/
+    # promotional_price landing at product root instead of on the variant).
     #
-    # We have not verified against the live TN API that a root-level
-    # `price` is ignored or that `variants: [{sku, price}]` is accepted on
-    # create — this aligns the create payload with the shape TN
-    # demonstrably RETURNS on read, and with what the idempotency/read-back
-    # calls in this module already depend on.
-    #
-    # `sku`/`price` are MERGED into an incoming variant rather than replacing
-    # it: a caller that starts sending stock/weight/dimensions on the variant
-    # would otherwise have them silently discarded here. This function still
-    # owns `sku` and `price` — those two it overwrites deliberately, since the
-    # EAN and the validated price are authoritative at this point.
-    payload = dict(product_data)
-    payload.pop("price", None)
-    incoming_variants = payload.get("variants")
-    base_variant = dict(incoming_variants[0]) if isinstance(incoming_variants, list) and incoming_variants else {}
-    base_variant["sku"] = ean
-    base_variant["price"] = submitted_price
-    payload["variants"] = [base_variant]
-    payload["categories"] = [category_id]
+    # `sku`/`price` are still owned by THIS function, not `product_data`:
+    # both the idempotency pre-check above (`get_product_by_sku`) and the
+    # ambiguous-outcome read-back below depend on TN being able to find the
+    # product by SKU, and the validated price is authoritative at this
+    # point — `ean`/`submitted_price` always win over anything the caller
+    # may have sent under those keys.
+    name_data = product_data.get("name")
+    name_es = name_data.get("es", "") if isinstance(name_data, dict) else ""
+    raw_stock = product_data.get("stock")
+    # `bool` is an `int` subclass in Python — exclude it explicitly so a
+    # stray `True`/`False` never becomes `stock=1`/`stock=0`. Anything else
+    # non-numeric (missing, `None`, a string) resolves to `None`, which
+    # `assemble_payload` then OMITS from the payload entirely rather than
+    # fabricating a number the operator never provided (see that module's
+    # docstring on `stock=None`).
+    stock: Optional[int]
+    if isinstance(raw_stock, bool):
+        stock = None
+    elif isinstance(raw_stock, (int, float)):
+        stock = int(raw_stock)
+    else:
+        stock = None
     # Server-side defense-in-depth (security review follow-up to sub-slice
     # 3a): sanitize BEFORE this ever reaches the TN payload, unconditionally
     # — see `sanitize_description_html`'s docstring for why this does not
     # wait on / depend on Slice 3c's frontend DOMPurify pass.
-    payload["description"] = {"es": sanitize_description_html(description_html)}
+    payload = assemble_payload(
+        resolved_fields,
+        name_es=name_es,
+        price=submitted_price,
+        stock=stock,
+        category_id=category_id,
+        visibility=product_data.get("visibility") or "visible",
+        free_shipping=bool(product_data.get("free_shipping") or False),
+        seo_title=product_data.get("seo_title") or None,
+        seo_description=product_data.get("seo_description") or None,
+        tags=product_data.get("tags") or None,
+        description_html=sanitize_description_html(description_html),
+        sku=ean,
+        barcode=product_data.get("barcode") or None,
+        cost=product_data.get("cost"),
+        promotional_price=(
+            str(product_data["promotional_price"]) if product_data.get("promotional_price") is not None else None
+        ),
+    )
 
     def _attach_images(product_id: Any) -> List[str]:
         reachable_srcs = [src for src in image_srcs if is_publicly_reachable_url(src)]

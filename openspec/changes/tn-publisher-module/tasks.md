@@ -324,42 +324,42 @@ prompt's routing of D12 to this PR).
 **Spec IDs**: UI1 (every field has a control, D2), UI2 (stored overrides pre-fill, D8), UI3 (profile
 selector + suggestion, D5/D11), UI4 (blocked-publication state, D3).
 
-- [ ] 7.1 RED: **D2 audit test** — for the full field set (product: `name`, `description`,
+- [x] 7.1 RED: **D2 audit test** — for the full field set (product: `name`, `description`,
       `categories`, `images`, `brand`, `visibility`, `free_shipping`, `seo_title`, `seo_description`,
       `tags`; variant: `price`, `promotional_price`, `sku`, `barcode`, `cost`, `weight`, `width`,
       `height`, `depth`, `inventory_levels[].stock`), assert every key in `draft.fields` renders a
       control (UI1). This should be a loop over `Object.keys`, not 20 hand-written assertions.
-- [ ] 7.2 GREEN: add the missing controls (brand, barcode, cost, weight, width, height, depth, stock,
+- [x] 7.2 GREEN: add the missing controls (brand, barcode, cost, weight, width, height, depth, stock,
       promotional_price, seo_title, seo_description, tags, free_shipping) to the section components.
-- [ ] 7.3 RED: test `seo_title` and `seo_description` block further input / show a validation error
+- [x] 7.3 RED: test `seo_title` and `seo_description` block further input / show a validation error
       past 70/320 chars (UI1).
-- [ ] 7.4 GREEN: enforce the length limits in the controls.
-- [ ] 7.5 RED: test reopening an item with a stored `weight` override shows the stored value, editable
+- [x] 7.4 GREEN: enforce the length limits in the controls.
+- [x] 7.5 RED: test reopening an item with a stored `weight` override shows the stored value, editable
       (UI2, D8).
-- [ ] 7.6 **D11**: RED — test the profile selector shows the suggested profile preselected, but
+- [x] 7.6 **D11**: RED — test the profile selector shows the suggested profile preselected, but
       `weight`/`width`/`height`/`depth` remain at their prior source (empty, GBP, or override) until
       the operator clicks an explicit "Apply profile" confirm action.
-- [ ] 7.7 GREEN: implement the confirm action; only on confirm do the four measurement fields adopt
+- [x] 7.7 GREEN: implement the confirm action; only on confirm do the four measurement fields adopt
       the profile's values (still editable after).
-- [ ] 7.8 RED: test the operator can still pick a different profile or clear the selection at any time
+- [x] 7.8 RED: test the operator can still pick a different profile or clear the selection at any time
       (UI3).
-- [ ] 7.9 **D12**: RED — test `seo_title` seeds from the resolved `name` truncated to 70 chars,
+- [x] 7.9 **D12**: RED — test `seo_title` seeds from the resolved `name` truncated to 70 chars,
       `seo_description` seeds from the HTML-stripped description truncated to 320 chars, `tags` seeds
       as `[Marca, Categoría]`, all three with `source = "empty"` (seeded, not GBP-sourced) and fully
       editable. Mark this test/PR description with a note: **`tags` derivation is an orchestrator
       assumption pending maintainer confirmation** (D12) — if the maintainer changes the rule, only
       this seeding function needs to change, nothing downstream.
-- [ ] 7.10 GREEN: implement the seeding function, called once when the draft envelope loads, never
+- [x] 7.10 GREEN: implement the seeding function, called once when the draft envelope loads, never
       re-applied over an operator edit.
-- [ ] 7.11 RED: test the publish button is disabled and the missing measurement fields are named, with
+- [x] 7.11 RED: test the publish button is disabled and the missing measurement fields are named, with
       a path to resolve (pick a profile or type values), when the item has no resolvable weight or
       dimensions (UI4, D3).
-- [ ] 7.12 GREEN: implement the blocked-publication banner in `MeasurementSection.jsx`.
-- [ ] 7.13 **D13**: RED — test a row carrying `publish_fields_error` (PR-3, schema/extraction break)
+- [x] 7.12 GREEN: implement the blocked-publication banner in `MeasurementSection.jsx`.
+- [x] 7.13 **D13**: RED — test a row carrying `publish_fields_error` (PR-3, schema/extraction break)
       renders visually distinct from a row with genuinely absent measurements, and its blocked-publish
       banner reads "schema/extraction error — contact an administrator", NOT "load the measurements"
       (which stays the copy for the genuinely-absent case). GREEN: implement the distinct treatment.
-- [ ] 7.14 Regression: full `TnPublishModal.test.jsx` + `TiendaNubeReconcile.test.jsx` suite green;
+- [x] 7.14 Regression: full `TnPublishModal.test.jsx` + `TiendaNubeReconcile.test.jsx` suite green;
       new tests live under `tn-publisher/` per design's file table.
 
 **Estimated lines**: ~740 (was ~700; +D11 confirm flow, +D12 seeding). **Budget verdict**: under 800

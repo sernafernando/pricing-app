@@ -1,15 +1,78 @@
 /**
  * usePublishSubmit — the `POST /publicar` submit, in-flight guard and error
- * surface, moved verbatim out of the pre-decomposition `TnPublishModal.jsx`.
+ * surface. PR-7 additive: `draftFields` (brand/barcode/cost/stock/
+ * promotional_price/visibility/free_shipping/seo fields/tags/sku/
+ * measurements) ride in `product_data`; ONLY weight/width/height/depth go through the
+ * dedicated `overrides` key — the server 422s any other override key
+ * against `OVERRIDABLE_FIELDS` (design D5/D11).
  */
 import { useState, useCallback } from 'react';
 import { sanitizeHtml } from '../../../utils/sanitizeHtml';
 import api from '../../../services/api';
+import { MEASUREMENT_FIELDS } from './useDraftFields';
 
 // Headings the toolbar can produce — must survive the frontend sanitize pass
 // (the backend's nh3 allowlist already permits h1–h6, so nothing is lost
 // server-side either).
 const DESCRIPTION_EXTRA_TAGS = ['h1', 'h2', 'h3'];
+
+/**
+ * Numeric wire values: TN takes numbers, not the strings the controls edit.
+ * `''` (operator left it blank) is a genuine absence -> null; `'0'` is a
+ * legitimate value and must survive (D1/PC9: zero stock is publishable).
+ * Same boundary-coercion rule as `buildOverrides`, which had the mirror bug.
+ */
+function numOrNull(raw) {
+  if (raw === '' || raw == null) return null;
+  const n = Number(raw);
+  return Number.isNaN(n) ? null : n;
+}
+
+function splitTags(raw) {
+  return (raw || '')
+    .split(',')
+    .map((t) => t.trim())
+    .filter(Boolean);
+}
+
+/**
+ * PC5/D8: ONLY fields the operator actually edited in-session. Sending every
+ * measurement would freeze GBP-sourced values as permanent overrides —
+ * precedence is `override > gbp`, so a later ERP correction would stay
+ * hidden behind a value nobody ever typed.
+ */
+/**
+ * The COMPLETE resolved measurement set — what to PUBLISH. The backend's D3
+ * gate and `assemble_payload` both read THIS, never `overrides`: a normal
+ * publish edits nothing, so gating on the dirty-only set would reject every
+ * happy-path item.
+ */
+function buildMeasurements(draftFields) {
+  const measurements = {};
+  MEASUREMENT_FIELDS.forEach((field) => {
+    const raw = draftFields[field];
+    if (raw !== '' && raw != null && !Number.isNaN(Number(raw))) {
+      measurements[field] = String(Number(raw));
+    }
+  });
+  return measurements;
+}
+
+function buildOverrides(draftFields) {
+  const overrides = {};
+  const dirty = draftFields.dirtyMeasurements || [];
+  MEASUREMENT_FIELDS.filter((field) => dirty.includes(field)).forEach((field) => {
+    const raw = draftFields[field];
+    if (raw !== '' && raw != null && !Number.isNaN(Number(raw))) {
+      // String, never Number: the backend types `overrides` as
+      // `Dict[str, str]` and Pydantic v2 does NOT coerce number -> str,
+      // so a float here is a guaranteed 422 the operator only sees as
+      // "Error al publicar el producto".
+      overrides[field] = String(Number(raw));
+    }
+  });
+  return overrides;
+}
 
 export function usePublishSubmit({
   editor,
@@ -22,6 +85,8 @@ export function usePublishSubmit({
   hasWebPrice,
   offsetPercent,
   priceBaseSource,
+  draftFields,
+  monedaCosto,
 }) {
   const [confirming, setConfirming] = useState(false);
   const [submitting, setSubmitting] = useState(false);
@@ -47,7 +112,24 @@ export function usePublishSubmit({
       // Explicit TN-create payload — only the fields the backend/TN consume.
       // `price` here is the exact string already shown in the preview — never
       // recomputed here, so what the operator saw is what gets submitted.
-      const productData = { name: { es: title.trim() }, price: finalPrice };
+      const productData = {
+        name: { es: title.trim() },
+        price: finalPrice,
+        brand: draftFields.brand || null,
+        visibility: draftFields.visibility,
+        free_shipping: draftFields.freeShipping,
+        seo_title: draftFields.seoTitle || null,
+        seo_description: draftFields.seoDescription || null,
+        // TN v1 takes an array; the control edits one comma-separated
+        // string for the operator's convenience. Same class of wire-type
+        // bug as the `overrides` floats above — split at the boundary.
+        tags: splitTags(draftFields.tags),
+        sku: draftFields.sku || null,
+        barcode: draftFields.barcode || null,
+        cost: numOrNull(draftFields.cost),
+        stock: numOrNull(draftFields.stock),
+        promotional_price: numOrNull(draftFields.promotionalPrice),
+      };
       const response = await api.post('/tienda-nube-reconcile/publicar', {
         ean,
         product_data: productData,
@@ -56,6 +138,12 @@ export function usePublishSubmit({
         image_srcs: images.map((img) => img.src),
         offset_percent: hasWebPrice ? Number(offsetPercent) : null,
         price_base_source: priceBaseSource,
+        overrides: buildOverrides(draftFields),
+        measurements: buildMeasurements(draftFields),
+        // GBP's currency for this row — the backend needs it to decide
+        // whether a missing TipoCambio must block the publish (D6/PC8).
+        moneda_costo: monedaCosto ?? null,
+        profile_id: draftFields.appliedProfileId ?? null,
       });
       setConfirming(false);
       onPublished?.(ean, response.data);
@@ -76,6 +164,8 @@ export function usePublishSubmit({
     hasWebPrice,
     offsetPercent,
     priceBaseSource,
+    draftFields,
+    monedaCosto,
   ]);
 
   return { confirming, submitting, submitError, handlePublishClick, handleCancelConfirm, handleConfirm };

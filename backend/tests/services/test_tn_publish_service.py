@@ -9,6 +9,7 @@ issued and no `httpx.AsyncClient` patching is needed here.
 
 from __future__ import annotations
 
+from datetime import date
 from decimal import Decimal
 from unittest.mock import MagicMock
 
@@ -213,6 +214,15 @@ class TestAmbiguousOutcome:
         assert len(audit_rows) == 1
 
 
+# PR-7 gap fix (task A): every existing test now also goes through the D3
+# measurement gate (`validate_measurements`), so the default fixture below
+# carries a complete set of the four measurement overrides — mirrors what
+# the real modal always sends once a draft is unblocked (see
+# `usePublishSubmit.buildOverrides`). Tests that specifically exercise the
+# gate itself override `overrides` explicitly.
+_VALID_MEASUREMENT_OVERRIDES = {"weight": "1.0", "width": "1.0", "depth": "1.0", "height": "1.0"}
+
+
 def _publish_kwargs(**overrides):
     kwargs = dict(
         ean="EAN-PUB-1",
@@ -224,6 +234,12 @@ def _publish_kwargs(**overrides):
         category_id=123,
         description_html="<p>Descripcion</p>",
         image_srcs=["https://cdn.example.com/img1.jpg", "https://cdn.example.com/img2.jpg"],
+        # `measurements` is what the D3 gate reads (what to publish);
+        # `overrides` is dirty-only (what the operator edited) and is
+        # DELIBERATELY empty by default — the happy path edits nothing, and
+        # gating on it once made every normal publish fail closed.
+        measurements=dict(_VALID_MEASUREMENT_OVERRIDES),
+        overrides={},
     )
     kwargs.update(overrides)
     return kwargs
@@ -515,7 +531,16 @@ class TestPublishPriceExactPayloadValue:
         assert outcome["status"] == "submitted"
         payload = fake_client.create_calls[0]
         assert "price" not in payload
-        assert payload["variants"] == [{"sku": "EAN-PUB-1", "price": "1250.00"}]
+        assert payload["variants"] == [
+            {
+                "sku": "EAN-PUB-1",
+                "price": "1250.00",
+                "weight": 1.0,
+                "width": 1.0,
+                "depth": 1.0,
+                "height": 1.0,
+            }
+        ]
 
     def test_manual_entry_path_exact_price_reaches_tn_create_payload(self, db):
         user = _make_user(db)
@@ -532,7 +557,16 @@ class TestPublishPriceExactPayloadValue:
         assert outcome["status"] == "submitted"
         payload = fake_client.create_calls[0]
         assert "price" not in payload
-        assert payload["variants"] == [{"sku": "EAN-PUB-1", "price": "850.00"}]
+        assert payload["variants"] == [
+            {
+                "sku": "EAN-PUB-1",
+                "price": "850.00",
+                "weight": 1.0,
+                "width": 1.0,
+                "depth": 1.0,
+                "height": 1.0,
+            }
+        ]
 
 
 class TestPublishVariantSku:
@@ -618,6 +652,252 @@ class TestPublishRejectedByProxy:
         assert db.query(TiendaNubeProducto).filter(TiendaNubeProducto.variant_sku == "EAN-PUB-1").count() == 0
 
 
+class TestPublishMeasurementGate:
+    """PR-7 gap fix (task A) — D3, fail-closed, server-side. A publish whose
+    `overrides` don't resolve all four measurement fields must be blocked
+    BEFORE any local-mirror query or TN call — mirrors
+    `TestPublishPriceGuard`'s containment pattern."""
+
+    def test_missing_all_four_measurements_is_blocked_before_any_tn_call(self, db):
+        user = _make_user(db)
+        fake_client = _FakePublishClient(
+            create_outcome={"ok": True, "status_code": 201, "ambiguous": False, "body": {"id": 1}},
+        )
+        outcome = publish_product(db, user, client=fake_client, **_publish_kwargs(measurements={}))
+        assert outcome["status"] == "blocked_measurements"
+        assert outcome["submitted"] is False
+        assert fake_client.create_calls == []
+        assert fake_client.get_by_sku_calls == []
+
+    def test_missing_one_measurement_names_it_and_only_it(self, db):
+        user = _make_user(db)
+        fake_client = _FakePublishClient(
+            create_outcome={"ok": True, "status_code": 201, "ambiguous": False, "body": {"id": 1}},
+        )
+        overrides = {k: v for k, v in _VALID_MEASUREMENT_OVERRIDES.items() if k != "height"}
+        outcome = publish_product(db, user, client=fake_client, **_publish_kwargs(measurements=overrides))
+        assert outcome["status"] == "blocked_measurements"
+        assert len(outcome["blocked_reasons"]) == 1
+        assert "height" in outcome["blocked_reasons"][0]
+        assert fake_client.create_calls == []
+
+    def test_unparseable_measurement_value_is_treated_as_absent_and_blocks(self, db):
+        user = _make_user(db)
+        fake_client = _FakePublishClient(
+            create_outcome={"ok": True, "status_code": 201, "ambiguous": False, "body": {"id": 1}},
+        )
+        overrides = {**_VALID_MEASUREMENT_OVERRIDES, "weight": "not-a-number"}
+        outcome = publish_product(db, user, client=fake_client, **_publish_kwargs(measurements=overrides))
+        assert outcome["status"] == "blocked_measurements"
+        assert any("weight" in reason for reason in outcome["blocked_reasons"])
+
+    def test_blocked_measurements_is_still_audit_logged(self, db):
+        user = _make_user(db)
+        fake_client = _FakePublishClient(
+            create_outcome={"ok": True, "status_code": 201, "ambiguous": False, "body": {"id": 1}},
+        )
+        publish_product(db, user, client=fake_client, **_publish_kwargs(measurements={}))
+        audit_rows = db.query(Auditoria).filter(Auditoria.tipo_accion == TipoAccion.TN_PUBLICAR).all()
+        assert len(audit_rows) == 1
+        assert audit_rows[0].valores_nuevos is None
+        assert "blocked_measurements" in audit_rows[0].comentario
+
+    def test_all_four_measurements_present_is_never_blocked(self, db):
+        """Triangulation: the gate opens once all four resolve."""
+        user = _make_user(db)
+        fake_client = _FakePublishClient(
+            create_outcome={"ok": True, "status_code": 201, "ambiguous": False, "body": {"id": 1}},
+        )
+        outcome = publish_product(db, user, client=fake_client, **_publish_kwargs())
+        assert outcome["status"] == "submitted"
+
+
+class TestPublishAssembledFieldsReachTn:
+    """PR-7 gap fix (task A) — proves the fields `assemble_payload` now owns
+    (weight/width/depth/height, stock, visibility, tags, seo_*) actually
+    reach the TN create payload through the live `publish_product` path,
+    not just through `assemble_payload`'s own unit tests."""
+
+    def test_measurements_reach_the_variant(self, db):
+        user = _make_user(db)
+        fake_client = _FakePublishClient(
+            create_outcome={"ok": True, "status_code": 201, "ambiguous": False, "body": {"id": 1}},
+        )
+        outcome = publish_product(
+            db,
+            user,
+            client=fake_client,
+            **_publish_kwargs(measurements={"weight": "1.5", "width": "10", "depth": "20", "height": "30"}),
+        )
+        assert outcome["status"] == "submitted"
+        variant = fake_client.create_calls[0]["variants"][0]
+        assert variant["weight"] == 1.5
+        assert variant["width"] == 10.0
+        assert variant["depth"] == 20.0
+        assert variant["height"] == 30.0
+
+    def test_stock_reaches_inventory_levels_never_variant_stock(self, db):
+        user = _make_user(db)
+        fake_client = _FakePublishClient(
+            create_outcome={"ok": True, "status_code": 201, "ambiguous": False, "body": {"id": 1}},
+        )
+        outcome = publish_product(
+            db,
+            user,
+            client=fake_client,
+            **_publish_kwargs(
+                product_data={"name": {"es": "Test Product"}, "price": "1000.00", "stock": 7},
+            ),
+        )
+        assert outcome["status"] == "submitted"
+        variant = fake_client.create_calls[0]["variants"][0]
+        assert variant["inventory_levels"] == [{"stock": 7}]
+        assert "stock" not in variant
+
+    def test_absent_stock_omits_inventory_levels_never_fabricates_a_number(self, db):
+        """Triangulation: no `stock` key in `product_data` must never become
+        `[{"stock": 0}]` — see `assemble_payload`'s docstring."""
+        user = _make_user(db)
+        fake_client = _FakePublishClient(
+            create_outcome={"ok": True, "status_code": 201, "ambiguous": False, "body": {"id": 1}},
+        )
+        outcome = publish_product(db, user, client=fake_client, **_publish_kwargs())
+        assert outcome["status"] == "submitted"
+        variant = fake_client.create_calls[0]["variants"][0]
+        assert "inventory_levels" not in variant
+
+    def test_barcode_cost_promotional_price_land_on_the_variant_not_the_root(self, db):
+        """These three are VARIANT-level fields in TN v1. At the payload root
+        TN ignores them with no error, so an operator edit would vanish —
+        the same silent-loss class `inventory_levels` guards against. This
+        test pins them onto the variant AND off the root."""
+        user = _make_user(db)
+        fake_client = _FakePublishClient(
+            create_outcome={"ok": True, "status_code": 201, "ambiguous": False, "body": {"id": 1}},
+        )
+        outcome = publish_product(
+            db,
+            user,
+            client=fake_client,
+            **_publish_kwargs(
+                product_data={
+                    "name": {"es": "Test Product"},
+                    "price": "1000.00",
+                    "barcode": "7791234567890",
+                    "cost": 500.0,
+                    "promotional_price": 800.0,
+                },
+            ),
+        )
+        assert outcome["status"] == "submitted"
+        payload = fake_client.create_calls[0]
+        assert "barcode" not in payload
+        assert "cost" not in payload
+        assert "promotional_price" not in payload
+        variant = payload["variants"][0]
+        assert variant["barcode"] == "7791234567890"
+        assert variant["cost"] == 500.0
+        assert variant["promotional_price"] == "800.0"
+
+    def test_visibility_and_free_shipping_reach_the_payload_root(self, db):
+        user = _make_user(db)
+        fake_client = _FakePublishClient(
+            create_outcome={"ok": True, "status_code": 201, "ambiguous": False, "body": {"id": 1}},
+        )
+        outcome = publish_product(
+            db,
+            user,
+            client=fake_client,
+            **_publish_kwargs(
+                product_data={
+                    "name": {"es": "Test Product"},
+                    "price": "1000.00",
+                    "visibility": "hidden",
+                    "free_shipping": True,
+                },
+            ),
+        )
+        assert outcome["status"] == "submitted"
+        payload = fake_client.create_calls[0]
+        assert payload["visibility"] == "hidden"
+        assert payload["free_shipping"] is True
+        assert "published" not in payload
+
+    def test_tags_and_seo_fields_reach_the_payload(self, db):
+        user = _make_user(db)
+        fake_client = _FakePublishClient(
+            create_outcome={"ok": True, "status_code": 201, "ambiguous": False, "body": {"id": 1}},
+        )
+        outcome = publish_product(
+            db,
+            user,
+            client=fake_client,
+            **_publish_kwargs(
+                product_data={
+                    "name": {"es": "Test Product"},
+                    "price": "1000.00",
+                    "tags": ["Marca", "Categoria"],
+                    "seo_title": "Titulo SEO",
+                    "seo_description": "Descripcion SEO",
+                },
+            ),
+        )
+        assert outcome["status"] == "submitted"
+        payload = fake_client.create_calls[0]
+        assert payload["tags"] == ["Marca", "Categoria"]
+        assert payload["seo_title"] == {"es": "Titulo SEO"}
+        assert payload["seo_description"] == {"es": "Descripcion SEO"}
+
+
+class TestPublishCostGate:
+    """D6/PC8, fail-closed: a USD cost with no `TipoCambio` row must block
+    the publish server-side. The draft already refused to resolve it, but
+    that verdict was decorative until the write path enforced it too — the
+    item published with a null/unconverted cost and nothing named the
+    missing rate."""
+
+    def test_usd_cost_with_no_rate_blocks_before_any_tn_call(self, db):
+        user = _make_user(db)
+        fake_client = _FakePublishClient(
+            create_outcome={"ok": True, "status_code": 201, "ambiguous": False, "body": {"id": 1}},
+        )
+        outcome = publish_product(db, user, client=fake_client, **_publish_kwargs(moneda_costo="USD"))
+        assert outcome["status"] == "blocked_cost"
+        assert outcome["submitted"] is False
+        assert fake_client.create_calls == []
+        assert any("tipo de cambio" in r.lower() for r in outcome["blocked_reasons"])
+
+    def test_blocked_cost_is_audit_logged(self, db):
+        user = _make_user(db)
+        fake_client = _FakePublishClient(
+            create_outcome={"ok": True, "status_code": 201, "ambiguous": False, "body": {"id": 1}},
+        )
+        publish_product(db, user, client=fake_client, **_publish_kwargs(moneda_costo="USD"))
+        audit = db.query(Auditoria).filter(Auditoria.tipo_accion == TipoAccion.TN_PUBLICAR).one()
+        assert "blocked_cost" in audit.comentario
+        assert audit.valores_nuevos is None
+
+    def test_ars_cost_publishes_without_needing_a_rate(self, db):
+        user = _make_user(db)
+        fake_client = _FakePublishClient(
+            create_outcome={"ok": True, "status_code": 201, "ambiguous": False, "body": {"id": 1}},
+        )
+        outcome = publish_product(db, user, client=fake_client, **_publish_kwargs(moneda_costo="ARS"))
+        assert outcome["status"] == "submitted"
+
+    def test_usd_cost_with_a_rate_available_publishes(self, db):
+        from app.models.tipo_cambio import TipoCambio
+
+        db.add(TipoCambio(fecha=date.today(), moneda="USD", compra=1000.0, venta=1000.0))
+        db.commit()
+        user = _make_user(db)
+        fake_client = _FakePublishClient(
+            create_outcome={"ok": True, "status_code": 201, "ambiguous": False, "body": {"id": 1}},
+        )
+        outcome = publish_product(db, user, client=fake_client, **_publish_kwargs(moneda_costo="USD"))
+        assert outcome["status"] == "submitted"
+
+
 class TestPublishOverridePersistence:
     """PC5/D8 (task 5.4/5.5): a SUCCESSFUL publish upserts every
     operator-edited field into `tn_publish_override`, keyed by `(ean,
@@ -638,11 +918,13 @@ class TestPublishOverridePersistence:
             db,
             user,
             client=fake_client,
-            overrides={"weight": "1.200", "campo_inventado": "zzz"},
-            **_publish_kwargs(ean="EAN-OVR-UNK"),
+            **_publish_kwargs(
+                ean="EAN-OVR-UNK",
+                overrides={**_VALID_MEASUREMENT_OVERRIDES, "weight": "1.200", "campo_inventado": "zzz"},
+            ),
         )
         campos = {row.campo for row in db.query(TnPublishOverride).filter(TnPublishOverride.ean == "EAN-OVR-UNK")}
-        assert campos == {"weight"}
+        assert campos == {"weight", "width", "depth", "height"}
 
     def test_successful_publish_upserts_every_overridden_field(self, db):
         user = _make_user(db)
@@ -653,14 +935,13 @@ class TestPublishOverridePersistence:
             db,
             user,
             client=fake_client,
-            overrides={"weight": "1.200", "width": "13"},
-            **_publish_kwargs(),
+            **_publish_kwargs(overrides={"weight": "1.200", "width": "13", "depth": "2.0", "height": "3.0"}),
         )
         rows = {
             row.campo: row.valor
             for row in db.query(TnPublishOverride).filter(TnPublishOverride.ean == "EAN-PUB-1").all()
         }
-        assert rows == {"weight": "1.200", "width": "13"}
+        assert rows == {"weight": "1.200", "width": "13", "depth": "2.0", "height": "3.0"}
 
     def test_re_publish_updates_the_existing_override_row_not_a_duplicate(self, db):
         user = _make_user(db)
@@ -669,17 +950,32 @@ class TestPublishOverridePersistence:
         fake_client = _FakePublishClient(
             create_outcome={"ok": True, "status_code": 201, "ambiguous": False, "body": {"id": 992}},
         )
-        publish_product(db, user, client=fake_client, overrides={"weight": "1.200"}, **_publish_kwargs(ean="EAN-PUB-1"))
+        publish_product(
+            db,
+            user,
+            client=fake_client,
+            **_publish_kwargs(ean="EAN-PUB-1", overrides={**_VALID_MEASUREMENT_OVERRIDES, "weight": "1.200"}),
+        )
         rows = db.query(TnPublishOverride).filter(TnPublishOverride.ean == "EAN-PUB-1").all()
-        assert len(rows) == 1
-        assert rows[0].valor == "1.200"
+        assert len(rows) == 4
+        assert next(r for r in rows if r.campo == "weight").valor == "1.200"
 
-    def test_no_overrides_is_a_no_op(self, db):
+    def test_the_happy_path_publishes_and_persists_nothing(self, db):
+        """The operator edited nothing: the item still PUBLISHES (its
+        measurements travel in `measurements`), and precisely because
+        nothing was edited, no `tn_publish_override` row is written.
+
+        This is the end-to-end shape a previous revision got wrong by
+        reading the D3 gate off `overrides`: dirty-only overrides meant an
+        untouched item sent `{}` and every normal publish failed closed.
+        Frontend and backend tests each passed in isolation while the flow
+        between them was broken — hence this one asserts both halves."""
         user = _make_user(db)
         fake_client = _FakePublishClient(
             create_outcome={"ok": True, "status_code": 201, "ambiguous": False, "body": {"id": 993}},
         )
-        publish_product(db, user, client=fake_client, **_publish_kwargs())
+        outcome = publish_product(db, user, client=fake_client, **_publish_kwargs(overrides={}))
+        assert outcome["status"] == "submitted"
         assert db.query(TnPublishOverride).count() == 0
 
     def test_rejected_invalid_price_persists_no_override(self, db):
@@ -688,8 +984,7 @@ class TestPublishOverridePersistence:
             db,
             user,
             client=_FakePublishClient(create_outcome={"ok": True, "status_code": 201, "ambiguous": False, "body": {}}),
-            overrides={"weight": "1.200"},
-            **_publish_kwargs(product_data={"name": {"es": "x"}, "price": None}),
+            **_publish_kwargs(overrides={"weight": "1.200"}, product_data={"name": {"es": "x"}, "price": None}),
         )
         assert db.query(TnPublishOverride).count() == 0
 
@@ -698,7 +993,7 @@ class TestPublishOverridePersistence:
         fake_client = _FakePublishClient(
             create_outcome={"ok": False, "status_code": 503, "ambiguous": True, "body": None},
         )
-        publish_product(db, user, client=fake_client, overrides={"weight": "1.200"}, **_publish_kwargs())
+        publish_product(db, user, client=fake_client, **_publish_kwargs())
         assert db.query(TnPublishOverride).count() == 0
 
     def test_no_gbp_erp_write_client_used_no_side_effect_beyond_override_table(self, db):
@@ -709,7 +1004,7 @@ class TestPublishOverridePersistence:
         fake_client = _FakePublishClient(
             create_outcome={"ok": True, "status_code": 201, "ambiguous": False, "body": {"id": 994}},
         )
-        publish_product(db, user, client=fake_client, overrides={"weight": "1.200"}, **_publish_kwargs())
+        publish_product(db, user, client=fake_client, **_publish_kwargs())
         assert not hasattr(fake_client, "update_erp") and not hasattr(fake_client, "write_gbp")
 
 

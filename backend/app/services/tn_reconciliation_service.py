@@ -20,6 +20,7 @@ mis-publication out of the review view.
 
 import logging
 from dataclasses import dataclass, field
+from datetime import date
 from decimal import Decimal
 from typing import Any, Dict, Optional
 
@@ -202,7 +203,11 @@ def build_publish_fields(row: "ReconcileRow") -> Dict[str, Any]:
 
 
 def build_publish_draft(
-    row: "ReconcileRow", overrides: Dict[str, str], usd_rate: Optional[float]
+    row: "ReconcileRow",
+    overrides: Dict[str, str],
+    usd_rate: Optional[float],
+    usd_rate_date: Optional[date] = None,
+    suggested_profile_id: Optional[int] = None,
 ) -> Optional[Dict[str, Any]]:
     """PC11/D3 (design Decision 3, task 5.19): the resolved-draft envelope
     for ONE publish-candidate row — `{fields, blocked, blocked_reasons,
@@ -220,11 +225,24 @@ def build_publish_draft(
 
     `overrides` is this row's `{campo: valor}` slice of a bulk
     `tn_publish_override` query (`WHERE ean IN (...)`, loaded ONCE per
-    report by the caller — never per row). `usd_rate` is likewise the
-    report-wide value from ONE `latest_usd_rate(db)` call before the row
-    loop (design Decision 3: no per-row `TipoCambio` queries — with ~99%
-    of report rows in USD, a per-row lookup multiplies into hundreds of
-    queries per `/reporte` on a checked-out pooled connection).
+    report by the caller — never per row). `usd_rate`/`usd_rate_date` are
+    likewise the report-wide value from ONE `latest_usd_rate_with_date(db)`
+    call before the row loop (design Decision 3: no per-row `TipoCambio`
+    queries — with ~99% of report rows in USD, a per-row lookup multiplies
+    into hundreds of queries per `/reporte` on a checked-out pooled
+    connection).
+
+    PR-7 gap fix (task B): `exchange_rate` used to be hardcoded `None` —
+    "worse than not having it: it looks implemented" (the risk table wants
+    the operator to SEE which rate is used and its date). Populated here as
+    `{"value": ..., "fecha": ...}` from the SAME bulk-resolved rate, never a
+    fresh per-row lookup.
+
+    PR-7 gap fix (task C): `suggested_profile_id` used to be hardcoded
+    `None` too. The caller resolves it via the SAME exact-match ->
+    category-only -> none ladder as `GET /tn-measurement-profiles/suggestion`
+    (`_select_hint_profile_id`), from a bulk-loaded hint map (design
+    Decision 3 — never one hint query per row) and hands it in here.
     """
     if row.verdict not in PUBLISH_CANDIDATE_VERDICTS:
         return None
@@ -256,7 +274,9 @@ def build_publish_draft(
     }
     validation = validate_measurements(resolved_fields)
 
-    exchange_rate: Optional[Dict[str, Any]] = None
+    exchange_rate: Optional[Dict[str, Any]] = (
+        {"value": usd_rate, "fecha": usd_rate_date.isoformat()} if usd_rate is not None and usd_rate_date else None
+    )
     cost_block_reason: Optional[str] = None
     try:
         cost_resolved = resolve_cost(resolved_gbp.coslis_price, resolved_gbp.moneda_costo, usd_rate)
@@ -292,9 +312,29 @@ def build_publish_draft(
         "fields": fields,
         "blocked": validation.blocked or cost_block_reason is not None,
         "blocked_reasons": blocked_reasons,
-        "suggested_profile_id": None,
+        "suggested_profile_id": suggested_profile_id,
         "exchange_rate": exchange_rate,
     }
+
+
+def _select_hint_profile_id(
+    hints_by_key: Dict[Any, int], categoria: Optional[str], subcategoria: Optional[str]
+) -> Optional[int]:
+    """D11/MP3 profile suggestion ladder — EXACTLY the same lookup order as
+    `GET /tn-measurement-profiles/suggestion` (`sugerir_perfil`): exact
+    `(categoria, subcategoria)` match first, else `(categoria, None)`, else
+    no suggestion. `hints_by_key` is a bulk-loaded `{(categoria,
+    subcategoria_or_None): profile_id}` map — already reduced to the
+    highest-`uso_count` (ties broken by lowest id) winner per key by the
+    caller's query ordering, so this function does no further ranking, only
+    the ladder walk (pure, easy to test without a DB)."""
+    if not categoria:
+        return None
+    if subcategoria:
+        hit = hints_by_key.get((categoria, subcategoria))
+        if hit is not None:
+            return hit
+    return hints_by_key.get((categoria, None))
 
 
 def _build_reason_detail(

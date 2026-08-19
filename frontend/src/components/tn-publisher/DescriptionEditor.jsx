@@ -38,7 +38,7 @@ function ToolbarButton({ label, active, disabled, onClick, children }) {
 
 export default function DescriptionEditor({ editor, editorState }) {
   return (
-    <div className={styles.section}>
+    <div className={styles.section} data-testid="tn-publish-field-description">
       <h3 className={styles.sectionTitle}>Descripción</h3>
       <div className={styles.editorShell}>
         <div className={styles.toolbar} role="toolbar" aria-label="Formato de la descripción">

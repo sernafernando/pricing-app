@@ -11,7 +11,7 @@ Convert-then-resolve, never resolve-then-convert.
 
 from dataclasses import dataclass
 from datetime import date
-from typing import Any, Literal, Optional
+from typing import Any, Literal, Optional, Tuple
 
 from app.services.tn_publish_core.extract import Absent, ExtractedReportRow, ReportFieldError
 
@@ -193,19 +193,11 @@ class MissingExchangeRateError(ReportFieldError):
         self.field_name = "cost"
 
 
-def latest_usd_rate(db: Any) -> Optional[float]:
-    """Today's `TipoCambio.venta` for USD, falling back to the most recent
-    row available (design Decision D6) — mirrors the existing
-    `pedidos_service`/`ncs_locales_service` today's-rate lookup, but adds
-    the fallback-to-latest step those two stop short of (they return `None`
-    when today's row is missing; here that would incorrectly present a
-    genuinely-populated `tipo_cambio` table as "empty").
-
-    Call this ONCE per report/batch and hand the resulting VALUE to
-    `resolve_cost` (design Decision 3: overrides / hints / exchange rate
-    load in bulk, never per row) — a per-row call multiplies into hundreds
-    of `TipoCambio` queries per `/reporte` while the pooled connection
-    stays checked out."""
+def _find_latest_usd_rate_row(db: Any) -> Any:
+    """Shared row lookup behind `latest_usd_rate`/`latest_usd_rate_with_date`
+    — today's `TipoCambio` row for USD, falling back to the most recent row
+    available (design Decision D6). Extracted so both callers run the exact
+    SAME one-or-two-query lookup instead of drifting apart."""
     from app.models.tipo_cambio import TipoCambio  # noqa: PLC0415
 
     today = date.today()
@@ -224,7 +216,38 @@ def latest_usd_rate(db: Any) -> Optional[float]:
         )
     if row is None or not row.venta:
         return None
-    return float(row.venta)
+    return row
+
+
+def latest_usd_rate(db: Any) -> Optional[float]:
+    """Today's `TipoCambio.venta` for USD, falling back to the most recent
+    row available (design Decision D6) — mirrors the existing
+    `pedidos_service`/`ncs_locales_service` today's-rate lookup, but adds
+    the fallback-to-latest step those two stop short of (they return `None`
+    when today's row is missing; here that would incorrectly present a
+    genuinely-populated `tipo_cambio` table as "empty").
+
+    Call this ONCE per report/batch and hand the resulting VALUE to
+    `resolve_cost` (design Decision 3: overrides / hints / exchange rate
+    load in bulk, never per row) — a per-row call multiplies into hundreds
+    of `TipoCambio` queries per `/reporte` while the pooled connection
+    stays checked out."""
+    row = _find_latest_usd_rate_row(db)
+    return float(row.venta) if row is not None else None
+
+
+def latest_usd_rate_with_date(db: Any) -> Optional[Tuple[float, date]]:
+    """Same lookup as `latest_usd_rate`, but ALSO returns the `fecha` of the
+    row the rate was read from (PR-7 gap fix): the risk table calls for the
+    operator to SEE which rate is in effect and its date, not just a bare
+    unlabeled number — a stale rate silently used is "worse than not having
+    it: it looks implemented" (see `build_publish_draft`'s `exchange_rate`
+    field). Same bulk-once-per-report call site as `latest_usd_rate` — this
+    does not add a second query, it reuses `_find_latest_usd_rate_row`."""
+    row = _find_latest_usd_rate_row(db)
+    if row is None:
+        return None
+    return float(row.venta), row.fecha
 
 
 def resolve_cost(raw_cost: Any, moneda_costo: str, usd_rate: Optional[float]) -> Resolved:

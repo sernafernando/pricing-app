@@ -17,6 +17,7 @@ page/page_size.
 from __future__ import annotations
 
 from contextlib import contextmanager
+from datetime import date
 from decimal import Decimal
 from unittest.mock import AsyncMock, patch
 
@@ -28,6 +29,9 @@ from app.models.permiso import Permiso, UsuarioPermisoOverride
 from app.models.producto import ProductoERP, ProductoPricing
 from app.models.rol import Rol
 from app.models.tienda_nube_producto import TiendaNubeProducto
+from app.models.tipo_cambio import TipoCambio
+from app.models.tn_category_profile_hint import TnCategoryProfileHint
+from app.models.tn_measurement_profile import TnMeasurementProfile
 from app.models.tn_publish_override import TnPublishOverride
 from app.models.tn_reconcile_banlist import TnReconcileBanlist
 from app.models.usuario import AuthProvider, RolUsuario, Usuario
@@ -788,6 +792,25 @@ class TestPublicarEndpoint:
             )
         assert response.status_code == 400
 
+    def test_blocked_measurements_surfaces_as_400_not_200(self, client, db, user_publicacion):
+        """PR-7 gap fix (task A): the D3 measurement gate is a money/data-
+        integrity gate, surfaced the same way `rejected_invalid_price` is —
+        a hard 4xx, never a 200 with `submitted=False` an operator could
+        miss."""
+        fake_outcome = {
+            "submitted": False,
+            "status": "blocked_measurements",
+            "detail": "Falta peso (weight)",
+            "blocked_reasons": ["Falta peso (weight)"],
+        }
+        with patch("app.api.endpoints.tienda_nube_reconcile.publish_product", return_value=fake_outcome):
+            response = client.post(
+                "/api/tienda-nube-reconcile/publicar",
+                json=self._payload(),
+                headers=_bearer(user_publicacion),
+            )
+        assert response.status_code == 400
+
     def test_offset_percent_and_price_base_source_are_forwarded_to_publish_product(self, client, db, user_publicacion):
         fake_outcome = {"submitted": True, "status": "submitted", "product_id": 1, "skipped_image_srcs": []}
         with patch("app.api.endpoints.tienda_nube_reconcile.publish_product", return_value=fake_outcome) as mocked:
@@ -1075,7 +1098,10 @@ class TestReportePublishDraft:
             self._complete_gbp_row(**{"Código": "EAN-USD-2", "Moneda_Costo": "USD"}),
             self._complete_gbp_row(**{"Código": "EAN-USD-3", "Moneda_Costo": "USD"}),
         ]
-        with patch("app.api.endpoints.tienda_nube_reconcile.latest_usd_rate", return_value=1000.0) as mocked_rate:
+        with patch(
+            "app.api.endpoints.tienda_nube_reconcile.latest_usd_rate_with_date",
+            return_value=(1000.0, date.today()),
+        ) as mocked_rate:
             response = _fetch_report(client, user_ver, gbp_rows=gbp_rows)
         assert response.status_code == 200
         assert mocked_rate.call_count == 1
@@ -1119,6 +1145,69 @@ class TestReportePublishDraft:
         row = response.json()["items"][0]
         assert row["publish_fields_error"] is not None
         assert row["publish_draft"] is None
+
+    def test_exchange_rate_carries_value_and_date_not_null(self, client, db, user_ver):
+        """PR-7 gap fix (task B): `exchange_rate` used to be hardcoded
+        `None` — the operator must be able to see the actual rate/date used
+        to convert a USD cost, not a field that "looks implemented" but
+        never carries data."""
+        today = date.today()
+        db.add(TipoCambio(fecha=today, moneda="USD", compra=1000.0, venta=1000.0))
+        db.commit()
+        response = _fetch_report(client, user_ver, gbp_rows=[self._complete_gbp_row(Moneda_Costo="USD")])
+        assert response.status_code == 200
+        draft = response.json()["items"][0]["publish_draft"]
+        assert draft["exchange_rate"] == {"value": pytest.approx(1000.0), "fecha": today.isoformat()}
+
+    def test_no_tipo_cambio_row_leaves_exchange_rate_null(self, client, db, user_ver):
+        response = _fetch_report(client, user_ver, gbp_rows=[self._complete_gbp_row()])
+        assert response.status_code == 200
+        draft = response.json()["items"][0]["publish_draft"]
+        assert draft["exchange_rate"] is None
+
+    def test_suggested_profile_id_uses_the_exact_category_subcategory_hint(self, client, db, user_ver):
+        """PR-7 gap fix (task C): `suggested_profile_id` used to be
+        hardcoded `None` — D11's preselection never fired in production."""
+        profile = TnMeasurementProfile(name="Perfil A", weight=1, width=1, height=1, depth=1)
+        db.add(profile)
+        db.flush()
+        db.add(
+            TnCategoryProfileHint(
+                categoria="Categoria-Draft", subcategoria="Sub-Draft", profile_id=profile.id, uso_count=5
+            )
+        )
+        db.commit()
+        response = _fetch_report(
+            client,
+            user_ver,
+            gbp_rows=[self._complete_gbp_row(Categoría="Categoria-Draft", SubCategoría="Sub-Draft")],
+        )
+        assert response.status_code == 200
+        draft = response.json()["items"][0]["publish_draft"]
+        assert draft["suggested_profile_id"] == profile.id
+
+    def test_suggested_profile_id_resolves_for_every_candidate_row_in_one_report(self, client, db, user_ver):
+        """Triangulation over multiple rows sharing one category — proves
+        the bulk-loaded hint map (a single `WHERE categoria IN (...)` query,
+        design Decision 3) resolves correctly per row, not just for one."""
+        profile = TnMeasurementProfile(name="Perfil B", weight=1, width=1, height=1, depth=1)
+        db.add(profile)
+        db.flush()
+        db.add(TnCategoryProfileHint(categoria="Categoria-Bulk", subcategoria=None, profile_id=profile.id, uso_count=1))
+        db.commit()
+        gbp_rows = [
+            self._complete_gbp_row(**{"Código": f"EAN-BULK-{i}", "Categoría": "Categoria-Bulk"}) for i in range(3)
+        ]
+        response = _fetch_report(client, user_ver, gbp_rows=gbp_rows)
+        assert response.status_code == 200
+        for row in response.json()["items"]:
+            assert row["publish_draft"]["suggested_profile_id"] == profile.id
+
+    def test_no_hint_for_category_leaves_suggested_profile_id_none(self, client, db, user_ver):
+        response = _fetch_report(client, user_ver, gbp_rows=[self._complete_gbp_row(Categoría="Categoria-Nunca-Usada")])
+        assert response.status_code == 200
+        draft = response.json()["items"][0]["publish_draft"]
+        assert draft["suggested_profile_id"] is None
 
 
 class TestReconcilePublishFieldsPassthrough:
