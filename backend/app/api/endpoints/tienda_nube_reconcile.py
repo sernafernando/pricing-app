@@ -853,7 +853,7 @@ def publicar_producto(
         price_base_source=request.price_base_source,
         overrides=request.overrides,
     )
-    if outcome["status"] == "rejected_invalid_price":
+    if outcome["status"] in ("rejected_invalid_price", "blocked_measurements"):
         raise HTTPException(status_code=400, detail=outcome.get("detail"))
     return PublicarResponse(
         submitted=outcome["submitted"],

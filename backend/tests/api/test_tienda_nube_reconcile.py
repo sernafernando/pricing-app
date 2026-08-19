@@ -792,6 +792,25 @@ class TestPublicarEndpoint:
             )
         assert response.status_code == 400
 
+    def test_blocked_measurements_surfaces_as_400_not_200(self, client, db, user_publicacion):
+        """PR-7 gap fix (task A): the D3 measurement gate is a money/data-
+        integrity gate, surfaced the same way `rejected_invalid_price` is —
+        a hard 4xx, never a 200 with `submitted=False` an operator could
+        miss."""
+        fake_outcome = {
+            "submitted": False,
+            "status": "blocked_measurements",
+            "detail": "Falta peso (weight)",
+            "blocked_reasons": ["Falta peso (weight)"],
+        }
+        with patch("app.api.endpoints.tienda_nube_reconcile.publish_product", return_value=fake_outcome):
+            response = client.post(
+                "/api/tienda-nube-reconcile/publicar",
+                json=self._payload(),
+                headers=_bearer(user_publicacion),
+            )
+        assert response.status_code == 400
+
     def test_offset_percent_and_price_base_source_are_forwarded_to_publish_product(self, client, db, user_publicacion):
         fake_outcome = {"submitted": True, "status": "submitted", "product_id": 1, "skipped_image_srcs": []}
         with patch("app.api.endpoints.tienda_nube_reconcile.publish_product", return_value=fake_outcome) as mocked:
