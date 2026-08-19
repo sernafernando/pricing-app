@@ -39,9 +39,8 @@ from decimal import Decimal, InvalidOperation
 from typing import Any, Dict, List, Optional
 
 import nh3
-from sqlalchemy.orm import Session
-
 from sqlalchemy.exc import IntegrityError
+from sqlalchemy.orm import Session
 
 from app.models.auditoria import Auditoria, TipoAccion
 from app.models.tienda_nube_producto import TiendaNubeProducto
@@ -55,8 +54,7 @@ from app.services.tienda_nube_product_client import (
 )
 from app.services.tn_publish_core.assemble import assemble_payload
 from app.services.tn_publish_core.batch import execute_batch
-from app.services.tn_publish_core.resolve import latest_usd_rate
-from app.services.tn_publish_core.resolve import Resolved
+from app.services.tn_publish_core.resolve import Resolved, latest_usd_rate
 from app.services.tn_publish_core.validate import MEASUREMENT_FIELDS, OVERRIDABLE_FIELDS, validate_measurements
 from app.utils.async_bridge import resolve_maybe_async as _resolve
 
