@@ -70,8 +70,15 @@ class PropuestaIA(Base):
     #     but found no examples above the similarity floor (a legitimate
     #     operating state, not a degradation signal by itself — the
     #     embedder being unreachable also lands here).
-    #   - `N > 0` — the number of captured examples actually injected into
-    #     the classification prompt for this campo's judgement.
+    #   - `N > 0` — the number of captured examples retrieved for this
+    #     campo and included in the shared few-shot examples block appended
+    #     to the (single, shared) classification prompt. NOT a claim that
+    #     only this campo's judgement "saw" exactly these N examples: all
+    #     retrieved blocks (severidad's and urgencia's) are concatenated
+    #     into ONE system prompt for the single LLM call, so a campo's own
+    #     judgement is also informed by the other campo's retrieved
+    #     examples — this count is "examples retrieved for this campo",
+    #     not "examples exclusively visible to this campo's judgement".
     # Spec #1501's NULL-semantics note is about `PropuestaIA` globally;
     # retrieval is per-campo, so this column resolves that conservatively —
     # NULL is written for every non-retrieval-eligible campo, never a

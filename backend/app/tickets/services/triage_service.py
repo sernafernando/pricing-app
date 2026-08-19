@@ -494,7 +494,7 @@ async def run_triage(ticket_id: int, provider: LlmProvider) -> None:
                     # entrypoint — this module never reaches into that
                     # module's private query/threshold internals directly.
                     filtrados = recuperar_ejemplos_con_embedding(db, campo, query_embedding)
-                    bloques_por_campo[campo] = ejemplos_service._assemble_bloques(filtrados)
+                    bloques_por_campo[campo] = ejemplos_service.assemble_bloques(filtrados)
 
     todos_los_bloques = [bloque for campo in sorted(bloques_por_campo) for bloque in bloques_por_campo[campo]]
     system_prompt = append_ejemplos_bloque(TICKETS_TRIAGE_SYSTEM_PROMPT, todos_los_bloques)

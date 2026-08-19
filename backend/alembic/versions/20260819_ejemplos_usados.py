@@ -1,8 +1,8 @@
 """add ejemplos_usados to tickets_propuestas_ia
 
-Revision ID: 20260815_ejemplos_usados
+Revision ID: 20260819_ejemplos_usados
 Revises: 20260818_pxq_tier_costo_envio_fetched_at
-Create Date: 2026-08-15 00:00:00
+Create Date: 2026-08-19 00:00:00
 
 tickets-triage-feedback PR4b: nullable retrieval-observability column, own
 migration so this slice stays independently shippable from the rest of
@@ -16,7 +16,7 @@ from alembic import op
 import sqlalchemy as sa
 
 # revision identifiers, used by Alembic.
-revision = "20260815_ejemplos_usados"
+revision = "20260819_ejemplos_usados"
 down_revision = "20260818_pxq_tier_costo_envio_fetched_at"
 branch_labels = None
 depends_on = None

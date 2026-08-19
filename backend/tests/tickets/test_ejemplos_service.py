@@ -360,14 +360,14 @@ class TestAssembleBloquesLabelRevalidation:
 
     def test_out_of_vocabulary_label_dropped_entirely(self) -> None:
         bad_row = _fake_ejemplo_row(texto="texto normal", valor_corregido="urgentisimo", campo="urgencia")
-        bloques = ejemplos_service._assemble_bloques([bad_row])
+        bloques = ejemplos_service.assemble_bloques([bad_row])
         assert bloques == []
         joined = "".join(bloques)
         assert "urgentisimo" not in joined
 
     def test_valid_label_kept(self) -> None:
         good_row = _fake_ejemplo_row(texto="texto normal", valor_corregido="alta", campo="urgencia")
-        bloques = ejemplos_service._assemble_bloques([good_row])
+        bloques = ejemplos_service.assemble_bloques([good_row])
         assert len(bloques) == 1
         assert "alta" in bloques[0]
 

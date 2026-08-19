@@ -4,7 +4,7 @@ PR4a retrieval core). PR3 shipped only the CAPTURE half —
 `TICKETS_TRIAGE_EJEMPLOS_CAPTURE` (default False). PR4a EXTENDS this module
 with the retrieval half: `recuperar_ejemplos` (similarity query + triple
 fallback, mirroring `context_builder.load_few_shot_examples`'s pattern) and
-pure prompt-block assembly (`_assemble_bloque`/`_assemble_bloques`/
+pure prompt-block assembly (`_assemble_bloque`/`assemble_bloques`/
 `append_ejemplos_bloque`). PR4a is pure functions only — nothing in
 production calls them yet (that is PR4b's job, dark launch by design).
 
@@ -33,7 +33,7 @@ untrusted-by-provenance data (direct-DB rows, not panel-edited like ML bot's
 few-shot examples) — `_assemble_bloque` neutralises the
 `<ejemplos_corregidos>`/`<caso>` delimiter tag sequence BEFORE truncating (so
 a delimiter placed past the truncation point still gets neutralised), and
-`_assemble_bloques` re-validates each row's `valor_corregido` against
+`assemble_bloques` re-validates each row's `valor_corregido` against
 `VOCABULARIOS[campo]`, dropping the whole example on a mismatch (a corrupted
 direct-DB row must never surface a label outside the closed vocabulary)."""
 
@@ -115,7 +115,7 @@ def _assemble_bloque(row: EjemploCorreccion) -> str:
     return f"- Texto: {texto}\n  Valor corregido ({row.campo}): {row.valor_corregido}\n"
 
 
-def _assemble_bloques(rows: List[EjemploCorreccion]) -> List[str]:
+def assemble_bloques(rows: List[EjemploCorreccion]) -> List[str]:
     """Assemble prompt blocks for every row, applying per-example label
     re-validation against `VOCABULARIOS` (task 2): a row whose
     `valor_corregido` falls outside its field's closed vocabulary is dropped
