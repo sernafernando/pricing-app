@@ -105,7 +105,10 @@ export default function TriageEjemplos() {
       })
       .catch(() => {
         // Non-fatal: only feeds which of the two empty-state copies to
-        // show. The main list fetch below owns the visible error message.
+        // show. Fall back to the "empty corpus" copy (not `false`) so an
+        // empty-and-unerrored main list still renders SOME explanation
+        // instead of a blank gap between the tabs and the footnote.
+        if (!cancelado) setCorpusVacio(true);
       });
     return () => {
       cancelado = true;
@@ -193,6 +196,8 @@ export default function TriageEjemplos() {
           </div>
         )}
       </div>
+
+      {loading && <p className={styles.footnote}>Cargando ejemplos…</p>}
 
       {!loading && errorCarga && (
         <div className={styles.empty}>
