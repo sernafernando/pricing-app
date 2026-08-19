@@ -90,6 +90,7 @@ function TreeNode({
   promoTipos,
   promoEstado,
   tiendaOficial,
+  conPxq,
   revealAll = false,
 }) {
   const [isOpen, setIsOpen] = useState(false);
@@ -148,7 +149,7 @@ function TreeNode({
     justRefreshedRef.current = false;
   }, [promosReloadKey]);
 
-  const filterActive = isFilterActive(promoTipos, promoEstado, tiendaOficial);
+  const filterActive = isFilterActive(promoTipos, promoEstado, tiendaOficial, conPxq);
 
   if (!nodeHasVisibleContent(node, filterActive, revealAll)) {
     return null;
@@ -184,6 +185,7 @@ function TreeNode({
             promoTipos={promoTipos}
             promoEstado={promoEstado}
             tiendaOficial={tiendaOficial}
+            conPxq={conPxq}
             revealAll={revealAll}
           />
         ))}
@@ -387,6 +389,7 @@ function TreeNode({
                   promoTipos={promoTipos}
                   promoEstado={promoEstado}
                   tiendaOficial={tiendaOficial}
+                  conPxq={conPxq}
                   revealAll={revealAll}
                 />
               ))}
