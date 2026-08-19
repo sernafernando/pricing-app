@@ -698,6 +698,32 @@ function PxqAdoptControl({ itemId, canImport, feedback, onFeedback, onAdopted })
   );
 }
 
+/**
+ * How old the live reading is, in words ("recién", "hace 2 min", "hace 3 h").
+ *
+ * `now` is a parameter, not a `Date.now()` call inside, so a caller (and its
+ * test) can pin a clock without faking timers for a whole render.
+ *
+ * A reading dated in the FUTURE is clock skew between the backend and this
+ * browser, never a real negative age: it collapses to "recién" instead of
+ * printing "hace -1 min", which would read as a bug in the data rather than in
+ * the clock. Anything unusable (absent, unparseable) returns `null` — the
+ * caller then says nothing at all, which is honest, instead of guessing.
+ */
+function formatRelativeAge(fetchedAt, now = Date.now()) {
+  if (!fetchedAt) return null;
+  const ts = Date.parse(fetchedAt);
+  if (Number.isNaN(ts)) return null;
+
+  const seconds = Math.floor((now - ts) / 1000);
+  if (seconds < 60) return 'recién';
+  const minutes = Math.floor(seconds / 60);
+  if (minutes < 60) return `hace ${minutes} min`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `hace ${hours} h`;
+  return `hace ${Math.floor(hours / 24)} d`;
+}
+
 // Money is Decimal on the backend and arrives as a number or string here —
 // this only formats it for display, it never computes or re-derives a
 // markup (product decision carried over from CatalogCompetitionPanel).
@@ -944,6 +970,7 @@ function PxqPanel({ itemId, pxqCacheRef }) {
   const liveTiers = data?.live_tiers ?? null;
   const mirrorTiers = data?.mirror_tiers || [];
   const liveUnavailable = data?.live_status === 'unavailable' || liveTiers === null;
+  const fetchedAge = formatRelativeAge(data?.fetched_at);
 
   // Order matters in this conjunction, not just readability: `liveUnavailable`
   // is what guarantees `liveTiers` is non-null by the time it is dereferenced.
@@ -977,13 +1004,24 @@ function PxqPanel({ itemId, pxqCacheRef }) {
           branch, which is the one path where the operator is NOT comparing
           the two columns. */}
       <div className={styles.pxqHeader}>
+        <div className={styles.pxqHeaderTitle}>
+          <span className={styles.pxqColumnTitle}>Precios mayoristas</span>
+          {/* Rendered only when the backend actually dated the reading. A
+              number with no age is indistinguishable from a stale one, but an
+              INVENTED age is worse than none. */}
+          {fetchedAge && <span className={styles.pxqFetchedAt}>Leído {fetchedAge}</span>}
+        </div>
+        {/* Was icon-only until the operator reported he could not find it. A
+            control nobody finds is a control that does not exist, so it names
+            itself now; the `aria-label` stays because the visible text does
+            not say WHICH publication is being re-read. */}
         <button
           type="button"
-          className="btn-tesla outline-subtle-primary icon-only sm"
+          className="btn-tesla outline-subtle-primary sm"
           onClick={reload}
-          aria-label={`Refrescar precios mayoristas de ${itemId}`}
+          aria-label={`Volver a leer de ML los precios mayoristas de ${itemId}`}
         >
-          <RefreshCw size={14} />
+          <RefreshCw size={14} /> Volver a leer de ML
         </button>
       </div>
       <div className={styles.pxqColumns}>

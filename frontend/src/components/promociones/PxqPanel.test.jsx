@@ -1827,7 +1827,7 @@ describe('PxqPanel — refreshing the live state', () => {
     };
   }
 
-  const REFRESH_BUTTON = { name: /refrescar precios mayoristas/i };
+  const REFRESH_BUTTON = { name: /volver a leer de ml/i };
   const liveTiers = [{ id: 'PXQ1', quantity: 5, amount: 100 }];
   const importedTier = [
     { id: 9, cantidad_minima: 5, precio_unitario: 100, costo_envio_total: null, ml_price_id: 'PXQ1', estado: 'incompleto' },
@@ -1902,6 +1902,102 @@ describe('PxqPanel — refreshing the live state', () => {
     // The divergence rows are half of that outcome; losing them would leave
     // "resolvé las diferencias" with nothing under it to resolve.
     expect(screen.getByText(/amount_mismatch/i)).toBeInTheDocument();
+  });
+});
+
+// The refresh used to be an icon-only button: the operator could not find it,
+// and a control nobody finds is a control that does not exist. It carries its
+// own label now, and the panel states how old the reading is next to it — a
+// number with no age is indistinguishable from a stale one.
+describe('PxqPanel — the refresh names itself and the reading states its age', () => {
+  function mockLive({ fetched_at = '2026-08-10T10:00:00Z' } = {}) {
+    return {
+      data: { item_id: 'MLA001', live_status: 'ok', live_tiers: [], mirror_tiers: [], fetched_at },
+    };
+  }
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockTienePermiso.mockReturnValue(true);
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it('renders the refresh with visible text, not only an aria-label', async () => {
+    pxqAPI.getLive.mockResolvedValue(mockLive());
+
+    renderPanel();
+
+    const refresh = await screen.findByRole('button', { name: /volver a leer de ml/i });
+    expect(refresh).toHaveTextContent(/volver a leer de ml/i);
+    expect(refresh.className).toMatch(/outline-subtle-primary/);
+    expect(refresh.className).not.toMatch(/icon-only/);
+  });
+
+  it('states how old the live reading is, in words, next to the panel title', async () => {
+    vi.spyOn(Date, 'now').mockReturnValue(Date.parse('2026-08-10T10:02:30Z'));
+    pxqAPI.getLive.mockResolvedValue(mockLive());
+
+    renderPanel();
+
+    expect(await screen.findByText(/hace 2 min/i)).toBeInTheDocument();
+  });
+
+  it('says nothing about the age when the response carries no fetched_at', async () => {
+    pxqAPI.getLive.mockResolvedValue(mockLive({ fetched_at: null }));
+
+    renderPanel();
+
+    await screen.findByText('Mirror local');
+    expect(screen.queryByText(/hace /i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/reci\u00e9n/i)).not.toBeInTheDocument();
+  });
+});
+
+// The age BUCKETS, driven through the panel. The helper is not exported --
+// `react-refresh/only-export-components` forbids a non-component export here --
+// so the boundaries are asserted where the operator reads them, which is the
+// only place they matter anyway.
+describe('PxqPanel — every age bucket, at its boundary', () => {
+  const NOW = '2026-08-10T12:00:00Z';
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockTienePermiso.mockReturnValue(true);
+    vi.spyOn(Date, 'now').mockReturnValue(Date.parse(NOW));
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  async function renderAged(fetched_at) {
+    pxqAPI.getLive.mockResolvedValue({
+      data: { item_id: 'MLA001', live_status: 'ok', live_tiers: [], mirror_tiers: [], fetched_at },
+    });
+    renderPanel();
+    await screen.findByText('Mirror local');
+  }
+
+  it.each([
+    ['2026-08-10T11:59:31Z', /reci\u00e9n/i],
+    ['2026-08-10T11:58:00Z', /hace 2 min/i],
+    ['2026-08-10T11:01:00Z', /hace 59 min/i],
+    ['2026-08-10T09:00:00Z', /hace 3 h/i],
+    ['2026-08-08T12:00:00Z', /hace 2 d/i],
+    // Clock skew between the backend and this browser must never print a
+    // NEGATIVE age: the reading is fresh, and that is what it says.
+    ['2026-08-10T12:05:00Z', /reci\u00e9n/i],
+  ])('reads %s as %s', async (fetchedAt, expected) => {
+    await renderAged(fetchedAt);
+    expect(screen.getByText(expected)).toBeInTheDocument();
+  });
+
+  it('says nothing at all when the timestamp cannot be parsed', async () => {
+    await renderAged('not a date');
+    expect(screen.queryByText(/le\u00eddo/i)).not.toBeInTheDocument();
   });
 });
 

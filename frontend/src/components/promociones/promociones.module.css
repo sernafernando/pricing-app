@@ -532,13 +532,30 @@
   font-style: italic;
 }
 
-/* Holds the refresh affordance above the two columns. Same inline padding as
-   `.pxqColumns` so the button lines up with the column edge, and no bottom
-   padding because `.pxqColumns` already brings its own. */
+/* Holds the panel title, the age of the reading, and the refresh affordance
+   above the two columns. Same inline padding as `.pxqColumns` so the row lines
+   up with the column edges, and no bottom padding because `.pxqColumns`
+   already brings its own. */
 .pxqHeader {
   display: flex;
-  justify-content: flex-end;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
   padding: 4px 4px 0;
+}
+
+.pxqHeaderTitle {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+
+/* How old the live reading is. Tertiary tone: it qualifies the numbers next to
+   it, it is never one of them. */
+.pxqFetchedAt {
+  font-size: 12px;
+  color: var(--text-tertiary);
 }
 
 /* Grouping-node child-kind count (familia/catalogo) — FE-computed, purely
