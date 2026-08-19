@@ -83,10 +83,19 @@ def listar_perfiles(db: Session = Depends(get_db)):
     hit the exact same rule for the suggestion path)."""
     perfiles = db.query(TnMeasurementProfile).order_by(TnMeasurementProfile.id).all()
 
+    # Acotada a los perfiles que realmente se están devolviendo: sin el
+    # `IN` esto lee la tabla de hints ENTERA para armar el contador, que es
+    # justo lo que el resto del módulo evita con sus caps explícitos
+    # (`TN_PRODUCTOS_QUERY_CAP`, `GBP_ROWS_CAP`) por el incidente de pool
+    # exhaustion del repo. Sigue siendo UNA query para toda la lista.
+    profile_ids = [p.id for p in perfiles]
     hint_rows = (
         db.query(TnCategoryProfileHint.profile_id, TnCategoryProfileHint.categoria)
+        .filter(TnCategoryProfileHint.profile_id.in_(profile_ids))
         .order_by(TnCategoryProfileHint.id)
         .all()
+        if profile_ids
+        else []
     )
     categorias_by_profile: dict[int, list[str]] = {}
     for profile_id, categoria in hint_rows:

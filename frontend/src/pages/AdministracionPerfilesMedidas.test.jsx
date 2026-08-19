@@ -95,7 +95,7 @@ describe('crear/editar perfil', () => {
     render(<AdministracionPerfilesMedidas />);
 
     await user.click(await screen.findByRole('button', { name: /crear el primero/i }));
-    await user.type(screen.getByLabelText('Nombre'), '30x20x20');
+    fireEvent.change(screen.getByLabelText('Nombre'), { target: { value: '30x20x20' } });
     fireEvent.change(screen.getByLabelText('Peso'), { target: { value: '0.3' } });
     fireEvent.change(screen.getByLabelText('Ancho'), { target: { value: '30' } });
     fireEvent.change(screen.getByLabelText('Alto'), { target: { value: '20' } });

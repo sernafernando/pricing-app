@@ -64,6 +64,7 @@ export default function AdministracionPerfilesMedidas() {
   const [touched, setTouched] = useState(false);
 
   const [deleteTarget, setDeleteTarget] = useState(null);
+  const [deleteError, setDeleteError] = useState(null);
   const [deleting, setDeleting] = useState(false);
 
   const fetchProfiles = useCallback(async () => {
@@ -140,12 +141,18 @@ export default function AdministracionPerfilesMedidas() {
   const handleConfirmDelete = async () => {
     if (!deleteTarget) return;
     setDeleting(true);
+    setDeleteError(null);
     try {
       await api.delete(`/tn-measurement-profiles/${deleteTarget.id}`);
       setDeleteTarget(null);
       fetchProfiles();
-    } catch {
-      // best-effort UX: keep the dialog open so the operator can retry
+    } catch (err) {
+      // El diálogo queda abierto para reintentar, pero DICIENDO qué pasó:
+      // tragarse el error dejaba al operador clickeando un botón que no
+      // hacía nada visible.
+      setDeleteError(
+        err?.response?.data?.error?.message || err?.message || 'No se pudo borrar el perfil'
+      );
     } finally {
       setDeleting(false);
     }
@@ -163,7 +170,7 @@ export default function AdministracionPerfilesMedidas() {
         </div>
         {canEdit && (
           <button className={styles.btnPrimary} onClick={handleOpenCreate}>
-            <PlusIcon /> Nuevo perfil
+            <Plus size={15} strokeWidth={2} /> Nuevo perfil
           </button>
         )}
       </div>
@@ -171,7 +178,7 @@ export default function AdministracionPerfilesMedidas() {
       <div className={styles.card}>
         {loading ? (
           <div className={styles.emptyState}>
-            <Loader2 size={24} className="spinning" />
+            <Loader2 size={24} className={styles.spinner} />
             Cargando perfiles...
           </div>
         ) : loadError ? (
@@ -186,7 +193,7 @@ export default function AdministracionPerfilesMedidas() {
             </p>
             {canEdit && (
               <button className={styles.btnPrimary} onClick={handleOpenCreate}>
-                <PlusIcon /> Crear el primero
+                <Plus size={15} strokeWidth={2} /> Crear el primero
               </button>
             )}
           </div>
@@ -322,12 +329,19 @@ export default function AdministracionPerfilesMedidas() {
 
       <ModalTesla
         isOpen={deleteTarget != null}
-        onClose={() => setDeleteTarget(null)}
+        onClose={() => { setDeleteTarget(null); setDeleteError(null); }}
         title={`Borrar "${deleteTarget?.name ?? ''}"`}
         size="sm"
         footer={
           <div className={styles.modalFooter}>
-            <button type="button" className={styles.btnSecondary} onClick={() => setDeleteTarget(null)}>
+            <button
+              type="button"
+              className={styles.btnSecondary}
+              onClick={() => {
+                setDeleteTarget(null);
+                setDeleteError(null);
+              }}
+            >
               Cancelar
             </button>
             <button
@@ -341,6 +355,7 @@ export default function AdministracionPerfilesMedidas() {
           </div>
         }
       >
+        {deleteError && <p className={styles.alertError}>{deleteError}</p>}
         {deleteTarget && (deleteTarget.categorias_en_uso ?? 0) > 0 ? (
           <>
             <div className={styles.deleteIconWrap}>
@@ -384,6 +399,3 @@ export default function AdministracionPerfilesMedidas() {
   );
 }
 
-function PlusIcon() {
-  return <Plus size={15} strokeWidth={2} />;
-}
