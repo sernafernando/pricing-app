@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import api from '../services/api';
 import styles from './CalcularWebModal.module.css';
+import FiltrosNoAplicablesAviso from './FiltrosNoAplicablesAviso';
 
 export default function CalcularWebModal({ onClose, onSuccess, filtrosActivos, showToast }) {
   const [porcentajeConPrecio, setPorcentajeConPrecio] = useState('6.0');
@@ -81,8 +82,17 @@ export default function CalcularWebModal({ onClose, onSuccess, filtrosActivos, s
     !!filtrosActivos?.audit_fecha_desde ||
     !!filtrosActivos?.audit_fecha_hasta;
 
+  // ponytail: este modal deja caer filtros que el listado SÍ aplica (con_pxq y
+  // promo_tipos/promo_estado llegan en `filtrosActivos` y nadie los lee, y el
+  // backend masivo tampoco los acepta), así que la operación corre sobre un
+  // conjunto MÁS AMPLIO que el de la pantalla. Mitigado con
+  // FiltrosNoAplicablesAviso, que se lo dice al usuario. Revisar cuando el
+  // backend de export/cálculo masivo acepte el mismo set de filtros que
+  // /productos (incluye decidir qué hace un fold cross-DB si mlwebhook cae en
+  // mitad de una escritura de precios). Ver docs/tech-debt-ledger.md.
   const FiltrosActivosDisplay = () => (
     <div className={styles.filtrosActivos}>
+      <FiltrosNoAplicablesAviso filtrosActivos={filtrosActivos} />
       {filtrosActivos.search && <div>• Búsqueda: "{filtrosActivos.search}"</div>}
       {filtrosActivos.con_stock === true && <div>• Con stock</div>}
       {filtrosActivos.con_stock === false && <div>• Sin stock</div>}

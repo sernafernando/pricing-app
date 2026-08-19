@@ -102,6 +102,12 @@ class ProductoResponse(BaseModel):
     # PPP (ERP weighted-average cost) — informational only, never persisted.
     ppp: Optional[PppPayload] = None
 
+    # PxQ wholesale tiers quick view (cross-DB, mlwebhook — FAIL-OPEN: both
+    # stay None when that read fails, so the row renders without the chip
+    # instead of taking the listing down).
+    pxq_tramos: Optional[int] = None
+    pxq_precio_desde: Optional[float] = None
+
     model_config = ConfigDict(from_attributes=True)
 
 

@@ -52,6 +52,7 @@ export function useProductosFilters() {
   const [pmsSeleccionados, setPmsSeleccionados] = useState([]);
   const [filtroPromoTipos, setFiltroPromoTipos] = useState([]);
   const [filtroPromoEstado, setFiltroPromoEstado] = useState('disponible'); // 'disponible' (all) | 'aplicada' | 'sin_aplicar'
+  const [filtroPxq, setFiltroPxq] = useState(null); // 'con_pxq' — presence toggle, no "sin" side
   const [filtrosInicializados, setFiltrosInicializados] = useState(false);
 
   // URL sync (INV-4: entire loop lives here — never split)
@@ -124,6 +125,9 @@ export function useProductosFilters() {
     // Colores
     if (coloresSeleccionados.length > 0) params.set('colores', coloresSeleccionados.join(','));
 
+    // PxQ (precios mayoristas)
+    if (filtroPxq) params.set('pxq', filtroPxq);
+
     // Promo tipos/estado
     if (filtroPromoTipos.length > 0) params.set('promo_tipos', filtroPromoTipos.join(','));
     if (filtroPromoEstado !== 'disponible') params.set('promo_estado', filtroPromoEstado);
@@ -165,6 +169,7 @@ export function useProductosFilters() {
     const nuevos = searchParams.get('nuevos');
     const tienda_oficial = searchParams.get('tienda_oficial');
     const colores = searchParams.get('colores');
+    const pxq = searchParams.get('pxq');
     const promoTipos = searchParams.get('promo_tipos');
     const promoEstado = searchParams.get('promo_estado');
     const pageParam = searchParams.get('page');
@@ -195,6 +200,7 @@ export function useProductosFilters() {
     if (nuevos) setFiltroNuevos(nuevos);
     if (tienda_oficial) setFiltroTiendaOficial(tienda_oficial);
     if (colores) setColoresSeleccionados(colores.split(',').map(c => c.trim()).filter(Boolean));
+    if (pxq) setFiltroPxq(pxq);
     if (promoTipos) setFiltroPromoTipos(promoTipos.split(',').map(t => t.trim()).filter(Boolean));
     if (promoEstado) setFiltroPromoEstado(promoEstado);
     if (pageParam) setPage(parseInt(pageParam, 10));
@@ -251,6 +257,7 @@ export function useProductosFilters() {
     coloresSeleccionados,
     filtroPromoTipos,
     filtroPromoEstado,
+    filtroPxq,
     page,
     pageSize,
     filtrosAuditoria
@@ -296,6 +303,40 @@ export function useProductosFilters() {
   };
 
   /**
+   * Every filter rendered inside the "Filtros Avanzados" panel.
+   *
+   * Bound to that panel's "Limpiar Todos" button, which used to keep its own
+   * hand-written list of setters in Productos.jsx. That list fell behind
+   * twice — filtroTiendaOficial and then filtroPxq kept filtering the listing
+   * after the user had cleared the panel, which is worse than not clearing at
+   * all: it lies about the state. `resetAllFilters` delegates here so the two
+   * scopes can never drift again.
+   *
+   * Does NOT touch the main bar (search, stock, precio, marcas,
+   * subcategorías, PMs, auditoría): the panel clears the panel.
+   */
+  const limpiarFiltrosAvanzados = () => {
+    setFiltroRebate(null);
+    setFiltroOferta(null);
+    setFiltroWebTransf(null);
+    setFiltroTiendaNube(null);
+    setFiltroMarkupClasica(null);
+    setFiltroMarkupRebate(null);
+    setFiltroMarkupOferta(null);
+    setFiltroMarkupWebTransf(null);
+    setFiltroOutOfCards(null);
+    setFiltroMLA(null);
+    setFiltroEstadoMLA(null);
+    setFiltroNuevos(null);
+    setFiltroTiendaOficial(null);
+    setFiltroPxq(null);
+    setColoresSeleccionados([]);
+    setFiltroPromoTipos([]);
+    setFiltroPromoEstado('disponible');
+    setPage(1);
+  };
+
+  /**
    * Single source of truth for "no filters".
    *
    * Both clear affordances delegate here so they cannot drift: they used to
@@ -321,22 +362,7 @@ export function useProductosFilters() {
       fecha_desde: '',
       fecha_hasta: ''
     });
-    setFiltroRebate(null);
-    setFiltroOferta(null);
-    setFiltroWebTransf(null);
-    setFiltroTiendaNube(null);
-    setFiltroMarkupClasica(null);
-    setFiltroMarkupRebate(null);
-    setFiltroMarkupOferta(null);
-    setFiltroMarkupWebTransf(null);
-    setFiltroOutOfCards(null);
-    setFiltroMLA(null);
-    setFiltroEstadoMLA(null);
-    setFiltroNuevos(null);
-    setFiltroTiendaOficial(null);
-    setColoresSeleccionados([]);
-    setFiltroPromoTipos([]);
-    setFiltroPromoEstado('disponible');
+    limpiarFiltrosAvanzados();
     setPage(1);
   };
 
@@ -451,6 +477,9 @@ export function useProductosFilters() {
     // estado falls back to the legacy type-agnostic boolean params the
     // backend's no-type resolver branch understands — 'disponible' is a
     // true no-op (no filter active).
+    // Precios mayoristas (PxQ): presence toggle, so only the "on" state
+    // narrows — there is no "sin mayoristas" side to send.
+    if (filtroPxq === 'con_pxq') params.con_pxq = true;
     if (filtroPromoTipos.length > 0) {
       params.promo_tipos = filtroPromoTipos.join(',');
       params.promo_estado = filtroPromoEstado;
@@ -466,6 +495,7 @@ export function useProductosFilters() {
     filtroMarkupClasica, filtroMarkupRebate, filtroMarkupOferta, filtroMarkupWebTransf,
     filtroOutOfCards, filtroMLA, filtroEstadoMLA, filtroNuevos, filtroTiendaOficial,
     coloresSeleccionados, equipoActivoId, pmsSeleccionados, filtroPromoTipos, filtroPromoEstado,
+    filtroPxq,
   ]);
 
   return {
@@ -486,6 +516,7 @@ export function useProductosFilters() {
     equipoActivoId, setEquipoActivoId,
     filtroPromoTipos, setFiltroPromoTipos,
     filtroPromoEstado, setFiltroPromoEstado,
+    filtroPxq, setFiltroPxq,
     // Boolean filters
     filtroRebate, setFiltroRebate,
     filtroOferta, setFiltroOferta,
@@ -508,6 +539,7 @@ export function useProductosFilters() {
     // Handlers
     handleOrdenar,
     limpiarTodosFiltros,
+    limpiarFiltrosAvanzados,
     limpiarFiltros,
     aplicarFiltroStat,
     // Memoized params builder (for useProductosData in Slice 8b)
