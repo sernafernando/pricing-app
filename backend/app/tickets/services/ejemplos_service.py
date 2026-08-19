@@ -4,7 +4,7 @@ PR4a retrieval core). PR3 shipped only the CAPTURE half —
 `TICKETS_TRIAGE_EJEMPLOS_CAPTURE` (default False). PR4a EXTENDS this module
 with the retrieval half: `recuperar_ejemplos` (similarity query + triple
 fallback, mirroring `context_builder.load_few_shot_examples`'s pattern) and
-pure prompt-block assembly (`_assemble_bloque`/`_assemble_bloques`/
+pure prompt-block assembly (`_assemble_bloque`/`assemble_bloques`/
 `append_ejemplos_bloque`). PR4a is pure functions only — nothing in
 production calls them yet (that is PR4b's job, dark launch by design).
 
@@ -33,7 +33,7 @@ untrusted-by-provenance data (direct-DB rows, not panel-edited like ML bot's
 few-shot examples) — `_assemble_bloque` neutralises the
 `<ejemplos_corregidos>`/`<caso>` delimiter tag sequence BEFORE truncating (so
 a delimiter placed past the truncation point still gets neutralised), and
-`_assemble_bloques` re-validates each row's `valor_corregido` against
+`assemble_bloques` re-validates each row's `valor_corregido` against
 `VOCABULARIOS[campo]`, dropping the whole example on a mismatch (a corrupted
 direct-DB row must never surface a label outside the closed vocabulary)."""
 
@@ -115,7 +115,7 @@ def _assemble_bloque(row: EjemploCorreccion) -> str:
     return f"- Texto: {texto}\n  Valor corregido ({row.campo}): {row.valor_corregido}\n"
 
 
-def _assemble_bloques(rows: List[EjemploCorreccion]) -> List[str]:
+def assemble_bloques(rows: List[EjemploCorreccion]) -> List[str]:
     """Assemble prompt blocks for every row, applying per-example label
     re-validation against `VOCABULARIOS` (task 2): a row whose
     `valor_corregido` falls outside its field's closed vocabulary is dropped
@@ -144,28 +144,46 @@ def append_ejemplos_bloque(system_prompt: str, bloques: List[str]) -> str:
     return system_prompt + _INSTRUCCION_EJEMPLOS + "".join(bloques)
 
 
+def recuperar_ejemplos_con_embedding(db: Session, campo: str, query_embedding: List[float]) -> List[EjemploCorreccion]:
+    """Same retrieval as `recuperar_ejemplos`, but with an ALREADY-computed
+    query embedding — for a caller (e.g. `triage_service.run_triage`) that
+    needs to embed the ticket text ONCE and reuse that single embedding
+    across several campos (severidad, urgencia), instead of paying one
+    `embed_query` network call per campo. `recuperar_ejemplos` itself is a
+    thin wrapper around this function — the SINGLE place the retrieval rule
+    (query, threshold, degradation) lives; no other module should reach
+    into `_similarity_query`/`_cosine_distance`/the tuning constants
+    directly.
+
+    Returns `[]` on EVERY degradation path — never raises (mirrors
+    `context_builder.load_few_shot_examples`'s fallback contract):
+      1. `_similarity_query` raises for ANY reason (e.g. sqlite CI, a
+         transient DB error) — caught and logged, never propagated.
+      2. Zero rows returned, or all rows fall below the similarity floor.
+    """
+    try:
+        rows = _similarity_query(db, campo, query_embedding, _EJEMPLOS_K)
+    except Exception:  # noqa: BLE001 — retrieval must never break triage; fall back to nothing.
+        logger.warning("recuperar_ejemplos_con_embedding: similarity query failed for campo=%r", campo, exc_info=True)
+        return []
+
+    return [row for row in rows if _cosine_distance(row.embedding, query_embedding) <= (1 - _EJEMPLOS_SIMILARITY_MIN)]
+
+
 async def recuperar_ejemplos(db: Session, campo: str, texto: str) -> List[EjemploCorreccion]:
     """Retrieve up to `_EJEMPLOS_K` similar captured corrections for `campo`,
     filtered to `_EJEMPLOS_SIMILARITY_MIN`. Returns `[]` on EVERY degradation
-    path — never raises (mirrors `context_builder.load_few_shot_examples`'s
-    fallback contract):
+    path — never raises, including:
       1. `embed_query` returns `None` (embedder disabled/unavailable/failed)
          — `_similarity_query` is never even called in this case.
-      2. `_similarity_query` raises for ANY reason (e.g. sqlite CI, a
-         transient DB error) — caught and logged, never propagated.
-      3. Zero rows returned, or all rows fall below the similarity floor.
+      2/3. See `recuperar_ejemplos_con_embedding`, which this delegates to
+         once the embedding is computed.
     """
     query_embedding = await embed_query(texto)
     if query_embedding is None:
         return []
 
-    try:
-        rows = _similarity_query(db, campo, query_embedding, _EJEMPLOS_K)
-    except Exception:  # noqa: BLE001 — retrieval must never break triage; fall back to nothing.
-        logger.warning("recuperar_ejemplos: similarity query failed for campo=%r", campo, exc_info=True)
-        return []
-
-    return [row for row in rows if _cosine_distance(row.embedding, query_embedding) <= (1 - _EJEMPLOS_SIMILARITY_MIN)]
+    return recuperar_ejemplos_con_embedding(db, campo, query_embedding)
 
 
 async def capturar_correccion(propuesta_id: int) -> None:

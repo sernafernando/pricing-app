@@ -234,6 +234,15 @@ class Settings(BaseSettings):
     # response — see `ejemplos_service.capturar_correccion`.
     TICKETS_TRIAGE_EJEMPLOS_CAPTURE: bool = False
 
+    # Retrieval read side (tickets-triage-feedback PR4b): dark-launched
+    # (default False, mirrors TICKETS_TRIAGE_EJEMPLOS_CAPTURE above) — when
+    # on, `run_triage` retrieves similar captured corrections for
+    # severidad/urgencia and appends them to the classification prompt as
+    # few-shot examples. With the flag off, `run_triage` never opens the
+    # extra retrieval session and the system prompt sent to the LLM stays
+    # byte-identical to today (see `triage_service.run_triage`).
+    TICKETS_TRIAGE_EJEMPLOS_READ: bool = False
+
     # Prearmados stats cache
     PREARMADAS_STATS_CACHE_TTL_SECONDS: int = 15
     PREARMADAS_STATS_VOLUME_WARN: int = 5000

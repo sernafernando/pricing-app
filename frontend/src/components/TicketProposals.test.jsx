@@ -376,3 +376,43 @@ describe('TicketProposals — ia_auto applied values', () => {
     expect(screen.getAllByRole('checkbox')).toHaveLength(1);
   });
 });
+
+describe('TicketProposals — ejemplos_usados retrieval indicator (PR4b)', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockTienePermiso = () => true;
+  });
+
+  it('renders "N ejemplos aprendidos" adjacent to confianza when ejemplos_usados is non-null', async () => {
+    ticketsAPI.listarPropuestas.mockResolvedValue({
+      data: [propuesta({ ejemplos_usados: 3 })],
+    });
+
+    render(<TicketProposals ticketId={42} />);
+
+    await waitFor(() => expect(screen.getByText((text) => text.includes('IA 0.82'))).toBeInTheDocument());
+    expect(screen.getByText((text) => text.includes('3 ejemplos aprendidos'))).toBeInTheDocument();
+  });
+
+  it('renders nothing extra when ejemplos_usados is null (no zero-badge, no badge at all)', async () => {
+    ticketsAPI.listarPropuestas.mockResolvedValue({
+      data: [propuesta({ ejemplos_usados: null })],
+    });
+
+    render(<TicketProposals ticketId={42} />);
+
+    await waitFor(() => expect(screen.getByText((text) => text.includes('IA 0.82'))).toBeInTheDocument());
+    expect(screen.queryByText((text) => text.includes('ejemplos aprendidos'))).not.toBeInTheDocument();
+  });
+
+  it('renders "0 ejemplos aprendidos" when ejemplos_usados is exactly zero (a legitimate value, not absence)', async () => {
+    ticketsAPI.listarPropuestas.mockResolvedValue({
+      data: [propuesta({ ejemplos_usados: 0 })],
+    });
+
+    render(<TicketProposals ticketId={42} />);
+
+    await waitFor(() => expect(screen.getByText((text) => text.includes('IA 0.82'))).toBeInTheDocument());
+    expect(screen.getByText((text) => text.includes('0 ejemplos aprendidos'))).toBeInTheDocument();
+  });
+});

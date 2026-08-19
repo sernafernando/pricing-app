@@ -363,6 +363,9 @@ class PropuestaResponse(BaseModel):
     # human-picked value, distinguishing "corrected" from "ratified"
     # structurally (see PropuestaIA.valor_corregido's own docstring).
     valor_corregido: Optional[str] = None
+    # tickets-triage-feedback PR4b: three-way NULL/0/N — see
+    # PropuestaIA.ejemplos_usados's own docstring for the exact semantics.
+    ejemplos_usados: Optional[int] = None
     confirmado_por_id: Optional[int] = None
     confirmado_at: Optional[datetime] = None
     created_at: datetime

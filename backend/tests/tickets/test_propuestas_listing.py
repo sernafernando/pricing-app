@@ -228,3 +228,29 @@ class TestTicketResponseIncludesProvenance:
         assert body["resumen_origen"] == "ia_confirmada"
         assert body["urgencia"] is None
         assert body["urgencia_origen"] is None
+
+
+class TestPropuestaResponseExposesEjemplosUsados:
+    """tickets-triage-feedback PR4b (real pre-push review finding): the
+    column was written by `run_triage` and read by the frontend, but
+    `PropuestaResponse` never declared it — Pydantic's `from_attributes`
+    serializes only declared fields, so the API silently dropped it and the
+    frontend badge could never render. Exercised through the REAL endpoint
+    (not a mocked API client), unlike the frontend's own component tests."""
+
+    def test_ejemplos_usados_round_trips_through_the_endpoint(self, client, db, rol_ventas):
+        ticket = _make_ticket(db, rol_ventas)
+        usuario = _make_usuario(db, rol_ventas)
+        _give_permiso(db, usuario, "tickets.ver")
+
+        con_ejemplos = _make_propuesta(db, ticket, "severidad", "mayor", 0.82)
+        con_ejemplos.ejemplos_usados = 3
+        sin_retrieval = _make_propuesta(db, ticket, "titulo", "Arreglar bug", 0.9)
+        db.flush()
+
+        resp = client.get(ENDPOINT.format(id=ticket.id), headers=_headers(usuario))
+
+        assert resp.status_code == 200
+        body = {p["id"]: p for p in resp.json()}
+        assert body[con_ejemplos.id]["ejemplos_usados"] == 3
+        assert body[sin_retrieval.id]["ejemplos_usados"] is None

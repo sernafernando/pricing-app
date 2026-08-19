@@ -1,4 +1,15 @@
-from sqlalchemy import CheckConstraint, Column, DateTime, ForeignKey, Index, Integer, Numeric, String, text
+from sqlalchemy import (
+    CheckConstraint,
+    Column,
+    DateTime,
+    ForeignKey,
+    Index,
+    Integer,
+    Numeric,
+    SmallInteger,
+    String,
+    text,
+)
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.sql import func
 from app.core.database import Base
@@ -47,6 +58,32 @@ class PropuestaIA(Base):
     # or value-inequality inference — see the table in
     # `confirmacion_service.confirmar()`'s docstring.
     valor_corregido = Column(String(20), nullable=True)
+
+    # Retrieval observability (tickets-triage-feedback PR4b). THREE-WAY
+    # meaning, not a plain count:
+    #   - `NULL`  — either `TICKETS_TRIAGE_EJEMPLOS_READ` was off, OR
+    #     retrieval doesn't apply to this `campo` at all (only
+    #     severidad/urgencia are retrieval-eligible — see
+    #     `vocabularios.CAMPOS_CORREGIBLES` — so every other campo, e.g.
+    #     `titulo`, always has `ejemplos_usados IS NULL`, never `0`).
+    #   - `0`     — the read flag was on and retrieval ran for this campo,
+    #     but found no examples above the similarity floor (a legitimate
+    #     operating state, not a degradation signal by itself — the
+    #     embedder being unreachable also lands here).
+    #   - `N > 0` — the number of captured examples retrieved for this
+    #     campo and included in the shared few-shot examples block appended
+    #     to the (single, shared) classification prompt. NOT a claim that
+    #     only this campo's judgement "saw" exactly these N examples: all
+    #     retrieved blocks (severidad's and urgencia's) are concatenated
+    #     into ONE system prompt for the single LLM call, so a campo's own
+    #     judgement is also informed by the other campo's retrieved
+    #     examples — this count is "examples retrieved for this campo",
+    #     not "examples exclusively visible to this campo's judgement".
+    # Spec #1501's NULL-semantics note is about `PropuestaIA` globally;
+    # retrieval is per-campo, so this column resolves that conservatively —
+    # NULL is written for every non-retrieval-eligible campo, never a
+    # misleading `0`.
+    ejemplos_usados = Column(SmallInteger, nullable=True)
 
     confirmado_por_id = Column(Integer, ForeignKey("usuarios.id"), nullable=True)
     confirmado_at = Column(DateTime(timezone=True), nullable=True)

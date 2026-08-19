@@ -35,10 +35,13 @@ from sqlalchemy.orm import Session
 
 from app.core.config import settings
 from app.core.database import get_background_db
+from app.services.ml_questions.embedding_client import embed_query
 from app.tickets.models.propuesta_ia import PropuestaIA
 from app.tickets.models.sector import Sector
 from app.tickets.models.ticket import Ticket
-from app.tickets.services import confirmacion_service
+from app.tickets.services import confirmacion_service, ejemplos_service
+from app.tickets.services.ejemplos_service import append_ejemplos_bloque, recuperar_ejemplos_con_embedding
+from app.tickets.services.vocabularios import CAMPOS_CORREGIBLES
 
 # Duplicated on purpose (established convention in this module set — see
 # `propuestas.py::_check_permiso`'s own docstring): the Inbox is never a
@@ -469,8 +472,35 @@ async def run_triage(ticket_id: int, provider: LlmProvider) -> None:
 
     catalogo_por_sector = {entry["sector_codigo"]: set(entry["tipos_ticket"]) for entry in catalogo}
 
+    # Session 1b — retrieval (tickets-triage-feedback PR4b). Flag checked
+    # BEFORE any pool checkout (PR3's own correction, commit 453c1d2c): a
+    # `False` flag (the default) never opens this session and the prompt
+    # sent to the LLM below stays byte-identical to pre-PR4b behaviour.
+    #
+    # The embedding is computed ONCE, with NO session open — `embed_query`
+    # is a network call that can take seconds, and holding a pool
+    # connection idle across it is exactly the 2026-06-24 pool exhaustion
+    # pattern (PR #811) `run_triage`'s own docstring already warns about
+    # for `provider.complete()`. Only the (fast, local) similarity lookups
+    # for severidad/urgencia run inside the short session below.
+    bloques_por_campo: dict[str, list[str]] = {}
+    if settings.TICKETS_TRIAGE_EJEMPLOS_READ:
+        query_embedding = await embed_query(texto)
+        if query_embedding is not None:
+            with get_background_db() as db:
+                for campo in sorted(CAMPOS_CORREGIBLES):
+                    # Reuses `ejemplos_service`'s OWN retrieval rule (query,
+                    # threshold, degradation) via its public embedding-aware
+                    # entrypoint — this module never reaches into that
+                    # module's private query/threshold internals directly.
+                    filtrados = recuperar_ejemplos_con_embedding(db, campo, query_embedding)
+                    bloques_por_campo[campo] = ejemplos_service.assemble_bloques(filtrados)
+
+    todos_los_bloques = [bloque for campo in sorted(bloques_por_campo) for bloque in bloques_por_campo[campo]]
+    system_prompt = append_ejemplos_bloque(TICKETS_TRIAGE_SYSTEM_PROMPT, todos_los_bloques)
+
     try:
-        raw = await provider.complete(TICKETS_TRIAGE_SYSTEM_PROMPT, user_payload)
+        raw = await provider.complete(system_prompt, user_payload)
         propuesta = TriagePropuesta.model_validate_json(raw, context={"catalogo_sectores": catalogo_por_sector})
     except Exception:
         # Broad by design: network/timeout (LlmProviderError), malformed
@@ -572,6 +602,19 @@ async def run_triage(ticket_id: int, provider: LlmProvider) -> None:
                     )
                     continue
 
+                # `ejemplos_usados` three-way meaning (see the column's own
+                # docstring in `propuesta_ia.py`): `None` when the read flag
+                # is off OR retrieval doesn't apply to this campo (e.g.
+                # titulo/resumen — never a `0` claiming "zero found" for
+                # something that was never looked up); `0` when the flag is
+                # on, retrieval ran for this campo, and found nothing (or the
+                # embedder degraded); the retrieved count otherwise.
+                ejemplos_usados = (
+                    len(bloques_por_campo.get(campo, []))
+                    if settings.TICKETS_TRIAGE_EJEMPLOS_READ and campo in CAMPOS_CORREGIBLES
+                    else None
+                )
+
                 nueva_propuesta = PropuestaIA(
                     ticket_id=ticket_id,
                     campo=campo,
@@ -579,6 +622,7 @@ async def run_triage(ticket_id: int, provider: LlmProvider) -> None:
                     confianza=confianza,
                     modelo=modelo,
                     run_id=run_id,
+                    ejemplos_usados=ejemplos_usados,
                 )
 
                 # NEVER PISAR LO QUE PUSO UNA PERSONA (real pre-push review

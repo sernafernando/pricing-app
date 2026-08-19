@@ -15,7 +15,7 @@ Run:
 
 import asyncio
 import json
-from unittest.mock import patch
+from unittest.mock import AsyncMock, patch
 
 import pytest
 from pydantic import ValidationError
@@ -59,6 +59,7 @@ class FakeProvider:
         self.model = model
         self.calls = 0
         self.last_user_payload: str | None = None
+        self.last_system_prompt: str | None = None
 
     def is_configured(self) -> bool:
         return self._configured
@@ -66,6 +67,7 @@ class FakeProvider:
     async def complete(self, system_prompt: str, user_payload: str) -> str:
         self.calls += 1
         self.last_user_payload = user_payload
+        self.last_system_prompt = system_prompt
         if self.raises is not None:
             raise self.raises
         return self.response
@@ -1171,3 +1173,254 @@ class TestAutoApplyTopology:
         )
         assert sector_prop.estado == "pendiente"  # degraded TOGETHER with tipo_ticket, not applied alone
         assert tipo_prop.estado == "pendiente"
+
+
+# ---------------------------------------------------------------------------
+# PR4b — wire retrieval into run_triage (tickets-triage-feedback)
+# ---------------------------------------------------------------------------
+
+
+def _fake_ejemplo_row(texto: str, valor_corregido: str, campo: str = "severidad", embedding=None):
+    from app.tickets.models.ejemplo_correccion import EjemploCorreccion
+
+    row = EjemploCorreccion()
+    row.texto = texto
+    row.campo = campo
+    row.valor_ia = "menor"
+    row.valor_corregido = valor_corregido
+    row.embedding = embedding if embedding is not None else [1.0, 0.0, 0.0]
+    row.active = True
+    return row
+
+
+class TestReadFlagOffIsByteIdentical:
+    """Task 1 (RED — byte-identity end-to-end). The spec's "flag off ⇒
+    byte-identical to today" requirement: with `TICKETS_TRIAGE_EJEMPLOS_READ`
+    off, `run_triage`'s system prompt argument to the provider must be
+    LITERALLY `TICKETS_TRIAGE_SYSTEM_PROMPT` — even with a rich learned
+    corpus available and capture on."""
+
+    def test_read_off_prompt_is_byte_identical_even_with_capture_on_and_examples_seeded(
+        self, db, rol_ventas, monkeypatch
+    ) -> None:
+        from app.tickets.services import ejemplos_service as ejemplos_service_module
+        from app.tickets.services.triage_service import TICKETS_TRIAGE_SYSTEM_PROMPT
+
+        monkeypatch.setattr(settings, "TICKETS_TRIAGE_EJEMPLOS_READ", False)
+        monkeypatch.setattr(settings, "TICKETS_TRIAGE_EJEMPLOS_CAPTURE", True)
+
+        # ~50 fake learned examples "available" — proven never even looked
+        # at when the read flag is off, by making the DB-level lookup raise
+        # if it's ever called.
+        def _must_not_be_called(db_, campo, qvec, k):
+            raise AssertionError("_similarity_query must not run when TICKETS_TRIAGE_EJEMPLOS_READ is False")
+
+        monkeypatch.setattr(ejemplos_service_module, "_similarity_query", _must_not_be_called)
+
+        ticket = _make_ticket(db, rol_ventas, "read-off-byte-identical")
+        provider = FakeProvider(response=json.dumps(_valid_payload_for_ticket(ticket)))
+
+        with _patch_background_db(db):
+            asyncio.run(run_triage(ticket.id, provider))
+
+        assert provider.calls == 1
+        assert provider.last_system_prompt == TICKETS_TRIAGE_SYSTEM_PROMPT
+
+
+class TestFlagMatrixCaptureReadCombinations:
+    """Task 3 (RED — 4-combination flag matrix)."""
+
+    def test_capture_off_read_off_no_write_no_read(self, db, rol_ventas, monkeypatch) -> None:
+        from app.tickets.services import ejemplos_service as ejemplos_service_module
+        from app.tickets.services.triage_service import TICKETS_TRIAGE_SYSTEM_PROMPT
+
+        monkeypatch.setattr(settings, "TICKETS_TRIAGE_EJEMPLOS_CAPTURE", False)
+        monkeypatch.setattr(settings, "TICKETS_TRIAGE_EJEMPLOS_READ", False)
+
+        def _must_not_be_called(db_, campo, qvec, k):
+            raise AssertionError("must not run")
+
+        monkeypatch.setattr(ejemplos_service_module, "_similarity_query", _must_not_be_called)
+
+        ticket = _make_ticket(db, rol_ventas, "matrix-off-off")
+        provider = FakeProvider(response=json.dumps(_valid_payload_for_ticket(ticket)))
+
+        with _patch_background_db(db):
+            asyncio.run(run_triage(ticket.id, provider))
+
+        assert provider.last_system_prompt == TICKETS_TRIAGE_SYSTEM_PROMPT
+
+    def test_capture_on_read_off_write_happens_prompt_still_byte_identical(self, db, rol_ventas, monkeypatch) -> None:
+        from app.tickets.services.triage_service import TICKETS_TRIAGE_SYSTEM_PROMPT
+
+        monkeypatch.setattr(settings, "TICKETS_TRIAGE_EJEMPLOS_CAPTURE", True)
+        monkeypatch.setattr(settings, "TICKETS_TRIAGE_EJEMPLOS_READ", False)
+
+        ticket = _make_ticket(db, rol_ventas, "matrix-on-off")
+        provider = FakeProvider(response=json.dumps(_valid_payload_for_ticket(ticket)))
+
+        with _patch_background_db(db):
+            asyncio.run(run_triage(ticket.id, provider))
+
+        assert provider.last_system_prompt == TICKETS_TRIAGE_SYSTEM_PROMPT
+
+    def test_capture_on_read_on_both_happen(self, db, rol_ventas, monkeypatch) -> None:
+        from app.tickets.services import ejemplos_service as ejemplos_service_module
+        from app.tickets.services.triage_service import TICKETS_TRIAGE_SYSTEM_PROMPT
+
+        monkeypatch.setattr(settings, "TICKETS_TRIAGE_EJEMPLOS_CAPTURE", True)
+        monkeypatch.setattr(settings, "TICKETS_TRIAGE_EJEMPLOS_READ", True)
+
+        row = _fake_ejemplo_row(texto="texto previo", valor_corregido="mayor", campo="severidad")
+        monkeypatch.setattr(ejemplos_service_module, "_similarity_query", lambda db_, campo, qvec, k: [row])
+        monkeypatch.setattr("app.tickets.services.triage_service.embed_query", AsyncMock(return_value=[1.0, 0.0, 0.0]))
+
+        ticket = _make_ticket(db, rol_ventas, "matrix-on-on")
+        provider = FakeProvider(response=json.dumps(_valid_payload_for_ticket(ticket)))
+
+        with _patch_background_db(db):
+            asyncio.run(run_triage(ticket.id, provider))
+
+        assert provider.last_system_prompt != TICKETS_TRIAGE_SYSTEM_PROMPT
+        assert "texto previo" in provider.last_system_prompt
+
+    def test_capture_off_read_on_no_new_capture_existing_corpus_still_retrieved(
+        self, db, rol_ventas, monkeypatch
+    ) -> None:
+        from app.tickets.services import ejemplos_service as ejemplos_service_module
+        from app.tickets.services.triage_service import TICKETS_TRIAGE_SYSTEM_PROMPT
+
+        monkeypatch.setattr(settings, "TICKETS_TRIAGE_EJEMPLOS_CAPTURE", False)
+        monkeypatch.setattr(settings, "TICKETS_TRIAGE_EJEMPLOS_READ", True)
+
+        row = _fake_ejemplo_row(texto="ejemplo existente", valor_corregido="alta", campo="urgencia")
+        monkeypatch.setattr(ejemplos_service_module, "_similarity_query", lambda db_, campo, qvec, k: [row])
+        monkeypatch.setattr("app.tickets.services.triage_service.embed_query", AsyncMock(return_value=[1.0, 0.0, 0.0]))
+
+        ticket = _make_ticket(db, rol_ventas, "matrix-off-on")
+        provider = FakeProvider(response=json.dumps(_valid_payload_for_ticket(ticket)))
+
+        with _patch_background_db(db):
+            asyncio.run(run_triage(ticket.id, provider))
+
+        assert provider.last_system_prompt != TICKETS_TRIAGE_SYSTEM_PROMPT
+        assert "ejemplo existente" in provider.last_system_prompt
+
+
+class TestEjemplosUsadosThreeWaySemantics:
+    """Task 6 (RED). `ejemplos_usados`:
+    - read flag off → NULL
+    - read on + no examples for that campo → 0
+    - read on + N valid examples injected → N
+    - read on + a titulo proposal (no retrieval for that campo) → NULL
+    """
+
+    def test_read_off_ejemplos_usados_is_null(self, db, rol_ventas, monkeypatch) -> None:
+        monkeypatch.setattr(settings, "TICKETS_TRIAGE_EJEMPLOS_READ", False)
+        ticket = _make_ticket(db, rol_ventas, "usados-off")
+        provider = FakeProvider(response=json.dumps(_valid_payload_for_ticket(ticket)))
+
+        with _patch_background_db(db):
+            asyncio.run(run_triage(ticket.id, provider))
+
+        propuestas = {p.campo: p for p in db.query(PropuestaIA).filter(PropuestaIA.ticket_id == ticket.id).all()}
+        assert propuestas["severidad"].ejemplos_usados is None
+        assert propuestas["urgencia"].ejemplos_usados is None
+        assert propuestas["titulo"].ejemplos_usados is None
+
+    def test_read_on_no_examples_for_campo_is_zero(self, db, rol_ventas, monkeypatch) -> None:
+        from app.tickets.services import ejemplos_service as ejemplos_service_module
+
+        monkeypatch.setattr(settings, "TICKETS_TRIAGE_EJEMPLOS_READ", True)
+        monkeypatch.setattr(ejemplos_service_module, "_similarity_query", lambda db_, campo, qvec, k: [])
+        monkeypatch.setattr("app.tickets.services.triage_service.embed_query", AsyncMock(return_value=[1.0, 0.0, 0.0]))
+
+        ticket = _make_ticket(db, rol_ventas, "usados-cero")
+        provider = FakeProvider(response=json.dumps(_valid_payload_for_ticket(ticket)))
+
+        with _patch_background_db(db):
+            asyncio.run(run_triage(ticket.id, provider))
+
+        propuestas = {p.campo: p for p in db.query(PropuestaIA).filter(PropuestaIA.ticket_id == ticket.id).all()}
+        assert propuestas["severidad"].ejemplos_usados == 0
+        assert propuestas["urgencia"].ejemplos_usados == 0
+
+    def test_read_on_n_examples_injected(self, db, rol_ventas, monkeypatch) -> None:
+        from app.tickets.services import ejemplos_service as ejemplos_service_module
+
+        monkeypatch.setattr(settings, "TICKETS_TRIAGE_EJEMPLOS_READ", True)
+
+        def _fake_similarity(db_, campo, qvec, k):
+            if campo == "severidad":
+                return [
+                    _fake_ejemplo_row(texto="ejemplo 1", valor_corregido="mayor", campo="severidad"),
+                    _fake_ejemplo_row(texto="ejemplo 2", valor_corregido="critica", campo="severidad"),
+                ]
+            return []
+
+        monkeypatch.setattr(ejemplos_service_module, "_similarity_query", _fake_similarity)
+        monkeypatch.setattr("app.tickets.services.triage_service.embed_query", AsyncMock(return_value=[1.0, 0.0, 0.0]))
+
+        ticket = _make_ticket(db, rol_ventas, "usados-n")
+        provider = FakeProvider(response=json.dumps(_valid_payload_for_ticket(ticket)))
+
+        with _patch_background_db(db):
+            asyncio.run(run_triage(ticket.id, provider))
+
+        propuestas = {p.campo: p for p in db.query(PropuestaIA).filter(PropuestaIA.ticket_id == ticket.id).all()}
+        assert propuestas["severidad"].ejemplos_usados == 2
+        assert propuestas["urgencia"].ejemplos_usados == 0
+
+    def test_read_on_titulo_proposal_has_no_retrieval_stays_null(self, db, rol_ventas, monkeypatch) -> None:
+        from app.tickets.services import ejemplos_service as ejemplos_service_module
+
+        monkeypatch.setattr(settings, "TICKETS_TRIAGE_EJEMPLOS_READ", True)
+        monkeypatch.setattr(
+            ejemplos_service_module,
+            "_similarity_query",
+            lambda db_, campo, qvec, k: [_fake_ejemplo_row(texto="x", valor_corregido="mayor", campo=campo)],
+        )
+        monkeypatch.setattr("app.tickets.services.triage_service.embed_query", AsyncMock(return_value=[1.0, 0.0, 0.0]))
+
+        ticket = _make_ticket(db, rol_ventas, "usados-titulo-null")
+        provider = FakeProvider(response=json.dumps(_valid_payload_for_ticket(ticket)))
+
+        with _patch_background_db(db):
+            asyncio.run(run_triage(ticket.id, provider))
+
+        propuestas = {p.campo: p for p in db.query(PropuestaIA).filter(PropuestaIA.ticket_id == ticket.id).all()}
+        assert propuestas["titulo"].ejemplos_usados is None
+        assert propuestas["resumen"].ejemplos_usados is None
+        assert propuestas["severidad"].ejemplos_usados == 1
+
+
+class TestDegradationEmbedderUnreachable:
+    """Task 8/9. `embed_query` returning `None` with the read flag ON must
+    degrade to zero examples with classification proceeding normally — no
+    exception reaches the background-task runner, output shape identical to
+    today's."""
+
+    def test_embedder_unreachable_degrades_to_zero_examples_classification_proceeds(
+        self, db, rol_ventas, monkeypatch
+    ) -> None:
+        from app.tickets.services import ejemplos_service as ejemplos_service_module
+        from app.tickets.services.triage_service import TICKETS_TRIAGE_SYSTEM_PROMPT
+
+        monkeypatch.setattr(settings, "TICKETS_TRIAGE_EJEMPLOS_READ", True)
+        monkeypatch.setattr("app.tickets.services.triage_service.embed_query", AsyncMock(return_value=None))
+
+        def _must_not_be_called(db_, campo, qvec, k):
+            raise AssertionError("similarity query must not run when embed_query degraded to None")
+
+        monkeypatch.setattr(ejemplos_service_module, "_similarity_query", _must_not_be_called)
+
+        ticket = _make_ticket(db, rol_ventas, "embedder-unreachable")
+        provider = FakeProvider(response=json.dumps(_valid_payload_for_ticket(ticket)))
+
+        with _patch_background_db(db):
+            asyncio.run(run_triage(ticket.id, provider))
+
+        assert provider.last_system_prompt == TICKETS_TRIAGE_SYSTEM_PROMPT
+        propuestas = {p.campo: p for p in db.query(PropuestaIA).filter(PropuestaIA.ticket_id == ticket.id).all()}
+        assert propuestas["severidad"].estado == "confirmada"
+        assert propuestas["urgencia"].estado == "confirmada"
