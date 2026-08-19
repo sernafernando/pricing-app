@@ -173,6 +173,20 @@ class TestWebhookFailure:
 
         assert exc_info.value.status_code == 503
 
+    def test_503_detail_names_the_filter_the_user_actually_turned_on(self, db) -> None:
+        """The user ticked "precios mayoristas"; being told that *promociones*
+        are unavailable sends them looking at the wrong feature."""
+        db.add(_make_producto(1))
+        db.commit()
+        _patch_tienda_nube(db)
+
+        with patch(_FILTER_READER, side_effect=RuntimeError("down")):
+            with pytest.raises(HTTPException) as exc_info:
+                listar_productos(db=db, current_user=_current_user(), page=1, page_size=50, con_pxq=True)
+
+        assert "mayorista" in exc_info.value.detail.lower()
+        assert "promocion" not in exc_info.value.detail.lower()
+
     def test_unrelated_request_unaffected_by_webhook_down(self, db) -> None:
         db.add(_make_producto(1))
         db.commit()

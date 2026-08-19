@@ -63,7 +63,13 @@ logger = logging.getLogger(__name__)
 router = APIRouter()
 
 
-def _resolve_and_fold_mlas(query, db: Session, resolver, log_context: str):
+def _resolve_and_fold_mlas(
+    query,
+    db: Session,
+    resolver,
+    log_context: str,
+    detail: str = "Filtro de promociones no disponible temporalmente",
+):
     """Resolves a set of MLAs (cross-DB, mlwebhook) via `resolver` and folds
     it into `query` against PublicacionML/ProductoERP.
 
@@ -77,6 +83,10 @@ def _resolve_and_fold_mlas(query, db: Session, resolver, log_context: str):
         db: session used to build the local PublicacionML fold subquery.
         resolver: zero-arg callable returning Set[str] of mla (may raise).
         log_context: short label used in the warning log on failure.
+        detail: user-facing 503 message. Defaults to the promo wording the
+            original four call sites shipped with; a caller filtering on
+            something else MUST pass its own, or it tells the user a feature
+            they never touched is down.
 
     Returns:
         The filtered query.
@@ -92,10 +102,7 @@ def _resolve_and_fold_mlas(query, db: Session, resolver, log_context: str):
         # so a programming error (TypeError/AttributeError) surfaces as a 500,
         # not a misleading "webhook unavailable" 503.
         logger.warning("%s no disponible: %s", log_context, exc)
-        raise HTTPException(
-            status_code=503,
-            detail="Filtro de promociones no disponible temporalmente",
-        ) from exc
+        raise HTTPException(status_code=503, detail=detail) from exc
 
     if not mlas:
         # EMPTY-SET GUARD: resolver found zero matching MLAs => zero
@@ -755,7 +762,13 @@ def listar_productos(
     # `None` (filtro ausente) y `False` (chip apagado) son no-ops — este filtro
     # es un toggle de presencia, no un ternario "con/sin".
     if con_pxq:
-        query = _resolve_and_fold_mlas(query, db, fetch_mlas_with_pxq_tiers, "Filtro precios mayoristas (PxQ)")
+        query = _resolve_and_fold_mlas(
+            query,
+            db,
+            fetch_mlas_with_pxq_tiers,
+            "Filtro precios mayoristas (PxQ)",
+            detail="Filtro de precios mayoristas no disponible temporalmente",
+        )
 
     # Operador promo: del buscador (feature productos-search-mla-promo-operators,
     # cross-DB: mlwebhook -> pricing). Convive con promo_tipos (AND natural,
