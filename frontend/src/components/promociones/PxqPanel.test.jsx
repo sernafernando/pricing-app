@@ -29,6 +29,7 @@ vi.mock('../../contexts/PermisosContext', () => ({
 vi.mock('../../services/api', () => ({
   pxqAPI: {
     getLive: vi.fn(),
+    getMarkup: vi.fn(),
     createTier: vi.fn(),
     updateTier: vi.fn(),
     deleteTier: vi.fn(),
@@ -525,7 +526,7 @@ describe('PxqPanel — price update to ML (PR 4d)', () => {
     await user.click(screen.getByRole('button', { name: /actualizar precios en mercadolibre/i }));
 
     await waitFor(() => expect(pxqAPI.sync).toHaveBeenCalledTimes(1));
-    expect(pxqAPI.sync).toHaveBeenCalledWith('MLA001');
+    expect(pxqAPI.sync).toHaveBeenCalledWith('MLA001', { publicarSinMarkup: false });
     await waitFor(() => expect(pxqAPI.getLive).toHaveBeenCalledTimes(2));
   });
 
@@ -727,6 +728,161 @@ describe('PxqPanel — price update to ML (PR 4d)', () => {
     await user.click(screen.getByRole('button', { name: /actualizar precios en mercadolibre/i }));
 
     await waitFor(() => expect(screen.getByText(/mercadolibre rechazó/i)).toBeInTheDocument());
+  });
+});
+
+describe('PxqPanel — publish-without-markup override checkbox (slice C2)', () => {
+  function mockLive({ mirror_tiers = [], live_tiers = [], live_status = 'ok' } = {}) {
+    return {
+      data: {
+        item_id: 'MLA001',
+        live_status,
+        live_tiers,
+        mirror_tiers,
+        fetched_at: '2026-08-01T10:00:00Z',
+      },
+    };
+  }
+
+  // Two tiers, so a per-TIER checkbox (the shape explicitly rejected by
+  // design) would render two boxes and this suite would catch it via the
+  // count assertion below.
+  const twoTiers = [
+    { id: 1, cantidad_minima: 5, precio_unitario: 100, costo_envio_total: 20, ml_price_id: null, estado: 'listo' },
+    { id: 2, cantidad_minima: 10, precio_unitario: 90, costo_envio_total: 20, ml_price_id: null, estado: 'listo' },
+  ];
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockTienePermiso.mockImplementation(() => true);
+  });
+
+  afterEach(() => {
+    mockTienePermiso.mockImplementation(() => true);
+  });
+
+  it('renders exactly one checkbox for the whole publication, not one per tier', async () => {
+    pxqAPI.getLive.mockResolvedValue(mockLive({ mirror_tiers: twoTiers }));
+
+    renderPanel();
+
+    await waitFor(() => expect(screen.getByRole('button', { name: /actualizar precios en mercadolibre/i })).toBeInTheDocument());
+
+    expect(screen.getAllByRole('checkbox')).toHaveLength(1);
+  });
+
+  it('defaults to unchecked and sends publicarSinMarkup: false when left alone', async () => {
+    const user = userEvent.setup();
+    pxqAPI.getLive.mockResolvedValue(mockLive({ mirror_tiers: twoTiers }));
+    pxqAPI.sync.mockResolvedValue({ data: { synced: true, status: 'sincronizado' } });
+
+    renderPanel();
+
+    await waitFor(() => expect(screen.getByRole('checkbox')).toBeInTheDocument());
+    expect(screen.getByRole('checkbox')).not.toBeChecked();
+
+    await user.click(screen.getByRole('button', { name: /actualizar precios en mercadolibre/i }));
+
+    await waitFor(() => expect(pxqAPI.sync).toHaveBeenCalledTimes(1));
+    expect(pxqAPI.sync).toHaveBeenCalledWith('MLA001', { publicarSinMarkup: false });
+  });
+
+  it('checking it includes pending tiers via the single override flag', async () => {
+    const user = userEvent.setup();
+    pxqAPI.getLive.mockResolvedValue(mockLive({ mirror_tiers: twoTiers }));
+    pxqAPI.sync.mockResolvedValue({ data: { synced: true, status: 'sincronizado' } });
+
+    renderPanel();
+
+    await waitFor(() => expect(screen.getByRole('checkbox')).toBeInTheDocument());
+    await user.click(screen.getByRole('checkbox'));
+    expect(screen.getByRole('checkbox')).toBeChecked();
+
+    await user.click(screen.getByRole('button', { name: /actualizar precios en mercadolibre/i }));
+
+    await waitFor(() => expect(pxqAPI.sync).toHaveBeenCalledTimes(1));
+    expect(pxqAPI.sync).toHaveBeenCalledWith('MLA001', { publicarSinMarkup: true });
+  });
+
+  it('checking then unchecking before sync reverts to the excluded default', async () => {
+    const user = userEvent.setup();
+    pxqAPI.getLive.mockResolvedValue(mockLive({ mirror_tiers: twoTiers }));
+    pxqAPI.sync.mockResolvedValue({ data: { synced: true, status: 'sincronizado' } });
+
+    renderPanel();
+
+    await waitFor(() => expect(screen.getByRole('checkbox')).toBeInTheDocument());
+    await user.click(screen.getByRole('checkbox'));
+    await user.click(screen.getByRole('checkbox'));
+    expect(screen.getByRole('checkbox')).not.toBeChecked();
+
+    await user.click(screen.getByRole('button', { name: /actualizar precios en mercadolibre/i }));
+
+    await waitFor(() => expect(pxqAPI.sync).toHaveBeenCalledTimes(1));
+    expect(pxqAPI.sync).toHaveBeenCalledWith('MLA001', { publicarSinMarkup: false });
+  });
+});
+
+describe('PxqPanel — audit_warning renders alongside success, never in place of it (D6)', () => {
+  function mockLive({ mirror_tiers = [], live_tiers = [], live_status = 'ok' } = {}) {
+    return {
+      data: {
+        item_id: 'MLA001',
+        live_status,
+        live_tiers,
+        mirror_tiers,
+        fetched_at: '2026-08-01T10:00:00Z',
+      },
+    };
+  }
+
+  const oneTier = [{ id: 1, cantidad_minima: 5, precio_unitario: 100, costo_envio_total: 20, ml_price_id: null, estado: 'listo' }];
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockTienePermiso.mockImplementation(() => true);
+  });
+
+  afterEach(() => {
+    mockTienePermiso.mockImplementation(() => true);
+  });
+
+  it('shows both the success message and the audit warning when the response carries one', async () => {
+    const user = userEvent.setup();
+    pxqAPI.getLive.mockResolvedValue(mockLive({ mirror_tiers: oneTier }));
+    pxqAPI.sync.mockResolvedValue({
+      data: {
+        synced: true,
+        status: 'sincronizado',
+        audit_warning: 'Precios actualizados en MercadoLibre, pero no se pudo registrar la auditoría.',
+      },
+    });
+
+    renderPanel();
+
+    await waitFor(() => expect(screen.getByRole('button', { name: /actualizar precios en mercadolibre/i })).toBeInTheDocument());
+    await user.click(screen.getByRole('button', { name: /actualizar precios en mercadolibre/i }));
+
+    // The success message: sync DID succeed, and this must not be degraded.
+    await waitFor(() => expect(screen.getByText(/precios actualizados en mercadolibre\./i)).toBeInTheDocument());
+    // A DISTINCT warning, not folded into (or replacing) the success text.
+    expect(
+      screen.getByText(/no se pudo registrar la auditoría/i),
+    ).toBeInTheDocument();
+  });
+
+  it('shows only the success message when the response carries no audit_warning', async () => {
+    const user = userEvent.setup();
+    pxqAPI.getLive.mockResolvedValue(mockLive({ mirror_tiers: oneTier }));
+    pxqAPI.sync.mockResolvedValue({ data: { synced: true, status: 'sincronizado' } });
+
+    renderPanel();
+
+    await waitFor(() => expect(screen.getByRole('button', { name: /actualizar precios en mercadolibre/i })).toBeInTheDocument());
+    await user.click(screen.getByRole('button', { name: /actualizar precios en mercadolibre/i }));
+
+    await waitFor(() => expect(screen.getByText(/precios actualizados en mercadolibre\./i)).toBeInTheDocument());
+    expect(screen.queryByText(/no se pudo registrar la auditoría/i)).not.toBeInTheDocument();
   });
 });
 
@@ -1776,5 +1932,228 @@ describe('PxqPanel — primary actions look like buttons', () => {
     for (const button of [agregar, actualizar]) {
       expect(button.className).toMatch(/\bprimary\b/);
     }
+  });
+});
+
+// Slice A2 of `pxq-markup-antes-de-publicar`: the mirror column shows each
+// tier's markup (from `GET /pxq/{item_id}/markup`, slice A1) so the operator
+// sees the number BEFORE publishing, instead of only after.
+describe('PxqPanel — per-tier markup display (slice A2)', () => {
+  function mockLive({ mirror_tiers = [], live_tiers = [], live_status = 'ok' } = {}) {
+    return {
+      data: { item_id: 'MLA001', live_status, live_tiers, mirror_tiers, fetched_at: '2026-08-18T10:00:00Z' },
+    };
+  }
+
+  function mockMarkup(tiers) {
+    return { data: { item_id: 'MLA001', tiers } };
+  }
+
+  const oneTier = () => [
+    { id: 1, cantidad_minima: 5, precio_unitario: 100, costo_envio_total: 20, ml_price_id: null, estado: 'listo' },
+  ];
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockTienePermiso.mockImplementation(() => true);
+  });
+
+  afterEach(() => {
+    mockTienePermiso.mockImplementation(() => true);
+  });
+
+  it('renders the resolved markup percentage next to its mirror tier', async () => {
+    pxqAPI.getLive.mockResolvedValue(mockLive({ mirror_tiers: oneTier() }));
+    pxqAPI.getMarkup.mockResolvedValue(mockMarkup([{ tier_id: 1, markup: 0.25, limpio: 500, comision_total: 75 }]));
+
+    renderPanel();
+
+    await screen.findByText('Mirror local');
+    expect(pxqAPI.getMarkup).toHaveBeenCalledWith('MLA001');
+    await screen.findByText(/25[.,]0%/);
+  });
+
+  it('renders a human reason instead of a number when the markup could not be computed', async () => {
+    pxqAPI.getLive.mockResolvedValue(mockLive({ mirror_tiers: oneTier() }));
+    pxqAPI.getMarkup.mockResolvedValue(mockMarkup([{ tier_id: 1, reason: 'shipping_unavailable' }]));
+
+    renderPanel();
+
+    await screen.findByText('Mirror local');
+    expect(await screen.findByText(/falta el costo de env[ií]o/i)).toBeInTheDocument();
+    // Never a fabricated number for an unresolved tier.
+    expect(screen.queryByText(/%$/)).not.toBeInTheDocument();
+  });
+
+  it('renders a different reason for missing product pricing data', async () => {
+    pxqAPI.getLive.mockResolvedValue(mockLive({ mirror_tiers: oneTier() }));
+    pxqAPI.getMarkup.mockResolvedValue(mockMarkup([{ tier_id: 1, reason: 'product_data_missing' }]));
+
+    renderPanel();
+
+    await screen.findByText('Mirror local');
+    expect(await screen.findByText(/datos del producto/i)).toBeInTheDocument();
+  });
+
+  it('shows a neutral placeholder while the markup fetch is still in flight', async () => {
+    pxqAPI.getLive.mockResolvedValue(mockLive({ mirror_tiers: oneTier() }));
+    let resolveMarkup;
+    pxqAPI.getMarkup.mockReturnValue(
+      new Promise((resolve) => {
+        resolveMarkup = resolve;
+      }),
+    );
+
+    renderPanel();
+
+    await screen.findByText('Mirror local');
+    expect(screen.getByText(/calculando/i)).toBeInTheDocument();
+
+    resolveMarkup(mockMarkup([{ tier_id: 1, markup: 0.1 }]));
+    await screen.findByText(/10[.,]0%/);
+  });
+
+  it('never calls the markup endpoint for a pxq.ver-only user (canRead gate holds for markup too)', async () => {
+    pxqAPI.getLive.mockResolvedValue(mockLive({ mirror_tiers: oneTier() }));
+    pxqAPI.getMarkup.mockResolvedValue(mockMarkup([{ tier_id: 1, markup: 0.25 }]));
+
+    renderPanel();
+    await screen.findByText('Mirror local');
+    expect(pxqAPI.getMarkup).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not fabricate a markup for a tier the batch response never mentions', async () => {
+    pxqAPI.getLive.mockResolvedValue(mockLive({ mirror_tiers: oneTier() }));
+    pxqAPI.getMarkup.mockResolvedValue(mockMarkup([]));
+
+    renderPanel();
+
+    await screen.findByText('Mirror local');
+    expect(screen.queryByText(/calculando/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/%$/)).not.toBeInTheDocument();
+  });
+});
+
+// Follow-up to slice A2: `handleAuthoringChanged` reloaded the MIRROR
+// (`reload()`) but never the MARKUP resource, so `usePxqMarkup`'s cache kept
+// serving the pre-edit percentage after a tier's price/shipping changed --
+// exactly the stale/fabricated number the spec forbids. See design D2,
+// "Recompute on relevant data change".
+describe('PxqPanel — markup recompute on authoring change (design D2)', () => {
+  function mockLive({ mirror_tiers = [], live_tiers = [], live_status = 'ok' } = {}) {
+    return {
+      data: { item_id: 'MLA001', live_status, live_tiers, mirror_tiers, fetched_at: '2026-08-18T10:00:00Z' },
+    };
+  }
+
+  function mockMarkup(tiers) {
+    return { data: { item_id: 'MLA001', tiers } };
+  }
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockTienePermiso.mockImplementation(() => true);
+  });
+
+  afterEach(() => {
+    mockTienePermiso.mockImplementation(() => true);
+  });
+
+  it('refetches markup after editing a tier and shows the recomputed value', async () => {
+    const user = userEvent.setup();
+    const tierBefore = { id: 1, cantidad_minima: 5, precio_unitario: 100, costo_envio_total: 20, ml_price_id: null, estado: 'listo' };
+    const tierAfter = { ...tierBefore, precio_unitario: 150 };
+
+    pxqAPI.getLive
+      .mockResolvedValueOnce(mockLive({ mirror_tiers: [tierBefore] }))
+      .mockResolvedValueOnce(mockLive({ mirror_tiers: [tierAfter] }));
+    pxqAPI.getMarkup
+      .mockResolvedValueOnce(mockMarkup([{ tier_id: 1, markup: 0.1 }]))
+      .mockResolvedValueOnce(mockMarkup([{ tier_id: 1, markup: 0.4 }]));
+    pxqAPI.updateTier.mockResolvedValue({ data: tierAfter });
+
+    renderPanel();
+
+    await screen.findByText(/10[.,]0%/);
+
+    await user.click(screen.getByRole('button', { name: /^editar$/i }));
+    const precioInput = screen.getByLabelText(/precio unitario/i);
+    await user.clear(precioInput);
+    await user.type(precioInput, '150');
+    await user.click(screen.getByRole('button', { name: /guardar/i }));
+
+    await waitFor(() => expect(pxqAPI.getMarkup).toHaveBeenCalledTimes(2));
+    await screen.findByText(/40[.,]0%/);
+    expect(screen.queryByText(/10[.,]0%/)).not.toBeInTheDocument();
+  });
+
+  it('keeps an already-rendered tier markup on screen while the post-authoring refetch is in flight, without an intervening "Calculando" placeholder', async () => {
+    const user = userEvent.setup();
+    const tierA = { id: 1, cantidad_minima: 5, precio_unitario: 100, costo_envio_total: 20, ml_price_id: null, estado: 'listo' };
+    const tierB = { id: 2, cantidad_minima: 10, precio_unitario: 200, costo_envio_total: 40, ml_price_id: null, estado: 'listo' };
+    const tierBAfter = { ...tierB, precio_unitario: 250 };
+
+    pxqAPI.getLive
+      .mockResolvedValueOnce(mockLive({ mirror_tiers: [tierA, tierB] }))
+      .mockResolvedValueOnce(mockLive({ mirror_tiers: [tierA, tierBAfter] }));
+    pxqAPI.getMarkup.mockResolvedValueOnce(
+      mockMarkup([
+        { tier_id: 1, markup: 0.2 },
+        { tier_id: 2, markup: 0.3 },
+      ]),
+    );
+    let resolveSecondMarkup;
+    pxqAPI.getMarkup.mockReturnValueOnce(
+      new Promise((resolve) => {
+        resolveSecondMarkup = resolve;
+      }),
+    );
+    pxqAPI.updateTier.mockResolvedValue({ data: tierBAfter });
+
+    renderPanel();
+
+    await screen.findByText(/20[.,]0%/);
+    await screen.findByText(/30[.,]0%/);
+
+    const editButtons = screen.getAllByRole('button', { name: /^editar$/i });
+    await user.click(editButtons[1]);
+    const precioInput = screen.getByLabelText(/precio unitario/i);
+    await user.clear(precioInput);
+    await user.type(precioInput, '250');
+    await user.click(screen.getByRole('button', { name: /guardar/i }));
+
+    await waitFor(() => expect(pxqAPI.getMarkup).toHaveBeenCalledTimes(2));
+
+    // Tier A's already-known markup stays visible -- no placeholder pushed it out.
+    expect(screen.getByText(/20[.,]0%/)).toBeInTheDocument();
+    expect(screen.queryByText(/calculando/i)).not.toBeInTheDocument();
+
+    resolveSecondMarkup(mockMarkup([{ tier_id: 1, markup: 0.2 }, { tier_id: 2, markup: 0.5 }]));
+    await screen.findByText(/50[.,]0%/);
+  });
+
+  it('refetches markup after importing tiers from ML so the new rows get their reason, not a blank cell', async () => {
+    const user = userEvent.setup();
+
+    pxqAPI.getLive
+      .mockResolvedValueOnce(mockLive({ mirror_tiers: [], live_tiers: [{ id: 'PXQ1', quantity: 5, amount: 100 }] }))
+      .mockResolvedValueOnce(
+        mockLive({
+          mirror_tiers: [{ id: 9, cantidad_minima: 5, precio_unitario: 100, costo_envio_total: null, ml_price_id: 'PXQ1', estado: 'incompleto' }],
+          live_tiers: [{ id: 'PXQ1', quantity: 5, amount: 100 }],
+        }),
+      );
+    // First markup batch runs against the empty mirror; the post-import one is
+    // the first that can mention the adopted row.
+    pxqAPI.getMarkup
+      .mockResolvedValueOnce(mockMarkup([]))
+      .mockResolvedValueOnce(mockMarkup([{ tier_id: 9, reason: 'shipping_unavailable' }]));
+    pxqAPI.adoptLive.mockResolvedValue({ data: { item_id: 'MLA001', count: 1, imported: [] } });
+
+    renderPanel();
+    await user.click(await screen.findByRole('button', { name: /^importar de mercadolibre$/i }));
+
+    await waitFor(() => expect(pxqAPI.getMarkup).toHaveBeenCalledTimes(2));
+    await screen.findByText(/^falta el costo de envío del bulto$/i);
   });
 });

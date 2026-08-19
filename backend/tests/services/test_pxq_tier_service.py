@@ -8,6 +8,7 @@ not the primary UX-facing validation path.
 
 from __future__ import annotations
 
+from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 
 import pytest
@@ -502,5 +503,161 @@ def test_delete_tier_removes_the_local_row(db, publicacion, pxq_user) -> None:
 def test_delete_unknown_tier_is_a_clean_404(db) -> None:
     with pytest.raises(HTTPException) as exc:
         delete_pxq_tier(db, tier_id=999999)
-
     assert exc.value.status_code == 404
+
+
+class TestCostoEnvioFetchedAtD3:
+    """D3 (slice B, task 4.5/4.6): `costo_envio_fetched_at` tracks freshness
+    of the VALUE, not authorship. This CORRECTS the spec — see the design
+    doc's precedence note.
+
+      - manual write to `costo_envio_total`            -> stamp now() (NEVER NULL)
+      - write to `precio_unitario`/`cantidad_minima`    -> NULL (invalidate)
+      - a failed auto-fetch touches NEITHER column (covered in
+        `test_pxq_markup_service.py`/`test_pxq_shipping_refresh.py`, not here
+        — this class only covers the `update_pxq_tier` write path)
+      - PATCH with BOTH an invalidating field AND `costo_envio_total`:
+        invalidate first, stamp after — deterministic, manual value wins.
+    """
+
+    def test_manual_write_to_costo_envio_total_stamps_now(self, db, publicacion, pxq_user) -> None:
+        tier = create_pxq_tier(
+            db,
+            publicacion_ml_id=publicacion.id,
+            item_id=publicacion.mla,
+            cantidad_minima=5,
+            precio_unitario=Decimal("500.00"),
+            usuario_id=pxq_user.id,
+        )
+        db.flush()
+        assert tier.costo_envio_fetched_at is None
+
+        before = datetime.now(timezone.utc)
+        updated = update_pxq_tier(db, tier_id=tier.id, costo_envio_total=Decimal("120.00"))
+        after = datetime.now(timezone.utc)
+
+        assert updated.costo_envio_total == Decimal("120.00")
+        assert updated.costo_envio_fetched_at is not None
+        stamp = updated.costo_envio_fetched_at
+        if stamp.tzinfo is None:
+            stamp = stamp.replace(tzinfo=timezone.utc)
+        assert before <= stamp <= after
+
+    def test_write_to_precio_unitario_nulls_the_stamp(self, db, publicacion, pxq_user) -> None:
+        tier = create_pxq_tier(
+            db,
+            publicacion_ml_id=publicacion.id,
+            item_id=publicacion.mla,
+            cantidad_minima=5,
+            precio_unitario=Decimal("500.00"),
+            usuario_id=pxq_user.id,
+        )
+        tier.costo_envio_total = Decimal("120.00")
+        tier.costo_envio_fetched_at = datetime.now(timezone.utc)
+        db.flush()
+
+        updated = update_pxq_tier(db, tier_id=tier.id, precio_unitario=Decimal("650.00"))
+
+        assert updated.costo_envio_fetched_at is None
+        # The stale shipping value is left in place — only the freshness
+        # marker is invalidated, forcing a re-fetch on the next open.
+        assert updated.costo_envio_total == Decimal("120.00")
+
+    def test_write_to_cantidad_minima_nulls_the_stamp(self, db, publicacion, pxq_user) -> None:
+        tier = create_pxq_tier(
+            db,
+            publicacion_ml_id=publicacion.id,
+            item_id=publicacion.mla,
+            cantidad_minima=5,
+            precio_unitario=Decimal("500.00"),
+            usuario_id=pxq_user.id,
+        )
+        tier.costo_envio_total = Decimal("120.00")
+        tier.costo_envio_fetched_at = datetime.now(timezone.utc)
+        db.flush()
+
+        updated = update_pxq_tier(db, tier_id=tier.id, cantidad_minima=8)
+
+        assert updated.costo_envio_fetched_at is None
+        assert updated.costo_envio_total == Decimal("120.00")
+
+    def test_patch_with_both_invalidating_field_and_costo_envio_total_stamps_deterministically(
+        self, db, publicacion, pxq_user
+    ) -> None:
+        """Invalidate FIRST, stamp AFTER — manual value wins. A PATCH that
+        changes `precio_unitario` (which normally NULLs the stamp) AND
+        supplies `costo_envio_total` in the same call must end up STAMPED,
+        not NULL, because the operator is asserting a fresh shipping value
+        for the new price/quantity in the same request."""
+        tier = create_pxq_tier(
+            db,
+            publicacion_ml_id=publicacion.id,
+            item_id=publicacion.mla,
+            cantidad_minima=5,
+            precio_unitario=Decimal("500.00"),
+            usuario_id=pxq_user.id,
+        )
+        tier.costo_envio_total = Decimal("120.00")
+        tier.costo_envio_fetched_at = datetime.now(timezone.utc) - timedelta(hours=1)
+        db.flush()
+
+        updated = update_pxq_tier(
+            db,
+            tier_id=tier.id,
+            precio_unitario=Decimal("700.00"),
+            costo_envio_total=Decimal("150.00"),
+        )
+
+        assert updated.precio_unitario == Decimal("700.00")
+        assert updated.costo_envio_total == Decimal("150.00")
+        assert updated.costo_envio_fetched_at is not None
+
+    def test_patch_with_cantidad_minima_and_costo_envio_total_stamps_deterministically(
+        self, db, publicacion, pxq_user
+    ) -> None:
+        tier = create_pxq_tier(
+            db,
+            publicacion_ml_id=publicacion.id,
+            item_id=publicacion.mla,
+            cantidad_minima=5,
+            precio_unitario=Decimal("500.00"),
+            usuario_id=pxq_user.id,
+        )
+        db.flush()
+
+        updated = update_pxq_tier(
+            db,
+            tier_id=tier.id,
+            cantidad_minima=9,
+            costo_envio_total=Decimal("99.00"),
+        )
+
+        assert updated.cantidad_minima == 9
+        assert updated.costo_envio_total == Decimal("99.00")
+        assert updated.costo_envio_fetched_at is not None
+
+    def test_update_omitting_both_fields_leaves_the_stamp_untouched(self, db, publicacion, pxq_user) -> None:
+        """`is not None` ("field supplied") semantics stay intact: a field
+        genuinely omitted from the call must not trigger either D3 branch."""
+        tier = create_pxq_tier(
+            db,
+            publicacion_ml_id=publicacion.id,
+            item_id=publicacion.mla,
+            cantidad_minima=5,
+            precio_unitario=Decimal("500.00"),
+            usuario_id=pxq_user.id,
+        )
+        stamp = datetime.now(timezone.utc) - timedelta(hours=2)
+        tier.costo_envio_total = Decimal("120.00")
+        tier.costo_envio_fetched_at = stamp
+        db.flush()
+
+        # No cantidad_minima, no precio_unitario, no costo_envio_total.
+        updated = update_pxq_tier(db, tier_id=tier.id)
+
+        assert updated.costo_envio_total == Decimal("120.00")
+        got = updated.costo_envio_fetched_at
+        if got.tzinfo is None:
+            got = got.replace(tzinfo=timezone.utc)
+        expected = stamp if stamp.tzinfo is not None else stamp.replace(tzinfo=timezone.utc)
+        assert got == expected

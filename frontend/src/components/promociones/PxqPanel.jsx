@@ -1,7 +1,8 @@
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { RefreshCw } from 'lucide-react';
 import { pxqAPI } from '../../services/api';
 import { useLazyResource } from '../../hooks/useLazyResource';
+import { usePxqMarkup } from '../../hooks/usePxqMarkup';
 import { usePermisos } from '../../contexts/PermisosContext';
 import styles from './promociones.module.css';
 
@@ -430,16 +431,30 @@ function emptyMirrorRefusal(liveTiers, liveUnavailable) {
  * `syncing` stays local on purpose — it is this button's in-flight state, not
  * an outcome, and it has nothing to survive.
  */
-function PxqSyncControl({ itemId, hasTiers, liveTiers, liveUnavailable, feedback, onFeedback, divergences, onDivergences, onSynced }) {
+function PxqSyncControl({ itemId, hasTiers, liveTiers, liveUnavailable, feedback, onFeedback, divergences, onDivergences, auditWarning, onAuditWarning, onSynced }) {
   const [syncing, setSyncing] = useState(false);
+  // D4 (slice C2): ONE checkbox for the whole publication, never per tier —
+  // there is no per-tier override on the backend
+  // (`ml_pxq_write_service.sync_pxq_tiers`'s `publicar_sin_markup`), so a
+  // per-tier control here would offer a choice the API cannot express.
+  // Local `useState`, not lifted: it is per-request and must NOT survive a
+  // sync the way `feedback`/`divergences` do — the next click starts from
+  // the same excluded default until the operator opts in again.
+  const [publicarSinMarkup, setPublicarSinMarkup] = useState(false);
 
   async function runSync() {
     setSyncing(true);
     onFeedback(null);
     onDivergences(null);
+    onAuditWarning(null);
     try {
-      await pxqAPI.sync(itemId);
+      const { data } = await pxqAPI.sync(itemId, { publicarSinMarkup });
       onFeedback({ kind: 'ok', text: 'Precios actualizados en MercadoLibre.' });
+      // D6: a DISTINCT, ADDITIONAL warning -- the sync itself succeeded, so
+      // this must never replace or degrade the success message above.
+      if (data?.audit_warning) {
+        onAuditWarning(data.audit_warning);
+      }
       await onSynced();
     } catch (err) {
       const httpStatus = err?.response?.status;
@@ -472,10 +487,19 @@ function PxqSyncControl({ itemId, hasTiers, liveTiers, liveUnavailable, feedback
 
   return (
     <div className={styles.pxqAuthoring}>
+      <label className={styles.pxqField}>
+        <input
+          type="checkbox"
+          checked={publicarSinMarkup}
+          onChange={(e) => setPublicarSinMarkup(e.target.checked)}
+        />
+        {' '}Publicar precios sin markup calculado (tramos pendientes de costo/comisión)
+      </label>
       <button type="button" className="btn-tesla primary sm" disabled={syncing} onClick={handleSyncClick}>
         Actualizar precios en MercadoLibre
       </button>
       {feedback && <div className={feedbackClass}>{feedback.text}</div>}
+      {auditWarning && <div className={styles.feedbackWarn}>{auditWarning}</div>}
       {divergences && (
         <div className={styles.pxqDivergenceBanner}>
           <div className={styles.pxqColumnTitle}>Diferencias que impiden actualizar los precios</div>
@@ -682,6 +706,57 @@ function formatMoney(value) {
   return `$${Number(value).toLocaleString('es-AR')}`;
 }
 
+// `reason` is a PERSISTED DOMAIN VALUE from `PxqMarkupReason`
+// (`backend/app/services/pxq_markup_service.py`), not UI copy -- same
+// treatment as `ESTADO_LABELS` below, including the `Map` (never a bare
+// object literal) and the raw-value fallback for a reason this map does not
+// yet know about.
+const MARKUP_REASON_LABELS = new Map([
+  ['shipping_unavailable', 'Falta el costo de envío del bulto'],
+  ['product_data_missing', 'Faltan datos del producto para calcular el markup'],
+]);
+
+function formatMarkupReason(reason) {
+  return MARKUP_REASON_LABELS.get(reason) ?? reason;
+}
+
+// `markup` arrives as a RATIO (0.25 == 25%), matching `calcular_markup`
+// (`backend/app/services/pricing_calculator.py`) -- never pre-multiplied by
+// the backend, so this is the one place that turns it into the percentage
+// the operator reads.
+function formatMarkupPercent(markup) {
+  return `${(markup * 100).toLocaleString('es-AR', { minimumFractionDigits: 1, maximumFractionDigits: 1 })}%`;
+}
+
+/**
+ * ONE mirror tier's markup cell (slice A2 of `pxq-markup-antes-de-publicar`):
+ * a resolved percentage, the human reason it could not be computed, a
+ * "calculando…" placeholder while the fetch is in flight, or nothing at all
+ * when the batch response never mentioned this tier -- never a fabricated
+ * number for any of those cases.
+ *
+ * `markupLoading` alone does NOT mean "show the placeholder": `entry` comes
+ * from the PREVIOUS batch response until the in-flight one resolves (design
+ * D2, "editing tier B leaves tier A's rendered state untouched"), so a tier
+ * that already has a known value keeps showing it through a reload triggered
+ * by editing a DIFFERENT tier. The placeholder is reserved for a tier that
+ * has never had a value to show.
+ */
+function PxqTierMarkup({ markupLoading, entry }) {
+  if (entry) {
+    if (entry.reason) {
+      return <span className={styles.pxqMarkupUnavailable}>{formatMarkupReason(entry.reason)}</span>;
+    }
+    return <span>Markup: {formatMarkupPercent(entry.markup)}</span>;
+  }
+  if (markupLoading) {
+    return <span className={styles.pxqMarkupPending}>Calculando markup…</span>;
+  }
+  // markupError or "batch response never mentioned this tier": nothing to
+  // fabricate.
+  return null;
+}
+
 // `estado` is a PERSISTED DOMAIN VALUE, not UI copy: the four members of
 // `ESTADOS_VALIDOS` are pinned by the CHECK constraint
 // `ck_ml_pxq_tier_estado_valido` (see `backend/app/models/ml_pxq_tier.py`). The
@@ -775,6 +850,16 @@ function PxqPanel({ itemId, pxqCacheRef }) {
   const fetcher = (id) => (canRead ? pxqAPI.getLive(id).then((r) => r.data) : Promise.resolve(null));
   const { data, loading, error, reload } = useLazyResource(pxqCacheRef, itemId, fetcher);
 
+  // Own cache, own resource -- see `usePxqMarkup`'s docstring for why it does
+  // not share `pxqCacheRef`. `useRef` (not module scope) so each mounted
+  // panel keeps its own map, same lifetime as the component itself.
+  const markupCacheRef = useRef(new Map());
+  const {
+    data: markupById,
+    loading: markupLoading,
+    reload: reloadMarkup,
+  } = usePxqMarkup(markupCacheRef, itemId, canRead);
+
   // Held here, not inside `PxqAdoptControl`: a successful import calls
   // `reload()`, which flips `loading` and makes this component return its
   // loading branch — unmounting the control and every piece of state in it.
@@ -786,6 +871,10 @@ function PxqPanel({ itemId, pxqCacheRef }) {
   // are part of that same outcome. See `PxqSyncControl`'s docstring.
   const [syncFeedback, setSyncFeedback] = useState(null);
   const [syncDivergences, setSyncDivergences] = useState(null);
+  // D6: SEPARATE from `syncFeedback` on purpose -- an audit failure is an
+  // ADDITIONAL warning alongside a successful sync, never a replacement for
+  // the success message, and the two must be able to render together.
+  const [syncAuditWarning, setSyncAuditWarning] = useState(null);
 
   // Outliving the control is not the same as outliving the PUBLICATION. The
   // messages survive `reload()` deliberately (above); they must NOT survive a
@@ -802,6 +891,7 @@ function PxqPanel({ itemId, pxqCacheRef }) {
     setAdoptFeedback(null);
     setSyncFeedback(null);
     setSyncDivergences(null);
+    setSyncAuditWarning(null);
   }
 
   // A feedback message describes the RESULT of an action taken against a state.
@@ -820,7 +910,13 @@ function PxqPanel({ itemId, pxqCacheRef }) {
     setAdoptFeedback(null);
     setSyncFeedback(null);
     setSyncDivergences(null);
-    await reload();
+    setSyncAuditWarning(null);
+    // Both resources describe the SAME authored data (D2, "Recompute on
+    // relevant data change"): reloading only the mirror left `usePxqMarkup`
+    // serving its pre-edit cache entry, so a tier's markup kept showing the
+    // OLD price/shipping cost after the operator changed them -- exactly the
+    // stale/fabricated number this feature exists to prevent.
+    await Promise.all([reload(), reloadMarkup()]);
   }
 
   // Invisible rather than an error/403 for a user without the permission —
@@ -921,6 +1017,7 @@ function PxqPanel({ itemId, pxqCacheRef }) {
                   <span>{tier.cantidad_minima} u.</span>
                   <span>{formatMoney(tier.precio_unitario)}</span>
                   <span>{formatEstado(tier.estado)}</span>
+                  <PxqTierMarkup markupLoading={markupLoading} entry={markupById?.get(tier.id)} />
                   {divergent && <span>Diverge de ML</span>}
                 </div>
               );
@@ -955,7 +1052,12 @@ function PxqPanel({ itemId, pxqCacheRef }) {
               canImport={canImportLive}
               feedback={adoptFeedback}
               onFeedback={setAdoptFeedback}
-              onAdopted={reload}
+              // Not `handleAuthoringChanged`: that would clear the import's
+              // own feedback message the moment it succeeds. But the import IS
+              // an authoring change for the markup column -- without the
+              // refetch the adopted rows render a blank cell (the cached batch
+              // never mentioned them) instead of their reason.
+              onAdopted={() => Promise.all([reload(), reloadMarkup()])}
             />
           )}
           <PxqSyncControl
@@ -967,6 +1069,8 @@ function PxqPanel({ itemId, pxqCacheRef }) {
             onFeedback={setSyncFeedback}
             divergences={syncDivergences}
             onDivergences={setSyncDivergences}
+            auditWarning={syncAuditWarning}
+            onAuditWarning={setSyncAuditWarning}
             onSynced={reload}
           />
         </>

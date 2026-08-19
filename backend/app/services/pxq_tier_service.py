@@ -19,6 +19,7 @@ import-scan test).
 
 from __future__ import annotations
 
+from datetime import datetime, timezone
 from decimal import Decimal
 from typing import Optional, Union
 
@@ -260,11 +261,30 @@ def update_pxq_tier(
             )
         tier.cantidad_minima = cantidad_minima
 
+    # D3 (slice B): `costo_envio_fetched_at` tracks freshness of the shipping
+    # VALUE, not who wrote it. A write to `precio_unitario`/`cantidad_minima`
+    # invalidates it -- shipping depends on both, so any previously
+    # fetched/stamped value is now stale and must trigger a re-fetch on the
+    # next open (`pxq_markup_service.refresh_tier_shipping`). Order matters:
+    # this branch (invalidate) runs BEFORE the `costo_envio_total` branch
+    # below (stamp), so a single PATCH carrying BOTH an invalidating field
+    # and a manual `costo_envio_total` ends up STAMPED, not NULL -- the
+    # manual value for the NEW price/quantity wins deterministically.
+    if precio_unitario is not None or cantidad_minima is not None:
+        tier.costo_envio_fetched_at = None
+
     if precio_unitario is not None:
         tier.precio_unitario = _to_decimal(precio_unitario)
 
     if costo_envio_total is not None:
         tier.costo_envio_total = _to_decimal(costo_envio_total)
+        # A MANUAL write still stamps `now()` -- the operator does not own
+        # this field. Their value is valid for exactly the same 24h TTL the
+        # auto-fetch honors, and after that the auto-fetch wins over it, same
+        # as it would over its own stale fetch. Never left NULL by a manual
+        # write: NULL means "never fetched/invalidated," which a manual
+        # write is neither.
+        tier.costo_envio_fetched_at = datetime.now(timezone.utc)
 
     db.flush()
     return tier

@@ -22,6 +22,7 @@ vi.mock('../../contexts/PermisosContext', () => ({
 vi.mock('../../services/api', () => ({
   pxqAPI: {
     getLive: vi.fn(),
+    getMarkup: vi.fn(),
     createTier: vi.fn(),
     updateTier: vi.fn(),
     deleteTier: vi.fn(),
@@ -44,6 +45,11 @@ const LIVE_PAYLOAD = {
 /** Mount the panel and wait for the authoring form to be laid out. */
 async function renderPanel() {
   pxqAPI.getLive.mockResolvedValue(LIVE_PAYLOAD);
+  // Resolved to an empty batch, not left unmocked: these are geometry
+  // assertions about the authoring form/live column, unrelated to slice A2's
+  // markup cell, so it must settle out of its "Calculando…" state instead of
+  // hanging pending for the whole suite.
+  pxqAPI.getMarkup.mockResolvedValue({ data: { item_id: 'MLA001', tiers: [] } });
   // `render` is async in vitest-browser-react 2.x — it resolves after React has
   // committed AND the browser has laid the tree out, which is exactly the
   // guarantee these geometry assertions need.

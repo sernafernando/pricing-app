@@ -32,6 +32,7 @@ from app.models.publicacion_ml import PublicacionML
 from app.models.usuario import AuthProvider, RolUsuario, Usuario
 from app.services import ml_pxq_adopt_service as adopt_service
 from app.services.ml_pxq_write_service import _desired_tiers_from_mirror
+from app.services.pxq_markup_service import TierMarkup
 from app.services.pxq_diff import MAX_TIERS, LiveTier, diff_pxq_tiers
 from app.services.pxq_permissions_backfill import PXQ_ESCRIBIR_CODE
 
@@ -369,7 +370,13 @@ def test_imported_mirror_diffs_clean_against_the_same_live_state(db, publicacion
     db.flush()
 
     live_tiers = [LiveTier(id=str(e["id"]), quantity=int(e["quantity"]), amount=e["amount"]) for e in live_raw]
-    result = diff_pxq_tiers(live_tiers, _desired_tiers_from_mirror(rows))
+    # This test is about `diff_pxq_tiers` end-to-end fidelity, not about the
+    # gate itself -- so every imported row is stubbed as markup-resolved
+    # rather than dragging in the full pricing-context fixture set.
+    markup_map = {
+        row.id: TierMarkup(tier_id=row.id, reason=None, markup=0.2, limpio=100.0, comision_total=50.0) for row in rows
+    }
+    result = diff_pxq_tiers(live_tiers, _desired_tiers_from_mirror(rows, markup_map))
 
     assert result.ok, result.refusal
     assert result.array == [{"id": "ML1"}, {"id": "2222"}]

@@ -39,7 +39,7 @@ describe('pxqAPI.sync cannot ask ML to clear the live tier array', () => {
   it('always posts allow_clear: false', async () => {
     const { pxqAPI } = await import('./api');
     pxqAPI.sync('MLA001');
-    expect(mockPost).toHaveBeenCalledWith('/pxq/MLA001/sync', { allow_clear: false });
+    expect(mockPost).toHaveBeenCalledWith('/pxq/MLA001/sync', { allow_clear: false, publicar_sin_markup: false });
   });
 
   // The incident this guards: `POST /items/{id}/prices/standard/quantity`
@@ -51,7 +51,7 @@ describe('pxqAPI.sync cannot ask ML to clear the live tier array', () => {
   it('ignores a caller that still tries to pass a clear flag', async () => {
     const { pxqAPI } = await import('./api');
     pxqAPI.sync('MLA001', true);
-    expect(mockPost).toHaveBeenCalledWith('/pxq/MLA001/sync', { allow_clear: false });
+    expect(mockPost).toHaveBeenCalledWith('/pxq/MLA001/sync', { allow_clear: false, publicar_sin_markup: false });
   });
 
   it('never emits allow_clear: true for any argument shape', async () => {
@@ -64,6 +64,36 @@ describe('pxqAPI.sync cannot ask ML to clear the live tier array', () => {
     for (const [, body] of mockPost.mock.calls) {
       expect(body.allow_clear).toBe(false);
     }
+  });
+});
+
+// D4/slice C2: the per-request markup override. Same discipline `sync` above
+// already holds for `allow_clear` -- it is a SECOND, OPTIONAL argument, never
+// a positional slot that could be confused with the item id, and every
+// existing call shape that omits it keeps behaving exactly as before.
+describe('pxqAPI.sync threads publicarSinMarkup as an opt-in, defaulting to false', () => {
+  beforeEach(() => {
+    vi.resetModules();
+    mockGet.mockReset();
+    mockPost.mockReset();
+  });
+
+  it('defaults publicar_sin_markup to false when no options are passed', async () => {
+    const { pxqAPI } = await import('./api');
+    pxqAPI.sync('MLA001');
+    expect(mockPost).toHaveBeenCalledWith('/pxq/MLA001/sync', { allow_clear: false, publicar_sin_markup: false });
+  });
+
+  it('threads publicarSinMarkup: true through as publicar_sin_markup', async () => {
+    const { pxqAPI } = await import('./api');
+    pxqAPI.sync('MLA001', { publicarSinMarkup: true });
+    expect(mockPost).toHaveBeenCalledWith('/pxq/MLA001/sync', { allow_clear: false, publicar_sin_markup: true });
+  });
+
+  it('still refuses to emit allow_clear: true even alongside the new option', async () => {
+    const { pxqAPI } = await import('./api');
+    pxqAPI.sync('MLA001', { publicarSinMarkup: true, allowClear: true, allow_clear: true });
+    expect(mockPost).toHaveBeenCalledWith('/pxq/MLA001/sync', { allow_clear: false, publicar_sin_markup: true });
   });
 });
 
@@ -126,6 +156,20 @@ describe('pxqAPI.adoptLive imports live tiers and can express nothing else', () 
  * Anything that asserts on the SHAPE of an error payload belongs here, where
  * the real module runs.
  */
+describe('pxqAPI.getMarkup reads the batch markup endpoint', () => {
+  beforeEach(() => {
+    vi.resetModules();
+    mockGet.mockReset();
+    mockPost.mockReset();
+  });
+
+  it('gets the markup path for the given item, no request body', async () => {
+    const { pxqAPI } = await import('./api');
+    pxqAPI.getMarkup('MLA001');
+    expect(mockGet).toHaveBeenCalledWith('/pxq/MLA001/markup');
+  });
+});
+
 describe('response interceptor — typed error contracts vs. renderable strings', () => {
   beforeEach(() => {
     vi.resetModules();

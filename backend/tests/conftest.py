@@ -66,6 +66,30 @@ def _fake_revocation_redis():
     token_revocation._set_client_for_tests(None)
 
 
+@pytest.fixture(autouse=True)
+def _no_pxq_shipping_proxy(monkeypatch):
+    """Pin the PxQ shipping auto-fetch to the proxy-absent contract for every
+    test.
+
+    Slice B wired `refresh_tier_shipping` into the markup read path, and any
+    `MlPxqTier` built straight through the ORM has `costo_envio_fetched_at`
+    NULL -- which triggers one REAL outbound call to the ml-webhook proxy per
+    tier. Today that host answers 404 and the client collapses it to `None`,
+    so everything "passes" while silently depending on the network. Pin the
+    singleton's method to `None` (identical to today's production reality)
+    instead; tests that exercise the fetch itself re-patch it locally.
+    """
+    from unittest.mock import AsyncMock
+
+    from app.services import pxq_markup_service
+
+    monkeypatch.setattr(
+        pxq_markup_service.ml_webhook_client,
+        "get_pxq_seller_shipping_cost",
+        AsyncMock(return_value=None),
+    )
+
+
 # ---------------------------------------------------------------------------
 # Database fixtures
 # ---------------------------------------------------------------------------

@@ -481,3 +481,28 @@ class TestSnapshotWriterInvariantIsDocumentedTruthfully:
             "This is the only place in the whole service allowed to advance "
             "`cantidad_sincronizada`/`precio_sincronizado`."
         ), "the stale phrase must still match the sentence it was written to detect"
+
+
+class TestIsKeepIsPublic:
+    """`is_keep` (slice C, D5): `sync_pxq_tiers` must classify keep/create/
+    modify from OUTSIDE this module, before the POST -- so the predicate that
+    decides "keep" has to be importable and public, not the private
+    `_row_matches_snapshot` this module used to keep to itself."""
+
+    def test_is_keep_matches_the_snapshot_predicate(self) -> None:
+        row = SimpleNamespace(
+            cantidad_minima=10,
+            precio_unitario=Decimal("500.00"),
+            cantidad_sincronizada=10,
+            precio_sincronizado=Decimal("500.00"),
+        )
+        assert pxq_confirm.is_keep(row) is True
+
+    def test_is_keep_is_false_when_values_diverged_from_the_snapshot(self) -> None:
+        row = SimpleNamespace(
+            cantidad_minima=10,
+            precio_unitario=Decimal("550.00"),
+            cantidad_sincronizada=10,
+            precio_sincronizado=Decimal("500.00"),
+        )
+        assert pxq_confirm.is_keep(row) is False
