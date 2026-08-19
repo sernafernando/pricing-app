@@ -56,6 +56,36 @@ class TestFetchMlasWithPxqTiers:
         assert "SELECT DISTINCT mla" in executed
         assert "ml_pxq_price_tiers" in executed
 
+    def test_mla_ids_scopes_the_query_to_those_mlas(self) -> None:
+        """Per-MLA callers (the detail/tree `matches_filter` fold) resolve
+        over ONE product's publications — never the whole account universe.
+        Mirrors `fetch_mlas_with_active_promo_type`'s `mla_ids`."""
+        mock_engine, mock_conn = _mock_engine([("MLA111",)])
+
+        with patch(_ENGINE_PATH, return_value=mock_engine):
+            result = fetch_mlas_with_pxq_tiers(mla_ids=["MLA111", "MLA222"])
+
+        assert result == {"MLA111"}
+        executed = str(mock_conn.execute.call_args[0][0])
+        assert "mla = ANY(:mla_ids)" in executed
+        assert mock_conn.execute.call_args[0][1] == {"mla_ids": ["MLA111", "MLA222"]}
+
+    def test_no_mla_ids_keeps_the_unbounded_universe_query(self) -> None:
+        mock_engine, mock_conn = _mock_engine([])
+
+        with patch(_ENGINE_PATH, return_value=mock_engine):
+            fetch_mlas_with_pxq_tiers()
+
+        assert "ANY(:mla_ids)" not in str(mock_conn.execute.call_args[0][0])
+
+    def test_empty_mla_ids_returns_empty_set_without_engine_call(self) -> None:
+        """A product with zero publications cannot match: no query, and the
+        empty set means "nothing matches", not "filter off"."""
+        with patch(_ENGINE_PATH) as mock_engine_fn:
+            assert fetch_mlas_with_pxq_tiers(mla_ids=[]) == set()
+
+        mock_engine_fn.assert_not_called()
+
     def test_missing_env_runtimeerror_propagates(self) -> None:
         """The endpoint helper (`_resolve_and_fold_mlas`) is what maps this to
         a 503 — the reader must NOT swallow it into an empty set, which would
