@@ -397,30 +397,31 @@ describe('Anomaly sub-tabs', () => {
     expect(screen.queryByText(/sugerid/i)).not.toBeInTheDocument();
   });
 
-  it('shows all conflicting TN rows in a DUPLICADO group with no pre-selected, highlighted, or recommended row', async () => {
+  it('shows all conflicting TN matches in a DUPLICADO group with no pre-selected, highlighted, or recommended match', async () => {
     await renderWithRouter(<TiendaNubeReconcile />);
 
     const user = userEvent.setup();
     const dupTab = await screen.findByRole('tab', { name: /Duplicado/i });
     await user.click(dupTab);
 
-    const groupHeading = await screen.findByText(/EAN GBP: 333/i);
-    const group = groupHeading.closest(`[data-testid="duplicado-group"]`);
-    expect(group).not.toBeNull();
+    const group = await screen.findByTestId('duplicado-group');
+    expect(within(group).getByTestId('duplicado-group-header')).toHaveTextContent('333');
 
-    // Both conflicting TN rows are present with full context.
-    expect(within(group).getByText(/product_id: 10/i)).toBeInTheDocument();
-    expect(within(group).getByText(/product_id: 11/i)).toBeInTheDocument();
+    // Both conflicting TN matches are present, bare product_id/variant_id
+    // pair (no redundant "product_id: N" prefix — pass C card redesign).
+    const matchRows = within(group).getAllByTestId('duplicado-match-row');
+    expect(matchRows).toHaveLength(2);
+    expect(matchRows.map((r) => r.textContent).some((t) => /10\s*\/\s*1/.test(t))).toBe(true);
+    expect(matchRows.map((r) => r.textContent).some((t) => /11\s*\/\s*1/.test(t))).toBe(true);
 
-    // Scoped to the DUPLICADO group specifically: no row carries a
+    // Scoped to the DUPLICADO group specifically: no match carries a
     // selection/highlight/recommendation affordance (radio, checkbox, a
     // "selected"/"recommended" row class, or an aria-selected row).
     expect(within(group).queryAllByRole('radio')).toHaveLength(0);
     expect(within(group).queryAllByRole('checkbox')).toHaveLength(0);
-    const rows = within(group).getAllByRole('row');
-    for (const row of rows) {
-      expect(row).not.toHaveAttribute('aria-selected', 'true');
-      expect(row.className || '').not.toMatch(/selected|recommended|highlight/i);
+    for (const matchRow of matchRows) {
+      expect(matchRow).not.toHaveAttribute('aria-selected', 'true');
+      expect(matchRow.className || '').not.toMatch(/selected|recommended|highlight/i);
     }
   });
 
@@ -431,8 +432,7 @@ describe('Anomaly sub-tabs', () => {
     const dupTab = await screen.findByRole('tab', { name: /Duplicado/i });
     await user.click(dupTab);
 
-    const groupHeading = await screen.findByText(/EAN GBP: 333/i);
-    const group = groupHeading.closest(`[data-testid="duplicado-group"]`);
+    const group = await screen.findByTestId('duplicado-group');
 
     expect(within(group).getByText(/publicado/i)).toBeInTheDocument();
     expect(within(group).queryByRole('columnheader', { name: /^activo$/i })).not.toBeInTheDocument();
@@ -554,8 +554,8 @@ describe('tn_presence display', () => {
     await waitFor(() => {
       expect(screen.getAllByText(/DUP-A/).length).toBeGreaterThan(0);
     });
-    expect(screen.getByText(/duplicado, sin presencia en TN/i)).toBeInTheDocument();
-    expect(screen.getByText(/duplicado, existe en TN/i)).toBeInTheDocument();
+    expect(screen.getByText(/sin presencia en TN/i)).toBeInTheDocument();
+    expect(screen.getByText(/^existe en TN$/i)).toBeInTheDocument();
   });
 });
 
@@ -1269,9 +1269,8 @@ describe('Product identity in rows (rebuilt UI)', () => {
 
     await user.click(await screen.findByRole('tab', { name: /Duplicado/i }));
 
-    const groupHeading = await screen.findByText(/EAN GBP: DUP-LINKS/i);
-    const group = groupHeading.closest('[data-testid="duplicado-group"]');
-    expect(group).not.toBeNull();
+    const group = await screen.findByTestId('duplicado-group');
+    expect(within(group).getByTestId('duplicado-group-header')).toHaveTextContent('DUP-LINKS');
 
     // Exactly one link per conflicting match, each pointing at ITS product.
     const links = within(group).getAllByRole('link', { name: /editar en tn/i });
@@ -1283,15 +1282,14 @@ describe('Product identity in rows (rebuilt UI)', () => {
 
     // The group header itself carries NO link — links live only in the
     // per-match rows, so none is privileged.
-    const header = group.querySelector('[class*="duplicateGroupHeader"]');
-    expect(header).not.toBeNull();
+    const header = within(group).getByTestId('duplicado-group-header');
     expect(within(header).queryByRole('link')).not.toBeInTheDocument();
 
-    // And each match ROW has exactly one link (its own).
-    const rows = within(group).getAllByRole('row').filter((r) => /product_id:/.test(r.textContent));
-    expect(rows).toHaveLength(2);
-    for (const row of rows) {
-      expect(within(row).getAllByRole('link', { name: /editar en tn/i })).toHaveLength(1);
+    // And each match row has exactly one link (its own).
+    const matchRows = within(group).getAllByTestId('duplicado-match-row');
+    expect(matchRows).toHaveLength(2);
+    for (const matchRow of matchRows) {
+      expect(within(matchRow).getAllByRole('link', { name: /editar en tn/i })).toHaveLength(1);
     }
   });
 

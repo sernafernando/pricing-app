@@ -147,6 +147,35 @@ export function primaryTnMatch(row) {
  * - Editar en TN: any resolvable match with a `tn_admin_url`, ungated (was
  *   never permission-gated in the original inline link either).
  */
+/**
+ * Single definition of "what this row is called" (PR5). Products never
+ * published to ML have no `ml_title` and would render as an anonymous EAN,
+ * even though GBP report 78 already carries an ERP `Descripción` for them
+ * (exposed as `erp_desc`). Never fabricated — the ERP text is used only when
+ * `ml_title` is absent, and `fromErp` lets each caller label it so it is
+ * never mistaken for a real ML title.
+ *
+ * Every place that names a row reads this, so the same product can't appear
+ * named in the table and anonymous in the DUPLICADO group header/card.
+ */
+// DUPLICADO card redesign (pass C): each conflicting TN match's badge uses
+// the SAME Publicado/Borrador/Desconocido vocabulary `tnPresenceShortLabelFor`
+// introduced for the general table's presence label in pass B — a match's
+// own tri-state `published` field (true/false/null, see the `published`
+// column docstring) maps onto it directly rather than the row-level "Sí/No"
+// wording the old nested table used.
+export function matchPublishedLabel(published) {
+  if (published === true) return 'Publicado';
+  if (published === false) return 'Borrador';
+  return 'Desconocido';
+}
+
+export function rowIdentity(row) {
+  if (row.ml_title) return { text: row.ml_title, fromErp: false };
+  if (row.erp_desc) return { text: row.erp_desc, fromErp: true };
+  return { text: '', fromErp: false };
+}
+
 export function resolveSecondaryActions(row, { canBanlist, canPublish, despublicarTargetProductId }) {
   const actions = [];
 

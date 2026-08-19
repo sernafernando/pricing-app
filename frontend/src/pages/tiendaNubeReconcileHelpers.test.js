@@ -8,6 +8,8 @@ import {
   pickEditorTnMatch,
   resolveSecondaryActions,
   primaryTnMatch,
+  matchPublishedLabel,
+  rowIdentity,
 } from './tiendaNubeReconcileHelpers';
 
 describe('selectTabItems', () => {
@@ -295,5 +297,37 @@ describe('primaryTnMatch', () => {
     const row = { tn_matches: [{ product_id: 1, variant_id: 1, published: true }] };
     expect(primaryTnMatch(row)).toEqual({ product_id: 1, variant_id: 1, published: true });
     expect(pickEditorTnMatch(row)).toBeNull();
+  });
+});
+
+describe('matchPublishedLabel', () => {
+  it('maps published: true to "Publicado"', () => {
+    expect(matchPublishedLabel(true)).toBe('Publicado');
+  });
+
+  it('maps published: false to "Borrador" (a real value, never confused with unknown)', () => {
+    expect(matchPublishedLabel(false)).toBe('Borrador');
+  });
+
+  it('maps null/undefined to "Desconocido"', () => {
+    expect(matchPublishedLabel(null)).toBe('Desconocido');
+    expect(matchPublishedLabel(undefined)).toBe('Desconocido');
+  });
+});
+
+describe('rowIdentity', () => {
+  it('prefers ml_title over erp_desc', () => {
+    expect(rowIdentity({ ml_title: 'ML title', erp_desc: 'ERP desc' })).toEqual({
+      text: 'ML title',
+      fromErp: false,
+    });
+  });
+
+  it('falls back to erp_desc, flagged fromErp, when ml_title is absent', () => {
+    expect(rowIdentity({ erp_desc: 'ERP desc' })).toEqual({ text: 'ERP desc', fromErp: true });
+  });
+
+  it('returns an empty, non-ERP identity when neither is present', () => {
+    expect(rowIdentity({})).toEqual({ text: '', fromErp: false });
   });
 });

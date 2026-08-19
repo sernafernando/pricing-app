@@ -43,7 +43,7 @@
 
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { useReactTable, getCoreRowModel, flexRender } from '@tanstack/react-table';
-import { ExternalLink, Search, Loader2 } from 'lucide-react';
+import { Search, Loader2 } from 'lucide-react';
 import { usePermisos } from '../contexts/PermisosContext';
 import { useToast } from '../hooks/useToast';
 import Toast from '../components/Toast';
@@ -56,7 +56,9 @@ import {
   matchesSearch,
   matchesSummaryFilter,
   primaryTnMatch,
+  rowIdentity,
 } from './tiendaNubeReconcileHelpers';
+import DuplicateGroupCard from '../components/tn-reconcile/DuplicateGroupCard';
 import styles from './TiendaNubeReconcile.module.css';
 import { stripHtmlToText } from '../utils/htmlText';
 
@@ -245,23 +247,6 @@ const THUMB_PREVIEW_SIZE = 220;
  * a truncated description the operator can expand in place. Makes each row
  * recognizable at a glance instead of an anonymous EAN.
  */
-
-/**
- * Single definition of "what this row is called" (PR5). Products never
- * published to ML have no `ml_title` and would render as an anonymous EAN,
- * even though GBP report 78 already carries an ERP `Descripción` for them
- * (exposed as `erp_desc`). Never fabricated — the ERP text is used only when
- * `ml_title` is absent, and `fromErp` lets each caller label it so it is
- * never mistaken for a real ML title.
- *
- * Every place that names a row reads this, so the same product can't appear
- * named in the table and anonymous in the DUPLICADO group header.
- */
-function rowIdentity(row) {
-  if (row.ml_title) return { text: row.ml_title, fromErp: false };
-  if (row.erp_desc) return { text: row.erp_desc, fromErp: true };
-  return { text: '', fromErp: false };
-}
 
 function ProductoCell({ row }) {
   const [expanded, setExpanded] = useState(false);
@@ -474,14 +459,6 @@ function despublicarTargetProductId(row) {
   const published = row.tn_matches.find((tn) => tn.published === true);
   if (published) return published.product_id;
   return row.tn_matches[0]?.product_id ?? null;
-}
-
-// Tri-state Sí/No/Desconocido — `published` is nullable (rows not yet
-// re-synced with TN's real field are genuinely unknown, never "No").
-function publishedLabel(published) {
-  if (published === true) return 'Sí';
-  if (published === false) return 'No';
-  return 'Desconocido';
 }
 
 // Shared paginator — used identically by the DUPLICADO branch and the
@@ -1147,62 +1124,7 @@ export default function TiendaNubeReconcile() {
             <p>No hay grupos duplicados para revisar.</p>
           ) : (
             filasVisibles.map((row, idx) => (
-              <div key={`${row.ean}-${idx}`} className={styles.duplicateGroup} data-testid="duplicado-group">
-                {/* NO single group-level "Editar en TN" link here: the group
-                    has N conflicting matches, and linking only one of them
-                    would implicitly recommend it (violates the DUPLICADO
-                    "human decides" rule). Each match row below carries its
-                    OWN link instead — none privileged. */}
-                <div className={styles.duplicateGroupHeader}>
-                  EAN GBP: {row.ean}
-                  {(() => {
-                    const { text, fromErp } = rowIdentity(row);
-                    if (!text) return '';
-                    return ` — ${text}${fromErp ? ' (ERP)' : ''}`;
-                  })()}{' '}
-                  — {row.tn_matches.length} coincidencias
-                  TN en conflicto —{' '}
-                  {row.tn_presence === 'not_in_tn'
-                    ? 'duplicado, sin presencia en TN'
-                    : 'duplicado, existe en TN'}
-                </div>
-                <table className="table-tesla striped">
-                  <thead>
-                    <tr>
-                      <th>product_id</th>
-                      <th>variant_id</th>
-                      <th>variant_sku</th>
-                      <th>Publicado en TN</th>
-                      <th>Editar en TN</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {row.tn_matches.map((tn) => (
-                      <tr key={`${tn.product_id}-${tn.variant_id}`}>
-                        <td>product_id: {tn.product_id}</td>
-                        <td>variant_id: {tn.variant_id}</td>
-                        <td>{tn.variant_sku}</td>
-                        <td>{publishedLabel(tn.published)}</td>
-                        <td>
-                          {tn.tn_admin_url ? (
-                            <a
-                              href={tn.tn_admin_url}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              className={styles.tnLink}
-                              aria-label={`Editar en TN el producto ${tn.product_id}`}
-                            >
-                              Editar en TN <ExternalLink size={12} aria-hidden="true" />
-                            </a>
-                          ) : (
-                            '—'
-                          )}
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
+              <DuplicateGroupCard key={`${row.ean}-${idx}`} row={row} />
             ))
           )}
           {showPaginator && (
