@@ -84,11 +84,20 @@ export default function ModalTesla({
     };
 
     document.addEventListener('keydown', handleTab);
-    
-    // Auto-focus en primer elemento
-    setTimeout(() => firstElement?.focus(), 100);
 
-    return () => document.removeEventListener('keydown', handleTab);
+    // Auto-focus en primer elemento. Se saltea si el foco YA está dentro del
+    // modal: para cuando vence la ventana el usuario puede haber clickeado un
+    // campo y estar escribiendo, y robarle el foco le come las teclas que
+    // siguen.
+    const autoFocusId = setTimeout(() => {
+      if (modalRef.current?.contains(document.activeElement)) return;
+      firstElement?.focus();
+    }, 100);
+
+    return () => {
+      clearTimeout(autoFocusId);
+      document.removeEventListener('keydown', handleTab);
+    };
   }, [isOpen]);
 
   // Prevenir scroll del body cuando modal está abierto
