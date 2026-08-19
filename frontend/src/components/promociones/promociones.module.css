@@ -532,13 +532,30 @@
   font-style: italic;
 }
 
-/* Holds the refresh affordance above the two columns. Same inline padding as
-   `.pxqColumns` so the button lines up with the column edge, and no bottom
-   padding because `.pxqColumns` already brings its own. */
+/* Holds the panel title, the age of the reading, and the refresh affordance
+   above the two columns. Same inline padding as `.pxqColumns` so the row lines
+   up with the column edges, and no bottom padding because `.pxqColumns`
+   already brings its own. */
 .pxqHeader {
   display: flex;
-  justify-content: flex-end;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
   padding: 4px 4px 0;
+}
+
+.pxqHeaderTitle {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+
+/* How old the live reading is. Tertiary tone: it qualifies the numbers next to
+   it, it is never one of them. */
+.pxqFetchedAt {
+  font-size: 12px;
+  color: var(--text-tertiary);
 }
 
 /* Grouping-node child-kind count (familia/catalogo) — FE-computed, purely
@@ -644,6 +661,61 @@
   background: var(--warning-bg, var(--bg-secondary));
   border-radius: 6px;
   padding: 1px 8px;
+}
+
+/* The per-tier markup cell (slice A2), in its three states.
+   `.pxqMarkupPending` and `.pxqMarkupUnavailable` were REFERENCED by
+   `PxqPanel.jsx` while this file defined neither, so both resolved to
+   `undefined` and painted unstyled — the unit tests could not see it, since
+   they run with `css: false`. `src/test/visual/pxqPanel.visual.test.jsx`
+   measures these three tones now. */
+
+/* "Markup:" is scaffolding for the number next to it, so it stays quiet. */
+.pxqMarkupLabel {
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+/* The number the operator opened the panel to read: success tone, and heavier
+   than everything around it. Resolved values only — an unresolved tier shows
+   its reason instead, never a 0 or a dash dressed up as a value. */
+.pxqMarkupValue {
+  font-weight: 600;
+  color: var(--success-text, var(--text-primary));
+}
+
+/* Why there is no number. Tertiary, like `.pxqFetchedAt`: it qualifies the row
+   rather than adding a value to it, and must never read as one. */
+.pxqMarkupUnavailable {
+  font-size: 12px;
+  font-style: italic;
+  color: var(--text-tertiary);
+}
+
+/* Transient, and quieter still than the reason: nothing has been decided yet. */
+.pxqMarkupPending {
+  font-size: 12px;
+  color: var(--text-tertiary);
+}
+
+/* Foot of the panel: the link out to MercadoLibre, where prices are actually
+   changed while this panel is read-only, plus the sentence telling the
+   operator to re-read when he gets back. Same top border as `.pxqAuthoring`
+   so it reads as its own section rather than a stray row of the form. */
+.pxqExternalEdit {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-sm);
+  flex-wrap: wrap;
+  margin-top: 12px;
+  padding: 8px 4px;
+  border-top: 1px solid var(--border-secondary);
+}
+
+/* Secondary tone: it qualifies the link, it is not a second action. */
+.pxqExternalEditHint {
+  font-size: 12px;
+  color: var(--text-secondary);
 }
 
 /* Divergence banner (PR 4d) — a refused sync (409) shows both sides so the
