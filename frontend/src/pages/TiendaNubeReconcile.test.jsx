@@ -1046,6 +1046,12 @@ describe('Banlist view', () => {
       expect(api.post).toHaveBeenCalledWith('/tienda-nube-reconcile/desbanear', { banlist_id: 1 });
       expect(api.post).toHaveBeenCalledWith('/tienda-nube-reconcile/desbanear', { banlist_id: 2 });
     });
+
+    // Full-success toast shape — was previously only exercised indirectly;
+    // the partial-failure shape below has its own dedicated assertion.
+    await waitFor(() => {
+      expect(screen.getByText(/2 EAN\(s\) desbaneados exitosamente/i)).toBeInTheDocument();
+    });
   });
 
   it('on partial bulk-unban failure: refreshes the banlist, clears the selection, and reports how many succeeded', async () => {

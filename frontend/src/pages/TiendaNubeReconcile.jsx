@@ -1065,7 +1065,7 @@ export default function TiendaNubeReconcile() {
             </div>
           ) : (
             <table className="table-tesla striped">
-              <thead>
+              <thead className="table-tesla-head">
                 <tr>
                   <th></th>
                   <th>EAN</th>
@@ -1075,7 +1075,7 @@ export default function TiendaNubeReconcile() {
                   <th>Acciones</th>
                 </tr>
               </thead>
-              <tbody>
+              <tbody className="table-tesla-body">
                 {baneados.length === 0 ? (
                   <tr>
                     <td colSpan={6} className="no-data">
@@ -1093,8 +1093,10 @@ export default function TiendaNubeReconcile() {
                           aria-label={`Seleccionar ${entry.ean}`}
                         />
                       </td>
-                      <td>{entry.ean}</td>
-                      <td>{entry.motivo || '—'}</td>
+                      <td className={styles.banlistEan}>{entry.ean}</td>
+                      <td>
+                        {entry.motivo || <span className={styles.noLink}>—</span>}
+                      </td>
                       <td>{entry.usuario_nombre}</td>
                       <td>{new Date(entry.fecha_creacion).toLocaleDateString()}</td>
                       <td>

@@ -502,6 +502,18 @@ table.resizableTable {
   margin-bottom: var(--spacing-sm, 8px);
 }
 
+/* Banlist EAN cell — same var(--font-mono) treatment as Producto and the
+   DUPLICADO group cards, for visual consistency across the feature. */
+.banlistEan {
+  font-family: var(--font-mono);
+}
+
+/* Banlist Motivo empty-state dash — mirrors DuplicateGroupCard's .noLink
+   (muted, never plain body text) since the two modules can't share a class. */
+.noLink {
+  color: var(--cf-text-tertiary);
+}
+
 /* Paginator bar — distinct from .columnSizingBar (that one is only ever a
    right-aligned single action; the paginator always needs a
    space-between layout for the "Mostrando X-Y de Z" label + Prev/Next). */
