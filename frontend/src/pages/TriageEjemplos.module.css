@@ -148,7 +148,9 @@
   border-radius: var(--radius-full);
   font-size: var(--font-xs);
   font-weight: 500;
-  background: var(--pillBg, var(--cf-accent-blue-light));
+  /* `--pillBg` carries a solid accent token; tinted to ~15% here so the
+     JS side only ever hands over design tokens, never literal colors. */
+  background: color-mix(in srgb, var(--pillBg, var(--cf-accent-blue)) 15%, transparent);
   color: var(--pillColor, var(--cf-accent-blue));
 }
 
