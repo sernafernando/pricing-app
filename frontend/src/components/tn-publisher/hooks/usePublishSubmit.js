@@ -35,9 +35,16 @@ function splitTags(raw) {
     .filter(Boolean);
 }
 
+/**
+ * PC5/D8: ONLY fields the operator actually edited in-session. Sending every
+ * measurement would freeze GBP-sourced values as permanent overrides —
+ * precedence is `override > gbp`, so a later ERP correction would stay
+ * hidden behind a value nobody ever typed.
+ */
 function buildOverrides(draftFields) {
   const overrides = {};
-  MEASUREMENT_FIELDS.forEach((field) => {
+  const dirty = draftFields.dirtyMeasurements || [];
+  MEASUREMENT_FIELDS.filter((field) => dirty.includes(field)).forEach((field) => {
     const raw = draftFields[field];
     if (raw !== '' && raw != null && !Number.isNaN(Number(raw))) {
       // String, never Number: the backend types `overrides` as

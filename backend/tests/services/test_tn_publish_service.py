@@ -760,12 +760,11 @@ class TestPublishAssembledFieldsReachTn:
         variant = fake_client.create_calls[0]["variants"][0]
         assert "inventory_levels" not in variant
 
-    def test_barcode_cost_promotional_price_never_leak_onto_the_payload(self, db):
-        """D1-adjacent proof: `product_data` may still carry `barcode`/
-        `cost`/`promotional_price` (the modal sends them; not consumed by
-        `assemble_payload` in this PR — a documented follow-up), but they
-        must never leak onto the TN payload root, where TN would silently
-        ignore them with no error."""
+    def test_barcode_cost_promotional_price_land_on_the_variant_not_the_root(self, db):
+        """These three are VARIANT-level fields in TN v1. At the payload root
+        TN ignores them with no error, so an operator edit would vanish —
+        the same silent-loss class `inventory_levels` guards against. This
+        test pins them onto the variant AND off the root."""
         user = _make_user(db)
         fake_client = _FakePublishClient(
             create_outcome={"ok": True, "status_code": 201, "ambiguous": False, "body": {"id": 1}},
@@ -789,9 +788,10 @@ class TestPublishAssembledFieldsReachTn:
         assert "barcode" not in payload
         assert "cost" not in payload
         assert "promotional_price" not in payload
-        assert "barcode" not in payload["variants"][0]
-        assert "cost" not in payload["variants"][0]
-        assert "promotional_price" not in payload["variants"][0]
+        variant = payload["variants"][0]
+        assert variant["barcode"] == "7791234567890"
+        assert variant["cost"] == 500.0
+        assert variant["promotional_price"] == "800.0"
 
     def test_visibility_and_free_shipping_reach_the_payload_root(self, db):
         user = _make_user(db)

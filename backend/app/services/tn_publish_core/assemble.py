@@ -25,6 +25,9 @@ def assemble_payload(
     tags: Optional[List[str]] = None,
     description_html: str = "",
     sku: Optional[str] = None,
+    barcode: Optional[str] = None,
+    cost: Optional[float] = None,
+    promotional_price: Optional[str] = None,
 ) -> Dict[str, Any]:
     """Builds a TN v1 product-create payload from precedence-resolved
     fields.
@@ -57,6 +60,16 @@ def assemble_payload(
         variant["inventory_levels"] = [{"stock": stock}]
     if sku is not None:
         variant["sku"] = sku
+    # TN v1 keeps these on the VARIANT, not the product root — an operator
+    # edit landing at the root is silently dropped by TN, which is the same
+    # class of loss `inventory_levels` guards against above. Only keys the
+    # operator actually supplied are emitted; absence stays absence.
+    if barcode is not None:
+        variant["barcode"] = barcode
+    if cost is not None:
+        variant["cost"] = cost
+    if promotional_price is not None:
+        variant["promotional_price"] = promotional_price
 
     payload: Dict[str, Any] = {
         "name": {"es": name_es},

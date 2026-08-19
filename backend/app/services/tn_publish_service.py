@@ -707,6 +707,11 @@ def publish_product(
         tags=product_data.get("tags") or None,
         description_html=sanitize_description_html(description_html),
         sku=ean,
+        barcode=product_data.get("barcode") or None,
+        cost=product_data.get("cost"),
+        promotional_price=(
+            str(product_data["promotional_price"]) if product_data.get("promotional_price") is not None else None
+        ),
     )
 
     def _attach_images(product_id: Any) -> List[str]:

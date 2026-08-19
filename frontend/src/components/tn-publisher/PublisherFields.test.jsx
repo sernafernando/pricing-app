@@ -344,14 +344,55 @@ describe('D13 — schema/extraction error vs. genuinely-absent measurements', ()
 // passed a hand-written `{"weight": "1.200"}` string fixture, so it stayed
 // green while the frontend shipped numbers: this test asserts the shape the
 // frontend ACTUALLY sends, which is the only shape that matters.
+describe('Overrides are dirty-only (PC5/D8)', () => {
+  it('sends no overrides at all when the operator edited no measurement', async () => {
+    const user = userEvent.setup();
+    await renderModal();
+
+    await user.click(screen.getByRole('button', { name: /^publicar$/i }));
+    await user.click(screen.getByRole('button', { name: /^confirmar$/i }));
+
+    await waitFor(() => {
+      expect(api.post).toHaveBeenCalledWith('/tienda-nube-reconcile/publicar', expect.any(Object));
+    });
+    const call = api.post.mock.calls.find(([url]) => url === '/tienda-nube-reconcile/publicar');
+    // Persisting an untouched GBP value would freeze it as a permanent
+    // override (precedence is override > gbp), hiding any later ERP
+    // correction behind a value nobody ever typed.
+    expect(call[1].overrides).toEqual({});
+  });
+
+  it('sends only the measurement the operator actually changed', async () => {
+    const user = userEvent.setup();
+    await renderModal();
+
+    fireEvent.change(screen.getByLabelText('Peso (kg)'), { target: { value: '7.5' } });
+    await waitFor(() => {
+      expect(screen.getByLabelText('Peso (kg)')).toHaveValue(7.5);
+    });
+
+    await user.click(screen.getByRole('button', { name: /^publicar$/i }));
+    await user.click(screen.getByRole('button', { name: /^confirmar$/i }));
+
+    await waitFor(() => {
+      expect(api.post).toHaveBeenCalledWith('/tienda-nube-reconcile/publicar', expect.any(Object));
+    });
+    const call = api.post.mock.calls.find(([url]) => url === '/tienda-nube-reconcile/publicar');
+    expect(Object.keys(call[1].overrides)).toEqual(['weight']);
+    expect(call[1].overrides.weight).toBe('7.5');
+  });
+});
+
 describe('Wire contract — overrides value types', () => {
   it('sends every override value as a string, never a number', async () => {
     const user = userEvent.setup();
     await renderModal();
 
-    fireEvent.change(screen.getByLabelText('Peso (kg)'), { target: { value: '1.2' } });
+    // Must differ from the draft's initial weight (1.2) — an unchanged
+    // value is not an edit and correctly produces no override at all.
+    fireEvent.change(screen.getByLabelText('Peso (kg)'), { target: { value: '2.4' } });
     await waitFor(() => {
-      expect(screen.getByLabelText('Peso (kg)')).toHaveValue(1.2);
+      expect(screen.getByLabelText('Peso (kg)')).toHaveValue(2.4);
     });
 
     await user.click(screen.getByRole('button', { name: /^publicar$/i }));
@@ -366,7 +407,7 @@ describe('Wire contract — overrides value types', () => {
     Object.entries(overrides).forEach(([campo, valor]) => {
       expect(typeof valor, `overrides.${campo} must be a string`).toBe('string');
     });
-    expect(overrides.weight).toBe('1.2');
+    expect(overrides.weight).toBe('2.4');
   });
 
   it('sends visibility as the TN string enum, never a boolean', async () => {

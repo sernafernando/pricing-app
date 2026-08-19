@@ -44,6 +44,17 @@ function initDraftFields(row) {
     width: fieldValue(fields, 'width'),
     height: fieldValue(fields, 'height'),
     depth: fieldValue(fields, 'depth'),
+    // PC5/D8: only fields the operator ACTUALLY edited in-session may be
+    // persisted as overrides. Persisting a GBP-sourced value would freeze
+    // it forever (precedence is override > gbp), so a later ERP correction
+    // would stay invisible behind a stale override nobody ever typed.
+    initialMeasurements: {
+      weight: fieldValue(fields, 'weight'),
+      width: fieldValue(fields, 'width'),
+      height: fieldValue(fields, 'height'),
+      depth: fieldValue(fields, 'depth'),
+    },
+    dirtyMeasurements: [],
     visibility: 'visible', // D4/PC7: TN v1 enum visible|unlisted|hidden
     freeShipping: false,
     seoTitle: seeded.seoTitle,
@@ -55,8 +66,21 @@ function initDraftFields(row) {
 
 function reducer(state, action) {
   switch (action.type) {
-    case 'SET_FIELD':
-      return { ...state, [action.field]: action.value };
+    case 'SET_FIELD': {
+      const next = { ...state, [action.field]: action.value };
+      if (Object.prototype.hasOwnProperty.call(state.initialMeasurements, action.field)) {
+        const initial = state.initialMeasurements[action.field];
+        const changed = String(action.value ?? '') !== String(initial ?? '');
+        const already = state.dirtyMeasurements.includes(action.field);
+        if (changed && !already) next.dirtyMeasurements = [...state.dirtyMeasurements, action.field];
+        // Typing a value back to its original is not an edit: drop it again
+        // so a round-trip never leaves a phantom override behind.
+        if (!changed && already) {
+          next.dirtyMeasurements = state.dirtyMeasurements.filter((f) => f !== action.field);
+        }
+      }
+      return next;
+    }
     case 'APPLY_PROFILE':
       return {
         ...state,
@@ -65,6 +89,9 @@ function reducer(state, action) {
         height: String(action.profile.height),
         depth: String(action.profile.depth),
         appliedProfileId: action.profile.id,
+        // Confirming a profile IS an explicit operator decision, so the four
+        // measurements it writes are genuine in-session edits.
+        dirtyMeasurements: ['weight', 'width', 'height', 'depth'],
       };
     default:
       return state;
