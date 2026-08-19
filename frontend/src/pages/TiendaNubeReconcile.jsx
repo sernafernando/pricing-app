@@ -198,10 +198,6 @@ function StockCell({ row }) {
   return row.stock === null || row.stock === undefined ? STOCK_UNKNOWN_LABEL : String(row.stock);
 }
 
-// `ml_desc` arrives as ML HTML — for the LIST we only ever show plain text
-// (the full rich description belongs to the publish modal). DOMParser does
-// not execute scripts, so this is a safe text extraction, not a sanitizer.
-
 const DESC_SNIPPET_LENGTH = 140;
 const THUMB_PREVIEW_SIZE = 220;
 

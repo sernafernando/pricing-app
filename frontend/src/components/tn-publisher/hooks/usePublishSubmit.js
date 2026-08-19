@@ -16,6 +16,18 @@ import { MEASUREMENT_FIELDS } from './useDraftFields';
 // server-side either).
 const DESCRIPTION_EXTRA_TAGS = ['h1', 'h2', 'h3'];
 
+/**
+ * Numeric wire values: TN takes numbers, not the strings the controls edit.
+ * `''` (operator left it blank) is a genuine absence -> null; `'0'` is a
+ * legitimate value and must survive (D1/PC9: zero stock is publishable).
+ * Same boundary-coercion rule as `buildOverrides`, which had the mirror bug.
+ */
+function numOrNull(raw) {
+  if (raw === '' || raw == null) return null;
+  const n = Number(raw);
+  return Number.isNaN(n) ? null : n;
+}
+
 function splitTags(raw) {
   return (raw || '')
     .split(',')
@@ -89,9 +101,9 @@ export function usePublishSubmit({
         tags: splitTags(draftFields.tags),
         sku: draftFields.sku || null,
         barcode: draftFields.barcode || null,
-        cost: draftFields.cost || null,
-        stock: draftFields.stock || null,
-        promotional_price: draftFields.promotionalPrice || null,
+        cost: numOrNull(draftFields.cost),
+        stock: numOrNull(draftFields.stock),
+        promotional_price: numOrNull(draftFields.promotionalPrice),
       };
       const response = await api.post('/tienda-nube-reconcile/publicar', {
         ean,

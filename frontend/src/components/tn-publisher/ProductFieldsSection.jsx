@@ -51,7 +51,7 @@ export default function ProductFieldsSection({
         {/* D4/PC7: TN v1 takes the string enum visible|unlisted|hidden — a
             boolean checkbox could not express `unlisted` at all, and `false`
             is not a value TN accepts. */}
-        <label className={styles.fieldLabel} htmlFor="tn-publish-visibility">
+        <label className={styles.sectionTitle} htmlFor="tn-publish-visibility">
           Visibilidad
         </label>
         <select
