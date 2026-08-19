@@ -232,6 +232,9 @@ export default function TicketProposals({ ticketId, onChanged, refreshToken }) {
                     {typeof p.confianza === 'number' && (
                       <span className={styles.confianza}> · IA {p.confianza.toFixed(2)}</span>
                     )}
+                    {typeof p.ejemplos_usados === 'number' && (
+                      <span className={styles.confianza}> · {p.ejemplos_usados} ejemplos aprendidos</span>
+                    )}
                   </span>
                   {puedeConfirmar && (
                     <span className={styles.actions}>
@@ -292,6 +295,9 @@ export default function TicketProposals({ ticketId, onChanged, refreshToken }) {
                     )}
                     {typeof p.confianza === 'number' && (
                       <span className={styles.confianza}> · IA {p.confianza.toFixed(2)}</span>
+                    )}
+                    {typeof p.ejemplos_usados === 'number' && (
+                      <span className={styles.confianza}> · {p.ejemplos_usados} ejemplos aprendidos</span>
                     )}
                     <ProvenanceBadge origen="ia_auto" />
                   </span>
