@@ -41,6 +41,19 @@ log() { echo -e "${GREEN}[DEPLOY]${NC} $1"; }
 warn() { echo -e "${YELLOW}[WARN]${NC} $1"; }
 err() { echo -e "${RED}[ERROR]${NC} $1"; }
 
+# ponytail (docs/tech-debt-ledger.md): todo el cuerpo ejecutable vive adentro de
+# main() y se invoca al final del archivo. Bash lee los scripts por chunks
+# llevando un offset de byte, asi que el `git pull` de mas abajo -- que reescribe
+# ESTE archivo mientras bash todavia lo esta leyendo -- hacia que la ejecucion
+# siguiera desde ese offset pero sobre el archivo nuevo: corrian fragmentos
+# arbitrarios, o el script terminaba en silencio sin build ni restart. Con el
+# cuerpo adentro de una funcion, bash tiene que parsearla entera antes de
+# ejecutar una sola linea, de modo que el pull ya no puede cortar el script a la
+# mitad. La indentacion se deja como estaba a proposito: reindentar 200 lineas
+# esconderia el cambio real en ruido de whitespace y alteraria el texto de los
+# mensajes multilinea que se mandan al grupo.
+main() {
+
 SKIP_PULL=false
 SKIP_BUILD=false
 SKIP_BACKEND=false
@@ -286,3 +299,7 @@ notify "$FINAL_MSG"
 
 trap - ERR INT TERM
 log "Deploy completado en $DURATION"
+
+}
+
+main "$@"
