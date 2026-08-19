@@ -373,6 +373,32 @@ class PropuestaResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
 
+class EjemploResponse(BaseModel):
+    """Schema de respuesta para un `EjemploCorreccion` curado (tickets-
+    triage-feedback PR5a). Declara TODOS los campos que la futura UI de
+    curación (PR5b) necesita — deliberadamente NUNCA `embedding` (384
+    floats, inútil para la UI y pesado)."""
+
+    id: int
+    campo: str
+    texto: str
+    valor_ia: str
+    valor_corregido: str
+    active: bool
+    created_at: datetime
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class EjemploToggleRequest(BaseModel):
+    """Body de `PATCH /tickets/triage/ejemplos/{id}` (tickets-triage-
+    feedback PR5a)."""
+
+    active: bool
+
+    model_config = ConfigDict(extra="forbid")
+
+
 class ConfirmarRequest(BaseModel):
     """Body opcional de `POST /propuestas/{id}/confirmar` (tickets-triage-
     feedback PR1). `valor_corregido` sólo se acepta para severidad/urgencia

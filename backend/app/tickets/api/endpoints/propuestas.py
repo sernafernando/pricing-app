@@ -11,9 +11,16 @@ from app.core.database import get_db
 from app.models.usuario import Usuario
 from app.services.permisos_service import PermisosService
 from app.tickets.api.deps import get_triage_provider
+from app.tickets.models.ejemplo_correccion import EjemploCorreccion
 from app.tickets.models.propuesta_ia import PropuestaIA
 from app.tickets.models.ticket import Ticket
-from app.tickets.schemas.ticket_schemas import ConfirmarBatchRequest, ConfirmarRequest, PropuestaResponse
+from app.tickets.schemas.ticket_schemas import (
+    ConfirmarBatchRequest,
+    ConfirmarRequest,
+    EjemploResponse,
+    EjemploToggleRequest,
+    PropuestaResponse,
+)
 from app.tickets.services import confirmacion_service, ejemplos_service
 from app.tickets.services.confirmacion_service import (
     CorreccionCampoNoPermitidoError,
@@ -33,6 +40,10 @@ from app.tickets.services.triage_service import LlmProvider, run_triage
 router = APIRouter()
 
 PERMISO_CONFIRMAR = "tickets.triage.confirmar"
+# tickets-triage-feedback PR5a: DELIBERATELY independent from
+# PERMISO_CONFIRMAR — curating the few-shot correction corpus is a narrower
+# judgment than confirming AI proposals, see `EjemploResponse`'s docstring.
+PERMISO_EJEMPLOS = "tickets.triage.ejemplos"
 
 
 def _check_permiso(db: Session, user: Usuario, permiso: str) -> None:
@@ -248,3 +259,48 @@ async def retriggerar_triage(
 
     background_tasks.add_task(run_triage, ticket_id, triage_provider)
     return {"ok": True}
+
+
+@router.get("/tickets/triage/ejemplos", response_model=list[EjemploResponse])
+def listar_ejemplos(
+    campo: str | None = None,
+    skip: int = 0,
+    limit: int = 50,
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(get_current_user),
+) -> list[EjemploResponse]:
+    """Lista los ejemplos capturados de correcciones humanas (tickets-
+    triage-feedback PR5a), opcionalmente filtrados por `campo`, paginados.
+    Requiere: tickets.triage.ejemplos (independiente de
+    tickets.triage.confirmar — ver `PERMISO_EJEMPLOS`)."""
+    _check_permiso(db, current_user, PERMISO_EJEMPLOS)
+
+    query = db.query(EjemploCorreccion)
+    if campo is not None:
+        query = query.filter(EjemploCorreccion.campo == campo)
+
+    return query.order_by(EjemploCorreccion.id).offset(skip).limit(limit).all()
+
+
+@router.patch("/tickets/triage/ejemplos/{ejemplo_id}", response_model=EjemploResponse)
+def toggle_ejemplo(
+    ejemplo_id: int,
+    payload: EjemploToggleRequest,
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(get_current_user),
+) -> EjemploResponse:
+    """Activa/desactiva un ejemplo capturado (tickets-triage-feedback
+    PR5a). Toma efecto INMEDIATAMENTE en la próxima llamada a
+    `ejemplos_service._similarity_query` — ese filtra sobre
+    `EjemploCorreccion.active`, sin caché ni propagación demorada. Requiere:
+    tickets.triage.ejemplos."""
+    _check_permiso(db, current_user, PERMISO_EJEMPLOS)
+
+    ejemplo = db.query(EjemploCorreccion).filter(EjemploCorreccion.id == ejemplo_id).first()
+    if not ejemplo:
+        raise HTTPException(status_code=404, detail=f"Ejemplo {ejemplo_id} no encontrado")
+
+    ejemplo.active = payload.active
+    db.commit()
+    db.refresh(ejemplo)
+    return ejemplo
