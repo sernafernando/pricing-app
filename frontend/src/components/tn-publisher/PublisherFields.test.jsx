@@ -79,9 +79,11 @@ beforeEach(() => {
   setupApiMocks();
 });
 
+// PR-9 moved the autofocus target from the close button to the Título
+// field via ModalTesla's opt-in `initialFocusRef` (see TnPublishModal.test.jsx).
 async function waitForModalAutofocus() {
   await waitFor(() => {
-    expect(screen.getByRole('button', { name: /cerrar modal/i })).toHaveFocus();
+    expect(screen.getByLabelText('Título')).toHaveFocus();
   });
 }
 
@@ -134,6 +136,20 @@ describe('D2 field-to-control audit (UI1)', () => {
   it.each(FIELD_SET)('renders a control for %s', async (fieldName) => {
     await renderModal();
     expect(screen.getByTestId(`tn-publish-field-${fieldName}`)).toBeInTheDocument();
+  });
+});
+
+// PR-9 — the four measurement fields render inside a shared grid wrapper
+// instead of stacked full-width rows.
+describe('Medidas grid layout (PR-9)', () => {
+  it('renders weight/width/height/depth inside the measurements grid', async () => {
+    await renderModal();
+    const grid = screen.getByTestId('tn-publish-measurements-grid');
+    expect(grid).toBeInTheDocument();
+    expect(within(grid).getByLabelText('Peso (kg)')).toBeInTheDocument();
+    expect(within(grid).getByLabelText('Ancho (cm)')).toBeInTheDocument();
+    expect(within(grid).getByLabelText('Alto (cm)')).toBeInTheDocument();
+    expect(within(grid).getByLabelText('Profundidad (cm)')).toBeInTheDocument();
   });
 });
 

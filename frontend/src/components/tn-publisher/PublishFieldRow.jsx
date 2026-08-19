@@ -19,6 +19,7 @@ export default function PublishFieldRow({
   placeholder,
   readOnly = false,
   testId,
+  inputRef,
 }) {
   const Control = as === 'textarea' ? 'textarea' : 'input';
   return (
@@ -28,6 +29,7 @@ export default function PublishFieldRow({
       </label>
       <Control
         id={id}
+        ref={inputRef}
         {...(as === 'textarea' ? {} : { type })}
         className={styles.titleInput}
         value={value}
