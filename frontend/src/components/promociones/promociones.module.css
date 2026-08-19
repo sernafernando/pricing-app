@@ -663,6 +663,26 @@
   padding: 1px 8px;
 }
 
+/* Foot of the panel: the link out to MercadoLibre, where prices are actually
+   changed while this panel is read-only, plus the sentence telling the
+   operator to re-read when he gets back. Same top border as `.pxqAuthoring`
+   so it reads as its own section rather than a stray row of the form. */
+.pxqExternalEdit {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-sm);
+  flex-wrap: wrap;
+  margin-top: 12px;
+  padding: 8px 4px;
+  border-top: 1px solid var(--border-secondary);
+}
+
+/* Secondary tone: it qualifies the link, it is not a second action. */
+.pxqExternalEditHint {
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
 /* Divergence banner (PR 4d) — a refused sync (409) shows both sides so the
    user can resolve manually by editing tiers; there is deliberately no
    "force" affordance here. */
