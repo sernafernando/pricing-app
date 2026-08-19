@@ -33,11 +33,20 @@ function extractErrorMessage(err, fallback = 'No se pudo guardar el tramo.') {
   return fallback;
 }
 
-// Whole-shipment cost the user reads off ML's wholesale simulator. There is
-// deliberately no default and no per-unit fallback here — that fallback is
-// the exact silent-wrong-price bug the backend's `costo_envio_total`-required
-// rule makes structurally impossible (see design.md). A tier missing it is
-// `incompleto` and is never written to MercadoLibre.
+// Whole-shipment cost, entered by hand for now.
+//
+// This comment used to claim the operator "reads it off ML's wholesale
+// simulator". No such screen was ever confirmed to exist: the phrase began
+// as an unanswered `Assumption:` in the `ml-wholesale-pxq-pricing` proposal,
+// hardened into a fact here, and from here reached the UI as an instruction.
+// It is gone. What IS measured: ML bills `max(real weight, volume/4000)` and
+// the cost comes from `/users/{id}/shipping_options/free` — automating it
+// waits on a proxy route that does not exist yet.
+//
+// There is deliberately no default and no per-unit fallback here — that
+// fallback is the exact silent-wrong-price bug the backend's
+// `costo_envio_total`-required rule makes structurally impossible. A tier
+// missing it has no markup, and says so instead of showing a number.
 function isIncomplete(tier) {
   return tier.costo_envio_total === null || tier.costo_envio_total === undefined;
 }
