@@ -350,4 +350,38 @@ describe('Wire contract — overrides value types', () => {
     });
     expect(overrides.weight).toBe('1.2');
   });
+
+  it('sends visibility as the TN string enum, never a boolean', async () => {
+    const user = userEvent.setup();
+    await renderModal();
+
+    // D4/PC7: TN v1 accepts visible|unlisted|hidden. `false` is not a value
+    // TN understands, and a checkbox could not express `unlisted`.
+    await user.selectOptions(screen.getByLabelText('Visibilidad'), 'unlisted');
+
+    await user.click(screen.getByRole('button', { name: /^publicar$/i }));
+    await user.click(screen.getByRole('button', { name: /^confirmar$/i }));
+
+    await waitFor(() => {
+      expect(api.post).toHaveBeenCalledWith('/tienda-nube-reconcile/publicar', expect.any(Object));
+    });
+    const call = api.post.mock.calls.find(([url]) => url === '/tienda-nube-reconcile/publicar');
+    expect(call[1].product_data.visibility).toBe('unlisted');
+  });
+
+  it('sends tags as an array of trimmed strings, never one comma string', async () => {
+    const user = userEvent.setup();
+    await renderModal();
+
+    await user.click(screen.getByRole('button', { name: /^publicar$/i }));
+    await user.click(screen.getByRole('button', { name: /^confirmar$/i }));
+
+    await waitFor(() => {
+      expect(api.post).toHaveBeenCalledWith('/tienda-nube-reconcile/publicar', expect.any(Object));
+    });
+    const call = api.post.mock.calls.find(([url]) => url === '/tienda-nube-reconcile/publicar');
+    const tags = call[1].product_data.tags;
+    expect(Array.isArray(tags)).toBe(true);
+    tags.forEach((t) => expect(t).toBe(t.trim()));
+  });
 });

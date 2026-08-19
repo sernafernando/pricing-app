@@ -16,6 +16,13 @@ import { MEASUREMENT_FIELDS } from './useDraftFields';
 // server-side either).
 const DESCRIPTION_EXTRA_TAGS = ['h1', 'h2', 'h3'];
 
+function splitTags(raw) {
+  return (raw || '')
+    .split(',')
+    .map((t) => t.trim())
+    .filter(Boolean);
+}
+
 function buildOverrides(draftFields) {
   const overrides = {};
   MEASUREMENT_FIELDS.forEach((field) => {
@@ -76,7 +83,10 @@ export function usePublishSubmit({
         free_shipping: draftFields.freeShipping,
         seo_title: draftFields.seoTitle || null,
         seo_description: draftFields.seoDescription || null,
-        tags: draftFields.tags || null,
+        // TN v1 takes an array; the control edits one comma-separated
+        // string for the operator's convenience. Same class of wire-type
+        // bug as the `overrides` floats above — split at the boundary.
+        tags: splitTags(draftFields.tags),
         sku: draftFields.sku || null,
         barcode: draftFields.barcode || null,
         cost: draftFields.cost || null,

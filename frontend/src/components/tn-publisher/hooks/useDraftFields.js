@@ -44,7 +44,7 @@ function initDraftFields(row) {
     width: fieldValue(fields, 'width'),
     height: fieldValue(fields, 'height'),
     depth: fieldValue(fields, 'depth'),
-    visibility: true,
+    visibility: 'visible', // D4/PC7: TN v1 enum visible|unlisted|hidden
     freeShipping: false,
     seoTitle: seeded.seoTitle,
     seoDescription: seeded.seoDescription,

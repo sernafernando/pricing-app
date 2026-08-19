@@ -9,19 +9,14 @@
  * in this single function, isolated from the resolver/backend, means a
  * maintainer correction only touches this file.
  */
+import { stripHtmlToText } from '../../utils/htmlText';
+
 const SEO_TITLE_MAX = 70;
 const SEO_DESCRIPTION_MAX = 320;
 
-function stripHtml(html) {
-  if (!html) return '';
-  const div = document.createElement('div');
-  div.innerHTML = html;
-  return (div.textContent || div.innerText || '').replace(/\s+/g, ' ').trim();
-}
-
 export function seedSeoTags({ name, descriptionHtml, marca, categoria }) {
   const seoTitle = (name || '').trim().slice(0, SEO_TITLE_MAX);
-  const seoDescription = stripHtml(descriptionHtml).slice(0, SEO_DESCRIPTION_MAX);
+  const seoDescription = stripHtmlToText(descriptionHtml).slice(0, SEO_DESCRIPTION_MAX);
   const tags = [marca, categoria]
     .map((v) => (v || '').trim())
     .filter(Boolean)

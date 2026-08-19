@@ -48,15 +48,22 @@ export default function ProductFieldsSection({
       />
 
       <div className={styles.section} data-testid="tn-publish-field-visibility">
-        <label className={styles.categoryOption}>
-          <input
-            id="tn-publish-visibility"
-            type="checkbox"
-            checked={visibility}
-            onChange={(e) => onVisibilityChange(e.target.checked)}
-          />
-          <span>Visible en la tienda</span>
+        {/* D4/PC7: TN v1 takes the string enum visible|unlisted|hidden — a
+            boolean checkbox could not express `unlisted` at all, and `false`
+            is not a value TN accepts. */}
+        <label className={styles.fieldLabel} htmlFor="tn-publish-visibility">
+          Visibilidad
         </label>
+        <select
+          id="tn-publish-visibility"
+          className={styles.titleInput}
+          value={visibility}
+          onChange={(e) => onVisibilityChange(e.target.value)}
+        >
+          <option value="visible">Visible en la tienda</option>
+          <option value="unlisted">No listada (accesible por link)</option>
+          <option value="hidden">Oculta</option>
+        </select>
       </div>
 
       <div className={styles.section} data-testid="tn-publish-field-free_shipping">
