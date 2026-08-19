@@ -30,7 +30,12 @@ import sqlalchemy as sa
 
 # revision identifiers, used by Alembic.
 revision = "20260818_pxq_tier_costo_envio_fetched_at"
-down_revision = "20260813_propuesta_corregida"
+# Rebased from 20260813_propuesta_corregida: main gained
+# 20260814_tickets_triage_ejemplos (same parent) while the PxQ chain was in
+# review, which split the graph into two heads on merge. This revision has
+# not been applied anywhere yet, so re-parenting it keeps the chain linear
+# (same resolution as 449d10ba, not a merge revision).
+down_revision = "20260814_tickets_triage_ejemplos"
 branch_labels = None
 depends_on = None
 
