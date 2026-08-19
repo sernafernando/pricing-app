@@ -1251,3 +1251,122 @@ class TestPublishAmbiguousReadBack:
         )
         assert len(audit_rows) == 1
         assert "submitted" in audit_rows[0].comentario
+
+
+class TestCategoryProfileHintWrite:
+    """PR-8 gap B: on a SUCCESSFUL publish where a profile was applied,
+    `publish_product` upserts `tn_category_profile_hint(categoria,
+    subcategoria, profile_id)` and increments `uso_count` — the write that
+    was always missing, leaving `suggested_profile_id` permanently
+    cold-start (see PR-8 brief). Mirrors `_upsert_publish_overrides`:
+    best-effort, ONLY on `submitted`, never masks the TN outcome."""
+
+    def _fake_client(self, product_id=999):
+        return _FakePublishClient(
+            create_outcome={"ok": True, "status_code": 201, "ambiguous": False, "body": {"id": product_id}},
+        )
+
+    def test_no_hint_written_when_no_profile_applied(self, db):
+        from app.models.tn_category_profile_hint import TnCategoryProfileHint
+
+        user = _make_user(db)
+        publish_product(
+            db, user, client=self._fake_client(), **_publish_kwargs(categoria="Hogar", subcategoria="Cocina")
+        )
+        assert db.query(TnCategoryProfileHint).count() == 0
+
+    def test_hint_created_on_submitted_with_profile(self, db):
+        from app.models.tn_category_profile_hint import TnCategoryProfileHint
+        from app.models.tn_measurement_profile import TnMeasurementProfile
+
+        user = _make_user(db)
+        profile = TnMeasurementProfile(name="30x20x20", weight=1, width=30, height=20, depth=20)
+        db.add(profile)
+        db.flush()
+
+        publish_product(
+            db,
+            user,
+            client=self._fake_client(),
+            **_publish_kwargs(categoria="Hogar", subcategoria="Cocina", profile_id=profile.id),
+        )
+        hint = db.query(TnCategoryProfileHint).one()
+        assert hint.categoria == "Hogar"
+        assert hint.subcategoria == "Cocina"
+        assert hint.profile_id == profile.id
+        assert hint.uso_count == 1
+
+    def test_hint_increments_on_repeat_publish(self, db):
+        from app.models.tn_category_profile_hint import TnCategoryProfileHint
+        from app.models.tn_measurement_profile import TnMeasurementProfile
+
+        user = _make_user(db)
+        profile = TnMeasurementProfile(name="30x20x20", weight=1, width=30, height=20, depth=20)
+        db.add(profile)
+        db.flush()
+
+        kwargs = _publish_kwargs(categoria="Hogar", subcategoria="Cocina", profile_id=profile.id)
+        publish_product(db, user, client=self._fake_client(product_id=1), **kwargs)
+        kwargs2 = _publish_kwargs(ean="EAN-PUB-2", categoria="Hogar", subcategoria="Cocina", profile_id=profile.id)
+        publish_product(db, user, client=self._fake_client(product_id=2), **kwargs2)
+
+        hint = db.query(TnCategoryProfileHint).one()
+        assert hint.uso_count == 2
+
+    def test_no_hint_written_on_rejected_invalid_price(self, db):
+        from app.models.tn_category_profile_hint import TnCategoryProfileHint
+        from app.models.tn_measurement_profile import TnMeasurementProfile
+
+        user = _make_user(db)
+        profile = TnMeasurementProfile(name="30x20x20", weight=1, width=30, height=20, depth=20)
+        db.add(profile)
+        db.flush()
+
+        kwargs = _publish_kwargs(
+            categoria="Hogar", subcategoria="Cocina", profile_id=profile.id, product_data={"name": {"es": "x"}}
+        )
+        publish_product(db, user, client=self._fake_client(), **kwargs)
+        assert db.query(TnCategoryProfileHint).count() == 0
+
+    def test_no_hint_written_on_ambiguous_outcome(self, db):
+        from app.models.tn_category_profile_hint import TnCategoryProfileHint
+        from app.models.tn_measurement_profile import TnMeasurementProfile
+
+        user = _make_user(db)
+        profile = TnMeasurementProfile(name="30x20x20", weight=1, width=30, height=20, depth=20)
+        db.add(profile)
+        db.flush()
+
+        fake_client = _FakePublishClient(
+            create_outcome={"ok": False, "status_code": 503, "ambiguous": True, "body": None},
+            get_by_sku_results=[None, None],
+        )
+        publish_product(
+            db,
+            user,
+            client=fake_client,
+            **_publish_kwargs(categoria="Hogar", subcategoria="Cocina", profile_id=profile.id),
+        )
+        assert db.query(TnCategoryProfileHint).count() == 0
+
+    def test_null_subcategoria_duplicate_publish_does_not_crash_and_does_not_duplicate(self, db):
+        """Known gotcha: `UniqueConstraint("categoria", "subcategoria",
+        "profile_id")` does NOT dedupe rows where `subcategoria IS NULL` in
+        Postgres (NULLs are distinct) — the writer must query-then-update
+        for that case instead of relying on the constraint."""
+        from app.models.tn_category_profile_hint import TnCategoryProfileHint
+        from app.models.tn_measurement_profile import TnMeasurementProfile
+
+        user = _make_user(db)
+        profile = TnMeasurementProfile(name="30x20x20", weight=1, width=30, height=20, depth=20)
+        db.add(profile)
+        db.flush()
+
+        kwargs1 = _publish_kwargs(categoria="Hogar", subcategoria=None, profile_id=profile.id)
+        publish_product(db, user, client=self._fake_client(product_id=1), **kwargs1)
+        kwargs2 = _publish_kwargs(ean="EAN-PUB-2", categoria="Hogar", subcategoria=None, profile_id=profile.id)
+        publish_product(db, user, client=self._fake_client(product_id=2), **kwargs2)
+
+        hints = db.query(TnCategoryProfileHint).all()
+        assert len(hints) == 1
+        assert hints[0].uso_count == 2

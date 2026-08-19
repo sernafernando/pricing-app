@@ -33,6 +33,9 @@ class MeasurementProfileRequest(BaseModel):
     depth: Decimal
 
 
+_AFFECTED_CATEGORIES_CAP = 5
+
+
 class MeasurementProfileResponse(BaseModel):
     id: int
     name: str
@@ -40,6 +43,16 @@ class MeasurementProfileResponse(BaseModel):
     width: Decimal
     height: Decimal
     depth: Decimal
+    # PR-8 gap C/D: how many categories currently point at this profile
+    # (count of `tn_category_profile_hint` rows for `profile_id`) plus a
+    # capped, best-effort list of affected category names — lets the
+    # frontend's delete-confirmation dialog warn the operator without a
+    # second round-trip. `categorias_en_uso`/`total_categorias_afectadas`
+    # are always equal today (both count hint rows); kept as two fields
+    # because they answer different UI questions (badge count vs. "y N más").
+    categorias_en_uso: int = 0
+    categorias_afectadas: List[str] = []
+    total_categorias_afectadas: int = 0
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -61,8 +74,37 @@ class DeleteProfileResponse(BaseModel):
 def listar_perfiles(db: Session = Depends(get_db)):
     """Lists all measurement profiles. Read-only — authenticated but with no
     permission gate: any logged-in user may read, mirroring the read-side of
-    `produccion_banlist`'s GET endpoints."""
-    return db.query(TnMeasurementProfile).order_by(TnMeasurementProfile.id).all()
+    `produccion_banlist`'s GET endpoints.
+
+    PR-8 gap C/D: also loads `categorias_en_uso`/`categorias_afectadas` via
+    ONE aggregate query for every profile's hints combined — never one query
+    per profile (this repo has a documented pool-exhaustion incident; see
+    `_upsert_publish_overrides` and PR-5b/PR-7's bulk-loaded hint map, which
+    hit the exact same rule for the suggestion path)."""
+    perfiles = db.query(TnMeasurementProfile).order_by(TnMeasurementProfile.id).all()
+
+    hint_rows = (
+        db.query(TnCategoryProfileHint.profile_id, TnCategoryProfileHint.categoria)
+        .order_by(TnCategoryProfileHint.id)
+        .all()
+    )
+    categorias_by_profile: dict[int, list[str]] = {}
+    for profile_id, categoria in hint_rows:
+        categorias_by_profile.setdefault(profile_id, []).append(categoria)
+
+    result = []
+    for perfil in perfiles:
+        categorias = categorias_by_profile.get(perfil.id, [])
+        # Distinct category names for the chip list, cap-and-count preserving
+        # insertion order (stable across query plans via the `.id` ordering
+        # above).
+        distinct_categorias = list(dict.fromkeys(categorias))
+        response = MeasurementProfileResponse.model_validate(perfil)
+        response.categorias_en_uso = len(categorias)
+        response.categorias_afectadas = distinct_categorias[:_AFFECTED_CATEGORIES_CAP]
+        response.total_categorias_afectadas = len(categorias)
+        result.append(response)
+    return result
 
 
 @router.post(

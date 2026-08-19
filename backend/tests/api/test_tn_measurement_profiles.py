@@ -285,3 +285,79 @@ class TestSuggestionRouteRegisteredBeforeProfileId:
         ]
         assert profile_id_indexes, "expected PUT/DELETE /{profile_id} routes to exist"
         assert all(suggestion_index < i for i in profile_id_indexes)
+
+
+class TestListEndpointUsageCount:
+    """PR-8 gap C: `GET /tn-measurement-profiles` exposes how many
+    categories currently point at each profile, loaded via ONE aggregate
+    query for the whole list — never one query per profile (documented pool
+    exhaustion incident; see PR-5b/PR-7)."""
+
+    def test_profile_with_no_hints_reports_zero(self, client, db, user_no_perm):
+        profile = TnMeasurementProfile(name="unused", weight=1, width=10, height=10, depth=10)
+        db.add(profile)
+        db.flush()
+
+        resp = client.get("/api/tn-measurement-profiles", headers=_bearer(user_no_perm))
+        assert resp.status_code == 200
+        body = next(p for p in resp.json() if p["id"] == profile.id)
+        assert body["categorias_en_uso"] == 0
+        assert body["categorias_afectadas"] == []
+        assert body["total_categorias_afectadas"] == 0
+
+    def test_profile_with_hints_reports_count_and_names(self, client, db, user_no_perm):
+        profile = TnMeasurementProfile(name="used", weight=1, width=10, height=10, depth=10)
+        db.add(profile)
+        db.flush()
+        db.add_all(
+            [
+                TnCategoryProfileHint(categoria="Hogar", subcategoria="Cocina", profile_id=profile.id, uso_count=3),
+                TnCategoryProfileHint(categoria="Deco", subcategoria=None, profile_id=profile.id, uso_count=1),
+            ]
+        )
+        db.flush()
+
+        resp = client.get("/api/tn-measurement-profiles", headers=_bearer(user_no_perm))
+        assert resp.status_code == 200
+        body = next(p for p in resp.json() if p["id"] == profile.id)
+        assert body["categorias_en_uso"] == 2
+        assert body["total_categorias_afectadas"] == 2
+        assert set(body["categorias_afectadas"]) == {"Hogar", "Deco"}
+
+    def test_affected_categories_list_is_capped(self, db, client, user_no_perm):
+        profile = TnMeasurementProfile(name="popular", weight=1, width=10, height=10, depth=10)
+        db.add(profile)
+        db.flush()
+        for i in range(8):
+            db.add(TnCategoryProfileHint(categoria=f"Cat{i}", subcategoria=None, profile_id=profile.id, uso_count=1))
+        db.flush()
+
+        resp = client.get("/api/tn-measurement-profiles", headers=_bearer(user_no_perm))
+        assert resp.status_code == 200
+        body = next(p for p in resp.json() if p["id"] == profile.id)
+        assert body["categorias_en_uso"] == 8
+        assert body["total_categorias_afectadas"] == 8
+        assert len(body["categorias_afectadas"]) == 5
+
+    def test_list_does_not_issue_one_query_per_profile(self, client, db, engine, user_no_perm):
+        for i in range(5):
+            db.add(TnMeasurementProfile(name=f"p{i}", weight=1, width=10, height=10, depth=10))
+        db.flush()
+
+        from sqlalchemy import event
+
+        queries = []
+
+        def _count(conn, cursor, statement, parameters, context, executemany):
+            queries.append(statement)
+
+        event.listen(engine, "before_cursor_execute", _count)
+        try:
+            resp = client.get("/api/tn-measurement-profiles", headers=_bearer(user_no_perm))
+        finally:
+            event.remove(engine, "before_cursor_execute", _count)
+
+        assert resp.status_code == 200
+        hint_queries = [q for q in queries if "tn_category_profile_hint" in q]
+        # ONE aggregate query for the whole list, regardless of profile count.
+        assert len(hint_queries) == 1
