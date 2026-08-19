@@ -253,25 +253,57 @@
   font-size: 0.85rem;
 }
 
-/* Sub-tabs (verdict groups) */
+/* Filter bar: search input + verdict chips (replaces the old underlined
+   sub-tab bar). Semantics (role="tablist"/"tab"/aria-selected + roving
+   focus) are unchanged — this is a visual-only restyle. */
+.filterBar {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-sm, 8px);
+  margin-bottom: var(--spacing-md);
+  flex-wrap: wrap;
+}
+
+.searchWrap {
+  position: relative;
+  max-width: 380px;
+  width: 100%;
+  flex: 1 1 260px;
+}
+
+.searchIcon {
+  position: absolute;
+  left: 10px;
+  top: 50%;
+  transform: translateY(-50%);
+  color: var(--cf-text-tertiary);
+  pointer-events: none;
+}
+
+.searchInput {
+  composes: input from '../styles/forms-tesla.css';
+  height: 34px;
+  min-height: 34px;
+  padding-left: 32px;
+}
+
 .subTabBar {
   display: flex;
-  gap: var(--spacing-xs);
-  margin-bottom: var(--spacing-md);
-  border-bottom: 1px solid var(--cf-border-default);
+  gap: 6px;
   flex-wrap: wrap;
 }
 
 .subTab {
   display: flex;
   align-items: center;
-  gap: 6px;
-  padding: 8px 14px;
+  gap: 5px;
+  height: 30px;
+  padding: 0 12px;
   background: transparent;
-  border: none;
-  border-bottom: 2px solid transparent;
+  border: 1px solid var(--cf-border-default);
+  border-radius: 15px;
   color: var(--cf-text-secondary);
-  font-size: 0.85rem;
+  font-size: 0.8rem;
   font-weight: 500;
   cursor: pointer;
 }
@@ -280,10 +312,105 @@
   color: var(--cf-text-primary);
 }
 
+.subTabCount {
+  opacity: 0.65;
+}
+
 .subTabActive {
-  color: var(--cf-accent-orange);
-  border-bottom-color: var(--cf-accent-orange);
+  color: var(--cf-accent-blue);
+  border-color: var(--cf-accent-blue);
+  background: color-mix(in srgb, var(--cf-accent-blue) 12%, transparent);
   font-weight: 600;
+}
+
+/* Summary strip — 4-card grid answering "what should I do", not the raw
+   verdict taxonomy. Above the filter bar. */
+.summaryStrip {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: var(--spacing-sm, 8px);
+  margin-bottom: var(--spacing-md);
+}
+
+.summaryCard {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 14px 16px;
+  background: var(--cf-bg-card);
+  border: 1px solid var(--cf-border-subtle);
+  border-radius: var(--radius-lg);
+  cursor: pointer;
+  text-align: left;
+}
+
+.summaryCardActive {
+  border-color: var(--cf-accent-blue);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--cf-accent-blue) 12%, transparent);
+}
+
+.summaryCardLabel {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.75rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--cf-text-secondary);
+}
+
+.summaryDot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.summaryDotGreen { background: var(--cf-accent-green); }
+.summaryDotRed { background: var(--cf-accent-red); }
+.summaryDotPurple { background: var(--cf-accent-purple); }
+.summaryDotGrey { background: var(--cf-accent-gray); }
+
+.summaryValue {
+  font-size: 1.75rem;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  color: var(--cf-text-primary);
+}
+
+.summaryHint {
+  font-size: 0.78rem;
+  color: var(--cf-text-tertiary);
+}
+
+.updatedAt {
+  font-size: 0.78rem;
+  color: var(--cf-text-tertiary);
+  white-space: nowrap;
+}
+
+/* Loading/empty state block inside the table card */
+.loadingState {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--spacing-sm, 8px);
+  padding: 48px 16px;
+  color: var(--cf-text-secondary);
+  font-size: 0.85rem;
+}
+
+.spinner {
+  animation: tnReconcileSpin 0.9s linear infinite;
+  color: var(--cf-text-tertiary);
+}
+
+@keyframes tnReconcileSpin {
+  to {
+    transform: rotate(360deg);
+  }
 }
 
 /* DUPLICADO human-review notice — explicitly non-suggestive language */
@@ -338,6 +465,21 @@
 .badgeInfo {
   background: color-mix(in srgb, var(--cf-accent-blue) 15%, transparent);
   color: var(--cf-accent-blue);
+}
+
+.badgeSuccess {
+  background: color-mix(in srgb, var(--cf-accent-green) 15%, transparent);
+  color: var(--cf-accent-green);
+}
+
+.badgePurple {
+  background: color-mix(in srgb, var(--cf-accent-purple) 15%, transparent);
+  color: var(--cf-accent-purple);
+}
+
+.badgeTeal {
+  background: color-mix(in srgb, var(--cf-accent-teal) 15%, transparent);
+  color: var(--cf-accent-teal);
 }
 
 /* Resizable table — mirrors MLQuestions.module.css's TanStack pattern
