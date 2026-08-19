@@ -8,7 +8,12 @@ handling (`fetch_gbp_report_78`) is covered separately.
 from decimal import Decimal
 
 from app.models.tienda_nube_producto import TiendaNubeProducto
-from app.services.tn_reconciliation_service import ErpPriceInfo, compute_verdicts, normalize_gtin
+from app.services.tn_reconciliation_service import (
+    ErpPriceInfo,
+    _select_hint_profile_id,
+    compute_verdicts,
+    normalize_gtin,
+)
 
 
 def _tn(product_id=1, variant_id=1, sku="EAN-1", activo=True, published=None):
@@ -923,3 +928,23 @@ class TestErpPriceInfoOnRow:
         results = compute_verdicts(gbp_rows, [], erp_by_item_id=erp_by_item_id)
 
         assert results[0].precio_lista_ml == Decimal("900.00")
+
+
+class TestSelectHintProfileId:
+    """D11/MP3 ladder (`_select_hint_profile_id`) — the SAME exact ->
+    category-only -> none order as `GET /tn-measurement-profiles/suggestion`,
+    tested here as a pure function (no DB, no FastAPI)."""
+
+    def test_exact_categoria_subcategoria_match_wins(self):
+        hints = {("Impresoras", "Laser"): 1, ("Impresoras", None): 2}
+        assert _select_hint_profile_id(hints, "Impresoras", "Laser") == 1
+
+    def test_falls_back_to_category_only_when_no_exact_match(self):
+        hints = {("Impresoras", None): 2}
+        assert _select_hint_profile_id(hints, "Impresoras", "Tinta") == 2
+
+    def test_no_hint_at_all_returns_none(self):
+        assert _select_hint_profile_id({}, "Categoria-Nunca-Usada", None) is None
+
+    def test_blank_categoria_returns_none_without_a_lookup(self):
+        assert _select_hint_profile_id({("", None): 9}, "", "Sub") is None
