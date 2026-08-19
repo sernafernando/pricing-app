@@ -530,6 +530,15 @@ table.resizableTable {
   margin-bottom: var(--spacing-xs);
 }
 
+/* Banlist bulk-unban bar — was reusing .columnSizingBar (a column-resize
+   affordance, unrelated semantics) purely because both happen to render a
+   single right-aligned button. Own class so the two can diverge freely. */
+.banlistActionsBar {
+  display: flex;
+  justify-content: flex-end;
+  margin-bottom: var(--spacing-sm, 8px);
+}
+
 /* Paginator bar — distinct from .columnSizingBar (that one is only ever a
    right-aligned single action; the paginator always needs a
    space-between layout for the "Mostrando X-Y de Z" label + Prev/Next). */

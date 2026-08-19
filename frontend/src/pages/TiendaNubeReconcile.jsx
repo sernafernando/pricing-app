@@ -1022,7 +1022,7 @@ export default function TiendaNubeReconcile() {
       {subTab === 'BANLIST' ? (
         <div>
           {baneadosSeleccionados.size > 0 && (
-            <div className={styles.columnSizingBar}>
+            <div className={styles.banlistActionsBar}>
               <button type="button" className="btn-tesla outline-subtle-success sm" onClick={desbanearSeleccionados}>
                 Desbanear seleccionados ({baneadosSeleccionados.size})
               </button>
