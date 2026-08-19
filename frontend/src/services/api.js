@@ -739,6 +739,14 @@ export const propuestasAPI = {
     api.post('/tickets/propuestas/confirmar-batch', { propuesta_ids: propuestaIds }),
 };
 
+// ── Ejemplos curados de correcciones humanas (tickets-triage-feedback PR5b) ──
+export const ejemplosAPI = {
+  listar: (campo, { skip, limit } = {}) =>
+    api.get('/tickets/tickets/triage/ejemplos', { params: { campo, skip, limit } }),
+  toggle: (id, active) =>
+    api.patch(`/tickets/tickets/triage/ejemplos/${id}`, { active }),
+};
+
 // ── Tablero (tickets-ai-triage PR 5b) ────────────────────────
 export const boardAPI = {
   // `sectorId` scopes the estado grouping's workflow (fix/tickets-board-
