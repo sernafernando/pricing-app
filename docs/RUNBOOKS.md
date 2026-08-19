@@ -443,10 +443,22 @@ Messages sent:
 
 | Moment | Content |
 | --- | --- |
+| Heads-up (`--minutes N` only) | A deploy is coming in ~N minutes; the app may be unresponsive |
 | Start | Backend is going to restart, estimated duration, "we'll tell you when it's up" |
 | End (OK) | Backend confirmed up via health check, real duration, and — only when the frontend was rebuilt — the Ctrl+Shift+R reminder |
 | End (degraded) | Deploy finished but `/health` never answered; tells people **not** to use the app yet |
 | Failure / Ctrl+C | Which step it died on and how long it ran, so nobody waits for an "it's up" that will never arrive |
+| Cancelled during the heads-up wait | Nothing was touched and the announced deploy is off — cancelling before any work started must not read like a half-applied deploy |
+
+### Announcing a Deploy in Advance
+
+```bash
+./deploy.sh --minutes 5     # heads-up now, deploy starts 5 minutes later
+```
+
+`--minutes N` sends the heads-up message, sleeps N minutes and only then runs
+the deploy, so nobody has to warn the group by hand. `--minutes=N` works too.
+A non-numeric value exits before anything is announced.
 
 ### Required Setup on the Server (one time)
 
