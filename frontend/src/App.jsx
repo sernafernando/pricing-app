@@ -71,6 +71,7 @@ const AdministracionBancos = lazy(() => import('./pages/AdministracionBancos'));
 const AdministracionImpuestos = lazy(() => import('./pages/AdministracionImpuestos'));
 const AdministracionCaja = lazy(() => import('./pages/AdministracionCaja'));
 const AdministracionCompras = lazy(() => import('./pages/AdministracionCompras'));
+const AdministracionPerfilesMedidas = lazy(() => import('./pages/AdministracionPerfilesMedidas'));
 const DocumentDesigner = lazy(() => import('./pages/DocumentDesigner'));
 
 const queryClient = new QueryClient({
@@ -155,6 +156,7 @@ const protectedRoutes = [
   { path: '/administracion/bancos', component: AdministracionBancos, permiso: 'administracion.ver_caja' },
   { path: '/administracion/impuestos', component: AdministracionImpuestos, permiso: 'administracion.ver_proveedores' },
   { path: '/administracion/caja', component: AdministracionCaja, permiso: 'administracion.ver_caja' },
+  { path: '/perfiles-medidas', component: AdministracionPerfilesMedidas, permiso: 'admin.gestionar_tn_perfiles' },
   // The page hosts tabs owned by different areas (compras, tesorería, depósito).
   // Any tab-level permission grants access to the page; each tab still gates itself.
   {
