@@ -734,3 +734,28 @@ describe('Empty embedder suggestion is explained, never a silent blank', () => {
     expect(screen.queryByRole('radio')).not.toBeInTheDocument();
   });
 });
+
+describe('Category sync is reachable for a stale catalog, not only an empty one', () => {
+  it('offers the sync button even when the catalog already has rows', async () => {
+    // The button used to live inside the `catalogEmpty === true` branch, so
+    // a NON-empty but incomplete mirror (what the unpaginated
+    // `fetch_categories` left behind) had no way to refresh itself.
+    setupApiMocks({ categorySearchResults: [{ tn_category_id: 7, category_path: 'Computación > Notebooks' }] });
+    await renderModal();
+
+    expect(await screen.findByRole('button', { name: /^sincronizar categorías$/i })).toBeEnabled();
+    // ...and the "never synced" copy must NOT appear for a catalog that has rows.
+    expect(screen.queryByText(/todavía no se sincronizaron/i)).not.toBeInTheDocument();
+  });
+
+  it('calls the sync endpoint when pressed', async () => {
+    setupApiMocks({ categorySearchResults: [{ tn_category_id: 7, category_path: 'Computación > Notebooks' }] });
+    await renderModal();
+
+    const user = userEvent.setup();
+    await user.click(await screen.findByRole('button', { name: /^sincronizar categorías$/i }));
+    await waitFor(() => {
+      expect(api.post).toHaveBeenCalledWith('/tienda-nube-reconcile/categorias/sync');
+    });
+  });
+});

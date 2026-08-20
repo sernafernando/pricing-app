@@ -224,29 +224,41 @@ export default function CategorySection({
                   no-match copy, regardless of what's typed in the box.
                 */}
                 {!searching && searchResults.length === 0 && !searchError && catalogEmpty === true && (
-                  <div className={styles.fieldHint} role="status">
-                    <p>
-                      Las categorías de Tienda Nube todavía no se sincronizaron — por eso no hay nada para
-                      elegir acá.
-                    </p>
-                    <button
-                      type="button"
-                      className={styles.searchResultBtn}
-                      onClick={syncCategories}
-                      disabled={syncingCategories}
-                    >
-                      {syncingCategories ? 'Sincronizando categorías...' : 'Sincronizar categorías'}
-                    </button>
-                    {syncResult && !syncingCategories && (
-                      <p>
-                        {syncResult.skipped
-                          ? `Sincronización omitida${syncResult.reason ? `: ${syncResult.reason}` : '.'}`
-                          : `Se sincronizaron ${syncResult.synced} categorías.`}
-                      </p>
-                    )}
-                    {syncError && !syncingCategories && <p className={styles.fieldError}>{syncError}</p>}
-                  </div>
+                  <p className={styles.fieldHint} role="status">
+                    Las categorías de Tienda Nube todavía no se sincronizaron — por eso no hay nada para elegir
+                    acá.
+                  </p>
                 )}
+                {/*
+                  The sync action used to live INSIDE the `catalogEmpty`
+                  block, so it only ever rendered for a catalog with zero
+                  rows — the one case that needs it least. A catalog that is
+                  non-empty but STALE or INCOMPLETE (the normal case after
+                  the TN tree changes, and the exact state left behind by
+                  the unpaginated `fetch_categories` bug: a mirror holding
+                  only TN's first page) rendered no way to refresh at all.
+                  Re-syncing is safe and idempotent — it upserts by
+                  `tn_category_id` — so it belongs in the picker
+                  unconditionally, not gated behind a failure state.
+                */}
+                <div className={styles.categorySyncRow}>
+                  <button
+                    type="button"
+                    className={styles.searchResultBtn}
+                    onClick={syncCategories}
+                    disabled={syncingCategories}
+                  >
+                    {syncingCategories ? 'Sincronizando categorías...' : 'Sincronizar categorías'}
+                  </button>
+                  {syncResult && !syncingCategories && (
+                    <p className={styles.fieldHint} role="status">
+                      {syncResult.skipped
+                        ? `Sincronización omitida${syncResult.reason ? `: ${syncResult.reason}` : '.'}`
+                        : `Se sincronizaron ${syncResult.synced} categorías.`}
+                    </p>
+                  )}
+                  {syncError && !syncingCategories && <p className={styles.fieldError}>{syncError}</p>}
+                </div>
                 {!searching &&
                   searchResults.length === 0 &&
                   !searchError &&
