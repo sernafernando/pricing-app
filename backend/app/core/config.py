@@ -243,6 +243,15 @@ class Settings(BaseSettings):
     # byte-identical to today (see `triage_service.run_triage`).
     TICKETS_TRIAGE_EJEMPLOS_READ: bool = False
 
+    # Vikunja sync (sdd/tickets-sync-vikunja PR 1) — kill-switch for the
+    # ticket->Vikunja sync pipeline. Default OFF: PR 1 only ships the client,
+    # ledger table, and migration — nothing calls the client yet (that's
+    # PR 2/3). Flip on per environment once the hook/loop land.
+    TICKETS_VIKUNJA_SYNC_ENABLED: bool = False
+    VIKUNJA_BASE_URL: Optional[str] = None
+    VIKUNJA_TOKEN: Optional[str] = None
+    VIKUNJA_PROJECT_ID: Optional[int] = None
+
     # Prearmados stats cache
     PREARMADAS_STATS_CACHE_TTL_SECONDS: int = 15
     PREARMADAS_STATS_VOLUME_WARN: int = 5000
