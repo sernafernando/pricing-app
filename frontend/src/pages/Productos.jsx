@@ -2478,6 +2478,7 @@ export default function Productos() {
                               promoTipos={filtroPromoTipos}
                               promoEstado={filtroPromoEstado}
                               tiendaOficial={filtroTiendaOficial}
+                              conPxq={filtroPxq}
                             />
                           </div>
                         </td>
@@ -2641,6 +2642,9 @@ export default function Productos() {
             equipoActivoNombre,
             promo_tipos: filtroPromoTipos.length > 0 ? filtroPromoTipos.join(',') : null,
             promo_estado: filtroPromoTipos.length > 0 ? filtroPromoEstado : null,
+            con_promo_aplicada: filtroPromoTipos.length === 0 && filtroPromoEstado === 'aplicada' ? true : null,
+            con_promo_sin_aplicar: filtroPromoTipos.length === 0 && filtroPromoEstado === 'sin_aplicar' ? true : null,
+            filtroPxq,
             audit_usuarios: filtrosAuditoria.usuarios,
             audit_tipos_accion: filtrosAuditoria.tipos_accion,
             audit_fecha_desde: filtrosAuditoria.fecha_desde,
@@ -2677,6 +2681,11 @@ export default function Productos() {
             equipoActivoId,
             equipoActivoNombre,
             filtroTiendaOficial,
+            promo_tipos: filtroPromoTipos.length > 0 ? filtroPromoTipos.join(',') : null,
+            promo_estado: filtroPromoTipos.length > 0 ? filtroPromoEstado : null,
+            con_promo_aplicada: filtroPromoTipos.length === 0 && filtroPromoEstado === 'aplicada' ? true : null,
+            con_promo_sin_aplicar: filtroPromoTipos.length === 0 && filtroPromoEstado === 'sin_aplicar' ? true : null,
+            filtroPxq,
             audit_usuarios: filtrosAuditoria.usuarios,
             audit_tipos_accion: filtrosAuditoria.tipos_accion,
             audit_fecha_desde: filtrosAuditoria.fecha_desde,
@@ -2713,6 +2722,9 @@ export default function Productos() {
             equipoActivoNombre,
             promo_tipos: filtroPromoTipos.length > 0 ? filtroPromoTipos.join(',') : null,
             promo_estado: filtroPromoTipos.length > 0 ? filtroPromoEstado : null,
+            con_promo_aplicada: filtroPromoTipos.length === 0 && filtroPromoEstado === 'aplicada' ? true : null,
+            con_promo_sin_aplicar: filtroPromoTipos.length === 0 && filtroPromoEstado === 'sin_aplicar' ? true : null,
+            filtroPxq,
             audit_usuarios: filtrosAuditoria.usuarios,
             audit_tipos_accion: filtrosAuditoria.tipos_accion,
             audit_fecha_desde: filtrosAuditoria.fecha_desde,

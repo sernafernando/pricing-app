@@ -43,6 +43,18 @@ function buildTiendaOficialParams(tiendaOficial) {
 }
 
 /**
+ * Adds the list-level wholesale (PxQ) filter to the tree params.
+ *
+ * Same reason as the store filter above: the list matches a PRODUCT that has
+ * at least one publication with tiers, which is right at the product level —
+ * but without this param the expanded tree showed every MLA of that product,
+ * tiers or not, and the filter looked broken.
+ */
+function buildPxqParams(conPxq) {
+  return conPxq ? { con_pxq: true } : {};
+}
+
+/**
  * Level 1 panel: recursive catalog/family publication tree of a product
  * (productos-catalog-family-tree PR3). Lazily fetches
  * `GET /productos/{item_id}/mercadolibre/tree` on first mount (i.e. on first
@@ -71,15 +83,20 @@ function ProductoMLAsPanel({
   promoTipos,
   promoEstado,
   tiendaOficial,
+  conPxq,
 }) {
   // `tiendaOficial` participates in filterParams, and therefore in the cache
   // key below: without it, switching stores would replay the previous
   // store's tree from cache and the filter would appear to do nothing.
   const filterParams = useMemo(
-    () => ({ ...buildPromoFilterParams(promoTipos, promoEstado), ...buildTiendaOficialParams(tiendaOficial) }),
-    [promoTipos, promoEstado, tiendaOficial],
+    () => ({
+      ...buildPromoFilterParams(promoTipos, promoEstado),
+      ...buildTiendaOficialParams(tiendaOficial),
+      ...buildPxqParams(conPxq),
+    }),
+    [promoTipos, promoEstado, tiendaOficial, conPxq],
   );
-  const filterActive = isFilterActive(promoTipos, promoEstado, tiendaOficial);
+  const filterActive = isFilterActive(promoTipos, promoEstado, tiendaOficial, conPxq);
   const filterKey = useMemo(() => JSON.stringify(filterParams), [filterParams]);
   const cacheKey = `${itemId}::${filterKey}`;
   const [verTodos, setVerTodos] = useState(false);
@@ -175,6 +192,7 @@ function ProductoMLAsPanel({
               promoTipos={promoTipos}
               promoEstado={promoEstado}
               tiendaOficial={tiendaOficial}
+              conPxq={conPxq}
               revealAll={verTodos}
             />
           ))}

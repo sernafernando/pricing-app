@@ -1,7 +1,6 @@
 import { useState, useEffect } from 'react';
 import api from '../services/api';
 import styles from './CalcularWebModal.module.css'; // Reutilizar el mismo CSS
-import FiltrosNoAplicablesAviso from './FiltrosNoAplicablesAviso';
 
 export default function CalcularPVPModal({ onClose, onSuccess, filtrosActivos, showToast }) {
   const [markupPVPClasica, setMarkupPVPClasica] = useState('15.0');
@@ -79,17 +78,8 @@ export default function CalcularPVPModal({ onClose, onSuccess, filtrosActivos, s
     !!filtrosActivos?.audit_fecha_desde ||
     !!filtrosActivos?.audit_fecha_hasta;
 
-  // ponytail: este modal deja caer filtros que el listado SÍ aplica (con_pxq y
-  // promo_tipos/promo_estado llegan en `filtrosActivos` y nadie los lee, y el
-  // backend masivo tampoco los acepta), así que la operación corre sobre un
-  // conjunto MÁS AMPLIO que el de la pantalla. Mitigado con
-  // FiltrosNoAplicablesAviso, que se lo dice al usuario. Revisar cuando el
-  // backend de export/cálculo masivo acepte el mismo set de filtros que
-  // /productos (incluye decidir qué hace un fold cross-DB si mlwebhook cae en
-  // mitad de una escritura de precios). Ver docs/tech-debt-ledger.md.
   const FiltrosActivosDisplay = () => (
     <div className={styles.filtrosActivos}>
-      <FiltrosNoAplicablesAviso filtrosActivos={filtrosActivos} />
       {filtrosActivos.search && <div>• Búsqueda: "{filtrosActivos.search}"</div>}
       {filtrosActivos.con_stock === true && <div>• Con stock</div>}
       {filtrosActivos.con_stock === false && <div>• Sin stock</div>}
@@ -173,6 +163,16 @@ export default function CalcularPVPModal({ onClose, onSuccess, filtrosActivos, s
         if (filtrosActivos.filtroEstadoMLA === 'activa') body.filtros.estado_mla = 'activa';
         if (filtrosActivos.filtroEstadoMLA === 'pausada') body.filtros.estado_mla = 'pausada';
         if (filtrosActivos.filtroNuevos === 'ultimos_7_dias') body.filtros.nuevos_ultimos_7_dias = true;
+        // Cross-DB filters (promos, precios mayoristas): el backend los
+        // resuelve fail-CLOSED, así que la operación corre exactamente sobre
+        // el conjunto del listado o no corre.
+        if (filtrosActivos.filtroPxq === 'con_pxq') body.filtros.con_pxq = true;
+        if (filtrosActivos.promo_tipos) {
+          body.filtros.promo_tipos = filtrosActivos.promo_tipos;
+          body.filtros.promo_estado = filtrosActivos.promo_estado;
+        }
+        if (filtrosActivos.con_promo_aplicada) body.filtros.con_promo_aplicada = true;
+        if (filtrosActivos.con_promo_sin_aplicar) body.filtros.con_promo_sin_aplicar = true;
       }
 
       const response = await api.post('/productos/calcular-pvp-masivo', body);

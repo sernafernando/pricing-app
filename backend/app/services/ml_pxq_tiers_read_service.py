@@ -34,7 +34,7 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass
-from typing import Dict, List, Sequence, Set
+from typing import Dict, List, Optional, Sequence, Set
 
 from sqlalchemy import text
 
@@ -51,32 +51,56 @@ class PxqTier:
     amount: float
 
 
-def fetch_mlas_with_pxq_tiers() -> Set[str]:
+def fetch_mlas_with_pxq_tiers(mla_ids: Optional[Sequence[str]] = None) -> Set[str]:
     """Read the set of MLAs that have at least one PxQ wholesale tier.
 
-    Backs the "Con precios mayoristas" filter of the Productos LISTING: one
-    batched query (never N+1), folded into the listing query by
-    `_resolve_and_fold_mlas`, which owns the empty-set fail-closed guard and
-    the 503 mapping.
+    Backs the "Con precios mayoristas" filter at BOTH levels:
+
+    * PRODUCT level (Productos listing): called without `mla_ids`, folded
+      into the listing query by `_resolve_and_fold_mlas`, which owns the
+      empty-set fail-closed guard and the 503 mapping.
+    * PUBLICATION level (`matches_filter` on the detail/tree endpoints):
+      called WITH this product's own `mla_ids`, so the filter also hides the
+      publications of a matching product that carry no tiers. Mirrors
+      `fetch_mlas_with_active_promo_type`'s `mla_ids` parameter — same shape,
+      same reason: never pull the account universe to answer about one
+      product.
+
+    Args:
+        mla_ids: optional scope. `None` reads the whole universe; a non-empty
+            list bounds the query to those MLAs. An EMPTY list short-circuits
+            to the empty set without querying: a product with no publications
+            matches nothing (this is "nothing matches", never "filter off").
 
     Returns:
-        Set of mla (str). Empty if no publication has tiers.
+        Set of mla (str). Empty if no publication in scope has tiers.
 
     Raises:
         RuntimeError: if ML_WEBHOOK_DB_URL is not configured.
         SQLAlchemyError: on a DB/connection fault.
 
-        Both propagate on purpose: the caller (`_resolve_and_fold_mlas`) maps
-        them to HTTP 503. Swallowing them into an empty set would read as
-        "no product has tiers" and quietly return zero rows.
+        Both propagate on purpose, and the two levels translate them
+        DIFFERENTLY: the listing maps them to 503 (fail-closed — returning
+        unfiltered rows would lie), while the per-MLA callers swallow them
+        into an absent `matches_filter` (fail-open — an infrastructure blip
+        must not hide a publication). Swallowing them HERE would collapse
+        both stories into the wrong one.
     """
+    if mla_ids is not None and not mla_ids:
+        return set()
+
+    scope_clause = "WHERE mla = ANY(:mla_ids)" if mla_ids else ""
+    params = {"mla_ids": list(mla_ids)} if mla_ids else {}
+
     engine = get_mlwebhook_engine()
     with engine.connect() as conn:
         rows = conn.execute(
-            text("""
+            text(f"""
                 SELECT DISTINCT mla
                 FROM ml_pxq_price_tiers
-            """)
+                {scope_clause}
+            """),
+            params,
         ).fetchall()
 
     result = {row[0] for row in rows}

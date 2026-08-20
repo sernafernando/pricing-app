@@ -25,6 +25,7 @@ from types import SimpleNamespace
 from unittest.mock import patch
 
 import pytest
+from fastapi import HTTPException
 from openpyxl import load_workbook
 
 from app.models.producto import ProductoERP, ProductoPricing
@@ -204,6 +205,57 @@ class TestPromoFiltersAllExportEndpoints:
 
         codigos = _codigos_in_workbook(_response_bytes(response), codigo_col)
         assert codigos == set()
+
+
+class TestPxqFilterAllExportEndpoints:
+    """`con_pxq` ("con precios mayoristas") must narrow the export to the same
+    set the listing shows. Exporting a wider set than the screen is the same
+    class of bug FF-2 fixed for promos."""
+
+    @pytest.mark.parametrize("caller,codigo_col", _GET_ENDPOINTS)
+    def test_con_pxq_narrows_to_products_with_tiers(self, db, caller, codigo_col) -> None:
+        _seed_products(db)
+
+        with patch(
+            "app.api.endpoints.productos_export.fetch_mlas_with_pxq_tiers",
+            return_value={"MLA1"},
+        ):
+            response = caller(db, con_pxq=True)
+
+        assert _codigos_in_workbook(_response_bytes(response), codigo_col) == {"COD1"}
+
+    @pytest.mark.parametrize("caller,codigo_col", _GET_ENDPOINTS)
+    def test_empty_set_yields_no_products_not_the_catalog(self, db, caller, codigo_col) -> None:
+        _seed_products(db)
+
+        with patch(
+            "app.api.endpoints.productos_export.fetch_mlas_with_pxq_tiers",
+            return_value=set(),
+        ):
+            response = caller(db, con_pxq=True)
+
+        assert _codigos_in_workbook(_response_bytes(response), codigo_col) == set()
+
+    @pytest.mark.parametrize("caller,codigo_col", _GET_ENDPOINTS)
+    def test_absent_param_does_not_call_the_reader(self, db, caller, codigo_col) -> None:
+        _seed_products(db)
+
+        with patch("app.api.endpoints.productos_export.fetch_mlas_with_pxq_tiers") as mock_reader:
+            caller(db)
+
+        mock_reader.assert_not_called()
+
+    def test_cross_db_failure_raises_503(self, db) -> None:
+        _seed_products(db)
+
+        with patch(
+            "app.api.endpoints.productos_export.fetch_mlas_with_pxq_tiers",
+            side_effect=RuntimeError("down"),
+        ):
+            with pytest.raises(HTTPException) as exc_info:
+                _call_vista_actual(db, con_pxq=True)
+
+        assert exc_info.value.status_code == 503
 
 
 class TestConMlaEstadoMlaNuevos7DiasAllEndpoints:
