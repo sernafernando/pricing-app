@@ -1030,7 +1030,11 @@ describe('Banlist view', () => {
     const banlistTab = await screen.findByRole('tab', { name: /Banlist/i });
     await user.click(banlistTab);
 
-    const checkboxes = await screen.findAllByRole('checkbox');
+    // Esperar las 2 casillas: `findAllByRole` resuelve apenas
+    // aparece UNA, y si el DOM todavía está pintando filas el loop de
+    // abajo clickea de menos y el conteo del toast cambia.
+    await waitFor(() => expect(screen.getAllByRole('checkbox')).toHaveLength(2));
+    const checkboxes = screen.getAllByRole('checkbox');
     for (const cb of checkboxes) {
       await user.click(cb);
     }
@@ -1077,7 +1081,11 @@ describe('Banlist view', () => {
     const banlistTab = await screen.findByRole('tab', { name: /Banlist/i });
     await user.click(banlistTab);
 
-    const checkboxes = await screen.findAllByRole('checkbox');
+    // Esperar las 3 casillas: `findAllByRole` resuelve apenas
+    // aparece UNA, y si el DOM todavía está pintando filas el loop de
+    // abajo clickea de menos y el conteo del toast cambia.
+    await waitFor(() => expect(screen.getAllByRole('checkbox')).toHaveLength(3));
+    const checkboxes = screen.getAllByRole('checkbox');
     for (const cb of checkboxes) {
       await user.click(cb);
     }
