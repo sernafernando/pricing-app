@@ -924,8 +924,12 @@ def buscar_categorias(
     `tn_category_embedding.category_path_text` — lets the publish modal's
     manual category picker show category NAMES instead of a raw id, without
     invoking the embedder (that's `/categoria-sugerida`, a separate
-    similarity-ranked suggestion). An empty/blank `q` returns an empty list
-    rather than the whole table.
+    similarity-ranked suggestion). An empty/blank `q` returns a bounded,
+    alphabetically-ordered first page of the whole table instead of `[]` —
+    a search-only picker with nothing to browse is unusable when the
+    operator doesn't already know the category vocabulary. A genuinely
+    empty catalog still returns `[]`; the frontend uses that as the signal
+    to distinguish "never synced" from "no rows match your query".
 
     Reuses `admin.gestionar_tn_publicacion` — same write-gate as the rest of
     the publish flow this feeds.
@@ -934,15 +938,16 @@ def buscar_categorias(
         raise HTTPException(status_code=403, detail="No tienes permiso para gestionar la publicación de Tienda Nube")
 
     query_text = q.strip()
-    if not query_text:
-        return []
 
-    rows = (
-        db.query(TnCategoryEmbedding)
+    rows_query = db.query(TnCategoryEmbedding)
+    if query_text:
         # icontains → case-insensitive (ILIKE), autoescape → treat %/_ literally.
         # `.contains(...)` alone is LIKE (case-SENSITIVE on Postgres); the search
         # is contractually case-insensitive, so it must be ILIKE.
-        .filter(TnCategoryEmbedding.category_path_text.icontains(query_text, autoescape=True))
+        rows_query = rows_query.filter(TnCategoryEmbedding.category_path_text.icontains(query_text, autoescape=True))
+
+    rows = (
+        rows_query
         # NOTE (scaling): the leading-`%` ILIKE cannot use a btree index and the
         # ORDER BY sorts the whole match set before `limit` cuts it. Fine for the
         # bounded TN category tree today; if it grows large, add a trigram

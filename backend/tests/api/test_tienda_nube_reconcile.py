@@ -1474,7 +1474,65 @@ class TestCategoriasEndpoint:
         assert body[0]["tn_category_id"] == 1
         assert body[0]["category_path"] == "Electrónica > Celulares y Smartphones"
 
-    def test_empty_query_returns_empty_list(self, client, db, user_publicacion):
+    def test_blank_query_returns_bounded_first_page_when_catalog_has_rows(self, client, db, user_publicacion):
+        # A blank `q` used to short-circuit to `[]` "by design" — that made
+        # the picker unbrowsable (see tn-categorias-descubribles fix): an
+        # operator can't type a query for a vocabulary they don't know yet.
+        # It now returns a bounded, alphabetically-ordered first page, same
+        # as any other query, just unfiltered.
+        from app.models.tn_category_embedding import TnCategoryEmbedding
+
+        db.add(
+            TnCategoryEmbedding(
+                tn_category_id=1,
+                category_path_text="Zeta > Ultimo",
+                embedding=[0.0] * 384,
+            )
+        )
+        db.add(
+            TnCategoryEmbedding(
+                tn_category_id=2,
+                category_path_text="Alfa > Primero",
+                embedding=[0.0] * 384,
+            )
+        )
+        db.commit()
+
+        response = client.get(
+            "/api/tienda-nube-reconcile/categorias", params={"q": ""}, headers=_bearer(user_publicacion)
+        )
+        assert response.status_code == 200
+        body = response.json()
+        assert len(body) == 2
+        # Ordering is preserved (alphabetical by category_path_text).
+        assert body[0]["category_path"] == "Alfa > Primero"
+        assert body[1]["category_path"] == "Zeta > Ultimo"
+
+    def test_blank_query_respects_limit(self, client, db, user_publicacion):
+        from app.models.tn_category_embedding import TnCategoryEmbedding
+
+        for i in range(5):
+            db.add(
+                TnCategoryEmbedding(
+                    tn_category_id=200 + i,
+                    category_path_text=f"Categoria Browse {i}",
+                    embedding=[0.0] * 384,
+                )
+            )
+        db.commit()
+
+        response = client.get(
+            "/api/tienda-nube-reconcile/categorias",
+            params={"q": "", "limit": 2},
+            headers=_bearer(user_publicacion),
+        )
+        assert response.status_code == 200
+        assert len(response.json()) == 2
+
+    def test_blank_query_returns_empty_list_when_catalog_is_empty(self, client, db, user_publicacion):
+        # This is the honest "empty catalog" signal the frontend uses to
+        # distinguish "no rows exist" from "no rows match your query" — it
+        # must stay genuinely empty (not fabricated) when the table is empty.
         response = client.get(
             "/api/tienda-nube-reconcile/categorias", params={"q": ""}, headers=_bearer(user_publicacion)
         )

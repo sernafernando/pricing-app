@@ -225,6 +225,73 @@ describe('Category picker', () => {
     expect(call[1].category_id).toBe(77);
   });
 
+  it('loads a bounded listing of categories as soon as the modal opens, without typing (defect 1a)', async () => {
+    setupApiMocks({
+      categorySearchResults: [
+        { tn_category_id: 1, category_path: 'Electrónica > Auriculares' },
+        { tn_category_id: 2, category_path: 'Hogar > Muebles' },
+      ],
+    });
+    await renderModal();
+
+    await waitFor(() => {
+      expect(api.get).toHaveBeenCalledWith('/tienda-nube-reconcile/categorias', { params: { limit: 20 } });
+    });
+    expect(await screen.findByRole('button', { name: 'Hogar > Muebles' })).toBeInTheDocument();
+  });
+
+  it('shows a distinct empty-catalog message (never "Sin resultados") when nothing was ever synced (defect 1b)', async () => {
+    setupApiMocks({ categorySearchResults: [] });
+    await renderModal();
+
+    expect(await screen.findByText(/todavía no se sincronizaron/i)).toBeInTheDocument();
+    expect(screen.queryByText('Sin resultados para esa búsqueda.')).not.toBeInTheDocument();
+  });
+
+  it('shows the ordinary no-match message (not the empty-catalog one) when the catalog has rows but the query matches none', async () => {
+    const user = userEvent.setup();
+    // Blank-q browse returns rows (catalog NOT empty); a later typed query
+    // that matches nothing must fall back to the query-scoped message.
+    api.get.mockImplementation((url, config) => {
+      if (url === '/tienda-nube-reconcile/categorias') {
+        const q = config?.params?.q;
+        if (!q) return Promise.resolve({ data: [{ tn_category_id: 1, category_path: 'Hogar > Muebles' }] });
+        return Promise.resolve({ data: [] });
+      }
+      return Promise.resolve({ data: {} });
+    });
+    await renderModal();
+    await screen.findByRole('button', { name: 'Hogar > Muebles' });
+
+    await waitForModalAutofocus();
+    const search = screen.getByLabelText(/buscar otra categoría por nombre/i);
+    await user.type(search, 'zzz');
+
+    expect(await screen.findByText('Sin resultados para esa búsqueda.')).toBeInTheDocument();
+    expect(screen.queryByText(/todavía no se sincronizaron/i)).not.toBeInTheDocument();
+  });
+
+  it('offers a sync action from the empty-catalog state that calls POST /categorias/sync and surfaces the result (defect 1c)', async () => {
+    setupApiMocks({ categorySearchResults: [] });
+    const user = userEvent.setup();
+    api.post.mockImplementation((url) => {
+      if (url === '/tienda-nube-reconcile/categoria-sugerida') return Promise.resolve({ data: SUGGESTIONS });
+      if (url === '/tienda-nube-reconcile/categorias/sync') {
+        return Promise.resolve({ data: { synced: 42, skipped: false, reason: null } });
+      }
+      return Promise.resolve({ data: {} });
+    });
+    await renderModal();
+
+    const syncBtn = await screen.findByRole('button', { name: 'Sincronizar categorías' });
+    await user.click(syncBtn);
+
+    await waitFor(() => {
+      expect(api.post).toHaveBeenCalledWith('/tienda-nube-reconcile/categorias/sync');
+    });
+    expect(await screen.findByText('Se sincronizaron 42 categorías.')).toBeInTheDocument();
+  });
+
   it('forwards row.categoria/subcategoria — feeds the category-profile usage hint (PR-8)', async () => {
     const user = userEvent.setup();
     await renderModal();

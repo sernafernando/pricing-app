@@ -47,6 +47,11 @@ export default function PublisherLeftPane({
   searching,
   searchError,
   pickSearchResult,
+  catalogEmpty,
+  syncingCategories,
+  syncResult,
+  syncError,
+  syncCategories,
   images,
   imageIds,
   handleDragEnd,
@@ -119,6 +124,11 @@ export default function PublisherLeftPane({
         searching={searching}
         searchError={searchError}
         pickSearchResult={pickSearchResult}
+        catalogEmpty={catalogEmpty}
+        syncingCategories={syncingCategories}
+        syncResult={syncResult}
+        syncError={syncError}
+        syncCategories={syncCategories}
       />
 
       <div className={shellStyles.card}>

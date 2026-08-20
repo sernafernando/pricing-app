@@ -32,6 +32,11 @@ export default function CategorySection({
   searching,
   searchError,
   pickSearchResult,
+  catalogEmpty,
+  syncingCategories,
+  syncResult,
+  syncError,
+  syncCategories,
 }) {
   const [pickerExpanded, setPickerExpanded] = useState(true);
   const topSimilarity = suggestions.length > 0 ? Math.round(suggestions[0].similarity * 100) : null;
@@ -123,10 +128,47 @@ export default function CategorySection({
                     ))}
                   </ul>
                 )}
+                {/*
+                  tn-categorias-descubribles fix (defect 1b/1c): an empty
+                  CATALOG (nothing ever synced from Tienda Nube) and a query
+                  with no MATCHES are different situations and must never
+                  share the same message — the old copy blamed the
+                  operator's search for what was actually an empty table.
+                  `catalogEmpty` (derived from the unfiltered listing, see
+                  `useCategoryPicker`) always wins over the plain
+                  no-match copy, regardless of what's typed in the box.
+                */}
+                {!searching && searchResults.length === 0 && !searchError && catalogEmpty === true && (
+                  <div className={styles.fieldHint} role="status">
+                    <p>
+                      Las categorías de Tienda Nube todavía no se sincronizaron — por eso no hay nada para
+                      elegir acá.
+                    </p>
+                    <button
+                      type="button"
+                      className={styles.searchResultBtn}
+                      onClick={syncCategories}
+                      disabled={syncingCategories}
+                    >
+                      {syncingCategories ? 'Sincronizando categorías...' : 'Sincronizar categorías'}
+                    </button>
+                    {syncResult && !syncingCategories && (
+                      <p>
+                        {syncResult.skipped
+                          ? `Sincronización omitida${syncResult.reason ? `: ${syncResult.reason}` : '.'}`
+                          : `Se sincronizaron ${syncResult.synced} categorías.`}
+                      </p>
+                    )}
+                    {syncError && !syncingCategories && <p className={styles.fieldError}>{syncError}</p>}
+                  </div>
+                )}
                 {!searching &&
                   searchResults.length === 0 &&
-                  debouncedCategoryQuery.trim().length >= 2 &&
-                  !searchError && <p className={styles.fieldHint}>Sin resultados para esa búsqueda.</p>}
+                  !searchError &&
+                  catalogEmpty !== true &&
+                  debouncedCategoryQuery.trim().length >= 2 && (
+                    <p className={styles.fieldHint}>Sin resultados para esa búsqueda.</p>
+                  )}
               </div>
             </>
           )}
