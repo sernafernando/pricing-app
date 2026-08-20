@@ -37,6 +37,16 @@ def _client() -> VikunjaClient:
     return VikunjaClient(base_url="http://vikunja.local", token="secret-token")
 
 
+def _sleep_instantaneo():
+    """Reemplaza asyncio.sleep para no pagar los backoffs reales (0.4s
+    duplicando = 6s por test). No altera el conteo de intentos."""
+
+    async def _sleep(_segundos: float) -> None:
+        return None
+
+    return _sleep
+
+
 class TestCreateTask:
     def test_create_task_happy_path(self, monkeypatch: pytest.MonkeyPatch) -> None:
         def handler(request: httpx.Request) -> httpx.Response:
@@ -69,6 +79,102 @@ class TestCreateTask:
 
         def handler(request: httpx.Request) -> httpx.Response:
             return httpx.Response(500, content=b"")
+
+        _patch_client(monkeypatch, httpx.MockTransport(handler))
+        client = _client()
+
+        with pytest.raises(VikunjaTransientError):
+            asyncio.run(client.create_task(project_id=7, title="hola", _max_attempts=1))
+
+
+class TestRetryLadder:
+    """El código de reintento estaba bien, pero ningún test lo ejercitaba: el
+    test del 500 corría con `_max_attempts=1`, así que nunca reintentaba.
+    Estos tests cuentan intentos, que es lo único que prueba que la escalera
+    existe y no se rompió en un refactor."""
+
+    def test_transient_status_is_retried_the_full_ladder(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        intentos = {"n": 0}
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            intentos["n"] += 1
+            return httpx.Response(500, content=b"")
+
+        _patch_client(monkeypatch, httpx.MockTransport(handler))
+        monkeypatch.setattr(asyncio, "sleep", _sleep_instantaneo())
+        client = _client()
+
+        with pytest.raises(VikunjaTransientError):
+            asyncio.run(client.create_task(project_id=7, title="hola"))
+
+        assert intentos["n"] == 5, "la escalera tiene que agotar los 5 intentos antes de rendirse"
+
+    def test_permanent_status_is_not_retried(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Un 4xx es culpa del pedido: reintentarlo solo quema el presupuesto
+        de 60 pedidos por minuto sin ninguna chance de mejorar."""
+        intentos = {"n": 0}
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            intentos["n"] += 1
+            return httpx.Response(422, json={"message": "invalid"})
+
+        _patch_client(monkeypatch, httpx.MockTransport(handler))
+        client = _client()
+
+        with pytest.raises(VikunjaPermanentError):
+            asyncio.run(client.create_task(project_id=7, title="hola"))
+
+        assert intentos["n"] == 1, "un 4xx no se reintenta"
+
+    def test_recovers_when_a_later_attempt_succeeds(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Lo que realmente pasa con SQLite bajo carga: falla un par de veces
+        y después entra. La escalera tiene que devolver el resultado, no la
+        excepción del primer intento."""
+        intentos = {"n": 0}
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            intentos["n"] += 1
+            if intentos["n"] < 3:
+                return httpx.Response(500, content=b"")
+            return httpx.Response(200, json={"id": 99})
+
+        _patch_client(monkeypatch, httpx.MockTransport(handler))
+        monkeypatch.setattr(asyncio, "sleep", _sleep_instantaneo())
+        client = _client()
+
+        result = asyncio.run(client.create_task(project_id=7, title="hola"))
+
+        assert result["id"] == 99
+        assert intentos["n"] == 3
+
+
+class TestTransientBoundaries:
+    """429 y 408 son 4xx pero NO son culpa del pedido: uno es límite de tasa y
+    el otro un timeout del servidor. Clasificarlos como permanentes descartaría
+    tickets que solo había que reintentar."""
+
+    @pytest.mark.parametrize("status", [429, 408])
+    def test_rate_limit_and_request_timeout_are_transient(self, monkeypatch: pytest.MonkeyPatch, status: int) -> None:
+        def handler(request: httpx.Request) -> httpx.Response:
+            return httpx.Response(status, content=b"")
+
+        _patch_client(monkeypatch, httpx.MockTransport(handler))
+        client = _client()
+
+        with pytest.raises(VikunjaTransientError):
+            asyncio.run(client.create_task(project_id=7, title="hola", _max_attempts=1))
+
+    @pytest.mark.parametrize(
+        "excepcion",
+        [httpx.TimeoutException("se acabó el tiempo"), httpx.ConnectError("sin conexión")],
+    )
+    def test_network_failures_are_transient(self, monkeypatch: pytest.MonkeyPatch, excepcion: Exception) -> None:
+        """Un timeout o una conexión caída en una ESCRITURA es ambiguo, no
+        fallido: puede que Vikunja haya creado la tarea igual. Tiene que salir
+        como transitorio para que la resolución de ambigüedad lo agarre."""
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            raise excepcion
 
         _patch_client(monkeypatch, httpx.MockTransport(handler))
         client = _client()
