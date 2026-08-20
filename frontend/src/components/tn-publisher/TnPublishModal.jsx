@@ -79,16 +79,24 @@ export default function TnPublishModal({ row, isOpen, onClose, onPublished }) {
   const missingMeasurementFields = MEASUREMENT_FIELDS.filter(
     (f) => draftFields[f] === '' || draftFields[f] == null
   );
-  // The backend's own verdict for this row (D3 measurements AND D6 cost)
-  // is authoritative — the local `missingMeasurementFields` check only keeps
-  // the UI live while the operator edits. Ignoring `draft.blocked` let an
-  // item the backend had blocked for an unresolvable USD cost sail through
-  // to a publish that then failed (or shipped a null cost) with nothing
-  // naming the missing rate.
-  const draftBlocked = row?.publish_draft?.blocked === true;
-  const draftBlockedReasons = row?.publish_draft?.blocked_reasons || [];
+  // Defect 1 fix: `publish_draft.blocked`/`blocked_reasons` are a SNAPSHOT
+  // of the backend's verdict when `/reporte` loaded — they never recompute
+  // as the operator edits. Using that stale snapshot to gate the button
+  // left a resolved measurement block (the operator typed the weight in)
+  // stuck forever, with a banner naming fields the panel already shows as
+  // filled in. The backend now splits the two DIFFERENT block classes
+  // explicitly (`cost_blocked`, additive to `blocked`/`blocked_reasons`):
+  //   - measurements: the operator CAN fix them right here — the LIVE
+  //     `missingMeasurementFields` (computed from `draftFields`) is
+  //     authoritative, never the stale snapshot.
+  //   - cost (D6, unresolvable USD `TipoCambio`): the operator CANNOT fix
+  //     this in the modal — the backend's `cost_blocked` verdict stays
+  //     authoritative and keeps blocking regardless of what the operator
+  //     types.
+  const costBlocked = row?.publish_draft?.cost_blocked === true;
+  const costBlockReason = row?.publish_draft?.cost_block_reason ?? null;
   const measurementsBlocked =
-    publishFieldsError != null || missingMeasurementFields.length > 0 || draftBlocked;
+    publishFieldsError != null || missingMeasurementFields.length > 0 || costBlocked;
 
   // Precio de publicación (Slice 2, money path) — see VariantFieldsSection
   // for the full two-base rule, extracted into `usePublishPricing`.
@@ -202,7 +210,7 @@ export default function TnPublishModal({ row, isOpen, onClose, onPublished }) {
             measurementsBlocked={measurementsBlocked}
             publishFieldsError={publishFieldsError}
             missingMeasurementFields={missingMeasurementFields}
-            backendReasons={draftBlockedReasons}
+            backendReasons={costBlockReason ? [costBlockReason] : []}
             suggestedProfile={suggestedProfile}
             onApplyProfile={draftFields.applyProfile}
             canPublish={canPublish}

@@ -584,3 +584,60 @@ describe('Submit', () => {
     });
   });
 });
+
+describe('Bloqueo de publicación — medidas vs. costo (defecto 1)', () => {
+  it('deja publicar una vez que el operador completa una medida faltante, aunque el snapshot del backend siga marcando blocked', async () => {
+    // Real bug reported by the maintainer: the backend's `/reporte` snapshot
+    // (`publish_draft.blocked`) says weight/width/depth/height are missing,
+    // but that verdict is STALE the moment the operator fills them in this
+    // modal — the live `draftFields` state must win for measurements.
+    const row = {
+      ...ROW,
+      publish_draft: {
+        ...ROW.publish_draft,
+        fields: {
+          ...ROW.publish_draft.fields,
+          weight: { value: null, source: 'empty', editable: true },
+        },
+        blocked: true,
+        blocked_reasons: ['Falta peso (weight)'],
+        cost_blocked: false,
+        cost_block_reason: null,
+      },
+    };
+    const user = userEvent.setup();
+    await renderModal({ row });
+    await waitForModalAutofocus();
+
+    expect(screen.getByRole('button', { name: /^publicar$/i })).toBeDisabled();
+    expect(screen.getByTestId('blocked-banner-missing')).toBeInTheDocument();
+
+    await user.type(screen.getByLabelText('Peso (kg)'), '0.3');
+
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: /^publicar$/i })).toBeEnabled();
+    });
+    expect(screen.queryByTestId('blocked-banner-missing')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('blocked-banner-backend')).not.toBeInTheDocument();
+  });
+
+  it('mantiene el bloqueo por costo (D6, no resoluble en el modal) incluso con todas las medidas completas', async () => {
+    const row = {
+      ...ROW,
+      publish_draft: {
+        ...ROW.publish_draft,
+        blocked: true,
+        blocked_reasons: ['Falta tipo de cambio para convertir el costo (USD)'],
+        cost_blocked: true,
+        cost_block_reason: 'Falta tipo de cambio para convertir el costo (USD)',
+      },
+    };
+    await renderModal({ row });
+    await waitForModalAutofocus();
+
+    expect(screen.getByRole('button', { name: /^publicar$/i })).toBeDisabled();
+    expect(screen.queryByTestId('blocked-banner-missing')).not.toBeInTheDocument();
+    const banner = screen.getByTestId('blocked-banner-backend');
+    expect(banner).toHaveTextContent('Falta tipo de cambio para convertir el costo (USD)');
+  });
+});
