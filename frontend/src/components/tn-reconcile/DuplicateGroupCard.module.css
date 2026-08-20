@@ -1,0 +1,189 @@
+/* DuplicateGroupCard — DUPLICADO group card (table redesign pass C) */
+
+.card {
+  border: 1px solid var(--cf-border-default);
+  border-radius: var(--radius-md);
+  margin-bottom: var(--spacing-md);
+  overflow: hidden;
+}
+
+.header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 12px;
+  background: var(--cf-bg-hover);
+}
+
+.headerThumb {
+  flex-shrink: 0;
+  width: 36px;
+  height: 36px;
+  object-fit: cover;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--cf-border-default);
+  background: var(--cf-bg-card);
+}
+
+.headerThumbPlaceholder {
+  flex-shrink: 0;
+  width: 36px;
+  height: 36px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--cf-border-default);
+  background: var(--cf-bg-card);
+}
+
+.headerText {
+  min-width: 0;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.headerTitle {
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--cf-text-primary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.erpTag {
+  display: inline-block;
+  margin-right: 4px;
+  padding: 0 4px;
+  font-size: 0.65rem;
+  font-weight: 700;
+  color: var(--cf-text-secondary);
+  border: 1px solid var(--cf-border-color, currentColor);
+  border-radius: 3px;
+  vertical-align: middle;
+}
+
+.headerEan {
+  font-family: var(--font-mono);
+  font-size: 0.74rem;
+  color: var(--cf-text-tertiary);
+}
+
+.conflictPill {
+  flex-shrink: 0;
+  padding: 2px 8px;
+  border-radius: 10px;
+  font-size: 0.72rem;
+  font-weight: 600;
+  white-space: nowrap;
+  background: color-mix(in srgb, var(--cf-accent-purple) 15%, transparent);
+  color: var(--cf-accent-purple);
+}
+
+.presenceNote {
+  flex-shrink: 0;
+  font-size: 0.78rem;
+  color: var(--cf-text-secondary);
+  white-space: nowrap;
+}
+
+.matches {
+  display: flex;
+  flex-direction: column;
+}
+
+.matchRow {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 12px;
+  border-top: 1px solid var(--cf-border-default);
+}
+
+.matchThumb {
+  flex-shrink: 0;
+  width: 34px;
+  height: 34px;
+  object-fit: cover;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--cf-border-default);
+  background: var(--cf-bg-card);
+}
+
+.matchThumbPlaceholder {
+  flex-shrink: 0;
+  width: 34px;
+  height: 34px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--cf-border-default);
+  background: var(--cf-bg-card);
+}
+
+.matchSku {
+  font-size: 0.82rem;
+  font-weight: 500;
+  color: var(--cf-text-primary);
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.matchBadge {
+  flex-shrink: 0;
+  padding: 2px 8px;
+  border-radius: 10px;
+  font-size: 0.72rem;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.badgeGreen {
+  background: color-mix(in srgb, var(--cf-accent-green) 15%, transparent);
+  color: var(--cf-accent-green);
+}
+
+.badgeOrange {
+  background: color-mix(in srgb, var(--cf-accent-orange) 15%, transparent);
+  color: var(--cf-accent-orange);
+}
+
+.badgeTertiary {
+  background: var(--cf-bg-hover);
+  color: var(--cf-text-tertiary);
+}
+
+.matchIds {
+  flex-shrink: 0;
+  font-family: var(--font-mono);
+  font-size: 0.72rem;
+  color: var(--cf-text-secondary);
+}
+
+.tnLink {
+  flex-shrink: 0;
+  margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 0.78rem;
+  color: var(--cf-accent-blue);
+  text-decoration: none;
+  white-space: nowrap;
+}
+
+.tnLink:hover {
+  text-decoration: underline;
+}
+
+.tnLink:focus-visible {
+  outline: 2px solid var(--cf-accent-blue);
+  outline-offset: 1px;
+  border-radius: var(--radius-sm);
+}
+
+.noLink {
+  flex-shrink: 0;
+  margin-left: auto;
+  color: var(--cf-text-tertiary);
+}

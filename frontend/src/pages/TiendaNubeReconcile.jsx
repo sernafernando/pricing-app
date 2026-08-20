@@ -43,13 +43,22 @@
 
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { useReactTable, getCoreRowModel, flexRender } from '@tanstack/react-table';
-import { ExternalLink } from 'lucide-react';
+import { Search, Loader2 } from 'lucide-react';
 import { usePermisos } from '../contexts/PermisosContext';
 import { useToast } from '../hooks/useToast';
 import Toast from '../components/Toast';
 import TnPublishModal from '../components/tn-publisher/TnPublishModal';
+import RowActionsCell from '../components/tn-reconcile/RowActionsCell';
 import api from '../services/api';
-import { selectTabItems } from './tiendaNubeReconcileHelpers';
+import {
+  selectTabItems,
+  computeSummaryCounts,
+  matchesSearch,
+  matchesSummaryFilter,
+  primaryTnMatch,
+  rowIdentity,
+} from './tiendaNubeReconcileHelpers';
+import DuplicateGroupCard from '../components/tn-reconcile/DuplicateGroupCard';
 import styles from './TiendaNubeReconcile.module.css';
 import { stripHtmlToText } from '../utils/htmlText';
 
@@ -79,13 +88,16 @@ const VERDICT_LABELS = {
   OK: 'OK',
 };
 
+// One distinct colour per verdict (previously FALTA_PUBLICAR/MAL_VINCULADO/
+// POR_CORREGIR all shared the same orange, and MAL_PUBLICADO/DUPLICADO
+// shared the same red — the badge colour carried no signal).
 const VERDICT_BADGE_CLASS = {
   FALTA_VINCULAR: 'badgeInfo',
-  FALTA_PUBLICAR: 'badgeWarning',
+  FALTA_PUBLICAR: 'badgeSuccess',
   MAL_VINCULADO: 'badgeWarning',
   MAL_PUBLICADO: 'badgeDanger',
-  DUPLICADO: 'badgeDanger',
-  POR_CORREGIR: 'badgeWarning',
+  DUPLICADO: 'badgePurple',
+  POR_CORREGIR: 'badgeTeal',
   OK: 'badge',
 };
 
@@ -124,37 +136,57 @@ function tnPresenceLabelFor(presence) {
   return TN_PRESENCE_LABELS[presence] || TN_PRESENCE_LABELS.not_in_tn;
 }
 
-/**
- * Presence cell: plain relabeled text, no per-row action. `tn_presence ==
- * "unknown"` communicates the actionable truth (TN row exists, its
- * `published` flag has not been re-synced) but the remediation — a FULL
- * catalog sync via the existing `POST /tienda-nube/sync` — is a single
- * global action, not a per-row one. A button here would render one
- * identical control per "unknown" row, all triggering the exact same
- * global side effect — misrepresenting the action's scope. The single
- * trigger lives once in the page header instead (see `mostrarSincronizarTn`).
- */
-function TnPresenceCell({ row }) {
-  return tnPresenceLabelFor(row.tn_presence);
+// Table redesign pass B: the old long, one-of-a-kind sentence per state
+// (e.g. "Existe en TN, publicación no sincronizada") is replaced by a short
+// coloured label — `tnPresenceLabelFor` (the long sentence) still backs the
+// label's tooltip so the fuller explanation isn't lost, only demoted from
+// "the whole cell" to "on hover/focus".
+const TN_PRESENCE_SHORT_LABELS = {
+  published: 'Publicado',
+  draft: 'Borrador',
+  unknown: 'Sin sincronizar',
+  not_in_tn: 'No está',
+};
+
+const TN_PRESENCE_CLASS = {
+  published: 'presenceGreen',
+  draft: 'presenceOrange',
+  unknown: 'presenceOrange',
+  not_in_tn: 'presenceTertiary',
+};
+
+function tnPresenceShortLabelFor(presence) {
+  return TN_PRESENCE_SHORT_LABELS[presence] || TN_PRESENCE_SHORT_LABELS.not_in_tn;
 }
 
 /**
- * EAN cell: for POR_CORREGIR rows (linked, but the TN SKU differs from the
- * GBP EAN only by leading zeros/formatting) shows both values side by side
- * so the operator sees exactly what needs canonicalizing. Every other
- * verdict renders the EAN alone, unchanged.
+ * "En Tienda Nube" cell (pass B: merges the old Presencia en TN, Motivo and
+ * Coincidencias TN (IDs) columns into one). No per-row action here —
+ * `tn_presence == "unknown"`'s remediation is the single global sync
+ * trigger in the page header (see `mostrarSincronizarTn`), never a per-row
+ * button (would misrepresent the action's scope, see the original
+ * `TnPresenceCell` reasoning this cell now carries forward).
  */
-function EanCell({ row }) {
-  const tnSku = row.tn_matches?.[0]?.variant_sku;
-  // Only render the comparison layout when there is an actual TN match to
-  // compare against — a POR_CORREGIR row without a resolved match renders
-  // its EAN exactly as any other verdict does.
-  if (row.verdict !== 'POR_CORREGIR' || !tnSku) return row.ean;
+function TnPresenceCell({ row }) {
+  const presenceClass = TN_PRESENCE_CLASS[row.tn_presence] || TN_PRESENCE_CLASS.not_in_tn;
+  const primaryMatch = primaryTnMatch(row);
+  const extraMatches = Math.max(0, (row.tn_matches?.length || 0) - 1);
 
   return (
-    <div className={styles.eanCompareCell}>
-      <div>EAN: {row.ean}</div>
-      <div>SKU TN: {tnSku}</div>
+    <div className={styles.presenceCell}>
+      <span
+        className={`${styles.presenceLabel} ${styles[presenceClass]}`}
+        title={tnPresenceLabelFor(row.tn_presence)}
+      >
+        {tnPresenceShortLabelFor(row.tn_presence)}
+      </span>
+      <MotivoInline row={row} />
+      {primaryMatch && (
+        <div className={styles.presenceIds}>
+          {primaryMatch.product_id}/{primaryMatch.variant_id}
+          {extraMatches > 0 && <span className={styles.presenceExtra}> +{extraMatches}</span>}
+        </div>
+      )}
     </div>
   );
 }
@@ -170,11 +202,16 @@ const REASON_LABELS = {
   NO_VARIANT_LINK: 'Sin vínculo de variante',
 };
 
-function ReasonCell({ row }) {
-  if (!row.reason) return '—';
+// Pass B: Motivo is no longer its own column — it renders inline, under the
+// presence label, inside the "En Tienda Nube" cell, and simply renders
+// nothing when there is no reason (there is no longer a standalone column
+// to keep non-empty/aligned, so unlike the old ReasonCell there is no '—'
+// placeholder).
+function MotivoInline({ row }) {
+  if (!row.reason) return null;
   // An unmapped code (a reason the backend added before this map caught up)
-  // renders as its raw code rather than collapsing into the same '—' that
-  // means "no reason at all" — degrading safely must not erase the signal.
+  // renders as its raw code rather than disappearing like "no reason at
+  // all" would — degrading safely must not erase the signal.
   const label = REASON_LABELS[row.reason] || row.reason;
 
   const detail = row.reason_detail || {};
@@ -184,7 +221,11 @@ function ReasonCell({ row }) {
   if (detail.claimed_tnr_id) parts.push(`tnr_id declarado: ${detail.claimed_tnr_id}`);
   if (detail.claimed_tnr_variation_id) parts.push(`tnr_variationID declarado: ${detail.claimed_tnr_variation_id}`);
 
-  return <span title={parts.join(' · ')}>{label}</span>;
+  return (
+    <span className={styles.presenceMotivo} title={parts.join(' · ')}>
+      {label}
+    </span>
+  );
 }
 
 // Stock cell: unknown stock (`null`) MUST render distinctly from a real
@@ -207,23 +248,6 @@ const THUMB_PREVIEW_SIZE = 220;
  * recognizable at a glance instead of an anonymous EAN.
  */
 
-/**
- * Single definition of "what this row is called" (PR5). Products never
- * published to ML have no `ml_title` and would render as an anonymous EAN,
- * even though GBP report 78 already carries an ERP `Descripción` for them
- * (exposed as `erp_desc`). Never fabricated — the ERP text is used only when
- * `ml_title` is absent, and `fromErp` lets each caller label it so it is
- * never mistaken for a real ML title.
- *
- * Every place that names a row reads this, so the same product can't appear
- * named in the table and anonymous in the DUPLICADO group header.
- */
-function rowIdentity(row) {
-  if (row.ml_title) return { text: row.ml_title, fromErp: false };
-  if (row.erp_desc) return { text: row.erp_desc, fromErp: true };
-  return { text: '', fromErp: false };
-}
-
 function ProductoCell({ row }) {
   const [expanded, setExpanded] = useState(false);
   const [previewPos, setPreviewPos] = useState(null);
@@ -238,7 +262,14 @@ function ProductoCell({ row }) {
   // real ML title.
   const { text: titleText, fromErp: usingErpFallback } = rowIdentity(row);
 
-  if (!thumbSrc && !titleText && !descText) return '—';
+  // POR_CORREGIR (linked, but the TN SKU differs from the GBP EAN only by
+  // leading zeros/formatting): show both values side by side so the
+  // operator sees exactly what needs canonicalizing. Every other verdict
+  // renders the EAN alone. Only rendered when there is an actual TN match
+  // to compare against — a POR_CORREGIR row without a resolved match
+  // renders its EAN exactly as any other verdict does.
+  const tnSku = row.tn_matches?.[0]?.variant_sku;
+  const showEanCompare = row.verdict === 'POR_CORREGIR' && Boolean(tnSku);
 
   const showPreview = (target) => {
     const rect = target.getBoundingClientRect();
@@ -303,6 +334,14 @@ function ProductoCell({ row }) {
           ) : (
             <span className={`${styles.prodDesc} ${styles.prodDescStatic}`}>{descText}</span>
           ))}
+        {showEanCompare ? (
+          <div className={styles.eanCompareCell}>
+            <div>EAN: {row.ean}</div>
+            <div>SKU TN: {tnSku}</div>
+          </div>
+        ) : (
+          <div className={styles.prodEan}>{row.ean}</div>
+        )}
       </div>
     </div>
   );
@@ -310,10 +349,19 @@ function ProductoCell({ row }) {
 
 // Fail-safe persistence — absent/corrupt/disabled localStorage MUST never
 // throw (mirrors MLQuestions.jsx's loadColumnSizing/saveColumnSizing).
+// Adding/removing a COLUMNS entry (like this PR's new `acciones` column)
+// changes the stored-size shape: a stale saved entry may carry sizes for
+// columns that no longer exist, or simply lack one for a brand-new column.
+// TanStack tolerates extra unknown keys harmlessly and a missing key just
+// falls back to that column's own default `size` — but we filter to KNOWN
+// ids here anyway so a corrupted/foreign localStorage payload can never
+// grow unbounded or leak an unrelated column's stale width into this table.
 function loadColumnSizing() {
   try {
     const parsed = JSON.parse(localStorage.getItem(COLUMN_SIZING_STORAGE_KEY) || '{}');
-    return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : {};
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return {};
+    const knownIds = new Set(COLUMNS.map((c) => c.id));
+    return Object.fromEntries(Object.entries(parsed).filter(([id]) => knownIds.has(id)));
   } catch {
     return {};
   }
@@ -330,12 +378,17 @@ function saveColumnSizing(state) {
 // Single source of truth for the reporte table's columns: both the header
 // (via TanStack) AND the body cells render from this list, so adding/
 // removing a column can never desync header and body.
+// Table redesign pass B: collapsed from 9 columns to 5. `EAN` moved into
+// `Producto`; `Presencia en TN` + `Motivo` + `Coincidencias TN (IDs)` merged
+// into `En Tienda Nube`; `Despublicar` dropped outright — the flag it showed
+// (`row.despublicar` as Sí/—) is redundant with the presence label plus the
+// action already living in the Acciones menu, and carries no information a
+// human needs at a glance that those two don't already cover.
 const COLUMNS = [
-  { id: 'ean', header: 'EAN', size: 130, cell: (row) => <EanCell row={row} /> },
   {
     id: 'producto',
     header: 'Producto',
-    size: 320,
+    size: 340,
     cell: (row) => <ProductoCell row={row} />,
   },
   {
@@ -350,15 +403,9 @@ const COLUMNS = [
   },
   {
     id: 'tn_presence',
-    header: 'Presencia en TN',
-    size: 220,
+    header: 'En Tienda Nube',
+    size: 260,
     cell: (row) => <TnPresenceCell row={row} />,
-  },
-  {
-    id: 'reason',
-    header: 'Motivo',
-    size: 220,
-    cell: (row) => <ReasonCell row={row} />,
   },
   {
     id: 'stock',
@@ -367,8 +414,7 @@ const COLUMNS = [
     sortable: true,
     cell: (row) => <StockCell row={row} />,
   },
-  { id: 'despublicar', header: 'Despublicar', size: 170, cell: null }, // rendered specially — carries the unpublish action
-  { id: 'matches', header: 'Coincidencias TN (IDs)', size: 300, cell: null }, // rendered specially — carries IDs + acciones
+  { id: 'acciones', header: 'Acciones', size: 190, cell: null }, // rendered specially — RowActionsCell (primary + overflow menu)
 ];
 
 // Slice 4: client-side sort over `currentTabItems`, BEFORE pagination —
@@ -415,14 +461,6 @@ function despublicarTargetProductId(row) {
   return row.tn_matches[0]?.product_id ?? null;
 }
 
-// Tri-state Sí/No/Desconocido — `published` is nullable (rows not yet
-// re-synced with TN's real field are genuinely unknown, never "No").
-function publishedLabel(published) {
-  if (published === true) return 'Sí';
-  if (published === false) return 'No';
-  return 'Desconocido';
-}
-
 // Shared paginator — used identically by the DUPLICADO branch and the
 // general-table branch (previously duplicated verbatim in both).
 function Paginador({ page, totalPages, rangeStart, rangeEnd, total, onPrev, onNext }) {
@@ -449,6 +487,47 @@ function Paginador({ page, totalPages, rangeStart, rangeEnd, total, onPrev, onNe
 }
 
 const EMPTY_TABLE_DATA = [];
+
+// Summary strip cards (PR-10) — answer the operator's real question, not
+// the raw verdict taxonomy. `targetSubTab` is what a click switches the
+// verdict chips to; `filterId` is the extra predicate applied on top
+// (`matchesSummaryFilter`), since "ready"/"bloqueados" are both a SPLIT of
+// the single FALTA_PUBLICAR verdict that the existing chip set can't
+// express on its own.
+const SUMMARY_CARDS = [
+  {
+    id: 'ready',
+    label: 'Listo para publicar',
+    dot: 'summaryDotGreen',
+    hint: 'sin bloqueos',
+    targetSubTab: 'FALTA_PUBLICAR',
+    countKey: 'readyToPublish',
+  },
+  {
+    id: 'bloqueados',
+    label: 'Bloqueados',
+    dot: 'summaryDotRed',
+    hint: 'faltan medidas o cotización',
+    targetSubTab: 'FALTA_PUBLICAR',
+    countKey: 'bloqueados',
+  },
+  {
+    id: 'revision',
+    label: 'Necesitan revisión',
+    dot: 'summaryDotPurple',
+    hint: 'duplicados y mal vinculados',
+    targetSubTab: 'todos',
+    countKey: 'necesitanRevision',
+  },
+  {
+    id: 'total',
+    label: 'Total del reporte',
+    dot: 'summaryDotGrey',
+    hint: 'filas comparadas',
+    targetSubTab: 'todos',
+    countKey: 'total',
+  },
+];
 
 export default function TiendaNubeReconcile() {
   const { tienePermiso } = usePermisos();
@@ -484,6 +563,29 @@ export default function TiendaNubeReconcile() {
   // (original fetch order); `column`/`direction` otherwise. See `sortItems`.
   const [sortState, setSortState] = useState(null);
 
+  // Client-side search (PR-10) — EAN/title/TN SKU, debounced. `searchInput`
+  // is the raw controlled value; `searchQuery` is what actually filters,
+  // updated after a short debounce so every keystroke doesn't re-filter 300+
+  // rows synchronously.
+  const [searchInput, setSearchInput] = useState('');
+  const [searchQuery, setSearchQuery] = useState('');
+  const searchDebounceRef = useRef(null);
+
+  const handleSearchChange = useCallback((event) => {
+    const value = event.target.value;
+    setSearchInput(value);
+    if (searchDebounceRef.current) clearTimeout(searchDebounceRef.current);
+    searchDebounceRef.current = setTimeout(() => setSearchQuery(value), 200);
+  }, []);
+
+  useEffect(() => () => {
+    if (searchDebounceRef.current) clearTimeout(searchDebounceRef.current);
+  }, []);
+
+  // Last successful "Actualizar"/mount fetch timestamp, shown next to the
+  // header actions.
+  const [lastUpdatedAt, setLastUpdatedAt] = useState(null);
+
   // Toggle sequence: unsorted -> descending (highest stock first, the more
   // useful default for "what to publish first") -> ascending -> unsorted.
   // Changing the sort always resets to page 1 in the same event — the
@@ -499,9 +601,31 @@ export default function TiendaNubeReconcile() {
     setPage(1);
   }, []);
 
-  // Changing sub-tab always resets to page 1 in the same event.
+  // Changing sub-tab always resets to page 1 in the same event. Picking a
+  // verdict chip directly is a DIFFERENT filter dimension than the summary
+  // strip (see `summaryFilter` below) — it always clears whichever summary
+  // card was active, so the two never silently combine into an
+  // impossible/empty intersection (e.g. "Bloqueados" card + "Mal vinculado"
+  // chip, which share no rows).
   const setSubTab = useCallback((tab) => {
     setSubTabState(tab);
+    setPage(1);
+    setSummaryFilterActive(false);
+  }, []);
+
+  // Summary-strip click-to-filter (PR-10). `summaryFilter` starts as
+  // 'ready' purely for the FIRST CARD'S VISUAL highlight (per the approved
+  // design: "the first card is the active one on load") — `summaryFilterActive`
+  // stays false until the operator actually clicks a card, so the initial
+  // view is still the full, unfiltered "Todos" tab (no behavior change on
+  // mount).
+  const [summaryFilter, setSummaryFilter] = useState('ready');
+  const [summaryFilterActive, setSummaryFilterActive] = useState(false);
+
+  const selectSummaryCard = useCallback((card) => {
+    setSummaryFilter(card.id);
+    setSummaryFilterActive(true);
+    setSubTabState(card.targetSubTab);
     setPage(1);
   }, []);
 
@@ -529,6 +653,7 @@ export default function TiendaNubeReconcile() {
       setVerdictCounts(response.data?.verdict_counts || {});
       setCatalogCapHit(Boolean(response.data?.catalog_cap_hit));
       setGbpRowsCapHit(Boolean(response.data?.gbp_rows_cap_hit));
+      setLastUpdatedAt(new Date());
     } catch (err) {
       setError(err?.response?.data?.error?.message || err?.message || 'No se pudo cargar la reconciliación');
     } finally {
@@ -661,10 +786,18 @@ export default function TiendaNubeReconcile() {
 
   // Client-side filter (by sub-tab) over the ONE fetched set — the backend
   // is called once, not once per tab.
-  const currentTabItems = useMemo(
-    () => selectTabItems(subTab, reporte, baneados),
-    [reporte, baneados, subTab],
-  );
+  const currentTabItems = useMemo(() => {
+    let tabItems = selectTabItems(subTab, reporte, baneados);
+    if (subTab === 'BANLIST') return tabItems;
+    if (summaryFilterActive) tabItems = tabItems.filter((row) => matchesSummaryFilter(row, summaryFilter));
+    if (searchQuery.trim()) tabItems = tabItems.filter((row) => matchesSearch(row, searchQuery));
+    return tabItems;
+  }, [reporte, baneados, subTab, searchQuery, summaryFilterActive, summaryFilter]);
+
+  // Summary strip (PR-10) — derived from the full `reporte`, never from the
+  // active sub-tab/search, so the 4 cards always answer "across the whole
+  // report", independent of whatever the operator is currently filtering.
+  const summaryCounts = useMemo(() => computeSummaryCounts(reporte), [reporte]);
 
   // Sort applied AFTER filter, BEFORE pagination (filter -> sort ->
   // paginate), so page 1 always shows the true extreme of the sorted set.
@@ -787,6 +920,12 @@ export default function TiendaNubeReconcile() {
           </p>
         </div>
         <div className={styles.headerActions}>
+          {lastUpdatedAt && (
+            <span className={styles.updatedAt}>
+              Actualizado{' '}
+              {lastUpdatedAt.toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit' })}
+            </span>
+          )}
           {mostrarSincronizarTn && (
             <button
               type="button"
@@ -817,47 +956,83 @@ export default function TiendaNubeReconcile() {
         </div>
       )}
 
-      <div
-        className={styles.subTabBar}
-        role="tablist"
-        aria-label="Veredictos de reconciliación"
-        onKeyDown={handleTabKeyDown}
-      >
-        {VERDICT_SUB_TABS.map((tab) => (
+      <div className={styles.summaryStrip}>
+        {SUMMARY_CARDS.map((card) => (
           <button
-            key={tab.id}
-            ref={(el) => {
-              tabRefs.current[tab.id] = el;
-            }}
+            key={card.id}
             type="button"
-            role="tab"
-            id={`tn-tab-${tab.id}`}
-            aria-selected={subTab === tab.id}
-            aria-controls={TAB_PANEL_ID}
-            tabIndex={subTab === tab.id ? 0 : -1}
-            className={`${styles.subTab} ${subTab === tab.id ? styles.subTabActive : ''}`}
-            onClick={() => setSubTab(tab.id)}
+            className={`${styles.summaryCard} ${
+              summaryFilterActive && summaryFilter === card.id ? styles.summaryCardActive : ''
+            }`}
+            onClick={() => selectSummaryCard(card)}
           >
-            {tab.label} ({tab.id === 'todos' ? totalTodos : verdictCounts[tab.id] || 0})
+            <span className={styles.summaryCardLabel}>
+              <span className={`${styles.summaryDot} ${styles[card.dot]}`} aria-hidden="true" />
+              {card.label}
+            </span>
+            <span className={styles.summaryValue}>{summaryCounts[card.countKey]}</span>
+            <span className={styles.summaryHint}>{card.hint}</span>
           </button>
         ))}
-        {puedeGestionarBanlist && (
-          <button
-            ref={(el) => {
-              tabRefs.current.BANLIST = el;
-            }}
-            type="button"
-            role="tab"
-            id="tn-tab-BANLIST"
-            aria-selected={subTab === 'BANLIST'}
-            aria-controls={TAB_PANEL_ID}
-            tabIndex={subTab === 'BANLIST' ? 0 : -1}
-            className={`${styles.subTab} ${subTab === 'BANLIST' ? styles.subTabActive : ''}`}
-            onClick={() => setSubTab('BANLIST')}
-          >
-            Banlist ({baneados.length})
-          </button>
-        )}
+      </div>
+
+      <div className={styles.filterBar}>
+        <div className={styles.searchWrap}>
+          <Search size={14} className={styles.searchIcon} aria-hidden="true" />
+          <input
+            type="search"
+            className={styles.searchInput}
+            placeholder="Buscar por EAN, título o SKU de TN"
+            value={searchInput}
+            onChange={handleSearchChange}
+            aria-label="Buscar por EAN, título o SKU de TN"
+          />
+        </div>
+        <div
+          className={styles.subTabBar}
+          role="tablist"
+          aria-label="Veredictos de reconciliación"
+          onKeyDown={handleTabKeyDown}
+        >
+          {VERDICT_SUB_TABS.map((tab) => (
+            <button
+              key={tab.id}
+              ref={(el) => {
+                tabRefs.current[tab.id] = el;
+              }}
+              type="button"
+              role="tab"
+              id={`tn-tab-${tab.id}`}
+              aria-selected={subTab === tab.id}
+              aria-controls={TAB_PANEL_ID}
+              tabIndex={subTab === tab.id ? 0 : -1}
+              className={`${styles.subTab} ${subTab === tab.id ? styles.subTabActive : ''}`}
+              onClick={() => setSubTab(tab.id)}
+            >
+              {tab.label}{' '}
+              <span className={styles.subTabCount}>
+                ({tab.id === 'todos' ? totalTodos : verdictCounts[tab.id] || 0})
+              </span>
+            </button>
+          ))}
+          {puedeGestionarBanlist && (
+            <button
+              ref={(el) => {
+                tabRefs.current.BANLIST = el;
+              }}
+              type="button"
+              role="tab"
+              id="tn-tab-BANLIST"
+              aria-selected={subTab === 'BANLIST'}
+              aria-controls={TAB_PANEL_ID}
+              tabIndex={subTab === 'BANLIST' ? 0 : -1}
+              className={`${styles.subTab} ${subTab === 'BANLIST' ? styles.subTabActive : ''}`}
+              onClick={() => setSubTab('BANLIST')}
+            >
+              Banlist <span className={styles.subTabCount}>({baneados.length})</span>
+            </button>
+          )}
+        </div>
       </div>
 
       <div
@@ -877,17 +1052,20 @@ export default function TiendaNubeReconcile() {
       {subTab === 'BANLIST' ? (
         <div>
           {baneadosSeleccionados.size > 0 && (
-            <div className={styles.columnSizingBar}>
+            <div className={styles.banlistActionsBar}>
               <button type="button" className="btn-tesla outline-subtle-success sm" onClick={desbanearSeleccionados}>
                 Desbanear seleccionados ({baneadosSeleccionados.size})
               </button>
             </div>
           )}
           {loadingBaneados ? (
-            <div>Cargando banlist...</div>
+            <div className={styles.loadingState}>
+              <Loader2 size={24} className={styles.spinner} aria-hidden="true" />
+              Cargando banlist...
+            </div>
           ) : (
             <table className="table-tesla striped">
-              <thead>
+              <thead className="table-tesla-head">
                 <tr>
                   <th></th>
                   <th>EAN</th>
@@ -897,7 +1075,7 @@ export default function TiendaNubeReconcile() {
                   <th>Acciones</th>
                 </tr>
               </thead>
-              <tbody>
+              <tbody className="table-tesla-body">
                 {baneados.length === 0 ? (
                   <tr>
                     <td colSpan={6} className="no-data">
@@ -915,8 +1093,10 @@ export default function TiendaNubeReconcile() {
                           aria-label={`Seleccionar ${entry.ean}`}
                         />
                       </td>
-                      <td>{entry.ean}</td>
-                      <td>{entry.motivo || '—'}</td>
+                      <td className={styles.banlistEan}>{entry.ean}</td>
+                      <td>
+                        {entry.motivo || <span className={styles.noLink}>—</span>}
+                      </td>
                       <td>{entry.usuario_nombre}</td>
                       <td>{new Date(entry.fecha_creacion).toLocaleDateString()}</td>
                       <td>
@@ -936,69 +1116,17 @@ export default function TiendaNubeReconcile() {
           )}
         </div>
       ) : loading ? (
-        <div>Cargando reconciliación...</div>
+        <div className={styles.loadingState}>
+          <Loader2 size={24} className={styles.spinner} aria-hidden="true" />
+          Cargando reconciliación...
+        </div>
       ) : subTab === 'DUPLICADO' ? (
         <div>
           {filasVisibles.length === 0 ? (
             <p>No hay grupos duplicados para revisar.</p>
           ) : (
             filasVisibles.map((row, idx) => (
-              <div key={`${row.ean}-${idx}`} className={styles.duplicateGroup} data-testid="duplicado-group">
-                {/* NO single group-level "Editar en TN" link here: the group
-                    has N conflicting matches, and linking only one of them
-                    would implicitly recommend it (violates the DUPLICADO
-                    "human decides" rule). Each match row below carries its
-                    OWN link instead — none privileged. */}
-                <div className={styles.duplicateGroupHeader}>
-                  EAN GBP: {row.ean}
-                  {(() => {
-                    const { text, fromErp } = rowIdentity(row);
-                    if (!text) return '';
-                    return ` — ${text}${fromErp ? ' (ERP)' : ''}`;
-                  })()}{' '}
-                  — {row.tn_matches.length} coincidencias
-                  TN en conflicto —{' '}
-                  {row.tn_presence === 'not_in_tn'
-                    ? 'duplicado, sin presencia en TN'
-                    : 'duplicado, existe en TN'}
-                </div>
-                <table className="table-tesla striped">
-                  <thead>
-                    <tr>
-                      <th>product_id</th>
-                      <th>variant_id</th>
-                      <th>variant_sku</th>
-                      <th>Publicado en TN</th>
-                      <th>Editar en TN</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {row.tn_matches.map((tn) => (
-                      <tr key={`${tn.product_id}-${tn.variant_id}`}>
-                        <td>product_id: {tn.product_id}</td>
-                        <td>variant_id: {tn.variant_id}</td>
-                        <td>{tn.variant_sku}</td>
-                        <td>{publishedLabel(tn.published)}</td>
-                        <td>
-                          {tn.tn_admin_url ? (
-                            <a
-                              href={tn.tn_admin_url}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              className={styles.tnLink}
-                              aria-label={`Editar en TN el producto ${tn.product_id}`}
-                            >
-                              Editar en TN <ExternalLink size={12} aria-hidden="true" />
-                            </a>
-                          ) : (
-                            '—'
-                          )}
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
+              <DuplicateGroupCard key={`${row.ean}-${idx}`} row={row} />
             ))
           )}
           {showPaginator && (
@@ -1090,102 +1218,29 @@ export default function TiendaNubeReconcile() {
                   filasVisibles.map((row, idx) => (
                     <tr key={`${row.ean}-${idx}`}>
                       {COLUMNS.map((col) =>
-                        col.id === 'matches' ? (
+                        col.id === 'tn_presence' && row.verdict === 'FALTA_VINCULAR' &&
+                        row.product_id != null && row.variant_id != null ? (
                           <td key={col.id}>
-                            {row.tn_matches.length === 0 ? (
-                              '—'
-                            ) : (
-                              <ul className={styles.matchList}>
-                                {row.tn_matches.map((tn) => (
-                                  <li key={`${tn.product_id}-${tn.variant_id}`} className={styles.matchItem}>
-                                    <span className={styles.matchIds}>
-                                      {tn.product_id}/{tn.variant_id}
-                                    </span>
-                                    {tn.variant_sku ? <span className={styles.matchSku}> · {tn.variant_sku}</span> : null}
-                                    {/* Per-match link (each match carries its OWN
-                                        tn_admin_url) — never a single row-level
-                                        link that would implicitly privilege one
-                                        match over the others. */}
-                                    {tn.tn_admin_url && (
-                                      <a
-                                        href={tn.tn_admin_url}
-                                        target="_blank"
-                                        rel="noopener noreferrer"
-                                        className={styles.tnLinkInline}
-                                        aria-label={`Editar en TN el producto ${tn.product_id}`}
-                                      >
-                                        Editar en TN <ExternalLink size={11} aria-hidden="true" />
-                                      </a>
-                                    )}
-                                  </li>
-                                ))}
-                              </ul>
-                            )}
-                            {row.verdict === 'FALTA_VINCULAR' &&
-                              row.product_id != null &&
-                              row.variant_id != null && (
-                              <div className={styles.matchedIds}>
-                                TN product_id: {row.product_id} / variant_id: {row.variant_id}
-                              </div>
-                            )}
-                            {puedeGestionarBanlist &&
-                              (row.verdict === 'FALTA_PUBLICAR' || row.verdict === 'FALTA_VINCULAR') && (
-                              <button
-                                type="button"
-                                className={`btn-tesla ghost sm ${styles.btnSpaced}`}
-                                onClick={() => banearEan(row.ean)}
-                              >
-                                Banear
-                              </button>
-                            )}
-                            {puedeGestionarPublicacion && row.verdict === 'FALTA_PUBLICAR' && (
-                              <button
-                                type="button"
-                                className={`btn-tesla outline sm ${styles.btnSpaced}`}
-                                onClick={() => setPublishingRow(row)}
-                              >
-                                Publicar
-                              </button>
-                            )}
+                            {col.cell(row)}
+                            <div className={styles.matchedIds}>
+                              TN product_id: {row.product_id} / variant_id: {row.variant_id}
+                            </div>
                           </td>
-                        ) : col.id === 'despublicar' ? (
+                        ) : col.id === 'acciones' ? (
                           <td key={col.id}>
-                            {row.despublicar ? 'Sí' : '—'}
-                            {row.despublicar && puedeGestionarPublicacion && (() => {
-                              const productId = despublicarTargetProductId(row);
-                              if (productId === null) return null;
-                              if (confirmingProductId === productId) {
-                                return (
-                                  <span className={styles.btnSpaced}>
-                                    <button
-                                      type="button"
-                                      className="btn-tesla outline-subtle-danger sm"
-                                      disabled={despublicando}
-                                      onClick={() => despublicarProducto(productId)}
-                                    >
-                                      Confirmar
-                                    </button>
-                                    <button
-                                      type="button"
-                                      className={`btn-tesla ghost sm ${styles.btnSpaced}`}
-                                      disabled={despublicando}
-                                      onClick={() => setConfirmingProductId(null)}
-                                    >
-                                      Cancelar
-                                    </button>
-                                  </span>
-                                );
-                              }
-                              return (
-                                <button
-                                  type="button"
-                                  className={`btn-tesla ghost sm ${styles.btnSpaced}`}
-                                  onClick={() => setConfirmingProductId(productId)}
-                                >
-                                  Despublicar
-                                </button>
-                              );
-                            })()}
+                            <RowActionsCell
+                              row={row}
+                              canBanlist={puedeGestionarBanlist}
+                              canPublish={puedeGestionarPublicacion}
+                              despublicarTargetProductId={despublicarTargetProductId}
+                              onPublicar={setPublishingRow}
+                              onBanear={banearEan}
+                              confirmingProductId={confirmingProductId}
+                              despublicando={despublicando}
+                              onStartDespublicarConfirm={setConfirmingProductId}
+                              onCancelDespublicarConfirm={() => setConfirmingProductId(null)}
+                              onConfirmDespublicar={despublicarProducto}
+                            />
                           </td>
                         ) : (
                           <td key={col.id}>{col.cell(row)}</td>
