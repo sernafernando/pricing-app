@@ -9,9 +9,12 @@ from __future__ import annotations
 import asyncio
 from unittest.mock import AsyncMock, MagicMock, patch
 
+import pytest
+
 from app.services.tienda_nube_product_client import (
     TiendaNubeProductClient,
     TnProductLookupError,
+    TnRateLimited,
     is_publicly_reachable_url,
 )
 
@@ -89,6 +92,22 @@ class TestSetPublished:
             MockAsyncClient.return_value.__aenter__.return_value = mock_client
             outcome = asyncio.run(client.set_published(999, False))
         assert outcome == {"ok": False, "status_code": None, "ambiguous": True, "body": None}
+
+    def test_429_response_raises_rate_limited_not_classified_as_rejection(self):
+        """Defect fix: a 429 must raise `TnRateLimited` here too, exactly
+        like `create_product` — NOT fall through to `_classify_write_response`
+        and be misclassified as a definitive 4xx rejection (which is what let
+        `unpublish_product` report `rejected_by_proxy` for a 429 that never
+        even attempted the write)."""
+        client = TiendaNubeProductClient(store_id="123", access_token="tok")
+        mock_client = AsyncMock()
+        mock_client.put.return_value = _fake_response(429)
+        mock_client.put.return_value.headers = {"Retry-After": "3"}
+        with patch("httpx.AsyncClient") as MockAsyncClient:
+            MockAsyncClient.return_value.__aenter__.return_value = mock_client
+            with pytest.raises(TnRateLimited) as exc_info:
+                asyncio.run(client.set_published(999, False))
+        assert exc_info.value.retry_after == 3.0
 
 
 class TestCreateProduct:
@@ -191,6 +210,43 @@ class TestAddProductImage:
             MockAsyncClient.return_value.__aenter__.return_value = mock_client
             outcome = asyncio.run(client.add_product_image(42, "https://example.com/img.jpg"))
         assert outcome == {"ok": False, "status_code": None, "ambiguous": True, "body": None}
+
+    def test_429_response_raises_rate_limited_not_classified_as_rejection(self):
+        """Defect fix: same uniform 429 handling as `set_published`/
+        `create_product` — a rate-limited image POST must not be classified
+        as a definitive rejection (which is what let `publish_product`
+        silently drop the image and only log a warning)."""
+        client = TiendaNubeProductClient(store_id="123", access_token="tok")
+        mock_client = AsyncMock()
+        mock_client.post.return_value = _fake_response(429)
+        mock_client.post.return_value.headers = {"Retry-After": "5"}
+        with patch("httpx.AsyncClient") as MockAsyncClient:
+            MockAsyncClient.return_value.__aenter__.return_value = mock_client
+            with pytest.raises(TnRateLimited) as exc_info:
+                asyncio.run(client.add_product_image(42, "https://example.com/img.jpg"))
+        assert exc_info.value.retry_after == 5.0
+
+
+class TestClassifyWriteResponseUniform429:
+    """Structural fix: the 429 check now lives INSIDE
+    `_classify_write_response` — the single choke point every write method
+    (including any added later) routes through — instead of being
+    duplicated per-method (which is exactly what let `set_published`/
+    `add_product_image` forget it)."""
+
+    def test_classify_write_response_raises_rate_limited_on_429(self):
+        response = _fake_response(429)
+        response.headers = {"Retry-After": "7"}
+        with pytest.raises(TnRateLimited) as exc_info:
+            TiendaNubeProductClient._classify_write_response(response)
+        assert exc_info.value.retry_after == 7.0
+
+    def test_classify_write_response_raises_rate_limited_with_no_retry_after(self):
+        response = _fake_response(429)
+        response.headers = {}
+        with pytest.raises(TnRateLimited) as exc_info:
+            TiendaNubeProductClient._classify_write_response(response)
+        assert exc_info.value.retry_after is None
 
 
 class TestIsPubliclyReachableUrl:

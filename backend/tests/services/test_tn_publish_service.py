@@ -36,6 +36,11 @@ class _FakeClient:
 
     async def set_published(self, product_id, published):
         self.calls.append((product_id, published))
+        # Same convention as `_FakePublishClient.create_product`: an
+        # Exception instance is raised instead of returned — simulates
+        # `TnRateLimited` on a 429.
+        if isinstance(self._outcome, Exception):
+            raise self._outcome
         return self._outcome
 
 
@@ -53,9 +58,13 @@ class _FakePublishClient:
     for every call, so existing tests that don't care about the live
     pre-check/read-back are unaffected."""
 
-    def __init__(self, create_outcome, image_outcome=None, get_by_sku_results=None):
+    def __init__(self, create_outcome, image_outcome=None, get_by_sku_results=None, image_outcomes_by_src=None):
         self._create_outcome = create_outcome
         self._image_outcome = image_outcome or {"ok": True, "status_code": 201, "ambiguous": False, "body": {}}
+        # Per-src override queue (used to simulate ONE src rate-limited among
+        # several reachable srcs) — falls back to `_image_outcome` for any
+        # src not present here.
+        self._image_outcomes_by_src = image_outcomes_by_src or {}
         self._get_by_sku_results = list(get_by_sku_results) if get_by_sku_results is not None else None
         self.create_calls = []
         self.image_calls = []
@@ -71,7 +80,12 @@ class _FakePublishClient:
 
     async def add_product_image(self, product_id, src):
         self.image_calls.append((product_id, src))
-        return self._image_outcome
+        outcome = self._image_outcomes_by_src.get(src, self._image_outcome)
+        # Same convention as `create_product`: an Exception instance is
+        # raised instead of returned — simulates `TnRateLimited` on a 429.
+        if isinstance(outcome, Exception):
+            raise outcome
+        return outcome
 
     async def get_product_by_sku(self, sku):
         self.get_by_sku_calls.append(sku)
@@ -214,6 +228,36 @@ class TestAmbiguousOutcome:
         assert len(audit_rows) == 1
 
 
+class TestUnpublishRateLimited:
+    """Defect fix: `set_published` now raises `TnRateLimited` on a 429 (the
+    client-level fix), so `unpublish_product` must catch it and return a
+    structured `status="rate_limited"` outcome — mirroring exactly how
+    `publish_product`/`TestPublishRateLimited` already handles it — instead
+    of letting the exception propagate uncaught, or (before the client-level
+    fix) misclassifying it as `rejected_by_proxy`."""
+
+    def test_429_returns_structured_rate_limited_outcome(self, db):
+        user = _make_user(db)
+        _make_producto(db, product_id=555, published=True)
+        fake_client = _FakeClient(TnRateLimited(retry_after=2.0))
+        outcome = unpublish_product(db, user, 555, client=fake_client)
+        assert outcome["submitted"] is False
+        assert outcome["status"] == "rate_limited"
+        assert outcome["status_code"] == 429
+        # Nothing was attempted at TN's end — the local mirror is untouched.
+        row = db.query(TiendaNubeProducto).filter(TiendaNubeProducto.product_id == 555).first()
+        assert row.published is True
+
+    def test_429_is_still_audit_logged(self, db):
+        user = _make_user(db)
+        _make_producto(db, product_id=555, published=True)
+        fake_client = _FakeClient(TnRateLimited(retry_after=None))
+        unpublish_product(db, user, 555, client=fake_client)
+        audit_rows = db.query(Auditoria).filter(Auditoria.tipo_accion == TipoAccion.TN_DESPUBLICAR).all()
+        assert len(audit_rows) == 1
+        assert "rate_limited" in audit_rows[0].comentario
+
+
 # PR-7 gap fix (task A): every existing test now also goes through the D3
 # measurement gate (`validate_measurements`), so the default fixture below
 # carries a complete set of the four measurement overrides — mirrors what
@@ -320,6 +364,33 @@ class TestPublishSuccessfulWrite:
         assert outcome["status"] == "submitted"
         assert fake_client.image_calls == [(997, "https://cdn.example.com/img1.jpg")]
         assert outcome["skipped_image_srcs"] == ["http://127.0.0.1/evil.jpg"]
+
+    def test_rate_limited_image_is_reported_not_silently_dropped(self, db):
+        """Defect fix: a 429 on `add_product_image` must NOT be silently
+        lost (previously classified as a definitive rejection and only
+        logged as a warning). The product was already created, so the
+        publish still succeeds overall — but the rate-limited src is
+        reported back distinctly from `skipped_image_srcs` (which is for
+        locally-rejected URLs, a different failure mode) so the operator
+        knows an image needs a manual retry."""
+        user = _make_user(db)
+        fake_client = _FakePublishClient(
+            create_outcome={"ok": True, "status_code": 201, "ambiguous": False, "body": {"id": 996}},
+            image_outcomes_by_src={
+                "https://cdn.example.com/img2.jpg": TnRateLimited(retry_after=3.0),
+            },
+        )
+        outcome = publish_product(db, user, client=fake_client, **_publish_kwargs())
+        assert outcome["status"] == "submitted"
+        assert outcome["submitted"] is True
+        # Both images were attempted — the rate-limited one is not retried
+        # synchronously (reported immediately instead).
+        assert fake_client.image_calls == [
+            (996, "https://cdn.example.com/img1.jpg"),
+            (996, "https://cdn.example.com/img2.jpg"),
+        ]
+        assert outcome["rate_limited_image_srcs"] == ["https://cdn.example.com/img2.jpg"]
+        assert outcome["skipped_image_srcs"] == []
 
 
 class TestPublishMirrorVariantId:
