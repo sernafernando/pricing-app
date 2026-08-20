@@ -253,6 +253,12 @@ class PublishDraftResponse(BaseModel):
     fields: Dict[str, PublishFieldDraftResponse]
     blocked: bool
     blocked_reasons: List[str]
+    # Defect 1 fix: additive split of `blocked_reasons` — see
+    # `build_publish_draft`'s docstring. `cost_blocked` is the ONLY class
+    # of block the frontend still treats as persistent/authoritative
+    # after the operator edits measurements in the modal.
+    cost_blocked: bool = False
+    cost_block_reason: Optional[str] = None
     suggested_profile_id: Optional[int] = None
     exchange_rate: Optional[Dict[str, Any]] = None
 

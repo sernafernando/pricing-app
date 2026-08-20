@@ -312,6 +312,20 @@ def build_publish_draft(
         "fields": fields,
         "blocked": validation.blocked or cost_block_reason is not None,
         "blocked_reasons": blocked_reasons,
+        # PR-8 gap fix (defect 1): `blocked`/`blocked_reasons` merge two
+        # DIFFERENT classes of block that a consumer must NOT confuse —
+        # the D3 measurement gate (operator-fixable IN THIS MODAL, and
+        # already live-recomputed client-side as the operator types) vs
+        # the D6 cost gate (an unresolvable USD `TipoCambio`, which the
+        # operator cannot resolve here at all). Exposing `cost_blocked`
+        # as an explicit boolean — rather than making the frontend
+        # string-match `blocked_reasons` for the Spanish cost sentence —
+        # lets the modal keep enforcing ONLY the block the operator
+        # cannot self-resolve, instead of pinning the whole publish
+        # button to a snapshot that goes stale the moment a measurement
+        # is filled in.
+        "cost_blocked": cost_block_reason is not None,
+        "cost_block_reason": cost_block_reason,
         "suggested_profile_id": suggested_profile_id,
         "exchange_rate": exchange_rate,
     }
