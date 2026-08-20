@@ -165,9 +165,6 @@ class TiendaNubeProductClient:
             logger.error("Error (ambiguo) creando producto TN: %s", e)
             return {"ok": False, "status_code": None, "ambiguous": True, "body": None}
 
-        if response.status_code == 429:
-            raise TnRateLimited(_parse_retry_after(response))
-
         return self._classify_write_response(response)
 
     async def add_product_image(self, product_id: int, src: str) -> Dict:
@@ -293,7 +290,19 @@ class TiendaNubeProductClient:
 
     @staticmethod
     def _classify_write_response(response: httpx.Response) -> Dict:
-        """2xx -> ok=True. 5xx -> ambiguous=True. 4xx -> definitive rejection."""
+        """2xx -> ok=True. 5xx -> ambiguous=True. 4xx -> definitive rejection.
+
+        429 is checked HERE, uniformly, rather than per write method: a
+        per-method check is exactly what let it be forgotten on
+        `set_published`/`add_product_image` while only `create_product` had
+        it (defect fix) — every write method (including any added later)
+        routes through this single choke point, so a 429 is always raised
+        as `TnRateLimited` instead of silently falling through and being
+        classified as a definitive 4xx rejection.
+        """
+        if response.status_code == 429:
+            raise TnRateLimited(_parse_retry_after(response))
+
         try:
             body = response.json()
         except Exception:

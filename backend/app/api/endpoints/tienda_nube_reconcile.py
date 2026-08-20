@@ -537,6 +537,11 @@ class PublicarResponse(BaseModel):
     status: str
     product_id: Optional[int] = None
     skipped_image_srcs: List[str] = []
+    # Defect fix: distinct from `skipped_image_srcs` (never sent to TN at
+    # all — failed the local reachability guard). An image src that WAS
+    # sent but rejected by TN with a 429 lands here instead — reported to
+    # the operator for a manual retry rather than being silently dropped.
+    rate_limited_image_srcs: List[str] = []
     detail: Optional[str] = None
 
 
@@ -882,6 +887,7 @@ def publicar_producto(
         status=outcome["status"],
         product_id=outcome.get("product_id"),
         skipped_image_srcs=outcome.get("skipped_image_srcs", []),
+        rate_limited_image_srcs=outcome.get("rate_limited_image_srcs", []),
         detail=outcome.get("detail"),
     )
 

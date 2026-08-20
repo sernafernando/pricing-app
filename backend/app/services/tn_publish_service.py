@@ -36,7 +36,7 @@ the next sync.
 import json
 import logging
 from decimal import Decimal, InvalidOperation
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 import nh3
 from sqlalchemy.exc import IntegrityError
@@ -50,6 +50,7 @@ from app.models.usuario import Usuario
 from app.services.tienda_nube_product_client import (
     TiendaNubeProductClient,
     TnProductLookupError,
+    TnRateLimited,
     is_publicly_reachable_url,
 )
 from app.services.tn_publish_core.assemble import assemble_payload
@@ -304,7 +305,27 @@ def unpublish_product(
         return outcome
 
     active_client = client if client is not None else TiendaNubeProductClient()
-    write_result = _resolve(active_client.set_published(product_id, False))
+    try:
+        write_result = _resolve(active_client.set_published(product_id, False))
+    except TnRateLimited as e:
+        # Structural fix (defect 1): `set_published` now raises
+        # `TnRateLimited` on a 429 uniformly, like every other write method
+        # (see `TiendaNubeProductClient._classify_write_response`). Before
+        # this, a 429 fell through to `_classify` and was misclassified as
+        # `rejected_by_proxy` — telling the operator TN refused the change
+        # when in fact nothing was even attempted. Mirrors
+        # `publish_product`'s `rate_limited` outcome shape exactly.
+        outcome = {
+            "submitted": False,
+            "status": "rate_limited",
+            "status_code": 429,
+            "detail": (
+                "TN rate limit (429) — nothing was unpublished. Wait a moment and retry."
+                + (f" (retry_after={e.retry_after}s)" if e.retry_after is not None else "")
+            ),
+        }
+        _audit(db, usuario, product_id, outcome)
+        return outcome
     outcome = _classify(write_result)
 
     if outcome["status"] == "submitted":
@@ -440,15 +461,19 @@ def _upsert_category_profile_hint(
     context or no profile applied means there is nothing meaningful to
     attribute the usage to.
 
-    Postgres gotcha (verified, not assumed): `uq_tn_category_profile_hint`
-    is a UNIQUE constraint over `(categoria, subcategoria, profile_id)`, but
-    Postgres treats every NULL as distinct for uniqueness purposes — so two
-    concurrent/sequential publishes to a category-only hint (`subcategoria
-    IS NULL`) would NOT collide on the constraint and could insert two rows
-    instead of incrementing one. This function always queries-then-updates
-    rather than relying on the constraint to dedupe, which sidesteps that
-    gap for both the NULL and non-NULL subcategoria cases alike. A genuine
-    race between two concurrent requests inserting the same key is instead
+    Defense in depth (updated after `20260820_fix_tn_category_profile_hint_nulls`):
+    `uq_tn_category_profile_hint` used to be a plain UNIQUE constraint over
+    `(categoria, subcategoria, profile_id)`, and Postgres treats every NULL
+    as distinct for uniqueness purposes — so two concurrent/sequential
+    publishes to a category-only hint (`subcategoria IS NULL`) would NOT
+    collide on the constraint and could insert two rows instead of
+    incrementing one. That migration recreated the constraint with `NULLS
+    NOT DISTINCT`, so the DB now enforces this correctly for BOTH the NULL
+    and non-NULL `subcategoria` cases. This function's query-then-update
+    is kept anyway as defense in depth (avoids a round-trip through
+    `IntegrityError` on the common non-racing path), not because the DB
+    still cannot enforce it. A genuine race between two concurrent requests
+    inserting the same key is instead
     handled by catching `IntegrityError` and retrying as an update.
     """
     if not categoria or profile_id is None:
@@ -849,7 +874,29 @@ def publish_product(
         ),
     )
 
-    def _attach_images(product_id: Any) -> List[str]:
+    def _attach_images(product_id: Any) -> Tuple[List[str], List[str]]:
+        """Returns `(skipped_srcs, rate_limited_srcs)` — two DISTINCT
+        failure modes the operator needs to tell apart:
+
+          - `skipped_srcs`: never sent to TN at all (failed the local
+            `is_publicly_reachable_url` guard — a malformed/private URL).
+          - `rate_limited_srcs`: sent to TN and rejected with a 429
+            (`TnRateLimited`, thanks to the client-level fix in
+            `TiendaNubeProductClient._classify_write_response`).
+
+        Rate-limit policy (defect fix, decision): report immediately, do
+        NOT retry here. This mirrors the exact design already established
+        for `create_product` on this same interactive single-item path
+        (`execute_batch(..., max_rate_limit_attempts=0)`, see below): a
+        synchronous operator-facing click must never block for a
+        multi-second backoff window. A blind retry-with-sleep here would
+        also silently reintroduce that blocking behavior one call site
+        away from the one that deliberately opted out of it. The product
+        was already created by the time this runs, so a rate-limited image
+        can NEVER roll back or fail the overall publish — it is reported so
+        the operator can retry that one image manually (e.g. re-open the
+        product and re-attach), not retried automatically.
+        """
         reachable_srcs = [src for src in image_srcs if is_publicly_reachable_url(src)]
         skipped_srcs = [src for src in image_srcs if src not in reachable_srcs]
         if skipped_srcs:
@@ -858,12 +905,24 @@ def publish_product(
                 len(skipped_srcs),
                 product_id,
             )
+        rate_limited_srcs: List[str] = []
         for src in reachable_srcs:
             # Best-effort: an individual image failing to attach does not
             # roll back the already-created product — TN products with
             # missing images are visibly incomplete but not broken the way a
             # duplicate/ambiguous product create would be.
-            image_result = _resolve(active_client.add_product_image(product_id, src))
+            try:
+                image_result = _resolve(active_client.add_product_image(product_id, src))
+            except TnRateLimited as e:
+                rate_limited_srcs.append(src)
+                logger.warning(
+                    "publish_product: add_product_image RATE LIMITED (429) for product_id=%s src=%s "
+                    "retry_after=%s — not retried here, reported to the operator instead",
+                    product_id,
+                    src,
+                    e.retry_after,
+                )
+                continue
             if not image_result.get("ok"):
                 logger.warning(
                     "publish_product: add_product_image failed for product_id=%s src=%s: %s",
@@ -871,7 +930,7 @@ def publish_product(
                     src,
                     image_result,
                 )
-        return skipped_srcs
+        return skipped_srcs, rate_limited_srcs
 
     # PR-5b (design Decision 6, task 5.18): the live single-item write goes
     # through `execute_batch([item])` — the SAME execution path a future
@@ -894,9 +953,10 @@ def publish_product(
         if write_result["ok"]:
             body = write_result.get("body") or {}
             product_id = body.get("id")
-            skipped_srcs = _attach_images(product_id)
+            skipped_srcs, rate_limited_srcs = _attach_images(product_id)
             _upsert_publish_mirror(db, product_id, ean, product_name, _extract_variant_id(body))
             call_detail["skipped_image_srcs"] = skipped_srcs
+            call_detail["rate_limited_image_srcs"] = rate_limited_srcs
             return {"status": "submitted", "product_id": product_id}
 
         if not write_result["ambiguous"]:
@@ -922,9 +982,10 @@ def publish_product(
 
         if readback is not None:
             recovered_product_id = readback.get("id")
-            skipped_srcs = _attach_images(recovered_product_id)
+            skipped_srcs, rate_limited_srcs = _attach_images(recovered_product_id)
             _upsert_publish_mirror(db, recovered_product_id, ean, product_name, _extract_variant_id(readback))
             call_detail["skipped_image_srcs"] = skipped_srcs
+            call_detail["rate_limited_image_srcs"] = rate_limited_srcs
             return {
                 "status": "submitted",
                 "product_id": recovered_product_id,
@@ -963,6 +1024,7 @@ def publish_product(
             "status": "submitted",
             "product_id": item_outcome.product_id,
             "skipped_image_srcs": call_detail.get("skipped_image_srcs", []),
+            "rate_limited_image_srcs": call_detail.get("rate_limited_image_srcs", []),
         }
         if item_outcome.detail:
             outcome["detail"] = item_outcome.detail
