@@ -223,6 +223,35 @@ class Settings(BaseSettings):
     # behavior without a deploy — see `triage_service.run_triage`.
     TICKETS_TRIAGE_AUTO_APPLY: bool = True
 
+    # Best-effort correction capture (tickets-triage-feedback PR3, design
+    # "Best-effort correction capture behind a flag"): dark-launched (default
+    # False, same pattern as ml-bot's `fewshot_capture_enabled`) — when on,
+    # confirming a GENUINE correction (`confirmar()` resolves the proposal to
+    # `estado='corregida'`) schedules a best-effort background capture of the
+    # (original text, AI value, human value) triple into
+    # `tickets_triage_ejemplos`, embedded for future few-shot retrieval.
+    # Capture failure or a `False` flag must never affect the confirm
+    # response — see `ejemplos_service.capturar_correccion`.
+    TICKETS_TRIAGE_EJEMPLOS_CAPTURE: bool = False
+
+    # Retrieval read side (tickets-triage-feedback PR4b): dark-launched
+    # (default False, mirrors TICKETS_TRIAGE_EJEMPLOS_CAPTURE above) — when
+    # on, `run_triage` retrieves similar captured corrections for
+    # severidad/urgencia and appends them to the classification prompt as
+    # few-shot examples. With the flag off, `run_triage` never opens the
+    # extra retrieval session and the system prompt sent to the LLM stays
+    # byte-identical to today (see `triage_service.run_triage`).
+    TICKETS_TRIAGE_EJEMPLOS_READ: bool = False
+
+    # Vikunja sync (sdd/tickets-sync-vikunja PR 1) — kill-switch for the
+    # ticket->Vikunja sync pipeline. Default OFF: PR 1 only ships the client,
+    # ledger table, and migration — nothing calls the client yet (that's
+    # PR 2/3). Flip on per environment once the hook/loop land.
+    TICKETS_VIKUNJA_SYNC_ENABLED: bool = False
+    VIKUNJA_BASE_URL: Optional[str] = None
+    VIKUNJA_TOKEN: Optional[str] = None
+    VIKUNJA_PROJECT_ID: Optional[int] = None
+
     # Prearmados stats cache
     PREARMADAS_STATS_CACHE_TTL_SECONDS: int = 15
     PREARMADAS_STATS_VOLUME_WARN: int = 5000

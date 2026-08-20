@@ -66,6 +66,7 @@ const RRHHCumpleanos = lazy(() => import('./pages/RRHHCumpleanos'));
 const Tickets = lazy(() => import('./pages/Tickets'));
 const ReescribirLH = lazy(() => import('./pages/ReescribirLH'));
 const TicketsAdmin = lazy(() => import('./pages/TicketsAdmin'));
+const TriageEjemplos = lazy(() => import('./pages/TriageEjemplos'));
 const AdministracionProveedores = lazy(() => import('./pages/AdministracionProveedores'));
 const AdministracionBancos = lazy(() => import('./pages/AdministracionBancos'));
 const AdministracionImpuestos = lazy(() => import('./pages/AdministracionImpuestos'));
@@ -173,6 +174,7 @@ const protectedRoutes = [
   { path: '/tickets', component: Tickets, permiso: 'tickets.ver' },
   { path: '/etiquetas/reescribir-lh', component: ReescribirLH, permiso: 'etiquetas.reescribir_lh' },
   { path: '/tickets/admin', component: TicketsAdmin, permiso: 'tickets.admin' },
+  { path: '/tickets/triage/ejemplos', component: TriageEjemplos, permiso: 'tickets.triage.ejemplos' },
   { path: '/document-designer', component: DocumentDesigner, permiso: 'documentos.disenar' },
 ];
 

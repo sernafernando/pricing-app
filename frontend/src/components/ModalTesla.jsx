@@ -86,12 +86,23 @@ export default function ModalTesla({
 
     document.addEventListener('keydown', handleTab);
 
-    // Auto-focus: caller-provided target (e.g. the first meaningful field)
-    // takes priority over the DOM-order first focusable element, which in
-    // practice is almost always the close button.
-    setTimeout(() => (initialFocusRef?.current ?? firstElement)?.focus(), 100);
+    // Auto-focus. Dos reglas que vienen de ramas distintas y son
+    // complementarias:
+    //  - No robar el foco si YA está dentro del modal: para cuando vence la
+    //    ventana el usuario puede haber clickeado un campo y estar
+    //    escribiendo, y robárselo le come las teclas que siguen.
+    //  - Si el llamador indica un destino (`initialFocusRef`), gana sobre el
+    //    primer focusable en orden de DOM, que en la práctica casi siempre es
+    //    el botón de cerrar.
+    const autoFocusId = setTimeout(() => {
+      if (modalRef.current?.contains(document.activeElement)) return;
+      (initialFocusRef?.current ?? firstElement)?.focus();
+    }, 100);
 
-    return () => document.removeEventListener('keydown', handleTab);
+    return () => {
+      clearTimeout(autoFocusId);
+      document.removeEventListener('keydown', handleTab);
+    };
   }, [isOpen, initialFocusRef]);
 
   // Prevenir scroll del body cuando modal está abierto

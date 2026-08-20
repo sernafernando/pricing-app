@@ -175,6 +175,16 @@ export default function CalcularWebModal({ onClose, onSuccess, filtrosActivos, s
         if (filtrosActivos.filtroEstadoMLA === 'activa') body.filtros.estado_mla = 'activa';
         if (filtrosActivos.filtroEstadoMLA === 'pausada') body.filtros.estado_mla = 'pausada';
         if (filtrosActivos.filtroNuevos === 'ultimos_7_dias') body.filtros.nuevos_ultimos_7_dias = true;
+        // Cross-DB filters (promos, precios mayoristas): el backend los
+        // resuelve fail-CLOSED, así que la operación corre exactamente sobre
+        // el conjunto del listado o no corre.
+        if (filtrosActivos.filtroPxq === 'con_pxq') body.filtros.con_pxq = true;
+        if (filtrosActivos.promo_tipos) {
+          body.filtros.promo_tipos = filtrosActivos.promo_tipos;
+          body.filtros.promo_estado = filtrosActivos.promo_estado;
+        }
+        if (filtrosActivos.con_promo_aplicada) body.filtros.con_promo_aplicada = true;
+        if (filtrosActivos.con_promo_sin_aplicar) body.filtros.con_promo_sin_aplicar = true;
       }
 
       const response = await api.post('/productos/calcular-web-masivo', body);

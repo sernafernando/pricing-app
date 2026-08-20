@@ -1,6 +1,17 @@
 #!/bin/bash
 # Deploy script - Pricing App Frontend
 # Uso: ./deploy.sh [--skip-pull] [--skip-build] [--skip-backend] [--no-notify]
+#                  [--minutes N] [--unstoppable]
+#
+# --minutes N avisa por WhatsApp que en ~N minutos arranca el deploy, espera ese
+# rato y recién después empieza. Sirve para que el equipo corte lo que está
+# haciendo sin tener que avisar a mano. Durante esa espera cualquiera del grupo
+# puede responder "stop" y el deploy se cancela antes de tocar nada.
+#
+# --unstoppable es para el deploy urgente que va igual. Avisa y espera lo mismo,
+# pero no se puede frenar desde el grupo -- y el aviso lo dice con todas las
+# letras, porque un botón de pánico que a veces no funciona es peor que no
+# tenerlo.
 #
 # Avisa por WhatsApp (wabot) al arrancar y al terminar. El aviso es best-effort:
 # nunca puede romper ni frenar el deploy.
@@ -20,6 +31,10 @@ FRONTEND_DIR="$PROJECT_DIR/frontend"
 BACKEND_DIR="$PROJECT_DIR/backend"
 
 NOTIFY_SCRIPT="$PROJECT_DIR/scripts/notify-wabot.sh"
+ANNOUNCE_SCRIPT="$PROJECT_DIR/scripts/announce-deploy.sh"
+VETO_SCRIPT="$PROJECT_DIR/scripts/check-deploy-veto.sh"
+# Cada cuánto se le pregunta a wabot si alguien frenó el deploy.
+VETO_POLL_SECONDS="${VETO_POLL_SECONDS:-10}"
 DEPLOY_ETA_MIN="${DEPLOY_ETA_MIN:-5}"
 # El /health se sirve por el reverse proxy. El puerto crudo del backend
 # (8000) devuelve 404 en esa ruta, así que no sirve para verificar nada.
@@ -36,20 +51,51 @@ log() { echo -e "${GREEN}[DEPLOY]${NC} $1"; }
 warn() { echo -e "${YELLOW}[WARN]${NC} $1"; }
 err() { echo -e "${RED}[ERROR]${NC} $1"; }
 
+# ponytail (docs/tech-debt-ledger.md): todo el cuerpo ejecutable vive adentro de
+# main() y se invoca al final del archivo. Bash lee los scripts por chunks
+# llevando un offset de byte, asi que el `git pull` de mas abajo -- que reescribe
+# ESTE archivo mientras bash todavia lo esta leyendo -- hacia que la ejecucion
+# siguiera desde ese offset pero sobre el archivo nuevo: corrian fragmentos
+# arbitrarios, o el script terminaba en silencio sin build ni restart. Con el
+# cuerpo adentro de una funcion, bash tiene que parsearla entera antes de
+# ejecutar una sola linea, de modo que el pull ya no puede cortar el script a la
+# mitad. La indentacion se deja como estaba a proposito: reindentar 200 lineas
+# esconderia el cambio real en ruido de whitespace y alteraria el texto de los
+# mensajes multilinea que se mandan al grupo.
+main() {
+
 SKIP_PULL=false
 SKIP_BUILD=false
 SKIP_BACKEND=false
 NOTIFY=true
+WAIT_MINUTES=0
+UNSTOPPABLE=false
 
-for arg in "$@"; do
-  case $arg in
+while [ $# -gt 0 ]; do
+  case $1 in
     --skip-pull) SKIP_PULL=true ;;
     --skip-build) SKIP_BUILD=true ;;
     --skip-backend) SKIP_BACKEND=true ;;
     --no-notify) NOTIFY=false ;;
-    *) warn "Argumento desconocido: $arg" ;;
+    --unstoppable) UNSTOPPABLE=true ;;
+    --minutes=*) WAIT_MINUTES="${1#*=}" ;;
+    --minutes)
+      # El valor viene en el argumento siguiente; consumirlo acá evita que el
+      # loop lo lea después como si fuera una flag desconocida.
+      WAIT_MINUTES="${2:-}"
+      shift
+      ;;
+    *) warn "Argumento desconocido: $1" ;;
   esac
+  shift
 done
+
+# Se valida antes de tocar nada: un --minutes mal escrito tiene que cortar acá y
+# no después de haber avisado al equipo o arrancado el deploy.
+if ! [[ "$WAIT_MINUTES" =~ ^[0-9]+$ ]]; then
+  err "--minutes espera un número entero de minutos (recibido: '${WAIT_MINUTES}')"
+  exit 1
+fi
 
 # Paso actual, para poder decir en qué se cortó si el deploy falla.
 CURRENT_STEP="inicio"
@@ -74,6 +120,40 @@ fmt_duration() {
   printf '%dm %02ds' $(($1 / 60)) $(($1 % 60))
 }
 
+# El deploy se cancela porque alguien lo frenó desde el grupo. NO es una falla:
+# se desarma el trap ANTES de avisar, si no on_failure manda "EL DEPLOY FALLÓ"
+# por un final perfectamente ordenado en el que no se tocó una sola línea.
+abort_vetoed() {
+  local quien=${1:-}
+  [ -n "$quien" ] || quien="alguien del grupo"
+
+  trap - ERR INT TERM
+
+  warn "Deploy frenado desde el grupo por ${quien}. No se tocó nada."
+  notify "Pricing App - deploy cancelado
+
+Lo frenó ${quien} desde el grupo. No se tocó nada, la app sigue funcionando normalmente.
+
+Avisamos cuando lo reprogramemos."
+
+  exit 75
+}
+
+# Se imprime en CADA poll fallido, no una sola vez. Si el preaviso salió bien y
+# después wabot se cayó, el grupo cree que su "stop" sirve y no sirve: el deploy
+# sigue igual (fail-open, a propósito) y el que lo está corriendo tiene que
+# poder enterarse sin leer un log.
+veto_banner() {
+  echo -e "${RED}" >&2
+  echo "  ###############################################################" >&2
+  echo "  #  NO SE PUEDE CONSULTAR EL FRENO                             #" >&2
+  echo "  #  wabot no contesta. El deploy SIGUE porque así está pensado, #" >&2
+  echo "  #  pero si alguien mandó 'stop' al grupo no nos vamos a        #" >&2
+  echo "  #  enterar. Cortá con Ctrl+C si querés jugar a lo seguro.      #" >&2
+  echo "  ###############################################################" >&2
+  echo -e "${NC}" >&2
+}
+
 # Espera a que el backend conteste el health check. El systemctl restart
 # vuelve enseguida, pero uvicorn tarda en estar listo: sin esta espera
 # avisaríamos "ya está arriba" antes de que sea cierto.
@@ -95,6 +175,19 @@ on_failure() {
   trap - ERR INT TERM
 
   err "Deploy interrumpido en: $CURRENT_STEP"
+
+  # Cortarse durante la espera previa es distinto a cortarse a mitad del deploy:
+  # todavía no se tocó nada, y el equipo ya recibió el preaviso. Decir "puede
+  # haber quedado a medias" acá asustaría sin motivo.
+  if [ "$CURRENT_STEP" = "espera previa al deploy" ]; then
+    notify "Pricing App - deploy cancelado
+
+Se suspendió el deploy que habíamos anunciado. No se tocó nada, la app sigue funcionando normalmente.
+
+Avisamos cuando lo reprogramemos."
+    exit "$exit_code"
+  fi
+
   notify "Pricing App - EL DEPLOY FALLÓ
 
 Se cortó en: ${CURRENT_STEP}
@@ -107,7 +200,91 @@ El sistema puede haber quedado a medias. Revisar el log del deploy antes de usar
 
 trap on_failure ERR INT TERM
 
-# 0) Aviso de inicio
+# 0) Preaviso + espera
+if [ "$WAIT_MINUTES" -gt 0 ]; then
+  CURRENT_STEP="espera previa al deploy"
+
+  if [ "$WAIT_MINUTES" -eq 1 ]; then
+    WAIT_LABEL="1 min"
+  else
+    WAIT_LABEL="${WAIT_MINUTES} min"
+  fi
+
+  DEPLOY_ID="$(date +%s)-$$"
+
+  if [ "$UNSTOPPABLE" = true ]; then
+    ANNOUNCE_MSG="Pricing App - deploy en ${WAIT_LABEL}
+
+En aproximadamente ${WAIT_LABEL} vamos a realizar un deploy.
+
+Durante el proceso la app puede quedar sin responder por unos minutos.
+
+Este deploy NO se puede frenar: es urgente y va igual.
+
+Avisamos cuando arranque y nuevamente cuando esté todo arriba."
+  else
+    ANNOUNCE_MSG="Pricing App - deploy en ${WAIT_LABEL}
+
+En aproximadamente ${WAIT_LABEL} vamos a realizar un deploy.
+
+Durante el proceso la app puede quedar sin responder por unos minutos.
+
+Si justo estás en el medio de algo, respondé *stop* en este grupo y lo frenamos.
+
+Avisamos cuando arranque y nuevamente cuando esté todo arriba."
+  fi
+
+  # El anuncio manda el mensaje Y registra el deploy para que el "stop" del
+  # grupo tenga algo que vetar. Si falla no se corta nada: se sigue esperando y
+  # el poll de abajo va a contestar "no puedo saber", que es la verdad.
+  # OJO con la doble negacion: el helper recibe `stoppable`, no `unstoppable`.
+  # Pasar $UNSTOPPABLE directo anunciaba stoppable=false en los deploys que SI
+  # se podian frenar, y el bot rechazaba el "stop" con el mensaje de emergencia
+  # aunque el aviso acabara de invitar a frenarlo.
+  if [ "$UNSTOPPABLE" = true ]; then
+    STOPPABLE_FLAG=false
+  else
+    STOPPABLE_FLAG=true
+  fi
+
+  if [ "$NOTIFY" = true ] && [ -r "$ANNOUNCE_SCRIPT" ]; then
+    bash "$ANNOUNCE_SCRIPT" "$DEPLOY_ID" "$WAIT_MINUTES" "$STOPPABLE_FLAG" "$ANNOUNCE_MSG" || \
+      warn "No se pudo anunciar el deploy a wabot"
+  else
+    warn "Sin aviso por WhatsApp: nadie se entera de este deploy ni puede frenarlo"
+  fi
+
+  if [ "$UNSTOPPABLE" = true ]; then
+    log "Preaviso enviado (deploy NO frenable). Esperando ${WAIT_LABEL}..."
+    sleep $((WAIT_MINUTES * 60))
+  else
+    log "Preaviso enviado. Esperando ${WAIT_LABEL} — el grupo puede frenarlo con 'stop'..."
+
+    VETO_DEADLINE=$((SECONDS + WAIT_MINUTES * 60))
+    while [ "$SECONDS" -lt "$VETO_DEADLINE" ]; do
+      # La llamada va en contexto de condición a propósito: el helper sale
+      # distinto de 0 por diseño, y bajo `set -eE` eso dispararía el trap ERR
+      # convirtiendo un veto limpio en un "EL DEPLOY FALLÓ".
+      VETO_OUT=$(bash "$VETO_SCRIPT" "$DEPLOY_ID") && VETO_RC=0 || VETO_RC=$?
+
+      case "$VETO_RC" in
+        0)  ;;
+        10) abort_vetoed "$VETO_OUT" ;;
+        *)  veto_banner ;;
+      esac
+
+      VETO_LEFT=$((VETO_DEADLINE - SECONDS))
+      [ "$VETO_LEFT" -le 0 ] && break
+      if [ "$VETO_LEFT" -lt "$VETO_POLL_SECONDS" ]; then
+        sleep "$VETO_LEFT"
+      else
+        sleep "$VETO_POLL_SECONDS"
+      fi
+    done
+  fi
+fi
+
+# 1) Aviso de inicio
 if [ "$SKIP_BACKEND" = false ]; then
   notify "Pricing App - arranca el deploy
 
@@ -126,7 +303,7 @@ fi
 
 cd "$PROJECT_DIR"
 
-# 1) Git pull
+# 2) Git pull
 if [ "$SKIP_PULL" = false ]; then
   CURRENT_STEP="git pull"
   log "Pulling latest changes..."
@@ -140,7 +317,7 @@ else
   warn "Skipping git pull"
 fi
 
-# 2) Backend dependencies + migrations
+# 3) Backend dependencies + migrations
 if [ "$SKIP_BACKEND" = false ]; then
   if [ -f "$BACKEND_DIR/requirements.txt" ]; then
     CURRENT_STEP="instalación de dependencias del backend"
@@ -160,7 +337,7 @@ else
   warn "Skipping backend"
 fi
 
-# 3) Frontend build
+# 4) Frontend build
 if [ "$SKIP_BUILD" = false ]; then
   CURRENT_STEP="instalación de dependencias del frontend"
   log "Instalando dependencias frontend..."
@@ -174,7 +351,7 @@ else
   warn "Skipping frontend build"
 fi
 
-# 4) Copiar sounds a dist (no están en git)
+# 5) Copiar sounds a dist (no están en git)
 if [ -d "$FRONTEND_DIR/public/sounds" ]; then
   CURRENT_STEP="copia de sounds a dist"
   log "Copiando sounds a dist..."
@@ -185,7 +362,7 @@ else
   warn "No existe public/sounds/ — el pistoleado no va a tener audio"
 fi
 
-# 5) Restart backend
+# 6) Restart backend
 BACKEND_STATUS="no reiniciado"
 if [ "$SKIP_BACKEND" = false ]; then
   CURRENT_STEP="restart del backend"
@@ -203,7 +380,7 @@ if [ "$SKIP_BACKEND" = false ]; then
   fi
 fi
 
-# 6) Aviso de cierre
+# 7) Aviso de cierre
 CURRENT_STEP="aviso final"
 DURATION=$(fmt_duration "$SECONDS")
 
@@ -230,3 +407,7 @@ notify "$FINAL_MSG"
 
 trap - ERR INT TERM
 log "Deploy completado en $DURATION"
+
+}
+
+main "$@"

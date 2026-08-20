@@ -3,6 +3,7 @@ import { Check, X as XIcon } from 'lucide-react';
 import { usePermisos } from '../contexts/PermisosContext';
 import { ticketsAPI, propuestasAPI } from '../services/api';
 import ProvenanceBadge from './ProvenanceBadge';
+import SelectorValorPropuesta, { CAMPOS_CORREGIBLES } from './SelectorValorPropuesta';
 import styles from './TicketProposals.module.css';
 
 const CAMPO_LABEL = {
@@ -75,6 +76,10 @@ export default function TicketProposals({ ticketId, onChanged, refreshToken }) {
   const [busyId, setBusyId] = useState(null);
   const [batchBusy, setBatchBusy] = useState(false);
   const [error, setError] = useState(null);
+  // propuesta.id -> value the user picked in SelectorValorPropuesta, only
+  // present once they've touched the selector (PR2). Absent means "still
+  // the AI's own value" — see `valorCorregidoPara` below.
+  const [seleccion, setSeleccion] = useState({});
 
   const fetchPropuestas = useCallback(async () => {
     try {
@@ -101,11 +106,29 @@ export default function TicketProposals({ ticketId, onChanged, refreshToken }) {
     });
   };
 
-  const handleConfirmar = async (id) => {
+  // Undefined unless the user actually picked a different value than the
+  // AI proposed — never sent as an explicit `undefined` argument (see
+  // `handleConfirmar`), so an untouched selector keeps confirm a one-click
+  // ratification with today's exact request shape.
+  const valorCorregidoPara = (p) => {
+    const elegido = seleccion[p.id];
+    const original = p.valor_propuesto?.valor;
+    return elegido && elegido !== original ? elegido : undefined;
+  };
+
+  const handleConfirmar = async (id, valorCorregido) => {
     setBusyId(id);
     setError(null);
     try {
-      await propuestasAPI.confirmar(id);
+      // Branching (not `propuestasAPI.confirmar(id, valorCorregido)`
+      // unconditionally) so an untouched selector never sends an explicit
+      // `undefined` second argument — see `api.propuestas.test.js`'s
+      // "no stray second argument" regression guard.
+      if (valorCorregido !== undefined) {
+        await propuestasAPI.confirmar(id, valorCorregido);
+      } else {
+        await propuestasAPI.confirmar(id);
+      }
       await fetchPropuestas();
       onChanged?.();
     } catch (err) {
@@ -177,6 +200,7 @@ export default function TicketProposals({ ticketId, onChanged, refreshToken }) {
           <ul className={styles.list}>
             {pendientes.map((p) => {
               const label = CAMPO_LABEL[p.campo] || p.campo;
+              const esCorregible = CAMPOS_CORREGIBLES.has(p.campo);
               return (
                 <li key={p.id} className={styles.item}>
                   {puedeConfirmar && (
@@ -189,16 +213,34 @@ export default function TicketProposals({ ticketId, onChanged, refreshToken }) {
                     />
                   )}
                   <span className={styles.label}>
-                    {label}: {String(p.valor_propuesto?.valor ?? '-')}
+                    {esCorregible ? (
+                      <>
+                        {label}:{' '}
+                        <SelectorValorPropuesta
+                          campo={p.campo}
+                          valorPropuesto={p.valor_propuesto?.valor}
+                          value={seleccion[p.id]}
+                          onChange={(v) => setSeleccion((prev) => ({ ...prev, [p.id]: v }))}
+                          disabled={busyId === p.id}
+                        />
+                      </>
+                    ) : (
+                      <>
+                        {label}: {String(p.valor_propuesto?.valor ?? '-')}
+                      </>
+                    )}
                     {typeof p.confianza === 'number' && (
                       <span className={styles.confianza}> · IA {p.confianza.toFixed(2)}</span>
+                    )}
+                    {typeof p.ejemplos_usados === 'number' && (
+                      <span className={styles.confianza}> · {p.ejemplos_usados} ejemplos aprendidos</span>
                     )}
                   </span>
                   {puedeConfirmar && (
                     <span className={styles.actions}>
                       <button
                         className={styles.btnConfirm}
-                        onClick={() => handleConfirmar(p.id)}
+                        onClick={() => handleConfirmar(p.id, valorCorregidoPara(p))}
                         disabled={busyId === p.id}
                         aria-label={`Confirmar ${label}`}
                       >
@@ -231,12 +273,31 @@ export default function TicketProposals({ ticketId, onChanged, refreshToken }) {
             {aplicadas.map((p) => {
               const label = CAMPO_LABEL[p.campo] || p.campo;
               const esRevertible = CAMPOS_REVERTIBLES.has(p.campo);
+              const esCorregible = CAMPOS_CORREGIBLES.has(p.campo);
               return (
                 <li key={p.id} className={styles.item}>
                   <span className={styles.label}>
-                    {label}: {String(p.valor_propuesto?.valor ?? '-')}
+                    {esCorregible ? (
+                      <>
+                        {label}:{' '}
+                        <SelectorValorPropuesta
+                          campo={p.campo}
+                          valorPropuesto={p.valor_propuesto?.valor}
+                          value={seleccion[p.id]}
+                          onChange={(v) => setSeleccion((prev) => ({ ...prev, [p.id]: v }))}
+                          disabled={busyId === p.id}
+                        />
+                      </>
+                    ) : (
+                      <>
+                        {label}: {String(p.valor_propuesto?.valor ?? '-')}
+                      </>
+                    )}
                     {typeof p.confianza === 'number' && (
                       <span className={styles.confianza}> · IA {p.confianza.toFixed(2)}</span>
+                    )}
+                    {typeof p.ejemplos_usados === 'number' && (
+                      <span className={styles.confianza}> · {p.ejemplos_usados} ejemplos aprendidos</span>
                     )}
                     <ProvenanceBadge origen="ia_auto" />
                   </span>
@@ -244,7 +305,7 @@ export default function TicketProposals({ ticketId, onChanged, refreshToken }) {
                     <span className={styles.actions}>
                       <button
                         className={styles.btnConfirm}
-                        onClick={() => handleConfirmar(p.id)}
+                        onClick={() => handleConfirmar(p.id, valorCorregidoPara(p))}
                         disabled={busyId === p.id}
                         aria-label={`Confirmar ${label}`}
                         title="Ya se aplicó automáticamente — marcalo como revisado si está bien"

@@ -324,6 +324,13 @@ export const promocionesAPI = {
 // `PxqCreateTierRequest`/`PxqUpdateTierRequest`.
 export const pxqAPI = {
   getLive: (itemId) => api.get(`/pxq/${itemId}/live`),
+  // Batch markup read (`pxq-markup-antes-de-publicar`). NOT a pure DB read
+  // (slice B): the backend may make its own short-lived ML proxy calls
+  // server-side to refresh a stale shipping cost before computing the
+  // markup -- still no special handling needed on the caller's side (no
+  // `null`-vs-`[]` distinction like `getLive`), just a response that may
+  // take slightly longer on a cold/stale tier.
+  getMarkup: (itemId) => api.get(`/pxq/${itemId}/markup`),
   createTier: (itemId, body) => api.post(`/pxq/${itemId}/tiers`, body),
   updateTier: (itemId, tierId, body) => api.patch(`/pxq/${itemId}/tiers/${tierId}`, body),
   deleteTier: (itemId, tierId) => api.delete(`/pxq/${itemId}/tiers/${tierId}`),
@@ -331,10 +338,18 @@ export const pxqAPI = {
   // clear the live array. The backend still accepts `allow_clear` (see
   // `backend/app/routers/pxq.py`'s `PxqSyncRequest`), but a full-array wipe is
   // a destructive operation that needs its own explicitly-labelled verb — not
-  // a default argument on a verb the UI calls "sincronizar". Taking the
-  // parameter away removes the syntactic path that let a caller ask for a
-  // wipe by accident.
-  sync: (itemId) => api.post(`/pxq/${itemId}/sync`, { allow_clear: false }),
+  // a default argument on a verb the UI calls "sincronizar". `allow_clear`
+  // stays HARDCODED `false` here on purpose (slice C2): the second argument
+  // below is an options object, and `publicarSinMarkup` is the ONLY thing it
+  // can express — there is deliberately no `allowClear` passthrough, so a
+  // caller cannot resurrect the wipe by widening the options bag.
+  //
+  // `publicarSinMarkup` (D4 of `pxq-markup-antes-de-publicar`, slice C):
+  // per-request opt-in to publish tiers whose markup never resolved. Mirrors
+  // `backend/app/routers/pxq.py`'s `PxqSyncRequest.publicar_sin_markup` —
+  // same default (`false`), same "no server-side memory across requests".
+  sync: (itemId, { publicarSinMarkup = false } = {}) =>
+    api.post(`/pxq/${itemId}/sync`, { allow_clear: false, publicar_sin_markup: publicarSinMarkup }),
   // Import path (PR 4e): pulls ML's LIVE tiers into an EMPTY local mirror.
   // The opposite direction from `sync` and the only non-destructive way out of
   // "ML holds tiers we never mirrored".
@@ -710,10 +725,26 @@ export const sectoresAPI = {
 
 // ── Propuestas IA (tickets-ai-triage) ────────────────────────
 export const propuestasAPI = {
-  confirmar: (id) => api.post(`/tickets/propuestas/${id}/confirmar`),
+  // `valorCorregido` (tickets-triage-feedback PR2) is optional and only
+  // meaningful for severidad/urgencia — the backend's `ConfirmarRequest`
+  // rejects it for other campos with 400. Omitted entirely (not sent as
+  // `undefined`) when there's no correction, so a plain ratification stays
+  // byte-identical to the pre-PR2 request — one click, no extra payload.
+  confirmar: (id, valorCorregido) =>
+    valorCorregido != null
+      ? api.post(`/tickets/propuestas/${id}/confirmar`, { valor_corregido: valorCorregido })
+      : api.post(`/tickets/propuestas/${id}/confirmar`),
   descartar: (id) => api.post(`/tickets/propuestas/${id}/descartar`),
   confirmarBatch: (propuestaIds) =>
     api.post('/tickets/propuestas/confirmar-batch', { propuesta_ids: propuestaIds }),
+};
+
+// ── Ejemplos curados de correcciones humanas (tickets-triage-feedback PR5b) ──
+export const ejemplosAPI = {
+  listar: (campo, { skip, limit } = {}) =>
+    api.get('/tickets/tickets/triage/ejemplos', { params: { campo, skip, limit } }),
+  toggle: (id, active) =>
+    api.patch(`/tickets/tickets/triage/ejemplos/${id}`, { active }),
 };
 
 // ── Tablero (tickets-ai-triage PR 5b) ────────────────────────

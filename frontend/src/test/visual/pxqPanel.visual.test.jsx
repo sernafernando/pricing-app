@@ -22,6 +22,7 @@ vi.mock('../../contexts/PermisosContext', () => ({
 vi.mock('../../services/api', () => ({
   pxqAPI: {
     getLive: vi.fn(),
+    getMarkup: vi.fn(),
     createTier: vi.fn(),
     updateTier: vi.fn(),
     deleteTier: vi.fn(),
@@ -44,6 +45,11 @@ const LIVE_PAYLOAD = {
 /** Mount the panel and wait for the authoring form to be laid out. */
 async function renderPanel() {
   pxqAPI.getLive.mockResolvedValue(LIVE_PAYLOAD);
+  // Resolved to an empty batch, not left unmocked: these are geometry
+  // assertions about the authoring form/live column, unrelated to slice A2's
+  // markup cell, so it must settle out of its "Calculando…" state instead of
+  // hanging pending for the whole suite.
+  pxqAPI.getMarkup.mockResolvedValue({ data: { item_id: 'MLA001', tiers: [] } });
   // `render` is async in vitest-browser-react 2.x — it resolves after React has
   // committed AND the browser has laid the tree out, which is exactly the
   // guarantee these geometry assertions need.
@@ -407,81 +413,294 @@ describe('PxQ authoring form — dark mode', () => {
 });
 
 /**
- * The presented `estado` label, measured.
+ * The read table, measured.
  *
- * `sincronizado` is rendered as "Actualizado en MercadoLibre" — a 27-character
- * string in a row that also carries a quantity and a price. jsdom does no
- * layout, so the unit suite can prove the TEXT is right and nothing about
- * whether it FITS. That question is settled here, in Chromium, or not at all.
- *
- * `LIVE_PAYLOAD`'s mirror tier is `sincronizado`, so the panel these tests
- * already mount carries the longest of the four labels by default.
+ * The unit project runs with `css: false`, where the CSS-module object echoes
+ * back any key it is handed — a class that exists and a class that was never
+ * written are indistinguishable there, and that is exactly how the markup cell
+ * once shipped unstyled. Every claim this redesign makes about hierarchy is a
+ * claim about painted pixels, so it is settled here or not at all.
  */
-describe('PxQ mirror row — the presented estado label fits its column', () => {
-  /** The mirror is the second child of `.pxqColumns`; live is the first. */
-  const mirrorColumn = (container) => container.querySelector('[class*="pxqColumns"]').children[1];
-  const estadoSpan = (container) =>
-    [...mirrorColumn(container).querySelector('[class*="pxqTierRow"]').querySelectorAll('span')][2];
+describe('PxQ read table — the operator can tell what he is looking at', () => {
+  const table = (container) => container.querySelector('[data-testid="pxq-tramos"]');
+  const head = (container) => table(container).querySelector('[class*="pxqTableHead"]');
+  const firstRow = (container) => table(container).querySelector('[class*="pxqRow"]');
 
-  it('renders the label, not the raw enum', async () => {
+  it('names every column, quietly and above the figures', async () => {
     const container = await renderPanel();
-    const estado = estadoSpan(container);
+    const headings = [...head(container).children].map((el) => el.textContent);
+    expect(headings).toEqual(['Cant.', 'Precio en ML', 'Costo del envío', 'Markup', 'Limpio por u.']);
 
-    expect(estado.textContent).toBe('Actualizado en MercadoLibre');
-    expect(mirrorColumn(container).textContent).not.toMatch(/sincronizado/i);
+    const style = getComputedStyle(head(container));
+    expect(style.color).toBe(tokenColor('--text-tertiary'));
+    expect(style.textTransform).toBe('uppercase');
+    expect(Number(style.fontWeight)).toBeGreaterThanOrEqual(600);
+    // Smaller than the figures underneath: a heading that competes with its
+    // column is one more thing to read, not a map.
+    expect(px(style.fontSize)).toBeLessThan(px(getComputedStyle(firstRow(container)).fontSize));
   });
 
-  it('stays on one line at an ordinary column width, without overflowing or clipping', async () => {
+  it('paints each tier as a card, not a bare line of text', async () => {
     const container = await renderPanel();
-    // 640px of container puts the mirror column at ~308px — the two columns
-    // still sit side by side, which is the layout an operator normally sees.
-    container.style.width = '640px';
+    const style = getComputedStyle(firstRow(container));
 
-    const column = mirrorColumn(container);
-    const row = column.querySelector('[class*="pxqTierRow"]');
-    const estado = estadoSpan(container);
-    const quantity = [...row.querySelectorAll('span')][0];
+    expect(style.backgroundColor).toBe(tokenColor('--bg-secondary'));
+    expect(px(style.borderTopWidth)).toBe(1);
+    expect(px(style.borderTopLeftRadius)).toBe(tokenPx('--radius-md'));
+    // A card is only a card if it is separated from the next one.
+    expect(px(getComputedStyle(firstRow(container).parentElement).rowGap)).toBeGreaterThan(0);
+  });
 
-    // One line == no taller than the sibling that can only ever be one line.
-    expect(estado.getBoundingClientRect().height).toBe(quantity.getBoundingClientRect().height);
-    // Not paid for with clipped text…
-    expect(estado.scrollWidth).toBeLessThanOrEqual(estado.clientWidth + 1);
-    // …nor with a row that spills past the column it belongs to.
-    expect(row.getBoundingClientRect().right).toBeLessThanOrEqual(column.getBoundingClientRect().right + 1);
+  it('lines the columns up, digit over digit', async () => {
+    const container = await renderPanel();
+    const row = firstRow(container);
+    // Every cell that carries a figure asks for tabular digits; proportional
+    // ones make a column of money read as unrelated strings.
+    const numeric = [...row.querySelectorAll('[class*="pxqNum"]')];
+    expect(numeric.length).toBeGreaterThan(0);
+    for (const cell of numeric) {
+      expect(getComputedStyle(cell).fontVariantNumeric).toContain('tabular-nums');
+    }
+    // Head and body share one grid template, so a heading sits over its column.
+    // Compared track by track with a pixel of slack: the row carries a 1px
+    // border the heading does not, so its two flexible tracks resolve a hair
+    // narrower without the columns being misaligned.
+    const tracks = (el) => getComputedStyle(el).gridTemplateColumns.split(' ').map(px);
+    const headTracks = tracks(head(container));
+    const rowTracks = tracks(row);
+    expect(headTracks).toHaveLength(rowTracks.length);
+    headTracks.forEach((track, i) => expect(Math.abs(track - rowTracks[i])).toBeLessThanOrEqual(2));
+  });
+
+  it('says where the shipping cost came from, in a chip that cannot be read as a figure', async () => {
+    const container = await renderPanel();
+    const chip = [...firstRow(container).querySelectorAll('[class*="pxqChip"]')].find((el) => el.textContent === 'a mano');
+    expect(chip).toBeTruthy();
+
+    const style = getComputedStyle(chip);
+    expect(px(style.borderTopLeftRadius)).toBeGreaterThanOrEqual(9999 / 2);
+    expect(style.color).toBe(tokenColor('--text-secondary'));
+    // Quieter and smaller than the amount it qualifies.
+    const amount = firstRow(container).querySelector('[class*="pxqNum"]');
+    expect(px(style.fontSize)).toBeLessThan(px(getComputedStyle(amount).fontSize));
+  });
+
+  it('renders the presented estado label, not the raw enum, and keeps it subordinate', async () => {
+    const container = await renderPanel();
+    const estado = firstRow(container).querySelector('[class*="pxqEstado"]');
+
+    expect(estado.textContent).toBe('Actualizado en MercadoLibre');
+    expect(table(container).textContent).not.toMatch(/sincronizado/i);
+    expect(getComputedStyle(estado).color).toBe(tokenColor('--text-tertiary'));
   });
 
   /**
-   * The narrowest the column is DESIGNED to get: `.pxqColumn` is
-   * `flex: 1 1 220px; min-width: 200px`, and `.pxqColumns` wraps, so below
-   * roughly 440px the columns stack and each takes the full width down to that
-   * 200px floor. The label needs ~168px on its own and the whole row ~235px, so
-   * at the floor it cannot stay on one line.
-   *
-   * Wrapping is the ACCEPTED outcome, and this test pins that choice: the row
-   * has `align-items: center` and no fixed height, so it grows to two lines and
-   * stays fully readable. What would not be acceptable — and is what this test
-   * actually guards — is the label escaping its column or being cut off.
+   * The panel is nested inside the product tree and can end up narrow. The
+   * accepted outcome is a table that SCROLLS: a grid that reflows turns five
+   * aligned columns into five stacked strings, which is the exact loss of
+   * alignment this redesign undoes. What must never happen is the table
+   * pushing the panel around it wider.
    */
-  it('wraps rather than overflowing or truncating when the column hits its floor', async () => {
+  it('scrolls instead of spilling out of a narrow panel', async () => {
     const container = await renderPanel();
+    container.style.width = '260px';
 
-    // Its OWN one-line height, measured while it still has room. Not the
-    // sibling quantity span: at the floor the flex row squeezes every item, so
-    // "5 u." wraps at its space too and both spans come back the same height.
-    container.style.width = '640px';
-    const singleLine = estadoSpan(container).getBoundingClientRect().height;
+    const t = table(container);
+    expect(getComputedStyle(t).overflowX).toBe('auto');
+    expect(t.getBoundingClientRect().right).toBeLessThanOrEqual(container.getBoundingClientRect().right + 1);
+    expect(t.scrollWidth).toBeGreaterThan(t.clientWidth);
+  });
+});
 
-    container.style.width = '210px';
-    const column = mirrorColumn(container);
-    const row = column.querySelector('[class*="pxqTierRow"]');
-    const estado = estadoSpan(container);
+/**
+ * The markup cell, in real CSS.
+ *
+ * This is the layer that had to catch it: `PxqPanel` referenced
+ * `styles.pxqMarkupPending` and `styles.pxqMarkupUnavailable` while
+ * `promociones.module.css` defined NEITHER, so both resolved to `undefined`
+ * and the cell painted with no styling at all. The unit project cannot see
+ * that -- it runs with `css: false`, where the CSS-module object echoes back
+ * any key it is handed. Only a real stylesheet tells a defined class from an
+ * imagined one.
+ */
+describe('PxQ markup cell — the number is emphasised, the excuse is not', () => {
+  const MIRROR_TIER = { id: 1, cantidad_minima: 3, precio_unitario: 900, costo_envio_total: 1500, estado: 'listo', ml_price_id: null };
 
-    // It does wrap here — stated, not merely tolerated, so that a future CSS
-    // change making it fit on one line is a deliberate edit and not a silent
-    // drift past an assertion that never looked.
-    expect(estado.getBoundingClientRect().height).toBeGreaterThan(singleLine);
-    // The two things that must NOT happen.
-    expect(estado.scrollWidth).toBeLessThanOrEqual(estado.clientWidth + 1);
-    expect(row.getBoundingClientRect().right).toBeLessThanOrEqual(column.getBoundingClientRect().right + 1);
+  async function renderWithMarkup(tiers) {
+    pxqAPI.getLive.mockResolvedValue({
+      data: { item_id: 'MLA001', live_status: 'ok', live_tiers: [], mirror_tiers: [MIRROR_TIER], fetched_at: '2026-08-18T10:00:00Z' },
+    });
+    pxqAPI.getMarkup.mockResolvedValue({ data: { item_id: 'MLA001', tiers } });
+    const { container } = await render(<PxqPanel itemId="MLA001" pxqCacheRef={{ current: new Map() }} />);
+    return container;
+  }
+
+  const findByText = async (container, re) => {
+    let found;
+    await vi.waitFor(() => {
+      found = [...container.querySelectorAll('span')].find((el) => re.test(el.textContent) && el.children.length === 0);
+      if (!found) throw new Error(`no element matching ${re}`);
+    });
+    return found;
+  };
+
+  it('paints a resolved percentage in the success tone', async () => {
+    const container = await renderWithMarkup([{ tier_id: 1, markup: 0.184 }]);
+    const percent = await findByText(container, /18,4%/);
+
+    expect(getComputedStyle(percent).color).toBe(tokenColor('--success-text'));
+    // Emphasis is what separates it from the cells around it; equal weight
+    // would put the panel's whole point back into the visual noise.
+    expect(Number(getComputedStyle(percent).fontWeight)).toBeGreaterThanOrEqual(600);
+  });
+
+  it('paints the unavailable reason in a muted tone, never like a value', async () => {
+    const container = await renderWithMarkup([{ tier_id: 1, reason: 'shipping_unavailable' }]);
+    const reason = await findByText(container, /Falta el costo de env/);
+
+    expect(getComputedStyle(reason).color).toBe(tokenColor('--text-tertiary'));
+    expect(getComputedStyle(reason).color).not.toBe(tokenColor('--success-text'));
+  });
+
+  it('paints the in-flight placeholder in a muted tone too', async () => {
+    pxqAPI.getLive.mockResolvedValue({
+      data: { item_id: 'MLA001', live_status: 'ok', live_tiers: [], mirror_tiers: [MIRROR_TIER], fetched_at: '2026-08-18T10:00:00Z' },
+    });
+    pxqAPI.getMarkup.mockReturnValue(new Promise(() => {}));
+    const { container } = await render(<PxqPanel itemId="MLA001" pxqCacheRef={{ current: new Map() }} />);
+
+    const pending = await findByText(container, /Calculando markup/);
+    expect(getComputedStyle(pending).color).toBe(tokenColor('--text-tertiary'));
+  });
+});
+
+/**
+ * A tier with no shipping cost, painted.
+ *
+ * The old panel put a sentence in the markup cell and left the cost cell
+ * empty. The cell that is missing something now carries the action that fills
+ * it, and the two cells that cannot be computed carry a dash — never a 0.
+ */
+describe('PxQ read table — a tier with no shipping cost', () => {
+  const INCOMPLETE_TIER = { id: 1, cantidad_minima: 3, precio_unitario: 900, costo_envio_total: null, estado: 'listo', ml_price_id: null };
+
+  async function renderIncomplete() {
+    pxqAPI.getLive.mockResolvedValue({
+      data: { item_id: 'MLA001', live_status: 'ok', live_tiers: [], mirror_tiers: [INCOMPLETE_TIER], fetched_at: '2026-08-18T10:00:00Z' },
+    });
+    pxqAPI.getMarkup.mockResolvedValue({ data: { item_id: 'MLA001', tiers: [{ tier_id: 1, reason: 'shipping_unavailable' }] } });
+    const { container } = await render(<PxqPanel itemId="MLA001" pxqCacheRef={{ current: new Map() }} />);
+    await vi.waitFor(() => {
+      if (!container.querySelector('[class*="pxqLoadCost"]')) throw new Error('cost affordance not rendered yet');
+    });
+    return container;
+  }
+
+  it('offers the action in the cell that is missing the number', async () => {
+    const container = await renderIncomplete();
+    const button = container.querySelector('[class*="pxqLoadCost"]');
+
+    expect(button.textContent).toBe('Cargar costo');
+    // Dashed: the cell is a hole to be filled, and it should not look like a
+    // finished value nor like the panel's primary action.
+    expect(getComputedStyle(button).borderTopStyle).toBe('dashed');
+    expect(getComputedStyle(button).cursor).toBe('pointer');
+  });
+
+  it('shows a muted dash where a number cannot be computed, never a zero', async () => {
+    const container = await renderIncomplete();
+    const dashes = [...container.querySelectorAll('[class*="pxqEmpty"]')];
+    expect(dashes.length).toBeGreaterThan(0);
+    for (const dash of dashes) {
+      expect(dash.textContent).toBe('—');
+      expect(getComputedStyle(dash).color).toBe(tokenColor('--text-tertiary'));
+    }
+    expect(container.querySelector('[data-testid="pxq-tramos"]').textContent).not.toMatch(/\$0\b/);
+  });
+});
+
+/**
+ * The net per unit, which the markup endpoint has always returned and the
+ * panel never showed. It is context for the markup, so it is secondary — the
+ * percentage stays the loudest thing on the row.
+ */
+describe('PxQ read table — limpio por unidad', () => {
+  it('paints it in the secondary tone, quieter than the markup', async () => {
+    pxqAPI.getLive.mockResolvedValue({
+      data: {
+        item_id: 'MLA001',
+        live_status: 'ok',
+        live_tiers: [],
+        mirror_tiers: [{ id: 1, cantidad_minima: 3, precio_unitario: 900, costo_envio_total: 1500, estado: 'listo', ml_price_id: null }],
+        fetched_at: '2026-08-18T10:00:00Z',
+      },
+    });
+    pxqAPI.getMarkup.mockResolvedValue({ data: { item_id: 'MLA001', tiers: [{ tier_id: 1, markup: 0.184, limpio: 6470 }] } });
+    const { container } = await render(<PxqPanel itemId="MLA001" pxqCacheRef={{ current: new Map() }} />);
+
+    let limpio;
+    await vi.waitFor(() => {
+      limpio = container.querySelector('[class*="pxqLimpio"]');
+      if (!limpio || !/6\.470/.test(limpio.textContent)) throw new Error('limpio not painted yet');
+    });
+
+    expect(getComputedStyle(limpio).color).toBe(tokenColor('--text-secondary'));
+    expect(getComputedStyle(limpio).fontVariantNumeric).toContain('tabular-nums');
+  });
+});
+
+/**
+ * The longest thing the Markup column can ever be handed, measured.
+ *
+ * The column is a FIXED track — that is what keeps the figures in a line — and
+ * `PxqTierMarkup` can put a 47-character sentence in it ("Faltan datos del
+ * producto para calcular el markup") when the markup cannot be computed. The
+ * existing tests all feed it either a percentage or a shorter reason, so the
+ * one input that can stretch a row was never put in front of a layout engine.
+ *
+ * WRAPPING IS THE ACCEPTED OUTCOME, stated here rather than merely tolerated,
+ * the same way the old `estado` test stated it: the row has no fixed height and
+ * grows. What is NOT accepted is the sentence being clipped, escaping its
+ * column, or turning one tier into a five-line block — hence the track is wide
+ * enough (128px) to hold it in a few lines, and this test pins the ceiling.
+ */
+describe('PxQ read table — the longest markup reason', () => {
+  it('wraps inside its column, without clipping, spilling or exploding the row', async () => {
+    pxqAPI.getLive.mockResolvedValue({
+      data: {
+        item_id: 'MLA001',
+        live_status: 'ok',
+        live_tiers: [],
+        mirror_tiers: [{ id: 1, cantidad_minima: 3, precio_unitario: 900, costo_envio_total: 1500, estado: 'listo', ml_price_id: null }],
+        fetched_at: '2026-08-18T10:00:00Z',
+      },
+    });
+    pxqAPI.getMarkup.mockResolvedValue({ data: { item_id: 'MLA001', tiers: [{ tier_id: 1, reason: 'product_data_missing' }] } });
+    const { container } = await render(<PxqPanel itemId="MLA001" pxqCacheRef={{ current: new Map() }} />);
+
+    let reason;
+    await vi.waitFor(() => {
+      reason = container.querySelector('[class*="pxqMarkupUnavailable"]');
+      if (!reason) throw new Error('reason not painted yet');
+    });
+    expect(reason.textContent).toBe('Faltan datos del producto para calcular el markup');
+
+    const cell = reason.closest('[role="cell"]');
+    const row = cell.closest('[role="row"]');
+    // One line, measured rather than assumed: `line-height` on these cells
+    // resolves to `normal`, which `getComputedStyle` reports as the keyword and
+    // not as a length. The quantity can only ever be one line, so it is the
+    // reference.
+    const oneLine = row.querySelector('[class*="pxqNum"]').getBoundingClientRect().height;
+    // It DOES wrap here — a single line would mean the track grew and the
+    // columns stopped lining up.
+    const lines = Math.round(reason.getBoundingClientRect().height / oneLine);
+    expect(lines).toBeGreaterThan(1);
+    // …but not into a block that dwarfs every other tier on the panel.
+    expect(lines).toBeLessThanOrEqual(3);
+    // Not paid for with clipped text…
+    expect(reason.scrollWidth).toBeLessThanOrEqual(cell.clientWidth + 1);
+    // …nor with a cell that spills past the row it belongs to.
+    expect(cell.getBoundingClientRect().right).toBeLessThanOrEqual(row.getBoundingClientRect().right + 1);
   });
 });

@@ -33,6 +33,7 @@ from app.services.ml_promotions_service import (
     fetch_mlas_with_candidate_only_for_types,
     fetch_mlas_with_started,
 )
+from app.services.ml_pxq_tiers_read_service import fetch_mlas_with_pxq_tiers, fetch_pxq_tiers_by_mla
 from app.services.promo_filter_resolver import PromoResolverFns, select_promo_resolver
 from app.services.pricing_columns import (
     CUOTAS_BY_PRICELIST,
@@ -62,7 +63,13 @@ logger = logging.getLogger(__name__)
 router = APIRouter()
 
 
-def _resolve_and_fold_mlas(query, db: Session, resolver, log_context: str):
+def _resolve_and_fold_mlas(
+    query,
+    db: Session,
+    resolver,
+    log_context: str,
+    detail: str = "Filtro de promociones no disponible temporalmente",
+):
     """Resolves a set of MLAs (cross-DB, mlwebhook) via `resolver` and folds
     it into `query` against PublicacionML/ProductoERP.
 
@@ -76,6 +83,10 @@ def _resolve_and_fold_mlas(query, db: Session, resolver, log_context: str):
         db: session used to build the local PublicacionML fold subquery.
         resolver: zero-arg callable returning Set[str] of mla (may raise).
         log_context: short label used in the warning log on failure.
+        detail: user-facing 503 message. Defaults to the promo wording the
+            original four call sites shipped with; a caller filtering on
+            something else MUST pass its own, or it tells the user a feature
+            they never touched is down.
 
     Returns:
         The filtered query.
@@ -91,10 +102,7 @@ def _resolve_and_fold_mlas(query, db: Session, resolver, log_context: str):
         # so a programming error (TypeError/AttributeError) surfaces as a 500,
         # not a misleading "webhook unavailable" 503.
         logger.warning("%s no disponible: %s", log_context, exc)
-        raise HTTPException(
-            status_code=503,
-            detail="Filtro de promociones no disponible temporalmente",
-        ) from exc
+        raise HTTPException(status_code=503, detail=detail) from exc
 
     if not mlas:
         # EMPTY-SET GUARD: resolver found zero matching MLAs => zero
@@ -311,6 +319,7 @@ def listar_productos(
     promo_estado: Optional[str] = None,
     con_promo_aplicada: Optional[bool] = None,
     con_promo_sin_aplicar: Optional[bool] = None,
+    con_pxq: Optional[bool] = None,
     equipo_id: Optional[int] = None,
     db: Session = Depends(get_db),
     current_user: Usuario = Depends(get_current_user),
@@ -746,6 +755,20 @@ def listar_productos(
     if resolver_entry:
         resolver, log_context = resolver_entry
         query = _resolve_and_fold_mlas(query, db, resolver, log_context)
+
+    # Filtro "con precios mayoristas" (PxQ) — cross-DB: mlwebhook -> pricing.
+    # Convive por AND natural con los demás filtros (marca, stock, promos):
+    # aplica su propio .filter() y NUNCA reemplaza a otro. Sólo `True` acota;
+    # `None` (filtro ausente) y `False` (chip apagado) son no-ops — este filtro
+    # es un toggle de presencia, no un ternario "con/sin".
+    if con_pxq:
+        query = _resolve_and_fold_mlas(
+            query,
+            db,
+            fetch_mlas_with_pxq_tiers,
+            "Filtro precios mayoristas (PxQ)",
+            detail="Filtro de precios mayoristas no disponible temporalmente",
+        )
 
     # Operador promo: del buscador (feature productos-search-mla-promo-operators,
     # cross-DB: mlwebhook -> pricing). Convive con promo_tipos (AND natural,
@@ -1502,6 +1525,32 @@ def listar_productos(
         item_to_mlas = {}
         for item_id, pub_list in pubs_by_item.items():
             item_to_mlas[item_id] = [pub.mla for pub in pub_list]
+
+        # Vista rápida de tramos mayoristas (PxQ) — UNA query cross-DB
+        # acotada a las MLAs de ESTA página (nunca por producto, nunca el
+        # universo completo). FAIL-OPEN a propósito: si mlwebhook no responde,
+        # el producto se muestra sin chip. El 503 fail-closed es sólo del
+        # FILTRO, donde devolver de más sería mentir; acá lo peor que pasa es
+        # que falte un adorno.
+        if all_mla_list:
+            try:
+                tiers_by_mla = fetch_pxq_tiers_by_mla(all_mla_list)
+            except (RuntimeError, SQLAlchemyError) as exc:
+                logger.warning("Vista rápida PxQ no disponible: %s", exc)
+                tiers_by_mla = {}
+
+            for producto in productos:
+                tier_lists = [
+                    tiers_by_mla[mla] for mla in item_to_mlas.get(producto.item_id, []) if mla in tiers_by_mla
+                ]
+                if not tier_lists:
+                    continue
+                # Escalera MÁS PROFUNDA de una sola publicación, no la suma:
+                # dos MLAs del mismo producto suelen replicar los mismos
+                # tramos, y sumarlos mostraría "6 tramos" donde el comprador
+                # ve 3. El precio "desde" sí es el mínimo global.
+                producto.pxq_tramos = max(len(tiers) for tiers in tier_lists)
+                producto.pxq_precio_desde = min(tier.amount for tiers in tier_lists for tier in tiers)
 
         # Consultar catalog status de estos MLAs
         if all_mla_list:

@@ -25,11 +25,15 @@ export function isMlaBearing(kind) {
  * - promo: types present, or estado != the 'disponible' no-op default
  *   (mirrors `ProductoMLAsPanel`'s `buildPromoFilterParams` activation rule)
  * - official store: any store selected
+ * - wholesale (PxQ): the filter is on ('con_pxq' or true). Truthiness is the
+ *   test on purpose, so the page's `'con_pxq'` string and a plain boolean
+ *   both count — a filter that is on must never depend on which of the two
+ *   shapes reached this function.
  */
-export function isFilterActive(promoTipos, promoEstado, tiendaOficial) {
+export function isFilterActive(promoTipos, promoEstado, tiendaOficial, conPxq) {
   const tipos = promoTipos || [];
   const estado = promoEstado || 'disponible';
-  return tipos.length > 0 || estado !== 'disponible' || Boolean(tiendaOficial);
+  return tipos.length > 0 || estado !== 'disponible' || Boolean(tiendaOficial) || Boolean(conPxq);
 }
 
 // matches_filter absent/null = show (fail-open); false = hidden unless

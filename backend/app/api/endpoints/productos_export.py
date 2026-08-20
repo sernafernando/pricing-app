@@ -21,6 +21,7 @@ from app.api.endpoints.productos_shared import (  # noqa: F401
     parsear_tiendas_oficiales_mla as _parsear_tiendas_oficiales_mla,
     build_filtro_tiendas_oficiales_mla as _build_filtro_tiendas_oficiales_mla,
 )
+from app.services.ml_pxq_tiers_read_service import fetch_mlas_with_pxq_tiers
 from app.services.promo_filter_resolver import PromoResolverFns, select_promo_resolver
 from app.services.ml_promotions_service import (
     fetch_mlas_with_active_promo_type,
@@ -201,6 +202,24 @@ def _apply_promo_filters(
         resolver, log_context = resolver_entry
         query = _resolve_and_fold_mlas(query, db, resolver, log_context)
     return query
+
+
+def _apply_pxq_filter(query, db: Session, con_pxq: Optional[bool]):
+    """Wires the LISTADO's "con precios mayoristas" filter into the exports.
+
+    Same fail-CLOSED contract as the promo filters next door: an export that
+    silently widens its set is a spreadsheet someone prices from, so an
+    unreachable mlwebhook 503s instead of exporting the catalog. Only `True`
+    narrows (presence toggle, mirrors `listar_productos`).
+    """
+    if not con_pxq:
+        return query
+    return _resolve_and_fold_mlas(
+        query,
+        db,
+        fetch_mlas_with_pxq_tiers,
+        "Filtro precios mayoristas (PxQ)",
+    )
 
 
 def _apply_con_mla_filter(query, db: Session, con_mla: Optional[bool]):
@@ -521,6 +540,7 @@ def exportar_rebate(
             filtros.get("con_promo_aplicada"),
             filtros.get("con_promo_sin_aplicar"),
         )
+        query = _apply_pxq_filter(query, db, filtros.get("con_pxq"))
         query = _apply_con_mla_filter(query, db, filtros.get("con_mla"))
         query = _apply_nuevos_7_dias_filter(query, filtros.get("nuevos_ultimos_7_dias"))
 
@@ -803,6 +823,7 @@ def exportar_web_transferencia(
     con_mla: Optional[bool] = None,
     estado_mla: Optional[str] = None,
     nuevos_ultimos_7_dias: Optional[bool] = None,
+    con_pxq: Optional[bool] = None,
     promo_tipos: Optional[str] = None,
     promo_estado: Optional[str] = None,
     con_promo_aplicada: Optional[bool] = None,
@@ -999,6 +1020,7 @@ def exportar_web_transferencia(
     # con_promo_sin_aplicar, con_mla y nuevos_ultimos_7_dias faltaban por
     # completo en este endpoint.
     query = _apply_promo_filters(query, db, promo_tipos, promo_estado, con_promo_aplicada, con_promo_sin_aplicar)
+    query = _apply_pxq_filter(query, db, con_pxq)
     query = _apply_con_mla_filter(query, db, con_mla)
     query = _apply_nuevos_7_dias_filter(query, nuevos_ultimos_7_dias)
 
@@ -1163,6 +1185,7 @@ def exportar_clasica(
     con_mla: Optional[bool] = None,
     estado_mla: Optional[str] = None,
     nuevos_ultimos_7_dias: Optional[bool] = None,
+    con_pxq: Optional[bool] = None,
     promo_tipos: Optional[str] = None,
     promo_estado: Optional[str] = None,
     con_promo_aplicada: Optional[bool] = None,
@@ -1403,6 +1426,7 @@ def exportar_clasica(
     # FF-2 bugfix: promo_tipos/promo_estado/con_promo_aplicada/
     # con_promo_sin_aplicar faltaban por completo en este endpoint.
     query = _apply_promo_filters(query, db, promo_tipos, promo_estado, con_promo_aplicada, con_promo_sin_aplicar)
+    query = _apply_pxq_filter(query, db, con_pxq)
 
     # FF-3: `tienda_oficial` (singular, scope producto) sigue siendo dead
     # code, igual que en listar_productos:701 — arreglar ese lado del list es
@@ -1775,6 +1799,7 @@ def exportar_vista_actual(
     con_mla: Optional[bool] = None,
     estado_mla: Optional[str] = None,
     nuevos_ultimos_7_dias: Optional[bool] = None,
+    con_pxq: Optional[bool] = None,
     promo_tipos: Optional[str] = None,
     promo_estado: Optional[str] = None,
     con_promo_aplicada: Optional[bool] = None,
@@ -1972,6 +1997,7 @@ def exportar_vista_actual(
         # con_promo_sin_aplicar, con_mla y nuevos_ultimos_7_dias faltaban por
         # completo en este endpoint.
         query = _apply_promo_filters(query, db, promo_tipos, promo_estado, con_promo_aplicada, con_promo_sin_aplicar)
+        query = _apply_pxq_filter(query, db, con_pxq)
         query = _apply_con_mla_filter(query, db, con_mla)
         query = _apply_nuevos_7_dias_filter(query, nuevos_ultimos_7_dias)
 
@@ -2137,6 +2163,7 @@ def exportar_lista_gremio(
     con_mla: Optional[bool] = None,
     estado_mla: Optional[str] = None,
     nuevos_ultimos_7_dias: Optional[bool] = None,
+    con_pxq: Optional[bool] = None,
     promo_tipos: Optional[str] = None,
     promo_estado: Optional[str] = None,
     con_promo_aplicada: Optional[bool] = None,
@@ -2212,6 +2239,7 @@ def exportar_lista_gremio(
         # endpoint (0 matches per el baseline de spec FF-2/FF-3).
         query = _apply_estado_mla_filter(query, db, estado_mla)
         query = _apply_promo_filters(query, db, promo_tipos, promo_estado, con_promo_aplicada, con_promo_sin_aplicar)
+        query = _apply_pxq_filter(query, db, con_pxq)
         query = _apply_con_mla_filter(query, db, con_mla)
         query = _apply_nuevos_7_dias_filter(query, nuevos_ultimos_7_dias)
 
@@ -2339,6 +2367,7 @@ def exportar_lista_sugerido(
     con_mla: Optional[bool] = None,
     estado_mla: Optional[str] = None,
     nuevos_ultimos_7_dias: Optional[bool] = None,
+    con_pxq: Optional[bool] = None,
     promo_tipos: Optional[str] = None,
     promo_estado: Optional[str] = None,
     con_promo_aplicada: Optional[bool] = None,
@@ -2413,6 +2442,7 @@ def exportar_lista_sugerido(
         # endpoint (0 matches per el baseline de spec FF-2/FF-3).
         query = _apply_estado_mla_filter(query, db, estado_mla)
         query = _apply_promo_filters(query, db, promo_tipos, promo_estado, con_promo_aplicada, con_promo_sin_aplicar)
+        query = _apply_pxq_filter(query, db, con_pxq)
         query = _apply_con_mla_filter(query, db, con_mla)
         query = _apply_nuevos_7_dias_filter(query, nuevos_ultimos_7_dias)
 
@@ -2552,6 +2582,7 @@ def exportar_lista_web_transferencia(
     con_mla: Optional[bool] = None,
     estado_mla: Optional[str] = None,
     nuevos_ultimos_7_dias: Optional[bool] = None,
+    con_pxq: Optional[bool] = None,
     promo_tipos: Optional[str] = None,
     promo_estado: Optional[str] = None,
     con_promo_aplicada: Optional[bool] = None,
@@ -2616,6 +2647,7 @@ def exportar_lista_web_transferencia(
         # endpoint (0 matches per el baseline de spec FF-2/FF-3).
         query = _apply_estado_mla_filter(query, db, estado_mla)
         query = _apply_promo_filters(query, db, promo_tipos, promo_estado, con_promo_aplicada, con_promo_sin_aplicar)
+        query = _apply_pxq_filter(query, db, con_pxq)
         query = _apply_con_mla_filter(query, db, con_mla)
         query = _apply_nuevos_7_dias_filter(query, nuevos_ultimos_7_dias)
 

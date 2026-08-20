@@ -12,6 +12,7 @@ viven en la tabla central. RMA solo agrega lo propio del dominio.
 from datetime import UTC, datetime
 
 from sqlalchemy import (
+    Boolean,
     Column,
     DateTime,
     ForeignKey,
@@ -68,7 +69,7 @@ class RmaProveedor(Base):
     representante = Column(String(255), nullable=True)
     horario = Column(String(255), nullable=True)
     notas = Column(Text, nullable=True)
-    activo = Column(Integer, default=1, nullable=True)
+    activo = Column(Boolean, default=True, nullable=False)
 
     # ── Auditoría ─────────────────────────────────────────────────
     created_at = Column(

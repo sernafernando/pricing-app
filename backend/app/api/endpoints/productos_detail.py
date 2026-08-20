@@ -24,6 +24,7 @@ from app.services.ml_promotions_service import (
     fetch_promo_node_summary_by_mla,
     fetch_promo_summary_by_mla,
 )
+from app.services.ml_pxq_tiers_read_service import fetch_mlas_with_pxq_tiers
 from app.services.promo_filter_resolver import PromoResolverFns, select_promo_resolver
 from app.services.ml_publication_link_service import lazy_fill_links
 from app.services.ml_publication_status_service import resolve_publication_status
@@ -52,6 +53,27 @@ def _compose_matches(a: Optional[dict], b: Optional[dict]) -> Optional[dict]:
     if b is None:
         return a
     return {mla: bool(a.get(mla, True)) and bool(b.get(mla, True)) for mla in set(a) | set(b)}
+
+
+def _resolve_pxq_matches(mla_ids: list, log_context: str) -> Optional[dict]:
+    """Per-MLA verdict for the "con precios mayoristas" filter, bounded to
+    this product's own publications.
+
+    FAIL-OPEN, deliberately, and the opposite of the LISTING's fail-closed
+    503: here a cross-DB blip returns `None`, which `_compose_matches` reads
+    as "this filter has no opinion", so every publication stays visible. A
+    listing that silently widens lies about what matched; a detail panel that
+    hides a publication because mlwebhook hiccuped destroys the operator's
+    view of their own product. Different failure, different answer.
+    """
+    if not mla_ids:
+        return None
+    try:
+        matching = fetch_mlas_with_pxq_tiers(mla_ids=mla_ids)
+    except (RuntimeError, SQLAlchemyError) as exc:
+        logger.warning("Filtro precios mayoristas (PxQ) no disponible (%s): %s", log_context, exc)
+        return None
+    return {mla: mla in matching for mla in mla_ids}
 
 
 @router.get("/productos/{item_id}/detalle")
@@ -194,6 +216,7 @@ async def obtener_datos_ml_producto(
     promo_estado: Optional[str] = None,
     con_promo_aplicada: Optional[bool] = None,
     con_promo_sin_aplicar: Optional[bool] = None,
+    con_pxq: Optional[bool] = None,
 ):
     """Obtiene solo los datos de MercadoLibre de un producto (lazy loading)
 
@@ -211,6 +234,12 @@ async def obtener_datos_ml_producto(
     `select_promo_resolver` dispatch as the list endpoint (single source of
     truth — spec: "Single source of truth for MLA-set resolution"), bounded
     by this product's own `mla_ids` (never the full account universe).
+
+    `con_pxq` (filtro "con precios mayoristas") mirrors the LISTADO param
+    the same way, and is composed by AND with the promo verdict via
+    `_compose_matches`: a publication matches only if it satisfies EVERY
+    active filter. Without this, filtering the list by wholesale prices and
+    expanding a product showed publications with no tiers at all.
 
     Fail-OPEN on cross-DB unavailability (UNLIKE the list endpoint's 503
     fail-closed): `matches_filter` is left absent (shows all, degrades
@@ -286,6 +315,7 @@ async def obtener_datos_ml_producto(
         con_promo_sin_aplicar,
         mla_ids=mla_ids or None,
     )
+    matches_by_mla: Optional[dict] = None
     if resolver_entry and mla_ids:
         resolver, log_context = resolver_entry
         try:
@@ -293,8 +323,15 @@ async def obtener_datos_ml_producto(
         except (RuntimeError, SQLAlchemyError) as exc:
             logger.warning("%s no disponible (lite matches_filter): %s", log_context, exc)
         else:
-            for mla in mla_ids:
-                publicaciones_dict[mla]["matches_filter"] = mla in matching_mlas
+            matches_by_mla = {mla: mla in matching_mlas for mla in mla_ids}
+
+    if con_pxq:
+        pxq_matches = await run_in_threadpool(_resolve_pxq_matches, mla_ids, "lite matches_filter")
+        matches_by_mla = _compose_matches(matches_by_mla, pxq_matches)
+
+    if matches_by_mla is not None:
+        for mla, matches in matches_by_mla.items():
+            publicaciones_dict[mla]["matches_filter"] = matches
 
     # Obtener precios de ML para estas publicaciones
     if mla_ids:
@@ -417,6 +454,7 @@ def obtener_arbol_ml_producto(
     promo_estado: Optional[str] = None,
     con_promo_aplicada: Optional[bool] = None,
     con_promo_sin_aplicar: Optional[bool] = None,
+    con_pxq: Optional[bool] = None,
     tiendas_oficiales: Optional[str] = None,
 ) -> ProductTreeResponse:
     """Assembles the recursive product/family/catalog/vinculada publication
@@ -440,7 +478,9 @@ def obtener_arbol_ml_producto(
     `matches_filter` reuses the exact same `select_promo_resolver`
     dispatch as the flat endpoint, bounded to this product's own MLAs,
     fail-open on cross-DB failure (field simply absent, never hides
-    nodes, never 503s).
+    nodes, never 503s). `con_pxq` (precios mayoristas) and the official
+    store filter join the SAME verdict through `_compose_matches`, by
+    AND — one composed opinion per MLA, never one filter per mechanism.
     """
     if promo_estado is not None and promo_estado not in ("disponible", "aplicada", "sin_aplicar"):
         raise HTTPException(
@@ -487,6 +527,11 @@ def obtener_arbol_ml_producto(
             logger.warning("%s no disponible (tree matches_filter): %s", log_context, exc)
         else:
             matches_filter_by_mla = {mla: mla in matching_mlas for mla in mla_ids}
+
+    if con_pxq:
+        matches_filter_by_mla = _compose_matches(
+            matches_filter_by_mla, _resolve_pxq_matches(mla_ids, "tree matches_filter")
+        )
 
     # Filtro de Tienda Oficial (a nivel MLA), compuesto (AND) con matches_filter.
     # `tiendas_oficiales` (plural, scope MLA) es distinto del `tienda_oficial`

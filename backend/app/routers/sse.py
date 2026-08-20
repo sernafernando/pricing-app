@@ -38,6 +38,7 @@ VALID_CHANNELS = {
     "tickets:changed",
     "ml_bot:questions",
     "producto_color:changed",
+    "proveedores:sync",
 }
 
 

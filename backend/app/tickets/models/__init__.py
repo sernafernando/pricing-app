@@ -8,6 +8,7 @@ from app.tickets.models.comentario_ticket import ComentarioTicket
 from app.tickets.models.sector_usuario import SectorUsuario
 from app.tickets.models.adjunto_ticket import AdjuntoTicket
 from app.tickets.models.propuesta_ia import PropuestaIA
+from app.tickets.models.ticket_vikunja_sync import TicketVikunjaSync
 
 __all__ = [
     "Sector",
@@ -22,4 +23,5 @@ __all__ = [
     "SectorUsuario",
     "AdjuntoTicket",
     "PropuestaIA",
+    "TicketVikunjaSync",
 ]

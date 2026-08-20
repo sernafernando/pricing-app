@@ -13,6 +13,7 @@ import { useToast } from '../hooks/useToast';
 import Toast from '../components/Toast';
 import { usePrearmadasStats } from '../hooks/usePrearmadasStats';
 import PrearmadaBadge from '../components/PrearmadaBadge';
+import PxqTramosBadge from '../components/PxqTramosBadge';
 import { ChevronDown, ChevronRight, Users } from 'lucide-react';
 import { useExpandedSet } from '../hooks/useExpandedSet';
 import ProductoMLAsPanel from '../components/promociones/ProductoMLAsPanel';
@@ -87,11 +88,12 @@ export default function Productos() {
     coloresSeleccionados, setColoresSeleccionados,
     equipoActivoId, setEquipoActivoId,
     filtroPromoTipos, setFiltroPromoTipos, filtroPromoEstado, setFiltroPromoEstado,
+    filtroPxq, setFiltroPxq,
     filtrosAuditoria, setFiltrosAuditoria,
     panelFiltroActivo, setPanelFiltroActivo,
     mostrarFiltrosAvanzados, setMostrarFiltrosAvanzados,
     ordenColumnas,
-    handleOrdenar, limpiarTodosFiltros, limpiarFiltros, aplicarFiltroStat,
+    handleOrdenar, limpiarTodosFiltros, limpiarFiltros, limpiarFiltrosAvanzados, aplicarFiltroStat,
     construirFiltrosParams,
   } = useProductosFilters();
   // Color-layer teams (productos-color-teams). Feeds the layer selector.
@@ -129,7 +131,7 @@ export default function Productos() {
       filtroMarkupClasica, filtroMarkupRebate, filtroMarkupOferta, filtroMarkupWebTransf,
       filtroOutOfCards, filtroMLA, filtroEstadoMLA, filtroNuevos, filtroTiendaOficial,
       coloresSeleccionados, pmsSeleccionados, filtrosAuditoria,
-      filtroPromoTipos, filtroPromoEstado,
+      filtroPromoTipos, filtroPromoEstado, filtroPxq,
     },
     showToast,
   });
@@ -670,12 +672,12 @@ export default function Productos() {
 
           <button
             onClick={() => setMostrarFiltrosAvanzados(!mostrarFiltrosAvanzados)}
-            className={`filter-button ${(filtroRebate || filtroOferta || filtroWebTransf || filtroMarkupClasica || filtroMarkupRebate || filtroMarkupOferta || filtroMarkupWebTransf || filtroOutOfCards || coloresSeleccionados.length > 0 || filtroPromoTipos.length > 0) ? 'active' : ''}`}
+            className={`filter-button ${(filtroRebate || filtroOferta || filtroWebTransf || filtroMarkupClasica || filtroMarkupRebate || filtroMarkupOferta || filtroMarkupWebTransf || filtroOutOfCards || coloresSeleccionados.length > 0 || filtroPromoTipos.length > 0 || filtroPxq) ? 'active' : ''}`}
           >
             Avanzados
-            {(filtroRebate || filtroOferta || filtroWebTransf || filtroMarkupClasica || filtroMarkupRebate || filtroMarkupOferta || filtroMarkupWebTransf || filtroOutOfCards || coloresSeleccionados.length > 0 || filtroPromoTipos.length > 0) && (
+            {(filtroRebate || filtroOferta || filtroWebTransf || filtroMarkupClasica || filtroMarkupRebate || filtroMarkupOferta || filtroMarkupWebTransf || filtroOutOfCards || coloresSeleccionados.length > 0 || filtroPromoTipos.length > 0 || filtroPxq) && (
               <span className="filter-badge">
-                {[filtroRebate, filtroOferta, filtroWebTransf, filtroMarkupClasica, filtroMarkupRebate, filtroMarkupOferta, filtroMarkupWebTransf, filtroOutOfCards].filter(Boolean).length + coloresSeleccionados.length + filtroPromoTipos.length}
+                {[filtroRebate, filtroOferta, filtroWebTransf, filtroMarkupClasica, filtroMarkupRebate, filtroMarkupOferta, filtroMarkupWebTransf, filtroOutOfCards, filtroPxq].filter(Boolean).length + coloresSeleccionados.length + filtroPromoTipos.length}
               </span>
             )}
           </button>
@@ -1216,24 +1218,7 @@ export default function Productos() {
           <div className="advanced-filters-header">
             <h3>Filtros Avanzados</h3>
             <button
-              onClick={() => {
-                setFiltroRebate(null);
-                setFiltroOferta(null);
-                setFiltroWebTransf(null);
-                setFiltroTiendaNube(null);
-                setFiltroMarkupClasica(null);
-                setFiltroMarkupRebate(null);
-                setFiltroMarkupOferta(null);
-                setFiltroMarkupWebTransf(null);
-                setFiltroOutOfCards(null);
-                setFiltroMLA(null);
-                setFiltroEstadoMLA(null);
-                setFiltroNuevos(null);
-                setColoresSeleccionados([]);
-                setFiltroPromoTipos([]);
-                setFiltroPromoEstado('disponible');
-                setPage(1);
-              }}
+              onClick={limpiarFiltrosAvanzados}
               className="btn-tesla outline-subtle-danger sm"
             >
               Limpiar Todos
@@ -1439,6 +1424,18 @@ export default function Productos() {
                     <option value="disponible">Disponible</option>
                     <option value="aplicada">Aplicada</option>
                     <option value="sin_aplicar">Sin aplicar</option>
+                  </select>
+                </div>
+
+                <div className="filter-item">
+                  <label>📦 Precios mayoristas</label>
+                  <select
+                    value={filtroPxq || 'todos'}
+                    onChange={(e) => { setFiltroPxq(e.target.value === 'todos' ? null : e.target.value); setPage(1); }}
+                    className="filter-select"
+                  >
+                    <option value="todos">Todos</option>
+                    <option value="con_pxq">Con precios mayoristas</option>
                   </select>
                 </div>
 
@@ -1693,6 +1690,7 @@ export default function Productos() {
                     <td>
                       {p.descripcion}
                       <PrearmadaBadge stats={prearmadasStats[p.item_id]} />
+                      <PxqTramosBadge tramos={p.pxq_tramos} precioDesde={p.pxq_precio_desde} />
                       {p.has_catalog && p.catalog_status && (
                         <span
                           style={{
@@ -2480,6 +2478,7 @@ export default function Productos() {
                               promoTipos={filtroPromoTipos}
                               promoEstado={filtroPromoEstado}
                               tiendaOficial={filtroTiendaOficial}
+                              conPxq={filtroPxq}
                             />
                           </div>
                         </td>
@@ -2643,6 +2642,9 @@ export default function Productos() {
             equipoActivoNombre,
             promo_tipos: filtroPromoTipos.length > 0 ? filtroPromoTipos.join(',') : null,
             promo_estado: filtroPromoTipos.length > 0 ? filtroPromoEstado : null,
+            con_promo_aplicada: filtroPromoTipos.length === 0 && filtroPromoEstado === 'aplicada' ? true : null,
+            con_promo_sin_aplicar: filtroPromoTipos.length === 0 && filtroPromoEstado === 'sin_aplicar' ? true : null,
+            filtroPxq,
             audit_usuarios: filtrosAuditoria.usuarios,
             audit_tipos_accion: filtrosAuditoria.tipos_accion,
             audit_fecha_desde: filtrosAuditoria.fecha_desde,
@@ -2679,6 +2681,11 @@ export default function Productos() {
             equipoActivoId,
             equipoActivoNombre,
             filtroTiendaOficial,
+            promo_tipos: filtroPromoTipos.length > 0 ? filtroPromoTipos.join(',') : null,
+            promo_estado: filtroPromoTipos.length > 0 ? filtroPromoEstado : null,
+            con_promo_aplicada: filtroPromoTipos.length === 0 && filtroPromoEstado === 'aplicada' ? true : null,
+            con_promo_sin_aplicar: filtroPromoTipos.length === 0 && filtroPromoEstado === 'sin_aplicar' ? true : null,
+            filtroPxq,
             audit_usuarios: filtrosAuditoria.usuarios,
             audit_tipos_accion: filtrosAuditoria.tipos_accion,
             audit_fecha_desde: filtrosAuditoria.fecha_desde,
@@ -2715,6 +2722,9 @@ export default function Productos() {
             equipoActivoNombre,
             promo_tipos: filtroPromoTipos.length > 0 ? filtroPromoTipos.join(',') : null,
             promo_estado: filtroPromoTipos.length > 0 ? filtroPromoEstado : null,
+            con_promo_aplicada: filtroPromoTipos.length === 0 && filtroPromoEstado === 'aplicada' ? true : null,
+            con_promo_sin_aplicar: filtroPromoTipos.length === 0 && filtroPromoEstado === 'sin_aplicar' ? true : null,
+            filtroPxq,
             audit_usuarios: filtrosAuditoria.usuarios,
             audit_tipos_accion: filtrosAuditoria.tipos_accion,
             audit_fecha_desde: filtrosAuditoria.fecha_desde,

@@ -35,6 +35,7 @@ jobs:
   backend-lint:
     name: Backend Lint
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     defaults:
       run:
         working-directory: backend
@@ -57,6 +58,7 @@ jobs:
   backend-smoke:
     name: Backend Smoke Tests
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     defaults:
       run:
         working-directory: backend
@@ -107,6 +109,7 @@ jobs:
   frontend-lint:
     name: Frontend Lint
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     defaults:
       run:
         working-directory: frontend
@@ -139,6 +142,7 @@ jobs:
   frontend-build:
     name: Frontend Build
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     defaults:
       run:
         working-directory: frontend
@@ -165,6 +169,7 @@ jobs:
   frontend-test:
     name: Frontend Tests
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     defaults:
       run:
         working-directory: frontend
@@ -191,6 +196,9 @@ jobs:
   frontend-visual:
     name: Frontend Visual Tests
     runs-on: ubuntu-latest
+    # The visual suite itself runs in ~6s. Everything else here is setup, and
+    # the apt step below is the one that has hung for hours (see `env`).
+    timeout-minutes: 10
     defaults:
       run:
         working-directory: frontend
@@ -230,16 +238,21 @@ jobs:
           path: ~/.cache/ms-playwright
           key: ${{ runner.os }}-playwright-${{ steps.playwright-version.outputs.version }}
 
-      - name: Install Chromium and system libraries
+      # NO `--with-deps`, and no `install-deps` step on the cache-hit path.
+      # Both shell out to `apt-get update`, which on these runners regularly
+      # stalls: the azure.archive.ubuntu.com mirror the image prefers goes
+      # unreachable, apt falls back to archive.ubuntu.com, and then hangs there
+      # too. Run 32279003439 sat in that step for nine minutes without emitting
+      # a line and hit the job timeout; the visual suite it was blocking runs
+      # in six seconds.
+      #
+      # The ubuntu-24.04 image already ships Chromium's shared libraries (it
+      # bundles Chrome and Firefox), so the apt round-trip bought nothing but
+      # an unbounded network dependency. If a library ever does go missing,
+      # Chromium fails to launch and the test step below says so immediately.
+      - name: Install Chromium
         if: steps.playwright-cache.outputs.cache-hit != 'true'
-        run: pnpm exec playwright install --with-deps chromium
-
-      # The browser binary is cached, but the apt libraries it links against are
-      # installed system-wide and are NOT restored by actions/cache. They have
-      # to be reinstalled on every run or Chromium fails to start.
-      - name: Install system libraries (browser restored from cache)
-        if: steps.playwright-cache.outputs.cache-hit == 'true'
-        run: pnpm exec playwright install-deps chromium
+        run: pnpm exec playwright install chromium
 
       - name: Run visual tests (real Chromium)
         run: pnpm run test:visual

@@ -16,6 +16,14 @@ from sqlalchemy.sql.elements import ColumnElement
 
 from app.models.equipo import Equipo, EquipoMiembro
 from app.models.usuario import Usuario
+from app.services.ml_promotions_service import (
+    fetch_mlas_with_active_promo_type,
+    fetch_mlas_with_candidate_only,
+    fetch_mlas_with_candidate_only_for_types,
+    fetch_mlas_with_started,
+)
+from app.services.ml_pxq_tiers_read_service import fetch_mlas_with_pxq_tiers
+from app.services.promo_filter_resolver import PromoResolverFns, select_promo_resolver
 from app.schemas.costo_ppp import PppPayload
 
 logger = logging.getLogger(__name__)
@@ -101,6 +109,12 @@ class ProductoResponse(BaseModel):
 
     # PPP (ERP weighted-average cost) — informational only, never persisted.
     ppp: Optional[PppPayload] = None
+
+    # PxQ wholesale tiers quick view (cross-DB, mlwebhook — FAIL-OPEN: both
+    # stay None when that read fails, so the row renders without the chip
+    # instead of taking the listing down).
+    pxq_tramos: Optional[int] = None
+    pxq_precio_desde: Optional[float] = None
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -552,3 +566,86 @@ def build_filtro_tiendas_oficiales_mla(
     if len(condiciones) == 1:
         return condiciones[0]
     return or_(*condiciones)
+
+
+def aplicar_filtros_cross_db_masivo(query, db: Session, filtros: Optional[dict]):
+    """Folds the cross-DB (mlwebhook) listing filters — promos and wholesale
+    tiers — into a MASS-WRITE query.
+
+    Why it lives here and not next to the two copies in `productos_listing`/
+    `productos_export`: those two own their fold because they own its 503
+    wording and their own tests. This is the third consumer, and the write
+    paths (`calcular-web-masivo`, `calcular-pvp-masivo`,
+    `recalcular-cuotas-masivo`) share one contract that neither of the other
+    two states, so it gets stated once, here:
+
+    FAIL-CLOSED, twice over.
+
+    * Resolver unreachable -> HTTP 503, the run does not start. These
+      endpoints already narrow by `search`/`marcas`/`con_stock`, so the
+      operator reads "aplicar filtros" as "the products I am looking at".
+      Running anyway would silently widen that set, and a too-broad write is
+      a repair job while a 503 is a retry.
+    * Empty result set -> zero products, never the unfiltered catalog. Same
+      guard, same reason, as the listing's.
+
+    `filtros` mirrors the listing's param names (`promo_tipos`,
+    `promo_estado`, `con_promo_aplicada`, `con_promo_sin_aplicar`,
+    `con_pxq`); an absent key means "filter off" and costs no query.
+    """
+    from app.models.producto import ProductoERP
+    from app.models.publicacion_ml import PublicacionML
+    from sqlalchemy import false as sa_false
+    from sqlalchemy.exc import SQLAlchemyError
+
+    if not filtros:
+        return query
+
+    def _fold(resolver, log_context: str, detail: str):
+        nonlocal query
+        try:
+            mlas = resolver()
+        except (RuntimeError, SQLAlchemyError) as exc:
+            logger.warning("%s no disponible (masivo): %s", log_context, exc)
+            raise HTTPException(status_code=503, detail=detail) from exc
+        if not mlas:
+            query = query.filter(sa_false())
+            return
+        items_subquery = (
+            db.query(PublicacionML.item_id).filter(PublicacionML.mla.in_(mlas)).distinct().scalar_subquery()
+        )
+        query = query.filter(ProductoERP.item_id.in_(items_subquery))
+
+    promo_estado = filtros.get("promo_estado")
+    if promo_estado is not None and promo_estado not in ("disponible", "aplicada", "sin_aplicar"):
+        raise HTTPException(
+            status_code=422,
+            detail="promo_estado inválido: debe ser 'disponible', 'aplicada' o 'sin_aplicar'",
+        )
+
+    promo_tipos = filtros.get("promo_tipos")
+    tipos_list = [t.strip() for t in promo_tipos.split(",") if t.strip()] if promo_tipos else []
+    resolver_entry = select_promo_resolver(
+        PromoResolverFns(
+            active_promo_type=fetch_mlas_with_active_promo_type,
+            started=fetch_mlas_with_started,
+            candidate_only=fetch_mlas_with_candidate_only,
+            candidate_only_for_types=fetch_mlas_with_candidate_only_for_types,
+        ),
+        tipos_list or None,
+        promo_estado,
+        filtros.get("con_promo_aplicada"),
+        filtros.get("con_promo_sin_aplicar"),
+    )
+    if resolver_entry:
+        resolver, log_context = resolver_entry
+        _fold(resolver, log_context, "Filtro de promociones no disponible temporalmente")
+
+    if filtros.get("con_pxq"):
+        _fold(
+            fetch_mlas_with_pxq_tiers,
+            "Filtro precios mayoristas (PxQ)",
+            "Filtro de precios mayoristas no disponible temporalmente",
+        )
+
+    return query

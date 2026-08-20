@@ -491,40 +491,159 @@
   color: var(--text-secondary);
 }
 
-/* PxQ (wholesale, price-by-quantity) read panel (PR 4a) — side-by-side live
-   ML state vs local mirror. Its own class, not a reuse of `.filterMessage`
-   (that name means something else and reusing it was a review finding on a
-   sibling PR). */
-.pxqColumns {
+/* PxQ (wholesale, price-by-quantity) read panel — ONE table, not two loose
+   columns of text.
+ 
+   It used to be a live column next to a mirror column, and the operator's
+   verdict on that was that it read "genérico, sin matices": nothing told him
+   where to look. MercadoLibre is the source of the price, so the price has one
+   column; what we add locally (shipping cost, markup, net per unit) sits next
+   to it on the SAME row, under headings that name it.
+ 
+   The whole grid scrolls horizontally instead of reflowing: this panel is
+   nested inside the product tree and can end up narrow, and a grid that
+   collapses turns a table of aligned figures into five stacked strings — the
+   exact loss of alignment that made the old layout unreadable. */
+.pxqTable {
+  padding: 8px 4px 0;
+  overflow-x: auto;
+}
+
+/* Shared by the heading row and every data row so the columns line up. The
+   three numeric columns are fixed because they hold formatted money and a
+   percentage (bounded width); the two text columns take the slack and are
+   `minmax(0, …)` so long content shrinks them instead of blowing the grid
+   past its track sizes.
+ 
+   The Markup track is 128px rather than the 96px the figures need, because
+   that cell does not only hold a percentage: when the markup cannot be
+   computed it holds the REASON, and the longest of those is 49 characters.
+   The track stays fixed — a track that grows to fit a sentence takes the
+   column alignment with it — so the sentence wraps, and the extra 32px are
+   what keep it to three lines instead of five. Measured in
+   `src/test/visual/pxqPanel.visual.test.jsx`. */
+.pxqTableHead,
+.pxqRow {
+  display: grid;
+  grid-template-columns: 88px minmax(0, 1fr) minmax(0, 1.2fr) 128px 104px;
+  gap: 8px;
+  min-width: 452px;
+}
+
+/* Quiet, small and uppercase: headings are the map, never the content. Without
+   them the operator could not tell which figure was which — the single change
+   this redesign exists for. */
+.pxqTableHead {
+  padding: 0 8px 6px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--text-tertiary);
+}
+
+.pxqTableBody {
   display: flex;
-  gap: 16px;
-  flex-wrap: wrap;
-  padding: 8px 4px;
+  flex-direction: column;
+  gap: 2px;
 }
 
-.pxqColumn {
-  flex: 1 1 220px;
-  min-width: 200px;
+/* Each tier is a card, not a bare line of text: the border is what makes a row
+   scannable as one unit at a glance. */
+.pxqRow {
+  align-items: center;
+  padding: 9px 8px;
+  font-size: 13px;
+  color: var(--text-primary);
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-primary);
+  border-radius: var(--radius-md);
 }
 
-.pxqColumnTitle {
-  font-size: 12px;
+/* The mirror says one thing and ML says another. Warning tone, and the row
+   keeps showing both figures — nothing here resolves it, and nothing here
+   invents a reconciled number. */
+.pxqRowDivergent {
+  border-color: var(--warning-text, var(--border-secondary));
+  background: color-mix(in srgb, var(--warning-bg, var(--bg-secondary)) 40%, transparent);
+}
+
+/* Every column of figures aligns digit over digit. Half of the "homogéneo"
+   the operator asked for is just this: proportional digits make a column of
+   money read as unrelated strings. */
+.pxqNum {
+  font-variant-numeric: tabular-nums;
+}
+
+.pxqRight {
+  text-align: right;
+}
+
+.pxqCell {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  min-width: 0;
+}
+
+/* The tier's `estado`, under its quantity: it qualifies the row's identity
+   rather than adding a figure to it, so it is small and quiet. */
+.pxqEstado {
+  display: block;
+  font-size: 10px;
+  color: var(--text-tertiary);
+}
+
+/* Where a figure came from, e.g. a shipping cost typed by hand. A pill, so it
+   never reads as another number next to the one it qualifies. */
+.pxqChip {
+  font-size: 10px;
   font-weight: 600;
   color: var(--text-secondary);
-  margin-bottom: 4px;
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border-primary);
+  border-radius: var(--radius-full);
+  padding: 1px 6px;
+  white-space: nowrap;
 }
 
-.pxqTierRow {
-  display: flex;
-  gap: 8px;
-  align-items: center;
-  padding: 2px 0;
-  font-size: 13px;
-}
-
-.pxqTierRowDivergent {
+.pxqChipWarning {
   color: var(--warning-text, var(--text-primary));
-  background: color-mix(in srgb, var(--warning-bg, var(--bg-secondary)) 40%, transparent);
+  background: var(--warning-bg, var(--bg-tertiary));
+  border-color: var(--warning-text, var(--border-primary));
+}
+
+/* A tier with no shipping cost gets the ACTION, not a sentence about the
+   absence: the operator's next move is to load it. Dashed, because the cell is
+   a hole to be filled. */
+.pxqLoadCost {
+  font-family: inherit;
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--text-secondary);
+  background: transparent;
+  border: 1px dashed var(--border-secondary);
+  border-radius: var(--radius-md);
+  padding: 3px 10px;
+  cursor: pointer;
+}
+
+.pxqLoadCost:hover {
+  color: var(--text-primary);
+  border-color: var(--text-tertiary);
+}
+
+/* An em dash, never a 0: there is no number here and the cell says exactly
+   that. Tertiary so it cannot be mistaken for a value. */
+.pxqEmpty {
+  font-size: 12px;
+  color: var(--text-tertiary);
+}
+
+/* The net per unit the markup was computed from. Secondary: it is context for
+   the markup, not the headline figure. */
+.pxqLimpio {
+  color: var(--text-secondary);
 }
 
 .pxqUnavailable {
@@ -532,13 +651,30 @@
   font-style: italic;
 }
 
-/* Holds the refresh affordance above the two columns. Same inline padding as
-   `.pxqColumns` so the button lines up with the column edge, and no bottom
-   padding because `.pxqColumns` already brings its own. */
+/* Holds the panel title, the age of the reading, and the refresh affordance
+   above the two columns. Same inline padding as `.pxqColumns` so the row lines
+   up with the column edges, and no bottom padding because `.pxqColumns`
+   already brings its own. */
 .pxqHeader {
   display: flex;
-  justify-content: flex-end;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
   padding: 4px 4px 0;
+}
+
+.pxqHeaderTitle {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+
+/* How old the live reading is. Tertiary tone: it qualifies the numbers next to
+   it, it is never one of them. */
+.pxqFetchedAt {
+  font-size: 12px;
+  color: var(--text-tertiary);
 }
 
 /* Grouping-node child-kind count (familia/catalogo) — FE-computed, purely
@@ -644,6 +780,58 @@
   background: var(--warning-bg, var(--bg-secondary));
   border-radius: 6px;
   padding: 1px 8px;
+}
+
+/* The per-tier markup cell (slice A2), in its three states.
+   `.pxqMarkupPending` and `.pxqMarkupUnavailable` were REFERENCED by
+   `PxqPanel.jsx` while this file defined neither, so both resolved to
+   `undefined` and painted unstyled — the unit tests could not see it, since
+   they run with `css: false`. `src/test/visual/pxqPanel.visual.test.jsx`
+   measures these three tones now. */
+
+/* The number the operator opened the panel to read: success tone, and heavier
+   than everything around it. Resolved values only — an unresolved tier shows
+   its reason instead, never a 0 or a dash dressed up as a value. */
+.pxqMarkupValue {
+  font-weight: 600;
+  color: var(--success-text, var(--text-primary));
+}
+
+/* Why there is no number. Tertiary, like `.pxqFetchedAt`: it qualifies the row
+   rather than adding a value to it, and must never read as one. */
+.pxqMarkupUnavailable {
+  font-size: 12px;
+  font-style: italic;
+  color: var(--text-tertiary);
+  /* A reason is a sentence in a fixed track: it has to break INSIDE a word if
+     that is what it takes, rather than push its column out of line. */
+  overflow-wrap: anywhere;
+}
+
+/* Transient, and quieter still than the reason: nothing has been decided yet. */
+.pxqMarkupPending {
+  font-size: 12px;
+  color: var(--text-tertiary);
+}
+
+/* Foot of the panel: the link out to MercadoLibre, where prices are actually
+   changed while this panel is read-only, plus the sentence telling the
+   operator to re-read when he gets back. Same top border as `.pxqAuthoring`
+   so it reads as its own section rather than a stray row of the form. */
+.pxqExternalEdit {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-sm);
+  flex-wrap: wrap;
+  margin-top: 12px;
+  padding: 8px 4px;
+  border-top: 1px solid var(--border-secondary);
+}
+
+/* Secondary tone: it qualifies the link, it is not a second action. */
+.pxqExternalEditHint {
+  font-size: 12px;
+  color: var(--text-secondary);
 }
 
 /* Divergence banner (PR 4d) — a refused sync (409) shows both sides so the

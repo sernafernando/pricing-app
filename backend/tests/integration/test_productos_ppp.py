@@ -244,6 +244,12 @@ class TestNoDataGoldenNoRegression:
             "tn_price",
             "tn_promotional_price",
             "tn_has_promotion",
+            # PxQ wholesale-tier quick view: part of the shared
+            # ProductoResponse shape. The LISTING fills it; this detail
+            # endpoint leaves it None, which is why it shows up here as a
+            # pre-existing (non-ppp) key rather than as data.
+            "pxq_tramos",
+            "pxq_precio_desde",
         }
 
         assert pre_existing_keys == expected_pre_existing_keys

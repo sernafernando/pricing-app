@@ -48,7 +48,11 @@ def _make_workflow(db, *, n_estados: int = 3):
             orden=i,
             color=f"#00000{i}",
             es_inicial=(i == 1),
-            es_final=(i == n_estados),
+            # A single-state workflow's only state is the INITIAL one, not a
+            # final one — otherwise every ticket in these fixtures would be
+            # born closed, and the board (which now hides closed tickets)
+            # would show nothing.
+            es_final=(n_estados > 1 and i == n_estados),
         )
         db.add(estado)
         db.flush()
@@ -329,15 +333,19 @@ class TestBoardScopedToOneWorkflow:
         (#5 with 11 tickets, #9 with 1). The OLD board rendered BOTH as
         separate, interleaved columns. Scoped to sector_a, only sector_a's
         'Cerrado' appears — sector_b's is not on the board at all."""
+        # The shared NAME is what this test is about; the states are the
+        # non-final ones so the board's own `es_final` exclusion (which is
+        # a different rule, covered by `TestBoardHidesTicketsInFinalEstado`)
+        # does not empty the columns under test.
         sector_a, _, estados_a, tipo_a, creador_a = _make_workflow(db, n_estados=2)
-        estados_a[-1].nombre = "Cerrado"
+        estados_a[0].nombre = "Cerrado"
         sector_b, _, estados_b, tipo_b, creador_b = _make_workflow(db, n_estados=2)
-        estados_b[-1].nombre = "Cerrado"
+        estados_b[0].nombre = "Cerrado"
         admin = _make_admin(db)
 
         for _ in range(3):
-            _make_ticket(db, sector_a, tipo_a, estados_a[-1], creador_a)
-        _make_ticket(db, sector_b, tipo_b, estados_b[-1], creador_b)
+            _make_ticket(db, sector_a, tipo_a, estados_a[0], creador_a)
+        _make_ticket(db, sector_b, tipo_b, estados_b[0], creador_b)
         db.commit()
 
         resp = client.get(
@@ -348,9 +356,9 @@ class TestBoardScopedToOneWorkflow:
         columnas = resp.json()["columnas"]
         cerrado_columnas = [c for c in columnas if c["etiqueta"] == "Cerrado"]
         assert len(cerrado_columnas) == 1
-        assert cerrado_columnas[0]["clave"] == str(estados_a[-1].id)
+        assert cerrado_columnas[0]["clave"] == str(estados_a[0].id)
         assert cerrado_columnas[0]["total"] == 3  # only sector_a's tickets
-        assert str(estados_b[-1].id) not in {c["clave"] for c in columnas}
+        assert str(estados_b[0].id) not in {c["clave"] for c in columnas}
 
     def test_column_order_is_inbox_first_then_selected_workflow_orden(self, client, db):
         inbox_sector, _, inbox_estados, inbox_tipo, inbox_creador = _make_inbox_sector(db)
@@ -367,12 +375,14 @@ class TestBoardScopedToOneWorkflow:
         claves = [c["clave"] for c in resp.json()["columnas"]]
         assert claves == ["inbox", str(estados[0].id), str(estados[1].id), str(estados[2].id)]
 
-    def test_inbox_column_always_shown_and_counts_regardless_of_own_estado(self, client, db):
+    def test_inbox_column_is_always_shown_even_with_zero_tickets(self, client, db):
+        """Half of the old `..._and_counts_regardless_of_own_estado` test.
+        The Inbox column is structural: it is prepended whether or not it
+        has anything in it, so "nothing to triage" reads as an empty
+        column instead of a missing one."""
         inbox_sector, _, inbox_estados, inbox_tipo, inbox_creador = _make_inbox_sector(db)
         sector, _, estados, tipo, creador = _make_workflow(db, n_estados=1)
         admin = _make_admin(db)
-        _make_ticket(db, inbox_sector, inbox_tipo, inbox_estados[0], inbox_creador)  # Nuevo
-        _make_ticket(db, inbox_sector, inbox_tipo, inbox_estados[1], inbox_creador)  # Cerrado
         db.commit()
 
         resp = client.get(
@@ -381,7 +391,30 @@ class TestBoardScopedToOneWorkflow:
 
         assert resp.status_code == 200
         columnas = {c["clave"]: c for c in resp.json()["columnas"]}
-        assert columnas["inbox"]["total"] == 2  # both Inbox tickets, across both its own estados
+        assert "inbox" in columnas
+        assert columnas["inbox"]["total"] == 0
+        assert columnas["inbox"]["items"] == []
+        assert columnas["inbox"]["sector_id"] == inbox_sector.id
+
+    def test_inbox_column_counts_open_tickets_across_its_own_estados(self, client, db):
+        """The other half: the Inbox column groups by SECTOR, so every
+        OPEN Inbox ticket lands in it regardless of which Inbox-workflow
+        estado it sits in. (The closed-ticket case is the opposite claim
+        and lives in `TestBoardHidesTicketsInFinalEstado`.)"""
+        inbox_sector, _, inbox_estados, inbox_tipo, inbox_creador = _make_inbox_sector(db)
+        sector, _, estados, tipo, creador = _make_workflow(db, n_estados=1)
+        admin = _make_admin(db)
+        _make_ticket(db, inbox_sector, inbox_tipo, inbox_estados[0], inbox_creador)  # Nuevo
+        _make_ticket(db, inbox_sector, inbox_tipo, inbox_estados[0], inbox_creador)  # Nuevo
+        db.commit()
+
+        resp = client.get(
+            BOARD_ENDPOINT, params={"agrupacion": "estado", "sector_id": sector.id}, headers=_headers(admin)
+        )
+
+        assert resp.status_code == 200
+        columnas = {c["clave"]: c for c in resp.json()["columnas"]}
+        assert columnas["inbox"]["total"] == 2
         assert columnas["inbox"]["sector_id"] == inbox_sector.id
 
     def test_non_admin_with_no_sector_membership_gets_only_inbox_not_a_foreign_sector(self, client, db):
@@ -427,6 +460,89 @@ class TestBoardScopedToOneWorkflow:
         )
 
         assert resp.status_code == 400
+
+
+class TestBoardHidesTicketsInFinalEstado:
+    """fix/tickets-board-oculta-cerrados — the board and the badge must
+    agree. `GET /tickets/badge-count` has always excluded tickets in a
+    final estado, but the board did not: a ticket the user had just closed
+    stayed on the board forever, so one screen said "handled" (badge) and
+    "pending" (board) at the same time. Closed tickets now leave the board,
+    in every grouping and in the totals, not just the visible items.
+    """
+
+    def test_estado_grouping_excludes_closed_tickets_from_column_and_total(self, client, db):
+        sector, _, estados, tipo, creador = _make_workflow(db, n_estados=2)
+        admin = _make_admin(db)
+        _make_ticket(db, sector, tipo, estados[0], creador, titulo="Abierto")
+        _make_ticket(db, sector, tipo, estados[1], creador, titulo="Cerrado")  # es_final
+        db.commit()
+
+        resp = client.get(
+            BOARD_ENDPOINT, params={"agrupacion": "estado", "sector_id": sector.id}, headers=_headers(admin)
+        )
+
+        assert resp.status_code == 200
+        columnas = {c["clave"]: c for c in resp.json()["columnas"]}
+        final = columnas[str(estados[1].id)]
+        assert final["total"] == 0
+        assert final["items"] == []
+        assert columnas[str(estados[0].id)]["total"] == 1
+
+    def test_inbox_column_excludes_closed_tickets(self, client, db):
+        """The exact production complaint: an Inbox ticket the user closed
+        stayed in "Bandeja de entrada" because that column groups by
+        SECTOR, and closing only changes `estado_id`."""
+        inbox_sector, _, inbox_estados, inbox_tipo, inbox_creador = _make_inbox_sector(db)
+        sector, _, estados, tipo, creador = _make_workflow(db, n_estados=1)
+        admin = _make_admin(db)
+        _make_ticket(db, inbox_sector, inbox_tipo, inbox_estados[0], inbox_creador, titulo="Nuevo")
+        _make_ticket(db, inbox_sector, inbox_tipo, inbox_estados[1], inbox_creador, titulo="Cerrado")  # es_final
+        db.commit()
+
+        resp = client.get(
+            BOARD_ENDPOINT, params={"agrupacion": "estado", "sector_id": sector.id}, headers=_headers(admin)
+        )
+
+        assert resp.status_code == 200
+        inbox = {c["clave"]: c for c in resp.json()["columnas"]}["inbox"]
+        assert inbox["total"] == 1
+        assert [item["titulo"] for item in inbox["items"]] == ["Nuevo"]
+
+    def test_urgencia_grouping_excludes_closed_tickets(self, client, db):
+        sector, _, estados, tipo, creador = _make_workflow(db, n_estados=2)
+        admin = _make_admin(db)
+        _make_ticket(db, sector, tipo, estados[0], creador, urgencia="alta", titulo="Abierto alta")
+        _make_ticket(db, sector, tipo, estados[1], creador, urgencia="alta", titulo="Cerrado alta")  # es_final
+        db.commit()
+
+        resp = client.get(BOARD_ENDPOINT, params={"agrupacion": "urgencia"}, headers=_headers(admin))
+
+        assert resp.status_code == 200
+        alta = {c["clave"]: c for c in resp.json()["columnas"]}["alta"]
+        assert alta["total"] == 1
+        assert [item["titulo"] for item in alta["items"]] == ["Abierto alta"]
+
+    def test_board_and_badge_count_agree_on_which_tickets_are_open(self, client, db):
+        """The two numbers come from the same predicate now; this test
+        fails the moment they drift apart again."""
+        sector, _, estados, tipo, creador = _make_workflow(db, n_estados=2)
+        for _ in range(2):
+            _make_ticket(db, sector, tipo, estados[0], creador)
+        _make_ticket(db, sector, tipo, estados[1], creador)  # es_final
+        db.commit()
+
+        # Asked as the CREADOR, not the admin: both endpoints scope to
+        # "what I created" for a user with no tickets permissions, so the
+        # two numbers are directly comparable.
+        board = client.get(BOARD_ENDPOINT, params={"agrupacion": "urgencia"}, headers=_headers(creador))
+        badge = client.get("/api/tickets/tickets/mis-pendientes/count", headers=_headers(creador))
+
+        assert board.status_code == 200
+        assert badge.status_code == 200
+        total_board = sum(c["total"] for c in board.json()["columnas"])
+        assert total_board == 2
+        assert badge.json()["sin_asignar"] == 2
 
 
 class TestBoardGroupedByUrgencia:

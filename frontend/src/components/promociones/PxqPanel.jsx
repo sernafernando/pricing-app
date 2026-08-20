@@ -1,7 +1,8 @@
-import { useState } from 'react';
-import { RefreshCw } from 'lucide-react';
+import { useRef, useState } from 'react';
+import { ExternalLink, RefreshCw } from 'lucide-react';
 import { pxqAPI } from '../../services/api';
 import { useLazyResource } from '../../hooks/useLazyResource';
+import { usePxqMarkup } from '../../hooks/usePxqMarkup';
 import { usePermisos } from '../../contexts/PermisosContext';
 import styles from './promociones.module.css';
 
@@ -32,11 +33,20 @@ function extractErrorMessage(err, fallback = 'No se pudo guardar el tramo.') {
   return fallback;
 }
 
-// Whole-shipment cost the user reads off ML's wholesale simulator. There is
-// deliberately no default and no per-unit fallback here — that fallback is
-// the exact silent-wrong-price bug the backend's `costo_envio_total`-required
-// rule makes structurally impossible (see design.md). A tier missing it is
-// `incompleto` and is never written to MercadoLibre.
+// Whole-shipment cost, entered by hand for now.
+//
+// This comment used to claim the operator "reads it off ML's wholesale
+// simulator". No such screen was ever confirmed to exist: the phrase began
+// as an unanswered `Assumption:` in the `ml-wholesale-pxq-pricing` proposal,
+// hardened into a fact here, and from here reached the UI as an instruction.
+// It is gone. What IS measured: ML bills `max(real weight, volume/4000)` and
+// the cost comes from `/users/{id}/shipping_options/free` — automating it
+// waits on a proxy route that does not exist yet.
+//
+// There is deliberately no default and no per-unit fallback here — that
+// fallback is the exact silent-wrong-price bug the backend's
+// `costo_envio_total`-required rule makes structurally impossible. A tier
+// missing it has no markup, and says so instead of showing a number.
 function isIncomplete(tier) {
   return tier.costo_envio_total === null || tier.costo_envio_total === undefined;
 }
@@ -59,7 +69,7 @@ function buildBody(form) {
  * `pxq.ver`-only user sees the read columns above with no editing affordance
  * at all, rather than buttons that would 403.
  */
-function PxqTierAuthoring({ itemId, mirrorTiers, onChanged }) {
+function PxqTierAuthoring({ itemId, mirrorTiers, onChanged, editRequest = null }) {
   const [createForm, setCreateForm] = useState(emptyForm);
   const [createError, setCreateError] = useState(null);
   const [creating, setCreating] = useState(false);
@@ -81,6 +91,17 @@ function PxqTierAuthoring({ itemId, mirrorTiers, onChanged }) {
   const [deleteError, setDeleteError] = useState(null);
 
   const atMax = mirrorTiers.length >= MAX_TIERS;
+
+  // The read table's "Cargar costo" button opens THIS form on that tier — the
+  // affordance sits where the hole is, the editing stays where it always was.
+  // Synced during render, not in an effect: an effect runs after commit, so
+  // the operator would see one frame of the closed form before it opened.
+  const [seenEditRequest, setSeenEditRequest] = useState(editRequest);
+  if (editRequest !== seenEditRequest) {
+    setSeenEditRequest(editRequest);
+    const requested = editRequest && mirrorTiers.find((tier) => tier.id === editRequest.tierId);
+    if (requested) startEdit(requested);
+  }
 
   function startEdit(tier) {
     setEditingId(tier.id);
@@ -313,185 +334,6 @@ function PxqTierAuthoring({ itemId, mirrorTiers, onChanged }) {
   );
 }
 
-// Every distinct backend `status` gets its own Spanish message: collapsing
-// these throws away exactly what the backend's review rounds fought to keep
-// separate (see module docstring below and `backend/app/routers/pxq.py`'s
-// `_SYNC_STATUS_TO_HTTP`). `httpStatus` alone is not enough to disambiguate
-// the two 503s or the two 502s, so `status` (from the error detail payload)
-// drives the message, not the HTTP code.
-function syncOutcomeMessage(httpStatus, detail) {
-  const backendStatus = detail && typeof detail === 'object' ? detail.status : undefined;
-  if (httpStatus === 403) {
-    return { kind: 'error', text: 'No tenés permiso para actualizar precios en MercadoLibre.' };
-  }
-  switch (backendStatus) {
-    case 'disabled':
-      return {
-        kind: 'error',
-        text: 'La actualización de precios en MercadoLibre está deshabilitada temporalmente (función apagada, no un problema de permisos).',
-      };
-    case 'rejected_not_eligible':
-      return {
-        kind: 'error',
-        text: 'Esta publicación o la cuenta no está habilitada para precios mayoristas en MercadoLibre. Esto es permanente, no un problema temporal.',
-      };
-    case 'rejected_eligibility_unknown':
-      return {
-        kind: 'warn',
-        text: 'No se pudo confirmar si esta publicación está habilitada para precios mayoristas. Podés reintentar en unos minutos.',
-      };
-    case 'rejected_read_unavailable':
-      return {
-        kind: 'warn',
-        text: 'No se pudo leer el estado actual en MercadoLibre, así que no se escribió nada. Podés reintentar.',
-      };
-    case 'rejected_by_proxy':
-      return {
-        kind: 'error',
-        text: `MercadoLibre rechazó el envío${detail?.reason ? `: ${detail.reason}` : '.'}`,
-      };
-    case 'submitted_unconfirmed':
-    case 'ambiguous_needs_reconcile':
-      return {
-        kind: 'warn',
-        text: 'No se pudo confirmar el resultado de la actualización: MercadoLibre puede o no haber aplicado los precios nuevos. Volvé a leer el estado en vivo antes de reintentar.',
-      };
-    default:
-      return { kind: 'error', text: 'No se pudieron actualizar los precios en MercadoLibre.' };
-  }
-}
-
-// An empty local mirror is NOT an instruction to delete anything on ML. Three
-// different facts produce an empty mirror and they stay distinct here for the
-// same reason `live_tiers: null` never collapses into `[]` in the read columns
-// above: "ML holds tiers we never mirrored" is a different problem from "both
-// sides are genuinely empty" and from "the live read failed".
-//
-// The first case used to end with "importarlos al mirror local todavía no está
-// disponible", which was true and is now false: `PxqAdoptControl` below imports
-// them, and it renders in exactly this state. A refusal that still describes
-// the missing capability would send the user back to deletion as a workaround,
-// which is how live tiers were lost in the first place — so it points at the
-// control instead.
-//
-// Register: this panel addresses the operator in voseo throughout ("No tenés
-// permiso", "Resolvé las diferencias"). The both-empty branch is left alone
-// because it has no second-person verb to conjugate at all — it states a fact
-// about two systems and asks the reader for nothing.
-function emptyMirrorRefusal(liveTiers, liveUnavailable) {
-  if (liveUnavailable) {
-    return {
-      kind: 'warn',
-      text: 'No se pudo leer el estado en vivo de MercadoLibre, así que no se va a tocar nada. Podés reintentar en unos minutos.',
-    };
-  }
-  if (liveTiers && liveTiers.length > 0) {
-    // `warn`, not `error`: nothing failed and there is an action to take. The
-    // red tone belonged to the version of this message that had none.
-    return {
-      kind: 'warn',
-      text: 'MercadoLibre tiene tramos mayoristas que no están en el mirror local. Actualizar precios no los trae acá: si los querés en el mirror, importalos con "Importar de MercadoLibre", acá arriba.',
-    };
-  }
-  return {
-    kind: 'ok',
-    text: 'No hay precios para actualizar: ni el mirror local ni MercadoLibre tienen tramos mayoristas.',
-  };
-}
-
-/**
- * Price-update action + full outcome handling (PR 4d). Every non-200 `status`
- * the backend can return gets rendered distinctly — see `syncOutcomeMessage` —
- * plus a dedicated divergence banner (409).
- *
- * This control pushes the local mirror to ML and can never clear the live
- * array: with an empty mirror it refuses and explains why (see
- * `emptyMirrorRefusal`) instead of offering a wipe. It therefore needs the
- * live state, not just the mirror — deciding on the mirror alone is what let
- * this action delete live tiers back when it was still labelled "sincronizar".
- *
- * That label is gone from the UI on purpose. The write is one-way, local -> ML;
- * "sincronizar" promised reconciliation, so the operator believed he was
- * looking when he was in fact writing. The button now names the write:
- * "Actualizar precios en MercadoLibre". The identifiers below still say `sync`
- * because they track the backend endpoint, which is unchanged.
- *
- * `feedback` and `divergences` are CONTROLLED by the panel, same shape and same
- * reason as `PxqAdoptControl`: the success path calls `onSynced()` ->
- * `useLazyResource.reload()`, which sets `loading`, so `PxqPanel` returns its
- * loading branch and unmounts this subtree. Held locally, the success message
- * was destroyed by the very refresh that proved it true and was never once
- * visible; only the failure paths, which do not reload, ever painted.
- *
- * BOTH are lifted, not just the message. They are one result: a banner left
- * behind by a remount would leave "Resolvé las diferencias" on screen with no
- * differences under it to resolve.
- *
- * `syncing` stays local on purpose — it is this button's in-flight state, not
- * an outcome, and it has nothing to survive.
- */
-function PxqSyncControl({ itemId, hasTiers, liveTiers, liveUnavailable, feedback, onFeedback, divergences, onDivergences, onSynced }) {
-  const [syncing, setSyncing] = useState(false);
-
-  async function runSync() {
-    setSyncing(true);
-    onFeedback(null);
-    onDivergences(null);
-    try {
-      await pxqAPI.sync(itemId);
-      onFeedback({ kind: 'ok', text: 'Precios actualizados en MercadoLibre.' });
-      await onSynced();
-    } catch (err) {
-      const httpStatus = err?.response?.status;
-      const detail = err?.response?.data?.detail;
-      if (httpStatus === 409 && detail && typeof detail === 'object' && Array.isArray(detail.divergences)) {
-        onDivergences(detail.divergences);
-        onFeedback({
-          kind: 'error',
-          text: 'MercadoLibre y el mirror local no coinciden. Resolvé las diferencias editando los tramos y volvé a actualizar los precios.',
-        });
-      } else {
-        onFeedback(syncOutcomeMessage(httpStatus, detail));
-      }
-    } finally {
-      setSyncing(false);
-    }
-  }
-
-  function handleSyncClick() {
-    if (!hasTiers) {
-      onDivergences(null);
-      onFeedback(emptyMirrorRefusal(liveTiers, liveUnavailable));
-      return;
-    }
-    runSync();
-  }
-
-  const feedbackClass =
-    feedback?.kind === 'ok' ? styles.feedbackSuccess : feedback?.kind === 'warn' ? styles.feedbackWarn : styles.feedbackError;
-
-  return (
-    <div className={styles.pxqAuthoring}>
-      <button type="button" className="btn-tesla primary sm" disabled={syncing} onClick={handleSyncClick}>
-        Actualizar precios en MercadoLibre
-      </button>
-      {feedback && <div className={feedbackClass}>{feedback.text}</div>}
-      {divergences && (
-        <div className={styles.pxqDivergenceBanner}>
-          <div className={styles.pxqColumnTitle}>Diferencias que impiden actualizar los precios</div>
-          {divergences.map((d, idx) => (
-            <div key={d.ml_price_id ?? idx} className={styles.pxqDivergenceItem}>
-              <span>{d.reason}</span>
-              <span>En ML: {JSON.stringify(d.live)}</span>
-              <span>Deseado: {JSON.stringify(d.desired)}</span>
-            </div>
-          ))}
-        </div>
-      )}
-    </div>
-  );
-}
-
 // The 409 payload carries the conflicting rows precisely so the operator does
 // not have to hunt for them. Rendering a bare "hay conflictos" would throw away
 // the one thing that makes the refusal actionable. Quantity first because that
@@ -502,9 +344,9 @@ function formatAdoptConflicts(conflicts) {
   return conflicts.map((c) => `${c.cantidad_minima} u. (id ${c.tier_id})`).join(', ');
 }
 
-// Same discipline as `syncOutcomeMessage`: the backend `status` in the detail
-// payload drives the message, not the bare HTTP code. Every branch ends with
-// something the operator can actually do next.
+// The backend `status` in the detail payload drives the message, not the bare
+// HTTP code — `httpStatus` alone cannot tell the two 503s apart. Every branch
+// ends with something the operator can actually do next.
 function adoptOutcomeMessage(httpStatus, detail) {
   const backendStatus = detail && typeof detail === 'object' ? detail.status : undefined;
   if (httpStatus === 403) {
@@ -572,16 +414,10 @@ function skippedAdoptSentence(skippedCount) {
  * local mirror. `POST /pxq/{item_id}/adopt-live` writes only local rows and
  * calls no ML write endpoint on any path.
  *
- * Its own component, not a branch inside `PxqSyncControl`: that one already
- * carries a dozen sync outcomes plus the divergence banner, and these two verbs
- * point in opposite directions — one pushes to ML, this one only ever reads it.
- *
  * Labelled "Importar de MercadoLibre", never "sincronizar" — a word this panel
- * no longer uses for either direction, because it promised reconciliation and
- * delivered a one-way write. The push control names its own direction too now
- * ("Actualizar precios en MercadoLibre"); the principle is the same one the
- * comment above `pxqAPI.sync` states for the destructive argument: a control is
- * named for what it does.
+ * no longer uses in either direction, because it promised reconciliation and
+ * delivered a one-way write. Same principle the comment above `pxqAPI.sync`
+ * states for the destructive argument: a control is named for what it does.
  *
  * What this does NOT do: recover a publication whose live tiers were already
  * deleted on ML. There is nothing there to import. What it repairs is the
@@ -594,9 +430,7 @@ function skippedAdoptSentence(skippedCount) {
  * `loading` — so `PxqPanel` returns its loading branch and this whole subtree
  * unmounts. Local state would take the outcome with it, and the operator would
  * never read the count or the "still needs a shipping cost" next step: the one
- * message this control exists to deliver. (`PxqSyncControl` had the same shape
- * and therefore the same hole in its success message; it is controlled by the
- * panel now for exactly this reason.)
+ * message this control exists to deliver.
  */
 function PxqAdoptControl({ itemId, canImport, feedback, onFeedback, onAdopted }) {
   const [adopting, setAdopting] = useState(false);
@@ -674,12 +508,93 @@ function PxqAdoptControl({ itemId, canImport, feedback, onFeedback, onAdopted })
   );
 }
 
+/**
+ * How old the live reading is, in words ("recién", "hace 2 min", "hace 3 h").
+ *
+ * `now` is a parameter, not a `Date.now()` call inside, so a caller (and its
+ * test) can pin a clock without faking timers for a whole render.
+ *
+ * A reading dated in the FUTURE is clock skew between the backend and this
+ * browser, never a real negative age: it collapses to "recién" instead of
+ * printing "hace -1 min", which would read as a bug in the data rather than in
+ * the clock. Anything unusable (absent, unparseable) returns `null` — the
+ * caller then says nothing at all, which is honest, instead of guessing.
+ */
+function formatRelativeAge(fetchedAt, now = Date.now()) {
+  if (!fetchedAt) return null;
+  const ts = Date.parse(fetchedAt);
+  if (Number.isNaN(ts)) return null;
+
+  const seconds = Math.floor((now - ts) / 1000);
+  if (seconds < 60) return 'recién';
+  const minutes = Math.floor(seconds / 60);
+  if (minutes < 60) return `hace ${minutes} min`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `hace ${hours} h`;
+  return `hace ${Math.floor(hours / 24)} d`;
+}
+
 // Money is Decimal on the backend and arrives as a number or string here —
 // this only formats it for display, it never computes or re-derives a
 // markup (product decision carried over from CatalogCompetitionPanel).
 function formatMoney(value) {
   if (value === null || value === undefined) return 'N/A';
   return `$${Number(value).toLocaleString('es-AR')}`;
+}
+
+// `reason` is a PERSISTED DOMAIN VALUE from `PxqMarkupReason`
+// (`backend/app/services/pxq_markup_service.py`), not UI copy -- same
+// treatment as `ESTADO_LABELS` below, including the `Map` (never a bare
+// object literal) and the raw-value fallback for a reason this map does not
+// yet know about.
+const MARKUP_REASON_LABELS = new Map([
+  ['shipping_unavailable', 'Falta el costo de envío del bulto'],
+  ['product_data_missing', 'Faltan datos del producto para calcular el markup'],
+]);
+
+function formatMarkupReason(reason) {
+  return MARKUP_REASON_LABELS.get(reason) ?? reason;
+}
+
+// `markup` arrives as a RATIO (0.25 == 25%), matching `calcular_markup`
+// (`backend/app/services/pricing_calculator.py`) -- never pre-multiplied by
+// the backend, so this is the one place that turns it into the percentage
+// the operator reads.
+function formatMarkupPercent(markup) {
+  return `${(markup * 100).toLocaleString('es-AR', { minimumFractionDigits: 1, maximumFractionDigits: 1 })}%`;
+}
+
+/**
+ * ONE mirror tier's markup cell (slice A2 of `pxq-markup-antes-de-publicar`):
+ * a resolved percentage, the human reason it could not be computed, a
+ * "calculando…" placeholder while the fetch is in flight, or nothing at all
+ * when the batch response never mentioned this tier -- never a fabricated
+ * number for any of those cases.
+ *
+ * `markupLoading` alone does NOT mean "show the placeholder": `entry` comes
+ * from the PREVIOUS batch response until the in-flight one resolves (design
+ * D2, "editing tier B leaves tier A's rendered state untouched"), so a tier
+ * that already has a known value keeps showing it through a reload triggered
+ * by editing a DIFFERENT tier. The placeholder is reserved for a tier that
+ * has never had a value to show.
+ */
+function PxqTierMarkup({ markupLoading, entry }) {
+  if (entry) {
+    if (entry.reason) {
+      return <span className={styles.pxqMarkupUnavailable}>{formatMarkupReason(entry.reason)}</span>;
+    }
+    // No "Markup:" label any more: the column heading names the figure, so
+    // repeating it on every row was scaffolding competing with the number the
+    // operator opened the panel to read.
+    return <span className={styles.pxqMarkupValue}>{formatMarkupPercent(entry.markup)}</span>;
+  }
+  if (markupLoading) {
+    return <span className={styles.pxqMarkupPending}>Calculando markup…</span>;
+  }
+  // markupError or "batch response never mentioned this tier": nothing to
+  // fabricate. An em dash, not a blank cell — in a grid an empty cell reads as
+  // a rendering fault, while a dash states that there is no number.
+  return <span className={styles.pxqEmpty}>—</span>;
 }
 
 // `estado` is a PERSISTED DOMAIN VALUE, not UI copy: the four members of
@@ -758,11 +673,9 @@ function sortedByQuantity(tiers, quantityKey) {
  * below and `backend/app/routers/pxq.py`'s `_unavailable_response` docstring.
  *
  * Divergences on this read-side comparison are marked purely as information;
- * nothing here resolves them. The sync action itself (`PxqSyncControl`, PR
- * 4d) lives below the authoring form and owns the 409 divergence-resolution
- * banner. It receives the live state too, because "the mirror is empty" alone
- * cannot tell a safe no-op apart from a publication whose live tiers were
- * never imported.
+ * nothing here resolves them. Prices are CHANGED on MercadoLibre itself, via
+ * the link at the foot of the panel: the write path (`pxqAPI.sync`, PR 4d) is
+ * still on the backend but is deliberately off this UI for now.
  */
 function PxqPanel({ itemId, pxqCacheRef }) {
   const { tienePermiso } = usePermisos();
@@ -775,6 +688,16 @@ function PxqPanel({ itemId, pxqCacheRef }) {
   const fetcher = (id) => (canRead ? pxqAPI.getLive(id).then((r) => r.data) : Promise.resolve(null));
   const { data, loading, error, reload } = useLazyResource(pxqCacheRef, itemId, fetcher);
 
+  // Own cache, own resource -- see `usePxqMarkup`'s docstring for why it does
+  // not share `pxqCacheRef`. `useRef` (not module scope) so each mounted
+  // panel keeps its own map, same lifetime as the component itself.
+  const markupCacheRef = useRef(new Map());
+  const {
+    data: markupById,
+    loading: markupLoading,
+    reload: reloadMarkup,
+  } = usePxqMarkup(markupCacheRef, itemId, canRead);
+
   // Held here, not inside `PxqAdoptControl`: a successful import calls
   // `reload()`, which flips `loading` and makes this component return its
   // loading branch — unmounting the control and every piece of state in it.
@@ -782,10 +705,12 @@ function PxqPanel({ itemId, pxqCacheRef }) {
   // order stays fixed whatever branch renders.
   const [adoptFeedback, setAdoptFeedback] = useState(null);
 
-  // Same story for the price-update outcome, and for the divergence rows that
-  // are part of that same outcome. See `PxqSyncControl`'s docstring.
-  const [syncFeedback, setSyncFeedback] = useState(null);
-  const [syncDivergences, setSyncDivergences] = useState(null);
+  // Which tier the operator asked to complete from the read table's "Cargar
+  // costo" button. A fresh OBJECT per press, never the bare id: pressing it
+  // twice for the same tier must reopen the form, and an id compared by value
+  // would look unchanged the second time.
+  const [costEditRequest, setCostEditRequest] = useState(null);
+  const requestCostEdit = (tierId) => setCostEditRequest({ tierId });
 
   // Outliving the control is not the same as outliving the PUBLICATION. The
   // messages survive `reload()` deliberately (above); they must NOT survive a
@@ -800,27 +725,25 @@ function PxqPanel({ itemId, pxqCacheRef }) {
   if (feedbackItemId !== itemId) {
     setFeedbackItemId(itemId);
     setAdoptFeedback(null);
-    setSyncFeedback(null);
-    setSyncDivergences(null);
   }
 
   // A feedback message describes the RESULT of an action taken against a state.
   // The moment the operator MUTATES that state, the message stops describing
   // what is on screen — so authoring a tier clears BOTH outcomes:
-  //   - import: "cargá el costo de envío del bulto" is false as soon as he does;
-  //   - price update: "Precios actualizados en MercadoLibre" is false as soon as
-  //     he edits a tier, because the mirror is no longer what was sent.
+  //   - import: "cargá el costo de envío del bulto" is false as soon as he does.
   //
   // Tied to the AUTHORING callback, never to `reload()` itself. The reload the
-  // import triggers, and the one the price update triggers, are precisely the
-  // ones that must PRESERVE their message — that is the whole reason this state
-  // lives up here. Clearing inside `reload()` would look like a simplification
+  // import triggers is precisely the one that must PRESERVE its message — that
+  // is the whole reason this state lives up here. Clearing inside `reload()` would look like a simplification
   // and would silently restore the bug this file just fixed.
   async function handleAuthoringChanged() {
     setAdoptFeedback(null);
-    setSyncFeedback(null);
-    setSyncDivergences(null);
-    await reload();
+    // Both resources describe the SAME authored data (D2, "Recompute on
+    // relevant data change"): reloading only the mirror left `usePxqMarkup`
+    // serving its pre-edit cache entry, so a tier's markup kept showing the
+    // OLD price/shipping cost after the operator changed them -- exactly the
+    // stale/fabricated number this feature exists to prevent.
+    await Promise.all([reload(), reloadMarkup()]);
   }
 
   // Invisible rather than an error/403 for a user without the permission —
@@ -848,6 +771,7 @@ function PxqPanel({ itemId, pxqCacheRef }) {
   const liveTiers = data?.live_tiers ?? null;
   const mirrorTiers = data?.mirror_tiers || [];
   const liveUnavailable = data?.live_status === 'unavailable' || liveTiers === null;
+  const fetchedAge = formatRelativeAge(data?.fetched_at);
 
   // Order matters in this conjunction, not just readability: `liveUnavailable`
   // is what guarantees `liveTiers` is non-null by the time it is dereferenced.
@@ -864,12 +788,72 @@ function PxqPanel({ itemId, pxqCacheRef }) {
     return liveTier.quantity !== mirrorTier.cantidad_minima || Number(liveTier.amount) !== Number(mirrorTier.precio_unitario);
   }
 
+  // ONE list of rows for ONE table. A mirror tier carries what we know locally
+  // (shipping cost, markup) and is matched to its live tier when ML answered
+  // for it; a live tier no mirror tier claims still gets a row, because hiding
+  // a tramo ML is actually selling would be the panel lying by omission.
+  //
+  // Sorted as a whole rather than concatenated: a quantity scale that jumps
+  // back down mid-table stops being a scale.
+  //
+  // A mirror tier is paired with its live tier by `ml_price_id` first and by
+  // QUANTITY second. The second pass is what keeps a never-synced tier from
+  // rendering twice — once as "local" and once as ML's — for one tramo the
+  // operator thinks of as a single thing. A quantity pairing whose amounts
+  // disagree is flagged like any other divergence: both figures exist, we show
+  // ML's and say the mirror does not match it.
+  //
+  // TWO passes, and the second is a CASCADE rather than an alternative. The id
+  // pass runs first and claims what it matches; the quantity pass then fills in
+  // every mirror tier still unpaired — including one whose `ml_price_id` did
+  // NOT resolve. ML re-emits price ids when it recreates a price, so a synced
+  // tier can hold `P1` while ML now answers `P2` for the same tramo; treating
+  // the two rules as exclusive painted that tramo twice, once as an unmatched
+  // mirror row and once as an unclaimed live row.
+  //
+  // Two passes rather than one loop because a single pass would let an early
+  // tier claim by quantity a live tier that a later one owns by id.
+  const liveByQuantity = new Map((liveTiers || []).map((tier) => [tier.quantity, tier]));
+  const claimedLiveIds = new Set();
+  const pairedLive = new Map();
+  for (const tier of mirrorTiers) {
+    const byId = tier.ml_price_id ? liveById.get(tier.ml_price_id) : null;
+    if (byId) {
+      pairedLive.set(tier.id, byId);
+      claimedLiveIds.add(byId.id);
+    }
+  }
+  for (const tier of mirrorTiers) {
+    if (pairedLive.has(tier.id)) continue;
+    const byQuantity = liveByQuantity.get(tier.cantidad_minima);
+    if (byQuantity && !claimedLiveIds.has(byQuantity.id)) {
+      pairedLive.set(tier.id, byQuantity);
+      claimedLiveIds.add(byQuantity.id);
+    }
+  }
+  const mirrorRows = mirrorTiers.map((tier) => {
+    const liveTier = pairedLive.get(tier.id) || null;
+    return {
+      key: `mirror-${tier.id}`,
+      cantidad: tier.cantidad_minima,
+      tier,
+      liveTier,
+      divergent: isDivergent(tier) || (Boolean(liveTier) && Number(liveTier.amount) !== Number(tier.precio_unitario)),
+    };
+  });
+  const rows = [
+    ...mirrorRows,
+    ...(liveTiers || [])
+      .filter((tier) => !claimedLiveIds.has(tier.id))
+      .map((tier) => ({ key: `live-${tier.id}`, cantidad: tier.quantity, tier: null, liveTier: tier, divergent: false })),
+  ].sort((a, b) => a.cantidad - b.cantidad);
+
   return (
     <div>
       {/* Wired to `reload`, NOT to `handleAuthoringChanged`. Both reload, but
-          that one also clears the import and price-update outcomes, and it is
-          allowed to do so only because AUTHORING invalidates them — "cargá el
-          costo de envío del bulto" stops being true the moment he loads it.
+          that one also clears the import outcome, and it is allowed to do so
+          only because AUTHORING invalidates it — "cargá el costo de envío del
+          bulto" stops being true the moment he loads it.
           Re-reading MercadoLibre invalidates nothing the operator did, so the
           messages have to survive it.
 
@@ -881,53 +865,110 @@ function PxqPanel({ itemId, pxqCacheRef }) {
           branch, which is the one path where the operator is NOT comparing
           the two columns. */}
       <div className={styles.pxqHeader}>
+        <div className={styles.pxqHeaderTitle}>
+          <span className={styles.pxqColumnTitle}>Precios mayoristas</span>
+          {/* Rendered only when the backend actually dated the reading. A
+              number with no age is indistinguishable from a stale one, but an
+              INVENTED age is worse than none. */}
+          {fetchedAge && <span className={styles.pxqFetchedAt}>Leído {fetchedAge}</span>}
+        </div>
+        {/* Was icon-only until the operator reported he could not find it. A
+            control nobody finds is a control that does not exist, so it names
+            itself now; the `aria-label` stays because the visible text does
+            not say WHICH publication is being re-read. */}
         <button
           type="button"
-          className="btn-tesla outline-subtle-primary icon-only sm"
+          className="btn-tesla outline-subtle-primary sm"
           onClick={reload}
-          aria-label={`Refrescar precios mayoristas de ${itemId}`}
+          aria-label={`Volver a leer de ML los precios mayoristas de ${itemId}`}
         >
-          <RefreshCw size={14} />
+          <RefreshCw size={14} /> Volver a leer de ML
         </button>
       </div>
-      <div className={styles.pxqColumns}>
-        <div className={styles.pxqColumn}>
-          <div className={styles.pxqColumnTitle}>En MercadoLibre (en vivo)</div>
-          {liveUnavailable ? (
-            <div className={styles.pxqUnavailable}>No se pudo leer el estado en vivo de MercadoLibre.</div>
-          ) : liveTiers.length === 0 ? (
-            <div className={styles.panelState}>ML no tiene tramos mayoristas para esta publicación.</div>
-          ) : (
-            sortedByQuantity(liveTiers, 'quantity').map((tier) => (
-              <div key={tier.id} className={styles.pxqTierRow}>
-                <span>{tier.quantity} u.</span>
-                <span>{formatMoney(tier.amount)}</span>
-              </div>
-            ))
-          )}
+      {/* Read failures are stated ABOVE the table, never folded into it: a
+          row whose ML price we could not read is a different fact from a row
+          that has no price. */}
+      {liveUnavailable && <div className={styles.pxqUnavailable}>No se pudo leer el estado en vivo de MercadoLibre.</div>}
+      {rows.length === 0 ? (
+        <div className={styles.panelState}>
+          {liveUnavailable ? 'Sin tramos mayoristas locales.' : 'ML no tiene tramos mayoristas para esta publicación.'}
         </div>
-        <div className={styles.pxqColumn}>
-          <div className={styles.pxqColumnTitle}>Mirror local</div>
-          {mirrorTiers.length === 0 ? (
-            <div className={styles.panelState}>Sin tramos mayoristas locales.</div>
-          ) : (
-            sortedByQuantity(mirrorTiers, 'cantidad_minima').map((tier) => {
-              const divergent = isDivergent(tier);
+      ) : (
+        /* The grid is built out of `div`s, so the column/cell relationship the
+           headings give the EYE has to be declared for everyone else — without
+           these roles a screen reader reads the tramo as a flat run of strings
+           and nothing ties "Markup" to the percentage on the row. The roles
+           change no pixel: `display: grid` and the ARIA table structure are
+           independent. */
+        <div className={styles.pxqTable} data-testid="pxq-tramos" role="table" aria-label="Tramos mayoristas">
+          <div className={styles.pxqTableHead} role="row">
+            <div role="columnheader">Cant.</div>
+            <div role="columnheader">Precio en ML</div>
+            <div role="columnheader">Costo del envío</div>
+            <div className={styles.pxqRight} role="columnheader">
+              Markup
+            </div>
+            <div className={styles.pxqRight} role="columnheader">
+              Limpio por u.
+            </div>
+          </div>
+          <div className={styles.pxqTableBody} role="rowgroup">
+            {rows.map(({ key, cantidad, tier, liveTier, divergent }) => {
+              const entry = tier ? markupById?.get(tier.id) : null;
               return (
-                <div
-                  key={tier.id}
-                  className={`${styles.pxqTierRow} ${divergent ? styles.pxqTierRowDivergent : ''}`}
-                >
-                  <span>{tier.cantidad_minima} u.</span>
-                  <span>{formatMoney(tier.precio_unitario)}</span>
-                  <span>{formatEstado(tier.estado)}</span>
-                  {divergent && <span>Diverge de ML</span>}
+                <div key={key} className={`${styles.pxqRow} ${divergent ? styles.pxqRowDivergent : ''}`} role="row">
+                  <div role="cell">
+                    <span className={styles.pxqNum}>{cantidad} u.</span>
+                    {tier && <span className={styles.pxqEstado}>{formatEstado(tier.estado)}</span>}
+                  </div>
+                  {/* The live amount when ML answered for this tier, the local
+                      one otherwise — and the chip says which, so the operator
+                      never reads a mirror figure as MercadoLibre's. */}
+                  <div className={styles.pxqCell} role="cell">
+                    <span className={styles.pxqNum}>{formatMoney(liveTier ? liveTier.amount : tier?.precio_unitario)}</span>
+                    {divergent ? (
+                      <span className={`${styles.pxqChip} ${styles.pxqChipWarning}`}>Diverge de ML</span>
+                    ) : (
+                      !liveTier && <span className={styles.pxqChip}>local</span>
+                    )}
+                  </div>
+                  {/* No tier means ML has a tramo we never mirrored: there is
+                      nothing local to hang a cost on, so the cell says so
+                      instead of offering an action that would fail. */}
+                  <div className={styles.pxqCell} role="cell">
+                    {!tier ? (
+                      <span className={styles.pxqEmpty}>—</span>
+                    ) : isIncomplete(tier) ? (
+                      canWrite ? (
+                        <button type="button" className={styles.pxqLoadCost} onClick={() => requestCostEdit(tier.id)}>
+                          Cargar costo
+                        </button>
+                      ) : (
+                        <span className={styles.pxqEmpty}>—</span>
+                      )
+                    ) : (
+                      <>
+                        <span className={styles.pxqNum}>{formatMoney(tier.costo_envio_total)}</span>
+                        <span className={styles.pxqChip}>a mano</span>
+                      </>
+                    )}
+                  </div>
+                  <div className={`${styles.pxqRight} ${styles.pxqNum}`} role="cell">
+                    {tier ? <PxqTierMarkup markupLoading={markupLoading} entry={entry} /> : <span className={styles.pxqEmpty}>—</span>}
+                  </div>
+                  <div className={`${styles.pxqRight} ${styles.pxqNum} ${styles.pxqLimpio}`} role="cell">
+                    {entry && entry.limpio !== null && entry.limpio !== undefined ? (
+                      formatMoney(entry.limpio)
+                    ) : (
+                      <span className={styles.pxqEmpty}>—</span>
+                    )}
+                  </div>
                 </div>
               );
-            })
-          )}
+            })}
+          </div>
         </div>
-      </div>
+      )}
       {canWrite && (
         <>
           {/* Sorted here too, not just in the read column above: the editing
@@ -940,6 +981,7 @@ function PxqPanel({ itemId, pxqCacheRef }) {
             itemId={itemId}
             mirrorTiers={sortedByQuantity(mirrorTiers, 'cantidad_minima')}
             onChanged={handleAuthoringChanged}
+            editRequest={costEditRequest}
           />
           {/* The IMPORT ACTION is offered in exactly one state. An empty
               `liveTiers` means there is nothing on ML to import; a failed live
@@ -955,22 +997,42 @@ function PxqPanel({ itemId, pxqCacheRef }) {
               canImport={canImportLive}
               feedback={adoptFeedback}
               onFeedback={setAdoptFeedback}
-              onAdopted={reload}
+              // Not `handleAuthoringChanged`: that would clear the import's
+              // own feedback message the moment it succeeds. But the import IS
+              // an authoring change for the markup column -- without the
+              // refetch the adopted rows render a blank cell (the cached batch
+              // never mentioned them) instead of their reason.
+              onAdopted={() => Promise.all([reload(), reloadMarkup()])}
             />
           )}
-          <PxqSyncControl
-            itemId={itemId}
-            hasTiers={mirrorTiers.length > 0}
-            liveTiers={liveTiers}
-            liveUnavailable={liveUnavailable}
-            feedback={syncFeedback}
-            onFeedback={setSyncFeedback}
-            divergences={syncDivergences}
-            onDivergences={setSyncDivergences}
-            onSynced={reload}
-          />
         </>
       )}
+      {/* Prices are READ here and CHANGED on MercadoLibre, for now. The write
+          path still exists on the backend (`pxqAPI.sync`); it is only off this
+          panel, after the operator reported he could not tell what the panel
+          was going to send. This link replaces the button that used to sit
+          here.
+
+          Outside the `canWrite` gate on purpose: `pxq.escribir` gates OUR
+          writes, and there is no write of ours behind a link to another site.
+          Anyone allowed to READ the panel is allowed to walk to MercadoLibre.
+
+          An `<a>`, not a `<button>`, so middle-click and "open in new tab"
+          behave — and it carries the primary button classes so it still reads
+          as the action of the panel. */}
+      <div className={styles.pxqExternalEdit}>
+        <a
+          className="btn-tesla primary sm"
+          href={`https://vendedores.mercadolibre.com.ar/publicaciones/${itemId}/modificar/bomni/precio/`}
+          target="_blank"
+          rel="noopener noreferrer"
+        >
+          <ExternalLink size={13} /> Modificar precios en MercadoLibre
+        </a>
+        {/* What he changes over there is invisible here until the panel
+            re-reads, so the link says what to do on the way back. */}
+        <span className={styles.pxqExternalEditHint}>Cuando volvés, tocá «Volver a leer de ML».</span>
+      </div>
     </div>
   );
 }

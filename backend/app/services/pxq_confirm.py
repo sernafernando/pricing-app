@@ -35,9 +35,14 @@ def is_priceable(row: MlPxqTier) -> bool:
     return row.costo_envio_total is not None
 
 
-def _row_matches_snapshot(row: MlPxqTier) -> bool:
+def is_keep(row: MlPxqTier) -> bool:
     """True when the row still holds the values ML last confirmed, i.e. this
-    sync treated it as a keep and its id survived."""
+    sync treated it as a keep and its id survived.
+
+    Public (slice C, D5): `sync_pxq_tiers` classifies keep/create/modify off
+    this SAME predicate, BEFORE the POST -- once `remap_and_confirm` has run,
+    every row looks like a keep, so the classification has to be captured
+    ahead of it."""
     return row.cantidad_sincronizada == row.cantidad_minima and row.precio_sincronizado == row.precio_unitario
 
 
@@ -100,7 +105,7 @@ def remap_and_confirm(
     for row in rows:
         if not is_priceable(row) or row.ml_price_id is None:
             continue
-        if not _row_matches_snapshot(row):
+        if not is_keep(row):
             continue
         match = next(
             (entry for entry in confirmed_raw if str(entry["id"]) == str(row.ml_price_id)),
@@ -122,7 +127,7 @@ def remap_and_confirm(
     for row in rows:
         if not is_priceable(row):
             continue
-        if row.ml_price_id is not None and _row_matches_snapshot(row):
+        if row.ml_price_id is not None and is_keep(row):
             # Already resolved in pass 1 by its surviving id.
             continue
         # A create has no id; a modify was emitted as delete-old plus

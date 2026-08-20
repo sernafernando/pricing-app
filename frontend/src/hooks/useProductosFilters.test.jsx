@@ -266,3 +266,158 @@ describe('useProductosFilters — after clearing, no filter reaches the API', ()
     expect(result.current.construirFiltrosParams()).toEqual({});
   });
 });
+
+describe('useProductosFilters — wholesale (PxQ) filter', () => {
+  it('defaults filtroPxq to null and sends no param', () => {
+    const { result } = renderHook(() => useProductosFilters(), { wrapper });
+    expect(result.current.filtroPxq).toBeNull();
+    expect(result.current.construirFiltrosParams().con_pxq).toBeUndefined();
+  });
+
+  it('construirFiltrosParams sends con_pxq=true when the filter is on', () => {
+    const { result } = renderHook(() => useProductosFilters(), { wrapper });
+
+    act(() => {
+      result.current.setFiltroPxq('con_pxq');
+    });
+
+    expect(result.current.construirFiltrosParams().con_pxq).toBe(true);
+  });
+
+  it('keeps every other active filter alongside it (they add up, never replace)', () => {
+    const { result } = renderHook(() => useProductosFilters(), { wrapper });
+
+    act(() => {
+      result.current.setFiltroPxq('con_pxq');
+      result.current.setFiltroPromoTipos(['SMART']);
+      result.current.setMarcasSeleccionadas(['Epson']);
+    });
+
+    const params = result.current.construirFiltrosParams();
+    expect(params.con_pxq).toBe(true);
+    expect(params.promo_tipos).toBe('SMART');
+    expect(params.marcas).toBe('Epson');
+  });
+
+  it('loadFiltersFromURL round-trips pxq from the URL', () => {
+    const { result } = renderHook(() => useProductosFilters(), {
+      wrapper: wrapperWithURL(['/?pxq=con_pxq']),
+    });
+    expect(result.current.filtroPxq).toBe('con_pxq');
+  });
+
+  it('limpiarTodosFiltros resets it', () => {
+    const { result } = renderHook(() => useProductosFilters(), { wrapper });
+
+    act(() => {
+      result.current.setFiltroPxq('con_pxq');
+    });
+    act(() => {
+      result.current.limpiarTodosFiltros();
+    });
+
+    expect(result.current.filtroPxq).toBeNull();
+    expect(result.current.construirFiltrosParams().con_pxq).toBeUndefined();
+  });
+
+  it('limpiarFiltros (advanced-panel reset) resets it too', () => {
+    const { result } = renderHook(() => useProductosFilters(), { wrapper });
+
+    act(() => {
+      result.current.setFiltroPxq('con_pxq');
+    });
+    act(() => {
+      result.current.limpiarFiltros();
+    });
+
+    expect(result.current.filtroPxq).toBeNull();
+  });
+});
+
+describe('useProductosFilters — limpiarFiltrosAvanzados (the Filtros Avanzados panel button)', () => {
+  // The panel used to keep its OWN hand-written list of setters inside
+  // Productos.jsx. PxQ shipped without a line in it, so "Limpiar Todos" left
+  // the listing filtered by wholesale prices while the panel looked clean —
+  // the same drift that had already left `filtroTiendaOficial` behind. The
+  // reset now lives here, and `resetAllFilters` delegates to it, so the two
+  // cannot disagree.
+  const ADVANCED_FILTERS = [
+    ['setFiltroRebate', 'con_rebate'],
+    ['setFiltroOferta', 'con_oferta'],
+    ['setFiltroWebTransf', 'con_web_transf'],
+    ['setFiltroTiendaNube', 'con_descuento'],
+    ['setFiltroMarkupClasica', 'positivo'],
+    ['setFiltroMarkupRebate', 'positivo'],
+    ['setFiltroMarkupOferta', 'positivo'],
+    ['setFiltroMarkupWebTransf', 'positivo'],
+    ['setFiltroOutOfCards', 'con_out_of_cards'],
+    ['setFiltroMLA', 'con_mla'],
+    ['setFiltroEstadoMLA', 'activa'],
+    ['setFiltroNuevos', 'ultimos_7_dias'],
+    ['setFiltroTiendaOficial', '2645'],
+    ['setFiltroPxq', 'con_pxq'],
+  ];
+
+  it('leaves no advanced filtro* state behind — guards every future filter', () => {
+    const { result } = renderHook(() => useProductosFilters(), { wrapper });
+
+    act(() => {
+      ADVANCED_FILTERS.forEach(([setter, value]) => result.current[setter](value));
+      result.current.setColoresSeleccionados(['rojo']);
+      result.current.setFiltroPromoTipos(['DEAL']);
+      result.current.setFiltroPromoEstado('aplicada');
+    });
+    act(() => result.current.limpiarFiltrosAvanzados());
+
+    // Stock/precio live in the MAIN bar, not in this panel: the panel must
+    // not reach outside itself.
+    const MAIN_BAR = new Set(['filtroStock', 'filtroPrecio']);
+    const NEUTRAL = new Set([null, undefined, '', 'todos', 'disponible']);
+    const leftovers = Object.entries(result.current)
+      .filter(([key]) => key.startsWith('filtro') && !key.startsWith('filtros') && !MAIN_BAR.has(key))
+      .filter(([, value]) => {
+        if (Array.isArray(value)) return value.length > 0;
+        if (typeof value === 'function') return false;
+        return !NEUTRAL.has(value);
+      })
+      .map(([key, value]) => `${key}=${JSON.stringify(value)}`);
+
+    expect(leftovers).toEqual([]);
+    expect(result.current.coloresSeleccionados).toEqual([]);
+    expect(result.current.construirFiltrosParams().con_pxq).toBeUndefined();
+  });
+
+  it('does not clear the main-bar filters it does not own', () => {
+    const { result } = renderHook(() => useProductosFilters(), { wrapper });
+
+    act(() => {
+      result.current.setSearchInput('taladro');
+      result.current.setFiltroStock('con_stock');
+      result.current.setMarcasSeleccionadas(['ACME']);
+      result.current.setFiltroPxq('con_pxq');
+    });
+    act(() => result.current.limpiarFiltrosAvanzados());
+
+    expect(result.current.searchInput).toBe('taladro');
+    expect(result.current.filtroStock).toBe('con_stock');
+    expect(result.current.marcasSeleccionadas).toEqual(['ACME']);
+    expect(result.current.filtroPxq).toBeNull();
+  });
+});
+
+describe('Productos page — the Filtros Avanzados panel delegates its reset', () => {
+  it('keeps no parallel list of setters in the page', async () => {
+    // A source-level guard: the bug was a second, hand-maintained reset list
+    // in the page that silently fell behind the hook. Behaviour tests on the
+    // hook cannot see it, so this asserts the delegation itself.
+    const fs = await import('node:fs');
+    const { fileURLToPath } = await import('node:url');
+    const path = await import('node:path');
+    const here = path.dirname(fileURLToPath(import.meta.url));
+    const source = fs.readFileSync(path.join(here, '..', 'pages', 'Productos.jsx'), 'utf8');
+
+    expect(source).toContain('onClick={limpiarFiltrosAvanzados}');
+    expect(source).not.toContain('setFiltroRebate(null);');
+    expect(source).not.toContain('setFiltroPromoTipos([]);');
+  });
+});

@@ -18,12 +18,14 @@ the moment someone reaches for an f-string instead of lazy `%s` args.
 from __future__ import annotations
 
 import logging
+from datetime import date
 from decimal import Decimal
 from unittest.mock import AsyncMock, patch
 
 import pytest
 
 from app.core.security import get_password_hash
+from app.models.comision_versionada import ComisionBase, ComisionVersion
 from app.models.ml_pxq_tier import ESTADO_LISTO, ESTADO_SINCRONIZADO, MlPxqTier
 from app.models.producto import ProductoERP
 from app.models.publicacion_ml import PublicacionML
@@ -59,8 +61,20 @@ def producto(db) -> ProductoERP:
 
 
 @pytest.fixture()
-def publicacion(db, producto) -> PublicacionML:
-    pub = PublicacionML(mla="MLA930001", item_id=producto.item_id, codigo="SKU-PXQ-LOG")
+def comision_fixtures(db) -> ComisionVersion:
+    """Resolvable commission-base context (D4): the write gate now needs
+    `markup_resolved`, which needs both `costo_envio_total` AND this."""
+    version = ComisionVersion(nombre="Test PxQ Logging", fecha_desde=date(2000, 1, 1), activo=True)
+    db.add(version)
+    db.flush()
+    db.add(ComisionBase(version_id=version.id, grupo_id=1, comision_base=20.0))
+    db.flush()
+    return version
+
+
+@pytest.fixture()
+def publicacion(db, producto, comision_fixtures) -> PublicacionML:
+    pub = PublicacionML(mla="MLA930001", item_id=producto.item_id, codigo="SKU-PXQ-LOG", pricelist_id=4)
     db.add(pub)
     db.flush()
     return pub
@@ -90,9 +104,31 @@ def _eligible() -> dict:
     return {"item_tags": ["standard_price_by_quantity"], "seller_tags": ["business"]}
 
 
+class _CombinedPatcher:
+    """`.stop()`-compatible wrapper stopping BOTH patches together, so every
+    existing `patcher.stop()` call site keeps working unchanged."""
+
+    def __init__(self, *patchers) -> None:
+        self._patchers = patchers
+
+    def stop(self) -> None:
+        for p in self._patchers:
+            p.stop()
+
+
 def _mock_client(**overrides):
     """Patches `write_service.ml_webhook_client` with AsyncMocks; overrides
-    replace individual method return values."""
+    replace individual method return values.
+
+    ALSO patches `pxq_markup_service.ml_webhook_client` (slice B) -- the sync
+    flow calls `markup_for_tiers`, which now runs `refresh_tier_shipping`
+    per tier, and that reads the module-level singleton in
+    `pxq_markup_service.py`, a SEPARATE name binding from `write_service`'s.
+    Unpatched, that call would hit the real ml-webhook proxy over the
+    network on every test in this file. `shipping_cost` defaults to `None`
+    -- the current real-world response (the proxy route does not exist
+    yet), so the default here matches production exactly.
+    """
     patcher = patch.object(write_service, "ml_webhook_client")
     mock_client = patcher.start()
     mock_client.get_pxq_eligibility = AsyncMock(return_value=overrides.get("eligibility", _eligible()))
@@ -100,7 +136,15 @@ def _mock_client(**overrides):
     mock_client.post_pxq_prices = AsyncMock(
         return_value=overrides.get("post_result", {"ok": True, "status_code": 200, "ambiguous": False, "body": None})
     )
-    return patcher, mock_client
+    mock_client.get_pxq_seller_shipping_cost = AsyncMock(return_value=overrides.get("shipping_cost", None))
+
+    from app.services import pxq_markup_service
+
+    markup_patcher = patch.object(pxq_markup_service, "ml_webhook_client")
+    markup_mock_client = markup_patcher.start()
+    markup_mock_client.get_pxq_seller_shipping_cost = AsyncMock(return_value=overrides.get("shipping_cost", None))
+
+    return _CombinedPatcher(patcher, markup_patcher), mock_client
 
 
 def _assert_lazy_formatting(records) -> None:

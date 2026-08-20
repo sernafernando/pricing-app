@@ -18,6 +18,11 @@ class TipoAccion(str, enum.Enum):
     MODIFICACION_MASIVA = "modificacion_masiva"
     TN_DESPUBLICAR = "tn_despublicar"
     TN_PUBLICAR = "tn_publicar"
+    # slice C of `pxq-markup-antes-de-publicar`: one row per PxQ price
+    # confirmed by MercadoLibre. `tipo_accion` is `VARCHAR(50)` in Postgres
+    # (no native enum type backs it), so this is a pure Python-enum addition
+    # -- no migration, no DDL.
+    PXQ_PRECIO_PUBLICADO = "pxq_precio_publicado"
 
 
 class Auditoria(Base):

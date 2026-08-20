@@ -30,6 +30,7 @@ from app.services.ml_pxq_adopt_service import adopt_live_pxq_tiers
 from app.services.ml_pxq_write_service import sync_pxq_tiers
 from app.services.ml_webhook_client import ml_webhook_client
 from app.services.permisos_service import PermisosService
+from app.services.pxq_markup_service import markup_for_tiers, refresh_stale_tier_shipping
 from app.services.pxq_permissions_backfill import PXQ_ESCRIBIR_CODE, PXQ_VER_CODE
 from app.services.pxq_tier_service import create_pxq_tier, delete_pxq_tier, update_pxq_tier
 
@@ -76,6 +77,11 @@ class PxqLiveStateResponse(BaseModel):
 
 class PxqSyncRequest(BaseModel):
     allow_clear: bool = False
+    # D4/slice C: per-request opt-in to publish tiers whose markup never
+    # resolved. Defaults False and carries NO server-side memory across
+    # requests -- there is no per-tier variant, it is all-or-nothing for
+    # THIS one sync call (`ml_pxq_write_service.sync_pxq_tiers`).
+    publicar_sin_markup: bool = False
 
 
 class PxqCreateTierRequest(BaseModel):
@@ -112,6 +118,11 @@ class PxqSyncResult(BaseModel):
     divergences: Optional[List[PxqDivergenceItem]] = None
     array: Optional[List[Dict[str, Any]]] = None
     status_code: Optional[int] = None
+    # D6: present only when a confirmed publish could not be audited --
+    # `synced` stays true, this is an ADDITIONAL warning, never a downgrade.
+    # `PxqSyncResult(**outcome)` below silently drops any key not modeled
+    # here, so leaving this field out would silently swallow the warning.
+    audit_warning: Optional[str] = None
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -152,6 +163,35 @@ class PxqAdoptResult(BaseModel):
     imported: List[PxqMirrorTier]
     skipped_count: int = 0
     skipped: List[PxqSkippedLiveTier] = Field(default_factory=list)
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class PxqTierMarkupResult(BaseModel):
+    """Markup outcome for ONE tier (`GET /{item_id}/markup`).
+
+    `reason` is present ONLY when the markup could not be computed;
+    `markup`/`limpio`/`comision_total` are present ONLY when it could. The
+    route is declared with `response_model_exclude_none=True`, so this is a
+    response-schema GUARANTEE, not a hand-checked convention: an unresolved
+    tier's JSON carries `tier_id` + `reason` and nothing else -- there is no
+    field left for the client to misread as a fabricated `0`.
+    """
+
+    tier_id: int
+    reason: Optional[str] = None
+    markup: Optional[float] = None
+    limpio: Optional[float] = None
+    comision_total: Optional[float] = None
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class PxqMarkupBatchResponse(BaseModel):
+    """Response for `GET /{item_id}/markup`: one entry per mirrored tier."""
+
+    item_id: str
+    tiers: List[PxqTierMarkupResult]
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -359,6 +399,50 @@ def eliminar_tier_pxq(
     db.commit()
 
 
+@router.get("/{item_id}/markup", response_model=PxqMarkupBatchResponse, response_model_exclude_none=True)
+def obtener_markup_pxq(
+    item_id: str,
+    current_user: Usuario = Depends(get_current_user_transient),
+) -> PxqMarkupBatchResponse:
+    """Batch markup read for every mirrored tier of `item_id` (slice A1 of
+    `pxq-markup-antes-de-publicar`).
+
+    NOT a pure DB read anymore (slice B): a TTL-gated shipping auto-fetch
+    (`pxq_markup_service.refresh_stale_tier_shipping`) may call the
+    ml-webhook proxy once per stale tier before the markup is computed. Uses
+    `get_current_user_transient` (NOT `Depends(get_db)`), same pool-safety
+    pair as `GET /{item_id}/live` -- see that endpoint's docstring and
+    `backend/CLAUDE.md`'s QueuePool rule: the refresh function owns its own
+    short sessions end-to-end and this endpoint never holds a session across
+    that outbound call either.
+
+    Gated by `pxq.ver` (read), mirroring `_require_pxq_read`, NOT
+    `pxq.escribir` -- this endpoint never writes anything itself (the
+    refresh's own writes are its own isolated unit of work, see that
+    function's docstring for the D3/failure-isolation contract).
+    """
+    with get_background_db() as db:
+        _require_pxq_read(current_user, db)
+    # Session closed here -- no session is held while the refresh below
+    # makes its own (also short-lived) proxy calls.
+
+    refresh_stale_tier_shipping(item_id)
+
+    with get_background_db() as db:
+        markups = markup_for_tiers(db, item_id)
+        tiers = [
+            PxqTierMarkupResult(
+                tier_id=m.tier_id,
+                reason=m.reason,
+                markup=m.markup,
+                limpio=m.limpio,
+                comision_total=m.comision_total,
+            )
+            for m in markups.values()
+        ]
+    return PxqMarkupBatchResponse(item_id=item_id, tiers=tiers)
+
+
 @router.get("/{item_id}/live", response_model=PxqLiveStateResponse)
 async def obtener_estado_live_pxq(
     item_id: str,
@@ -413,7 +497,9 @@ def sincronizar_pxq(
     (not `async def`): the service performs synchronous DB writes bridged
     with the async client via `resolve_maybe_async` -- same pattern as
     `refrescar_competencia_catalogo_item`."""
-    outcome = sync_pxq_tiers(db, current_user, item_id, allow_clear=body.allow_clear)
+    outcome = sync_pxq_tiers(
+        db, current_user, item_id, allow_clear=body.allow_clear, publicar_sin_markup=body.publicar_sin_markup
+    )
     http_status = _SYNC_STATUS_TO_HTTP.get(outcome["status"])
     if http_status is not None:
         raise HTTPException(status_code=http_status, detail=_error_detail_from_outcome(outcome))
