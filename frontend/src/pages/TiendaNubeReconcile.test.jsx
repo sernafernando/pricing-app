@@ -26,6 +26,7 @@ import { screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { renderWithRouter } from '../test/renderWithRouter';
 import TiendaNubeReconcile, { COLUMN_SIZING_STORAGE_KEY } from './TiendaNubeReconcile';
+import { selectTabItems } from './tiendaNubeReconcileHelpers';
 import api from '../services/api';
 
 const mockTienePermiso = vi.fn(() => true);
@@ -104,6 +105,14 @@ function manyFaltaPublicar(count) {
     despublicar: false,
     tn_matches: [],
   }));
+}
+
+// Secondary row actions (Banear, Despublicar, Editar en TN) moved behind the
+// Acciones column's overflow menu (PR-A of the table redesign) — tests that
+// used to click these buttons directly now open the menu first.
+async function openRowMenu(user, ean) {
+  const trigger = await screen.findByRole('button', { name: new RegExp(`Más acciones para ${ean}`, 'i') });
+  await user.click(trigger);
 }
 
 beforeEach(() => {
@@ -341,8 +350,8 @@ describe('Anomaly sub-tabs', () => {
       expect(screen.getByText('FP-50')).toBeInTheDocument();
     });
 
-    const banButton = await screen.findByRole('button', { name: /Banear/i });
-    await user.click(banButton);
+    await openRowMenu(user, 'FP-50');
+    await user.click(screen.getByRole('menuitem', { name: 'Banear' }));
 
     // The set shrank to 50 (exactly one page) — the view must recover with
     // real rows, never a stuck-on-page-2 "No hay filas" dead end.
@@ -363,8 +372,8 @@ describe('Anomaly sub-tabs', () => {
     const tab = await screen.findByRole('tab', { name: /Falta vincular/i });
     await user.click(tab);
 
-    const banButton = await screen.findByRole('button', { name: /Banear/i });
-    await user.click(banButton);
+    await openRowMenu(user, 'FV-1');
+    await user.click(screen.getByRole('menuitem', { name: 'Banear' }));
 
     await waitFor(() => {
       expect(api.post).toHaveBeenCalledWith('/tienda-nube-reconcile/banear', { ean: 'FV-1' });
@@ -388,30 +397,31 @@ describe('Anomaly sub-tabs', () => {
     expect(screen.queryByText(/sugerid/i)).not.toBeInTheDocument();
   });
 
-  it('shows all conflicting TN rows in a DUPLICADO group with no pre-selected, highlighted, or recommended row', async () => {
+  it('shows all conflicting TN matches in a DUPLICADO group with no pre-selected, highlighted, or recommended match', async () => {
     await renderWithRouter(<TiendaNubeReconcile />);
 
     const user = userEvent.setup();
     const dupTab = await screen.findByRole('tab', { name: /Duplicado/i });
     await user.click(dupTab);
 
-    const groupHeading = await screen.findByText(/EAN GBP: 333/i);
-    const group = groupHeading.closest(`[data-testid="duplicado-group"]`);
-    expect(group).not.toBeNull();
+    const group = await screen.findByTestId('duplicado-group');
+    expect(within(group).getByTestId('duplicado-group-header')).toHaveTextContent('333');
 
-    // Both conflicting TN rows are present with full context.
-    expect(within(group).getByText(/product_id: 10/i)).toBeInTheDocument();
-    expect(within(group).getByText(/product_id: 11/i)).toBeInTheDocument();
+    // Both conflicting TN matches are present, bare product_id/variant_id
+    // pair (no redundant "product_id: N" prefix — pass C card redesign).
+    const matchRows = within(group).getAllByTestId('duplicado-match-row');
+    expect(matchRows).toHaveLength(2);
+    expect(matchRows.map((r) => r.textContent).some((t) => /10\s*\/\s*1/.test(t))).toBe(true);
+    expect(matchRows.map((r) => r.textContent).some((t) => /11\s*\/\s*1/.test(t))).toBe(true);
 
-    // Scoped to the DUPLICADO group specifically: no row carries a
+    // Scoped to the DUPLICADO group specifically: no match carries a
     // selection/highlight/recommendation affordance (radio, checkbox, a
     // "selected"/"recommended" row class, or an aria-selected row).
     expect(within(group).queryAllByRole('radio')).toHaveLength(0);
     expect(within(group).queryAllByRole('checkbox')).toHaveLength(0);
-    const rows = within(group).getAllByRole('row');
-    for (const row of rows) {
-      expect(row).not.toHaveAttribute('aria-selected', 'true');
-      expect(row.className || '').not.toMatch(/selected|recommended|highlight/i);
+    for (const matchRow of matchRows) {
+      expect(matchRow).not.toHaveAttribute('aria-selected', 'true');
+      expect(matchRow.className || '').not.toMatch(/selected|recommended|highlight/i);
     }
   });
 
@@ -422,8 +432,7 @@ describe('Anomaly sub-tabs', () => {
     const dupTab = await screen.findByRole('tab', { name: /Duplicado/i });
     await user.click(dupTab);
 
-    const groupHeading = await screen.findByText(/EAN GBP: 333/i);
-    const group = groupHeading.closest(`[data-testid="duplicado-group"]`);
+    const group = await screen.findByTestId('duplicado-group');
 
     expect(within(group).getByText(/publicado/i)).toBeInTheDocument();
     expect(within(group).queryByRole('columnheader', { name: /^activo$/i })).not.toBeInTheDocument();
@@ -508,7 +517,11 @@ describe('tn_presence display', () => {
     const texts = rows.map((r) => r.textContent);
     // Four distinct, non-ambiguous presence labels — no bare "Desconocido".
     expect(new Set(texts).size).toBe(4);
-    expect(texts.some((t) => /no.*tienda nube|no está en tn|not_in_tn/i.test(t))).toBe(true);
+    expect(texts.some((t) => /no está/i.test(t))).toBe(true);
+    // Pass B: the short label is backed by the full explanatory sentence as
+    // a tooltip, so the detail isn't lost, only demoted from cell text.
+    const notInTnLabel = rows.find((r) => /^D/.test(r.textContent)).querySelector(`[title]`);
+    expect(notInTnLabel).toHaveAttribute('title', expect.stringMatching(/no está en tienda nube/i));
   });
 
   it('splits DUPLICADO rows by tn_presence: "sin presencia en TN" vs "existe en TN"', async () => {
@@ -541,8 +554,8 @@ describe('tn_presence display', () => {
     await waitFor(() => {
       expect(screen.getAllByText(/DUP-A/).length).toBeGreaterThan(0);
     });
-    expect(screen.getByText(/duplicado, sin presencia en TN/i)).toBeInTheDocument();
-    expect(screen.getByText(/duplicado, existe en TN/i)).toBeInTheDocument();
+    expect(screen.getByText(/sin presencia en TN/i)).toBeInTheDocument();
+    expect(screen.getByText(/^existe en TN$/i)).toBeInTheDocument();
   });
 });
 
@@ -568,7 +581,12 @@ describe('tn_presence "unknown" relabel + sync trigger (Slice 3)', () => {
       expect(screen.getAllByText('UNK-1').length).toBeGreaterThan(0);
     });
     expect(screen.queryByText('Presencia en TN desconocida')).not.toBeInTheDocument();
-    expect(screen.getByText(/publicaci[oó]n.*no.*sincroniz/i)).toBeInTheDocument();
+    expect(screen.queryByText(/desconocid/i)).not.toBeInTheDocument();
+    // Pass B: the cell shows a short label ("Sin sincronizar"), with the
+    // full "publish state not synced" sentence carried as its tooltip — the
+    // actionable truth still reaches the operator, just not as raw cell text.
+    expect(screen.getByText('Sin sincronizar')).toBeInTheDocument();
+    expect(screen.getByTitle(/publicaci[oó]n.*no.*sincroniz/i)).toBeInTheDocument();
   });
 
   it('offers a control to trigger the existing sync endpoint, gated by admin.gestionar_tn_publicacion', async () => {
@@ -602,7 +620,8 @@ describe('tn_presence "unknown" relabel + sync trigger (Slice 3)', () => {
       expect(screen.getAllByText('UNK-1').length).toBeGreaterThan(0);
     });
     expect(screen.queryByRole('button', { name: /sincronizar/i })).not.toBeInTheDocument();
-    expect(screen.getByText(/publicaci[oó]n.*no.*sincroniz/i)).toBeInTheDocument();
+    expect(screen.getByText('Sin sincronizar')).toBeInTheDocument();
+    expect(screen.getByTitle(/publicaci[oó]n.*no.*sincroniz/i)).toBeInTheDocument();
   });
 
   it('renders a single global trigger (not one per row) even with many unknown rows, and never inside a row cell', async () => {
@@ -780,7 +799,8 @@ describe('Despublicar action (Slice 2)', () => {
     const tab = await screen.findByRole('tab', { name: /Mal vinculado/i });
     await user.click(tab);
 
-    expect(await screen.findByRole('button', { name: /^Despublicar$/i })).toBeInTheDocument();
+    await openRowMenu(user, 'DP-1');
+    expect(screen.getByRole('menuitem', { name: 'Despublicar' })).toBeInTheDocument();
   });
 
   it('requires an explicit confirmation step before calling the endpoint', async () => {
@@ -791,8 +811,8 @@ describe('Despublicar action (Slice 2)', () => {
     const tab = await screen.findByRole('tab', { name: /Mal vinculado/i });
     await user.click(tab);
 
-    const despublicarButton = await screen.findByRole('button', { name: /^Despublicar$/i });
-    await user.click(despublicarButton);
+    await openRowMenu(user, 'DP-1');
+    await user.click(screen.getByRole('menuitem', { name: 'Despublicar' }));
 
     // Not yet called — a confirm step must appear first.
     expect(api.post).not.toHaveBeenCalledWith('/tienda-nube-reconcile/despublicar', expect.anything());
@@ -813,14 +833,15 @@ describe('Despublicar action (Slice 2)', () => {
     const tab = await screen.findByRole('tab', { name: /Mal vinculado/i });
     await user.click(tab);
 
-    const despublicarButton = await screen.findByRole('button', { name: /^Despublicar$/i });
-    await user.click(despublicarButton);
+    await openRowMenu(user, 'DP-1');
+    await user.click(screen.getByRole('menuitem', { name: 'Despublicar' }));
 
     const cancelButton = await screen.findByRole('button', { name: /Cancelar/i });
     await user.click(cancelButton);
 
     expect(api.post).not.toHaveBeenCalledWith('/tienda-nube-reconcile/despublicar', expect.anything());
-    expect(await screen.findByRole('button', { name: /^Despublicar$/i })).toBeInTheDocument();
+    await openRowMenu(user, 'DP-1');
+    expect(screen.getByRole('menuitem', { name: 'Despublicar' })).toBeInTheDocument();
   });
 
   it('shows a success toast and reloads the report after a successful unpublish', async () => {
@@ -837,8 +858,8 @@ describe('Despublicar action (Slice 2)', () => {
     const tab = await screen.findByRole('tab', { name: /Mal vinculado/i });
     await user.click(tab);
 
-    const despublicarButton = await screen.findByRole('button', { name: /^Despublicar$/i });
-    await user.click(despublicarButton);
+    await openRowMenu(user, 'DP-1');
+    await user.click(screen.getByRole('menuitem', { name: 'Despublicar' }));
     const confirmButton = await screen.findByRole('button', { name: /Confirmar/i });
     await user.click(confirmButton);
 
@@ -861,8 +882,8 @@ describe('Despublicar action (Slice 2)', () => {
     const tab = await screen.findByRole('tab', { name: /Mal vinculado/i });
     await user.click(tab);
 
-    const despublicarButton = await screen.findByRole('button', { name: /^Despublicar$/i });
-    await user.click(despublicarButton);
+    await openRowMenu(user, 'DP-1');
+    await user.click(screen.getByRole('menuitem', { name: 'Despublicar' }));
     const confirmButton = await screen.findByRole('button', { name: /Confirmar/i });
     await user.click(confirmButton);
 
@@ -878,7 +899,7 @@ describe('Despublicar action (Slice 2)', () => {
     await waitFor(() => {
       expect(screen.getByText('111')).toBeInTheDocument();
     });
-    expect(screen.queryByRole('button', { name: /^Despublicar$/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole('menuitem', { name: 'Despublicar' })).not.toBeInTheDocument();
   });
 });
 
@@ -887,8 +908,8 @@ describe('Ban/unban error handling', () => {
     const user = userEvent.setup();
     await renderWithRouter(<TiendaNubeReconcile />);
 
-    const banButton = await screen.findByRole('button', { name: /Banear/i });
-    await user.click(banButton);
+    await openRowMenu(user, '111');
+    await user.click(screen.getByRole('menuitem', { name: 'Banear' }));
 
     await waitFor(() => {
       expect(api.post).toHaveBeenCalledWith('/tienda-nube-reconcile/banear', { ean: '111' });
@@ -905,8 +926,8 @@ describe('Ban/unban error handling', () => {
     const user = userEvent.setup();
     await renderWithRouter(<TiendaNubeReconcile />);
 
-    const banButton = await screen.findByRole('button', { name: /Banear/i });
-    await user.click(banButton);
+    await openRowMenu(user, '111');
+    await user.click(screen.getByRole('menuitem', { name: 'Banear' }));
 
     await waitFor(() => {
       expect(screen.getByText(/El EAN ya está en la banlist/i)).toBeInTheDocument();
@@ -965,8 +986,8 @@ describe('Banlist view', () => {
     await screen.findByRole('tab', { name: /Banlist \(1\)/i });
     const initialBaneadosCalls = api.get.mock.calls.filter(([url]) => url === '/tienda-nube-reconcile/baneados').length;
 
-    const banButton = await screen.findByRole('button', { name: /Banear/i });
-    await user.click(banButton);
+    await openRowMenu(user, '111');
+    await user.click(screen.getByRole('menuitem', { name: 'Banear' }));
 
     await waitFor(() => {
       const callsAfter = api.get.mock.calls.filter(([url]) => url === '/tienda-nube-reconcile/baneados').length;
@@ -1024,6 +1045,12 @@ describe('Banlist view', () => {
     await waitFor(() => {
       expect(api.post).toHaveBeenCalledWith('/tienda-nube-reconcile/desbanear', { banlist_id: 1 });
       expect(api.post).toHaveBeenCalledWith('/tienda-nube-reconcile/desbanear', { banlist_id: 2 });
+    });
+
+    // Full-success toast shape — was previously only exercised indirectly;
+    // the partial-failure shape below has its own dedicated assertion.
+    await waitFor(() => {
+      expect(screen.getByText(/2 EAN\(s\) desbaneados exitosamente/i)).toBeInTheDocument();
     });
   });
 
@@ -1156,11 +1183,54 @@ describe('Product identity in rows (rebuilt UI)', () => {
     });
   });
 
-  it('offers an "Editar en TN" link per match that opens the MATCH\'s own tn_admin_url in a new tab', async () => {
+  // Coverage added in pass B: the "Coincidencias TN (IDs)" column that used
+  // to list EVERY match is gone — the "En Tienda Nube" cell now shows only
+  // the primary match's IDs plus a "+N" indicator, so this must be verified
+  // explicitly (nothing in the pre-existing suite covered "more than one
+  // match" for the general table branch, only for DUPLICADO's own view).
+  it('shows a "+N" indicator when a row has more than one TN match (pass B collapse)', async () => {
+    setupApiMocks({
+      items: [
+        {
+          ean: 'MULTI-1',
+          verdict: 'MAL_PUBLICADO',
+          despublicar: false,
+          tn_presence: 'published',
+          tn_matches: [
+            { product_id: 1, variant_id: 1, variant_sku: 'MULTI-1', published: true },
+            { product_id: 2, variant_id: 1, variant_sku: 'MULTI-1', published: false },
+            { product_id: 3, variant_id: 1, variant_sku: 'MULTI-1', published: false },
+          ],
+        },
+      ],
+      verdictCounts: { MAL_PUBLICADO: 1 },
+    });
+    await renderWithRouter(<TiendaNubeReconcile />);
+
+    await waitFor(() => {
+      // Primary match preferred: the one TN reports as published: true.
+      expect(screen.getByText('1/1')).toBeInTheDocument();
+    });
+    expect(screen.getByText('+2')).toBeInTheDocument();
+  });
+
+  it('shows no "+N" indicator for a row with a single TN match', async () => {
     setupEnriched();
     await renderWithRouter(<TiendaNubeReconcile />);
 
-    const link = await screen.findByRole('link', { name: /editar en tn/i });
+    await waitFor(() => {
+      expect(screen.getByText('123/456')).toBeInTheDocument();
+    });
+    expect(screen.queryByText(/^\+\d+$/)).not.toBeInTheDocument();
+  });
+
+  it('offers an "Editar en TN" action (now in the Acciones overflow menu) that opens the resolved match\'s tn_admin_url in a new tab', async () => {
+    setupEnriched();
+    const user = userEvent.setup();
+    await renderWithRouter(<TiendaNubeReconcile />);
+
+    await openRowMenu(user, 'RICH-1');
+    const link = screen.getByRole('menuitem', { name: /editar en tn/i });
     expect(link).toHaveAttribute('href', 'https://admin.tiendanube.com/products/123');
     expect(link).toHaveAttribute('target', '_blank');
     expect(link).toHaveAttribute('rel', expect.stringContaining('noopener'));
@@ -1205,9 +1275,8 @@ describe('Product identity in rows (rebuilt UI)', () => {
 
     await user.click(await screen.findByRole('tab', { name: /Duplicado/i }));
 
-    const groupHeading = await screen.findByText(/EAN GBP: DUP-LINKS/i);
-    const group = groupHeading.closest('[data-testid="duplicado-group"]');
-    expect(group).not.toBeNull();
+    const group = await screen.findByTestId('duplicado-group');
+    expect(within(group).getByTestId('duplicado-group-header')).toHaveTextContent('DUP-LINKS');
 
     // Exactly one link per conflicting match, each pointing at ITS product.
     const links = within(group).getAllByRole('link', { name: /editar en tn/i });
@@ -1219,15 +1288,14 @@ describe('Product identity in rows (rebuilt UI)', () => {
 
     // The group header itself carries NO link — links live only in the
     // per-match rows, so none is privileged.
-    const header = group.querySelector('[class*="duplicateGroupHeader"]');
-    expect(header).not.toBeNull();
+    const header = within(group).getByTestId('duplicado-group-header');
     expect(within(header).queryByRole('link')).not.toBeInTheDocument();
 
-    // And each match ROW has exactly one link (its own).
-    const rows = within(group).getAllByRole('row').filter((r) => /product_id:/.test(r.textContent));
-    expect(rows).toHaveLength(2);
-    for (const row of rows) {
-      expect(within(row).getAllByRole('link', { name: /editar en tn/i })).toHaveLength(1);
+    // And each match row has exactly one link (its own).
+    const matchRows = within(group).getAllByTestId('duplicado-match-row');
+    expect(matchRows).toHaveLength(2);
+    for (const matchRow of matchRows) {
+      expect(within(matchRow).getAllByRole('link', { name: /editar en tn/i })).toHaveLength(1);
     }
   });
 
@@ -1306,6 +1374,22 @@ describe('Product identity in rows (rebuilt UI)', () => {
     });
     expect(screen.queryByText(/undefined/i)).not.toBeInTheDocument();
   });
+
+  // Coverage added in pass B: the standalone EAN column is gone — the EAN
+  // now renders inside the Producto cell, under the title. Nothing in the
+  // pre-existing suite asserted the EAN renders ALONGSIDE a title (only that
+  // each renders somewhere on the page independently).
+  it('renders the EAN under the product title, inside the Producto cell (pass B collapse)', async () => {
+    setupEnriched();
+    await renderWithRouter(<TiendaNubeReconcile />);
+
+    await waitFor(() => {
+      expect(screen.getByText('Auricular Bluetooth XYZ')).toBeInTheDocument();
+    });
+    const title = screen.getByText('Auricular Bluetooth XYZ');
+    const productoCell = title.closest('td');
+    expect(within(productoCell).getByText('RICH-1')).toBeInTheDocument();
+  });
 });
 
 describe('Motivo column (PR1 reason/cause taxonomy)', () => {
@@ -1329,7 +1413,9 @@ describe('Motivo column (PR1 reason/cause taxonomy)', () => {
     await waitFor(() => {
       expect(screen.getByText('DL-1')).toBeInTheDocument();
     });
-    expect(screen.getByRole('columnheader', { name: /^motivo/i })).toBeInTheDocument();
+    // Motivo is no longer its own column (pass B: merged into "En Tienda
+    // Nube") — it renders inline under the presence label instead.
+    expect(screen.getByRole('columnheader', { name: /^en tienda nube/i })).toBeInTheDocument();
     expect(screen.getByText(/enlace inexistente en tienda nube/i)).toBeInTheDocument();
   });
 
@@ -1405,7 +1491,10 @@ describe('Motivo column (PR1 reason/cause taxonomy)', () => {
     await waitFor(() => {
       expect(screen.getByText('111')).toBeInTheDocument();
     });
-    expect(screen.getByRole('columnheader', { name: /^motivo/i })).toBeInTheDocument();
+    // No standalone Motivo column any more — a null reason simply renders
+    // nothing under the presence label, no layout regression either way.
+    expect(screen.getByRole('columnheader', { name: /^en tienda nube/i })).toBeInTheDocument();
+    expect(screen.queryByText(/undefined/i)).not.toBeInTheDocument();
   });
 });
 
@@ -1429,6 +1518,75 @@ describe('Column resize persist/reset', () => {
     await waitFor(() => {
       expect(screen.getAllByRole('table').length).toBeGreaterThan(0);
     });
+  });
+
+  // Coverage added in pass B: `loadColumnSizing` filters persisted sizing to
+  // known column ids (added in pass A) — verify it still holds after this
+  // pass drops 4 column ids (ean/reason/despublicar/matches) from `COLUMNS`.
+  // A stale localStorage entry for a since-removed column id must not leak
+  // through and must not throw.
+  it('drops sizing for columns removed by this pass (ean/reason/despublicar/matches) without throwing', async () => {
+    localStorage.setItem(
+      COLUMN_SIZING_STORAGE_KEY,
+      JSON.stringify({ ean: 999, reason: 999, despublicar: 999, matches: 999, producto: 400 })
+    );
+
+    await renderWithRouter(<TiendaNubeReconcile />);
+
+    await waitFor(() => {
+      expect(screen.getAllByRole('table').length).toBeGreaterThan(0);
+    });
+    // The still-valid entry (producto) survives; nothing throws over the
+    // stale ones for columns this pass removed.
+    expect(screen.getByRole('columnheader', { name: /^producto/i })).toBeInTheDocument();
+  });
+});
+
+describe('Column set (pass B: 5-column collapse)', () => {
+  it('renders exactly the 5 target columns, in order, with EAN/Motivo/Despublicar/Coincidencias no longer standalone', async () => {
+    await renderWithRouter(<TiendaNubeReconcile />);
+
+    await waitFor(() => {
+      expect(screen.getByText('111')).toBeInTheDocument();
+    });
+    const headers = screen.getAllByRole('columnheader').map((h) => h.textContent.replace(/\s+/g, ' ').trim());
+    // Exactly 5 headers, matching column order.
+    expect(headers).toHaveLength(5);
+    expect(headers[0]).toMatch(/^Producto/i);
+    expect(headers[1]).toMatch(/^Veredicto/i);
+    expect(headers[2]).toMatch(/^En Tienda Nube/i);
+    expect(headers[3]).toMatch(/^Stock/i);
+    expect(headers[4]).toMatch(/^Acciones/i);
+
+    expect(screen.queryByRole('columnheader', { name: /^ean$/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole('columnheader', { name: /^motivo/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole('columnheader', { name: /^despublicar/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole('columnheader', { name: /coincidencias/i })).not.toBeInTheDocument();
+  });
+
+  it('drops the redundant Sí/— despublicar flag column — the info lives in the presence label and the Acciones menu instead', async () => {
+    setupApiMocks({
+      items: [
+        {
+          ean: 'DESP-1',
+          verdict: 'MAL_VINCULADO',
+          despublicar: true,
+          tn_matches: [{ product_id: 555, variant_id: 1, variant_sku: 'DESP-1', published: true }],
+        },
+      ],
+      verdictCounts: { MAL_VINCULADO: 1 },
+    });
+
+    await renderWithRouter(<TiendaNubeReconcile />);
+
+    await waitFor(() => {
+      expect(screen.getByText('DESP-1')).toBeInTheDocument();
+    });
+    // No standalone "Sí" flag cell for the despublicar-flagged row (the
+    // action itself is still reachable — covered by the "Despublicar
+    // action" describe block above via the Acciones menu).
+    const row = screen.getByText('DESP-1').closest('tr');
+    expect(within(row).queryByText(/^Sí$/)).not.toBeInTheDocument();
   });
 });
 
@@ -1474,9 +1632,14 @@ describe('Stock column (Slice 4)', () => {
       expect(screen.getByText('ST-NULL')).toBeInTheDocument();
     });
     const row = screen.getByText('ST-NULL').closest('tr');
-    const stockCell = within(row).getAllByRole('cell')[5];
+    // 5-column layout (pass B): Producto · Veredicto · En Tienda Nube ·
+    // Stock · Acciones — Stock is index 3.
+    const stockCell = within(row).getAllByRole('cell')[3];
     expect(stockCell.textContent.trim()).toBe('—');
     expect(stockCell.textContent.trim()).not.toBe('0');
+    // The dash renders muted (.noLink), same as DuplicateGroupCard/BANLIST's
+    // empty-value dash — never plain unstyled body text.
+    expect(stockCell.querySelector('span').className).toMatch(/noLink/i);
   });
 
   it('renders a genuine zero stock as "0", not as the unknown marker', async () => {
@@ -1490,7 +1653,16 @@ describe('Stock column (Slice 4)', () => {
     await waitFor(() => {
       expect(screen.getByText('ST-ZERO')).toBeInTheDocument();
     });
-    expect(screen.getByText('0')).toBeInTheDocument();
+    // Scoped to the row (not a bare screen.getByText('0')): PR-10's summary
+    // strip renders its own "0" counts as sibling text (e.g. an empty
+    // "Bloqueados" card), which now makes "0" ambiguous at the document
+    // level — this assertion's actual subject is the STOCK CELL, not any
+    // other zero on the page.
+    const row = screen.getByText('ST-ZERO').closest('tr');
+    // 5-column layout (pass B): Producto · Veredicto · En Tienda Nube ·
+    // Stock · Acciones — Stock is index 3.
+    const stockCell = within(row).getAllByRole('cell')[3];
+    expect(stockCell.textContent.trim()).toBe('0');
   });
 
   it('sorts descending by stock on first click, nulls last', async () => {
@@ -1610,5 +1782,33 @@ describe('Stock column (Slice 4)', () => {
     await waitFor(() => {
       expect(screen.getByRole('button', { name: /Anterior/i })).toBeDisabled();
     });
+  });
+});
+
+describe('selectTabItems — BANLIST sub-tab must paginate against banlist rows only', () => {
+  const reporte = manyFaltaPublicar(120);
+  const baneados = [
+    { id: 1, ean: 'BANNED-1', motivo: 'x', usuario_nombre: 'Op', fecha_creacion: '2026-07-01T00:00:00Z' },
+    { id: 2, ean: 'BANNED-2', motivo: 'x', usuario_nombre: 'Op', fecha_creacion: '2026-07-01T00:00:00Z' },
+  ];
+
+  it('returns the banlist rows, not the full reporte, for the BANLIST sub-tab', () => {
+    // Before the fix, `currentTabItems`/`selectTabItems` fell back to the
+    // WHOLE `reporte` (120 rows) on 'BANLIST' — total/totalPages/filasVisibles
+    // were then computed against unrelated FALTA_PUBLICAR rows instead of the
+    // 2 banned EANs actually rendered on that tab.
+    const result = selectTabItems('BANLIST', reporte, baneados);
+    expect(result).toBe(baneados);
+    expect(result).toHaveLength(2);
+  });
+
+  it('still returns the whole reporte for the "todos" sub-tab', () => {
+    expect(selectTabItems('todos', reporte, baneados)).toBe(reporte);
+  });
+
+  it('still filters by verdict for a verdict sub-tab', () => {
+    const result = selectTabItems('FALTA_PUBLICAR', reporte, baneados);
+    expect(result).toHaveLength(120);
+    expect(result.every((r) => r.verdict === 'FALTA_PUBLICAR')).toBe(true);
   });
 });

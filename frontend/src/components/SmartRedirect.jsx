@@ -31,7 +31,7 @@ export default function SmartRedirect() {
     { path: '/admin', permiso: 'admin.ver_panel' },
     { path: '/gestion-pm', permiso: 'admin.gestionar_pms' },
     { path: '/mla-banlist', permiso: 'admin.gestionar_mla_banlist' },
-    { path: '/items-sin-mla', permiso: 'admin.gestionar_mla_banlist' },
+    { path: '/items-sin-mla', permiso: 'admin.ver_items_sin_mla' },
     { path: '/pedidos-preparacion', permiso: 'ordenes.ver_preparacion' },
     { path: '/rma', permiso: 'rma.ver' },
     { path: '/claims', permiso: 'rma.ver' },

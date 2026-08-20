@@ -36,19 +36,27 @@ the next sync.
 import json
 import logging
 from decimal import Decimal, InvalidOperation
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 import nh3
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.models.auditoria import Auditoria, TipoAccion
 from app.models.tienda_nube_producto import TiendaNubeProducto
+from app.models.tn_category_profile_hint import TnCategoryProfileHint
+from app.models.tn_publish_override import TnPublishOverride
 from app.models.usuario import Usuario
 from app.services.tienda_nube_product_client import (
     TiendaNubeProductClient,
     TnProductLookupError,
+    TnRateLimited,
     is_publicly_reachable_url,
 )
+from app.services.tn_publish_core.assemble import assemble_payload
+from app.services.tn_publish_core.batch import execute_batch
+from app.services.tn_publish_core.resolve import Resolved, latest_usd_rate
+from app.services.tn_publish_core.validate import MEASUREMENT_FIELDS, OVERRIDABLE_FIELDS, validate_measurements
 from app.utils.async_bridge import resolve_maybe_async as _resolve
 
 logger = logging.getLogger(__name__)
@@ -126,6 +134,45 @@ def _validate_publish_price(product_data: Dict[str, Any]) -> Decimal:
     if price <= 0:
         raise InvalidPublishPriceError(f"Precio de publicación inválido (debe ser mayor a cero): {raw!r}")
     return price
+
+
+def _resolved_measurements(measurements: Optional[Dict[str, str]]) -> Dict[str, Resolved]:
+    """Builds the `Dict[str, Resolved]` the D3 gate (`validate_measurements`)
+    and `assemble_payload` both need, from the request's `measurements` —
+    the COMPLETE set of values the modal was showing, whatever their source
+    (GBP, profile, stored override, or a fresh operator edit).
+
+    `measurements` is deliberately NOT `overrides`. They answer two
+    different questions and must never be conflated:
+      - `measurements` = what to PUBLISH (all four, always).
+      - `overrides`    = what the operator EDITED in-session and therefore
+                         what may be persisted (PC5/D8, dirty-only —
+                         persisting an untouched GBP value would freeze it
+                         behind the `override > gbp` precedence forever).
+    Reading the gate off `overrides` made the happy path (nothing edited,
+    so no overrides) fail closed on every normal publish.
+
+    Not a server-side GBP re-resolution: that needs design Decision 2's
+    TTL-cached report, explicitly deferred past this PR (see
+    `publish_product`'s docstring). `source="operator"` here means
+    "supplied by this request", not literally hand-typed.
+
+    A missing/unparseable value resolves `Resolved(None, "empty")` — the
+    same "no value" `validate_measurements` already treats every other
+    absence as; it is never defaulted to 0 or dropped silently.
+    """
+    overrides = measurements or {}
+    resolved: Dict[str, Resolved] = {}
+    for field_name in MEASUREMENT_FIELDS:
+        raw = overrides.get(field_name)
+        if raw is None:
+            resolved[field_name] = Resolved(None, "empty")
+            continue
+        try:
+            resolved[field_name] = Resolved(float(raw), "operator")
+        except (TypeError, ValueError):
+            resolved[field_name] = Resolved(None, "empty")
+    return resolved
 
 
 def sanitize_description_html(html: str) -> str:
@@ -258,7 +305,27 @@ def unpublish_product(
         return outcome
 
     active_client = client if client is not None else TiendaNubeProductClient()
-    write_result = _resolve(active_client.set_published(product_id, False))
+    try:
+        write_result = _resolve(active_client.set_published(product_id, False))
+    except TnRateLimited as e:
+        # Structural fix (defect 1): `set_published` now raises
+        # `TnRateLimited` on a 429 uniformly, like every other write method
+        # (see `TiendaNubeProductClient._classify_write_response`). Before
+        # this, a 429 fell through to `_classify` and was misclassified as
+        # `rejected_by_proxy` — telling the operator TN refused the change
+        # when in fact nothing was even attempted. Mirrors
+        # `publish_product`'s `rate_limited` outcome shape exactly.
+        outcome = {
+            "submitted": False,
+            "status": "rate_limited",
+            "status_code": 429,
+            "detail": (
+                "TN rate limit (429) — nothing was unpublished. Wait a moment and retry."
+                + (f" (retry_after={e.retry_after}s)" if e.retry_after is not None else "")
+            ),
+        }
+        _audit(db, usuario, product_id, outcome)
+        return outcome
     outcome = _classify(write_result)
 
     if outcome["status"] == "submitted":
@@ -330,7 +397,180 @@ def _audit_publish(
         logger.error("Audit log failed for TN publish item_id=%s: %s", item_id, e, exc_info=True)
 
 
-def _upsert_publish_mirror(db: Session, product_id: Optional[int], ean: str, product_name: Optional[str]) -> None:
+def _upsert_publish_overrides(db: Session, usuario: Usuario, ean: str, overrides: Optional[Dict[str, str]]) -> None:
+    """PC5/D8 (design Decision 5, task 5.4/5.5): persist every
+    operator-edited field into `tn_publish_override`, one row per `(ean,
+    campo)`. Called ONLY after a `submitted` outcome — never on a
+    rejected/ambiguous/blocked publish, so a failed attempt can never leave
+    behind an override the operator never actually confirmed went live.
+
+    D8 is enforced structurally, not by convention: this function has no
+    GBP/ERP write client on its call path at all — it only ever touches
+    `tn_publish_override` via the ORM session already passed in.
+
+    Best-effort like every other audit-adjacent write in this module: a
+    failure here must never mask or reverse the TN write outcome the caller
+    already computed and is about to return.
+    """
+    if not overrides:
+        return
+    # Defense in depth behind `PublicarRequest`'s 422 validator: only
+    # known overridable fields are ever persisted. A stray key reaching
+    # this layer (a future caller bypassing the endpoint model) is skipped
+    # LOUDLY — silently swallowing it at the DB layer (e.g. a >50-char
+    # campo failing the column constraint inside this best-effort block)
+    # would lose the operator's edit with no signal at all.
+    unknown = set(overrides) - set(OVERRIDABLE_FIELDS)
+    if unknown:
+        logger.warning(
+            "_upsert_publish_overrides: skipping unknown override field(s) %s for ean=%s",
+            sorted(unknown),
+            ean,
+        )
+        overrides = {campo: valor for campo, valor in overrides.items() if campo in OVERRIDABLE_FIELDS}
+    try:
+        existing_by_campo = {
+            row.campo: row for row in db.query(TnPublishOverride).filter(TnPublishOverride.ean == ean).all()
+        }
+        for campo, valor in overrides.items():
+            row = existing_by_campo.get(campo)
+            if row is not None:
+                row.valor = valor
+                row.usuario_id = usuario.id
+            else:
+                db.add(TnPublishOverride(ean=ean, campo=campo, valor=valor, usuario_id=usuario.id))
+        db.commit()
+    except Exception as e:
+        db.rollback()
+        logger.error("Override upsert failed for ean=%s: %s", ean, e, exc_info=True)
+
+
+def _upsert_category_profile_hint(
+    db: Session,
+    categoria: Optional[str],
+    subcategoria: Optional[str],
+    profile_id: Optional[int],
+) -> None:
+    """PR-8 gap B: writes the `tn_category_profile_hint` row that feeds
+    `GET /tn-measurement-profiles/suggestion` (MP3). Called ONLY after a
+    `submitted` outcome, mirroring `_upsert_publish_overrides` — best-effort,
+    wrapped so a failure here never masks or reverses the TN write outcome
+    the caller already computed.
+
+    No-op when either `categoria` or `profile_id` is missing: no category
+    context or no profile applied means there is nothing meaningful to
+    attribute the usage to.
+
+    Defense in depth (updated after `20260820_fix_tn_category_profile_hint_nulls`):
+    `uq_tn_category_profile_hint` used to be a plain UNIQUE constraint over
+    `(categoria, subcategoria, profile_id)`, and Postgres treats every NULL
+    as distinct for uniqueness purposes — so two concurrent/sequential
+    publishes to a category-only hint (`subcategoria IS NULL`) would NOT
+    collide on the constraint and could insert two rows instead of
+    incrementing one. That migration recreated the constraint with `NULLS
+    NOT DISTINCT`, so the DB now enforces this correctly for BOTH the NULL
+    and non-NULL `subcategoria` cases. This function's query-then-update
+    is kept anyway as defense in depth (avoids a round-trip through
+    `IntegrityError` on the common non-racing path), not because the DB
+    still cannot enforce it. A genuine race between two concurrent requests
+    inserting the same key is instead
+    handled by catching `IntegrityError` and retrying as an update.
+    """
+    if not categoria or profile_id is None:
+        return
+    try:
+        existing = (
+            db.query(TnCategoryProfileHint)
+            .filter(
+                TnCategoryProfileHint.categoria == categoria,
+                TnCategoryProfileHint.subcategoria.is_(None)
+                if subcategoria is None
+                else TnCategoryProfileHint.subcategoria == subcategoria,
+                TnCategoryProfileHint.profile_id == profile_id,
+            )
+            .first()
+        )
+        if existing is not None:
+            existing.uso_count = (existing.uso_count or 0) + 1
+            db.commit()
+            return
+        db.add(
+            TnCategoryProfileHint(
+                categoria=categoria,
+                subcategoria=subcategoria,
+                profile_id=profile_id,
+                uso_count=1,
+            )
+        )
+        db.commit()
+    except IntegrityError:
+        # Lost a race against a concurrent insert of the exact same key —
+        # the other request's row now exists; fall back to an update.
+        db.rollback()
+        try:
+            existing = (
+                db.query(TnCategoryProfileHint)
+                .filter(
+                    TnCategoryProfileHint.categoria == categoria,
+                    TnCategoryProfileHint.subcategoria.is_(None)
+                    if subcategoria is None
+                    else TnCategoryProfileHint.subcategoria == subcategoria,
+                    TnCategoryProfileHint.profile_id == profile_id,
+                )
+                .first()
+            )
+            if existing is not None:
+                existing.uso_count = (existing.uso_count or 0) + 1
+                db.commit()
+        except Exception as e:
+            db.rollback()
+            logger.error(
+                "Category profile hint retry-after-race failed for categoria=%s profile_id=%s: %s",
+                categoria,
+                profile_id,
+                e,
+                exc_info=True,
+            )
+    except Exception as e:
+        db.rollback()
+        logger.error(
+            "Category profile hint upsert failed for categoria=%s profile_id=%s: %s",
+            categoria,
+            profile_id,
+            e,
+            exc_info=True,
+        )
+
+
+def _extract_variant_id(product_body: Optional[Dict[str, Any]]) -> Optional[int]:
+    """Extract the REAL per-variant TN id from a full product response body.
+
+    `create_product`/`get_product_by_sku` both return TN's product shape —
+    `{"id": <product_id>, "variants": [{"id": <variant_id>, ...}], ...}` —
+    the same shape `tienda_nube_sync_shared.extract_variantes` reads from
+    the catalog sync. Returns `None` when the body has no usable variant
+    data, so the caller never falls back to fabricating a value (e.g. the
+    product id) in its place.
+    """
+    if not isinstance(product_body, dict):
+        return None
+    variants = product_body.get("variants")
+    if not isinstance(variants, list) or not variants:
+        return None
+    first_variant = variants[0]
+    if not isinstance(first_variant, dict):
+        return None
+    variant_id = first_variant.get("id")
+    return variant_id if isinstance(variant_id, int) else None
+
+
+def _upsert_publish_mirror(
+    db: Session,
+    product_id: Optional[int],
+    ean: str,
+    product_name: Optional[str],
+    variant_id: Optional[int] = None,
+) -> None:
     """Best-effort local-mirror sync after ANY publish outcome that confirms
     a TN product exists for `ean` (a fresh create, an `already_exists` live
     pre-check hit, or a recovered-via-read-back ambiguous outcome). A
@@ -341,6 +581,13 @@ def _upsert_publish_mirror(db: Session, product_id: Optional[int], ean: str, pro
     (e.g. discovered live but not yet locally known), otherwise inserts a
     new row — same shape `unpublish_product`'s success path assumes
     elsewhere in this module.
+
+    `variant_id` (the REAL id, from `_extract_variant_id`) is REQUIRED to
+    insert a new row: `TiendaNubeProducto.variant_id` is NOT NULL, so this
+    can't leave it null/pending the way the nullable `published` column
+    does. When `variant_id` is unknown, the insert is skipped entirely
+    (logged, not fatal) rather than fabricating one (e.g. `product_id`) —
+    the row is created correctly by the next full catalog sync instead.
     """
     if product_id is None:
         return
@@ -349,16 +596,25 @@ def _upsert_publish_mirror(db: Session, product_id: Optional[int], ean: str, pro
         if existing_row is not None:
             existing_row.variant_sku = existing_row.variant_sku or ean
             existing_row.published = True
-        else:
+        elif variant_id is not None:
             db.add(
                 TiendaNubeProducto(
                     product_id=product_id,
                     product_name=product_name,
-                    variant_id=product_id,
+                    variant_id=variant_id,
                     variant_sku=ean,
                     published=True,
                 )
             )
+        else:
+            logger.warning(
+                "Local mirror insert skipped for product_id=%s ean=%s: TN's response carried no "
+                "usable variant id, and variant_id is NOT NULL — the row will be created correctly "
+                "by the next full catalog sync instead of being fabricated.",
+                product_id,
+                ean,
+            )
+            return
         db.commit()
     except Exception as e:
         db.rollback()
@@ -376,6 +632,12 @@ def publish_product(
     client: Optional[TiendaNubeProductClient] = None,
     offset_percent: Optional[float] = None,
     price_base_source: Optional[str] = None,
+    overrides: Optional[Dict[str, str]] = None,
+    measurements: Optional[Dict[str, str]] = None,
+    moneda_costo: Optional[str] = None,
+    profile_id: Optional[int] = None,
+    categoria: Optional[str] = None,
+    subcategoria: Optional[str] = None,
 ) -> Dict[str, Any]:
     """Creates a single TN product from GBP-derived data (Slice 3a).
 
@@ -406,6 +668,15 @@ def publish_product(
             not fatal to the publish) and reported back in
             `skipped_image_srcs` so the operator can see what didn't make it.
         client: Optional injected `TiendaNubeProductClient` (tests only).
+        profile_id: PR-8 gap A/B — the measurement profile the operator
+            applied (if any). Forwarded so `_upsert_category_profile_hint`
+            can attribute a `submitted` outcome to it; plays no role in the
+            TN payload itself (that's `measurements`/`overrides`).
+        categoria: GBP report category for this row — the hint key's
+            primary component. `None`/no `profile_id` is a no-op write.
+        subcategoria: GBP report subcategory — the hint key's optional
+            secondary component (see `TnCategoryProfileHint`'s docstring for
+            the fallback lookup order this feeds).
 
     Idempotency (check-before-POST, local-mirror-only): before creating,
     this checks whether ANY `tienda_nube_productos` row already has this EAN
@@ -445,6 +716,18 @@ def publish_product(
     `offset_percent`/`price_base_source` are recorded on the audit row
     alongside the submitted price for after-the-fact traceability (R2.5) —
     they play no role in this validation.
+
+    D3 measurement gate (PR-7 gap fix, task A): `measurements` MUST resolve all
+    four of `weight`/`width`/`depth`/`height` (via
+    `_resolved_measurements`) or the publish is rejected with
+    `status="blocked_measurements"`, BEFORE any local-mirror query or TN
+    call — the same fail-closed placement as the price guard above. This
+    reads the operator's already-resolved draft state from the REQUEST, not
+    a fresh server-side GBP re-resolution: full server-side re-resolution
+    (recomputing from the live report rather than trusting the client's
+    `overrides`) needs design Decision 2's TTL-cached report, which PR-5b
+    explicitly deferred and which remains a documented follow-up, not done
+    in this PR.
     """
     try:
         price = _validate_publish_price(product_data)
@@ -457,6 +740,41 @@ def publish_product(
         _audit_publish(db, usuario, None, outcome)
         return outcome
     submitted_price = str(price)
+
+    # D3 measurement gate (PR-7 gap fix, task A): fail-closed, BEFORE any
+    # local-mirror query or TN call — a blocked measurement must never reach
+    # a write, exactly like the price guard above. `resolved_fields` is
+    # built from the REQUEST's `overrides` only (see
+    # `_resolved_measurements_from_overrides`'s docstring for the scope
+    # decision behind that).
+    resolved_fields = _resolved_measurements(measurements)
+    measurement_validation = validate_measurements(resolved_fields)
+    if measurement_validation.blocked:
+        outcome = {
+            "submitted": False,
+            "status": "blocked_measurements",
+            "detail": "; ".join(measurement_validation.blocked_reasons),
+            "blocked_reasons": measurement_validation.blocked_reasons,
+        }
+        _audit_publish(db, usuario, None, outcome)
+        return outcome
+
+    # D6/PC8 cost gate, fail-closed like the measurement gate above. The
+    # draft already refuses to resolve a USD cost with no `TipoCambio` row,
+    # but that block was decorative until here: nothing stopped the publish
+    # itself, so the item shipped with a null/unconverted cost and nothing
+    # named the missing rate. The currency comes from the request because it
+    # is a GBP fact, never an operator input; the RATE — the part that
+    # decides — is read from the DB right here, server-side.
+    if (moneda_costo or "").strip().upper() == "USD" and latest_usd_rate(db) is None:
+        outcome = {
+            "submitted": False,
+            "status": "blocked_cost",
+            "detail": "Falta tipo de cambio para convertir el costo (USD). No se publica un costo sin convertir.",
+            "blocked_reasons": ["Falta tipo de cambio para convertir el costo (USD)"],
+        }
+        _audit_publish(db, usuario, None, outcome)
+        return outcome
 
     existing = db.query(TiendaNubeProducto).filter(TiendaNubeProducto.variant_sku == ean).first()
     if existing is not None:
@@ -499,51 +817,86 @@ def publish_product(
         }
         # Best-effort: bring the local mirror in sync with what TN actually
         # has, even though this call didn't create it.
-        _upsert_publish_mirror(db, live_product_id, ean, product_name)
+        _upsert_publish_mirror(db, live_product_id, ean, product_name, _extract_variant_id(live_existing))
         _audit_publish(db, usuario, live_product_id, outcome)
         return outcome
 
-    # Bugfix (out-of-band, post-Slice-3a): the price MUST live on the
-    # variant, not the product root — this repo's own TN READ path
-    # (`tienda_nube_sync_shared.py`) only ever reads `variant["price"]`, so a
-    # root-level `price` may simply be ignored by TN on create. Worse, a
-    # product created with no `sku` at all breaks this module's entire
-    # write-safety design: both the idempotency pre-check above
-    # (`get_product_by_sku`) and the ambiguous-outcome read-back below
-    # depend on TN being able to find the product by SKU. Built here
-    # (server-side) rather than trusted from the caller, because `ean` is
-    # authoritative at this point (already used for the pre-check) and this
-    # keeps a single variant shape regardless of what `product_data` looked
-    # like historically.
+    # PR-7 gap fix (task A): `assemble_payload` is now the ONLY place this
+    # module builds the TN create body — no more hand-rolled dict. This
+    # closes the real production gap `assemble_payload`'s own docstring
+    # warned about (measurements never reaching TN, stock landing at the
+    # product root where TN silently ignores it, barcode/cost/
+    # promotional_price landing at product root instead of on the variant).
     #
-    # We have not verified against the live TN API that a root-level
-    # `price` is ignored or that `variants: [{sku, price}]` is accepted on
-    # create — this aligns the create payload with the shape TN
-    # demonstrably RETURNS on read, and with what the idempotency/read-back
-    # calls in this module already depend on.
-    #
-    # `sku`/`price` are MERGED into an incoming variant rather than replacing
-    # it: a caller that starts sending stock/weight/dimensions on the variant
-    # would otherwise have them silently discarded here. This function still
-    # owns `sku` and `price` — those two it overwrites deliberately, since the
-    # EAN and the validated price are authoritative at this point.
-    payload = dict(product_data)
-    payload.pop("price", None)
-    incoming_variants = payload.get("variants")
-    base_variant = dict(incoming_variants[0]) if isinstance(incoming_variants, list) and incoming_variants else {}
-    base_variant["sku"] = ean
-    base_variant["price"] = submitted_price
-    payload["variants"] = [base_variant]
-    payload["categories"] = [category_id]
+    # `sku`/`price` are still owned by THIS function, not `product_data`:
+    # both the idempotency pre-check above (`get_product_by_sku`) and the
+    # ambiguous-outcome read-back below depend on TN being able to find the
+    # product by SKU, and the validated price is authoritative at this
+    # point — `ean`/`submitted_price` always win over anything the caller
+    # may have sent under those keys.
+    name_data = product_data.get("name")
+    name_es = name_data.get("es", "") if isinstance(name_data, dict) else ""
+    raw_stock = product_data.get("stock")
+    # `bool` is an `int` subclass in Python — exclude it explicitly so a
+    # stray `True`/`False` never becomes `stock=1`/`stock=0`. Anything else
+    # non-numeric (missing, `None`, a string) resolves to `None`, which
+    # `assemble_payload` then OMITS from the payload entirely rather than
+    # fabricating a number the operator never provided (see that module's
+    # docstring on `stock=None`).
+    stock: Optional[int]
+    if isinstance(raw_stock, bool):
+        stock = None
+    elif isinstance(raw_stock, (int, float)):
+        stock = int(raw_stock)
+    else:
+        stock = None
     # Server-side defense-in-depth (security review follow-up to sub-slice
     # 3a): sanitize BEFORE this ever reaches the TN payload, unconditionally
     # — see `sanitize_description_html`'s docstring for why this does not
     # wait on / depend on Slice 3c's frontend DOMPurify pass.
-    payload["description"] = {"es": sanitize_description_html(description_html)}
+    payload = assemble_payload(
+        resolved_fields,
+        name_es=name_es,
+        price=submitted_price,
+        stock=stock,
+        category_id=category_id,
+        visibility=product_data.get("visibility") or "visible",
+        free_shipping=bool(product_data.get("free_shipping") or False),
+        seo_title=product_data.get("seo_title") or None,
+        seo_description=product_data.get("seo_description") or None,
+        tags=product_data.get("tags") or None,
+        description_html=sanitize_description_html(description_html),
+        sku=ean,
+        barcode=product_data.get("barcode") or None,
+        cost=product_data.get("cost"),
+        promotional_price=(
+            str(product_data["promotional_price"]) if product_data.get("promotional_price") is not None else None
+        ),
+    )
 
-    write_result = _resolve(active_client.create_product(payload))
+    def _attach_images(product_id: Any) -> Tuple[List[str], List[str]]:
+        """Returns `(skipped_srcs, rate_limited_srcs)` — two DISTINCT
+        failure modes the operator needs to tell apart:
 
-    def _attach_images(product_id: Any) -> List[str]:
+          - `skipped_srcs`: never sent to TN at all (failed the local
+            `is_publicly_reachable_url` guard — a malformed/private URL).
+          - `rate_limited_srcs`: sent to TN and rejected with a 429
+            (`TnRateLimited`, thanks to the client-level fix in
+            `TiendaNubeProductClient._classify_write_response`).
+
+        Rate-limit policy (defect fix, decision): report immediately, do
+        NOT retry here. This mirrors the exact design already established
+        for `create_product` on this same interactive single-item path
+        (`execute_batch(..., max_rate_limit_attempts=0)`, see below): a
+        synchronous operator-facing click must never block for a
+        multi-second backoff window. A blind retry-with-sleep here would
+        also silently reintroduce that blocking behavior one call site
+        away from the one that deliberately opted out of it. The product
+        was already created by the time this runs, so a rate-limited image
+        can NEVER roll back or fail the overall publish — it is reported so
+        the operator can retry that one image manually (e.g. re-open the
+        product and re-attach), not retried automatically.
+        """
         reachable_srcs = [src for src in image_srcs if is_publicly_reachable_url(src)]
         skipped_srcs = [src for src in image_srcs if src not in reachable_srcs]
         if skipped_srcs:
@@ -552,12 +905,24 @@ def publish_product(
                 len(skipped_srcs),
                 product_id,
             )
+        rate_limited_srcs: List[str] = []
         for src in reachable_srcs:
             # Best-effort: an individual image failing to attach does not
             # roll back the already-created product — TN products with
             # missing images are visibly incomplete but not broken the way a
             # duplicate/ambiguous product create would be.
-            image_result = _resolve(active_client.add_product_image(product_id, src))
+            try:
+                image_result = _resolve(active_client.add_product_image(product_id, src))
+            except TnRateLimited as e:
+                rate_limited_srcs.append(src)
+                logger.warning(
+                    "publish_product: add_product_image RATE LIMITED (429) for product_id=%s src=%s "
+                    "retry_after=%s — not retried here, reported to the operator instead",
+                    product_id,
+                    src,
+                    e.retry_after,
+                )
+                continue
             if not image_result.get("ok"):
                 logger.warning(
                     "publish_product: add_product_image failed for product_id=%s src=%s: %s",
@@ -565,88 +930,132 @@ def publish_product(
                     src,
                     image_result,
                 )
-        return skipped_srcs
+        return skipped_srcs, rate_limited_srcs
 
-    if write_result["ok"]:
-        body = write_result.get("body") or {}
-        product_id = body.get("id")
-        skipped_srcs = _attach_images(product_id)
+    # PR-5b (design Decision 6, task 5.18): the live single-item write goes
+    # through `execute_batch([item])` — the SAME execution path a future
+    # bulk publish will use, per "batch is the only execution path" (no
+    # second code path for bulk to grow into). `TnRateLimited` is no longer
+    # caught here directly; `execute_batch` owns that classification.
+    #
+    # `max_rate_limit_attempts=0`: an interactive single-item click must
+    # surface a structured `rate_limited` outcome immediately rather than
+    # block synchronously for the multi-second backoff window a bulk job
+    # can afford (see `batch.py`'s docstring on this parameter) — the
+    # classification/audit contract is identical either way, only the wait
+    # budget differs. A future bulk endpoint calling `execute_batch`
+    # directly is free to use the default (real backoff, real retries).
+    call_detail: Dict[str, Any] = {}
 
-        outcome = {
-            "submitted": True,
-            "status": "submitted",
-            "product_id": product_id,
-            "skipped_image_srcs": skipped_srcs,
+    def _do_create(_item: Dict[str, Any]) -> Dict[str, Any]:
+        write_result = _resolve(active_client.create_product(payload))  # may raise TnRateLimited
+
+        if write_result["ok"]:
+            body = write_result.get("body") or {}
+            product_id = body.get("id")
+            skipped_srcs, rate_limited_srcs = _attach_images(product_id)
+            _upsert_publish_mirror(db, product_id, ean, product_name, _extract_variant_id(body))
+            call_detail["skipped_image_srcs"] = skipped_srcs
+            call_detail["rate_limited_image_srcs"] = rate_limited_srcs
+            return {"status": "submitted", "product_id": product_id}
+
+        if not write_result["ambiguous"]:
+            body = write_result.get("body")
+            if body is not None and not isinstance(body, str):
+                body = json.dumps(body, default=str)
+            call_detail["status_code"] = write_result["status_code"]
+            return {"status": "rejected_by_proxy", "detail": body}
+
+        # Ambiguous create (timeout/5xx): attempt ONE read-back via
+        # `get_product_by_sku` before surfacing "ambiguous" — this is a
+        # READ, not a write-retry, so it does not violate the
+        # no-retry-on-ambiguous rule. If TN actually completed the create
+        # despite the ambiguous response, the read-back finds it and this
+        # recovers as a genuine success; otherwise (confirmed absent, or
+        # the read-back itself fails) it stays ambiguous and no local
+        # mirror row is created — safe to manually retry.
+        call_detail["status_code"] = write_result["status_code"]
+        try:
+            readback = _resolve(active_client.get_product_by_sku(ean))
+        except TnProductLookupError:
+            readback = None
+
+        if readback is not None:
+            recovered_product_id = readback.get("id")
+            skipped_srcs, rate_limited_srcs = _attach_images(recovered_product_id)
+            _upsert_publish_mirror(db, recovered_product_id, ean, product_name, _extract_variant_id(readback))
+            call_detail["skipped_image_srcs"] = skipped_srcs
+            call_detail["rate_limited_image_srcs"] = rate_limited_srcs
+            return {
+                "status": "submitted",
+                "product_id": recovered_product_id,
+                "detail": "Recovered via read-back after an ambiguous create outcome.",
+            }
+
+        return {
+            "status": "ambiguous",
+            "detail": (
+                "TN create-product write timed out or returned 5xx; outcome unknown at TN's end. "
+                "A read-back confirmed no product exists yet (or the read-back itself failed) — "
+                "no local mirror row was created. Re-check TN directly before retrying to avoid a duplicate."
+            ),
         }
-        _upsert_publish_mirror(db, product_id, ean, product_name)
-        _audit_publish(
-            db,
-            usuario,
-            product_id,
-            outcome,
-            submitted_price=submitted_price,
-            offset_percent=offset_percent,
-            price_base_source=price_base_source,
-        )
-        return outcome
 
-    if not write_result["ambiguous"]:
-        body = write_result.get("body")
-        if body is not None and not isinstance(body, str):
-            body = json.dumps(body, default=str)
+    batch_outcomes = execute_batch(
+        [{"ean": ean}],
+        _do_create,
+        max_rate_limit_attempts=0,
+    )
+    item_outcome = batch_outcomes[0]
+
+    if item_outcome.status == "rate_limited":
         outcome = {
             "submitted": False,
-            "status": "rejected_by_proxy",
-            "status_code": write_result["status_code"],
-            "detail": body,
+            "status": "rate_limited",
+            "status_code": 429,
+            "detail": item_outcome.detail or "TN rate limit (429) — nothing was created. Wait a moment and retry.",
         }
         _audit_publish(db, usuario, None, outcome)
         return outcome
 
-    # Ambiguous create (timeout/5xx): attempt ONE read-back via
-    # `get_product_by_sku` before surfacing "ambiguous" — this is a READ,
-    # not a write-retry, so it does not violate the no-retry-on-ambiguous
-    # rule. If TN actually completed the create despite the ambiguous
-    # response, the read-back finds it and this recovers as a genuine
-    # success; otherwise (confirmed absent, or the read-back itself fails)
-    # it stays ambiguous and no local mirror row is created — safe to
-    # manually retry.
-    try:
-        readback = _resolve(active_client.get_product_by_sku(ean))
-    except TnProductLookupError:
-        readback = None
-
-    if readback is not None:
-        recovered_product_id = readback.get("id")
-        skipped_srcs = _attach_images(recovered_product_id)
+    if item_outcome.status == "submitted":
         outcome = {
             "submitted": True,
             "status": "submitted",
-            "product_id": recovered_product_id,
-            "skipped_image_srcs": skipped_srcs,
-            "detail": "Recovered via read-back after an ambiguous create outcome.",
+            "product_id": item_outcome.product_id,
+            "skipped_image_srcs": call_detail.get("skipped_image_srcs", []),
+            "rate_limited_image_srcs": call_detail.get("rate_limited_image_srcs", []),
         }
-        _upsert_publish_mirror(db, recovered_product_id, ean, product_name)
+        if item_outcome.detail:
+            outcome["detail"] = item_outcome.detail
         _audit_publish(
             db,
             usuario,
-            recovered_product_id,
+            item_outcome.product_id,
             outcome,
             submitted_price=submitted_price,
             offset_percent=offset_percent,
             price_base_source=price_base_source,
         )
+        _upsert_publish_overrides(db, usuario, ean, overrides)
+        _upsert_category_profile_hint(db, categoria, subcategoria, profile_id)
+        return outcome
+
+    if item_outcome.status == "rejected_by_proxy":
+        outcome = {
+            "submitted": False,
+            "status": "rejected_by_proxy",
+            "status_code": call_detail.get("status_code"),
+            "detail": item_outcome.detail,
+        }
+        _audit_publish(db, usuario, None, outcome)
         return outcome
 
     outcome = {
         "submitted": False,
         "status": "ambiguous",
-        "status_code": write_result["status_code"],
-        "detail": (
-            "TN create-product write timed out or returned 5xx; outcome unknown at TN's end. "
-            "A read-back confirmed no product exists yet (or the read-back itself failed) — "
-            "no local mirror row was created. Re-check TN directly before retrying to avoid a duplicate."
-        ),
+        "status_code": call_detail.get("status_code"),
+        "detail": item_outcome.detail,
     }
     _audit_publish(db, usuario, None, outcome)
     return outcome

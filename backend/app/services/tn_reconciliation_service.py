@@ -18,9 +18,11 @@ MAL_PUBLICADO, DUPLICADO) — banning is never a way to sweep an existing
 mis-publication out of the review view.
 """
 
+import logging
 from dataclasses import dataclass, field
+from datetime import date
 from decimal import Decimal
-from typing import Optional
+from typing import Any, Dict, Optional
 
 from app.api.endpoints.gbp_parser import (
     OPERATION_CONFIG,
@@ -29,6 +31,17 @@ from app.api.endpoints.gbp_parser import (
     parse_soap_response,
 )
 from app.models.tienda_nube_producto import TiendaNubeProducto
+from app.services.tn_publish_core.extract import Absent, ReportFieldError, extract_report_row
+from app.services.tn_publish_core.resolve import (
+    InvalidReportValueError,
+    MissingExchangeRateError,
+    resolve_cost,
+    resolve_field,
+    resolve_gbp_fields,
+)
+from app.services.tn_publish_core.validate import validate_measurements
+
+logger = logging.getLogger(__name__)
 
 GBP_REPORT_ID_TN_RECONCILE = 78
 
@@ -119,6 +132,209 @@ class ReconcileRow:
     precio_web_transferencia: Optional[Decimal] = None
     participa_web_transferencia: Optional[bool] = None
     precio_lista_ml: Optional[Decimal] = None
+
+
+# Only these verdicts have a Publicar action in the UI — `build_publish_fields`
+# is scoped to them to control response payload growth across the other
+# ~800 non-candidate rows in a typical report-78 fetch.
+PUBLISH_CANDIDATE_VERDICTS = frozenset({"FALTA_PUBLICAR", "FALTA_VINCULAR"})
+
+
+def build_publish_fields(row: "ReconcileRow") -> Dict[str, Any]:
+    """Strictly extracts + GBP-layer-converts the publish field set for a
+    publish-candidate row (PC1/PC2/PC3, `tn_publish_core.extract`/
+    `.resolve`), returning endpoint-ready kwargs
+    (`marca`/`cost`/`barcode`/`promotional_price`/`weight_kg`/`width_cm`/
+    `depth_cm`/`height_cm`). Returns `{}` for any non-candidate verdict, so
+    the caller's response model keeps those fields at their `None` default.
+
+    A missing report-78 KEY (e.g. a live ERP column rename — see
+    `extract_report_row`'s docstring) or an unparseable VALUE for a KEY
+    that IS present (e.g. `weight = "N/A"` — see `resolve.py`'s
+    `InvalidReportValueError`) makes extraction/conversion raise loudly
+    (S1) at the unit level; both are caught HERE, via their shared
+    `ReportFieldError` base, and logged with the offending field and EAN
+    so the break stays visible in logs, and only THIS row's new fields
+    degrade to `None` rather than a single bad row crashing the whole
+    one-shot report for every other row. `Absent` (a value-level "GBP
+    reports no data", e.g. a blank dimension) is a completely different,
+    expected case already resolved to `None` below — it never reaches this
+    `except` clause.
+
+    D13: a `ReportFieldError` (schema break or unparseable value) is a
+    DIFFERENT failure class than a genuinely absent measurement, and
+    PR-5's D3 blocked-publication gate must be able to tell them apart
+    from the API response alone — not only from this warning log. So on
+    that path the returned dict also carries `publish_fields_error` (the
+    exception message, naming the offending field) instead of a bare
+    `{}`, and on the success path it's explicit `None` rather than an
+    implicit response-model default, so both branches are equally
+    assertable. Junk is NOT absence: an unparseable value must never be
+    silently swallowed into the same `None` a real absence produces.
+    """
+    if row.verdict not in PUBLISH_CANDIDATE_VERDICTS:
+        return {}
+
+    try:
+        resolved = resolve_gbp_fields(extract_report_row(row.gbp_row))
+    except ReportFieldError as exc:
+        logger.warning(
+            "Report 78 row ean=%s failed publish-field extraction/conversion (field=%r): %s",
+            row.ean,
+            exc.field_name,
+            exc,
+        )
+        return {"publish_fields_error": str(exc)}
+
+    def _or_none(value: Any) -> Any:
+        return None if value is Absent else value
+
+    return {
+        "marca": resolved.marca,
+        "cost": resolved.coslis_price,
+        "barcode": resolved.codigo,
+        "promotional_price": _or_none(resolved.promotional_price),
+        "weight_kg": _or_none(resolved.weight_kg),
+        "width_cm": _or_none(resolved.width_cm),
+        "depth_cm": _or_none(resolved.depth_cm),
+        "height_cm": _or_none(resolved.height_cm),
+        "publish_fields_error": None,
+    }
+
+
+def build_publish_draft(
+    row: "ReconcileRow",
+    overrides: Dict[str, str],
+    usd_rate: Optional[float],
+    usd_rate_date: Optional[date] = None,
+    suggested_profile_id: Optional[int] = None,
+) -> Optional[Dict[str, Any]]:
+    """PC11/D3 (design Decision 3, task 5.19): the resolved-draft envelope
+    for ONE publish-candidate row — `{fields, blocked, blocked_reasons,
+    suggested_profile_id, exchange_rate}`. `None` for any non-candidate
+    verdict (mirrors `build_publish_fields`'s scoping) and also `None` when
+    this row's report-78 extraction/conversion itself failed — that failure
+    is already surfaced via `publish_fields_error` (D13); a draft over
+    broken data would be misleading, not merely incomplete.
+
+    Per-row containment (same pattern as `build_publish_fields`): this is
+    called once per candidate row inside the `/reporte` response loop, and
+    ANY failure here (a bad override value, a missing exchange rate) must
+    degrade to a blocked/absent field rather than 500 the whole report —
+    the caller is expected to wrap this in a broad `except Exception`.
+
+    `overrides` is this row's `{campo: valor}` slice of a bulk
+    `tn_publish_override` query (`WHERE ean IN (...)`, loaded ONCE per
+    report by the caller — never per row). `usd_rate`/`usd_rate_date` are
+    likewise the report-wide value from ONE `latest_usd_rate_with_date(db)`
+    call before the row loop (design Decision 3: no per-row `TipoCambio`
+    queries — with ~99% of report rows in USD, a per-row lookup multiplies
+    into hundreds of queries per `/reporte` on a checked-out pooled
+    connection).
+
+    PR-7 gap fix (task B): `exchange_rate` used to be hardcoded `None` —
+    "worse than not having it: it looks implemented" (the risk table wants
+    the operator to SEE which rate is used and its date). Populated here as
+    `{"value": ..., "fecha": ...}` from the SAME bulk-resolved rate, never a
+    fresh per-row lookup.
+
+    PR-7 gap fix (task C): `suggested_profile_id` used to be hardcoded
+    `None` too. The caller resolves it via the SAME exact-match ->
+    category-only -> none ladder as `GET /tn-measurement-profiles/suggestion`
+    (`_select_hint_profile_id`), from a bulk-loaded hint map (design
+    Decision 3 — never one hint query per row) and hands it in here.
+    """
+    if row.verdict not in PUBLISH_CANDIDATE_VERDICTS:
+        return None
+
+    try:
+        extracted = extract_report_row(row.gbp_row)
+        resolved_gbp = resolve_gbp_fields(extracted)
+    except ReportFieldError:
+        return None
+
+    def _override_float(campo: str) -> Any:
+        raw = overrides.get(campo)
+        if raw is None:
+            return Absent
+        try:
+            return float(raw)
+        except (TypeError, ValueError):
+            return Absent
+
+    gbp_by_field = {
+        "weight": resolved_gbp.weight_kg,
+        "width": resolved_gbp.width_cm,
+        "depth": resolved_gbp.depth_cm,
+        "height": resolved_gbp.height_cm,
+    }
+    resolved_fields = {
+        name: resolve_field(gbp_value=gbp_value, override_value=_override_float(name))
+        for name, gbp_value in gbp_by_field.items()
+    }
+    validation = validate_measurements(resolved_fields)
+
+    exchange_rate: Optional[Dict[str, Any]] = (
+        {"value": usd_rate, "fecha": usd_rate_date.isoformat()} if usd_rate is not None and usd_rate_date else None
+    )
+    cost_block_reason: Optional[str] = None
+    try:
+        cost_resolved = resolve_cost(resolved_gbp.coslis_price, resolved_gbp.moneda_costo, usd_rate)
+    except MissingExchangeRateError:
+        # D6/D3: an unresolvable USD cost blocks the field, never
+        # publishes an unconverted figure — surfaced here as a blocked
+        # `cost` field, not a 500 or a swallowed exception.
+        cost_resolved = None
+        cost_block_reason = "Falta tipo de cambio para convertir el costo (USD)"
+    except InvalidReportValueError as exc:
+        # D13: junk is not absence. A non-numeric cost or an unknown
+        # `Moneda_Costo` must block THIS field with a reason that names
+        # the junk — silently dropping the whole draft (the broad per-row
+        # containment upstream) would leave the row with no draft and no
+        # signal of why.
+        cost_resolved = None
+        cost_block_reason = f"Valor de costo inválido en el reporte GBP: {exc}"
+
+    fields: Dict[str, Any] = {
+        name: {"value": resolved.value, "source": resolved.source, "editable": True}
+        for name, resolved in resolved_fields.items()
+    }
+    if cost_resolved is not None:
+        fields["cost"] = {"value": cost_resolved.value, "source": cost_resolved.source, "editable": True}
+    else:
+        fields["cost"] = {"value": None, "source": "empty", "editable": True}
+
+    blocked_reasons = list(validation.blocked_reasons)
+    if cost_block_reason is not None:
+        blocked_reasons.append(cost_block_reason)
+
+    return {
+        "fields": fields,
+        "blocked": validation.blocked or cost_block_reason is not None,
+        "blocked_reasons": blocked_reasons,
+        "suggested_profile_id": suggested_profile_id,
+        "exchange_rate": exchange_rate,
+    }
+
+
+def _select_hint_profile_id(
+    hints_by_key: Dict[Any, int], categoria: Optional[str], subcategoria: Optional[str]
+) -> Optional[int]:
+    """D11/MP3 profile suggestion ladder — EXACTLY the same lookup order as
+    `GET /tn-measurement-profiles/suggestion` (`sugerir_perfil`): exact
+    `(categoria, subcategoria)` match first, else `(categoria, None)`, else
+    no suggestion. `hints_by_key` is a bulk-loaded `{(categoria,
+    subcategoria_or_None): profile_id}` map — already reduced to the
+    highest-`uso_count` (ties broken by lowest id) winner per key by the
+    caller's query ordering, so this function does no further ranking, only
+    the ladder walk (pure, easy to test without a DB)."""
+    if not categoria:
+        return None
+    if subcategoria:
+        hit = hints_by_key.get((categoria, subcategoria))
+        if hit is not None:
+            return hit
+    return hints_by_key.get((categoria, None))
 
 
 def _build_reason_detail(

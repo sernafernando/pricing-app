@@ -70,15 +70,22 @@ from app.core.database import get_async_db, get_db
 from app.models.producto import ProductoERP, ProductoPricing
 from app.models.tienda_nube_producto import TiendaNubeProducto
 from app.models.tn_category_embedding import TnCategoryEmbedding
+from app.models.tn_category_profile_hint import TnCategoryProfileHint
+from app.models.tn_publish_override import TnPublishOverride
 from app.models.tn_reconcile_banlist import TnReconcileBanlist
 from app.models.usuario import Usuario
 from app.services.permisos_service import verificar_permiso
-from app.services.tn_category_embedding_service import suggest_category
+from app.services.tn_category_embedding_service import suggest_category, sync_category_embeddings
+from app.services.tn_publish_core import OVERRIDABLE_FIELDS, latest_usd_rate_with_date
 from app.services.tn_publish_service import publish_product, unpublish_product
 from app.services.tn_reconciliation_service import (
+    PUBLISH_CANDIDATE_VERDICTS,
     ErpPriceInfo,
     GBPFetchError,
     _as_optional_int,
+    _select_hint_profile_id,
+    build_publish_draft,
+    build_publish_fields,
     compute_verdicts,
     fetch_gbp_report_78,
 )
@@ -226,6 +233,30 @@ def _gbp_images(gbp_row: Dict[str, Any]) -> List[str]:
     return images
 
 
+class PublishFieldDraftResponse(BaseModel):
+    """One resolved field in a `PublishDraftResponse` (D2 — the audit
+    primitive: every transmitted field can answer "why is this the value
+    the operator sees" from `source` alone)."""
+
+    value: Optional[Any] = None
+    source: Literal["operator", "override", "gbp", "profile", "empty"]
+    editable: bool = True
+
+
+class PublishDraftResponse(BaseModel):
+    """PC11/D3 (design Decision 3, task 5.19): the pre-resolved draft for a
+    publish-candidate row, built server-side from the same report-78 data
+    already in hand for this request — see `build_publish_draft`. `None`
+    when this row isn't a publish candidate, or its report-78 extraction
+    itself failed (see `publish_fields_error` on the row for that case)."""
+
+    fields: Dict[str, PublishFieldDraftResponse]
+    blocked: bool
+    blocked_reasons: List[str]
+    suggested_profile_id: Optional[int] = None
+    exchange_rate: Optional[Dict[str, Any]] = None
+
+
 class ReconcileRowResponse(BaseModel):
     ean: str
     verdict: str
@@ -283,6 +314,67 @@ class ReconcileRowResponse(BaseModel):
     precio_web_transferencia: Optional[str] = None
     participa_web_transferencia: Optional[bool] = None
     precio_lista_ml: Optional[str] = None
+    # PR-3 (tn-publish-core foundation, PC1/PC2/PC3): full publish field set
+    # sourced through the strict extract -> resolve conversion layer (see
+    # `_publish_fields_for_row`), replacing the earlier discard where the
+    # row only carried a hand-picked subset of `gbp_row`. Only populated for
+    # publish-candidate verdicts (FALTA_PUBLICAR/FALTA_VINCULAR) — `None`
+    # for every other verdict, and also `None` when this specific row's
+    # report-78 data was incomplete (see `_publish_fields_for_row`'s
+    # graceful degradation). `cost` is RAW, pre-currency-conversion — D6
+    # (USD->ARS) lands in PR-5.
+    marca: Optional[str] = None
+    cost: Optional[str] = None
+    barcode: Optional[str] = None
+    promotional_price: Optional[str] = None
+    weight_kg: Optional[float] = None
+    width_cm: Optional[float] = None
+    depth_cm: Optional[float] = None
+    height_cm: Optional[float] = None
+    # D13: explicit, machine-readable signal that THIS row's extraction hit
+    # `MissingReportFieldError` (a report-78 schema break), distinct from a
+    # row whose measurements are genuinely absent (which leaves this
+    # `None` but the fields above still populate/resolve normally). PR-5's
+    # D3 blocked-publication gate must be able to tell the two apart from
+    # the response alone, not only from the service's warning log.
+    publish_fields_error: Optional[str] = None
+    # PR-5b (task 5.19, design Decision 3): the resolved draft envelope for
+    # a publish-candidate row (precedence-resolved measurements + cost,
+    # D3's blocked/blocked_reasons). `None` for every non-candidate verdict
+    # AND for a candidate row whose draft assembly itself failed — same
+    # per-row containment as `publish_fields_error` above, never a 500 for
+    # the whole report.
+    publish_draft: Optional[PublishDraftResponse] = None
+
+
+def _safe_publish_draft(
+    row: Any,
+    overrides_by_ean: Dict[str, Dict[str, str]],
+    usd_rate: Optional[float],
+    usd_rate_date: Optional[Any] = None,
+    suggested_profile_id: Optional[int] = None,
+) -> Optional[PublishDraftResponse]:
+    """Per-row containment for `build_publish_draft` (task 5.19): a draft
+    assembly failure (e.g. an unexpected exception from the resolver) must
+    degrade to `None` for THIS row only, never 500 the whole `/reporte`
+    response — same pattern `build_publish_fields`'s caller already relies
+    on for `publish_fields_error`. Takes no DB session: everything row-rate
+    related (`usd_rate`, overrides, `suggested_profile_id`) was bulk-loaded
+    once by the caller."""
+    try:
+        draft = build_publish_draft(
+            row,
+            overrides_by_ean.get(row.ean, {}),
+            usd_rate,
+            usd_rate_date=usd_rate_date,
+            suggested_profile_id=suggested_profile_id,
+        )
+    except Exception:
+        logger.exception("publish_draft assembly failed for ean=%s — omitting draft for this row only", row.ean)
+        return None
+    if draft is None:
+        return None
+    return PublishDraftResponse(**draft)
 
 
 def _tn_admin_url_for(product_id: Optional[int]) -> Optional[str]:
@@ -357,6 +449,23 @@ class DespublicarResponse(BaseModel):
 
 
 class PublicarRequest(BaseModel):
+    """PC11/D7's typed publish request. design.md's Interfaces/Contracts
+    section specifies this as REPLACING `product_data: Dict[str, Any]`
+    outright with fully-typed operator-intent fields (`overrides`,
+    `profile_id`, `visibility`, `free_shipping`, `seo_*`, `tags`, `price`).
+
+    As-built deviation (PR-5b, task 5.18): `product_data` is kept, not
+    removed. `TnPublishModal.jsx` still sends the OLD wire shape
+    (`product_data: {name: {es}, price}`) until PR-7 rebuilds it against
+    this typed model — an SDD PR must not break the live modal publish flow
+    (`_publish_kwargs`'s `product_data` remains `publish_product`'s
+    documented product-shape parameter; see that module's docstring). The
+    NEW typed fields below are additive: they are accepted now so the
+    backend pipeline (override persistence, PC5/D8) is wired end-to-end,
+    and PR-7 switches the frontend to send them instead of `product_data`
+    without requiring another backend contract change.
+    """
+
     ean: str
     product_data: Dict[str, Any]
     category_id: int
@@ -377,6 +486,42 @@ class PublicarRequest(BaseModel):
     # submitting, so recording it as its own origin would misreport what the
     # number actually is.
     price_base_source: Optional[Literal["web_transferencia", "manual"]] = None
+    # design's typed model (PC5/D8, task 5.4/5.5): operator-edited fields,
+    # keyed by field name. Keys are validated by `_overrides_keys_must_be_known`
+    # below against `tn_publish_core.OVERRIDABLE_FIELDS` (an unknown key is a
+    # 422, never silently persisted), and `_upsert_publish_overrides` filters
+    # against the same tuple as defense in depth.
+    # Persisted into `tn_publish_override` ONLY on a `submitted` outcome.
+    # Defaults to `{}` — the current modal sends nothing here yet (PR-7).
+    overrides: Dict[str, str] = {}
+    # The COMPLETE resolved measurement set the modal was showing — what to
+    # PUBLISH. Distinct from `overrides`, which is dirty-only (what the
+    # operator edited, and therefore what may be persisted). Reading the D3
+    # gate off `overrides` would fail-close every publish where nothing was
+    # edited, i.e. the happy path.
+    measurements: Dict[str, str] = {}
+    # GBP's own currency for this row's cost — a report fact, not an operator
+    # input. The backend needs it to decide whether a missing `TipoCambio`
+    # must block the publish (D6/PC8); the RATE itself is always read
+    # server-side, never trusted from the client.
+    moneda_costo: Optional[str] = None
+    profile_id: Optional[int] = None
+    # PR-8 gap A/B: the GBP category/subcategory for this row — forwarded so
+    # `publish_product` can write the `tn_category_profile_hint` usage row on
+    # a successful publish where `profile_id` was applied. Report facts, not
+    # operator input — same status as `moneda_costo` above.
+    categoria: Optional[str] = None
+    subcategoria: Optional[str] = None
+
+    @field_validator("overrides", "measurements")
+    @classmethod
+    def _overrides_keys_must_be_known(cls, value: Dict[str, str]) -> Dict[str, str]:
+        unknown = sorted(set(value) - set(OVERRIDABLE_FIELDS))
+        if unknown:
+            raise ValueError(
+                f"Campos de override desconocidos: {', '.join(unknown)}. Permitidos: {', '.join(OVERRIDABLE_FIELDS)}"
+            )
+        return value
 
     @field_validator("ean")
     @classmethod
@@ -392,6 +537,11 @@ class PublicarResponse(BaseModel):
     status: str
     product_id: Optional[int] = None
     skipped_image_srcs: List[str] = []
+    # Defect fix: distinct from `skipped_image_srcs` (never sent to TN at
+    # all — failed the local reachability guard). An image src that WAS
+    # sent but rejected by TN with a 429 lands here instead — reported to
+    # the operator for a manual retry rather than being silently dropped.
+    rate_limited_image_srcs: List[str] = []
     detail: Optional[str] = None
 
 
@@ -422,6 +572,12 @@ class CategoriaSugeridaResponse(BaseModel):
 class CategoriaSearchItem(BaseModel):
     tn_category_id: int
     category_path: str
+
+
+class CategoriaSyncResponse(BaseModel):
+    synced: int
+    skipped: bool
+    reason: Optional[str] = None
 
 
 CATEGORIAS_SEARCH_DEFAULT_LIMIT = 20
@@ -473,12 +629,69 @@ async def get_reconciliation_report(
         item_ids = {iid for row in gbp_rows if (iid := _gbp_item_id(row)) is not None}
         erp_by_item_id, erp_cap_hit = _load_erp_price_index(db, item_ids)
         verdicts = compute_verdicts(gbp_rows, tn_productos, banned_eans=banned_eans, erp_by_item_id=erp_by_item_id)
-        return verdicts, cap_hit, erp_cap_hit
+        # Decision 3: overrides loaded as ONE bulk query
+        # (`WHERE ean IN (...)`), never per row — scoped to only the
+        # publish-candidate EANs actually present in this report.
+        candidate_rows = [v for v in verdicts if v.verdict in PUBLISH_CANDIDATE_VERDICTS]
+        candidate_eans = {v.ean for v in candidate_rows}
+        overrides_by_ean: Dict[str, Dict[str, str]] = {}
+        if candidate_eans:
+            for override_row in db.query(TnPublishOverride).filter(TnPublishOverride.ean.in_(candidate_eans)).all():
+                overrides_by_ean.setdefault(override_row.ean, {})[override_row.campo] = override_row.valor
+        # Decision 3: the USD exchange rate is resolved ONCE per report
+        # (1-2 `TipoCambio` queries total) and handed to every draft as a
+        # value+date pair (PR-7 gap fix, task B) — ~99% of report rows are
+        # USD-costed, so a per-row lookup would multiply into hundreds of
+        # queries per `/reporte` on this checked-out pooled connection (see
+        # the pool-exhaustion history in this module's docstring).
+        usd_rate_with_date = latest_usd_rate_with_date(db) if candidate_rows else None
+        usd_rate = usd_rate_with_date[0] if usd_rate_with_date is not None else None
+        usd_rate_date = usd_rate_with_date[1] if usd_rate_with_date is not None else None
+        # Decision 3 (PR-7 gap fix, task C): the D11 category-profile hints
+        # are bulk-loaded ONCE (`WHERE categoria IN (...)`), never one
+        # `TnCategoryProfileHint` query per row — mirrors the overrides/
+        # usd_rate bulk pattern above. Ordered so the FIRST row seen per
+        # `(categoria, subcategoria)` key is the highest-`uso_count` winner
+        # (ties broken by lowest id), exactly like `sugerir_perfil`'s query.
+        candidate_categorias = {v.gbp_row.get("Categoría") for v in candidate_rows if v.gbp_row.get("Categoría")}
+        hints_by_key: Dict[Any, int] = {}
+        if candidate_categorias:
+            hint_rows = (
+                db.query(TnCategoryProfileHint)
+                .filter(TnCategoryProfileHint.categoria.in_(candidate_categorias))
+                .order_by(
+                    TnCategoryProfileHint.categoria,
+                    TnCategoryProfileHint.subcategoria,
+                    TnCategoryProfileHint.uso_count.desc(),
+                    TnCategoryProfileHint.id,
+                )
+                .all()
+            )
+            for hint in hint_rows:
+                key = (hint.categoria, hint.subcategoria)
+                hints_by_key.setdefault(key, hint.profile_id)
+        # Decision 3: drafts are also built HERE, inside the same
+        # threadpool call as the bulk queries above — never on the event
+        # loop thread, matching this module's existing pool-safety pattern
+        # for `/reporte`.
+        drafts_by_ean: Dict[str, Optional[PublishDraftResponse]] = {
+            v.ean: _safe_publish_draft(
+                v,
+                overrides_by_ean,
+                usd_rate,
+                usd_rate_date=usd_rate_date,
+                suggested_profile_id=_select_hint_profile_id(
+                    hints_by_key, v.gbp_row.get("Categoría"), v.gbp_row.get("SubCategoría")
+                ),
+            )
+            for v in candidate_rows
+        }
+        return verdicts, cap_hit, erp_cap_hit, drafts_by_ean
 
     # Sync DB query + CPU-bound verdict computation off the event loop —
     # this is the only `async def` in the module, so without this it would
     # block every other request for the whole computation window.
-    verdicts, cap_hit, erp_cap_hit = await run_in_threadpool(_load_and_compute)
+    verdicts, cap_hit, erp_cap_hit, drafts_by_ean = await run_in_threadpool(_load_and_compute)
 
     verdict_counts: Dict[str, int] = dict(Counter(v.verdict for v in verdicts if v.verdict != "OK"))
 
@@ -520,6 +733,8 @@ async def get_reconciliation_report(
             ),
             participa_web_transferencia=v.participa_web_transferencia,
             precio_lista_ml=(str(v.precio_lista_ml) if v.precio_lista_ml is not None else None),
+            publish_draft=drafts_by_ean.get(v.ean),
+            **build_publish_fields(v),
         )
         for v in filtered
     ]
@@ -658,14 +873,21 @@ def publicar_producto(
         image_srcs=request.image_srcs,
         offset_percent=request.offset_percent,
         price_base_source=request.price_base_source,
+        overrides=request.overrides,
+        measurements=request.measurements,
+        moneda_costo=request.moneda_costo,
+        profile_id=request.profile_id,
+        categoria=request.categoria,
+        subcategoria=request.subcategoria,
     )
-    if outcome["status"] == "rejected_invalid_price":
+    if outcome["status"] in ("rejected_invalid_price", "blocked_measurements", "blocked_cost"):
         raise HTTPException(status_code=400, detail=outcome.get("detail"))
     return PublicarResponse(
         submitted=outcome["submitted"],
         status=outcome["status"],
         product_id=outcome.get("product_id"),
         skipped_image_srcs=outcome.get("skipped_image_srcs", []),
+        rate_limited_image_srcs=outcome.get("rate_limited_image_srcs", []),
         detail=outcome.get("detail"),
     )
 
@@ -732,3 +954,21 @@ def buscar_categorias(
     return [
         CategoriaSearchItem(tn_category_id=row.tn_category_id, category_path=row.category_path_text) for row in rows
     ]
+
+
+@router.post("/categorias/sync", response_model=CategoriaSyncResponse)
+def sync_categorias(db: Session = Depends(get_db), current_user: Usuario = Depends(get_current_user)):
+    """Operator-triggered refresh of `tn_category_embedding` (PR-1,
+    tn-publisher-module — design Decision 8). Wiring only: delegates to the
+    already-implemented, already-tested `sync_category_embeddings()`, never
+    modified by this endpoint.
+
+    Reuses `admin.gestionar_tn_publicacion` — sync is maintenance on the
+    publish path, not a distinct capability (minimalism ladder rung 2, no
+    new permission for this PR).
+    """
+    if not verificar_permiso(db, current_user, "admin.gestionar_tn_publicacion"):
+        raise HTTPException(status_code=403, detail="No tienes permiso para gestionar la publicación de Tienda Nube")
+
+    result = sync_category_embeddings(db)
+    return CategoriaSyncResponse(synced=result["synced"], skipped=result["skipped"], reason=result.get("reason"))

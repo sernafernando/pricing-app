@@ -29,7 +29,7 @@ import { screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { render } from '@testing-library/react';
 import TnPublishModal from './TnPublishModal';
-import api from '../services/api';
+import api from '../../services/api';
 
 const ROW = {
   ean: '7791234567890',
@@ -47,6 +47,29 @@ const ROW = {
   precio_web_transferencia: '1000.00',
   participa_web_transferencia: true,
   precio_lista_ml: '900.00',
+  marca: 'MarcaX',
+  barcode: '7791234567890',
+  cost: '50.00',
+  stock: 12,
+  promotional_price: null,
+  publish_fields_error: null,
+  // PR-7: precedence-resolved draft envelope — every default fixture is
+  // publish-ready (all four measurements resolved, not blocked) so the
+  // PR-6-era tests keep asserting on an enabled Publicar button by
+  // default. Blocked/error states get their own dedicated fixtures below.
+  publish_draft: {
+    fields: {
+      weight: { value: 1.2, source: 'gbp', editable: true },
+      width: { value: 10, source: 'gbp', editable: true },
+      height: { value: 5, source: 'gbp', editable: true },
+      depth: { value: 15, source: 'gbp', editable: true },
+      cost: { value: 50, source: 'gbp', editable: true },
+    },
+    blocked: false,
+    blocked_reasons: [],
+    suggested_profile_id: null,
+    exchange_rate: null,
+  },
 };
 
 const SUGGESTIONS = {
@@ -61,6 +84,7 @@ function setupApiMocks({
   suggestions = SUGGESTIONS,
   categorySearchResults = [],
   porcentajeTarjetaTn = 25,
+  measurementProfiles = [],
 } = {}) {
   api.post.mockImplementation((url) => {
     if (url === '/tienda-nube-reconcile/categoria-sugerida') {
@@ -82,6 +106,9 @@ function setupApiMocks({
     if (url === '/markups-tienda/config/porcentaje_tarjeta_tn') {
       return Promise.resolve({ data: { clave: 'porcentaje_tarjeta_tn', valor: porcentajeTarjetaTn } });
     }
+    if (url === '/tn-measurement-profiles') {
+      return Promise.resolve({ data: measurementProfiles });
+    }
     return Promise.resolve({ data: {} });
   });
 }
@@ -95,9 +122,12 @@ beforeEach(() => {
 // ModalTesla auto-focuses its first focusable element ~100ms after mount —
 // typing before that fires gets its focus stolen mid-keystroke. Any test
 // that TYPES must wait for the auto-focus to settle first.
+// PR-9 moved the target from the close button (DOM-order first focusable,
+// but useless to land on) to the Título field via ModalTesla's opt-in
+// `initialFocusRef`.
 async function waitForModalAutofocus() {
   await waitFor(() => {
-    expect(screen.getByRole('button', { name: /cerrar modal/i })).toHaveFocus();
+    expect(screen.getByLabelText('Título')).toHaveFocus();
   });
 }
 
@@ -193,6 +223,22 @@ describe('Category picker', () => {
     });
     const call = api.post.mock.calls.find(([url]) => url === '/tienda-nube-reconcile/publicar');
     expect(call[1].category_id).toBe(77);
+  });
+
+  it('forwards row.categoria/subcategoria — feeds the category-profile usage hint (PR-8)', async () => {
+    const user = userEvent.setup();
+    await renderModal();
+
+    await screen.findByRole('radio', { name: /Electrónica > Auriculares/ });
+    await user.click(screen.getByRole('button', { name: /^publicar$/i }));
+    await user.click(screen.getByRole('button', { name: /^confirmar$/i }));
+
+    await waitFor(() => {
+      expect(api.post).toHaveBeenCalledWith('/tienda-nube-reconcile/publicar', expect.any(Object));
+    });
+    const call = api.post.mock.calls.find(([url]) => url === '/tienda-nube-reconcile/publicar');
+    expect(call[1].categoria).toBe('Electrónica');
+    expect(call[1].subcategoria).toBe('Auriculares');
   });
 });
 

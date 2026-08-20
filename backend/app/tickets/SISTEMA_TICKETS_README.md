@@ -124,44 +124,39 @@ app.include_router(workflows.router, prefix="/api/workflows", tags=["workflows"]
 ### 4. Crear un Ticket
 
 ```python
-POST /api/tickets
+POST / api / tickets
 {
-  "titulo": "Cambio de precio producto X",
-  "descripcion": "Necesito bajar el precio por competencia",
-  "prioridad": "alta",
-  "sector_id": 1,  # Pricing
-  "tipo_ticket_id": 5,  # Cambio de Precio
-  "metadata": {
-    "item_id": 12345,
-    "precio_actual": 1500.00,
-    "precio_solicitado": 1350.00,
-    "motivo": "Competencia bajó 10%",
-    "urgencia": "alta"
-  }
+    "titulo": "Cambio de precio producto X",
+    "descripcion": "Necesito bajar el precio por competencia",
+    "prioridad": "alta",
+    "sector_id": 1,  # Pricing
+    "tipo_ticket_id": 5,  # Cambio de Precio
+    "metadata": {
+        "item_id": 12345,
+        "precio_actual": 1500.00,
+        "precio_solicitado": 1350.00,
+        "motivo": "Competencia bajó 10%",
+        "urgencia": "alta",
+    },
 }
 ```
 
 ### 5. Transicionar Estado
 
 ```python
-POST /api/tickets/123/transicion
+POST / api / tickets / 123 / transicion
 {
-  "nuevo_estado_id": 3,  # Aprobado
-  "comentario": "Aprobado, precio dentro del rango aceptable",
-  "metadata": {
-    "aprobado_por": "Juan Perez"
-  }
+    "nuevo_estado_id": 3,  # Aprobado
+    "comentario": "Aprobado, precio dentro del rango aceptable",
+    "metadata": {"aprobado_por": "Juan Perez"},
 }
 ```
 
 ### 6. Asignar Ticket
 
 ```python
-POST /api/tickets/123/asignar
-{
-  "usuario_id": 5,
-  "motivo": "Especialista en esta marca"
-}
+POST / api / tickets / 123 / asignar
+{"usuario_id": 5, "motivo": "Especialista en esta marca"}
 ```
 
 ---
@@ -261,9 +256,11 @@ Solicitado → En Revisión → Aprobado → Aplicado
 ```python
 from app.tickets.events import EventBus
 
+
 def on_ticket_created(ticket, usuario):
     print(f"Nuevo ticket #{ticket.id} creado por {usuario.nombre}")
     # Lógica custom (notificar, logging, etc.)
+
 
 # Registrar handler
 EventBus.subscribe("ticket.created", on_ticket_created)
@@ -274,11 +271,7 @@ EventBus.subscribe("ticket.created", on_ticket_created)
 ```python
 from app.tickets.events import EventBus
 
-EventBus.publish(
-    "ticket.created",
-    ticket=ticket_obj,
-    usuario=user_obj
-)
+EventBus.publish("ticket.created", ticket=ticket_obj, usuario=user_obj)
 ```
 
 ---

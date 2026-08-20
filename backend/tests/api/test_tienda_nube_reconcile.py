@@ -17,6 +17,7 @@ page/page_size.
 from __future__ import annotations
 
 from contextlib import contextmanager
+from datetime import date
 from decimal import Decimal
 from unittest.mock import AsyncMock, patch
 
@@ -28,6 +29,10 @@ from app.models.permiso import Permiso, UsuarioPermisoOverride
 from app.models.producto import ProductoERP, ProductoPricing
 from app.models.rol import Rol
 from app.models.tienda_nube_producto import TiendaNubeProducto
+from app.models.tipo_cambio import TipoCambio
+from app.models.tn_category_profile_hint import TnCategoryProfileHint
+from app.models.tn_measurement_profile import TnMeasurementProfile
+from app.models.tn_publish_override import TnPublishOverride
 from app.models.tn_reconcile_banlist import TnReconcileBanlist
 from app.models.usuario import AuthProvider, RolUsuario, Usuario
 
@@ -726,6 +731,19 @@ class TestPublicarEndpoint:
         )
         assert response.status_code == 403
 
+    def test_unknown_override_key_is_rejected_with_422(self, client, db, user_publicacion):
+        # Pre-push review finding: override keys are VALIDATED against
+        # `tn_publish_core.OVERRIDABLE_FIELDS` — an unknown key must fail
+        # loudly at the request boundary, never be silently persisted (or
+        # silently dropped at the DB layer).
+        response = client.post(
+            "/api/tienda-nube-reconcile/publicar",
+            json=self._payload(overrides={"campo_inventado": "1.0"}),
+            headers=_bearer(user_publicacion),
+        )
+        assert response.status_code == 422
+        assert "campo_inventado" in response.text
+
     def test_successful_publish_returns_submitted_and_audits(self, client, db, user_publicacion):
         fake_outcome = {
             "submitted": True,
@@ -774,6 +792,25 @@ class TestPublicarEndpoint:
             )
         assert response.status_code == 400
 
+    def test_blocked_measurements_surfaces_as_400_not_200(self, client, db, user_publicacion):
+        """PR-7 gap fix (task A): the D3 measurement gate is a money/data-
+        integrity gate, surfaced the same way `rejected_invalid_price` is —
+        a hard 4xx, never a 200 with `submitted=False` an operator could
+        miss."""
+        fake_outcome = {
+            "submitted": False,
+            "status": "blocked_measurements",
+            "detail": "Falta peso (weight)",
+            "blocked_reasons": ["Falta peso (weight)"],
+        }
+        with patch("app.api.endpoints.tienda_nube_reconcile.publish_product", return_value=fake_outcome):
+            response = client.post(
+                "/api/tienda-nube-reconcile/publicar",
+                json=self._payload(),
+                headers=_bearer(user_publicacion),
+            )
+        assert response.status_code == 400
+
     def test_offset_percent_and_price_base_source_are_forwarded_to_publish_product(self, client, db, user_publicacion):
         fake_outcome = {"submitted": True, "status": "submitted", "product_id": 1, "skipped_image_srcs": []}
         with patch("app.api.endpoints.tienda_nube_reconcile.publish_product", return_value=fake_outcome) as mocked:
@@ -798,6 +835,23 @@ class TestPublicarEndpoint:
             headers=_bearer(user_publicacion),
         )
         assert response.status_code == 422
+
+    def test_overrides_are_forwarded_to_publish_product(self, client, db, user_publicacion):
+        """Task 5.18 — the typed `PublicarRequest.overrides` field (design's
+        Interfaces/Contracts) reaches `publish_product` as its `overrides`
+        kwarg, which persists them into `tn_publish_override` on success
+        (5.4/5.5). The old `product_data` wire shape stays supported for the
+        live modal (PR-6/7 transition — see the module docstring)."""
+        fake_outcome = {"submitted": True, "status": "submitted", "product_id": 1, "skipped_image_srcs": []}
+        with patch("app.api.endpoints.tienda_nube_reconcile.publish_product", return_value=fake_outcome) as mocked:
+            response = client.post(
+                "/api/tienda-nube-reconcile/publicar",
+                json=self._payload(overrides={"weight": "1.200"}),
+                headers=_bearer(user_publicacion),
+            )
+        assert response.status_code == 200
+        _, kwargs = mocked.call_args
+        assert kwargs["overrides"] == {"weight": "1.200"}
 
     def test_empty_image_srcs_is_valid(self, client, db, user_publicacion):
         """No images is allowed (some products may legitimately have none
@@ -867,6 +921,51 @@ class TestCategoriaSugeridaEndpoint:
         assert body["top"] is None
 
 
+class TestCategoriasSyncEndpoint:
+    """PR-1 (tn-publisher-module) — gives the already-implemented, already-
+    tested `sync_category_embeddings()` a real, permissioned HTTP trigger.
+    Reuses `admin.gestionar_tn_publicacion` (design Decision 8 — sync is
+    maintenance on the publish path, no new permission for this PR)."""
+
+    def test_requires_permission(self, client, db, user_no_perm):
+        response = client.post(
+            "/api/tienda-nube-reconcile/categorias/sync",
+            headers=_bearer(user_no_perm),
+        )
+        assert response.status_code == 403
+
+    def test_authorized_call_runs_sync_and_reports_count(self, client, db, user_publicacion):
+        fake_result = {"synced": 3, "skipped": False, "reason": None}
+        with patch(
+            "app.api.endpoints.tienda_nube_reconcile.sync_category_embeddings", return_value=fake_result
+        ) as mocked:
+            response = client.post(
+                "/api/tienda-nube-reconcile/categorias/sync",
+                headers=_bearer(user_publicacion),
+            )
+        assert response.status_code == 200
+        body = response.json()
+        assert body["synced"] == 3
+        assert body["skipped"] is False
+        mocked.assert_called_once()
+
+    def test_skipped_sync_reports_zero_count_and_reason(self, client, db, user_publicacion):
+        """Triangulation — a different `sync_category_embeddings()` outcome
+        (fetch/embedder failure, `skipped=True`) must be reported accurately
+        too, proving the response isn't hardcoded to the happy path."""
+        fake_result = {"synced": 0, "skipped": True, "reason": "fetch_categories_failed"}
+        with patch("app.api.endpoints.tienda_nube_reconcile.sync_category_embeddings", return_value=fake_result):
+            response = client.post(
+                "/api/tienda-nube-reconcile/categorias/sync",
+                headers=_bearer(user_publicacion),
+            )
+        assert response.status_code == 200
+        body = response.json()
+        assert body["synced"] == 0
+        assert body["skipped"] is True
+        assert body["reason"] == "fetch_categories_failed"
+
+
 class TestReporteStockExposed:
     """Slice 4: `stock` (already parsed for the DESPUBLICAR check but
     discarded before this slice) is now surfaced on the response row so the
@@ -926,6 +1025,356 @@ class TestReportePublishPriceFieldsExposed:
         assert row["precio_web_transferencia"] is None
         assert row["participa_web_transferencia"] is None
         assert row["precio_lista_ml"] is None
+
+
+class TestReportePublishDraft:
+    """Task 5.19 (design Decision 3): `publish_draft` is populated for
+    publish-candidate rows only, resolves measurements through the same
+    precedence ladder the core pipeline uses, and never 500s the whole
+    report on a bad row."""
+
+    def _complete_gbp_row(self, **overrides) -> dict:
+        row = {
+            "Código": "EAN-DRAFT",
+            "tnr_id": 0,
+            "tnr_variationID": 0,
+            "Stock_Disponible": "5",
+            "weight": "1000.000000000",
+            "wide": "2.000000000",
+            "large": "13.000000000",
+            "height": "8.000000000",
+            "Marca": "ADATA",
+            "coslis_price": "100.00",
+            "iclh_price": "95.00",
+            "Moneda_Costo": "ARS",
+            "tnr_lastPromotionalPrice": "45000.00",
+        }
+        row.update(overrides)
+        return row
+
+    def test_falta_publicar_row_carries_a_resolved_draft(self, client, db, user_ver):
+        response = _fetch_report(client, user_ver, gbp_rows=[self._complete_gbp_row()])
+        assert response.status_code == 200
+        row = response.json()["items"][0]
+        assert row["verdict"] == "FALTA_PUBLICAR"
+        draft = row["publish_draft"]
+        assert draft is not None
+        assert draft["blocked"] is False
+        assert draft["fields"]["weight"]["value"] == pytest.approx(1.0)
+        assert draft["fields"]["weight"]["source"] == "gbp"
+        assert draft["fields"]["cost"]["value"] == pytest.approx(100.0)
+
+    def test_stored_override_wins_over_gbp_in_the_draft(self, client, db, user_ver):
+        db.add(TnPublishOverride(ean="EAN-DRAFT", campo="weight", valor="9.500", usuario_id=1))
+        db.commit()
+        response = _fetch_report(client, user_ver, gbp_rows=[self._complete_gbp_row()])
+        row = response.json()["items"][0]
+        draft = row["publish_draft"]
+        assert draft["fields"]["weight"]["value"] == pytest.approx(9.5)
+        assert draft["fields"]["weight"]["source"] == "override"
+
+    def test_missing_measurement_blocks_the_draft_and_names_the_field(self, client, db, user_ver):
+        response = _fetch_report(client, user_ver, gbp_rows=[self._complete_gbp_row(weight="0")])
+        row = response.json()["items"][0]
+        draft = row["publish_draft"]
+        assert draft["blocked"] is True
+        assert any("weight" in reason for reason in draft["blocked_reasons"])
+
+    def test_empty_exchange_rate_table_blocks_a_usd_cost_field_not_the_whole_report(self, client, db, user_ver):
+        response = _fetch_report(client, user_ver, gbp_rows=[self._complete_gbp_row(Moneda_Costo="USD")])
+        assert response.status_code == 200
+        row = response.json()["items"][0]
+        draft = row["publish_draft"]
+        assert draft["blocked"] is True
+        assert any("tipo de cambio" in reason.lower() for reason in draft["blocked_reasons"])
+
+    def test_usd_rate_is_resolved_once_for_the_whole_report_never_per_row(self, client, db, user_ver):
+        # Pre-push review finding + design Decision 3: with ~99% of report
+        # rows USD-costed, a per-row `TipoCambio` lookup multiplies into
+        # hundreds of queries per /reporte on a checked-out pooled
+        # connection (this repo has a documented pool-exhaustion incident).
+        gbp_rows = [
+            self._complete_gbp_row(**{"Código": "EAN-USD-1", "Moneda_Costo": "USD"}),
+            self._complete_gbp_row(**{"Código": "EAN-USD-2", "Moneda_Costo": "USD"}),
+            self._complete_gbp_row(**{"Código": "EAN-USD-3", "Moneda_Costo": "USD"}),
+        ]
+        with patch(
+            "app.api.endpoints.tienda_nube_reconcile.latest_usd_rate_with_date",
+            return_value=(1000.0, date.today()),
+        ) as mocked_rate:
+            response = _fetch_report(client, user_ver, gbp_rows=gbp_rows)
+        assert response.status_code == 200
+        assert mocked_rate.call_count == 1
+        for row in response.json()["items"]:
+            assert row["publish_draft"]["fields"]["cost"]["value"] == pytest.approx(100000.0)
+
+    def test_junk_cost_blocks_the_field_with_a_reason_not_a_vanished_draft(self, client, db, user_ver):
+        # D13: junk is not absence — a non-numeric cost must surface as a
+        # blocked cost field naming the junk, never as a silently-missing
+        # draft swallowed by the per-row containment.
+        response = _fetch_report(client, user_ver, gbp_rows=[self._complete_gbp_row(coslis_price="N/A")])
+        assert response.status_code == 200
+        draft = response.json()["items"][0]["publish_draft"]
+        assert draft is not None
+        assert draft["blocked"] is True
+        assert any("costo" in reason.lower() for reason in draft["blocked_reasons"])
+
+    def test_non_candidate_verdict_has_no_draft(self, client, db, user_ver):
+        gbp_rows = [
+            {"Código": "EAN-100", "tnr_id": 0, "tnr_variationID": 0, "Stock_Disponible": 5},
+        ]
+        tn_producto = TiendaNubeProducto(
+            product_id=1, variant_id=1, variant_sku="EAN-100", product_name="x", published=True, activo=True
+        )
+        db.add(tn_producto)
+        db.commit()
+        response = _fetch_report(client, user_ver, gbp_rows=gbp_rows)
+        row = next(r for r in response.json()["items"] if r["ean"] == "EAN-100")
+        assert row["verdict"] == "OK" or row["publish_draft"] is None
+
+    def test_broken_row_extraction_omits_the_draft_without_500(self, client, db, user_ver):
+        broken_row = {
+            "Código": "EAN-BROKEN",
+            "tnr_id": 0,
+            "tnr_variationID": 0,
+            "Stock_Disponible": "5",
+            # missing `weight`/`wide`/`large`/`height`/etc — schema break.
+        }
+        response = _fetch_report(client, user_ver, gbp_rows=[broken_row])
+        assert response.status_code == 200
+        row = response.json()["items"][0]
+        assert row["publish_fields_error"] is not None
+        assert row["publish_draft"] is None
+
+    def test_exchange_rate_carries_value_and_date_not_null(self, client, db, user_ver):
+        """PR-7 gap fix (task B): `exchange_rate` used to be hardcoded
+        `None` — the operator must be able to see the actual rate/date used
+        to convert a USD cost, not a field that "looks implemented" but
+        never carries data."""
+        today = date.today()
+        db.add(TipoCambio(fecha=today, moneda="USD", compra=1000.0, venta=1000.0))
+        db.commit()
+        response = _fetch_report(client, user_ver, gbp_rows=[self._complete_gbp_row(Moneda_Costo="USD")])
+        assert response.status_code == 200
+        draft = response.json()["items"][0]["publish_draft"]
+        assert draft["exchange_rate"] == {"value": pytest.approx(1000.0), "fecha": today.isoformat()}
+
+    def test_no_tipo_cambio_row_leaves_exchange_rate_null(self, client, db, user_ver):
+        response = _fetch_report(client, user_ver, gbp_rows=[self._complete_gbp_row()])
+        assert response.status_code == 200
+        draft = response.json()["items"][0]["publish_draft"]
+        assert draft["exchange_rate"] is None
+
+    def test_suggested_profile_id_uses_the_exact_category_subcategory_hint(self, client, db, user_ver):
+        """PR-7 gap fix (task C): `suggested_profile_id` used to be
+        hardcoded `None` — D11's preselection never fired in production."""
+        profile = TnMeasurementProfile(name="Perfil A", weight=1, width=1, height=1, depth=1)
+        db.add(profile)
+        db.flush()
+        db.add(
+            TnCategoryProfileHint(
+                categoria="Categoria-Draft", subcategoria="Sub-Draft", profile_id=profile.id, uso_count=5
+            )
+        )
+        db.commit()
+        response = _fetch_report(
+            client,
+            user_ver,
+            gbp_rows=[self._complete_gbp_row(Categoría="Categoria-Draft", SubCategoría="Sub-Draft")],
+        )
+        assert response.status_code == 200
+        draft = response.json()["items"][0]["publish_draft"]
+        assert draft["suggested_profile_id"] == profile.id
+
+    def test_suggested_profile_id_resolves_for_every_candidate_row_in_one_report(self, client, db, user_ver):
+        """Triangulation over multiple rows sharing one category — proves
+        the bulk-loaded hint map (a single `WHERE categoria IN (...)` query,
+        design Decision 3) resolves correctly per row, not just for one."""
+        profile = TnMeasurementProfile(name="Perfil B", weight=1, width=1, height=1, depth=1)
+        db.add(profile)
+        db.flush()
+        db.add(TnCategoryProfileHint(categoria="Categoria-Bulk", subcategoria=None, profile_id=profile.id, uso_count=1))
+        db.commit()
+        gbp_rows = [
+            self._complete_gbp_row(**{"Código": f"EAN-BULK-{i}", "Categoría": "Categoria-Bulk"}) for i in range(3)
+        ]
+        response = _fetch_report(client, user_ver, gbp_rows=gbp_rows)
+        assert response.status_code == 200
+        for row in response.json()["items"]:
+            assert row["publish_draft"]["suggested_profile_id"] == profile.id
+
+    def test_no_hint_for_category_leaves_suggested_profile_id_none(self, client, db, user_ver):
+        response = _fetch_report(client, user_ver, gbp_rows=[self._complete_gbp_row(Categoría="Categoria-Nunca-Usada")])
+        assert response.status_code == 200
+        draft = response.json()["items"][0]["publish_draft"]
+        assert draft["suggested_profile_id"] is None
+
+
+class TestReconcilePublishFieldsPassthrough:
+    """PR-3 (tn-publish-core foundation, PC1/PC2/PC3): the row response now
+    carries the full publish field set — sourced through the strict
+    extract -> resolve conversion layer — replacing the earlier discard
+    where the row only carried a hand-picked subset of `gbp_row`. Only
+    emitted for publish-candidate verdicts (FALTA_PUBLICAR/FALTA_VINCULAR)
+    to control response payload growth across the other ~800 rows."""
+
+    def _complete_gbp_row(self, **overrides) -> dict:
+        row = {
+            "Código": "EAN-FULL",
+            "tnr_id": 0,
+            "tnr_variationID": 0,
+            "Stock_Disponible": "5",
+            "weight": "1000.000000000",
+            "wide": "2.000000000",
+            "large": "13.000000000",
+            "height": "8.000000000",
+            "Marca": "ADATA",
+            "coslis_price": "100.00",
+            "iclh_price": "95.00",
+            "Moneda_Costo": "USD",
+            "tnr_lastPromotionalPrice": "45000.00",
+        }
+        row.update(overrides)
+        return row
+
+    def test_falta_publicar_row_carries_full_field_set_converted(self, client, db, user_ver):
+        response = _fetch_report(client, user_ver, gbp_rows=[self._complete_gbp_row()])
+
+        assert response.status_code == 200
+        row = response.json()["items"][0]
+        assert row["verdict"] == "FALTA_PUBLICAR"
+        assert row["marca"] == "ADATA"
+        assert row["cost"] == "100.00"
+        assert row["barcode"] == "EAN-FULL"
+        assert row["promotional_price"] == "45000.00"
+        assert row["weight_kg"] == pytest.approx(1.000)
+        assert row["width_cm"] == pytest.approx(13.0)
+        assert row["depth_cm"] == pytest.approx(2.0)
+        assert row["height_cm"] == pytest.approx(8.0)
+
+    def test_falta_vincular_row_also_carries_full_field_set(self, client, db, user_ver):
+        tn = TiendaNubeProducto(product_id=61, variant_id=9, variant_sku="EAN-FULL-2", activo=True)
+        db.add(tn)
+        db.flush()
+
+        gbp_rows = [self._complete_gbp_row(Código="EAN-FULL-2")]
+        response = _fetch_report(client, user_ver, gbp_rows=gbp_rows)
+
+        assert response.status_code == 200
+        row = response.json()["items"][0]
+        assert row["verdict"] == "FALTA_VINCULAR"
+        assert row["marca"] == "ADATA"
+        assert row["weight_kg"] == pytest.approx(1.000)
+
+    def test_non_candidate_verdict_leaves_publish_fields_null(self, client, db, user_ver):
+        """MAL_VINCULADO is a data-quality anomaly, not a publish candidate
+        — the new fields must stay `null` even when the GBP row is
+        complete, so the payload-growth guardrail actually holds."""
+        gbp_rows = [self._complete_gbp_row(Código="123", tnr_id=501, tnr_variationID=0)]
+        response = _fetch_report(client, user_ver, gbp_rows=gbp_rows)
+
+        assert response.status_code == 200
+        row = response.json()["items"][0]
+        assert row["verdict"] == "MAL_VINCULADO"
+        assert row["marca"] is None
+        assert row["cost"] is None
+        assert row["barcode"] is None
+        assert row["promotional_price"] is None
+        assert row["weight_kg"] is None
+        assert row["width_cm"] is None
+        assert row["depth_cm"] is None
+        assert row["height_cm"] is None
+
+    def test_absent_measurement_serializes_as_null_not_zero(self, client, db, user_ver):
+        gbp_rows = [self._complete_gbp_row(weight="0.000000000", height="0.000000000")]
+        response = _fetch_report(client, user_ver, gbp_rows=gbp_rows)
+
+        assert response.status_code == 200
+        row = response.json()["items"][0]
+        assert row["weight_kg"] is None
+        assert row["height_cm"] is None
+        # A real, present dimension on the SAME row must not be swept into
+        # `None` by the absent ones — proves the per-field Absent handling,
+        # not a blanket "something was blank so null everything" fallback.
+        assert row["width_cm"] == pytest.approx(13.0)
+
+    def test_row_missing_a_required_key_degrades_gracefully_no_500(self, client, db, user_ver):
+        """A publish-candidate row with an incomplete GBP payload (e.g. an
+        older/partial fixture, or a live ERP column rename affecting the
+        whole report) MUST NOT crash the one-shot report for every other
+        row. `extract_report_row` still raises internally (proven directly
+        in `test_tn_publish_core_extract.py`); this test proves the
+        endpoint-level wiring catches it per-row and leaves the new fields
+        `null` rather than propagating a 500 across the whole response.
+
+        D13: the broken row must ALSO carry an explicit, non-null
+        `publish_fields_error` naming the missing key — distinguishable
+        from a row whose measurements are simply absent — and a healthy
+        row in the SAME response must stay entirely unaffected
+        (`publish_fields_error is None`, fields populated)."""
+        incomplete_row = {"Código": "EAN-PARTIAL", "tnr_id": 0, "tnr_variationID": 0}
+        healthy_row = self._complete_gbp_row(Código="EAN-HEALTHY", tnr_id=0, tnr_variationID=0)
+
+        response = _fetch_report(client, user_ver, gbp_rows=[incomplete_row, healthy_row])
+
+        assert response.status_code == 200
+        items = {row["barcode"] or row["ean"]: row for row in response.json()["items"]}
+        broken = items["EAN-PARTIAL"]
+        assert broken["verdict"] == "FALTA_PUBLICAR"
+        assert broken["marca"] is None
+        assert broken["weight_kg"] is None
+        assert broken["publish_fields_error"] is not None
+        assert "weight" in broken["publish_fields_error"]
+
+        healthy = items["EAN-HEALTHY"]
+        assert healthy["verdict"] == "FALTA_PUBLICAR"
+        assert healthy["marca"] == "ADATA"
+        assert healthy["publish_fields_error"] is None
+
+    def test_row_with_unparseable_measurement_value_degrades_gracefully_no_500(self, client, db, user_ver):
+        """A publish-candidate row where GBP sends a non-numeric, non-blank
+        value for a measurement field (e.g. `weight = "N/A"`, a broken GBP
+        schema/data export) MUST NOT 500 the whole report. Before the fix,
+        `_is_absent_value` treated the junk value as "present", so it flowed
+        straight into `float(...)` in the conversion layer and raised an
+        uncaught `ValueError` `build_publish_fields` did not catch — the
+        same failure mode `test_row_missing_a_required_key_degrades_
+        gracefully_no_500` covers, reached through the VALUE path instead
+        of the KEY path.
+
+        Junk is NOT absence (S1's core distinction): a genuinely absent
+        measurement (`weight = "0.000000000"`) resolves to `None`; a junk
+        measurement (`weight = "N/A"`) must surface as an explicit,
+        non-null `publish_fields_error` naming both the offending field
+        and the offending raw value, distinguishable from plain absence —
+        and a healthy row in the SAME response must stay entirely
+        unaffected."""
+        junk_weight_row = self._complete_gbp_row(Código="EAN-JUNK-WEIGHT", weight="N/A")
+        junk_dimension_row = self._complete_gbp_row(Código="EAN-JUNK-DIM", large="not-a-number")
+        healthy_row = self._complete_gbp_row(Código="EAN-HEALTHY-2")
+
+        response = _fetch_report(client, user_ver, gbp_rows=[junk_weight_row, junk_dimension_row, healthy_row])
+
+        assert response.status_code == 200
+        items = {row["barcode"] or row["ean"]: row for row in response.json()["items"]}
+
+        junk_weight = items["EAN-JUNK-WEIGHT"]
+        assert junk_weight["verdict"] == "FALTA_PUBLICAR"
+        assert junk_weight["weight_kg"] is None
+        assert junk_weight["publish_fields_error"] is not None
+        assert "weight" in junk_weight["publish_fields_error"]
+        assert "N/A" in junk_weight["publish_fields_error"]
+
+        junk_dimension = items["EAN-JUNK-DIM"]
+        assert junk_dimension["verdict"] == "FALTA_PUBLICAR"
+        assert junk_dimension["width_cm"] is None
+        assert junk_dimension["publish_fields_error"] is not None
+        assert "large" in junk_dimension["publish_fields_error"]
+
+        healthy = items["EAN-HEALTHY-2"]
+        assert healthy["verdict"] == "FALTA_PUBLICAR"
+        assert healthy["marca"] == "ADATA"
+        assert healthy["publish_fields_error"] is None
 
 
 class TestReporteMlTitleAndAdminUrl:
