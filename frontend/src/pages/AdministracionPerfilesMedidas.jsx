@@ -17,20 +17,17 @@ import api from '../services/api';
 import ModalTesla from '../components/ModalTesla';
 import styles from './AdministracionPerfilesMedidas.module.css';
 import { registrarPagina } from '../registry/tabRegistry';
-import { Plus, Pencil, AlertTriangle, Trash2, Info, Package, Loader2 } from 'lucide-react';
+import { Plus, Trash2 } from 'lucide-react';
+import PerfilesTable from '../components/perfiles-medidas/PerfilesTable';
+import PerfilForm from '../components/perfiles-medidas/PerfilForm';
+import PerfilDeleteDialog from '../components/perfiles-medidas/PerfilDeleteDialog';
+import { MEASUREMENT_FIELDS } from '../components/perfiles-medidas/perfilesMedidasHelpers';
 
 registrarPagina({
   pagePath: '/perfiles-medidas',
   pageLabel: 'Administración - Perfiles de medidas',
   tabs: [],
 });
-
-const MEASUREMENT_FIELDS = [
-  { key: 'weight', label: 'Peso', unit: 'kg' },
-  { key: 'width', label: 'Ancho', unit: 'cm' },
-  { key: 'height', label: 'Alto', unit: 'cm' },
-  { key: 'depth', label: 'Profundidad', unit: 'cm' },
-];
 
 function emptyForm() {
   return { name: '', weight: '', width: '', height: '', depth: '' };
@@ -175,80 +172,15 @@ export default function AdministracionPerfilesMedidas() {
         )}
       </div>
 
-      <div className={styles.card}>
-        {loading ? (
-          <div className={styles.emptyState}>
-            <Loader2 size={24} className={styles.spinner} />
-            Cargando perfiles...
-          </div>
-        ) : loadError ? (
-          <div className={styles.emptyState}>{loadError}</div>
-        ) : profiles.length === 0 ? (
-          <div className={styles.emptyState}>
-            <Package size={44} strokeWidth={1.5} />
-            <h2 className={styles.emptyHeading}>Todavía no hay perfiles</h2>
-            <p className={styles.emptyBody}>
-              Un perfil guarda peso y dimensiones de una caja que usás seguido. Con perfiles cargados, publicar un
-              producto sin medidas es un clic en vez de cuatro campos.
-            </p>
-            {canEdit && (
-              <button className={styles.btnPrimary} onClick={handleOpenCreate}>
-                <Plus size={15} strokeWidth={2} /> Crear el primero
-              </button>
-            )}
-          </div>
-        ) : (
-          <>
-            <table className={styles.table}>
-              <thead>
-                <tr>
-                  <th>Perfil</th>
-                  <th className={styles.thNum}>Peso</th>
-                  <th className={styles.thNum}>Ancho</th>
-                  <th className={styles.thNum}>Alto</th>
-                  <th className={styles.thNum}>Prof.</th>
-                  <th>Se usa en</th>
-                  {canEdit && <th />}
-                </tr>
-              </thead>
-              <tbody>
-                {profiles.map((p) => (
-                  <tr key={p.id}>
-                    <td className={styles.colNombre}>{p.name}</td>
-                    <td className={styles.colNum}>{p.weight}</td>
-                    <td className={styles.colNum}>{p.width}</td>
-                    <td className={styles.colNum}>{p.height}</td>
-                    <td className={styles.colNum}>{p.depth}</td>
-                    <td>
-                      {(p.categorias_en_uso ?? 0) === 0 ? (
-                        <span className={styles.usoNone}>Sin uso</span>
-                      ) : (
-                        <span className={styles.usoPill}>
-                          {p.categorias_en_uso} {p.categorias_en_uso === 1 ? 'categoría' : 'categorías'}
-                        </span>
-                      )}
-                    </td>
-                    {canEdit && (
-                      <td className={styles.colActions}>
-                        <button className={styles.btnGhostEdit} onClick={() => handleOpenEdit(p)}>
-                          <Pencil size={13} /> Editar
-                        </button>
-                        <button className={styles.btnBorrar} onClick={() => setDeleteTarget(p)}>
-                          Borrar
-                        </button>
-                      </td>
-                    )}
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-            <div className={styles.footerNote}>
-              "Se usa en" cuenta las categorías que ya publicaron con ese perfil — es lo que alimenta la sugerencia
-              al abrir el publicador.
-            </div>
-          </>
-        )}
-      </div>
+      <PerfilesTable
+        profiles={profiles}
+        loading={loading}
+        loadError={loadError}
+        canEdit={canEdit}
+        onCreate={handleOpenCreate}
+        onEdit={handleOpenEdit}
+        onDelete={(p) => setDeleteTarget(p)}
+      />
 
       <ModalTesla
         isOpen={showModal}
@@ -271,60 +203,16 @@ export default function AdministracionPerfilesMedidas() {
           </div>
         }
       >
-        <form id="perfil-medidas-form" onSubmit={handleSave}>
-          {formError && (
-            <div className={styles.alertError}>
-              <AlertTriangle size={16} /> {formError}
-            </div>
-          )}
-          <div className={styles.formGroup}>
-            <label className={styles.formLabel} htmlFor="perfil-nombre">
-              Nombre
-            </label>
-            <input
-              id="perfil-nombre"
-              className={styles.formInput}
-              value={form.name}
-              onChange={(e) => setForm({ ...form, name: e.target.value })}
-              autoFocus
-            />
-            <span className={styles.formHint}>
-              Poné las medidas en el nombre: es lo único que vas a ver al elegir el perfil desde el publicador.
-            </span>
-          </div>
-
-          <h3 className={styles.groupHeading}>Medidas de la caja</h3>
-          <div className={styles.formGrid}>
-            {MEASUREMENT_FIELDS.map(({ key, label, unit }) => (
-              <div className={styles.formGroup} key={key}>
-                <label className={styles.formLabel} htmlFor={`perfil-${key}`}>
-                  {label}
-                </label>
-                <div className={styles.numericFieldWrap}>
-                  <input
-                    id={`perfil-${key}`}
-                    className={`${styles.formInput} ${styles.numericInput}`}
-                    type="number"
-                    step="0.01"
-                    value={form[key]}
-                    onChange={(e) => setForm({ ...form, [key]: e.target.value })}
-                    onBlur={() => setTouched(true)}
-                  />
-                  <span className={styles.unitSuffix}>{unit}</span>
-                </div>
-                {touched && errors[key] && <span className={styles.fieldError}>{errors[key]}</span>}
-              </div>
-            ))}
-          </div>
-
-          <div className={styles.infoNote}>
-            <Info size={16} />
-            <span>
-              Editar un perfil no cambia lo ya publicado. Solo afecta las publicaciones que se hagan de acá en
-              adelante.
-            </span>
-          </div>
-        </form>
+        <PerfilForm
+          formId="perfil-medidas-form"
+          form={form}
+          setForm={setForm}
+          errors={errors}
+          touched={touched}
+          setTouched={setTouched}
+          formError={formError}
+          onSubmit={handleSave}
+        />
       </ModalTesla>
 
       <ModalTesla
@@ -355,47 +243,8 @@ export default function AdministracionPerfilesMedidas() {
           </div>
         }
       >
-        {deleteError && <p className={styles.alertError}>{deleteError}</p>}
-        {deleteTarget && (deleteTarget.categorias_en_uso ?? 0) > 0 ? (
-          <>
-            <div className={styles.deleteIconWrap}>
-              <div className={styles.deleteIconAmber}>
-                <AlertTriangle size={22} />
-              </div>
-            </div>
-            <p className={styles.deleteBody}>
-              Este perfil se viene usando en <strong>{deleteTarget.categorias_en_uso} categorías</strong>. Si lo
-              borrás, esas categorías dejan de sugerir medidas y el operador va a tener que cargarlas a mano en cada
-              publicación.
-            </p>
-            <div className={styles.affectedBlock}>
-              {(deleteTarget.categorias_afectadas || []).map((cat) => (
-                <span className={styles.chip} key={cat}>
-                  {cat}
-                </span>
-              ))}
-              {deleteTarget.total_categorias_afectadas > (deleteTarget.categorias_afectadas || []).length && (
-                <span className={styles.chipMore}>
-                  y {deleteTarget.total_categorias_afectadas - (deleteTarget.categorias_afectadas || []).length} más
-                </span>
-              )}
-            </div>
-            <p className={styles.deleteClosingLine}>
-              Lo ya publicado en Tienda Nube no se toca: conserva las medidas con las que salió.
-            </p>
-          </>
-        ) : (
-          <>
-            <div className={styles.deleteIconWrap}>
-              <div className={styles.deleteIconRed}>
-                <Trash2 size={22} />
-              </div>
-            </div>
-            <p className={styles.deleteBody}>Ninguna categoría lo está usando. Se borra sin consecuencias.</p>
-          </>
-        )}
+        <PerfilDeleteDialog deleteTarget={deleteTarget} deleteError={deleteError} />
       </ModalTesla>
     </div>
   );
 }
-
