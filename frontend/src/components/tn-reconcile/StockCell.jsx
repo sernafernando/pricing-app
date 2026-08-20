@@ -1,3 +1,5 @@
+import styles from '../../pages/TiendaNubeReconcile.module.css';
+
 // Stock cell: unknown stock (`null`) MUST render distinctly from a real
 // zero — `0` is exactly the value that raises `despublicar` on the backend,
 // so collapsing "unknown" into "0" (or into a blank cell that reads the same
@@ -6,5 +8,11 @@
 const STOCK_UNKNOWN_LABEL = '—';
 
 export default function StockCell({ row }) {
-  return row.stock === null || row.stock === undefined ? STOCK_UNKNOWN_LABEL : String(row.stock);
+  // Muted (.noLink), same treatment as DuplicateGroupCard/BANLIST's
+  // empty-value dash — never plain unstyled body text.
+  return row.stock === null || row.stock === undefined ? (
+    <span className={styles.noLink}>{STOCK_UNKNOWN_LABEL}</span>
+  ) : (
+    String(row.stock)
+  );
 }

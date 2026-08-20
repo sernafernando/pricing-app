@@ -1637,6 +1637,9 @@ describe('Stock column (Slice 4)', () => {
     const stockCell = within(row).getAllByRole('cell')[3];
     expect(stockCell.textContent.trim()).toBe('—');
     expect(stockCell.textContent.trim()).not.toBe('0');
+    // The dash renders muted (.noLink), same as DuplicateGroupCard/BANLIST's
+    // empty-value dash — never plain unstyled body text.
+    expect(stockCell.querySelector('span').className).toMatch(/noLink/i);
   });
 
   it('renders a genuine zero stock as "0", not as the unknown marker', async () => {
