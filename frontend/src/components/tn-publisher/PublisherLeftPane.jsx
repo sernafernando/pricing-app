@@ -37,6 +37,7 @@ export default function PublisherLeftPane({
   finalPriceIsValid,
   loadingSuggestion,
   suggestions,
+  suggestionEmptyReason,
   selectedCategory,
   setSelectedCategory,
   selectionOutsideSuggestions,
@@ -115,6 +116,7 @@ export default function PublisherLeftPane({
       <CategorySection
         loadingSuggestion={loadingSuggestion}
         suggestions={suggestions}
+        suggestionEmptyReason={suggestionEmptyReason}
         selectedCategory={selectedCategory}
         setSelectedCategory={setSelectedCategory}
         selectionOutsideSuggestions={selectionOutsideSuggestions}
