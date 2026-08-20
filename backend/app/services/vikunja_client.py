@@ -75,12 +75,26 @@ class VikunjaClient:
         method: str,
         path: str,
         *,
+        idempotent: bool = True,
         _max_attempts: int = 5,
         **kwargs: Any,
     ) -> httpx.Response:
-        """Issue one request with the retry ladder: 429 + any 5xx, up to
-        `_max_attempts` tries, 0.4s doubling backoff between attempts.
-        Never retries 4xx other than 429/408."""
+        """Issue one request with the retry ladder: up to `_max_attempts`
+        tries, 0.4s doubling backoff. Never retries 4xx other than 429/408.
+
+        `idempotent=False` marks a call that CREATES something (`create_task`,
+        attachment upload). Those must not be blindly retried: a timeout or a
+        5xx can mean Vikunja committed the write and only the acknowledgement
+        was lost, so retrying would create a second task. Retrying five times
+        could create five. That failure is invisible to the ledger's
+        `UNIQUE(ticket_id)`, which prevents a duplicate ROW, not a duplicate
+        TASK — and it would defeat the ambiguity resolution downstream, which
+        assumes a lost acknowledgement surfaces exactly once.
+
+        429 and 408 stay retryable even for writes: both mean the server
+        rejected the request WITHOUT processing it (rate limited / never
+        received a complete request), so no write can have happened.
+        """
         wait = 0.4
         last_exc: Optional[Exception] = None
 
@@ -90,17 +104,41 @@ class VikunjaClient:
                     response = await client.request(method, f"{self._api}{path}", headers=self._headers(), **kwargs)
             except (httpx.TimeoutException, httpx.ConnectError) as exc:
                 last_exc = exc
+                # The ambiguous case: the request may have been applied and we
+                # simply never saw the answer. Surface it instead of guessing.
+                if not idempotent:
+                    logger.warning(
+                        "vikunja: %s %s failed ambiguously (%s); not retried because it is a write",
+                        method,
+                        path,
+                        type(exc).__name__,
+                    )
+                    raise VikunjaTransientError(method, path, None, str(exc)) from exc
                 if attempt < _max_attempts - 1:
                     await asyncio.sleep(wait)
                     wait *= 2
                     continue
                 raise VikunjaTransientError(method, path, None, str(exc)) from exc
 
-            if _is_transient_status(response.status_code):
+            unprocessed = response.status_code in (429, 408)
+            if unprocessed or (_is_transient_status(response.status_code) and idempotent):
                 if attempt < _max_attempts - 1:
                     await asyncio.sleep(wait)
                     wait *= 2
                     continue
+                logger.warning(
+                    "vikunja: %s %s exhausted %d attempts (HTTP %s)", method, path, _max_attempts, response.status_code
+                )
+                raise VikunjaTransientError(method, path, response.status_code, response.text or "(empty body)")
+
+            if _is_transient_status(response.status_code):
+                # A 5xx on a write: same ambiguity as a timeout.
+                logger.warning(
+                    "vikunja: %s %s returned HTTP %s; not retried because it is a write",
+                    method,
+                    path,
+                    response.status_code,
+                )
                 raise VikunjaTransientError(method, path, response.status_code, response.text or "(empty body)")
 
             if response.status_code >= 400:
@@ -131,10 +169,13 @@ class VikunjaClient:
         if hex_color is not None:
             payload["hex_color"] = hex_color
 
+        # `idempotent=False`: this PUT CREATES a task. Every call makes a new
+        # one, so a blind retry after a lost acknowledgement duplicates it.
         response = await self._request(
             "PUT",
             f"/projects/{project_id}/tasks",
             json=payload,
+            idempotent=False,
             _max_attempts=_max_attempts,
         )
         return response.json()
