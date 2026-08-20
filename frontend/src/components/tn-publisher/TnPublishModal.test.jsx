@@ -403,7 +403,9 @@ describe('Precio de publicación', () => {
     // findBy, not getBy: the offset now arrives from GET
     // /markups-tienda/config/porcentaje_tarjeta_tn, and renderModal only
     // awaits the categoria-sugerida CALL — a sync query would race the fetch.
-    expect(await screen.findByText(/1250\.00/)).toBeInTheDocument();
+    // Defect 2 fix: money is displayed es-AR formatted ("$ 1.250,00"), the
+    // wire value ("1250.00") is asserted separately in the submit test below.
+    expect(await screen.findByText(/1\.250,00/)).toBeInTheDocument();
   });
 
   it('blocks publishing until the configured offset has loaded (never publishes a guessed default)', async () => {
@@ -444,7 +446,7 @@ describe('Precio de publicación', () => {
     await user.clear(offsetInput);
     await user.type(offsetInput, '10');
 
-    await waitFor(() => expect(screen.getByText(/1100\.00/)).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText(/1\.100,00/)).toBeInTheDocument());
 
     await user.click(screen.getByRole('button', { name: /^publicar$/i }));
     await user.click(screen.getByRole('button', { name: /^confirmar$/i }));
@@ -639,5 +641,38 @@ describe('Bloqueo de publicación — medidas vs. costo (defecto 1)', () => {
     expect(screen.queryByTestId('blocked-banner-missing')).not.toBeInTheDocument();
     const banner = screen.getByTestId('blocked-banner-backend');
     expect(banner).toHaveTextContent('Falta tipo de cambio para convertir el costo (USD)');
+  });
+});
+
+describe('Formateo de moneda (defecto 2) — display formateado, payload intacto', () => {
+  it('muestra el costo con separadores es-AR pero envía el valor crudo sin redondear', async () => {
+    const user = userEvent.setup();
+    const row = {
+      ...ROW,
+      publish_draft: {
+        ...ROW.publish_draft,
+        fields: {
+          ...ROW.publish_draft.fields,
+          cost: { value: 13937.999999999998, source: 'gbp', editable: true },
+        },
+      },
+    };
+    await renderModal({ row });
+    await waitForModalAutofocus();
+
+    // Display: formatted, rounded to two decimals, es-AR separators.
+    expect(screen.getByText('$ 13.938,00')).toBeInTheDocument();
+    // The raw noisy float must never appear formatted-away in the wire path.
+    expect(screen.queryByText('13937.999999999998')).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: /^publicar$/i }));
+    await user.click(screen.getByRole('button', { name: /^confirmar$/i }));
+
+    await waitFor(() => {
+      expect(api.post).toHaveBeenCalledWith('/tienda-nube-reconcile/publicar', expect.any(Object));
+    });
+    const call = api.post.mock.calls.find(([url]) => url === '/tienda-nube-reconcile/publicar');
+    // Wire value: EXACT raw value, never rounded/reformatted for the payload.
+    expect(call[1].product_data.cost).toBe(13937.999999999998);
   });
 });
