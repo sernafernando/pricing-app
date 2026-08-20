@@ -1470,32 +1470,70 @@ class TestCategoriasEndpoint:
         )
         assert response.status_code == 200
         body = response.json()
-        assert len(body) == 1
-        assert body[0]["tn_category_id"] == 1
-        assert body[0]["category_path"] == "Electrónica > Celulares y Smartphones"
+        # tn-categorias-descubribles fix (defect A): the endpoint now
+        # returns an envelope (`{items, cap_hit}`), not a bare array —
+        # `cap_hit` is the explicit, never-silent-truncation signal the
+        # rest of this module already reports (TN_PRODUCTOS_QUERY_CAP,
+        # GBP_ROWS_CAP, ERP_JOIN_QUERY_CAP).
+        assert body["cap_hit"] is False
+        items = body["items"]
+        assert len(items) == 1
+        assert items[0]["tn_category_id"] == 1
+        assert items[0]["category_path"] == "Electrónica > Celulares y Smartphones"
 
-    def test_blank_query_returns_bounded_first_page_when_catalog_has_rows(self, client, db, user_publicacion):
-        # A blank `q` used to short-circuit to `[]` "by design" — that made
-        # the picker unbrowsable (see tn-categorias-descubribles fix): an
-        # operator can't type a query for a vocabulary they don't know yet.
-        # It now returns a bounded, alphabetically-ordered first page, same
-        # as any other query, just unfiltered.
+    def test_blank_query_returns_the_whole_catalog_not_an_arbitrary_page(self, client, db, user_publicacion):
+        # Defect A: a blank `q` (browse) used to return a bounded
+        # alphabetically-ordered PAGE — with `limit=20` from the frontend,
+        # a catalog where "COMPUTACION > ..." sorts early meant the first
+        # 20 rows were ALL from that one branch, and an operator who
+        # doesn't already know the vocabulary still couldn't discover
+        # anything outside it. The category tree is bounded (hundreds, not
+        # millions) — browse must return the WHOLE tree, ignoring any
+        # `limit` the caller passes, up to `CATEGORIAS_BROWSE_CAP`.
         from app.models.tn_category_embedding import TnCategoryEmbedding
 
-        db.add(
-            TnCategoryEmbedding(
-                tn_category_id=1,
-                category_path_text="Zeta > Ultimo",
-                embedding=[0.0] * 384,
+        for i in range(5):
+            db.add(
+                TnCategoryEmbedding(
+                    tn_category_id=200 + i,
+                    category_path_text=f"Computacion > Rama {i}",
+                    embedding=[0.0] * 384,
+                )
             )
+        db.add(TnCategoryEmbedding(tn_category_id=999, category_path_text="Zeta > Ultimo", embedding=[0.0] * 384))
+        db.commit()
+
+        response = client.get(
+            "/api/tienda-nube-reconcile/categorias",
+            params={"q": "", "limit": 2},  # limit must be IGNORED for browse
+            headers=_bearer(user_publicacion),
         )
-        db.add(
-            TnCategoryEmbedding(
-                tn_category_id=2,
-                category_path_text="Alfa > Primero",
-                embedding=[0.0] * 384,
+        assert response.status_code == 200
+        body = response.json()
+        assert body["cap_hit"] is False
+        items = body["items"]
+        assert len(items) == 6
+        paths = [item["category_path"] for item in items]
+        # The branch that sorts alphabetically FIRST no longer eats the
+        # whole page — a category from a completely different branch is
+        # present too.
+        assert "Zeta > Ultimo" in paths
+
+    def test_blank_query_reports_cap_hit_when_the_browse_cap_is_reached(
+        self, client, db, user_publicacion, monkeypatch
+    ):
+        from app.api.endpoints import tienda_nube_reconcile as endpoint_module
+        from app.models.tn_category_embedding import TnCategoryEmbedding
+
+        monkeypatch.setattr(endpoint_module, "CATEGORIAS_BROWSE_CAP", 3)
+        for i in range(5):
+            db.add(
+                TnCategoryEmbedding(
+                    tn_category_id=300 + i,
+                    category_path_text=f"Rama {i}",
+                    embedding=[0.0] * 384,
+                )
             )
-        )
         db.commit()
 
         response = client.get(
@@ -1503,31 +1541,8 @@ class TestCategoriasEndpoint:
         )
         assert response.status_code == 200
         body = response.json()
-        assert len(body) == 2
-        # Ordering is preserved (alphabetical by category_path_text).
-        assert body[0]["category_path"] == "Alfa > Primero"
-        assert body[1]["category_path"] == "Zeta > Ultimo"
-
-    def test_blank_query_respects_limit(self, client, db, user_publicacion):
-        from app.models.tn_category_embedding import TnCategoryEmbedding
-
-        for i in range(5):
-            db.add(
-                TnCategoryEmbedding(
-                    tn_category_id=200 + i,
-                    category_path_text=f"Categoria Browse {i}",
-                    embedding=[0.0] * 384,
-                )
-            )
-        db.commit()
-
-        response = client.get(
-            "/api/tienda-nube-reconcile/categorias",
-            params={"q": "", "limit": 2},
-            headers=_bearer(user_publicacion),
-        )
-        assert response.status_code == 200
-        assert len(response.json()) == 2
+        assert body["cap_hit"] is True
+        assert len(body["items"]) == 3
 
     def test_blank_query_returns_empty_list_when_catalog_is_empty(self, client, db, user_publicacion):
         # This is the honest "empty catalog" signal the frontend uses to
@@ -1537,9 +1552,11 @@ class TestCategoriasEndpoint:
             "/api/tienda-nube-reconcile/categorias", params={"q": ""}, headers=_bearer(user_publicacion)
         )
         assert response.status_code == 200
-        assert response.json() == []
+        body = response.json()
+        assert body["items"] == []
+        assert body["cap_hit"] is False
 
-    def test_limit_param_bounds_results(self, client, db, user_publicacion):
+    def test_limit_param_bounds_search_results(self, client, db, user_publicacion):
         from app.models.tn_category_embedding import TnCategoryEmbedding
 
         for i in range(5):
@@ -1558,7 +1575,9 @@ class TestCategoriasEndpoint:
             headers=_bearer(user_publicacion),
         )
         assert response.status_code == 200
-        assert len(response.json()) == 2
+        body = response.json()
+        assert len(body["items"]) == 2
+        assert body["cap_hit"] is True
 
 
 class TestGracefulDegradation:

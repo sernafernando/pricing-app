@@ -57,6 +57,7 @@ export default function TnPublishModal({ row, isOpen, onClose, onPublished }) {
     pickSearchResult,
     selectionOutsideSuggestions,
     catalogEmpty,
+    catalogCapHit,
     syncingCategories,
     syncResult,
     syncError,
@@ -188,6 +189,7 @@ export default function TnPublishModal({ row, isOpen, onClose, onPublished }) {
           searchError={searchError}
           pickSearchResult={pickSearchResult}
           catalogEmpty={catalogEmpty}
+          catalogCapHit={catalogCapHit}
           syncingCategories={syncingCategories}
           syncResult={syncResult}
           syncError={syncError}
