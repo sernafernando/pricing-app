@@ -83,6 +83,7 @@ const SUGGESTIONS = {
 function setupApiMocks({
   suggestions = SUGGESTIONS,
   categorySearchResults = [],
+  categoriasCapHit = false,
   porcentajeTarjetaTn = 25,
   measurementProfiles = [],
 } = {}) {
@@ -97,7 +98,9 @@ function setupApiMocks({
   });
   api.get.mockImplementation((url) => {
     if (url === '/tienda-nube-reconcile/categorias') {
-      return Promise.resolve({ data: categorySearchResults });
+      // Defect A: the endpoint returns an envelope now, `{items, cap_hit}`,
+      // not a bare array.
+      return Promise.resolve({ data: { items: categorySearchResults, cap_hit: categoriasCapHit } });
     }
     // The surcharge default is no longer a literal in the component — it is
     // read from the `porcentaje_tarjeta_tn` config key. 25 keeps the money
@@ -225,7 +228,7 @@ describe('Category picker', () => {
     expect(call[1].category_id).toBe(77);
   });
 
-  it('loads a bounded listing of categories as soon as the modal opens, without typing (defect 1a)', async () => {
+  it('loads the whole category catalog as soon as the modal opens, without typing (defect 1a)', async () => {
     setupApiMocks({
       categorySearchResults: [
         { tn_category_id: 1, category_path: 'Electrónica > Auriculares' },
@@ -234,10 +237,38 @@ describe('Category picker', () => {
     });
     await renderModal();
 
+    // Defect A fix: browse (blank q) must NOT send a `limit` — a bounded
+    // page here is exactly the arbitrary-slice bug (an alphabetically-early
+    // branch eating the whole page).
     await waitFor(() => {
-      expect(api.get).toHaveBeenCalledWith('/tienda-nube-reconcile/categorias', { params: { limit: 20 } });
+      expect(api.get).toHaveBeenCalledWith('/tienda-nube-reconcile/categorias', { params: {} });
     });
     expect(await screen.findByRole('button', { name: 'Hogar > Muebles' })).toBeInTheDocument();
+  });
+
+  it('groups the browsed catalog by its top-level branch and reports when the browse cap was reached (defect A)', async () => {
+    setupApiMocks({
+      categorySearchResults: [
+        { tn_category_id: 1, category_path: 'Computacion > Notebooks' },
+        { tn_category_id: 2, category_path: 'Computacion > Monitores' },
+        { tn_category_id: 3, category_path: 'Hogar > Muebles' },
+      ],
+      categoriasCapHit: true,
+    });
+    await renderModal();
+
+    await waitFor(() => {
+      expect(api.get).toHaveBeenCalledWith('/tienda-nube-reconcile/categorias', { params: {} });
+    });
+    // Grouped by top-level branch — the branch name itself is visible as a
+    // heading, not buried in a flat list of hundreds of rows.
+    expect(await screen.findByText('Computacion')).toBeInTheDocument();
+    expect(screen.getByText('Hogar')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Computacion > Notebooks' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Hogar > Muebles' })).toBeInTheDocument();
+    // The cap was reached — never show a partial catalog as if it were the
+    // whole tree without saying so.
+    expect(screen.getByText(/no se muestran todas las categorías/i)).toBeInTheDocument();
   });
 
   it('shows a distinct empty-catalog message (never "Sin resultados") when nothing was ever synced (defect 1b)', async () => {
@@ -255,8 +286,12 @@ describe('Category picker', () => {
     api.get.mockImplementation((url, config) => {
       if (url === '/tienda-nube-reconcile/categorias') {
         const q = config?.params?.q;
-        if (!q) return Promise.resolve({ data: [{ tn_category_id: 1, category_path: 'Hogar > Muebles' }] });
-        return Promise.resolve({ data: [] });
+        if (!q) {
+          return Promise.resolve({
+            data: { items: [{ tn_category_id: 1, category_path: 'Hogar > Muebles' }], cap_hit: false },
+          });
+        }
+        return Promise.resolve({ data: { items: [], cap_hit: false } });
       }
       return Promise.resolve({ data: {} });
     });
@@ -403,7 +438,9 @@ describe('Precio de publicación', () => {
     // findBy, not getBy: the offset now arrives from GET
     // /markups-tienda/config/porcentaje_tarjeta_tn, and renderModal only
     // awaits the categoria-sugerida CALL — a sync query would race the fetch.
-    expect(await screen.findByText(/1250\.00/)).toBeInTheDocument();
+    // Defect 2 fix: money is displayed es-AR formatted ("$ 1.250,00"), the
+    // wire value ("1250.00") is asserted separately in the submit test below.
+    expect(await screen.findByText(/1\.250,00/)).toBeInTheDocument();
   });
 
   it('blocks publishing until the configured offset has loaded (never publishes a guessed default)', async () => {
@@ -444,7 +481,7 @@ describe('Precio de publicación', () => {
     await user.clear(offsetInput);
     await user.type(offsetInput, '10');
 
-    await waitFor(() => expect(screen.getByText(/1100\.00/)).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText(/1\.100,00/)).toBeInTheDocument());
 
     await user.click(screen.getByRole('button', { name: /^publicar$/i }));
     await user.click(screen.getByRole('button', { name: /^confirmar$/i }));
@@ -582,5 +619,95 @@ describe('Submit', () => {
     await waitFor(() => {
       expect(screen.queryByRole('button', { name: /^confirmar$/i })).not.toBeInTheDocument();
     });
+  });
+});
+
+describe('Bloqueo de publicación — medidas vs. costo (defecto 1)', () => {
+  it('deja publicar una vez que el operador completa una medida faltante, aunque el snapshot del backend siga marcando blocked', async () => {
+    // Real bug reported by the maintainer: the backend's `/reporte` snapshot
+    // (`publish_draft.blocked`) says weight/width/depth/height are missing,
+    // but that verdict is STALE the moment the operator fills them in this
+    // modal — the live `draftFields` state must win for measurements.
+    const row = {
+      ...ROW,
+      publish_draft: {
+        ...ROW.publish_draft,
+        fields: {
+          ...ROW.publish_draft.fields,
+          weight: { value: null, source: 'empty', editable: true },
+        },
+        blocked: true,
+        blocked_reasons: ['Falta peso (weight)'],
+        cost_blocked: false,
+        cost_block_reason: null,
+      },
+    };
+    const user = userEvent.setup();
+    await renderModal({ row });
+    await waitForModalAutofocus();
+
+    expect(screen.getByRole('button', { name: /^publicar$/i })).toBeDisabled();
+    expect(screen.getByTestId('blocked-banner-missing')).toBeInTheDocument();
+
+    await user.type(screen.getByLabelText('Peso (kg)'), '0.3');
+
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: /^publicar$/i })).toBeEnabled();
+    });
+    expect(screen.queryByTestId('blocked-banner-missing')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('blocked-banner-backend')).not.toBeInTheDocument();
+  });
+
+  it('mantiene el bloqueo por costo (D6, no resoluble en el modal) incluso con todas las medidas completas', async () => {
+    const row = {
+      ...ROW,
+      publish_draft: {
+        ...ROW.publish_draft,
+        blocked: true,
+        blocked_reasons: ['Falta tipo de cambio para convertir el costo (USD)'],
+        cost_blocked: true,
+        cost_block_reason: 'Falta tipo de cambio para convertir el costo (USD)',
+      },
+    };
+    await renderModal({ row });
+    await waitForModalAutofocus();
+
+    expect(screen.getByRole('button', { name: /^publicar$/i })).toBeDisabled();
+    expect(screen.queryByTestId('blocked-banner-missing')).not.toBeInTheDocument();
+    const banner = screen.getByTestId('blocked-banner-backend');
+    expect(banner).toHaveTextContent('Falta tipo de cambio para convertir el costo (USD)');
+  });
+});
+
+describe('Formateo de moneda (defecto 2) — display formateado, payload intacto', () => {
+  it('muestra el costo con separadores es-AR pero envía el valor crudo sin redondear', async () => {
+    const user = userEvent.setup();
+    const row = {
+      ...ROW,
+      publish_draft: {
+        ...ROW.publish_draft,
+        fields: {
+          ...ROW.publish_draft.fields,
+          cost: { value: 13937.999999999998, source: 'gbp', editable: true },
+        },
+      },
+    };
+    await renderModal({ row });
+    await waitForModalAutofocus();
+
+    // Display: formatted, rounded to two decimals, es-AR separators.
+    expect(screen.getByText('$ 13.938,00')).toBeInTheDocument();
+    // The raw noisy float must never appear formatted-away in the wire path.
+    expect(screen.queryByText('13937.999999999998')).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: /^publicar$/i }));
+    await user.click(screen.getByRole('button', { name: /^confirmar$/i }));
+
+    await waitFor(() => {
+      expect(api.post).toHaveBeenCalledWith('/tienda-nube-reconcile/publicar', expect.any(Object));
+    });
+    const call = api.post.mock.calls.find(([url]) => url === '/tienda-nube-reconcile/publicar');
+    // Wire value: EXACT raw value, never rounded/reformatted for the payload.
+    expect(call[1].product_data.cost).toBe(13937.999999999998);
   });
 });

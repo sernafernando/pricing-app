@@ -10,6 +10,7 @@
  * rule and its error copy are unchanged (money path, PR-9 non-goal).
  */
 import PublishFieldRow from './PublishFieldRow';
+import { formatMoney } from '../../utils/formatMoney';
 import shellStyles from './TnPublisherShell.module.css';
 import styles from './TnPublishModal.module.css';
 
@@ -45,10 +46,10 @@ export default function VariantFieldsSection({
                 id="tn-publish-base-price"
                 type="text"
                 className={`${styles.titleInput} ${styles.numericInput}`}
-                value={`$${basePrice.toFixed(2)}`}
+                value={formatMoney(basePrice)}
                 readOnly
               />
-              <p className={styles.fieldHint}>Base: precio web transferencia (${basePrice.toFixed(2)})</p>
+              <p className={styles.fieldHint}>Base: precio web transferencia ({formatMoney(basePrice)})</p>
             </>
           ) : (
             <>

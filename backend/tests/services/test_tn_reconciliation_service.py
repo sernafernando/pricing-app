@@ -10,7 +10,9 @@ from decimal import Decimal
 from app.models.tienda_nube_producto import TiendaNubeProducto
 from app.services.tn_reconciliation_service import (
     ErpPriceInfo,
+    ReconcileRow,
     _select_hint_profile_id,
+    build_publish_draft,
     compute_verdicts,
     normalize_gtin,
 )
@@ -948,3 +950,57 @@ class TestSelectHintProfileId:
 
     def test_blank_categoria_returns_none_without_a_lookup(self):
         assert _select_hint_profile_id({("", None): 9}, "", "Sub") is None
+
+
+def _full_gbp_row(codigo="EAN-1", weight="1000", wide="20", large="30", height="20", moneda_costo="ARS", coslis="100"):
+    """A report-78 row carrying every REQUIRED_REPORT_FIELDS key with a
+    real (non-absent) measurement/cost so `build_publish_draft` resolves
+    past extraction into `validate_measurements`/`resolve_cost`."""
+    return {
+        "weight": weight,
+        "wide": wide,
+        "large": large,
+        "height": height,
+        "Marca": "MarcaX",
+        "Stock_Disponible": "5",
+        "coslis_price": coslis,
+        "iclh_price": "0",
+        "Moneda_Costo": moneda_costo,
+        "Código": codigo,
+    }
+
+
+class TestBuildPublishDraftCostBlockSeparation:
+    """Defect 1 fix: `cost_blocked`/`cost_block_reason` must be surfaced
+    SEPARATELY from the measurement `blocked_reasons` list, so a frontend
+    consumer can tell "operator can still fix this here" (measurements)
+    apart from "backend gate, operator cannot resolve it in this modal"
+    (an unresolvable USD cost) without string-matching Spanish text.
+    `blocked`/`blocked_reasons` keep carrying BOTH classes merged, for any
+    existing consumer."""
+
+    def test_missing_measurements_only_does_not_set_cost_blocked(self):
+        row = ReconcileRow(ean="EAN-1", verdict="FALTA_PUBLICAR", gbp_row=_full_gbp_row(weight="0"))
+        draft = build_publish_draft(row, overrides={}, usd_rate=100.0)
+        assert draft["blocked"] is True
+        assert draft["cost_blocked"] is False
+        assert draft["cost_block_reason"] is None
+        assert any("peso" in reason for reason in draft["blocked_reasons"])
+
+    def test_unresolvable_usd_cost_sets_cost_blocked_with_all_measurements_present(self):
+        row = ReconcileRow(ean="EAN-1", verdict="FALTA_PUBLICAR", gbp_row=_full_gbp_row(moneda_costo="USD"))
+        draft = build_publish_draft(row, overrides={}, usd_rate=None)
+        assert draft["blocked"] is True
+        assert draft["cost_blocked"] is True
+        assert draft["cost_block_reason"] is not None
+        assert "tipo de cambio" in draft["cost_block_reason"]
+        # Measurements all resolved from GBP -> the merged list carries
+        # ONLY the cost reason, never a stale measurement complaint.
+        assert draft["blocked_reasons"] == [draft["cost_block_reason"]]
+
+    def test_fully_resolvable_row_is_not_blocked_at_all(self):
+        row = ReconcileRow(ean="EAN-1", verdict="FALTA_PUBLICAR", gbp_row=_full_gbp_row())
+        draft = build_publish_draft(row, overrides={}, usd_rate=100.0)
+        assert draft["blocked"] is False
+        assert draft["cost_blocked"] is False
+        assert draft["blocked_reasons"] == []

@@ -253,6 +253,12 @@ class PublishDraftResponse(BaseModel):
     fields: Dict[str, PublishFieldDraftResponse]
     blocked: bool
     blocked_reasons: List[str]
+    # Defect 1 fix: additive split of `blocked_reasons` — see
+    # `build_publish_draft`'s docstring. `cost_blocked` is the ONLY class
+    # of block the frontend still treats as persistent/authoritative
+    # after the operator edits measurements in the modal.
+    cost_blocked: bool = False
+    cost_block_reason: Optional[str] = None
     suggested_profile_id: Optional[int] = None
     exchange_rate: Optional[Dict[str, Any]] = None
 
@@ -574,6 +580,17 @@ class CategoriaSearchItem(BaseModel):
     category_path: str
 
 
+class CategoriaListResponse(BaseModel):
+    """Defect A (tn-categorias-descubribles): `GET /categorias` used to
+    return a bare array, so a bounded/truncated result was indistinguishable
+    from the whole catalog. Wrapping in `cap_hit` follows this module's own
+    convention (`TN_PRODUCTOS_QUERY_CAP`/`GBP_ROWS_CAP`/`ERP_JOIN_QUERY_CAP`)
+    — never truncate silently."""
+
+    items: List[CategoriaSearchItem]
+    cap_hit: bool = False
+
+
 class CategoriaSyncResponse(BaseModel):
     synced: int
     skipped: bool
@@ -581,6 +598,15 @@ class CategoriaSyncResponse(BaseModel):
 
 
 CATEGORIAS_SEARCH_DEFAULT_LIMIT = 20
+
+# Defect A (tn-categorias-descubribles): the TN category tree is bounded —
+# hundreds of paths, not millions — so a browse (blank `q`) can afford to
+# return the WHOLE thing rather than an arbitrary alphabetically-sorted
+# page. High and explicit, and `cap_hit` (CategoriaListResponse) reports
+# whenever it's actually reached — same convention as
+# TN_PRODUCTOS_QUERY_CAP/GBP_ROWS_CAP/ERP_JOIN_QUERY_CAP: never a silent
+# truncation.
+CATEGORIAS_BROWSE_CAP = 5_000
 
 
 @router.get("/reporte", response_model=ReconcileReportResponse)
@@ -913,7 +939,7 @@ def categoria_sugerida(
     return CategoriaSugeridaResponse(suggestions=result["suggestions"], top=result["top"])
 
 
-@router.get("/categorias", response_model=List[CategoriaSearchItem])
+@router.get("/categorias", response_model=CategoriaListResponse)
 def buscar_categorias(
     q: str = Query("", description="Substring a buscar en el path de categoría (case-insensitive)"),
     limit: int = Query(CATEGORIAS_SEARCH_DEFAULT_LIMIT, ge=1, le=100),
@@ -924,12 +950,17 @@ def buscar_categorias(
     `tn_category_embedding.category_path_text` — lets the publish modal's
     manual category picker show category NAMES instead of a raw id, without
     invoking the embedder (that's `/categoria-sugerida`, a separate
-    similarity-ranked suggestion). An empty/blank `q` returns a bounded,
-    alphabetically-ordered first page of the whole table instead of `[]` —
-    a search-only picker with nothing to browse is unusable when the
-    operator doesn't already know the category vocabulary. A genuinely
-    empty catalog still returns `[]`; the frontend uses that as the signal
-    to distinguish "never synced" from "no rows match your query".
+    similarity-ranked suggestion).
+
+    An empty/blank `q` is BROWSE, not search: it returns the WHOLE catalog
+    (up to `CATEGORIAS_BROWSE_CAP`), ignoring `limit` — a bounded page here
+    used to sort alphabetically and hand back only the first branch (e.g.
+    "COMPUTACION > ...") for a catalog where that branch happens to sort
+    early, which left the rest of the tree undiscoverable — exactly the
+    defect this endpoint exists to fix. A genuinely empty catalog still
+    returns `items: []`; the frontend uses that as the signal to
+    distinguish "never synced" from "no rows match your query". A non-blank
+    `q` is a real SEARCH and keeps respecting `limit` as before.
 
     Reuses `admin.gestionar_tn_publicacion` — same write-gate as the rest of
     the publish flow this feeds.
@@ -945,20 +976,25 @@ def buscar_categorias(
         # `.contains(...)` alone is LIKE (case-SENSITIVE on Postgres); the search
         # is contractually case-insensitive, so it must be ILIKE.
         rows_query = rows_query.filter(TnCategoryEmbedding.category_path_text.icontains(query_text, autoescape=True))
+        effective_limit = limit
+    else:
+        effective_limit = CATEGORIAS_BROWSE_CAP
 
     rows = (
         rows_query
         # NOTE (scaling): the leading-`%` ILIKE cannot use a btree index and the
-        # ORDER BY sorts the whole match set before `limit` cuts it. Fine for the
-        # bounded TN category tree today; if it grows large, add a trigram
-        # (pg_trgm) index on `category_path_text` before this becomes a hot query.
+        # ORDER BY sorts the whole match set before `limit`/the browse cap cuts
+        # it. Fine for the bounded TN category tree today; if it grows large,
+        # add a trigram (pg_trgm) index on `category_path_text` before this
+        # becomes a hot query.
         .order_by(TnCategoryEmbedding.category_path_text)
-        .limit(limit)
+        .limit(effective_limit)
         .all()
     )
-    return [
+    items = [
         CategoriaSearchItem(tn_category_id=row.tn_category_id, category_path=row.category_path_text) for row in rows
     ]
+    return CategoriaListResponse(items=items, cap_hit=len(rows) >= effective_limit)
 
 
 @router.post("/categorias/sync", response_model=CategoriaSyncResponse)
