@@ -139,13 +139,31 @@ export function primaryTnMatch(row) {
 }
 
 /**
+ * Banear is the other half of the operator's triage decision on a
+ * FALTA_PUBLICAR/FALTA_VINCULAR row (publish it, or make it stop
+ * appearing) — not a secondary/overflow action. Kept as its own pure
+ * function (rather than folded back into `resolveSecondaryActions`) so
+ * `RowActionsCell` can render it as a visible button next to the primary
+ * action instead of burying it in the ⋮ menu (tn-categorias-descubribles
+ * fix, defect 2 — it used to live only in the overflow menu / a buried
+ * ghost button, and operators couldn't find it).
+ */
+export function resolveBanAction(row, canBanlist) {
+  if (!canBanlist) return null;
+  if (row.verdict !== 'FALTA_PUBLICAR' && row.verdict !== 'FALTA_VINCULAR') return null;
+  return { id: 'banear', label: 'Banear' };
+}
+
+/**
  * Secondary (overflow-menu) actions that apply to this row, permission-gated
  * exactly as the pre-extraction inline ternaries were:
- * - Banear: FALTA_PUBLICAR or FALTA_VINCULAR, gated by `canBanlist`.
  * - Despublicar: `row.despublicar` AND a resolvable target product id,
  *   gated by `canPublish`.
  * - Editar en TN: any resolvable match with a `tn_admin_url`, ungated (was
  *   never permission-gated in the original inline link either).
+ *
+ * Banear is NOT included here — see `resolveBanAction`, rendered as a
+ * visible primary-adjacent action instead of a menu item.
  */
 /**
  * Single definition of "what this row is called" (PR5). Products never
@@ -176,12 +194,8 @@ export function rowIdentity(row) {
   return { text: '', fromErp: false };
 }
 
-export function resolveSecondaryActions(row, { canBanlist, canPublish, despublicarTargetProductId }) {
+export function resolveSecondaryActions(row, { canPublish, despublicarTargetProductId }) {
   const actions = [];
-
-  if (canBanlist && (row.verdict === 'FALTA_PUBLICAR' || row.verdict === 'FALTA_VINCULAR')) {
-    actions.push({ id: 'banear', label: 'Banear' });
-  }
 
   if (row.despublicar && canPublish) {
     const productId = despublicarTargetProductId(row);

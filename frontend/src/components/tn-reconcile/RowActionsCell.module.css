@@ -9,6 +9,10 @@
   white-space: nowrap;
 }
 
+.banBtn {
+  composes: primaryBtn;
+}
+
 .overflowWrap {
   position: relative;
 }

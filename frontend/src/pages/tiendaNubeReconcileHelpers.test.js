@@ -5,6 +5,7 @@ import {
   matchesSearch,
   matchesSummaryFilter,
   resolvePrimaryAction,
+  resolveBanAction,
   pickEditorTnMatch,
   resolveSecondaryActions,
   primaryTnMatch,
@@ -183,34 +184,39 @@ describe('pickEditorTnMatch', () => {
   });
 });
 
+describe('resolveBanAction', () => {
+  // Banear moved OUT of resolveSecondaryActions (tn-categorias-descubribles
+  // fix, defect 2) — it is rendered as a visible action, not a menu item.
+  it('returns the Banear action for FALTA_PUBLICAR when canBanlist is true', () => {
+    const row = { verdict: 'FALTA_PUBLICAR' };
+    expect(resolveBanAction(row, true)).toEqual({ id: 'banear', label: 'Banear' });
+  });
+
+  it('returns the Banear action for FALTA_VINCULAR too, not only FALTA_PUBLICAR', () => {
+    const row = { verdict: 'FALTA_VINCULAR' };
+    expect(resolveBanAction(row, true)).toEqual({ id: 'banear', label: 'Banear' });
+  });
+
+  it('returns null without canBanlist', () => {
+    const row = { verdict: 'FALTA_PUBLICAR' };
+    expect(resolveBanAction(row, false)).toBeNull();
+  });
+
+  it('returns null on verdicts other than FALTA_PUBLICAR/FALTA_VINCULAR', () => {
+    const row = { verdict: 'MAL_PUBLICADO' };
+    expect(resolveBanAction(row, true)).toBeNull();
+  });
+});
+
 describe('resolveSecondaryActions', () => {
   const perms = (overrides = {}) => ({
-    canBanlist: true,
     canPublish: true,
     despublicarTargetProductId,
     ...overrides,
   });
 
-  it('includes Banear for FALTA_PUBLICAR when canBanlist is true', () => {
+  it('never includes Banear — it is resolved separately by resolveBanAction', () => {
     const row = { verdict: 'FALTA_PUBLICAR', despublicar: false, tn_matches: [] };
-    const actions = resolveSecondaryActions(row, perms());
-    expect(actions.some((a) => a.id === 'banear')).toBe(true);
-  });
-
-  it('includes Banear for FALTA_VINCULAR too, not only FALTA_PUBLICAR', () => {
-    const row = { verdict: 'FALTA_VINCULAR', despublicar: false, tn_matches: [] };
-    const actions = resolveSecondaryActions(row, perms());
-    expect(actions.some((a) => a.id === 'banear')).toBe(true);
-  });
-
-  it('hides Banear without canBanlist', () => {
-    const row = { verdict: 'FALTA_PUBLICAR', despublicar: false, tn_matches: [] };
-    const actions = resolveSecondaryActions(row, perms({ canBanlist: false }));
-    expect(actions.some((a) => a.id === 'banear')).toBe(false);
-  });
-
-  it('hides Banear on verdicts other than FALTA_PUBLICAR/FALTA_VINCULAR', () => {
-    const row = { verdict: 'MAL_PUBLICADO', despublicar: false, tn_matches: [] };
     const actions = resolveSecondaryActions(row, perms());
     expect(actions.some((a) => a.id === 'banear')).toBe(false);
   });
