@@ -8,6 +8,7 @@
  * `BlockedPublishBanner` above the button when publishing is blocked.
  */
 import BlockedPublishBanner from './BlockedPublishBanner';
+import { formatMoney } from '../../utils/formatMoney';
 import shellStyles from './TnPublisherShell.module.css';
 import styles from './TnPublishModal.module.css';
 
@@ -95,7 +96,9 @@ export default function RightSummaryPane({
           <div className={shellStyles.summaryRow}>
             <dt className={shellStyles.summaryLabel}>Costo</dt>
             <dd className={shellStyles.summaryValueBlock}>
-              <p className={shellStyles.summaryValue}>{draftFields.cost !== '' ? draftFields.cost : '—'}</p>
+              <p className={shellStyles.summaryValue}>
+                {draftFields.cost !== '' ? (formatMoney(draftFields.cost) ?? draftFields.cost) : '—'}
+              </p>
               {monedaCosto && <p className={shellStyles.summarySource}>{monedaCosto}</p>}
             </dd>
           </div>
@@ -108,7 +111,7 @@ export default function RightSummaryPane({
         </dl>
         <div className={shellStyles.finalPriceRow}>
           <span className={shellStyles.finalPriceLabel}>Precio final</span>
-          <span className={shellStyles.finalPriceValue}>{finalPrice != null ? `$${finalPrice}` : '—'}</span>
+          <span className={shellStyles.finalPriceValue}>{finalPrice != null ? formatMoney(finalPrice) : '—'}</span>
         </div>
       </div>
 
