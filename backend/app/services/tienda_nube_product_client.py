@@ -26,7 +26,7 @@ ambiguous (needs surfacing, no retry) vs. a definitive 4xx rejection.
 """
 
 import logging
-from typing import Dict, Optional
+from typing import Any, Dict, List, Optional
 
 import httpx
 
@@ -39,6 +39,15 @@ logger = logging.getLogger(__name__)
 # simulating absent credentials, which must NOT silently fall back to
 # whatever real settings happen to be configured).
 _UNSET = object()
+
+# TN paginates `GET /categories` (30 items/page by default, 200 max). 200 is
+# TN's own ceiling — asking for more is rejected, not honoured.
+CATEGORIES_PAGE_SIZE = 200
+# Explicit walk bound: at 200/page this covers 10k categories, far beyond any
+# real TN store tree, while guaranteeing the loop terminates if TN ever
+# ignores `page` and keeps returning full pages forever. Reaching it is an
+# error (see `fetch_categories`), never a silent truncation.
+CATEGORIES_MAX_PAGES = 50
 
 
 class TnRateLimited(Exception):
@@ -247,46 +256,90 @@ class TiendaNubeProductClient:
         # unexpected as an inability to confirm rather than guessing.
         raise TnProductLookupError(f"TN devolvió {response.status_code} inesperado consultando sku={sku}")
 
-    async def fetch_categories(self) -> Optional[list]:
-        """`GET /v1/{store_id}/categories` — the flat TN category list, each
-        item shaped roughly `{"id": int, "name": {...lang: str}, "parent":
-        Optional[int], ...}` (sub-slice 3b — feeds
+    async def fetch_categories(self) -> Optional[List[Dict[str, Any]]]:
+        """`GET /v1/{store_id}/categories` — the WHOLE flat TN category list,
+        each item shaped roughly `{"id": int, "name": {...lang: str},
+        "parent": Optional[int], ...}` (feeds
         `tn_category_embedding_service.sync_category_embeddings`).
+
+        TN paginates this endpoint (30 items/page by default). Requesting it
+        unparameterized — as this method used to — returned only the FIRST
+        page, so the mirror in `tn_category_embedding` silently held a
+        fraction of the tree, alphabetically biased towards whichever branch
+        TN happened to return first. Every downstream picker then had
+        nothing else to offer, no matter how many rows the read endpoint was
+        willing to hand back. So: walk the pages until one comes back short
+        (or empty), bounded by an explicit `CATEGORIES_MAX_PAGES`.
 
         Unlike the write methods above, this is a best-effort READ: it
         returns `None` (never raises) on missing credentials, any HTTP
         error/timeout, a non-2xx response, or an unexpected (non-list) body
         shape — the sync service simply skips the refresh and logs, exactly
         like `embed_passages` returning `None` on embedder failure.
+
+        Partial results are NEVER returned. A failure on page 3 yields
+        `None`, not pages 1-2: the sync REPLACES the mirror wholesale, so
+        handing it a truncated list would re-create the very defect this
+        pagination exists to fix, while destroying a previously complete
+        mirror. Failing closed leaves the last good mirror standing.
         """
         if not self.base_url:
             logger.warning("TiendaNubeProductClient sin credenciales — fetch_categories omitido")
             return None
 
+        categories: List[Dict[str, Any]] = []
         try:
             async with httpx.AsyncClient(timeout=15.0) as client:
-                response = await client.get(f"{self.base_url}/categories", headers=self.headers)
+                for page in range(1, CATEGORIES_MAX_PAGES + 1):
+                    response = await client.get(
+                        f"{self.base_url}/categories",
+                        headers=self.headers,
+                        params={"page": page, "per_page": CATEGORIES_PAGE_SIZE},
+                    )
+
+                    if not (200 <= response.status_code < 300):
+                        logger.warning(
+                            "fetch_categories: respuesta no-2xx de TN (status=%s, page=%s) — sync omitido",
+                            response.status_code,
+                            page,
+                        )
+                        return None
+
+                    try:
+                        body = response.json()
+                    except Exception as e:
+                        logger.error("fetch_categories: respuesta no es JSON válido (page=%s): %s", page, e)
+                        return None
+
+                    if not isinstance(body, list):
+                        logger.warning(
+                            "fetch_categories: forma de respuesta inesperada en page=%s "
+                            "(esperaba una lista, recibió %s)",
+                            page,
+                            type(body).__name__,
+                        )
+                        return None
+
+                    categories.extend(body)
+
+                    # A short page is TN's end-of-collection signal; an empty
+                    # one ends it too (exact multiple of the page size).
+                    if len(body) < CATEGORIES_PAGE_SIZE:
+                        return categories
         except Exception as e:
             logger.error("Error obteniendo categorías de TN: %s", e)
             return None
 
-        if not (200 <= response.status_code < 300):
-            logger.warning("fetch_categories: respuesta no-2xx de TN (status=%s)", response.status_code)
-            return None
-
-        try:
-            body = response.json()
-        except Exception as e:
-            logger.error("fetch_categories: respuesta no es JSON válido: %s", e)
-            return None
-
-        if not isinstance(body, list):
-            logger.warning(
-                "fetch_categories: forma de respuesta inesperada (esperaba una lista, recibió %s)", type(body).__name__
-            )
-            return None
-
-        return body
+        # Cap reached without ever seeing a short page: either the catalog is
+        # bigger than this method is willing to walk, or TN ignored `page`
+        # and we would loop forever. Either way what we hold is a truncation
+        # — report nothing rather than mirror a partial tree.
+        logger.error(
+            "fetch_categories: se alcanzó CATEGORIES_MAX_PAGES=%s sin fin de catálogo — sync omitido "
+            "(subí el cap si el catálogo realmente creció)",
+            CATEGORIES_MAX_PAGES,
+        )
+        return None
 
     @staticmethod
     def _classify_write_response(response: httpx.Response) -> Dict:

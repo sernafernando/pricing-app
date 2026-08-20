@@ -12,6 +12,8 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 from app.services.tienda_nube_product_client import (
+    CATEGORIES_MAX_PAGES,
+    CATEGORIES_PAGE_SIZE,
     TiendaNubeProductClient,
     TnProductLookupError,
     TnRateLimited,
@@ -418,3 +420,81 @@ class TestFetchCategories:
             MockAsyncClient.return_value.__aenter__.return_value = mock_client
             result = asyncio.run(client.fetch_categories())
         assert result is None
+
+
+class TestFetchCategoriesPagination:
+    """`GET /categories` is paginated by TN (30/page by default). Fetching a
+    single unparameterized page silently mirrored only the first slice of the
+    tree into `tn_category_embedding` — the picker then had nothing else to
+    offer, no matter how many rows the read endpoint was willing to return.
+    """
+
+    @staticmethod
+    def _page(size, start_id):
+        return [{"id": start_id + i, "name": {"es": f"Cat {start_id + i}"}, "parent": None} for i in range(size)]
+
+    def test_follows_every_page_until_a_short_one(self):
+        client = TiendaNubeProductClient(store_id="123", access_token="tok")
+        full = self._page(CATEGORIES_PAGE_SIZE, 1)
+        tail = self._page(3, 1000)
+        mock_client = AsyncMock()
+        mock_client.get.side_effect = [_fake_response(200, full), _fake_response(200, tail)]
+        with patch("httpx.AsyncClient") as MockAsyncClient:
+            MockAsyncClient.return_value.__aenter__.return_value = mock_client
+            result = asyncio.run(client.fetch_categories())
+
+        assert result == full + tail
+        assert mock_client.get.call_count == 2
+        assert mock_client.get.call_args_list[0].kwargs["params"] == {"page": 1, "per_page": CATEGORIES_PAGE_SIZE}
+        assert mock_client.get.call_args_list[1].kwargs["params"] == {"page": 2, "per_page": CATEGORIES_PAGE_SIZE}
+
+    def test_stops_on_an_empty_page(self):
+        client = TiendaNubeProductClient(store_id="123", access_token="tok")
+        full = self._page(CATEGORIES_PAGE_SIZE, 1)
+        mock_client = AsyncMock()
+        mock_client.get.side_effect = [_fake_response(200, full), _fake_response(200, [])]
+        with patch("httpx.AsyncClient") as MockAsyncClient:
+            MockAsyncClient.return_value.__aenter__.return_value = mock_client
+            result = asyncio.run(client.fetch_categories())
+
+        assert result == full
+        assert mock_client.get.call_count == 2
+
+    def test_a_failed_later_page_returns_none_never_a_partial_catalog(self):
+        # The sync REPLACES the mirror wholesale: handing it a partial list
+        # would truncate the catalog exactly like the single-page bug did.
+        # Fail closed — the sync skips and the previous good mirror stands.
+        client = TiendaNubeProductClient(store_id="123", access_token="tok")
+        full = self._page(CATEGORIES_PAGE_SIZE, 1)
+        mock_client = AsyncMock()
+        mock_client.get.side_effect = [_fake_response(200, full), _fake_response(503)]
+        with patch("httpx.AsyncClient") as MockAsyncClient:
+            MockAsyncClient.return_value.__aenter__.return_value = mock_client
+            result = asyncio.run(client.fetch_categories())
+
+        assert result is None
+
+    def test_a_connection_error_on_a_later_page_returns_none(self):
+        client = TiendaNubeProductClient(store_id="123", access_token="tok")
+        full = self._page(CATEGORIES_PAGE_SIZE, 1)
+        mock_client = AsyncMock()
+        mock_client.get.side_effect = [_fake_response(200, full), Exception("connection reset")]
+        with patch("httpx.AsyncClient") as MockAsyncClient:
+            MockAsyncClient.return_value.__aenter__.return_value = mock_client
+            result = asyncio.run(client.fetch_categories())
+
+        assert result is None
+
+    def test_page_cap_stops_the_loop_and_returns_none(self):
+        # A catalog that never returns a short page (or a TN that ignores
+        # `page`) must not loop forever — and must not hand back a silently
+        # truncated tree either.
+        client = TiendaNubeProductClient(store_id="123", access_token="tok")
+        mock_client = AsyncMock()
+        mock_client.get.return_value = _fake_response(200, self._page(CATEGORIES_PAGE_SIZE, 1))
+        with patch("httpx.AsyncClient") as MockAsyncClient:
+            MockAsyncClient.return_value.__aenter__.return_value = mock_client
+            result = asyncio.run(client.fetch_categories())
+
+        assert result is None
+        assert mock_client.get.call_count == CATEGORIES_MAX_PAGES
