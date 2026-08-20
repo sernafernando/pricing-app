@@ -52,14 +52,20 @@ class TestMigrationGraph:
         ancestor_revisions = {rev.revision for rev in script.walk_revisions(base="base", head=head)}
         assert _REVISION in ancestor_revisions
 
-    def test_is_the_single_current_head(self) -> None:
+    def test_the_graph_has_exactly_one_head(self) -> None:
         """Guards against the multiple-heads incident this repo already
         had once (see `20260813_propuesta_corregida`'s merge-migration
-        history) — this migration must chain onto the one existing head,
-        not fork a second one."""
+        history): `alembic upgrade head` fails outright with two heads.
+
+        Deliberately does NOT assert WHICH revision is the head — this
+        migration was the head when it was written, and a later merge
+        migration legitimately took over when the tn-publisher branch met
+        main. What must stay true forever is that there is exactly one,
+        and that this revision is still reachable from it (asserted by
+        `test_is_ancestor_of_current_head` above)."""
         script = _script_directory()
         heads = script.get_heads()
-        assert list(heads) == [_REVISION]
+        assert len(heads) == 1, f"grafo con {len(heads)} heads: {heads}"
 
 
 class TestMigrationDedupeBeforeConstraint:
