@@ -41,9 +41,23 @@ function groupByTopBranch(results) {
   return groups;
 }
 
+/**
+ * Why there is no suggested category, in the operator's own terms. Every
+ * one of these ends in the same place — search by name below — so the copy
+ * says what happened, never just "no results".
+ */
+const SUGGESTION_EMPTY_COPY = {
+  sin_categoria_origen:
+    'Este producto no tiene categoría cargada en GBP, así que no se puede sugerir una categoría automáticamente. Buscala por nombre acá abajo.',
+  sin_coincidencias:
+    'No se encontró una categoría parecida automáticamente. Buscala por nombre acá abajo.',
+  error: 'No se pudo consultar la sugerencia automática de categoría. Buscala por nombre acá abajo.',
+};
+
 export default function CategorySection({
   loadingSuggestion,
   suggestions,
+  suggestionEmptyReason,
   selectedCategory,
   setSelectedCategory,
   selectionOutsideSuggestions,
@@ -97,6 +111,21 @@ export default function CategorySection({
 
           {pickerExpanded && (
             <>
+              {/*
+                The suggestion list being empty used to render as NOTHING —
+                the same blank whether the embedder was unreachable, the
+                product carried no source category to embed, or the
+                embedder matched nothing. `suggest_category` fails open by
+                design (it must never block the manual path), so the UI is
+                the only place that can tell the operator which of those
+                happened and what to do next: search by name, right below.
+              */}
+              {suggestions.length === 0 && suggestionEmptyReason != null && (
+                <p className={styles.fieldHint} role="status">
+                  {SUGGESTION_EMPTY_COPY[suggestionEmptyReason] || SUGGESTION_EMPTY_COPY.sin_coincidencias}
+                </p>
+              )}
+
               {suggestions.length > 0 && (
                 <div role="radiogroup" aria-label="Categoría TN sugerida" className={styles.categoryList}>
                   {suggestions.map((s, idx) => (

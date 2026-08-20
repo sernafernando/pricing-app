@@ -46,6 +46,7 @@ export default function TnPublishModal({ row, isOpen, onClose, onPublished }) {
     loadingSuggestion,
     loadError,
     suggestions,
+    suggestionEmptyReason,
     selectedCategory,
     setSelectedCategory,
     categoryQuery,
@@ -178,6 +179,7 @@ export default function TnPublishModal({ row, isOpen, onClose, onPublished }) {
           finalPriceIsValid={finalPriceIsValid}
           loadingSuggestion={loadingSuggestion}
           suggestions={suggestions}
+          suggestionEmptyReason={suggestionEmptyReason}
           selectedCategory={selectedCategory}
           setSelectedCategory={setSelectedCategory}
           selectionOutsideSuggestions={selectionOutsideSuggestions}

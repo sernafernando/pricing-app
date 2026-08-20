@@ -711,3 +711,26 @@ describe('Formateo de moneda (defecto 2) — display formateado, payload intacto
     expect(call[1].product_data.cost).toBe(13937.999999999998);
   });
 });
+
+describe('Empty embedder suggestion is explained, never a silent blank', () => {
+  it('says the product has no GBP category when there is nothing to embed', async () => {
+    setupApiMocks();
+    // No `categoria`/`subcategoria` on the row: the hook makes NO
+    // /categoria-sugerida call at all, so the modal must not be awaited on
+    // one (hence not `renderModal`).
+    render(
+      <TnPublishModal row={{ ...ROW, categoria: null, subcategoria: null }} isOpen onClose={vi.fn()} onPublished={vi.fn()} />
+    );
+
+    expect(await screen.findByText(/no tiene categoría cargada en GBP/i)).toBeInTheDocument();
+    expect(api.post).not.toHaveBeenCalledWith('/tienda-nube-reconcile/categoria-sugerida', expect.anything());
+  });
+
+  it('says the embedder matched nothing when it answers with an empty list', async () => {
+    setupApiMocks({ suggestions: { suggestions: [], top: null } });
+    await renderModal();
+
+    expect(await screen.findByText(/no se encontró una categoría parecida/i)).toBeInTheDocument();
+    expect(screen.queryByRole('radio')).not.toBeInTheDocument();
+  });
+});

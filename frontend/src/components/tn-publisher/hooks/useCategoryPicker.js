@@ -27,6 +27,13 @@ export function useCategoryPicker({ isOpen, ean, row }) {
   const [loadingSuggestion, setLoadingSuggestion] = useState(true);
   const [loadError, setLoadError] = useState(null);
   const [suggestions, setSuggestions] = useState([]);
+  // WHY the suggestion list is empty — the picker used to render an
+  // indistinguishable blank for three very different situations, so an
+  // operator seeing no suggestions had no idea whether the embedder was
+  // down, the product had no source category to embed, or the embedder
+  // simply matched nothing. null = there ARE suggestions (or we're still
+  // loading).
+  const [suggestionEmptyReason, setSuggestionEmptyReason] = useState(null);
   const [selectedCategory, setSelectedCategory] = useState(null);
 
   const [categoryQuery, setCategoryQuery] = useState('');
@@ -67,14 +74,24 @@ export function useCategoryPicker({ isOpen, ean, row }) {
           if (cancelled) return;
           const list = sugResponse.data?.suggestions || [];
           setSuggestions(list);
+          // The backend's `suggest_category` fails OPEN (embedder down,
+          // pgvector unavailable, empty catalog all return `[]`), so an
+          // empty list here is "no suggestion available", never an error.
+          setSuggestionEmptyReason(list.length === 0 ? 'sin_coincidencias' : null);
           const top = sugResponse.data?.top;
           setSelectedCategory(top ? { id: top.tn_category_id, path: top.category_path_text } : null);
         } else {
+          // No `categoria`/`subcategoria` on the GBP row — there is nothing
+          // to embed, so no request is made at all. Distinct from the
+          // embedder answering with nothing.
           setSuggestions([]);
+          setSuggestionEmptyReason('sin_categoria_origen');
           setSelectedCategory(null);
         }
       } catch (err) {
         if (!cancelled) {
+          setSuggestions([]);
+          setSuggestionEmptyReason('error');
           setLoadError(err?.response?.data?.error?.message || err?.message || 'No se pudo sugerir una categoría');
         }
       } finally {
@@ -183,6 +200,7 @@ export function useCategoryPicker({ isOpen, ean, row }) {
     loadingSuggestion,
     loadError,
     suggestions,
+    suggestionEmptyReason,
     selectedCategory,
     setSelectedCategory,
     categoryQuery,
