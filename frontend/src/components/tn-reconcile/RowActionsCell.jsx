@@ -132,7 +132,7 @@ export default function RowActionsCell({
             <button
               type="button"
               className={`btn-tesla outline sm ${styles.primaryBtn}`}
-              onClick={primary.id === 'publicar' ? () => onPublicar(row) : undefined}
+              onClick={() => onPublicar(row)}
             >
               {primary.label}
             </button>

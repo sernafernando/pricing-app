@@ -1094,8 +1094,11 @@ describe('Banlist view', () => {
     await user.click(bulkButton);
 
     // Reports how many succeeded out of the total attempted.
+    // El texto exacto, no `/1.*3/`: ese regex también matchea la hora del
+    // encabezado ("Actualizado 04:13 p. m." contiene 1 y luego 3), así que
+    // el test fallaba SEGÚN EL RELOJ — verde 16:20, rojo 16:13.
     await waitFor(() => {
-      expect(screen.getByText(/1.*3|1 de 3/i)).toBeInTheDocument();
+      expect(screen.getByText('1 de 3 desbaneados. falló')).toBeInTheDocument();
     });
 
     // GET /baneados is called once on mount + once more in the `finally`

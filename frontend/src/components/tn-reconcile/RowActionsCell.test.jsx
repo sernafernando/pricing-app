@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { render, screen, within } from '@testing-library/react';
+import { render, screen, fireEvent, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import RowActionsCell from './RowActionsCell';
 
@@ -37,19 +37,28 @@ describe('RowActionsCell — primary action', () => {
     expect(props.onPublicar).toHaveBeenCalledWith(props.row);
   });
 
-  it('renders Revisar instead of Publicar for FALTA_PUBLICAR without canPublish', () => {
+  it('sin permiso de publicar no renderiza ninguna acción primaria', () => {
     render(<RowActionsCell {...baseProps({ canPublish: false })} />);
-    expect(screen.getByRole('button', { name: 'Revisar' })).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Publicar' })).not.toBeInTheDocument();
+    // `Revisar` era un botón con onClick={undefined}: se veía accionable y
+    // no hacía nada. Sin comportamiento no hay botón.
+    expect(screen.queryByRole('button', { name: 'Revisar' })).not.toBeInTheDocument();
   });
 
-  it('renders Vincular for FALTA_VINCULAR', () => {
+  it('en FALTA_VINCULAR no renderiza Vincular: no existe endpoint de vinculación', () => {
     render(
       <RowActionsCell
         {...baseProps({ row: { ean: 'EAN-2', verdict: 'FALTA_VINCULAR', despublicar: false, tn_matches: [] } })}
       />
     );
-    expect(screen.getByRole('button', { name: 'Vincular' })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Vincular' })).not.toBeInTheDocument();
+  });
+
+  it('cada botón primario que se renderiza tiene un handler real', () => {
+    const onPublicar = vi.fn();
+    render(<RowActionsCell {...baseProps({ canPublish: true, onPublicar })} />);
+    fireEvent.click(screen.getByRole('button', { name: 'Publicar' }));
+    expect(onPublicar).toHaveBeenCalledTimes(1);
   });
 
   it('renders no primary button for a verdict with no primary action', () => {

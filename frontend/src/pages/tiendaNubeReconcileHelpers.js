@@ -86,24 +86,24 @@ export function matchesSearch(row, query) {
 }
 
 /**
- * Row actions cell (PR-A of the reconcile table redesign): consolidates
- * what used to be scattered across the `Coincidencias TN (IDs)` and
- * `Despublicar` columns into one `Acciones` cell. This module owns the pure
- * "what applies to this row" decisions; `RowActionsCell` owns rendering.
+ * Row actions cell: consolidates what used to be scattered across the
+ * `Coincidencias TN (IDs)` and `Despublicar` columns into one `Acciones`
+ * cell. This module owns the pure "what applies to this row" decisions;
+ * `RowActionsCell` owns rendering.
  *
- * Primary action is always a REAL, interactive button (never a disabled
- * placeholder) so an operator without `admin.gestionar_tn_publicacion` still
- * has something useful to do: `Revisar`/`Vincular` route to nothing
- * server-side (there is no dedicated review/link endpoint yet) but they are
- * kept clickable — `onAction` fires with the row so a caller CAN wire one up
- * later without another RowActionsCell contract change.
+ * SOLO se devuelve una acción primaria cuando existe algo que ejecutar.
+ * Antes esto devolvía `Revisar` y `Vincular`, que se renderizaban como
+ * botones con `onClick={undefined}`: enfocables, con aspecto de acción, y
+ * sin hacer absolutamente nada. No hay endpoint de vinculación ni de
+ * revisión, así que no hay botón — un control que promete algo que el
+ * sistema no puede cumplir es peor que la ausencia del control.
+ *
+ * Las filas sin acción primaria conservan las que SÍ existen (Banear, y el
+ * menú con Despublicar / Editar en TN).
  */
 export function resolvePrimaryAction(row, canPublish) {
-  if (row.verdict === 'FALTA_PUBLICAR') {
-    return canPublish ? { id: 'publicar', label: 'Publicar' } : { id: 'revisar', label: 'Revisar' };
-  }
-  if (row.verdict === 'FALTA_VINCULAR') {
-    return { id: 'vincular', label: 'Vincular' };
+  if (row.verdict === 'FALTA_PUBLICAR' && canPublish) {
+    return { id: 'publicar', label: 'Publicar' };
   }
   return null;
 }

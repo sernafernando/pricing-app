@@ -137,18 +137,16 @@ describe('resolvePrimaryAction', () => {
     });
   });
 
-  it('is Revisar for FALTA_PUBLICAR without the publish permission', () => {
-    expect(resolvePrimaryAction({ verdict: 'FALTA_PUBLICAR' }, false)).toEqual({
-      id: 'revisar',
-      label: 'Revisar',
-    });
+  it('no ofrece acción primaria en FALTA_PUBLICAR sin permiso de publicar', () => {
+    // Antes devolvía `Revisar`, que se renderizaba con onClick={undefined}.
+    expect(resolvePrimaryAction({ verdict: 'FALTA_PUBLICAR' }, false)).toBeNull();
   });
 
-  it('is Vincular for FALTA_VINCULAR regardless of permission', () => {
-    expect(resolvePrimaryAction({ verdict: 'FALTA_VINCULAR' }, false)).toEqual({
-      id: 'vincular',
-      label: 'Vincular',
-    });
+  it('no ofrece acción primaria en FALTA_VINCULAR: no existe endpoint de vinculación', () => {
+    // `Vincular` era un botón sin handler. Un control que promete algo que
+    // el sistema no puede hacer es peor que no tener el control.
+    expect(resolvePrimaryAction({ verdict: 'FALTA_VINCULAR' }, true)).toBeNull();
+    expect(resolvePrimaryAction({ verdict: 'FALTA_VINCULAR' }, false)).toBeNull();
   });
 
   it('is null for verdicts with no primary action (e.g. OK, MAL_PUBLICADO)', () => {
