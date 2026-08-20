@@ -461,15 +461,19 @@ def _upsert_category_profile_hint(
     context or no profile applied means there is nothing meaningful to
     attribute the usage to.
 
-    Postgres gotcha (verified, not assumed): `uq_tn_category_profile_hint`
-    is a UNIQUE constraint over `(categoria, subcategoria, profile_id)`, but
-    Postgres treats every NULL as distinct for uniqueness purposes — so two
-    concurrent/sequential publishes to a category-only hint (`subcategoria
-    IS NULL`) would NOT collide on the constraint and could insert two rows
-    instead of incrementing one. This function always queries-then-updates
-    rather than relying on the constraint to dedupe, which sidesteps that
-    gap for both the NULL and non-NULL subcategoria cases alike. A genuine
-    race between two concurrent requests inserting the same key is instead
+    Defense in depth (updated after `20260820_fix_tn_category_profile_hint_nulls`):
+    `uq_tn_category_profile_hint` used to be a plain UNIQUE constraint over
+    `(categoria, subcategoria, profile_id)`, and Postgres treats every NULL
+    as distinct for uniqueness purposes — so two concurrent/sequential
+    publishes to a category-only hint (`subcategoria IS NULL`) would NOT
+    collide on the constraint and could insert two rows instead of
+    incrementing one. That migration recreated the constraint with `NULLS
+    NOT DISTINCT`, so the DB now enforces this correctly for BOTH the NULL
+    and non-NULL `subcategoria` cases. This function's query-then-update
+    is kept anyway as defense in depth (avoids a round-trip through
+    `IntegrityError` on the common non-racing path), not because the DB
+    still cannot enforce it. A genuine race between two concurrent requests
+    inserting the same key is instead
     handled by catching `IntegrityError` and retrying as an update.
     """
     if not categoria or profile_id is None:
