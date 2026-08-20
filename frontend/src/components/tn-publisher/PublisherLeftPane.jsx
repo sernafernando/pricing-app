@@ -48,6 +48,7 @@ export default function PublisherLeftPane({
   searchError,
   pickSearchResult,
   catalogEmpty,
+  catalogCapHit,
   syncingCategories,
   syncResult,
   syncError,
@@ -125,6 +126,7 @@ export default function PublisherLeftPane({
         searchError={searchError}
         pickSearchResult={pickSearchResult}
         catalogEmpty={catalogEmpty}
+        catalogCapHit={catalogCapHit}
         syncingCategories={syncingCategories}
         syncResult={syncResult}
         syncError={syncError}

@@ -14,10 +14,32 @@
  * `Cambiar` still toggles collapse/expand; it just doesn't gate the
  * INITIAL render.
  */
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { Search, Check } from 'lucide-react';
 import shellStyles from './TnPublisherShell.module.css';
 import styles from './TnPublishModal.module.css';
+
+/**
+ * groupByTopBranch — defect A: a flat list of hundreds of browsed
+ * categories hides the tree's structure. Groups by the FIRST `>`-separated
+ * segment of `category_path` (e.g. "COMPUTACION", "HOGAR"), preserving the
+ * server's alphabetical ordering within and across groups — never
+ * re-sorted client-side, so the grouping is purely a presentation layer
+ * over the same data.
+ */
+function groupByTopBranch(results) {
+  const groups = [];
+  const indexByBranch = new Map();
+  for (const result of results) {
+    const branch = (result.category_path.split('>')[0] || '').trim() || result.category_path;
+    if (!indexByBranch.has(branch)) {
+      indexByBranch.set(branch, groups.length);
+      groups.push({ branch, items: [] });
+    }
+    groups[indexByBranch.get(branch)].items.push(result);
+  }
+  return groups;
+}
 
 export default function CategorySection({
   loadingSuggestion,
@@ -33,11 +55,17 @@ export default function CategorySection({
   searchError,
   pickSearchResult,
   catalogEmpty,
+  catalogCapHit,
   syncingCategories,
   syncResult,
   syncError,
   syncCategories,
 }) {
+  const isBrowsing = debouncedCategoryQuery.trim().length === 0;
+  const browsedGroups = useMemo(
+    () => (isBrowsing ? groupByTopBranch(searchResults) : []),
+    [isBrowsing, searchResults]
+  );
   const [pickerExpanded, setPickerExpanded] = useState(true);
   const topSimilarity = suggestions.length > 0 ? Math.round(suggestions[0].similarity * 100) : null;
 
@@ -113,7 +141,35 @@ export default function CategorySection({
                 </div>
                 {searching && <p className={styles.fieldHint}>Buscando categorías...</p>}
                 {searchError && <p className={styles.fieldError}>{searchError}</p>}
-                {!searching && searchResults.length > 0 && (
+                {!searching && searchResults.length > 0 && isBrowsing && (
+                  <div className={styles.categoryBrowseGroups}>
+                    {browsedGroups.map((group) => (
+                      <div key={group.branch}>
+                        <p className={styles.categoryBranchHeading}>{group.branch}</p>
+                        <ul className={styles.searchResults}>
+                          {group.items.map((result) => (
+                            <li key={result.tn_category_id}>
+                              <button
+                                type="button"
+                                className={styles.searchResultBtn}
+                                onClick={() => pickSearchResult(result)}
+                              >
+                                {result.category_path}
+                              </button>
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
+                    ))}
+                    {catalogCapHit && (
+                      <p className={styles.fieldHint} role="status">
+                        El catálogo tiene más categorías de las que se pueden mostrar acá — no se muestran todas
+                        las categorías. Escribí para buscar una específica.
+                      </p>
+                    )}
+                  </div>
+                )}
+                {!searching && searchResults.length > 0 && !isBrowsing && (
                   <ul className={styles.searchResults}>
                     {searchResults.map((result) => (
                       <li key={result.tn_category_id}>

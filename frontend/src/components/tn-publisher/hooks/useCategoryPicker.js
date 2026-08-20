@@ -37,6 +37,11 @@ export function useCategoryPicker({ isOpen, ean, row }) {
   // null until the first unfiltered (blank-q) listing resolves; then true
   // only when that listing came back empty — the "never synced" signal.
   const [catalogEmpty, setCatalogEmpty] = useState(null);
+  // Defect A: the browse listing (blank q) can hit the backend's explicit
+  // CATEGORIAS_BROWSE_CAP — this is a completely different signal than
+  // `catalogEmpty` (a NON-empty but truncated catalog). Never show a
+  // partial catalog as if it were the whole tree without saying so.
+  const [catalogCapHit, setCatalogCapHit] = useState(false);
   const [syncingCategories, setSyncingCategories] = useState(false);
   const [syncResult, setSyncResult] = useState(null);
   const [syncError, setSyncError] = useState(null);
@@ -109,12 +114,20 @@ export function useCategoryPicker({ isOpen, ean, row }) {
       setSearching(true);
       setSearchError(null);
       try {
-        const params = q ? { q, limit: 20 } : { limit: 20 };
+        // Defect A: a blank `q` is BROWSE, not search — the backend now
+        // returns the WHOLE catalog for it (up to its own explicit cap), so
+        // no `limit` is sent here; a client-side limit would just
+        // reintroduce the exact "arbitrary alphabetical page" bug this fix
+        // exists to remove.
+        const params = q ? { q, limit: 20 } : {};
         const response = await api.get('/tienda-nube-reconcile/categorias', { params });
         if (cancelled) return;
-        const results = Array.isArray(response.data) ? response.data : [];
+        const results = Array.isArray(response.data?.items) ? response.data.items : [];
         setSearchResults(results);
-        if (!q) setCatalogEmpty(results.length === 0);
+        if (!q) {
+          setCatalogEmpty(results.length === 0);
+          setCatalogCapHit(response.data?.cap_hit === true);
+        }
       } catch (err) {
         if (!cancelled) {
           setSearchResults([]);
@@ -181,6 +194,7 @@ export function useCategoryPicker({ isOpen, ean, row }) {
     pickSearchResult,
     selectionOutsideSuggestions,
     catalogEmpty,
+    catalogCapHit,
     syncingCategories,
     syncResult,
     syncError,

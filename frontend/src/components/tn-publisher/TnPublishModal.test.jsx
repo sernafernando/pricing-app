@@ -83,6 +83,7 @@ const SUGGESTIONS = {
 function setupApiMocks({
   suggestions = SUGGESTIONS,
   categorySearchResults = [],
+  categoriasCapHit = false,
   porcentajeTarjetaTn = 25,
   measurementProfiles = [],
 } = {}) {
@@ -97,7 +98,9 @@ function setupApiMocks({
   });
   api.get.mockImplementation((url) => {
     if (url === '/tienda-nube-reconcile/categorias') {
-      return Promise.resolve({ data: categorySearchResults });
+      // Defect A: the endpoint returns an envelope now, `{items, cap_hit}`,
+      // not a bare array.
+      return Promise.resolve({ data: { items: categorySearchResults, cap_hit: categoriasCapHit } });
     }
     // The surcharge default is no longer a literal in the component — it is
     // read from the `porcentaje_tarjeta_tn` config key. 25 keeps the money
@@ -225,7 +228,7 @@ describe('Category picker', () => {
     expect(call[1].category_id).toBe(77);
   });
 
-  it('loads a bounded listing of categories as soon as the modal opens, without typing (defect 1a)', async () => {
+  it('loads the whole category catalog as soon as the modal opens, without typing (defect 1a)', async () => {
     setupApiMocks({
       categorySearchResults: [
         { tn_category_id: 1, category_path: 'Electrónica > Auriculares' },
@@ -234,10 +237,38 @@ describe('Category picker', () => {
     });
     await renderModal();
 
+    // Defect A fix: browse (blank q) must NOT send a `limit` — a bounded
+    // page here is exactly the arbitrary-slice bug (an alphabetically-early
+    // branch eating the whole page).
     await waitFor(() => {
-      expect(api.get).toHaveBeenCalledWith('/tienda-nube-reconcile/categorias', { params: { limit: 20 } });
+      expect(api.get).toHaveBeenCalledWith('/tienda-nube-reconcile/categorias', { params: {} });
     });
     expect(await screen.findByRole('button', { name: 'Hogar > Muebles' })).toBeInTheDocument();
+  });
+
+  it('groups the browsed catalog by its top-level branch and reports when the browse cap was reached (defect A)', async () => {
+    setupApiMocks({
+      categorySearchResults: [
+        { tn_category_id: 1, category_path: 'Computacion > Notebooks' },
+        { tn_category_id: 2, category_path: 'Computacion > Monitores' },
+        { tn_category_id: 3, category_path: 'Hogar > Muebles' },
+      ],
+      categoriasCapHit: true,
+    });
+    await renderModal();
+
+    await waitFor(() => {
+      expect(api.get).toHaveBeenCalledWith('/tienda-nube-reconcile/categorias', { params: {} });
+    });
+    // Grouped by top-level branch — the branch name itself is visible as a
+    // heading, not buried in a flat list of hundreds of rows.
+    expect(await screen.findByText('Computacion')).toBeInTheDocument();
+    expect(screen.getByText('Hogar')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Computacion > Notebooks' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Hogar > Muebles' })).toBeInTheDocument();
+    // The cap was reached — never show a partial catalog as if it were the
+    // whole tree without saying so.
+    expect(screen.getByText(/no se muestran todas las categorías/i)).toBeInTheDocument();
   });
 
   it('shows a distinct empty-catalog message (never "Sin resultados") when nothing was ever synced (defect 1b)', async () => {
@@ -255,8 +286,12 @@ describe('Category picker', () => {
     api.get.mockImplementation((url, config) => {
       if (url === '/tienda-nube-reconcile/categorias') {
         const q = config?.params?.q;
-        if (!q) return Promise.resolve({ data: [{ tn_category_id: 1, category_path: 'Hogar > Muebles' }] });
-        return Promise.resolve({ data: [] });
+        if (!q) {
+          return Promise.resolve({
+            data: { items: [{ tn_category_id: 1, category_path: 'Hogar > Muebles' }], cap_hit: false },
+          });
+        }
+        return Promise.resolve({ data: { items: [], cap_hit: false } });
       }
       return Promise.resolve({ data: {} });
     });
