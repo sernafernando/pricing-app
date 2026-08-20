@@ -5,6 +5,7 @@ import {
   matchesSearch,
   matchesSummaryFilter,
   resolvePrimaryAction,
+  resolveBanAction,
   pickEditorTnMatch,
   resolveSecondaryActions,
   primaryTnMatch,
@@ -136,18 +137,16 @@ describe('resolvePrimaryAction', () => {
     });
   });
 
-  it('is Revisar for FALTA_PUBLICAR without the publish permission', () => {
-    expect(resolvePrimaryAction({ verdict: 'FALTA_PUBLICAR' }, false)).toEqual({
-      id: 'revisar',
-      label: 'Revisar',
-    });
+  it('no ofrece acción primaria en FALTA_PUBLICAR sin permiso de publicar', () => {
+    // Antes devolvía `Revisar`, que se renderizaba con onClick={undefined}.
+    expect(resolvePrimaryAction({ verdict: 'FALTA_PUBLICAR' }, false)).toBeNull();
   });
 
-  it('is Vincular for FALTA_VINCULAR regardless of permission', () => {
-    expect(resolvePrimaryAction({ verdict: 'FALTA_VINCULAR' }, false)).toEqual({
-      id: 'vincular',
-      label: 'Vincular',
-    });
+  it('no ofrece acción primaria en FALTA_VINCULAR: no existe endpoint de vinculación', () => {
+    // `Vincular` era un botón sin handler. Un control que promete algo que
+    // el sistema no puede hacer es peor que no tener el control.
+    expect(resolvePrimaryAction({ verdict: 'FALTA_VINCULAR' }, true)).toBeNull();
+    expect(resolvePrimaryAction({ verdict: 'FALTA_VINCULAR' }, false)).toBeNull();
   });
 
   it('is null for verdicts with no primary action (e.g. OK, MAL_PUBLICADO)', () => {
@@ -183,34 +182,39 @@ describe('pickEditorTnMatch', () => {
   });
 });
 
+describe('resolveBanAction', () => {
+  // Banear moved OUT of resolveSecondaryActions (tn-categorias-descubribles
+  // fix, defect 2) — it is rendered as a visible action, not a menu item.
+  it('returns the Banear action for FALTA_PUBLICAR when canBanlist is true', () => {
+    const row = { verdict: 'FALTA_PUBLICAR' };
+    expect(resolveBanAction(row, true)).toEqual({ id: 'banear', label: 'Banear' });
+  });
+
+  it('returns the Banear action for FALTA_VINCULAR too, not only FALTA_PUBLICAR', () => {
+    const row = { verdict: 'FALTA_VINCULAR' };
+    expect(resolveBanAction(row, true)).toEqual({ id: 'banear', label: 'Banear' });
+  });
+
+  it('returns null without canBanlist', () => {
+    const row = { verdict: 'FALTA_PUBLICAR' };
+    expect(resolveBanAction(row, false)).toBeNull();
+  });
+
+  it('returns null on verdicts other than FALTA_PUBLICAR/FALTA_VINCULAR', () => {
+    const row = { verdict: 'MAL_PUBLICADO' };
+    expect(resolveBanAction(row, true)).toBeNull();
+  });
+});
+
 describe('resolveSecondaryActions', () => {
   const perms = (overrides = {}) => ({
-    canBanlist: true,
     canPublish: true,
     despublicarTargetProductId,
     ...overrides,
   });
 
-  it('includes Banear for FALTA_PUBLICAR when canBanlist is true', () => {
+  it('never includes Banear — it is resolved separately by resolveBanAction', () => {
     const row = { verdict: 'FALTA_PUBLICAR', despublicar: false, tn_matches: [] };
-    const actions = resolveSecondaryActions(row, perms());
-    expect(actions.some((a) => a.id === 'banear')).toBe(true);
-  });
-
-  it('includes Banear for FALTA_VINCULAR too, not only FALTA_PUBLICAR', () => {
-    const row = { verdict: 'FALTA_VINCULAR', despublicar: false, tn_matches: [] };
-    const actions = resolveSecondaryActions(row, perms());
-    expect(actions.some((a) => a.id === 'banear')).toBe(true);
-  });
-
-  it('hides Banear without canBanlist', () => {
-    const row = { verdict: 'FALTA_PUBLICAR', despublicar: false, tn_matches: [] };
-    const actions = resolveSecondaryActions(row, perms({ canBanlist: false }));
-    expect(actions.some((a) => a.id === 'banear')).toBe(false);
-  });
-
-  it('hides Banear on verdicts other than FALTA_PUBLICAR/FALTA_VINCULAR', () => {
-    const row = { verdict: 'MAL_PUBLICADO', despublicar: false, tn_matches: [] };
     const actions = resolveSecondaryActions(row, perms());
     expect(actions.some((a) => a.id === 'banear')).toBe(false);
   });

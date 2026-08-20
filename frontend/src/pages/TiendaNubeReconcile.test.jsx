@@ -107,9 +107,10 @@ function manyFaltaPublicar(count) {
   }));
 }
 
-// Secondary row actions (Banear, Despublicar, Editar en TN) moved behind the
-// Acciones column's overflow menu (PR-A of the table redesign) — tests that
-// used to click these buttons directly now open the menu first.
+// Despublicar/Editar en TN live behind the Acciones column's overflow menu
+// (PR-A of the table redesign); Banear is a visible button next to the
+// primary action (tn-categorias-descubribles fix, defect 2) and is clicked
+// directly — see `screen.findByRole('button', { name: 'Banear' })` below.
 async function openRowMenu(user, ean) {
   const trigger = await screen.findByRole('button', { name: new RegExp(`Más acciones para ${ean}`, 'i') });
   await user.click(trigger);
@@ -350,8 +351,7 @@ describe('Anomaly sub-tabs', () => {
       expect(screen.getByText('FP-50')).toBeInTheDocument();
     });
 
-    await openRowMenu(user, 'FP-50');
-    await user.click(screen.getByRole('menuitem', { name: 'Banear' }));
+    await user.click(await screen.findByRole('button', { name: 'Banear' }));
 
     // The set shrank to 50 (exactly one page) — the view must recover with
     // real rows, never a stuck-on-page-2 "No hay filas" dead end.
@@ -372,8 +372,7 @@ describe('Anomaly sub-tabs', () => {
     const tab = await screen.findByRole('tab', { name: /Falta vincular/i });
     await user.click(tab);
 
-    await openRowMenu(user, 'FV-1');
-    await user.click(screen.getByRole('menuitem', { name: 'Banear' }));
+    await user.click(await screen.findByRole('button', { name: 'Banear' }));
 
     await waitFor(() => {
       expect(api.post).toHaveBeenCalledWith('/tienda-nube-reconcile/banear', { ean: 'FV-1' });
@@ -908,8 +907,7 @@ describe('Ban/unban error handling', () => {
     const user = userEvent.setup();
     await renderWithRouter(<TiendaNubeReconcile />);
 
-    await openRowMenu(user, '111');
-    await user.click(screen.getByRole('menuitem', { name: 'Banear' }));
+    await user.click(await screen.findByRole('button', { name: 'Banear' }));
 
     await waitFor(() => {
       expect(api.post).toHaveBeenCalledWith('/tienda-nube-reconcile/banear', { ean: '111' });
@@ -926,8 +924,7 @@ describe('Ban/unban error handling', () => {
     const user = userEvent.setup();
     await renderWithRouter(<TiendaNubeReconcile />);
 
-    await openRowMenu(user, '111');
-    await user.click(screen.getByRole('menuitem', { name: 'Banear' }));
+    await user.click(await screen.findByRole('button', { name: 'Banear' }));
 
     await waitFor(() => {
       expect(screen.getByText(/El EAN ya está en la banlist/i)).toBeInTheDocument();
@@ -986,8 +983,7 @@ describe('Banlist view', () => {
     await screen.findByRole('tab', { name: /Banlist \(1\)/i });
     const initialBaneadosCalls = api.get.mock.calls.filter(([url]) => url === '/tienda-nube-reconcile/baneados').length;
 
-    await openRowMenu(user, '111');
-    await user.click(screen.getByRole('menuitem', { name: 'Banear' }));
+    await user.click(await screen.findByRole('button', { name: 'Banear' }));
 
     await waitFor(() => {
       const callsAfter = api.get.mock.calls.filter(([url]) => url === '/tienda-nube-reconcile/baneados').length;
@@ -1034,7 +1030,11 @@ describe('Banlist view', () => {
     const banlistTab = await screen.findByRole('tab', { name: /Banlist/i });
     await user.click(banlistTab);
 
-    const checkboxes = await screen.findAllByRole('checkbox');
+    // Esperar las 2 casillas: `findAllByRole` resuelve apenas
+    // aparece UNA, y si el DOM todavía está pintando filas el loop de
+    // abajo clickea de menos y el conteo del toast cambia.
+    await waitFor(() => expect(screen.getAllByRole('checkbox')).toHaveLength(2));
+    const checkboxes = screen.getAllByRole('checkbox');
     for (const cb of checkboxes) {
       await user.click(cb);
     }
@@ -1081,7 +1081,11 @@ describe('Banlist view', () => {
     const banlistTab = await screen.findByRole('tab', { name: /Banlist/i });
     await user.click(banlistTab);
 
-    const checkboxes = await screen.findAllByRole('checkbox');
+    // Esperar las 3 casillas: `findAllByRole` resuelve apenas
+    // aparece UNA, y si el DOM todavía está pintando filas el loop de
+    // abajo clickea de menos y el conteo del toast cambia.
+    await waitFor(() => expect(screen.getAllByRole('checkbox')).toHaveLength(3));
+    const checkboxes = screen.getAllByRole('checkbox');
     for (const cb of checkboxes) {
       await user.click(cb);
     }
@@ -1090,8 +1094,11 @@ describe('Banlist view', () => {
     await user.click(bulkButton);
 
     // Reports how many succeeded out of the total attempted.
+    // El texto exacto, no `/1.*3/`: ese regex también matchea la hora del
+    // encabezado ("Actualizado 04:13 p. m." contiene 1 y luego 3), así que
+    // el test fallaba SEGÚN EL RELOJ — verde 16:20, rojo 16:13.
     await waitFor(() => {
-      expect(screen.getByText(/1.*3|1 de 3/i)).toBeInTheDocument();
+      expect(screen.getByText('1 de 3 desbaneados. falló')).toBeInTheDocument();
     });
 
     // GET /baneados is called once on mount + once more in the `finally`

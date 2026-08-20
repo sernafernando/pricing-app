@@ -56,6 +56,11 @@ export default function TnPublishModal({ row, isOpen, onClose, onPublished }) {
     searchError,
     pickSearchResult,
     selectionOutsideSuggestions,
+    catalogEmpty,
+    syncingCategories,
+    syncResult,
+    syncError,
+    syncCategories,
   } = useCategoryPicker({ isOpen, ean, row });
 
   const { editor, editorState } = useDescriptionEditor({ isOpen, ean, initialHtml: row?.ml_desc });
@@ -174,6 +179,11 @@ export default function TnPublishModal({ row, isOpen, onClose, onPublished }) {
           searching={searching}
           searchError={searchError}
           pickSearchResult={pickSearchResult}
+          catalogEmpty={catalogEmpty}
+          syncingCategories={syncingCategories}
+          syncResult={syncResult}
+          syncError={syncError}
+          syncCategories={syncCategories}
           images={images}
           imageIds={imageIds}
           handleDragEnd={handleDragEnd}

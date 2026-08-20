@@ -6,10 +6,14 @@
  * this row" decisions this component renders).
  *
  * Primary action is always a real, clickable `<button>` (never a disabled
- * placeholder). Secondary actions (Banear / Despublicar / Editar en TN) live
- * behind a 30px overflow trigger so the row stays compact — this is a real
- * WAI-ARIA menu (Enter/Space open, Escape closes and returns focus to the
- * trigger, arrow keys roam between items), not a mouse-only affordance.
+ * placeholder). Banear renders as its own visible button right next to the
+ * primary action (tn-categorias-descubribles fix, defect 2) — on a
+ * FALTA_PUBLICAR/FALTA_VINCULAR row it IS the other half of the operator's
+ * triage decision, not a secondary one, so it must not be hidden behind the
+ * overflow menu. Genuinely secondary actions (Despublicar / Editar en TN)
+ * live behind a 30px overflow trigger so the row stays compact — this is a
+ * real WAI-ARIA menu (Enter/Space open, Escape closes and returns focus to
+ * the trigger, arrow keys roam between items), not a mouse-only affordance.
  *
  * Despublicar keeps its exact pre-existing two-step behavior: choosing it
  * from the menu does NOT call the endpoint — it hands off to the SAME
@@ -20,7 +24,7 @@
  */
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { ExternalLink, MoreVertical } from 'lucide-react';
-import { resolvePrimaryAction, resolveSecondaryActions } from '../../pages/tiendaNubeReconcileHelpers';
+import { resolvePrimaryAction, resolveSecondaryActions, resolveBanAction } from '../../pages/tiendaNubeReconcileHelpers';
 import styles from './RowActionsCell.module.css';
 
 export default function RowActionsCell({
@@ -42,8 +46,8 @@ export default function RowActionsCell({
   const itemRefs = useRef([]);
 
   const primary = resolvePrimaryAction(row, canPublish);
+  const banAction = resolveBanAction(row, canBanlist);
   const secondaryActions = resolveSecondaryActions(row, {
-    canBanlist,
     canPublish,
     despublicarTargetProductId,
   });
@@ -74,8 +78,7 @@ export default function RowActionsCell({
 
   function handleMenuItemClick(action) {
     closeMenu(true);
-    if (action.id === 'banear') onBanear(row.ean);
-    else if (action.id === 'despublicar') onStartDespublicarConfirm(action.productId);
+    if (action.id === 'despublicar') onStartDespublicarConfirm(action.productId);
     // 'editar_tn' is a real <a> — no click handler needed, it navigates.
   }
 
@@ -129,9 +132,18 @@ export default function RowActionsCell({
             <button
               type="button"
               className={`btn-tesla outline sm ${styles.primaryBtn}`}
-              onClick={primary.id === 'publicar' ? () => onPublicar(row) : undefined}
+              onClick={() => onPublicar(row)}
             >
               {primary.label}
+            </button>
+          )}
+          {banAction && (
+            <button
+              type="button"
+              className={`btn-tesla outline-subtle-danger sm ${styles.banBtn}`}
+              onClick={() => onBanear(row.ean)}
+            >
+              {banAction.label}
             </button>
           )}
           {secondaryActions.length > 0 && (
@@ -189,7 +201,9 @@ export default function RowActionsCell({
               )}
             </div>
           )}
-          {!primary && secondaryActions.length === 0 && <span className={styles.noActions}>—</span>}
+          {!primary && !banAction && secondaryActions.length === 0 && (
+            <span className={styles.noActions}>—</span>
+          )}
         </>
       )}
     </div>
