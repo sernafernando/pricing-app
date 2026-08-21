@@ -15,6 +15,7 @@ from app.models.ml_pxq_tier import MlPxqTier
 from app.models.mla_banlist import MLABanlist
 from app.models.item_sin_mla_banlist import ItemSinMLABanlist
 from app.models.tn_reconcile_banlist import TnReconcileBanlist
+from app.models.tn_reconcile_excepcion import TnReconcileExcepcion
 from app.models.comparacion_listas_banlist import ComparacionListasBanlist
 from app.models.calculo_pricing import CalculoPricing
 from app.models.mercadolibre_item_publicado import MercadoLibreItemPublicado
@@ -215,6 +216,7 @@ __all__ = [
     "MLABanlist",
     "ItemSinMLABanlist",
     "TnReconcileBanlist",
+    "TnReconcileExcepcion",
     "ComparacionListasBanlist",
     "CalculoPricing",
     "MercadoLibreItemPublicado",

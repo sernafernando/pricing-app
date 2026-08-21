@@ -1831,3 +1831,82 @@ describe('selectTabItems — BANLIST sub-tab must paginate against banlist rows 
     expect(result.every((r) => r.verdict === 'FALTA_PUBLICAR')).toBe(true);
   });
 });
+
+describe('Excepción aceptada — la salida que los veredictos de anomalía no tenían', () => {
+  const FILA_ANOMALA = {
+    ean: 'EXC-1',
+    verdict: 'MAL_PUBLICADO',
+    despublicar: false,
+    tn_presence: 'published',
+    tn_matches: [],
+    reason: 'SKU_MISMATCH',
+    reason_detail: {
+      expected_ean: 'EXC-1',
+      tn_sku_found: '6935364070922',
+      claimed_tnr_id: 501,
+      claimed_tnr_variation_id: 12,
+    },
+    evidencia: 'MAL_PUBLICADO|EXC-1|6935364070922|501|12',
+    excepcion_aceptada: false,
+  };
+
+  it('pide un motivo y manda la evidencia que emitió el backend', async () => {
+    setupApiMocks({ items: [FILA_ANOMALA], verdictCounts: { MAL_PUBLICADO: 1 } });
+    const user = userEvent.setup();
+    await renderWithRouter(<TiendaNubeReconcile />);
+
+    await user.click(await screen.findByRole('button', { name: /aceptar como correcto/i }));
+
+    // La evidencia concreta se muestra ANTES de aceptar: el operador
+    // confirma una situación puntual, no un producto. `within(dialog)`
+    // porque el SKU ahora también está a la vista en la propia fila.
+    // `ModalTesla` no expone role="dialog", así que el ancla es el bloque
+    // de evidencia del propio modal.
+    const evidencia = await screen.findByTestId('excepcion-evidencia');
+    expect(within(evidencia).getByText('6935364070922')).toBeInTheDocument();
+
+    const confirmar = within(screen.getByTestId('excepcion-acciones')).getByRole('button', {
+      name: /aceptar como correcto/i,
+    });
+    // Sin motivo no se puede confirmar: una excepción sin justificación es
+    // indistinguible de alguien tapando una alerta que no entendió.
+    expect(confirmar).toBeDisabled();
+
+    await user.type(screen.getByLabelText(/motivo/i), 'El proveedor factura con otro código');
+    await user.click(confirmar);
+
+    await waitFor(() => {
+      expect(api.post).toHaveBeenCalledWith('/tienda-nube-reconcile/excepciones/aceptar', {
+        evidencia: 'MAL_PUBLICADO|EXC-1|6935364070922|501|12',
+        ean: 'EXC-1',
+        verdict: 'MAL_PUBLICADO',
+        motivo: 'El proveedor factura con otro código',
+      });
+    });
+  });
+
+  it('una fila aceptada se muestra como aceptada, nunca se oculta', async () => {
+    setupApiMocks({
+      items: [{ ...FILA_ANOMALA, excepcion_aceptada: true }],
+      verdictCounts: { MAL_PUBLICADO: 1 },
+    });
+    await renderWithRouter(<TiendaNubeReconcile />);
+
+    expect(await screen.findByText(/aceptada como correcta/i)).toBeInTheDocument();
+    // Sigue en el reporte con su veredicto: si desapareciera, nadie podría
+    // distinguir "revisada y está bien" de "alguien la tapó".
+    expect(screen.getAllByText('EXC-1').length).toBeGreaterThan(0);
+    // Y la excepción se puede deshacer.
+    expect(screen.getByRole('button', { name: /quitar excepción/i })).toBeInTheDocument();
+  });
+
+  it('sin el permiso propio no ofrece aceptar nada', async () => {
+    mockTienePermiso.mockImplementation((codigo) => codigo !== 'admin.gestionar_tn_reconcile_excepciones');
+    setupApiMocks({ items: [FILA_ANOMALA], verdictCounts: { MAL_PUBLICADO: 1 } });
+    await renderWithRouter(<TiendaNubeReconcile />);
+
+    await screen.findByText(/sku no coincide/i);
+    expect(screen.queryByRole('button', { name: /aceptar como correcto/i })).not.toBeInTheDocument();
+    mockTienePermiso.mockImplementation(() => true);
+  });
+});

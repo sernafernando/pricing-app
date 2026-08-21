@@ -29,6 +29,7 @@ import {
   resolveSecondaryActions,
   resolveBanAction,
   resolveEditorAction,
+  resolveExcepcionAction,
 } from '../../pages/tiendaNubeReconcileHelpers';
 import styles from './RowActionsCell.module.css';
 
@@ -44,6 +45,9 @@ export default function RowActionsCell({
   onStartDespublicarConfirm,
   onCancelDespublicarConfirm,
   onConfirmDespublicar,
+  canExcepciones = false,
+  onAceptarExcepcion,
+  onQuitarExcepcion,
 }) {
   const [menuOpen, setMenuOpen] = useState(false);
   const triggerRef = useRef(null);
@@ -53,6 +57,7 @@ export default function RowActionsCell({
   const primary = resolvePrimaryAction(row, canPublish);
   const banAction = resolveBanAction(row, canBanlist);
   const editorAction = resolveEditorAction(row);
+  const excepcionAction = resolveExcepcionAction(row, canExcepciones);
   const secondaryActions = resolveSecondaryActions(row, {
     canPublish,
     despublicarTargetProductId,
@@ -152,6 +157,25 @@ export default function RowActionsCell({
             </button>
           )}
           {/*
+            The exit the anomaly verdicts never had. The ban list covers
+            only the publish candidates — deliberately, so banning cannot
+            sweep a broken publication out of review — which left a
+            legitimately intentional anomaly screaming forever. Always
+            reversible: an exception you cannot undo is a decision nobody
+            will dare take.
+          */}
+          {excepcionAction && (
+            <button
+              type="button"
+              className={`btn-tesla ghost sm ${styles.excepcionBtn}`}
+              onClick={() =>
+                excepcionAction.aceptada ? onQuitarExcepcion?.(row) : onAceptarExcepcion?.(row)
+              }
+            >
+              {excepcionAction.label}
+            </button>
+          )}
+          {/*
             Promoted out of the overflow menu: opening the product in
             Tienda Nube is the first move on any mis-published row, and it
             was hidden behind a three-dot trigger. Same target, same lack
@@ -212,7 +236,7 @@ export default function RowActionsCell({
           {/* `editorAction` counts here too: rendering the link AND a "—"
               that means "nothing to do" states two contradictory things in
               the same cell. */}
-          {!primary && !banAction && !editorAction && secondaryActions.length === 0 && (
+          {!primary && !banAction && !editorAction && !excepcionAction && secondaryActions.length === 0 && (
             <span className={styles.noActions}>—</span>
           )}
         </>

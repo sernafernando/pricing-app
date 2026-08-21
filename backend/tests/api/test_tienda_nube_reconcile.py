@@ -1596,3 +1596,138 @@ class TestGracefulDegradation:
         # table this endpoint actually writes to (not an unrelated table
         # that would always read 0 and prove nothing).
         assert db.query(TnReconcileBanlist).count() == 0
+
+
+@pytest.fixture()
+def perm_excepciones(db) -> Permiso:
+    p = Permiso(
+        codigo="admin.gestionar_tn_reconcile_excepciones",
+        nombre="Gestionar excepciones de reconciliación TN",
+        descripcion="Accept reviewed anomalies as intentional",
+        categoria="administracion",
+        orden=64,
+        es_critico=False,
+    )
+    db.add(p)
+    db.flush()
+    return p
+
+
+@pytest.fixture()
+def user_excepciones(db, brand_rol, perm_ver, perm_excepciones) -> Usuario:
+    user = Usuario(
+        username="tn_exc",
+        email="tn_exc@test.com",
+        nombre="Exc User",
+        password_hash=get_password_hash("Pass123!"),
+        rol=RolUsuario.VENTAS,
+        rol_id=brand_rol.id,
+        auth_provider=AuthProvider.LOCAL,
+        activo=True,
+    )
+    db.add(user)
+    db.flush()
+    for perm in (perm_ver, perm_excepciones):
+        db.add(UsuarioPermisoOverride(usuario_id=user.id, permiso_id=perm.id, concedido=True))
+    db.flush()
+    return user
+
+
+class TestExcepcionesEndpoints:
+    """Accepting a reviewed anomaly as intentional. Gated by its OWN
+    permission, not the ban list's: accepting an exception silences a
+    data-quality anomaly, a more consequential call than deciding not to
+    publish something, so it must be grantable to fewer people without
+    taking the rest away.
+    """
+
+    _EVIDENCIA = "MAL_PUBLICADO|123|OTRO-SKU|501|12"
+
+    def _payload(self, **over):
+        base = {
+            "evidencia": self._EVIDENCIA,
+            "ean": "123",
+            "verdict": "MAL_PUBLICADO",
+            "motivo": "El proveedor factura con otro código, verificado con compras",
+        }
+        base.update(over)
+        return base
+
+    def test_aceptar_requires_its_own_permission(self, client, db, user_ver):
+        # `user_ver` holds the BANLIST permission, deliberately not this one.
+        response = client.post(
+            "/api/tienda-nube-reconcile/excepciones/aceptar",
+            json=self._payload(),
+            headers=_bearer(user_ver),
+        )
+        assert response.status_code == 403
+
+    def test_aceptar_persists_the_exception(self, client, db, user_excepciones):
+        response = client.post(
+            "/api/tienda-nube-reconcile/excepciones/aceptar",
+            json=self._payload(),
+            headers=_bearer(user_excepciones),
+        )
+        assert response.status_code == 200, response.text
+        assert response.json()["success"] is True
+
+        from app.models.tn_reconcile_excepcion import TnReconcileExcepcion
+
+        stored = db.query(TnReconcileExcepcion).one()
+        assert stored.evidencia == self._EVIDENCIA
+        assert stored.usuario_id == user_excepciones.id
+        assert "compras" in stored.motivo
+
+    def test_motivo_is_mandatory(self, client, db, user_excepciones):
+        # An exception with no stated reason is indistinguishable from
+        # someone silencing an alert they did not understand.
+        response = client.post(
+            "/api/tienda-nube-reconcile/excepciones/aceptar",
+            json=self._payload(motivo=""),
+            headers=_bearer(user_excepciones),
+        )
+        assert response.status_code == 422
+
+    def test_publish_candidate_verdicts_are_rejected(self, client, db, user_excepciones):
+        # Those have the ban list. Two mechanisms for the same thing means
+        # two audit trails and no clear answer to "why is this hidden?".
+        response = client.post(
+            "/api/tienda-nube-reconcile/excepciones/aceptar",
+            json=self._payload(verdict="FALTA_PUBLICAR", evidencia="FALTA_PUBLICAR|123|||"),
+            headers=_bearer(user_excepciones),
+        )
+        assert response.status_code == 400
+        assert "banlist" in response.json()["error"]["message"].lower()
+
+    def test_accepting_the_same_evidence_twice_is_rejected(self, client, db, user_excepciones):
+        headers = _bearer(user_excepciones)
+        first = client.post("/api/tienda-nube-reconcile/excepciones/aceptar", json=self._payload(), headers=headers)
+        assert first.status_code == 200
+        second = client.post("/api/tienda-nube-reconcile/excepciones/aceptar", json=self._payload(), headers=headers)
+        assert second.status_code == 400
+
+    def test_listar_y_quitar(self, client, db, user_excepciones):
+        headers = _bearer(user_excepciones)
+        created = client.post("/api/tienda-nube-reconcile/excepciones/aceptar", json=self._payload(), headers=headers)
+        excepcion_id = created.json()["excepcion_id"]
+
+        listed = client.get("/api/tienda-nube-reconcile/excepciones", headers=headers)
+        assert listed.status_code == 200
+        assert [e["evidencia"] for e in listed.json()] == [self._EVIDENCIA]
+        assert listed.json()[0]["usuario_nombre"] == "Exc User"
+
+        removed = client.post(
+            "/api/tienda-nube-reconcile/excepciones/quitar",
+            json={"excepcion_id": excepcion_id},
+            headers=headers,
+        )
+        assert removed.status_code == 200
+        assert client.get("/api/tienda-nube-reconcile/excepciones", headers=headers).json() == []
+
+    def test_quitar_unknown_id_is_404(self, client, db, user_excepciones):
+        response = client.post(
+            "/api/tienda-nube-reconcile/excepciones/quitar",
+            json={"excepcion_id": 99999},
+            headers=_bearer(user_excepciones),
+        )
+        assert response.status_code == 404

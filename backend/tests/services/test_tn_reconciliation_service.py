@@ -1178,3 +1178,93 @@ class TestRawSkuIsConsistentAcrossEveryReason:
         assert rows[0].verdict == "MAL_VINCULADO"
         assert rows[0].reason == "NO_VARIANT_LINK"
         assert rows[0].reason_detail["tn_sku_found"] == "  123  "
+
+
+class TestExcepcionAceptada:
+    """An accepted exception silences an anomaly the operator reviewed and
+    judged intentional (a deliberately different SKU, a deliberate
+    duplicate). The ban list deliberately does NOT cover these verdicts —
+    banning means "don't offer this to publish", never "hide a broken
+    publication" — so without a separate mechanism a legitimate exception
+    screams forever, and an alert that cannot be silenced is one people
+    learn to ignore entirely.
+
+    The exception is bound to the CONCRETE EVIDENCE, never to the EAN
+    alone. Accepting "this EAN with THIS SKU currently in TN" must not
+    silence the product forever: if the SKU later changes to a genuinely
+    wrong one, the old acceptance must not swallow it.
+    """
+
+    def test_evidence_fingerprint_changes_when_the_tn_sku_changes(self):
+        rows_antes = compute_verdicts(
+            [_gbp_row(codigo="123", tnr_id=501, tnr_variation_id=12)],
+            [_tn(product_id=501, variant_id=12, sku="OTRO-SKU")],
+        )
+        rows_despues = compute_verdicts(
+            [_gbp_row(codigo="123", tnr_id=501, tnr_variation_id=12)],
+            [_tn(product_id=501, variant_id=12, sku="SKU-CAMBIADO")],
+        )
+
+        assert rows_antes[0].evidencia is not None
+        assert rows_antes[0].evidencia != rows_despues[0].evidencia
+
+    def test_accepting_the_evidence_marks_the_row_without_hiding_it(self):
+        gbp = [_gbp_row(codigo="123", tnr_id=501, tnr_variation_id=12)]
+        tn = [_tn(product_id=501, variant_id=12, sku="OTRO-SKU")]
+        evidencia = compute_verdicts(gbp, tn)[0].evidencia
+
+        rows = compute_verdicts(gbp, tn, excepciones={evidencia})
+
+        assert len(rows) == 1, "an accepted row must NOT disappear from the report"
+        # A row that vanished is indistinguishable from one that never
+        # existed — the verdict stays, flagged as reviewed.
+        assert rows[0].verdict == "MAL_PUBLICADO"
+        assert rows[0].excepcion_aceptada is True
+
+    def test_a_changed_sku_revives_the_anomaly(self):
+        gbp = [_gbp_row(codigo="123", tnr_id=501, tnr_variation_id=12)]
+        evidencia_vieja = compute_verdicts(gbp, [_tn(product_id=501, variant_id=12, sku="OTRO-SKU")])[0].evidencia
+
+        # Someone edits the SKU in TN to a different wrong value. The old
+        # acceptance covered a case that no longer exists.
+        rows = compute_verdicts(
+            gbp,
+            [_tn(product_id=501, variant_id=12, sku="AHORA-OTRO-DISTINTO")],
+            excepciones={evidencia_vieja},
+        )
+
+        assert rows[0].excepcion_aceptada is False
+
+    def test_duplicado_evidence_covers_the_exact_colliding_set(self):
+        gbp = [
+            _gbp_row(codigo="123", tnr_id=501, tnr_variation_id=12),
+            _gbp_row(codigo="456", tnr_id=501, tnr_variation_id=12),
+        ]
+        tn = [_tn(product_id=501, variant_id=12, sku="123")]
+
+        rows = compute_verdicts(gbp, tn)
+
+        assert rows[0].verdict == "DUPLICADO"
+        assert rows[0].evidencia is not None
+        # Both sides of the same collision share one fingerprint: accepting
+        # the duplicate accepts the pair, not one row of it.
+        assert rows[0].evidencia == rows[1].evidencia
+
+    def test_ok_rows_have_no_evidence_to_accept(self):
+        rows = compute_verdicts(
+            [_gbp_row(codigo="123", tnr_id=501, tnr_variation_id=12)],
+            [_tn(product_id=501, variant_id=12, sku="123")],
+        )
+
+        assert rows[0].verdict == "OK"
+        assert rows[0].evidencia is None
+        assert rows[0].excepcion_aceptada is False
+
+    def test_publish_candidates_have_no_evidence_that_is_the_banlist_job(self):
+        # FALTA_PUBLICAR/FALTA_VINCULAR are what the ban list is FOR. Giving
+        # them an exception path too would create two ways to silence the
+        # same thing, with different semantics and different audit trails.
+        rows = compute_verdicts([_gbp_row(codigo="999", tnr_id=0)], [])
+
+        assert rows[0].verdict == "FALTA_PUBLICAR"
+        assert rows[0].evidencia is None

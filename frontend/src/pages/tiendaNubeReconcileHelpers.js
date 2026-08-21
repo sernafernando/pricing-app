@@ -220,6 +220,34 @@ export function resolveSecondaryActions(row, { canPublish, despublicarTargetProd
  * Returns `null` when no match carries a `tn_admin_url` — there is nothing
  * to link to, and a dead button is worse than no button.
  */
+/**
+ * "Aceptar como correcto" / "Quitar excepción" — the exit the anomaly
+ * verdicts never had.
+ *
+ * The ban list deliberately does not cover MAL_PUBLICADO/MAL_VINCULADO/
+ * DUPLICADO: banning means "don't offer this to publish", never "hide a
+ * broken publication". That rule is right, but it left a legitimately
+ * intentional anomaly — a SKU that differs on purpose, a deliberate
+ * duplicate — screaming forever, and an alert nobody can silence is one
+ * people learn to ignore entirely.
+ *
+ * Driven by `row.evidencia`, which the BACKEND emits only for the verdicts
+ * that admit an exception. The client never decides what is acceptable:
+ * no `evidencia`, no action. Always reversible — an exception you cannot
+ * undo is a decision nobody will dare take.
+ */
+export function resolveExcepcionAction(row, canExcepciones) {
+  if (!canExcepciones) return null;
+  if (!row.evidencia) return null;
+  const aceptada = row.excepcion_aceptada === true;
+  return {
+    id: 'aceptar_excepcion',
+    label: aceptada ? 'Quitar excepción' : 'Aceptar como correcto',
+    evidencia: row.evidencia,
+    aceptada,
+  };
+}
+
 export function resolveEditorAction(row) {
   const editorMatch = pickEditorTnMatch(row);
   if (!editorMatch) return null;
