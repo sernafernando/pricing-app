@@ -157,11 +157,15 @@ describe('RowActionsCell — overflow menu', () => {
 
     expect(trigger).toHaveAttribute('aria-expanded', 'true');
     const menu = screen.getByRole('menu', { name: /Acciones para EAN-1/i });
-    expect(within(menu).getByRole('menuitem', { name: /Editar en TN/i })).toBeInTheDocument();
+    // Editar en TN is no longer in here — it is a visible action now.
+    expect(within(menu).getByRole('menuitem', { name: 'Despublicar' })).toBeInTheDocument();
+    expect(within(menu).queryByRole('menuitem', { name: /Editar en TN/i })).not.toBeInTheDocument();
   });
 
-  it('lists Despublicar and Editar en TN when applicable, with the link carrying the correct href/target', async () => {
-    const user = userEvent.setup();
+  it('shows Editar en TN as a visible link, without opening any menu', async () => {
+    // The whole point of moving it out: an operator staring at a
+    // mis-published row wants to open it in TN, and that took discovering
+    // a three-dot menu first.
     const row = {
       ean: 'EAN-5',
       verdict: 'MAL_VINCULADO',
@@ -170,13 +174,24 @@ describe('RowActionsCell — overflow menu', () => {
     };
     render(<RowActionsCell {...baseProps({ row, canBanlist: false })} />);
 
-    await user.click(screen.getByRole('button', { name: /Más acciones/i }));
-
-    expect(screen.getByRole('menuitem', { name: 'Despublicar' })).toBeInTheDocument();
-    const editLink = screen.getByRole('menuitem', { name: /Editar en TN el producto 555/i });
+    // No click on the overflow trigger anywhere in this test.
+    const editLink = screen.getByRole('link', { name: /Editar en TN el producto 555/i });
     expect(editLink).toHaveAttribute('href', 'https://tn.example/555');
     expect(editLink).toHaveAttribute('target', '_blank');
     expect(editLink).toHaveAttribute('rel', 'noopener noreferrer');
+  });
+
+  it('omits the visible Editar en TN link when no match carries a URL', () => {
+    const row = {
+      ean: 'EAN-5b',
+      verdict: 'MAL_VINCULADO',
+      despublicar: false,
+      tn_matches: [{ product_id: 556, tn_admin_url: null }],
+    };
+    render(<RowActionsCell {...baseProps({ row, canBanlist: false })} />);
+
+    // A dead button is worse than no button.
+    expect(screen.queryByRole('link', { name: /Editar en TN/i })).not.toBeInTheDocument();
   });
 
   it('clicking Despublicar in the menu hands off to onStartDespublicarConfirm with the resolved product id, not the endpoint directly', async () => {
@@ -219,7 +234,11 @@ describe('RowActionsCell — overflow menu', () => {
     expect(trigger).toHaveFocus();
   });
 
-  it('ArrowDown moves focus to the next menu item', async () => {
+  it('ArrowDown wraps around when the menu holds a single item', async () => {
+    // With Editar en TN promoted out, Despublicar is the only secondary
+    // action left, so this pins the wrap-around rather than a move to a
+    // second item. The keyboard contract must not break just because the
+    // menu got shorter.
     const user = userEvent.setup();
     const row = {
       ean: 'EAN-7',
@@ -231,10 +250,11 @@ describe('RowActionsCell — overflow menu', () => {
 
     await user.click(screen.getByRole('button', { name: /Más acciones/i }));
     const items = screen.getAllByRole('menuitem');
+    expect(items).toHaveLength(1);
     expect(items[0]).toHaveFocus();
 
     await user.keyboard('{ArrowDown}');
-    expect(items[1]).toHaveFocus();
+    expect(items[0]).toHaveFocus();
   });
 });
 

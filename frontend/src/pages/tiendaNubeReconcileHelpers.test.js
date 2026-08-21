@@ -8,6 +8,7 @@ import {
   resolveBanAction,
   pickEditorTnMatch,
   resolveSecondaryActions,
+  resolveEditorAction,
   primaryTnMatch,
   matchPublishedLabel,
   rowIdentity,
@@ -249,14 +250,27 @@ describe('resolveSecondaryActions', () => {
     expect(actions.some((a) => a.id === 'despublicar')).toBe(false);
   });
 
-  it('includes Editar en TN with the resolved match href when available', () => {
+  it('no longer includes Editar en TN — it is a visible action now', () => {
+    // Moved out of the overflow menu: opening TN is the first thing an
+    // operator does with a mis-published row, and it was hidden behind a
+    // three-dot menu nobody opens. See `resolveEditorAction`.
     const row = {
       verdict: 'MAL_PUBLICADO',
       despublicar: false,
       tn_matches: [{ product_id: 9, tn_admin_url: 'https://tn/9', published: true }],
     };
     const actions = resolveSecondaryActions(row, perms());
-    expect(actions.find((a) => a.id === 'editar_tn')).toEqual({
+    expect(actions.some((a) => a.id === 'editar_tn')).toBe(false);
+  });
+});
+
+describe('resolveEditorAction', () => {
+  it('returns the Editar en TN action with the resolved match href', () => {
+    const row = {
+      verdict: 'MAL_PUBLICADO',
+      tn_matches: [{ product_id: 9, tn_admin_url: 'https://tn/9', published: true }],
+    };
+    expect(resolveEditorAction(row)).toEqual({
       id: 'editar_tn',
       label: 'Editar en TN',
       href: 'https://tn/9',
@@ -264,10 +278,15 @@ describe('resolveSecondaryActions', () => {
     });
   });
 
-  it('omits Editar en TN when no match has a URL', () => {
-    const row = { verdict: 'MAL_PUBLICADO', despublicar: false, tn_matches: [] };
-    const actions = resolveSecondaryActions(row, perms());
-    expect(actions.some((a) => a.id === 'editar_tn')).toBe(false);
+  it('returns null when no match has a URL', () => {
+    expect(resolveEditorAction({ verdict: 'MAL_PUBLICADO', tn_matches: [] })).toBeNull();
+  });
+
+  it('is not permission-gated, matching the previous menu item', () => {
+    // It was never gated as a menu item either: opening TN in another tab
+    // reveals nothing the row does not already show.
+    const row = { tn_matches: [{ product_id: 3, tn_admin_url: 'https://tn/3' }] };
+    expect(resolveEditorAction(row)?.productId).toBe(3);
   });
 });
 

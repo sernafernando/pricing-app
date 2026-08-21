@@ -72,3 +72,14 @@
 .noActions {
   color: var(--cf-text-secondary);
 }
+
+/* "Editar en TN" as a visible action (was an overflow-menu item). Inline
+   so the external-link icon sits on the label's baseline. */
+.editorBtn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin-left: var(--spacing-xs);
+  text-decoration: none;
+  white-space: nowrap;
+}

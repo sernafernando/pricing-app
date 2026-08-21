@@ -24,7 +24,12 @@
  */
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { ExternalLink, MoreVertical } from 'lucide-react';
-import { resolvePrimaryAction, resolveSecondaryActions, resolveBanAction } from '../../pages/tiendaNubeReconcileHelpers';
+import {
+  resolvePrimaryAction,
+  resolveSecondaryActions,
+  resolveBanAction,
+  resolveEditorAction,
+} from '../../pages/tiendaNubeReconcileHelpers';
 import styles from './RowActionsCell.module.css';
 
 export default function RowActionsCell({
@@ -47,6 +52,7 @@ export default function RowActionsCell({
 
   const primary = resolvePrimaryAction(row, canPublish);
   const banAction = resolveBanAction(row, canBanlist);
+  const editorAction = resolveEditorAction(row);
   const secondaryActions = resolveSecondaryActions(row, {
     canPublish,
     despublicarTargetProductId,
@@ -145,6 +151,23 @@ export default function RowActionsCell({
             >
               {banAction.label}
             </button>
+          )}
+          {/*
+            Promoted out of the overflow menu: opening the product in
+            Tienda Nube is the first move on any mis-published row, and it
+            was hidden behind a three-dot trigger. Same target, same lack
+            of permission gating — only reachable in one click now.
+          */}
+          {editorAction && (
+            <a
+              href={editorAction.href}
+              target="_blank"
+              rel="noopener noreferrer"
+              className={`btn-tesla ghost sm ${styles.editorBtn}`}
+              aria-label={`Editar en TN el producto ${editorAction.productId}`}
+            >
+              {editorAction.label} <ExternalLink size={12} aria-hidden="true" />
+            </a>
           )}
           {secondaryActions.length > 0 && (
             <div className={styles.overflowWrap}>
