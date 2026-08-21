@@ -33,11 +33,11 @@ def upgrade() -> None:
         sa.PrimaryKeyConstraint("id"),
         sa.UniqueConstraint("evidencia", name="uq_tn_reconcile_excepcion_evidencia"),
     )
-    op.create_index("ix_tn_reconcile_excepcion_id", "tn_reconcile_excepcion", ["id"])
+    # Only `ean` gets its own index: the PRIMARY KEY already indexes `id`,
+    # and the UNIQUE constraint on `evidencia` already creates the btree
+    # that lookups by fingerprint use. Adding either again would be two
+    # extra indexes to maintain on every INSERT for nothing.
     op.create_index("ix_tn_reconcile_excepcion_ean", "tn_reconcile_excepcion", ["ean"])
-    # The report loads every accepted fingerprint on each run and matches
-    # rows against it — this index is what keeps that a lookup.
-    op.create_index("ix_tn_reconcile_excepcion_evidencia", "tn_reconcile_excepcion", ["evidencia"])
 
     # Its OWN permission, not the ban list's. Accepting an exception
     # silences a data-quality anomaly — a more consequential call than
@@ -69,7 +69,5 @@ def downgrade() -> None:
         );
     """)
     op.execute("DELETE FROM permisos WHERE codigo = 'admin.gestionar_tn_reconcile_excepciones';")
-    op.drop_index("ix_tn_reconcile_excepcion_evidencia", table_name="tn_reconcile_excepcion")
     op.drop_index("ix_tn_reconcile_excepcion_ean", table_name="tn_reconcile_excepcion")
-    op.drop_index("ix_tn_reconcile_excepcion_id", table_name="tn_reconcile_excepcion")
     op.drop_table("tn_reconcile_excepcion")

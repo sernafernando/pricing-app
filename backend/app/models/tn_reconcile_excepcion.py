@@ -34,12 +34,13 @@ class TnReconcileExcepcion(Base):
 
     __tablename__ = "tn_reconcile_excepcion"
 
-    id = Column(Integer, primary_key=True, index=True)
+    id = Column(Integer, primary_key=True)
     # Kept for search/reporting only — it is NOT the key. See the class
     # docstring on why binding to the EAN would be unsafe.
     ean = Column(String(100), index=True, nullable=False)
     verdict = Column(String(32), nullable=False)
-    evidencia = Column(Text, nullable=False, index=True)
+    # No `index=True`: the UniqueConstraint below already creates it.
+    evidencia = Column(Text, nullable=False)
     # Mandatory: an exception without a stated reason is indistinguishable
     # from someone silencing an alert they did not understand.
     motivo = Column(Text, nullable=False)

@@ -1709,25 +1709,39 @@ class TestExcepcionesEndpoints:
     def test_listar_y_quitar(self, client, db, user_excepciones):
         headers = _bearer(user_excepciones)
         created = client.post("/api/tienda-nube-reconcile/excepciones/aceptar", json=self._payload(), headers=headers)
-        excepcion_id = created.json()["excepcion_id"]
+        assert created.status_code == 200
 
         listed = client.get("/api/tienda-nube-reconcile/excepciones", headers=headers)
         assert listed.status_code == 200
         assert [e["evidencia"] for e in listed.json()] == [self._EVIDENCIA]
         assert listed.json()[0]["usuario_nombre"] == "Exc User"
 
+        # Keyed by `evidencia`, the unique column — the caller already has
+        # it, so no listing round-trip (and no TOCTOU window) to find an id.
         removed = client.post(
             "/api/tienda-nube-reconcile/excepciones/quitar",
-            json={"excepcion_id": excepcion_id},
+            json={"evidencia": self._EVIDENCIA},
             headers=headers,
         )
         assert removed.status_code == 200
         assert client.get("/api/tienda-nube-reconcile/excepciones", headers=headers).json() == []
 
-    def test_quitar_unknown_id_is_404(self, client, db, user_excepciones):
+    def test_evidencia_must_match_the_declared_verdict(self, client, db, user_excepciones):
+        # Otherwise the promise "an exception can only exist for a
+        # situation the server computed" is only prose: this payload would
+        # persist a row whose two columns contradict each other.
+        response = client.post(
+            "/api/tienda-nube-reconcile/excepciones/aceptar",
+            json=self._payload(evidencia="DUPLICADO|123|||"),
+            headers=_bearer(user_excepciones),
+        )
+        assert response.status_code == 400
+        assert "evidencia" in response.json()["error"]["message"].lower()
+
+    def test_quitar_unknown_evidencia_is_404(self, client, db, user_excepciones):
         response = client.post(
             "/api/tienda-nube-reconcile/excepciones/quitar",
-            json={"excepcion_id": 99999},
+            json={"evidencia": "MAL_PUBLICADO|no-existe|||"},
             headers=_bearer(user_excepciones),
         )
         assert response.status_code == 404

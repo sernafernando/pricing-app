@@ -436,7 +436,11 @@ class AceptarExcepcionResponse(BaseModel):
 
 
 class QuitarExcepcionRequest(BaseModel):
-    excepcion_id: int
+    """Keyed by `evidencia`, the unique column — not by a surrogate id the
+    client would have to go fetch with a full listing first (an extra
+    round-trip AND a TOCTOU window for a value the server already has)."""
+
+    evidencia: str = Field(..., min_length=1, max_length=500)
 
 
 class QuitarExcepcionResponse(BaseModel):
@@ -960,6 +964,18 @@ def aceptar_excepcion(
             detail=f"El veredicto {request.verdict} no admite excepciones (usá la banlist para los candidatos a publicar)",
         )
 
+    # `evidencia` is the fingerprint the report emitted, and its first
+    # field IS the verdict (see `_build_evidencia`). Without this check the
+    # docstring's promise — "an exception can only exist for a situation
+    # the server computed" — was just prose: a payload could pair
+    # `verdict="MAL_PUBLICADO"` with a DUPLICADO fingerprint and persist a
+    # row whose two columns contradict each other.
+    if not request.evidencia.startswith(f"{request.verdict}|"):
+        raise HTTPException(
+            status_code=400,
+            detail="La evidencia no corresponde al veredicto indicado",
+        )
+
     existente = db.query(TnReconcileExcepcion).filter(TnReconcileExcepcion.evidencia == request.evidencia).first()
     if existente:
         raise HTTPException(status_code=400, detail="Esa situación ya tiene una excepción aceptada")
@@ -991,7 +1007,7 @@ def quitar_excepcion(
     if not verificar_permiso(db, current_user, PERMISO_EXCEPCIONES):
         raise HTTPException(status_code=403, detail=_SIN_PERMISO_EXCEPCIONES)
 
-    entry = db.query(TnReconcileExcepcion).filter(TnReconcileExcepcion.id == request.excepcion_id).first()
+    entry = db.query(TnReconcileExcepcion).filter(TnReconcileExcepcion.evidencia == request.evidencia).first()
     if not entry:
         raise HTTPException(status_code=404, detail="Excepción no encontrada")
 

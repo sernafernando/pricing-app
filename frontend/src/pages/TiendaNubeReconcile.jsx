@@ -292,14 +292,10 @@ export default function TiendaNubeReconcile() {
     async (row) => {
       if (!puedeGestionarExcepciones) return;
       try {
-        const listado = await api.get('/tienda-nube-reconcile/excepciones');
-        const match = (listado.data || []).find((e) => e.evidencia === row.evidencia);
-        if (!match) {
-          showToast('Esa excepción ya no existe', 'error');
-          cargarReporte();
-          return;
-        }
-        await api.post('/tienda-nube-reconcile/excepciones/quitar', { excepcion_id: match.id });
+        // Keyed by `evidencia`, the unique column — the row already carries
+        // it, so no full listing to look up a surrogate id (an extra
+        // round-trip and a TOCTOU window for a value we already have).
+        await api.post('/tienda-nube-reconcile/excepciones/quitar', { evidencia: row.evidencia });
         showToast('Excepción quitada', 'success');
         cargarReporte();
       } catch (err) {

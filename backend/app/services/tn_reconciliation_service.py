@@ -956,11 +956,33 @@ def compute_verdicts(
         claimed_id = _as_int(gbp.get("tnr_id"))
         claimed_variation = _as_int(gbp.get("tnr_variationID"))
         if reconcile_row.verdict == "DUPLICADO":
-            # The anomaly is the COLLISION, not either row of it: both GBP
-            # rows share one fingerprint (their EANs differ — that is the
-            # whole problem), so accepting the duplicate accepts the pair
-            # rather than half of it.
-            reconcile_row.evidencia = _build_evidencia("DUPLICADO", None, None, claimed_id, claimed_variation)
+            # The anomaly is the COLLISION, not either row of it, so the
+            # fingerprint must identify the collision itself.
+            #
+            # DUPLICADO is reached by TWO paths. With a claimed link, the
+            # `(tnr_id, tnr_variationID)` pair IS the collision and both
+            # GBP rows share it — accepting the duplicate accepts the pair
+            # rather than half of it. But an UNLINKED row whose EAN matches
+            # 2+ TN variants also lands here with `tnr_id == 0`, and keying
+            # only on the claimed ids collapsed every row of that kind to
+            # one constant string: accepting a single duplicate silenced
+            # EVERY EAN collision in the report, and the UNIQUE constraint
+            # meant the second one could not even be accepted. So with no
+            # claimed link the colliding variant set is the identity —
+            # sorted, so ordering never shifts the fingerprint, and a third
+            # variant joining is a NEW situation nobody reviewed.
+            colision = (
+                None
+                if claimed_id
+                else ",".join(sorted(f"{m.product_id}:{m.variant_id}" for m in (reconcile_row.tn_matches or [])))
+            )
+            reconcile_row.evidencia = _build_evidencia(
+                "DUPLICADO",
+                None if claimed_id else reconcile_row.ean,
+                colision,
+                claimed_id,
+                claimed_variation,
+            )
         else:
             detail = reconcile_row.reason_detail or {}
             reconcile_row.evidencia = _build_evidencia(

@@ -1268,3 +1268,56 @@ class TestExcepcionAceptada:
 
         assert rows[0].verdict == "FALTA_PUBLICAR"
         assert rows[0].evidencia is None
+
+
+class TestDuplicadoPorEanSinVinculoTieneHuellaPropia:
+    """Review catch, and the exact failure `_build_evidencia` exists to
+    prevent — in the branch no test covered.
+
+    DUPLICADO is reached by TWO paths. One requires a claimed link
+    (`tnr_id`/`tnr_variationID` both > 0). The other fires when an UNLINKED
+    GBP row's EAN matches 2+ TN variants, and there `tnr_id` is 0. Building
+    the fingerprint from the claimed ids alone collapsed every row of that
+    second kind to the same constant string, so accepting one duplicate
+    silenced every EAN-collision in the report — and the UNIQUE constraint
+    on `evidencia` meant the second one could not even be accepted.
+    """
+
+    def test_two_unrelated_ean_collisions_do_not_share_a_fingerprint(self):
+        rows = compute_verdicts(
+            [_gbp_row(codigo="AAA", tnr_id=0), _gbp_row(codigo="BBB", tnr_id=0)],
+            [
+                _tn(product_id=1, variant_id=1, sku="AAA"),
+                _tn(product_id=2, variant_id=2, sku="AAA"),
+                _tn(product_id=3, variant_id=3, sku="BBB"),
+                _tn(product_id=4, variant_id=4, sku="BBB"),
+            ],
+        )
+
+        assert [r.verdict for r in rows] == ["DUPLICADO", "DUPLICADO"]
+        assert rows[0].evidencia is not None
+        assert rows[0].evidencia != rows[1].evidencia, "accepting one EAN collision must not silence a different one"
+
+    def test_accepting_one_collision_leaves_the_other_visible(self):
+        gbp = [_gbp_row(codigo="AAA", tnr_id=0), _gbp_row(codigo="BBB", tnr_id=0)]
+        tn = [
+            _tn(product_id=1, variant_id=1, sku="AAA"),
+            _tn(product_id=2, variant_id=2, sku="AAA"),
+            _tn(product_id=3, variant_id=3, sku="BBB"),
+            _tn(product_id=4, variant_id=4, sku="BBB"),
+        ]
+        evidencia_aaa = compute_verdicts(gbp, tn)[0].evidencia
+
+        rows = compute_verdicts(gbp, tn, excepciones={evidencia_aaa})
+
+        assert rows[0].excepcion_aceptada is True
+        assert rows[1].excepcion_aceptada is False
+
+    def test_the_colliding_variant_set_is_part_of_the_fingerprint(self):
+        # If a THIRD variant joins the collision, that is a new situation
+        # nobody reviewed — the old acceptance must not cover it.
+        gbp = [_gbp_row(codigo="AAA", tnr_id=0)]
+        dos = [_tn(product_id=1, variant_id=1, sku="AAA"), _tn(product_id=2, variant_id=2, sku="AAA")]
+        tres = dos + [_tn(product_id=3, variant_id=3, sku="AAA")]
+
+        assert compute_verdicts(gbp, dos)[0].evidencia != compute_verdicts(gbp, tres)[0].evidencia
