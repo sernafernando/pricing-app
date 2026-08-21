@@ -46,6 +46,18 @@ _MAX_RETRIES = 2  # retry on transient 5xx/network errors only, mirrors llm_prov
 # embedder's own tokenizer still truncates as a second line of defense.
 _MAX_INPUT_CHARS = 2000
 
+# TEI enforces its own `max_client_batch_size` and answers an oversized batch
+# with **413**, not a 5xx — so it was never retried, and `embed()` simply
+# returned `None`. Verified live against our instance (v1.8.3,
+# `intfloat/multilingual-e5-small`): its `/info` reports
+# `max_client_batch_size: 32`; n=32 -> 200, n=33 -> 413 "batch size 33 >
+# maximum allowed batch size 32".
+#
+# This bit the TN category sync the moment its catalog grew past 32 paths:
+# `sync_category_embeddings` embeds the WHOLE tree in one call, so it worked
+# only while the tree happened to be smaller than this limit.
+EMBED_MAX_CLIENT_BATCH_SIZE = 32
+
 _QUERY_PREFIX = "query: "
 _PASSAGE_PREFIX = "passage: "
 
@@ -197,4 +209,24 @@ async def embed_passages(texts: List[str], db: Optional[Session] = None) -> Opti
     since a partially-embedded batch has no safe caller semantics yet."""
     provider = TEIEmbeddingProvider(base_url=_resolve_base_url(db))
     prefixed = [_PASSAGE_PREFIX + _truncate(text) for text in texts]
-    return await provider.embed(prefixed)
+
+    # Chunked to respect TEI's `max_client_batch_size` (see the constant).
+    # Sequential, not concurrent: the embedder reports `max_batch_requests: 8`
+    # and this is a background refresh with no latency budget — there is
+    # nothing to win by hammering it, and plenty to lose.
+    embeddings: List[List[float]] = []
+    for start in range(0, len(prefixed), EMBED_MAX_CLIENT_BATCH_SIZE):
+        chunk = prefixed[start : start + EMBED_MAX_CLIENT_BATCH_SIZE]
+        result = await provider.embed(chunk)
+        if result is None:
+            # All-or-nothing, as documented: a partially-embedded batch would
+            # let the caller zip() texts against mismatched vectors.
+            logger.warning(
+                "embedding_client: batch chunk starting at %d failed — discarding the whole batch of %d",
+                start,
+                len(prefixed),
+            )
+            return None
+        embeddings.extend(result)
+
+    return embeddings

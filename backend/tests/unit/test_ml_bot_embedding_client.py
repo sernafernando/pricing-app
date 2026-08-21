@@ -28,6 +28,7 @@ import pytest
 
 from app.services.ml_questions import embedding_client
 from app.services.ml_questions.embedding_client import (
+    EMBED_MAX_CLIENT_BATCH_SIZE,
     embed_passage,
     embed_passages,
     embed_query,
@@ -211,3 +212,106 @@ class TestFailureModes:
         # Two inputs requested but only one embedding returned -> malformed.
         result = asyncio.run(embed_passages(["uno", "dos"]))
         assert result is None
+
+
+class TestClientBatchChunking:
+    """TEI enforces `max_client_batch_size` (32 on our instance) and answers
+    a bigger batch with **413**, which is not a 5xx and so was never even
+    retried — `embed_passages` just returned `None`. Verified live against
+    the embedder: n=32 -> 200, n=33 -> 413 "batch size 33 > maximum allowed
+    batch size 32". The TN category sync hit this the moment the catalog
+    grew past 32 paths.
+    """
+
+    def test_a_batch_over_the_limit_is_split_into_conforming_requests(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        batch_sizes = []
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            payload = json.loads(request.content)
+            batch_sizes.append(len(payload["input"]))
+            if len(payload["input"]) > EMBED_MAX_CLIENT_BATCH_SIZE:
+                # Exactly what the real TEI does — the bug under test.
+                return httpx.Response(413, json={"message": "batch size too large", "code": 413})
+            return httpx.Response(
+                200,
+                json={"data": [{"object": "embedding", "embedding": _VALID_EMBEDDING} for _ in payload["input"]]},
+            )
+
+        _patch_client(monkeypatch, _mock_transport(handler))
+
+        texts = [f"categoria {i}" for i in range(70)]
+        result = asyncio.run(embed_passages(texts))
+
+        assert result is not None, "a 70-text batch must succeed, not return None"
+        assert len(result) == 70
+        assert batch_sizes == [32, 32, 6]
+        assert all(size <= EMBED_MAX_CLIENT_BATCH_SIZE for size in batch_sizes)
+
+    def test_exactly_the_limit_stays_a_single_request(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        calls = []
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            payload = json.loads(request.content)
+            calls.append(len(payload["input"]))
+            return httpx.Response(
+                200,
+                json={"data": [{"object": "embedding", "embedding": _VALID_EMBEDDING} for _ in payload["input"]]},
+            )
+
+        _patch_client(monkeypatch, _mock_transport(handler))
+
+        result = asyncio.run(embed_passages([f"c {i}" for i in range(EMBED_MAX_CLIENT_BATCH_SIZE)]))
+
+        assert result is not None
+        assert calls == [EMBED_MAX_CLIENT_BATCH_SIZE]
+
+    def test_order_is_preserved_across_chunks(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        # Order alignment is the whole contract of `embed_passages` — a
+        # chunked implementation that concatenates out of order would map
+        # every category path to the wrong embedding, silently.
+        def handler(request: httpx.Request) -> httpx.Response:
+            payload = json.loads(request.content)
+            return httpx.Response(
+                200,
+                json={
+                    "data": [
+                        # Encode each text's index in the first component.
+                        {"object": "embedding", "embedding": [float(int(text.split()[-1]))] + [0.0] * (_DIM - 1)}
+                        for text in payload["input"]
+                    ]
+                },
+            )
+
+        _patch_client(monkeypatch, _mock_transport(handler))
+
+        result = asyncio.run(embed_passages([f"categoria {i}" for i in range(70)]))
+
+        assert result is not None
+        assert [int(vec[0]) for vec in result] == list(range(70))
+
+    def test_a_failing_chunk_fails_the_whole_batch(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        # All-or-nothing is the documented contract: a partially-embedded
+        # batch would make the caller zip() mismatched pairs.
+        state = {"calls": 0}
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            state["calls"] += 1
+            if state["calls"] == 2:
+                return httpx.Response(400, json={"message": "nope"})
+            payload = json.loads(request.content)
+            return httpx.Response(
+                200,
+                json={"data": [{"object": "embedding", "embedding": _VALID_EMBEDDING} for _ in payload["input"]]},
+            )
+
+        _patch_client(monkeypatch, _mock_transport(handler))
+
+        assert asyncio.run(embed_passages([f"c {i}" for i in range(70)])) is None
+
+    def test_empty_input_makes_no_request(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        def handler(request: httpx.Request) -> httpx.Response:  # pragma: no cover
+            raise AssertionError("no request should be made for an empty batch")
+
+        _patch_client(monkeypatch, _mock_transport(handler))
+
+        assert asyncio.run(embed_passages([])) == []
