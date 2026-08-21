@@ -1004,3 +1004,76 @@ class TestBuildPublishDraftCostBlockSeparation:
         assert draft["blocked"] is False
         assert draft["cost_blocked"] is False
         assert draft["blocked_reasons"] == []
+
+
+class TestDeletedTnProductsNeverProposedForLinking:
+    """`activo` is the EXISTENCE axis ("came back in the last full sync"),
+    NOT the visibility axis — that's `published`. The two are independent: a
+    product can be alive in TN and merely deactivated, which is a legitimate
+    state that must keep behaving normally.
+
+    The sync marks everything inactive and reactivates whatever TN returns,
+    so a product deleted in TN keeps its row with `activo = false` forever.
+    The reconcile report loaded the WHOLE table without looking at that
+    flag, so those tombstones still matched by EAN and produced
+    FALTA_VINCULAR rows pointing at products that no longer exist — 849 of
+    1809 rows in production (2026-08-21), reported by an operator who could
+    not find any of them in TN.
+    """
+
+    def test_a_deleted_tn_product_is_not_offered_as_a_link_candidate(self):
+        rows = compute_verdicts([_gbp_row(codigo="EAN-1")], [_tn(sku="EAN-1", activo=False)])
+
+        assert len(rows) == 1
+        # Nothing alive matches this EAN, so there is nothing to link to:
+        # the honest verdict is "needs publishing", not "needs linking".
+        assert rows[0].verdict == "FALTA_PUBLICAR"
+        assert rows[0].tn_matches == []
+        assert rows[0].tn_presence == "not_in_tn"
+
+    def test_a_deactivated_but_alive_product_is_still_a_link_candidate(self):
+        # The distinction that matters: `published=False` means the product
+        # EXISTS in TN and is merely switched off. It must keep behaving
+        # exactly as before — this filter is about deletion, not visibility.
+        rows = compute_verdicts([_gbp_row(codigo="EAN-1")], [_tn(sku="EAN-1", activo=True, published=False)])
+
+        assert rows[0].verdict == "FALTA_VINCULAR"
+        assert len(rows[0].tn_matches) == 1
+        assert rows[0].tn_presence == "draft"
+
+    def test_an_unknown_activo_is_kept_never_silently_dropped(self):
+        # `activo` is nullable; a NULL means "not known yet", not "deleted".
+        # Only POSITIVE evidence of deletion (activo IS false) excludes a
+        # row — same fail-safe stance `_is_visible` takes with `published`.
+        rows = compute_verdicts([_gbp_row(codigo="EAN-1")], [_tn(sku="EAN-1", activo=None)])
+
+        assert rows[0].verdict == "FALTA_VINCULAR"
+        assert len(rows[0].tn_matches) == 1
+
+    def test_a_deleted_product_is_still_visible_through_an_existing_link(self):
+        # The other side of the coin: `tn_by_ids` re-verifies an
+        # ALREADY-CLAIMED link and must keep seeing dead rows, otherwise a
+        # GBP row pointing at a deleted TN product would silently look fine
+        # instead of surfacing as a broken link.
+        rows = compute_verdicts(
+            [_gbp_row(codigo="EAN-1", tnr_id=99, tnr_variation_id=98)],
+            [_tn(product_id=99, variant_id=98, sku="EAN-1", activo=False, published=True)],
+        )
+
+        assert len(rows) == 1
+        # The link still resolves — the row is NOT reported as unlinked.
+        assert rows[0].verdict != "FALTA_VINCULAR"
+
+    def test_deleted_duplicates_do_not_manufacture_a_duplicado_anomaly(self):
+        # Two dead rows sharing an EAN must not raise DUPLICADO: there is no
+        # real ambiguity to resolve when neither product exists any more.
+        rows = compute_verdicts(
+            [_gbp_row(codigo="EAN-1")],
+            [
+                _tn(product_id=1, variant_id=1, sku="EAN-1", activo=False),
+                _tn(product_id=2, variant_id=2, sku="EAN-1", activo=False),
+            ],
+        )
+
+        assert rows[0].verdict != "DUPLICADO"
+        assert rows[0].tn_matches == []

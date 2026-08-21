@@ -459,6 +459,29 @@ def _as_optional_int(value) -> Optional[int]:
         return None
 
 
+def _esta_vivo_en_tn(tn: TiendaNubeProducto) -> bool:
+    """Whether this TN product still EXISTS in Tienda Nube.
+
+    `activo` is the EXISTENCE axis, not the visibility one: the sync
+    (`endpoints/tienda_nube.py`) sets every row inactive and reactivates
+    only what TN's /products endpoint returns, so `activo is False` means
+    "TN stopped returning it" — i.e. deleted. Rows are never removed, which
+    keeps the audit trail but leaves tombstones in the table (849 of 1809
+    rows in production on 2026-08-21).
+
+    Deliberately NOT `published`: a product can be alive in TN and merely
+    deactivated (`published=False`), which is a legitimate state that must
+    keep matching normally. The two axes are independent — see
+    `_is_visible`, which guards the other one.
+
+    Fail-safe like `_is_visible`: only POSITIVE evidence of deletion
+    excludes a row. `activo` is nullable, and a NULL means "not known yet"
+    (never re-synced), never "deleted" — an unknown must not silently drop
+    a real product out of the matching indexes.
+    """
+    return getattr(tn, "activo", None) is not False
+
+
 def _is_visible(tn: TiendaNubeProducto) -> bool:
     """Fail-safe check for "actually published/visible in the storefront".
 
@@ -566,8 +589,17 @@ def compute_verdicts(
 
     # Index TN products by normalized variant_sku (EAN-join). A null/empty
     # sku is never indexed, so it can never match any EAN (Verdict Edge Cases).
+    #
+    # Only products still ALIVE in TN are indexed here (`_esta_vivo_en_tn`):
+    # these two indexes are what PROPOSES a link, and proposing a link to a
+    # deleted product is exactly the FALTA_VINCULAR-against-nothing bug
+    # operators kept hitting. Note this filters on deletion, never on
+    # visibility — a deactivated-but-alive product is still a valid
+    # candidate.
     tn_by_sku: dict[str, list[TiendaNubeProducto]] = {}
     for tn in tn_productos:
+        if not _esta_vivo_en_tn(tn):
+            continue
         sku = _normalize_sku(tn.variant_sku)
         if sku is None:
             continue
@@ -583,6 +615,10 @@ def compute_verdicts(
     # here (they'd never collide with another sentinel anyway).
     tn_by_gtin: dict[str, list[TiendaNubeProducto]] = {}
     for tn in tn_productos:
+        # Same alive-only rule as `tn_by_sku` above — both indexes feed
+        # `matches_by_ean`, so filtering only one would just move the bug.
+        if not _esta_vivo_en_tn(tn):
+            continue
         gtin = normalize_gtin(tn.variant_sku)
         if not isinstance(gtin, str):
             continue
@@ -590,6 +626,12 @@ def compute_verdicts(
 
     # Index TN products by (product_id, variant_id) — used only to re-verify
     # an already-claimed link (tnr_id/tnr_variationID), never as the join key.
+    #
+    # DELIBERATELY UNFILTERED, unlike the two indexes above: a GBP row whose
+    # claimed link points at a product TN deleted must still resolve here,
+    # or the broken link would silently read as "never linked" instead of
+    # surfacing for review. Proposing a dead product is the bug; recognising
+    # one you are already linked to is the feature.
     tn_by_ids: dict[tuple, TiendaNubeProducto] = {}
     for tn in tn_productos:
         tn_by_ids[(tn.product_id, tn.variant_id)] = tn
