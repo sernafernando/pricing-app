@@ -1156,3 +1156,25 @@ class TestReasonDetailCarriesDiagnosableEvidence:
         assert rows[0].verdict == "OK"
         assert rows[0].reason is None
         assert rows[0].reason_detail is None
+
+
+class TestRawSkuIsConsistentAcrossEveryReason:
+    """`tn_sku_found` must mean the same thing in EVERY reason code. Review
+    caught NO_VARIANT_LINK still passing the normalized value while
+    SKU_MISMATCH and SKU_FORMAT passed the raw one — one field, two
+    semantics, which is worse than either choice made consistently.
+    """
+
+    def test_no_variant_link_also_reports_the_raw_sku(self):
+        # The SKU must still MATCH the EAN for this row to have a
+        # `matches_by_ean` at all, so the raw/normalized difference here is
+        # the surrounding whitespace — exactly the kind of invisible
+        # difference an operator needs to see rather than have erased.
+        rows = compute_verdicts(
+            [_gbp_row(codigo="123", tnr_id=501, tnr_variation_id=0)],
+            [_tn(product_id=501, variant_id=12, sku="  123  ")],
+        )
+
+        assert rows[0].verdict == "MAL_VINCULADO"
+        assert rows[0].reason == "NO_VARIANT_LINK"
+        assert rows[0].reason_detail["tn_sku_found"] == "  123  "

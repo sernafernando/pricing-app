@@ -114,11 +114,13 @@ class ReconcileRow:
     # otherwise (never guessed/invented for other verdicts).
     product_id: Optional[int] = None
     variant_id: Optional[int] = None
-    # Reason/cause taxonomy (Slice 1) — additive, read-only annotation on
-    # top of an already-computed verdict. Populated ONLY when
-    # `verdict in {"MAL_PUBLICADO", "MAL_VINCULADO"}` (see
-    # `_build_reason_detail`);
-    # `None` for every other verdict, never guessed.
+    # Reason/cause taxonomy — additive, read-only annotation on top of an
+    # already-computed verdict. Populated when `verdict in
+    # {"MAL_PUBLICADO", "MAL_VINCULADO", "POR_CORREGIR"}` (see
+    # `_build_reason_detail`); `None` for every other verdict, never
+    # guessed. `reason_detail["tn_sku_found"]` is the RAW `variant_sku` at
+    # every call site — normalizing it would erase the very difference
+    # being diagnosed.
     reason: Optional[str] = None
     reason_detail: Optional[dict] = None
     # Slice 4: exposes the already-parsed `_as_optional_int` stock value
@@ -777,8 +779,10 @@ def compute_verdicts(
                     tn_presence=_compute_presence(matches_by_ean[0] if matches_by_ean else None),
                     reason=REASON_NO_VARIANT_LINK,
                     reason_detail=_build_reason_detail(
+                        # RAW, like every other call site — one field must
+                        # not carry two semantics.
                         ean,
-                        _normalize_sku(matches_by_ean[0].variant_sku) if matches_by_ean else None,
+                        matches_by_ean[0].variant_sku if matches_by_ean else None,
                         tnr_id,
                         tnr_variation_id,
                     ),

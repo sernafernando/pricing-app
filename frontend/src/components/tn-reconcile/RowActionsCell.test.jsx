@@ -181,6 +181,30 @@ describe('RowActionsCell — overflow menu', () => {
     expect(editLink).toHaveAttribute('rel', 'noopener noreferrer');
   });
 
+  it('does not render the "sin acciones" dash next to a visible Editar en TN link', () => {
+    // Review catch: the dash's condition ignored `editorAction`, so the
+    // most common row of this change (MAL_PUBLICADO, linkable, nothing to
+    // despublicar) rendered the link AND a "—" saying there is nothing
+    // here. Two contradictory statements in the same cell.
+    const row = {
+      ean: 'EAN-DASH',
+      verdict: 'MAL_PUBLICADO',
+      despublicar: false,
+      tn_matches: [{ product_id: 321, tn_admin_url: 'https://tn.example/321', published: true }],
+    };
+    render(<RowActionsCell {...baseProps({ row, canBanlist: false })} />);
+
+    expect(screen.getByRole('link', { name: /Editar en TN/i })).toBeInTheDocument();
+    expect(screen.queryByText('—')).not.toBeInTheDocument();
+  });
+
+  it('still renders the dash when there is genuinely nothing to do', () => {
+    const row = { ean: 'EAN-NADA', verdict: 'OK', despublicar: false, tn_matches: [] };
+    render(<RowActionsCell {...baseProps({ row, canBanlist: false })} />);
+
+    expect(screen.getByText('—')).toBeInTheDocument();
+  });
+
   it('omits the visible Editar en TN link when no match carries a URL', () => {
     const row = {
       ean: 'EAN-5b',

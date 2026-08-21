@@ -85,7 +85,6 @@ export default function RowActionsCell({
   function handleMenuItemClick(action) {
     closeMenu(true);
     if (action.id === 'despublicar') onStartDespublicarConfirm(action.productId);
-    // 'editar_tn' is a real <a> — no click handler needed, it navigates.
   }
 
   function handleMenuKeyDown(event) {
@@ -190,23 +189,10 @@ export default function RowActionsCell({
                   ref={menuRef}
                   onKeyDown={handleMenuKeyDown}
                 >
-                  {secondaryActions.map((action, idx) =>
-                    action.id === 'editar_tn' ? (
-                      <a
-                        key={action.id}
-                        role="menuitem"
-                        tabIndex={-1}
-                        ref={(el) => (itemRefs.current[idx] = el)}
-                        href={action.href}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className={styles.menuItem}
-                        aria-label={`Editar en TN el producto ${action.productId}`}
-                        onClick={() => closeMenu(false)}
-                      >
-                        {action.label} <ExternalLink size={12} aria-hidden="true" />
-                      </a>
-                    ) : (
+                  {/* Every secondary action is a button now — the
+                      link-shaped `editar_tn` branch that used to live here
+                      moved out to a visible action. */}
+                  {secondaryActions.map((action, idx) => (
                       <button
                         key={action.id}
                         type="button"
@@ -218,13 +204,15 @@ export default function RowActionsCell({
                       >
                         {action.label}
                       </button>
-                    )
-                  )}
+                  ))}
                 </div>
               )}
             </div>
           )}
-          {!primary && !banAction && secondaryActions.length === 0 && (
+          {/* `editorAction` counts here too: rendering the link AND a "—"
+              that means "nothing to do" states two contradictory things in
+              the same cell. */}
+          {!primary && !banAction && !editorAction && secondaryActions.length === 0 && (
             <span className={styles.noActions}>—</span>
           )}
         </>
