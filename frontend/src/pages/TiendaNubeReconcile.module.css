@@ -200,6 +200,43 @@
   color: var(--cf-text-tertiary);
 }
 
+/* Evidence pair (EAN GBP vs SKU en TN) — promoted out of a `title`
+   tooltip into the row itself. Monospace so a trailing space, a variant
+   suffix or a leading zero is legible as itself. */
+.motivoBloque {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.motivoOperandos {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px 10px;
+}
+
+.motivoOperando {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 4px;
+}
+
+.motivoOperandoEtiqueta {
+  font-size: 0.66rem;
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+  color: var(--cf-text-tertiary);
+}
+
+.motivoValor {
+  font-family: var(--font-mono);
+  font-size: 0.72rem;
+  color: var(--cf-text-primary);
+  /* `white-space: pre` so a leading/trailing space in the TN SKU — a real
+     cause of these mismatches — is visible instead of collapsed away. */
+  white-space: pre;
+}
+
 .presenceIds {
   font-family: var(--font-mono);
   font-size: 0.72rem;

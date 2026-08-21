@@ -1231,13 +1231,13 @@ describe('Product identity in rows (rebuilt UI)', () => {
     expect(screen.queryByText(/^\+\d+$/)).not.toBeInTheDocument();
   });
 
-  it('offers an "Editar en TN" action (now in the Acciones overflow menu) that opens the resolved match\'s tn_admin_url in a new tab', async () => {
+  it('offers "Editar en TN" as a visible link — no menu to discover first', async () => {
+    // Was an overflow-menu item; promoted to a visible action because
+    // opening the product in TN is the first move on any anomalous row.
     setupEnriched();
-    const user = userEvent.setup();
     await renderWithRouter(<TiendaNubeReconcile />);
 
-    await openRowMenu(user, 'RICH-1');
-    const link = screen.getByRole('menuitem', { name: /editar en tn/i });
+    const link = await screen.findByRole('link', { name: /editar en tn/i });
     expect(link).toHaveAttribute('href', 'https://admin.tiendanube.com/products/123');
     expect(link).toHaveAttribute('target', '_blank');
     expect(link).toHaveAttribute('rel', expect.stringContaining('noopener'));
@@ -1417,13 +1417,19 @@ describe('Motivo column (PR1 reason/cause taxonomy)', () => {
 
     await renderWithRouter(<TiendaNubeReconcile />);
 
+    // `getAllByText`: the EAN now appears twice — once as the row's own
+    // column and once as the `EAN GBP` operand of the evidence pair, which
+    // used to be hidden in a `title` tooltip.
     await waitFor(() => {
-      expect(screen.getByText('DL-1')).toBeInTheDocument();
+      expect(screen.getAllByText('DL-1').length).toBeGreaterThan(0);
     });
     // Motivo is no longer its own column (pass B: merged into "En Tienda
     // Nube") — it renders inline under the presence label instead.
     expect(screen.getByRole('columnheader', { name: /^en tienda nube/i })).toBeInTheDocument();
     expect(screen.getByText(/enlace inexistente en tienda nube/i)).toBeInTheDocument();
+    // A dead link resolves to no TN row, so there is no SKU to show — the
+    // operand must be absent, never rendered blank.
+    expect(screen.queryByText(/^SKU en TN$/i)).not.toBeInTheDocument();
   });
 
   it('renders a Spanish label for a SKU_MISMATCH reason with its operands', async () => {
@@ -1449,9 +1455,15 @@ describe('Motivo column (PR1 reason/cause taxonomy)', () => {
     await renderWithRouter(<TiendaNubeReconcile />);
 
     await waitFor(() => {
-      expect(screen.getByText('SM-1')).toBeInTheDocument();
+      expect(screen.getAllByText('SM-1').length).toBeGreaterThan(0);
     });
     expect(screen.getByText(/sku no coincide con el ean/i)).toBeInTheDocument();
+    // The whole point of the change: the SKU Tienda Nube actually holds is
+    // READABLE in the row, not buried in a hover-only `title`. Without it
+    // the operator cannot tell a typo from a different product.
+    expect(screen.getByText('000123456789')).toBeInTheDocument();
+    expect(screen.getByText(/^EAN GBP$/i)).toBeInTheDocument();
+    expect(screen.getByText(/^SKU en TN$/i)).toBeInTheDocument();
   });
 
   it('renders a Spanish label for a NO_VARIANT_LINK reason', async () => {
@@ -1472,7 +1484,7 @@ describe('Motivo column (PR1 reason/cause taxonomy)', () => {
     await renderWithRouter(<TiendaNubeReconcile />);
 
     await waitFor(() => {
-      expect(screen.getByText('NVL-1')).toBeInTheDocument();
+      expect(screen.getAllByText('NVL-1').length).toBeGreaterThan(0);
     });
     expect(screen.getByText(/sin vínculo de variante/i)).toBeInTheDocument();
   });

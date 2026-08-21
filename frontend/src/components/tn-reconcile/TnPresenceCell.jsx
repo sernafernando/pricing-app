@@ -51,6 +51,11 @@ const REASON_LABELS = {
   DEAD_LINK: 'Enlace inexistente en Tienda Nube',
   SKU_MISMATCH: 'SKU no coincide con el EAN',
   NO_VARIANT_LINK: 'Sin vínculo de variante',
+  // POR_CORREGIR's code. "Por corregir" (the verdict label) says neither
+  // WHAT to correct nor WHERE — and every verdict in this table is
+  // something to correct, so it distinguishes nothing. This names the
+  // actual situation: same product, the SKU just needs canonicalizing.
+  SKU_FORMAT: 'Mismo producto, hay que unificar el formato del SKU',
 };
 
 // Pass B: Motivo is no longer its own column — it renders inline, under the
@@ -58,6 +63,42 @@ const REASON_LABELS = {
 // nothing when there is no reason (there is no longer a standalone column
 // to keep non-empty/aligned, so unlike the old ReasonCell there is no '—'
 // placeholder).
+/**
+ * The two values an operator needs to decide WHAT to fix: the EAN GBP
+ * expects and the SKU Tienda Nube actually holds.
+ *
+ * These used to live in a `title` attribute — visible only on hover, and
+ * not at all with a keyboard or on a touch screen. The row said "SKU no
+ * coincide con el EAN" and stopped there, which is the one thing the
+ * operator already knew. Without the operands you cannot tell a one-digit
+ * typo from a completely different product, and those need opposite
+ * actions.
+ *
+ * Rendered verbatim in a monospace pair so the difference is legible at a
+ * glance: a trailing space, a `_OTL`/`-OB` variant suffix, or a leading
+ * zero all show up as themselves instead of being normalized away.
+ */
+function OperandosSku({ detail }) {
+  if (!detail.expected_ean && !detail.tn_sku_found) return null;
+
+  return (
+    <span className={styles.motivoOperandos}>
+      {detail.expected_ean && (
+        <span className={styles.motivoOperando}>
+          <span className={styles.motivoOperandoEtiqueta}>EAN GBP</span>
+          <code className={styles.motivoValor}>{detail.expected_ean}</code>
+        </span>
+      )}
+      {detail.tn_sku_found && (
+        <span className={styles.motivoOperando}>
+          <span className={styles.motivoOperandoEtiqueta}>SKU en TN</span>
+          <code className={styles.motivoValor}>{detail.tn_sku_found}</code>
+        </span>
+      )}
+    </span>
+  );
+}
+
 function MotivoInline({ row }) {
   if (!row.reason) return null;
   // An unmapped code (a reason the backend added before this map caught up)
@@ -66,15 +107,20 @@ function MotivoInline({ row }) {
   const label = REASON_LABELS[row.reason] || row.reason;
 
   const detail = row.reason_detail || {};
-  const parts = [];
-  if (detail.expected_ean) parts.push(`EAN esperado: ${detail.expected_ean}`);
-  if (detail.tn_sku_found) parts.push(`SKU en TN: ${detail.tn_sku_found}`);
-  if (detail.claimed_tnr_id) parts.push(`tnr_id declarado: ${detail.claimed_tnr_id}`);
-  if (detail.claimed_tnr_variation_id) parts.push(`tnr_variationID declarado: ${detail.claimed_tnr_variation_id}`);
+  // The claimed link ids stay in the tooltip: they matter when debugging a
+  // stale pointer, but they are not what the operator reads to decide.
+  const idsDeclarados = [];
+  if (detail.claimed_tnr_id) idsDeclarados.push(`tnr_id declarado: ${detail.claimed_tnr_id}`);
+  if (detail.claimed_tnr_variation_id) {
+    idsDeclarados.push(`tnr_variationID declarado: ${detail.claimed_tnr_variation_id}`);
+  }
 
   return (
-    <span className={styles.presenceMotivo} title={parts.join(' · ')}>
-      {label}
+    <span className={styles.motivoBloque}>
+      <span className={styles.presenceMotivo} title={idsDeclarados.join(' · ') || undefined}>
+        {label}
+      </span>
+      <OperandosSku detail={detail} />
     </span>
   );
 }

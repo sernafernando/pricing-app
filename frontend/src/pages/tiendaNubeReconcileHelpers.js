@@ -159,8 +159,8 @@ export function resolveBanAction(row, canBanlist) {
  * exactly as the pre-extraction inline ternaries were:
  * - Despublicar: `row.despublicar` AND a resolvable target product id,
  *   gated by `canPublish`.
- * - Editar en TN: any resolvable match with a `tn_admin_url`, ungated (was
- *   never permission-gated in the original inline link either).
+ * Editar en TN used to be here too; it is now a visible action —
+ * see `resolveEditorAction`.
  *
  * Banear is NOT included here — see `resolveBanAction`, rendered as a
  * visible primary-adjacent action instead of a menu item.
@@ -204,10 +204,29 @@ export function resolveSecondaryActions(row, { canPublish, despublicarTargetProd
     }
   }
 
-  const editorMatch = pickEditorTnMatch(row);
-  if (editorMatch) {
-    actions.push({ id: 'editar_tn', label: 'Editar en TN', href: editorMatch.tn_admin_url, productId: editorMatch.product_id });
-  }
-
   return actions;
+}
+
+/**
+ * "Editar en TN" as a VISIBLE row action instead of an overflow-menu item.
+ *
+ * It used to live in `resolveSecondaryActions`, behind the three-dot menu —
+ * so the first thing an operator wants to do with a mis-published row
+ * (open it in Tienda Nube and see what is actually loaded) took a click
+ * nobody knew was there. Never permission-gated, exactly as it was not
+ * gated as a menu item: opening TN in another tab reveals nothing the row
+ * does not already show.
+ *
+ * Returns `null` when no match carries a `tn_admin_url` — there is nothing
+ * to link to, and a dead button is worse than no button.
+ */
+export function resolveEditorAction(row) {
+  const editorMatch = pickEditorTnMatch(row);
+  if (!editorMatch) return null;
+  return {
+    id: 'editar_tn',
+    label: 'Editar en TN',
+    href: editorMatch.tn_admin_url,
+    productId: editorMatch.product_id,
+  };
 }

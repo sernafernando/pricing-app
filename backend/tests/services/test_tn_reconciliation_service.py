@@ -656,14 +656,20 @@ class TestReasonRegressionUnaffectedVerdicts:
         assert results[0].verdict == "OK"
         assert results[0].reason is None
 
-    def test_por_corregir_has_no_reason(self):
+    def test_por_corregir_carries_its_own_reason_not_a_mal_publicado_one(self):
+        # This used to assert `reason is None`. That was deliberate when the
+        # taxonomy only covered MAL_PUBLICADO, but it left the most
+        # actionable verdict with nothing to show the operator. POR_CORREGIR
+        # now has its OWN code; what must never happen is it borrowing a
+        # MAL_PUBLICADO-scoped one.
         gbp_rows = [_gbp_row(codigo="023942321477", tnr_id=501, tnr_variation_id=12)]
         tn_productos = [_tn(product_id=501, variant_id=12, sku="23942321477")]
 
         results = compute_verdicts(gbp_rows, tn_productos)
 
         assert results[0].verdict == "POR_CORREGIR"
-        assert results[0].reason is None
+        assert results[0].reason == "SKU_FORMAT"
+        assert results[0].reason not in ("SKU_MISMATCH", "DEAD_LINK")
 
     def test_duplicado_has_no_reason(self):
         gbp_rows = [
@@ -712,14 +718,20 @@ class TestReasonTaxonomy:
 
     def test_leading_zero_only_difference_is_not_sku_mismatch(self):
         """POR_CORREGIR (leading-zero-only) must never get a MAL_PUBLICADO-
-        scoped reason code — reason stays None outside its scope."""
+        scoped reason code. It now carries its own SKU_FORMAT code, which
+        keeps the scopes separate while still giving the row something to
+        show — the original point of this test stands, only the "nothing at
+        all" part changed."""
         gbp_rows = [_gbp_row(codigo="023942321477", tnr_id=501, tnr_variation_id=12)]
         tn_productos = [_tn(product_id=501, variant_id=12, sku="23942321477")]
 
         results = compute_verdicts(gbp_rows, tn_productos)
 
         assert results[0].verdict == "POR_CORREGIR"
-        assert results[0].reason is None
+        assert results[0].reason == "SKU_FORMAT"
+        # The two values the operator needs, which this verdict never showed.
+        assert results[0].reason_detail["expected_ean"] == "023942321477"
+        assert results[0].reason_detail["tn_sku_found"] == "23942321477"
 
     def test_no_variant_link_tnr_id_without_variation_id(self):
         gbp_rows = [_gbp_row(codigo="123", tnr_id=501, tnr_variation_id=0)]
@@ -1077,3 +1089,92 @@ class TestDeletedTnProductsNeverProposedForLinking:
 
         assert rows[0].verdict != "DUPLICADO"
         assert rows[0].tn_matches == []
+
+
+class TestReasonDetailCarriesDiagnosableEvidence:
+    """An operator looking at a row must be able to decide WHAT to fix
+    without opening Tienda Nube. Two gaps blocked that:
+
+    1. `tn_sku_found` was reported NORMALIZED. Normalization is exactly what
+       erases the difference being diagnosed — a trailing space, a suffix,
+       a case change — so the operator saw a value that was not the one
+       loaded in TN and could not tell a typo from a different product.
+    2. POR_CORREGIR carried no `reason`/`reason_detail` at ALL, even though
+       it is the verdict with the most actionable fix (the SKU only needs
+       canonicalizing) and the system already knows both operands.
+    """
+
+    def test_sku_mismatch_reports_the_raw_tn_sku_not_a_normalized_one(self):
+        # The suffix convention this store uses (EAN + "_OTL"/"-OB") is
+        # precisely what must survive into the UI: it is the evidence that
+        # tells the operator which side is wrong.
+        rows = compute_verdicts(
+            [_gbp_row(codigo="123", tnr_id=501, tnr_variation_id=12)],
+            [_tn(product_id=501, variant_id=12, sku="  6935364070922_OTL1  ")],
+        )
+
+        assert rows[0].verdict == "MAL_PUBLICADO"
+        assert rows[0].reason == "SKU_MISMATCH"
+        # Verbatim, whitespace included — this is what TN actually holds.
+        assert rows[0].reason_detail["tn_sku_found"] == "  6935364070922_OTL1  "
+
+    def test_por_corregir_now_carries_reason_and_detail(self):
+        # Leading-zero-only difference: same product, SKU just needs
+        # canonicalizing. The row used to say "Por corregir" and nothing
+        # else — no operands, not even in a tooltip.
+        rows = compute_verdicts(
+            [_gbp_row(codigo="7790894900519", tnr_id=77, tnr_variation_id=7)],
+            [_tn(product_id=77, variant_id=7, sku="0007790894900519")],
+        )
+
+        assert rows[0].verdict == "POR_CORREGIR"
+        assert rows[0].reason == "SKU_FORMAT"
+        detail = rows[0].reason_detail
+        assert detail["expected_ean"] == "7790894900519"
+        assert detail["tn_sku_found"] == "0007790894900519"
+        assert detail["claimed_tnr_id"] == 77
+        assert detail["claimed_tnr_variation_id"] == 7
+
+    def test_dead_link_still_reports_no_sku_because_there_is_none(self):
+        # Regression guard: a dead link resolves to no TN row at all, so
+        # `tn_sku_found` must stay None — never an empty string that would
+        # read as "TN has a blank SKU".
+        rows = compute_verdicts(
+            [_gbp_row(codigo="000000000000", tnr_id=999, tnr_variation_id=88)],
+            [],
+        )
+
+        assert rows[0].reason == "DEAD_LINK"
+        assert rows[0].reason_detail["tn_sku_found"] is None
+
+    def test_ok_rows_still_carry_no_reason(self):
+        rows = compute_verdicts(
+            [_gbp_row(codigo="123", tnr_id=501, tnr_variation_id=12)],
+            [_tn(product_id=501, variant_id=12, sku="123")],
+        )
+
+        assert rows[0].verdict == "OK"
+        assert rows[0].reason is None
+        assert rows[0].reason_detail is None
+
+
+class TestRawSkuIsConsistentAcrossEveryReason:
+    """`tn_sku_found` must mean the same thing in EVERY reason code. Review
+    caught NO_VARIANT_LINK still passing the normalized value while
+    SKU_MISMATCH and SKU_FORMAT passed the raw one — one field, two
+    semantics, which is worse than either choice made consistently.
+    """
+
+    def test_no_variant_link_also_reports_the_raw_sku(self):
+        # The SKU must still MATCH the EAN for this row to have a
+        # `matches_by_ean` at all, so the raw/normalized difference here is
+        # the surrounding whitespace — exactly the kind of invisible
+        # difference an operator needs to see rather than have erased.
+        rows = compute_verdicts(
+            [_gbp_row(codigo="123", tnr_id=501, tnr_variation_id=0)],
+            [_tn(product_id=501, variant_id=12, sku="  123  ")],
+        )
+
+        assert rows[0].verdict == "MAL_VINCULADO"
+        assert rows[0].reason == "NO_VARIANT_LINK"
+        assert rows[0].reason_detail["tn_sku_found"] == "  123  "
