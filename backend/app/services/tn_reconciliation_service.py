@@ -51,6 +51,12 @@ GBP_REPORT_ID_TN_RECONCILE = 78
 REASON_DEAD_LINK = "DEAD_LINK"
 REASON_SKU_MISMATCH = "SKU_MISMATCH"
 REASON_NO_VARIANT_LINK = "NO_VARIANT_LINK"
+# POR_CORREGIR's own code. That verdict used to carry NO reason and NO
+# detail, even though it is the most actionable of them all: the TN SKU and
+# the GBP EAN are the same product and differ only in formatting, so the
+# canonical value is already known. Leaving it bare meant the row said
+# "Por corregir" and nothing else — not even the two values to compare.
+REASON_SKU_FORMAT = "SKU_FORMAT"
 
 # `call_soap_service` defaults to `timeout: float = 300.0`, and a "TOKEN
 # Expired" retry can double that to ~600s. The `/reporte` endpoint holds a
@@ -353,7 +359,7 @@ def _select_hint_profile_id(
 
 def _build_reason_detail(
     ean: Optional[str],
-    tn_sku_found: Optional[str],
+    tn_sku_found: Optional[str],  # RAW variant_sku — see the call sites
     tnr_id: int,
     tnr_variation_id: int,
 ) -> dict:
@@ -830,13 +836,33 @@ def compute_verdicts(
         # `claimed_tn is not None` means the claimed TN row genuinely exists
         # but its SKU doesn't match the GBP EAN under any normalization —
         # that is SKU_MISMATCH.
+        #
+        # `tn_sku_found` is the RAW `variant_sku`, never normalized:
+        # normalization is exactly what erases the difference being
+        # diagnosed (a trailing space, this store's `_OTL`/`-OB` variant
+        # suffix, a case change), so reporting the normalized value showed
+        # the operator something TN does not actually hold and made a typo
+        # indistinguishable from a different product.
         reason = None
         reason_detail = None
         if verdict == "MAL_PUBLICADO":
             reason = REASON_DEAD_LINK if claimed_tn is None else REASON_SKU_MISMATCH
             reason_detail = _build_reason_detail(
                 ean,
-                _normalize_sku(claimed_tn.variant_sku) if claimed_tn else None,
+                claimed_tn.variant_sku if claimed_tn else None,
+                tnr_id,
+                tnr_variation_id,
+            )
+        elif verdict == "POR_CORREGIR":
+            # Same operands as SKU_MISMATCH — the difference is that here
+            # they provably denote the SAME product (equal numeric GTIN),
+            # so the fix is mechanical. `effective_tn` is whichever row
+            # produced the verdict: the claimed link, or the EAN fallback
+            # when that link is stale.
+            reason = REASON_SKU_FORMAT
+            reason_detail = _build_reason_detail(
+                ean,
+                effective_tn.variant_sku if effective_tn else None,
                 tnr_id,
                 tnr_variation_id,
             )
