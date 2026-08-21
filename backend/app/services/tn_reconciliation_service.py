@@ -130,6 +130,20 @@ class ReconcileRow:
     # `despublicar` on the other side of the same field (see
     # `_as_optional_int`'s docstring).
     stock: Optional[int] = None
+    # Canonical fingerprint of WHAT was reviewed, for the anomaly verdicts
+    # only (`_build_evidencia`). An accepted exception is bound to THIS
+    # string, never to the EAN: accepting "this EAN with this SKU currently
+    # in TN" must not silence the product forever, so if the evidence
+    # changes the acceptance stops applying and the row comes back for
+    # review. `None` for OK and for the publish candidates — silencing
+    # those is the ban list's job, and two mechanisms for the same thing
+    # with different audit trails is how you end up trusting neither.
+    evidencia: Optional[str] = None
+    # True when `evidencia` is in the caller-supplied accepted set. The row
+    # is still RETURNED — a row that vanished is indistinguishable from one
+    # that never existed, so an accepted anomaly must read as "reviewed",
+    # never disappear.
+    excepcion_aceptada: bool = False
     # Slice 2 (publish price, money path): additive, read-only annotation
     # sourced from the bulk-loaded `erp_by_item_id` index (see
     # `ErpPriceInfo`). `None` for every field when `erp_by_item_id` is not
@@ -359,6 +373,48 @@ def _select_hint_profile_id(
     return hints_by_key.get((categoria, None))
 
 
+# Verdicts an operator can accept as intentional. Deliberately excludes the
+# publish candidates: silencing those is the ban list's job, and two
+# mechanisms for the same thing would mean two audit trails and no clear
+# answer to "why is this hidden?".
+EXCEPCION_VERDICTS = frozenset({"MAL_PUBLICADO", "MAL_VINCULADO", "DUPLICADO", "POR_CORREGIR"})
+
+
+def _build_evidencia(
+    verdict: str,
+    ean: Optional[str],
+    tn_sku_found: Optional[str],
+    tnr_id: int,
+    tnr_variation_id: int,
+) -> Optional[str]:
+    """Canonical fingerprint of the concrete situation an operator would be
+    accepting, so an exception covers exactly what was reviewed and nothing
+    more.
+
+    Binding an exception to the EAN alone would silence that product
+    FOREVER: the day someone changes the TN SKU to a genuinely wrong one,
+    the old acceptance swallows it and nobody finds out. Including the
+    operands means a changed SKU produces a different fingerprint, the
+    stale acceptance stops matching, and the row returns for review — the
+    same "never claim more than you actually verified" rule the rest of
+    this module follows.
+
+    `None` for verdicts outside `EXCEPCION_VERDICTS`.
+    """
+    if verdict not in EXCEPCION_VERDICTS:
+        return None
+    # `|`-joined rather than hashed: the stored value stays readable, so an
+    # audit can see WHAT was accepted without re-deriving it.
+    partes = [
+        verdict,
+        ean or "",
+        tn_sku_found or "",
+        str(tnr_id or ""),
+        str(tnr_variation_id or ""),
+    ]
+    return "|".join(partes)
+
+
 def _build_reason_detail(
     ean: Optional[str],
     tn_sku_found: Optional[str],  # RAW variant_sku — see the call sites
@@ -570,6 +626,7 @@ def compute_verdicts(
     tn_productos: list[TiendaNubeProducto],
     banned_eans: Optional[set[str]] = None,
     erp_by_item_id: Optional[dict[int, ErpPriceInfo]] = None,
+    excepciones: Optional[set[str]] = None,
 ) -> list[ReconcileRow]:
     """Compute the verdict taxonomy for each GBP row.
 
@@ -594,6 +651,7 @@ def compute_verdicts(
     publication from review".
     """
     banned_eans = banned_eans or set()
+    excepciones = excepciones or set()
 
     # Index TN products by normalized variant_sku (EAN-join). A null/empty
     # sku is never indexed, so it can never match any EAN (Verdict Edge Cases).
@@ -884,6 +942,58 @@ def compute_verdicts(
                 reason=reason,
                 reason_detail=reason_detail,
             )
+        )
+
+    # Evidence fingerprint + acceptance, applied in ONE pass over the
+    # finished rows rather than at each of the six `results.append` sites:
+    # a per-site version would drift the moment someone adds a seventh, and
+    # an exception that silently stops matching is worse than no exception
+    # at all.
+    for reconcile_row in results:
+        if reconcile_row.verdict not in EXCEPCION_VERDICTS:
+            continue
+        gbp = reconcile_row.gbp_row or {}
+        claimed_id = _as_int(gbp.get("tnr_id"))
+        claimed_variation = _as_int(gbp.get("tnr_variationID"))
+        if reconcile_row.verdict == "DUPLICADO":
+            # The anomaly is the COLLISION, not either row of it, so the
+            # fingerprint must identify the collision itself.
+            #
+            # DUPLICADO is reached by TWO paths. With a claimed link, the
+            # `(tnr_id, tnr_variationID)` pair IS the collision and both
+            # GBP rows share it — accepting the duplicate accepts the pair
+            # rather than half of it. But an UNLINKED row whose EAN matches
+            # 2+ TN variants also lands here with `tnr_id == 0`, and keying
+            # only on the claimed ids collapsed every row of that kind to
+            # one constant string: accepting a single duplicate silenced
+            # EVERY EAN collision in the report, and the UNIQUE constraint
+            # meant the second one could not even be accepted. So with no
+            # claimed link the colliding variant set is the identity —
+            # sorted, so ordering never shifts the fingerprint, and a third
+            # variant joining is a NEW situation nobody reviewed.
+            colision = (
+                None
+                if claimed_id
+                else ",".join(sorted(f"{m.product_id}:{m.variant_id}" for m in (reconcile_row.tn_matches or [])))
+            )
+            reconcile_row.evidencia = _build_evidencia(
+                "DUPLICADO",
+                None if claimed_id else reconcile_row.ean,
+                colision,
+                claimed_id,
+                claimed_variation,
+            )
+        else:
+            detail = reconcile_row.reason_detail or {}
+            reconcile_row.evidencia = _build_evidencia(
+                reconcile_row.verdict,
+                reconcile_row.ean,
+                detail.get("tn_sku_found"),
+                claimed_id,
+                claimed_variation,
+            )
+        reconcile_row.excepcion_aceptada = (
+            reconcile_row.evidencia is not None and reconcile_row.evidencia in excepciones
         )
 
     return results

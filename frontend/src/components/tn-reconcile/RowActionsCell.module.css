@@ -83,3 +83,8 @@
   text-decoration: none;
   white-space: nowrap;
 }
+
+.excepcionBtn {
+  margin-left: var(--spacing-xs);
+  white-space: nowrap;
+}

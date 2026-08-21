@@ -64,6 +64,7 @@ import {
 import ReconcileSummaryStrip from '../components/tn-reconcile/ReconcileSummaryStrip';
 import ReconcileFilterBar from '../components/tn-reconcile/ReconcileFilterBar';
 import ReconcileTable from '../components/tn-reconcile/ReconcileTable';
+import ExcepcionModal from '../components/tn-reconcile/ExcepcionModal';
 import ReconcileDuplicadoPanel from '../components/tn-reconcile/ReconcileDuplicadoPanel';
 import BanlistTable from '../components/tn-reconcile/BanlistTable';
 import { COLUMNS } from '../components/tn-reconcile/reconcileColumns';
@@ -90,6 +91,10 @@ export default function TiendaNubeReconcile() {
   const { tienePermiso } = usePermisos();
   const puedeVer = tienePermiso('admin.ver_tn_reconciliacion');
   const puedeGestionarBanlist = tienePermiso('admin.gestionar_tn_reconcile_banlist');
+  // Its OWN permission, not the ban list's: accepting an exception
+  // silences a data-quality anomaly, a more consequential call than
+  // deciding not to publish something.
+  const puedeGestionarExcepciones = tienePermiso('admin.gestionar_tn_reconcile_excepciones');
   const puedeGestionarPublicacion = tienePermiso('admin.gestionar_tn_publicacion');
   const { toast, showToast, hideToast } = useToast(4000);
 
@@ -102,6 +107,12 @@ export default function TiendaNubeReconcile() {
 
   // Publish modal (Sub-slice 3c) — one FALTA_PUBLICAR row at a time.
   const [publishingRow, setPublishingRow] = useState(null);
+
+  // Accepting an anomaly as intentional asks for a reason first — an
+  // exception with no stated reason is indistinguishable from someone
+  // silencing an alert they did not understand. Removing one does not:
+  // undoing a silence needs no justification.
+  const [excepcionRow, setExcepcionRow] = useState(null);
 
   // tn_presence "unknown" relabel + sync trigger (Slice 3) — wires the
   // ALREADY-EXISTING POST /tienda-nube/sync endpoint, no new backend action.
@@ -253,6 +264,45 @@ export default function TiendaNubeReconcile() {
       }
     },
     [puedeGestionarBanlist, cargarReporte, cargarBaneados, showToast]
+  );
+
+  const aceptarExcepcion = useCallback(
+    async (row, motivo) => {
+      if (!puedeGestionarExcepciones) return;
+      try {
+        await api.post('/tienda-nube-reconcile/excepciones/aceptar', {
+          // Echoed back verbatim: an exception can only exist for a
+          // situation the server itself computed.
+          evidencia: row.evidencia,
+          ean: row.ean,
+          verdict: row.verdict,
+          motivo,
+        });
+        showToast('Excepción aceptada', 'success');
+        setExcepcionRow(null);
+        cargarReporte();
+      } catch (err) {
+        showToast(err?.response?.data?.error?.message || 'No se pudo aceptar la excepción', 'error');
+      }
+    },
+    [puedeGestionarExcepciones, cargarReporte, showToast]
+  );
+
+  const quitarExcepcion = useCallback(
+    async (row) => {
+      if (!puedeGestionarExcepciones) return;
+      try {
+        // Keyed by `evidencia`, the unique column — the row already carries
+        // it, so no full listing to look up a surrogate id (an extra
+        // round-trip and a TOCTOU window for a value we already have).
+        await api.post('/tienda-nube-reconcile/excepciones/quitar', { evidencia: row.evidencia });
+        showToast('Excepción quitada', 'success');
+        cargarReporte();
+      } catch (err) {
+        showToast(err?.response?.data?.error?.message || 'No se pudo quitar la excepción', 'error');
+      }
+    },
+    [puedeGestionarExcepciones, cargarReporte, showToast]
   );
 
   const desbanearEan = useCallback(
@@ -583,9 +633,12 @@ export default function TiendaNubeReconcile() {
           hasCustomColumnSizing={hasCustomColumnSizing}
           handleResetColumnSizing={handleResetColumnSizing}
           canBanlist={puedeGestionarBanlist}
+          canExcepciones={puedeGestionarExcepciones}
           canPublish={puedeGestionarPublicacion}
           onPublicar={setPublishingRow}
           onBanear={banearEan}
+          onAceptarExcepcion={(row) => setExcepcionRow(row)}
+          onQuitarExcepcion={quitarExcepcion}
           confirmingProductId={confirmingProductId}
           despublicando={despublicando}
           onStartDespublicarConfirm={setConfirmingProductId}
@@ -602,6 +655,14 @@ export default function TiendaNubeReconcile() {
         />
       )}
       </div>
+
+      {excepcionRow && (
+        <ExcepcionModal
+          row={excepcionRow}
+          onCancel={() => setExcepcionRow(null)}
+          onConfirm={aceptarExcepcion}
+        />
+      )}
 
       {publishingRow && (
         <TnPublishModal

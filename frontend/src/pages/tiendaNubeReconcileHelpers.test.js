@@ -9,6 +9,7 @@ import {
   pickEditorTnMatch,
   resolveSecondaryActions,
   resolveEditorAction,
+  resolveExcepcionAction,
   primaryTnMatch,
   matchPublishedLabel,
   rowIdentity,
@@ -352,5 +353,40 @@ describe('rowIdentity', () => {
 
   it('returns an empty, non-ERP identity when neither is present', () => {
     expect(rowIdentity({})).toEqual({ text: '', fromErp: false });
+  });
+});
+
+describe('resolveExcepcionAction', () => {
+  const ANOMALIA = {
+    verdict: 'MAL_PUBLICADO',
+    evidencia: 'MAL_PUBLICADO|123|OTRO|501|12',
+    excepcion_aceptada: false,
+  };
+
+  it('offers accepting an anomaly the operator can review', () => {
+    expect(resolveExcepcionAction(ANOMALIA, true)).toEqual({
+      id: 'aceptar_excepcion',
+      label: 'Aceptar como correcto',
+      evidencia: 'MAL_PUBLICADO|123|OTRO|501|12',
+      aceptada: false,
+    });
+  });
+
+  it('offers UNDOING it once accepted — an exception must be reversible', () => {
+    const action = resolveExcepcionAction({ ...ANOMALIA, excepcion_aceptada: true }, true);
+    expect(action.aceptada).toBe(true);
+    expect(action.label).toMatch(/quitar/i);
+  });
+
+  it('is gated by its own permission', () => {
+    expect(resolveExcepcionAction(ANOMALIA, false)).toBeNull();
+  });
+
+  it('returns null without evidencia — the backend decides what is acceptable', () => {
+    // OK rows and publish candidates carry no `evidencia`: the ban list is
+    // what silences those, and offering a second path would mean two audit
+    // trails for the same decision.
+    expect(resolveExcepcionAction({ verdict: 'OK', evidencia: null }, true)).toBeNull();
+    expect(resolveExcepcionAction({ verdict: 'FALTA_PUBLICAR', evidencia: null }, true)).toBeNull();
   });
 });

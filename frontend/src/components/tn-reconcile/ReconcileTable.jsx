@@ -16,9 +16,12 @@ export default function ReconcileTable({
   hasCustomColumnSizing,
   handleResetColumnSizing,
   canBanlist,
+  canExcepciones,
   canPublish,
   onPublicar,
   onBanear,
+  onAceptarExcepcion,
+  onQuitarExcepcion,
   confirmingProductId,
   despublicando,
   onStartDespublicarConfirm,
@@ -123,10 +126,13 @@ export default function ReconcileTable({
                         <RowActionsCell
                           row={row}
                           canBanlist={canBanlist}
+                          canExcepciones={canExcepciones}
                           canPublish={canPublish}
                           despublicarTargetProductId={despublicarTargetProductId}
                           onPublicar={onPublicar}
                           onBanear={onBanear}
+                          onAceptarExcepcion={onAceptarExcepcion}
+                          onQuitarExcepcion={onQuitarExcepcion}
                           confirmingProductId={confirmingProductId}
                           despublicando={despublicando}
                           onStartDespublicarConfirm={onStartDespublicarConfirm}

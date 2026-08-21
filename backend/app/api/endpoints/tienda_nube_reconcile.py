@@ -59,7 +59,7 @@ from decimal import Decimal
 from typing import Any, Dict, List, Literal, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
-from pydantic import BaseModel, ConfigDict, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 from starlette.concurrency import run_in_threadpool
@@ -73,6 +73,7 @@ from app.models.tn_category_embedding import TnCategoryEmbedding
 from app.models.tn_category_profile_hint import TnCategoryProfileHint
 from app.models.tn_publish_override import TnPublishOverride
 from app.models.tn_reconcile_banlist import TnReconcileBanlist
+from app.models.tn_reconcile_excepcion import TnReconcileExcepcion
 from app.models.usuario import Usuario
 from app.services.permisos_service import verificar_permiso
 from app.services.tn_category_embedding_service import suggest_category, sync_category_embeddings
@@ -86,6 +87,7 @@ from app.services.tn_reconciliation_service import (
     _select_hint_profile_id,
     build_publish_draft,
     build_publish_fields,
+    EXCEPCION_VERDICTS,
     compute_verdicts,
     fetch_gbp_report_78,
 )
@@ -283,6 +285,13 @@ class ReconcileRowResponse(BaseModel):
     # MAL_VINCULADO (NO_VARIANT_LINK); `null` for every other verdict.
     reason: Optional[str] = None
     reason_detail: Optional[dict] = None
+    # Fingerprint of what an operator would be accepting (see
+    # `_build_evidencia`). The client echoes it back when accepting, so an
+    # exception can only exist for a situation the server computed.
+    evidencia: Optional[str] = None
+    # True when this exact situation was already reviewed and accepted. The
+    # row is still returned — accepted, not hidden.
+    excepcion_aceptada: bool = False
     # Slice 4: `stock` mirrors `ReconcileRow.stock` 1:1. `None` means "not
     # reported by GBP" and MUST render/sort differently from a genuine `0`
     # (which is the value that raises `despublicar`) — see
@@ -404,6 +413,49 @@ class ReconcileReportResponse(BaseModel):
     catalog_cap_hit: bool
     gbp_rows_cap_hit: bool
     erp_cap_hit: bool
+
+
+class AceptarExcepcionRequest(BaseModel):
+    """`evidencia` is the fingerprint the report itself emitted for the row
+    (`ReconcileRow.evidencia`) — the client echoes it back rather than
+    rebuilding it, so an exception can only ever be created for a situation
+    the server actually computed."""
+
+    evidencia: str = Field(..., min_length=1, max_length=500)
+    ean: str = Field(..., min_length=1, max_length=100)
+    verdict: str = Field(..., min_length=1, max_length=32)
+    # Mandatory: an exception without a stated reason is indistinguishable
+    # from someone silencing an alert they did not understand.
+    motivo: str = Field(..., min_length=3, max_length=1000)
+
+
+class AceptarExcepcionResponse(BaseModel):
+    success: bool
+    message: str
+    excepcion_id: int
+
+
+class QuitarExcepcionRequest(BaseModel):
+    """Keyed by `evidencia`, the unique column — not by a surrogate id the
+    client would have to go fetch with a full listing first (an extra
+    round-trip AND a TOCTOU window for a value the server already has)."""
+
+    evidencia: str = Field(..., min_length=1, max_length=500)
+
+
+class QuitarExcepcionResponse(BaseModel):
+    success: bool
+    message: str
+
+
+class ExcepcionItem(BaseModel):
+    id: int
+    ean: str
+    verdict: str
+    evidencia: str
+    motivo: str
+    usuario_nombre: str
+    fecha_creacion: str
 
 
 class BanEanRequest(BaseModel):
@@ -652,9 +704,19 @@ async def get_reconciliation_report(
                 TN_PRODUCTOS_QUERY_CAP,
             )
         banned_eans = {row.ean for row in db.query(TnReconcileBanlist.ean).all()}
+        # ONE bulk query, same pattern as the ban list above: the accepted
+        # fingerprints are matched in memory against the freshly computed
+        # rows. Never per-row — `compute_verdicts` stays pure/no-db.
+        excepciones = {row.evidencia for row in db.query(TnReconcileExcepcion.evidencia).all()}
         item_ids = {iid for row in gbp_rows if (iid := _gbp_item_id(row)) is not None}
         erp_by_item_id, erp_cap_hit = _load_erp_price_index(db, item_ids)
-        verdicts = compute_verdicts(gbp_rows, tn_productos, banned_eans=banned_eans, erp_by_item_id=erp_by_item_id)
+        verdicts = compute_verdicts(
+            gbp_rows,
+            tn_productos,
+            banned_eans=banned_eans,
+            erp_by_item_id=erp_by_item_id,
+            excepciones=excepciones,
+        )
         # Decision 3: overrides loaded as ONE bulk query
         # (`WHERE ean IN (...)`), never per row — scoped to only the
         # publish-candidate EANs actually present in this report.
@@ -747,6 +809,8 @@ async def get_reconciliation_report(
             variant_id=v.variant_id,
             reason=v.reason,
             reason_detail=v.reason_detail,
+            evidencia=v.evidencia,
+            excepcion_aceptada=v.excepcion_aceptada,
             stock=v.stock,
             ml_desc=v.gbp_row.get("ML_desc"),
             categoria=v.gbp_row.get("Categoría"),
@@ -842,6 +906,115 @@ def desbanear_ean(
     db.commit()
 
     return {"success": True, "message": f"EAN {ean} removido de la banlist"}
+
+
+PERMISO_EXCEPCIONES = "admin.gestionar_tn_reconcile_excepciones"
+
+# Its OWN permission, not the ban list's. Accepting an exception silences a
+# data-quality anomaly, which is a different (and more consequential) call
+# than deciding not to publish something — this way it can be granted to
+# fewer people without taking away the rest.
+_SIN_PERMISO_EXCEPCIONES = "No tienes permiso para gestionar las excepciones de reconciliación TN"
+
+
+@router.get("/excepciones", response_model=List[ExcepcionItem])
+def get_excepciones(db: Session = Depends(get_db), current_user: Usuario = Depends(get_current_user)):
+    if not verificar_permiso(db, current_user, PERMISO_EXCEPCIONES):
+        raise HTTPException(status_code=403, detail=_SIN_PERMISO_EXCEPCIONES)
+
+    filas = (
+        db.query(TnReconcileExcepcion, Usuario)
+        .join(Usuario, TnReconcileExcepcion.usuario_id == Usuario.id)
+        .order_by(TnReconcileExcepcion.fecha_creacion.desc())
+        .all()
+    )
+    return [
+        ExcepcionItem(
+            id=entry.id,
+            ean=entry.ean,
+            verdict=entry.verdict,
+            evidencia=entry.evidencia,
+            motivo=entry.motivo,
+            usuario_nombre=usuario.nombre,
+            fecha_creacion=entry.fecha_creacion.isoformat(),
+        )
+        for entry, usuario in filas
+    ]
+
+
+@router.post("/excepciones/aceptar", response_model=AceptarExcepcionResponse)
+def aceptar_excepcion(
+    request: AceptarExcepcionRequest, db: Session = Depends(get_db), current_user: Usuario = Depends(get_current_user)
+):
+    """Accept an anomaly as intentional, bound to the exact evidence.
+
+    The row is NOT hidden afterwards — it comes back flagged as accepted,
+    with its reason and author. A row that vanished is indistinguishable
+    from one that never existed.
+    """
+    if not verificar_permiso(db, current_user, PERMISO_EXCEPCIONES):
+        raise HTTPException(status_code=403, detail=_SIN_PERMISO_EXCEPCIONES)
+
+    if request.verdict not in EXCEPCION_VERDICTS:
+        # Publish candidates have the ban list; a second mechanism for the
+        # same thing would mean two audit trails and no clear answer to
+        # "why is this hidden?".
+        raise HTTPException(
+            status_code=400,
+            detail=f"El veredicto {request.verdict} no admite excepciones (usá la banlist para los candidatos a publicar)",
+        )
+
+    # `evidencia` is the fingerprint the report emitted, and its first
+    # field IS the verdict (see `_build_evidencia`). Without this check the
+    # docstring's promise — "an exception can only exist for a situation
+    # the server computed" — was just prose: a payload could pair
+    # `verdict="MAL_PUBLICADO"` with a DUPLICADO fingerprint and persist a
+    # row whose two columns contradict each other.
+    if not request.evidencia.startswith(f"{request.verdict}|"):
+        raise HTTPException(
+            status_code=400,
+            detail="La evidencia no corresponde al veredicto indicado",
+        )
+
+    existente = db.query(TnReconcileExcepcion).filter(TnReconcileExcepcion.evidencia == request.evidencia).first()
+    if existente:
+        raise HTTPException(status_code=400, detail="Esa situación ya tiene una excepción aceptada")
+
+    nueva = TnReconcileExcepcion(
+        ean=request.ean,
+        verdict=request.verdict,
+        evidencia=request.evidencia,
+        motivo=request.motivo,
+        usuario_id=current_user.id,
+    )
+    db.add(nueva)
+    try:
+        db.commit()
+    except IntegrityError:
+        # Same TOCTOU guard as `banear_ean`: the unique index is the real
+        # guarantee, this just turns the violation into the intended 400.
+        db.rollback()
+        raise HTTPException(status_code=400, detail="Esa situación ya tiene una excepción aceptada") from None
+    db.refresh(nueva)
+
+    return {"success": True, "message": "Excepción aceptada", "excepcion_id": nueva.id}
+
+
+@router.post("/excepciones/quitar", response_model=QuitarExcepcionResponse)
+def quitar_excepcion(
+    request: QuitarExcepcionRequest, db: Session = Depends(get_db), current_user: Usuario = Depends(get_current_user)
+):
+    if not verificar_permiso(db, current_user, PERMISO_EXCEPCIONES):
+        raise HTTPException(status_code=403, detail=_SIN_PERMISO_EXCEPCIONES)
+
+    entry = db.query(TnReconcileExcepcion).filter(TnReconcileExcepcion.evidencia == request.evidencia).first()
+    if not entry:
+        raise HTTPException(status_code=404, detail="Excepción no encontrada")
+
+    db.delete(entry)
+    db.commit()
+
+    return {"success": True, "message": "Excepción quitada"}
 
 
 @router.post("/despublicar", response_model=DespublicarResponse)

@@ -1,3 +1,4 @@
+import { Check } from 'lucide-react';
 import styles from '../../pages/TiendaNubeReconcile.module.css';
 import { primaryTnMatch } from '../../pages/tiendaNubeReconcileHelpers';
 
@@ -147,6 +148,15 @@ export default function TnPresenceCell({ row }) {
         {tnPresenceShortLabelFor(row.tn_presence)}
       </span>
       <MotivoInline row={row} />
+      {/* An accepted anomaly is SHOWN as accepted, never hidden: a row
+          that vanished is indistinguishable from one that never existed,
+          and a year from now nobody could tell "reviewed and fine" from
+          "somebody hid it". */}
+      {row.excepcion_aceptada && (
+        <span className={styles.excepcionBadge}>
+          <Check size={11} aria-hidden="true" /> Aceptada como correcta
+        </span>
+      )}
       {primaryMatch && (
         <div className={styles.presenceIds}>
           {primaryMatch.product_id}/{primaryMatch.variant_id}
