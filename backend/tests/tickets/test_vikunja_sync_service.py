@@ -635,6 +635,46 @@ class TestErrorStateBoundedRetry:
         assert row.estado == "error"
 
 
+class TestPendienteIsNotAnOrphanState:
+    """`pendiente` must be swept by the loop, or rows land there and are
+    never touched again. Two real paths get you there:
+
+    1. The flag was OFF when the ticket was created (so `push_ticket` never
+       made a row), then turned ON, and an attachment upload creates the row
+       in `pendiente`. Nothing calls `push_ticket` for that ticket ever
+       again -- the hook only runs on the creation POST.
+    2. The process dies between the row INSERT and the CAS claim, or a
+       deploy restarts the app between the ticket's commit and its
+       BackgroundTask. The row sits in `pendiente`, and the 300s "crash
+       backstop" -- which exists precisely for this -- does not look at it.
+
+    Either way the ticket never syncs and the attachment never uploads, with
+    no error and no warning."""
+
+    def test_loop_recovers_a_pendiente_row_nobody_will_hook_again(
+        self, db, rol, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        _enable_flag(monkeypatch)
+        ticket = _make_ticket(db, rol)
+        # Exactly what `push_attachment` leaves behind when the ticket was
+        # created while the flag was off.
+        db.add(TicketVikunjaSync(ticket_id=ticket.id, estado="pendiente", adjuntos_pendientes=True))
+        db.commit()
+
+        fake_client = AsyncMock()
+        fake_client.list_tasks.return_value = []
+        fake_client.list_attachments.return_value = []
+        fake_client.create_task.return_value = {"id": 777}
+
+        with _patch_background_db(db), patch.object(vikunja_sync_service, "_client", return_value=fake_client):
+            asyncio.run(run_vikunja_reconcile_cycle())
+
+        fake_client.create_task.assert_called_once()
+        row = db.query(TicketVikunjaSync).filter_by(ticket_id=ticket.id).one()
+        assert row.estado == "sincronizado"
+        assert row.vikunja_task_id == 777
+
+
 class TestSecondAttachmentAfterFirstDrainDoesNotReupload:
     """The exact regression the second review pass demanded: a ticket that
     already drained one attachment must NOT re-upload it when a second

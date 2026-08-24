@@ -491,16 +491,36 @@ def _warn_about_orphaned_attachments() -> int:
 
 
 def _fetch_retryable_error_ticket_ids() -> List[int]:
-    """`error` rows under the retry budget — a permanent-looking failure
-    can still be transient at the CONFIGURATION level (an expired token, a
-    momentarily wrong project id), so this is a bounded retry, not a dead
-    end. Past `_MAX_ERROR_RETRY_INTENTOS`, a row stays `error` and relies on
-    `ultimo_error` for visibility (ops dashboards over that column, not a
-    push notification — out of scope here)."""
+    """Rows the loop should drive forward: `error` under the retry budget,
+    and — critically — `pendiente`.
+
+    `error` is a bounded retry because a permanent-looking failure can still
+    be transient at the CONFIGURATION level (an expired token, a momentarily
+    wrong project id). Past `_MAX_ERROR_RETRY_INTENTOS` the row stays `error`
+    and relies on `ultimo_error` for visibility.
+
+    `pendiente` is here because otherwise it is an ORPHAN state that nothing
+    ever sweeps, and two ordinary paths land in it:
+      1. The flag was off when the ticket was created (so no row existed),
+         then turned on, and an attachment upload inserts the row as
+         `pendiente`. `push_ticket` only runs on the creation POST, so
+         nothing would ever pick that ticket up again.
+      2. The process dies between the row INSERT and the CAS claim, or a
+         deploy restarts the app between the ticket's commit and its
+         BackgroundTask running. The row sits in `pendiente` — and the 300s
+         crash backstop, which exists for exactly this, would not look at it.
+    `_claim_ticket`'s CAS already accepts `pendiente`, so simply handing
+    these ids to `_attempt_create_and_sync` is the whole fix. The same
+    `intentos` budget bounds them: a `pendiente` row accrues attempts only
+    once it starts failing.
+    """
     with get_background_db() as db:
         rows = (
             db.query(TicketVikunjaSync.ticket_id)
-            .filter(TicketVikunjaSync.estado == "error", TicketVikunjaSync.intentos < _MAX_ERROR_RETRY_INTENTOS)
+            .filter(
+                TicketVikunjaSync.estado.in_(["error", "pendiente"]),
+                TicketVikunjaSync.intentos < _MAX_ERROR_RETRY_INTENTOS,
+            )
             .all()
         )
         return [row[0] for row in rows]
@@ -520,7 +540,7 @@ def _fetch_pending_attachment_tickets() -> List[Tuple[int, int]]:
         return [(row[0], row[1]) for row in rows]
 
 
-async def _drain_ticket_attachments(ticket_id: int, vikunja_task_id: int, client: VikunjaClient) -> None:
+async def _drain_ticket_attachments(ticket_id: int, vikunja_task_id: int, client: VikunjaClient) -> bool:
     """Uploads the ticket's attachments that Vikunja does not already hold.
 
     Asking Vikunja what is already attached — instead of tracking it on our
@@ -539,14 +559,14 @@ async def _drain_ticket_attachments(ticket_id: int, vikunja_task_id: int, client
     adjuntos = _load_ticket_adjuntos(ticket_id)
     if not adjuntos:
         _clear_adjuntos_pendientes(ticket_id)
-        return
+        return True
 
     try:
         remotos = await client.list_attachments(task_id=vikunja_task_id)
     except (VikunjaPermanentError, VikunjaTransientError):
         # Cannot tell what is already there, so uploading now could
         # duplicate. Leave the flag set and let the next cycle decide.
-        return
+        return False
 
     ya_estan: Counter = Counter()
     for remoto in remotos:
@@ -564,6 +584,7 @@ async def _drain_ticket_attachments(ticket_id: int, vikunja_task_id: int, client
 
     if all_succeeded:
         _clear_adjuntos_pendientes(ticket_id)
+    return all_succeeded
 
 
 async def run_vikunja_reconcile_cycle() -> Dict[str, int]:
@@ -619,8 +640,12 @@ async def run_vikunja_reconcile_cycle() -> Dict[str, int]:
     if pending_attachments:
         client = _client()
         for ticket_id, vikunja_task_id in pending_attachments:
-            await _drain_ticket_attachments(ticket_id, vikunja_task_id, client)
-            stats["drained"] += 1
+            # Count only real drains: the function returns False when
+            # `list_attachments` failed or an upload did, and a stats line
+            # reporting `drained: N` after uploading nothing lies exactly
+            # when you most need it to tell the truth.
+            if await _drain_ticket_attachments(ticket_id, vikunja_task_id, client):
+                stats["drained"] += 1
 
     stats["orphaned_attachments"] = _warn_about_orphaned_attachments()
 
