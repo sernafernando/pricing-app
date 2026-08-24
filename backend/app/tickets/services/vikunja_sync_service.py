@@ -288,7 +288,7 @@ def _match_marker(
     return matches
 
 
-async def _resolve_ambiguous_create(ticket_id: int, claimed: Dict[str, Any], client: VikunjaClient) -> None:
+async def _resolve_ambiguous_create(ticket_id: int, claimed: Dict[str, Any], client: VikunjaClient) -> bool:
     _mark_ambiguous(ticket_id)
     await asyncio.sleep(_AMBIGUOUS_CHECK_DELAY_SECONDS)
 
@@ -296,21 +296,21 @@ async def _resolve_ambiguous_create(ticket_id: int, claimed: Dict[str, Any], cli
         tasks = await client.list_tasks(project_id=settings.VIKUNJA_PROJECT_ID)
     except (VikunjaPermanentError, VikunjaTransientError):
         # Could not verify right now — stays 'ambiguo', the 300s loop will
-        # try again later (with the inverted, never-create rule).
-        return
+        # try again later (with the inverted, never-create rule). Nothing was
+        # flagged, so nothing to notify about yet.
+        return False
 
     matches = _match_marker(tasks, ticket_id, window_seconds=_AMBIGUOUS_MATCH_WINDOW_SECONDS)
 
     if len(matches) == 1:
         _mark_synced(ticket_id, matches[0]["id"])
-        return
+        return False
 
     if len(matches) > 1:
         # Cannot tell which one is ours — creating now could duplicate;
         # NOT creating could also leave a real duplicate unnoticed. Neither
         # is safe automatically, so this always routes to a human.
-        _flag_for_notification(ticket_id)
-        return
+        return _flag_for_notification(ticket_id)
 
     # Zero matches in the window: provably safe, nothing else could have
     # created a task with this marker in the last ~120s.
@@ -322,14 +322,14 @@ async def _resolve_ambiguous_create(ticket_id: int, claimed: Dict[str, Any], cli
         )
     except VikunjaPermanentError as exc:
         _mark_error(ticket_id, str(exc))
-        return
+        return False
     except VikunjaTransientError:
         # Ambiguous again — stays 'ambiguo', flagged; the loop takes over
         # (and will never blindly create either).
-        _flag_for_notification(ticket_id)
-        return
+        return _flag_for_notification(ticket_id)
 
     _mark_synced(ticket_id, task["id"])
+    return False
 
 
 async def _attempt_create_and_sync(ticket_id: int, client: VikunjaClient) -> bool:
@@ -356,7 +356,13 @@ async def _attempt_create_and_sync(ticket_id: int, client: VikunjaClient) -> boo
         _mark_error(ticket_id, str(exc))
         return True
     except VikunjaTransientError:
-        await _resolve_ambiguous_create(ticket_id, claimed, client)
+        # The immediate path can end with the ticket in a human's hands. It
+        # sets `notificado_at`, which EXCLUDES the row from the loop's sweep
+        # forever — so if it does not notify here, nobody ever learns. Two
+        # individually-correct rules (exclude notified rows; the loop
+        # notifies) left this path silent until a review caught it.
+        if await _resolve_ambiguous_create(ticket_id, claimed, client):
+            _notificar_fallos_terminales([ticket_id])
         return True
 
     _mark_synced(ticket_id, task["id"])

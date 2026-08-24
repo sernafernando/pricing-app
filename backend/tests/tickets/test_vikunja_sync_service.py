@@ -743,8 +743,26 @@ class TestTerminalFailureNotifiesOncePerCycle:
         assert len(creadas) == 1, "three failures must not mean three notifications"
         assert "3" in creadas[0]["mensaje"], "the single notification must say how many failed"
 
-    def test_no_failures_means_no_notification(self, db, rol, monkeypatch: pytest.MonkeyPatch) -> None:
+    def test_rows_already_notified_do_not_notify_again(self, db, rol, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Ambiguous rows that ALREADY carry `notificado_at` must produce zero
+        notifications: once a row is handed to a human, the bell stops.
+
+        Verified by sabotage, which turned up something worth writing down:
+        TWO independent guards enforce this — the loop's fetch filters on
+        `notificado_at IS NULL`, and `_flag_for_notification`'s own UPDATE
+        carries the same condition. Removing either one alone still passes,
+        because the other catches it. This test protects the PROPERTY, not
+        one mechanism, and only fails when both are gone.
+
+        (It replaced a smoke test that asserted on a cycle with nothing to
+        flag — that one passed even with no guard at all, because the cycle
+        never reached the notification in the first place.)"""
         _enable_flag(monkeypatch)
+        tickets = [_make_ticket(db, rol) for _ in range(2)]
+        for t in tickets:
+            db.add(TicketVikunjaSync(ticket_id=t.id, estado="ambiguo", notificado_at=datetime.now(timezone.utc)))
+        db.commit()
+
         fake_client = AsyncMock()
         fake_client.list_tasks.return_value = []
 
@@ -761,7 +779,52 @@ class TestTerminalFailureNotifiesOncePerCycle:
         ):
             asyncio.run(run_vikunja_reconcile_cycle())
 
-        assert creadas == []
+        assert creadas == [], "a row already handed to a human must not keep ringing the bell"
+
+
+class TestImmediatePathAlsoNotifies:
+    """The immediate push is the MOST common terminal-failure path, and it was
+    the only one that never notified.
+
+    Two changes that are each right on their own combined into a hole: the
+    loop excludes already-notified rows (so zombie rows stop hammering
+    Vikunja every 300s), and the loop notifies about what it flags. But
+    `_resolve_ambiguous_create` also flags -- setting `notificado_at` --
+    without notifying. That row was then excluded from the sweep forever, so
+    it never entered the loop's batch and no one was ever told."""
+
+    def test_ambiguous_create_on_the_immediate_path_notifies(self, db, rol, monkeypatch: pytest.MonkeyPatch) -> None:
+        _enable_flag(monkeypatch)
+        monkeypatch.setattr(vikunja_sync_service, "_AMBIGUOUS_CHECK_DELAY_SECONDS", 0)
+        ticket = _make_ticket(db, rol)
+
+        fake_client = AsyncMock()
+        # The create is ambiguous, and the check then finds two candidates:
+        # unsafe either way, so it must route to a human.
+        fake_client.create_task.side_effect = VikunjaTransientError("PUT", "/x", None, "timeout")
+        marcador = vikunja_sync_service._marker(ticket.id)
+        ahora = datetime.now(timezone.utc).isoformat()
+        fake_client.list_tasks.return_value = [
+            {"id": 1, "description": marcador + "a", "created": ahora},
+            {"id": 2, "description": marcador + "b", "created": ahora},
+        ]
+
+        creadas = []
+
+        def _fake_notificar(session, **kwargs):
+            creadas.append(kwargs)
+            return []
+
+        with (
+            _patch_background_db(db),
+            patch.object(vikunja_sync_service, "_client", return_value=fake_client),
+            patch.object(vikunja_sync_service, "crear_notificaciones_para_permisos", _fake_notificar),
+        ):
+            asyncio.run(push_ticket(ticket.id))
+
+        row = db.query(TicketVikunjaSync).filter_by(ticket_id=ticket.id).one()
+        assert row.estado == "ambiguo"
+        assert len(creadas) == 1, "the immediate path must tell someone, not just set notificado_at"
 
 
 class TestPendienteIsNotAnOrphanState:
