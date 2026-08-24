@@ -590,7 +590,10 @@ async def _drain_ticket_attachments(ticket_id: int, vikunja_task_id: int, client
     """
     adjuntos = _load_ticket_adjuntos(ticket_id)
     if not adjuntos:
-        _clear_adjuntos_pendientes(ticket_id)
+        # `up_to_adjunto_id=0` is the same lost-update guard as the normal
+        # path: with zero attachments loaded, ANY attachment now present
+        # arrived after the read, so the flag must survive for it.
+        _clear_adjuntos_pendientes(ticket_id, up_to_adjunto_id=0)
         return True
 
     try:
