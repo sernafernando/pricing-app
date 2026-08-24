@@ -33,6 +33,7 @@ from app.tickets.models.sector import Sector
 from app.tickets.models.ticket import PrioridadTicket, Ticket
 from app.tickets.models.tipo_ticket import TipoTicket
 from app.tickets.models.workflow import EstadoTicket, TransicionEstado, Workflow
+from app.tickets.services import vikunja_sync_service
 from app.tickets.services.triage_service import (
     TriagePropuesta,
     _ya_tiene_propuesta_activa,
@@ -907,8 +908,11 @@ class TestCrearTicketSchedulesTriage:
             )
 
         assert resp.status_code == 201
-        mock_add_task.assert_called_once()
-        called_args = mock_add_task.call_args.args
+        # Two background tasks: triage (texto present) + the Vikunja sync
+        # hook (sdd/tickets-sync-vikunja PR 2), unconditionally scheduled.
+        assert mock_add_task.call_count == 2
+        triage_call = next(c for c in mock_add_task.call_args_list if c.args[0] is run_triage)
+        called_args = triage_call.args
         assert called_args[0] is run_triage
         assert called_args[1] == resp.json()["id"]
         assert called_args[2] is fake_provider
@@ -919,7 +923,9 @@ class TestCrearTicketSchedulesTriage:
         """Real pre-push review finding: the legacy titulo-only path (no
         `texto`) leaves `texto_original` NULL — scheduling `run_triage`
         there just opens a DB session to log a no-op warning on every
-        normal advanced-form submission."""
+        normal advanced-form submission. The Vikunja sync hook is still
+        scheduled unconditionally (sdd/tickets-sync-vikunja PR 2) — it has
+        its own independent flag check."""
         _seq[0] += 1
         user = _make_usuario(db, rol_ventas, username=f"triage_endpoint_titulo_only_{_seq[0]}")
         _seed_inbox(db)
@@ -935,7 +941,8 @@ class TestCrearTicketSchedulesTriage:
             )
 
         assert resp.status_code == 201
-        mock_add_task.assert_not_called()
+        assert mock_add_task.call_count == 1
+        assert mock_add_task.call_args.args[0] is vikunja_sync_service.push_ticket
 
 
 class TestAutoApplyTopology:

@@ -211,6 +211,13 @@ async def lifespan(app: FastAPI):
             asyncio.create_task(ml_questions_publish_task()),
             asyncio.create_task(ml_messages_ingest_task()),
             asyncio.create_task(ml_messages_draft_task()),
+            # Always scheduled — the flag is re-checked on every 300s tick
+            # INSIDE `run_vikunja_reconcile_cycle` (review finding: gating
+            # task creation on the flag here only reads it at process
+            # startup, so flipping the flag on without a restart would
+            # leave the loop silently absent even though the hooks — which
+            # check the flag live on every request — are already active).
+            asyncio.create_task(vikunja_reconcile_task()),
         ]
     else:
         import os
@@ -515,6 +522,30 @@ async def ml_questions_publish_task():
 
         # Intervalo panel-editable (ml_bot_config.poll_interval_seconds), fail-safe default 30s.
         await asyncio.sleep(await _resolve_ml_bot_poll_interval_seconds())
+
+
+async def vikunja_reconcile_task():
+    """
+    Background task (sdd/tickets-sync-vikunja PR 2): 300s crash backstop for
+    the ticket->Vikunja sync pipeline. Always scheduled (single-worker
+    `bg_lock_fd` block above); `run_vikunja_reconcile_cycle` itself checks
+    `TICKETS_VIKUNJA_SYNC_ENABLED` on every tick and no-ops when it is off,
+    so flipping the flag on takes effect without a process restart.
+    """
+    from app.tickets.services.vikunja_sync_service import run_vikunja_reconcile_cycle
+
+    await asyncio.sleep(60)
+    logger.info("Background task started: vikunja_reconcile (interval=300s)")
+
+    while True:
+        try:
+            stats = await run_vikunja_reconcile_cycle()
+            if any(stats.values()):
+                logger.info("Vikunja reconcile stats: %s", stats)
+        except Exception as e:
+            logger.error("Vikunja reconcile cycle failed: %s", e, exc_info=True)
+
+        await asyncio.sleep(300)
 
 
 async def ml_messages_ingest_task():

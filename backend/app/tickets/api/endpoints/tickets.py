@@ -28,6 +28,7 @@ from app.tickets.models.sector import Sector
 from app.tickets.models.ticket import Ticket, PrioridadTicket
 from app.tickets.models.tipo_ticket import TipoTicket
 from app.tickets.models.workflow import EstadoTicket, Workflow
+from app.tickets.services import vikunja_sync_service
 from app.tickets.services.triage_service import LlmProvider, run_triage
 from app.tickets.services.workflow_service import MotivoRechazoTransicion, WorkflowService
 from app.tickets.schemas.ticket_schemas import (
@@ -1032,6 +1033,11 @@ async def crear_ticket(
     if ticket_data.texto:
         background_tasks.add_task(run_triage, nuevo_ticket.id, triage_provider)
 
+    # Vikunja sync (sdd/tickets-sync-vikunja PR 2): scheduled unconditionally
+    # — the flag check itself lives inside `push_ticket` as its very first
+    # statement, before any DB session is opened.
+    background_tasks.add_task(vikunja_sync_service.push_ticket, nuevo_ticket.id)
+
     await sse_publish("tickets:changed", {"hint": "reload"})
     await sse_publish("tickets:badge", {"hint": "reload"})
 
@@ -1583,6 +1589,7 @@ def obtener_historial(
 @router.post("/tickets/{ticket_id}/adjuntos", response_model=AdjuntoResponse, status_code=201)
 async def subir_adjunto(
     ticket_id: int,
+    background_tasks: BackgroundTasks,
     file: UploadFile = File(...),
     db: Session = Depends(get_db),
     current_user: Usuario = Depends(get_current_user),
@@ -1642,6 +1649,10 @@ async def subir_adjunto(
     db.add(adjunto)
     db.commit()
     db.refresh(adjunto)
+
+    # Vikunja sync (sdd/tickets-sync-vikunja PR 2): scheduled unconditionally
+    # — same flag-first discipline as `push_ticket` above.
+    background_tasks.add_task(vikunja_sync_service.push_attachment, ticket_id)
 
     await sse_publish("tickets:changed", {"hint": "reload"})
 
