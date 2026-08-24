@@ -963,6 +963,35 @@ class TestEstadoSyncVikunjaEndpoint:
         assert cuerpo["con_error"] == 1
         assert cuerpo["ultimo_error"] == "token vencido"
 
+    def test_does_not_report_an_error_from_an_already_synced_ticket(
+        self, db, rol, client, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """`ultimo_error` is never cleared when a ticket later succeeds, so a
+        naive "most recent error" query hands the operator a failure that no
+        longer exists — while the counts next to it say zero. The endpoint
+        exists to tell the truth about state; a stale error is the one thing
+        it must not do."""
+        usuario = _make_usuario(db, rol)
+        _dar_permiso(db, usuario, "tickets.gestionar")
+        _enable_flag(monkeypatch)
+
+        t = _make_ticket(db, rol)
+        db.add(
+            TicketVikunjaSync(
+                ticket_id=t.id,
+                estado="sincronizado",
+                vikunja_task_id=9,
+                ultimo_error="token vencido (ya resuelto)",
+            )
+        )
+        db.commit()
+
+        resp = client.get("/api/tickets/tickets/vikunja/estado", headers=_auth(usuario))
+
+        cuerpo = resp.json()
+        assert cuerpo["con_error"] == 0
+        assert cuerpo["ultimo_error"] is None, "a synced ticket must not surface its old error"
+
     def test_habilitado_follows_the_flag(self, db, rol, client, monkeypatch: pytest.MonkeyPatch) -> None:
         """The frontend gates the badge on this field, so it must report the
         flag rather than assume it."""

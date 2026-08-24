@@ -334,6 +334,9 @@ class TicketBadgeCount(BaseModel):
     sin_responder: int = Field(
         0, description="Cross-cutting: último comentario es de otro usuario (pelota en mi cancha)"
     )
+    sin_leer: int = Field(
+        0, description="Cross-cutting: comentario de otro usuario más reciente que mi última revisión"
+    )
     sync_vikunja_habilitado: bool = Field(
         False,
         description=(
@@ -342,9 +345,6 @@ class TicketBadgeCount(BaseModel):
             "Viaja acá y no en el endpoint de estado porque el badge lo ve cualquier "
             "usuario logueado, mientras que aquel exige tickets.gestionar."
         ),
-    )
-    sin_leer: int = Field(
-        0, description="Cross-cutting: comentario de otro usuario más reciente que mi última revisión"
     )
 
 

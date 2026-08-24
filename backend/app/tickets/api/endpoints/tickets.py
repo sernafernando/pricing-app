@@ -658,9 +658,16 @@ def estado_sync_vikunja(
         db.query(func.count(TicketVikunjaSync.id)).filter(TicketVikunjaSync.adjuntos_pendientes.is_(True)).scalar() or 0
     )
 
+    # Scoped to rows that are STILL failing: `ultimo_error` is never cleared
+    # when a ticket later syncs, so without this the endpoint could report
+    # `con_error: 0` and hand the operator an error message from a ticket
+    # that is already fine.
     ultimo = (
         db.query(TicketVikunjaSync.ultimo_error)
-        .filter(TicketVikunjaSync.ultimo_error.isnot(None))
+        .filter(
+            TicketVikunjaSync.ultimo_error.isnot(None),
+            TicketVikunjaSync.estado.in_(["error", "ambiguo"]),
+        )
         .order_by(TicketVikunjaSync.updated_at.desc())
         .first()
     )
