@@ -241,5 +241,5 @@ class VikunjaClient:
         idempotent WITHOUT a local watermark: `upload_attachment` creates a
         new record on every call, so the drain has to know what Vikunja
         already holds rather than infer it from a timestamp."""
-        response = await self._request("GET", f"/tasks/{task_id}/attachments")
+        response = await self._request("GET", f"/tasks/{task_id}/attachments", _max_attempts=_max_attempts)
         return response.json() or []

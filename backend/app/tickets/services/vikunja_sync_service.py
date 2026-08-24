@@ -342,14 +342,6 @@ async def push_ticket(ticket_id: int) -> None:
 # -- attachments --------------------------------------------------------
 
 
-def _load_sync_row(ticket_id: int) -> Optional[Dict[str, Any]]:
-    with get_background_db() as db:
-        row = db.query(TicketVikunjaSync).filter(TicketVikunjaSync.ticket_id == ticket_id).first()
-        if row is None:
-            return None
-        return {"estado": row.estado, "vikunja_task_id": row.vikunja_task_id}
-
-
 def _mark_adjuntos_pendientes(ticket_id: int) -> None:
     """Ensures the ledger row EXISTS before deferring — without this, a row
     that has not been created yet (e.g. the flag was off when the ticket
@@ -368,21 +360,6 @@ def _clear_adjuntos_pendientes(ticket_id: int) -> None:
         db.execute(
             update(TicketVikunjaSync).where(TicketVikunjaSync.ticket_id == ticket_id).values(adjuntos_pendientes=False)
         )
-
-
-def _load_adjunto(ticket_id: int, adjunto_id: int) -> Optional[Dict[str, Any]]:
-    with get_background_db() as db:
-        row = (
-            db.query(AdjuntoTicket).filter(AdjuntoTicket.id == adjunto_id, AdjuntoTicket.ticket_id == ticket_id).first()
-        )
-        if row is None:
-            return None
-        return {
-            "id": row.id,
-            "nombre_archivo": row.nombre_archivo,
-            "path_archivo": row.path_archivo,
-            "mime_type": row.mime_type,
-        }
 
 
 def _load_ticket_adjuntos(ticket_id: int) -> List[Dict[str, Any]]:
@@ -469,9 +446,48 @@ def _reclaim_stale_enviando() -> int:
 
 
 def _fetch_ambiguous_ticket_ids() -> List[int]:
+    """Ambiguous rows the loop should still try to resolve on its own.
+
+    A row that has already been notified is EXCLUDED: notification is the
+    handoff to a human, not a log line. Without this, a row that never
+    matches is re-processed forever — `notificado_at` stops the notification
+    spam but not the work, so every 300s each zombie row would keep hitting
+    Vikunja's task list for as long as the row exists.
+    """
     with get_background_db() as db:
-        rows = db.query(TicketVikunjaSync.ticket_id).filter(TicketVikunjaSync.estado == "ambiguo").all()
+        rows = (
+            db.query(TicketVikunjaSync.ticket_id)
+            .filter(
+                TicketVikunjaSync.estado == "ambiguo",
+                TicketVikunjaSync.notificado_at.is_(None),
+            )
+            .all()
+        )
         return [row[0] for row in rows]
+
+
+def _warn_about_orphaned_attachments() -> int:
+    """Attachments waiting on a ticket that will never sync (terminal
+    `error`). The files are safe on disk, but nothing would ever mention
+    them again — an invisible queue is how you find out months later."""
+    with get_background_db() as db:
+        rows = (
+            db.query(TicketVikunjaSync.ticket_id)
+            .filter(
+                TicketVikunjaSync.adjuntos_pendientes.is_(True),
+                TicketVikunjaSync.estado != "sincronizado",
+                TicketVikunjaSync.intentos >= _MAX_ERROR_RETRY_INTENTOS,
+            )
+            .all()
+        )
+    ticket_ids = [row[0] for row in rows]
+    if ticket_ids:
+        logger.warning(
+            "vikunja sync: %d ticket(s) have attachments pending on a ticket that will not sync: %s",
+            len(ticket_ids),
+            ticket_ids,
+        )
+    return len(ticket_ids)
 
 
 def _fetch_retryable_error_ticket_ids() -> List[int]:
@@ -561,7 +577,14 @@ async def run_vikunja_reconcile_cycle() -> Dict[str, int]:
     Also drains attachments deferred while their parent ticket was not yet
     synced.
     """
-    stats = {"reclaimed": 0, "adopted": 0, "still_ambiguous": 0, "drained": 0, "error_retried": 0}
+    stats = {
+        "reclaimed": 0,
+        "adopted": 0,
+        "still_ambiguous": 0,
+        "drained": 0,
+        "error_retried": 0,
+        "orphaned_attachments": 0,
+    }
     if not settings.TICKETS_VIKUNJA_SYNC_ENABLED:
         return stats
 
@@ -598,5 +621,7 @@ async def run_vikunja_reconcile_cycle() -> Dict[str, int]:
         for ticket_id, vikunja_task_id in pending_attachments:
             await _drain_ticket_attachments(ticket_id, vikunja_task_id, client)
             stats["drained"] += 1
+
+    stats["orphaned_attachments"] = _warn_about_orphaned_attachments()
 
     return stats
