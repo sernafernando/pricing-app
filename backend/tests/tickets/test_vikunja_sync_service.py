@@ -450,3 +450,104 @@ class TestAttachmentDeferral:
         row = db.query(TicketVikunjaSync).filter_by(ticket_id=ticket.id).one()
         assert row.adjuntos_pendientes is False
         assert stats["drained"] == 1
+
+
+class TestAttachmentSinglePathAndPartialFailure:
+    """Review findings fixed after the first review pass: (1) `push_attachment`
+    must NEVER upload directly, even on an already-synced ticket — only the
+    loop uploads, so there is exactly one writer and no two-path duplicate
+    race; (2) a partial-failure drain must NOT clear `adjuntos_pendientes`,
+    or the failed attachment is lost forever."""
+
+    def test_push_attachment_never_uploads_directly_even_when_synced(
+        self, db, rol, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        _enable_flag(monkeypatch)
+        ticket = _make_ticket(db, rol)
+        creador = db.query(Usuario).filter_by(id=ticket.creador_id).one()
+        db.add(TicketVikunjaSync(ticket_id=ticket.id, estado="sincronizado", vikunja_task_id=999))
+        db.commit()
+        adjunto = _make_adjunto(db, ticket, creador)
+        db.commit()
+
+        fake_client = AsyncMock()
+
+        with _patch_background_db(db), patch.object(vikunja_sync_service, "_client", return_value=fake_client):
+            asyncio.run(push_attachment(ticket.id, adjunto.id))
+
+        fake_client.upload_attachment.assert_not_called()
+        row = db.query(TicketVikunjaSync).filter_by(ticket_id=ticket.id).one()
+        assert row.adjuntos_pendientes is True
+
+    def test_partial_drain_failure_keeps_flag_true_for_retry(
+        self, db, rol, monkeypatch: pytest.MonkeyPatch, tmp_path
+    ) -> None:
+        _enable_flag(monkeypatch)
+        monkeypatch.setattr(settings, "TICKETS_UPLOADS_DIR", str(tmp_path))
+        ticket = _make_ticket(db, rol)
+        creador = db.query(Usuario).filter_by(id=ticket.creador_id).one()
+        db.add(
+            TicketVikunjaSync(ticket_id=ticket.id, estado="sincronizado", vikunja_task_id=321, adjuntos_pendientes=True)
+        )
+        db.commit()
+        adjunto = _make_adjunto(db, ticket, creador)
+        db.commit()
+
+        upload_dir = tmp_path / str(ticket.id)
+        upload_dir.mkdir(parents=True, exist_ok=True)
+        (upload_dir / adjunto.path_archivo.split("/")[-1]).write_bytes(b"contenido")
+
+        fake_client = AsyncMock()
+        fake_client.list_tasks.return_value = []
+        fake_client.upload_attachment.side_effect = VikunjaTransientError("PUT", "/x", 500, "boom")
+
+        with _patch_background_db(db), patch.object(vikunja_sync_service, "_client", return_value=fake_client):
+            asyncio.run(run_vikunja_reconcile_cycle())
+
+        row = db.query(TicketVikunjaSync).filter_by(ticket_id=ticket.id).one()
+        assert row.adjuntos_pendientes is True, "a failed upload must stay pending for the next cycle to retry"
+
+
+class TestErrorStateBoundedRetry:
+    def test_reconcile_loop_retries_error_rows_under_budget(self, db, rol, monkeypatch: pytest.MonkeyPatch) -> None:
+        _enable_flag(monkeypatch)
+        ticket = _make_ticket(db, rol)
+        db.add(TicketVikunjaSync(ticket_id=ticket.id, estado="error", intentos=1, ultimo_error="boom"))
+        db.commit()
+
+        fake_client = AsyncMock()
+        fake_client.create_task.return_value = {"id": 111}
+
+        with _patch_background_db(db), patch.object(vikunja_sync_service, "_client", return_value=fake_client):
+            stats = asyncio.run(run_vikunja_reconcile_cycle())
+
+        assert fake_client.create_task.call_count == 1
+        row = db.query(TicketVikunjaSync).filter_by(ticket_id=ticket.id).one()
+        assert row.estado == "sincronizado"
+        assert row.vikunja_task_id == 111
+        assert stats["error_retried"] == 1
+
+    def test_reconcile_loop_does_not_retry_error_rows_past_budget(
+        self, db, rol, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        _enable_flag(monkeypatch)
+        ticket = _make_ticket(db, rol)
+        db.add(
+            TicketVikunjaSync(
+                ticket_id=ticket.id,
+                estado="error",
+                intentos=vikunja_sync_service._MAX_ERROR_RETRY_INTENTOS,
+                ultimo_error="boom",
+            )
+        )
+        db.commit()
+
+        fake_client = AsyncMock()
+
+        with _patch_background_db(db), patch.object(vikunja_sync_service, "_client", return_value=fake_client):
+            stats = asyncio.run(run_vikunja_reconcile_cycle())
+
+        assert fake_client.create_task.call_count == 0
+        assert stats["error_retried"] == 0
+        row = db.query(TicketVikunjaSync).filter_by(ticket_id=ticket.id).one()
+        assert row.estado == "error"

@@ -53,9 +53,22 @@ notification -- it must NEVER create, because outside the immediate window a
 "not found" no longer proves non-existence (it could just as well mean
 someone edited the description).
 
-Attachments: if the parent ticket's row is not yet 'sincronizado' there is no
-Vikunja task to attach to, so the upload is deferred (`adjuntos_pendientes`
-set True) and drained by the loop once the ticket lands.
+Attachments: `push_attachment` NEVER uploads directly — it only sets
+`adjuntos_pendientes=True` (review finding, PR 2: an earlier version
+uploaded immediately when the ticket was already `sincronizado`, which can
+race the loop's own drain of an EARLIER pending attachment on the same
+ticket and double-attach it, since `upload_attachment` is
+`idempotent=False`). The loop is the single writer for every attachment
+upload; it only clears the flag once every attachment on the ticket
+uploaded successfully in that pass (partial-failure retry re-attempts the
+whole batch — true per-attachment tracking needs a schema change, flagged
+for PR 3, not done here).
+
+`error` rows are bounded-retried by the loop too (up to
+`_MAX_ERROR_RETRY_INTENTOS`): the CAS claim already accepted `error` as a
+re-claimable state, but nothing was reclaiming it — a config-level failure
+(stale token, wrong project id) left a ticket unsynced forever with zero
+retry and zero visibility.
 """
 
 from __future__ import annotations
@@ -86,6 +99,7 @@ _STALE_ENVIANDO_MINUTES = 10
 _AMBIGUOUS_CHECK_DELAY_SECONDS = 2.0
 _AMBIGUOUS_MATCH_WINDOW_SECONDS = 120
 _ULTIMO_ERROR_MAX_CHARS = 500
+_MAX_ERROR_RETRY_INTENTOS = 5
 
 
 def _client() -> VikunjaClient:
@@ -189,16 +203,20 @@ def _mark_ambiguous(ticket_id: int) -> None:
 
 def _flag_for_notification(ticket_id: int) -> None:
     """Stays/goes `ambiguo`, and marks `notificado_at` (only if not already
-    set, so repeated cycles do not spam notifications for the same row)."""
+    set, so repeated cycles do not spam notifications for the same row —
+    the warning below only fires the FIRST time a row is flagged, not on
+    every 300s cycle it remains unresolved)."""
     with get_background_db() as db:
-        db.execute(
+        result = db.execute(
             update(TicketVikunjaSync)
             .where(TicketVikunjaSync.ticket_id == ticket_id, TicketVikunjaSync.notificado_at.is_(None))
             .values(estado="ambiguo", notificado_at=func.now())
         )
-    logger.warning(
-        "vikunja sync: ticket %d needs manual review — ambiguous create could not be auto-resolved", ticket_id
-    )
+        newly_flagged = result.rowcount == 1
+    if newly_flagged:
+        logger.warning(
+            "vikunja sync: ticket %d needs manual review — ambiguous create could not be auto-resolved", ticket_id
+        )
 
 
 def _match_marker(
@@ -269,17 +287,18 @@ async def _resolve_ambiguous_create(ticket_id: int, claimed: Dict[str, Any], cli
     _mark_synced(ticket_id, task["id"])
 
 
-async def push_ticket(ticket_id: int) -> None:
-    """Hook 1: schedule this unconditionally right after a ticket's create
-    commit. Flag-gated as the very first statement — see module docstring."""
-    if not settings.TICKETS_VIKUNJA_SYNC_ENABLED:
-        return
-
+async def _attempt_create_and_sync(ticket_id: int, client: VikunjaClient) -> None:
+    """Claims the ledger row (`pendiente`|`error` -> `enviando`) and runs
+    ONE create attempt, routing the outcome exactly like the module
+    docstring's ordering. Shared by `push_ticket` (first attempt, right
+    after ticket creation) and the reconcile loop's bounded `error` retry
+    (review finding: `error` was a CAS-claimable state with no caller ever
+    reclaiming it — a permanent-looking failure, e.g. a stale token, left
+    the ticket unsynced forever with zero visibility)."""
     claimed = _claim_ticket(ticket_id)
     if claimed is None:
         return
 
-    client = _client()
     try:
         task = await client.create_task(
             project_id=settings.VIKUNJA_PROJECT_ID,
@@ -296,6 +315,15 @@ async def push_ticket(ticket_id: int) -> None:
     _mark_synced(ticket_id, task["id"])
 
 
+async def push_ticket(ticket_id: int) -> None:
+    """Hook 1: schedule this unconditionally right after a ticket's create
+    commit. Flag-gated as the very first statement — see module docstring."""
+    if not settings.TICKETS_VIKUNJA_SYNC_ENABLED:
+        return
+
+    await _attempt_create_and_sync(ticket_id, _client())
+
+
 # -- attachments --------------------------------------------------------
 
 
@@ -308,7 +336,13 @@ def _load_sync_row(ticket_id: int) -> Optional[Dict[str, Any]]:
 
 
 def _mark_adjuntos_pendientes(ticket_id: int) -> None:
+    """Ensures the ledger row EXISTS before deferring — without this, a row
+    that has not been created yet (e.g. the flag was off when the ticket
+    was created and turned on later) makes the UPDATE below a silent
+    zero-row no-op, and the attachment is lost forever (never drained,
+    since the loop only looks at existing rows)."""
     with get_background_db() as db:
+        _insert_sync_row_if_absent(db, ticket_id)
         db.execute(
             update(TicketVikunjaSync).where(TicketVikunjaSync.ticket_id == ticket_id).values(adjuntos_pendientes=True)
         )
@@ -350,9 +384,11 @@ def _load_ticket_adjuntos(ticket_id: int) -> List[Dict[str, Any]]:
         ]
 
 
-async def _upload_one_attachment(vikunja_task_id: int, adjunto: Dict[str, Any], client: VikunjaClient) -> None:
+async def _upload_one_attachment(vikunja_task_id: int, adjunto: Dict[str, Any], client: VikunjaClient) -> bool:
     """A missing file or an upload failure is an ATTACHMENT-level error —
-    it must never fail (or retry-loop) the ticket's own sync state."""
+    it must never fail (or retry-loop) the ticket's own sync state. Returns
+    True on a genuine upload success, False otherwise, so the caller can
+    decide whether it is safe to stop tracking this ticket's backlog."""
     full_path = os.path.join(settings.TICKETS_UPLOADS_DIR, adjunto["path_archivo"])
     if not os.path.exists(full_path):
         logger.error(
@@ -361,7 +397,10 @@ async def _upload_one_attachment(vikunja_task_id: int, adjunto: Dict[str, Any], 
             adjunto["nombre_archivo"],
             full_path,
         )
-        return
+        # A permanently-missing file can never succeed on retry either —
+        # treat it as "handled" so it does not block the ticket's backlog
+        # forever.
+        return True
 
     try:
         with open(full_path, "rb") as fh:
@@ -372,30 +411,31 @@ async def _upload_one_attachment(vikunja_task_id: int, adjunto: Dict[str, Any], 
             content=content,
             content_type=adjunto["mime_type"],
         )
+        return True
     except (VikunjaPermanentError, VikunjaTransientError, OSError) as exc:
         logger.error(
             "vikunja sync: failed to upload attachment %d for task %d: %s", adjunto["id"], vikunja_task_id, exc
         )
+        return False
 
 
 async def push_attachment(ticket_id: int, adjunto_id: int) -> None:
-    """Hook 2: schedule this after an attachment upload's own commit. If the
-    parent ticket has no Vikunja task yet, defers via
-    `adjuntos_pendientes` and returns WITHOUT attempting any network call —
-    there is nothing to attach to."""
+    """Hook 2: schedule this after an attachment upload's own commit.
+
+    ALWAYS defers via `adjuntos_pendientes` — it never uploads directly,
+    even when the parent ticket is already `sincronizado`. Review finding
+    (PR 2): an earlier version uploaded immediately when the ticket was
+    already synced, racing the 300s loop's own drain of any attachment
+    left pending by an EARLIER upload on the same ticket — `upload_attachment`
+    is `idempotent=False`, so a file caught by both paths gets attached
+    twice. Routing every attachment through the SAME single path (the loop,
+    which runs sequentially on the one `bg_lock_fd` worker) removes that
+    race entirely, at the cost of a poll-interval delay before the first
+    attachment on an already-synced ticket appears in Vikunja."""
     if not settings.TICKETS_VIKUNJA_SYNC_ENABLED:
         return
 
-    sync_row = _load_sync_row(ticket_id)
-    if sync_row is None or sync_row["estado"] != "sincronizado" or sync_row["vikunja_task_id"] is None:
-        _mark_adjuntos_pendientes(ticket_id)
-        return
-
-    adjunto = _load_adjunto(ticket_id, adjunto_id)
-    if adjunto is None:
-        return
-
-    await _upload_one_attachment(sync_row["vikunja_task_id"], adjunto, _client())
+    _mark_adjuntos_pendientes(ticket_id)
 
 
 # -- 300s reconcile loop (crash backstop) --------------------------------
@@ -418,6 +458,22 @@ def _fetch_ambiguous_ticket_ids() -> List[int]:
         return [row[0] for row in rows]
 
 
+def _fetch_retryable_error_ticket_ids() -> List[int]:
+    """`error` rows under the retry budget — a permanent-looking failure
+    can still be transient at the CONFIGURATION level (an expired token, a
+    momentarily wrong project id), so this is a bounded retry, not a dead
+    end. Past `_MAX_ERROR_RETRY_INTENTOS`, a row stays `error` and relies on
+    `ultimo_error` for visibility (ops dashboards over that column, not a
+    push notification — out of scope here)."""
+    with get_background_db() as db:
+        rows = (
+            db.query(TicketVikunjaSync.ticket_id)
+            .filter(TicketVikunjaSync.estado == "error", TicketVikunjaSync.intentos < _MAX_ERROR_RETRY_INTENTOS)
+            .all()
+        )
+        return [row[0] for row in rows]
+
+
 def _fetch_pending_attachment_tickets() -> List[Tuple[int, int]]:
     with get_background_db() as db:
         rows = (
@@ -433,9 +489,24 @@ def _fetch_pending_attachment_tickets() -> List[Tuple[int, int]]:
 
 
 async def _drain_ticket_attachments(ticket_id: int, vikunja_task_id: int, client: VikunjaClient) -> None:
+    """Uploads every attachment currently on the ticket. Review finding
+    (PR 2): the flag is cleared ONLY if every single upload succeeded — if
+    Vikunja is down for the whole cycle, `adjuntos_pendientes` stays True
+    and the next 300s cycle retries the batch, instead of silently losing
+    the attachments the moment the flag was cleared unconditionally.
+
+    Residual risk (documented, not fixed here — would need a per-attachment
+    ledger column, i.e. a migration, which is out of scope for this PR): a
+    PARTIAL failure (2 of 3 uploads succeed) still retries the whole batch
+    next cycle, re-uploading the 2 that already succeeded. There is no
+    per-attachment tracking in `tickets_adjuntos` to avoid that without a
+    schema change — flagged for PR 3."""
+    all_succeeded = True
     for adjunto in _load_ticket_adjuntos(ticket_id):
-        await _upload_one_attachment(vikunja_task_id, adjunto, client)
-    _clear_adjuntos_pendientes(ticket_id)
+        ok = await _upload_one_attachment(vikunja_task_id, adjunto, client)
+        all_succeeded = all_succeeded and ok
+    if all_succeeded:
+        _clear_adjuntos_pendientes(ticket_id)
 
 
 async def run_vikunja_reconcile_cycle() -> Dict[str, int]:
@@ -449,11 +520,18 @@ async def run_vikunja_reconcile_cycle() -> Dict[str, int]:
     Also drains attachments deferred while their parent ticket was not yet
     synced.
     """
-    stats = {"reclaimed": 0, "adopted": 0, "still_ambiguous": 0, "drained": 0}
+    stats = {"reclaimed": 0, "adopted": 0, "still_ambiguous": 0, "drained": 0, "error_retried": 0}
     if not settings.TICKETS_VIKUNJA_SYNC_ENABLED:
         return stats
 
     stats["reclaimed"] = _reclaim_stale_enviando()
+
+    retryable_ticket_ids = _fetch_retryable_error_ticket_ids()
+    if retryable_ticket_ids:
+        client = _client()
+        for ticket_id in retryable_ticket_ids:
+            await _attempt_create_and_sync(ticket_id, client)
+            stats["error_retried"] += 1
 
     ambiguous_ticket_ids = _fetch_ambiguous_ticket_ids()
     if ambiguous_ticket_ids:
