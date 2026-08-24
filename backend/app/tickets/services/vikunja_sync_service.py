@@ -81,7 +81,7 @@ import os
 from datetime import UTC, datetime, timedelta
 from typing import Any, Dict, List, Optional, Tuple
 
-from sqlalchemy import func, update
+from sqlalchemy import and_, func, or_, update
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
@@ -302,7 +302,7 @@ async def _resolve_ambiguous_create(ticket_id: int, claimed: Dict[str, Any], cli
     _mark_synced(ticket_id, task["id"])
 
 
-async def _attempt_create_and_sync(ticket_id: int, client: VikunjaClient) -> None:
+async def _attempt_create_and_sync(ticket_id: int, client: VikunjaClient) -> bool:
     """Claims the ledger row (`pendiente`|`error` -> `enviando`) and runs
     ONE create attempt, routing the outcome exactly like the module
     docstring's ordering. Shared by `push_ticket` (first attempt, right
@@ -312,7 +312,9 @@ async def _attempt_create_and_sync(ticket_id: int, client: VikunjaClient) -> Non
     the ticket unsynced forever with zero visibility)."""
     claimed = _claim_ticket(ticket_id)
     if claimed is None:
-        return
+        # Did not win the CAS: nothing was attempted, so the caller must not
+        # count this as work (same reasoning as `drained` below).
+        return False
 
     try:
         task = await client.create_task(
@@ -322,12 +324,13 @@ async def _attempt_create_and_sync(ticket_id: int, client: VikunjaClient) -> Non
         )
     except VikunjaPermanentError as exc:
         _mark_error(ticket_id, str(exc))
-        return
+        return True
     except VikunjaTransientError:
         await _resolve_ambiguous_create(ticket_id, claimed, client)
-        return
+        return True
 
     _mark_synced(ticket_id, task["id"])
+    return True
 
 
 async def push_ticket(ticket_id: int) -> None:
@@ -355,11 +358,29 @@ def _mark_adjuntos_pendientes(ticket_id: int) -> None:
         )
 
 
-def _clear_adjuntos_pendientes(ticket_id: int) -> None:
+def _clear_adjuntos_pendientes(ticket_id: int, up_to_adjunto_id: Optional[int] = None) -> None:
+    """Clears the pending flag, but ONLY if no attachment newer than the
+    batch we just drained has arrived meanwhile.
+
+    Without that guard there is a lost update: between `_load_ticket_adjuntos`
+    and this call, a user can upload a file, whose `push_attachment` sets the
+    flag to True -- and then this would immediately overwrite it with False.
+    That attachment would never be uploaded and nothing would look at the
+    ticket again until some *other* attachment happened to arrive.
+    """
     with get_background_db() as db:
-        db.execute(
-            update(TicketVikunjaSync).where(TicketVikunjaSync.ticket_id == ticket_id).values(adjuntos_pendientes=False)
-        )
+        stmt = update(TicketVikunjaSync).where(TicketVikunjaSync.ticket_id == ticket_id)
+        if up_to_adjunto_id is not None:
+            mas_nuevo = (
+                db.query(AdjuntoTicket.id)
+                .filter(AdjuntoTicket.ticket_id == ticket_id, AdjuntoTicket.id > up_to_adjunto_id)
+                .first()
+            )
+            if mas_nuevo is not None:
+                # Something arrived while we were uploading: leave the flag
+                # set so the next cycle picks the newcomer up.
+                return
+        db.execute(stmt.values(adjuntos_pendientes=False))
 
 
 def _load_ticket_adjuntos(ticket_id: int) -> List[Dict[str, Any]]:
@@ -476,7 +497,18 @@ def _warn_about_orphaned_attachments() -> int:
             .filter(
                 TicketVikunjaSync.adjuntos_pendientes.is_(True),
                 TicketVikunjaSync.estado != "sincronizado",
-                TicketVikunjaSync.intentos >= _MAX_ERROR_RETRY_INTENTOS,
+                or_(
+                    TicketVikunjaSync.intentos >= _MAX_ERROR_RETRY_INTENTOS,
+                    # An `ambiguo` row that was already notified is excluded
+                    # from the loop's own sweep, so it never reaches
+                    # `sincronizado` and its `intentos` stays at 0 -- without
+                    # this arm its attachments are exactly the invisible
+                    # queue this function exists to prevent.
+                    and_(
+                        TicketVikunjaSync.estado == "ambiguo",
+                        TicketVikunjaSync.notificado_at.isnot(None),
+                    ),
+                ),
             )
             .all()
         )
@@ -583,7 +615,7 @@ async def _drain_ticket_attachments(ticket_id: int, vikunja_task_id: int, client
         all_succeeded = all_succeeded and ok
 
     if all_succeeded:
-        _clear_adjuntos_pendientes(ticket_id)
+        _clear_adjuntos_pendientes(ticket_id, up_to_adjunto_id=max(a["id"] for a in adjuntos))
     return all_succeeded
 
 
@@ -615,8 +647,8 @@ async def run_vikunja_reconcile_cycle() -> Dict[str, int]:
     if retryable_ticket_ids:
         client = _client()
         for ticket_id in retryable_ticket_ids:
-            await _attempt_create_and_sync(ticket_id, client)
-            stats["error_retried"] += 1
+            if await _attempt_create_and_sync(ticket_id, client):
+                stats["error_retried"] += 1
 
     ambiguous_ticket_ids = _fetch_ambiguous_ticket_ids()
     if ambiguous_ticket_ids:

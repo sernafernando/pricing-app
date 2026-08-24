@@ -635,6 +635,59 @@ class TestErrorStateBoundedRetry:
         assert row.estado == "error"
 
 
+class TestAttachmentArrivingDuringDrainIsNotLost:
+    """Lost-update guard: a file uploaded WHILE the loop is draining must not
+    have its pending flag wiped by that drain.
+
+    The drain reads the ticket's attachments, uploads them, then clears
+    `adjuntos_pendientes`. If a user uploads in between, `push_attachment`
+    sets the flag to True and the clear would immediately overwrite it with
+    False -- the newcomer would never be uploaded, and nothing would look at
+    that ticket again until some other attachment happened to arrive."""
+
+    def test_flag_survives_when_a_newer_attachment_arrives_mid_drain(
+        self, db, rol, monkeypatch: pytest.MonkeyPatch, tmp_path
+    ) -> None:
+        _enable_flag(monkeypatch)
+        monkeypatch.setattr(settings, "TICKETS_UPLOADS_DIR", str(tmp_path))
+        ticket = _make_ticket(db, rol)
+        creador = db.query(Usuario).filter_by(id=ticket.creador_id).one()
+        db.add(
+            TicketVikunjaSync(ticket_id=ticket.id, estado="sincronizado", vikunja_task_id=55, adjuntos_pendientes=True)
+        )
+        db.commit()
+
+        upload_dir = tmp_path / str(ticket.id)
+        upload_dir.mkdir(parents=True, exist_ok=True)
+        primero = _make_adjunto(db, ticket, creador, nombre="primero.png")
+        db.commit()
+        (upload_dir / primero.path_archivo.split("/")[-1]).write_bytes(b"1")
+
+        fake_client = AsyncMock()
+        fake_client.list_tasks.return_value = []
+        fake_client.list_attachments.return_value = []
+
+        # Simulate the race: a second attachment lands while the first one
+        # is being uploaded.
+        segundo_id: dict = {}
+
+        async def upload_y_llega_otro(**kwargs):
+            if not segundo_id:
+                segundo = _make_adjunto(db, ticket, creador, nombre="segundo.png")
+                db.commit()
+                (upload_dir / segundo.path_archivo.split("/")[-1]).write_bytes(b"2")
+                segundo_id["id"] = segundo.id
+            return {"id": 1}
+
+        fake_client.upload_attachment.side_effect = upload_y_llega_otro
+
+        with _patch_background_db(db), patch.object(vikunja_sync_service, "_client", return_value=fake_client):
+            asyncio.run(run_vikunja_reconcile_cycle())
+
+        row = db.query(TicketVikunjaSync).filter_by(ticket_id=ticket.id).one()
+        assert row.adjuntos_pendientes is True, "the newcomer must keep the ticket flagged for the next cycle"
+
+
 class TestPendienteIsNotAnOrphanState:
     """`pendiente` must be swept by the loop, or rows land there and are
     never touched again. Two real paths get you there:
