@@ -205,3 +205,28 @@ class VikunjaClient:
             page += 1
 
         return results
+
+    # -- attachments -----------------------------------------------------
+
+    async def upload_attachment(
+        self,
+        *,
+        task_id: int,
+        filename: str,
+        content: bytes,
+        content_type: Optional[str] = None,
+        _max_attempts: int = 5,
+    ) -> Dict[str, Any]:
+        """Upload `content` as a new attachment on `task_id`. Every call
+        creates a NEW attachment record (sdd/tickets-sync-vikunja PR 2) —
+        `idempotent=False` for the exact same reason as `create_task`: a
+        lost acknowledgement on retry would attach the file twice."""
+        files = {"files": (filename, content, content_type or "application/octet-stream")}
+        response = await self._request(
+            "PUT",
+            f"/tasks/{task_id}/attachments",
+            files=files,
+            idempotent=False,
+            _max_attempts=_max_attempts,
+        )
+        return response.json()

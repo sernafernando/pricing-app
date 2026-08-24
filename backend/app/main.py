@@ -212,6 +212,8 @@ async def lifespan(app: FastAPI):
             asyncio.create_task(ml_messages_ingest_task()),
             asyncio.create_task(ml_messages_draft_task()),
         ]
+        if settings.TICKETS_VIKUNJA_SYNC_ENABLED:
+            bg_tasks.append(asyncio.create_task(vikunja_reconcile_task()))
     else:
         import os
 
@@ -515,6 +517,30 @@ async def ml_questions_publish_task():
 
         # Intervalo panel-editable (ml_bot_config.poll_interval_seconds), fail-safe default 30s.
         await asyncio.sleep(await _resolve_ml_bot_poll_interval_seconds())
+
+
+async def vikunja_reconcile_task():
+    """
+    Background task (sdd/tickets-sync-vikunja PR 2): 300s crash backstop for
+    the ticket->Vikunja sync pipeline. Only scheduled when
+    `TICKETS_VIKUNJA_SYNC_ENABLED` is True (checked before this task is even
+    created, see the `bg_lock_fd` block above) — the loop itself also checks
+    the flag as a second line of defense.
+    """
+    from app.tickets.services.vikunja_sync_service import run_vikunja_reconcile_cycle
+
+    await asyncio.sleep(60)
+    logger.info("Background task started: vikunja_reconcile (interval=300s)")
+
+    while True:
+        try:
+            stats = await run_vikunja_reconcile_cycle()
+            if any(stats.values()):
+                logger.info("Vikunja reconcile stats: %s", stats)
+        except Exception as e:
+            logger.error("Vikunja reconcile cycle failed: %s", e, exc_info=True)
+
+        await asyncio.sleep(300)
 
 
 async def ml_messages_ingest_task():
