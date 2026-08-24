@@ -30,6 +30,7 @@ Run:
 from __future__ import annotations
 
 import asyncio
+from datetime import datetime, timedelta, timezone
 from unittest.mock import AsyncMock, patch
 
 import pytest
@@ -200,7 +201,7 @@ class TestFlagOffNeverTouchesDb:
 
         monkeypatch.setattr(vikunja_sync_service, "get_background_db", _boom)
 
-        asyncio.run(push_attachment(999999, 1))
+        asyncio.run(push_attachment(999999))
 
 
 class TestPushTicketHappyPath:
@@ -410,13 +411,13 @@ class TestAttachmentDeferral:
         creador = db.query(Usuario).filter_by(id=ticket.creador_id).one()
         db.add(TicketVikunjaSync(ticket_id=ticket.id, estado="pendiente"))
         db.commit()
-        adjunto = _make_adjunto(db, ticket, creador)
+        _make_adjunto(db, ticket, creador)
         db.commit()
 
         fake_client = AsyncMock()
 
         with _patch_background_db(db), patch.object(vikunja_sync_service, "_client", return_value=fake_client):
-            asyncio.run(push_attachment(ticket.id, adjunto.id))
+            asyncio.run(push_attachment(ticket.id))
 
         fake_client.upload_attachment.assert_not_called()
         row = db.query(TicketVikunjaSync).filter_by(ticket_id=ticket.id).one()
@@ -452,6 +453,87 @@ class TestAttachmentDeferral:
         assert stats["drained"] == 1
 
 
+class TestAttachmentUploadedBeforeTicketSynced:
+    """The most common real sequence, and the one the original drain lost
+    silently: the user uploads the screenshot seconds after creating the
+    ticket, so the attachment's `created_at` is EARLIER than the moment the
+    ticket finished syncing. A drain filtering `created_at > synced_at`
+    finds nothing, declares itself fully drained, and clears the flag -- the
+    file never reaches Vikunja and nothing logs it.
+
+    The pre-existing drain test missed this because it inserted the ledger
+    row by hand with `synced_at` left NULL, which is the one state
+    production never produces."""
+
+    def test_attachment_older_than_synced_at_is_still_uploaded(
+        self, db, rol, monkeypatch: pytest.MonkeyPatch, tmp_path
+    ) -> None:
+        _enable_flag(monkeypatch)
+        monkeypatch.setattr(settings, "TICKETS_UPLOADS_DIR", str(tmp_path))
+        ticket = _make_ticket(db, rol)
+        creador = db.query(Usuario).filter_by(id=ticket.creador_id).one()
+        adjunto = _make_adjunto(db, ticket, creador)
+        db.commit()
+
+        # The ticket finishes syncing AFTER the attachment was uploaded.
+        db.add(
+            TicketVikunjaSync(
+                ticket_id=ticket.id,
+                estado="sincronizado",
+                vikunja_task_id=321,
+                adjuntos_pendientes=True,
+                synced_at=datetime.now(timezone.utc) + timedelta(seconds=5),
+            )
+        )
+        db.commit()
+
+        upload_dir = tmp_path / str(ticket.id)
+        upload_dir.mkdir(parents=True, exist_ok=True)
+        (upload_dir / adjunto.path_archivo.split("/")[-1]).write_bytes(b"contenido")
+
+        fake_client = AsyncMock()
+        fake_client.list_tasks.return_value = []
+        fake_client.list_attachments.return_value = []
+
+        with _patch_background_db(db), patch.object(vikunja_sync_service, "_client", return_value=fake_client):
+            asyncio.run(run_vikunja_reconcile_cycle())
+
+        fake_client.upload_attachment.assert_called_once()
+
+    def test_attachment_already_in_vikunja_is_not_uploaded_twice(
+        self, db, rol, monkeypatch: pytest.MonkeyPatch, tmp_path
+    ) -> None:
+        """The other half: `upload_attachment` is `idempotent=False`, so a
+        second drain must not attach the same file again. Vikunja's own
+        attachment list is the source of truth, not a local watermark."""
+        _enable_flag(monkeypatch)
+        monkeypatch.setattr(settings, "TICKETS_UPLOADS_DIR", str(tmp_path))
+        ticket = _make_ticket(db, rol)
+        creador = db.query(Usuario).filter_by(id=ticket.creador_id).one()
+        adjunto = _make_adjunto(db, ticket, creador)
+        db.add(
+            TicketVikunjaSync(ticket_id=ticket.id, estado="sincronizado", vikunja_task_id=321, adjuntos_pendientes=True)
+        )
+        db.commit()
+
+        upload_dir = tmp_path / str(ticket.id)
+        upload_dir.mkdir(parents=True, exist_ok=True)
+        (upload_dir / adjunto.path_archivo.split("/")[-1]).write_bytes(b"contenido")
+
+        fake_client = AsyncMock()
+        fake_client.list_tasks.return_value = []
+        fake_client.list_attachments.return_value = [
+            {"id": 1, "file": {"name": adjunto.nombre_archivo, "size": adjunto.tamano_bytes}}
+        ]
+
+        with _patch_background_db(db), patch.object(vikunja_sync_service, "_client", return_value=fake_client):
+            asyncio.run(run_vikunja_reconcile_cycle())
+
+        fake_client.upload_attachment.assert_not_called()
+        row = db.query(TicketVikunjaSync).filter_by(ticket_id=ticket.id).one()
+        assert row.adjuntos_pendientes is False
+
+
 class TestAttachmentSinglePathAndPartialFailure:
     """Review findings fixed after the first review pass: (1) `push_attachment`
     must NEVER upload directly, even on an already-synced ticket — only the
@@ -467,13 +549,13 @@ class TestAttachmentSinglePathAndPartialFailure:
         creador = db.query(Usuario).filter_by(id=ticket.creador_id).one()
         db.add(TicketVikunjaSync(ticket_id=ticket.id, estado="sincronizado", vikunja_task_id=999))
         db.commit()
-        adjunto = _make_adjunto(db, ticket, creador)
+        _make_adjunto(db, ticket, creador)
         db.commit()
 
         fake_client = AsyncMock()
 
         with _patch_background_db(db), patch.object(vikunja_sync_service, "_client", return_value=fake_client):
-            asyncio.run(push_attachment(ticket.id, adjunto.id))
+            asyncio.run(push_attachment(ticket.id))
 
         fake_client.upload_attachment.assert_not_called()
         row = db.query(TicketVikunjaSync).filter_by(ticket_id=ticket.id).one()
@@ -551,3 +633,63 @@ class TestErrorStateBoundedRetry:
         assert stats["error_retried"] == 0
         row = db.query(TicketVikunjaSync).filter_by(ticket_id=ticket.id).one()
         assert row.estado == "error"
+
+
+class TestSecondAttachmentAfterFirstDrainDoesNotReupload:
+    """The exact regression the second review pass demanded: a ticket that
+    already drained one attachment must NOT re-upload it when a second
+    attachment arrives later and triggers another drain cycle. Dedup is by
+    asking Vikunja what it already has (`list_attachments`), not by a local
+    watermark — the second `list_attachments` call reflects A already being
+    on the task, exactly like the real API would report after the first
+    drain actually uploaded it."""
+
+    def test_second_attachment_drain_does_not_reupload_the_first(
+        self, db, rol, monkeypatch: pytest.MonkeyPatch, tmp_path
+    ) -> None:
+        _enable_flag(monkeypatch)
+        monkeypatch.setattr(settings, "TICKETS_UPLOADS_DIR", str(tmp_path))
+        ticket = _make_ticket(db, rol)
+        creador = db.query(Usuario).filter_by(id=ticket.creador_id).one()
+        db.add(
+            TicketVikunjaSync(ticket_id=ticket.id, estado="sincronizado", vikunja_task_id=42, adjuntos_pendientes=True)
+        )
+        db.commit()
+
+        upload_dir = tmp_path / str(ticket.id)
+        upload_dir.mkdir(parents=True, exist_ok=True)
+
+        adjunto_a = _make_adjunto(db, ticket, creador, nombre="a.png")
+        db.commit()
+        (upload_dir / adjunto_a.path_archivo.split("/")[-1]).write_bytes(b"a")
+
+        fake_client = AsyncMock()
+        fake_client.list_tasks.return_value = []
+        fake_client.list_attachments.return_value = []
+
+        # First drain cycle: uploads A (nothing on the task yet).
+        with _patch_background_db(db), patch.object(vikunja_sync_service, "_client", return_value=fake_client):
+            asyncio.run(run_vikunja_reconcile_cycle())
+
+        assert fake_client.upload_attachment.call_count == 1
+        row = db.query(TicketVikunjaSync).filter_by(ticket_id=ticket.id).one()
+        assert row.adjuntos_pendientes is False
+
+        # A second attachment arrives later and re-flags the ticket. Vikunja
+        # now reports A as already present (that is what the real API would
+        # say after the first drain's upload actually succeeded).
+        fake_client.list_attachments.return_value = [
+            {"id": 1, "file": {"name": "a.png", "size": adjunto_a.tamano_bytes}}
+        ]
+        adjunto_b = _make_adjunto(db, ticket, creador, nombre="b.png")
+        db.commit()
+        (upload_dir / adjunto_b.path_archivo.split("/")[-1]).write_bytes(b"b")
+
+        with _patch_background_db(db), patch.object(vikunja_sync_service, "_client", return_value=fake_client):
+            asyncio.run(push_attachment(ticket.id))
+            asyncio.run(run_vikunja_reconcile_cycle())
+
+        # Only B was uploaded this round — A must NOT be re-uploaded.
+        assert fake_client.upload_attachment.call_count == 2
+        uploaded_filenames = [call.kwargs["filename"] for call in fake_client.upload_attachment.call_args_list]
+        assert uploaded_filenames == ["a.png", "b.png"]

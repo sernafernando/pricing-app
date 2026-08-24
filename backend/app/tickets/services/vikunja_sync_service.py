@@ -59,10 +59,11 @@ uploaded immediately when the ticket was already `sincronizado`, which can
 race the loop's own drain of an EARLIER pending attachment on the same
 ticket and double-attach it, since `upload_attachment` is
 `idempotent=False`). The loop is the single writer for every attachment
-upload; it only clears the flag once every attachment on the ticket
-uploaded successfully in that pass (partial-failure retry re-attempts the
-whole batch — true per-attachment tracking needs a schema change, flagged
-for PR 3, not done here).
+upload, and it decides what still needs uploading by asking Vikunja itself
+(`list_attachments`) rather than trusting local state — see the
+"attachments" section header below for why a local flag/watermark was not
+enough. It only clears the pending flag once every local attachment for the
+ticket is confirmed present in Vikunja.
 
 `error` rows are bounded-retried by the loop too (up to
 `_MAX_ERROR_RETRY_INTENTOS`): the CAS claim already accepted `error` as a
@@ -74,6 +75,7 @@ retry and zero visibility.
 from __future__ import annotations
 
 import asyncio
+from collections import Counter
 import logging
 import os
 from datetime import UTC, datetime, timedelta
@@ -170,6 +172,19 @@ def _claim_ticket(ticket_id: int) -> Optional[Dict[str, Any]]:
 
         ticket = db.query(Ticket).filter(Ticket.id == ticket_id).first()
         if ticket is None:
+            # The claim already flipped the row to 'enviando'. Leaving it
+            # there would strand it until the 10-minute sweep reclaims it to
+            # 'ambiguo' and pesters a human about a ticket that simply does
+            # not exist. A vanished ticket is a clean, terminal error.
+            db.execute(
+                update(TicketVikunjaSync)
+                .where(TicketVikunjaSync.ticket_id == ticket_id)
+                .values(
+                    estado="error",
+                    intentos=_MAX_ERROR_RETRY_INTENTOS,
+                    ultimo_error="ticket no longer exists",
+                )
+            )
             return None
         return {"id": ticket.id, "titulo": ticket.titulo, "descripcion": ticket.descripcion}
 
@@ -379,6 +394,7 @@ def _load_ticket_adjuntos(ticket_id: int) -> List[Dict[str, Any]]:
                 "nombre_archivo": row.nombre_archivo,
                 "path_archivo": row.path_archivo,
                 "mime_type": row.mime_type,
+                "tamano_bytes": row.tamano_bytes,
             }
             for row in rows
         ]
@@ -419,7 +435,7 @@ async def _upload_one_attachment(vikunja_task_id: int, adjunto: Dict[str, Any], 
         return False
 
 
-async def push_attachment(ticket_id: int, adjunto_id: int) -> None:
+async def push_attachment(ticket_id: int) -> None:
     """Hook 2: schedule this after an attachment upload's own commit.
 
     ALWAYS defers via `adjuntos_pendientes` — it never uploads directly,
@@ -489,22 +505,47 @@ def _fetch_pending_attachment_tickets() -> List[Tuple[int, int]]:
 
 
 async def _drain_ticket_attachments(ticket_id: int, vikunja_task_id: int, client: VikunjaClient) -> None:
-    """Uploads every attachment currently on the ticket. Review finding
-    (PR 2): the flag is cleared ONLY if every single upload succeeded — if
-    Vikunja is down for the whole cycle, `adjuntos_pendientes` stays True
-    and the next 300s cycle retries the batch, instead of silently losing
-    the attachments the moment the flag was cleared unconditionally.
+    """Uploads the ticket's attachments that Vikunja does not already hold.
 
-    Residual risk (documented, not fixed here — would need a per-attachment
-    ledger column, i.e. a migration, which is out of scope for this PR): a
-    PARTIAL failure (2 of 3 uploads succeed) still retries the whole batch
-    next cycle, re-uploading the 2 that already succeeded. There is no
-    per-attachment tracking in `tickets_adjuntos` to avoid that without a
-    schema change — flagged for PR 3."""
+    Asking Vikunja what is already attached — instead of tracking it on our
+    side — is what makes a retry safe. `upload_attachment` is
+    `idempotent=False`: every call creates a NEW attachment record. So a
+    partial failure (2 of 3 uploads succeed) previously retried the whole
+    batch next cycle and attached those 2 a second time. The earlier
+    docstring called that residual risk unfixable "without a per-attachment
+    ledger column, i.e. a migration". It is fixable without one: the remote
+    list already IS the ledger, it is authoritative, and it self-corrects
+    anything a previous buggy pass got wrong.
+
+    Matching is by (filename, size) as a MULTISET, so a ticket carrying two
+    genuinely different files that happen to share a name still gets both.
+    """
+    adjuntos = _load_ticket_adjuntos(ticket_id)
+    if not adjuntos:
+        _clear_adjuntos_pendientes(ticket_id)
+        return
+
+    try:
+        remotos = await client.list_attachments(task_id=vikunja_task_id)
+    except (VikunjaPermanentError, VikunjaTransientError):
+        # Cannot tell what is already there, so uploading now could
+        # duplicate. Leave the flag set and let the next cycle decide.
+        return
+
+    ya_estan: Counter = Counter()
+    for remoto in remotos:
+        archivo = remoto.get("file") or {}
+        ya_estan[(archivo.get("name"), archivo.get("size"))] += 1
+
     all_succeeded = True
-    for adjunto in _load_ticket_adjuntos(ticket_id):
+    for adjunto in adjuntos:
+        clave = (adjunto["nombre_archivo"], adjunto["tamano_bytes"])
+        if ya_estan.get(clave, 0) > 0:
+            ya_estan[clave] -= 1
+            continue
         ok = await _upload_one_attachment(vikunja_task_id, adjunto, client)
         all_succeeded = all_succeeded and ok
+
     if all_succeeded:
         _clear_adjuntos_pendientes(ticket_id)
 

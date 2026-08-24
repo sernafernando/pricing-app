@@ -1652,7 +1652,7 @@ async def subir_adjunto(
 
     # Vikunja sync (sdd/tickets-sync-vikunja PR 2): scheduled unconditionally
     # — same flag-first discipline as `push_ticket` above.
-    background_tasks.add_task(vikunja_sync_service.push_attachment, ticket_id, adjunto.id)
+    background_tasks.add_task(vikunja_sync_service.push_attachment, ticket_id)
 
     await sse_publish("tickets:changed", {"hint": "reload"})
 
