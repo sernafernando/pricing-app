@@ -86,6 +86,8 @@ from sqlalchemy.orm import Session
 
 from app.core.config import settings
 from app.core.database import get_background_db
+from app.models.notificacion import SeveridadNotificacion
+from app.services.notificacion_service import crear_notificaciones_para_permisos
 from app.services.vikunja_client import (
     VikunjaClient,
     VikunjaPermanentError,
@@ -216,7 +218,7 @@ def _mark_ambiguous(ticket_id: int) -> None:
         db.execute(update(TicketVikunjaSync).where(TicketVikunjaSync.ticket_id == ticket_id).values(estado="ambiguo"))
 
 
-def _flag_for_notification(ticket_id: int) -> None:
+def _flag_for_notification(ticket_id: int) -> bool:
     """Stays/goes `ambiguo`, and marks `notificado_at` (only if not already
     set, so repeated cycles do not spam notifications for the same row —
     the warning below only fires the FIRST time a row is flagged, not on
@@ -231,6 +233,34 @@ def _flag_for_notification(ticket_id: int) -> None:
     if newly_flagged:
         logger.warning(
             "vikunja sync: ticket %d needs manual review — ambiguous create could not be auto-resolved", ticket_id
+        )
+    return newly_flagged
+
+
+def _notificar_fallos_terminales(ticket_ids: List[int]) -> None:
+    """ONE notification per cycle, however many tickets failed.
+
+    Notifying per ticket would drop twenty rows into everyone's bell the
+    first time Vikunja is down for a whole cycle -- and a bell that cries
+    twenty times is a bell people learn to ignore. `notificado_at` alone
+    does not prevent that: it stops the SECOND cycle, not the first burst.
+
+    The channel is deliberately in-app (`notificaciones` -> NotificationBell),
+    NOT a task in Vikunja: telling Vikunja that Vikunja is unreachable is
+    circular and fails exactly when it matters.
+    """
+    if not ticket_ids:
+        return
+    ids = ", ".join(f"#{t}" for t in sorted(ticket_ids))
+    with get_background_db() as db:
+        crear_notificaciones_para_permisos(
+            db,
+            permisos_requeridos=["tickets.gestionar"],
+            tipo="tickets.vikunja_sync_error",
+            mensaje=(
+                f"{len(ticket_ids)} ticket(s) no se pudieron sincronizar con Vikunja y necesitan revisión manual: {ids}"
+            ),
+            severidad=SeveridadNotificacion.CRITICAL,
         )
 
 
@@ -640,9 +670,15 @@ async def run_vikunja_reconcile_cycle() -> Dict[str, int]:
         "drained": 0,
         "error_retried": 0,
         "orphaned_attachments": 0,
+        "notificados": 0,
     }
     if not settings.TICKETS_VIKUNJA_SYNC_ENABLED:
         return stats
+
+    # Tickets that crossed into "a human has to look at this" during THIS
+    # cycle. Collected, not notified one by one — see
+    # `_notificar_fallos_terminales`.
+    recien_marcados: List[int] = []
 
     stats["reclaimed"] = _reclaim_stale_enviando()
 
@@ -668,7 +704,8 @@ async def run_vikunja_reconcile_cycle() -> Dict[str, int]:
                     _mark_synced(ticket_id, matches[0]["id"])
                     stats["adopted"] += 1
                 else:
-                    _flag_for_notification(ticket_id)
+                    if _flag_for_notification(ticket_id):
+                        recien_marcados.append(ticket_id)
                     stats["still_ambiguous"] += 1
 
     pending_attachments = _fetch_pending_attachment_tickets()
@@ -683,5 +720,8 @@ async def run_vikunja_reconcile_cycle() -> Dict[str, int]:
                 stats["drained"] += 1
 
     stats["orphaned_attachments"] = _warn_about_orphaned_attachments()
+
+    _notificar_fallos_terminales(recien_marcados)
+    stats["notificados"] = len(recien_marcados)
 
     return stats

@@ -27,6 +27,7 @@ from app.tickets.models.historial_ticket import HistorialTicket
 from app.tickets.models.sector import Sector
 from app.tickets.models.ticket import Ticket, PrioridadTicket
 from app.tickets.models.tipo_ticket import TipoTicket
+from app.tickets.models.ticket_vikunja_sync import TicketVikunjaSync
 from app.tickets.models.workflow import EstadoTicket, Workflow
 from app.tickets.services import vikunja_sync_service
 from app.tickets.services.triage_service import LlmProvider, run_triage
@@ -49,6 +50,7 @@ from app.tickets.schemas.ticket_schemas import (
     TicketUpdate,
     TransicionRequest,
     UsuarioSimple,
+    VikunjaSyncEstado,
 )
 
 router = APIRouter()
@@ -847,6 +849,7 @@ def badge_count(
         con_actividad_nueva=con_actividad_nueva,
         sin_responder=sin_responder,
         sin_leer=sin_leer,
+        sync_vikunja_habilitado=settings.TICKETS_VIKUNJA_SYNC_ENABLED,
     )
 
 
@@ -1747,3 +1750,44 @@ async def eliminar_adjunto(
     db.commit()
 
     await sse_publish("tickets:changed", {"hint": "reload"})
+
+
+@router.get("/tickets/vikunja/estado", response_model=VikunjaSyncEstado)
+async def estado_sync_vikunja(
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(get_current_user),
+) -> VikunjaSyncEstado:
+    """Counts by sync state, plus the most recent error message.
+
+    A `fallido` row that nobody ever looks at is not visibility, which is why
+    a terminal failure ALSO raises an in-app notification (see
+    `vikunja_sync_service._notificar_fallos_terminales`). This endpoint is for
+    checking on it deliberately, not for finding out something broke.
+    """
+    _check_permiso(db, current_user, "tickets.gestionar")
+
+    filas = db.query(TicketVikunjaSync.estado, func.count(TicketVikunjaSync.id)).group_by(TicketVikunjaSync.estado)
+    por_estado = {estado: total for estado, total in filas}
+
+    adjuntos_pendientes = (
+        db.query(func.count(TicketVikunjaSync.id)).filter(TicketVikunjaSync.adjuntos_pendientes.is_(True)).scalar() or 0
+    )
+
+    ultimo = (
+        db.query(TicketVikunjaSync.ultimo_error)
+        .filter(TicketVikunjaSync.ultimo_error.isnot(None))
+        .order_by(TicketVikunjaSync.updated_at.desc())
+        .first()
+    )
+
+    return VikunjaSyncEstado(
+        habilitado=settings.TICKETS_VIKUNJA_SYNC_ENABLED,
+        sincronizados=por_estado.get("sincronizado", 0),
+        # 'enviando' is a transient claim, not a distinct thing an operator
+        # needs to act on, so it counts as pending rather than as its own bucket.
+        pendientes=por_estado.get("pendiente", 0) + por_estado.get("enviando", 0),
+        ambiguos=por_estado.get("ambiguo", 0),
+        con_error=por_estado.get("error", 0),
+        adjuntos_pendientes=adjuntos_pendientes,
+        ultimo_error=ultimo[0] if ultimo else None,
+    )

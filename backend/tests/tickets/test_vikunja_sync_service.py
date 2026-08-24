@@ -36,6 +36,8 @@ from unittest.mock import AsyncMock, patch
 import pytest
 
 from app.core.config import settings
+from app.core.security import create_access_token
+from app.models.permiso import Permiso, UsuarioPermisoOverride
 from app.models.rol import Rol
 from app.models.usuario import AuthProvider, RolUsuario, Usuario
 from app.services.vikunja_client import VikunjaPermanentError, VikunjaTransientError
@@ -175,6 +177,20 @@ def _instant_sleep():
         return None
 
     return _sleep
+
+
+def _dar_permiso(db, user, codigo: str) -> None:
+    permiso = db.query(Permiso).filter_by(codigo=codigo).first()
+    if permiso is None:
+        permiso = Permiso(codigo=codigo, nombre=codigo, categoria="tickets")
+        db.add(permiso)
+        db.flush()
+    db.add(UsuarioPermisoOverride(usuario_id=user.id, permiso_id=permiso.id, concedido=True))
+    db.commit()
+
+
+def _auth(user) -> dict:
+    return {"Authorization": f"Bearer {create_access_token(data={'sub': user.username})}"}
 
 
 class TestFlagOffNeverTouchesDb:
@@ -688,6 +704,66 @@ class TestAttachmentArrivingDuringDrainIsNotLost:
         assert row.adjuntos_pendientes is True, "the newcomer must keep the ticket flagged for the next cycle"
 
 
+class TestTerminalFailureNotifiesOncePerCycle:
+    """A terminal failure has to reach a person, not just a table -- but if
+    Vikunja is down, twenty tickets go ambiguous in the same cycle. Notifying
+    per ticket would put twenty rows in everyone's bell at once, which is how
+    people learn to ignore the bell.
+
+    `notificado_at` alone does not solve it: it stops the SECOND cycle, not
+    the first burst. So the cycle aggregates: one notification naming how
+    many, whoever is affected."""
+
+    def test_many_failures_produce_a_single_aggregated_notification(
+        self, db, rol, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        _enable_flag(monkeypatch)
+        tickets = [_make_ticket(db, rol) for _ in range(3)]
+        for t in tickets:
+            db.add(TicketVikunjaSync(ticket_id=t.id, estado="ambiguo"))
+        db.commit()
+
+        fake_client = AsyncMock()
+        # No task matches any marker, so all three stay ambiguous and flag.
+        fake_client.list_tasks.return_value = []
+
+        creadas = []
+
+        def _fake_notificar(session, **kwargs):
+            creadas.append(kwargs)
+            return []
+
+        with (
+            _patch_background_db(db),
+            patch.object(vikunja_sync_service, "_client", return_value=fake_client),
+            patch.object(vikunja_sync_service, "crear_notificaciones_para_permisos", _fake_notificar),
+        ):
+            asyncio.run(run_vikunja_reconcile_cycle())
+
+        assert len(creadas) == 1, "three failures must not mean three notifications"
+        assert "3" in creadas[0]["mensaje"], "the single notification must say how many failed"
+
+    def test_no_failures_means_no_notification(self, db, rol, monkeypatch: pytest.MonkeyPatch) -> None:
+        _enable_flag(monkeypatch)
+        fake_client = AsyncMock()
+        fake_client.list_tasks.return_value = []
+
+        creadas = []
+
+        def _fake_notificar(session, **kwargs):
+            creadas.append(kwargs)
+            return []
+
+        with (
+            _patch_background_db(db),
+            patch.object(vikunja_sync_service, "_client", return_value=fake_client),
+            patch.object(vikunja_sync_service, "crear_notificaciones_para_permisos", _fake_notificar),
+        ):
+            asyncio.run(run_vikunja_reconcile_cycle())
+
+        assert creadas == []
+
+
 class TestPendienteIsNotAnOrphanState:
     """`pendiente` must be swept by the loop, or rows land there and are
     never touched again. Two real paths get you there:
@@ -786,3 +862,51 @@ class TestSecondAttachmentAfterFirstDrainDoesNotReupload:
         assert fake_client.upload_attachment.call_count == 2
         uploaded_filenames = [call.kwargs["filename"] for call in fake_client.upload_attachment.call_args_list]
         assert uploaded_filenames == ["a.png", "b.png"]
+
+
+class TestEstadoSyncVikunjaEndpoint:
+    """`GET /tickets/vikunja/estado` — the deliberate check-on-it surface.
+    A terminal failure ALSO raises an in-app notification, because a table
+    nobody opens is not visibility."""
+
+    def test_requires_tickets_gestionar(self, db, rol, client) -> None:
+        """Ticket access is not enough: this exposes operational state across
+        every ticket, not only the ones this user can see."""
+        usuario = _make_usuario(db, rol)
+        _dar_permiso(db, usuario, "tickets.ver")
+
+        resp = client.get("/api/tickets/tickets/vikunja/estado", headers=_auth(usuario))
+
+        assert resp.status_code == 403
+
+    def test_reports_counts_and_the_flag(self, db, rol, client, monkeypatch: pytest.MonkeyPatch) -> None:
+        usuario = _make_usuario(db, rol)
+        _dar_permiso(db, usuario, "tickets.gestionar")
+        _enable_flag(monkeypatch)
+
+        t1, t2, t3 = _make_ticket(db, rol), _make_ticket(db, rol), _make_ticket(db, rol)
+        db.add(TicketVikunjaSync(ticket_id=t1.id, estado="sincronizado", vikunja_task_id=1))
+        db.add(TicketVikunjaSync(ticket_id=t2.id, estado="ambiguo"))
+        db.add(TicketVikunjaSync(ticket_id=t3.id, estado="error", ultimo_error="token vencido"))
+        db.commit()
+
+        resp = client.get("/api/tickets/tickets/vikunja/estado", headers=_auth(usuario))
+
+        assert resp.status_code == 200
+        cuerpo = resp.json()
+        assert cuerpo["habilitado"] is True
+        assert cuerpo["sincronizados"] == 1
+        assert cuerpo["ambiguos"] == 1
+        assert cuerpo["con_error"] == 1
+        assert cuerpo["ultimo_error"] == "token vencido"
+
+    def test_habilitado_follows_the_flag(self, db, rol, client, monkeypatch: pytest.MonkeyPatch) -> None:
+        """The frontend gates the badge on this field, so it must report the
+        flag rather than assume it."""
+        usuario = _make_usuario(db, rol)
+        _dar_permiso(db, usuario, "tickets.gestionar")
+        monkeypatch.setattr(settings, "TICKETS_VIKUNJA_SYNC_ENABLED", False)
+
+        resp = client.get("/api/tickets/tickets/vikunja/estado", headers=_auth(usuario))
+
+        assert resp.json()["habilitado"] is False
