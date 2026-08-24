@@ -165,6 +165,11 @@ from app.models.cc_proveedor_movimiento import CCProveedorMovimiento
 from app.models.cc_reconciliacion_log import CCReconciliacionLog
 from app.models.compras_papelera import ComprasPapelera
 from app.models.compra_adjunto import CompraAdjunto
+from app.models.tn_image_normalizer import (
+    TnImageArtifact,
+    TnImageNormalizationItem,
+    TnImageNormalizationRun,
+)
 
 # Compras v2 — NCs locales
 from app.models.nota_credito_local import NotaCreditoLocal
@@ -397,4 +402,7 @@ __all__ = [
     "MlItemRelation",
     "MLCatalogCompetition",
     "MlPxqTier",
+    "TnImageNormalizationRun",
+    "TnImageArtifact",
+    "TnImageNormalizationItem",
 ]
