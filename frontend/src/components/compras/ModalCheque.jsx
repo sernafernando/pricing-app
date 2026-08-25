@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react';
 import {
   X,
   ChevronDown,
+  Plus,
   Info,
   Clock,
   Loader2,
@@ -10,6 +11,7 @@ import {
 import api from '../../services/api';
 import useCheques from '../../hooks/useCheques';
 import ProveedorComprasAutocomplete from './ProveedorComprasAutocomplete';
+import FormChequera from './_shared/FormChequera';
 import styles from './ModalCheque.module.css';
 
 /**
@@ -118,6 +120,9 @@ export default function ModalCheque({
   // ── Chequeras ──
   const [chequeras, setChequeras] = useState([]);
   const [loadingChequeras, setLoadingChequeras] = useState(false);
+  // Atajo de alta: el ABM vive en TabCheques, pero quedarse sin talonario en
+  // medio de la emisión no puede obligar a cerrar el modal y perder la carga.
+  const [creandoChequera, setCreandoChequera] = useState(false);
 
   const fetchChequeras = useCallback(
     async (bancoEmpresaId) => {
@@ -172,6 +177,7 @@ export default function ModalCheque({
     setBancoEmpresaId('');
     setChequeraId('');
     setChequeras([]);
+    setCreandoChequera(false);
     // reset tercero
     setBancoNombre('');
     setCuitLibrador('');
@@ -188,8 +194,17 @@ export default function ModalCheque({
     setChequeraId('');
     setNumero('');
     setChequeras([]);
+    setCreandoChequera(false);
     if (bancoEmpresaId) fetchChequeras(bancoEmpresaId);
   }, [bancoEmpresaId, fetchChequeras]);
+
+  // Al crear una chequera desde el atajo, la dejamos ya elegida: el useEffect de
+  // `chequeraId` autocompleta el próximo número y el usuario sigue de largo.
+  const handleChequeraCreada = async (chequera) => {
+    setCreandoChequera(false);
+    await fetchChequeras(bancoEmpresaId);
+    if (chequera?.id != null) setChequeraId(String(chequera.id));
+  };
 
   // Cuando se elige chequera, auto-llenar el próximo número.
   useEffect(() => {
@@ -377,6 +392,9 @@ export default function ModalCheque({
                   onClick={() => {
                     setInstrumento('echeq');
                     setNumero(''); // e-cheq requires manual bank number — clear any autocomplete.
+                    // El atajo de alta sólo se renderiza en propio+físico: sin esto
+                    // el form reaparecía abierto al volver a físico.
+                    setCreandoChequera(false);
                   }}
                 >
                   e-cheq
@@ -520,9 +538,24 @@ export default function ModalCheque({
             {tipo === 'propio' && instrumento === 'fisico' && (
               <div className={styles.grid2}>
                 <div className={styles.fieldGroup}>
-                  <label className={styles.fieldLabel} htmlFor="cheque-chequera">
-                    Chequera
-                  </label>
+                  <div className={styles.labelRow}>
+                    <label className={styles.fieldLabel} htmlFor="cheque-chequera">
+                      Chequera
+                    </label>
+                    <button
+                      type="button"
+                      className={styles.btnInlineAdd}
+                      onClick={() => setCreandoChequera((v) => !v)}
+                      disabled={!bancoEmpresaId || isSaving}
+                      title={
+                        bancoEmpresaId
+                          ? 'Crear una chequera para este banco'
+                          : 'Elegí primero el banco'
+                      }
+                    >
+                      <Plus size={12} /> Nueva
+                    </button>
+                  </div>
                   {loadingChequeras ? (
                     <div className={styles.loadingRow}>
                       <Loader2 size={14} className={styles.spin} />
@@ -568,6 +601,18 @@ export default function ModalCheque({
                   />
                   <p className={styles.fieldHint}>Número real impreso en el talón</p>
                 </div>
+
+                {creandoChequera && (
+                  <div className={styles.colSpan2}>
+                    <FormChequera
+                      bancoEmpresaId={bancoEmpresaId}
+                      instrumento="fisico"
+                      onCreada={handleChequeraCreada}
+                      onCancel={() => setCreandoChequera(false)}
+                      disabled={isSaving}
+                    />
+                  </div>
+                )}
               </div>
             )}
 

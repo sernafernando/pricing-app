@@ -41,6 +41,38 @@ class ChequeraCreate(BaseModel):
     )
 
 
+class ChequeraUpdate(BaseModel):
+    """Payload para editar una chequera existente.
+
+    Sólo se expone lo que se puede cambiar sin romper la historia:
+
+      - `banco_empresa_id` e `instrumento` NO son editables: definen la
+        identidad del talonario y los cheques ya emitidos cuelgan de ella.
+      - `numero_desde` tampoco: mover el arranque de un talonario del que ya
+        se emitieron cheques deja números fuera de su propio rango.
+
+    `numero_hasta` y `proximo_numero` sí se corrigen (un talonario mal cargado,
+    o saltear cheques rotos/anulados), pero el service valida que el resultado
+    no contradiga lo ya emitido.
+
+    Todos los campos son opcionales: se aplica sólo lo enviado (PATCH real).
+    Un body vacío es un 422, no un no-op silencioso.
+    """
+
+    descripcion: Optional[str] = Field(default=None, max_length=120)
+    numero_hasta: Optional[int] = Field(default=None, ge=0)
+    proximo_numero: Optional[int] = Field(default=None, ge=0)
+    activa: Optional[bool] = None
+
+    @model_validator(mode="after")
+    def al_menos_un_campo(self) -> "ChequeraUpdate":
+        if all(getattr(self, campo) is None for campo in ("descripcion", "numero_hasta", "proximo_numero", "activa")):
+            raise ValueError("Enviá al menos un campo a modificar.")
+        return self
+
+    model_config = ConfigDict(json_schema_extra={"example": {"descripcion": "Talonario viejo", "activa": False}})
+
+
 class ChequeraResponse(BaseModel):
     """Respuesta de chequera."""
 

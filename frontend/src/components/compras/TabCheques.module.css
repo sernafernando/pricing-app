@@ -588,3 +588,28 @@
 .rowVencido {
   background: color-mix(in srgb, var(--error) 4%, transparent);
 }
+
+/* ── Acciones de toolbar (Chequeras + Cargar cheque) ──────── */
+.toolbarActions {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-sm);
+}
+
+.btnChequeras {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--spacing-xs);
+  padding: 8px var(--spacing-md);
+  border: 1px solid var(--cf-border-default);
+  background: none;
+  color: var(--cf-text-primary);
+  border-radius: var(--radius-lg);
+  font-size: var(--font-sm);
+  cursor: pointer;
+  transition: background var(--duration-150);
+}
+
+.btnChequeras:hover {
+  background: var(--cf-bg-hover);
+}

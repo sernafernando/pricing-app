@@ -10,6 +10,7 @@ import api from '../services/api';
  * Endpoints:
  *   GET  /administracion/cheques/chequeras?banco_empresa_id=
  *   POST /administracion/cheques/chequeras
+ *   PATCH /administracion/cheques/chequeras/{id}
  *   GET  /administracion/cheques/cheques  (filtros paginados)
  *   POST /administracion/cheques/cheques/propio
  *   POST /administracion/cheques/cheques/{id}/anular
@@ -65,6 +66,19 @@ export default function useCheques() {
     (payload) =>
       wrap(async () => {
         const { data } = await api.post('/administracion/cheques/chequeras', payload);
+        return data;
+      }),
+    [wrap],
+  );
+
+  /** Editar chequera (PATCH parcial: sólo lo enviado). */
+  const actualizarChequera = useCallback(
+    (chequeraId, payload) =>
+      wrap(async () => {
+        const { data } = await api.patch(
+          `/administracion/cheques/chequeras/${chequeraId}`,
+          payload,
+        );
         return data;
       }),
     [wrap],
@@ -207,6 +221,7 @@ export default function useCheques() {
     listar,
     listarChequeras,
     crearChequera,
+    actualizarChequera,
     emitirPropio,
     recibirTercero,
     anular,

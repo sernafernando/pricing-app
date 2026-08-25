@@ -15,11 +15,13 @@ import {
   Landmark,
   ArrowDownCircle,
   BarChart3,
+  BookOpen,
 } from 'lucide-react';
 import api from '../../services/api';
 import { usePermisos } from '../../contexts/PermisosContext';
 import useCheques from '../../hooks/useCheques';
 import ModalCheque from './ModalCheque';
+import ModalChequeras from './ModalChequeras';
 import styles from './TabCheques.module.css';
 
 /**
@@ -118,6 +120,9 @@ export default function TabCheques() {
 
   // ── Modal emitir ──
   const [showModalEmitir, setShowModalEmitir] = useState(false);
+
+  // ── Modal chequeras (ABM) ──
+  const [showModalChequeras, setShowModalChequeras] = useState(false);
 
   // ── Modal anular ──
   const [anulando, setAnulando] = useState(null); // cheque a anular
@@ -394,14 +399,24 @@ export default function TabCheques() {
           </button>
         </div>
 
-        <button
-          type="button"
-          className={styles.btnPrimary}
-          onClick={() => setShowModalEmitir(true)}
-        >
-          <Plus size={14} />
-          Cargar cheque
-        </button>
+        <div className={styles.toolbarActions}>
+          <button
+            type="button"
+            className={styles.btnChequeras}
+            onClick={() => setShowModalChequeras(true)}
+          >
+            <BookOpen size={14} />
+            Chequeras
+          </button>
+          <button
+            type="button"
+            className={styles.btnPrimary}
+            onClick={() => setShowModalEmitir(true)}
+          >
+            <Plus size={14} />
+            Cargar cheque
+          </button>
+        </div>
       </div>
 
       {/* Filters — Propios */}
@@ -891,6 +906,11 @@ export default function TabCheques() {
             if (recargar) fetchCheques();
           }}
         />
+      )}
+
+      {/* Modal chequeras (ABM) */}
+      {showModalChequeras && (
+        <ModalChequeras onClose={() => setShowModalChequeras(false)} />
       )}
 
       {/* Modal anular */}

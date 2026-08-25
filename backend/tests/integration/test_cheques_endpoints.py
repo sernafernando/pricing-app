@@ -252,6 +252,32 @@ class TestChequeraService:
         db.refresh(chequera)
         assert chequera.proximo_numero == numero_inicial + 1
 
+    def test_emitir_contra_chequera_desactivada_falla(self, db, chequera, active_user):
+        """Sin esto `activa` sería decorativa: desactivar no impediría emitir."""
+        from fastapi import HTTPException
+
+        from app.services.cheques_service import emitir_cheque_propio
+
+        chequera.activa = False
+        db.flush()
+
+        with pytest.raises(HTTPException) as exc:
+            emitir_cheque_propio(
+                db,
+                tipo="propio",
+                instrumento="fisico",
+                numero="00000007",
+                monto=Decimal("1000.00"),
+                moneda="ARS",
+                fecha_emision=date.today(),
+                fecha_pago=date.today(),
+                banco_empresa_id=chequera.banco_empresa_id,
+                chequera_id=chequera.id,
+                usuario_id=active_user.id,
+            )
+        assert exc.value.status_code == 422
+        assert "desactivada" in str(exc.value.detail)
+
     def test_unicidad_numero_en_misma_chequera(self, db, chequera, active_user):
         from sqlalchemy.exc import IntegrityError
 
@@ -288,6 +314,202 @@ class TestChequeraService:
             )
             db.flush()
         db.rollback()
+
+
+# ──────────────────────────────────────────────────────────────────────────
+# Service unit tests — actualizar_chequera
+# ──────────────────────────────────────────────────────────────────────────
+
+
+class TestActualizarChequera:
+    def test_edita_solo_lo_enviado(self, db, chequera, active_user):
+        from app.services.cheques_service import actualizar_chequera
+
+        hasta_original = chequera.numero_hasta
+        actualizar_chequera(db, chequera_id=chequera.id, descripcion="Talonario viejo")
+        db.flush()
+        db.refresh(chequera)
+
+        assert chequera.descripcion == "Talonario viejo"
+        # PATCH real: lo no enviado queda intacto.
+        assert chequera.numero_hasta == hasta_original
+        assert chequera.activa is True
+
+    def test_desactivar_no_toca_los_cheques_emitidos(self, db, chequera, active_user):
+        from app.models.cheque import Cheque
+        from app.services.cheques_service import actualizar_chequera, emitir_cheque_propio
+
+        emitir_cheque_propio(
+            db,
+            tipo="propio",
+            instrumento="fisico",
+            numero="00000001",
+            monto=Decimal("1000.00"),
+            moneda="ARS",
+            fecha_emision=date.today(),
+            fecha_pago=date.today(),
+            banco_empresa_id=chequera.banco_empresa_id,
+            chequera_id=chequera.id,
+            usuario_id=active_user.id,
+        )
+        db.flush()
+
+        actualizar_chequera(db, chequera_id=chequera.id, activa=False)
+        db.flush()
+        db.refresh(chequera)
+
+        assert chequera.activa is False
+        emitidos = db.query(Cheque).filter(Cheque.chequera_id == chequera.id).all()
+        assert len(emitidos) == 1
+        assert emitidos[0].estado == "emitido"
+
+    def test_descripcion_vacia_la_borra(self, db, chequera):
+        """El front manda "" para limpiar: null sería indistinguible de ausente."""
+        from app.services.cheques_service import actualizar_chequera
+
+        actualizar_chequera(db, chequera_id=chequera.id, descripcion="")
+        db.flush()
+        db.refresh(chequera)
+        assert chequera.descripcion is None
+
+    def test_chequera_inexistente_404(self, db):
+        from fastapi import HTTPException
+
+        from app.services.cheques_service import actualizar_chequera
+
+        with pytest.raises(HTTPException) as exc:
+            actualizar_chequera(db, chequera_id=999999, activa=False)
+        assert exc.value.status_code == 404
+
+    def test_numero_hasta_menor_que_desde_falla(self, db, chequera):
+        from fastapi import HTTPException
+
+        from app.services.cheques_service import actualizar_chequera
+
+        with pytest.raises(HTTPException) as exc:
+            actualizar_chequera(db, chequera_id=chequera.id, numero_hasta=0)
+        assert exc.value.status_code == 422
+        assert "numero_desde" in str(exc.value.detail)
+
+    def test_no_puede_dejar_un_cheque_emitido_fuera_del_rango(self, db, chequera, active_user):
+        from fastapi import HTTPException
+
+        from app.services.cheques_service import actualizar_chequera, emitir_cheque_propio
+
+        emitir_cheque_propio(
+            db,
+            tipo="propio",
+            instrumento="fisico",
+            numero="00000050",
+            monto=Decimal("1000.00"),
+            moneda="ARS",
+            fecha_emision=date.today(),
+            fecha_pago=date.today(),
+            banco_empresa_id=chequera.banco_empresa_id,
+            chequera_id=chequera.id,
+            usuario_id=active_user.id,
+        )
+        db.flush()
+
+        with pytest.raises(HTTPException) as exc:
+            actualizar_chequera(db, chequera_id=chequera.id, numero_hasta=40)
+        assert exc.value.status_code == 422
+        assert "ya fue emitido" in str(exc.value.detail)
+
+    def test_bajar_solo_numero_hasta_no_puede_dejar_afuera_al_proximo(self, db, chequera):
+        """La UI arma el payload por diff, así que un PATCH de un solo campo llega."""
+        from fastapi import HTTPException
+
+        from app.services.cheques_service import actualizar_chequera
+
+        chequera.proximo_numero = 80
+        db.flush()
+
+        with pytest.raises(HTTPException) as exc:
+            actualizar_chequera(db, chequera_id=chequera.id, numero_hasta=40)
+        assert exc.value.status_code == 422
+        assert "quedaría fuera del talonario" in str(exc.value.detail)
+
+    def test_bajar_numero_hasta_con_proximo_adentro_es_valido(self, db, chequera):
+        from app.services.cheques_service import actualizar_chequera
+
+        chequera.proximo_numero = 20
+        db.flush()
+
+        actualizar_chequera(db, chequera_id=chequera.id, numero_hasta=40)
+        db.flush()
+        db.refresh(chequera)
+        assert chequera.numero_hasta == 40
+        assert chequera.proximo_numero == 20
+
+    def test_proximo_numero_no_puede_pisar_uno_ya_emitido(self, db, chequera, active_user):
+        """Dos cheques con el mismo número es un problema con el banco."""
+        from fastapi import HTTPException
+
+        from app.services.cheques_service import actualizar_chequera, emitir_cheque_propio
+
+        emitir_cheque_propio(
+            db,
+            tipo="propio",
+            instrumento="fisico",
+            numero="00000010",
+            monto=Decimal("1000.00"),
+            moneda="ARS",
+            fecha_emision=date.today(),
+            fecha_pago=date.today(),
+            banco_empresa_id=chequera.banco_empresa_id,
+            chequera_id=chequera.id,
+            usuario_id=active_user.id,
+        )
+        db.flush()
+
+        with pytest.raises(HTTPException) as exc:
+            actualizar_chequera(db, chequera_id=chequera.id, proximo_numero_nuevo=10)
+        assert exc.value.status_code == 422
+        assert "ya fue emitido" in str(exc.value.detail)
+
+    def test_proximo_numero_fuera_del_talonario_falla(self, db, chequera):
+        from fastapi import HTTPException
+
+        from app.services.cheques_service import actualizar_chequera
+
+        with pytest.raises(HTTPException) as exc:
+            actualizar_chequera(db, chequera_id=chequera.id, proximo_numero_nuevo=500)
+        assert exc.value.status_code == 422
+        assert "fuera del talonario" in str(exc.value.detail)
+
+    def test_saltear_cheques_rotos_es_valido(self, db, chequera):
+        """El caso de uso real: se arruinaron los talones 1 a 4."""
+        from app.services.cheques_service import actualizar_chequera
+
+        actualizar_chequera(db, chequera_id=chequera.id, proximo_numero_nuevo=5)
+        db.flush()
+        db.refresh(chequera)
+        assert chequera.proximo_numero == 5
+
+    def test_reactivar_vuelve_a_admitir_cheques(self, db, chequera, active_user):
+        from app.services.cheques_service import actualizar_chequera, emitir_cheque_propio
+
+        actualizar_chequera(db, chequera_id=chequera.id, activa=False)
+        db.flush()
+        actualizar_chequera(db, chequera_id=chequera.id, activa=True)
+        db.flush()
+
+        cheque = emitir_cheque_propio(
+            db,
+            tipo="propio",
+            instrumento="fisico",
+            numero="00000002",
+            monto=Decimal("1000.00"),
+            moneda="ARS",
+            fecha_emision=date.today(),
+            fecha_pago=date.today(),
+            banco_empresa_id=chequera.banco_empresa_id,
+            chequera_id=chequera.id,
+            usuario_id=active_user.id,
+        )
+        db.flush()
+        assert cheque.id is not None
 
 
 # ──────────────────────────────────────────────────────────────────────────
@@ -564,6 +786,10 @@ class TestChequesEndpoints403:
         r = client.get(f"{BASE}/chequeras", headers=auth_headers)
         assert r.status_code == 403
 
+    def test_patch_chequera_403(self, client, auth_headers, sin_permiso_cheques):
+        r = client.patch(f"{BASE}/chequeras/1", json={"activa": False}, headers=auth_headers)
+        assert r.status_code == 403
+
     def test_post_cheque_propio_403(self, client, auth_headers, sin_permiso_cheques):
         r = client.post(f"{BASE}/cheques/propio", json={}, headers=auth_headers)
         assert r.status_code == 403
@@ -600,6 +826,26 @@ class TestChequesEndpoints200:
         data = r.json()
         assert data["proximo_numero"] == 1
         assert data["activa"] is True
+
+    def test_patch_chequera_200(self, client, auth_headers, chequera, _permiso_solo):
+        r = client.patch(
+            f"{BASE}/chequeras/{chequera.id}",
+            json={"descripcion": "Talonario agotado", "activa": False},
+            headers=auth_headers,
+        )
+        assert r.status_code == 200
+        data = r.json()
+        assert data["descripcion"] == "Talonario agotado"
+        assert data["activa"] is False
+
+    def test_patch_chequera_body_vacio_422(self, client, auth_headers, chequera, _permiso_solo):
+        """Un PATCH sin campos es un error, no un no-op silencioso."""
+        r = client.patch(f"{BASE}/chequeras/{chequera.id}", json={}, headers=auth_headers)
+        assert r.status_code == 422
+
+    def test_patch_chequera_inexistente_404(self, client, auth_headers, _permiso_solo):
+        r = client.patch(f"{BASE}/chequeras/999999", json={"activa": False}, headers=auth_headers)
+        assert r.status_code == 404
 
     def test_get_chequeras_200(self, client, auth_headers, chequera, _permiso_solo):
         r = client.get(f"{BASE}/chequeras", headers=auth_headers)
