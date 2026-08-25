@@ -337,6 +337,15 @@ class TicketBadgeCount(BaseModel):
     sin_leer: int = Field(
         0, description="Cross-cutting: comentario de otro usuario más reciente que mi última revisión"
     )
+    sync_vikunja_habilitado: bool = Field(
+        False,
+        description=(
+            "Si el sync a Vikunja está prendido, este contador deja de ser la verdad: "
+            "el triage pasa a hacerse allá y nada vuelve. El badge se oculta con esto. "
+            "Viaja acá y no en el endpoint de estado porque el badge lo ve cualquier "
+            "usuario logueado, mientras que aquel exige tickets.gestionar."
+        ),
+    )
 
 
 class TicketListPaginatedResponse(BaseModel):
@@ -469,3 +478,20 @@ class BoardResponse(BaseModel):
 
     agrupacion: str
     columnas: List[BoardColumnResponse]
+
+
+class VikunjaSyncEstado(BaseModel):
+    """Operational view of the Vikunja sync.
+
+    `habilitado` doubles as the frontend's feature gate: this repo has no
+    global feature-flag endpoint, and domain status endpoints carry their own
+    flag instead of inventing a second route just to expose one boolean.
+    """
+
+    habilitado: bool
+    sincronizados: int
+    pendientes: int
+    ambiguos: int
+    con_error: int
+    adjuntos_pendientes: int
+    ultimo_error: Optional[str] = None

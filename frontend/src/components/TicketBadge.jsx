@@ -113,6 +113,15 @@ export default function TicketBadge() {
 
   const pendientes = breakdown.pendientes;
 
+  // Once the Vikunja sync is on, this count stops being the truth: triage
+  // happens there and nothing syncs back, so the badge would keep showing
+  // pending work that was already handled. A number nobody can act on in
+  // this app is worse than no number — it advertises the panel we are
+  // retiring, and teaches people to ignore the badge.
+  // Absent field (older backend) keeps the badge, so this never hides it by
+  // accident.
+  if (breakdown.sync_vikunja_habilitado === true) return null;
+
   return (
     <div
       ref={wrapperRef}
