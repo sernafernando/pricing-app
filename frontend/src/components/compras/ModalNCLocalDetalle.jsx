@@ -524,7 +524,7 @@ export default function ModalNCLocalDetalle({ ncId, onClose }) {
                             </span>
                           </div>
                           <div className={styles.timelineMeta}>
-                            Usuario #{ev.usuario_id}
+                            {ev.usuario_nombre || `Usuario #${ev.usuario_id}`}
                           </div>
                           {ev.payload && Object.keys(ev.payload).length > 0 && (
                             <details className={styles.timelinePayloadDetails}>

@@ -45,7 +45,14 @@ class CompraEvento(Base):
     payload = Column(JSONB, nullable=True)
     created_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
 
-    usuario = relationship("Usuario")
+    usuario = relationship("Usuario", lazy="joined")
+
+    @property
+    def usuario_nombre(self) -> str | None:
+        """Nombre legible del autor del evento (None si el usuario no carga)."""
+        if self.usuario is None:
+            return None
+        return self.usuario.nombre or self.usuario.username
 
     __table_args__ = (
         CheckConstraint(
