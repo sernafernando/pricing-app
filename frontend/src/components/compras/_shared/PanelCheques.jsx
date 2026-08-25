@@ -19,8 +19,14 @@ import styles from './PanelCheques.module.css';
  *   proveedorId   (number|null) — id del proveedor; si es null no muestra el panel.
  *   empresaId     (number|null) — filtra bancos de empresa para el modal.
  *   opMoneda      (string)      — moneda de la OP; para mostrar equivalentes cross-moneda.
+ *   pedidos       (Array<{id, numero, moneda}>) — pedidos de la OP. Con más de uno,
+ *                 cada cheque pide destino explícito (mismo contrato que las NCs).
  *   onChange      ([cheques]) => void — notifica al padre los cheques acumulados.
  *   disabled      (bool)        — desactiva botones.
+ *
+ * Sobre `pedido_id`: con 0 o 1 pedido el destino es inequívoco y lo resuelven el
+ * caller y el backend. Con 2+ hay que preguntarlo — sin eso el cheque no descuenta
+ * de ningún ítem y el backend no sabe contra qué imputarlo.
  */
 
 const formatCurrency = (value, moneda = 'ARS') => {
@@ -52,9 +58,11 @@ export default function PanelCheques({
   proveedorId,
   empresaId,
   opMoneda,
+  pedidos = [],
   onChange,
   disabled = false,
 }) {
+  const requierePedido = pedidos.length > 1;
   const { listar, loading: loadingCartera } = useCheques();
 
   const [abierto, setAbierto] = useState(false);
@@ -117,6 +125,39 @@ export default function PanelCheques({
     },
     [chequesEmitidos, onChange],
   );
+
+  const handlePedidoDestino = useCallback(
+    (idx, value) => {
+      const next = chequesEmitidos.map((ch, i) =>
+        i === idx ? { ...ch, pedido_id: value === '' ? null : Number(value) } : ch,
+      );
+      setChequesEmitidos(next);
+      if (onChange) onChange(next);
+    },
+    [chequesEmitidos, onChange],
+  );
+
+  // Si el usuario saca de la OP un pedido ya elegido como destino, el cheque no
+  // puede quedar apuntando a un id que la OP no tiene.
+  const pedidoIdsDisponibles = pedidos.map((p) => String(p.id)).join(',');
+  useEffect(() => {
+    const validos = new Set(pedidoIdsDisponibles ? pedidoIdsDisponibles.split(',') : []);
+    let cambio = false;
+    const next = chequesEmitidos.map((ch) => {
+      if (ch.pedido_id != null && !validos.has(String(ch.pedido_id))) {
+        cambio = true;
+        return { ...ch, pedido_id: null };
+      }
+      return ch;
+    });
+    // Fuera de un updater de setState a propósito: los updaters corren en fase
+    // de render y deben ser puros. Notificar al padre desde adentro lo estaría
+    // actualizando durante el render de este componente, y StrictMode lo
+    // dispararía dos veces por la misma limpieza.
+    if (!cambio) return;
+    setChequesEmitidos(next);
+    if (onChange) onChange(next);
+  }, [pedidoIdsDisponibles, onChange, chequesEmitidos]);
 
   const handleQuitar = useCallback(
     (idx) => {
@@ -183,6 +224,29 @@ export default function PanelCheques({
                         )}
                       </span>
                     </div>
+                    {requierePedido && (
+                      <div className={styles.chequeDestino}>
+                        <select
+                          className={styles.selectDestino}
+                          value={ch.pedido_id != null ? String(ch.pedido_id) : ''}
+                          onChange={(e) => handlePedidoDestino(idx, e.target.value)}
+                          disabled={disabled}
+                          aria-label={`Pedido destino para cheque ${numero}`}
+                        >
+                          <option value="">Elegir pedido...</option>
+                          {pedidos.map((p) => (
+                            <option key={p.id} value={String(p.id)}>
+                              {p.numero ?? `#${p.id}`}
+                            </option>
+                          ))}
+                        </select>
+                        {ch.pedido_id == null && (
+                          <span className={styles.destinoError}>
+                            Elegí contra qué pedido se descuenta.
+                          </span>
+                        )}
+                      </div>
+                    )}
                     <button
                       type="button"
                       className={styles.btnQuitar}

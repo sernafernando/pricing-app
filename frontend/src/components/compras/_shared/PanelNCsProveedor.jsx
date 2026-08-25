@@ -18,9 +18,11 @@ import styles from './PanelNCsProveedor.module.css';
  *   - Mantiene estado interno de las NCs seleccionadas y notifica al padre
  *     vía `onChange(ncsSeleccionadas)` donde cada entrada es
  *     `{ nc_id, monto, pedido_id, tipo_cambio_override? }`.
- *   - `pedido_id` se deja en null aquí; el caller lo inyecta cuando tiene
- *     un único pedido en los items, o el backend lo resuelve con 422 si
- *     hace falta y el usuario no lo proveyó.
+ *   - `pedido_id` sale null cuando la OP tiene 0 o 1 pedido (el backend lo
+ *     infiere). Con 2+ pedidos el panel muestra una columna "Pedido" y el
+ *     usuario elige explícitamente contra cuál se descuenta cada NC: sin
+ *     esa elección el frontend no puede restarla de ningún ítem y el
+ *     backend responde 422 ("múltiples pedidos sin pedido_id").
  *
  * El panel NO filtra por moneda. Una NC es un medio de pago: viaja por la
  * cadena NC → OP → pedido, así que ninguna moneda la descalifica. Filtrar
@@ -30,6 +32,8 @@ import styles from './PanelNCsProveedor.module.css';
  *   proveedorId   (number|string)  — id del proveedor; si es falsy el panel no carga.
  *   opMoneda      (string)         — moneda de la OP; para mostrar TC cuando hay cross-moneda.
  *   mode          ("aplicar"|"seleccionar") — default "aplicar".
+ *   pedidos       (Array<{id, numero, moneda}>) — pedidos de la OP; sólo en
+ *                 mode="seleccionar". Con más de uno se pide destino por NC.
  *   onAplicar     (nc, monto) => Promise<void>  — sólo en mode="aplicar".
  *   onChange      (ncsSeleccionadas) => void    — sólo en mode="seleccionar".
  *   disabled      (bool)           — desactiva inputs/botones.
@@ -44,10 +48,14 @@ export default function PanelNCsProveedor({
   proveedorId,
   opMoneda,
   mode = 'aplicar',
+  pedidos = [],
   onAplicar,
   onChange,
   disabled = false,
 }) {
+  // Con un único pedido (o ninguno) el destino es inequívoco y lo resuelven
+  // el caller / el backend. Recién con 2+ hay que preguntar.
+  const requierePedido = mode === 'seleccionar' && pedidos.length > 1;
   const { listarDisponibles: listarNCs } = useNCsLocales();
 
   const [abierto, setAbierto] = useState(false);
@@ -60,7 +68,7 @@ export default function PanelNCsProveedor({
   // mode="aplicar": map nc.id → { loading, error }
   const [aplicando, setAplicando] = useState({});
 
-  // mode="seleccionar": map nc.id → { checked, monto }
+  // mode="seleccionar": map nc.id → { checked, monto, tcOverride, pedidoId }
   const [seleccion, setSeleccion] = useState({});
 
   const fetchNCs = useCallback(async () => {
@@ -137,7 +145,9 @@ export default function PanelNCsProveedor({
           const entry = {
             nc_id: Number(ncId),
             monto: parseFloat(v.monto),
-            pedido_id: null, // resolved by backend or caller
+            // Destino explícito cuando la OP tiene varios pedidos; null cuando
+            // hay uno solo (lo infieren el caller y el backend).
+            pedido_id: requierePedido && v.pedidoId ? Number(v.pedidoId) : null,
             // Include moneda and tipo_cambio so the parent can convert to OP currency.
             moneda: nc?.moneda,
             tipo_cambio: nc?.tipo_cambio,
@@ -150,11 +160,11 @@ export default function PanelNCsProveedor({
         });
       onChange(result);
     },
-    [onChange, ncsDisponibles],
+    [onChange, ncsDisponibles, requierePedido],
   );
 
   const handleToggle = (nc) => {
-    const cur = seleccion[nc.id] ?? { checked: false, monto: '', tcOverride: '' };
+    const cur = seleccion[nc.id] ?? { checked: false, monto: '', tcOverride: '', pedidoId: '' };
     // Default monto to nc.saldo_pendiente when checking.
     const defaultMonto = !cur.checked
       ? String(Number(nc.saldo_pendiente ?? nc.monto) || '')
@@ -168,18 +178,50 @@ export default function PanelNCsProveedor({
   };
 
   const handleMontoSeleccion = (nc, value) => {
-    const cur = seleccion[nc.id] ?? { checked: false, monto: '', tcOverride: '' };
+    const cur = seleccion[nc.id] ?? { checked: false, monto: '', tcOverride: '', pedidoId: '' };
     const next = { ...seleccion, [nc.id]: { ...cur, monto: value } };
     setSeleccion(next);
     notifyChange(next);
   };
 
   const handleTcOverride = (nc, value) => {
-    const cur = seleccion[nc.id] ?? { checked: false, monto: '', tcOverride: '' };
+    const cur = seleccion[nc.id] ?? { checked: false, monto: '', tcOverride: '', pedidoId: '' };
     const next = { ...seleccion, [nc.id]: { ...cur, tcOverride: value } };
     setSeleccion(next);
     notifyChange(next);
   };
+
+  const handlePedidoSeleccion = (nc, value) => {
+    const cur = seleccion[nc.id] ?? { checked: false, monto: '', tcOverride: '', pedidoId: '' };
+    const next = { ...seleccion, [nc.id]: { ...cur, pedidoId: value } };
+    setSeleccion(next);
+    notifyChange(next);
+  };
+
+  // Si el usuario saca de la OP un pedido ya elegido como destino, la selección
+  // queda apuntando a un id que no existe más: limpiarla acá evita mandar al
+  // backend un pedido_id ajeno a la OP.
+  const pedidoIdsDisponibles = pedidos.map((p) => String(p.id)).join(',');
+  useEffect(() => {
+    const validos = new Set(pedidoIdsDisponibles ? pedidoIdsDisponibles.split(',') : []);
+    let cambio = false;
+    const next = {};
+    for (const [ncId, v] of Object.entries(seleccion)) {
+      if (v.pedidoId && !validos.has(String(v.pedidoId))) {
+        next[ncId] = { ...v, pedidoId: '' };
+        cambio = true;
+      } else {
+        next[ncId] = v;
+      }
+    }
+    // `next` se calcula acá y no dentro de un updater de setState: los updaters
+    // corren en fase de render y deben ser puros, así que notificar al padre
+    // desde adentro lo actualizaría durante el render de este componente (y
+    // StrictMode lo dispararía dos veces por la misma limpieza).
+    if (!cambio) return;
+    setSeleccion(next);
+    notifyChange(next);
+  }, [pedidoIdsDisponibles, notifyChange, seleccion]);
 
   if (!proveedorId) return null;
 
@@ -223,6 +265,7 @@ export default function PanelNCsProveedor({
                     <th className={styles.thRight}>Saldo disponible</th>
                     <th>{mode === 'aplicar' ? 'Monto a aplicar' : 'Monto a descontar'}</th>
                     {mode === 'seleccionar' && <th>TC (opcional)</th>}
+                    {requierePedido && <th>Pedido</th>}
                     {mode === 'aplicar' && <th></th>}
                   </tr>
                 </thead>
@@ -276,7 +319,7 @@ export default function PanelNCsProveedor({
                     }
 
                     // mode="seleccionar"
-                    const sel = seleccion[nc.id] ?? { checked: false, monto: '', tcOverride: '' };
+                    const sel = seleccion[nc.id] ?? { checked: false, monto: '', tcOverride: '', pedidoId: '' };
                     // Show TC column when nc.moneda differs from opMoneda (cross-moneda NC).
                     const isCrossNC = opMoneda && nc.moneda !== opMoneda;
                     return (
@@ -325,6 +368,29 @@ export default function PanelNCsProveedor({
                             <span className={styles.tdSecondary}>—</span>
                           )}
                         </td>
+                        {requierePedido && (
+                          <td>
+                            <select
+                              className={styles.montoInput}
+                              value={sel.pedidoId}
+                              onChange={(e) => handlePedidoSeleccion(nc, e.target.value)}
+                              disabled={disabled || !sel.checked}
+                              aria-label={`Pedido destino para NC ${nc.numero}`}
+                            >
+                              <option value="">Elegir...</option>
+                              {pedidos.map((p) => (
+                                <option key={p.id} value={String(p.id)}>
+                                  {p.numero ?? `#${p.id}`}
+                                </option>
+                              ))}
+                            </select>
+                            {sel.checked && !sel.pedidoId && (
+                              <p className={styles.rowError}>
+                                Elegí contra qué pedido se descuenta.
+                              </p>
+                            )}
+                          </td>
+                        )}
                       </tr>
                     );
                   })}

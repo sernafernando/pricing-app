@@ -354,3 +354,22 @@
   color: var(--cf-accent-blue);
   font-weight: var(--font-semibold);
 }
+
+/* ── Destino del cheque (OPs con varios pedidos) ──────────── */
+.chequeDestino {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  flex-shrink: 0;
+}
+
+/* Fila densa: variante Sm del primitivo, no un control hecho a mano. */
+.selectDestino {
+  composes: select selectSm from '../../../styles/forms-tesla.css';
+  width: auto;
+}
+
+.destinoError {
+  font-size: 10px;
+  color: var(--cf-accent-red);
+}
