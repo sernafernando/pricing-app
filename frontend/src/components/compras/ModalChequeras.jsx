@@ -1,25 +1,11 @@
 import { useCallback, useEffect, useState } from 'react';
-import { X, ChevronDown, Loader2, Plus, BookOpen } from 'lucide-react';
+import { X, ChevronDown, Loader2, Plus, BookOpen, Pencil, Power, Check } from 'lucide-react';
 import api from '../../services/api';
 import useCheques from '../../hooks/useCheques';
 import FormChequera from './_shared/FormChequera';
 import EmptyState from './_shared/EmptyState';
 import styles from './ModalChequeras.module.css';
 
-/**
- * ModalChequeras — administración de chequeras (talonarios) por banco propio.
- *
- * Hoy el backend expone GET y POST de chequeras, y nada más: no hay endpoint
- * para editar ni desactivar. Por eso esta pantalla es "listar + crear" y no
- * ofrece acciones por fila — mostrar un botón que no puede funcionar sería
- * peor que no mostrarlo.
- *
- * RULE: NO cierra con click en overlay (AGENTS.md: solo X o Cerrar).
- *
- * Props:
- *   onClose    () => void
- *   empresaId  (number|null) — pre-selecciona la empresa; si falta se elige acá.
- */
 /** Tope del endpoint de chequeras (`Query(50, ge=1, le=200)`). */
 const PAGE_SIZE_MAX = 200;
 
@@ -28,8 +14,202 @@ const formatRango = (c) => {
   return `${String(c.numero_desde).padStart(8, '0')}–${String(c.numero_hasta).padStart(8, '0')}`;
 };
 
+/**
+ * Una fila de la tabla. En modo edición muestra los campos que el backend deja
+ * cambiar: descripción, numero_hasta y proximo_numero. El banco, el instrumento
+ * y numero_desde no se editan — definen la identidad del talonario y los cheques
+ * emitidos cuelgan de ella (ver `ChequeraUpdate` en el backend).
+ */
+function FilaChequera({ chequera, onGuardar, onToggleActiva, guardando }) {
+  const [editando, setEditando] = useState(false);
+  const [descripcion, setDescripcion] = useState(chequera.descripcion ?? '');
+  const [numeroHasta, setNumeroHasta] = useState(
+    chequera.numero_hasta != null ? String(chequera.numero_hasta) : '',
+  );
+  const [proximoNumero, setProximoNumero] = useState(
+    chequera.proximo_numero != null ? String(chequera.proximo_numero) : '',
+  );
+  const [errorFila, setErrorFila] = useState(null);
+
+  const cancelar = () => {
+    setDescripcion(chequera.descripcion ?? '');
+    setNumeroHasta(chequera.numero_hasta != null ? String(chequera.numero_hasta) : '');
+    setProximoNumero(chequera.proximo_numero != null ? String(chequera.proximo_numero) : '');
+    setErrorFila(null);
+    setEditando(false);
+  };
+
+  const guardar = async () => {
+    // El backend no acepta null en los números: vaciarlos no es "dejarlos como
+    // estaban", es una edición que no se puede mandar. Avisarlo en vez de
+    // descartarla en silencio y cerrar la fila como si hubiera guardado.
+    if (numeroHasta === '' && chequera.numero_hasta != null) {
+      setErrorFila('El número hasta no puede quedar vacío.');
+      return;
+    }
+    if (proximoNumero === '' && chequera.proximo_numero != null) {
+      setErrorFila('El próximo número no puede quedar vacío.');
+      return;
+    }
+    setErrorFila(null);
+
+    // PATCH parcial de verdad: sólo viaja lo que el usuario cambió. Mandar todo
+    // haría que editar la descripción revalidara el rango sin necesidad.
+    const payload = {};
+    // Cadena vacía, NO null: Pydantic no distingue "no enviado" de "enviado en
+    // null", así que un null acá caía en el validador de body vacío y el usuario
+    // no podía borrar la descripción nunca. El service traduce '' → NULL.
+    if ((chequera.descripcion ?? '') !== descripcion) payload.descripcion = descripcion;
+    const hastaNum = numeroHasta === '' ? null : Number(numeroHasta);
+    if ((chequera.numero_hasta ?? null) !== hastaNum && hastaNum !== null) {
+      payload.numero_hasta = hastaNum;
+    }
+    const proximoNum = proximoNumero === '' ? null : Number(proximoNumero);
+    if ((chequera.proximo_numero ?? null) !== proximoNum && proximoNum !== null) {
+      payload.proximo_numero = proximoNum;
+    }
+    if (Object.keys(payload).length === 0) {
+      setEditando(false);
+      return;
+    }
+    const ok = await onGuardar(chequera.id, payload);
+    if (ok) setEditando(false);
+  };
+
+  if (!editando) {
+    return (
+      <tr>
+        <td>{chequera.descripcion || `Chequera ${chequera.id}`}</td>
+        <td>{chequera.instrumento === 'echeq' ? 'e-cheq' : 'Físico'}</td>
+        <td className={styles.tdMono}>{formatRango(chequera)}</td>
+        <td className={`${styles.tdRight} ${styles.tdMono}`}>
+          {chequera.proximo_numero != null
+            ? String(chequera.proximo_numero).padStart(8, '0')
+            : '—'}
+        </td>
+        <td>
+          <span className={chequera.activa ? styles.pillActiva : styles.pillInactiva}>
+            {chequera.activa ? 'Activa' : 'Inactiva'}
+          </span>
+        </td>
+        <td className={styles.tdAcciones}>
+          <button
+            type="button"
+            className={styles.btnFila}
+            onClick={() => setEditando(true)}
+            disabled={guardando}
+            aria-label={`Editar chequera ${chequera.descripcion || chequera.id}`}
+          >
+            <Pencil size={13} />
+          </button>
+          <button
+            type="button"
+            className={styles.btnFila}
+            onClick={() => onToggleActiva(chequera)}
+            disabled={guardando}
+            title={
+              chequera.activa
+                ? 'Desactivar: deja de admitir cheques nuevos'
+                : 'Reactivar'
+            }
+            aria-label={`${chequera.activa ? 'Desactivar' : 'Reactivar'} chequera ${chequera.descripcion || chequera.id}`}
+          >
+            <Power size={13} />
+          </button>
+        </td>
+      </tr>
+    );
+  }
+
+  return (
+    <tr>
+      <td>
+        <input
+          type="text"
+          maxLength={120}
+          className={styles.inputFila}
+          value={descripcion}
+          onChange={(e) => setDescripcion(e.target.value)}
+          disabled={guardando}
+          aria-label="Descripción"
+        />
+      </td>
+      <td>{chequera.instrumento === 'echeq' ? 'e-cheq' : 'Físico'}</td>
+      <td className={styles.tdMono}>
+        <input
+          type="number"
+          min="0"
+          step="1"
+          className={styles.inputFila}
+          value={numeroHasta}
+          onChange={(e) => setNumeroHasta(e.target.value)}
+          disabled={guardando}
+          aria-label="Número hasta"
+        />
+      </td>
+      <td className={styles.tdRight}>
+        <input
+          type="number"
+          min="0"
+          step="1"
+          className={styles.inputFila}
+          value={proximoNumero}
+          onChange={(e) => setProximoNumero(e.target.value)}
+          disabled={guardando}
+          aria-label="Próximo número"
+        />
+      </td>
+      <td>
+        <span className={chequera.activa ? styles.pillActiva : styles.pillInactiva}>
+          {chequera.activa ? 'Activa' : 'Inactiva'}
+        </span>
+      </td>
+      <td className={styles.tdAcciones}>
+        {errorFila && <span className={styles.errorFila}>{errorFila}</span>}
+        <button
+          type="button"
+          className={styles.btnFila}
+          onClick={guardar}
+          disabled={guardando}
+          aria-label="Guardar cambios"
+        >
+          {guardando ? <Loader2 size={13} className={styles.spin} /> : <Check size={13} />}
+        </button>
+        <button
+          type="button"
+          className={styles.btnFila}
+          onClick={cancelar}
+          disabled={guardando}
+          aria-label="Cancelar edición"
+        >
+          <X size={13} />
+        </button>
+      </td>
+    </tr>
+  );
+}
+
+/**
+ * ModalChequeras — administración de chequeras (talonarios) por banco propio.
+ *
+ * Listar, crear, editar y activar/desactivar talonarios de un banco propio.
+ *
+ * Lo que NO se edita (y no es un olvido): banco e instrumento definen la
+ * identidad del talonario y los cheques emitidos cuelgan de ella; numero_desde
+ * tampoco, porque moverlo deja cheques ya emitidos fuera de su propio rango.
+ * Ver `ChequeraUpdate` en el backend.
+ *
+ * Desactivar no borra nada: los cheques emitidos siguen igual, pero la chequera
+ * deja de admitir nuevos (`emitir_cheque_propio` la rechaza con 422).
+ *
+ * RULE: NO cierra con click en overlay (AGENTS.md: solo X o Cerrar).
+ *
+ * Props:
+ *   onClose    () => void
+ *   empresaId  (number|null) — pre-selecciona la empresa; si falta se elige acá.
+ */
 export default function ModalChequeras({ onClose, empresaId = null }) {
-  const { listarChequeras } = useCheques();
+  const { listarChequeras, actualizarChequera } = useCheques();
 
   const [empresas, setEmpresas] = useState([]);
   const [empresaSel, setEmpresaSel] = useState(empresaId ? String(empresaId) : '');
@@ -44,6 +224,7 @@ export default function ModalChequeras({ onClose, empresaId = null }) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
   const [mostrarForm, setMostrarForm] = useState(false);
+  const [guardandoId, setGuardandoId] = useState(null);
 
   // Empresas (solo cuando no vino fijada por el caller).
   useEffect(() => {
@@ -113,6 +294,26 @@ export default function ModalChequeras({ onClose, empresaId = null }) {
     setMostrarForm(false);
     fetchChequeras();
   };
+
+  /** @returns {Promise<boolean>} true si el PATCH pasó — la fila cierra recién ahí. */
+  const handleGuardar = async (chequeraId, payload) => {
+    setGuardandoId(chequeraId);
+    setError(null);
+    try {
+      await actualizarChequera(chequeraId, payload);
+      await fetchChequeras();
+      return true;
+    } catch (err) {
+      const detail = err.response?.data?.detail;
+      setError(typeof detail === 'string' ? detail : 'Error al actualizar la chequera.');
+      return false;
+    } finally {
+      setGuardandoId(null);
+    }
+  };
+
+  const handleToggleActiva = (chequera) =>
+    handleGuardar(chequera.id, { activa: !chequera.activa });
 
   return (
     <div className={styles.overlay}>
@@ -211,32 +412,25 @@ export default function ModalChequeras({ onClose, empresaId = null }) {
                       <th>Rango</th>
                       <th className={styles.thRight}>Próximo</th>
                       <th>Estado</th>
+                      <th className={styles.thRight}>Acciones</th>
                     </tr>
                   </thead>
                   <tbody>
                     {chequeras.length === 0 ? (
                       <tr>
-                        <td colSpan={5} className={styles.tdEmpty}>
+                        <td colSpan={6} className={styles.tdEmpty}>
                           Este banco todavía no tiene chequeras.
                         </td>
                       </tr>
                     ) : (
                       chequeras.map((c) => (
-                        <tr key={c.id}>
-                          <td>{c.descripcion || `Chequera ${c.id}`}</td>
-                          <td>{c.instrumento === 'echeq' ? 'e-cheq' : 'Físico'}</td>
-                          <td className={styles.tdMono}>{formatRango(c)}</td>
-                          <td className={`${styles.tdRight} ${styles.tdMono}`}>
-                            {c.proximo_numero != null
-                              ? String(c.proximo_numero).padStart(8, '0')
-                              : '—'}
-                          </td>
-                          <td>
-                            <span className={c.activa ? styles.pillActiva : styles.pillInactiva}>
-                              {c.activa ? 'Activa' : 'Inactiva'}
-                            </span>
-                          </td>
-                        </tr>
+                        <FilaChequera
+                          key={c.id}
+                          chequera={c}
+                          onGuardar={handleGuardar}
+                          onToggleActiva={handleToggleActiva}
+                          guardando={guardandoId === c.id}
+                        />
                       ))
                     )}
                   </tbody>

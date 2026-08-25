@@ -159,6 +159,117 @@ def listar_chequeras(
     return q.order_by(Chequera.id).all()
 
 
+def actualizar_chequera(
+    db: Session,
+    *,
+    chequera_id: int,
+    descripcion: Optional[str] = None,
+    numero_hasta: Optional[int] = None,
+    proximo_numero_nuevo: Optional[int] = None,
+    activa: Optional[bool] = None,
+) -> Chequera:
+    """Edita una chequera existente. Sólo aplica los campos recibidos.
+
+    Reglas (ver `ChequeraUpdate` para qué NO es editable y por qué):
+
+      - `numero_hasta` no puede quedar por debajo de `numero_desde` ni por
+        debajo del cheque más alto ya emitido de esta chequera. Achicar el
+        rango por debajo de lo emitido dejaría cheques reales fuera de su
+        propio talonario.
+      - `proximo_numero` debe caer dentro del rango declarado y no puede
+        pisar un número ya emitido en esta chequera: dos cheques con el mismo
+        número es un problema con el banco, no un detalle de UI.
+      - Desactivar NO borra ni toca los cheques existentes; sólo impide
+        emitir nuevos (ver `emitir_cheque_propio`).
+
+    Raises:
+        HTTPException 404: chequera inexistente.
+        HTTPException 422: cualquier regla de arriba.
+    """
+    # FOR UPDATE, igual que `emitir_cheque_propio` al avanzar proximo_numero: sin
+    # el lock, una emisión concurrente avanza a 11 mientras esta transacción —que
+    # leyó el estado viejo— escribe proximo_numero=10, y el cheque siguiente sale
+    # con un número ya emitido.
+    chequera = db.execute(select(Chequera).where(Chequera.id == chequera_id).with_for_update()).scalar_one_or_none()
+    if chequera is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Chequera id={chequera_id} no encontrada.",
+        )
+
+    # Valores resultantes tras aplicar el patch — se validan juntos porque las
+    # reglas cruzan campos (un numero_hasta nuevo puede invalidar el proximo).
+    hasta_final = numero_hasta if numero_hasta is not None else chequera.numero_hasta
+    proximo_final = proximo_numero_nuevo if proximo_numero_nuevo is not None else chequera.proximo_numero
+
+    if hasta_final is not None and chequera.numero_desde is not None and hasta_final < chequera.numero_desde:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail=(f"numero_hasta={hasta_final} no puede ser menor que numero_desde={chequera.numero_desde}."),
+        )
+
+    # Los números de cheque son texto (vienen con ceros a la izquierda), así que
+    # la comparación numérica se hace en Python sobre los que sí son numéricos.
+    numeros_emitidos = [
+        int(n)
+        for (n,) in db.execute(select(Cheque.numero).where(Cheque.chequera_id == chequera.id)).all()
+        if n is not None and str(n).strip().isdigit()
+    ]
+    max_emitido = max(numeros_emitidos, default=None)
+
+    if numero_hasta is not None and max_emitido is not None and numero_hasta < max_emitido:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail=(
+                f"numero_hasta={numero_hasta} dejaría fuera del talonario al cheque {max_emitido}, que ya fue emitido."
+            ),
+        )
+
+    if proximo_numero_nuevo is not None:
+        if chequera.numero_desde is not None and proximo_final < chequera.numero_desde:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+                detail=(
+                    f"proximo_numero={proximo_final} está fuera del talonario (empieza en {chequera.numero_desde})."
+                ),
+            )
+        if proximo_final in numeros_emitidos:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+                detail=(
+                    f"El número {proximo_final} ya fue emitido en esta chequera: "
+                    f"emitir otro cheque con el mismo número duplicaría el valor."
+                ),
+            )
+
+    # Fuera del `if proximo_numero_nuevo`: bajar SÓLO numero_hasta también deja el
+    # proximo_numero existente fuera del talonario, y la UI arma el payload por
+    # diff campo a campo, así que ese PATCH de un solo campo es alcanzable.
+    if proximo_final is not None and hasta_final is not None and proximo_final > hasta_final:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail=(f"proximo_numero={proximo_final} quedaría fuera del talonario (termina en {hasta_final})."),
+        )
+
+    if descripcion is not None:
+        chequera.descripcion = descripcion or None
+    if numero_hasta is not None:
+        chequera.numero_hasta = numero_hasta
+    if proximo_numero_nuevo is not None:
+        chequera.proximo_numero = proximo_numero_nuevo
+    if activa is not None:
+        chequera.activa = activa
+
+    db.flush()
+    logger.info(
+        "✏️ Chequera actualizada — id=%d activa=%s proximo_numero=%s",
+        chequera.id,
+        chequera.activa,
+        chequera.proximo_numero,
+    )
+    return chequera
+
+
 def proximo_numero(chequera: Chequera) -> int:
     """Retorna el próximo número sugerido de la chequera."""
     return chequera.proximo_numero or 1
@@ -221,6 +332,13 @@ def emitir_cheque_propio(
                     f"La chequera id={chequera_id} pertenece al banco_empresa_id="
                     f"{chequera_obj.banco_empresa_id}, no al banco_empresa_id={banco_empresa_id} recibido."
                 ),
+            )
+        # Sin esto, `activa` sería una columna decorativa: desactivar una chequera
+        # agotada o extraviada no impediría seguir emitiendo contra ella.
+        if not chequera_obj.activa:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+                detail=(f"La chequera id={chequera_id} está desactivada: no admite nuevos cheques."),
             )
     if monto <= Decimal("0"):
         raise HTTPException(

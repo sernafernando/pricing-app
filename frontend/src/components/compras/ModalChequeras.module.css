@@ -258,3 +258,45 @@
   font-size: var(--font-sm);
   color: var(--cf-text-tertiary);
 }
+
+/* ── Acciones por fila ────────────────────────────────────── */
+.tdAcciones {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--spacing-xs);
+}
+
+.btnFila {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  border: 1px solid var(--cf-border-default);
+  background: none;
+  color: var(--cf-text-secondary);
+  border-radius: var(--radius-md);
+  cursor: pointer;
+  transition: background var(--duration-150), color var(--duration-150);
+}
+
+.btnFila:hover:not(:disabled) {
+  background: var(--cf-bg-hover);
+  color: var(--cf-text-primary);
+}
+
+.btnFila:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+/* Variante densa del primitivo: la fila no tolera un control de altura normal. */
+.inputFila {
+  composes: input inputSm from '../../styles/forms-tesla.css';
+}
+
+.errorFila {
+  font-size: 11px;
+  color: var(--cf-accent-red);
+  align-self: center;
+}

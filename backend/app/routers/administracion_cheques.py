@@ -36,6 +36,7 @@ from app.schemas.cheque import (
     ChequeraCreate,
     ChequeraPaginated,
     ChequeraResponse,
+    ChequeraUpdate,
     ChequeReporteResponse,
     ChequeResponse,
     DebitarChequeRequest,
@@ -123,6 +124,48 @@ def listar_chequeras(
     total = q.with_entities(func.count(Chequera.id)).scalar() or 0
     items = q.order_by(Chequera.id).offset((page - 1) * page_size).limit(page_size).all()
     return ChequeraPaginated(items=items, total=total, page=page, page_size=page_size)
+
+
+@router.patch(
+    "/chequeras/{chequera_id}",
+    response_model=ChequeraResponse,
+)
+def actualizar_chequera(
+    chequera_id: int,
+    payload: ChequeraUpdate,
+    current_user=Depends(require_permiso(_PERMISO)),
+    db: Session = Depends(get_db),
+) -> ChequeraResponse:
+    """Edita una chequera: descripción, rango, próximo número y activa/inactiva.
+
+    PATCH real: sólo se aplica lo enviado. El banco y el instrumento NO son
+    editables — definen la identidad del talonario y los cheques emitidos
+    cuelgan de ella (ver `ChequeraUpdate`).
+
+    Desactivar no borra nada: los cheques ya emitidos siguen igual, pero la
+    chequera deja de admitir nuevos (`emitir_cheque_propio` la rechaza).
+
+    Requiere permiso `tesoreria.gestionar_cheques`.
+    """
+    try:
+        chequera = cheques_service.actualizar_chequera(
+            db,
+            chequera_id=chequera_id,
+            descripcion=payload.descripcion,
+            numero_hasta=payload.numero_hasta,
+            proximo_numero_nuevo=payload.proximo_numero,
+            activa=payload.activa,
+        )
+        db.commit()
+        db.refresh(chequera)
+        return chequera
+    except HTTPException:
+        db.rollback()
+        raise
+    except Exception as exc:
+        db.rollback()
+        logger.error("❌ Error actualizando chequera %s: %s", chequera_id, exc)
+        raise HTTPException(status_code=500, detail="Error interno al actualizar chequera.") from exc
 
 
 # ──────────────────────────────────────────────────────────────────────────
