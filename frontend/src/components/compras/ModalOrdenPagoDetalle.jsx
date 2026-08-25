@@ -403,7 +403,7 @@ export default function ModalOrdenPagoDetalle({ op, onClose, onEjecutarPago, onA
                                 {formatDateTime(ev.created_at)}
                               </span>
                             </div>
-                            <div className={styles.timelineMeta}>Usuario #{ev.usuario_id}</div>
+                            <div className={styles.timelineMeta}>{ev.usuario_nombre || `Usuario #${ev.usuario_id}`}</div>
                           </div>
                         </li>
                       );

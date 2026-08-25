@@ -884,7 +884,7 @@ export default function ModalPedidoDetalle({ pedidoId, onClose }) {
                             <span className={styles.timelineDate}>{formatDate(ev.created_at)}</span>
                           </div>
                           <div className={styles.timelineMeta}>
-                            Usuario #{ev.usuario_id}
+                            {ev.usuario_nombre || `Usuario #${ev.usuario_id}`}
                           </div>
                           {ev.payload && Object.keys(ev.payload).length > 0 && (
                             <details className={styles.timelinePayloadDetails}>

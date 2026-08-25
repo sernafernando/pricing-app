@@ -24,6 +24,7 @@ class CompraEventoResponse(BaseModel):
     entidad_id: int
     tipo: str
     usuario_id: int
+    usuario_nombre: str | None = None
     payload: dict[str, Any] | None = None
     created_at: datetime
 
