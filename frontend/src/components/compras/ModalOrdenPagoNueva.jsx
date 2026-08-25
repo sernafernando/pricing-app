@@ -7,6 +7,7 @@ import ProveedorComprasAutocomplete from './ProveedorComprasAutocomplete';
 import PanelNCsProveedor from './_shared/PanelNCsProveedor';
 import PanelCheques from './_shared/PanelCheques';
 import { convertirMonto } from './_shared/formatMoneda';
+import { resolverDestinoItemId, requiereDestino } from './_shared/destinoValores';
 import styles from './ModalOrdenPagoNueva.module.css';
 
 /**
@@ -453,6 +454,19 @@ export default function ModalOrdenPagoNueva({
     .map((it) => String(it.id));
   const isSinglePedido = pedidoItemIds.length === 1;
 
+  // Pedidos de la OP en la forma que consumen los selectores de destino de los
+  // paneles de NCs y cheques. Con 2+ entradas piden destino explícito.
+  const pedidosDeLaOP = items
+    .filter((it) => it.tipo === 'pedido_compra' && it.id)
+    .map((it) => {
+      const pedido = pedidoDe(it.id);
+      return {
+        id: String(it.id),
+        numero: pedido?.numero ?? `#${it.id}`,
+        moneda: pedido?.moneda ?? form.moneda,
+      };
+    });
+
   // monedaDePedidoItem: native currency of a pedido item, falling back to the OP's
   // currency for items with no pedido behind them (they live in the OP's currency).
   const monedaDePedidoItem = (itemId) => {
@@ -473,16 +487,16 @@ export default function ModalOrdenPagoNueva({
   //
   // Cross-currency with no usable TC: the NC is skipped (safe — net won't go negative)
   // rather than deducted at face value in the wrong currency.
+  // Destino de cada valor. La deducción del ítem y el renglón del resumen leen
+  // ESTA función y ninguna otra: ver _shared/destinoValores.js.
+  const ncDestinoItemId = (nc) => resolverDestinoItemId(nc, pedidoItemIds, isSinglePedido);
+
   const ncDeductForItem = (itemId) => {
     const id = String(itemId);
     const pedidoMoneda = monedaDePedidoItem(id);
 
     return ncsAplicadas.reduce((acc, nc) => {
-      const ncPedidoId = nc.pedido_id != null ? String(nc.pedido_id) : null;
-      // NC applies if explicitly targeting this pedido, or if null + single pedido (inferred).
-      if (ncPedidoId !== id && !(ncPedidoId === null && isSinglePedido && id === pedidoItemIds[0])) {
-        return acc;
-      }
+      if (ncDestinoItemId(nc) !== id) return acc;
       const ncMoneda = nc.moneda ?? form.moneda;
       const tcOverride = parseFloat(nc.tipo_cambio_override);
       const tc = Number.isFinite(tcOverride) && tcOverride > 0 ? tcOverride : tcNumLive;
@@ -491,11 +505,12 @@ export default function ModalOrdenPagoNueva({
     }, 0);
   };
 
+  const chequeDestinoItemId = (ch) => resolverDestinoItemId(ch, pedidoItemIds, isSinglePedido);
+
+  const requiereDestinoPedido = requiereDestino(pedidoItemIds);
+
   // chequeDeductForItem: mirrors ncDeductForItem exactly, minus the per-item TC
   // override (the cheques panel has no such column — a cheque always rides the OP's TC).
-  // Inference rule: if cheque.pedido_id is null AND isSinglePedido, it applies to the
-  // single pedido (backend also infers this). Multi-pedido cheques require explicit
-  // pedido_id — not yet supported in the UI (same scope as NC).
   //
   // Invariant: netNativeForItem(item) + chequeDeductForItem(item.id) ≤ raw_monto.
   // When cheque covers 100% → netNative = 0, backend receives item(0) + cheque(full) = obligation.
@@ -505,11 +520,7 @@ export default function ModalOrdenPagoNueva({
     const pedidoMoneda = monedaDePedidoItem(id);
 
     return chequesAplicados.reduce((acc, ch) => {
-      const chPedidoId = ch.pedido_id != null ? String(ch.pedido_id) : null;
-      // Cheque applies if explicitly targeting this pedido, or if null + single pedido (inferred).
-      if (chPedidoId !== id && !(chPedidoId === null && isSinglePedido && id === pedidoItemIds[0])) {
-        return acc;
-      }
+      if (chequeDestinoItemId(ch) !== id) return acc;
       const chMoneda = ch.moneda ?? form.moneda;
       const convertido = convertirMonto(ch.monto, chMoneda, pedidoMoneda, tcNumLive);
       return convertido === null ? acc : acc + convertido;
@@ -521,6 +532,18 @@ export default function ModalOrdenPagoNueva({
     return first ? String(first.id) : null;
   })();
 
+  // dacDeductForItem: el dinero a cuenta vive en la moneda de la OP, pero se
+  // resta de un monto NATIVO del pedido. Sin convertir, un pedido USD dentro de
+  // una OP ARS recibía un crédito inflado por el factor TC.
+  // Cross-moneda sin TC usable: se omite (mismo criterio que NC y cheques —
+  // más vale no descontar que descontar en la moneda equivocada).
+  const dacDeductForItem = (itemId) => {
+    const id = String(itemId);
+    if (!dacSeleccionado || !(dacMontoNum > 0) || id !== dacTargetItemId) return 0;
+    const convertido = convertirMonto(dacMontoNum, form.moneda, monedaDePedidoItem(id), tcNumLive);
+    return convertido === null ? 0 : convertido;
+  };
+
   // netNativeForItem: raw native monto minus NC, DAC, and cheque credits for this pedido.
   // Cheques mirror NCs: they are deducted from the item so that net + cheque = obligation.
   // This ensures the backend receives item(net) + cheque(pedido_id) that together impute
@@ -529,9 +552,7 @@ export default function ModalOrdenPagoNueva({
     if (item.tipo !== 'pedido_compra' || !item.id) return parseFloat(item.monto) || 0;
     const raw = parseFloat(item.monto) || 0;
     const ncDeduct = ncDeductForItem(item.id);
-    const dacDeduct = dacSeleccionado && dacMontoNum > 0 && String(item.id) === dacTargetItemId
-      ? dacMontoNum
-      : 0;
+    const dacDeduct = dacDeductForItem(item.id);
     const chequeDeduct = chequeDeductForItem(item.id);
     return Math.max(0, raw - ncDeduct - dacDeduct - chequeDeduct);
   };
@@ -791,7 +812,24 @@ export default function ModalOrdenPagoNueva({
   // T1.12 — sumaChequesOP: total de cobertura de cheques en moneda OP.
   // Los cheques son valores como las NCs: descuentan del efectivo necesario.
   // Cross-moneda: se convierte por TC de la OP (igual que NC cross-moneda).
-  const sumaChequesOP = chequesAplicados.reduce((acc, ch) => {
+  // Mismo criterio que las NCs: un cheque sin destino no baja ningún ítem, así
+  // que tampoco puede figurar como cobertura — si no, la diferencia cierra en
+  // pantalla y no cierra en la plata.
+  const chequesSinDestino = chequesAplicados.filter(
+    (ch) => requiereDestinoPedido && chequeDestinoItemId(ch) === null,
+  );
+  const chequesConDestino = chequesAplicados.filter(
+    (ch) => !requiereDestinoPedido || chequeDestinoItemId(ch) !== null,
+  );
+
+  // El DAC entra al resumen sólo si de verdad descontó. Cuando la conversión a
+  // la moneda del pedido no se puede hacer (cross-moneda sin TC), dacDeductForItem
+  // devuelve 0: mostrar igual "-$X" repetiría el mismo defecto que este cambio
+  // corrige en NCs y cheques — un descuento en pantalla que el total no tiene.
+  const dacEnResumen = dacMontoNum > 0 && dacTargetItemId !== null
+    ? dacDeductForItem(dacTargetItemId) > 0
+    : dacMontoNum > 0 && !requiereDestinoPedido;
+  const sumaChequesOP = chequesConDestino.reduce((acc, ch) => {
     const montoNum = parseFloat(ch.monto) || 0;
     if (ch.moneda === undefined || ch.moneda === form.moneda) {
       return acc + montoNum;
@@ -811,7 +849,12 @@ export default function ModalOrdenPagoNueva({
   // sumaNCsOP / sumaDAC: kept for the informational summary row ONLY.
   // They are NOT balance terms in the net-item model — NCs and DAC are
   // already reflected in the net montoDerivado of each pedido item.
-  const sumaNCsOP = ncsAplicadas.reduce((acc, nc) => {
+  // Only NCs with a resolved destino count: an NC with no pedido behind it does
+  // not lower any item, so showing it as a discount made gross − NC ≠ net and
+  // the summary claimed a reduction the "Total a pagar" never had.
+  const ncsConDestino = ncsAplicadas.filter((nc) => ncDestinoItemId(nc) !== null);
+  const ncsSinDestino = ncsAplicadas.filter((nc) => ncDestinoItemId(nc) === null);
+  const sumaNCsOP = ncsConDestino.reduce((acc, nc) => {
     const montoNC = parseFloat(nc.monto) || 0;
     if (nc.moneda === undefined || nc.moneda === form.moneda) {
       return acc + montoNC;
@@ -874,6 +917,44 @@ export default function ModalOrdenPagoNueva({
         if (!it.id) return `Item #${idx + 1}: id requerido.`;
         const m = parseFloat(it.monto);
         if (!Number.isFinite(m) || m <= 0) return `Item #${idx + 1}: monto > 0 requerido.`;
+      }
+    }
+    // Un valor sin pedido destino no descuenta de ningún ítem y el backend lo
+    // rechaza con 422. Frenarlo acá evita mandar una OP que no puede cerrar.
+    if (ncsSinDestino.length > 0) {
+      if (pedidoItemIds.length === 0) {
+        return 'Esta OP no imputa ningún pedido: no hay contra qué aplicar la nota de crédito.';
+      }
+      return (
+        `La OP tiene ${pedidoItemIds.length} pedidos: elegí contra qué pedido se ` +
+        `descuenta cada nota de crédito (falta${ncsSinDestino.length > 1 ? 'n' : ''} ` +
+        `${ncsSinDestino.length}).`
+      );
+    }
+    if (chequesSinDestino.length > 0) {
+      return (
+        `La OP tiene ${pedidoItemIds.length} pedidos: elegí contra qué pedido se ` +
+        `descuenta cada cheque (falta${chequesSinDestino.length > 1 ? 'n' : ''} ` +
+        `${chequesSinDestino.length}).`
+      );
+    }
+    // Los créditos que caen sobre un pedido no pueden superar su monto: sin este
+    // corte, netNativeForItem los recorta con Math.max(0, ...) y el excedente se
+    // pierde en silencio (la NC queda consumida sin cancelar nada).
+    for (const it of items) {
+      if (it.tipo !== 'pedido_compra' || !it.id) continue;
+      const raw = parseFloat(it.monto) || 0;
+      // Los tres términos ya vienen en la moneda nativa del pedido.
+      const creditos =
+        ncDeductForItem(it.id) + chequeDeductForItem(it.id) + dacDeductForItem(it.id);
+      if (creditos > raw + 0.005) {
+        const pedido = pedidoDe(it.id);
+        const moneda = pedido?.moneda ?? form.moneda;
+        return (
+          `Los créditos aplicados al pedido ${pedido?.numero ?? `#${it.id}`} ` +
+          `(${formatCurrency(creditos, moneda)}) superan su monto ` +
+          `(${formatCurrency(raw, moneda)}).`
+        );
       }
     }
     // PR3: pago_a_cuenta no puede ser negativo.
@@ -1526,28 +1607,23 @@ export default function ModalOrdenPagoNueva({
                     proveedorId={Number(form.proveedor_id)}
                     opMoneda={form.moneda}
                     mode="seleccionar"
+                    pedidos={pedidosDeLaOP}
                     onChange={setNcsAplicadas}
                     disabled={saving}
                   />
 
                   {/* T1.12 — Cheques como VALOR (igual que NC: descuentan del total).
-                      Only shown when there is at most one pedido_compra in the OP.
-                      With multiple pedidos the cheque cannot infer which pedido to impute
-                      against (same limitation as NC), causing over-imputation. */}
-                  {isSinglePedido || pedidoItemIds.length === 0 ? (
-                    <PanelCheques
-                      key={`cheques-${form.empresa_id}-${form.proveedor_id}-${form.moneda}`}
-                      proveedorId={form.proveedor_id ? Number(form.proveedor_id) : null}
-                      empresaId={form.empresa_id ? Number(form.empresa_id) : null}
-                      opMoneda={form.moneda}
-                      onChange={setChequesAplicados}
-                      disabled={saving}
-                    />
-                  ) : (
-                    <div className={styles.fieldHint}>
-                      Cheques disponibles solo con un único pedido en la OP.
-                    </div>
-                  )}
+                      Con varios pedidos el panel pide destino por cheque, igual que
+                      el de NCs: sin eso no se puede saber contra cuál imputarlo. */}
+                  <PanelCheques
+                    key={`cheques-${form.empresa_id}-${form.proveedor_id}-${form.moneda}`}
+                    proveedorId={form.proveedor_id ? Number(form.proveedor_id) : null}
+                    empresaId={form.empresa_id ? Number(form.empresa_id) : null}
+                    opMoneda={form.moneda}
+                    pedidos={pedidosDeLaOP}
+                    onChange={setChequesAplicados}
+                    disabled={saving}
+                  />
 
                   {/* PR4 — Dinero a cuenta */}
                   <div className={styles.dacCard}>
@@ -1678,7 +1754,7 @@ export default function ModalOrdenPagoNueva({
                     <div className={styles.summaryRow}>
                       {/* Show gross pedidos when there are discounts; net when no discounts. */}
                       <span className={styles.summaryRowLabel}>
-                        Pedidos{(sumaNCsOP > 0 || dacMontoNum > 0 || sumaChequesOP > 0) ? ' (bruto)' : ''}
+                        Pedidos{(sumaNCsOP > 0 || dacEnResumen || sumaChequesOP > 0) ? ' (bruto)' : ''}
                       </span>
                       <span className={styles.summaryRowAmount}>
                         {formatCurrency(sumaItemsRaw > 0 ? sumaItemsRaw : sumaItems, form.moneda)}
@@ -1700,7 +1776,7 @@ export default function ModalOrdenPagoNueva({
                         </span>
                       </div>
                     )}
-                    {dacMontoNum > 0 && (
+                    {dacEnResumen && (
                       <div className={styles.summaryRow}>
                         <span className={styles.summaryRowLabel}>Dinero a cuenta</span>
                         <span className={`${styles.summaryRowAmount} ${styles.summaryRowNegative}`}>
@@ -1708,7 +1784,7 @@ export default function ModalOrdenPagoNueva({
                         </span>
                       </div>
                     )}
-                    {(sumaNCsOP > 0 || dacMontoNum > 0 || sumaChequesOP > 0) && items.length > 0 && (
+                    {(sumaNCsOP > 0 || dacEnResumen || sumaChequesOP > 0) && items.length > 0 && (
                       <div className={`${styles.summaryRow} ${styles.summaryRowNet}`}>
                         <span className={styles.summaryRowLabel}>
                           {sumaChequesOP > 0 ? 'A cubrir en efectivo' : 'Pedidos (neto)'}
