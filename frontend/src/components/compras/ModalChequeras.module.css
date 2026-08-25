@@ -1,0 +1,260 @@
+/* ModalChequeras — CSS Modules + design tokens.
+   Dark mode automático vía tokens; sin colores hardcoded. */
+
+.overlay {
+  position: fixed;
+  inset: 0;
+  background: var(--bg-overlay);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: var(--z-modal-backdrop);
+  backdrop-filter: blur(4px);
+  padding: var(--spacing-md);
+}
+
+.container {
+  background: var(--cf-bg-card);
+  border: 1px solid var(--cf-border-default);
+  border-radius: var(--radius-lg);
+  width: 100%;
+  max-width: 720px;
+  max-height: 90vh;
+  display: flex;
+  flex-direction: column;
+  box-shadow: var(--shadow-xl);
+  overflow: hidden;
+}
+
+.header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: var(--spacing-md) var(--spacing-lg);
+  border-bottom: 1px solid var(--cf-border-default);
+  flex-shrink: 0;
+}
+
+.title {
+  font-size: var(--font-xl);
+  font-weight: var(--font-semibold);
+  color: var(--cf-text-primary);
+  margin: 0;
+  line-height: 1.4;
+}
+
+.closeBtn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border: none;
+  background: none;
+  cursor: pointer;
+  color: var(--cf-text-secondary);
+  border-radius: var(--radius-full);
+  transition: background var(--duration-150);
+}
+
+.closeBtn:hover {
+  background: var(--cf-bg-hover);
+}
+
+.body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-lg);
+  padding: var(--spacing-lg);
+  overflow-y: auto;
+}
+
+.errorBanner {
+  padding: var(--spacing-sm) var(--spacing-md);
+  background: color-mix(in srgb, var(--cf-accent-red) 12%, transparent);
+  border: 1px solid color-mix(in srgb, var(--cf-accent-red) 35%, transparent);
+  border-radius: var(--radius-md);
+  color: var(--cf-accent-red);
+  font-size: var(--font-sm);
+}
+
+.filtros {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--spacing-md);
+}
+
+.fieldGroup {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-xs);
+}
+
+.fieldLabel {
+  font-size: var(--font-sm);
+  font-weight: var(--font-semibold);
+  color: var(--cf-text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.selectWrapper {
+  position: relative;
+}
+
+/* El box (padding, radio, fondo, foco, disabled) lo aporta el primitivo:
+   acá sólo va lo propio del chevron custom. */
+.select {
+  composes: select from '../../styles/forms-tesla.css';
+  padding-right: 36px;
+  appearance: none;
+}
+
+.selectArrow {
+  position: absolute;
+  right: 12px;
+  top: 50%;
+  transform: translateY(-50%);
+  pointer-events: none;
+  color: var(--cf-text-secondary);
+}
+
+/* ── Tabla ────────────────────────────────────────────────── */
+.tableWrapper {
+  overflow-x: auto;
+  border: 1px solid var(--cf-border-default);
+  border-radius: var(--radius-lg);
+}
+
+.table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: var(--font-sm);
+}
+
+.table th {
+  text-align: left;
+  padding: var(--spacing-sm) var(--spacing-md);
+  background: var(--cf-bg-app);
+  color: var(--cf-text-secondary);
+  font-weight: var(--font-semibold);
+  text-transform: uppercase;
+  font-size: 11px;
+  letter-spacing: 0.05em;
+  border-bottom: 1px solid var(--cf-border-default);
+  white-space: nowrap;
+}
+
+.table td {
+  padding: var(--spacing-sm) var(--spacing-md);
+  color: var(--cf-text-primary);
+  border-bottom: 1px solid var(--cf-border-subtle, var(--cf-border-default));
+}
+
+.table tbody tr:last-child td {
+  border-bottom: none;
+}
+
+.thRight,
+.tdRight {
+  text-align: right;
+}
+
+.tdMono {
+  font-family: var(--font-mono, monospace);
+}
+
+.tdEmpty {
+  text-align: center;
+  color: var(--cf-text-tertiary);
+  padding: var(--spacing-lg);
+}
+
+.pillActiva,
+.pillInactiva {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: var(--radius-full);
+  font-size: 11px;
+  font-weight: var(--font-semibold);
+}
+
+.pillActiva {
+  background: color-mix(in srgb, var(--cf-accent-green) 15%, transparent);
+  color: var(--cf-accent-green);
+}
+
+.pillInactiva {
+  background: var(--cf-bg-hover);
+  color: var(--cf-text-tertiary);
+}
+
+/* ── Acciones ─────────────────────────────────────────────── */
+.btnNueva {
+  display: inline-flex;
+  align-items: center;
+  align-self: flex-start;
+  gap: var(--spacing-xs);
+  padding: 8px var(--spacing-lg);
+  border: 1px dashed var(--cf-border-default);
+  background: none;
+  color: var(--cf-text-primary);
+  border-radius: var(--radius-lg);
+  font-size: var(--font-sm);
+  cursor: pointer;
+  transition: background var(--duration-150);
+}
+
+.btnNueva:hover {
+  background: var(--cf-bg-hover);
+}
+
+.loadingRow {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-sm);
+  color: var(--cf-text-secondary);
+  font-size: var(--font-sm);
+  padding: var(--spacing-sm) 0;
+}
+
+.spin {
+  animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.footer {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: var(--spacing-md);
+  padding: var(--spacing-md) var(--spacing-lg);
+  border-top: 1px solid var(--cf-border-default);
+  flex-shrink: 0;
+}
+
+.btnCancel {
+  padding: 8px var(--spacing-lg);
+  border: 1px solid var(--cf-border-default);
+  background: none;
+  color: var(--cf-text-primary);
+  border-radius: var(--radius-lg);
+  font-size: var(--font-sm);
+  cursor: pointer;
+  transition: background var(--duration-150);
+}
+
+.btnCancel:hover {
+  background: var(--cf-bg-hover);
+}
+
+.avisoTruncado {
+  margin: 0;
+  font-size: var(--font-sm);
+  color: var(--cf-text-tertiary);
+}

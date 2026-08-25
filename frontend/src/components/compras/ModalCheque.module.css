@@ -443,3 +443,35 @@
   opacity: 0.6;
   cursor: not-allowed;
 }
+
+/* ── Label + acción inline (atajo "Nueva chequera") ───────── */
+.labelRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--spacing-sm);
+}
+
+.btnInlineAdd {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 8px;
+  border: 1px solid var(--cf-border-default);
+  background: none;
+  color: var(--cf-text-secondary);
+  border-radius: var(--radius-full);
+  font-size: 11px;
+  cursor: pointer;
+  transition: background var(--duration-150), color var(--duration-150);
+}
+
+.btnInlineAdd:hover:not(:disabled) {
+  background: var(--cf-bg-hover);
+  color: var(--cf-text-primary);
+}
+
+.btnInlineAdd:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
