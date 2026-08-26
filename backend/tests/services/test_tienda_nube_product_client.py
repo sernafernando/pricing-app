@@ -9,6 +9,7 @@ from __future__ import annotations
 import asyncio
 from unittest.mock import AsyncMock, MagicMock, patch
 
+import httpx
 import pytest
 
 from app.services.tienda_nube_product_client import (
@@ -167,7 +168,13 @@ class TestAddProductImage:
     def test_without_credentials_is_ambiguous_no_request(self):
         client = TiendaNubeProductClient(store_id=None, access_token=None)
         outcome = asyncio.run(client.add_product_image(42, "https://example.com/img.jpg"))
-        assert outcome == {"ok": False, "status_code": None, "ambiguous": True, "body": None}
+        assert outcome == {
+            "ok": False,
+            "status_code": None,
+            "ambiguous": True,
+            "body": None,
+            "created_image_id": None,
+        }
 
     def test_2xx_response_is_ok_and_posts_to_images_by_src(self):
         client = TiendaNubeProductClient(store_id="123", access_token="tok")
@@ -211,7 +218,13 @@ class TestAddProductImage:
         with patch("httpx.AsyncClient") as MockAsyncClient:
             MockAsyncClient.return_value.__aenter__.return_value = mock_client
             outcome = asyncio.run(client.add_product_image(42, "https://example.com/img.jpg"))
-        assert outcome == {"ok": False, "status_code": None, "ambiguous": True, "body": None}
+        assert outcome == {
+            "ok": False,
+            "status_code": None,
+            "ambiguous": True,
+            "body": None,
+            "created_image_id": None,
+        }
 
     def test_429_response_raises_rate_limited_not_classified_as_rejection(self):
         """Defect fix: same uniform 429 handling as `set_published`/
@@ -498,3 +511,255 @@ class TestFetchCategoriesPagination:
 
         assert result is None
         assert mock_client.get.call_count == CATEGORIES_MAX_PAGES
+
+
+_LIST_IMAGES_SAMPLE = [
+    {
+        "id": 1259483639,
+        "product_id": 363340520,
+        "src": "https://acdn-us.mitiendanube.com/stores/006/084/082/products/probe.jpg",
+        "position": 1,
+        "alt": [],
+        "height": 200,
+        "width": 200,
+        "thumbnails_generated": 1,
+        "created_at": "2026-08-26T12:35:16+0000",
+        "updated_at": "2026-08-26T12:35:16+0000",
+        "store_media_uuid": None,
+    }
+]
+
+
+class TestListProductImages:
+    def test_without_credentials_is_ambiguous_no_request(self):
+        client = TiendaNubeProductClient(store_id=None, access_token=None)
+        outcome = asyncio.run(client.list_product_images(42))
+        assert outcome["ok"] is False
+        assert outcome["ambiguous"] is True
+        assert outcome["images"] is None
+
+    def test_happy_path_returns_parsed_array(self):
+        client = TiendaNubeProductClient(store_id="123", access_token="tok")
+        mock_client = AsyncMock()
+        mock_client.get.return_value = _fake_response(200, _LIST_IMAGES_SAMPLE)
+        with patch("httpx.AsyncClient") as MockAsyncClient:
+            MockAsyncClient.return_value.__aenter__.return_value = mock_client
+            outcome = asyncio.run(client.list_product_images(363340520))
+        assert outcome["ok"] is True
+        assert outcome["ambiguous"] is False
+        assert outcome["images"] == _LIST_IMAGES_SAMPLE
+        call_args = mock_client.get.call_args
+        assert call_args.args[0] == "https://api.tiendanube.com/v1/123/products/363340520/images"
+
+    def test_empty_product_returns_empty_list_distinguishable_from_failure(self):
+        client = TiendaNubeProductClient(store_id="123", access_token="tok")
+        mock_client = AsyncMock()
+        mock_client.get.return_value = _fake_response(200, [])
+        with patch("httpx.AsyncClient") as MockAsyncClient:
+            MockAsyncClient.return_value.__aenter__.return_value = mock_client
+            outcome = asyncio.run(client.list_product_images(42))
+        assert outcome["ok"] is True
+        assert outcome["images"] == []
+
+        # Contrast: a failed list must NOT look like the empty-list case.
+        mock_client_fail = AsyncMock()
+        mock_client_fail.get.return_value = _fake_response(503)
+        with patch("httpx.AsyncClient") as MockAsyncClient:
+            MockAsyncClient.return_value.__aenter__.return_value = mock_client_fail
+            failed_outcome = asyncio.run(client.list_product_images(42))
+        assert failed_outcome["ok"] is False
+        assert failed_outcome["images"] is None
+
+    def test_429_raises_rate_limited(self):
+        client = TiendaNubeProductClient(store_id="123", access_token="tok")
+        mock_client = AsyncMock()
+        mock_client.get.return_value = _fake_response(429)
+        mock_client.get.return_value.headers = {"Retry-After": "3"}
+        with patch("httpx.AsyncClient") as MockAsyncClient:
+            MockAsyncClient.return_value.__aenter__.return_value = mock_client
+            with pytest.raises(TnRateLimited) as exc_info:
+                asyncio.run(client.list_product_images(42))
+        assert exc_info.value.retry_after == 3.0
+
+    def test_connection_error_is_ambiguous_never_raises(self):
+        client = TiendaNubeProductClient(store_id="123", access_token="tok")
+        mock_client = AsyncMock()
+        mock_client.get.side_effect = Exception("connection reset")
+        with patch("httpx.AsyncClient") as MockAsyncClient:
+            MockAsyncClient.return_value.__aenter__.return_value = mock_client
+            outcome = asyncio.run(client.list_product_images(42))
+        assert outcome["ok"] is False
+        assert outcome["ambiguous"] is True
+        assert outcome["images"] is None
+
+
+class TestDeleteProductImage:
+    def test_without_credentials_is_ambiguous_no_request(self):
+        client = TiendaNubeProductClient(store_id=None, access_token=None)
+        outcome = asyncio.run(client.delete_product_image(42, 1259483639))
+        assert outcome == {"ok": False, "status_code": None, "ambiguous": True, "body": None}
+
+    def test_200_is_success(self):
+        """TN's DELETE returns 200 with body {} — not 204."""
+        client = TiendaNubeProductClient(store_id="123", access_token="tok")
+        mock_client = AsyncMock()
+        mock_client.delete.return_value = _fake_response(200, {})
+        with patch("httpx.AsyncClient") as MockAsyncClient:
+            MockAsyncClient.return_value.__aenter__.return_value = mock_client
+            outcome = asyncio.run(client.delete_product_image(42, 1259483639))
+        assert outcome["ok"] is True
+        assert outcome["status_code"] == 200
+        call_args = mock_client.delete.call_args
+        assert call_args.args[0] == "https://api.tiendanube.com/v1/123/products/42/images/1259483639"
+
+    def test_4xx_is_definitive_rejection(self):
+        client = TiendaNubeProductClient(store_id="123", access_token="tok")
+        mock_client = AsyncMock()
+        mock_client.delete.return_value = _fake_response(404, {"error": "not_found"})
+        with patch("httpx.AsyncClient") as MockAsyncClient:
+            MockAsyncClient.return_value.__aenter__.return_value = mock_client
+            outcome = asyncio.run(client.delete_product_image(42, 1259483639))
+        assert outcome["ok"] is False
+        assert outcome["ambiguous"] is False
+        assert outcome["status_code"] == 404
+
+    def test_429_raises_rate_limited(self):
+        client = TiendaNubeProductClient(store_id="123", access_token="tok")
+        mock_client = AsyncMock()
+        mock_client.delete.return_value = _fake_response(429)
+        mock_client.delete.return_value.headers = {"Retry-After": "9"}
+        with patch("httpx.AsyncClient") as MockAsyncClient:
+            MockAsyncClient.return_value.__aenter__.return_value = mock_client
+            with pytest.raises(TnRateLimited) as exc_info:
+                asyncio.run(client.delete_product_image(42, 1259483639))
+        assert exc_info.value.retry_after == 9.0
+
+
+class TestAddProductImageByBytes:
+    def test_posts_base64_of_exact_bytes_and_parses_id(self):
+        import base64
+
+        client = TiendaNubeProductClient(store_id="123", access_token="tok")
+        raw = b"\xff\xd8\xff\xe0fakejpegbytes"
+        mock_client = AsyncMock()
+        mock_client.post.return_value = _fake_response(
+            201,
+            {"id": 1259483639, "product_id": 363340520, "src": "https://acdn-us.mitiendanube.com/x.jpg"},
+        )
+        with patch("httpx.AsyncClient") as MockAsyncClient:
+            MockAsyncClient.return_value.__aenter__.return_value = mock_client
+            outcome = asyncio.run(client.add_product_image(42, attachment=raw, filename="probe.jpg"))
+        assert outcome["ok"] is True
+        assert outcome["body"]["id"] == 1259483639
+        call_args = mock_client.post.call_args
+        sent = call_args.kwargs["json"]
+        assert sent["filename"] == "probe.jpg"
+        assert base64.b64decode(sent["attachment"]) == raw
+
+    def test_2xx_without_parseable_id_does_not_claim_success_as_created(self):
+        client = TiendaNubeProductClient(store_id="123", access_token="tok")
+        mock_client = AsyncMock()
+        # 2xx but body has no "id" — inconclusive, not a confirmed creation.
+        mock_client.post.return_value = _fake_response(201, {"unexpected": "shape"})
+        with patch("httpx.AsyncClient") as MockAsyncClient:
+            MockAsyncClient.return_value.__aenter__.return_value = mock_client
+            outcome = asyncio.run(client.add_product_image(42, attachment=b"bytes", filename="x.jpg"))
+        assert outcome["ok"] is True
+        assert outcome.get("created_image_id") is None
+
+    def test_without_credentials_is_ambiguous_no_request(self):
+        client = TiendaNubeProductClient(store_id=None, access_token=None)
+        outcome = asyncio.run(client.add_product_image(42, attachment=b"bytes", filename="x.jpg"))
+        assert outcome == {
+            "ok": False,
+            "status_code": None,
+            "ambiguous": True,
+            "body": None,
+            "created_image_id": None,
+        }
+
+    def test_429_raises_rate_limited(self):
+        client = TiendaNubeProductClient(store_id="123", access_token="tok")
+        mock_client = AsyncMock()
+        mock_client.post.return_value = _fake_response(429)
+        mock_client.post.return_value.headers = {"Retry-After": "2"}
+        with patch("httpx.AsyncClient") as MockAsyncClient:
+            MockAsyncClient.return_value.__aenter__.return_value = mock_client
+            with pytest.raises(TnRateLimited) as exc_info:
+                asyncio.run(client.add_product_image(42, attachment=b"bytes", filename="x.jpg"))
+        assert exc_info.value.retry_after == 2.0
+
+    def test_existing_src_behaviour_unchanged(self):
+        client = TiendaNubeProductClient(store_id="123", access_token="tok")
+        mock_client = AsyncMock()
+        mock_client.post.return_value = _fake_response(201, {"id": 1, "src": "https://example.com/img.jpg"})
+        with patch("httpx.AsyncClient") as MockAsyncClient:
+            MockAsyncClient.return_value.__aenter__.return_value = mock_client
+            outcome = asyncio.run(client.add_product_image(42, src="https://example.com/img.jpg"))
+        assert outcome["ok"] is True
+        call_args = mock_client.post.call_args
+        assert call_args.kwargs["json"] == {"src": "https://example.com/img.jpg"}
+
+
+class TestAddProductImageArgumentContract:
+    """Caller mistakes fail HERE, locally, before spending a TN call.
+
+    This module is built on telling a definitive rejection apart from an
+    ambiguous one — it is why `_classify_write_response` exists, why
+    `list_product_images` returns `images=None` instead of `[]`. A malformed
+    payload that travels to TN and comes back as a 4xx pollutes exactly that
+    signal: it looks identical to TN rejecting a legitimate image.
+    """
+
+    def test_rejects_both_src_and_attachment(self) -> None:
+        client = TiendaNubeProductClient(store_id="123", access_token="tok")
+        with pytest.raises(ValueError, match="exactly one"):
+            asyncio.run(
+                client.add_product_image(
+                    123,
+                    src="https://example.com/a.jpg",
+                    attachment=b"bytes",
+                    filename="a.jpg",
+                )
+            )
+
+    def test_rejects_neither_src_nor_attachment(self) -> None:
+        client = TiendaNubeProductClient(store_id="123", access_token="tok")
+        with pytest.raises(ValueError, match="exactly one"):
+            asyncio.run(client.add_product_image(123))
+
+    def test_rejects_attachment_without_filename(self) -> None:
+        client = TiendaNubeProductClient(store_id="123", access_token="tok")
+        with pytest.raises(ValueError, match="filename"):
+            asyncio.run(client.add_product_image(123, attachment=b"bytes"))
+
+    def test_validates_before_touching_the_network(self) -> None:
+        client = TiendaNubeProductClient(store_id="123", access_token="tok")
+        with patch("httpx.AsyncClient") as mock_client:
+            with pytest.raises(ValueError):
+                asyncio.run(client.add_product_image(123))
+        mock_client.assert_not_called()
+
+
+class TestAddProductImageAlwaysReportsCreatedImageId:
+    """`created_image_id` is part of the contract on EVERY return path.
+
+    Its absence would force callers into `.get(...)`, which collapses
+    "ambiguous, no request was made" into "2xx with no parseable id" — the
+    exact distinction this module spends `_classify_write_response` and
+    `ambiguous` on.
+    """
+
+    def test_missing_credentials_still_reports_the_key(self) -> None:
+        client = TiendaNubeProductClient(store_id=None, access_token=None)
+        outcome = asyncio.run(client.add_product_image(123, src="https://example.com/a.jpg"))
+        assert outcome["created_image_id"] is None
+        assert outcome["ambiguous"] is True
+
+    def test_connection_error_still_reports_the_key(self) -> None:
+        client = TiendaNubeProductClient(store_id="123", access_token="tok")
+        with patch("httpx.AsyncClient") as mock_client:
+            mock_client.return_value.__aenter__.return_value.post = AsyncMock(side_effect=httpx.ConnectError("boom"))
+            outcome = asyncio.run(client.add_product_image(123, src="https://example.com/a.jpg"))
+        assert outcome["created_image_id"] is None
+        assert outcome["ambiguous"] is True
