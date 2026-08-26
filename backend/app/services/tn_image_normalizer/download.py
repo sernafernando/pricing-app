@@ -36,13 +36,14 @@ still run against the hostname, never against the IP literal. Because that
 rewrite makes httpcore's pool key the IP rather than the hostname, the
 transport keeps ONE POOL PER PINNED HOSTNAME, so two hostnames behind one
 CDN address can never share a connection whose certificate was verified for
-only one of them. A host that
-somehow reaches the transport without a pin is refused outright: this
-stage fails closed, never open. Resolving
-once and letting httpx resolve again at connect time would leave a DNS
-rebinding window: a short-TTL attacker answers our check with a public
-address and httpx's with an internal one. There is no second resolution to
-poison. Every redirect hop is validated and pinned the same way.
+only one of them. A host that somehow reaches the transport without a pin
+is refused outright: this stage fails closed, never open.
+
+Resolving once and letting httpx resolve again at connect time would leave
+a DNS rebinding window: a short-TTL attacker answers our check with a
+public address and httpx's with an internal one. Pinning means there is no
+second resolution to poison. Every redirect hop is validated and pinned the
+same way.
 
 Redirects are followed by hand (`follow_redirects=False`) precisely so
 that each `Location` is validated before it is requested: letting httpx

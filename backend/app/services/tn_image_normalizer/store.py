@@ -45,11 +45,14 @@ reclaim it, so the sweep also walks the DISK and deletes any `.jpg` no row
 references.
 
 Deleting a file is irreversible, so the sweep is deliberately timid about
-it. A file whose directory belongs to a run that has not finished is never
-touched — that run's transaction is still open and its rows have not
-committed, so the file is live work, however old its mtime is.
-`ORPHAN_GRACE_PERIOD` remains only as a fallback for a directory that maps
-to no known run. And if more than `MAX_ORPHAN_FRACTION` of the scanned files
+it. Its whole view of the database is read in ONE statement, because rows
+and run state committed together must never be observed by halves — see
+`_read_store_snapshot`. A file whose directory belongs to a run that has not
+finished is never touched — that run's transaction is still open and its
+rows have not committed, so the file is live work, however old its mtime is.
+`ORPHAN_GRACE_PERIOD` is then the last gate EVERY remaining candidate must
+pass: nothing recently written is reclaimable, whatever its directory says.
+And if more than `MAX_ORPHAN_FRACTION` of the scanned files
 match no row, the sweep reclaims nothing at all: at that point the path
 comparison is what is broken, and acting on it would wipe the store. The
 degenerate case of that reading — files on disk and NO row carrying an
@@ -67,7 +70,7 @@ from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Callable
 
-from sqlalchemy import select
+from sqlalchemy import Integer, String, case, cast, literal, select
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 from sqlalchemy.orm import Session
 
@@ -91,11 +94,12 @@ OUTPUT_SUFFIX = ".jpg"
 # of round-trips instead of one per row.
 DELETE_BATCH_SIZE = 500
 
-# Fallback only, for a file whose directory maps to no known run (a leftover
-# from a deleted run header, or something a human dropped there). The primary
-# in-flight signal is the run's own state, NOT this clock: a run over
-# thousands of images keeps its transaction open for hours, so any fixed
-# grace period is guaranteed to be too short for a big enough run.
+# The last gate before any file is reclaimed, applied to every candidate. It
+# is a floor, not the primary signal: the run's own state is, because a run
+# over thousands of images keeps its transaction open for hours and any fixed
+# grace period is guaranteed to be too short for a big enough run. What this
+# clock guarantees is the other direction — a file written moments ago is
+# never deleted on the strength of rows that may still be in flight.
 ORPHAN_GRACE_PERIOD = timedelta(hours=1)
 
 # Circuit breaker for the orphan sweep. If artifact rows with paths DO exist
@@ -287,11 +291,46 @@ def _canonical(path: Path) -> str:
         return str(path.absolute())
 
 
-def _unfinished_run_dirs(db: Session, root: Path) -> set[str]:
-    """Canonical directories belonging to runs that have not finished.
+ROW_KIND_ARTIFACT = "artifact"
+ROW_KIND_RUN = "run"
 
-    Read in ONE query, like the known-path set: a query per file would defeat
-    the point of scanning in memory.
+
+@dataclass(frozen=True)
+class _StoreSnapshot:
+    """Everything the orphan scan knows about the database, read at one instant.
+
+    `known` holds the canonical path of every artifact row that carries one.
+    `unfinished_dirs` holds the canonical directory of every run that has not
+    ended. Both come out of the SAME statement, which is the whole point —
+    see `_read_store_snapshot`.
+    """
+
+    known: frozenset[str]
+    unfinished_dirs: frozenset[str]
+
+
+def _read_store_snapshot(db: Session, root: Path) -> _StoreSnapshot:
+    """Read the artifact paths and the run states in ONE statement.
+
+    A run ends by committing its artifact rows AND its `finished_at` in the
+    same transaction. Reading those two facts as two statements means reading
+    them at two instants, and a close landing in between is observed by
+    HALVES: the paths were read before the rows existed, the run state after
+    the run had ended. The run's freshly written files then match no row and
+    belong to no unfinished run, and the scan reclaims live work whose rows
+    were committed seconds earlier.
+
+    One statement is one snapshot, on every isolation level worth having:
+    either the whole close is visible or none of it is, and both readings are
+    safe. That is why the two halves are UNION ALL-ed into a single SELECT
+    instead of merely being run back to back inside a transaction — there is
+    no window left to shrink. A join is not available to do it: an artifact is
+    deduplicated across runs and therefore carries no run id, and the run a
+    file belongs to is expressed by the DIRECTORY it sits in, not by a foreign
+    key.
+
+    The statement count stays constant in the number of files on disk, which
+    is the property `test_scan_does_not_issue_one_query_per_file` pins down.
 
     `finished_at` is the terminality signal because the run-level state
     vocabulary does not exist yet — `states.py` deliberately carries only the
@@ -300,33 +339,52 @@ def _unfinished_run_dirs(db: Session, root: Path) -> set[str]:
     strings here would prejudge a later slice. `finished_at IS NULL` means
     exactly "this run has not ended", which is the question being asked.
     """
-    run_ids = (
-        db.execute(select(TnImageNormalizationRun.id).where(TnImageNormalizationRun.finished_at.is_(None)))
-        .scalars()
-        .all()
+    artifact_rows = select(
+        literal(ROW_KIND_ARTIFACT).label("kind"),
+        TnImageArtifact.output_path.label("value"),
+        literal(0).label("unfinished"),
+    ).where(TnImageArtifact.output_path.is_not(None))
+    run_rows = select(
+        literal(ROW_KIND_RUN),
+        cast(TnImageNormalizationRun.id, String),
+        case((TnImageNormalizationRun.finished_at.is_(None), literal(1)), else_=literal(0)).cast(Integer),
     )
-    return {_canonical(root / str(run_id)) for run_id in run_ids}
 
+    known: set[str] = set()
+    unfinished_dirs: set[str] = set()
+    for kind, value, unfinished in db.execute(artifact_rows.union_all(run_rows)).all():
+        if not value:
+            continue
+        if kind == ROW_KIND_ARTIFACT:
+            known.add(_canonical(_absolute(value, root)))
+        elif unfinished:
+            unfinished_dirs.add(_canonical(root / value))
 
-def _known_run_dirs(db: Session, root: Path) -> set[str]:
-    """Canonical directories of every run we know about, finished or not."""
-    run_ids = db.execute(select(TnImageNormalizationRun.id)).scalars().all()
-    return {_canonical(root / str(run_id)) for run_id in run_ids}
+    return _StoreSnapshot(known=frozenset(known), unfinished_dirs=frozenset(unfinished_dirs))
 
 
 def _orphan_files(db: Session, root: Path, now: datetime, already_doomed: set[str]) -> list[Path]:
     """Files under `root` that no artifact row references and are safe to drop.
 
-    The set of known paths is read ONCE and compared in memory: a query per
-    file would turn a routine sweep over a few thousand images into a few
-    thousand round-trips, which is the cost this whole function exists to
-    keep bounded.
+    The database is read ONCE, as one consistent snapshot, and compared in
+    memory: a query per file would turn a routine sweep over a few thousand
+    images into a few thousand round-trips, which is the cost this whole
+    function exists to keep bounded, and a second read would reopen the
+    window `_read_store_snapshot` closes.
 
     A file is spared when its directory belongs to a run that has not
     finished. The layout is `{base_dir}/{run_id}/...`, so the parent IS the
     run id, and an unfinished run is precisely the case where the file is
     already written but its row has not committed yet — deleting it destroys
     live work and leaves the run "successful" with rows pointing at nothing.
+
+    `ORPHAN_GRACE_PERIOD` is then the LAST gate every surviving candidate must
+    pass, whatever its directory says. It used to guard only the files whose
+    directory mapped to no run at all — the least dangerous case there is —
+    so a file written seconds ago inside a known run's directory was deleted
+    on the strength of a row that had not committed yet. Nothing recently
+    written is reclaimable, full stop: the cost of waiting one more sweep is a
+    few kilobytes of disk, and the cost of being wrong is unrecoverable.
 
     `already_doomed` holds the canonical paths this very sweep has just
     decided to unlink. Their rows are gone (committed) while their files are
@@ -338,15 +396,7 @@ def _orphan_files(db: Session, root: Path, now: datetime, already_doomed: set[st
     if not root.is_dir():
         return []
 
-    known = {
-        _canonical(_absolute(output_path, root))
-        for (output_path,) in db.execute(
-            select(TnImageArtifact.output_path).where(TnImageArtifact.output_path.is_not(None))
-        ).all()
-        if output_path
-    }
-    unfinished_dirs = _unfinished_run_dirs(db, root)
-    known_dirs = _known_run_dirs(db, root)
+    snapshot = _read_store_snapshot(db, root)
     # Compared as POSIX timestamps rather than datetimes: `st_mtime` has no
     # timezone, and `now` may arrive aware or naive.
     grace_cutoff = now.timestamp() - ORPHAN_GRACE_PERIOD.total_seconds()
@@ -358,23 +408,22 @@ def _orphan_files(db: Session, root: Path, now: datetime, already_doomed: set[st
         if canonical in already_doomed:
             continue
         scanned += 1
-        if canonical in known:
+        if canonical in snapshot.known:
             continue
-        parent = _canonical(path.parent)
-        if parent in unfinished_dirs:
+        if _canonical(path.parent) in snapshot.unfinished_dirs:
             # Its run is still going: the row simply has not committed yet.
             continue
-        if parent not in known_dirs:
-            try:
-                if path.stat().st_mtime >= grace_cutoff:
-                    # No run to ask, so fall back to the clock.
-                    continue
-            except OSError as exc:
-                logger.warning("tn_image_normalizer.store: could not stat %s: %s", path, exc)
+        try:
+            if path.stat().st_mtime >= grace_cutoff:
+                # Written too recently to be judged by rows that may still be
+                # in flight. Universal, not a fallback.
                 continue
+        except OSError as exc:
+            logger.warning("tn_image_normalizer.store: could not stat %s: %s", path, exc)
+            continue
         orphans.append(path)
 
-    if scanned and not known:
+    if scanned and not snapshot.known:
         # Not "nothing to compare against": something to compare against that
         # is MISSING. A half-restored database and a truncated table both look
         # exactly like this, and from here they are indistinguishable from a
@@ -387,7 +436,7 @@ def _orphan_files(db: Session, root: Path, now: datetime, already_doomed: set[st
         )
         return []
 
-    if known and scanned and len(orphans) / scanned > MAX_ORPHAN_FRACTION:
+    if snapshot.known and scanned and len(orphans) / scanned > MAX_ORPHAN_FRACTION:
         logger.error(
             "tn_image_normalizer.store: refusing to reclaim %s of %s scanned files as orphans "
             "(above %s); path comparison is almost certainly broken",

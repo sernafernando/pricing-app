@@ -21,6 +21,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 from app.services.tn_image_normalizer.download import (
     DownloadResult,
+    UnpinnedHostError,
     _PinnedAddressTransport,
     download_source_image,
 )
@@ -479,7 +480,7 @@ class TestPinnedAddressTransport:
             return httpx.Response(200, content=IMAGE_BYTES)
 
         with patch.object(httpx.AsyncHTTPTransport, "handle_async_request", fake_send):
-            with pytest.raises(Exception):
+            with pytest.raises(UnpinnedHostError):
                 asyncio.run(transport.handle_async_request(httpx.Request("GET", "https://example.com/a.jpg")))
 
         assert reached == [], "an unpinned request reached the network"

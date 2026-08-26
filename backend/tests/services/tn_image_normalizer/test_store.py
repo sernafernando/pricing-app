@@ -630,6 +630,10 @@ class TestOrphanFileReclaim:
         # file; its row simply has not committed yet. Deleting it would
         # destroy live work.
         now = datetime(2026, 8, 26, 12, 0, tzinfo=timezone.utc)
+        # A live artifact, so the store has at least one known path: with none
+        # at all the sweep refuses to reclaim anything and this test would pass
+        # without the grace period ever being consulted.
+        _stored_artifact(db, now - timedelta(days=1), tmp_path, run_id=1, artifact_id=1)
         in_flight = tmp_path / "8" / f"100_{OUTPUT_HASH[:12]}.jpg"
         in_flight.parent.mkdir(parents=True, exist_ok=True)
         in_flight.write_bytes(OUTPUT_BYTES)
@@ -670,6 +674,10 @@ class TestOrphanFileReclaim:
         # routine sweep over a few thousand images into a few thousand
         # round-trips.
         now = datetime(2026, 8, 26, 12, 0, tzinfo=timezone.utc)
+        # A live artifact, so the store has at least one known path: with none
+        # at all the sweep bails out at the refusal guard and the scan whose
+        # cost this test measures never runs.
+        _stored_artifact(db, now - timedelta(days=1), tmp_path, run_id=1, artifact_id=1)
 
         def _sweep_with(file_count: int, run_id: int) -> int:
             for index in range(file_count):
@@ -834,6 +842,10 @@ class TestOrphanSweepNeverTouchesLiveRuns:
 
     def test_file_of_an_unfinished_run_survives_however_old_it_is(self, db, tmp_path: Path) -> None:
         now = datetime(2026, 8, 26, 12, 0, tzinfo=timezone.utc)
+        # A live artifact, so the store has at least one known path: with none
+        # at all the sweep refuses to reclaim anything and the run's own state
+        # would never be consulted.
+        _stored_artifact(db, now - timedelta(days=1), tmp_path, run_id=1, artifact_id=1)
         _run_row(db, run_id=31, finished_at=None)
         in_flight = _loose_file(tmp_path, run_id=31, artifact_id=1, now=now, age_seconds=90 * 86400)
 
@@ -966,3 +978,128 @@ class TestExpiredFilesDoNotCountAsOrphans:
 
         assert not any(path.exists() for path in expired)
         assert live.exists()
+
+
+class TestOrphanScanReadsOneConsistentSnapshot:
+    """The scan's whole view of the database comes from ONE statement.
+
+    A run closes by committing its artifact rows AND its `finished_at` in the
+    same transaction. While the scan read the known paths, the unfinished
+    runs and the known runs as three separate statements, that commit could
+    land between the first and the second: the files were not yet in the
+    known set when it was read, and the run was no longer unfinished when
+    that was read. The run's freshly written files then looked like orphans
+    of a finished run and were deleted, leaving the rows that had just been
+    committed pointing at nothing.
+    """
+
+    @staticmethod
+    def _close_run_before_the_second_read(db, run_id: int, artifact_id: int, path: Path):
+        """Commit the run's rows in the gap between the scan's reads.
+
+        The close goes through the raw DBAPI connection so it lands as its
+        own committed transaction, exactly as the run's own worker publishes
+        it: rows and `finished_at` together, atomically. It is injected just
+        before the scan's SECOND read, which is the only place a partially
+        observed close can come from — a scan that issues one read has no
+        such gap, and the injection then never fires at all.
+        """
+        bind = db.get_bind()
+        seen: list[str] = []
+
+        def _inject(conn, cursor, statement, parameters, context, executemany):
+            if not statement.lstrip().upper().startswith("SELECT"):
+                return
+            seen.append(statement)
+            if len(seen) != 2:
+                return
+            raw = conn.connection.dbapi_connection
+            writer = raw.cursor()
+            writer.execute(
+                "INSERT INTO tn_image_artifact "
+                "(id, source_hash, normalization_params, output_path, output_hash, created_at) "
+                "VALUES (?, ?, ?, ?, ?, ?)",
+                (artifact_id, f"{artifact_id:064d}", PARAMS_FP, str(path), OUTPUT_HASH, "2026-08-26 11:00:00"),
+            )
+            writer.execute(
+                "UPDATE tn_image_normalization_run SET finished_at = ? WHERE id = ?",
+                ("2026-08-26 11:00:00", run_id),
+            )
+            writer.close()
+            raw.commit()
+
+        event.listens_for(bind, "before_cursor_execute")(_inject)
+        return bind, _inject
+
+    def test_a_run_closing_mid_scan_does_not_lose_its_files(self, db, tmp_path: Path) -> None:
+        now = datetime(2026, 8, 26, 12, 0, tzinfo=timezone.utc)
+        # Deliberately far older than the grace period: this test is about the
+        # snapshot, not about the clock. A run over thousands of images keeps
+        # its files on disk for hours before it closes.
+        old = int(store_module.ORPHAN_GRACE_PERIOD.total_seconds()) + 3600
+        _stored_artifact(db, now - timedelta(days=1), tmp_path, run_id=1, artifact_id=1)
+        _run_row(db, run_id=42, finished_at=None)
+        in_flight = _loose_file(tmp_path, run_id=42, artifact_id=77, now=now, age_seconds=old)
+
+        bind, listener = self._close_run_before_the_second_read(db, run_id=42, artifact_id=77, path=in_flight)
+        try:
+            orphans = store_module._orphan_files(db, tmp_path, now, set())
+        finally:
+            event.remove(bind, "before_cursor_execute", listener)
+
+        assert in_flight not in orphans, "a run that closed mid-scan had its live files reclaimed"
+
+    def test_the_scan_builds_its_view_in_a_single_statement(self, db, tmp_path: Path) -> None:
+        # One statement is one snapshot. Two reads, however tight, are two
+        # snapshots and the window is back.
+        now = datetime(2026, 8, 26, 12, 0, tzinfo=timezone.utc)
+        _stored_artifact(db, now - timedelta(days=1), tmp_path, run_id=1, artifact_id=1)
+        _run_row(db, run_id=43, finished_at=None)
+        selects: list[str] = []
+        bind = db.get_bind()
+
+        @event.listens_for(bind, "before_cursor_execute")
+        def _record(conn, cursor, statement, parameters, context, executemany):
+            if statement.lstrip().upper().startswith("SELECT"):
+                selects.append(statement)
+
+        try:
+            store_module._orphan_files(db, tmp_path, now, set())
+        finally:
+            event.remove(bind, "before_cursor_execute", _record)
+
+        assert len(selects) == 1, f"the scan read its view in {len(selects)} snapshots: {selects}"
+
+
+class TestGracePeriodGuardsEveryOrphanCandidate:
+    """No freshly written file is ever reclaimed, whatever its directory says.
+
+    The grace period used to apply ONLY to a directory that mapped to no
+    known run — the least dangerous case there is. A file in the directory of
+    a run the database DOES know about skipped the clock entirely, so a file
+    written seconds ago was deleted on the strength of a row that had not
+    committed yet.
+    """
+
+    def test_a_fresh_file_in_a_finished_runs_directory_is_spared(self, db, tmp_path: Path) -> None:
+        now = datetime(2026, 8, 26, 12, 0, tzinfo=timezone.utc)
+        _stored_artifact(db, now - timedelta(days=1), tmp_path, run_id=1, artifact_id=1)
+        _run_row(db, run_id=44, finished_at=now - timedelta(days=2))
+        fresh = _loose_file(tmp_path, run_id=44, artifact_id=1, now=now, age_seconds=5)
+
+        sweep_expired_artifacts(db, now=now, retention_days=30, base_dir=tmp_path)
+
+        assert fresh.exists(), "a file written seconds ago was reclaimed because its run had finished"
+
+    def test_a_fresh_file_at_the_store_root_is_spared(self, db, tmp_path: Path) -> None:
+        # No run id in the path at all: the parent is the root itself, which
+        # maps to no run either way. The clock is the only thing left.
+        now = datetime(2026, 8, 26, 12, 0, tzinfo=timezone.utc)
+        _stored_artifact(db, now - timedelta(days=1), tmp_path, run_id=1, artifact_id=1)
+        fresh = tmp_path / f"78_{OUTPUT_HASH[:12]}.jpg"
+        fresh.write_bytes(OUTPUT_BYTES)
+        _age_file(fresh, now, seconds=5)
+
+        sweep_expired_artifacts(db, now=now, retention_days=30, base_dir=tmp_path)
+
+        assert fresh.exists()
