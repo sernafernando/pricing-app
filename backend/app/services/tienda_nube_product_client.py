@@ -4,15 +4,21 @@ of tn-reconcile-publish).
 
 Slice 2 shipped ONLY `PUT /v1/{store_id}/products/{id}` (`set_published`).
 Slice 3a adds the two writes `publish_product` needs: `POST /products`
-(`create_product`) and `POST /products/{id}/images` (`add_product_image`,
-by `src` URL — TN fetches the image itself, we never upload bytes). A
-second Slice 3a follow-up (security review: close the TOCTOU/duplicate-
+(`create_product`) and `POST /products/{id}/images` (`add_product_image`).
+A second Slice 3a follow-up (security review: close the TOCTOU/duplicate-
 publish gap) adds the one LIVE READ this feature needed:
 `get_product_by_sku` (`GET /products?sku=`) — restoring the
 "reconcile-via-read" step Slice 2 couldn't do (it had authorization for no
-live TN GET at all). `DELETE` still has no consumer (Slice 4) and is
-deliberately NOT added here — this feature already had speculative surface
-rejected once during planning.
+live TN GET at all).
+
+A later feature (`tn-image-normalizer`) adds image bytes, listing and
+deletion: `add_product_image` grew an `attachment=<raw bytes>` mode
+alongside the original `src=<url>` one, and `list_product_images` /
+`delete_product_image` arrived with it. The byte mode exists because a
+locally normalized image has NO public URL for TN to fetch, and this
+backend mounts no StaticFiles — verified live against the real store on
+2026-08-26 before the code was written. The `src` mode is unchanged and
+still the one `tn_publish_service` uses.
 
 Credentials come from `TN_STORE_ID`/`TN_ACCESS_TOKEN` (see `app/core/config.py`
 settings and the existing `tienda_nube_order_client.py` convention). The auth
@@ -25,6 +31,7 @@ body}` outcome so `tn_publish_service` can classify a timeout/5xx as
 ambiguous (needs surfacing, no retry) vs. a definitive 4xx rejection.
 """
 
+import base64
 import logging
 from typing import Any, Dict, List, Optional
 
@@ -176,19 +183,38 @@ class TiendaNubeProductClient:
 
         return self._classify_write_response(response)
 
-    async def add_product_image(self, product_id: int, src: str) -> Dict:
-        """`POST /v1/{store_id}/products/{id}/images` with `{"src": <src>}`.
+    async def add_product_image(
+        self,
+        product_id: int,
+        src: Optional[str] = None,
+        attachment: Optional[bytes] = None,
+        filename: Optional[str] = None,
+    ) -> Dict:
+        """`POST /v1/{store_id}/products/{id}/images`.
 
-        TN fetches the image from `src` itself (a publicly reachable URL) —
-        this client never uploads image bytes. Callers MUST validate `src`
-        is a well-formed public http(s) URL before calling this (see
-        `is_publicly_reachable_url` in this module) since a private/internal/
-        malformed URL will simply fail on TN's side with no useful signal
-        back to the operator.
+        Two mutually-exclusive upload modes, matching TN's own API:
+
+        - `src=<url>` (unchanged, pre-existing behaviour): TN fetches the
+          image itself from a publicly reachable URL — this client never
+          uploads bytes in this mode. Callers MUST validate `src` is a
+          well-formed public http(s) URL before calling this (see
+          `is_publicly_reachable_url` in this module) since a private/
+          internal/malformed URL will simply fail on TN's side with no
+          useful signal back to the operator. `tn_publish_service` relies
+          on this exact mode/shape today — untouched by the byte-upload
+          addition below.
+        - `attachment=<raw bytes>` + `filename=<name>`: this client
+          base64-encodes the bytes itself (TN's upload endpoint expects
+          `{"attachment": <base64>, "filename": <name>}`) so callers hand
+          over raw bytes, never a pre-encoded string.
 
         Returns:
             Same `{ok, status_code, ambiguous, body}` contract as
-            `set_published`/`create_product`.
+            `set_published`/`create_product`, plus `created_image_id` — the
+            TN image id parsed from `body["id"]` on a 2xx response, or
+            `None` when the response was 2xx but had no parseable id (an
+            INCONCLUSIVE outcome a caller must not treat as a confirmed
+            creation, e.g. by re-uploading blindly).
         """
         if not self.base_url:
             logger.warning(
@@ -196,15 +222,118 @@ class TiendaNubeProductClient:
             )
             return {"ok": False, "status_code": None, "ambiguous": True, "body": None}
 
+        if attachment is not None:
+            payload = {"attachment": base64.b64encode(attachment).decode("ascii"), "filename": filename}
+        else:
+            payload = {"src": src}
+
         try:
             async with httpx.AsyncClient(timeout=15.0) as client:
                 response = await client.post(
                     f"{self.base_url}/products/{product_id}/images",
                     headers=self.headers,
-                    json={"src": src},
+                    json=payload,
                 )
         except Exception as e:
             logger.error("Error (ambiguo) agregando imagen a product_id=%s: %s", product_id, e)
+            return {"ok": False, "status_code": None, "ambiguous": True, "body": None}
+
+        outcome = self._classify_write_response(response)
+        created_image_id = None
+        if outcome["ok"] and isinstance(outcome["body"], dict):
+            created_image_id = outcome["body"].get("id")
+        outcome["created_image_id"] = created_image_id
+        return outcome
+
+    async def list_product_images(self, product_id: int) -> Dict:
+        """`GET /v1/{store_id}/products/{id}/images` — lists a product's images.
+
+        A READ, not a write, so it does NOT go through
+        `_classify_write_response`. Its return shape is deliberately
+        distinct from the write contract so a caller can tell "listed
+        successfully (possibly with zero images)" apart from "could not
+        list" — load-bearing for a later baseline-read step that must
+        abort on a failed list rather than silently treat it as "no
+        images".
+
+        Returns:
+            `{ok, status_code, ambiguous, images}`. `ok=True` with
+            `images=[]` means TN confirmed the product simply has no
+            images. `ok=False` means the list could NOT be obtained
+            (missing credentials, timeout/connection error, non-2xx, or
+            an unparseable body) — `images` is `None` in that case, never
+            an empty list, so the two cases are never confusable.
+
+        Raises:
+            `TnRateLimited` on a 429 — same handling as the write methods.
+        """
+        if not self.base_url:
+            logger.warning(
+                "TiendaNubeProductClient sin credenciales — list_product_images omitido para product_id=%s",
+                product_id,
+            )
+            return {"ok": False, "status_code": None, "ambiguous": True, "images": None}
+
+        try:
+            async with httpx.AsyncClient(timeout=15.0) as client:
+                response = await client.get(
+                    f"{self.base_url}/products/{product_id}/images",
+                    headers=self.headers,
+                )
+        except Exception as e:
+            logger.error("Error (ambiguo) listando imagenes de product_id=%s: %s", product_id, e)
+            return {"ok": False, "status_code": None, "ambiguous": True, "images": None}
+
+        self._raise_if_rate_limited(response)
+
+        if 200 <= response.status_code < 300:
+            try:
+                body = response.json()
+            except Exception as e:
+                logger.error("list_product_images: respuesta ilegible para product_id=%s: %s", product_id, e)
+                return {"ok": False, "status_code": response.status_code, "ambiguous": True, "images": None}
+
+            if not isinstance(body, list):
+                logger.warning(
+                    "list_product_images: forma de respuesta inesperada para product_id=%s (esperaba lista, "
+                    "recibió %s)",
+                    product_id,
+                    type(body).__name__,
+                )
+                return {"ok": False, "status_code": response.status_code, "ambiguous": True, "images": None}
+
+            return {"ok": True, "status_code": response.status_code, "ambiguous": False, "images": body}
+
+        ambiguous = response.status_code >= 500
+        return {"ok": False, "status_code": response.status_code, "ambiguous": ambiguous, "images": None}
+
+    async def delete_product_image(self, product_id: int, image_id: int) -> Dict:
+        """`DELETE /v1/{store_id}/products/{id}/images/{image_id}`.
+
+        TN returns **200** (not 204) with an empty body `{}` on success —
+        `_classify_write_response` already treats any 2xx as `ok=True`.
+
+        Returns:
+            Same `{ok, status_code, ambiguous, body}` contract as the other
+            write methods.
+        """
+        if not self.base_url:
+            logger.warning(
+                "TiendaNubeProductClient sin credenciales — delete_product_image omitido para "
+                "product_id=%s image_id=%s",
+                product_id,
+                image_id,
+            )
+            return {"ok": False, "status_code": None, "ambiguous": True, "body": None}
+
+        try:
+            async with httpx.AsyncClient(timeout=15.0) as client:
+                response = await client.delete(
+                    f"{self.base_url}/products/{product_id}/images/{image_id}",
+                    headers=self.headers,
+                )
+        except Exception as e:
+            logger.error("Error (ambiguo) borrando imagen image_id=%s de product_id=%s: %s", image_id, product_id, e)
             return {"ok": False, "status_code": None, "ambiguous": True, "body": None}
 
         return self._classify_write_response(response)
@@ -342,19 +471,34 @@ class TiendaNubeProductClient:
         return None
 
     @staticmethod
-    def _classify_write_response(response: httpx.Response) -> Dict:
-        """2xx -> ok=True. 5xx -> ambiguous=True. 4xx -> definitive rejection.
+    def _raise_if_rate_limited(response: httpx.Response) -> None:
+        """Raises `TnRateLimited` on a 429, otherwise a no-op.
 
-        429 is checked HERE, uniformly, rather than per write method: a
-        per-method check is exactly what let it be forgotten on
+        The single choke point EVERY method — read or write — routes
+        through before classifying a response any other way: a per-method
+        check is exactly what let 429 handling be forgotten on
         `set_published`/`add_product_image` while only `create_product` had
-        it (defect fix) — every write method (including any added later)
-        routes through this single choke point, so a 429 is always raised
-        as `TnRateLimited` instead of silently falling through and being
-        classified as a definitive 4xx rejection.
+        it (the original defect that motivated centralizing this in
+        `_classify_write_response` in the first place). `list_product_images`
+        is a GET with no write classification to fall through to, but a
+        429 there is just as real — an unhandled one would silently look
+        like "the product has no images" instead of "could not check",
+        which downstream turns into a false `aborted_no_baseline`.
         """
         if response.status_code == 429:
             raise TnRateLimited(_parse_retry_after(response))
+
+    @staticmethod
+    def _classify_write_response(response: httpx.Response) -> Dict:
+        """2xx -> ok=True. 5xx -> ambiguous=True. 4xx -> definitive rejection.
+
+        429 is checked via `_raise_if_rate_limited` HERE, uniformly, rather
+        than per write method — every write method (including any added
+        later) routes through this single choke point, so a 429 is always
+        raised as `TnRateLimited` instead of silently falling through and
+        being classified as a definitive 4xx rejection.
+        """
+        TiendaNubeProductClient._raise_if_rate_limited(response)
 
         try:
             body = response.json()
