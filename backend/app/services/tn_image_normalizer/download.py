@@ -21,6 +21,12 @@ network. Two guards therefore apply to every hop:
 
 * Only `http` and `https` are fetched. Anything else (`file:`, `ftp:`,
   `gopher:`, a bare hostname) fails closed.
+* KNOWN GAP — DNS rebinding: we resolve the host, then httpx resolves it
+  AGAIN when it connects. A short-TTL attacker can answer our check with a
+  public address and httpx's with an internal one. Closing this needs a
+  custom transport that connects to the IP we validated while sending the
+  original Host header; until then the guard stops static internal targets
+  and redirect chains, NOT an actively rebinding host.
 * The host is resolved with `socket.getaddrinfo` and every answer must be
   a public address. Loopback, RFC1918, link-local (including the
   `169.254.169.254` cloud metadata endpoint), reserved, multicast and

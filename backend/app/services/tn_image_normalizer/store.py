@@ -120,6 +120,14 @@ def _write_bytes(path: Path, content: bytes) -> bool:
             handle.write(content)
     except OSError as exc:
         logger.exception("tn_image_normalizer.store: could not write %s: %s", path, exc)
+        # A half-written file must not survive. The retry gets a fresh
+        # artifact id and therefore a different path, so it would never
+        # overwrite this one: it would sit there forever, the size of a real
+        # artifact and referenced by nothing.
+        try:
+            path.unlink(missing_ok=True)
+        except OSError:
+            logger.warning("tn_image_normalizer.store: could not clean up partial write %s", path)
         return False
     return True
 
@@ -219,6 +227,12 @@ def sweep_expired_artifacts(
     base_dir: Path | str | None = None,
 ) -> int:
     """Delete artifacts (file + row) created before the retention cutoff.
+
+    TRANSACTION OWNERSHIP: unlike `store_normalized_artifact`, which works
+    inside a savepoint and leaves the commit to its caller, this function
+    OWNS its transaction and commits. It is a standalone retention job, not
+    a step inside someone else's unit of work — do not call it with pending
+    changes on the session, because the commit here would publish them.
 
     `now` is injected on purpose — see this module's docstring. Returns the
     number of artifact rows removed. A file that is already gone still has

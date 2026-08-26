@@ -393,3 +393,37 @@ class TestSweepDeletesFilesOnlyAfterCommit:
 
         # The deletion never became durable, so the payload must still be there.
         assert old_path.exists()
+
+
+class TestPartialWriteLeavesNoOrphan:
+    """A failed write must not leave a truncated file behind.
+
+    The retry gets a fresh artifact id, so it writes to a DIFFERENT path and
+    never overwrites the truncated one — it would sit there forever, sized
+    like a real artifact and referenced by nothing.
+    """
+
+    def test_truncated_file_is_removed_when_the_write_fails(self, db, tmp_path: Path) -> None:
+        real_open = open
+
+        def _fail_midway(path, mode="r", *args, **kwargs):
+            handle = real_open(path, mode, *args, **kwargs)
+            if "w" in mode:
+                handle.write(b"partial")
+                handle.close()
+                raise OSError("No space left on device")
+            return handle
+
+        with patch("app.services.tn_image_normalizer.store.open", _fail_midway, create=True):
+            result = store_normalized_artifact(
+                db,
+                run_id=1,
+                source_hash="a" * 64,
+                normalization_params=PARAMS_FP,
+                produce_output=_producer(),
+                base_dir=tmp_path,
+            )
+
+        assert result is None
+        leftovers = [p for p in tmp_path.rglob("*.jpg")]
+        assert leftovers == [], f"truncated file left behind: {leftovers}"
