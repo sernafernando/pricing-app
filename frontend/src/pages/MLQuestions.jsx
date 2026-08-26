@@ -1309,7 +1309,7 @@ export default function MLQuestions() {
     try {
       await fn();
     } catch (err) {
-      setActionError(err?.response?.data?.detail || 'No se pudo completar la acción');
+      setActionError(err?.response?.data?.detail || err?.message || 'No se pudo completar la acción');
     } finally {
       // Always resync — an action can fail with a 409 (operator race) after
       // partially mutating server state, so we re-fetch regardless of outcome.
@@ -1330,15 +1330,34 @@ export default function MLQuestions() {
     await api.put(`/ml-bot/questions/${editQuestion.id}/answer`, { drafted_answer: editText });
   }, editQuestion.id);
 
+  // Mirrors `handleSendMessage`'s outcome disambiguation (design #1806
+  // ADR-2): the wrapped `PublishNowResponse` never throws on a
+  // permanent/transient failure (HTTP stays 200 for all four `_publish_one`
+  // outcomes), so the caller must inspect the body itself. `published:
+  // false` splits into "retry" (transient, still retryable) and everything
+  // else (permanent — surface `question.last_error` when present).
+  const inspectPublishNowResponse = (data) => {
+    if (data?.published) return;
+    if (data?.outcome === 'retry') {
+      throw new Error('La publicación no se completó (falla transitoria). Podés reintentar.');
+    }
+    const lastError = data?.question?.last_error;
+    throw new Error(
+      `La publicación fue rechazada en forma permanente${lastError ? `: ${lastError}.` : '.'}`,
+    );
+  };
+
   const handlePublishNow = (question) => runAction(async () => {
-    await api.post(`/ml-bot/questions/${question.id}/publish-now`);
+    const { data } = await api.post(`/ml-bot/questions/${question.id}/publish-now`);
     if (editQuestion?.id === question.id) closeEdit();
+    inspectPublishNowResponse(data);
   }, question.id);
 
   const handleSaveAndPublish = () => runAction(async () => {
     await api.put(`/ml-bot/questions/${editQuestion.id}/answer`, { drafted_answer: editText });
-    await api.post(`/ml-bot/questions/${editQuestion.id}/publish-now`);
+    const { data } = await api.post(`/ml-bot/questions/${editQuestion.id}/publish-now`);
     closeEdit();
+    inspectPublishNowResponse(data);
   }, editQuestion.id);
 
   const handleConfigSave = async (clave) => {
