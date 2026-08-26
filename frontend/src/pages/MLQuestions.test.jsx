@@ -349,6 +349,108 @@ describe('Preguntas — publish-now feedback (PR2, ADR-2: backend wrapper + runA
   });
 });
 
+describe('Preguntas — send visibility & failure legibility (PR3)', () => {
+  function mockQuestionsList(question) {
+    api.get.mockImplementation((url) => {
+      if (url === '/ml-bot/status') return Promise.resolve({ data: { bot_enabled: true, auto_publish_enabled: false } });
+      if (url === '/ml-bot/questions') return Promise.resolve({ data: { questions: [question], total: 1 } });
+      if (url === '/ml-bot/messages') return Promise.resolve({ data: { messages: [], total: 0 } });
+      if (url === '/ml-bot/admin-pending') return Promise.resolve({ data: { requests: [], total: 0 } });
+      return Promise.resolve({ data: {} });
+    });
+  }
+
+  it('renders the question arrival date column (the table had none before)', async () => {
+    mockQuestionsList({
+      id: 1,
+      question_text: '¿Hay stock?',
+      status: 'waiting',
+      question_date: '2026-08-20T10:00:00Z',
+    });
+
+    await renderWithRouter(<MLQuestions />);
+
+    expect(await screen.findByText('Fecha')).toBeInTheDocument();
+    expect(await screen.findByText(new Date('2026-08-20T10:00:00Z').toLocaleString())).toBeInTheDocument();
+  });
+
+  it('surfaces published_at on a published row', async () => {
+    mockQuestionsList({
+      id: 2,
+      question_text: '¿Envían a domicilio?',
+      status: 'published',
+      question_date: '2026-08-20T10:00:00Z',
+      published_at: '2026-08-20T10:05:00Z',
+    });
+
+    await renderWithRouter(<MLQuestions />);
+
+    expect(await screen.findByText(
+      `Publicada: ${new Date('2026-08-20T10:05:00Z').toLocaleString()}`
+    )).toBeInTheDocument();
+  });
+
+  it('shows a placeholder instead of nothing when a published row has no published_at', async () => {
+    mockQuestionsList({
+      id: 3,
+      question_text: '¿Tiene garantía?',
+      status: 'published',
+      question_date: '2026-08-20T10:00:00Z',
+      published_at: null,
+    });
+
+    await renderWithRouter(<MLQuestions />);
+
+    expect(await screen.findByText('Publicada (fecha desconocida)')).toBeInTheDocument();
+  });
+
+  it('surfaces attempts and last_error only on failed rows', async () => {
+    mockQuestionsList({
+      id: 4,
+      question_text: '¿Es original?',
+      status: 'failed',
+      question_date: '2026-08-20T10:00:00Z',
+      attempts: 2,
+      last_error: 'ML rechazó la respuesta (422)',
+    });
+
+    await renderWithRouter(<MLQuestions />);
+
+    expect(await screen.findByText(/Intentos: 2 — ML rechazó la respuesta \(422\)/)).toBeInTheDocument();
+  });
+
+  it('does not render attempts/last_error on a non-failed row', async () => {
+    mockQuestionsList({
+      id: 5,
+      question_text: '¿Cuánto tarda el envío?',
+      status: 'waiting',
+      question_date: '2026-08-20T10:00:00Z',
+      attempts: 0,
+      last_error: null,
+    });
+
+    await renderWithRouter(<MLQuestions />);
+
+    await screen.findByText('¿Cuánto tarda el envío?');
+    expect(screen.queryByText(/Intentos:/)).not.toBeInTheDocument();
+  });
+
+  it('keeps the empty/loading row colSpan in sync with the new column count (Preguntas)', async () => {
+    api.get.mockImplementation((url) => {
+      if (url === '/ml-bot/status') return Promise.resolve({ data: { bot_enabled: true, auto_publish_enabled: false } });
+      if (url === '/ml-bot/questions') return Promise.resolve({ data: { questions: [], total: 0 } });
+      if (url === '/ml-bot/messages') return Promise.resolve({ data: { messages: [], total: 0 } });
+      if (url === '/ml-bot/admin-pending') return Promise.resolve({ data: { requests: [], total: 0 } });
+      return Promise.resolve({ data: {} });
+    });
+
+    await renderWithRouter(<MLQuestions />);
+
+    const emptyCell = await screen.findByText('No hay preguntas para mostrar');
+    expect(emptyCell.closest('td').getAttribute('colspan')).toBe('8');
+  });
+});
+
 describe('Mensajes pagination (PR1 — honest total, offset-based paging)', () => {
   function mockMessagesPage({ total, offset }) {
     api.get.mockImplementation((url, config) => {
@@ -626,9 +728,9 @@ describe('Preguntas table — TanStack column-sizing render structure', () => {
     const cols = table.querySelectorAll('colgroup > col');
     const headers = table.querySelectorAll('thead th');
     expect(cols.length).toBe(headers.length);
-    expect(cols.length).toBe(7);
+    expect(cols.length).toBe(8);
 
-    // Resizable: Pregunta, Item, Respuesta (borrador). Fixed: Estado,
+    // Resizable: Pregunta, Item, Respuesta (borrador). Fixed: Fecha, Estado,
     // Confianza, Cuenta regresiva, Acciones.
     const grips = table.querySelectorAll('thead [role="separator"]');
     expect(grips.length).toBe(3);
