@@ -284,6 +284,28 @@ class TestHostileInputNeverEscapes:
         result = normalize_image(source, _default_params())
         assert result.outcome is NormalizationOutcome.DECODE_FAILED
 
+    def test_failure_while_resizing_is_reported_not_raised(self, monkeypatch) -> None:
+        # A decodable but enormous source blows up in resize(), well past the
+        # decode guard. The bytes come from Tienda Nube either way.
+        source = _encode(_solid_image(2000, 2000))
+
+        def _explode(self, *args: object, **kwargs: object) -> None:
+            raise MemoryError
+
+        monkeypatch.setattr(Image.Image, "resize", _explode)
+        result = normalize_image(source, _default_params())
+        assert result.outcome is NormalizationOutcome.NORMALIZE_FAILED
+
+    def test_failure_while_encoding_is_reported_not_raised(self, monkeypatch) -> None:
+        source = _encode(_solid_image(2000, 2000))
+
+        def _explode(self, *args: object, **kwargs: object) -> None:
+            raise OSError("encoder ran out of buffer")
+
+        monkeypatch.setattr(Image.Image, "save", _explode)
+        result = normalize_image(source, _default_params())
+        assert result.outcome is NormalizationOutcome.NORMALIZE_FAILED
+
 
 class TestCanvasNeverExceedsTheRequest:
     """`_resolve_canvas_size` may step DOWN from the request, never up."""

@@ -33,9 +33,6 @@ from PIL import Image, ImageOps, UnidentifiedImageError
 
 from app.services.tn_image_normalizer.params import PRESETS, NormalizationParams
 
-# Fixed, ascending preset ladder. The engine only ever resolves a canvas
-# size to one of these values.
-
 # Quality ladder tried in order until the encoded output fits the budget.
 QUALITY_LADDER: tuple[int, ...] = (85, 80, 75, 70)
 
@@ -46,6 +43,10 @@ class NormalizationOutcome(str, Enum):
     SUCCESS = "success"
     TOO_LARGE = "too_large"
     DECODE_FAILED = "decode_failed"
+    # The source decoded fine but a later stage (orient/resize/compose/encode)
+    # failed. Kept distinct from DECODE_FAILED so the reviewable item row says
+    # what actually broke instead of blaming the source bytes.
+    NORMALIZE_FAILED = "normalize_failed"
 
 
 @dataclass(frozen=True)
@@ -145,37 +146,48 @@ def normalize_image(source_bytes: bytes, params: NormalizationParams) -> Normali
     ):
         return NormalizationResult(outcome=NormalizationOutcome.DECODE_FAILED)
 
-    # EXIF orientation FIRST, before any measurement.
-    upright = ImageOps.exif_transpose(decoded)
-    if upright is None:
-        upright = decoded
+    # Everything past the decode is guarded too. A source can decode fine and
+    # still blow up in resize or encode (a huge-but-valid image exhausting
+    # memory, a Pillow encoder error), and these bytes come from Tienda Nube,
+    # outside our trust boundary. The never-raises contract covers the WHOLE
+    # pipeline or it is not a contract.
+    try:
+        # EXIF orientation FIRST, before any measurement.
+        upright = ImageOps.exif_transpose(decoded)
+        if upright is None:
+            upright = decoded
 
-    longest_edge = max(upright.width, upright.height)
-    canvas_size = _resolve_canvas_size(longest_edge, params.preset)
+        longest_edge = max(upright.width, upright.height)
+        canvas_size = _resolve_canvas_size(longest_edge, params.preset)
 
-    if longest_edge >= canvas_size:
-        # Downscale so the longest edge equals the canvas size.
-        scale = canvas_size / longest_edge
-        new_width = max(1, round(upright.width * scale))
-        new_height = max(1, round(upright.height * scale))
-        resized = upright.resize((new_width, new_height), Image.LANCZOS)
-    else:
-        # Source under the smallest usable preset: paste unscaled.
-        resized = upright
+        if longest_edge >= canvas_size:
+            # Downscale so the longest edge equals the canvas size.
+            scale = canvas_size / longest_edge
+            new_width = max(1, round(upright.width * scale))
+            new_height = max(1, round(upright.height * scale))
+            resized = upright.resize((new_width, new_height), Image.LANCZOS)
+        else:
+            # Source under the smallest usable preset: paste unscaled.
+            resized = upright
 
-    fill_rgb = _hex_to_rgb(params.fill_color)
-    composed = _compose_on_canvas(resized, canvas_size, fill_rgb)
+        fill_rgb = _hex_to_rgb(params.fill_color)
+        composed = _compose_on_canvas(resized, canvas_size, fill_rgb)
 
-    ladder = (params.quality, *(q for q in QUALITY_LADDER if q < params.quality))
-    for quality in ladder:
-        encoded = _encode_jpeg(composed, quality)
-        if len(encoded) <= params.max_output_bytes:
-            return NormalizationResult(
-                outcome=NormalizationOutcome.SUCCESS,
-                output_bytes=encoded,
-                final_width=canvas_size,
-                final_height=canvas_size,
-                quality_used=quality,
-            )
+        # Lazy on purpose: stop at the first quality that fits the budget.
+        # Encoding the whole ladder up front would cost 4 encodes per image
+        # across a full-catalog backfill to throw 3 of them away.
+        ladder = (params.quality, *(q for q in QUALITY_LADDER if q < params.quality))
+        for quality in ladder:
+            encoded = _encode_jpeg(composed, quality)
+            if len(encoded) <= params.max_output_bytes:
+                return NormalizationResult(
+                    outcome=NormalizationOutcome.SUCCESS,
+                    output_bytes=encoded,
+                    final_width=canvas_size,
+                    final_height=canvas_size,
+                    quality_used=quality,
+                )
+    except (OSError, ValueError, Image.DecompressionBombError, MemoryError):
+        return NormalizationResult(outcome=NormalizationOutcome.NORMALIZE_FAILED)
 
     return NormalizationResult(outcome=NormalizationOutcome.TOO_LARGE)
