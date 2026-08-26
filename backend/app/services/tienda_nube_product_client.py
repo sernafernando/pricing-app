@@ -216,6 +216,15 @@ class TiendaNubeProductClient:
             INCONCLUSIVE outcome a caller must not treat as a confirmed
             creation, e.g. by re-uploading blindly).
         """
+        # Caller mistakes fail HERE, before a request is spent. This module
+        # exists to tell a definitive rejection apart from an ambiguous one; a
+        # malformed payload that reaches TN comes back as a 4xx that is
+        # indistinguishable from TN rejecting a legitimate image.
+        if (src is None) == (attachment is None):
+            raise ValueError("add_product_image requires exactly one of src= or attachment=")
+        if attachment is not None and not filename:
+            raise ValueError("add_product_image(attachment=...) requires a non-empty filename=")
+
         if not self.base_url:
             logger.warning(
                 "TiendaNubeProductClient sin credenciales — add_product_image omitido para product_id=%s", product_id

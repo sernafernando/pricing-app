@@ -680,3 +680,43 @@ class TestAddProductImageByBytes:
         assert outcome["ok"] is True
         call_args = mock_client.post.call_args
         assert call_args.kwargs["json"] == {"src": "https://example.com/img.jpg"}
+
+
+class TestAddProductImageArgumentContract:
+    """Caller mistakes fail HERE, locally, before spending a TN call.
+
+    This module is built on telling a definitive rejection apart from an
+    ambiguous one — it is why `_classify_write_response` exists, why
+    `list_product_images` returns `images=None` instead of `[]`. A malformed
+    payload that travels to TN and comes back as a 4xx pollutes exactly that
+    signal: it looks identical to TN rejecting a legitimate image.
+    """
+
+    def test_rejects_both_src_and_attachment(self) -> None:
+        client = TiendaNubeProductClient(store_id="123", access_token="tok")
+        with pytest.raises(ValueError, match="exactly one"):
+            asyncio.run(
+                client.add_product_image(
+                    123,
+                    src="https://example.com/a.jpg",
+                    attachment=b"bytes",
+                    filename="a.jpg",
+                )
+            )
+
+    def test_rejects_neither_src_nor_attachment(self) -> None:
+        client = TiendaNubeProductClient(store_id="123", access_token="tok")
+        with pytest.raises(ValueError, match="exactly one"):
+            asyncio.run(client.add_product_image(123))
+
+    def test_rejects_attachment_without_filename(self) -> None:
+        client = TiendaNubeProductClient(store_id="123", access_token="tok")
+        with pytest.raises(ValueError, match="filename"):
+            asyncio.run(client.add_product_image(123, attachment=b"bytes"))
+
+    def test_validates_before_touching_the_network(self) -> None:
+        client = TiendaNubeProductClient(store_id="123", access_token="tok")
+        with patch("httpx.AsyncClient") as mock_client:
+            with pytest.raises(ValueError):
+                asyncio.run(client.add_product_image(123))
+        mock_client.assert_not_called()
