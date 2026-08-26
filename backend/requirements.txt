@@ -34,6 +34,7 @@ pytz==2024.1
 pyasn1_modules==0.4.2
 pycparser==2.23
 pydantic==2.13.4
+Pillow==11.3.0
 pydantic-settings==2.14.2
 pydantic_core==2.46.4
 python-dotenv==1.0.0
