@@ -499,13 +499,16 @@ def _revertir_cc_si_linkeado(
     usuario_id: Optional[int],
     empresa_id: Optional[int],
 ) -> None:
-    """Revierte el movimiento CC del proveedor si el cheque estaba linkeado a una OP.
+    """Revierte el movimiento CC del proveedor si el cheque estaba linkeado a una OP
+    PAGADA (invariante R — cheques_service.py design doc: un link en una OP que no
+    está 'pagado' es una RESERVA, no una imputación; no hay CC que revertir).
 
-    Busca el OrdenPagoCheque del cheque; si existe, inserta un 'debe' en
-    cc_proveedor_movimientos (reversal append-only) por el monto_op_moneda
-    del link. Registra evento 'revertido_cc' en cheque_evento.
+    Busca el OrdenPagoCheque del cheque; si existe y la OP está 'pagado', inserta
+    un 'debe' en cc_proveedor_movimientos (reversal append-only) por el
+    monto_op_moneda del link. Registra evento 'revertido_cc' en cheque_evento.
 
-    Si el cheque no tiene link OP, no hace nada.
+    Si el cheque no tiene link OP, o la OP linkeada no está 'pagado' (reserva o
+    aplicación sin dinero movido todavía), no hace nada.
     """
     from app.models.cheque import OrdenPagoCheque  # noqa: PLC0415
     from app.models.imputacion import Imputacion  # noqa: PLC0415
@@ -524,11 +527,19 @@ def _revertir_cc_si_linkeado(
         )
         return
 
+    op = db.get(OrdenPago, cheque.orden_pago_id)
+    if op is None or op.estado != "pagado":
+        logger.info(
+            "ℹ️ Cheque id=%s linkeado a OP id=%s en estado '%s' (no 'pagado') — "
+            "sin movimiento CC que revertir (reserva/aplicación sin dinero movido).",
+            cheque.id,
+            cheque.orden_pago_id,
+            op.estado if op is not None else None,
+        )
+        return
+
     # Resolver empresa_id desde la OP si no se pasó explícitamente.
-    eid = empresa_id
-    if eid is None:
-        op = db.get(OrdenPago, cheque.orden_pago_id)
-        eid = int(op.empresa_id) if op is not None else None
+    eid = empresa_id if empresa_id is not None else int(op.empresa_id)
 
     if eid is None:
         logger.error(
