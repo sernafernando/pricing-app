@@ -21,18 +21,29 @@ network. Two guards therefore apply to every hop:
 
 * Only `http` and `https` are fetched. Anything else (`file:`, `ftp:`,
   `gopher:`, a bare hostname) fails closed.
-* KNOWN GAP — DNS rebinding: we resolve the host, then httpx resolves it
-  AGAIN when it connects. A short-TTL attacker can answer our check with a
-  public address and httpx's with an internal one. Closing this needs a
-  custom transport that connects to the IP we validated while sending the
-  original Host header; until then the guard stops static internal targets
-  and redirect chains, NOT an actively rebinding host.
 * The host is resolved with `socket.getaddrinfo` and every answer must be
   a public address. Loopback, RFC1918, link-local (including the
   `169.254.169.254` cloud metadata endpoint), reserved, multicast and
   unspecified addresses are refused. Checking the URL string alone would
   miss a hostname that simply *points* at an internal address, so the
   resolved addresses are what is judged.
+
+The connection is then PINNED to the exact address that was judged.
+`_PinnedAddressTransport` rewrites the request URL's host to that address
+while sending the original `Host` header and, for HTTPS, the original
+hostname as `sni_hostname` — so the TLS handshake and the certificate check
+still run against the hostname, never against the IP literal. Because that
+rewrite makes httpcore's pool key the IP rather than the hostname, the
+transport keeps ONE POOL PER PINNED HOSTNAME, so two hostnames behind one
+CDN address can never share a connection whose certificate was verified for
+only one of them. A host that somehow reaches the transport without a pin
+is refused outright: this stage fails closed, never open.
+
+Resolving once and letting httpx resolve again at connect time would leave
+a DNS rebinding window: a short-TTL attacker answers our check with a
+public address and httpx's with an internal one. Pinning means there is no
+second resolution to poison. Every redirect hop is validated and pinned the
+same way.
 
 Redirects are followed by hand (`follow_redirects=False`) precisely so
 that each `Location` is validated before it is requested: letting httpx
@@ -132,8 +143,120 @@ def _is_public_address(raw_address: str) -> bool:
     )
 
 
-async def _validate_target(url: str) -> str | None:
-    """Return an error string when `url` must not be requested, else None."""
+class UnpinnedHostError(RuntimeError):
+    """A request reached the transport for a host that was never pinned."""
+
+
+def _pin_key(host: str) -> str:
+    """Normalize `host` the way httpx normalizes a URL host.
+
+    `urlsplit` hands back the hostname exactly as the GBP row spelled it,
+    while httpx round-trips IDN through IDNA — a punycoded `xn--...` host is
+    decoded back to unicode, and a unicode one may be encoded. Keying the
+    pins on the raw string therefore stores `xn--mnchen-3ya.example` and
+    looks up `münchen.example`, misses, and (before the fail-closed guard
+    below) sent the request out unpinned with a fresh DNS lookup: silently
+    the exact rebinding window this transport exists to close. Both sides go
+    through httpx's own normalization so they cannot disagree.
+    """
+    try:
+        return (httpx.URL(f"//{host}").host or host).lower()
+    except (httpx.InvalidURL, UnicodeError, ValueError):
+        return host.lower()
+
+
+class _PinnedAddressTransport(httpx.AsyncBaseTransport):
+    """Connects to the address that was validated, not to a fresh lookup.
+
+    The URL host is replaced by the pinned IP so no second DNS resolution
+    can happen, while the original hostname keeps travelling in the `Host`
+    header and in the `sni_hostname` extension. httpcore passes that
+    extension to the TLS handshake as `server_hostname`, so SNI and
+    certificate verification still target the hostname: pinning the address
+    costs nothing in TLS strength.
+
+    ONE POOL PER HOSTNAME
+    ---------------------
+    The rewrite has a sharp edge that a single pool would turn into a hole.
+    httpcore decides whether an idle connection may serve a request with
+    `connection.can_handle_request(request.url.origin)`, and `Origin` is
+    exactly `(scheme, host, port)` — `sni_hostname` is read only inside
+    `_connect`, when a connection is OPENED, and is not part of that key.
+    Once the host is the pinned IP, the key is the IP, so two hostnames
+    behind one CDN address share one pool entry: `https://first.example`
+    redirecting to `https://second.example` would reuse a connection whose
+    certificate was verified for `first.example`, and `second.example`'s
+    certificate would never be checked at all. Redirects between hostnames
+    of the same CDN are the ordinary case, not an exotic one.
+
+    Each pinned hostname therefore gets its own `AsyncHTTPTransport`, i.e.
+    its own connection pool. Isolation then does not depend on the pool key
+    at all: a connection opened for one hostname is not reachable from
+    another, whatever address either resolved to. Keep-alive survives
+    WITHIN a hostname, which is where it is worth anything — dropping it
+    globally instead would also cost nothing measurable today (each
+    `download_source_image` call builds its own client, so nothing is
+    reused across images anyway) but would silently become the wrong
+    default the day a batch reuses one client across a catalog.
+
+    A host with no pin is REFUSED, not passed through. `_validate_target` is
+    the only thing that decides what may be requested, and it pins every
+    target it approves — so an unpinned host arriving here is a bug, and
+    letting it through would be an unvalidated, freshly resolved request.
+    `download_source_image` turns the exception into a `download_failed`
+    result like any other transport error.
+    """
+
+    def __init__(self, **kwargs) -> None:
+        self._transport_kwargs = kwargs
+        self._pins: dict[str, str] = {}
+        self._transports: dict[str, httpx.AsyncHTTPTransport] = {}
+
+    def pin(self, host: str, address: str) -> None:
+        self._pins[_pin_key(host)] = address
+
+    def _transport_for(self, host: str) -> httpx.AsyncHTTPTransport:
+        transport = self._transports.get(host)
+        if transport is None:
+            transport = httpx.AsyncHTTPTransport(**self._transport_kwargs)
+            self._transports[host] = transport
+        return transport
+
+    def _host_header(self, url: httpx.URL) -> str:
+        """`<host>[:<port>]`, IDNA-encoded and without any userinfo.
+
+        `URL.netloc` is httpx's own answer to this question: it is documented
+        as "either `<host>` or `<host>:<port>`", lowercased and IDNA encoded,
+        with the default port for the scheme already dropped and userinfo
+        kept out (it lives in a separate component of the URI reference).
+        Rebuilding it from `url.host` by hand would instead undo the IDNA
+        encoding, since `url.host` decodes punycode back to unicode.
+        """
+        return url.netloc.decode("ascii")
+
+    async def handle_async_request(self, request: httpx.Request) -> httpx.Response:
+        host = _pin_key(request.url.host or "")
+        address = self._pins.get(host)
+        if address is None:
+            raise UnpinnedHostError(f"refusing to request unpinned host {host or '(none)'}")
+        request.headers["host"] = self._host_header(request.url)
+        request.extensions = {**request.extensions, "sni_hostname": request.url.host}
+        request.url = request.url.copy_with(host=address)
+        return await self._transport_for(host).handle_async_request(request)
+
+    async def aclose(self) -> None:
+        for transport in self._transports.values():
+            await transport.aclose()
+        self._transports.clear()
+
+
+async def _validate_target(url: str) -> tuple[str | None, str | None]:
+    """Validate `url`, returning `(error, address_to_pin)`.
+
+    Exactly one half is ever populated: an error string when the URL must
+    not be requested, otherwise the validated address the connection has to
+    be pinned to.
+    """
     # urlsplit itself, and `.port` in particular, raise on a garbled URL
     # (out-of-range port, unclosed IPv6 bracket). This guard runs BEFORE the
     # request's try block, so an escape here would abort the whole batch over
@@ -144,13 +267,13 @@ async def _validate_target(url: str) -> str | None:
         host = parts.hostname
         port = parts.port
     except ValueError as exc:
-        return f"malformed URL: {exc}"
+        return f"malformed URL: {exc}", None
 
     if scheme not in ALLOWED_SCHEMES:
-        return f"disallowed URL scheme: {scheme or '(none)'}"
+        return f"disallowed URL scheme: {scheme or '(none)'}", None
 
     if not host:
-        return "URL has no host"
+        return "URL has no host", None
 
     port = port or DEFAULT_PORTS[scheme]
     loop = asyncio.get_running_loop()
@@ -160,16 +283,18 @@ async def _validate_target(url: str) -> str | None:
             partial(socket.getaddrinfo, host, port, 0, socket.SOCK_STREAM),
         )
     except Exception as exc:  # noqa: BLE001 - resolution failure is just a failed download
-        return f"could not resolve host {host}: {type(exc).__name__}: {exc}"
+        return f"could not resolve host {host}: {type(exc).__name__}: {exc}", None
 
     addresses = [answer[4][0] for answer in answers]
     if not addresses:
-        return f"host {host} resolved to no address"
+        return f"host {host} resolved to no address", None
     for address in addresses:
-        # One non-public answer is enough: httpx may pick exactly that one.
+        # One non-public answer is enough: the pin below picks one of these,
+        # and a host that answers with any internal address is not a host we
+        # are willing to talk to at all.
         if not _is_public_address(address):
-            return f"blocked non-public address for host {host}: {address}"
-    return None
+            return f"blocked non-public address for host {host}: {address}", None
+    return None, addresses[0]
 
 
 def _declared_length(response: httpx.Response) -> int | None:
@@ -214,12 +339,15 @@ async def download_source_image(
     if not url:
         return _failed(source_url, "empty source_url")
 
-    target_error = await _validate_target(url)
+    target_error, address = await _validate_target(url)
     if target_error is not None:
         return _failed(url, target_error)
 
+    transport = _PinnedAddressTransport()
+    transport.pin(urlsplit(url).hostname or "", address or "")
+
     try:
-        async with httpx.AsyncClient(timeout=timeout, follow_redirects=False) as client:
+        async with httpx.AsyncClient(timeout=timeout, follow_redirects=False, transport=transport) as client:
             current = url
             for _ in range(MAX_REDIRECTS + 1):
                 async with client.stream("GET", current) as response:
@@ -232,9 +360,12 @@ async def download_source_image(
                         next_url = str(httpx.URL(current).join(location))
                         # Validate BEFORE requesting: an unchecked hop is the
                         # whole point of following redirects by hand.
-                        hop_error = await _validate_target(next_url)
+                        hop_error, hop_address = await _validate_target(next_url)
                         if hop_error is not None:
                             return _failed(url, f"blocked redirect: {hop_error}")
+                        # Pin this hop too: an unpinned hop reopens exactly
+                        # the rebinding window the first one closes.
+                        transport.pin(urlsplit(next_url).hostname or "", hop_address or "")
                         current = next_url
                         continue
 

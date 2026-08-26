@@ -15,11 +15,14 @@ import inspect
 import socket
 
 import httpx
+import pytest
 from sqlalchemy.orm import Session
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from app.services.tn_image_normalizer.download import (
     DownloadResult,
+    UnpinnedHostError,
+    _PinnedAddressTransport,
     download_source_image,
 )
 from app.services.tn_image_normalizer.states import ITEM_DOWNLOAD_FAILED, ITEM_DOWNLOADED
@@ -392,3 +395,258 @@ class TestMalformedUrlNeverRaises:
     def test_negative_port_fails_without_raising(self) -> None:
         result = asyncio.run(download_source_image("http://example.com:-1/a.jpg"))
         assert result.state == ITEM_DOWNLOAD_FAILED
+
+
+class TestPinnedAddressTransport:
+    """The connection must go to the address we validated, not to a fresh one.
+
+    Validating with `getaddrinfo` and then letting httpx resolve again is a
+    TOCTOU window: a short-TTL attacker answers our check with a public
+    address and httpx's with an internal one.
+    """
+
+    def _capture(self, transport, request):
+        captured = {}
+
+        async def fake_send(_self, sent):
+            captured["request"] = sent
+            return httpx.Response(200, content=IMAGE_BYTES)
+
+        with patch.object(httpx.AsyncHTTPTransport, "handle_async_request", fake_send):
+            asyncio.run(transport.handle_async_request(request))
+        return captured["request"]
+
+    def test_connect_target_is_the_validated_ip(self) -> None:
+        transport = _PinnedAddressTransport()
+        transport.pin("example.com", PUBLIC_IP)
+
+        sent = self._capture(transport, httpx.Request("GET", "https://example.com/a.jpg"))
+
+        assert sent.url.host == PUBLIC_IP
+        assert sent.url.path == "/a.jpg"
+
+    def test_original_host_header_is_preserved(self) -> None:
+        transport = _PinnedAddressTransport()
+        transport.pin("example.com", PUBLIC_IP)
+
+        sent = self._capture(transport, httpx.Request("GET", "https://example.com/a.jpg"))
+
+        assert sent.headers["host"] == "example.com"
+
+    def test_tls_is_verified_against_the_hostname_not_the_ip(self) -> None:
+        # Pinning the IP into the URL would otherwise make the handshake
+        # check the certificate against "93.184.216.34" and fail every real
+        # HTTPS host — the tempting "fix" being to disable verification.
+        transport = _PinnedAddressTransport()
+        transport.pin("example.com", PUBLIC_IP)
+
+        sent = self._capture(transport, httpx.Request("GET", "https://example.com/a.jpg"))
+
+        assert sent.extensions["sni_hostname"] == "example.com"
+
+    def test_idn_host_is_pinned_and_matches_the_punycoded_lookup(self) -> None:
+        # httpx punycodes the request URL host, so a pin stored under the raw
+        # unicode host would never be found: the request would go out UNPINNED
+        # with a fresh DNS lookup, silently reopening the rebinding window.
+        transport = _PinnedAddressTransport()
+        transport.pin("m\u00fcnchen.example", PUBLIC_IP)
+
+        sent = self._capture(transport, httpx.Request("GET", "https://m\u00fcnchen.example/a.jpg"))
+
+        assert sent.url.host == PUBLIC_IP
+        assert sent.headers["host"] == "xn--mnchen-3ya.example"
+
+    def test_punycoded_idn_host_is_pinned_and_matches_the_decoded_lookup(self) -> None:
+        # The mirror case, and the one that actually bites: `urlsplit` keeps
+        # the punycode a GBP row carries, while httpx decodes it back to
+        # unicode. The pin key and the lookup key must be normalized the same
+        # way or the request goes out UNPINNED with a fresh DNS lookup.
+        transport = _PinnedAddressTransport()
+        transport.pin("xn--mnchen-3ya.example", PUBLIC_IP)
+
+        sent = self._capture(transport, httpx.Request("GET", "https://xn--mnchen-3ya.example/a.jpg"))
+
+        assert sent.url.host == PUBLIC_IP
+
+    def test_unpinned_host_is_refused_instead_of_being_sent(self) -> None:
+        # Fail CLOSED: `_validate_target` is the only thing that decides what
+        # may be requested, so a host arriving here without a pin is a bug,
+        # and letting it through would be an unvalidated request.
+        transport = _PinnedAddressTransport()
+        reached = []
+
+        async def fake_send(_self, sent):
+            reached.append(sent)
+            return httpx.Response(200, content=IMAGE_BYTES)
+
+        with patch.object(httpx.AsyncHTTPTransport, "handle_async_request", fake_send):
+            with pytest.raises(UnpinnedHostError):
+                asyncio.run(transport.handle_async_request(httpx.Request("GET", "https://example.com/a.jpg")))
+
+        assert reached == [], "an unpinned request reached the network"
+
+    def test_unpinned_request_ends_as_download_failed(self) -> None:
+        reached = []
+
+        async def fake_send(_self, sent):
+            reached.append(sent)
+            return httpx.Response(200, content=IMAGE_BYTES)
+
+        with patch.object(_PinnedAddressTransport, "pin", lambda self, host, address: None):
+            with patch.object(httpx.AsyncHTTPTransport, "handle_async_request", fake_send):
+                with patch(
+                    "app.services.tn_image_normalizer.download.socket.getaddrinfo",
+                    side_effect=lambda *a, **k: _addrinfo(PUBLIC_IP),
+                ):
+                    result = asyncio.run(download_source_image("https://example.com/a.jpg"))
+
+        assert result.state == ITEM_DOWNLOAD_FAILED
+        assert reached == [], "an unpinned request reached the network"
+
+
+class TestDnsRebindingIsClosed:
+    def test_second_resolution_cannot_reach_an_internal_target(self) -> None:
+        # The attacker's host answers our validation with a public address
+        # and would answer httpx's connect-time lookup with 127.0.0.1.
+        targets: list[str] = []
+
+        async def fake_send(_self, sent):
+            targets.append(sent.url.host)
+            return httpx.Response(200, content=IMAGE_BYTES)
+
+        resolutions = [_addrinfo(PUBLIC_IP), _addrinfo("127.0.0.1")]
+
+        def rebinding_getaddrinfo(*args, **kwargs):
+            return resolutions.pop(0) if resolutions else _addrinfo("127.0.0.1")
+
+        with patch.object(httpx.AsyncHTTPTransport, "handle_async_request", fake_send):
+            with patch(
+                "app.services.tn_image_normalizer.download.socket.getaddrinfo",
+                side_effect=rebinding_getaddrinfo,
+            ):
+                result = asyncio.run(download_source_image("https://rebind.example/a.jpg"))
+
+        assert result.state == ITEM_DOWNLOADED
+        assert targets == [PUBLIC_IP], f"connected to an unvalidated target: {targets}"
+
+    def test_each_redirect_hop_is_pinned_to_its_own_validated_address(self) -> None:
+        targets: list[str] = []
+        second_ip = "93.184.216.35"
+
+        async def fake_send(_self, sent):
+            targets.append(sent.url.host)
+            if len(targets) == 1:
+                return httpx.Response(302, headers={"location": "https://second.example/b.jpg"})
+            return httpx.Response(200, content=IMAGE_BYTES)
+
+        resolutions = [_addrinfo(PUBLIC_IP), _addrinfo(second_ip)]
+
+        with patch.object(httpx.AsyncHTTPTransport, "handle_async_request", fake_send):
+            with patch(
+                "app.services.tn_image_normalizer.download.socket.getaddrinfo",
+                side_effect=lambda *a, **k: resolutions.pop(0),
+            ):
+                result = asyncio.run(download_source_image("https://first.example/a.jpg"))
+
+        assert result.state == ITEM_DOWNLOADED
+        assert targets == [PUBLIC_IP, second_ip]
+
+
+class TestConnectionsAreNeverSharedBetweenHostnames:
+    """Pinning must not let two hostnames share one TLS connection.
+
+    httpcore keys its pool on `request.url.origin`, i.e. `(scheme, host,
+    port)`, and `sni_hostname` is read only when a connection is OPENED
+    (`httpcore/_async/connection.py`), never as part of that key. Once the
+    URL host is rewritten to the pinned address, the key becomes the IP —
+    so `https://first.example` and `https://second.example` behind one CDN
+    address collapse onto a single pool entry, and the second hostname
+    would reuse a connection whose certificate was verified for the first.
+    A redirect between two hostnames of the same CDN is the common case.
+    """
+
+    def _two_hop_download(self, first_ip: str, second_ip: str):
+        """Follow first.example -> second.example, recording each hop."""
+        hops: list[dict] = []
+
+        async def fake_send(_self, sent):
+            hops.append(
+                {
+                    "transport": id(_self),
+                    "sni": sent.extensions.get("sni_hostname"),
+                    "host_header": sent.headers.get("host"),
+                    "target": sent.url.host,
+                }
+            )
+            if len(hops) == 1:
+                return httpx.Response(302, headers={"location": "https://second.example/b.jpg"})
+            return httpx.Response(200, content=IMAGE_BYTES)
+
+        resolutions = {"first.example": first_ip, "second.example": second_ip}
+
+        with patch.object(httpx.AsyncHTTPTransport, "handle_async_request", fake_send):
+            with patch(
+                "app.services.tn_image_normalizer.download.socket.getaddrinfo",
+                side_effect=lambda host, *a, **kw: _addrinfo(resolutions[host]),
+            ):
+                result = asyncio.run(download_source_image("https://first.example/a.jpg"))
+        return result, hops
+
+    def test_two_hostnames_on_one_ip_do_not_share_a_connection_pool(self) -> None:
+        result, hops = self._two_hop_download(PUBLIC_IP, PUBLIC_IP)
+
+        assert result.state == ITEM_DOWNLOADED
+        assert [hop["target"] for hop in hops] == [PUBLIC_IP, PUBLIC_IP]
+        assert hops[0]["transport"] != hops[1]["transport"], (
+            "both hostnames went through one connection pool keyed on the shared IP, "
+            "so the second hostname could reuse a connection verified for the first"
+        )
+
+    def test_each_hostname_is_verified_under_its_own_name(self) -> None:
+        _, hops = self._two_hop_download(PUBLIC_IP, PUBLIC_IP)
+
+        assert [hop["sni"] for hop in hops] == ["first.example", "second.example"]
+        assert [hop["host_header"] for hop in hops] == ["first.example", "second.example"]
+
+    def test_pool_isolation_also_holds_when_the_ips_differ(self) -> None:
+        _, hops = self._two_hop_download(PUBLIC_IP, "93.184.216.35")
+
+        assert hops[0]["transport"] != hops[1]["transport"]
+
+
+class TestHostHeaderNeverCarriesCredentials:
+    """A `Host` header is `<host>[:<port>]` — never userinfo.
+
+    Credentials in a `Host` header are both an invalid header value and a
+    secret written into a place that gets logged by every intermediary.
+    """
+
+    def _sent(self, url: str, pin_host: str):
+        transport = _PinnedAddressTransport()
+        transport.pin(pin_host, PUBLIC_IP)
+        captured = {}
+
+        async def fake_send(_self, sent):
+            captured["request"] = sent
+            return httpx.Response(200, content=IMAGE_BYTES)
+
+        with patch.object(httpx.AsyncHTTPTransport, "handle_async_request", fake_send):
+            asyncio.run(transport.handle_async_request(httpx.Request("GET", url)))
+        return captured["request"]
+
+    def test_userinfo_is_not_copied_into_the_host_header(self) -> None:
+        sent = self._sent("https://user:pass@cdn.example/a.jpg", "cdn.example")
+
+        assert sent.headers["host"] == "cdn.example"
+        assert "pass" not in sent.headers["host"]
+        assert "@" not in sent.headers["host"]
+
+    def test_non_default_port_is_kept_in_the_host_header(self) -> None:
+        sent = self._sent("https://cdn.example:8443/a.jpg", "cdn.example")
+
+        assert sent.headers["host"] == "cdn.example:8443"
+
+    def test_default_port_is_omitted_from_the_host_header(self) -> None:
+        sent = self._sent("https://cdn.example:443/a.jpg", "cdn.example")
+
+        assert sent.headers["host"] == "cdn.example"
