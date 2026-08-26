@@ -31,6 +31,19 @@ import api from '../services/api';
 
 const mockTienePermiso = vi.fn(() => true);
 
+// The publish modal itself is covered by `TnPublishModal.test.jsx`. Here it
+// is replaced by a stub that fires `onPublished` with an exact backend
+// payload, so the page's own toast branching is what gets asserted.
+let publishOutcomePayload = { submitted: true, status: 'submitted', product_id: 9 };
+
+vi.mock('../components/tn-publisher/TnPublishModal', () => ({
+  default: ({ row, onPublished }) => (
+    <button type="button" onClick={() => onPublished(row.ean, publishOutcomePayload)}>
+      stub-publicar
+    </button>
+  ),
+}));
+
 vi.mock('../contexts/PermisosContext', () => ({
   usePermisos: () => ({
     permisos: [],
@@ -1908,5 +1921,53 @@ describe('Excepción aceptada — la salida que los veredictos de anomalía no t
     await screen.findByText(/sku no coincide/i);
     expect(screen.queryByRole('button', { name: /aceptar como correcto/i })).not.toBeInTheDocument();
     mockTienePermiso.mockImplementation(() => true);
+  });
+});
+
+describe('publish outcome toast', () => {
+  beforeEach(() => {
+    publishOutcomePayload = { submitted: true, status: 'submitted', product_id: 9 };
+  });
+
+  async function publishFirstRow() {
+    setupApiMocks({
+      items: [{ ean: '111', verdict: 'FALTA_PUBLICAR', despublicar: false, tn_matches: [] }],
+      verdictCounts: { FALTA_PUBLICAR: 1 },
+    });
+    const user = userEvent.setup();
+    renderWithRouter(<TiendaNubeReconcile />);
+    const publicar = await screen.findByRole('button', { name: /^Publicar$/i });
+    await user.click(publicar);
+    await user.click(await screen.findByRole('button', { name: /stub-publicar/i }));
+  }
+
+  it('shows a success toast when the backend actually submitted', async () => {
+    await publishFirstRow();
+    const toast = await screen.findByText(/EAN 111/i);
+    expect(toast.textContent).toMatch(/public/i);
+  });
+
+  it('does NOT claim success when the backend returned submitted:false', async () => {
+    publishOutcomePayload = {
+      submitted: false,
+      status: 'already_published',
+      detail: 'Ya existe una fila local para ean=111',
+    };
+    await publishFirstRow();
+    // The backend's own explanation reaches the screen...
+    await screen.findByText(/Ya existe una fila local para ean=111/i);
+    // ...and nothing announces a publication that never happened.
+    expect(screen.queryByText(/Producto con EAN 111 publicado/i)).not.toBeInTheDocument();
+  });
+
+  it('surfaces a real failure as an error toast with the backend detail', async () => {
+    publishOutcomePayload = {
+      submitted: false,
+      status: 'precheck_failed',
+      detail: 'No se pudo confirmar con Tienda Nube',
+    };
+    await publishFirstRow();
+    await screen.findByText(/No se pudo confirmar con Tienda Nube/i);
+    expect(screen.queryByText(/Producto con EAN 111 publicado/i)).not.toBeInTheDocument();
   });
 });

@@ -258,3 +258,37 @@ export function resolveEditorAction(row) {
     productId: editorMatch.product_id,
   };
 }
+
+/**
+ * Traduce la respuesta del endpoint de publicación a un toast.
+ *
+ * El backend responde HTTP 200 con `submitted: false` para SEIS desenlaces
+ * distintos (`already_published`, `already_exists`, `precheck_failed`,
+ * `rejected_by_proxy`, `rate_limited`, `ambiguous`): solo tres estados se
+ * convierten en HTTP 400. Antes la página trataba a los ocho como éxito, así
+ * que un producto que nunca llegó a Tienda Nube mostraba un toast verde —
+ * el operador reintentaba y volvía a ver el mismo verde.
+ *
+ * Severidad: `already_published`/`already_exists` no son errores del
+ * operador (el producto ya estaba), así que van como `info`. El resto son
+ * fallas reales y van como `error`. `success` queda reservado para una
+ * publicación que efectivamente ocurrió.
+ *
+ * El texto siempre incluye el `detail` del backend, que es lo único que
+ * explica QUÉ pasó y si hay algo para hacer.
+ */
+const PUBLISH_INFORMATIVE_STATUSES = new Set(['already_published', 'already_exists']);
+
+export function resolvePublishToast(ean, data) {
+  // Sin payload no hay nada que contradiga al éxito: el POST devolvió 200 y
+  // no lanzó. Es el comportamiento histórico y el fallback seguro.
+  if (!data || data.submitted !== false) {
+    return { type: 'success', message: `Producto con EAN ${ean} publicado` };
+  }
+  const status = data.status || 'desconocido';
+  const detail = data.detail || `El backend respondió "${status}" sin más detalle.`;
+  if (PUBLISH_INFORMATIVE_STATUSES.has(status)) {
+    return { type: 'info', message: `EAN ${ean}: no se creó nada nuevo. ${detail}` };
+  }
+  return { type: 'error', message: `No se pudo publicar el EAN ${ean}. ${detail}` };
+}

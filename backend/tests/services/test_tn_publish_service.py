@@ -112,7 +112,9 @@ def _make_user(db) -> Usuario:
     return user
 
 
-def _make_producto(db, product_id=555, variant_id=1, published=True, variant_sku="SKU-1") -> TiendaNubeProducto:
+def _make_producto(
+    db, product_id=555, variant_id=1, published=True, variant_sku="SKU-1", activo=True
+) -> TiendaNubeProducto:
     producto = TiendaNubeProducto(
         product_id=product_id,
         product_name="Test product",
@@ -122,6 +124,13 @@ def _make_producto(db, product_id=555, variant_id=1, published=True, variant_sku
     )
     db.add(producto)
     db.flush()
+    # `activo` carries a Python-side column default of `True`, which
+    # SQLAlchemy applies even when the attribute is explicitly set to
+    # `None` at insert time. A post-insert UPDATE is the only way to
+    # produce the legacy `activo IS NULL` row this suite needs.
+    db.query(TiendaNubeProducto).filter(TiendaNubeProducto.id == producto.id).update({"activo": activo})
+    db.flush()
+    db.refresh(producto)
     return producto
 
 
@@ -304,6 +313,99 @@ class TestPublishIdempotency:
         assert outcome["status"] == "already_published"
         assert outcome["submitted"] is False
         assert fake_client.create_calls == []
+
+
+class TestPublishStaleLocalMirror:
+    """Production defect: the cheap local-mirror gate ignored `activo`, so a
+    row left behind by a product TN no longer has (`activo=False`, set by
+    the reconciliation sync's "deactivate everything, revive what
+    /products returns" pass) permanently answered `already_published` and
+    the EAN could never be republished. The gate must only short-circuit
+    when the local row is still CREDIBLE; an explicitly-inactive row falls
+    through to the live pre-check, which is the real authority."""
+
+    def test_inactive_local_row_falls_through_and_publishes_when_tn_lacks_it(self, db):
+        user = _make_user(db)
+        _make_producto(db, product_id=777, variant_sku="EAN-PUB-1", activo=False)
+        fake_client = _FakePublishClient(
+            create_outcome={"ok": True, "status_code": 201, "ambiguous": False, "body": {"id": 888}},
+            get_by_sku_results=[None],
+        )
+        outcome = publish_product(db, user, client=fake_client, **_publish_kwargs())
+        assert outcome["status"] == "submitted"
+        assert outcome["submitted"] is True
+        # The live pre-check ran — it, not the local mirror, decided.
+        assert fake_client.get_by_sku_calls == ["EAN-PUB-1"]
+        assert len(fake_client.create_calls) == 1
+
+    def test_inactive_local_row_but_tn_still_has_it_is_already_exists_no_duplicate(self, db):
+        user = _make_user(db)
+        _make_producto(db, product_id=777, variant_sku="EAN-PUB-1", activo=False)
+        fake_client = _FakePublishClient(
+            create_outcome={"ok": True, "status_code": 201, "ambiguous": False, "body": {}},
+            get_by_sku_results=[{"id": 111, "variants": [{"id": 1110}]}],
+        )
+        outcome = publish_product(db, user, client=fake_client, **_publish_kwargs())
+        assert outcome["status"] == "already_exists"
+        assert outcome["submitted"] is False
+        assert fake_client.create_calls == []
+
+    def test_inactive_local_row_with_unreachable_tn_still_refuses_to_create(self, db):
+        """Fail-closed is unchanged by the fix: falling through to the live
+        pre-check must never degrade into publishing blind."""
+        user = _make_user(db)
+        _make_producto(db, product_id=777, variant_sku="EAN-PUB-1", activo=False)
+        fake_client = _FakePublishClient(
+            create_outcome={"ok": True, "status_code": 201, "ambiguous": False, "body": {}},
+            get_by_sku_results=[TnProductLookupError("boom")],
+        )
+        outcome = publish_product(db, user, client=fake_client, **_publish_kwargs())
+        assert outcome["status"] == "precheck_failed"
+        assert fake_client.create_calls == []
+
+    def test_active_local_row_still_short_circuits_without_calling_tn(self, db):
+        """The common case must not gain a TN round-trip."""
+        user = _make_user(db)
+        _make_producto(db, product_id=777, variant_sku="EAN-PUB-1", activo=True)
+        fake_client = _FakePublishClient(
+            create_outcome={"ok": True, "status_code": 201, "ambiguous": False, "body": {}}
+        )
+        outcome = publish_product(db, user, client=fake_client, **_publish_kwargs())
+        assert outcome["status"] == "already_published"
+        assert fake_client.get_by_sku_calls == []
+        assert fake_client.create_calls == []
+
+    def test_null_activo_local_row_still_short_circuits(self, db):
+        """`activo IS NULL` means "unknown", never "absent from TN" — only
+        an explicit `False` is evidence the sync did not find the product.
+        An unknown row keeps the conservative `already_published` answer."""
+        user = _make_user(db)
+        _make_producto(db, product_id=777, variant_sku="EAN-PUB-1", activo=None)
+        fake_client = _FakePublishClient(
+            create_outcome={"ok": True, "status_code": 201, "ambiguous": False, "body": {}}
+        )
+        outcome = publish_product(db, user, client=fake_client, **_publish_kwargs())
+        assert outcome["status"] == "already_published"
+        assert fake_client.get_by_sku_calls == []
+        assert fake_client.create_calls == []
+
+
+class TestPublishAlreadyPublishedAudit:
+    def test_audit_row_records_the_ean_and_activo(self, db):
+        """Diagnosing the production incident required deducing the product
+        from `item_id` because `valores_nuevos` was null on this path."""
+        user = _make_user(db)
+        _make_producto(db, product_id=777, variant_sku="EAN-PUB-1", activo=True)
+        fake_client = _FakePublishClient(
+            create_outcome={"ok": True, "status_code": 201, "ambiguous": False, "body": {}}
+        )
+        publish_product(db, user, client=fake_client, **_publish_kwargs())
+        audit_rows = db.query(Auditoria).filter(Auditoria.tipo_accion == TipoAccion.TN_PUBLICAR).all()
+        assert len(audit_rows) == 1
+        assert audit_rows[0].valores_nuevos is not None
+        assert audit_rows[0].valores_nuevos["ean"] == "EAN-PUB-1"
+        assert audit_rows[0].valores_nuevos["activo"] is True
+        assert audit_rows[0].valores_nuevos["product_id"] == 777
 
 
 class TestPublishSuccessfulWrite:
