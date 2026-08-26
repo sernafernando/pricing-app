@@ -335,6 +335,7 @@ class TestManipulationSignal:
         assert row.status == "waiting"
         assert row.injection_flag is True
         assert row.answer_source == "fallback"
+        assert row.fallback_reason == "injection_flagged"
 
 
 class TestFallbackRouting:
@@ -358,6 +359,7 @@ class TestFallbackRouting:
         assert row.status == "waiting"
         assert row.answer_source == "fallback"
         assert row.fallback_used is True
+        assert row.fallback_reason == "provider_error"
 
     def test_fallback_resolution_resets_attempts_entering_waiting(self, db) -> None:
         """Same reset must apply on the fallback resolution path (not just
@@ -401,6 +403,7 @@ class TestFallbackRouting:
         db.refresh(row)
         assert row.status == "waiting"
         assert row.answer_source == "fallback"
+        assert row.fallback_reason == "low_confidence"
 
     def test_denylist_hit_routes_to_fallback_with_injection_flag(self, db) -> None:
         _seed_bot_enabled(db)
@@ -421,6 +424,7 @@ class TestFallbackRouting:
         db.refresh(row)
         assert row.status == "waiting"
         assert row.injection_flag is True
+        assert row.fallback_reason == "fallback_denylist"
 
     def test_can_answer_false_routes_to_fallback(self, db) -> None:
         _seed_bot_enabled(db)
@@ -440,6 +444,74 @@ class TestFallbackRouting:
         assert stats["fallback"] == 1
         db.refresh(row)
         assert row.status == "waiting"
+        # "no tengo esa info" also matches the deflection detector — with
+        # `can_answer=False` AND `deflection=True` both true, precedence
+        # (`fallback_denylist` > `deflection` > `low_confidence` >
+        # `drafted_no_answer`) resolves to `deflection`, not
+        # `drafted_no_answer`. A pure `can_answer=False`-only case is
+        # exhaustively covered by the WU1 truth table.
+        assert row.fallback_reason == "deflection"
+
+
+class TestResolveFallbackInjectionFlagOrPreserve:
+    """T3.1 non-optional regression proof: `_resolve_fallback` must keep the
+    exact `row.injection_flag = row.injection_flag or injection_flag`
+    OR-preserve semantics (waiting ~line 380, pending_morning ~line 368)
+    VERBATIM after switching to keyword-only `reason: str`. A row that
+    already carries `injection_flag=True` (e.g. from a PRIOR manipulation
+    hit) must never have that flag cleared by a later non-injection
+    fallback resolution."""
+
+    def test_waiting_branch_preserves_prior_injection_flag_true(self, db) -> None:
+        _seed_bot_enabled(db)
+        row = _seed_question(db)
+        row.injection_flag = True
+        db.commit()
+        provider = _FakeProvider(error=LlmProviderError("boom"))
+
+        with (
+            _patch_db(db),
+            patch(
+                "app.services.ml_questions.drafting_service.ml_client.get_item",
+                new=AsyncMock(return_value={"available_quantity": 1, "attributes": []}),
+            ),
+        ):
+            asyncio.run(drafting_service.run_ml_questions_draft_cycle(provider=provider))
+
+        db.refresh(row)
+        assert row.status == "waiting"
+        assert row.injection_flag is True
+        assert row.fallback_reason == "provider_error"
+
+    def test_pending_morning_branch_preserves_prior_injection_flag_true(self, db) -> None:
+        _seed_bot_enabled(db)
+        _seed_config(db, "timezone", "UTC")
+        _seed_config(db, "business_hours_start", "09:00")
+
+        earlier = datetime(2026, 7, 6, 23, 10, tzinfo=timezone.utc)
+        prior = _seed_question(db, question_date=earlier, buyer_id=777, status="waiting")
+        prior.answer_source = "fallback"
+        db.flush()
+
+        later = datetime(2026, 7, 7, 0, 20, tzinfo=timezone.utc)
+        row = _seed_question(db, question_date=later, buyer_id=777)
+        row.injection_flag = True
+        db.commit()
+        provider = _FakeProvider(error=LlmProviderError("boom"))
+
+        with (
+            _patch_db(db),
+            patch(
+                "app.services.ml_questions.drafting_service.ml_client.get_item",
+                new=AsyncMock(return_value=None),
+            ),
+        ):
+            asyncio.run(drafting_service.run_ml_questions_draft_cycle(provider=provider))
+
+        db.refresh(row)
+        assert row.status == "pending_morning"
+        assert row.injection_flag is True
+        assert row.fallback_reason == "provider_error"
 
 
 class TestRepeatBuyerAfterMidnight:
@@ -471,6 +543,10 @@ class TestRepeatBuyerAfterMidnight:
         db.refresh(row)
         assert row.status == "pending_morning"
         assert row.wait_until is None
+        # T3.1: `fallback_reason` must be persisted on the `pending_morning`
+        # branch too, even though `status` (not `fallback_reason`) carries
+        # the timing-hold semantics.
+        assert row.fallback_reason == "provider_error"
 
     def test_first_time_late_buyer_gets_normal_fallback(self, db) -> None:
         _seed_bot_enabled(db)
@@ -1563,6 +1639,7 @@ class TestDeflectionRoutedToFallback:
         assert row.injection_flag is False
         # And the actual deflection text is NOT what got saved as the draft.
         assert "otros productos" not in (row.drafted_answer or "")
+        assert row.fallback_reason == "deflection"
 
 
 class TestFallbackTemplateSelection:
