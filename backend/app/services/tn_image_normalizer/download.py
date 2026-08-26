@@ -89,7 +89,10 @@ DEFAULT_MAX_DOWNLOAD_BYTES = 25 * 1024 * 1024
 ALLOWED_SCHEMES = frozenset({"http", "https"})
 MAX_REDIRECTS = 5
 REDIRECT_STATUS_CODES = frozenset({301, 302, 303, 307, 308})
+# Keyed by the schemes in ALLOWED_SCHEMES; the assert keeps the two from
+# drifting apart, since a scheme allowed but unmapped would KeyError here.
 DEFAULT_PORTS = {"http": 80, "https": 443}
+assert set(DEFAULT_PORTS) == set(ALLOWED_SCHEMES)
 
 
 @dataclass(frozen=True)

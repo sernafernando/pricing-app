@@ -1,9 +1,11 @@
 """Tests for tn_image_normalizer.store: dedup, disk layout, and retention.
 
-Runs against a real in-memory SQLite session holding only
-`tn_image_artifact`, so the dedup unique constraint is genuinely enforced
-(the `IntegrityError` race test exercises the real database error, not a
-mocked one).
+Runs against a real in-memory SQLite session carrying every table
+reachable by foreign key from the normalizer's own, with
+`PRAGMA foreign_keys=ON`. Both halves matter: the dedup unique constraint
+and the item -> artifact foreign key are genuinely enforced, so the race
+test exercises a real database error and the retention sweep is judged
+against the same constraints Postgres applies.
 """
 
 from __future__ import annotations
