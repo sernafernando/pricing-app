@@ -88,6 +88,17 @@ export const LLM_PROVIDER_MODELS = {
 const LLM_ROSTER_CONFIG_KEY = 'llm_providers';
 const CUSTOM_MODEL_OPTION = '__custom__';
 
+// PR1 (ml-bot-panel-operador) — offset-based pagination, fixed page size,
+// matching the server default.
+// ponytail: `order_by` is deliberately NOT added here — it needs a whitelist
+// plus an `id DESC` tiebreaker or offset pages interleave (deferred, see
+// design ADR-1). Known accepted drift: both lists are SSE-refetched and
+// ordered DESC-by-arrival with no tiebreaker, so a row can duplicate or be
+// skipped across pages when a new row arrives mid-session. This is bounded
+// and strictly better than the previous silent truncation at a hardcoded
+// limit=100 of a much larger total.
+const PAGINATION_PAGE_SIZE = 50;
+
 const STATUS_LABELS = {
   received: 'Recibida',
   drafting: 'Redactando',
@@ -407,6 +418,41 @@ function formatCountdown(seconds) {
   return `${m}:${String(s).padStart(2, '0')}`;
 }
 
+// PR1 (ml-bot-panel-operador) — plain inline pagination control.
+// ponytail: extract into `components/ml-bot/PaginationBar` in PR4 (design
+// ADR-3) — kept inline here per that decision (do NOT create
+// components/ml-bot/ yet).
+function PaginationBar({ offset, pageSize, total, onOffsetChange, unitLabel = 'resultados' }) {
+  const from = total === 0 ? 0 : offset + 1;
+  const to = Math.min(offset + pageSize, total);
+  const isFirstPage = offset === 0;
+  const isLastPage = offset + pageSize >= total;
+
+  return (
+    <div className={styles.filtersBar}>
+      <button
+        type="button"
+        className="btn-tesla ghost sm"
+        onClick={() => onOffsetChange(Math.max(0, offset - pageSize))}
+        disabled={isFirstPage}
+      >
+        Anterior
+      </button>
+      <span>
+        mostrando {from}-{to} de {total} {unitLabel}
+      </span>
+      <button
+        type="button"
+        className="btn-tesla ghost sm"
+        onClick={() => onOffsetChange(offset + pageSize)}
+        disabled={isLastPage}
+      >
+        Siguiente
+      </button>
+    </div>
+  );
+}
+
 export default function MLQuestions() {
   const { tienePermiso } = usePermisos();
   const puedeVer = tienePermiso('ml_bot.ver');
@@ -425,7 +471,17 @@ export default function MLQuestions() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [statusFilter, setStatusFilter] = useState('');
+  const [preguntasOffset, setPreguntasOffset] = useState(0);
+  const [preguntasTotal, setPreguntasTotal] = useState(0);
   const [now, setNow] = useState(Date.now());
+
+  // ADR-1 (design #1806): any filter change resets offset=0 in the same
+  // state update, via this single per-tab handler, so no individual filter
+  // control can forget to reset the page.
+  const handleStatusFilterChange = useCallback((value) => {
+    setStatusFilter(value);
+    setPreguntasOffset(0);
+  }, []);
 
   // Edit modal
   const [editQuestion, setEditQuestion] = useState(null);
@@ -504,6 +560,32 @@ export default function MLQuestions() {
   const [sinPack, setSinPack] = useState(false);
   const [includeModerated, setIncludeModerated] = useState(false);
   const [hasReadFilter, setHasReadFilter] = useState('');
+  const [mensajesOffset, setMensajesOffset] = useState(0);
+  const [mensajesTotal, setMensajesTotal] = useState(0);
+
+  // ADR-1 (design #1806): same per-tab filter-reset rule as Preguntas —
+  // every messages filter control goes through one of these wrappers so
+  // offset always resets to 0 alongside the filter change.
+  const handleBuyerFilterChange = useCallback((e) => {
+    setBuyerFilter(e.target.value);
+    setMensajesOffset(0);
+  }, []);
+  const handlePackFilterChange = useCallback((e) => {
+    setPackFilter(e.target.value);
+    setMensajesOffset(0);
+  }, []);
+  const handleSinPackToggle = useCallback(() => {
+    setSinPack((prev) => !prev);
+    setMensajesOffset(0);
+  }, []);
+  const handleIncludeModeratedChange = useCallback((e) => {
+    setIncludeModerated(e.target.checked);
+    setMensajesOffset(0);
+  }, []);
+  const handleHasReadFilterChange = useCallback((e) => {
+    setHasReadFilter(e.target.checked ? 'true' : 'false');
+    setMensajesOffset(0);
+  }, []);
 
   // Message thread actions (Phase A, PR3) — take-over/edit/send + detail
   // spoiler. Kept separate from the Preguntas action state above since the
@@ -732,10 +814,11 @@ export default function MLQuestions() {
     if (!silent) setLoading(true);
     setError(null);
     try {
-      const params = { limit: 100 };
+      const params = { limit: PAGINATION_PAGE_SIZE, offset: preguntasOffset };
       if (statusFilter) params.status = statusFilter;
       const { data } = await api.get('/ml-bot/questions', { params });
       setQuestions(data.questions);
+      setPreguntasTotal(data.total ?? 0);
     } catch {
       // Silent (background) refreshes must not wipe the currently rendered
       // rows / expanded panel on a transient error — only surface the error
@@ -747,7 +830,7 @@ export default function MLQuestions() {
     } finally {
       if (!silent) setLoading(false);
     }
-  }, [statusFilter]);
+  }, [statusFilter, preguntasOffset]);
 
   const cargarConfig = useCallback(async () => {
     if (!puedeConfigurar) return;
@@ -798,7 +881,7 @@ export default function MLQuestions() {
     if (!silent) setMessagesLoading(true);
     setMessagesError(null);
     try {
-      const params = { limit: 100 };
+      const params = { limit: PAGINATION_PAGE_SIZE, offset: mensajesOffset };
       if (buyerFilter.trim()) params.buyer_id = buyerFilter.trim();
       if (sinPack) {
         params.pack_id = 'none';
@@ -810,6 +893,7 @@ export default function MLQuestions() {
       const { data } = await api.get('/ml-bot/messages', { params });
       const loaded = data.messages || [];
       setMessages(loaded);
+      setMensajesTotal(data.total ?? 0);
 
       // What the buyer bought + where the shipment is, in ONE batched call
       // for the whole list. Best-effort: this is decision context, never a
@@ -846,7 +930,7 @@ export default function MLQuestions() {
     } finally {
       if (!silent) setMessagesLoading(false);
     }
-  }, [puedeVerMensajes, buyerFilter, packFilter, sinPack, includeModerated, hasReadFilter]);
+  }, [puedeVerMensajes, buyerFilter, packFilter, sinPack, includeModerated, hasReadFilter, mensajesOffset]);
 
   useEffect(() => {
     if (activeTab === 'mensajes' && puedeVerMensajes) {
@@ -871,6 +955,10 @@ export default function MLQuestions() {
     if (!silent) setPendingLoading(true);
     setPendingError(null);
     try {
+      // ponytail: Pendientes still hardcodes limit=100 and discards `total`
+      // (same lie PR1 fixed for Preguntas/Mensajes) — out of PR1's scope
+      // (ml-bot-panel-operador spec item 1 covers only questions/messages);
+      // paginate this tab too when it gets touched next.
       const params = { limit: 100 };
       if (pendingStatusFilter) params.status = pendingStatusFilter;
       if (pendingSourceFilter) params.source = pendingSourceFilter;
@@ -1606,7 +1694,7 @@ export default function MLQuestions() {
       {activeTab === 'preguntas' && (
         <>
           <div className={styles.filtersBar}>
-            <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} className={styles.select}>
+            <select value={statusFilter} onChange={(e) => handleStatusFilterChange(e.target.value)} className={styles.select}>
               <option value="">Todos los estados</option>
               {Object.entries(STATUS_LABELS).map(([value, label]) => (
                 <option key={value} value={value}>{label}</option>
@@ -1821,6 +1909,14 @@ export default function MLQuestions() {
               </tbody>
             </table>
           </div>
+
+          <PaginationBar
+            offset={preguntasOffset}
+            pageSize={PAGINATION_PAGE_SIZE}
+            total={preguntasTotal}
+            unitLabel="preguntas"
+            onOffsetChange={setPreguntasOffset}
+          />
         </>
       )}
 
@@ -1833,7 +1929,7 @@ export default function MLQuestions() {
               placeholder="Buscar por comprador (ID)"
               className={styles.configInput}
               value={buyerFilter}
-              onChange={(e) => setBuyerFilter(e.target.value)}
+              onChange={handleBuyerFilterChange}
             />
             <input
               type="text"
@@ -1841,12 +1937,12 @@ export default function MLQuestions() {
               className={styles.configInput}
               value={packFilter}
               disabled={sinPack}
-              onChange={(e) => setPackFilter(e.target.value)}
+              onChange={handlePackFilterChange}
             />
             <button
               type="button"
               className={`btn-tesla sm ${sinPack ? '' : 'outline-subtle-primary'}`}
-              onClick={() => setSinPack((prev) => !prev)}
+              onClick={handleSinPackToggle}
               aria-pressed={sinPack}
             >
               Sin pack
@@ -1855,7 +1951,7 @@ export default function MLQuestions() {
               <input
                 type="checkbox"
                 checked={includeModerated}
-                onChange={(e) => setIncludeModerated(e.target.checked)}
+                onChange={handleIncludeModeratedChange}
               />
               Incluir moderados
             </label>
@@ -1863,7 +1959,7 @@ export default function MLQuestions() {
               <input
                 type="checkbox"
                 checked={hasReadFilter === 'true'}
-                onChange={(e) => setHasReadFilter(e.target.checked ? 'true' : 'false')}
+                onChange={handleHasReadFilterChange}
               />
               Leídos
             </label>
@@ -2123,6 +2219,26 @@ export default function MLQuestions() {
               )}
             </table>
           </div>
+
+          {/* ponytail: pagination here is by raw message row (matches the
+              honest `total` the backend returns), but the UI groups rows into
+              threads by pack_id. A thread that straddles the page boundary
+              renders split — worst case its anchor message (the only one
+              carrying bot_status) lands on the other page, so the visible
+              half shows no status badge and no Tomar/Enviar actions. Existed
+              before this PR at limit=100 too, just less often; fixing it
+              needs thread-aware pagination on the backend, out of PR1 scope
+              (ml-bot-panel-operador spec item 1 covers only the honest
+              total/offset, not per-thread grouping). The label below says
+              "mensajes", not "conversaciones", so the count is never
+              misread as a thread count. */}
+          <PaginationBar
+            offset={mensajesOffset}
+            pageSize={PAGINATION_PAGE_SIZE}
+            total={mensajesTotal}
+            unitLabel="mensajes"
+            onOffsetChange={setMensajesOffset}
+          />
         </>
       )}
 

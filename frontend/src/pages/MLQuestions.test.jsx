@@ -161,6 +161,178 @@ describe('Mensajes tab filters -> GET /ml-bot/messages params', () => {
   });
 });
 
+describe('Preguntas pagination (PR1 — honest total, offset-based paging)', () => {
+  function mockQuestionsPage({ total, offset }) {
+    api.get.mockImplementation((url, config) => {
+      if (url === '/ml-bot/status') return Promise.resolve({ data: { bot_enabled: true, auto_publish_enabled: false } });
+      if (url === '/ml-bot/questions') {
+        const requestedOffset = config?.params?.offset ?? 0;
+        return Promise.resolve({
+          data: {
+            questions: requestedOffset === offset ? [{ id: 1, question_text: 'q', status: 'waiting' }] : [],
+            total,
+          },
+        });
+      }
+      if (url === '/ml-bot/messages') return Promise.resolve({ data: { messages: [], total: 0 } });
+      if (url === '/ml-bot/admin-pending') return Promise.resolve({ data: { requests: [], total: 0 } });
+      return Promise.resolve({ data: {} });
+    });
+  }
+
+  it('renders the honest total instead of silently truncating at the page size', async () => {
+    mockQuestionsPage({ total: 1462, offset: 0 });
+
+    await renderWithRouter(<MLQuestions />);
+
+    await waitFor(() => {
+      expect(screen.getByText(/1462/)).toBeInTheDocument();
+    });
+  });
+
+  it('requests limit=50 and offset=0 on first load, never the old hardcoded limit=100', async () => {
+    mockQuestionsPage({ total: 1462, offset: 0 });
+
+    await renderWithRouter(<MLQuestions />);
+
+    await waitFor(() => {
+      const calls = api.get.mock.calls.filter((c) => c[0] === '/ml-bot/questions');
+      expect(calls[calls.length - 1][1].params).toEqual(
+        expect.objectContaining({ limit: 50, offset: 0 })
+      );
+    });
+  });
+
+  it('clicking "next" issues offset=50 and is reflected in the request', async () => {
+    mockQuestionsPage({ total: 1462, offset: 0 });
+    const user = userEvent.setup();
+    await renderWithRouter(<MLQuestions />);
+
+    await waitFor(() => {
+      expect(screen.getByText(/1462/)).toBeInTheDocument();
+    });
+
+    mockQuestionsPage({ total: 1462, offset: 50 });
+    const nextButton = screen.getByRole('button', { name: /siguiente/i });
+    await user.click(nextButton);
+
+    await waitFor(() => {
+      const calls = api.get.mock.calls.filter((c) => c[0] === '/ml-bot/questions');
+      expect(calls[calls.length - 1][1].params).toEqual(
+        expect.objectContaining({ limit: 50, offset: 50 })
+      );
+    });
+  });
+
+  it('disables "previous" on the first page and "next" on the last page', async () => {
+    mockQuestionsPage({ total: 10, offset: 0 });
+    await renderWithRouter(<MLQuestions />);
+
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: /anterior/i })).toBeDisabled();
+      // total=10 fits in a single 50-row page: no more pages ahead either.
+      expect(screen.getByRole('button', { name: /siguiente/i })).toBeDisabled();
+    });
+  });
+
+  it('resets offset to 0 when the status filter changes', async () => {
+    mockQuestionsPage({ total: 1462, offset: 0 });
+    const user = userEvent.setup();
+    await renderWithRouter(<MLQuestions />);
+
+    await waitFor(() => {
+      expect(screen.getByText(/1462/)).toBeInTheDocument();
+    });
+
+    mockQuestionsPage({ total: 1462, offset: 50 });
+    await user.click(screen.getByRole('button', { name: /siguiente/i }));
+    await waitFor(() => {
+      const calls = api.get.mock.calls.filter((c) => c[0] === '/ml-bot/questions');
+      expect(calls[calls.length - 1][1].params.offset).toBe(50);
+    });
+
+    mockQuestionsPage({ total: 5, offset: 0 });
+    const statusSelect = screen.getAllByRole('combobox')[0];
+    await user.selectOptions(statusSelect, 'failed');
+
+    await waitFor(() => {
+      const calls = api.get.mock.calls.filter((c) => c[0] === '/ml-bot/questions');
+      const last = calls[calls.length - 1];
+      expect(last[1].params).toEqual(
+        expect.objectContaining({ offset: 0, status: 'failed' })
+      );
+    });
+  });
+});
+
+describe('Mensajes pagination (PR1 — honest total, offset-based paging)', () => {
+  function mockMessagesPage({ total, offset }) {
+    api.get.mockImplementation((url, config) => {
+      if (url === '/ml-bot/status') return Promise.resolve({ data: { bot_enabled: true, auto_publish_enabled: false } });
+      if (url === '/ml-bot/questions') return Promise.resolve({ data: { questions: [] } });
+      if (url === '/ml-bot/messages') {
+        const requestedOffset = config?.params?.offset ?? 0;
+        return Promise.resolve({
+          // A page beyond the one this call configured returns an empty
+          // page — the real server behavior for an out-of-range offset —
+          // so a test asserting on `offset` actually exercises the request
+          // parameter instead of a constant mock response.
+          data: { messages: [], total: requestedOffset === offset ? total : 0 },
+        });
+      }
+      if (url === '/ml-bot/admin-pending') return Promise.resolve({ data: { requests: [], total: 0 } });
+      return Promise.resolve({ data: {} });
+    });
+  }
+
+  it('requests limit=50 and offset=0 and renders the honest total', async () => {
+    mockMessagesPage({ total: 730, offset: 0 });
+    const user = userEvent.setup();
+    await renderWithRouter(<MLQuestions />);
+
+    const tabButton = await screen.findByRole('button', { name: /Mensajes/i });
+    await user.click(tabButton);
+
+    await waitFor(() => {
+      const calls = api.get.mock.calls.filter((c) => c[0] === '/ml-bot/messages');
+      expect(calls[calls.length - 1][1].params).toEqual(
+        expect.objectContaining({ limit: 50, offset: 0 })
+      );
+      expect(screen.getByText(/730/)).toBeInTheDocument();
+    });
+  });
+
+  it('resets offset to 0 when the buyer filter changes', async () => {
+    mockMessagesPage({ total: 730, offset: 0 });
+    const user = userEvent.setup();
+    await renderWithRouter(<MLQuestions />);
+
+    const tabButton = await screen.findByRole('button', { name: /Mensajes/i });
+    await user.click(tabButton);
+
+    await waitFor(() => {
+      expect(api.get).toHaveBeenCalledWith('/ml-bot/messages', expect.anything());
+    });
+
+    const nextButton = screen.getAllByRole('button', { name: /siguiente/i })[0];
+    await user.click(nextButton);
+
+    await waitFor(() => {
+      const calls = api.get.mock.calls.filter((c) => c[0] === '/ml-bot/messages');
+      expect(calls[calls.length - 1][1].params.offset).toBe(50);
+    });
+
+    const buyerInput = screen.getByPlaceholderText(/comprador/i);
+    await user.type(buyerInput, '1');
+
+    await waitFor(() => {
+      const calls = api.get.mock.calls.filter((c) => c[0] === '/ml-bot/messages');
+      const last = calls[calls.length - 1];
+      expect(last[1].params.offset).toBe(0);
+    });
+  });
+});
+
 describe('Mensajes tab threading (grouping by pack_id + buyer_id)', () => {
   it('groups messages of the same pack under one thread header', async () => {
     api.get.mockImplementation((url) => {
