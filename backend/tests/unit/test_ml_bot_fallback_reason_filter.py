@@ -142,7 +142,10 @@ class TestFallbackReasonCountsEndpoint:
         payload = response.json()
         assert payload["counts"]["low_confidence"] == 2
         assert payload["counts"]["provider_error"] == 1
-        assert payload["total"] == 4
+        # `total` is sum(counts.values()) — rows with fallback_reason IS
+        # NULL (never went through the fallback pipeline) are excluded from
+        # both `counts` and `total`, so they always stay consistent.
+        assert payload["total"] == 3
 
     def test_counts_endpoint_honours_status_but_ignores_fallback_reason(
         self, client, db, superadmin_auth_headers

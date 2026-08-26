@@ -577,6 +577,12 @@ def contar_por_fallback_reason(
     POR razón, no filtra por una razón puntual (esa forma de filtrar la
     cubre `GET /questions?fallback_reason=...`).
 
+    `total` es la suma de `counts` (filas CON `fallback_reason` seteado,
+    típicamente todas en un status terminal de fallback) — las filas con
+    `fallback_reason IS NULL` (nunca pasaron por el pipeline de fallback,
+    p.ej. bot-answer exitoso o rows legacy pre-columna) quedan afuera de
+    ambos, para que `sum(counts.values()) == total` siempre.
+
     Nota (trap #1 del diseño): `fallback_used` solo se setea en la rama
     `waiting` de `_resolve_fallback`, no en `pending_morning` — los conteos
     por razón aquí NO tienen por qué igualar `count(fallback_used)`.
@@ -589,7 +595,7 @@ def contar_por_fallback_reason(
     rows = query.group_by(MlBotQuestion.fallback_reason).all()
 
     counts = {reason: count for reason, count in rows if reason is not None}
-    total = sum(count for _reason, count in rows)
+    total = sum(counts.values())
     return FallbackReasonCountsResponse(counts=counts, total=total)
 
 
