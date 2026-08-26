@@ -265,6 +265,90 @@ describe('Preguntas pagination (PR1 — honest total, offset-based paging)', () 
   });
 });
 
+describe('Preguntas — publish-now feedback (PR2, ADR-2: backend wrapper + runAction fix)', () => {
+  const PUBLISHABLE_QUESTION = {
+    id: 7,
+    question_text: '¿Tiene stock?',
+    status: 'taken_over',
+    drafted_answer: 'Sí, tenemos stock.',
+  };
+
+  function mockQuestionsList(question) {
+    api.get.mockImplementation((url) => {
+      if (url === '/ml-bot/status') return Promise.resolve({ data: { bot_enabled: true, auto_publish_enabled: false } });
+      if (url === '/ml-bot/questions') return Promise.resolve({ data: { questions: [question], total: 1 } });
+      if (url === '/ml-bot/messages') return Promise.resolve({ data: { messages: [], total: 0 } });
+      if (url === '/ml-bot/admin-pending') return Promise.resolve({ data: { requests: [], total: 0 } });
+      return Promise.resolve({ data: {} });
+    });
+  }
+
+  it('shows no error when the wrapped response reports published: true', async () => {
+    const user = userEvent.setup();
+    mockQuestionsList(PUBLISHABLE_QUESTION);
+    api.post.mockResolvedValue({
+      data: {
+        question: { ...PUBLISHABLE_QUESTION, status: 'published' },
+        published: true,
+        outcome: 'published',
+      },
+    });
+
+    await renderWithRouter(<MLQuestions />);
+    await user.click(await screen.findByLabelText('Publicar ahora'));
+
+    await waitFor(() => {
+      expect(api.post).toHaveBeenCalledWith('/ml-bot/questions/7/publish-now');
+    });
+    expect(screen.queryByText(/no se pudo completar/i)).not.toBeInTheDocument();
+  });
+
+  it('surfaces last_error when the outcome is a permanent failure', async () => {
+    const user = userEvent.setup();
+    mockQuestionsList(PUBLISHABLE_QUESTION);
+    api.post.mockResolvedValue({
+      data: {
+        question: { ...PUBLISHABLE_QUESTION, status: 'failed', last_error: 'ML rechazó la respuesta (422)' },
+        published: false,
+        outcome: 'failed',
+      },
+    });
+
+    await renderWithRouter(<MLQuestions />);
+    await user.click(await screen.findByLabelText('Publicar ahora'));
+
+    expect(await screen.findByText(/ML rechazó la respuesta \(422\)/)).toBeInTheDocument();
+  });
+
+  it('surfaces a transient-failure message when the outcome is retry', async () => {
+    const user = userEvent.setup();
+    mockQuestionsList(PUBLISHABLE_QUESTION);
+    api.post.mockResolvedValue({
+      data: {
+        question: { ...PUBLISHABLE_QUESTION, status: 'waiting' },
+        published: false,
+        outcome: 'retry',
+      },
+    });
+
+    await renderWithRouter(<MLQuestions />);
+    await user.click(await screen.findByLabelText('Publicar ahora'));
+
+    expect(await screen.findByText(/falla transitoria/i)).toBeInTheDocument();
+  });
+
+  it('falls back to err.message when the thrown error carries no response body (regression: runAction lacked this fallback)', async () => {
+    const user = userEvent.setup();
+    mockQuestionsList(PUBLISHABLE_QUESTION);
+    api.post.mockRejectedValue(new Error('Network Error'));
+
+    await renderWithRouter(<MLQuestions />);
+    await user.click(await screen.findByLabelText('Publicar ahora'));
+
+    expect(await screen.findByText('Network Error')).toBeInTheDocument();
+  });
+});
+
 describe('Mensajes pagination (PR1 — honest total, offset-based paging)', () => {
   function mockMessagesPage({ total, offset }) {
     api.get.mockImplementation((url, config) => {
