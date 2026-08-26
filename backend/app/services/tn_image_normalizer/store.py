@@ -46,11 +46,12 @@ from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Callable
 
-from sqlalchemy.exc import IntegrityError
+from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
-from app.models.tn_image_normalizer import TnImageArtifact
+from app.models.tn_image_normalizer import TnImageArtifact, TnImageNormalizationItem
 from app.services.tn_image_normalizer.states import ITEM_DEDUP_HIT, ITEM_NORMALIZED
 
 logger = logging.getLogger(__name__)
@@ -243,7 +244,19 @@ def sweep_expired_artifacts(
     cutoff = _expired_at(now, days)
     root = _base_dir(base_dir)
 
-    expired = db.query(TnImageArtifact).filter(TnImageArtifact.created_at < cutoff).all()
+    # An artifact some item still points at is NOT expendable. Deleting one
+    # raises ForeignKeyViolation and takes the whole sweep down with it,
+    # including the genuinely orphaned artifacts it was meant to reclaim.
+    # Dedup also means one artifact serves many runs, so being referenced is
+    # the NORMAL case: the busiest artifact is the oldest one, and filtering
+    # on age alone would target it first.
+    referenced = select(TnImageNormalizationItem.artifact_id).where(TnImageNormalizationItem.artifact_id.is_not(None))
+    expired = (
+        db.query(TnImageArtifact)
+        .filter(TnImageArtifact.created_at < cutoff)
+        .filter(TnImageArtifact.id.not_in(referenced))
+        .all()
+    )
 
     # Resolve the paths first, delete the ROWS, commit, and only then unlink.
     # The unlink is irreversible: doing it before the commit means a failed
@@ -259,7 +272,13 @@ def sweep_expired_artifacts(
             touched_paths.append(path)
         db.delete(artifact)
 
-    db.commit()
+    try:
+        db.commit()
+    except SQLAlchemyError:
+        # Owning the transaction includes undoing it: a failed commit must
+        # not hand the caller a session with these deletes still pending.
+        db.rollback()
+        raise
 
     touched_dirs: set[Path] = set()
     for path in touched_paths:

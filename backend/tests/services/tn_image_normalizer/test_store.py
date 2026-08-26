@@ -14,13 +14,21 @@ from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, event
+from sqlalchemy.dialects.postgresql import JSONB
+from sqlalchemy.ext.compiler import compiles
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 
 import app.services.tn_image_normalizer.store as store_module
-from app.models.tn_image_normalizer import TnImageArtifact
+from app.core.database import Base
+from app.models.usuario import Usuario
+from app.models.tn_image_normalizer import (
+    TnImageArtifact,
+    TnImageNormalizationItem,
+    TnImageNormalizationRun,
+)
 from app.services.tn_image_normalizer.states import ITEM_DEDUP_HIT, ITEM_NORMALIZED
 from app.services.tn_image_normalizer.store import (
     NormalizedOutput,
@@ -36,14 +44,66 @@ OUTPUT_BYTES = b"normalized-jpeg-bytes"
 OUTPUT_HASH = hashlib.sha256(OUTPUT_BYTES).hexdigest()
 
 
+def _reachable_tables(*roots) -> list:
+    """Every table the given tables depend on, transitively, via foreign keys."""
+    seen: set = set()
+    stack = list(roots)
+    while stack:
+        table = stack.pop()
+        if table in seen:
+            continue
+        seen.add(table)
+        for foreign_key in table.foreign_keys:
+            stack.append(foreign_key.column.table)
+    return list(seen)
+
+
+@compiles(JSONB, "sqlite")
+def _compile_jsonb_on_sqlite(type_, compiler, **kw) -> str:
+    """Let the run table build on SQLite so the item FK can exist in tests.
+
+    The run header stores its totals in JSONB, which SQLite cannot compile.
+    That is why the fixture used to create the artifact table alone — and
+    creating it alone is what hid the FK bug this file now covers.
+    """
+    return "JSON"
+
+
 @pytest.fixture()
 def db():
+    """A session whose schema carries the REAL constraints.
+
+    Creating only `tn_image_artifact` used to hide the FK from
+    `tn_image_normalization_item.artifact_id`, so a sweep that deletes a
+    referenced artifact passed here and would have raised
+    ForeignKeyViolation against Postgres. SQLite also ignores foreign keys
+    unless the pragma is on, so both halves are needed for the test to run
+    in the same universe as production.
+    """
     engine = create_engine(
         "sqlite://",
         connect_args={"check_same_thread": False},
         poolclass=StaticPool,
     )
-    TnImageArtifact.__table__.create(engine)
+
+    @event.listens_for(engine, "connect")
+    def _enforce_foreign_keys(dbapi_connection, _record):
+        cursor = dbapi_connection.cursor()
+        cursor.execute("PRAGMA foreign_keys=ON")
+        cursor.close()
+
+    # Every table reachable by FK from ours, computed rather than hand-listed:
+    # a hand-picked subset is exactly how the item -> artifact FK went missing
+    # here in the first place, and it would silently go missing again the next
+    # time a column is added.
+    Base.metadata.create_all(
+        engine,
+        tables=_reachable_tables(
+            TnImageArtifact.__table__,
+            TnImageNormalizationRun.__table__,
+            TnImageNormalizationItem.__table__,
+        ),
+    )
     session = sessionmaker(bind=engine, expire_on_commit=False)()
     try:
         yield session
@@ -427,3 +487,88 @@ class TestPartialWriteLeavesNoOrphan:
         assert result is None
         leftovers = [p for p in tmp_path.rglob("*.jpg")]
         assert leftovers == [], f"truncated file left behind: {leftovers}"
+
+
+class TestSweepNeverBreaksReferencedArtifacts:
+    """An artifact an item still points at is NOT expendable.
+
+    Deleting one raises ForeignKeyViolation on Postgres and takes the whole
+    sweep down with it — including the genuinely orphaned artifacts it was
+    supposed to reclaim. And because dedup means one artifact serves many
+    runs, being referenced is the NORMAL case, not an edge case.
+    """
+
+    def _run_with_item(self, db, artifact_id: int, run_id: int) -> None:
+        if db.query(Usuario).filter_by(id=1).first() is None:
+            db.add(Usuario(id=1, nombre="sweep-test"))
+            db.flush()
+        db.add(
+            TnImageNormalizationRun(
+                id=run_id,
+                state="planned",
+                params_fingerprint=PARAMS_FP,
+                created_by_user_id=1,
+                preset=1080,
+                fill_color="#ffffff",
+                output_format="jpeg",
+                quality=85,
+                max_output_bytes=3145728,
+            )
+        )
+        db.flush()
+        db.add(
+            TnImageNormalizationItem(
+                run_id=run_id,
+                ean="7790001234567",
+                source_slot=1,
+                source_url="https://example.com/a.jpg",
+                artifact_id=artifact_id,
+                state=ITEM_NORMALIZED,
+            )
+        )
+        db.commit()
+
+    def test_referenced_artifact_survives_the_sweep(self, db, tmp_path: Path) -> None:
+        now = datetime(2026, 8, 26, 12, 0, tzinfo=timezone.utc)
+        path = _stored_artifact(db, now - timedelta(days=31), tmp_path, run_id=1, artifact_id=1)
+        self._run_with_item(db, artifact_id=1, run_id=1)
+
+        deleted = sweep_expired_artifacts(db, now=now, retention_days=30, base_dir=tmp_path)
+
+        assert deleted == 0
+        assert path.exists()
+        assert db.query(TnImageArtifact).filter_by(id=1).first() is not None
+
+    def test_orphans_are_still_reclaimed_alongside_a_referenced_one(self, db, tmp_path: Path) -> None:
+        # The failure mode this guards: one referenced artifact used to abort
+        # the whole sweep, so the genuine orphans were never reclaimed either.
+        now = datetime(2026, 8, 26, 12, 0, tzinfo=timezone.utc)
+        kept = _stored_artifact(db, now - timedelta(days=31), tmp_path, run_id=1, artifact_id=1)
+        orphan = _stored_artifact(db, now - timedelta(days=31), tmp_path, run_id=2, artifact_id=2)
+        self._run_with_item(db, artifact_id=1, run_id=1)
+
+        deleted = sweep_expired_artifacts(db, now=now, retention_days=30, base_dir=tmp_path)
+
+        assert deleted == 1
+        assert kept.exists()
+        assert not orphan.exists()
+
+
+class TestSweepLeavesNoDirtySession:
+    """Owning a transaction includes undoing it.
+
+    Without a rollback, a failed commit hands the caller a session with the
+    deletes still pending — it will only fail again, and the caller has no
+    way to know why.
+    """
+
+    def test_failed_commit_rolls_the_session_back(self, db, tmp_path: Path) -> None:
+        now = datetime(2026, 8, 26, 12, 0, tzinfo=timezone.utc)
+        _stored_artifact(db, now - timedelta(days=31), tmp_path, run_id=1, artifact_id=1)
+
+        with patch.object(db, "commit", side_effect=SQLAlchemyError("commit blew up")):
+            with pytest.raises(SQLAlchemyError):
+                sweep_expired_artifacts(db, now=now, retention_days=30, base_dir=tmp_path)
+
+        assert not db.deleted, "pending deletes survived a failed commit"
+        assert db.query(TnImageArtifact).filter_by(id=1).first() is not None
