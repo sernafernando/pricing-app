@@ -1103,3 +1103,66 @@ class TestGracePeriodGuardsEveryOrphanCandidate:
         sweep_expired_artifacts(db, now=now, retention_days=30, base_dir=tmp_path)
 
         assert fresh.exists()
+
+
+class TestSweepReturnsWithNoOpenTransaction:
+    """A successful sweep must not leave the session mid-transaction.
+
+    The orphan scan reads AFTER the commit, and SQLAlchemy autobegins on
+    that read. Left open, it parks a pooled connection in `idle in
+    transaction` for the whole disk walk — the shape that exhausted the
+    pool in this project before. The failing path already guarantees this;
+    the succeeding one has to as well.
+    """
+
+    def test_successful_sweep_closes_the_transaction_it_opened(self, db, tmp_path: Path) -> None:
+        now = datetime(2026, 8, 26, 12, 0, tzinfo=timezone.utc)
+        _stored_artifact(db, now - timedelta(days=31), tmp_path, run_id=1, artifact_id=1)
+        _stored_artifact(db, now - timedelta(days=1), tmp_path, run_id=2, artifact_id=2)
+
+        sweep_expired_artifacts(db, now=now, retention_days=30, base_dir=tmp_path)
+
+        assert not db.in_transaction(), "the sweep returned mid-transaction"
+
+
+class TestSweepNeverRemovesTheStoreRoot:
+    """The store root outlives the sweep, and two guards say so.
+
+    Emptying base_dir means reclaiming everything under it, which is 100%
+    of the scanned files and trips MAX_ORPHAN_FRACTION first. The explicit
+    root check in the cleanup loop is therefore defence in depth, not the
+    load-bearing guard — worth keeping, because a future change to the
+    breaker must not silently make a missing base_dir reachable. A missing
+    base_dir turns the next scan into a silent no-op: nothing raises,
+    nothing is reclaimed, and nobody finds out until the disk fills.
+    """
+
+    def test_the_breaker_refuses_before_base_dir_could_ever_empty(self, db, tmp_path: Path) -> None:
+        now = datetime(2026, 8, 26, 12, 0, tzinfo=timezone.utc)
+        # Live row outside base_dir (the store was moved), so every file that
+        # IS under base_dir looks orphaned.
+        elsewhere = tmp_path.parent / "elsewhere"
+        _stored_artifact(db, now - timedelta(days=1), elsewhere, run_id=1, artifact_id=1)
+        stranded = tmp_path / "loose.jpg"
+        stranded.write_bytes(OUTPUT_BYTES)
+        old = (now - timedelta(days=5)).timestamp()
+        os.utime(stranded, (old, old))
+
+        sweep_expired_artifacts(db, now=now, retention_days=30, base_dir=tmp_path)
+
+        assert stranded.exists(), "a 100% orphan rate must trip the breaker, not delete"
+        assert tmp_path.is_dir()
+
+    def test_root_is_skipped_by_the_directory_cleanup(self, db, tmp_path: Path) -> None:
+        now = datetime(2026, 8, 26, 12, 0, tzinfo=timezone.utc)
+        live = _stored_artifact(db, now - timedelta(days=1), tmp_path, run_id=1, artifact_id=1)
+        stranded = tmp_path / "loose.jpg"
+        stranded.write_bytes(OUTPUT_BYTES)
+        old = (now - timedelta(days=5)).timestamp()
+        os.utime(stranded, (old, old))
+
+        sweep_expired_artifacts(db, now=now, retention_days=30, base_dir=tmp_path)
+
+        assert not stranded.exists(), "the loose orphan should have been reclaimed"
+        assert tmp_path.is_dir(), "the sweep removed the store root"
+        assert live.exists()

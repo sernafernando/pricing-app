@@ -513,7 +513,14 @@ def sweep_expired_artifacts(
     # The paths above are already doomed: their rows are committed away but
     # their files are still on disk, so the orphan scan must not count them.
     doomed = {_canonical(path) for path in touched_paths}
-    touched_paths.extend(_orphan_files(db, root, now, doomed))
+    try:
+        touched_paths.extend(_orphan_files(db, root, now, doomed))
+    finally:
+        # The scan reads after the commit, and SQLAlchemy autobegins on that
+        # read. Owning the transaction means closing this one too: left open,
+        # it parks a pooled connection in `idle in transaction` for the whole
+        # disk walk below. It is read-only, so rollback is the honest close.
+        db.rollback()
 
     touched_dirs: set[Path] = set()
     for path in touched_paths:
@@ -524,6 +531,11 @@ def sweep_expired_artifacts(
             logger.warning("tn_image_normalizer.store: could not delete %s: %s", path, exc)
 
     for directory in touched_dirs:
+        # Never the store root itself: removing it turns the next scan into a
+        # silent no-op — nothing raises, nothing is reclaimed, and no one
+        # finds out until the disk fills.
+        if _canonical(directory) == _canonical(root):
+            continue
         try:
             if directory.is_dir() and not any(directory.iterdir()):
                 directory.rmdir()
