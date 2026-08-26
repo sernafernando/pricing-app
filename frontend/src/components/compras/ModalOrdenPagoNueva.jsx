@@ -1623,6 +1623,7 @@ export default function ModalOrdenPagoNueva({
                     pedidos={pedidosDeLaOP}
                     onChange={setChequesAplicados}
                     disabled={saving}
+                    permiteNuevosCheques={pagarAhora}
                   />
 
                   {/* PR4 — Dinero a cuenta */}

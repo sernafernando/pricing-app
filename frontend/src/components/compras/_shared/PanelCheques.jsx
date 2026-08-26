@@ -25,6 +25,12 @@ import styles from './PanelCheques.module.css';
  *                 cada cheque pide destino explícito (mismo contrato que las NCs).
  *   onChange      ([cheques]) => void — notifica al padre los cheques acumulados.
  *   disabled      (bool)        — desactiva botones.
+ *   permiteNuevosCheques (bool) — default true. Cuando es false (creación de
+ *                 OP sin "pagar ahora"), "Emitir cheque propio" y "Endosar de
+ *                 cartera" se deshabilitan: el backend rechaza esas dos
+ *                 variantes con 422 en el camino crear-sin-pagar (S5) — solo
+ *                 "Aplicar cheque propio" es reservable ahí. "Pagar ahora"
+ *                 habilita las tres de nuevo.
  *
  * Sobre `pedido_id`: con 0 o 1 pedido el destino es inequívoco y lo resuelven el
  * caller y el backend. Con 2+ hay que preguntarlo — sin eso el cheque no descuenta
@@ -63,6 +69,7 @@ export default function PanelCheques({
   pedidos = [],
   onChange,
   disabled = false,
+  permiteNuevosCheques = true,
 }) {
   const requierePedido = pedidos.length > 1;
   const { listar, loading: loadingCartera } = useCheques();
@@ -301,12 +308,26 @@ export default function PanelCheques({
             </div>
           )}
 
+          {!permiteNuevosCheques && (
+            <p className={styles.panelHint}>
+              Para emitir un cheque propio nuevo o endosar uno de cartera, marcá
+              "Pagar ahora" — al crear la OP sin pagar solo se puede aplicar un
+              cheque propio ya existente.
+            </p>
+          )}
+
           {!disabled && (
             <div className={styles.botonesAccion}>
               <button
                 type="button"
                 className={styles.btnEmitir}
                 onClick={() => setShowModalEmitir(true)}
+                disabled={!permiteNuevosCheques}
+                title={
+                  permiteNuevosCheques
+                    ? undefined
+                    : 'Marcá "Pagar ahora" para emitir un cheque propio nuevo.'
+                }
               >
                 <Plus size={13} />
                 Emitir cheque propio
@@ -318,6 +339,12 @@ export default function PanelCheques({
                   fetchCartera();
                   setShowSelectorCartera(true);
                 }}
+                disabled={!permiteNuevosCheques}
+                title={
+                  permiteNuevosCheques
+                    ? undefined
+                    : 'Marcá "Pagar ahora" para endosar un cheque de cartera.'
+                }
               >
                 <Library size={13} />
                 Endosar de cartera

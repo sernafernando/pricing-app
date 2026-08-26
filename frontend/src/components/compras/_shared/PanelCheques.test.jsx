@@ -125,3 +125,40 @@ describe('PanelCheques — destino por pedido', () => {
     ]);
   });
 });
+
+describe('PanelCheques — permiteNuevosCheques (S5)', () => {
+  beforeEach(() => {
+    hookValue.listar.mockClear();
+  });
+
+  it('deshabilita Emitir y Endosar cuando permiteNuevosCheques=false, deja Aplicar habilitado', async () => {
+    const user = userEvent.setup();
+    render(
+      <PanelCheques
+        proveedorId={10}
+        opMoneda="ARS"
+        pedidos={[PEDIDO_A]}
+        onChange={vi.fn()}
+        permiteNuevosCheques={false}
+      />
+    );
+    await user.click(screen.getByRole('button', { name: /^Cheques/ }));
+
+    expect(screen.getByRole('button', { name: /Emitir cheque propio/i })).toBeDisabled();
+    expect(screen.getByRole('button', { name: /Endosar de cartera/i })).toBeDisabled();
+    expect(screen.getByRole('button', { name: /Aplicar cheque propio/i })).toBeEnabled();
+    expect(screen.getByText(/Para emitir un cheque propio nuevo o endosar/i)).toBeInTheDocument();
+  });
+
+  it('habilita las tres acciones cuando permiteNuevosCheques=true (default)', async () => {
+    const user = userEvent.setup();
+    render(
+      <PanelCheques proveedorId={10} opMoneda="ARS" pedidos={[PEDIDO_A]} onChange={vi.fn()} />
+    );
+    await user.click(screen.getByRole('button', { name: /^Cheques/ }));
+
+    expect(screen.getByRole('button', { name: /Emitir cheque propio/i })).toBeEnabled();
+    expect(screen.getByRole('button', { name: /Endosar de cartera/i })).toBeEnabled();
+    expect(screen.getByRole('button', { name: /Aplicar cheque propio/i })).toBeEnabled();
+  });
+});
