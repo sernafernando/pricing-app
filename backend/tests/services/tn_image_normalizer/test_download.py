@@ -20,6 +20,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 from app.services.tn_image_normalizer.download import (
     DownloadResult,
+    _PinnedAddressTransport,
     download_source_image,
 )
 from app.services.tn_image_normalizer.states import ITEM_DOWNLOAD_FAILED, ITEM_DOWNLOADED
@@ -392,3 +393,106 @@ class TestMalformedUrlNeverRaises:
     def test_negative_port_fails_without_raising(self) -> None:
         result = asyncio.run(download_source_image("http://example.com:-1/a.jpg"))
         assert result.state == ITEM_DOWNLOAD_FAILED
+
+
+class TestPinnedAddressTransport:
+    """The connection must go to the address we validated, not to a fresh one.
+
+    Validating with `getaddrinfo` and then letting httpx resolve again is a
+    TOCTOU window: a short-TTL attacker answers our check with a public
+    address and httpx's with an internal one.
+    """
+
+    def _capture(self, transport, request):
+        captured = {}
+
+        async def fake_send(_self, sent):
+            captured["request"] = sent
+            return httpx.Response(200, content=IMAGE_BYTES)
+
+        with patch.object(httpx.AsyncHTTPTransport, "handle_async_request", fake_send):
+            asyncio.run(transport.handle_async_request(request))
+        return captured["request"]
+
+    def test_connect_target_is_the_validated_ip(self) -> None:
+        transport = _PinnedAddressTransport()
+        transport.pin("example.com", PUBLIC_IP)
+
+        sent = self._capture(transport, httpx.Request("GET", "https://example.com/a.jpg"))
+
+        assert sent.url.host == PUBLIC_IP
+        assert sent.url.path == "/a.jpg"
+
+    def test_original_host_header_is_preserved(self) -> None:
+        transport = _PinnedAddressTransport()
+        transport.pin("example.com", PUBLIC_IP)
+
+        sent = self._capture(transport, httpx.Request("GET", "https://example.com/a.jpg"))
+
+        assert sent.headers["host"] == "example.com"
+
+    def test_tls_is_verified_against_the_hostname_not_the_ip(self) -> None:
+        # Pinning the IP into the URL would otherwise make the handshake
+        # check the certificate against "93.184.216.34" and fail every real
+        # HTTPS host — the tempting "fix" being to disable verification.
+        transport = _PinnedAddressTransport()
+        transport.pin("example.com", PUBLIC_IP)
+
+        sent = self._capture(transport, httpx.Request("GET", "https://example.com/a.jpg"))
+
+        assert sent.extensions["sni_hostname"] == "example.com"
+
+    def test_unpinned_host_is_left_untouched(self) -> None:
+        transport = _PinnedAddressTransport()
+
+        sent = self._capture(transport, httpx.Request("GET", "https://example.com/a.jpg"))
+
+        assert sent.url.host == "example.com"
+
+
+class TestDnsRebindingIsClosed:
+    def test_second_resolution_cannot_reach_an_internal_target(self) -> None:
+        # The attacker's host answers our validation with a public address
+        # and would answer httpx's connect-time lookup with 127.0.0.1.
+        targets: list[str] = []
+
+        async def fake_send(_self, sent):
+            targets.append(sent.url.host)
+            return httpx.Response(200, content=IMAGE_BYTES)
+
+        resolutions = [_addrinfo(PUBLIC_IP), _addrinfo("127.0.0.1")]
+
+        def rebinding_getaddrinfo(*args, **kwargs):
+            return resolutions.pop(0) if resolutions else _addrinfo("127.0.0.1")
+
+        with patch.object(httpx.AsyncHTTPTransport, "handle_async_request", fake_send):
+            with patch(
+                "app.services.tn_image_normalizer.download.socket.getaddrinfo",
+                side_effect=rebinding_getaddrinfo,
+            ):
+                result = asyncio.run(download_source_image("https://rebind.example/a.jpg"))
+
+        assert result.state == ITEM_DOWNLOADED
+        assert targets == [PUBLIC_IP], f"connected to an unvalidated target: {targets}"
+
+    def test_each_redirect_hop_is_pinned_to_its_own_validated_address(self) -> None:
+        targets: list[str] = []
+        second_ip = "93.184.216.35"
+
+        async def fake_send(_self, sent):
+            targets.append(sent.url.host)
+            if len(targets) == 1:
+                return httpx.Response(302, headers={"location": "https://second.example/b.jpg"})
+            return httpx.Response(200, content=IMAGE_BYTES)
+
+        resolutions = [_addrinfo(PUBLIC_IP), _addrinfo(second_ip)]
+
+        with patch.object(httpx.AsyncHTTPTransport, "handle_async_request", fake_send):
+            with patch(
+                "app.services.tn_image_normalizer.download.socket.getaddrinfo",
+                side_effect=lambda *a, **k: resolutions.pop(0),
+            ):
+                result = asyncio.run(download_source_image("https://first.example/a.jpg"))
+
+        assert result.state == ITEM_DOWNLOADED
+        assert targets == [PUBLIC_IP, second_ip]

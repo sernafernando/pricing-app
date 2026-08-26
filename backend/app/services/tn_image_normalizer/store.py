@@ -35,6 +35,16 @@ RETENTION
 `now` is a required parameter, never `datetime.utcnow()` read inside. A
 sweep that reads the clock itself cannot be tested without freezing time,
 and a retention bug is only ever noticed once the files are already gone.
+
+ORPHAN FILES
+------------
+Because the write is committed by a SAVEPOINT while the row is committed by
+the caller, a caller that rolls its outer transaction back leaves the file
+on disk with no row pointing at it. Nothing that walks the rows can ever
+reclaim it, so the sweep also walks the DISK and deletes any `.jpg` no row
+references. A file younger than `ORPHAN_GRACE_PERIOD` is never touched: it
+most likely belongs to a run whose transaction is still in flight, and
+deleting it would destroy live work.
 """
 
 from __future__ import annotations
@@ -58,6 +68,19 @@ logger = logging.getLogger(__name__)
 
 HASH_PREFIX_LENGTH = 12
 OUTPUT_SUFFIX = ".jpg"
+
+# Rows are removed with `DELETE ... WHERE id IN (...)` in chunks this size.
+# 500 keeps the parameter list far below the drivers' bind-parameter ceiling
+# (psycopg tops out at 65535) and the statement small enough to plan cheaply,
+# while turning a 30-day backlog of several thousand artifacts into a handful
+# of round-trips instead of one per row.
+DELETE_BATCH_SIZE = 500
+
+# A file this recent is presumed to belong to a transaction still in flight,
+# not to be an orphan. An hour is far longer than any normalization run and
+# far shorter than the retention window, so the worst case is that a genuine
+# orphan waits one extra sweep.
+ORPHAN_GRACE_PERIOD = timedelta(hours=1)
 
 
 @dataclass(frozen=True)
@@ -217,6 +240,49 @@ def store_normalized_artifact(
     )
 
 
+def _absolute(output_path: str, root: Path) -> Path:
+    path = Path(output_path)
+    return path if path.is_absolute() else root / path
+
+
+def _orphan_files(db: Session, root: Path, now: datetime) -> list[Path]:
+    """Files under `root` that no artifact row references and are old enough.
+
+    The set of known paths is read ONCE and compared in memory: a query per
+    file would turn a routine sweep over a few thousand images into a few
+    thousand round-trips, which is the cost this whole function exists to
+    keep bounded.
+    """
+    if not root.is_dir():
+        return []
+
+    known = {
+        str(_absolute(output_path, root))
+        for (output_path,) in db.execute(
+            select(TnImageArtifact.output_path).where(TnImageArtifact.output_path.is_not(None))
+        ).all()
+        if output_path
+    }
+    # Compared as POSIX timestamps rather than datetimes: `st_mtime` has no
+    # timezone, and `now` may arrive aware or naive.
+    grace_cutoff = now.timestamp() - ORPHAN_GRACE_PERIOD.total_seconds()
+
+    orphans: list[Path] = []
+    for path in root.rglob(f"*{OUTPUT_SUFFIX}"):
+        if str(path) in known:
+            continue
+        try:
+            if path.stat().st_mtime >= grace_cutoff:
+                # Written by a transaction that may still be in flight.
+                continue
+        except OSError as exc:
+            logger.warning("tn_image_normalizer.store: could not stat %s: %s", path, exc)
+            continue
+        logger.info("tn_image_normalizer.store: reclaiming orphan file %s", path)
+        orphans.append(path)
+    return orphans
+
+
 def _expired_at(now: datetime, retention_days: int) -> datetime:
     return now - timedelta(days=retention_days)
 
@@ -251,34 +317,32 @@ def sweep_expired_artifacts(
     # the NORMAL case: the busiest artifact is the oldest one, and filtering
     # on age alone would target it first.
     referenced = select(TnImageNormalizationItem.artifact_id).where(TnImageNormalizationItem.artifact_id.is_not(None))
-    expired = (
-        db.query(TnImageArtifact)
-        .filter(TnImageArtifact.created_at < cutoff)
-        .filter(TnImageArtifact.id.not_in(referenced))
-        .all()
-    )
+    expired = db.execute(
+        select(TnImageArtifact.id, TnImageArtifact.output_path)
+        .where(TnImageArtifact.created_at < cutoff)
+        .where(TnImageArtifact.id.not_in(referenced))
+    ).all()
 
     # Resolve the paths first, delete the ROWS, commit, and only then unlink.
     # The unlink is irreversible: doing it before the commit means a failed
     # commit leaves rows pointing at files that are already gone — the exact
     # dangling state this function exists to prevent. An orphan file merely
     # costs disk until the next sweep.
-    touched_paths: list[Path] = []
-    for artifact in expired:
-        if artifact.output_path:
-            path = Path(artifact.output_path)
-            if not path.is_absolute():
-                path = root / path
-            touched_paths.append(path)
-        db.delete(artifact)
+    expired_ids = [row.id for row in expired]
+    touched_paths = [_absolute(row.output_path, root) for row in expired if row.output_path]
 
     try:
+        for offset in range(0, len(expired_ids), DELETE_BATCH_SIZE):
+            batch = expired_ids[offset : offset + DELETE_BATCH_SIZE]
+            db.query(TnImageArtifact).filter(TnImageArtifact.id.in_(batch)).delete(synchronize_session=False)
         db.commit()
     except SQLAlchemyError:
         # Owning the transaction includes undoing it: a failed commit must
         # not hand the caller a session with these deletes still pending.
         db.rollback()
         raise
+
+    touched_paths.extend(_orphan_files(db, root, now))
 
     touched_dirs: set[Path] = set()
     for path in touched_paths:
@@ -295,4 +359,4 @@ def sweep_expired_artifacts(
         except OSError as exc:
             logger.warning("tn_image_normalizer.store: could not remove empty dir %s: %s", directory, exc)
 
-    return len(expired)
+    return len(expired_ids)

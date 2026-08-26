@@ -11,6 +11,7 @@ against the same constraints Postgres applies.
 from __future__ import annotations
 
 import hashlib
+import os
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from unittest.mock import MagicMock, patch
@@ -574,3 +575,118 @@ class TestSweepLeavesNoDirtySession:
 
         assert not db.deleted, "pending deletes survived a failed commit"
         assert db.query(TnImageArtifact).filter_by(id=1).first() is not None
+
+
+def _age_file(path: Path, now: datetime, seconds: int) -> None:
+    """Backdate `path`'s mtime to `seconds` before `now`."""
+    stamp = now.timestamp() - seconds
+    os.utime(path, (stamp, stamp))
+
+
+class TestOrphanFileReclaim:
+    """A file no row points at is reclaimed — nothing else ever would.
+
+    `store_normalized_artifact` writes the file and commits only its own
+    SAVEPOINT; if the caller then rolls its outer transaction back, the row
+    vanishes and the file stays. A sweep that only unlinks files it found a
+    row for can never reclaim that file, so it accumulates forever.
+    """
+
+    def test_unreferenced_file_older_than_the_grace_period_is_deleted(self, db, tmp_path: Path) -> None:
+        now = datetime(2026, 8, 26, 12, 0, tzinfo=timezone.utc)
+        orphan = tmp_path / "7" / f"99_{OUTPUT_HASH[:12]}.jpg"
+        orphan.parent.mkdir(parents=True, exist_ok=True)
+        orphan.write_bytes(OUTPUT_BYTES)
+        _age_file(orphan, now, seconds=int(store_module.ORPHAN_GRACE_PERIOD.total_seconds()) + 60)
+
+        sweep_expired_artifacts(db, now=now, retention_days=30, base_dir=tmp_path)
+
+        assert not orphan.exists()
+
+    def test_file_written_seconds_ago_is_not_an_orphan(self, db, tmp_path: Path) -> None:
+        # A run whose transaction is still in flight has already written its
+        # file; its row simply has not committed yet. Deleting it would
+        # destroy live work.
+        now = datetime(2026, 8, 26, 12, 0, tzinfo=timezone.utc)
+        in_flight = tmp_path / "8" / f"100_{OUTPUT_HASH[:12]}.jpg"
+        in_flight.parent.mkdir(parents=True, exist_ok=True)
+        in_flight.write_bytes(OUTPUT_BYTES)
+        _age_file(in_flight, now, seconds=5)
+
+        sweep_expired_artifacts(db, now=now, retention_days=30, base_dir=tmp_path)
+
+        assert in_flight.exists()
+
+    def test_referenced_file_within_retention_is_never_touched(self, db, tmp_path: Path) -> None:
+        now = datetime(2026, 8, 26, 12, 0, tzinfo=timezone.utc)
+        kept = _stored_artifact(db, now - timedelta(days=1), tmp_path, run_id=1, artifact_id=1)
+        _age_file(kept, now, seconds=int(store_module.ORPHAN_GRACE_PERIOD.total_seconds()) + 60)
+
+        deleted = sweep_expired_artifacts(db, now=now, retention_days=30, base_dir=tmp_path)
+
+        assert deleted == 0
+        assert kept.exists()
+
+    def test_orphan_removal_empties_and_removes_its_directory(self, db, tmp_path: Path) -> None:
+        now = datetime(2026, 8, 26, 12, 0, tzinfo=timezone.utc)
+        orphan = tmp_path / "9" / f"101_{OUTPUT_HASH[:12]}.jpg"
+        orphan.parent.mkdir(parents=True, exist_ok=True)
+        orphan.write_bytes(OUTPUT_BYTES)
+        _age_file(orphan, now, seconds=int(store_module.ORPHAN_GRACE_PERIOD.total_seconds()) + 60)
+
+        sweep_expired_artifacts(db, now=now, retention_days=30, base_dir=tmp_path)
+
+        assert not (tmp_path / "9").exists()
+
+    def test_scan_does_not_issue_one_query_per_file(self, db, tmp_path: Path) -> None:
+        # The known-path set must be read ONCE. A query per file turns a
+        # routine sweep over a few thousand images into a few thousand
+        # round-trips.
+        now = datetime(2026, 8, 26, 12, 0, tzinfo=timezone.utc)
+
+        def _sweep_with(file_count: int, run_id: int) -> int:
+            for index in range(file_count):
+                orphan = tmp_path / str(run_id) / f"{index}_{OUTPUT_HASH[:12]}.jpg"
+                orphan.parent.mkdir(parents=True, exist_ok=True)
+                orphan.write_bytes(OUTPUT_BYTES)
+                _age_file(orphan, now, seconds=int(store_module.ORPHAN_GRACE_PERIOD.total_seconds()) + 60)
+            statements: list[str] = []
+
+            @event.listens_for(db.get_bind(), "before_cursor_execute")
+            def _record(conn, cursor, statement, parameters, context, executemany):
+                statements.append(statement)
+
+            try:
+                sweep_expired_artifacts(db, now=now, retention_days=30, base_dir=tmp_path)
+            finally:
+                event.remove(db.get_bind(), "before_cursor_execute", _record)
+            return len(statements)
+
+        assert _sweep_with(2, run_id=20) == _sweep_with(40, run_id=21)
+
+
+class TestSweepDeletesInBatches:
+    """Thousands of expired rows must not cost thousands of round-trips."""
+
+    def test_rows_are_deleted_in_batches_not_one_by_one(self, db, tmp_path: Path) -> None:
+        now = datetime(2026, 8, 26, 12, 0, tzinfo=timezone.utc)
+        for artifact_id in range(1, 6):
+            _stored_artifact(db, now - timedelta(days=31), tmp_path, run_id=artifact_id, artifact_id=artifact_id)
+
+        deletes: list[str] = []
+
+        @event.listens_for(db.get_bind(), "before_cursor_execute")
+        def _record(conn, cursor, statement, parameters, context, executemany):
+            if statement.strip().upper().startswith("DELETE"):
+                deletes.append(statement)
+
+        try:
+            with patch.object(store_module, "DELETE_BATCH_SIZE", 2):
+                deleted = sweep_expired_artifacts(db, now=now, retention_days=30, base_dir=tmp_path)
+        finally:
+            event.remove(db.get_bind(), "before_cursor_execute", _record)
+
+        assert deleted == 5
+        # 5 rows at a batch size of 2 is three statements, not five.
+        assert len(deletes) == 3
+        assert db.query(TnImageArtifact).count() == 0

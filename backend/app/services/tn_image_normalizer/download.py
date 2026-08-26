@@ -21,18 +21,22 @@ network. Two guards therefore apply to every hop:
 
 * Only `http` and `https` are fetched. Anything else (`file:`, `ftp:`,
   `gopher:`, a bare hostname) fails closed.
-* KNOWN GAP — DNS rebinding: we resolve the host, then httpx resolves it
-  AGAIN when it connects. A short-TTL attacker can answer our check with a
-  public address and httpx's with an internal one. Closing this needs a
-  custom transport that connects to the IP we validated while sending the
-  original Host header; until then the guard stops static internal targets
-  and redirect chains, NOT an actively rebinding host.
 * The host is resolved with `socket.getaddrinfo` and every answer must be
   a public address. Loopback, RFC1918, link-local (including the
   `169.254.169.254` cloud metadata endpoint), reserved, multicast and
   unspecified addresses are refused. Checking the URL string alone would
   miss a hostname that simply *points* at an internal address, so the
   resolved addresses are what is judged.
+
+The connection is then PINNED to the exact address that was judged.
+`_PinnedAddressTransport` rewrites the request URL's host to that address
+while sending the original `Host` header and, for HTTPS, the original
+hostname as `sni_hostname` — so the TLS handshake and the certificate check
+still run against the hostname, never against the IP literal. Resolving
+once and letting httpx resolve again at connect time would leave a DNS
+rebinding window: a short-TTL attacker answers our check with a public
+address and httpx's with an internal one. There is no second resolution to
+poison. Every redirect hop is validated and pinned the same way.
 
 Redirects are followed by hand (`follow_redirects=False`) precisely so
 that each `Location` is validated before it is requested: letting httpx
@@ -132,8 +136,44 @@ def _is_public_address(raw_address: str) -> bool:
     )
 
 
-async def _validate_target(url: str) -> str | None:
-    """Return an error string when `url` must not be requested, else None."""
+class _PinnedAddressTransport(httpx.AsyncHTTPTransport):
+    """Connects to the address that was validated, not to a fresh lookup.
+
+    The URL host is replaced by the pinned IP so no second DNS resolution
+    can happen, while the original hostname keeps travelling in the `Host`
+    header and in the `sni_hostname` extension. httpcore passes that
+    extension to the TLS handshake as `server_hostname`, so SNI and
+    certificate verification still target the hostname: pinning the address
+    costs nothing in TLS strength.
+
+    A host with no pin is left alone — the guard, not this transport,
+    decides what may be requested.
+    """
+
+    def __init__(self, **kwargs) -> None:
+        super().__init__(**kwargs)
+        self._pins: dict[str, str] = {}
+
+    def pin(self, host: str, address: str) -> None:
+        self._pins[host.lower()] = address
+
+    async def handle_async_request(self, request: httpx.Request) -> httpx.Response:
+        host = (request.url.host or "").lower()
+        address = self._pins.get(host)
+        if address is not None:
+            request.headers["host"] = request.url.netloc.decode("ascii")
+            request.extensions = {**request.extensions, "sni_hostname": request.url.host}
+            request.url = request.url.copy_with(host=address)
+        return await super().handle_async_request(request)
+
+
+async def _validate_target(url: str) -> tuple[str | None, str | None]:
+    """Validate `url`, returning `(error, address_to_pin)`.
+
+    Exactly one half is ever populated: an error string when the URL must
+    not be requested, otherwise the validated address the connection has to
+    be pinned to.
+    """
     # urlsplit itself, and `.port` in particular, raise on a garbled URL
     # (out-of-range port, unclosed IPv6 bracket). This guard runs BEFORE the
     # request's try block, so an escape here would abort the whole batch over
@@ -144,13 +184,13 @@ async def _validate_target(url: str) -> str | None:
         host = parts.hostname
         port = parts.port
     except ValueError as exc:
-        return f"malformed URL: {exc}"
+        return f"malformed URL: {exc}", None
 
     if scheme not in ALLOWED_SCHEMES:
-        return f"disallowed URL scheme: {scheme or '(none)'}"
+        return f"disallowed URL scheme: {scheme or '(none)'}", None
 
     if not host:
-        return "URL has no host"
+        return "URL has no host", None
 
     port = port or DEFAULT_PORTS[scheme]
     loop = asyncio.get_running_loop()
@@ -160,16 +200,18 @@ async def _validate_target(url: str) -> str | None:
             partial(socket.getaddrinfo, host, port, 0, socket.SOCK_STREAM),
         )
     except Exception as exc:  # noqa: BLE001 - resolution failure is just a failed download
-        return f"could not resolve host {host}: {type(exc).__name__}: {exc}"
+        return f"could not resolve host {host}: {type(exc).__name__}: {exc}", None
 
     addresses = [answer[4][0] for answer in answers]
     if not addresses:
-        return f"host {host} resolved to no address"
+        return f"host {host} resolved to no address", None
     for address in addresses:
-        # One non-public answer is enough: httpx may pick exactly that one.
+        # One non-public answer is enough: the pin below picks one of these,
+        # and a host that answers with any internal address is not a host we
+        # are willing to talk to at all.
         if not _is_public_address(address):
-            return f"blocked non-public address for host {host}: {address}"
-    return None
+            return f"blocked non-public address for host {host}: {address}", None
+    return None, addresses[0]
 
 
 def _declared_length(response: httpx.Response) -> int | None:
@@ -214,12 +256,15 @@ async def download_source_image(
     if not url:
         return _failed(source_url, "empty source_url")
 
-    target_error = await _validate_target(url)
+    target_error, address = await _validate_target(url)
     if target_error is not None:
         return _failed(url, target_error)
 
+    transport = _PinnedAddressTransport()
+    transport.pin(urlsplit(url).hostname or "", address or "")
+
     try:
-        async with httpx.AsyncClient(timeout=timeout, follow_redirects=False) as client:
+        async with httpx.AsyncClient(timeout=timeout, follow_redirects=False, transport=transport) as client:
             current = url
             for _ in range(MAX_REDIRECTS + 1):
                 async with client.stream("GET", current) as response:
@@ -232,9 +277,12 @@ async def download_source_image(
                         next_url = str(httpx.URL(current).join(location))
                         # Validate BEFORE requesting: an unchecked hop is the
                         # whole point of following redirects by hand.
-                        hop_error = await _validate_target(next_url)
+                        hop_error, hop_address = await _validate_target(next_url)
                         if hop_error is not None:
                             return _failed(url, f"blocked redirect: {hop_error}")
+                        # Pin this hop too: an unpinned hop reopens exactly
+                        # the rebinding window the first one closes.
+                        transport.pin(urlsplit(next_url).hostname or "", hop_address or "")
                         current = next_url
                         continue
 
