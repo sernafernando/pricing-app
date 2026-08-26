@@ -9,6 +9,7 @@ from __future__ import annotations
 import asyncio
 from unittest.mock import AsyncMock, MagicMock, patch
 
+import httpx
 import pytest
 
 from app.services.tienda_nube_product_client import (
@@ -167,7 +168,13 @@ class TestAddProductImage:
     def test_without_credentials_is_ambiguous_no_request(self):
         client = TiendaNubeProductClient(store_id=None, access_token=None)
         outcome = asyncio.run(client.add_product_image(42, "https://example.com/img.jpg"))
-        assert outcome == {"ok": False, "status_code": None, "ambiguous": True, "body": None}
+        assert outcome == {
+            "ok": False,
+            "status_code": None,
+            "ambiguous": True,
+            "body": None,
+            "created_image_id": None,
+        }
 
     def test_2xx_response_is_ok_and_posts_to_images_by_src(self):
         client = TiendaNubeProductClient(store_id="123", access_token="tok")
@@ -211,7 +218,13 @@ class TestAddProductImage:
         with patch("httpx.AsyncClient") as MockAsyncClient:
             MockAsyncClient.return_value.__aenter__.return_value = mock_client
             outcome = asyncio.run(client.add_product_image(42, "https://example.com/img.jpg"))
-        assert outcome == {"ok": False, "status_code": None, "ambiguous": True, "body": None}
+        assert outcome == {
+            "ok": False,
+            "status_code": None,
+            "ambiguous": True,
+            "body": None,
+            "created_image_id": None,
+        }
 
     def test_429_response_raises_rate_limited_not_classified_as_rejection(self):
         """Defect fix: same uniform 429 handling as `set_published`/
@@ -657,7 +670,13 @@ class TestAddProductImageByBytes:
     def test_without_credentials_is_ambiguous_no_request(self):
         client = TiendaNubeProductClient(store_id=None, access_token=None)
         outcome = asyncio.run(client.add_product_image(42, attachment=b"bytes", filename="x.jpg"))
-        assert outcome == {"ok": False, "status_code": None, "ambiguous": True, "body": None}
+        assert outcome == {
+            "ok": False,
+            "status_code": None,
+            "ambiguous": True,
+            "body": None,
+            "created_image_id": None,
+        }
 
     def test_429_raises_rate_limited(self):
         client = TiendaNubeProductClient(store_id="123", access_token="tok")
@@ -720,3 +739,27 @@ class TestAddProductImageArgumentContract:
             with pytest.raises(ValueError):
                 asyncio.run(client.add_product_image(123))
         mock_client.assert_not_called()
+
+
+class TestAddProductImageAlwaysReportsCreatedImageId:
+    """`created_image_id` is part of the contract on EVERY return path.
+
+    Its absence would force callers into `.get(...)`, which collapses
+    "ambiguous, no request was made" into "2xx with no parseable id" — the
+    exact distinction this module spends `_classify_write_response` and
+    `ambiguous` on.
+    """
+
+    def test_missing_credentials_still_reports_the_key(self) -> None:
+        client = TiendaNubeProductClient(store_id=None, access_token=None)
+        outcome = asyncio.run(client.add_product_image(123, src="https://example.com/a.jpg"))
+        assert outcome["created_image_id"] is None
+        assert outcome["ambiguous"] is True
+
+    def test_connection_error_still_reports_the_key(self) -> None:
+        client = TiendaNubeProductClient(store_id="123", access_token="tok")
+        with patch("httpx.AsyncClient") as mock_client:
+            mock_client.return_value.__aenter__.return_value.post = AsyncMock(side_effect=httpx.ConnectError("boom"))
+            outcome = asyncio.run(client.add_product_image(123, src="https://example.com/a.jpg"))
+        assert outcome["created_image_id"] is None
+        assert outcome["ambiguous"] is True

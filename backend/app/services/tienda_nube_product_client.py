@@ -229,7 +229,7 @@ class TiendaNubeProductClient:
             logger.warning(
                 "TiendaNubeProductClient sin credenciales — add_product_image omitido para product_id=%s", product_id
             )
-            return {"ok": False, "status_code": None, "ambiguous": True, "body": None}
+            return {"ok": False, "status_code": None, "ambiguous": True, "body": None, "created_image_id": None}
 
         if attachment is not None:
             payload = {"attachment": base64.b64encode(attachment).decode("ascii"), "filename": filename}
@@ -245,7 +245,7 @@ class TiendaNubeProductClient:
                 )
         except Exception as e:
             logger.error("Error (ambiguo) agregando imagen a product_id=%s: %s", product_id, e)
-            return {"ok": False, "status_code": None, "ambiguous": True, "body": None}
+            return {"ok": False, "status_code": None, "ambiguous": True, "body": None, "created_image_id": None}
 
         outcome = self._classify_write_response(response)
         created_image_id = None
