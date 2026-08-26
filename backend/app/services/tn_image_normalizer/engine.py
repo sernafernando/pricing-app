@@ -31,11 +31,10 @@ from enum import Enum
 
 from PIL import Image, ImageOps, UnidentifiedImageError
 
-from app.services.tn_image_normalizer.params import NormalizationParams
+from app.services.tn_image_normalizer.params import PRESETS, NormalizationParams
 
 # Fixed, ascending preset ladder. The engine only ever resolves a canvas
 # size to one of these values.
-PRESETS: tuple[int, ...] = (800, 1080, 1200)
 
 # Quality ladder tried in order until the encoded output fits the budget.
 QUALITY_LADDER: tuple[int, ...] = (85, 80, 75, 70)
@@ -82,13 +81,12 @@ def _resolve_canvas_size(longest_edge: int, requested_preset: int) -> int:
     If the source is under the smallest preset, fall back to that preset
     (the caller pastes it unscaled and centered).
     """
-    eligible = [preset for preset in PRESETS if preset <= longest_edge]
+    # Never wider than what was asked for, and never wider than the source
+    # can fill. NormalizationParams already rejects a preset outside PRESETS,
+    # so the upper bound here is what keeps this function correct when it is
+    # called on its own rather than through normalize_image.
+    eligible = [preset for preset in PRESETS if preset <= longest_edge and preset <= requested_preset]
     if eligible:
-        # Largest preset the source can fill without upscaling. If the
-        # requested preset itself is eligible, prefer it over stepping down
-        # further than necessary.
-        if requested_preset in eligible:
-            return requested_preset
         return max(eligible)
     return PRESETS[0]
 
@@ -138,7 +136,13 @@ def normalize_image(source_bytes: bytes, params: NormalizationParams) -> Normali
     try:
         decoded = Image.open(io.BytesIO(source_bytes))
         decoded.load()
-    except (UnidentifiedImageError, OSError, ValueError):
+    except (
+        UnidentifiedImageError,
+        OSError,
+        ValueError,
+        Image.DecompressionBombError,
+        MemoryError,
+    ):
         return NormalizationResult(outcome=NormalizationOutcome.DECODE_FAILED)
 
     # EXIF orientation FIRST, before any measurement.

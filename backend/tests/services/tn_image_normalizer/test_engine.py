@@ -13,6 +13,7 @@ from PIL import Image, ImageOps
 
 from app.services.tn_image_normalizer.engine import (
     NormalizationOutcome,
+    _resolve_canvas_size,
     normalize_image,
 )
 from app.services.tn_image_normalizer.params import NormalizationParams
@@ -251,3 +252,47 @@ class TestCorruptInput:
 
         assert result.outcome == NormalizationOutcome.DECODE_FAILED
         assert result.output_bytes is None
+
+
+class TestHostileInputNeverEscapes:
+    """The engine's contract is that undecodable input is REPORTED, not raised.
+
+    These bytes come from Tienda Nube, i.e. from outside our trust boundary,
+    so a decoder exception that escapes the guard takes down the caller
+    instead of landing in the reviewable `decode_failed` state.
+    """
+
+    def test_decompression_bomb_is_reported_not_raised(self, monkeypatch) -> None:
+        # DecompressionBombError inherits straight from Exception, so it is
+        # NOT caught by an (OSError, ValueError) tuple.
+        source = _encode(_solid_image(64, 64))
+
+        def _explode(self) -> None:
+            raise Image.DecompressionBombError("declared size exceeds limit")
+
+        monkeypatch.setattr(Image.Image, "load", _explode)
+        result = normalize_image(source, _default_params())
+        assert result.outcome is NormalizationOutcome.DECODE_FAILED
+
+    def test_memory_error_while_decoding_is_reported_not_raised(self, monkeypatch) -> None:
+        source = _encode(_solid_image(64, 64))
+
+        def _explode(self) -> None:
+            raise MemoryError
+
+        monkeypatch.setattr(Image.Image, "load", _explode)
+        result = normalize_image(source, _default_params())
+        assert result.outcome is NormalizationOutcome.DECODE_FAILED
+
+
+class TestCanvasNeverExceedsTheRequest:
+    """`_resolve_canvas_size` may step DOWN from the request, never up."""
+
+    def test_unsupported_preset_never_yields_a_larger_canvas(self) -> None:
+        # 900 is not in PRESETS. A 2000px source could fill 1200, but the
+        # caller asked for 900: stepping UP would silently upscale the
+        # delivered asset past what was requested.
+        assert _resolve_canvas_size(2000, 900) <= 900
+
+    def test_supported_preset_is_honored_exactly(self) -> None:
+        assert _resolve_canvas_size(2000, 1080) == 1080

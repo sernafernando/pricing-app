@@ -1,6 +1,8 @@
 """Tests for tn_image_normalizer.params: normalization parameters and their fingerprint."""
 
-from app.services.tn_image_normalizer.params import NormalizationParams, params_fingerprint
+import pytest
+
+from app.services.tn_image_normalizer.params import PRESETS, NormalizationParams, params_fingerprint
 
 DEFAULT_FINGERPRINT = "0bcda5f11b1fd30f5392167da5a19619"
 
@@ -56,3 +58,46 @@ class TestParamsFingerprint:
             pass
         else:
             raise AssertionError("NormalizationParams must be frozen")
+
+
+class TestNormalizationParamsValidation:
+    """`NormalizationParams` rejects values the engine cannot honor.
+
+    The engine documents itself as a pure function that never raises: every
+    outcome travels through `NormalizationResult.outcome`. That promise only
+    holds when the parameters are known-good by the time the engine sees them,
+    so the dataclass is the single validation gate.
+    """
+
+    def test_rejects_a_preset_outside_the_supported_set(self) -> None:
+        with pytest.raises(ValueError, match="preset"):
+            _default_params(preset=900)
+
+    def test_accepts_every_supported_preset(self) -> None:
+        for preset in PRESETS:
+            assert _default_params(preset=preset).preset == preset
+
+    def test_rejects_shorthand_hex_fill_color(self) -> None:
+        # Valid in CSS, unparseable by the engine's byte-pair slicing.
+        with pytest.raises(ValueError, match="fill_color"):
+            _default_params(fill_color="#fff")
+
+    def test_rejects_a_named_fill_color(self) -> None:
+        with pytest.raises(ValueError, match="fill_color"):
+            _default_params(fill_color="white")
+
+    def test_rejects_a_fill_color_with_non_hex_digits(self) -> None:
+        with pytest.raises(ValueError, match="fill_color"):
+            _default_params(fill_color="#gggggg")
+
+    def test_accepts_full_length_hex_regardless_of_case(self) -> None:
+        assert _default_params(fill_color="#FFFFFF").fill_color == "#FFFFFF"
+
+    def test_rejects_a_quality_outside_one_to_one_hundred(self) -> None:
+        for quality in (0, 101, -1):
+            with pytest.raises(ValueError, match="quality"):
+                _default_params(quality=quality)
+
+    def test_rejects_a_non_positive_max_output_bytes(self) -> None:
+        with pytest.raises(ValueError, match="max_output_bytes"):
+            _default_params(max_output_bytes=0)
