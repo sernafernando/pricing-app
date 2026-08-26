@@ -49,10 +49,13 @@ it. A file whose directory belongs to a run that has not finished is never
 touched — that run's transaction is still open and its rows have not
 committed, so the file is live work, however old its mtime is.
 `ORPHAN_GRACE_PERIOD` remains only as a fallback for a directory that maps
-to no known run. And if rows with paths exist while more than
-`MAX_ORPHAN_FRACTION` of the scanned files match none of them, the sweep
-reclaims nothing at all: at that point the path comparison is what is
-broken, and acting on it would wipe the store.
+to no known run. And if more than `MAX_ORPHAN_FRACTION` of the scanned files
+match no row, the sweep reclaims nothing at all: at that point the path
+comparison is what is broken, and acting on it would wipe the store. The
+degenerate case of that reading — files on disk and NO row carrying an
+`output_path` at all — is treated the same way and logged as an error,
+because a half-restored database is indistinguishable from a fresh install
+from here, and only one of the two can be harmed by guessing wrong.
 """
 
 from __future__ import annotations
@@ -311,7 +314,7 @@ def _known_run_dirs(db: Session, root: Path) -> set[str]:
     return {_canonical(root / str(run_id)) for run_id in run_ids}
 
 
-def _orphan_files(db: Session, root: Path, now: datetime) -> list[Path]:
+def _orphan_files(db: Session, root: Path, now: datetime, already_doomed: set[str]) -> list[Path]:
     """Files under `root` that no artifact row references and are safe to drop.
 
     The set of known paths is read ONCE and compared in memory: a query per
@@ -324,6 +327,13 @@ def _orphan_files(db: Session, root: Path, now: datetime) -> list[Path]:
     run id, and an unfinished run is precisely the case where the file is
     already written but its row has not committed yet — deleting it destroys
     live work and leaves the run "successful" with rows pointing at nothing.
+
+    `already_doomed` holds the canonical paths this very sweep has just
+    decided to unlink. Their rows are gone (committed) while their files are
+    not yet, so they would otherwise count as orphans and inflate the
+    fraction against themselves: after a large backlog the breaker would trip
+    on the sweep's own work and reclaim nothing at all. They are already
+    accounted for, so they take part in neither side of the ratio.
     """
     if not root.is_dir():
         return []
@@ -344,8 +354,11 @@ def _orphan_files(db: Session, root: Path, now: datetime) -> list[Path]:
     scanned = 0
     orphans: list[Path] = []
     for path in root.rglob(f"*{OUTPUT_SUFFIX}"):
+        canonical = _canonical(path)
+        if canonical in already_doomed:
+            continue
         scanned += 1
-        if _canonical(path) in known:
+        if canonical in known:
             continue
         parent = _canonical(path.parent)
         if parent in unfinished_dirs:
@@ -360,6 +373,19 @@ def _orphan_files(db: Session, root: Path, now: datetime) -> list[Path]:
                 logger.warning("tn_image_normalizer.store: could not stat %s: %s", path, exc)
                 continue
         orphans.append(path)
+
+    if scanned and not known:
+        # Not "nothing to compare against": something to compare against that
+        # is MISSING. A half-restored database and a truncated table both look
+        # exactly like this, and from here they are indistinguishable from a
+        # fresh install — so the sweep takes the reading that cannot destroy
+        # anything. A genuinely new install has nothing to reclaim anyway.
+        logger.error(
+            "tn_image_normalizer.store: refusing to reclaim any of %s scanned files as orphans; "
+            "no artifact row carries an output_path, so the store looks emptied rather than swept",
+            scanned,
+        )
+        return []
 
     if known and scanned and len(orphans) / scanned > MAX_ORPHAN_FRACTION:
         logger.error(
@@ -435,7 +461,10 @@ def sweep_expired_artifacts(
         db.rollback()
         raise
 
-    touched_paths.extend(_orphan_files(db, root, now))
+    # The paths above are already doomed: their rows are committed away but
+    # their files are still on disk, so the orphan scan must not count them.
+    doomed = {_canonical(path) for path in touched_paths}
+    touched_paths.extend(_orphan_files(db, root, now, doomed))
 
     touched_dirs: set[Path] = set()
     for path in touched_paths:

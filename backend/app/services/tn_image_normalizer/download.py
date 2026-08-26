@@ -32,7 +32,11 @@ The connection is then PINNED to the exact address that was judged.
 `_PinnedAddressTransport` rewrites the request URL's host to that address
 while sending the original `Host` header and, for HTTPS, the original
 hostname as `sni_hostname` — so the TLS handshake and the certificate check
-still run against the hostname, never against the IP literal. A host that
+still run against the hostname, never against the IP literal. Because that
+rewrite makes httpcore's pool key the IP rather than the hostname, the
+transport keeps ONE POOL PER PINNED HOSTNAME, so two hostnames behind one
+CDN address can never share a connection whose certificate was verified for
+only one of them. A host that
 somehow reaches the transport without a pin is refused outright: this
 stage fails closed, never open. Resolving
 once and letting httpx resolve again at connect time would leave a DNS
@@ -160,7 +164,7 @@ def _pin_key(host: str) -> str:
         return host.lower()
 
 
-class _PinnedAddressTransport(httpx.AsyncHTTPTransport):
+class _PinnedAddressTransport(httpx.AsyncBaseTransport):
     """Connects to the address that was validated, not to a fresh lookup.
 
     The URL host is replaced by the pinned IP so no second DNS resolution
@@ -169,6 +173,30 @@ class _PinnedAddressTransport(httpx.AsyncHTTPTransport):
     extension to the TLS handshake as `server_hostname`, so SNI and
     certificate verification still target the hostname: pinning the address
     costs nothing in TLS strength.
+
+    ONE POOL PER HOSTNAME
+    ---------------------
+    The rewrite has a sharp edge that a single pool would turn into a hole.
+    httpcore decides whether an idle connection may serve a request with
+    `connection.can_handle_request(request.url.origin)`, and `Origin` is
+    exactly `(scheme, host, port)` — `sni_hostname` is read only inside
+    `_connect`, when a connection is OPENED, and is not part of that key.
+    Once the host is the pinned IP, the key is the IP, so two hostnames
+    behind one CDN address share one pool entry: `https://first.example`
+    redirecting to `https://second.example` would reuse a connection whose
+    certificate was verified for `first.example`, and `second.example`'s
+    certificate would never be checked at all. Redirects between hostnames
+    of the same CDN are the ordinary case, not an exotic one.
+
+    Each pinned hostname therefore gets its own `AsyncHTTPTransport`, i.e.
+    its own connection pool. Isolation then does not depend on the pool key
+    at all: a connection opened for one hostname is not reachable from
+    another, whatever address either resolved to. Keep-alive survives
+    WITHIN a hostname, which is where it is worth anything — dropping it
+    globally instead would also cost nothing measurable today (each
+    `download_source_image` call builds its own client, so nothing is
+    reused across images anyway) but would silently become the wrong
+    default the day a batch reuses one client across a catalog.
 
     A host with no pin is REFUSED, not passed through. `_validate_target` is
     the only thing that decides what may be requested, and it pins every
@@ -179,21 +207,46 @@ class _PinnedAddressTransport(httpx.AsyncHTTPTransport):
     """
 
     def __init__(self, **kwargs) -> None:
-        super().__init__(**kwargs)
+        self._transport_kwargs = kwargs
         self._pins: dict[str, str] = {}
+        self._transports: dict[str, httpx.AsyncHTTPTransport] = {}
 
     def pin(self, host: str, address: str) -> None:
         self._pins[_pin_key(host)] = address
+
+    def _transport_for(self, host: str) -> httpx.AsyncHTTPTransport:
+        transport = self._transports.get(host)
+        if transport is None:
+            transport = httpx.AsyncHTTPTransport(**self._transport_kwargs)
+            self._transports[host] = transport
+        return transport
+
+    def _host_header(self, url: httpx.URL) -> str:
+        """`<host>[:<port>]`, IDNA-encoded and without any userinfo.
+
+        `URL.netloc` is httpx's own answer to this question: it is documented
+        as "either `<host>` or `<host>:<port>`", lowercased and IDNA encoded,
+        with the default port for the scheme already dropped and userinfo
+        kept out (it lives in a separate component of the URI reference).
+        Rebuilding it from `url.host` by hand would instead undo the IDNA
+        encoding, since `url.host` decodes punycode back to unicode.
+        """
+        return url.netloc.decode("ascii")
 
     async def handle_async_request(self, request: httpx.Request) -> httpx.Response:
         host = _pin_key(request.url.host or "")
         address = self._pins.get(host)
         if address is None:
             raise UnpinnedHostError(f"refusing to request unpinned host {host or '(none)'}")
-        request.headers["host"] = request.url.netloc.decode("ascii")
+        request.headers["host"] = self._host_header(request.url)
         request.extensions = {**request.extensions, "sni_hostname": request.url.host}
         request.url = request.url.copy_with(host=address)
-        return await super().handle_async_request(request)
+        return await self._transport_for(host).handle_async_request(request)
+
+    async def aclose(self) -> None:
+        for transport in self._transports.values():
+            await transport.aclose()
+        self._transports.clear()
 
 
 async def _validate_target(url: str) -> tuple[str | None, str | None]:

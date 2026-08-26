@@ -549,3 +549,103 @@ class TestDnsRebindingIsClosed:
 
         assert result.state == ITEM_DOWNLOADED
         assert targets == [PUBLIC_IP, second_ip]
+
+
+class TestConnectionsAreNeverSharedBetweenHostnames:
+    """Pinning must not let two hostnames share one TLS connection.
+
+    httpcore keys its pool on `request.url.origin`, i.e. `(scheme, host,
+    port)`, and `sni_hostname` is read only when a connection is OPENED
+    (`httpcore/_async/connection.py`), never as part of that key. Once the
+    URL host is rewritten to the pinned address, the key becomes the IP —
+    so `https://first.example` and `https://second.example` behind one CDN
+    address collapse onto a single pool entry, and the second hostname
+    would reuse a connection whose certificate was verified for the first.
+    A redirect between two hostnames of the same CDN is the common case.
+    """
+
+    def _two_hop_download(self, first_ip: str, second_ip: str):
+        """Follow first.example -> second.example, recording each hop."""
+        hops: list[dict] = []
+
+        async def fake_send(_self, sent):
+            hops.append(
+                {
+                    "transport": id(_self),
+                    "sni": sent.extensions.get("sni_hostname"),
+                    "host_header": sent.headers.get("host"),
+                    "target": sent.url.host,
+                }
+            )
+            if len(hops) == 1:
+                return httpx.Response(302, headers={"location": "https://second.example/b.jpg"})
+            return httpx.Response(200, content=IMAGE_BYTES)
+
+        resolutions = {"first.example": first_ip, "second.example": second_ip}
+
+        with patch.object(httpx.AsyncHTTPTransport, "handle_async_request", fake_send):
+            with patch(
+                "app.services.tn_image_normalizer.download.socket.getaddrinfo",
+                side_effect=lambda host, *a, **kw: _addrinfo(resolutions[host]),
+            ):
+                result = asyncio.run(download_source_image("https://first.example/a.jpg"))
+        return result, hops
+
+    def test_two_hostnames_on_one_ip_do_not_share_a_connection_pool(self) -> None:
+        result, hops = self._two_hop_download(PUBLIC_IP, PUBLIC_IP)
+
+        assert result.state == ITEM_DOWNLOADED
+        assert [hop["target"] for hop in hops] == [PUBLIC_IP, PUBLIC_IP]
+        assert hops[0]["transport"] != hops[1]["transport"], (
+            "both hostnames went through one connection pool keyed on the shared IP, "
+            "so the second hostname could reuse a connection verified for the first"
+        )
+
+    def test_each_hostname_is_verified_under_its_own_name(self) -> None:
+        _, hops = self._two_hop_download(PUBLIC_IP, PUBLIC_IP)
+
+        assert [hop["sni"] for hop in hops] == ["first.example", "second.example"]
+        assert [hop["host_header"] for hop in hops] == ["first.example", "second.example"]
+
+    def test_pool_isolation_also_holds_when_the_ips_differ(self) -> None:
+        _, hops = self._two_hop_download(PUBLIC_IP, "93.184.216.35")
+
+        assert hops[0]["transport"] != hops[1]["transport"]
+
+
+class TestHostHeaderNeverCarriesCredentials:
+    """A `Host` header is `<host>[:<port>]` — never userinfo.
+
+    Credentials in a `Host` header are both an invalid header value and a
+    secret written into a place that gets logged by every intermediary.
+    """
+
+    def _sent(self, url: str, pin_host: str):
+        transport = _PinnedAddressTransport()
+        transport.pin(pin_host, PUBLIC_IP)
+        captured = {}
+
+        async def fake_send(_self, sent):
+            captured["request"] = sent
+            return httpx.Response(200, content=IMAGE_BYTES)
+
+        with patch.object(httpx.AsyncHTTPTransport, "handle_async_request", fake_send):
+            asyncio.run(transport.handle_async_request(httpx.Request("GET", url)))
+        return captured["request"]
+
+    def test_userinfo_is_not_copied_into_the_host_header(self) -> None:
+        sent = self._sent("https://user:pass@cdn.example/a.jpg", "cdn.example")
+
+        assert sent.headers["host"] == "cdn.example"
+        assert "pass" not in sent.headers["host"]
+        assert "@" not in sent.headers["host"]
+
+    def test_non_default_port_is_kept_in_the_host_header(self) -> None:
+        sent = self._sent("https://cdn.example:8443/a.jpg", "cdn.example")
+
+        assert sent.headers["host"] == "cdn.example:8443"
+
+    def test_default_port_is_omitted_from_the_host_header(self) -> None:
+        sent = self._sent("https://cdn.example:443/a.jpg", "cdn.example")
+
+        assert sent.headers["host"] == "cdn.example"

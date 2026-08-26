@@ -565,7 +565,12 @@ class TestSweepLeavesNoDirtySession:
     way to know why.
     """
 
-    def test_failed_commit_rolls_the_session_back(self, db, tmp_path: Path) -> None:
+    def test_failed_commit_leaves_no_open_transaction(self, db, tmp_path: Path) -> None:
+        # NOT `db.deleted`: the sweep removes rows with a bulk
+        # `query(...).delete(synchronize_session=False)`, which never puts
+        # anything in the session's ORM-level deleted set. Asserting on it
+        # would pass with the rollback taken out — the transaction state is
+        # what actually distinguishes the two.
         now = datetime(2026, 8, 26, 12, 0, tzinfo=timezone.utc)
         _stored_artifact(db, now - timedelta(days=31), tmp_path, run_id=1, artifact_id=1)
 
@@ -573,8 +578,20 @@ class TestSweepLeavesNoDirtySession:
             with pytest.raises(SQLAlchemyError):
                 sweep_expired_artifacts(db, now=now, retention_days=30, base_dir=tmp_path)
 
-        assert not db.deleted, "pending deletes survived a failed commit"
+        assert not db.in_transaction(), "the failed sweep left its transaction open on the caller's session"
+
+    def test_session_is_usable_and_the_rows_are_back_after_a_failed_commit(self, db, tmp_path: Path) -> None:
+        now = datetime(2026, 8, 26, 12, 0, tzinfo=timezone.utc)
+        _stored_artifact(db, now - timedelta(days=31), tmp_path, run_id=1, artifact_id=1)
+
+        with patch.object(db, "commit", side_effect=SQLAlchemyError("commit blew up")):
+            with pytest.raises(SQLAlchemyError):
+                sweep_expired_artifacts(db, now=now, retention_days=30, base_dir=tmp_path)
+
+        # Without the rollback the uncommitted DELETE is still in flight, so
+        # the caller's next read sees a row that was never actually removed.
         assert db.query(TnImageArtifact).filter_by(id=1).first() is not None
+        assert db.query(TnImageArtifact).count() == 1
 
 
 def _age_file(path: Path, now: datetime, seconds: int) -> None:
@@ -594,6 +611,11 @@ class TestOrphanFileReclaim:
 
     def test_unreferenced_file_older_than_the_grace_period_is_deleted(self, db, tmp_path: Path) -> None:
         now = datetime(2026, 8, 26, 12, 0, tzinfo=timezone.utc)
+        # A live artifact, so the store has at least one known path: with none
+        # at all the sweep now refuses to reclaim anything, which is a
+        # different behaviour under test (see
+        # TestOrphanSweepRefusesToActWithoutKnownPaths).
+        _stored_artifact(db, now - timedelta(days=1), tmp_path, run_id=1, artifact_id=1)
         orphan = tmp_path / "7" / f"99_{OUTPUT_HASH[:12]}.jpg"
         orphan.parent.mkdir(parents=True, exist_ok=True)
         orphan.write_bytes(OUTPUT_BYTES)
@@ -629,6 +651,11 @@ class TestOrphanFileReclaim:
 
     def test_orphan_removal_empties_and_removes_its_directory(self, db, tmp_path: Path) -> None:
         now = datetime(2026, 8, 26, 12, 0, tzinfo=timezone.utc)
+        # A live artifact, so the store has at least one known path: with none
+        # at all the sweep now refuses to reclaim anything, which is a
+        # different behaviour under test (see
+        # TestOrphanSweepRefusesToActWithoutKnownPaths).
+        _stored_artifact(db, now - timedelta(days=1), tmp_path, run_id=1, artifact_id=1)
         orphan = tmp_path / "9" / f"101_{OUTPUT_HASH[:12]}.jpg"
         orphan.parent.mkdir(parents=True, exist_ok=True)
         orphan.write_bytes(OUTPUT_BYTES)
@@ -816,6 +843,11 @@ class TestOrphanSweepNeverTouchesLiveRuns:
 
     def test_file_of_a_finished_run_is_reclaimed(self, db, tmp_path: Path) -> None:
         now = datetime(2026, 8, 26, 12, 0, tzinfo=timezone.utc)
+        # A live artifact, so the store has at least one known path: with none
+        # at all the sweep now refuses to reclaim anything, which is a
+        # different behaviour under test (see
+        # TestOrphanSweepRefusesToActWithoutKnownPaths).
+        _stored_artifact(db, now - timedelta(days=1), tmp_path, run_id=1, artifact_id=1)
         _run_row(db, run_id=32, finished_at=now - timedelta(days=2))
         stale = _loose_file(
             tmp_path,
@@ -831,6 +863,11 @@ class TestOrphanSweepNeverTouchesLiveRuns:
 
     def test_directory_of_no_known_run_falls_back_to_the_grace_period(self, db, tmp_path: Path) -> None:
         now = datetime(2026, 8, 26, 12, 0, tzinfo=timezone.utc)
+        # A live artifact, so the store has at least one known path: with none
+        # at all the sweep now refuses to reclaim anything, which is a
+        # different behaviour under test (see
+        # TestOrphanSweepRefusesToActWithoutKnownPaths).
+        _stored_artifact(db, now - timedelta(days=1), tmp_path, run_id=1, artifact_id=1)
         fresh = _loose_file(tmp_path, run_id=33, artifact_id=1, now=now, age_seconds=5)
         old = _loose_file(
             tmp_path,
@@ -844,3 +881,88 @@ class TestOrphanSweepNeverTouchesLiveRuns:
 
         assert fresh.exists()
         assert not old.exists()
+
+
+class TestOrphanSweepRefusesToActWithoutKnownPaths:
+    """Zero known paths plus files on disk is a BROKEN read, not an empty store.
+
+    The circuit breaker used to be armed only `if known and scanned`, so a
+    table with no `output_path` at all disarmed it completely and every file
+    past the grace period was deleted. That is exactly the shape of a
+    half-restored database or a truncated table: rows gone, disk full,
+    deletion irreversible — and indistinguishable from a genuinely fresh
+    install, which loses nothing by being spared because it has nothing to
+    lose.
+    """
+
+    def test_files_survive_when_no_row_carries_an_output_path(self, db, tmp_path: Path) -> None:
+        now = datetime(2026, 8, 26, 12, 0, tzinfo=timezone.utc)
+        old = int(store_module.ORPHAN_GRACE_PERIOD.total_seconds()) + 60
+        files = [_loose_file(tmp_path, run_id=60, artifact_id=index, now=now, age_seconds=old) for index in range(3)]
+
+        deleted = sweep_expired_artifacts(db, now=now, retention_days=30, base_dir=tmp_path)
+
+        assert deleted == 0
+        assert all(path.exists() for path in files), "a store with no known paths was wiped"
+
+    def test_the_refusal_is_logged_at_error_level(self, db, tmp_path: Path) -> None:
+        now = datetime(2026, 8, 26, 12, 0, tzinfo=timezone.utc)
+        old = int(store_module.ORPHAN_GRACE_PERIOD.total_seconds()) + 60
+        _loose_file(tmp_path, run_id=61, artifact_id=1, now=now, age_seconds=old)
+
+        with patch.object(store_module.logger, "error") as logged:
+            sweep_expired_artifacts(db, now=now, retention_days=30, base_dir=tmp_path)
+
+        assert logged.called, "the sweep skipped every file without saying so"
+
+    def test_an_empty_store_is_still_a_clean_no_op(self, db, tmp_path: Path) -> None:
+        # A genuinely new install: no rows, no files. Nothing to refuse.
+        now = datetime(2026, 8, 26, 12, 0, tzinfo=timezone.utc)
+
+        with patch.object(store_module.logger, "error") as logged:
+            deleted = sweep_expired_artifacts(db, now=now, retention_days=30, base_dir=tmp_path)
+
+        assert deleted == 0
+        assert not logged.called
+
+
+class TestExpiredFilesDoNotCountAsOrphans:
+    """A big backlog must not make the sweep think its own work is orphaned.
+
+    The orphan scan runs after the expired ROWS are committed but before
+    their files are unlinked. Those files have no row by construction, so
+    counting them as orphans inflates the fraction: clear out a month of
+    artifacts at once and the breaker trips on the sweep's own deletions,
+    reclaiming nothing.
+    """
+
+    def test_a_real_orphan_is_still_reclaimed_after_a_large_backlog(self, db, tmp_path: Path) -> None:
+        now = datetime(2026, 8, 26, 12, 0, tzinfo=timezone.utc)
+        old = int(store_module.ORPHAN_GRACE_PERIOD.total_seconds()) + 60
+        live = _stored_artifact(db, now - timedelta(days=1), tmp_path, run_id=1, artifact_id=1)
+        _age_file(live, now, seconds=old)
+        for artifact_id in range(2, 12):
+            expired = _stored_artifact(db, now - timedelta(days=31), tmp_path, run_id=2, artifact_id=artifact_id)
+            _age_file(expired, now, seconds=old)
+        orphan = _loose_file(tmp_path, run_id=3, artifact_id=99, now=now, age_seconds=old)
+
+        deleted = sweep_expired_artifacts(db, now=now, retention_days=30, base_dir=tmp_path)
+
+        assert deleted == 10
+        assert live.exists()
+        assert not orphan.exists(), "the sweep's own expired files tripped the breaker on a real orphan"
+
+    def test_expired_files_are_deleted_alongside_the_orphan(self, db, tmp_path: Path) -> None:
+        now = datetime(2026, 8, 26, 12, 0, tzinfo=timezone.utc)
+        old = int(store_module.ORPHAN_GRACE_PERIOD.total_seconds()) + 60
+        live = _stored_artifact(db, now - timedelta(days=1), tmp_path, run_id=1, artifact_id=1)
+        _age_file(live, now, seconds=old)
+        expired = [
+            _stored_artifact(db, now - timedelta(days=31), tmp_path, run_id=2, artifact_id=artifact_id)
+            for artifact_id in range(2, 12)
+        ]
+
+        sweep_expired_artifacts(db, now=now, retention_days=30, base_dir=tmp_path)
+
+        assert not any(path.exists() for path in expired)
+        assert live.exists()
