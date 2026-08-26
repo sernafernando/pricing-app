@@ -319,6 +319,7 @@ function checkSoftDenylist(text) {
 const PREGUNTAS_COLUMNS = [
   { id: 'pregunta', header: 'Pregunta', size: 200, minSize: 120, maxSize: 600, enableResizing: true },
   { id: 'item', header: 'Item', size: 120, minSize: 100, maxSize: 400, enableResizing: true },
+  { id: 'fecha', header: 'Fecha', size: 130, enableResizing: false },
   { id: 'estado', header: 'Estado', size: 90, enableResizing: false },
   { id: 'respuesta', header: 'Respuesta (borrador)', size: 200, minSize: 100, maxSize: 600, enableResizing: true },
   { id: 'confianza', header: 'Confianza', size: 70, enableResizing: false },
@@ -1411,7 +1412,7 @@ export default function MLQuestions() {
     const anchor = thread.anchorMessage;
     return (
       <tr key={`${thread.key}-detail`} className={styles.detailRow}>
-        <td colSpan={5}>
+        <td colSpan={mensajesTable.getVisibleLeafColumns().length}>
           <div className={styles.detailPanel}>
             <div className={styles.detailContent}>
               <div>
@@ -1467,7 +1468,7 @@ export default function MLQuestions() {
       : fallbackLink;
     return (
       <tr key={`${q.id}-detail`} className={styles.detailRow}>
-        <td colSpan={7}>
+        <td colSpan={preguntasTable.getVisibleLeafColumns().length}>
           <div className={styles.detailPanel}>
             <div className={styles.detailTabBar}>
               <button
@@ -1786,9 +1787,9 @@ export default function MLQuestions() {
               </thead>
               <tbody className="table-tesla-body">
                 {loading ? (
-                  <tr><td colSpan={7} className={styles.loadingCell}>Cargando...</td></tr>
+                  <tr><td colSpan={preguntasTable.getVisibleLeafColumns().length} className={styles.loadingCell}>Cargando...</td></tr>
                 ) : questions.length === 0 ? (
-                  <tr><td colSpan={7} className={styles.emptyCell}>No hay preguntas para mostrar</td></tr>
+                  <tr><td colSpan={preguntasTable.getVisibleLeafColumns().length} className={styles.emptyCell}>No hay preguntas para mostrar</td></tr>
                 ) : (
                   questions.map((q) => {
                     const remaining = q.status === 'waiting' ? secondsRemaining(q.wait_until, now) : null;
@@ -1829,6 +1830,9 @@ export default function MLQuestions() {
                             })()
                           )}
                         </td>
+                        <td className={styles.cellCenter}>
+                          {q.question_date ? new Date(q.question_date).toLocaleString() : '—'}
+                        </td>
                         <td>
                           <span className={`${styles.badge} ${styles[STATUS_BADGE_CLASS[q.status]] || ''}`}>
                             {STATUS_LABELS[q.status] || q.status}
@@ -1836,6 +1840,19 @@ export default function MLQuestions() {
                           {q.injection_flag && (
                             <span className={styles.injectionFlag} title="Se detectó un posible intento de manipulación en esta pregunta">
                               <ShieldAlert size={12} />
+                            </span>
+                          )}
+                          {q.status === 'published' && (
+                            <span className={styles.publishedNote}>
+                              {q.published_at
+                                ? `Publicada: ${new Date(q.published_at).toLocaleString()}`
+                                : 'Publicada (fecha desconocida)'}
+                            </span>
+                          )}
+                          {q.status === 'failed' && (
+                            <span className={styles.failureNote} title={q.last_error || ''}>
+                              Intentos: {q.attempts ?? 0}
+                              {q.last_error ? ` — ${q.last_error}` : ''}
                             </span>
                           )}
                         </td>
@@ -2049,11 +2066,11 @@ export default function MLQuestions() {
               </thead>
               {messagesLoading ? (
                 <tbody className="table-tesla-body">
-                  <tr><td colSpan={5} className={styles.loadingCell}>Cargando...</td></tr>
+                  <tr><td colSpan={mensajesTable.getVisibleLeafColumns().length} className={styles.loadingCell}>Cargando...</td></tr>
                 </tbody>
               ) : messageThreads.length === 0 ? (
                 <tbody className="table-tesla-body">
-                  <tr><td colSpan={5} className={styles.emptyCell}>No hay mensajes para mostrar</td></tr>
+                  <tr><td colSpan={mensajesTable.getVisibleLeafColumns().length} className={styles.emptyCell}>No hay mensajes para mostrar</td></tr>
                 </tbody>
               ) : (
                 messageThreads.map((thread) => {
@@ -2071,7 +2088,7 @@ export default function MLQuestions() {
                   return (
                   <tbody key={thread.key} className={`table-tesla-body ${styles.threadGroup}`}>
                     <tr className={styles.threadHeader}>
-                      <td colSpan={5}>
+                      <td colSpan={mensajesTable.getVisibleLeafColumns().length}>
                         <div className={styles.threadHeaderRow}>
                           <div className={styles.threadHeaderInfo}>
                             <button
@@ -2371,9 +2388,9 @@ export default function MLQuestions() {
               </thead>
               <tbody className="table-tesla-body">
                 {pendingLoading ? (
-                  <tr><td colSpan={9} className={styles.loadingCell}>Cargando...</td></tr>
+                  <tr><td colSpan={pendientesTable.getVisibleLeafColumns().length} className={styles.loadingCell}>Cargando...</td></tr>
                 ) : pendingRequests.length === 0 ? (
-                  <tr><td colSpan={9} className={styles.emptyCell}>No hay solicitudes pendientes</td></tr>
+                  <tr><td colSpan={pendientesTable.getVisibleLeafColumns().length} className={styles.emptyCell}>No hay solicitudes pendientes</td></tr>
                 ) : (
                   pendingRequests.map((row) => (
                     <Fragment key={row.id}>
@@ -2466,7 +2483,7 @@ export default function MLQuestions() {
                       </tr>
                       {expandedPendingId === row.id && (
                         <tr className={styles.detailRow}>
-                          <td colSpan={9}>
+                          <td colSpan={pendientesTable.getVisibleLeafColumns().length}>
                             <div className={styles.detailPanel}>
                               {pendingDetailLoading ? (
                                 <div className={styles.loadingCell}>Cargando...</div>
