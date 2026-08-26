@@ -21,9 +21,7 @@ from sqlalchemy.pool import StaticPool
 
 # The migration filename starts with a digit (`20260706_ml_bot_questions.py`),
 # so it isn't importable as a normal dotted module — load it by file path.
-_MIGRATION_PATH = (
-    Path(__file__).resolve().parents[2] / "alembic" / "versions" / "20260706_ml_bot_questions.py"
-)
+_MIGRATION_PATH = Path(__file__).resolve().parents[2] / "alembic" / "versions" / "20260706_ml_bot_questions.py"
 _spec = importlib.util.spec_from_file_location("ml_bot_questions_migration", _MIGRATION_PATH)
 migration = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(migration)

@@ -636,22 +636,16 @@ class TestMarcasSubcategoriasSinColorSentinel:
         _set_producto_color(db, equipo_global.id, 703, color_ml="rojo")
         # 704 has no ProductoColor row -> matches sin_color sentinel
         db.add(
-            SubcategoriaGrupo(
-                subcat_id=901, grupo_id=1, nombre_subcategoria="Subcat con color", nombre_categoria="Cat"
-            )
+            SubcategoriaGrupo(subcat_id=901, grupo_id=1, nombre_subcategoria="Subcat con color", nombre_categoria="Cat")
         )
         db.add(
-            SubcategoriaGrupo(
-                subcat_id=902, grupo_id=1, nombre_subcategoria="Subcat sin color", nombre_categoria="Cat"
-            )
+            SubcategoriaGrupo(subcat_id=902, grupo_id=1, nombre_subcategoria="Subcat sin color", nombre_categoria="Cat")
         )
         db.commit()
 
         resp = client.get("/api/subcategorias?colores=sin_color", headers=auth_headers_for(user))
         assert resp.status_code == 200
-        subcats = {
-            s["nombre"] for cat in resp.json()["categorias"] for s in cat["subcategorias"]
-        }
+        subcats = {s["nombre"] for cat in resp.json()["categorias"] for s in cat["subcategorias"]}
         assert "Subcat sin color" in subcats
         assert "Subcat con color" not in subcats
 

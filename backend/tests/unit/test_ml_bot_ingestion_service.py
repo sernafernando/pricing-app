@@ -147,7 +147,12 @@ class TestIngestNewQuestions:
             patch.object(
                 ingestion_service.ml_client,
                 "get_item",
-                new=AsyncMock(return_value={"title": "Notebook Lenovo", "permalink": "https://articulo.mercadolibre.com.ar/MLA-123"}),
+                new=AsyncMock(
+                    return_value={
+                        "title": "Notebook Lenovo",
+                        "permalink": "https://articulo.mercadolibre.com.ar/MLA-123",
+                    }
+                ),
             ) as mock_get_item,
         ):
             stats = asyncio.run(ingestion_service.run_ml_questions_ingest_cycle())
@@ -192,10 +197,7 @@ class TestIngestNewQuestions:
         row = db.query(MlBotQuestion).filter_by(ml_question_id=574).one()
         assert row.item_title == "Notebook Lenovo"
         assert row.item_permalink is None
-        assert any(
-            "rejected item permalink" in call.args[0]
-            for call in mock_logger.warning.call_args_list
-        )
+        assert any("rejected item permalink" in call.args[0] for call in mock_logger.warning.call_args_list)
 
     def test_enrichment_failure_does_not_block_ingestion(self, db) -> None:
         """ADR-5/non-fatal: `get_item()` raising must not prevent the
@@ -252,7 +254,9 @@ class TestIngestNewQuestions:
             patch.object(
                 ingestion_service.ml_client,
                 "get_item",
-                new=AsyncMock(return_value={"title": "x" * 300, "permalink": "https://articulo.mercadolibre.com.ar/" + "y" * 600}),
+                new=AsyncMock(
+                    return_value={"title": "x" * 300, "permalink": "https://articulo.mercadolibre.com.ar/" + "y" * 600}
+                ),
             ),
         ):
             stats = asyncio.run(ingestion_service.run_ml_questions_ingest_cycle())

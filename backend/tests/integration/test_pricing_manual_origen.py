@@ -35,8 +35,7 @@ def _make_producto(db, item_id: int = 2001) -> ProductoERP:
 
 def _origen_rows(db, item_id):
     return {
-        r.column_key: r
-        for r in db.query(ProductoPrecioOrigen).filter(ProductoPrecioOrigen.item_id == item_id).all()
+        r.column_key: r for r in db.query(ProductoPrecioOrigen).filter(ProductoPrecioOrigen.item_id == item_id).all()
     }
 
 

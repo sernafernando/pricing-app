@@ -641,16 +641,12 @@ class TestResolverEmpresaFacturaErp:
         db.add(ct)
         db.flush()
 
-    def test_resolver_empresa_factura_erp_bra_1_devuelve_empresa_1(
-        self, db, empresa, proveedor, active_user
-    ) -> None:
+    def test_resolver_empresa_factura_erp_bra_1_devuelve_empresa_1(self, db, empresa, proveedor, active_user) -> None:
         """`ct_transaction` con (comp_id=1, bra_id=1) → empresa_id=1."""
         from app.services.cc_proveedor_service import _resolver_empresa_id_para_imputacion  # noqa: PLC0415
 
         self._crear_ct(db, ct_transaction=12001, comp_id=1, bra_id=1)
-        imp = self._crear_imp_a_factura(
-            db, proveedor_id=proveedor.id, ct_transaction_id=12001, user_id=active_user.id
-        )
+        imp = self._crear_imp_a_factura(db, proveedor_id=proveedor.id, ct_transaction_id=12001, user_id=active_user.id)
 
         empresa_id = _resolver_empresa_id_para_imputacion(db, imp)
         assert empresa_id == 1
@@ -666,9 +662,7 @@ class TestResolverEmpresaFacturaErp:
         from app.services.cc_proveedor_service import _resolver_empresa_id_para_imputacion  # noqa: PLC0415
 
         self._crear_ct(db, ct_transaction=12045, comp_id=1, bra_id=45)
-        imp = self._crear_imp_a_factura(
-            db, proveedor_id=proveedor.id, ct_transaction_id=12045, user_id=active_user.id
-        )
+        imp = self._crear_imp_a_factura(db, proveedor_id=proveedor.id, ct_transaction_id=12045, user_id=active_user.id)
 
         empresa_id = _resolver_empresa_id_para_imputacion(db, imp)
         assert empresa_id == 2
@@ -686,9 +680,7 @@ class TestResolverEmpresaFacturaErp:
         from app.services.cc_proveedor_service import _resolver_empresa_id_para_imputacion  # noqa: PLC0415
 
         self._crear_ct(db, ct_transaction=13037, comp_id=1, bra_id=37)
-        imp = self._crear_imp_a_factura(
-            db, proveedor_id=proveedor.id, ct_transaction_id=13037, user_id=active_user.id
-        )
+        imp = self._crear_imp_a_factura(db, proveedor_id=proveedor.id, ct_transaction_id=13037, user_id=active_user.id)
 
         # `app.core.logging.setup_logging` pone `propagate=False` en el logger
         # root `app`, por lo que los warnings no llegan al root global donde

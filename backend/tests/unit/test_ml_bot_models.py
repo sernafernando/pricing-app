@@ -104,19 +104,14 @@ class TestMlBotAnswerExampleModel:
         row = MlBotAnswerExample(
             question_example="¿Tienen stock del modelo azul?",
             answer_example=(
-                "¡Hola! Sí, tenemos stock disponible de ese modelo. "
-                "Cualquier consulta, quedamos a disposición."
+                "¡Hola! Sí, tenemos stock disponible de ese modelo. Cualquier consulta, quedamos a disposición."
             ),
             category="stock",
         )
         db.add(row)
         db.flush()
 
-        retrieved = (
-            db.query(MlBotAnswerExample)
-            .filter_by(question_example="¿Tienen stock del modelo azul?")
-            .first()
-        )
+        retrieved = db.query(MlBotAnswerExample).filter_by(question_example="¿Tienen stock del modelo azul?").first()
         assert retrieved is not None
         assert retrieved.active is True
         assert retrieved.orden == 0

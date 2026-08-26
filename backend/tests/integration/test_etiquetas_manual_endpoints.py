@@ -179,9 +179,7 @@ class TestEditarEnvioManualEndpoint:
         assert r.status_code == 200, r.text
         return r.json()["shipping_id"]
 
-    def test_put_manual_envio_actualiza_deposito_mensaje(
-        self, client, auth_headers, db, operador, con_permiso_envios
-    ):
+    def test_put_manual_envio_actualiza_deposito_mensaje(self, client, auth_headers, db, operador, con_permiso_envios):
         operador_id = operador.id
         shipping_id = self._crear_envio_manual(client, auth_headers, operador_id, deposito_mensaje=None)
 
@@ -301,9 +299,7 @@ class TestGuardianExclusionZpl:
         normalized_sin = zpl_sin.text.replace(shipping_sin, "SHIPPING_ID")
         assert normalized_con == normalized_sin
 
-    def test_GUARDIAN_desde_pedido_zpl_excluye_deposito_mensaje(
-        self, client, auth_headers, db, con_permiso_envios
-    ):
+    def test_GUARDIAN_desde_pedido_zpl_excluye_deposito_mensaje(self, client, auth_headers, db, con_permiso_envios):
         """Mismo invariante que el guardián de manual-envio, pero para el flujo
         desde-pedido: ese endpoint construye el payload por separado, así que
         necesita su propio guardián para que ambos caminos no diverjan."""

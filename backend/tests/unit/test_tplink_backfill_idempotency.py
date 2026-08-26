@@ -13,7 +13,6 @@ from __future__ import annotations
 
 from datetime import datetime, date
 from decimal import Decimal
-import pytest
 
 from app.models.tplink_venta_metrica import TplinkVentaMetrica
 

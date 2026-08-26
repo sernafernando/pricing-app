@@ -19,9 +19,7 @@ import sqlalchemy as sa
 from sqlalchemy import create_engine, inspect, text
 from sqlalchemy.pool import StaticPool
 
-_MIGRATION_PATH = (
-    Path(__file__).resolve().parents[2] / "alembic" / "versions" / "20260710_ml_bot_messages.py"
-)
+_MIGRATION_PATH = Path(__file__).resolve().parents[2] / "alembic" / "versions" / "20260710_ml_bot_messages.py"
 _spec = importlib.util.spec_from_file_location("ml_bot_messages_migration", _MIGRATION_PATH)
 migration = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(migration)
@@ -65,14 +63,8 @@ def _apply_upgrade_ddl(engine: sa.Engine) -> None:
                 """
             )
         )
-        conn.execute(
-            text("CREATE UNIQUE INDEX uq_ml_bot_messages_ml_message_id ON ml_bot_messages (ml_message_id)")
-        )
-        conn.execute(
-            text(
-                "CREATE INDEX idx_ml_bot_messages_moderation_status ON ml_bot_messages (moderation_status)"
-            )
-        )
+        conn.execute(text("CREATE UNIQUE INDEX uq_ml_bot_messages_ml_message_id ON ml_bot_messages (ml_message_id)"))
+        conn.execute(text("CREATE INDEX idx_ml_bot_messages_moderation_status ON ml_bot_messages (moderation_status)"))
         conn.commit()
 
 

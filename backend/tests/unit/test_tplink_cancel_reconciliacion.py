@@ -12,7 +12,7 @@ from __future__ import annotations
 
 from datetime import datetime
 from decimal import Decimal
-from unittest.mock import patch, MagicMock
+from unittest.mock import patch
 import pytest
 
 from app.models.tplink_venta_metrica import TplinkVentaMetrica
@@ -86,7 +86,7 @@ class TestTplinkCancelReconciliacion:
             "app.services.ml_cancelacion_reconciliacion_service.fetch_cancelled_since",
             return_value=_FAKE_CANCELLED,
         ):
-            stats = reconciliar_cancelaciones(db, since=None, lookback_days=90)
+            reconciliar_cancelaciones(db, since=None, lookback_days=90)
 
         tplink_row = db.query(TplinkVentaMetrica).filter_by(id_operacion=20001).first()
         assert tplink_row is not None
