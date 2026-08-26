@@ -9,11 +9,31 @@
  */
 
 import { useState, useEffect, useCallback, useMemo, useRef, Fragment } from 'react';
-import { useReactTable, getCoreRowModel, flexRender } from '@tanstack/react-table';
+import { useReactTable, getCoreRowModel } from '@tanstack/react-table';
 import { useSSEChannel } from '../hooks/useSSEChannel';
 import { usePermisos } from '../contexts/PermisosContext';
 import api from '../services/api';
 import ModalTesla from '../components/ModalTesla';
+import { ResizableTableShell } from '../components/ml-bot/ResizableTableShell';
+import { PaginationBar } from '../components/ml-bot/PaginationBar';
+import {
+  COLUMN_SIZING_STORAGE_KEYS,
+  useColumnSizing,
+  loadColumnSizing,
+  saveColumnSizing,
+} from '../components/ml-bot/useColumnSizing';
+import {
+  STATUS_LABELS,
+  STATUS_BADGE_CLASS,
+  MESSAGE_BOT_STATUS_LABELS,
+  MESSAGE_BOT_STATUS_BADGE_CLASS,
+} from '../components/ml-bot/statuses';
+
+// Re-exported for the existing unit tests (`MLQuestions.test.jsx` imports
+// these from './MLQuestions') — see PR4 (ml-bot-panel-operador, design
+// ADR-3): implementation now lives in components/ml-bot/useColumnSizing.
+// eslint-disable-next-line react-refresh/only-export-components
+export { loadColumnSizing, saveColumnSizing };
 import {
   Bot,
   RefreshCcw,
@@ -99,17 +119,6 @@ const CUSTOM_MODEL_OPTION = '__custom__';
 // limit=100 of a much larger total.
 const PAGINATION_PAGE_SIZE = 50;
 
-const STATUS_LABELS = {
-  received: 'Recibida',
-  drafting: 'Redactando',
-  waiting: 'Esperando',
-  publishing: 'Publicando',
-  published: 'Publicada',
-  taken_over: 'Tomada',
-  pending_morning: 'Para la mañana',
-  failed: 'Fallida',
-};
-
 // Phase 5 (PR3) — ML Bot postventa messages tab. Read-only MVP: no reply /
 // take-over actions yet (deferred to a future drafting slice). Mirrors the
 // backend's raw `moderation_status` values (design §Schema); anything not
@@ -121,29 +130,9 @@ const MESSAGE_STATUS_LABELS = {
   flagged: 'Marcado',
 };
 
-// Phase A, PR3 — `bot_status` lifecycle labels/badges for the Mensajes tab
-// thread-header (mirrors STATUS_LABELS/STATUS_BADGE_CLASS above, but on the
-// separate `bot_status` column — design "Interfaces / Contracts"). Only the
-// anchor message of a thread ever carries a non-null `bot_status`.
-const MESSAGE_BOT_STATUS_LABELS = {
-  awaiting_human: 'Esperando humano',
-  taken_over: 'Tomada',
-  sending: 'Enviando…',
-  sent: 'Enviada',
-  failed: 'Falló',
-  superseded: 'Reemplazada',
-  blocked_claim: 'Reclamo — el bot no responde',
-};
-
-const MESSAGE_BOT_STATUS_BADGE_CLASS = {
-  awaiting_human: 'badgeWarning',
-  taken_over: 'badgeInfo',
-  sending: 'badgeInfo',
-  sent: 'badgeSuccess',
-  failed: 'badgeDanger',
-  superseded: 'badgeNeutral',
-  blocked_claim: 'badgeDanger',
-};
+// `MESSAGE_BOT_STATUS_LABELS`/`MESSAGE_BOT_STATUS_BADGE_CLASS` (bot_status
+// lifecycle labels/badges for the Mensajes tab thread-header) now live in
+// components/ml-bot/statuses.js — see PR4 (ml-bot-panel-operador, ADR-3).
 
 // States a thread's anchor message may be taken over from (mirrors backend
 // `_MESSAGE_TAKE_OVER_SOURCE_STATES` — keep both in sync).
@@ -274,17 +263,6 @@ function LlmProviderRosterEditor({ value, onChange }) {
   );
 }
 
-const STATUS_BADGE_CLASS = {
-  received: 'badgeNeutral',
-  drafting: 'badgeInfo',
-  waiting: 'badgeWarning',
-  publishing: 'badgeInfo',
-  published: 'badgeSuccess',
-  taken_over: 'badgeInfo',
-  pending_morning: 'badgeWarning',
-  failed: 'badgeDanger',
-};
-
 // Soft client-side denylist warning (adjudicated nicety) — never blocks,
 // only nudges a human editing a manual answer. Backend has no equivalent
 // check on human-authored answers (R-502 applies to bot output only).
@@ -375,35 +353,10 @@ const PENDIENTES_COLUMNS = [
 // only needs `data` to satisfy its API shape.
 const EMPTY_TABLE_DATA = [];
 
-const COLUMN_SIZING_STORAGE_KEY = 'mlq:colsizing:preguntas';
-const HISTORIAL_COLUMN_SIZING_STORAGE_KEY = 'mlq:colsizing:historial';
-const MENSAJES_COLUMN_SIZING_STORAGE_KEY = 'mlq:colsizing:mensajes';
-const PENDIENTES_COLUMN_SIZING_STORAGE_KEY = 'mlq:colsizing:pendientes';
-
-// Fail-safe persistence (mirrors `LlmProviderRosterEditor`'s parse pattern
-// already in this file): absent/corrupt/disabled localStorage MUST never
-// throw, and MUST fall back to `{}` so TanStack uses each column's default
-// `size`. Unknown/stale column ids in the stored object are inert — TanStack
-// only reads sizes for columns that currently exist.
-// eslint-disable-next-line react-refresh/only-export-components
-export function loadColumnSizing(key = COLUMN_SIZING_STORAGE_KEY) {
-  try {
-    const parsed = JSON.parse(localStorage.getItem(key) || '{}');
-    return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : {};
-  } catch {
-    return {};
-  }
-}
-
-// eslint-disable-next-line react-refresh/only-export-components
-export function saveColumnSizing(state, key = COLUMN_SIZING_STORAGE_KEY) {
-  try {
-    localStorage.setItem(key, JSON.stringify(state));
-  } catch {
-    // Disabled/private-mode localStorage: resizing still works in-memory,
-    // it just won't persist across reload.
-  }
-}
+// The four localStorage keys, `loadColumnSizing`/`saveColumnSizing`, and the
+// `useColumnSizing` hook now live in components/ml-bot/useColumnSizing.js —
+// see PR4 (ml-bot-panel-operador, ADR-3). Re-exported above for existing
+// unit tests.
 
 function secondsRemaining(waitUntil, referenceNow) {
   if (!waitUntil) return null;
@@ -419,40 +372,9 @@ function formatCountdown(seconds) {
   return `${m}:${String(s).padStart(2, '0')}`;
 }
 
-// PR1 (ml-bot-panel-operador) — plain inline pagination control.
-// ponytail: extract into `components/ml-bot/PaginationBar` in PR4 (design
-// ADR-3) — kept inline here per that decision (do NOT create
-// components/ml-bot/ yet).
-function PaginationBar({ offset, pageSize, total, onOffsetChange, unitLabel = 'resultados' }) {
-  const from = total === 0 ? 0 : offset + 1;
-  const to = Math.min(offset + pageSize, total);
-  const isFirstPage = offset === 0;
-  const isLastPage = offset + pageSize >= total;
-
-  return (
-    <div className={styles.filtersBar}>
-      <button
-        type="button"
-        className="btn-tesla ghost sm"
-        onClick={() => onOffsetChange(Math.max(0, offset - pageSize))}
-        disabled={isFirstPage}
-      >
-        Anterior
-      </button>
-      <span>
-        mostrando {from}-{to} de {total} {unitLabel}
-      </span>
-      <button
-        type="button"
-        className="btn-tesla ghost sm"
-        onClick={() => onOffsetChange(offset + pageSize)}
-        disabled={isLastPage}
-      >
-        Siguiente
-      </button>
-    </div>
-  );
-}
+// `PaginationBar` (introduced inline in PR1) now lives in
+// components/ml-bot/PaginationBar.jsx — see PR4 (ml-bot-panel-operador,
+// design ADR-3).
 
 export default function MLQuestions() {
   const { tienePermiso } = usePermisos();
@@ -650,30 +572,14 @@ export default function MLQuestions() {
   const expandedIdRef = useRef(null);
 
   // Preguntas table — TanStack column-sizing engine (see PREGUNTAS_COLUMNS
-  // above). `columnSizing` initializes from localStorage; changes are
-  // debounced (~200ms, since `onChange` resize mode fires per mouse-move
-  // during a drag) before persisting.
-  const [columnSizing, setColumnSizingState] = useState(() => loadColumnSizing());
-  const columnSizingSaveTimerRef = useRef(null);
-
-  const handleColumnSizingChange = useCallback((updater) => {
-    setColumnSizingState((prev) => {
-      const next = typeof updater === 'function' ? updater(prev) : updater;
-      if (columnSizingSaveTimerRef.current) clearTimeout(columnSizingSaveTimerRef.current);
-      columnSizingSaveTimerRef.current = setTimeout(() => saveColumnSizing(next), 200);
-      return next;
-    });
-  }, []);
-
-  const handleResetColumnSizing = useCallback(() => {
-    if (columnSizingSaveTimerRef.current) clearTimeout(columnSizingSaveTimerRef.current);
-    setColumnSizingState({});
-    try {
-      localStorage.removeItem(COLUMN_SIZING_STORAGE_KEY);
-    } catch {
-      // no-op — disabled/private-mode localStorage
-    }
-  }, []);
+  // above), state/persistence via the shared `useColumnSizing` hook (PR4,
+  // ml-bot-panel-operador ADR-3).
+  const {
+    columnSizing,
+    onColumnSizingChange: handleColumnSizingChange,
+    reset: handleResetColumnSizing,
+    hasCustom: hasCustomColumnSizing,
+  } = useColumnSizing(COLUMN_SIZING_STORAGE_KEYS.preguntas);
 
   const preguntasTable = useReactTable({
     columns: PREGUNTAS_COLUMNS,
@@ -684,34 +590,17 @@ export default function MLQuestions() {
     onColumnSizingChange: handleColumnSizingChange,
   });
 
-  const hasCustomColumnSizing = Object.keys(columnSizing).length > 0;
-
   // Historial del comprador table — same sizing-engine pattern, own
-  // localStorage key and its own debounce timer. There is only ever one
-  // expanded row (`expandedId`), so a single shared top-level instance is
-  // correct (must NOT be instantiated inside `renderDetailRow` — that would
-  // violate the Rules of Hooks by calling a hook conditionally/per-row).
-  const [historialColumnSizing, setHistorialColumnSizingState] = useState(() => loadColumnSizing(HISTORIAL_COLUMN_SIZING_STORAGE_KEY));
-  const historialColumnSizingSaveTimerRef = useRef(null);
-
-  const handleHistorialColumnSizingChange = useCallback((updater) => {
-    setHistorialColumnSizingState((prev) => {
-      const next = typeof updater === 'function' ? updater(prev) : updater;
-      if (historialColumnSizingSaveTimerRef.current) clearTimeout(historialColumnSizingSaveTimerRef.current);
-      historialColumnSizingSaveTimerRef.current = setTimeout(() => saveColumnSizing(next, HISTORIAL_COLUMN_SIZING_STORAGE_KEY), 200);
-      return next;
-    });
-  }, []);
-
-  const handleResetHistorialColumnSizing = useCallback(() => {
-    if (historialColumnSizingSaveTimerRef.current) clearTimeout(historialColumnSizingSaveTimerRef.current);
-    setHistorialColumnSizingState({});
-    try {
-      localStorage.removeItem(HISTORIAL_COLUMN_SIZING_STORAGE_KEY);
-    } catch {
-      // no-op — disabled/private-mode localStorage
-    }
-  }, []);
+  // localStorage key. There is only ever one expanded row (`expandedId`), so
+  // a single shared top-level instance is correct (must NOT be instantiated
+  // inside `renderDetailRow` — that would violate the Rules of Hooks by
+  // calling a hook conditionally/per-row).
+  const {
+    columnSizing: historialColumnSizing,
+    onColumnSizingChange: handleHistorialColumnSizingChange,
+    reset: handleResetHistorialColumnSizing,
+    hasCustom: hasCustomHistorialColumnSizing,
+  } = useColumnSizing(COLUMN_SIZING_STORAGE_KEYS.historial);
 
   const historialTable = useReactTable({
     columns: HISTORIAL_COLUMNS,
@@ -722,32 +611,15 @@ export default function MLQuestions() {
     onColumnSizingChange: handleHistorialColumnSizingChange,
   });
 
-  const hasCustomHistorialColumnSizing = Object.keys(historialColumnSizing).length > 0;
-
-  // Mensajes table — same sizing-engine pattern, own localStorage key and
-  // debounce timer. Only one instance needed (the table itself is not
-  // duplicated per thread — threads are body rows under one shared header).
-  const [mensajesColumnSizing, setMensajesColumnSizingState] = useState(() => loadColumnSizing(MENSAJES_COLUMN_SIZING_STORAGE_KEY));
-  const mensajesColumnSizingSaveTimerRef = useRef(null);
-
-  const handleMensajesColumnSizingChange = useCallback((updater) => {
-    setMensajesColumnSizingState((prev) => {
-      const next = typeof updater === 'function' ? updater(prev) : updater;
-      if (mensajesColumnSizingSaveTimerRef.current) clearTimeout(mensajesColumnSizingSaveTimerRef.current);
-      mensajesColumnSizingSaveTimerRef.current = setTimeout(() => saveColumnSizing(next, MENSAJES_COLUMN_SIZING_STORAGE_KEY), 200);
-      return next;
-    });
-  }, []);
-
-  const handleResetMensajesColumnSizing = useCallback(() => {
-    if (mensajesColumnSizingSaveTimerRef.current) clearTimeout(mensajesColumnSizingSaveTimerRef.current);
-    setMensajesColumnSizingState({});
-    try {
-      localStorage.removeItem(MENSAJES_COLUMN_SIZING_STORAGE_KEY);
-    } catch {
-      // no-op — disabled/private-mode localStorage
-    }
-  }, []);
+  // Mensajes table — same sizing-engine pattern, own localStorage key. Only
+  // one instance needed (the table itself is not duplicated per thread —
+  // threads are body rows under one shared header).
+  const {
+    columnSizing: mensajesColumnSizing,
+    onColumnSizingChange: handleMensajesColumnSizingChange,
+    reset: handleResetMensajesColumnSizing,
+    hasCustom: hasCustomMensajesColumnSizing,
+  } = useColumnSizing(COLUMN_SIZING_STORAGE_KEYS.mensajes);
 
   const mensajesTable = useReactTable({
     columns: MENSAJES_COLUMNS,
@@ -758,33 +630,16 @@ export default function MLQuestions() {
     onColumnSizingChange: handleMensajesColumnSizingChange,
   });
 
-  const hasCustomMensajesColumnSizing = Object.keys(mensajesColumnSizing).length > 0;
-
-  // Pendientes table — same sizing-engine pattern, own localStorage key and
-  // debounce timer. Independent from the Preguntas/Mensajes/Historial
-  // instances (own column defs + own state), so resizing the admin-pending
-  // queue never mutates the other tables' persisted widths.
-  const [pendientesColumnSizing, setPendientesColumnSizingState] = useState(() => loadColumnSizing(PENDIENTES_COLUMN_SIZING_STORAGE_KEY));
-  const pendientesColumnSizingSaveTimerRef = useRef(null);
-
-  const handlePendientesColumnSizingChange = useCallback((updater) => {
-    setPendientesColumnSizingState((prev) => {
-      const next = typeof updater === 'function' ? updater(prev) : updater;
-      if (pendientesColumnSizingSaveTimerRef.current) clearTimeout(pendientesColumnSizingSaveTimerRef.current);
-      pendientesColumnSizingSaveTimerRef.current = setTimeout(() => saveColumnSizing(next, PENDIENTES_COLUMN_SIZING_STORAGE_KEY), 200);
-      return next;
-    });
-  }, []);
-
-  const handleResetPendientesColumnSizing = useCallback(() => {
-    if (pendientesColumnSizingSaveTimerRef.current) clearTimeout(pendientesColumnSizingSaveTimerRef.current);
-    setPendientesColumnSizingState({});
-    try {
-      localStorage.removeItem(PENDIENTES_COLUMN_SIZING_STORAGE_KEY);
-    } catch {
-      // no-op — disabled/private-mode localStorage
-    }
-  }, []);
+  // Pendientes table — same sizing-engine pattern, own localStorage key.
+  // Independent from the Preguntas/Mensajes/Historial instances (own column
+  // defs + own state), so resizing the admin-pending queue never mutates the
+  // other tables' persisted widths.
+  const {
+    columnSizing: pendientesColumnSizing,
+    onColumnSizingChange: handlePendientesColumnSizingChange,
+    reset: handleResetPendientesColumnSizing,
+    hasCustom: hasCustomPendientesColumnSizing,
+  } = useColumnSizing(COLUMN_SIZING_STORAGE_KEYS.pendientes);
 
   const pendientesTable = useReactTable({
     columns: PENDIENTES_COLUMNS,
@@ -794,8 +649,6 @@ export default function MLQuestions() {
     state: { columnSizing: pendientesColumnSizing },
     onColumnSizingChange: handlePendientesColumnSizingChange,
   });
-
-  const hasCustomPendientesColumnSizing = Object.keys(pendientesColumnSizing).length > 0;
 
   // Bot status (visible to ANY ml_bot.ver holder, not just ml_bot.config —
   // Judgment Day fix: the on/off + supervised-mode badges were previously
@@ -1537,67 +1390,29 @@ export default function MLQuestions() {
                 ) : historyItems.length === 0 ? (
                   <div className={styles.emptyCell}>No hay preguntas anteriores de este comprador</div>
                 ) : (
-                  <>
-                    {hasCustomHistorialColumnSizing && (
-                      <div className={styles.columnSizingBar}>
-                        <button
-                          type="button"
-                          className="btn-tesla ghost sm"
-                          onClick={handleResetHistorialColumnSizing}
-                        >
-                          Restablecer columnas
-                        </button>
-                      </div>
-                    )}
-                    <div className="table-container-tesla">
-                    <table
-                      className={`table-tesla striped ${styles.resizableTable}`}
-                      style={{ width: historialTable.getTotalSize() }}
-                    >
-                      <colgroup>
-                        {historialTable.getVisibleLeafColumns().map((col) => (
-                          <col key={col.id} style={{ width: col.getSize() }} />
-                        ))}
-                      </colgroup>
-                      <thead className="table-tesla-head">
-                        <tr>
-                          {historialTable.getFlatHeaders().map((h) => (
-                            <th key={h.id} style={{ position: 'relative' }}>
-                              {flexRender(h.column.columnDef.header, h.getContext())}
-                              {h.column.getCanResize() && (
-                                <span
-                                  className={`${styles.resizeGrip} ${h.column.getIsResizing() ? styles.resizeGripActive : ''}`}
-                                  onMouseDown={h.getResizeHandler()}
-                                  onTouchStart={h.getResizeHandler()}
-                                  role="separator"
-                                  aria-orientation="vertical"
-                                  aria-label={`Redimensionar columna ${h.column.columnDef.header}`}
-                                />
-                              )}
-                            </th>
-                          ))}
+                  <ResizableTableShell
+                    table={historialTable}
+                    hasCustomSizing={hasCustomHistorialColumnSizing}
+                    onResetSizing={handleResetHistorialColumnSizing}
+                  >
+                    <tbody className="table-tesla-body">
+                      {historyItems.map((h) => (
+                        <tr key={h.id}>
+                          <td>{new Date(h.question_date).toLocaleString()}</td>
+                          <td className={styles.cellQuestion} title={h.question_text}>{h.question_text}</td>
+                          <td className={styles.cellItem}>{h.item_title || '—'}</td>
+                          <td>
+                            <span className={`${styles.badge} ${styles[STATUS_BADGE_CLASS[h.status]] || ''}`}>
+                              {STATUS_LABELS[h.status] || h.status}
+                            </span>
+                          </td>
+                          <td className={styles.cellAnswer} title={h.drafted_answer || ''}>
+                            {h.drafted_answer || '—'}
+                          </td>
                         </tr>
-                      </thead>
-                      <tbody className="table-tesla-body">
-                        {historyItems.map((h) => (
-                          <tr key={h.id}>
-                            <td>{new Date(h.question_date).toLocaleString()}</td>
-                            <td className={styles.cellQuestion} title={h.question_text}>{h.question_text}</td>
-                            <td className={styles.cellItem}>{h.item_title || '—'}</td>
-                            <td>
-                              <span className={`${styles.badge} ${styles[STATUS_BADGE_CLASS[h.status]] || ''}`}>
-                                {STATUS_LABELS[h.status] || h.status}
-                              </span>
-                            </td>
-                            <td className={styles.cellAnswer} title={h.drafted_answer || ''}>
-                              {h.drafted_answer || '—'}
-                            </td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                    </div>
-                  </>
+                      ))}
+                    </tbody>
+                  </ResizableTableShell>
                 )}
               </div>
             )}
@@ -1744,47 +1559,11 @@ export default function MLQuestions() {
             </div>
           )}
 
-          {hasCustomColumnSizing && (
-            <div className={styles.columnSizingBar}>
-              <button
-                type="button"
-                className="btn-tesla ghost sm"
-                onClick={handleResetColumnSizing}
-              >
-                Restablecer columnas
-              </button>
-            </div>
-          )}
-
-          <div className="table-container-tesla">
-            <table
-              className={`table-tesla striped ${styles.resizableTable}`}
-              style={{ width: preguntasTable.getTotalSize() }}
-            >
-              <colgroup>
-                {preguntasTable.getVisibleLeafColumns().map((col) => (
-                  <col key={col.id} style={{ width: col.getSize() }} />
-                ))}
-              </colgroup>
-              <thead className="table-tesla-head">
-                <tr>
-                  {preguntasTable.getFlatHeaders().map((h) => (
-                    <th key={h.id} style={{ position: 'relative' }}>
-                      {flexRender(h.column.columnDef.header, h.getContext())}
-                      {h.column.getCanResize() && (
-                        <span
-                          className={`${styles.resizeGrip} ${h.column.getIsResizing() ? styles.resizeGripActive : ''}`}
-                          onMouseDown={h.getResizeHandler()}
-                          onTouchStart={h.getResizeHandler()}
-                          role="separator"
-                          aria-orientation="vertical"
-                          aria-label={`Redimensionar columna ${h.column.columnDef.header}`}
-                        />
-                      )}
-                    </th>
-                  ))}
-                </tr>
-              </thead>
+          <ResizableTableShell
+            table={preguntasTable}
+            hasCustomSizing={hasCustomColumnSizing}
+            onResetSizing={handleResetColumnSizing}
+          >
               <tbody className="table-tesla-body">
                 {loading ? (
                   <tr><td colSpan={preguntasTable.getVisibleLeafColumns().length} className={styles.loadingCell}>Cargando...</td></tr>
@@ -1943,8 +1722,7 @@ export default function MLQuestions() {
                   })
                 )}
               </tbody>
-            </table>
-          </div>
+          </ResizableTableShell>
 
           <PaginationBar
             offset={preguntasOffset}
@@ -2023,47 +1801,12 @@ export default function MLQuestions() {
             </div>
           )}
 
-          {hasCustomMensajesColumnSizing && (
-            <div className={styles.columnSizingBar}>
-              <button
-                type="button"
-                className="btn-tesla ghost sm"
-                onClick={handleResetMensajesColumnSizing}
-              >
-                Restablecer columnas
-              </button>
-            </div>
-          )}
-
-          <div className="table-container-tesla">
-            <table
-              className={`table-tesla ${styles.resizableTable}`}
-              style={{ width: mensajesTable.getTotalSize() }}
-            >
-              <colgroup>
-                {mensajesTable.getVisibleLeafColumns().map((col) => (
-                  <col key={col.id} style={{ width: col.getSize() }} />
-                ))}
-              </colgroup>
-              <thead className="table-tesla-head">
-                <tr>
-                  {mensajesTable.getFlatHeaders().map((h) => (
-                    <th key={h.id} style={{ position: 'relative' }}>
-                      {flexRender(h.column.columnDef.header, h.getContext())}
-                      {h.column.getCanResize() && (
-                        <span
-                          className={`${styles.resizeGrip} ${h.column.getIsResizing() ? styles.resizeGripActive : ''}`}
-                          onMouseDown={h.getResizeHandler()}
-                          onTouchStart={h.getResizeHandler()}
-                          role="separator"
-                          aria-orientation="vertical"
-                          aria-label={`Redimensionar columna ${h.column.columnDef.header}`}
-                        />
-                      )}
-                    </th>
-                  ))}
-                </tr>
-              </thead>
+          <ResizableTableShell
+            table={mensajesTable}
+            hasCustomSizing={hasCustomMensajesColumnSizing}
+            onResetSizing={handleResetMensajesColumnSizing}
+            striped={false}
+          >
               {messagesLoading ? (
                 <tbody className="table-tesla-body">
                   <tr><td colSpan={mensajesTable.getVisibleLeafColumns().length} className={styles.loadingCell}>Cargando...</td></tr>
@@ -2253,8 +1996,7 @@ export default function MLQuestions() {
                   );
                 })
               )}
-            </table>
-          </div>
+          </ResizableTableShell>
 
           {/* ponytail: pagination here is by raw message row (matches the
               honest `total` the backend returns), but the UI groups rows into
@@ -2345,47 +2087,11 @@ export default function MLQuestions() {
             </div>
           )}
 
-          {hasCustomPendientesColumnSizing && (
-            <div className={styles.columnSizingBar}>
-              <button
-                type="button"
-                className="btn-tesla ghost sm"
-                onClick={handleResetPendientesColumnSizing}
-              >
-                Restablecer columnas
-              </button>
-            </div>
-          )}
-
-          <div className="table-container-tesla">
-            <table
-              className={`table-tesla striped ${styles.resizableTable}`}
-              style={{ width: pendientesTable.getTotalSize() }}
-            >
-              <colgroup>
-                {pendientesTable.getVisibleLeafColumns().map((col) => (
-                  <col key={col.id} style={{ width: col.getSize() }} />
-                ))}
-              </colgroup>
-              <thead className="table-tesla-head">
-                <tr>
-                  {pendientesTable.getFlatHeaders().map((h) => (
-                    <th key={h.id} style={{ position: 'relative' }}>
-                      {flexRender(h.column.columnDef.header, h.getContext())}
-                      {h.column.getCanResize() && (
-                        <span
-                          className={`${styles.resizeGrip} ${h.column.getIsResizing() ? styles.resizeGripActive : ''}`}
-                          onMouseDown={h.getResizeHandler()}
-                          onTouchStart={h.getResizeHandler()}
-                          role="separator"
-                          aria-orientation="vertical"
-                          aria-label={`Redimensionar columna ${h.column.columnDef.header}`}
-                        />
-                      )}
-                    </th>
-                  ))}
-                </tr>
-              </thead>
+          <ResizableTableShell
+            table={pendientesTable}
+            hasCustomSizing={hasCustomPendientesColumnSizing}
+            onResetSizing={handleResetPendientesColumnSizing}
+          >
               <tbody className="table-tesla-body">
                 {pendingLoading ? (
                   <tr><td colSpan={pendientesTable.getVisibleLeafColumns().length} className={styles.loadingCell}>Cargando...</td></tr>
@@ -2546,8 +2252,7 @@ export default function MLQuestions() {
                   ))
                 )}
               </tbody>
-            </table>
-          </div>
+          </ResizableTableShell>
         </>
       )}
 
