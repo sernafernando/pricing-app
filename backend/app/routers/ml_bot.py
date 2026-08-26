@@ -567,10 +567,15 @@ def contar_por_fallback_reason(
     """Cuenta preguntas agrupadas por `fallback_reason` (una sola GROUP BY).
     Requiere `ml_bot.ver`.
 
-    Declarado ANTES de `/questions/{question_id}` a propósito: de lo
-    contrario FastAPI intentaría parsear el segmento literal
-    "fallback-reason-counts" como un `question_id` entero y devolvería 422 en
-    lugar de llegar a este handler (T4.1 route-order proof).
+    Declarado ANTES de cualquier ruta `/questions/{question_id}/...` a
+    propósito (design requirement, T4.1 route-order proof): si alguna vez se
+    agrega un `GET /questions/{question_id}` bare, FastAPI intentaría
+    parsear el segmento literal "fallback-reason-counts" como ese
+    `question_id` entero y devolvería 422 en lugar de llegar a este handler.
+    Hoy el router no tiene esa ruta bare (solo variantes con un segmento
+    extra como `/take-over`, `/buyer-history`), pero declarar este endpoint
+    primero es la defensa correcta contra ese futuro sin depender de que
+    nadie recuerde el orden.
 
     Honra `status` (si se pasa, cuenta solo esas filas) pero IGNORA a
     propósito cualquier `fallback_reason` recibido — este endpoint cuenta
