@@ -15,6 +15,7 @@ import inspect
 import socket
 
 import httpx
+import pytest
 from sqlalchemy.orm import Session
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -442,12 +443,64 @@ class TestPinnedAddressTransport:
 
         assert sent.extensions["sni_hostname"] == "example.com"
 
-    def test_unpinned_host_is_left_untouched(self) -> None:
+    def test_idn_host_is_pinned_and_matches_the_punycoded_lookup(self) -> None:
+        # httpx punycodes the request URL host, so a pin stored under the raw
+        # unicode host would never be found: the request would go out UNPINNED
+        # with a fresh DNS lookup, silently reopening the rebinding window.
         transport = _PinnedAddressTransport()
+        transport.pin("m\u00fcnchen.example", PUBLIC_IP)
 
-        sent = self._capture(transport, httpx.Request("GET", "https://example.com/a.jpg"))
+        sent = self._capture(transport, httpx.Request("GET", "https://m\u00fcnchen.example/a.jpg"))
 
-        assert sent.url.host == "example.com"
+        assert sent.url.host == PUBLIC_IP
+        assert sent.headers["host"] == "xn--mnchen-3ya.example"
+
+    def test_punycoded_idn_host_is_pinned_and_matches_the_decoded_lookup(self) -> None:
+        # The mirror case, and the one that actually bites: `urlsplit` keeps
+        # the punycode a GBP row carries, while httpx decodes it back to
+        # unicode. The pin key and the lookup key must be normalized the same
+        # way or the request goes out UNPINNED with a fresh DNS lookup.
+        transport = _PinnedAddressTransport()
+        transport.pin("xn--mnchen-3ya.example", PUBLIC_IP)
+
+        sent = self._capture(transport, httpx.Request("GET", "https://xn--mnchen-3ya.example/a.jpg"))
+
+        assert sent.url.host == PUBLIC_IP
+
+    def test_unpinned_host_is_refused_instead_of_being_sent(self) -> None:
+        # Fail CLOSED: `_validate_target` is the only thing that decides what
+        # may be requested, so a host arriving here without a pin is a bug,
+        # and letting it through would be an unvalidated request.
+        transport = _PinnedAddressTransport()
+        reached = []
+
+        async def fake_send(_self, sent):
+            reached.append(sent)
+            return httpx.Response(200, content=IMAGE_BYTES)
+
+        with patch.object(httpx.AsyncHTTPTransport, "handle_async_request", fake_send):
+            with pytest.raises(Exception):
+                asyncio.run(transport.handle_async_request(httpx.Request("GET", "https://example.com/a.jpg")))
+
+        assert reached == [], "an unpinned request reached the network"
+
+    def test_unpinned_request_ends_as_download_failed(self) -> None:
+        reached = []
+
+        async def fake_send(_self, sent):
+            reached.append(sent)
+            return httpx.Response(200, content=IMAGE_BYTES)
+
+        with patch.object(_PinnedAddressTransport, "pin", lambda self, host, address: None):
+            with patch.object(httpx.AsyncHTTPTransport, "handle_async_request", fake_send):
+                with patch(
+                    "app.services.tn_image_normalizer.download.socket.getaddrinfo",
+                    side_effect=lambda *a, **k: _addrinfo(PUBLIC_IP),
+                ):
+                    result = asyncio.run(download_source_image("https://example.com/a.jpg"))
+
+        assert result.state == ITEM_DOWNLOAD_FAILED
+        assert reached == [], "an unpinned request reached the network"
 
 
 class TestDnsRebindingIsClosed:

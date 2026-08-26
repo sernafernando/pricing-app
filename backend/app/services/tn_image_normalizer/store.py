@@ -42,9 +42,17 @@ Because the write is committed by a SAVEPOINT while the row is committed by
 the caller, a caller that rolls its outer transaction back leaves the file
 on disk with no row pointing at it. Nothing that walks the rows can ever
 reclaim it, so the sweep also walks the DISK and deletes any `.jpg` no row
-references. A file younger than `ORPHAN_GRACE_PERIOD` is never touched: it
-most likely belongs to a run whose transaction is still in flight, and
-deleting it would destroy live work.
+references.
+
+Deleting a file is irreversible, so the sweep is deliberately timid about
+it. A file whose directory belongs to a run that has not finished is never
+touched — that run's transaction is still open and its rows have not
+committed, so the file is live work, however old its mtime is.
+`ORPHAN_GRACE_PERIOD` remains only as a fallback for a directory that maps
+to no known run. And if rows with paths exist while more than
+`MAX_ORPHAN_FRACTION` of the scanned files match none of them, the sweep
+reclaims nothing at all: at that point the path comparison is what is
+broken, and acting on it would wipe the store.
 """
 
 from __future__ import annotations
@@ -61,7 +69,11 @@ from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
-from app.models.tn_image_normalizer import TnImageArtifact, TnImageNormalizationItem
+from app.models.tn_image_normalizer import (
+    TnImageArtifact,
+    TnImageNormalizationItem,
+    TnImageNormalizationRun,
+)
 from app.services.tn_image_normalizer.states import ITEM_DEDUP_HIT, ITEM_NORMALIZED
 
 logger = logging.getLogger(__name__)
@@ -76,11 +88,21 @@ OUTPUT_SUFFIX = ".jpg"
 # of round-trips instead of one per row.
 DELETE_BATCH_SIZE = 500
 
-# A file this recent is presumed to belong to a transaction still in flight,
-# not to be an orphan. An hour is far longer than any normalization run and
-# far shorter than the retention window, so the worst case is that a genuine
-# orphan waits one extra sweep.
+# Fallback only, for a file whose directory maps to no known run (a leftover
+# from a deleted run header, or something a human dropped there). The primary
+# in-flight signal is the run's own state, NOT this clock: a run over
+# thousands of images keeps its transaction open for hours, so any fixed
+# grace period is guaranteed to be too short for a big enough run.
 ORPHAN_GRACE_PERIOD = timedelta(hours=1)
+
+# Circuit breaker for the orphan sweep. If artifact rows with paths DO exist
+# and yet more than this fraction of the files on disk matches none of them,
+# the comparison is what is broken — a real sweep reclaims a small minority.
+# Deleting is irreversible and would leave every row pointing at nothing, so
+# above this fraction the sweep reclaims NOTHING and shouts instead. 0.9 sits
+# far above any plausible real backlog and far below the ~1.0 a broken
+# comparison produces.
+MAX_ORPHAN_FRACTION = 0.9
 
 
 @dataclass(frozen=True)
@@ -245,41 +267,112 @@ def _absolute(output_path: str, root: Path) -> Path:
     return path if path.is_absolute() else root / path
 
 
+def _canonical(path: Path) -> str:
+    """The path as a string both sides of the orphan comparison can agree on.
+
+    The row's path was built from the `base_dir` of the WRITE; the sweep
+    walks the `base_dir` of the SWEEP. A symlinked mount, a relative path or
+    a trailing slash between the two makes the raw strings differ while the
+    file is the very same one — and a raw-string comparison then declares the
+    ENTIRE store orphaned. `resolve()` collapses all of that; if the file is
+    gone or the path cannot be resolved, the absolute form is still stable
+    enough to compare.
+    """
+    try:
+        return str(path.resolve())
+    except OSError:
+        return str(path.absolute())
+
+
+def _unfinished_run_dirs(db: Session, root: Path) -> set[str]:
+    """Canonical directories belonging to runs that have not finished.
+
+    Read in ONE query, like the known-path set: a query per file would defeat
+    the point of scanning in memory.
+
+    `finished_at` is the terminality signal because the run-level state
+    vocabulary does not exist yet — `states.py` deliberately carries only the
+    ITEM_* and TXN_* machines and warns that they must not be mixed, so
+    judging a run by either would be a category error, and inventing RUN_*
+    strings here would prejudge a later slice. `finished_at IS NULL` means
+    exactly "this run has not ended", which is the question being asked.
+    """
+    run_ids = (
+        db.execute(select(TnImageNormalizationRun.id).where(TnImageNormalizationRun.finished_at.is_(None)))
+        .scalars()
+        .all()
+    )
+    return {_canonical(root / str(run_id)) for run_id in run_ids}
+
+
+def _known_run_dirs(db: Session, root: Path) -> set[str]:
+    """Canonical directories of every run we know about, finished or not."""
+    run_ids = db.execute(select(TnImageNormalizationRun.id)).scalars().all()
+    return {_canonical(root / str(run_id)) for run_id in run_ids}
+
+
 def _orphan_files(db: Session, root: Path, now: datetime) -> list[Path]:
-    """Files under `root` that no artifact row references and are old enough.
+    """Files under `root` that no artifact row references and are safe to drop.
 
     The set of known paths is read ONCE and compared in memory: a query per
     file would turn a routine sweep over a few thousand images into a few
     thousand round-trips, which is the cost this whole function exists to
     keep bounded.
+
+    A file is spared when its directory belongs to a run that has not
+    finished. The layout is `{base_dir}/{run_id}/...`, so the parent IS the
+    run id, and an unfinished run is precisely the case where the file is
+    already written but its row has not committed yet — deleting it destroys
+    live work and leaves the run "successful" with rows pointing at nothing.
     """
     if not root.is_dir():
         return []
 
     known = {
-        str(_absolute(output_path, root))
+        _canonical(_absolute(output_path, root))
         for (output_path,) in db.execute(
             select(TnImageArtifact.output_path).where(TnImageArtifact.output_path.is_not(None))
         ).all()
         if output_path
     }
+    unfinished_dirs = _unfinished_run_dirs(db, root)
+    known_dirs = _known_run_dirs(db, root)
     # Compared as POSIX timestamps rather than datetimes: `st_mtime` has no
     # timezone, and `now` may arrive aware or naive.
     grace_cutoff = now.timestamp() - ORPHAN_GRACE_PERIOD.total_seconds()
 
+    scanned = 0
     orphans: list[Path] = []
     for path in root.rglob(f"*{OUTPUT_SUFFIX}"):
-        if str(path) in known:
+        scanned += 1
+        if _canonical(path) in known:
             continue
-        try:
-            if path.stat().st_mtime >= grace_cutoff:
-                # Written by a transaction that may still be in flight.
+        parent = _canonical(path.parent)
+        if parent in unfinished_dirs:
+            # Its run is still going: the row simply has not committed yet.
+            continue
+        if parent not in known_dirs:
+            try:
+                if path.stat().st_mtime >= grace_cutoff:
+                    # No run to ask, so fall back to the clock.
+                    continue
+            except OSError as exc:
+                logger.warning("tn_image_normalizer.store: could not stat %s: %s", path, exc)
                 continue
-        except OSError as exc:
-            logger.warning("tn_image_normalizer.store: could not stat %s: %s", path, exc)
-            continue
-        logger.info("tn_image_normalizer.store: reclaiming orphan file %s", path)
         orphans.append(path)
+
+    if known and scanned and len(orphans) / scanned > MAX_ORPHAN_FRACTION:
+        logger.error(
+            "tn_image_normalizer.store: refusing to reclaim %s of %s scanned files as orphans "
+            "(above %s); path comparison is almost certainly broken",
+            len(orphans),
+            scanned,
+            MAX_ORPHAN_FRACTION,
+        )
+        return []
+
+    for path in orphans:
+        logger.info("tn_image_normalizer.store: reclaiming orphan file %s", path)
     return orphans
 
 

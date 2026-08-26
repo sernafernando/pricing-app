@@ -690,3 +690,157 @@ class TestSweepDeletesInBatches:
         # 5 rows at a batch size of 2 is three statements, not five.
         assert len(deletes) == 3
         assert db.query(TnImageArtifact).count() == 0
+
+
+def _run_row(db, run_id: int, finished_at: datetime | None) -> None:
+    """Persist one run header, finished or still in flight."""
+    if db.query(Usuario).filter_by(id=1).first() is None:
+        db.add(Usuario(id=1, nombre="sweep-test"))
+        db.flush()
+    db.add(
+        TnImageNormalizationRun(
+            id=run_id,
+            state="planned",
+            params_fingerprint=PARAMS_FP,
+            created_by_user_id=1,
+            preset=1080,
+            fill_color="#ffffff",
+            output_format="jpeg",
+            quality=85,
+            max_output_bytes=3145728,
+            finished_at=finished_at,
+        )
+    )
+    db.commit()
+
+
+def _loose_file(base_dir: Path, run_id: int, artifact_id: int, now: datetime, age_seconds: int) -> Path:
+    """Write a file with no artifact row behind it, backdated by `age_seconds`."""
+    path = base_dir / str(run_id) / f"{artifact_id}_{OUTPUT_HASH[:12]}.jpg"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_bytes(OUTPUT_BYTES)
+    _age_file(path, now, seconds=age_seconds)
+    return path
+
+
+class TestOrphanDetectionComparesResolvedPaths:
+    """A cosmetic path difference must never turn the whole store into orphans.
+
+    The row's path was written with the `base_dir` of the WRITE; the sweep
+    walks the `base_dir` of the SWEEP. A symlink, a relative path or a
+    trailing slash between the two used to make every single file miss the
+    known set — so the sweep deleted the entire store and left every row
+    pointing at nothing.
+    """
+
+    def test_path_written_through_a_symlinked_base_dir_is_not_an_orphan(self, db, tmp_path: Path) -> None:
+        now = datetime(2026, 8, 26, 12, 0, tzinfo=timezone.utc)
+        real = tmp_path / "real"
+        real.mkdir()
+        link = tmp_path / "link"
+        link.symlink_to(real, target_is_directory=True)
+        old_enough = int(store_module.ORPHAN_GRACE_PERIOD.total_seconds()) + 60
+        # Companions written through the plain base_dir, so the run's paths do
+        # NOT all mismatch at once: this test must fail on the raw-string
+        # comparison alone, not be rescued by the fraction circuit breaker.
+        for artifact_id in range(2, 12):
+            companion = _stored_artifact(db, now - timedelta(days=1), real, run_id=1, artifact_id=artifact_id)
+            _age_file(companion, now, seconds=old_enough)
+        path = _stored_artifact(db, now - timedelta(days=1), link, run_id=1, artifact_id=1)
+        _age_file(path, now, seconds=old_enough)
+
+        sweep_expired_artifacts(db, now=now, retention_days=30, base_dir=real)
+
+        assert path.exists(), "a symlinked base_dir made a live artifact look orphaned"
+
+    def test_relative_output_path_is_not_an_orphan(self, db, tmp_path: Path) -> None:
+        now = datetime(2026, 8, 26, 12, 0, tzinfo=timezone.utc)
+        path = _stored_artifact(db, now - timedelta(days=1), tmp_path, run_id=1, artifact_id=1)
+        _age_file(path, now, seconds=int(store_module.ORPHAN_GRACE_PERIOD.total_seconds()) + 60)
+        artifact = db.query(TnImageArtifact).filter_by(id=1).one()
+        artifact.output_path = str(path.relative_to(tmp_path))
+        db.commit()
+
+        sweep_expired_artifacts(db, now=now, retention_days=30, base_dir=tmp_path)
+
+        assert path.exists(), "a relative row path made a live artifact look orphaned"
+
+    def test_trailing_slash_on_the_sweep_base_dir_is_not_an_orphan(self, db, tmp_path: Path) -> None:
+        now = datetime(2026, 8, 26, 12, 0, tzinfo=timezone.utc)
+        path = _stored_artifact(db, now - timedelta(days=1), tmp_path, run_id=1, artifact_id=1)
+        _age_file(path, now, seconds=int(store_module.ORPHAN_GRACE_PERIOD.total_seconds()) + 60)
+
+        sweep_expired_artifacts(db, now=now, retention_days=30, base_dir=f"{tmp_path}{os.sep}")
+
+        assert path.exists(), "a trailing slash made a live artifact look orphaned"
+
+
+class TestOrphanSweepRefusesImplausibleReclaims:
+    """A sweep that believes almost everything is an orphan is broken, not busy.
+
+    The deletion is irreversible, so the fraction is a circuit breaker: when
+    rows DO exist and almost nothing on disk matches them, the comparison is
+    what failed, and deleting nothing costs one sweep.
+    """
+
+    def test_nothing_is_deleted_when_almost_every_file_looks_orphaned(self, db, tmp_path: Path) -> None:
+        now = datetime(2026, 8, 26, 12, 0, tzinfo=timezone.utc)
+        old = int(store_module.ORPHAN_GRACE_PERIOD.total_seconds()) + 60
+        known = _stored_artifact(db, now - timedelta(days=1), tmp_path, run_id=1, artifact_id=1)
+        _age_file(known, now, seconds=old)
+        loose = [_loose_file(tmp_path, run_id=50, artifact_id=index, now=now, age_seconds=old) for index in range(20)]
+
+        sweep_expired_artifacts(db, now=now, retention_days=30, base_dir=tmp_path)
+
+        assert known.exists()
+        assert all(path.exists() for path in loose), "an implausible orphan fraction was acted on"
+
+
+class TestOrphanSweepNeverTouchesLiveRuns:
+    """The grace period is a clock heuristic; the run state is the real signal.
+
+    `store_normalized_artifact` writes its file inside a savepoint and leaves
+    the COMMIT to the caller, which commits once the whole run is done. A run
+    over thousands of images therefore has hour-old files whose rows have not
+    committed yet — and the gap only grows with the run.
+    """
+
+    def test_file_of_an_unfinished_run_survives_however_old_it_is(self, db, tmp_path: Path) -> None:
+        now = datetime(2026, 8, 26, 12, 0, tzinfo=timezone.utc)
+        _run_row(db, run_id=31, finished_at=None)
+        in_flight = _loose_file(tmp_path, run_id=31, artifact_id=1, now=now, age_seconds=90 * 86400)
+
+        sweep_expired_artifacts(db, now=now, retention_days=30, base_dir=tmp_path)
+
+        assert in_flight.exists(), "the sweep destroyed live work from a run still in flight"
+
+    def test_file_of_a_finished_run_is_reclaimed(self, db, tmp_path: Path) -> None:
+        now = datetime(2026, 8, 26, 12, 0, tzinfo=timezone.utc)
+        _run_row(db, run_id=32, finished_at=now - timedelta(days=2))
+        stale = _loose_file(
+            tmp_path,
+            run_id=32,
+            artifact_id=1,
+            now=now,
+            age_seconds=int(store_module.ORPHAN_GRACE_PERIOD.total_seconds()) + 60,
+        )
+
+        sweep_expired_artifacts(db, now=now, retention_days=30, base_dir=tmp_path)
+
+        assert not stale.exists()
+
+    def test_directory_of_no_known_run_falls_back_to_the_grace_period(self, db, tmp_path: Path) -> None:
+        now = datetime(2026, 8, 26, 12, 0, tzinfo=timezone.utc)
+        fresh = _loose_file(tmp_path, run_id=33, artifact_id=1, now=now, age_seconds=5)
+        old = _loose_file(
+            tmp_path,
+            run_id=34,
+            artifact_id=1,
+            now=now,
+            age_seconds=int(store_module.ORPHAN_GRACE_PERIOD.total_seconds()) + 60,
+        )
+
+        sweep_expired_artifacts(db, now=now, retention_days=30, base_dir=tmp_path)
+
+        assert fresh.exists()
+        assert not old.exists()

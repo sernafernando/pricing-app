@@ -32,7 +32,9 @@ The connection is then PINNED to the exact address that was judged.
 `_PinnedAddressTransport` rewrites the request URL's host to that address
 while sending the original `Host` header and, for HTTPS, the original
 hostname as `sni_hostname` — so the TLS handshake and the certificate check
-still run against the hostname, never against the IP literal. Resolving
+still run against the hostname, never against the IP literal. A host that
+somehow reaches the transport without a pin is refused outright: this
+stage fails closed, never open. Resolving
 once and letting httpx resolve again at connect time would leave a DNS
 rebinding window: a short-TTL attacker answers our check with a public
 address and httpx's with an internal one. There is no second resolution to
@@ -136,6 +138,28 @@ def _is_public_address(raw_address: str) -> bool:
     )
 
 
+class UnpinnedHostError(RuntimeError):
+    """A request reached the transport for a host that was never pinned."""
+
+
+def _pin_key(host: str) -> str:
+    """Normalize `host` the way httpx normalizes a URL host.
+
+    `urlsplit` hands back the hostname exactly as the GBP row spelled it,
+    while httpx round-trips IDN through IDNA — a punycoded `xn--...` host is
+    decoded back to unicode, and a unicode one may be encoded. Keying the
+    pins on the raw string therefore stores `xn--mnchen-3ya.example` and
+    looks up `münchen.example`, misses, and (before the fail-closed guard
+    below) sent the request out unpinned with a fresh DNS lookup: silently
+    the exact rebinding window this transport exists to close. Both sides go
+    through httpx's own normalization so they cannot disagree.
+    """
+    try:
+        return (httpx.URL(f"//{host}").host or host).lower()
+    except (httpx.InvalidURL, UnicodeError, ValueError):
+        return host.lower()
+
+
 class _PinnedAddressTransport(httpx.AsyncHTTPTransport):
     """Connects to the address that was validated, not to a fresh lookup.
 
@@ -146,8 +170,12 @@ class _PinnedAddressTransport(httpx.AsyncHTTPTransport):
     certificate verification still target the hostname: pinning the address
     costs nothing in TLS strength.
 
-    A host with no pin is left alone — the guard, not this transport,
-    decides what may be requested.
+    A host with no pin is REFUSED, not passed through. `_validate_target` is
+    the only thing that decides what may be requested, and it pins every
+    target it approves — so an unpinned host arriving here is a bug, and
+    letting it through would be an unvalidated, freshly resolved request.
+    `download_source_image` turns the exception into a `download_failed`
+    result like any other transport error.
     """
 
     def __init__(self, **kwargs) -> None:
@@ -155,15 +183,16 @@ class _PinnedAddressTransport(httpx.AsyncHTTPTransport):
         self._pins: dict[str, str] = {}
 
     def pin(self, host: str, address: str) -> None:
-        self._pins[host.lower()] = address
+        self._pins[_pin_key(host)] = address
 
     async def handle_async_request(self, request: httpx.Request) -> httpx.Response:
-        host = (request.url.host or "").lower()
+        host = _pin_key(request.url.host or "")
         address = self._pins.get(host)
-        if address is not None:
-            request.headers["host"] = request.url.netloc.decode("ascii")
-            request.extensions = {**request.extensions, "sni_hostname": request.url.host}
-            request.url = request.url.copy_with(host=address)
+        if address is None:
+            raise UnpinnedHostError(f"refusing to request unpinned host {host or '(none)'}")
+        request.headers["host"] = request.url.netloc.decode("ascii")
+        request.extensions = {**request.extensions, "sni_hostname": request.url.host}
+        request.url = request.url.copy_with(host=address)
         return await super().handle_async_request(request)
 
 
