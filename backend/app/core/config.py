@@ -172,6 +172,11 @@ class Settings(BaseSettings):
     COMPRAS_UPLOADS_DIR: str = "uploads/compras"
     COMPRAS_MAX_FILE_SIZE_MB: int = 20
 
+    # Tienda Nube — Image Normalizer (slice 3: schema only, no readers/writers yet)
+    TN_IMG_NORMALIZER_DIR: str = "uploads/tn_images"
+    TN_IMG_RETENTION_DAYS: int = 30
+    TN_IMG_MAX_OUTPUT_BYTES: int = 3145728
+
     # Hikvision DS-K1T804 (access control terminal — ISAPI over HTTP + Digest Auth)
     HIKVISION_HOST: Optional[str] = None
     HIKVISION_PORT: int = 80
