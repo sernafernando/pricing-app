@@ -15,6 +15,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 from sqlalchemy import create_engine
+from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 
@@ -218,28 +219,30 @@ class TestDedup:
         assert db.query(TnImageArtifact).count() == 1
 
 
-class TestRetentionSweep:
-    def _artifact(self, db, created_at: datetime, base_dir: Path, run_id: int, artifact_id: int) -> Path:
-        path = base_dir / str(run_id) / f"{artifact_id}_{OUTPUT_HASH[:12]}.jpg"
-        path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_bytes(OUTPUT_BYTES)
-        db.add(
-            TnImageArtifact(
-                id=artifact_id,
-                source_hash=f"{artifact_id:064d}",
-                normalization_params=PARAMS_FP,
-                output_path=str(path),
-                output_hash=OUTPUT_HASH,
-                created_at=created_at,
-            )
+def _stored_artifact(db, created_at: datetime, base_dir: Path, run_id: int, artifact_id: int) -> Path:
+    """Persist one artifact row with its file already on disk. Returns the path."""
+    path = base_dir / str(run_id) / f"{artifact_id}_{OUTPUT_HASH[:12]}.jpg"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_bytes(OUTPUT_BYTES)
+    db.add(
+        TnImageArtifact(
+            id=artifact_id,
+            source_hash=f"{artifact_id:064d}",
+            normalization_params=PARAMS_FP,
+            output_path=str(path),
+            output_hash=OUTPUT_HASH,
+            created_at=created_at,
         )
-        db.commit()
-        return path
+    )
+    db.commit()
+    return path
 
+
+class TestRetentionSweep:
     def test_deletes_only_artifacts_older_than_retention_days(self, db, tmp_path: Path) -> None:
         now = datetime(2026, 8, 26, 12, 0, tzinfo=timezone.utc)
-        old_path = self._artifact(db, now - timedelta(days=31), tmp_path, run_id=1, artifact_id=1)
-        fresh_path = self._artifact(db, now - timedelta(days=29), tmp_path, run_id=2, artifact_id=2)
+        old_path = _stored_artifact(db, now - timedelta(days=31), tmp_path, run_id=1, artifact_id=1)
+        fresh_path = _stored_artifact(db, now - timedelta(days=29), tmp_path, run_id=2, artifact_id=2)
 
         deleted = sweep_expired_artifacts(db, now=now, retention_days=30, base_dir=tmp_path)
 
@@ -251,7 +254,7 @@ class TestRetentionSweep:
 
     def test_now_is_injected_not_read_from_the_clock(self, db, tmp_path: Path) -> None:
         created = datetime(2026, 8, 1, tzinfo=timezone.utc)
-        path = self._artifact(db, created, tmp_path, run_id=1, artifact_id=1)
+        path = _stored_artifact(db, created, tmp_path, run_id=1, artifact_id=1)
 
         # A `now` far in the past must delete nothing, which is only true
         # if the sweep never falls back to the real clock.
@@ -267,7 +270,7 @@ class TestRetentionSweep:
 
     def test_removes_the_emptied_run_directory(self, db, tmp_path: Path) -> None:
         now = datetime(2026, 8, 26, tzinfo=timezone.utc)
-        self._artifact(db, now - timedelta(days=90), tmp_path, run_id=1, artifact_id=1)
+        _stored_artifact(db, now - timedelta(days=90), tmp_path, run_id=1, artifact_id=1)
 
         sweep_expired_artifacts(db, now=now, retention_days=30, base_dir=tmp_path)
 
@@ -275,10 +278,118 @@ class TestRetentionSweep:
 
     def test_missing_file_still_removes_the_row(self, db, tmp_path: Path) -> None:
         now = datetime(2026, 8, 26, tzinfo=timezone.utc)
-        path = self._artifact(db, now - timedelta(days=90), tmp_path, run_id=1, artifact_id=1)
+        path = _stored_artifact(db, now - timedelta(days=90), tmp_path, run_id=1, artifact_id=1)
         path.unlink()
 
         deleted = sweep_expired_artifacts(db, now=now, retention_days=30, base_dir=tmp_path)
 
         assert deleted == 1
         assert db.query(TnImageArtifact).count() == 0
+
+
+class TestCallerTransactionIsolation:
+    """The store owns its own work only — never the caller's transaction."""
+
+    def _caller_pending_row(self, db) -> TnImageArtifact:
+        """Stand-in for the item-state update a caller has in flight."""
+        pending = TnImageArtifact(
+            source_hash="d" * 64,
+            normalization_params=PARAMS_FP,
+            output_path="caller/pending.jpg",
+            output_hash=OUTPUT_HASH,
+            created_at=datetime.now(timezone.utc),
+        )
+        db.add(pending)
+        return pending
+
+    def test_write_failure_does_not_discard_the_callers_pending_work(self, db, tmp_path: Path) -> None:
+        self._caller_pending_row(db)
+
+        with patch(
+            "app.services.tn_image_normalizer.store.open",
+            side_effect=OSError("disk full"),
+            create=True,
+        ):
+            result = store_normalized_artifact(
+                db,
+                run_id=3,
+                source_hash=SOURCE_HASH,
+                normalization_params=PARAMS_FP,
+                produce_output=_producer(),
+                base_dir=tmp_path,
+            )
+
+        assert result is None
+        # The artifact row is gone, the caller's row survived.
+        assert db.query(TnImageArtifact).filter_by(source_hash=SOURCE_HASH).count() == 0
+        assert db.query(TnImageArtifact).filter_by(source_hash="d" * 64).count() == 1
+
+    def test_dedup_race_does_not_discard_the_callers_pending_work(self, db, tmp_path: Path) -> None:
+        winner = TnImageArtifact(
+            source_hash=SOURCE_HASH,
+            normalization_params=PARAMS_FP,
+            output_path="9/5_aaaaaaaaaaaa.jpg",
+            output_hash=OUTPUT_HASH,
+            created_at=datetime.now(timezone.utc),
+        )
+        db.add(winner)
+        db.commit()
+
+        self._caller_pending_row(db)
+
+        real_find = store_module._find_artifact
+        calls = {"n": 0}
+
+        def flaky_find(session, source_hash, normalization_params):
+            calls["n"] += 1
+            if calls["n"] == 1:
+                return None
+            return real_find(session, source_hash, normalization_params)
+
+        with patch("app.services.tn_image_normalizer.store._find_artifact", flaky_find):
+            result = store_normalized_artifact(
+                db,
+                run_id=3,
+                source_hash=SOURCE_HASH,
+                normalization_params=PARAMS_FP,
+                produce_output=_producer(),
+                base_dir=tmp_path,
+            )
+
+        assert result.state == ITEM_DEDUP_HIT
+        assert db.query(TnImageArtifact).filter_by(source_hash="d" * 64).count() == 1
+
+    def test_store_never_commits_the_callers_session(self, db, tmp_path: Path) -> None:
+        with patch.object(db, "commit", side_effect=AssertionError("store must not commit")):
+            result = store_normalized_artifact(
+                db,
+                run_id=3,
+                source_hash=SOURCE_HASH,
+                normalization_params=PARAMS_FP,
+                produce_output=_producer(),
+                base_dir=tmp_path,
+            )
+
+        assert result.state == ITEM_NORMALIZED
+
+
+class TestSweepDeletesFilesOnlyAfterCommit:
+    """The row is the record; the file is the payload.
+
+    An orphan file costs disk. A row pointing at a file that no longer
+    exists is the exact dangling state this module's docstring says it
+    prevents, so the irreversible unlink must never run before the commit
+    that makes the deletion durable.
+    """
+
+    def test_files_survive_when_the_commit_fails(self, db, tmp_path: Path) -> None:
+        now = datetime(2026, 8, 26, 12, 0, tzinfo=timezone.utc)
+        old_path = _stored_artifact(db, now - timedelta(days=31), tmp_path, run_id=1, artifact_id=1)
+        assert old_path.exists()
+
+        with patch.object(db, "commit", side_effect=SQLAlchemyError("commit blew up")):
+            with pytest.raises(SQLAlchemyError):
+                sweep_expired_artifacts(db, now=now, retention_days=30, base_dir=tmp_path)
+
+        # The deletion never became durable, so the payload must still be there.
+        assert old_path.exists()

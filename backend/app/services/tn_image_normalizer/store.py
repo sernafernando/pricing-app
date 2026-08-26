@@ -24,6 +24,12 @@ stale file visible by inspection. Writes mirror
 `compras_adjuntos_service`: `mkdir(parents=True, exist_ok=True)` then
 `open(..., "wb")` inside `try/except OSError`.
 
+TRANSACTION BOUNDARY
+--------------------
+`store_normalized_artifact` never commits or rolls back the caller's
+session; it isolates its own insert in a SAVEPOINT and lets the caller
+commit the whole unit of work. See that function's docstring.
+
 RETENTION
 ---------
 `now` is a required parameter, never `datetime.utcnow()` read inside. A
@@ -132,6 +138,22 @@ def store_normalized_artifact(
     re-normalizes and never touches the disk. Returns `None` when the
     output could not be written, leaving no artifact row behind so a later
     run retries cleanly instead of inheriting a row that points at nothing.
+
+    TRANSACTION OWNERSHIP
+    ---------------------
+    The session belongs to the caller, so this function neither commits nor
+    rolls it back. Per ADR-4 every stage is "claim → work → record" inside
+    the caller's own short transaction; committing here would publish
+    whatever else the caller had in flight (typically the item state update
+    that belongs with this artifact) at a moment the caller did not choose,
+    and splitting the pair across two commits is precisely how an item ends
+    up recorded as normalized with no artifact, or the reverse. The caller
+    commits once, when the whole unit of work is done.
+
+    The artifact insert is wrapped in a SAVEPOINT so that undoing it on an
+    integrity conflict or a failed write undoes *only* it. Any work the
+    caller already had pending is flushed before the savepoint opens, which
+    keeps it outside the rollback's blast radius.
     """
     existing = _find_artifact(db, source_hash, normalization_params)
     if existing is not None:
@@ -148,13 +170,18 @@ def store_normalized_artifact(
         width=output.width,
         height=output.height,
     )
+    # Flush the caller's pending work first: it must land outside the
+    # savepoint, or rolling the savepoint back would silently take it too.
+    db.flush()
+
+    savepoint = db.begin_nested()
     db.add(artifact)
     try:
         db.flush()
     except IntegrityError:
         # Lost the race against a concurrent worker: the constraint, not a
         # prior SELECT, is what decides who owns this artifact.
-        db.rollback()
+        savepoint.rollback()
         winner = _find_artifact(db, source_hash, normalization_params)
         if winner is not None:
             return _as_dedup_hit(winner)
@@ -166,11 +193,12 @@ def store_normalized_artifact(
 
     path = artifact_output_path(run_id, artifact.id, output_hash, base_dir=base_dir)
     if not _write_bytes(path, output.content):
-        db.rollback()
+        savepoint.rollback()
         return None
 
     artifact.output_path = str(path)
-    db.commit()
+    db.flush()
+    savepoint.commit()
 
     return StoredArtifact(
         artifact_id=artifact.id,
@@ -203,20 +231,29 @@ def sweep_expired_artifacts(
 
     expired = db.query(TnImageArtifact).filter(TnImageArtifact.created_at < cutoff).all()
 
-    touched_dirs: set[Path] = set()
+    # Resolve the paths first, delete the ROWS, commit, and only then unlink.
+    # The unlink is irreversible: doing it before the commit means a failed
+    # commit leaves rows pointing at files that are already gone — the exact
+    # dangling state this function exists to prevent. An orphan file merely
+    # costs disk until the next sweep.
+    touched_paths: list[Path] = []
     for artifact in expired:
         if artifact.output_path:
             path = Path(artifact.output_path)
             if not path.is_absolute():
                 path = root / path
-            touched_dirs.add(path.parent)
-            try:
-                path.unlink(missing_ok=True)
-            except OSError as exc:
-                logger.warning("tn_image_normalizer.store: could not delete %s: %s", path, exc)
+            touched_paths.append(path)
         db.delete(artifact)
 
     db.commit()
+
+    touched_dirs: set[Path] = set()
+    for path in touched_paths:
+        touched_dirs.add(path.parent)
+        try:
+            path.unlink(missing_ok=True)
+        except OSError as exc:
+            logger.warning("tn_image_normalizer.store: could not delete %s: %s", path, exc)
 
     for directory in touched_dirs:
         try:
