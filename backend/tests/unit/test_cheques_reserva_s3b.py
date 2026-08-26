@@ -548,3 +548,87 @@ class TestMergeStepEjecutarPago:
         debes = [m for m in movs if str(m.tipo) == "debe"]
         assert len(haberes) >= 1
         assert len(debes) >= 1
+
+    def test_override_tc_en_pago_resincroniza_link_y_reversal_usa_monto_pago(
+        self, db, empresa, proveedor, banco, active_user
+    ) -> None:
+        """Negative-control target: the link.monto_op_moneda resync after the
+        derive loop is load-bearing. Reserve a cheque at TC=1000, pay with a
+        DIFFERENT tipo_cambio_override=500 — the link must end up holding the
+        PAYMENT-time derived amount, not the reservation-time one, because
+        `_revertir_cc_si_linkeado` reads exactly that field for the reversal
+        amount on anulación."""
+        from app.services.fx_service import q_usd
+
+        cheque = _cheque_propio(
+            db, numero="P-TC-OVERRIDE", banco_empresa_id=banco.id, monto=Decimal("100000"), moneda="ARS"
+        )
+
+        op = ordenes_pago_service.crear(
+            db,
+            proveedor_id=proveedor.id,
+            empresa_id=empresa.id,
+            moneda="USD",
+            monto_total=Decimal("200"),
+            modo_imputacion="a_cuenta",
+            items=[],
+            creado_por_id=active_user.id,
+            tipo_cambio=Decimal("1000"),
+        )
+        db.flush()
+
+        ordenes_pago_service.reservar_cheque_propio_en_op(
+            db,
+            orden_pago_id=op.id,
+            cheque_id=cheque.id,
+            monto=cheque.monto,
+            moneda=cheque.moneda,
+            user_id=active_user.id,
+        )
+        db.flush()
+
+        # Payment-time TC differs from the reservation-time TC (1000).
+        tc_override = Decimal("500")
+        monto_op_esperado_con_override = q_usd(Decimal("100000") / tc_override)  # = 200.00
+        monto_op_con_tc_de_reserva = q_usd(Decimal("100000") / Decimal("1000"))  # = 100.00 (must NOT be this)
+        assert monto_op_esperado_con_override != monto_op_con_tc_de_reserva
+
+        ordenes_pago_service.ejecutar_pago(
+            db,
+            orden_pago_id=op.id,
+            caja_id=None,
+            banco_id=None,
+            fecha_pago_real=date(2026, 6, 25),
+            user_id=active_user.id,
+            cheques=None,
+            tipo_cambio_override=tc_override,
+        )
+
+        db.expire_all()
+        link = db.query(OrdenPagoCheque).filter(OrdenPagoCheque.cheque_id == cheque.id).one()
+        assert link.monto_op_moneda == monto_op_esperado_con_override, (
+            f"link.monto_op_moneda debe reflejar el TC de PAGO ({monto_op_esperado_con_override}), "
+            f"no el de reserva ({monto_op_con_tc_de_reserva}); got {link.monto_op_moneda}"
+        )
+
+        # Consequence: annulling the paid OP must reverse the PAYMENT-time
+        # amount, not the stale reservation-time one.
+        ordenes_pago_service.anular(
+            db, orden_pago_id=op.id, motivo="Test S3b TC override reversal", user_id=active_user.id
+        )
+        db.expire_all()
+
+        movs_debe = (
+            db.query(CCProveedorMovimiento)
+            .filter(CCProveedorMovimiento.proveedor_id == proveedor.id, CCProveedorMovimiento.tipo == "debe")
+            .all()
+        )
+        assert len(movs_debe) >= 1, "Esperaba al menos un movimiento CC 'debe' de reversal"
+        montos_debe = {Decimal(str(m.monto)) for m in movs_debe}
+        assert monto_op_esperado_con_override in montos_debe, (
+            f"El reversal CC debe usar el monto de PAGO ({monto_op_esperado_con_override}), got montos={montos_debe}"
+        )
+        assert monto_op_con_tc_de_reserva not in montos_debe, (
+            "El reversal CC usó el monto de RESERVA en vez del de pago — "
+            "prueba que el resync de link.monto_op_moneda es load-bearing."
+        )
