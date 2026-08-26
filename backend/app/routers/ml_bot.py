@@ -59,11 +59,12 @@ from __future__ import annotations
 import logging
 import re
 from datetime import datetime, timezone
+from enum import Enum
 from typing import Any, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel, ConfigDict, Field
-from sqlalchemy import case, update
+from sqlalchemy import case, func, update
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_current_user
@@ -84,6 +85,7 @@ from app.services.ml_api_client import MessageSendPermanentError, ml_client
 from app.services.ml_messages import admin_pending_service
 from app.services.ml_messages.admin_pending_templates import select_ack_template
 from app.services.ml_questions import publisher_service
+from app.services.ml_questions.fallback_reasons import FALLBACK_REASONS
 from app.services.ml_questions.policy import get_config, is_auto_publish_enabled
 from app.services.permisos_service import PermisosService
 
@@ -93,6 +95,11 @@ router = APIRouter(
     prefix="/ml-bot",
     tags=["ML Bot - Preguntas"],
 )
+
+# ml-bot-fallback-reason-tracking: typed Enum built from `FALLBACK_REASONS`
+# so FastAPI validates `?fallback_reason=` itself (422 on an unknown value)
+# instead of hand-rolled validation — see `listar_preguntas` below.
+FallbackReasonFilter = Enum("FallbackReasonFilter", {r: r for r in sorted(FALLBACK_REASONS)}, type=str)
 
 # Source states each panel action may legally CAS out of (design §2 + the
 # Judgment Day notes above).
@@ -171,6 +178,7 @@ class QuestionResponse(BaseModel):
     llm_provider: Optional[str] = None
     injection_flag: bool
     fallback_used: bool
+    fallback_reason: Optional[str] = None
     wait_until: Optional[datetime] = None
     published_at: Optional[datetime] = None
     attempts: int
@@ -184,6 +192,11 @@ class QuestionResponse(BaseModel):
 
 class QuestionListResponse(BaseModel):
     questions: list[QuestionResponse]
+    total: int
+
+
+class FallbackReasonCountsResponse(BaseModel):
+    counts: dict[str, int]
     total: int
 
 
@@ -545,9 +558,56 @@ def _enrich_message_nicknames(db: Session, rows: list[MlBotMessage]) -> dict[int
 # =============================================================================
 
 
+@router.get("/questions/fallback-reason-counts", response_model=FallbackReasonCountsResponse)
+def contar_por_fallback_reason(
+    status_filter: Optional[str] = Query(None, alias="status"),
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(get_current_user),
+) -> FallbackReasonCountsResponse:
+    """Cuenta preguntas agrupadas por `fallback_reason` (una sola GROUP BY).
+    Requiere `ml_bot.ver`.
+
+    Declarado ANTES de cualquier ruta `/questions/{question_id}/...` a
+    propósito (design requirement, T4.1 route-order proof): si alguna vez se
+    agrega un `GET /questions/{question_id}` bare, FastAPI intentaría
+    parsear el segmento literal "fallback-reason-counts" como ese
+    `question_id` entero y devolvería 422 en lugar de llegar a este handler.
+    Hoy el router no tiene esa ruta bare (solo variantes con un segmento
+    extra como `/take-over`, `/buyer-history`), pero declarar este endpoint
+    primero es la defensa correcta contra ese futuro sin depender de que
+    nadie recuerde el orden.
+
+    Honra `status` (si se pasa, cuenta solo esas filas) pero IGNORA a
+    propósito cualquier `fallback_reason` recibido — este endpoint cuenta
+    POR razón, no filtra por una razón puntual (esa forma de filtrar la
+    cubre `GET /questions?fallback_reason=...`).
+
+    `total` es la suma de `counts` (filas CON `fallback_reason` seteado,
+    típicamente todas en un status terminal de fallback) — las filas con
+    `fallback_reason IS NULL` (nunca pasaron por el pipeline de fallback,
+    p.ej. bot-answer exitoso o rows legacy pre-columna) quedan afuera de
+    ambos, para que `sum(counts.values()) == total` siempre.
+
+    Nota (trap #1 del diseño): `fallback_used` solo se setea en la rama
+    `waiting` de `_resolve_fallback`, no en `pending_morning` — los conteos
+    por razón aquí NO tienen por qué igualar `count(fallback_used)`.
+    """
+    _check_permiso(db, current_user, "ml_bot.ver")
+
+    query = db.query(MlBotQuestion.fallback_reason, func.count(MlBotQuestion.id))
+    if status_filter:
+        query = query.filter(MlBotQuestion.status == status_filter)
+    rows = query.group_by(MlBotQuestion.fallback_reason).all()
+
+    counts = {reason: count for reason, count in rows if reason is not None}
+    total = sum(counts.values())
+    return FallbackReasonCountsResponse(counts=counts, total=total)
+
+
 @router.get("/questions", response_model=QuestionListResponse)
 def listar_preguntas(
     status_filter: Optional[str] = Query(None, alias="status"),
+    fallback_reason: Optional[FallbackReasonFilter] = Query(None),
     limit: int = Query(50, ge=1, le=200),
     offset: int = Query(0, ge=0),
     db: Session = Depends(get_db),
@@ -558,12 +618,19 @@ def listar_preguntas(
     Nota adjudicada (Judgment Day): `last_error` se expone intencionalmente
     acá — es visible para cualquiera con `ml_bot.ver` (personal interno),
     no es información sensible de cara al comprador.
+
+    `fallback_reason` (ml-bot-fallback-reason-tracking) es un `Enum` de
+    FastAPI construido desde `FALLBACK_REASONS` — un valor desconocido
+    devuelve 422 automáticamente, ANTES de que este cuerpo se ejecute (no
+    hay validación manual, ni una sola query corre para ese request).
     """
     _check_permiso(db, current_user, "ml_bot.ver")
 
     query = db.query(MlBotQuestion)
     if status_filter:
         query = query.filter(MlBotQuestion.status == status_filter)
+    if fallback_reason is not None:
+        query = query.filter(MlBotQuestion.fallback_reason == fallback_reason.value)
 
     total = query.count()
     rows = query.order_by(MlBotQuestion.question_date.desc()).offset(offset).limit(limit).all()

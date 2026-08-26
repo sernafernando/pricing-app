@@ -70,6 +70,12 @@ class MlBotQuestion(Base):
     injection_flag = Column(Boolean, nullable=False, default=False, server_default="false")
     fallback_used = Column(Boolean, nullable=False, default=False, server_default="false")
 
+    # ml-bot-fallback-reason-tracking: WHY a row landed in fallback. Nullable,
+    # no default, no backfill — NULL for rows drafted before this column
+    # existed, human-authored rows, and any success (`answer_source="bot"`)
+    # row that never went through the fallback path.
+    fallback_reason = Column(String(32), nullable=True)
+
     wait_until = Column(DateTime(timezone=True), nullable=True)
     published_at = Column(DateTime(timezone=True), nullable=True)
 
@@ -95,6 +101,7 @@ class MlBotQuestion(Base):
             postgresql_where="status = 'waiting'",
         ),
         Index("idx_ml_bot_questions_taken_over_by", "taken_over_by"),
+        Index("idx_ml_bot_questions_fallback_reason", "fallback_reason"),
     )
 
     def __repr__(self) -> str:

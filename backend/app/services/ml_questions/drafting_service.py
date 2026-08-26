@@ -65,6 +65,7 @@ from app.models.ml_bot_question import MlBotQuestion
 from app.services.ml_api_client import ml_client
 from app.services.ml_questions import answer_shaping, context_builder, policy
 from app.services.ml_questions.embedding_client import embed_query
+from app.services.ml_questions.fallback_reasons import INJECTION_FLAG_REASONS, resolve_fallback_reason
 from app.services.ml_questions.llm_provider import LlmProvider, LlmProviderError, parse_llm_output
 from app.services.ml_questions.provider_rotation import RotatingProvider
 
@@ -351,11 +352,17 @@ def _resolve_fallback(
     buyer_id: Optional[int],
     question_date: datetime,
     *,
-    injection_flag: bool,
+    reason: str,
 ) -> None:
     """R-601/R-602: finalize a question that could not be (or must not be)
     answered by the LLM. Chooses between the warm auto-publish fallback and
-    the repeat-buyer-after-midnight `pending_morning` hold."""
+    the repeat-buyer-after-midnight `pending_morning` hold.
+
+    ml-bot-fallback-reason-tracking: `reason` (one of `FALLBACK_REASONS`)
+    replaces the old bare `injection_flag: bool` kwarg. `injection_flag` is
+    derived here from `INJECTION_FLAG_REASONS`, preserving the exact prior
+    `injection_flag=True/denylist_hit` behavior at every call site."""
+    injection_flag = reason in INJECTION_FLAG_REASONS
     with get_background_db() as db:
         row = (
             db.query(MlBotQuestion).filter(MlBotQuestion.id == question_id, MlBotQuestion.status == "drafting").first()
@@ -366,6 +373,7 @@ def _resolve_fallback(
         if _is_repeat_buyer_after_midnight(db, buyer_id, question_id, question_date):
             row.status = "pending_morning"
             row.injection_flag = row.injection_flag or injection_flag
+            row.fallback_reason = reason
             # Judgment Day fix: emit AFTER the `with` block closes (mirrors
             # every other call site in this module and
             # `publisher_service`'s is_failed-flag pattern) instead of while
@@ -378,6 +386,7 @@ def _resolve_fallback(
             row.answer_source = "fallback"
             row.fallback_used = True
             row.injection_flag = row.injection_flag or injection_flag
+            row.fallback_reason = reason
             row.wait_until = _now + timedelta(minutes=wait_minutes)
             # Judgment Day fix (round 3): `attempts` is a PER-STAGE counter —
             # drafting counts drafting retries (`_mark_failed_or_retry`), but
@@ -526,7 +535,7 @@ async def _draft_one(question_id: int, provider: LlmProvider) -> str:
 
         if policy.detect_manipulation_signal(question["question_text"]):
             # R-503: manipulation signal -> fallback WITHOUT any LLM call.
-            _resolve_fallback(question_id, question["buyer_id"], question["question_date"], injection_flag=True)
+            _resolve_fallback(question_id, question["buyer_id"], question["question_date"], reason="injection_flagged")
             return "injection_flagged"
 
         item_payload = await ml_client.get_item(question["item_id"])
@@ -569,7 +578,7 @@ async def _draft_one(question_id: int, provider: LlmProvider) -> str:
                     question_id, system_prompt, user_payload, provider, raw=None, parsed=None, error=str(exc)
                 )
             logger.warning("ml-bot drafting: provider/parse failure for question %s: %s", question_id, exc)
-            _resolve_fallback(question_id, question["buyer_id"], question["question_date"], injection_flag=False)
+            _resolve_fallback(question_id, question["buyer_id"], question["question_date"], reason="provider_error")
             return "fallback"
 
         if debug_logging:
@@ -583,7 +592,13 @@ async def _draft_one(question_id: int, provider: LlmProvider) -> str:
             # buyer's question was legitimate; the LLM just produced a
             # non-answer despite the anti-deflection prompt rule. The
             # operator will see the warm fallback published instead.
-            _resolve_fallback(question_id, question["buyer_id"], question["question_date"], injection_flag=denylist_hit)
+            resolved_reason = resolve_fallback_reason(
+                can_answer=parsed.can_answer,
+                below_confidence=parsed.confidence < min_confidence,
+                denylist_hit=denylist_hit,
+                deflection=deflection,
+            )
+            _resolve_fallback(question_id, question["buyer_id"], question["question_date"], reason=resolved_reason)
             return "fallback"
 
         _resolve_success(
