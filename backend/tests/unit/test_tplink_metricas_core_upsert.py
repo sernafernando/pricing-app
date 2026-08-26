@@ -14,8 +14,6 @@ from __future__ import annotations
 from datetime import date, datetime
 from decimal import Decimal
 
-import pytest
-
 
 def _get_core_module():
     import app.scripts._tplink_metricas_core as core
@@ -83,9 +81,7 @@ class TestBuildUpsertPayload:
     def test_none_numeric_fields_default_to_zero(self) -> None:
         core = _get_core_module()
 
-        payload = core.build_upsert_payload(
-            _folded_row(comision_ml=None, offset_flex=None, costo_envio_ml=None)
-        )
+        payload = core.build_upsert_payload(_folded_row(comision_ml=None, offset_flex=None, costo_envio_ml=None))
 
         assert payload["comision_ml"] == Decimal("0")
         assert payload["offset_flex"] == Decimal("0")

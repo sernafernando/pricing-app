@@ -14,8 +14,6 @@ from __future__ import annotations
 
 from datetime import date, datetime
 
-import pytest
-
 
 class _FakeDb:
     """Minimal stand-in for a SQLAlchemy `Session` that tracks whether

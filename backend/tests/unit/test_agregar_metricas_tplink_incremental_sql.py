@@ -21,18 +21,18 @@ from __future__ import annotations
 
 import inspect
 
-import pytest
-
 
 def _get_module():
     """Import the incremental job module."""
     import app.scripts.agregar_metricas_tplink_incremental as mod
+
     return mod
 
 
 def _get_core_module():
     """Import the shared aggregation core module (owns the SQL now)."""
     import app.scripts._tplink_metricas_core as core
+
     return core
 
 
@@ -44,17 +44,14 @@ class TestIncrementalSqlNoCoslis1Literal:
         core = _get_core_module()
         sql_str = str(core.build_aggregation_sql())
         assert "coslis_id = 1" not in sql_str, (
-            "Found literal 'coslis_id = 1' in the shared aggregating SQL — "
-            "must use :coslis_id bind parameter instead."
+            "Found literal 'coslis_id = 1' in the shared aggregating SQL — must use :coslis_id bind parameter instead."
         )
 
     def test_coslis_id_bind_present_in_sql(self) -> None:
         """The SQL must reference ':coslis_id' as a bind parameter."""
         core = _get_core_module()
         sql_str = str(core.build_aggregation_sql())
-        assert ":coslis_id" in sql_str, (
-            "':coslis_id' bind not found in the shared aggregating SQL."
-        )
+        assert ":coslis_id" in sql_str, "':coslis_id' bind not found in the shared aggregating SQL."
 
     def test_store_id_bind_present_in_sql(self) -> None:
         """The SQL must filter by ':store_id' bind parameter."""
@@ -91,8 +88,7 @@ class TestIncrementalNoGlobalSideEffects:
         mod = _get_module()
         source = inspect.getsource(mod.process_and_insert)
         assert "registrar_consumo_offset_individual" not in source, (
-            "process_and_insert calls registrar_consumo_offset_individual — "
-            "this double-counts offset consumo."
+            "process_and_insert calls registrar_consumo_offset_individual — this double-counts offset consumo."
         )
 
     def test_no_crear_notificacion_markup_bajo_call(self) -> None:

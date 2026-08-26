@@ -146,9 +146,7 @@ class TestPuedeEliminarPedido:
         assert puede is False
         assert "borrador" in (razon or "").lower() or "cancelado" in (razon or "").lower()
 
-    def test_cancelado_pero_fue_aprobado_antes_no_puede(
-        self, db, empresa, proveedor, active_user
-    ):
+    def test_cancelado_pero_fue_aprobado_antes_no_puede(self, db, empresa, proveedor, active_user):
         """Si hay evento 'aprobado' en la historia, no se borra aunque hoy esté cancelado."""
         pedido = _crear_pedido(db, empresa, proveedor, active_user.id, estado="cancelado")
         # Simulamos que alguna vez pasó por 'aprobado'
@@ -186,9 +184,7 @@ class TestPuedeEliminarPedido:
     def test_cancelado_reciente_no_puede(self, db, empresa, proveedor, active_user):
         """Cancelado con updated_at < cutoff → dentro de ventana → NO puede."""
         reciente = datetime.now(UTC) - timedelta(days=5)
-        pedido = _crear_pedido(
-            db, empresa, proveedor, active_user.id, estado="cancelado", updated_at=reciente
-        )
+        pedido = _crear_pedido(db, empresa, proveedor, active_user.id, estado="cancelado", updated_at=reciente)
         puede, razon = papelera_service.puede_eliminar_pedido(db, pedido)
         assert puede is False
         assert "retenci" in (razon or "").lower() or "días" in (razon or "").lower()
@@ -196,9 +192,7 @@ class TestPuedeEliminarPedido:
     def test_cancelado_viejo_puede(self, db, empresa, proveedor, active_user):
         """Cancelado hace 31 días → fuera de ventana → puede."""
         viejo = datetime.now(UTC) - timedelta(days=31)
-        pedido = _crear_pedido(
-            db, empresa, proveedor, active_user.id, estado="cancelado", updated_at=viejo
-        )
+        pedido = _crear_pedido(db, empresa, proveedor, active_user.id, estado="cancelado", updated_at=viejo)
         puede, razon = papelera_service.puede_eliminar_pedido(db, pedido)
         assert puede is True, razon
 
@@ -211,9 +205,7 @@ class TestPuedeEliminarPedido:
 class TestPuedeEliminarOP:
     def test_anulado_viejo_sin_mov_puede(self, db, empresa, proveedor, active_user):
         viejo = datetime.now(UTC) - timedelta(days=31)
-        op = _crear_op(
-            db, empresa, proveedor, active_user.id, estado="anulado", updated_at=viejo
-        )
+        op = _crear_op(db, empresa, proveedor, active_user.id, estado="anulado", updated_at=viejo)
         puede, razon = papelera_service.puede_eliminar_op(db, op)
         assert puede is True, razon
 
@@ -231,9 +223,7 @@ class TestPuedeEliminarOP:
     def test_anulado_con_imputacion_viva_no_puede(self, db, empresa, proveedor, active_user):
         """Si hay imputación no-reversal sin su correspondiente reversal → no."""
         viejo = datetime.now(UTC) - timedelta(days=31)
-        op = _crear_op(
-            db, empresa, proveedor, active_user.id, estado="anulado", updated_at=viejo
-        )
+        op = _crear_op(db, empresa, proveedor, active_user.id, estado="anulado", updated_at=viejo)
         imp = Imputacion(
             origen_tipo="orden_pago",
             origen_id=op.id,
@@ -292,9 +282,7 @@ class TestBatchPuedeEliminar:
 
 
 class TestEliminarPedido:
-    def test_happy_path_copia_eventos_al_snapshot(
-        self, db, empresa, proveedor, active_user
-    ):
+    def test_happy_path_copia_eventos_al_snapshot(self, db, empresa, proveedor, active_user):
         pedido = _crear_pedido(db, empresa, proveedor, active_user.id, estado="borrador")
         pedido_id = pedido.id
 
@@ -347,18 +335,14 @@ class TestEliminarPedido:
 
         pedido = _crear_pedido(db, empresa, proveedor, active_user.id, estado="borrador")
         with pytest.raises(HTTPException) as excinfo:
-            papelera_service.eliminar_pedido(
-                db, pedido_id=pedido.id, user_id=active_user.id, motivo=""
-            )
+            papelera_service.eliminar_pedido(db, pedido_id=pedido.id, user_id=active_user.id, motivo="")
         assert excinfo.value.status_code == 400
 
     def test_pedido_inexistente_raises_404(self, db, active_user):
         from fastapi import HTTPException
 
         with pytest.raises(HTTPException) as excinfo:
-            papelera_service.eliminar_pedido(
-                db, pedido_id=999999, user_id=active_user.id, motivo="test"
-            )
+            papelera_service.eliminar_pedido(db, pedido_id=999999, user_id=active_user.id, motivo="test")
         assert excinfo.value.status_code == 404
 
     def test_pedido_aprobado_raises_409(self, db, empresa, proveedor, active_user):
@@ -366,18 +350,14 @@ class TestEliminarPedido:
 
         pedido = _crear_pedido(db, empresa, proveedor, active_user.id, estado="aprobado")
         with pytest.raises(HTTPException) as excinfo:
-            papelera_service.eliminar_pedido(
-                db, pedido_id=pedido.id, user_id=active_user.id, motivo="test"
-            )
+            papelera_service.eliminar_pedido(db, pedido_id=pedido.id, user_id=active_user.id, motivo="test")
         assert excinfo.value.status_code == 409
 
 
 class TestEliminarOP:
     def test_happy_path_anulada_vieja(self, db, empresa, proveedor, active_user):
         viejo = datetime.now(UTC) - timedelta(days=31)
-        op = _crear_op(
-            db, empresa, proveedor, active_user.id, estado="anulado", updated_at=viejo
-        )
+        op = _crear_op(db, empresa, proveedor, active_user.id, estado="anulado", updated_at=viejo)
         op_id = op.id
 
         papelera_row = papelera_service.eliminar_op(
