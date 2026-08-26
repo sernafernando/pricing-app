@@ -786,7 +786,22 @@ def publish_product(
         _audit_publish(db, usuario, None, outcome)
         return outcome
 
-    existing = db.query(TiendaNubeProducto).filter(TiendaNubeProducto.variant_sku == ean).first()
+    # `variant_sku` has no unique constraint (the model's __table_args__ is
+    # empty), so one EAN can legitimately carry more than one row: a ghost
+    # left by a product TN dropped, plus the fresh one a later publish keys
+    # by its new product_id. Order explicitly — an unordered `.first()`
+    # would pick between them at the database's whim, making the gate below
+    # non-deterministic for the very rows this fix is about. Credible rows
+    # first, newest as the tiebreaker.
+    existing = (
+        db.query(TiendaNubeProducto)
+        .filter(TiendaNubeProducto.variant_sku == ean)
+        .order_by(
+            (TiendaNubeProducto.activo.is_(False)).asc(),
+            TiendaNubeProducto.id.desc(),
+        )
+        .first()
+    )
     # Production defect fix: this cheap local gate must only short-circuit
     # when the mirror row is still CREDIBLE. In `tienda_nube_productos`,
     # `activo` is the EXISTENCE axis (see `tn_reconciliation_service`): each

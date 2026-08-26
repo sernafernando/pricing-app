@@ -1935,7 +1935,7 @@ describe('publish outcome toast', () => {
       verdictCounts: { FALTA_PUBLICAR: 1 },
     });
     const user = userEvent.setup();
-    renderWithRouter(<TiendaNubeReconcile />);
+    await renderWithRouter(<TiendaNubeReconcile />);
     const publicar = await screen.findByRole('button', { name: /^Publicar$/i });
     await user.click(publicar);
     await user.click(await screen.findByRole('button', { name: /stub-publicar/i }));

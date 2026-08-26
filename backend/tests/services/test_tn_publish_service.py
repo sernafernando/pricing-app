@@ -324,6 +324,30 @@ class TestPublishStaleLocalMirror:
     when the local row is still CREDIBLE; an explicitly-inactive row falls
     through to the live pre-check, which is the real authority."""
 
+    def test_a_credible_row_wins_over_a_leftover_ghost_for_the_same_ean(self, db):
+        """`variant_sku` carries no unique constraint (the model's
+        __table_args__ is empty), and publishing an EAN whose ghost row
+        survives leaves TWO rows for it: the ghost plus the fresh one keyed
+        by the new product_id. Picking between them with an unordered
+        `.first()` makes the next publish non-deterministic — sometimes the
+        cheap gate, sometimes a needless live round-trip. The credible row
+        decides."""
+        user = _make_user(db)
+        _make_producto(db, product_id=777, variant_sku="EAN-DUP-1", activo=False)
+        _make_producto(db, product_id=888, variant_sku="EAN-DUP-1", activo=True)
+        fake_client = _FakePublishClient(
+            create_outcome={"ok": True, "status_code": 201, "ambiguous": False, "body": {"id": 999}},
+        )
+
+        outcome = publish_product(db, user, client=fake_client, **_publish_kwargs(ean="EAN-DUP-1"))
+
+        assert outcome["status"] == "already_published"
+        assert fake_client.get_by_sku_calls == [], "the credible row must not cost a TN round-trip"
+        # The audit carries which row answered: it must be the live one, not the ghost.
+        audit = db.query(Auditoria).filter(Auditoria.tipo_accion == TipoAccion.TN_PUBLICAR).one()
+        assert audit.valores_nuevos["product_id"] == 888
+        assert audit.valores_nuevos["activo"] is True
+
     def test_inactive_local_row_falls_through_and_publishes_when_tn_lacks_it(self, db):
         user = _make_user(db)
         _make_producto(db, product_id=777, variant_sku="EAN-PUB-1", activo=False)
