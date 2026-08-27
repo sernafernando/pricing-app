@@ -63,11 +63,23 @@ def resolve_fallback_reason(
     `low_confidence` > `drafted_no_answer`. `below_confidence` and
     `deflection` are independent booleans (either or both may be true
     alongside a `can_answer=False` LLM response); denylist takes priority
-    over both because the denylist enforces a hard safety boundary."""
+    over both because the denylist enforces a hard safety boundary.
+
+    Raises `ValueError` when no cause is present at all (`can_answer` true
+    and every rejection check false). The caller only reaches this resolver
+    once at least one of the four is a cause, so that input is a programming
+    error — and answering `drafted_no_answer` to it would record that the
+    model declined when it reported the opposite, poisoning the very
+    distribution this column exists to measure."""
     if denylist_hit:
         return REASON_FALLBACK_DENYLIST
     if deflection:
         return REASON_DEFLECTION
     if below_confidence:
         return REASON_LOW_CONFIDENCE
-    return REASON_DRAFTED_NO_ANSWER
+    if not can_answer:
+        return REASON_DRAFTED_NO_ANSWER
+    raise ValueError(
+        "resolve_fallback_reason called with no fallback cause: "
+        "can_answer=True with below_confidence, denylist_hit and deflection all False"
+    )

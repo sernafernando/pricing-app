@@ -195,6 +195,21 @@ class QuestionListResponse(BaseModel):
     total: int
 
 
+class PublishNowResponse(BaseModel):
+    """Wraps the outcome of `publisher_service.publish_question_now()` so
+    the panel can distinguish success from permanent/transient failure
+    (design #1806 ADR-2). `published` is True only for the "published"
+    outcome; `outcome` carries the raw `_publish_one` key ("published",
+    "retry", "failed", "skipped_claimed_elsewhere") verbatim. HTTP stays
+    200 for every outcome — the CAS transition already committed before
+    the ML POST ran, so a 4xx/5xx here would falsely claim nothing
+    happened."""
+
+    question: QuestionResponse
+    published: bool
+    outcome: str
+
+
 class FallbackReasonCountsResponse(BaseModel):
     counts: dict[str, int]
     total: int
@@ -1029,12 +1044,12 @@ def editar_respuesta(
     return QuestionResponse.model_validate(q)
 
 
-@router.post("/questions/{question_id}/publish-now", response_model=QuestionResponse)
+@router.post("/questions/{question_id}/publish-now", response_model=PublishNowResponse)
 async def publicar_ahora(
     question_id: int,
     db: Session = Depends(get_db),
     current_user: Usuario = Depends(get_current_user),
-) -> QuestionResponse:
+) -> PublishNowResponse:
     """Publica inmediatamente (bypass wait-window). Requiere `ml_bot.responder`.
 
     CAS desde `waiting`/`taken_over`/`pending_morning`/`failed` -> `waiting`
@@ -1082,10 +1097,14 @@ async def publicar_ahora(
             detail="La pregunta cambió de estado antes de poder publicarla",
         )
 
-    await publisher_service.publish_question_now(question_id)
+    outcome = await publisher_service.publish_question_now(question_id)
 
     _emit_reload_hint()
-    return QuestionResponse.model_validate(_get_question_or_404(db, question_id))
+    return PublishNowResponse(
+        question=QuestionResponse.model_validate(_get_question_or_404(db, question_id)),
+        published=outcome == "published",
+        outcome=outcome,
+    )
 
 
 @router.post("/questions/{question_id}/hold", response_model=QuestionResponse)
