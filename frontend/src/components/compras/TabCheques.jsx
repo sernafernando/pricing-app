@@ -1370,6 +1370,9 @@ export default function TabCheques() {
 
       {/* Selector de OP pendiente para "Aplicar a OP" (S4) — reusa el mismo
           shape que PanelCheques usa para elegir cheques (SelectorListaModal). */}
+      {/* El error y el selector NUNCA se muestran juntos: comparten z-index y
+          el selector va después en el DOM, así que lo taparía — el fallo
+          volvería a leerse como "no hay OPs pendientes". */}
       {aplicando && (
         <>
           {errorAplicar && (
@@ -1386,6 +1389,7 @@ export default function TabCheques() {
               </div>
             </div>
           )}
+          {!errorAplicar && (
           <SelectorListaModal
             title={
               aplicando.proveedor_id == null
@@ -1408,6 +1412,7 @@ export default function TabCheques() {
               </div>
             )}
           />
+          )}
         </>
       )}
 

@@ -33,6 +33,8 @@ export default function useChequesAplicables() {
           sin_orden_pago: true,
           page_size: 200,
         };
+        // TODO: two requests because listar_cheques takes a single `estado`.
+        // Collapse into one call if that filter ever accepts a list.
         const [emitidos, diferidos] = await Promise.all([
           listar({ ...params, estado: 'emitido' }),
           listar({ ...params, estado: 'diferido' }),
