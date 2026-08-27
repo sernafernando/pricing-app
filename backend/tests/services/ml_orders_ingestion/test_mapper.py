@@ -211,3 +211,32 @@ class TestMapShipment:
         result = map_shipment({})
 
         assert isinstance(result, MappingError)
+
+
+class TestMapOrderContractHoles:
+    """The mapper documents that it never raises. These cover the paths
+    where that contract used to leak through as an exception."""
+
+    def test_unparseable_shipping_id_returns_mapping_error(self) -> None:
+        payload = {**FULL_ORDER_PAYLOAD, "shipping": {"id": "abc"}}
+
+        result = map_order(payload)
+
+        assert isinstance(result, MappingError)
+        assert "shipping" in result.reason
+
+    def test_order_items_as_list_of_strings_returns_mapping_error(self) -> None:
+        payload = {**FULL_ORDER_PAYLOAD, "order_items": ["not-a-dict"]}
+
+        result = map_order(payload)
+
+        assert isinstance(result, MappingError)
+        assert "order_items" in result.reason
+
+    def test_order_items_item_not_a_dict_returns_mapping_error(self) -> None:
+        payload = {**FULL_ORDER_PAYLOAD, "order_items": [{"item": "not-a-dict"}]}
+
+        result = map_order(payload)
+
+        assert isinstance(result, MappingError)
+        assert "order_items" in result.reason

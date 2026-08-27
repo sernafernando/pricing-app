@@ -161,11 +161,15 @@ def map_order(payload: Dict[str, Any]) -> Union[OrderOpsDTO, MappingError]:
 
     buyer = payload.get("buyer") or {}
     shipping = payload.get("shipping") or {}
-    shipping_id = shipping.get("id")
+    raw_shipping_id = shipping.get("id")
+    try:
+        shipping_id = int(raw_shipping_id) if raw_shipping_id is not None else None
+    except (AttributeError, TypeError, ValueError):
+        return MappingError(f"unparseable shipping id: {raw_shipping_id!r}", payload)
 
     try:
         items = [_map_item(raw_item) for raw_item in (payload.get("order_items") or [])]
-    except (TypeError, ValueError) as e:
+    except (AttributeError, TypeError, ValueError) as e:
         return MappingError(f"unparseable order_items: {e}", payload)
 
     return OrderOpsDTO(
@@ -182,7 +186,7 @@ def map_order(payload: Dict[str, Any]) -> Union[OrderOpsDTO, MappingError]:
         total_amount=payload.get("total_amount"),
         paid_amount=payload.get("paid_amount"),
         currency_id=payload.get("currency_id"),
-        shipping_id=int(shipping_id) if shipping_id is not None else None,
+        shipping_id=shipping_id,
         tags=payload.get("tags") or [],
         raw_order=payload,
         items=items,

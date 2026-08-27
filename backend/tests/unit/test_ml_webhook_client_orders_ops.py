@@ -245,3 +245,35 @@ class TestSearchOrders:
             )
 
         assert calls == []
+
+
+class TestCoercionRaisesValueError:
+    """The docstrings promise `ValueError` on an uncoercible id. `int(None)`
+    natively raises `TypeError`, so a caller following the docstring would
+    miss it. These pin the documented contract."""
+
+    def test_get_order_with_none_raises_value_error(self) -> None:
+        client = MLWebhookClient()
+
+        with pytest.raises(ValueError):
+            asyncio.run(client.get_order(None))  # type: ignore[arg-type]
+
+    def test_get_shipment_with_none_raises_value_error(self) -> None:
+        client = MLWebhookClient()
+
+        with pytest.raises(ValueError):
+            asyncio.run(client.get_shipment(None))  # type: ignore[arg-type]
+
+    def test_search_orders_with_none_seller_raises_value_error(self) -> None:
+        from datetime import datetime, timezone
+
+        client = MLWebhookClient()
+
+        with pytest.raises(ValueError):
+            asyncio.run(
+                client.search_orders(
+                    None,  # type: ignore[arg-type]
+                    datetime(2026, 1, 1, tzinfo=timezone.utc),
+                    datetime(2026, 1, 2, tzinfo=timezone.utc),
+                )
+            )

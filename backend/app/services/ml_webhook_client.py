@@ -266,7 +266,10 @@ class MLWebhookClient:
             ValueError: si `order_id` no es coercionable a `int` — se
                 levanta ANTES de cualquier llamada HTTP (SSRF-safe).
         """
-        order_id_int = int(order_id)
+        try:
+            order_id_int = int(order_id)
+        except (TypeError, ValueError) as e:
+            raise ValueError(f"order_id no coercionable a int: {order_id!r}") from e
 
         try:
             async with httpx.AsyncClient(timeout=10.0) as client:
@@ -299,7 +302,10 @@ class MLWebhookClient:
             ValueError: si `shipment_id` no es coercionable a `int` —
                 se levanta ANTES de cualquier llamada HTTP (SSRF-safe).
         """
-        shipment_id_int = int(shipment_id)
+        try:
+            shipment_id_int = int(shipment_id)
+        except (TypeError, ValueError) as e:
+            raise ValueError(f"shipment_id no coercionable a int: {shipment_id!r}") from e
 
         try:
             async with httpx.AsyncClient(timeout=10.0) as client:
@@ -346,7 +352,10 @@ class MLWebhookClient:
                 `date_from`/`date_to` son naive (sin tzinfo) — se levanta
                 ANTES de cualquier llamada HTTP.
         """
-        seller_id_int = int(seller_id)
+        try:
+            seller_id_int = int(seller_id)
+        except (TypeError, ValueError) as e:
+            raise ValueError(f"seller_id no coercionable a int: {seller_id!r}") from e
 
         if date_from.tzinfo is None or date_to.tzinfo is None:
             raise ValueError("date_from/date_to must be timezone-aware")
