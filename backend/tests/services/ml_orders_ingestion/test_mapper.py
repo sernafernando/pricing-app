@@ -293,3 +293,25 @@ class TestMapOrderContractHolesRound2:
         result = map_shipment({"id": 40000012345, "last_updated": 1754049600})
 
         assert isinstance(result, MappingError)
+
+
+class TestMapperRootPayloadShape:
+    """`response.json()` can legitimately return a list or a string. The
+    root payload guard was `if not payload`, which those pass."""
+
+    def test_list_payload_returns_mapping_error(self) -> None:
+        assert isinstance(map_order([{"id": 1}]), MappingError)  # type: ignore[arg-type]
+
+    def test_string_payload_returns_mapping_error(self) -> None:
+        assert isinstance(map_order("error"), MappingError)  # type: ignore[arg-type]
+
+    def test_shipment_list_payload_returns_mapping_error(self) -> None:
+        assert isinstance(map_shipment([{"id": 1}]), MappingError)  # type: ignore[arg-type]
+
+    def test_shipment_string_payload_returns_mapping_error(self) -> None:
+        assert isinstance(map_shipment("error"), MappingError)  # type: ignore[arg-type]
+
+    def test_non_list_tags_returns_mapping_error(self) -> None:
+        payload = {**FULL_ORDER_PAYLOAD, "tags": "paid"}
+
+        assert isinstance(map_order(payload), MappingError)

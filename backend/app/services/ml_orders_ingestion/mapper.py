@@ -141,8 +141,8 @@ def map_order(payload: Dict[str, Any]) -> Union[OrderOpsDTO, MappingError]:
     `date_last_updated`. Everything else is optional and defaults to
     None/empty so a payload with only the required fields still maps.
     """
-    if not payload:
-        return MappingError("empty payload", payload)
+    if not isinstance(payload, dict) or not payload:
+        return MappingError(f"payload is not an object: {type(payload).__name__}", None)
 
     raw_id = payload.get("id")
     if raw_id is None:
@@ -186,8 +186,12 @@ def map_order(payload: Dict[str, Any]) -> Union[OrderOpsDTO, MappingError]:
     raw_shipping_id = shipping.get("id")
     try:
         shipping_id = int(raw_shipping_id) if raw_shipping_id is not None else None
-    except (AttributeError, TypeError, ValueError):
+    except (TypeError, ValueError):
         return MappingError(f"unparseable shipping id: {raw_shipping_id!r}", payload)
+
+    raw_tags = payload.get("tags")
+    if raw_tags is not None and not isinstance(raw_tags, list):
+        return MappingError(f"tags is not a list: {raw_tags!r}", payload)
 
     try:
         items = [_map_item(raw_item) for raw_item in (payload.get("order_items") or [])]
@@ -209,7 +213,7 @@ def map_order(payload: Dict[str, Any]) -> Union[OrderOpsDTO, MappingError]:
         paid_amount=payload.get("paid_amount"),
         currency_id=payload.get("currency_id"),
         shipping_id=shipping_id,
-        tags=payload.get("tags") or [],
+        tags=raw_tags or [],
         raw_order=payload,
         items=items,
     )
@@ -220,8 +224,8 @@ def map_shipment(payload: Dict[str, Any]) -> Union[ShipmentOpsDTO, MappingError]
 
     Required (fail-closed if missing/unparseable): `id`.
     """
-    if not payload:
-        return MappingError("empty payload", payload)
+    if not isinstance(payload, dict) or not payload:
+        return MappingError(f"payload is not an object: {type(payload).__name__}", None)
 
     raw_id = payload.get("id")
     if raw_id is None:

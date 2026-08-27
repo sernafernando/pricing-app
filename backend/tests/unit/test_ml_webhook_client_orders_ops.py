@@ -277,3 +277,24 @@ class TestCoercionRaisesValueError:
                     datetime(2026, 1, 2, tzinfo=timezone.utc),
                 )
             )
+
+
+class TestSearchOrdersDateContract:
+    """`search_orders` documents ValueError for naive dates; a missing
+    date used to surface as AttributeError instead."""
+
+    def test_none_date_from_raises_value_error(self) -> None:
+        from datetime import datetime, timezone
+
+        client = MLWebhookClient()
+
+        with pytest.raises(ValueError):
+            asyncio.run(client.search_orders(123, None, datetime(2026, 1, 2, tzinfo=timezone.utc)))  # type: ignore[arg-type]
+
+    def test_none_date_to_raises_value_error(self) -> None:
+        from datetime import datetime, timezone
+
+        client = MLWebhookClient()
+
+        with pytest.raises(ValueError):
+            asyncio.run(client.search_orders(123, datetime(2026, 1, 1, tzinfo=timezone.utc), None))  # type: ignore[arg-type]

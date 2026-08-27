@@ -357,6 +357,8 @@ class MLWebhookClient:
         except (TypeError, ValueError) as e:
             raise ValueError(f"seller_id no coercionable a int: {seller_id!r}") from e
 
+        if not isinstance(date_from, datetime) or not isinstance(date_to, datetime):
+            raise ValueError(f"date_from/date_to must be datetimes: {date_from!r}, {date_to!r}")
         if date_from.tzinfo is None or date_to.tzinfo is None:
             raise ValueError("date_from/date_to must be timezone-aware")
 
