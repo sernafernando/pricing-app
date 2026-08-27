@@ -350,3 +350,59 @@ class TestUnlinkedQueriesArePaginated:
 
         page = get_unlinked_questions(db, limit=3, offset=0)
         assert len(page) == 3
+
+
+class TestConfidenceStaysTrueAcrossRuns:
+    """Packs fill in over time. A message linked as `exact` when only one
+    order of its pack existed is lying once a second order arrives, and
+    ON CONFLICT DO NOTHING never revisits it."""
+
+    def test_exact_becomes_inferred_when_a_second_pack_order_arrives(self, db) -> None:
+        _make_order(db, order_id=201, pack_id=8888)
+        msg = _make_message(db, ml_message_id="m-1", pack_id="8888")
+
+        resolve_links(db)
+        first = db.query(MlOperationLink).filter_by(entity_type="message", entity_id=msg.id).all()
+        assert [link.link_confidence for link in first] == ["exact"]
+
+        _make_order(db, order_id=202, pack_id=8888)
+        resolve_links(db)
+
+        # The resolver writes via INSERT ... SELECT, which does not touch
+        # the identity map, so a cached row would hide the update.
+        db.expire_all()
+        links = db.query(MlOperationLink).filter_by(entity_type="message", entity_id=msg.id).all()
+        assert sorted(link.order_id for link in links) == [201, 202]
+        # Neither link may still claim a unique match.
+        assert {link.link_confidence for link in links} == {"inferred"}
+
+
+class TestUnresolvedCountsTheUnresolvable:
+    """`LinkResolutionResult` is this job's observability surface. Counting
+    only rows that COULD resolve means a record with a NULL key is missing
+    from `unresolved` while `get_unlinked_*` happily returns it."""
+
+    def test_question_without_buyer_id_counts_as_unresolved(self, db) -> None:
+        _make_question(db, ml_question_id=1, item_id="MLA1", buyer_id=None)
+        db.flush()
+
+        result = resolve_links(db)
+
+        assert result.questions_unresolved >= 1
+        assert len(get_unlinked_questions(db)) >= 1
+
+    def test_claim_without_resource_id_counts_as_unresolved(self, db) -> None:
+        _make_claim(db, claim_id=1, resource_id=None)
+        db.flush()
+
+        result = resolve_links(db)
+
+        assert result.claims_unresolved >= 1
+
+    def test_message_without_pack_id_counts_as_unresolved(self, db) -> None:
+        _make_message(db, ml_message_id="m-nopack", pack_id=None)
+        db.flush()
+
+        result = resolve_links(db)
+
+        assert result.messages_unresolved >= 1

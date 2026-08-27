@@ -96,9 +96,22 @@ def _insert_stmt(db: Session):
     return postgresql.insert(MlOperationLink.__table__)
 
 
-def _run_insert_select(db: Session, select_stmt) -> None:
+def _run_insert_select(db: Session, select_stmt, refresh_confidence: bool = False) -> None:
+    """`refresh_confidence` re-applies `link_confidence` on an existing
+    row. DO NOTHING is right when a link is immutable, which is true for
+    claims and questions but NOT for messages: packs fill in over time, so
+    a message linked as `exact` while only one order of its pack existed
+    is lying once a second one arrives, and the old row would never be
+    revisited."""
     stmt = _insert_stmt(db).from_select(_LINK_COLUMNS, select_stmt)
-    stmt = stmt.on_conflict_do_nothing(index_elements=["entity_type", "entity_id", "order_id"])
+    conflict_cols = ["entity_type", "entity_id", "order_id"]
+    if refresh_confidence:
+        stmt = stmt.on_conflict_do_update(
+            index_elements=conflict_cols,
+            set_={"link_confidence": stmt.excluded.link_confidence},
+        )
+    else:
+        stmt = stmt.on_conflict_do_nothing(index_elements=conflict_cols)
     db.execute(stmt)
 
 
@@ -117,7 +130,7 @@ def _resolve_claims(db: Session) -> tuple[int, int]:
     )
     _run_insert_select(db, match)
 
-    total = db.query(func.count(RmaClaimML.id)).filter(RmaClaimML.resource_id.isnot(None)).scalar() or 0
+    total = db.query(func.count(RmaClaimML.id)).scalar() or 0
     linked = (
         db.query(func.count(func.distinct(RmaClaimML.id)))
         .select_from(RmaClaimML)
@@ -146,9 +159,9 @@ def _resolve_messages(db: Session) -> tuple[int, int]:
         .join(MlOrdersOps, join_condition)
         .where(MlBotMessage.pack_id.isnot(None))
     )
-    _run_insert_select(db, match)
+    _run_insert_select(db, match, refresh_confidence=True)
 
-    total = db.query(func.count(MlBotMessage.id)).filter(MlBotMessage.pack_id.isnot(None)).scalar() or 0
+    total = db.query(func.count(MlBotMessage.id)).scalar() or 0
     linked = (
         db.query(func.count(func.distinct(MlBotMessage.id)))
         .select_from(MlBotMessage)
@@ -179,7 +192,7 @@ def _resolve_questions(db: Session) -> tuple[int, int]:
     ).where(MlBotQuestion.buyer_id.isnot(None))
     _run_insert_select(db, match)
 
-    total = db.query(func.count(MlBotQuestion.id)).filter(MlBotQuestion.buyer_id.isnot(None)).scalar() or 0
+    total = db.query(func.count(MlBotQuestion.id)).scalar() or 0
     linked_query = _question_order_join(db.query(func.distinct(MlBotQuestion.id)).select_from(MlBotQuestion))
     linked = db.query(func.count()).select_from(linked_query.subquery()).scalar() or 0
     return linked, total - linked
