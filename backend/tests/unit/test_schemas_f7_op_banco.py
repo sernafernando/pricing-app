@@ -48,18 +48,26 @@ class TestOrdenPagoEjecutarPago:
         errors = exc_info.value.errors()
         assert any("fuente" in str(e).lower() or "solo" in str(e).lower() for e in errors)
 
-    def test_both_none_invalid(self) -> None:
-        """Ambos None → ValidationError (se requiere exactamente una fuente)."""
-        with pytest.raises(ValidationError) as exc_info:
-            OrdenPagoEjecutarPago(caja_id=None, banco_id=None, fecha_pago_real="2026-05-21")
-        errors = exc_info.value.errors()
-        assert len(errors) >= 1
+    def test_both_none_is_valid_now(self) -> None:
+        """Ambos None ya es válido A NIVEL SCHEMA.
+
+        Antes levantaba acá. Una OP cubierta íntegramente con cheques se paga
+        sin caja ni banco, y los cheques pueden venir ya reservados contra la
+        OP — algo que este schema no puede ver. Exigir fuente hacía ese pago
+        inalcanzable por HTTP.
+
+        El rechazo real no se perdió: vive en `ejecutar_pago`, que sí ve los
+        cheques (ver test_ejecutar_pago_sin_fuente_ni_cheques_422).
+        """
+        schema = OrdenPagoEjecutarPago(caja_id=None, banco_id=None, fecha_pago_real="2026-05-21")
+        assert schema.caja_id is None
+        assert schema.banco_id is None
 
     def test_default_no_banco(self) -> None:
         """El campo banco_id por defecto es None; caja_id sigue funcionando sin cambiarlo."""
         # Backward-compat: el viejo schema solo tenía caja_id (int, requerido).
-        # Ahora caja_id es Optional y banco_id es Optional, pero el validator
-        # exige exactamente uno.
+        # Ahora ambos son Optional y el validator solo prohíbe que vengan
+        # los dos juntos: "sin fuente" lo decide el servicio, que ve los cheques.
         schema = OrdenPagoEjecutarPago(caja_id=7, fecha_pago_real="2026-05-21")
         assert schema.caja_id == 7
         assert schema.banco_id is None
