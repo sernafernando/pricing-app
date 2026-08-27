@@ -4,6 +4,7 @@ import ModalCheque from '../ModalCheque';
 import useCheques from '../../../hooks/useCheques';
 import useChequesAplicables from '../../../hooks/useChequesAplicables';
 import SelectorListaModal from './SelectorListaModal';
+import selectorStyles from './SelectorListaModal.module.css';
 import styles from './PanelCheques.module.css';
 
 /**
@@ -391,21 +392,21 @@ export default function PanelCheques({
             const yaAgregado = chequesEmitidos.some((c) => c.cheque_id === ch.id);
             return (
               <>
-                <div className={styles.selectorItemInfo}>
-                  <span className={styles.selectorNumero}>Nº {ch.numero}</span>
-                  <span className={styles.selectorBanco}>{ch.banco_nombre ?? '—'}</span>
-                  <span className={styles.selectorLibrador}>
+                <div className={selectorStyles.selectorItemInfo}>
+                  <span className={selectorStyles.selectorNumero}>Nº {ch.numero}</span>
+                  <span className={selectorStyles.selectorBanco}>{ch.banco_nombre ?? '—'}</span>
+                  <span className={selectorStyles.selectorLibrador}>
                     {ch.librador_nombre ?? ch.cuit_librador ?? '—'}
                   </span>
                 </div>
-                <div className={styles.selectorItemRight}>
-                  <span className={styles.selectorMonto}>
+                <div className={selectorStyles.selectorItemRight}>
+                  <span className={selectorStyles.selectorMonto}>
                     {formatCurrency(ch.monto, ch.moneda)} {ch.moneda}
                   </span>
-                  <span className={styles.selectorFecha}>
+                  <span className={selectorStyles.selectorFecha}>
                     pago {formatDateShort(ch.fecha_pago)}
                   </span>
-                  {yaAgregado && <span className={styles.selectorTagUsado}>Ya agregado</span>}
+                  {yaAgregado && <span className={selectorStyles.selectorTagUsado}>Ya agregado</span>}
                 </div>
               </>
             );
@@ -429,19 +430,19 @@ export default function PanelCheques({
             const yaAgregado = chequesEmitidos.some((c) => c.cheque_id === ch.id);
             return (
               <>
-                <div className={styles.selectorItemInfo}>
-                  <span className={styles.selectorNumero}>Nº {ch.numero}</span>
-                  <span className={styles.selectorBanco}>{ch.banco_nombre ?? '—'}</span>
-                  <span className={styles.selectorLibrador}>{ch.estado}</span>
+                <div className={selectorStyles.selectorItemInfo}>
+                  <span className={selectorStyles.selectorNumero}>Nº {ch.numero}</span>
+                  <span className={selectorStyles.selectorBanco}>{ch.banco_nombre ?? '—'}</span>
+                  <span className={selectorStyles.selectorLibrador}>{ch.estado}</span>
                 </div>
-                <div className={styles.selectorItemRight}>
-                  <span className={styles.selectorMonto}>
+                <div className={selectorStyles.selectorItemRight}>
+                  <span className={selectorStyles.selectorMonto}>
                     {formatCurrency(ch.monto, ch.moneda)} {ch.moneda}
                   </span>
-                  <span className={styles.selectorFecha}>
+                  <span className={selectorStyles.selectorFecha}>
                     pago {formatDateShort(ch.fecha_pago)}
                   </span>
-                  {yaAgregado && <span className={styles.selectorTagUsado}>Ya agregado</span>}
+                  {yaAgregado && <span className={selectorStyles.selectorTagUsado}>Ya agregado</span>}
                 </div>
               </>
             );
