@@ -284,34 +284,48 @@ def _record_unenumerable_window(db, date_from: datetime, date_to: datetime) -> N
 def _process_batch(raw_orders: List[Dict[str, Any]], window_from_floor: datetime, result: SweepResult) -> None:
     """Upserts one bounded batch in its OWN short-lived session. No HTTP
     call happens inside this block -- every raw order was already fetched
-    during the (HTTP-only) search phase."""
+    during the (HTTP-only) search phase.
+
+    Counters accumulate in locals and are folded into `result` only once
+    the session exits cleanly. Incrementing `result` row by row inside the
+    block would report writes that a rollback had undone -- the same
+    "metric that lies by construction" this function already guards
+    against in its DISABLED branch."""
+    seen = upserted = skipped_stale = mapping_error = out_of_window = 0
+
     with get_background_db() as db:
         for raw_order in raw_orders:
-            result.orders_seen += 1
+            seen += 1
             mapped = map_order(raw_order)
             if isinstance(mapped, MappingError):
-                result.orders_mapping_error += 1
+                mapping_error += 1
                 logger.warning("sweep: mapping error for a search result: %s", mapped.reason)
                 continue
 
             if mapped.date_created is not None and mapped.date_created < window_from_floor:
                 _record_out_of_window(db, mapped.order_id)
-                result.orders_out_of_window += 1
+                out_of_window += 1
                 continue
 
             outcome = upsert_order(db, raw_order, mapped=mapped)
             if outcome == UpsertOutcome.OK:
-                result.orders_upserted += 1
+                upserted += 1
             elif outcome == UpsertOutcome.SKIPPED_STALE:
-                result.orders_skipped_stale += 1
+                skipped_stale += 1
             elif outcome == UpsertOutcome.MAPPING_ERROR:
-                result.orders_mapping_error += 1
+                mapping_error += 1
             else:
                 # UpsertOutcome.DISABLED: unreachable in practice (run_sweep
                 # already checked the flag before starting), but a metric
                 # must never lie by construction -- this is NOT a mapping
                 # error, so it must not be counted as one.
                 logger.error("sweep: upsert_order returned DISABLED mid-window -- flag toggled during a run?")
+
+    result.orders_seen += seen
+    result.orders_upserted += upserted
+    result.orders_skipped_stale += skipped_stale
+    result.orders_mapping_error += mapping_error
+    result.orders_out_of_window += out_of_window
 
 
 def _load_cursor(db, for_update: bool = False) -> Optional[MlOpsSyncCursor]:
@@ -340,9 +354,12 @@ def _ensure_cursor_row(db) -> None:
         pass
 
 
-def _release_lock_as_idle(now: datetime) -> None:
-    """Clears the run lock after a successful pass. Swallows its own
-    failures for the same reason as `_release_lock_as_error`."""
+def _release_lock_as_idle(now: datetime, complete: bool = True) -> None:
+    """Clears the run lock after a pass that did not raise. `complete` is
+    False when the pass stopped early on its fetch budget: it covered only
+    part of the window, so stamping `last_success_at` would record partial
+    work as a finished sweep. Swallows its own failures for the same
+    reason as `_release_lock_as_error`."""
     try:
         with get_background_db() as db:
             cursor = _load_cursor(db)
@@ -350,8 +367,11 @@ def _release_lock_as_idle(now: datetime) -> None:
                 cursor = MlOpsSyncCursor(name=CURSOR_NAME)
                 db.add(cursor)
             cursor.state = "idle"
-            cursor.last_success_at = now
-            cursor.detail = None
+            if complete:
+                cursor.last_success_at = now
+                cursor.detail = None
+            else:
+                cursor.detail = "stopped early: fetch budget exhausted"
     except Exception:
         logger.exception("sync_ml_orders_ops: could not clear the run lock; the stale timeout will reclaim it")
 
@@ -542,7 +562,7 @@ def run_sweep(seller_id: Optional[int] = None, window_days: Optional[int] = None
         if failure is not None:
             _release_lock_as_error(failure)
         else:
-            _release_lock_as_idle(now)
+            _release_lock_as_idle(now, complete=not result.budget_exhausted)
 
     result.window_to = last_checkpoint_to
     return result

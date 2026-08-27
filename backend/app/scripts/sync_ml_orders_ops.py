@@ -41,15 +41,20 @@ def main() -> None:
     if result.error:
         logger.error("sync_ml_orders_ops: sweep failed: %s", result.error)
         return
+    # A pass that ran out of fetch budget covered only part of the window;
+    # calling that "complete" is how a partial sweep passes for a finished one.
+    outcome = "sweep stopped early (fetch budget)" if result.budget_exhausted else "sweep complete"
     logger.info(
-        "sync_ml_orders_ops: sweep complete — seen=%s upserted=%s skipped_stale=%s "
-        "mapping_error=%s out_of_window=%s unenumerable=%s window=[%s, %s]",
+        "sync_ml_orders_ops: %s — seen=%s upserted=%s skipped_stale=%s "
+        "mapping_error=%s out_of_window=%s unenumerable=%s truncated=%s window=[%s, %s]",
+        outcome,
         result.orders_seen,
         result.orders_upserted,
         result.orders_skipped_stale,
         result.orders_mapping_error,
         result.orders_out_of_window,
         result.windows_unenumerable,
+        result.budget_exhausted,
         result.window_from,
         result.window_to,
     )

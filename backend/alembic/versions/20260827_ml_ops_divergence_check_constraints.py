@@ -29,8 +29,12 @@ def upgrade() -> None:
     # the whole deploy down. Anything unexpected is normalised first so
     # the constraint cannot block an upgrade.
     op.execute("UPDATE ml_ops_sync_cursor SET state = 'idle' WHERE state NOT IN ('idle', 'running', 'error')")
+    # Normalised, not deleted: the other two statements are UPDATEs that
+    # keep the row, and `downgrade()` cannot restore deleted rows anyway.
+    # If the "nothing writes here yet" premise held, none of these would be
+    # needed; if it does not hold, this is exactly where data would be lost.
     op.execute(
-        "DELETE FROM ml_ops_divergence "
+        "UPDATE ml_ops_divergence SET kind = 'unknown' "
         "WHERE kind NOT IN ('missing_in_gbp', 'missing_in_ml', 'field_mismatch', "
         "'out_of_window_update', 'window_not_enumerable')"
     )
@@ -46,7 +50,7 @@ def upgrade() -> None:
         "ck_ml_ops_divergence_kind",
         "ml_ops_divergence",
         "kind IN ('missing_in_gbp', 'missing_in_ml', 'field_mismatch', 'out_of_window_update', "
-        "'window_not_enumerable')",
+        "'window_not_enumerable', 'unknown')",
     )
     op.create_check_constraint(
         "ck_ml_ops_divergence_state",

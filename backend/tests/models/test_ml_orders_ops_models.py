@@ -336,3 +336,5 @@ class TestSyncCursorStateConstraint:
         for i, state in enumerate(("idle", "running", "error")):
             db.add(MlOpsSyncCursor(name=f"cursor-{i}", state=state))
         db.flush()
+
+        assert db.query(MlOpsSyncCursor).count() == 3

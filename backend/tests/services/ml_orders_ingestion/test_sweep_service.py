@@ -546,3 +546,51 @@ class TestBudgetCountsEveryFetch:
         sweep_service.run_sweep(seller_id=999, window_days=90)
 
         assert calls["n"] <= sweep_service.MAX_WINDOW_FETCHES_PER_PASS
+
+
+class TestTruncatedPassIsNotReportedAsSuccess:
+    """A pass that ran out of fetch budget covered a fraction of the
+    window. Marking it idle with a fresh `last_success_at` records partial
+    work as a completed sweep — the silent-stuck-window the module exists
+    to prevent."""
+
+    def test_budget_exhausted_is_reported_on_the_result(self, db, monkeypatch) -> None:
+        from app.services.ml_orders_ingestion import sweep_service
+
+        monkeypatch.setattr(settings, "ML_ORDERS_OPS_ENABLED", True)
+        monkeypatch.setattr(sweep_service, "MAX_WINDOW_FETCHES_PER_PASS", 2)
+
+        async def paged(seller_id, date_from, date_to, offset=0):
+            when = datetime.now(timezone.utc)
+            return {
+                "results": [_order(offset + i, 999, when, when) for i in range(50)],
+                "paging": {"total": 900},
+            }
+
+        monkeypatch.setattr(sweep_service.ml_webhook_client, "search_orders", paged)
+
+        result = sweep_service.run_sweep(seller_id=999, window_days=90)
+
+        assert result.budget_exhausted is True
+
+    def test_budget_exhausted_does_not_stamp_last_success_at(self, db, monkeypatch) -> None:
+        from app.models.ml_orders_ops import MlOpsSyncCursor
+        from app.services.ml_orders_ingestion import sweep_service
+
+        monkeypatch.setattr(settings, "ML_ORDERS_OPS_ENABLED", True)
+        monkeypatch.setattr(sweep_service, "MAX_WINDOW_FETCHES_PER_PASS", 2)
+
+        async def paged(seller_id, date_from, date_to, offset=0):
+            when = datetime.now(timezone.utc)
+            return {
+                "results": [_order(offset + i, 999, when, when) for i in range(50)],
+                "paging": {"total": 900},
+            }
+
+        monkeypatch.setattr(sweep_service.ml_webhook_client, "search_orders", paged)
+
+        sweep_service.run_sweep(seller_id=999, window_days=90)
+
+        cursor = db.query(MlOpsSyncCursor).filter_by(name=sweep_service.CURSOR_NAME).first()
+        assert cursor.state != "running"
+        assert cursor.last_success_at is None
