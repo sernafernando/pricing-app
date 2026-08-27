@@ -35,6 +35,29 @@ class TestMlBotMessageBotColumns:
         assert retrieved.attempts == 0
         assert retrieved.last_error is None
         assert retrieved.drafted_at is None
+        assert retrieved.sent_at is None
+
+    def test_can_set_sent_at(self, db) -> None:
+        row = MlBotMessage(
+            ml_message_id="msg-3",
+            pack_id="1234567890123458",
+            buyer_id=999,
+            seller_id=413658225,
+            text="gracias",
+            status="available",
+            received_at=datetime(2026, 7, 22, 12, 0, 0, tzinfo=timezone.utc),
+        )
+        db.add(row)
+        db.flush()
+
+        stamp = datetime(2026, 8, 27, 10, 30, 0, tzinfo=timezone.utc)
+        row.bot_status = "sent"
+        row.sent_at = stamp
+        db.flush()
+
+        retrieved = db.query(MlBotMessage).filter_by(ml_message_id="msg-3").first()
+        assert retrieved.bot_status == "sent"
+        assert retrieved.sent_at is not None
 
     def test_can_set_bot_status_and_draft_fields(self, db) -> None:
         row = MlBotMessage(

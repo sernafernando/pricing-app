@@ -93,6 +93,35 @@ class TestListMessages:
         assert body["total"] == 1
         assert body["messages"][0]["status"] == "available"
 
+    def test_get_messages_bot_status_filter(self, client, auth_headers, db, con_todos_los_permisos) -> None:
+        _seed_message(db, bot_status="pending")
+        _seed_message(db, bot_status="awaiting_human")
+        _seed_message(db, bot_status=None)
+        db.commit()
+
+        r = client.get(f"{BASE}/messages?bot_status=pending", headers=auth_headers)
+        assert r.status_code == 200
+        body = r.json()
+        assert body["total"] == 1
+        assert body["messages"][0]["bot_status"] == "pending"
+
+    def test_get_messages_bot_status_filter_never_matches_null(
+        self, client, auth_headers, db, con_todos_los_permisos
+    ) -> None:
+        """decisions-bot-status (obs #1805): NULL is overloaded (not-yet-
+        processed anchor OR non-anchor burst context that will never be
+        processed). `bot_status=pending` must be an EXACT match, never an
+        `OR bot_status IS NULL` — unlike `drafting_service`'s own internal
+        claim logic, which does treat them as equivalent for its own
+        purposes."""
+        _seed_message(db, bot_status=None)
+        _seed_message(db, bot_status=None)
+        db.commit()
+
+        r = client.get(f"{BASE}/messages?bot_status=pending", headers=auth_headers)
+        assert r.status_code == 200
+        assert r.json()["total"] == 0
+
     def test_get_messages_buyer_id_filter(self, client, auth_headers, db, con_todos_los_permisos) -> None:
         _seed_message(db, buyer_id=111)
         _seed_message(db, buyer_id=222)

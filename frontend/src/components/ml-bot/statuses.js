@@ -36,7 +36,16 @@ export const STATUS_BADGE_CLASS = {
 // thread-header (mirrors STATUS_LABELS/STATUS_BADGE_CLASS above, but on the
 // separate `bot_status` column — design "Interfaces / Contracts"). Only the
 // anchor message of a thread ever carries a non-null `bot_status`.
+// PR6 (ml-bot-panel-operador) adds `pending`/`drafting` labels — both were
+// missing and fell through to the raw string. `pending` here is the EXACT
+// `bot_status == 'pending'` value only (never NULL — see
+// decisions-bot-status, obs #1805): NULL is overloaded (not-yet-processed
+// anchor OR non-anchor burst context that will never be processed), so it
+// is deliberately excluded from both this map and the filter's option set
+// below rather than lumped in with `pending`.
 export const MESSAGE_BOT_STATUS_LABELS = {
+  pending: 'Pendiente',
+  drafting: 'Redactando',
   awaiting_human: 'Esperando humano',
   taken_over: 'Tomada',
   sending: 'Enviando…',
@@ -47,6 +56,8 @@ export const MESSAGE_BOT_STATUS_LABELS = {
 };
 
 export const MESSAGE_BOT_STATUS_BADGE_CLASS = {
+  pending: 'badgeNeutral',
+  drafting: 'badgeInfo',
   awaiting_human: 'badgeWarning',
   taken_over: 'badgeInfo',
   sending: 'badgeInfo',
@@ -55,6 +66,24 @@ export const MESSAGE_BOT_STATUS_BADGE_CLASS = {
   superseded: 'badgeNeutral',
   blocked_claim: 'badgeDanger',
 };
+
+// PR6 — filter option set for the Mensajes tab `bot_status` filter.
+// Deliberately does NOT include a "no procesado"/NULL option: NULL is
+// overloaded (see decisions-bot-status, obs #1805) and the backend filter
+// is a strict equality that never matches NULL, so exposing a NULL option
+// here would either be a silent no-op or require the backend to special-
+// case it — both worse than just not offering it. Every value below is a
+// real, filterable `bot_status`.
+export const MESSAGE_BOT_STATUS_FILTER_OPTIONS = [
+  { value: 'pending', label: MESSAGE_BOT_STATUS_LABELS.pending },
+  { value: 'drafting', label: MESSAGE_BOT_STATUS_LABELS.drafting },
+  { value: 'awaiting_human', label: MESSAGE_BOT_STATUS_LABELS.awaiting_human },
+  { value: 'taken_over', label: MESSAGE_BOT_STATUS_LABELS.taken_over },
+  { value: 'sent', label: MESSAGE_BOT_STATUS_LABELS.sent },
+  { value: 'failed', label: MESSAGE_BOT_STATUS_LABELS.failed },
+  { value: 'superseded', label: MESSAGE_BOT_STATUS_LABELS.superseded },
+  { value: 'blocked_claim', label: MESSAGE_BOT_STATUS_LABELS.blocked_claim },
+];
 
 // PR5 (ml-bot-panel-operador) — absorbs the orphaned WU6 from
 // ml-bot-fallback-reason-tracking: operator-facing labels for

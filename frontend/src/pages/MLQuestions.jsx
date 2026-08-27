@@ -27,6 +27,7 @@ import {
   STATUS_BADGE_CLASS,
   MESSAGE_BOT_STATUS_LABELS,
   MESSAGE_BOT_STATUS_BADGE_CLASS,
+  MESSAGE_BOT_STATUS_FILTER_OPTIONS,
   FALLBACK_REASON_LABELS,
 } from '../components/ml-bot/statuses';
 
@@ -495,6 +496,7 @@ export default function MLQuestions() {
   const [sinPack, setSinPack] = useState(false);
   const [includeModerated, setIncludeModerated] = useState(false);
   const [hasReadFilter, setHasReadFilter] = useState('');
+  const [messageBotStatusFilter, setMessageBotStatusFilter] = useState('');
   const [mensajesOffset, setMensajesOffset] = useState(0);
   const [mensajesTotal, setMensajesTotal] = useState(0);
 
@@ -519,6 +521,10 @@ export default function MLQuestions() {
   }, []);
   const handleHasReadFilterChange = useCallback((e) => {
     setHasReadFilter(e.target.checked ? 'true' : 'false');
+    setMensajesOffset(0);
+  }, []);
+  const handleMessageBotStatusFilterChange = useCallback((e) => {
+    setMessageBotStatusFilter(e.target.value);
     setMensajesOffset(0);
   }, []);
 
@@ -775,6 +781,7 @@ export default function MLQuestions() {
       }
       if (hasReadFilter !== '') params.has_read = hasReadFilter === 'true';
       if (includeModerated) params.include_moderated = true;
+      if (messageBotStatusFilter) params.bot_status = messageBotStatusFilter;
       const { data } = await api.get('/ml-bot/messages', { params });
       const loaded = data.messages || [];
       setMessages(loaded);
@@ -815,7 +822,16 @@ export default function MLQuestions() {
     } finally {
       if (!silent) setMessagesLoading(false);
     }
-  }, [puedeVerMensajes, buyerFilter, packFilter, sinPack, includeModerated, hasReadFilter, mensajesOffset]);
+  }, [
+    puedeVerMensajes,
+    buyerFilter,
+    packFilter,
+    sinPack,
+    includeModerated,
+    hasReadFilter,
+    messageBotStatusFilter,
+    mensajesOffset,
+  ]);
 
   useEffect(() => {
     if (activeTab === 'mensajes' && puedeVerMensajes) {
@@ -1323,6 +1339,19 @@ export default function MLQuestions() {
                 <div>
                   <strong>Confianza</strong>
                   <p className={styles.detailText}>{Math.round(anchor.confidence * 100)}%</p>
+                </div>
+              )}
+              {anchor?.bot_status === 'sent' && (
+                /* `sent_at` es NULL en filas históricas (nunca se
+                   backfillea desde `bot_updated_at`, que es una señal
+                   distinta — PR6). Un mensaje `sent` siempre se muestra
+                   como enviado, con fecha desconocida si hace falta —
+                   nunca en blanco, que se leería como "no enviado". */
+                <div>
+                  <strong>Enviado</strong>
+                  <p className={styles.detailText}>
+                    {anchor.sent_at ? new Date(anchor.sent_at).toLocaleString() : 'Enviada (fecha desconocida)'}
+                  </p>
                 </div>
               )}
               <div>
@@ -1834,6 +1863,16 @@ export default function MLQuestions() {
               />
               Leídos
             </label>
+            <select
+              value={messageBotStatusFilter}
+              onChange={handleMessageBotStatusFilterChange}
+              className={styles.select}
+            >
+              <option value="">Todos los estados del bot</option>
+              {MESSAGE_BOT_STATUS_FILTER_OPTIONS.map(({ value, label }) => (
+                <option key={value} value={value}>{label}</option>
+              ))}
+            </select>
           </div>
 
           {messagesError && (

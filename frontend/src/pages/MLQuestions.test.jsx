@@ -1384,12 +1384,73 @@ describe('Mensajes tab — blocked_claim badge (no bot-send affordance)', () => 
     await openMensajesTab(user);
 
     await waitFor(() => {
-      expect(screen.getByText(/Reclamo — el bot no responde/i)).toBeInTheDocument();
+      expect(screen.getByText(/Reclamo — el bot no responde/i, { selector: 'span' })).toBeInTheDocument();
     });
 
     expect(screen.getByRole('button', { name: /tomar el mensaje/i })).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /^editar$/i })).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /enviar respuesta/i })).not.toBeInTheDocument();
+  });
+});
+
+describe('Mensajes tab — bot_status filter (PR6)', () => {
+  it('sends bot_status and resets the offset when the filter changes', async () => {
+    const user = userEvent.setup();
+    mockMessagesList([AWAITING_MESSAGE]);
+    await renderWithRouter(<MLQuestions />);
+    await openMensajesTab(user);
+
+    await screen.findByText('Claro, te la envío enseguida');
+    api.get.mockClear();
+
+    const select = screen.getByDisplayValue('Todos los estados del bot');
+    await user.selectOptions(select, 'awaiting_human');
+
+    await waitFor(() => {
+      const call = api.get.mock.calls.find(([url]) => url === '/ml-bot/messages');
+      expect(call[1].params.bot_status).toBe('awaiting_human');
+      expect(call[1].params.offset).toBe(0);
+    });
+  });
+
+  it('shows a label for pending and drafting bot_status values instead of the raw string', async () => {
+    const user = userEvent.setup();
+    mockMessagesList([{ ...AWAITING_MESSAGE, bot_status: 'pending' }]);
+    await renderWithRouter(<MLQuestions />);
+    await openMensajesTab(user);
+
+    await waitFor(() => {
+      expect(screen.getByText('Pendiente', { selector: 'span' })).toBeInTheDocument();
+    });
+  });
+});
+
+describe('Mensajes tab — sent_at rendering (PR6)', () => {
+  it('shows the send timestamp for a sent message', async () => {
+    const user = userEvent.setup();
+    const sentMessage = { ...AWAITING_MESSAGE, bot_status: 'sent', sent_at: '2026-08-27T10:30:00Z' };
+    mockMessagesList([sentMessage]);
+    await renderWithRouter(<MLQuestions />);
+    await openMensajesTab(user);
+
+    const expandButton = await screen.findByRole('button', { name: /ver detalle completo/i });
+    await user.click(expandButton);
+
+    expect(await screen.findByText('Enviado')).toBeInTheDocument();
+    expect(screen.getByText(new Date(sentMessage.sent_at).toLocaleString())).toBeInTheDocument();
+  });
+
+  it('renders a sent-with-unknown-time label instead of blank for historic NULL sent_at', async () => {
+    const user = userEvent.setup();
+    const sentMessage = { ...AWAITING_MESSAGE, bot_status: 'sent', sent_at: null };
+    mockMessagesList([sentMessage]);
+    await renderWithRouter(<MLQuestions />);
+    await openMensajesTab(user);
+
+    const expandButton = await screen.findByRole('button', { name: /ver detalle completo/i });
+    await user.click(expandButton);
+
+    expect(await screen.findByText('Enviada (fecha desconocida)')).toBeInTheDocument();
   });
 });
 

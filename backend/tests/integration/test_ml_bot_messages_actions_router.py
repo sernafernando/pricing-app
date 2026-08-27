@@ -226,7 +226,9 @@ class TestSendDirectlyFromAwaitingHuman:
             r = client.post(f"{BASE}/messages/{m.id}/send", headers=auth_headers)
 
         assert r.status_code == 200
-        assert r.json()["message"]["bot_status"] == "sent"
+        body = r.json()
+        assert body["message"]["bot_status"] == "sent"
+        assert body["message"]["sent_at"] is not None
         mock_send.assert_awaited_once()
 
     def test_direct_send_records_the_operator(self, client, auth_headers, db, con_todos_los_permisos) -> None:
@@ -324,6 +326,7 @@ class TestSendMessage:
         body = r.json()
         assert body["sent"] is True
         assert body["message"]["bot_status"] == "sent"
+        assert body["message"]["sent_at"] is not None
         mock_send.assert_awaited_once_with("PACK123", 1, "Sí, tenemos stock.", seller_id=413658225)
 
     def test_send_permanent_error_sets_failed_with_last_error(
@@ -345,6 +348,7 @@ class TestSendMessage:
         assert body["sent"] is False
         assert body["message"]["bot_status"] == "failed"
         assert "invalid buyer" in body["message"]["last_error"]
+        assert body["message"]["sent_at"] is None
 
     def test_send_transient_failure_stays_taken_over(self, client, auth_headers, db, con_todos_los_permisos) -> None:
         m = _seed_message(db, bot_status="taken_over")
@@ -362,6 +366,7 @@ class TestSendMessage:
         body = r.json()
         assert body["sent"] is False
         assert body["message"]["bot_status"] == "taken_over"
+        assert body["message"]["sent_at"] is None
 
     def test_non_sendable_state_returns_409(self, client, auth_headers, db, con_todos_los_permisos) -> None:
         """`awaiting_human` used to be refused here; it is now a valid direct-send

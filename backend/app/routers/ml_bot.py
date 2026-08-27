@@ -313,6 +313,7 @@ class MessageResponse(BaseModel):
     last_error: Optional[str] = None
     drafted_at: Optional[datetime] = None
     bot_updated_at: Optional[datetime] = None
+    sent_at: Optional[datetime] = None
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -658,6 +659,7 @@ def listar_preguntas(
 @router.get("/messages", response_model=MessageListResponse)
 def listar_mensajes(
     status_filter: Optional[str] = Query(None, alias="status"),
+    bot_status_filter: Optional[str] = Query(None, alias="bot_status"),
     buyer_id: Optional[int] = Query(None),
     pack_id: Optional[str] = Query(None),
     has_read: Optional[bool] = Query(None),
@@ -675,12 +677,24 @@ def listar_mensajes(
     `moderation_status` no nulo y distinto de `'clean'`; filas con
     `moderation_status IS NULL` siempre se muestran (unknown/pass, design
     decision #3).
+
+    `bot_status` es una IGUALDAD EXACTA, nunca un `OR bot_status IS NULL`
+    (decisions-bot-status, obs #1805): `NULL` está sobrecargado — además de
+    "aún no procesado" también significa "mensaje de burst no-anchor que
+    nunca se va a procesar" (contexto de conversación). Barrer los `NULL`
+    junto con `pending` inundaría al operador con filas que no requieren
+    ninguna acción. Por eso este filtro NUNCA incluye `IS NULL`, ni siquiera
+    para `bot_status=pending` — a diferencia de `drafting_service`, que sí
+    trata NULL y pending como equivalentes para sus propios fines internos
+    de reclamo.
     """
     _check_permiso(db, current_user, "ml_bot.messages.ver")
 
     query = db.query(MlBotMessage)
     if status_filter:
         query = query.filter(MlBotMessage.status == status_filter)
+    if bot_status_filter:
+        query = query.filter(MlBotMessage.bot_status == bot_status_filter)
     if buyer_id is not None:
         query = query.filter(MlBotMessage.buyer_id == buyer_id)
     if pack_id is not None:
@@ -887,8 +901,9 @@ async def enviar_mensaje(
     disparada por una acción humana explícita. Fail-closed (409) mientras
     `messages_send_enabled` (default `False`) no esté prendido — el gate
     solo puede activarse después del live-verify user-owned (T0.1, design
-    "send_message seam"). Éxito -> `bot_status='sent'` (`bot_updated_at`
-    sirve de timestamp de envío, vía `onupdate`). Falla permanente (4xx no
+    "send_message seam"). Éxito -> `bot_status='sent'` + `sent_at` (stampeado
+    en el mismo CAS de éxito, PR6 — `bot_updated_at` es una señal distinta,
+    se pisa en CUALQUIER escritura vía `onupdate`, no solo al enviar). Falla permanente (4xx no
     transitorio) -> `bot_status='failed'` + `last_error` poblado, nunca
     silenciosamente descartado. Falla transitoria (None) -> el mensaje
     queda en `taken_over` para reintentar manualmente.
@@ -964,7 +979,7 @@ async def enviar_mensaje(
         row = _get_message_or_404(db, message_id)
         return MessageSendResponse(message=_enrich_message_nicknames(db, [row])[row.id], sent=False)
 
-    if not _cas_transition_message(db, message_id, (_MESSAGE_SENDING_STATE,), bot_status="sent"):
+    if not _cas_transition_message(db, message_id, (_MESSAGE_SENDING_STATE,), bot_status="sent", sent_at=func.now()):
         # Should be unreachable now that `sending` cannot be taken over, but a
         # silently dropped transition here would mean a delivered message whose
         # row still looks sendable — loud on purpose.
