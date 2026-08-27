@@ -381,3 +381,57 @@ class TestRunningLock:
 
         cursor = db.query(MlOpsSyncCursor).filter_by(name="sweep").one()
         assert cursor.state == "error"
+
+
+class TestUnenumerableFieldKeyFitsTheColumn:
+    """`ml_ops_divergence.field` is String(40). SQLite does not enforce
+    VARCHAR length, so a key that overflows passes every test here and
+    only fails on Postgres — precisely inside the escape hatch, whose
+    whole point is to keep the sweep alive."""
+
+    def test_field_key_fits_in_forty_characters(self) -> None:
+        from app.models.ml_orders_ops import MlOpsDivergence
+        from app.services.ml_orders_ingestion.sweep_service import _unenumerable_field_key
+
+        limit = MlOpsDivergence.__table__.c.field.type.length
+        key = _unenumerable_field_key(
+            datetime(2026, 1, 1, tzinfo=timezone.utc),
+            datetime(2026, 12, 31, 23, 59, tzinfo=timezone.utc),
+        )
+
+        assert len(key) <= limit
+
+    def test_field_key_is_distinct_per_window(self) -> None:
+        from app.services.ml_orders_ingestion.sweep_service import _unenumerable_field_key
+
+        a = _unenumerable_field_key(
+            datetime(2026, 1, 1, tzinfo=timezone.utc), datetime(2026, 1, 1, 0, 1, tzinfo=timezone.utc)
+        )
+        b = _unenumerable_field_key(
+            datetime(2026, 1, 1, 0, 1, tzinfo=timezone.utc), datetime(2026, 1, 1, 0, 2, tzinfo=timezone.utc)
+        )
+
+        assert a != b
+
+
+class TestBisectionIsBounded:
+    """A bogus or inflated `paging.total` used to recurse all the way down
+    to the 1-minute floor: 180 days is 259,200 leaves, each one an HTTP
+    call to the ML proxy and a divergence row."""
+
+    def test_a_pass_stops_after_the_leaf_budget_is_spent(self, db, monkeypatch) -> None:
+        from app.services.ml_orders_ingestion import sweep_service
+
+        monkeypatch.setattr(settings, "ML_ORDERS_OPS_ENABLED", True)
+
+        calls = {"n": 0}
+
+        async def always_over_cap(seller_id, date_from, date_to, offset=0):
+            calls["n"] += 1
+            return {"results": [], "paging": {"total": 99999}}
+
+        monkeypatch.setattr(sweep_service.ml_webhook_client, "search_orders", always_over_cap)
+
+        sweep_service.run_sweep(seller_id=999, window_days=90)
+
+        assert calls["n"] <= sweep_service.MAX_WINDOW_FETCHES_PER_PASS

@@ -90,6 +90,13 @@ CURSOR_OVERLAP = timedelta(minutes=15)
 # instead (see module docstring).
 MIN_BISECT_SPAN = timedelta(minutes=1)
 
+# Bisection is recursive, so an inflated or bogus `paging.total` would
+# recurse to the 1-minute floor: 180 days is 259,200 leaves, each one an
+# HTTP call to the ML proxy. A pass spends at most this many fetches and
+# then stops; the cursor keeps whatever leaves it did complete, so the
+# next pass resumes instead of starting over.
+MAX_WINDOW_FETCHES_PER_PASS = 2000
+
 # A 'running' lock older than this is assumed to belong to a dead process
 # and is reclaimed rather than blocking the sweep forever. Well above the
 # 10-minute cron cadence so a legitimately slow (e.g. cold-start) pass is
@@ -118,6 +125,7 @@ class SweepResult:
     orders_mapping_error: int = 0
     orders_out_of_window: int = 0
     windows_unenumerable: int = 0
+    budget_exhausted: bool = False
     error: Optional[str] = None
 
 
@@ -141,7 +149,18 @@ class SweepResult:
 # docstring).
 
 
-def _iter_window_events(seller_id: int, date_from: datetime, date_to: datetime) -> Iterator[Tuple[str, Any]]:
+def _iter_window_events(
+    seller_id: int,
+    date_from: datetime,
+    date_to: datetime,
+    budget: Optional[List[int]] = None,
+) -> Iterator[Tuple[str, Any]]:
+    if budget is None:
+        budget = [MAX_WINDOW_FETCHES_PER_PASS]
+    if budget[0] <= 0:
+        yield ("budget_exhausted", date_from, date_to)
+        return
+    budget[0] -= 1
     response = resolve_maybe_async(ml_webhook_client.search_orders(seller_id, date_from, date_to, offset=0))
     if response is None:
         raise WindowFetchError(
@@ -165,8 +184,8 @@ def _iter_window_events(seller_id: int, date_from: datetime, date_to: datetime) 
             yield ("checkpoint", date_to)
             return
         midpoint = date_from + span / 2
-        yield from _iter_window_events(seller_id, date_from, midpoint)
-        yield from _iter_window_events(seller_id, midpoint, date_to)
+        yield from _iter_window_events(seller_id, date_from, midpoint, budget)
+        yield from _iter_window_events(seller_id, midpoint, date_to, budget)
         return
 
     # Leaf window within cap -- page through it, yielding each page as
@@ -212,6 +231,14 @@ def _record_out_of_window(db, order_id: int) -> None:
         db.add(MlOpsDivergence(order_id=order_id, kind=OUT_OF_WINDOW_KIND, detected_at=now))
 
 
+def _unenumerable_field_key(date_from: datetime, date_to: datetime) -> str:
+    """Dedup key for an unenumerable leaf, as epoch seconds. ISO bounds
+    would be 51 characters against a `String(40)` column -- which SQLite
+    ignores and Postgres rejects, inside the one code path whose purpose
+    is to keep the sweep running."""
+    return f"{int(date_from.timestamp())}|{int(date_to.timestamp())}"
+
+
 def _record_unenumerable_window(db, date_from: datetime, date_to: datetime) -> None:
     """Escape hatch for a leaf window that cannot be enumerated at all
     (finding 3): recorded, never ingested, never silently dropped. There
@@ -219,7 +246,7 @@ def _record_unenumerable_window(db, date_from: datetime, date_to: datetime) -> N
     column is NOT NULL) and the leaf's own bounds are the dedup key via
     `field`, so a repeat detection of the SAME leaf updates `detected_at`
     instead of duplicating (unique `(order_id, kind, field)`)."""
-    field_key = f"{date_from.isoformat()}|{date_to.isoformat()}"
+    field_key = _unenumerable_field_key(date_from, date_to)
     existing = (
         db.query(MlOpsDivergence)
         .filter(
@@ -278,8 +305,14 @@ def _process_batch(raw_orders: List[Dict[str, Any]], window_from_floor: datetime
                 logger.error("sweep: upsert_order returned DISABLED mid-window -- flag toggled during a run?")
 
 
-def _load_cursor(db) -> Optional[MlOpsSyncCursor]:
-    return db.query(MlOpsSyncCursor).filter_by(name=CURSOR_NAME).first()
+def _load_cursor(db, for_update: bool = False) -> Optional[MlOpsSyncCursor]:
+    """`for_update` locks the row for the read-modify-write that claims the
+    run lock. Without it two runs both read 'idle' and both proceed, which
+    is the exact race the lock exists to prevent. SQLite ignores the hint."""
+    query = db.query(MlOpsSyncCursor).filter_by(name=CURSOR_NAME)
+    if for_update:
+        query = query.with_for_update()
+    return query.first()
 
 
 def _tz_aware(value: Optional[datetime]) -> Optional[datetime]:
@@ -318,7 +351,7 @@ def _try_acquire_run_lock(db, now: datetime) -> bool:
     (finding 4). Returns False (do not run) if another pass is genuinely
     in flight; reclaims (returns True) a 'running' lock older than
     `STALE_LOCK_TIMEOUT`, on the assumption its owner died."""
-    cursor = _load_cursor(db)
+    cursor = _load_cursor(db, for_update=True)
     if cursor is None:
         db.add(MlOpsSyncCursor(name=CURSOR_NAME, state="running", detail=now.isoformat()))
         return True
@@ -388,6 +421,20 @@ def run_sweep(seller_id: Optional[int] = None, window_days: Optional[int] = None
                 while len(pending) >= BATCH_SIZE:
                     _process_batch(pending[:BATCH_SIZE], window_from_floor, result)
                     pending = pending[BATCH_SIZE:]
+            elif kind == "budget_exhausted":
+                # Stop this pass without advancing past the unfinished
+                # region. Whatever leaves already checkpointed are kept, so
+                # the next pass resumes there instead of starting over.
+                _, leaf_from, leaf_to = event
+                result.budget_exhausted = True
+                logger.warning(
+                    "sync_ml_orders_ops: fetch budget of %s spent before reaching [%s, %s); "
+                    "stopping this pass, next run resumes from the last checkpoint",
+                    MAX_WINDOW_FETCHES_PER_PASS,
+                    leaf_from.isoformat(),
+                    leaf_to.isoformat(),
+                )
+                break
             elif kind == "unenumerable":
                 _, leaf_from, leaf_to = event
                 with get_background_db() as db:

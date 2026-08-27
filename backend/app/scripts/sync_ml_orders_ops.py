@@ -34,19 +34,23 @@ def main() -> None:
     logging.basicConfig(level=logging.INFO)
     result = run_sweep()
     if not result.ran:
-        logger.info("sync_ml_orders_ops: sweep did not run (flag off or misconfigured)")
+        # `already running` is neither of those, and saying so sends whoever
+        # reads this log looking at the wrong thing.
+        reason = result.error or "flag off or misconfigured"
+        logger.info("sync_ml_orders_ops: sweep did not run (%s)", reason)
         return
     if result.error:
         logger.error("sync_ml_orders_ops: sweep failed: %s", result.error)
         return
     logger.info(
         "sync_ml_orders_ops: sweep complete — seen=%s upserted=%s skipped_stale=%s "
-        "mapping_error=%s out_of_window=%s window=[%s, %s]",
+        "mapping_error=%s out_of_window=%s unenumerable=%s window=[%s, %s]",
         result.orders_seen,
         result.orders_upserted,
         result.orders_skipped_stale,
         result.orders_mapping_error,
         result.orders_out_of_window,
+        result.windows_unenumerable,
         result.window_from,
         result.window_to,
     )
