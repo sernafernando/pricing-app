@@ -34,6 +34,16 @@
 # Cada 4 horas.
 0 */4 * * * cd /var/www/html/pricing-app/backend && /var/www/html/pricing-app/backend/venv/bin/python -m app.scripts.sync_publication_links >> /var/log/pricing-app/sync_publication_links.log 2>&1
 
+# ML Orders Ops (ml-ventas-fuente-de-verdad, slice 3) - reconciliation
+# sweep for the ML-API-sourced operations layer (ml_orders_ops/
+# ml_order_items_ops/ml_shipments_ops), independent of GBP. A complete
+# no-op while ML_ORDERS_OPS_ENABLED is False (default OFF). Cada 10
+# minutos entre las 06:00 y las 21:59 (NO corre de madrugada, igual que
+# el resto de los crons de este bloque), offset (minute 3) from the
+# existing */10 sync_completo cron above so the two never fire on the
+# same tick.
+3-58/10 6-21 * * * cd /var/www/html/pricing-app/backend && /var/www/html/pricing-app/backend/venv/bin/python -m app.scripts.sync_ml_orders_ops >> /var/log/pricing-app/sync_ml_orders_ops.log 2>&1
+
 # ============================================================================
 # MÉTRICAS ML - Incremental + Backup + Rebuilds
 # ============================================================================

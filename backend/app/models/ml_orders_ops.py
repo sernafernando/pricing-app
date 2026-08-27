@@ -18,6 +18,7 @@ from __future__ import annotations
 
 from sqlalchemy import (
     BigInteger,
+    CheckConstraint,
     Column,
     DateTime,
     ForeignKey,
@@ -168,6 +169,16 @@ class MlOpsSyncCursor(Base):
 
     __tablename__ = "ml_ops_sync_cursor"
 
+    __table_args__ = (
+        # Same reasoning as the divergence table: slice 3 is the first
+        # writer of `state`, so its valid values move out of the comment
+        # and into the database.
+        CheckConstraint(
+            "state IN ('idle', 'running', 'error')",
+            name="ck_ml_ops_sync_cursor_state",
+        ),
+    )
+
     name = Column(String(50), primary_key=True)  # 'sweep' | 'backfill'
 
     window_from = Column(DateTime(timezone=True), nullable=True)
@@ -198,6 +209,20 @@ class MlOpsDivergence(Base):
             name="uq_ml_ops_divergence_order_kind_field",
             postgresql_nulls_not_distinct=True,
         ),
+        # `kind`/`state` were plain String columns whose valid values lived
+        # only in a comment while nothing wrote to them (slice 1). Slice 3
+        # is the first writer (the out-of-window counter writes `kind`), so
+        # per the change's own instructions the contract must become a real
+        # constraint, not a comment, in the same slice that starts writing.
+        CheckConstraint(
+            "kind IN ('missing_in_gbp', 'missing_in_ml', 'field_mismatch', 'out_of_window_update', "
+            "'window_not_enumerable', 'unknown')",
+            name="ck_ml_ops_divergence_kind",
+        ),
+        CheckConstraint(
+            "state IN ('open', 'acknowledged', 'resolved', 'ignored')",
+            name="ck_ml_ops_divergence_state",
+        ),
     )
 
     id = Column(Integer, primary_key=True, index=True)
@@ -205,7 +230,9 @@ class MlOpsDivergence(Base):
     order_id = Column(BigInteger, nullable=False, index=True)
     detected_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
 
-    kind = Column(String(30), nullable=False)  # missing_in_gbp | missing_in_ml | field_mismatch | out_of_window_update
+    # missing_in_gbp | missing_in_ml | field_mismatch | out_of_window_update
+    # | window_not_enumerable | unknown  (enforced by the CHECK above)
+    kind = Column(String(30), nullable=False)
     field = Column(String(40), nullable=True)
     ml_value = Column(Text, nullable=True)
     gbp_value = Column(Text, nullable=True)

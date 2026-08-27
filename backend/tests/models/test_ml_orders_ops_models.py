@@ -268,6 +268,21 @@ class TestMlOpsDivergence:
 
         assert row.id is not None
 
+    def test_window_not_enumerable_kind_is_representable(self, db) -> None:
+        """Post-review escape hatch (finding 3, ml-ventas sweep review
+        round): a leaf window that cannot be enumerated even at the
+        minimum bisectable span is recorded with this kind instead of
+        wedging the sweep forever."""
+        row = MlOpsDivergence(
+            order_id=0,
+            kind="window_not_enumerable",
+            field="2026-01-01T00:00:00+00:00|2026-01-01T00:01:00+00:00",
+        )
+        db.add(row)
+        db.flush()
+
+        assert row.id is not None
+
     def test_duplicate_order_kind_field_violates_unique_constraint(self, db) -> None:
         db.add(MlOpsDivergence(order_id=1, kind="field_mismatch", field="status"))
         db.flush()
@@ -276,3 +291,50 @@ class TestMlOpsDivergence:
         with pytest.raises(IntegrityError):
             db.flush()
         db.rollback()
+
+    def test_kind_check_constraint_exists(self) -> None:
+        checks = [c for c in MlOpsDivergence.__table__.constraints if isinstance(c, sa.CheckConstraint)]
+        names = {c.name for c in checks}
+        assert "ck_ml_ops_divergence_kind" in names
+        assert "ck_ml_ops_divergence_state" in names
+
+    def test_invalid_kind_is_rejected(self, db) -> None:
+        """Slice 3 is the first writer of `kind` (the out-of-window
+        counter). A comment-only contract leaked 9 ways in slice 2 (obs
+        #1843) -- this must be a real constraint, not documentation."""
+        db.add(MlOpsDivergence(order_id=1, kind="not_a_real_kind"))
+        with pytest.raises(IntegrityError):
+            db.flush()
+        db.rollback()
+
+    def test_invalid_state_is_rejected(self, db) -> None:
+        db.add(MlOpsDivergence(order_id=1, kind="field_mismatch", field="status", state="not_a_real_state"))
+        with pytest.raises(IntegrityError):
+            db.flush()
+        db.rollback()
+
+
+class TestSyncCursorStateConstraint:
+    """`ml_ops_sync_cursor.state` documented its valid values in a comment
+    only. Slice 3 is the first writer of that column, so the contract has
+    to be a constraint like the divergence table's."""
+
+    def test_invalid_cursor_state_is_rejected(self, db) -> None:
+        from sqlalchemy.exc import IntegrityError
+
+        from app.models.ml_orders_ops import MlOpsSyncCursor
+
+        db.add(MlOpsSyncCursor(name="sweep", state="nonsense"))
+
+        with pytest.raises(IntegrityError):
+            db.flush()
+        db.rollback()
+
+    def test_valid_cursor_states_are_accepted(self, db) -> None:
+        from app.models.ml_orders_ops import MlOpsSyncCursor
+
+        for i, state in enumerate(("idle", "running", "error")):
+            db.add(MlOpsSyncCursor(name=f"cursor-{i}", state=state))
+        db.flush()
+
+        assert db.query(MlOpsSyncCursor).count() == 3
