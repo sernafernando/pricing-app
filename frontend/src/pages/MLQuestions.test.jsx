@@ -161,6 +161,364 @@ describe('Mensajes tab filters -> GET /ml-bot/messages params', () => {
   });
 });
 
+describe('Preguntas pagination (PR1 — honest total, offset-based paging)', () => {
+  function mockQuestionsPage({ total, offset }) {
+    api.get.mockImplementation((url, config) => {
+      if (url === '/ml-bot/status') return Promise.resolve({ data: { bot_enabled: true, auto_publish_enabled: false } });
+      if (url === '/ml-bot/questions') {
+        const requestedOffset = config?.params?.offset ?? 0;
+        return Promise.resolve({
+          data: {
+            questions: requestedOffset === offset ? [{ id: 1, question_text: 'q', status: 'waiting' }] : [],
+            total,
+          },
+        });
+      }
+      if (url === '/ml-bot/messages') return Promise.resolve({ data: { messages: [], total: 0 } });
+      if (url === '/ml-bot/admin-pending') return Promise.resolve({ data: { requests: [], total: 0 } });
+      return Promise.resolve({ data: {} });
+    });
+  }
+
+  it('renders the honest total instead of silently truncating at the page size', async () => {
+    mockQuestionsPage({ total: 1462, offset: 0 });
+
+    await renderWithRouter(<MLQuestions />);
+
+    await waitFor(() => {
+      expect(screen.getByText(/1462/)).toBeInTheDocument();
+    });
+  });
+
+  it('requests limit=50 and offset=0 on first load, never the old hardcoded limit=100', async () => {
+    mockQuestionsPage({ total: 1462, offset: 0 });
+
+    await renderWithRouter(<MLQuestions />);
+
+    await waitFor(() => {
+      const calls = api.get.mock.calls.filter((c) => c[0] === '/ml-bot/questions');
+      expect(calls[calls.length - 1][1].params).toEqual(
+        expect.objectContaining({ limit: 50, offset: 0 })
+      );
+    });
+  });
+
+  it('clicking "next" issues offset=50 and is reflected in the request', async () => {
+    mockQuestionsPage({ total: 1462, offset: 0 });
+    const user = userEvent.setup();
+    await renderWithRouter(<MLQuestions />);
+
+    await waitFor(() => {
+      expect(screen.getByText(/1462/)).toBeInTheDocument();
+    });
+
+    mockQuestionsPage({ total: 1462, offset: 50 });
+    const nextButton = screen.getByRole('button', { name: /siguiente/i });
+    await user.click(nextButton);
+
+    await waitFor(() => {
+      const calls = api.get.mock.calls.filter((c) => c[0] === '/ml-bot/questions');
+      expect(calls[calls.length - 1][1].params).toEqual(
+        expect.objectContaining({ limit: 50, offset: 50 })
+      );
+    });
+  });
+
+  it('disables "previous" on the first page and "next" on the last page', async () => {
+    mockQuestionsPage({ total: 10, offset: 0 });
+    await renderWithRouter(<MLQuestions />);
+
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: /anterior/i })).toBeDisabled();
+      // total=10 fits in a single 50-row page: no more pages ahead either.
+      expect(screen.getByRole('button', { name: /siguiente/i })).toBeDisabled();
+    });
+  });
+
+  it('resets offset to 0 when the status filter changes', async () => {
+    mockQuestionsPage({ total: 1462, offset: 0 });
+    const user = userEvent.setup();
+    await renderWithRouter(<MLQuestions />);
+
+    await waitFor(() => {
+      expect(screen.getByText(/1462/)).toBeInTheDocument();
+    });
+
+    mockQuestionsPage({ total: 1462, offset: 50 });
+    await user.click(screen.getByRole('button', { name: /siguiente/i }));
+    await waitFor(() => {
+      const calls = api.get.mock.calls.filter((c) => c[0] === '/ml-bot/questions');
+      expect(calls[calls.length - 1][1].params.offset).toBe(50);
+    });
+
+    mockQuestionsPage({ total: 5, offset: 0 });
+    const statusSelect = screen.getAllByRole('combobox')[0];
+    await user.selectOptions(statusSelect, 'failed');
+
+    await waitFor(() => {
+      const calls = api.get.mock.calls.filter((c) => c[0] === '/ml-bot/questions');
+      const last = calls[calls.length - 1];
+      expect(last[1].params).toEqual(
+        expect.objectContaining({ offset: 0, status: 'failed' })
+      );
+    });
+  });
+});
+
+describe('Preguntas — publish-now feedback (PR2, ADR-2: backend wrapper + runAction fix)', () => {
+  const PUBLISHABLE_QUESTION = {
+    id: 7,
+    question_text: '¿Tiene stock?',
+    status: 'taken_over',
+    drafted_answer: 'Sí, tenemos stock.',
+  };
+
+  function mockQuestionsList(question) {
+    api.get.mockImplementation((url) => {
+      if (url === '/ml-bot/status') return Promise.resolve({ data: { bot_enabled: true, auto_publish_enabled: false } });
+      if (url === '/ml-bot/questions') return Promise.resolve({ data: { questions: [question], total: 1 } });
+      if (url === '/ml-bot/messages') return Promise.resolve({ data: { messages: [], total: 0 } });
+      if (url === '/ml-bot/admin-pending') return Promise.resolve({ data: { requests: [], total: 0 } });
+      return Promise.resolve({ data: {} });
+    });
+  }
+
+  it('shows no error when the wrapped response reports published: true', async () => {
+    const user = userEvent.setup();
+    mockQuestionsList(PUBLISHABLE_QUESTION);
+    api.post.mockResolvedValue({
+      data: {
+        question: { ...PUBLISHABLE_QUESTION, status: 'published' },
+        published: true,
+        outcome: 'published',
+      },
+    });
+
+    await renderWithRouter(<MLQuestions />);
+    await user.click(await screen.findByLabelText('Publicar ahora'));
+
+    await waitFor(() => {
+      expect(api.post).toHaveBeenCalledWith('/ml-bot/questions/7/publish-now');
+    });
+    expect(screen.queryByText(/no se pudo completar/i)).not.toBeInTheDocument();
+  });
+
+  it('surfaces last_error when the outcome is a permanent failure', async () => {
+    const user = userEvent.setup();
+    mockQuestionsList(PUBLISHABLE_QUESTION);
+    api.post.mockResolvedValue({
+      data: {
+        question: { ...PUBLISHABLE_QUESTION, status: 'failed', last_error: 'ML rechazó la respuesta (422)' },
+        published: false,
+        outcome: 'failed',
+      },
+    });
+
+    await renderWithRouter(<MLQuestions />);
+    await user.click(await screen.findByLabelText('Publicar ahora'));
+
+    expect(await screen.findByText(/ML rechazó la respuesta \(422\)/)).toBeInTheDocument();
+  });
+
+  it('surfaces a transient-failure message when the outcome is retry', async () => {
+    const user = userEvent.setup();
+    mockQuestionsList(PUBLISHABLE_QUESTION);
+    api.post.mockResolvedValue({
+      data: {
+        question: { ...PUBLISHABLE_QUESTION, status: 'waiting' },
+        published: false,
+        outcome: 'retry',
+      },
+    });
+
+    await renderWithRouter(<MLQuestions />);
+    await user.click(await screen.findByLabelText('Publicar ahora'));
+
+    expect(await screen.findByText(/falla transitoria/i)).toBeInTheDocument();
+  });
+
+  it('falls back to err.message when the thrown error carries no response body (regression: runAction lacked this fallback)', async () => {
+    const user = userEvent.setup();
+    mockQuestionsList(PUBLISHABLE_QUESTION);
+    api.post.mockRejectedValue(new Error('Network Error'));
+
+    await renderWithRouter(<MLQuestions />);
+    await user.click(await screen.findByLabelText('Publicar ahora'));
+
+    expect(await screen.findByText('Network Error')).toBeInTheDocument();
+  });
+});
+
+describe('Preguntas — send visibility & failure legibility (PR3)', () => {
+  function mockQuestionsList(question) {
+    api.get.mockImplementation((url) => {
+      if (url === '/ml-bot/status') return Promise.resolve({ data: { bot_enabled: true, auto_publish_enabled: false } });
+      if (url === '/ml-bot/questions') return Promise.resolve({ data: { questions: [question], total: 1 } });
+      if (url === '/ml-bot/messages') return Promise.resolve({ data: { messages: [], total: 0 } });
+      if (url === '/ml-bot/admin-pending') return Promise.resolve({ data: { requests: [], total: 0 } });
+      return Promise.resolve({ data: {} });
+    });
+  }
+
+  it('renders the question arrival date column (the table had none before)', async () => {
+    mockQuestionsList({
+      id: 1,
+      question_text: '¿Hay stock?',
+      status: 'waiting',
+      question_date: '2026-08-20T10:00:00Z',
+    });
+
+    await renderWithRouter(<MLQuestions />);
+
+    expect(await screen.findByText('Fecha')).toBeInTheDocument();
+    expect(await screen.findByText(new Date('2026-08-20T10:00:00Z').toLocaleString())).toBeInTheDocument();
+  });
+
+  it('surfaces published_at on a published row', async () => {
+    mockQuestionsList({
+      id: 2,
+      question_text: '¿Envían a domicilio?',
+      status: 'published',
+      question_date: '2026-08-20T10:00:00Z',
+      published_at: '2026-08-20T10:05:00Z',
+    });
+
+    await renderWithRouter(<MLQuestions />);
+
+    expect(await screen.findByText(
+      `Publicada: ${new Date('2026-08-20T10:05:00Z').toLocaleString()}`
+    )).toBeInTheDocument();
+  });
+
+  it('shows a placeholder instead of nothing when a published row has no published_at', async () => {
+    mockQuestionsList({
+      id: 3,
+      question_text: '¿Tiene garantía?',
+      status: 'published',
+      question_date: '2026-08-20T10:00:00Z',
+      published_at: null,
+    });
+
+    await renderWithRouter(<MLQuestions />);
+
+    expect(await screen.findByText('Publicada (fecha desconocida)')).toBeInTheDocument();
+  });
+
+  it('surfaces attempts and last_error only on failed rows', async () => {
+    mockQuestionsList({
+      id: 4,
+      question_text: '¿Es original?',
+      status: 'failed',
+      question_date: '2026-08-20T10:00:00Z',
+      attempts: 2,
+      last_error: 'ML rechazó la respuesta (422)',
+    });
+
+    await renderWithRouter(<MLQuestions />);
+
+    expect(await screen.findByText(/Intentos: 2 — ML rechazó la respuesta \(422\)/)).toBeInTheDocument();
+  });
+
+  it('does not render attempts/last_error on a non-failed row', async () => {
+    mockQuestionsList({
+      id: 5,
+      question_text: '¿Cuánto tarda el envío?',
+      status: 'waiting',
+      question_date: '2026-08-20T10:00:00Z',
+      attempts: 0,
+      last_error: null,
+    });
+
+    await renderWithRouter(<MLQuestions />);
+
+    await screen.findByText('¿Cuánto tarda el envío?');
+    expect(screen.queryByText(/Intentos:/)).not.toBeInTheDocument();
+  });
+
+  it('keeps the empty/loading row colSpan in sync with the new column count (Preguntas)', async () => {
+    api.get.mockImplementation((url) => {
+      if (url === '/ml-bot/status') return Promise.resolve({ data: { bot_enabled: true, auto_publish_enabled: false } });
+      if (url === '/ml-bot/questions') return Promise.resolve({ data: { questions: [], total: 0 } });
+      if (url === '/ml-bot/messages') return Promise.resolve({ data: { messages: [], total: 0 } });
+      if (url === '/ml-bot/admin-pending') return Promise.resolve({ data: { requests: [], total: 0 } });
+      return Promise.resolve({ data: {} });
+    });
+
+    await renderWithRouter(<MLQuestions />);
+
+    const emptyCell = await screen.findByText('No hay preguntas para mostrar');
+    expect(emptyCell.closest('td').getAttribute('colspan')).toBe('8');
+  });
+});
+
+describe('Mensajes pagination (PR1 — honest total, offset-based paging)', () => {
+  function mockMessagesPage({ total, offset }) {
+    api.get.mockImplementation((url, config) => {
+      if (url === '/ml-bot/status') return Promise.resolve({ data: { bot_enabled: true, auto_publish_enabled: false } });
+      if (url === '/ml-bot/questions') return Promise.resolve({ data: { questions: [] } });
+      if (url === '/ml-bot/messages') {
+        const requestedOffset = config?.params?.offset ?? 0;
+        return Promise.resolve({
+          // A page beyond the one this call configured returns an empty
+          // page — the real server behavior for an out-of-range offset —
+          // so a test asserting on `offset` actually exercises the request
+          // parameter instead of a constant mock response.
+          data: { messages: [], total: requestedOffset === offset ? total : 0 },
+        });
+      }
+      if (url === '/ml-bot/admin-pending') return Promise.resolve({ data: { requests: [], total: 0 } });
+      return Promise.resolve({ data: {} });
+    });
+  }
+
+  it('requests limit=50 and offset=0 and renders the honest total', async () => {
+    mockMessagesPage({ total: 730, offset: 0 });
+    const user = userEvent.setup();
+    await renderWithRouter(<MLQuestions />);
+
+    const tabButton = await screen.findByRole('button', { name: /Mensajes/i });
+    await user.click(tabButton);
+
+    await waitFor(() => {
+      const calls = api.get.mock.calls.filter((c) => c[0] === '/ml-bot/messages');
+      expect(calls[calls.length - 1][1].params).toEqual(
+        expect.objectContaining({ limit: 50, offset: 0 })
+      );
+      expect(screen.getByText(/730/)).toBeInTheDocument();
+    });
+  });
+
+  it('resets offset to 0 when the buyer filter changes', async () => {
+    mockMessagesPage({ total: 730, offset: 0 });
+    const user = userEvent.setup();
+    await renderWithRouter(<MLQuestions />);
+
+    const tabButton = await screen.findByRole('button', { name: /Mensajes/i });
+    await user.click(tabButton);
+
+    await waitFor(() => {
+      expect(api.get).toHaveBeenCalledWith('/ml-bot/messages', expect.anything());
+    });
+
+    const nextButton = screen.getAllByRole('button', { name: /siguiente/i })[0];
+    await user.click(nextButton);
+
+    await waitFor(() => {
+      const calls = api.get.mock.calls.filter((c) => c[0] === '/ml-bot/messages');
+      expect(calls[calls.length - 1][1].params.offset).toBe(50);
+    });
+
+    const buyerInput = screen.getByPlaceholderText(/comprador/i);
+    await user.type(buyerInput, '1');
+
+    await waitFor(() => {
+      const calls = api.get.mock.calls.filter((c) => c[0] === '/ml-bot/messages');
+      const last = calls[calls.length - 1];
+      expect(last[1].params.offset).toBe(0);
+    });
+  });
+});
+
 describe('Mensajes tab threading (grouping by pack_id + buyer_id)', () => {
   it('groups messages of the same pack under one thread header', async () => {
     api.get.mockImplementation((url) => {
@@ -370,9 +728,9 @@ describe('Preguntas table — TanStack column-sizing render structure', () => {
     const cols = table.querySelectorAll('colgroup > col');
     const headers = table.querySelectorAll('thead th');
     expect(cols.length).toBe(headers.length);
-    expect(cols.length).toBe(7);
+    expect(cols.length).toBe(8);
 
-    // Resizable: Pregunta, Item, Respuesta (borrador). Fixed: Estado,
+    // Resizable: Pregunta, Item, Respuesta (borrador). Fixed: Fecha, Estado,
     // Confianza, Cuenta regresiva, Acciones.
     const grips = table.querySelectorAll('thead [role="separator"]');
     expect(grips.length).toBe(3);

@@ -29,7 +29,14 @@ on:
 
 concurrency:
   group: ci-${{ github.ref }}
-  cancel-in-progress: true
+  # Cancel superseded runs on branches, NEVER on main. On a branch the older
+  # run is checking code nobody will merge, so killing it just saves minutes.
+  # On main every commit is already merged: cancelling one means that commit
+  # is never verified by anything. That is exactly how `ff2618f0` above got
+  # through, and it kept happening — four consecutive main commits went
+  # unverified on 2026-08-26, `backend-smoke` being the one always killed
+  # because at ~14 minutes it is still running when the next merge lands.
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 
 jobs:
   backend-lint:

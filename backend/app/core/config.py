@@ -108,6 +108,12 @@ class Settings(BaseSettings):
     # -- before permission, eligibility, or any ML call (design D4/spec
     # "Eligibility and kill-switch gating").
     PXQ_WRITE_ENABLED: bool = False
+    # Kill-switch for the ML operations source-of-truth ingestion layer
+    # (ml_orders_ops/ml_order_items_ops/ml_shipments_ops + sweep + link
+    # resolver + divergence job). Default OFF, following the
+    # PROMOS_WRITE_ENABLED precedent -- flip on per environment once the
+    # full slice chain has landed.
+    ML_ORDERS_OPS_ENABLED: bool = False
 
     # Mapbox Geocoding API
     MAPBOX_ACCESS_TOKEN: Optional[str] = None

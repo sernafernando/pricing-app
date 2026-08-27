@@ -1592,6 +1592,8 @@ def crear_y_pagar_orden_pago(
             tipo_cambio_override=data.tipo_cambio_override,
             # F7 — NCs a imputar después del pago (AD-3 / FR1.4).
             ncs_aplicadas=[nc.model_dump() for nc in data.ncs_aplicadas],
+            # S1 — cheques a emitir/endosar durante el pago (payload wiring).
+            cheques=[ch.model_dump() for ch in data.cheques],
         )
     except HTTPException:
         db.rollback()
@@ -1853,6 +1855,8 @@ def pagar_orden_pago(
             fecha_pago_real=data.fecha_pago_real,
             user_id=user.id,
             tipo_cambio_override=data.tipo_cambio_override,
+            # S1 — cheques a emitir/endosar durante el pago (payload wiring).
+            cheques=[ch.model_dump() for ch in data.cheques],
         )
     except HTTPException:
         db.rollback()
