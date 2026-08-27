@@ -267,6 +267,22 @@
   color: var(--cf-accent-orange);
 }
 
+.publishedNote {
+  display: block;
+  font-size: 0.72rem;
+  color: var(--cf-accent-green);
+}
+
+.failureNote {
+  display: block;
+  font-size: 0.72rem;
+  color: var(--cf-accent-red);
+  max-width: 260px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .actionsCell {
   display: flex;
   gap: 4px;
