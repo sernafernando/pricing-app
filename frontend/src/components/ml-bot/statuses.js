@@ -55,3 +55,18 @@ export const MESSAGE_BOT_STATUS_BADGE_CLASS = {
   superseded: 'badgeNeutral',
   blocked_claim: 'badgeDanger',
 };
+
+// PR5 (ml-bot-panel-operador) — absorbs the orphaned WU6 from
+// ml-bot-fallback-reason-tracking: operator-facing labels for
+// `ml_bot_question.fallback_reason` (backend `FALLBACK_REASONS`, see
+// `app/services/ml_questions/fallback_reasons.py`). A row with
+// `fallback_reason == null` renders NO badge at all (predates the
+// instrumentation) — callers must never fall back to a dash here.
+export const FALLBACK_REASON_LABELS = {
+  injection_flagged: 'Intento de manipulación',
+  provider_error: 'Error del proveedor',
+  fallback_denylist: 'Bloqueada por denylist',
+  deflection: 'Desvío',
+  low_confidence: 'Confianza baja',
+  drafted_no_answer: 'Sin respuesta redactada',
+};

@@ -161,6 +161,90 @@ describe('Mensajes tab filters -> GET /ml-bot/messages params', () => {
   });
 });
 
+describe('Preguntas fallback_reason filter + counts (PR5)', () => {
+  function mockQuestionsWithFallback({ counts = {}, rows = [], total } = {}) {
+    api.get.mockImplementation((url) => {
+      if (url === '/ml-bot/status') return Promise.resolve({ data: { bot_enabled: true, auto_publish_enabled: false } });
+      if (url === '/ml-bot/questions') {
+        return Promise.resolve({ data: { questions: rows, total: total ?? rows.length } });
+      }
+      if (url === '/ml-bot/questions/fallback-reason-counts') {
+        const total = Object.values(counts).reduce((a, b) => a + b, 0);
+        return Promise.resolve({ data: { counts, total } });
+      }
+      if (url === '/ml-bot/messages') return Promise.resolve({ data: { messages: [], total: 0 } });
+      if (url === '/ml-bot/admin-pending') return Promise.resolve({ data: { requests: [], total: 0 } });
+      return Promise.resolve({ data: {} });
+    });
+  }
+
+  it('sends fallback_reason and resets offset to 0 when the fallback-reason filter changes', async () => {
+    mockQuestionsWithFallback({ total: 200 });
+    const user = userEvent.setup();
+    await renderWithRouter(<MLQuestions />);
+
+    await waitFor(() => {
+      expect(api.get).toHaveBeenCalledWith('/ml-bot/questions', expect.anything());
+    });
+
+    // Advance to page 2 first, so we can prove the filter resets it back to 0.
+    api.get.mockImplementation((url) => {
+      if (url === '/ml-bot/status') return Promise.resolve({ data: { bot_enabled: true, auto_publish_enabled: false } });
+      if (url === '/ml-bot/questions') {
+        return Promise.resolve({ data: { questions: [], total: 200 } });
+      }
+      if (url === '/ml-bot/questions/fallback-reason-counts') return Promise.resolve({ data: { counts: {}, total: 0 } });
+      return Promise.resolve({ data: {} });
+    });
+    await user.click(screen.getByRole('button', { name: /siguiente/i }));
+    await waitFor(() => {
+      const calls = api.get.mock.calls.filter((c) => c[0] === '/ml-bot/questions');
+      expect(calls[calls.length - 1][1].params.offset).toBe(50);
+    });
+
+    const reasonSelect = screen.getAllByRole('combobox')[1];
+    await user.selectOptions(reasonSelect, 'low_confidence');
+
+    await waitFor(() => {
+      const calls = api.get.mock.calls.filter((c) => c[0] === '/ml-bot/questions');
+      const last = calls[calls.length - 1];
+      expect(last[1].params).toEqual(
+        expect.objectContaining({ offset: 0, fallback_reason: 'low_confidence' })
+      );
+    });
+  });
+
+  it('renders the per-reason count chips from GET /ml-bot/questions/fallback-reason-counts', async () => {
+    mockQuestionsWithFallback({ counts: { low_confidence: 3, deflection: 1 } });
+
+    await renderWithRouter(<MLQuestions />);
+
+    await waitFor(() => {
+      expect(screen.getByText('Confianza baja: 3')).toBeInTheDocument();
+      expect(screen.getByText('Desvío: 1')).toBeInTheDocument();
+    });
+  });
+
+  it('shows a fallback_reason badge on a row that has one, and no badge when it is null', async () => {
+    mockQuestionsWithFallback({
+      rows: [
+        { id: 1, question_text: 'q1', status: 'failed', fallback_reason: 'low_confidence' },
+        { id: 2, question_text: 'q2', status: 'failed', fallback_reason: null },
+      ],
+    });
+
+    await renderWithRouter(<MLQuestions />);
+
+    await waitFor(() => {
+      expect(screen.getByText('q1')).toBeInTheDocument();
+    });
+    // "Confianza baja" also appears as a <select><option> label — assert the
+    // rendered row badge specifically, not just any match on the text.
+    const badges = screen.getAllByText('Confianza baja');
+    expect(badges.some((el) => el.tagName !== 'OPTION')).toBe(true);
+  });
+});
+
 describe('Preguntas pagination (PR1 — honest total, offset-based paging)', () => {
   function mockQuestionsPage({ total, offset }) {
     api.get.mockImplementation((url, config) => {

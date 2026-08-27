@@ -27,6 +27,7 @@ import {
   STATUS_BADGE_CLASS,
   MESSAGE_BOT_STATUS_LABELS,
   MESSAGE_BOT_STATUS_BADGE_CLASS,
+  FALLBACK_REASON_LABELS,
 } from '../components/ml-bot/statuses';
 
 // Re-exported for the existing unit tests (`MLQuestions.test.jsx` imports
@@ -394,6 +395,11 @@ export default function MLQuestions() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [statusFilter, setStatusFilter] = useState('');
+  // PR5 (ml-bot-panel-operador) — `fallback_reason` filter, wired to the
+  // FastAPI-validated enum query param on GET /ml-bot/questions (an unknown
+  // value 422s before this page's body ever runs).
+  const [fallbackReasonFilter, setFallbackReasonFilter] = useState('');
+  const [fallbackReasonCounts, setFallbackReasonCounts] = useState({});
   const [preguntasOffset, setPreguntasOffset] = useState(0);
   const [preguntasTotal, setPreguntasTotal] = useState(0);
   const [now, setNow] = useState(Date.now());
@@ -403,6 +409,12 @@ export default function MLQuestions() {
   // control can forget to reset the page.
   const handleStatusFilterChange = useCallback((value) => {
     setStatusFilter(value);
+    setPreguntasOffset(0);
+  }, []);
+
+  // Same ADR-1 per-tab reset rule as `handleStatusFilterChange` above.
+  const handleFallbackReasonFilterChange = useCallback((value) => {
+    setFallbackReasonFilter(value);
     setPreguntasOffset(0);
   }, []);
 
@@ -670,6 +682,7 @@ export default function MLQuestions() {
     try {
       const params = { limit: PAGINATION_PAGE_SIZE, offset: preguntasOffset };
       if (statusFilter) params.status = statusFilter;
+      if (fallbackReasonFilter) params.fallback_reason = fallbackReasonFilter;
       const { data } = await api.get('/ml-bot/questions', { params });
       setQuestions(data.questions);
       setPreguntasTotal(data.total ?? 0);
@@ -684,7 +697,24 @@ export default function MLQuestions() {
     } finally {
       if (!silent) setLoading(false);
     }
-  }, [statusFilter, preguntasOffset]);
+  }, [statusFilter, fallbackReasonFilter, preguntasOffset]);
+
+  // PR5 — per-reason counts (GET /ml-bot/questions/fallback-reason-counts,
+  // shipped #1200, previously with zero consumers). Deliberately does NOT
+  // send `fallback_reason` itself (the endpoint ignores it on purpose): the
+  // whole point of these chips is to rank ALL reasons at once, which a
+  // reason filter would collapse to a single bucket. It DOES honour
+  // `status`, mirroring the same scoping the row list uses.
+  const cargarFallbackReasonCounts = useCallback(async () => {
+    try {
+      const params = {};
+      if (statusFilter) params.status = statusFilter;
+      const { data } = await api.get('/ml-bot/questions/fallback-reason-counts', { params });
+      setFallbackReasonCounts(data.counts || {});
+    } catch {
+      setFallbackReasonCounts({});
+    }
+  }, [statusFilter]);
 
   const cargarConfig = useCallback(async () => {
     if (!puedeConfigurar) return;
@@ -720,8 +750,9 @@ export default function MLQuestions() {
     if (puedeVer) {
       cargarPreguntas();
       cargarStatus();
+      cargarFallbackReasonCounts();
     }
-  }, [cargarPreguntas, cargarStatus, puedeVer]);
+  }, [cargarPreguntas, cargarStatus, cargarFallbackReasonCounts, puedeVer]);
 
   useEffect(() => {
     if (activeTab === 'config') {
@@ -1048,12 +1079,13 @@ export default function MLQuestions() {
     if (puedeVer) {
       cargarPreguntas();
       cargarStatus();
+      cargarFallbackReasonCounts();
     }
     if (activeTab === 'config') {
       cargarConfig();
       cargarExamples();
     }
-  }, [puedeVer, cargarPreguntas, cargarStatus, activeTab, cargarConfig, cargarExamples]);
+  }, [puedeVer, cargarPreguntas, cargarStatus, cargarFallbackReasonCounts, activeTab, cargarConfig, cargarExamples]);
 
   useSSEChannel('ml_bot:questions', reloadFromSSE);
 
@@ -1535,7 +1567,27 @@ export default function MLQuestions() {
                 <option key={value} value={value}>{label}</option>
               ))}
             </select>
+            <select
+              value={fallbackReasonFilter}
+              onChange={(e) => handleFallbackReasonFilterChange(e.target.value)}
+              className={styles.select}
+            >
+              <option value="">Todas las razones de fallback</option>
+              {Object.entries(FALLBACK_REASON_LABELS).map(([value, label]) => (
+                <option key={value} value={value}>{label}</option>
+              ))}
+            </select>
           </div>
+
+          {Object.keys(fallbackReasonCounts).length > 0 && (
+            <div className={styles.filtersBar}>
+              {Object.entries(fallbackReasonCounts).map(([reason, count]) => (
+                <span key={reason} className={`${styles.badge} ${styles.badgeNeutral}`}>
+                  {FALLBACK_REASON_LABELS[reason] || reason}: {count}
+                </span>
+              ))}
+            </div>
+          )}
 
           {error && (
             <div className={styles.errorBar}>
@@ -1616,6 +1668,11 @@ export default function MLQuestions() {
                           <span className={`${styles.badge} ${styles[STATUS_BADGE_CLASS[q.status]] || ''}`}>
                             {STATUS_LABELS[q.status] || q.status}
                           </span>
+                          {q.fallback_reason && (
+                            <span className={`${styles.badge} ${styles.badgeNeutral}`}>
+                              {FALLBACK_REASON_LABELS[q.fallback_reason] || q.fallback_reason}
+                            </span>
+                          )}
                           {q.injection_flag && (
                             <span className={styles.injectionFlag} title="Se detectó un posible intento de manipulación en esta pregunta">
                               <ShieldAlert size={12} />
