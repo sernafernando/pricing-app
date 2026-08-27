@@ -103,6 +103,14 @@ class MlBotMessage(Base):
     drafted_at = Column(DateTime(timezone=True), nullable=True)
     bot_updated_at = Column(DateTime(timezone=True), nullable=True, onupdate=func.now())
 
+    # PR6 (ml-bot-panel-operador, migration 20260827) — the actual send
+    # timestamp, stamped ONLY inside the success CAS of `POST
+    # /messages/{id}/send` (design decision 4). Deliberately distinct from
+    # `bot_updated_at`, which bumps on ANY column write via `onupdate`, not
+    # only on the transition into `sent`. Never backfilled: historic `sent`
+    # rows stay NULL and must render as sent-with-unknown-time, not blank.
+    sent_at = Column(DateTime(timezone=True), nullable=True)
+
     __table_args__ = (
         UniqueConstraint("ml_message_id", name="uq_ml_bot_messages_ml_message_id"),
         Index("idx_ml_bot_messages_pack_id", "pack_id"),
