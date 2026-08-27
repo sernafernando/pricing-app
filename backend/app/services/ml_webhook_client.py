@@ -1,6 +1,7 @@
 import asyncio
 import httpx
-from typing import Dict, Optional, List
+from datetime import datetime
+from typing import Dict, Optional, List, Union
 import logging
 
 from app.core.config import settings
@@ -241,6 +242,142 @@ class MLWebhookClient:
             logger.error(f"Error en batch de items: {e}")
 
         return results
+
+    # ── ML Orders/Shipments ops (ml-ventas-fuente-de-verdad, slice 2) ─
+    # Additive read-only methods for the ML-API-sourced operations layer
+    # (see design obs #1823). Same error-swallow shape as every other
+    # read method: never raises for HTTP/network errors, always None.
+    # Ids ARE validated (coerced to int) BEFORE any HTTP call — the
+    # Threat Matrix SSRF row: no caller-supplied string can ever reach
+    # the proxy `resource=` path.
+
+    async def get_order(self, order_id: Union[int, str]) -> Optional[Dict]:
+        """Obtiene una orden de MercadoLibre vía el proxy `preview`.
+
+        Args:
+            order_id: El id numérico de la orden ML (natural key, NUNCA
+                el `mlo_id` interno del ERP).
+
+        Returns:
+            Dict con el payload crudo de la orden, o None si hay
+            error/timeout/404.
+
+        Raises:
+            ValueError: si `order_id` no es coercionable a `int` — se
+                levanta ANTES de cualquier llamada HTTP (SSRF-safe).
+        """
+        try:
+            order_id_int = int(order_id)
+        except (TypeError, ValueError) as e:
+            raise ValueError(f"order_id no coercionable a int: {order_id!r}") from e
+
+        try:
+            async with httpx.AsyncClient(timeout=10.0) as client:
+                response = await client.get(
+                    f"{self.base_url}/api/ml/preview", params={"resource": f"/orders/{order_id_int}"}
+                )
+
+                if response.status_code == 404:
+                    logger.warning(f"Orden {order_id_int} no encontrada en ML")
+                    return None
+
+                response.raise_for_status()
+                return response.json()
+
+        except Exception as e:
+            logger.error(f"Error obteniendo orden {order_id_int}: {e}")
+            return None
+
+    async def get_shipment(self, shipment_id: Union[int, str]) -> Optional[Dict]:
+        """Obtiene un envío de MercadoLibre vía el proxy `preview`.
+
+        Args:
+            shipment_id: El id numérico del shipment ML.
+
+        Returns:
+            Dict con el payload crudo del shipment, o None si hay
+            error/timeout/404.
+
+        Raises:
+            ValueError: si `shipment_id` no es coercionable a `int` —
+                se levanta ANTES de cualquier llamada HTTP (SSRF-safe).
+        """
+        try:
+            shipment_id_int = int(shipment_id)
+        except (TypeError, ValueError) as e:
+            raise ValueError(f"shipment_id no coercionable a int: {shipment_id!r}") from e
+
+        try:
+            async with httpx.AsyncClient(timeout=10.0) as client:
+                response = await client.get(
+                    f"{self.base_url}/api/ml/preview", params={"resource": f"/shipments/{shipment_id_int}"}
+                )
+
+                if response.status_code == 404:
+                    logger.warning(f"Shipment {shipment_id_int} no encontrado en ML")
+                    return None
+
+                response.raise_for_status()
+                return response.json()
+
+        except Exception as e:
+            logger.error(f"Error obteniendo shipment {shipment_id_int}: {e}")
+            return None
+
+    async def search_orders(
+        self,
+        seller_id: Union[int, str],
+        date_from: datetime,
+        date_to: datetime,
+        offset: int = 0,
+    ) -> Optional[Dict]:
+        """Busca órdenes de MercadoLibre por ventana de `date_last_updated`
+        vía el proxy `preview`, usado por el sweep de reconciliación
+        (`sync_ml_orders_ops`, slice 3).
+
+        Args:
+            seller_id: Id numérico del vendedor ML.
+            date_from: Límite inferior (inclusive) de `date_last_updated`.
+                DEBE ser timezone-aware.
+            date_to: Límite superior (exclusive) de `date_last_updated`.
+                DEBE ser timezone-aware.
+            offset: Offset de paginación (ML cap ~1000; el sweep bisecta
+                la ventana en vez de profundizar el offset, ver design).
+
+        Returns:
+            Dict crudo `{results, paging}`, o None si hay error/timeout.
+
+        Raises:
+            ValueError: si `seller_id` no es coercionable a `int`, o si
+                `date_from`/`date_to` son naive (sin tzinfo) — se levanta
+                ANTES de cualquier llamada HTTP.
+        """
+        try:
+            seller_id_int = int(seller_id)
+        except (TypeError, ValueError) as e:
+            raise ValueError(f"seller_id no coercionable a int: {seller_id!r}") from e
+
+        if not isinstance(date_from, datetime) or not isinstance(date_to, datetime):
+            raise ValueError(f"date_from/date_to must be datetimes: {date_from!r}, {date_to!r}")
+        if date_from.tzinfo is None or date_to.tzinfo is None:
+            raise ValueError("date_from/date_to must be timezone-aware")
+
+        resource = (
+            f"/orders/search?seller={seller_id_int}"
+            f"&order.date_last_updated.from={date_from.isoformat()}"
+            f"&order.date_last_updated.to={date_to.isoformat()}"
+            f"&offset={offset}"
+        )
+
+        try:
+            async with httpx.AsyncClient(timeout=15.0) as client:
+                response = await client.get(f"{self.base_url}/api/ml/preview", params={"resource": resource})
+                response.raise_for_status()
+                return response.json()
+
+        except Exception as e:
+            logger.error(f"Error buscando órdenes (seller={seller_id_int}, offset={offset}): {e}")
+            return None
 
     # ── ML Seller Promotions (READ-ONLY, PR1) ───────────────────────
     # Write methods (enroll/remove) are added in PR2. No retry on any
