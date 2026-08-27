@@ -18,6 +18,7 @@ from __future__ import annotations
 
 from sqlalchemy import (
     BigInteger,
+    CheckConstraint,
     Column,
     DateTime,
     ForeignKey,
@@ -197,6 +198,19 @@ class MlOpsDivergence(Base):
             "field",
             name="uq_ml_ops_divergence_order_kind_field",
             postgresql_nulls_not_distinct=True,
+        ),
+        # `kind`/`state` were plain String columns whose valid values lived
+        # only in a comment while nothing wrote to them (slice 1). Slice 3
+        # is the first writer (the out-of-window counter writes `kind`), so
+        # per the change's own instructions the contract must become a real
+        # constraint, not a comment, in the same slice that starts writing.
+        CheckConstraint(
+            "kind IN ('missing_in_gbp', 'missing_in_ml', 'field_mismatch', 'out_of_window_update')",
+            name="ck_ml_ops_divergence_kind",
+        ),
+        CheckConstraint(
+            "state IN ('open', 'acknowledged', 'resolved', 'ignored')",
+            name="ck_ml_ops_divergence_state",
         ),
     )
 

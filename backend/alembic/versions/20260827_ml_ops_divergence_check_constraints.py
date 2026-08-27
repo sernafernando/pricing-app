@@ -1,0 +1,40 @@
+"""ml-ventas-fuente-de-verdad slice 3: CHECK constraints on ml_ops_divergence
+
+Revision ID: 20260827_ml_ops_divergence_check
+Revises: 20260826_ml_orders_ops_models
+Create Date: 2026-08-27
+
+Slice 1 shipped `ml_ops_divergence.kind`/`state` as plain String columns
+whose valid values lived only in a comment, because nothing wrote to them
+yet. Slice 3 is the first writer (the out-of-window update counter writes
+`kind='out_of_window_update'`), so the contract moves into a real CHECK
+constraint here instead of staying disciplinary-only.
+"""
+
+from typing import Sequence, Union
+
+from alembic import op
+
+
+revision: str = "20260827_ml_ops_divergence_check"
+down_revision: Union[str, None] = "20260826_ml_orders_ops_models"
+branch_labels: Union[str, Sequence[str], None] = None
+depends_on: Union[str, Sequence[str], None] = None
+
+
+def upgrade() -> None:
+    op.create_check_constraint(
+        "ck_ml_ops_divergence_kind",
+        "ml_ops_divergence",
+        "kind IN ('missing_in_gbp', 'missing_in_ml', 'field_mismatch', 'out_of_window_update')",
+    )
+    op.create_check_constraint(
+        "ck_ml_ops_divergence_state",
+        "ml_ops_divergence",
+        "state IN ('open', 'acknowledged', 'resolved', 'ignored')",
+    )
+
+
+def downgrade() -> None:
+    op.drop_constraint("ck_ml_ops_divergence_state", "ml_ops_divergence", type_="check")
+    op.drop_constraint("ck_ml_ops_divergence_kind", "ml_ops_divergence", type_="check")

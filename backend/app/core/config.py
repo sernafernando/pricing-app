@@ -114,6 +114,12 @@ class Settings(BaseSettings):
     # PROMOS_WRITE_ENABLED precedent -- flip on per environment once the
     # full slice chain has landed.
     ML_ORDERS_OPS_ENABLED: bool = False
+    # Rolling window (days) the reconciliation sweep actively syncs, config-
+    # bound rather than hardcoded at any call site (spec: "Rolling window
+    # boundary", 90-180 days per user decision, obs #1820). An order whose
+    # own `date_created` falls outside this window is NOT ingested even if
+    # ML reports it as updated -- hard exclusion, only counted (obs #1824).
+    ML_ORDERS_OPS_WINDOW_DAYS: int = 180
 
     # Mapbox Geocoding API
     MAPBOX_ACCESS_TOKEN: Optional[str] = None

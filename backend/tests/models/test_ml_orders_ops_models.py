@@ -276,3 +276,24 @@ class TestMlOpsDivergence:
         with pytest.raises(IntegrityError):
             db.flush()
         db.rollback()
+
+    def test_kind_check_constraint_exists(self) -> None:
+        checks = [c for c in MlOpsDivergence.__table__.constraints if isinstance(c, sa.CheckConstraint)]
+        names = {c.name for c in checks}
+        assert "ck_ml_ops_divergence_kind" in names
+        assert "ck_ml_ops_divergence_state" in names
+
+    def test_invalid_kind_is_rejected(self, db) -> None:
+        """Slice 3 is the first writer of `kind` (the out-of-window
+        counter). A comment-only contract leaked 9 ways in slice 2 (obs
+        #1843) -- this must be a real constraint, not documentation."""
+        db.add(MlOpsDivergence(order_id=1, kind="not_a_real_kind"))
+        with pytest.raises(IntegrityError):
+            db.flush()
+        db.rollback()
+
+    def test_invalid_state_is_rejected(self, db) -> None:
+        db.add(MlOpsDivergence(order_id=1, kind="field_mismatch", field="status", state="not_a_real_state"))
+        with pytest.raises(IntegrityError):
+            db.flush()
+        db.rollback()
