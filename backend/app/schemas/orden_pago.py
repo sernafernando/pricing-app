@@ -164,14 +164,20 @@ class OrdenPagoEjecutarPago(BaseModel):
     cheques: list[ChequeAplicadoItem] = Field(default_factory=list)
 
     @model_validator(mode="after")
-    def exactamente_una_fuente(self) -> Self:
-        """Exactamente una fuente de fondos: caja XOR banco (FR2.6 / AC-F2-7)."""
-        tiene_caja = self.caja_id is not None
-        tiene_banco = self.banco_id is not None
-        if tiene_caja and tiene_banco:
+    def fuentes_mutuamente_excluyentes(self) -> Self:
+        """Caja y banco son mutuamente excluyentes (FR2.6 / AC-F2-7).
+
+        Deliberadamente NO exige que venga una: una OP cubierta por completo
+        con cheques se paga sin caja ni banco, y los cheques pueden venir en
+        este body o ya estar reservados contra la OP — algo que este schema no
+        puede ver. Exigir una fuente acá hacía inalcanzable por HTTP el pago
+        íntegramente con cheques: 422 de Pydantic antes de llegar al servicio.
+
+        `ejecutar_pago` conserva el guard con el contexto completo y rechaza
+        el caso real de "sin fuente y sin cheques".
+        """
+        if self.caja_id is not None and self.banco_id is not None:
             raise ValueError("Solo se puede especificar una fuente de fondos: caja_id O banco_id, no ambos.")
-        if not tiene_caja and not tiene_banco:
-            raise ValueError("Se requiere exactamente una fuente de fondos: caja_id o banco_id.")
         return self
 
 

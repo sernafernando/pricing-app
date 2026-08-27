@@ -290,3 +290,42 @@ class TestChequesForwardedPagar:
             assert r.status_code == 200, f"Expected 200, got {r.status_code}: {r.text}"
             _, kwargs = mock_ejecutar_pago.call_args
             assert kwargs.get("cheques") == [], f"Expected empty list default, got {kwargs.get('cheques')!r}"
+
+
+class TestPagoSinFuenteEsAlcanzablePorHTTP:
+    """A fully cheque-covered OP needs no caja and no banco.
+
+    `ejecutar_pago` has always supported that path, but the request schema
+    demanded exactly one funding source, so the request died on a Pydantic 422
+    before the service ever ran. The existing coverage called the service
+    directly with `banco_id=None`, which is precisely why nobody noticed —
+    the same blind spot that let the dropped `cheques` payload survive.
+    """
+
+    def test_pagar_sin_caja_ni_banco_llega_al_servicio(
+        self, client, auth_headers, db, op_pendiente, con_todos_los_permisos
+    ) -> None:
+        with patch("app.routers.administracion_compras.ordenes_pago_service.ejecutar_pago") as mock_ejecutar_pago:
+            mock_ejecutar_pago.return_value = op_pendiente
+
+            r = client.post(
+                f"{BASE}/ordenes-pago/{op_pendiente.id}/pagar",
+                headers=auth_headers,
+                json={"fecha_pago_real": "2026-01-15"},
+            )
+
+            assert r.status_code == 200, (
+                f"A cheque-covered OP must be payable with no funding source; got {r.status_code}: {r.text}"
+            )
+            assert mock_ejecutar_pago.called, "the service never ran — the schema rejected the request"
+
+    def test_caja_y_banco_juntos_siguen_siendo_422(
+        self, client, auth_headers, db, op_pendiente, banco, con_todos_los_permisos
+    ) -> None:
+        """Relaxing the validator must not lose the mutual-exclusion rule."""
+        r = client.post(
+            f"{BASE}/ordenes-pago/{op_pendiente.id}/pagar",
+            headers=auth_headers,
+            json={"caja_id": 1, "banco_id": banco.id, "fecha_pago_real": "2026-01-15"},
+        )
+        assert r.status_code == 422, f"caja + banco together must still be rejected; got {r.status_code}"
