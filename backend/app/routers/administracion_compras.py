@@ -98,6 +98,7 @@ from app.schemas.orden_pago import (
     OrdenPagoEjecutarPago,
     OrdenPagoPaginated,
     OrdenPagoResponse,
+    ChequeEnOpResponse,
     ReservarChequePropioRequest,
 )
 from app.schemas.oc_ingreso import (
@@ -1826,6 +1827,7 @@ def cancelar_orden_pago_pendiente(
 
 @router.post(
     "/ordenes-pago/{op_id}/cheques",
+    response_model=ChequeEnOpResponse,
     status_code=status.HTTP_201_CREATED,
     summary="Reservar un cheque propio preexistente contra una OP pendiente (S3b)",
 )
@@ -1873,6 +1875,7 @@ def reservar_cheque_en_op(
 
 @router.delete(
     "/ordenes-pago/{op_id}/cheques/{cheque_id}",
+    response_model=ChequeEnOpResponse,
     status_code=status.HTTP_200_OK,
     summary="Liberar (des-reservar) un cheque propio de una OP pendiente (S3b)",
 )

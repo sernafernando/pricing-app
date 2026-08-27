@@ -26,6 +26,7 @@ import useComprasOP from '../../hooks/useComprasOP';
 import ModalCheque from './ModalCheque';
 import ModalChequeras from './ModalChequeras';
 import SelectorListaModal from './_shared/SelectorListaModal';
+import selectorStyles from './_shared/SelectorListaModal.module.css';
 import styles from './TabCheques.module.css';
 
 /**
@@ -441,7 +442,12 @@ export default function TabCheques() {
     setAplicando(cheque);
     setLoadingOpsPendientes(true);
     try {
-      const result = await listarOP({ estado: 'pendiente', proveedor_id: cheque.proveedor_id, page_size: 200 });
+      // A cheque with no beneficiary can go to ANY proveedor, so the list is
+      // deliberately unfiltered in that case — but the user has to be told,
+      // otherwise it silently looks like a filtered list that went wrong.
+      const params = { estado: 'pendiente', page_size: 200 };
+      if (cheque.proveedor_id != null) params.proveedor_id = cheque.proveedor_id;
+      const result = await listarOP(params);
       const items = result?.items ?? (Array.isArray(result) ? result : []);
       setOpsPendientes(items);
     } catch {
@@ -1375,7 +1381,11 @@ export default function TabCheques() {
             </div>
           )}
           <SelectorListaModal
-            title={`Aplicar cheque ${aplicando.numero} a una OP pendiente`}
+            title={
+              aplicando.proveedor_id == null
+                ? `Aplicar cheque ${aplicando.numero} — sin beneficiario, se listan OPs de todos los proveedores`
+                : `Aplicar cheque ${aplicando.numero} a una OP pendiente`
+            }
             items={opsPendientes}
             loading={loadingOpsPendientes || savingAplicar}
             emptyMessage="No hay órdenes de pago pendientes para este proveedor."
@@ -1384,9 +1394,9 @@ export default function TabCheques() {
             onSelect={handleAplicarAOP}
             onClose={() => { setAplicando(null); setOpsPendientes([]); setErrorAplicar(null); }}
             renderItem={(op) => (
-              <div className={styles.selectorItemInfo}>
-                <span className={styles.selectorNumero}>OP #{op.id}</span>
-                <span className={styles.selectorBanco}>
+              <div className={selectorStyles.selectorItemInfo}>
+                <span className={selectorStyles.selectorNumero}>OP #{op.id}</span>
+                <span className={selectorStyles.selectorBanco}>
                   {formatCurrency(op.monto_total, op.moneda)} {op.moneda}
                 </span>
               </div>

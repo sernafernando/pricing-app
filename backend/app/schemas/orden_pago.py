@@ -111,6 +111,17 @@ class ReservarChequePropioRequest(BaseModel):
     pedido_id: int | None = Field(None, ge=1)
 
 
+class ChequeEnOpResponse(BaseModel):
+    """Respuesta de reservar/liberar un cheque en una OP (S3b).
+
+    El resto del router expone schemas Pydantic sin excepción; estos dos
+    endpoints devolvían `dict` crudo, que queda fuera del OpenAPI.
+    """
+
+    cheque_id: int
+    orden_pago_id: int
+
+
 class OrdenPagoCreate(OrdenPagoBase):
     """Body del POST /ordenes-pago.
 

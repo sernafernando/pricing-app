@@ -1,5 +1,5 @@
 import { X, Loader2, Inbox } from 'lucide-react';
-import styles from './PanelCheques.module.css';
+import styles from './SelectorListaModal.module.css';
 
 /**
  * SelectorListaModal — modal genérico "elegí un ítem de una lista".
