@@ -24,6 +24,11 @@ depends_on: Union[str, Sequence[str], None] = None
 
 def upgrade() -> None:
     op.create_check_constraint(
+        "ck_ml_ops_sync_cursor_state",
+        "ml_ops_sync_cursor",
+        "state IN ('idle', 'running', 'error')",
+    )
+    op.create_check_constraint(
         "ck_ml_ops_divergence_kind",
         "ml_ops_divergence",
         "kind IN ('missing_in_gbp', 'missing_in_ml', 'field_mismatch', 'out_of_window_update')",
@@ -36,5 +41,6 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
+    op.drop_constraint("ck_ml_ops_sync_cursor_state", "ml_ops_sync_cursor", type_="check")
     op.drop_constraint("ck_ml_ops_divergence_state", "ml_ops_divergence", type_="check")
     op.drop_constraint("ck_ml_ops_divergence_kind", "ml_ops_divergence", type_="check")

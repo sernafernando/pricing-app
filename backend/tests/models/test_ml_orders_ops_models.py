@@ -297,3 +297,26 @@ class TestMlOpsDivergence:
         with pytest.raises(IntegrityError):
             db.flush()
         db.rollback()
+
+
+class TestSyncCursorStateConstraint:
+    """`ml_ops_sync_cursor.state` documented its valid values in a comment
+    only. Slice 3 is the first writer of that column, so the contract has
+    to be a constraint like the divergence table's."""
+
+    def test_invalid_cursor_state_is_rejected(self, db) -> None:
+        from sqlalchemy.exc import IntegrityError
+
+        from app.models.ml_orders_ops import MlOpsSyncCursor
+
+        db.add(MlOpsSyncCursor(name="sweep", state="nonsense"))
+
+        with pytest.raises(IntegrityError):
+            db.flush()
+
+    def test_valid_cursor_states_are_accepted(self, db) -> None:
+        from app.models.ml_orders_ops import MlOpsSyncCursor
+
+        for i, state in enumerate(("idle", "running", "error")):
+            db.add(MlOpsSyncCursor(name=f"cursor-{i}", state=state))
+        db.flush()

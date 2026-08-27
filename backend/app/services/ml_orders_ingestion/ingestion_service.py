@@ -1,7 +1,7 @@
 """ML orders/items/shipments ingestion write path (slice 3 of
 ml-ventas-fuente-de-verdad).
 
-`upsert_order`/`upsert_shipment` are the SINGLE writer entry point used by
+`upsert_order` is the SINGLE writer entry point used by
 BOTH the reconciliation sweep (`sweep_service.py`) and any future webhook
 accelerator (design D5) -- this is what makes "sweep and webhook updates do
 not double-write" structurally true: both paths converge on the same
@@ -10,7 +10,7 @@ idempotent `ON CONFLICT` upsert, keyed on the ML natural id, guarded by
 no-op, never a corrupting partial overwrite.
 
 Fail-closed contract (design D7, hard-won the slice-2 way -- obs #1843):
-`upsert_order`/`upsert_shipment` NEVER raise for a malformed payload. Every
+`upsert_order` NEVER raises for a malformed payload. Every
 outcome is a `UpsertOutcome` value the caller can act on without a
 try/except around this call.
 """
@@ -26,21 +26,19 @@ from sqlalchemy.dialects import postgresql, sqlite
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
-from app.models.ml_orders_ops import MlOrderItemOps, MlOrdersOps, MlShipmentOps
+from app.models.ml_orders_ops import MlOrderItemOps, MlOrdersOps
 from app.services.ml_orders_ingestion.mapper import (
     MappingError,
     OrderItemOpsDTO,
     OrderOpsDTO,
-    ShipmentOpsDTO,
     map_order,
-    map_shipment,
 )
 
 logger = logging.getLogger(__name__)
 
 
 class UpsertOutcome(str, Enum):
-    """Every outcome `upsert_order`/`upsert_shipment` can return. Nothing
+    """Every outcome `upsert_order` can return. Nothing
     outside this enum is ever raised for a bad payload -- see module
     docstring."""
 
@@ -118,7 +116,7 @@ def _upsert_item_row(db: Session, order_id: int, item: OrderItemOpsDTO) -> None:
     db.execute(stmt)
 
 
-def upsert_order(db: Session, payload: Dict[str, Any]) -> UpsertOutcome:
+def upsert_order(db: Session, payload: Dict[str, Any], mapped: Optional[OrderOpsDTO] = None) -> UpsertOutcome:
     """Upserts one ML order + its items, keyed on `order_id`.
 
     Returns:
@@ -134,12 +132,16 @@ def upsert_order(db: Session, payload: Dict[str, Any]) -> UpsertOutcome:
             older update); the stored row is left completely unchanged.
         OK              -- the row (and its items) were inserted/updated.
 
+    `mapped` lets a caller that already mapped the payload (the sweep,
+    which needs the DTO to apply the window bound) hand it over instead of
+    paying for a second identical mapping per row.
+
     NEVER raises for a malformed payload -- see module docstring.
     """
     if not settings.ML_ORDERS_OPS_ENABLED:
         return UpsertOutcome.DISABLED
 
-    result = map_order(payload)
+    result = mapped if mapped is not None else map_order(payload)
     if isinstance(result, MappingError):
         raw_id = payload.get("id") if isinstance(payload, dict) else None
         logger.warning("ml_orders_ops: mapping error for order_id=%r: %s", raw_id, result.reason)
@@ -155,93 +157,3 @@ def upsert_order(db: Session, payload: Dict[str, Any]) -> UpsertOutcome:
 
     db.flush()
     return UpsertOutcome.OK
-
-
-def upsert_shipment(db: Session, payload: Dict[str, Any]) -> UpsertOutcome:
-    """Upserts one ML shipment, keyed on `shipment_id`. Same fail-closed /
-    idempotent-guard contract as `upsert_order` (see its docstring)."""
-    if not settings.ML_ORDERS_OPS_ENABLED:
-        return UpsertOutcome.DISABLED
-
-    result = map_shipment(payload)
-    if isinstance(result, MappingError):
-        raw_id = payload.get("id") if isinstance(payload, dict) else None
-        logger.warning("ml_shipments_ops: mapping error for shipment_id=%r: %s", raw_id, result.reason)
-        return UpsertOutcome.MAPPING_ERROR
-
-    dto: ShipmentOpsDTO = result
-    values: Dict[str, Any] = {
-        "shipment_id": dto.shipment_id,
-        "order_id": dto.order_id,
-        "status": dto.status,
-        "substatus": dto.substatus,
-        "logistic_type": dto.logistic_type,
-        "tracking_number": dto.tracking_number,
-        "tracking_method": dto.tracking_method,
-        "date_created": dto.date_created,
-        "last_updated": dto.last_updated,
-        "receiver_address": dto.receiver_address,
-        "raw_shipment": dto.raw_shipment,
-        "last_synced_at": func.now(),
-    }
-    stmt = _insert_stmt(db, MlShipmentOps.__table__).values(**values)
-    update_cols = {k: stmt.excluded[k] for k in values if k != "shipment_id"}
-    # `last_updated` can be NULL on a shipment payload (ML does not always
-    # send it) -- guard with COALESCE so a NULL never blocks a legitimate
-    # refresh nor gets treated as "always newer".
-    stmt = stmt.on_conflict_do_update(
-        index_elements=["shipment_id"],
-        set_=update_cols,
-        where=(
-            (MlShipmentOps.__table__.c.last_updated.is_(None))
-            | (stmt.excluded.last_updated.is_(None))
-            | (MlShipmentOps.__table__.c.last_updated < stmt.excluded.last_updated)
-        ),
-    )
-    result_proxy = db.execute(stmt)
-    applied = bool(result_proxy.rowcount and result_proxy.rowcount > 0)
-    if not applied:
-        return UpsertOutcome.SKIPPED_STALE
-
-    db.flush()
-    return UpsertOutcome.OK
-
-
-def sync_order(order_id: int) -> UpsertOutcome:
-    """Fetches and upserts a single order (and its shipment, if any) from
-    the live ML API. Used by any single-order caller (manual re-sync,
-    future webhook accelerator) -- NOT by the bulk sweep, which already
-    has the raw payloads from `search_orders` and calls `upsert_order`
-    directly to avoid one HTTP round-trip per order.
-
-    Each DB write happens in its OWN short-lived `get_background_db()`
-    session, opened AFTER the HTTP fetch completes -- no session is ever
-    held across an HTTP call (design D8 / the 2026-06 pool-exhaustion
-    incident).
-    """
-    # Imported lazily to avoid a module-level HTTP-client dependency for
-    # every caller of `upsert_order`/`upsert_shipment` (most callers, e.g.
-    # the sweep's batch path, never call `sync_order`).
-    from app.core.database import get_background_db
-    from app.services.ml_webhook_client import ml_webhook_client
-    from app.utils.async_bridge import resolve_maybe_async
-
-    if not settings.ML_ORDERS_OPS_ENABLED:
-        return UpsertOutcome.DISABLED
-
-    raw_order = resolve_maybe_async(ml_webhook_client.get_order(order_id))
-    if raw_order is None:
-        logger.warning("sync_order: could not fetch order_id=%s from ML", order_id)
-        return UpsertOutcome.MAPPING_ERROR
-
-    with get_background_db() as db:
-        outcome = upsert_order(db, raw_order)
-        shipping_id: Optional[int] = raw_order.get("shipping", {}).get("id") if outcome == UpsertOutcome.OK else None
-
-    if shipping_id is not None:
-        raw_shipment = resolve_maybe_async(ml_webhook_client.get_shipment(shipping_id))
-        if raw_shipment is not None:
-            with get_background_db() as db:
-                upsert_shipment(db, raw_shipment)
-
-    return outcome

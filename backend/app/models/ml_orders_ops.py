@@ -169,6 +169,16 @@ class MlOpsSyncCursor(Base):
 
     __tablename__ = "ml_ops_sync_cursor"
 
+    __table_args__ = (
+        # Same reasoning as the divergence table: slice 3 is the first
+        # writer of `state`, so its valid values move out of the comment
+        # and into the database.
+        CheckConstraint(
+            "state IN ('idle', 'running', 'error')",
+            name="ck_ml_ops_sync_cursor_state",
+        ),
+    )
+
     name = Column(String(50), primary_key=True)  # 'sweep' | 'backfill'
 
     window_from = Column(DateTime(timezone=True), nullable=True)

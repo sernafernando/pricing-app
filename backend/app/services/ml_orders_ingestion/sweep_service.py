@@ -169,7 +169,7 @@ def _process_batch(raw_orders: List[Dict[str, Any]], window_from_floor: datetime
                 result.orders_out_of_window += 1
                 continue
 
-            outcome = upsert_order(db, raw_order)
+            outcome = upsert_order(db, raw_order, mapped=mapped)
             if outcome == UpsertOutcome.OK:
                 result.orders_upserted += 1
             elif outcome == UpsertOutcome.SKIPPED_STALE:
