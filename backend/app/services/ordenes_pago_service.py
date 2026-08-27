@@ -2150,17 +2150,21 @@ def cancelar_pendiente(
     user_id: int,
 ) -> OrdenPago:
     """
-    Transiciona una OP `pendiente` → `cancelado`. Cero efecto colateral.
+    Transiciona una OP `pendiente` → `cancelado`.
 
-    Es seguro porque en `pendiente`:
+    Es seguro en cuanto a movimientos de fondos porque en `pendiente`:
       - NO hay `caja_movimiento` asociado.
       - NO hay `caja_documento` asociado.
       - NO hay imputaciones físicas (los items viven solo como payload
         en `compras_eventos.items_registrados` / `items_editados`).
       - NO se movió la CC del proveedor.
 
-    Por eso la cancelación es solo un UPDATE de `estado` + un evento
-    auditado `op_cancelada_pendiente`. No hay nada que revertir.
+    SÍ tiene un efecto colateral sobre cheques: si la OP tiene cheques
+    (propios) reservados/aplicados (ver `_liberar_cheques_de_op`), cada uno
+    se LIBERA — se desvincula (orden_pago_id/proveedor_id se limpian según
+    corresponda, el link OrdenPagoCheque se borra) y se registra evento
+    'liberado_de_op'. El cheque sigue siendo un instrumento válido; ningún
+    movimiento de CC se toca porque nunca existió ninguno en `pendiente`.
 
     Args:
         session: tx activa.
@@ -2196,6 +2200,8 @@ def cancelar_pendiente(
                 f"OPs en 'pendiente'. Para OPs pagadas usá 'anular'."
             ),
         )
+
+    _liberar_cheques_de_op(session, op=op, user_id=user_id, motivo=f"Cancelación de OP {op.numero} pendiente")
 
     op.estado = "cancelado"
     session.flush()
@@ -2340,6 +2346,102 @@ def _des_endosar_cheques_tercero_de_op(
         )
 
 
+def _resolver_aplicacion_preexistente(session: Session, *, cheque_id: int) -> Optional[dict]:
+    """Discriminador ADR-5: devuelve el payload del evento 'aplicado_a_op' con
+    origen='preexistente' si este cheque fue APLICADO (ya emitido de antes) a
+    una OP, o None si fue EMITIDO para esa OP.
+
+    `emitir_cheque_propio` nunca escribe 'aplicado_a_op' — solo lo escriben los
+    caminos de aplicación de un propio preexistente en `ejecutar_pago`
+    (endoso/aplicación, ver ~:1752 y el camino '_ya_reservado' de S3b). Por eso
+    la presencia de este evento es un discriminador exacto entre "emitido para
+    esta OP" (debe anularse al revertir) y "meramente aplicado/reservado"
+    (debe liberarse, el instrumento sigue siendo válido).
+    """
+    from app.models.cheque import ChequeEvento  # noqa: PLC0415
+
+    eventos = (
+        session.execute(
+            select(ChequeEvento)
+            .where(ChequeEvento.cheque_id == cheque_id, ChequeEvento.tipo == "aplicado_a_op")
+            .order_by(ChequeEvento.id.desc())
+        )
+        .scalars()
+        .all()
+    )
+    for evento in eventos:
+        payload = evento.payload or {}
+        if payload.get("origen") == "preexistente":
+            return payload
+    return None
+
+
+def _registrar_liberado_de_op(
+    session: Session,
+    *,
+    cheque_id: int,
+    orden_pago_id: int,
+    user_id: int,
+    motivo: str,
+) -> None:
+    """Registra el evento 'liberado_de_op' (append-only) — contraparte de
+    'aplicado_a_op' cuando un cheque se desvincula de una OP sin ser anulado."""
+    from app.services import cheques_service  # noqa: PLC0415
+
+    cheques_service.registrar_evento(
+        session,
+        cheque_id=cheque_id,
+        tipo="liberado_de_op",
+        payload={"orden_pago_id": orden_pago_id, "motivo": motivo},
+        usuario_id=user_id,
+    )
+
+
+def _liberar_cheques_de_op(
+    session: Session,
+    *,
+    op: OrdenPago,
+    user_id: int,
+    motivo: str,
+) -> None:
+    """Libera (desvincula) todos los cheques linkeados a una OP `pendiente`,
+    sin tocar CC — a `pendiente` nunca hubo movimiento de CC que revertir
+    (invariante R). Usado por `cancelar_pendiente`.
+
+    Por cada OrdenPagoCheque:
+      1. Limpia orden_pago_id del cheque.
+      2. Limpia proveedor_id SOLO si fue auto-asignado al aplicar
+         (payload.proveedor_asignado == True del evento 'aplicado_a_op').
+      3. Elimina el link OrdenPagoCheque.
+      4. Registra evento 'liberado_de_op'.
+    """
+    from app.models.cheque import Cheque as ChequeModel  # noqa: PLC0415
+    from app.models.cheque import OrdenPagoCheque  # noqa: PLC0415
+
+    links = list(session.execute(select(OrdenPagoCheque).where(OrdenPagoCheque.orden_pago_id == op.id)).scalars().all())
+    for link in links:
+        cheque = session.get(ChequeModel, link.cheque_id)
+        if cheque is None:
+            continue
+
+        aplicacion = _resolver_aplicacion_preexistente(session, cheque_id=cheque.id)
+        if aplicacion is not None and aplicacion.get("proveedor_asignado"):
+            cheque.proveedor_id = None
+        cheque.orden_pago_id = None
+
+        db_link = session.get(OrdenPagoCheque, link.id)
+        if db_link is not None:
+            session.delete(db_link)
+
+        _registrar_liberado_de_op(session, cheque_id=cheque.id, orden_pago_id=op.id, user_id=user_id, motivo=motivo)
+        session.flush()
+        logger.info(
+            "🔄 Cheque id=%s liberado de OP id=%s (cancelación pendiente)",
+            cheque.id,
+            op.id,
+        )
+
+
 def _revertir_cheques_propios_de_op(
     session: Session,
     *,
@@ -2353,7 +2455,17 @@ def _revertir_cheques_propios_de_op(
     `revertir_imputaciones_de_origen(origen_tipo="orden_pago")`.
     `_des_endosar_cheques_tercero_de_op` los salta (solo procesa tipo='tercero').
 
-    Por cada OrdenPagoCheque cuyo cheque es tipo='propio':
+    Por cada OrdenPagoCheque cuyo cheque es tipo='propio', ADR-5 discrimina
+    dos casos vía `_resolver_aplicacion_preexistente`:
+
+    A) Aplicado (preexistente) — el cheque YA EXISTÍA y solo se vinculó a esta
+       OP (no se emitió para ella). El instrumento sigue siendo válido:
+         1. Revierte la CC (si la OP estaba 'pagado'; ver invariante R).
+         2. Limpia proveedor_id (solo si fue auto-asignado) y orden_pago_id.
+         3. Elimina el link OrdenPagoCheque.
+         4. Registra evento 'liberado_de_op'. NO se transiciona a 'anulado'.
+
+    B) Emitido para esta OP (comportamiento original):
       1. Llama a cheques_service._revertir_cc_si_linkeado para revertir la CC
          (Caso A: reversal de imputacion cheque→pedido / Caso B: debe directo CC).
       2. Transiciona el cheque a estado 'anulado' vía cheques_service.transicionar_cheque.
@@ -2372,6 +2484,38 @@ def _revertir_cheques_propios_de_op(
     for link in links:
         cheque = session.get(ChequeModel, link.cheque_id)
         if cheque is None or cheque.tipo != "propio":
+            continue
+
+        aplicacion = _resolver_aplicacion_preexistente(session, cheque_id=cheque.id)
+        if aplicacion is not None:
+            # ADR-5 — cheque preexistente meramente aplicado: LIBERAR, no anular.
+            cheques_service._revertir_cc_si_linkeado(
+                session,
+                cheque=cheque,
+                usuario_id=user_id,
+                empresa_id=op.empresa_id,
+            )
+            if aplicacion.get("proveedor_asignado"):
+                cheque.proveedor_id = None
+            cheque.orden_pago_id = None
+
+            db_link = session.get(OrdenPagoCheque, link.id)
+            if db_link is not None:
+                session.delete(db_link)
+
+            _registrar_liberado_de_op(
+                session,
+                cheque_id=cheque.id,
+                orden_pago_id=op.id,
+                user_id=user_id,
+                motivo=f"Anulación de OP {op.numero}",
+            )
+            session.flush()
+            logger.info(
+                "🔄 Cheque propio id=%s (preexistente) liberado al anular OP id=%s — sigue válido",
+                cheque.id,
+                op.id,
+            )
             continue
 
         # 'debitado'/'acreditado' ya fueron bloqueados antes de llegar aquí.
