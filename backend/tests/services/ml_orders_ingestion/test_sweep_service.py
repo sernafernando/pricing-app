@@ -435,3 +435,48 @@ class TestBisectionIsBounded:
         sweep_service.run_sweep(seller_id=999, window_days=90)
 
         assert calls["n"] <= sweep_service.MAX_WINDOW_FETCHES_PER_PASS
+
+
+class TestRunLockIsAlwaysReleased:
+    """The module's thesis is that the sweep never gets stuck. An exception
+    other than WindowFetchError used to escape `run_sweep`, leaving the
+    cursor at state='running' until the 30-minute stale timeout — three
+    lost cron cycles and a raw traceback in the log."""
+
+    def test_unexpected_exception_leaves_the_lock_released(self, db, monkeypatch) -> None:
+        from app.models.ml_orders_ops import MlOpsSyncCursor
+        from app.services.ml_orders_ingestion import sweep_service
+
+        monkeypatch.setattr(settings, "ML_ORDERS_OPS_ENABLED", True)
+
+        async def boom(seller_id, date_from, date_to, offset=0):
+            raise RuntimeError("something nobody predicted")
+
+        monkeypatch.setattr(sweep_service.ml_webhook_client, "search_orders", boom)
+
+        result = sweep_service.run_sweep(seller_id=999, window_days=90)
+
+        assert result.error is not None
+        cursor = db.query(MlOpsSyncCursor).filter_by(name=sweep_service.CURSOR_NAME).first()
+        assert cursor is not None
+        assert cursor.state != "running"
+
+    def test_a_later_pass_can_still_run_after_an_unexpected_exception(self, db, monkeypatch) -> None:
+        from app.services.ml_orders_ingestion import sweep_service
+
+        monkeypatch.setattr(settings, "ML_ORDERS_OPS_ENABLED", True)
+
+        async def boom(seller_id, date_from, date_to, offset=0):
+            raise RuntimeError("something nobody predicted")
+
+        monkeypatch.setattr(sweep_service.ml_webhook_client, "search_orders", boom)
+        sweep_service.run_sweep(seller_id=999, window_days=90)
+
+        async def empty(seller_id, date_from, date_to, offset=0):
+            return {"results": [], "paging": {"total": 0}}
+
+        monkeypatch.setattr(sweep_service.ml_webhook_client, "search_orders", empty)
+        second = sweep_service.run_sweep(seller_id=999, window_days=90)
+
+        assert second.ran is True
+        assert second.error != "already running"

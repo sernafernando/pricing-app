@@ -28,3 +28,18 @@ class TestMlOrdersOpsSettings:
         overridden = Settings()
 
         assert overridden.ML_ORDERS_OPS_WINDOW_DAYS == 120
+
+
+class TestWindowDaysIsBounded:
+    """A typo in .env must not silently trigger an enormous cold start.
+    Same reasoning as TICKETS_TRIAGE_MIN_CONFIANZA's ge/le bounds."""
+
+    def test_window_days_rejects_out_of_range_values(self) -> None:
+        import pytest
+        from pydantic import ValidationError
+
+        from app.core.config import Settings
+
+        for bad in (0, -1, 1800):
+            with pytest.raises(ValidationError):
+                Settings(ML_ORDERS_OPS_WINDOW_DAYS=bad)

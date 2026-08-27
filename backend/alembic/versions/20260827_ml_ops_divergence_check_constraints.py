@@ -1,4 +1,5 @@
 """ml-ventas-fuente-de-verdad slice 3: CHECK constraints on ml_ops_divergence
+and ml_ops_sync_cursor
 
 Revision ID: 20260827_ml_ops_divergence_check
 Revises: 20260826_ml_orders_ops_models

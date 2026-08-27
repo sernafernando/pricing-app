@@ -59,6 +59,8 @@ from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, Iterator, List, Optional, Tuple
 
 from app.core.config import settings
+from sqlalchemy.exc import IntegrityError
+
 from app.core.database import get_background_db
 from app.models.ml_orders_ops import MlOpsDivergence, MlOpsSyncCursor
 from app.services.ml_orders_ingestion.ingestion_service import UpsertOutcome, upsert_order
@@ -315,6 +317,34 @@ def _load_cursor(db, for_update: bool = False) -> Optional[MlOpsSyncCursor]:
     return query.first()
 
 
+def _ensure_cursor_row(db) -> None:
+    """Creates the cursor row if it does not exist, tolerating a concurrent
+    creator. Dialect-agnostic: the insert is attempted in a SAVEPOINT so a
+    losing racer rolls back only that statement."""
+    if db.query(MlOpsSyncCursor).filter_by(name=CURSOR_NAME).first() is not None:
+        return
+    try:
+        with db.begin_nested():
+            db.add(MlOpsSyncCursor(name=CURSOR_NAME, state="idle"))
+            db.flush()
+    except IntegrityError:
+        # Someone else created it between our SELECT and our INSERT, which
+        # is exactly the race this exists to survive.
+        pass
+
+
+def _release_lock_as_error(error: BaseException) -> None:
+    """Marks the run lock as 'error' so the next pass may run immediately
+    instead of waiting out the stale-lock timeout."""
+    with get_background_db() as db:
+        cursor = _load_cursor(db)
+        if cursor is None:
+            cursor = MlOpsSyncCursor(name=CURSOR_NAME)
+            db.add(cursor)
+        cursor.state = "error"
+        cursor.detail = str(error)[:500]
+
+
 def _tz_aware(value: Optional[datetime]) -> Optional[datetime]:
     """SQLite loses tzinfo on a value round-tripped through the DB (the
     test DB, `tests/conftest.py`'s `sqlite://`) -- a naive value read back
@@ -351,8 +381,14 @@ def _try_acquire_run_lock(db, now: datetime) -> bool:
     (finding 4). Returns False (do not run) if another pass is genuinely
     in flight; reclaims (returns True) a 'running' lock older than
     `STALE_LOCK_TIMEOUT`, on the assumption its owner died."""
+    # `SELECT ... FOR UPDATE` locks an existing row, not the gap where one
+    # would go, so on a cold start two simultaneous runs both read None and
+    # both INSERT -- one of them dying on the primary key. Seeding the row
+    # first (idempotently) means the FOR UPDATE below always has something
+    # real to lock.
+    _ensure_cursor_row(db)
     cursor = _load_cursor(db, for_update=True)
-    if cursor is None:
+    if cursor is None:  # pragma: no cover -- _ensure_cursor_row just created it
         db.add(MlOpsSyncCursor(name=CURSOR_NAME, state="running", detail=now.isoformat()))
         return True
 
@@ -456,15 +492,20 @@ def run_sweep(seller_id: Optional[int] = None, window_days: Optional[int] = None
                 last_checkpoint_to = leaf_to
     except WindowFetchError as e:
         logger.error("sync_ml_orders_ops: window fetch failed, cursor NOT advanced past the last completed leaf: %s", e)
-        with get_background_db() as db:
-            cursor = _load_cursor(db)
-            if cursor is None:
-                cursor = MlOpsSyncCursor(name=CURSOR_NAME)
-                db.add(cursor)
-            cursor.state = "error"
-            cursor.detail = str(e)[:500]
+        _release_lock_as_error(e)
         result.window_to = last_checkpoint_to
         result.error = str(e)
+        return result
+    except Exception as e:  # noqa: BLE001 -- see below
+        # Anything that is not a WindowFetchError used to escape here, and
+        # the run lock stayed at 'running' until the 30-minute stale
+        # timeout: three cron cycles lost to a bug we did not predict. The
+        # whole point of this module is that it never gets stuck, so an
+        # unexpected failure has to release the lock like any other.
+        logger.exception("sync_ml_orders_ops: sweep failed unexpectedly, releasing the run lock")
+        _release_lock_as_error(e)
+        result.window_to = last_checkpoint_to
+        result.error = f"{type(e).__name__}: {e}"
         return result
 
     _flush_pending()

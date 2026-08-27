@@ -22,7 +22,7 @@ class TestFlagGate:
     def test_main_calls_run_sweep(self, monkeypatch):
         monkeypatch.setattr(settings, "ML_ORDERS_OPS_ENABLED", True)
         with patch.object(sync_ml_orders_ops, "run_sweep") as mock_run_sweep:
-            mock_run_sweep.return_value = sync_ml_orders_ops.sweep_service.SweepResult(ran=True)
+            mock_run_sweep.return_value = sweep_service.SweepResult(ran=True)
             sync_ml_orders_ops.main()
         mock_run_sweep.assert_called_once()
 

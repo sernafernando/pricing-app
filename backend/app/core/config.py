@@ -119,7 +119,9 @@ class Settings(BaseSettings):
     # boundary", 90-180 days per user decision, obs #1820). An order whose
     # own `date_created` falls outside this window is NOT ingested even if
     # ML reports it as updated -- hard exclusion, only counted (obs #1824).
-    ML_ORDERS_OPS_WINDOW_DAYS: int = 180
+    # Bounded so a typo in .env cannot silently trigger a huge cold
+    # start; a year is already far past what the ops layer needs.
+    ML_ORDERS_OPS_WINDOW_DAYS: int = Field(default=180, ge=1, le=365)
 
     # Mapbox Geocoding API
     MAPBOX_ACCESS_TOKEN: Optional[str] = None
