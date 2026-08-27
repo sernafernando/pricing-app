@@ -1711,6 +1711,41 @@ def crear_orden_pago(
             # F7 — NCs a imputar en la misma transacción.
             ncs_aplicadas=[nc.model_dump() for nc in data.ncs_aplicadas],
         )
+        # S5 — ADR-2: crear() stays free of cheque logic; the router
+        # orchestrates crear() followed by N x reservar_cheque_propio_en_op
+        # in the SAME transaction (rollback covers OP + reservations alike).
+        #
+        # Only a PRE-EXISTING propio cheque (cheque_id set, tipo=='propio')
+        # is reservable on this create-without-pay path:
+        #   - cheque_id is None (new propio to be emitted) -> nothing exists
+        #     yet to reserve; there is no (propio, emitido, entregar)
+        #     transition outside ejecutar_pago.
+        #   - cheque_id set but tipo=='tercero' -> endorsement happens at
+        #     payment time, not at creation.
+        # Both are rejected explicitly (422) instead of being silently
+        # dropped, which was the exact bug S1 fixed on the crear-y-pagar
+        # path. tipo=='tercero' rejection is delegated to the shared
+        # `_validar_propio_aplicable` guard inside
+        # `reservar_cheque_propio_en_op` — no duplicated validation logic.
+        for ch in data.cheques:
+            if ch.cheque_id is None:
+                raise HTTPException(
+                    status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+                    detail=(
+                        "No se puede emitir un cheque propio nuevo al crear una OP sin "
+                        "pagarla en el momento. Marcá 'Pagar ahora' para emitirlo, o creá "
+                        "la OP y aplicalo/reservalo después desde la solapa de Cheques."
+                    ),
+                )
+            ordenes_pago_service.reservar_cheque_propio_en_op(
+                db,
+                orden_pago_id=op.id,
+                cheque_id=ch.cheque_id,
+                monto=ch.monto,
+                moneda=ch.moneda,
+                pedido_id=ch.pedido_id,
+                user_id=user.id,
+            )
     except HTTPException:
         db.rollback()
         raise
