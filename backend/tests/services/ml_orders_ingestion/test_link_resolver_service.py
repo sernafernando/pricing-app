@@ -288,3 +288,65 @@ class TestQuestionItemBuyerResolution:
         db.refresh(q)
         assert q.updated_at == original_updated_at
         assert q.status == "received"
+
+
+class TestNoQueryPerRowLoop:
+    """AGENTS.md: "Don't query DB in loops". Pre-push review finding 1/2:
+    `_resolve_messages`/`_resolve_questions` ran one query per candidate row
+    (plus one insert per match), and `_resolve_claims` materialised every
+    order id into a Python set. `resolve_links` must run a bounded, small
+    number of statements regardless of how many claims/messages/questions
+    exist -- proven here with 12 of each, which would blow well past any
+    reasonable fixed bound under the old per-row-loop implementation."""
+
+    def test_resolve_links_runs_a_bounded_number_of_statements(self, db, query_counter) -> None:
+        order = _make_order(db, order_id=900, pack_id=900, buyer_id=42)
+        db.add(MlOrderItemOps(order_id=order.order_id, item_id="MLA-BOUND", quantity=1))
+        db.flush()
+
+        for i in range(12):
+            _make_claim(db, claim_id=9000 + i, resource_id=order.order_id)
+            _make_message(db, ml_message_id=f"bound-msg-{i}", pack_id="900")
+            _make_question(db, ml_question_id=9500 + i, item_id="MLA-BOUND", buyer_id=42)
+        db.flush()
+
+        with query_counter() as counter:
+            result = resolve_links(db)
+
+        assert result.claims_linked == 12
+        assert result.messages_linked == 12
+        assert result.questions_linked == 12
+        # A handful of set-based statements (one INSERT..SELECT + a couple of
+        # count queries per entity type), never O(row count).
+        assert counter.total <= 15, f"expected a bounded statement count, got {counter.total}"
+
+
+class TestUnlinkedQueriesArePaginated:
+    """Pre-push review finding 3: the `get_unlinked_*` helpers backed an
+    unbounded `.all()` over their whole table -- this is the query path a
+    UI will consume, so it needs limit/offset now, not later."""
+
+    def test_get_unlinked_claims_respects_limit_and_offset(self, db) -> None:
+        for i in range(5):
+            _make_claim(db, claim_id=9700 + i, resource_id=None)
+
+        page_one = get_unlinked_claims(db, limit=2, offset=0)
+        page_two = get_unlinked_claims(db, limit=2, offset=2)
+
+        assert len(page_one) == 2
+        assert len(page_two) == 2
+        assert {c.id for c in page_one}.isdisjoint({c.id for c in page_two})
+
+    def test_get_unlinked_messages_respects_limit_and_offset(self, db) -> None:
+        for i in range(5):
+            _make_message(db, ml_message_id=f"unl-msg-{i}", pack_id=None)
+
+        page = get_unlinked_messages(db, limit=3, offset=0)
+        assert len(page) == 3
+
+    def test_get_unlinked_questions_respects_limit_and_offset(self, db) -> None:
+        for i in range(5):
+            _make_question(db, ml_question_id=9800 + i, item_id="MLA-UNL", buyer_id=None)
+
+        page = get_unlinked_questions(db, limit=3, offset=0)
+        assert len(page) == 3

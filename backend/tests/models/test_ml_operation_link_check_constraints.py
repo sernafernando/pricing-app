@@ -7,8 +7,8 @@ slice-3 lesson, obs #1843/#1852) the contract must become a real CHECK
 constraint in the same slice that starts writing, not stay a comment.
 """
 
-import sqlalchemy as sa
 import pytest
+import sqlalchemy as sa
 from sqlalchemy.exc import IntegrityError
 
 from app.models.ml_orders_ops import MlOperationLink
