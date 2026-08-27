@@ -85,6 +85,17 @@ class ShipmentOpsDTO:
     raw_shipment: Dict[str, Any] = field(default_factory=dict)
 
 
+def _as_dict(value: Any, field: str) -> Dict[str, Any]:
+    """Returns a nested ML object as a dict. Absent means empty; present
+    but not a dict is a mapping failure, so it raises rather than being
+    coerced away by `or {}` (which would hide a malformed payload)."""
+    if value is None:
+        return {}
+    if not isinstance(value, dict):
+        raise TypeError(f"{field} is not an object: {value!r}")
+    return value
+
+
 def _parse_tz_aware(value: Any) -> Optional[datetime]:
     """Parses an ML ISO timestamp string to a tz-aware `datetime` (UTC-
     comparable). Naive results (should not happen with real ML payloads,
@@ -95,6 +106,8 @@ def _parse_tz_aware(value: Any) -> Optional[datetime]:
     """
     if value is None or value == "":
         return None
+    if not isinstance(value, str):
+        raise TypeError(f"timestamp is not a string: {value!r}")
 
     parsed = isoparse(value)
     if parsed.tzinfo is None:
@@ -103,9 +116,12 @@ def _parse_tz_aware(value: Any) -> Optional[datetime]:
 
 
 def _map_item(raw_item: Dict[str, Any]) -> OrderItemOpsDTO:
-    item = raw_item.get("item") or {}
+    item = _as_dict(raw_item.get("item"), "order_items[].item")
+    raw_item_id = item.get("id")
+    if raw_item_id is None:
+        raise ValueError("order_items[].item.id is required")
     return OrderItemOpsDTO(
-        item_id=str(item.get("id")),
+        item_id=str(raw_item_id),
         variation_id=item.get("variation_id"),
         seller_sku=item.get("seller_sku"),
         title=item.get("title"),
@@ -136,7 +152,10 @@ def map_order(payload: Dict[str, Any]) -> Union[OrderOpsDTO, MappingError]:
     except (TypeError, ValueError):
         return MappingError(f"unparseable order id: {raw_id!r}", payload)
 
-    seller = payload.get("seller") or {}
+    try:
+        seller = _as_dict(payload.get("seller"), "seller")
+    except TypeError as e:
+        return MappingError(str(e), payload)
     raw_seller_id = seller.get("id")
     if raw_seller_id is None:
         return MappingError("missing required field: seller.id", payload)
@@ -146,21 +165,24 @@ def map_order(payload: Dict[str, Any]) -> Union[OrderOpsDTO, MappingError]:
         return MappingError(f"unparseable seller id: {raw_seller_id!r}", payload)
 
     raw_last_updated = payload.get("date_last_updated")
-    if raw_last_updated is None:
+    if raw_last_updated is None or raw_last_updated == "":
         return MappingError("missing required field: date_last_updated", payload)
     try:
         ml_last_updated = _parse_tz_aware(raw_last_updated)
-    except (ValueError, OverflowError) as e:
+    except (TypeError, ValueError, OverflowError) as e:
         return MappingError(f"unparseable date_last_updated: {raw_last_updated!r} ({e})", payload)
 
     try:
         date_created = _parse_tz_aware(payload.get("date_created"))
         date_closed = _parse_tz_aware(payload.get("date_closed"))
-    except (ValueError, OverflowError) as e:
+    except (TypeError, ValueError, OverflowError) as e:
         return MappingError(f"unparseable order timestamp: {e}", payload)
 
-    buyer = payload.get("buyer") or {}
-    shipping = payload.get("shipping") or {}
+    try:
+        buyer = _as_dict(payload.get("buyer"), "buyer")
+        shipping = _as_dict(payload.get("shipping"), "shipping")
+    except TypeError as e:
+        return MappingError(str(e), payload)
     raw_shipping_id = shipping.get("id")
     try:
         shipping_id = int(raw_shipping_id) if raw_shipping_id is not None else None
@@ -218,7 +240,7 @@ def map_shipment(payload: Dict[str, Any]) -> Union[ShipmentOpsDTO, MappingError]
     try:
         date_created = _parse_tz_aware(payload.get("date_created"))
         last_updated = _parse_tz_aware(payload.get("last_updated"))
-    except (ValueError, OverflowError) as e:
+    except (TypeError, ValueError, OverflowError) as e:
         return MappingError(f"unparseable shipment timestamp: {e}", payload)
 
     return ShipmentOpsDTO(

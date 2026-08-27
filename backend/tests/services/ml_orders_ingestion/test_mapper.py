@@ -240,3 +240,56 @@ class TestMapOrderContractHoles:
 
         assert isinstance(result, MappingError)
         assert "order_items" in result.reason
+
+
+class TestMapOrderContractHolesRound2:
+    """Second round of contract holes: a payload whose sub-objects or
+    scalars have the wrong TYPE must still come back as a MappingError,
+    and a required field must never end up silently empty."""
+
+    def test_non_string_timestamp_returns_mapping_error(self) -> None:
+        payload = {**FULL_ORDER_PAYLOAD, "date_last_updated": 1754049600}
+
+        result = map_order(payload)
+
+        assert isinstance(result, MappingError)
+
+    def test_non_dict_seller_returns_mapping_error(self) -> None:
+        payload = {**FULL_ORDER_PAYLOAD, "seller": "456"}
+
+        result = map_order(payload)
+
+        assert isinstance(result, MappingError)
+
+    def test_non_dict_shipping_returns_mapping_error(self) -> None:
+        payload = {**FULL_ORDER_PAYLOAD, "shipping": "40000012345"}
+
+        result = map_order(payload)
+
+        assert isinstance(result, MappingError)
+
+    def test_non_dict_buyer_returns_mapping_error(self) -> None:
+        payload = {**FULL_ORDER_PAYLOAD, "buyer": "789"}
+
+        result = map_order(payload)
+
+        assert isinstance(result, MappingError)
+
+    def test_empty_required_timestamp_returns_mapping_error(self) -> None:
+        payload = {**FULL_ORDER_PAYLOAD, "date_last_updated": ""}
+
+        result = map_order(payload)
+
+        assert isinstance(result, MappingError)
+
+    def test_item_without_id_returns_mapping_error_not_the_string_none(self) -> None:
+        payload = {**FULL_ORDER_PAYLOAD, "order_items": [{"item": {"title": "no id"}, "quantity": 1}]}
+
+        result = map_order(payload)
+
+        assert isinstance(result, MappingError)
+
+    def test_non_string_shipment_timestamp_returns_mapping_error(self) -> None:
+        result = map_shipment({"id": 40000012345, "last_updated": 1754049600})
+
+        assert isinstance(result, MappingError)
