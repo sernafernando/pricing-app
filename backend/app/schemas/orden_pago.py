@@ -97,6 +97,20 @@ class ChequeAplicadoItem(BaseModel):
     pedido_id: int | None = Field(None, ge=1)
 
 
+class ReservarChequePropioRequest(BaseModel):
+    """Body del POST /ordenes-pago/{op_id}/cheques (S3b — reserva).
+
+    Reserva un cheque propio preexistente contra una OP `pendiente`. `monto`
+    y `moneda` deben coincidir exactamente con el cheque (defensa en
+    profundidad — mirrors `ordenes_pago_service.reservar_cheque_propio_en_op`).
+    """
+
+    cheque_id: int = Field(..., ge=1)
+    monto: Decimal = Field(..., gt=0)
+    moneda: str = Field(..., pattern="^(ARS|USD)$", max_length=3)
+    pedido_id: int | None = Field(None, ge=1)
+
+
 class OrdenPagoCreate(OrdenPagoBase):
     """Body del POST /ordenes-pago.
 

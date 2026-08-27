@@ -21,7 +21,7 @@ from datetime import date
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
-from sqlalchemy import func
+from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session, selectinload
 
 from app.api.deps import require_permiso
@@ -386,13 +386,24 @@ def listar_cheques(
     moneda: Optional[str] = Query(default=None),
     desde: Optional[date] = Query(default=None),
     hasta: Optional[date] = Query(default=None),
+    proveedor_id: Optional[int] = Query(default=None),
+    sin_orden_pago: Optional[bool] = Query(default=None),
     page: int = Query(1, ge=1),
     page_size: int = Query(50, ge=1, le=200),
     db: Session = Depends(get_db),
 ) -> ChequePaginated:
     """Lista cheques paginados con filtros opcionales.
 
-    Filtros: tipo (propio/tercero), estado, banco_empresa_id, moneda, rango de fecha_pago.
+    Filtros: tipo (propio/tercero), estado, banco_empresa_id, moneda, rango
+    de fecha_pago, proveedor_id, sin_orden_pago.
+
+    `proveedor_id`: semántica `proveedor_id IS NULL OR proveedor_id = X`
+    (S3b R8) — el picker de "aplicar cheque propio" necesita ver también los
+    cheques sin beneficiario asignado, no solo los ya asignados a ese
+    proveedor.
+    `sin_orden_pago`: True → solo cheques SIN fila en `orden_pago_cheque`
+    (ni reservados ni pagados con ellos).
+
     Paginación: ?page=1&page_size=50 (máx 200).
     Los eventos NO se incluyen en el listado (usar GET /cheques/{id} para detalle completo).
     Requiere permiso `tesoreria.gestionar_cheques`.
@@ -410,6 +421,16 @@ def listar_cheques(
         q = q.filter(Cheque.fecha_pago >= desde)
     if hasta:
         q = q.filter(Cheque.fecha_pago <= hasta)
+    if proveedor_id is not None:
+        q = q.filter(or_(Cheque.proveedor_id.is_(None), Cheque.proveedor_id == proveedor_id))
+    if sin_orden_pago is not None:
+        from app.models.cheque import OrdenPagoCheque  # noqa: PLC0415
+
+        linkeados = select(OrdenPagoCheque.cheque_id)
+        if sin_orden_pago:
+            q = q.filter(~Cheque.id.in_(linkeados))
+        else:
+            q = q.filter(Cheque.id.in_(linkeados))
     total = q.with_entities(func.count(Cheque.id)).scalar() or 0
     rows = (
         q.options(

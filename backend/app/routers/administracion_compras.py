@@ -98,6 +98,7 @@ from app.schemas.orden_pago import (
     OrdenPagoEjecutarPago,
     OrdenPagoPaginated,
     OrdenPagoResponse,
+    ReservarChequePropioRequest,
 )
 from app.schemas.oc_ingreso import (
     OCCandidataResponse,
@@ -1821,6 +1822,90 @@ def cancelar_orden_pago_pendiente(
     _commit_or_rollback(db, operacion="cancelar_orden_pago_pendiente")
     db.refresh(op)
     return _op_response(op)
+
+
+@router.post(
+    "/ordenes-pago/{op_id}/cheques",
+    status_code=status.HTTP_201_CREATED,
+    summary="Reservar un cheque propio preexistente contra una OP pendiente (S3b)",
+)
+def reservar_cheque_en_op(
+    op_id: int,
+    data: ReservarChequePropioRequest,
+    db: Session = Depends(get_db),
+    user: Usuario = Depends(require_permiso("administracion.gestionar_ordenes_compra")),
+) -> dict:
+    """Reserva un cheque propio preexistente contra una OP `pendiente` (S3b).
+
+    NO mueve dinero — solo persiste el link `OrdenPagoCheque` de inmediato
+    (invariante R). La imputación real ocurre recién cuando la OP se paga.
+    Por eso el permiso requerido es `gestionar_ordenes_compra` (igual que
+    crear/editar), NO `ejecutar_pagos`.
+
+    Raises:
+        404: OP o cheque inexistente.
+        409: OP no está 'pendiente', o el cheque ya está reservado/aplicado
+            en otra OP.
+        422: cheque no es 'propio', estado inválido, beneficiario mismatch,
+            o monto/moneda no coinciden con el cheque.
+    """
+    try:
+        cheque = ordenes_pago_service.reservar_cheque_propio_en_op(
+            db,
+            orden_pago_id=op_id,
+            cheque_id=data.cheque_id,
+            monto=data.monto,
+            moneda=data.moneda,
+            pedido_id=data.pedido_id,
+            user_id=user.id,
+        )
+    except HTTPException:
+        db.rollback()
+        raise
+    except Exception as exc:
+        db.rollback()
+        logger.exception("reservar_cheque_en_op falló op_id=%s: %s", op_id, exc)
+        raise HTTPException(status_code=500, detail="Error al reservar el cheque en la OP.") from exc
+
+    _commit_or_rollback(db, operacion="reservar_cheque_en_op")
+    return {"cheque_id": cheque.id, "orden_pago_id": op_id}
+
+
+@router.delete(
+    "/ordenes-pago/{op_id}/cheques/{cheque_id}",
+    status_code=status.HTTP_200_OK,
+    summary="Liberar (des-reservar) un cheque propio de una OP pendiente (S3b)",
+)
+def liberar_cheque_de_op(
+    op_id: int,
+    cheque_id: int,
+    db: Session = Depends(get_db),
+    user: Usuario = Depends(require_permiso("administracion.gestionar_ordenes_compra")),
+) -> dict:
+    """Libera un cheque reservado en una OP `pendiente` (S3b). NO toca CC —
+    a `pendiente` nunca hubo movimiento de CC que revertir.
+
+    Raises:
+        404: OP o cheque inexistente.
+        409: OP no está 'pendiente', o el cheque no está linkeado a esta OP.
+    """
+    try:
+        ordenes_pago_service.liberar_cheque_de_op(
+            db,
+            orden_pago_id=op_id,
+            cheque_id=cheque_id,
+            user_id=user.id,
+        )
+    except HTTPException:
+        db.rollback()
+        raise
+    except Exception as exc:
+        db.rollback()
+        logger.exception("liberar_cheque_de_op falló op_id=%s cheque_id=%s: %s", op_id, cheque_id, exc)
+        raise HTTPException(status_code=500, detail="Error al liberar el cheque de la OP.") from exc
+
+    _commit_or_rollback(db, operacion="liberar_cheque_de_op")
+    return {"cheque_id": cheque_id, "orden_pago_id": op_id}
 
 
 @router.post(
