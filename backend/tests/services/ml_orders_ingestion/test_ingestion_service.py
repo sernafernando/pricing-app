@@ -144,3 +144,48 @@ class TestUpsertOrderNoDuplicateItems:
         upsert_order(db, v2)
 
         assert db.query(MlOrderItemOps).filter_by(order_id=111, item_id="MLA1").count() == 1
+
+
+class TestUpsertOrderDeletesStaleItems:
+    def test_item_removed_from_a_newer_payload_is_deleted(self, db):
+        """A source-of-truth table cannot accumulate phantom items: if a
+        newer payload for the same order no longer lists an item (partial
+        cancellation, variation change), the stale
+        `ml_order_items_ops` row for it must be deleted in the SAME
+        transaction as the upsert -- not just left to rot forever."""
+        v1 = _order_payload(last_updated="2026-08-20T10:00:00.000-04:00")
+        v1["order_items"] = [
+            {"item": {"id": "MLA1", "seller_sku": "SKU-1"}, "quantity": 1, "unit_price": 100.0},
+            {"item": {"id": "MLA2", "seller_sku": "SKU-2"}, "quantity": 1, "unit_price": 50.0},
+        ]
+        v2 = _order_payload(last_updated="2026-08-21T10:00:00.000-04:00")
+        v2["order_items"] = [
+            {"item": {"id": "MLA1", "seller_sku": "SKU-1"}, "quantity": 1, "unit_price": 100.0},
+        ]
+
+        first = upsert_order(db, v1)
+        assert db.query(MlOrderItemOps).filter_by(order_id=111).count() == 2
+
+        second = upsert_order(db, v2)
+
+        assert first == UpsertOutcome.OK
+        assert second == UpsertOutcome.OK
+        remaining = db.query(MlOrderItemOps).filter_by(order_id=111).all()
+        assert {row.item_id for row in remaining} == {"MLA1"}
+
+    def test_stale_update_does_not_delete_items(self, db):
+        """A `SKIPPED_STALE` outcome must leave the items table exactly as
+        untouched as the order row -- deleting items on a stale/no-op
+        write would be worse than not deleting them at all."""
+        newer = _order_payload(last_updated="2026-08-21T10:00:00.000-04:00")
+        newer["order_items"] = [
+            {"item": {"id": "MLA1"}, "quantity": 1, "unit_price": 100.0},
+        ]
+        older_but_fewer_items = _order_payload(last_updated="2026-08-20T10:00:00.000-04:00")
+        older_but_fewer_items["order_items"] = []
+
+        upsert_order(db, newer)
+        outcome = upsert_order(db, older_but_fewer_items)
+
+        assert outcome == UpsertOutcome.SKIPPED_STALE
+        assert db.query(MlOrderItemOps).filter_by(order_id=111).count() == 1

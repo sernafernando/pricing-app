@@ -26,7 +26,6 @@ load_dotenv(dotenv_path=env_path)
 
 from app.services.ml_orders_ingestion import sweep_service  # noqa: E402
 from app.services.ml_orders_ingestion.sweep_service import run_sweep  # noqa: E402
-from app.services.ml_webhook_client import ml_webhook_client  # noqa: E402
 
 logger = logging.getLogger(__name__)
 

@@ -31,7 +31,8 @@ def upgrade() -> None:
     op.create_check_constraint(
         "ck_ml_ops_divergence_kind",
         "ml_ops_divergence",
-        "kind IN ('missing_in_gbp', 'missing_in_ml', 'field_mismatch', 'out_of_window_update')",
+        "kind IN ('missing_in_gbp', 'missing_in_ml', 'field_mismatch', 'out_of_window_update', "
+        "'window_not_enumerable')",
     )
     op.create_check_constraint(
         "ck_ml_ops_divergence_state",

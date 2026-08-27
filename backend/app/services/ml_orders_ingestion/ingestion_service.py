@@ -93,6 +93,24 @@ def _upsert_order_row(db: Session, dto: OrderOpsDTO) -> bool:
     return bool(result.rowcount and result.rowcount > 0)
 
 
+def _delete_stale_items(db: Session, order_id: int, keep_keys: "set[tuple[str, Optional[int]]]") -> None:
+    """Deletes item rows for `order_id` that are no longer present in the
+    latest payload (partial cancellation, variation change). A source of
+    truth that only ever inserts/updates items accumulates phantom rows
+    forever -- this closes that gap. Runs in the SAME transaction as the
+    order/items upsert (no separate commit), so a rollback undoes both.
+
+    Compared in Python rather than a SQL `NOT IN`: `variation_id` can be
+    NULL, and `NOT IN` with a NULL in the excluded set is a classic SQL
+    footgun (the whole comparison silently evaluates to unknown/false for
+    every row). Order item counts are small, so the extra SELECT is cheap.
+    """
+    existing = db.query(MlOrderItemOps).filter(MlOrderItemOps.order_id == order_id).all()
+    for row in existing:
+        if (row.item_id, row.variation_id) not in keep_keys:
+            db.delete(row)
+
+
 def _upsert_item_row(db: Session, order_id: int, item: OrderItemOpsDTO) -> None:
     values: Dict[str, Any] = {
         "order_id": order_id,
@@ -154,6 +172,9 @@ def upsert_order(db: Session, payload: Dict[str, Any], mapped: Optional[OrderOps
 
     for item in dto.items:
         _upsert_item_row(db, dto.order_id, item)
+
+    keep_keys = {(item.item_id, item.variation_id) for item in dto.items}
+    _delete_stale_items(db, dto.order_id, keep_keys)
 
     db.flush()
     return UpsertOutcome.OK

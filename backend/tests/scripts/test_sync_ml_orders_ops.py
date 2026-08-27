@@ -9,12 +9,13 @@ from unittest.mock import patch
 
 from app.core.config import settings
 from app.scripts import sync_ml_orders_ops
+from app.services.ml_orders_ingestion import sweep_service
 
 
 class TestFlagGate:
     def test_main_is_a_noop_when_flag_off(self, monkeypatch):
         monkeypatch.setattr(settings, "ML_ORDERS_OPS_ENABLED", False)
-        with patch.object(sync_ml_orders_ops.ml_webhook_client, "search_orders") as mock_search:
+        with patch.object(sweep_service.ml_webhook_client, "search_orders") as mock_search:
             sync_ml_orders_ops.main()
         mock_search.assert_not_called()
 

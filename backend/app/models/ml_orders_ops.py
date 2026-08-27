@@ -215,7 +215,8 @@ class MlOpsDivergence(Base):
         # per the change's own instructions the contract must become a real
         # constraint, not a comment, in the same slice that starts writing.
         CheckConstraint(
-            "kind IN ('missing_in_gbp', 'missing_in_ml', 'field_mismatch', 'out_of_window_update')",
+            "kind IN ('missing_in_gbp', 'missing_in_ml', 'field_mismatch', 'out_of_window_update', "
+            "'window_not_enumerable')",
             name="ck_ml_ops_divergence_kind",
         ),
         CheckConstraint(
@@ -229,7 +230,8 @@ class MlOpsDivergence(Base):
     order_id = Column(BigInteger, nullable=False, index=True)
     detected_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
 
-    kind = Column(String(30), nullable=False)  # missing_in_gbp | missing_in_ml | field_mismatch | out_of_window_update
+    kind = Column(String(30), nullable=False)  # missing_in_gbp | missing_in_ml | field_mismatch |
+    # out_of_window_update | window_not_enumerable
     field = Column(String(40), nullable=True)
     ml_value = Column(Text, nullable=True)
     gbp_value = Column(Text, nullable=True)

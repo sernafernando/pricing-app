@@ -12,14 +12,43 @@ prove with a test):
   upsert) is EXPLICITLY recorded and does NOT stall the sweep -- fail-open
   per row.
 - The window itself is fail-closed: if the sweep cannot enumerate every
-  order in the window (proxy down/5xx/timeout, or an unbisectable
-  offset-cap overflow), NOTHING is written for that window and the cursor
-  is NOT advanced, so the same window is retried whole on the next run.
+  order in a leaf sub-window (proxy down/5xx/timeout), NOTHING is written
+  for that leaf and the cursor is NOT advanced past it, so the same leaf
+  is retried on the next run.
 - An order ML reports as updated whose own `date_created` falls outside
   the configured rolling window is a HARD EXCLUSION -- never ingested --
   but IS counted, via `ml_ops_divergence.kind='out_of_window_update'`
   (obs #1824 deferred-decision instrumentation, obs #1828 cross-slice
   schema contract).
+
+Memory and checkpointing (post-review fix, GGA pre-push round 1): a cold
+start with no cursor spans the FULL rolling window (90-180 days). Orders
+are never accumulated into one in-memory list for the whole window -- they
+are processed incrementally, leaf sub-window by leaf sub-window, in
+BATCH_SIZE-bounded chunks, and the cursor's `window_to` is advanced after
+EACH leaf sub-window completes (not only once at the very end). This makes
+a cold start durable: if the process dies or a LATER leaf fails, every
+EARLIER leaf's writes and cursor progress survive, and a retry resumes
+from there instead of redoing the whole window. The fail-closed guarantee
+still holds: a failed leaf's own writes/checkpoint never happen, so the
+cursor never jumps past a leaf that failed.
+
+Unenumerable windows (post-review fix): a leaf that still reports more
+rows than the offset cap even at the minimum bisectable span cannot be
+enumerated at all. Previously this raised and wedged the sweep on that
+exact leaf forever (retried identically every run, no operational way out
+short of editing the database). It is now recorded --
+`ml_ops_divergence.kind='window_not_enumerable'` -- and the sweep moves
+past it, exactly like an out-of-window order: hard exclusion +
+instrumentation instead of a silent permanent stall.
+
+Concurrency (post-review fix): `ml_ops_sync_cursor.state` is 'running' for
+the ENTIRE duration of a pass (not just at checkpoint time), so an
+overlapping cron invocation (a cold start can easily exceed the 10-minute
+cadence, see above) skips instead of racing the same cursor. A 'running'
+lock left behind by a process that died is reclaimed after
+STALE_LOCK_TIMEOUT rather than wedging the sweep permanently -- the same
+class of bug as the unenumerable-window stall, given the same treatment.
 """
 
 from __future__ import annotations
@@ -27,7 +56,7 @@ from __future__ import annotations
 import logging
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, Iterator, List, Optional, Tuple
 
 from app.core.config import settings
 from app.core.database import get_background_db
@@ -44,9 +73,10 @@ logger = logging.getLogger(__name__)
 # of risking a partial page.
 SEARCH_PAGE_SIZE_CAP = 950
 
-# Bounded batch per `get_background_db()` session (design D8): every raw
-# order in a batch was already fetched during the (HTTP-only) search phase,
-# so no session here is ever held across an HTTP call.
+# Bounded batch per `get_background_db()` session (design D8): a batch is
+# flushed either when it reaches this size or when a leaf sub-window
+# finishes, whichever comes first -- memory is bounded to O(BATCH_SIZE),
+# never O(window size).
 BATCH_SIZE = 200
 
 # Absorbs ML's own update-visibility lag between sweep passes. Free because
@@ -55,16 +85,26 @@ BATCH_SIZE = 200
 CURSOR_OVERLAP = timedelta(minutes=15)
 
 # Below this window width, further bisection is pointless (and would loop
-# forever against a window that genuinely never drops below the cap).
+# forever against a window that genuinely never drops below the cap). A
+# leaf this narrow that still overflows is recorded as unenumerable
+# instead (see module docstring).
 MIN_BISECT_SPAN = timedelta(minutes=1)
 
+# A 'running' lock older than this is assumed to belong to a dead process
+# and is reclaimed rather than blocking the sweep forever. Well above the
+# 10-minute cron cadence so a legitimately slow (e.g. cold-start) pass is
+# never mistaken for a stale one.
+STALE_LOCK_TIMEOUT = timedelta(minutes=30)
+
 CURSOR_NAME = "sweep"
+OUT_OF_WINDOW_KIND = "out_of_window_update"
+UNENUMERABLE_KIND = "window_not_enumerable"
 
 
 class WindowFetchError(Exception):
-    """A window's orders could not be fully enumerated. Fail-closed at the
-    window level: the caller must NOT write anything for this window and
-    must NOT advance the cursor."""
+    """A leaf sub-window's orders could not be fully enumerated. Fail-
+    closed at the leaf level: the caller must NOT write anything further
+    for this leaf and must NOT advance the cursor past it."""
 
 
 @dataclass
@@ -77,17 +117,31 @@ class SweepResult:
     orders_skipped_stale: int = 0
     orders_mapping_error: int = 0
     orders_out_of_window: int = 0
+    windows_unenumerable: int = 0
     error: Optional[str] = None
 
 
-def _fetch_all_orders(seller_id: int, date_from: datetime, date_to: datetime) -> List[Dict[str, Any]]:
-    """Fetches every raw order in `[date_from, date_to)`. Bisects the
-    window when ML reports `paging.total > SEARCH_PAGE_SIZE_CAP` rather
-    than deepening the offset (design: "the ~1000-result offset cap is
-    handled by bisecting the window when paging.total > 950"). Raises
-    `WindowFetchError` on ANY failure -- a partial window is worse than no
-    window (same fail-closed reasoning as the mapper's fail-closed
-    contract, obs #1843)."""
+# ── Streaming window walk ──────────────────────────────────────────────
+#
+# `_iter_window_events` recursively bisects [date_from, date_to) and
+# yields events AS SOON AS each one is known, so the caller never has to
+# hold more than one page (bounded by BATCH_SIZE) in memory:
+#   ("page", [raw_order, ...])       -- one fetched page, chronological
+#   ("unenumerable", leaf_from, leaf_to)  -- a leaf that could not be
+#                                            bisected further and still
+#                                            overflows the offset cap
+#   ("checkpoint", leaf_to)          -- a leaf sub-window is FULLY
+#                                        accounted for (every page fetched,
+#                                        or recorded unenumerable); safe to
+#                                        advance the cursor's window_to to
+#                                        leaf_to
+# Raises WindowFetchError for a leaf whose HTTP fetch fails outright
+# (proxy down/5xx/timeout/unparseable paging) -- NOT for an unbisectable
+# overflow, which is recorded and swept past instead (see module
+# docstring).
+
+
+def _iter_window_events(seller_id: int, date_from: datetime, date_to: datetime) -> Iterator[Tuple[str, Any]]:
     response = resolve_maybe_async(ml_webhook_client.search_orders(seller_id, date_from, date_to, offset=0))
     if response is None:
         raise WindowFetchError(
@@ -104,15 +158,22 @@ def _fetch_all_orders(seller_id: int, date_from: datetime, date_to: datetime) ->
     if total > SEARCH_PAGE_SIZE_CAP:
         span = date_to - date_from
         if span <= MIN_BISECT_SPAN:
-            raise WindowFetchError(
-                f"window [{date_from.isoformat()}, {date_to.isoformat()}) cannot be bisected "
-                f"further but still reports total={total} > {SEARCH_PAGE_SIZE_CAP}"
-            )
+            # Escape hatch (finding 3): cannot bisect further but still
+            # over cap -- record it and move on instead of raising, which
+            # would retry this EXACT leaf forever with no way out.
+            yield ("unenumerable", date_from, date_to)
+            yield ("checkpoint", date_to)
+            return
         midpoint = date_from + span / 2
-        return _fetch_all_orders(seller_id, date_from, midpoint) + _fetch_all_orders(seller_id, midpoint, date_to)
+        yield from _iter_window_events(seller_id, date_from, midpoint)
+        yield from _iter_window_events(seller_id, midpoint, date_to)
+        return
 
-    results: List[Dict[str, Any]] = list(response.get("results") or [])
-    offset = len(results)
+    # Leaf window within cap -- page through it, yielding each page as
+    # soon as it is fetched.
+    page_results: List[Dict[str, Any]] = list(response.get("results") or [])
+    yield ("page", page_results)
+    offset = len(page_results)
     while offset < total:
         page = resolve_maybe_async(ml_webhook_client.search_orders(seller_id, date_from, date_to, offset=offset))
         if page is None:
@@ -122,10 +183,10 @@ def _fetch_all_orders(seller_id: int, date_from: datetime, date_to: datetime) ->
         page_results = list(page.get("results") or [])
         if not page_results:
             break
-        results.extend(page_results)
+        yield ("page", page_results)
         offset += len(page_results)
 
-    return results
+    yield ("checkpoint", date_to)
 
 
 def _record_out_of_window(db, order_id: int) -> None:
@@ -139,7 +200,7 @@ def _record_out_of_window(db, order_id: int) -> None:
         db.query(MlOpsDivergence)
         .filter(
             MlOpsDivergence.order_id == order_id,
-            MlOpsDivergence.kind == "out_of_window_update",
+            MlOpsDivergence.kind == OUT_OF_WINDOW_KIND,
             MlOpsDivergence.field.is_(None),
         )
         .first()
@@ -148,7 +209,40 @@ def _record_out_of_window(db, order_id: int) -> None:
     if existing is not None:
         existing.detected_at = now
     else:
-        db.add(MlOpsDivergence(order_id=order_id, kind="out_of_window_update", detected_at=now))
+        db.add(MlOpsDivergence(order_id=order_id, kind=OUT_OF_WINDOW_KIND, detected_at=now))
+
+
+def _record_unenumerable_window(db, date_from: datetime, date_to: datetime) -> None:
+    """Escape hatch for a leaf window that cannot be enumerated at all
+    (finding 3): recorded, never ingested, never silently dropped. There
+    is no single order to key this on -- `order_id=0` is a sentinel (the
+    column is NOT NULL) and the leaf's own bounds are the dedup key via
+    `field`, so a repeat detection of the SAME leaf updates `detected_at`
+    instead of duplicating (unique `(order_id, kind, field)`)."""
+    field_key = f"{date_from.isoformat()}|{date_to.isoformat()}"
+    existing = (
+        db.query(MlOpsDivergence)
+        .filter(
+            MlOpsDivergence.order_id == 0,
+            MlOpsDivergence.kind == UNENUMERABLE_KIND,
+            MlOpsDivergence.field == field_key,
+        )
+        .first()
+    )
+    now = datetime.now(timezone.utc)
+    if existing is not None:
+        existing.detected_at = now
+    else:
+        db.add(
+            MlOpsDivergence(
+                order_id=0,
+                kind=UNENUMERABLE_KIND,
+                field=field_key,
+                ml_value=date_from.isoformat(),
+                gbp_value=date_to.isoformat(),
+                detected_at=now,
+            )
+        )
 
 
 def _process_batch(raw_orders: List[Dict[str, Any]], window_from_floor: datetime, result: SweepResult) -> None:
@@ -174,8 +268,14 @@ def _process_batch(raw_orders: List[Dict[str, Any]], window_from_floor: datetime
                 result.orders_upserted += 1
             elif outcome == UpsertOutcome.SKIPPED_STALE:
                 result.orders_skipped_stale += 1
-            else:
+            elif outcome == UpsertOutcome.MAPPING_ERROR:
                 result.orders_mapping_error += 1
+            else:
+                # UpsertOutcome.DISABLED: unreachable in practice (run_sweep
+                # already checked the flag before starting), but a metric
+                # must never lie by construction -- this is NOT a mapping
+                # error, so it must not be counted as one.
+                logger.error("sweep: upsert_order returned DISABLED mid-window -- flag toggled during a run?")
 
 
 def _load_cursor(db) -> Optional[MlOpsSyncCursor]:
@@ -194,6 +294,47 @@ def _tz_aware(value: Optional[datetime]) -> Optional[datetime]:
     if value.tzinfo is None:
         return value.replace(tzinfo=timezone.utc)
     return value
+
+
+def _parse_running_since(detail: Optional[str]) -> Optional[datetime]:
+    """Parses the ISO timestamp `_try_acquire_run_lock` stashes in
+    `cursor.detail` while `state='running'` (no dedicated column -- reuses
+    the existing free-text field). Never raises: an unparsable/missing
+    value is treated as "age unknown", which the caller resolves as
+    stale (a lock whose age cannot be proven is not a lock worth trusting
+    forever)."""
+    if not detail:
+        return None
+    try:
+        parsed = datetime.fromisoformat(detail)
+    except ValueError:
+        return None
+    return _tz_aware(parsed)
+
+
+def _try_acquire_run_lock(db, now: datetime) -> bool:
+    """Sets `state='running'` for the duration of this pass, so an
+    overlapping cron invocation skips instead of racing this cursor
+    (finding 4). Returns False (do not run) if another pass is genuinely
+    in flight; reclaims (returns True) a 'running' lock older than
+    `STALE_LOCK_TIMEOUT`, on the assumption its owner died."""
+    cursor = _load_cursor(db)
+    if cursor is None:
+        db.add(MlOpsSyncCursor(name=CURSOR_NAME, state="running", detail=now.isoformat()))
+        return True
+
+    if cursor.state == "running":
+        running_since = _parse_running_since(cursor.detail)
+        if running_since is not None and (now - running_since) < STALE_LOCK_TIMEOUT:
+            return False
+        logger.warning(
+            "sync_ml_orders_ops: reclaiming a stale 'running' lock (detail=%r) -- a previous run likely died",
+            cursor.detail,
+        )
+
+    cursor.state = "running"
+    cursor.detail = now.isoformat()
+    return True
 
 
 def run_sweep(seller_id: Optional[int] = None, window_days: Optional[int] = None) -> SweepResult:
@@ -217,6 +358,10 @@ def run_sweep(seller_id: Optional[int] = None, window_days: Optional[int] = None
     window_from_floor = now - timedelta(days=resolved_window_days)
 
     with get_background_db() as db:
+        acquired = _try_acquire_run_lock(db, now)
+        if not acquired:
+            logger.info("sync_ml_orders_ops: another sweep run is already in flight, skipping this pass")
+            return SweepResult(ran=False, error="already running")
         cursor = _load_cursor(db)
         prior_window_to = _tz_aware(cursor.window_to) if cursor is not None else None
 
@@ -225,12 +370,45 @@ def run_sweep(seller_id: Optional[int] = None, window_days: Optional[int] = None
         window_start = window_from_floor
     window_end = now
 
-    result = SweepResult(ran=True, window_from=window_start, window_to=window_end)
+    result = SweepResult(ran=True, window_from=window_start, window_to=prior_window_to)
+    last_checkpoint_to = prior_window_to
+    pending: List[Dict[str, Any]] = []
+
+    def _flush_pending() -> None:
+        nonlocal pending
+        if pending:
+            _process_batch(pending, window_from_floor, result)
+            pending = []
 
     try:
-        raw_orders = _fetch_all_orders(int(resolved_seller_id), window_start, window_end)
+        for event in _iter_window_events(int(resolved_seller_id), window_start, window_end):
+            kind = event[0]
+            if kind == "page":
+                pending.extend(event[1])
+                while len(pending) >= BATCH_SIZE:
+                    _process_batch(pending[:BATCH_SIZE], window_from_floor, result)
+                    pending = pending[BATCH_SIZE:]
+            elif kind == "unenumerable":
+                _, leaf_from, leaf_to = event
+                with get_background_db() as db:
+                    _record_unenumerable_window(db, leaf_from, leaf_to)
+                result.windows_unenumerable += 1
+            elif kind == "checkpoint":
+                _, leaf_to = event
+                _flush_pending()
+                with get_background_db() as db:
+                    cursor = _load_cursor(db)
+                    if cursor is None:
+                        cursor = MlOpsSyncCursor(name=CURSOR_NAME, state="running")
+                        db.add(cursor)
+                    cursor.window_from = window_start
+                    cursor.window_to = leaf_to
+                    cursor.last_success_at = now
+                    # state intentionally left as 'running' here -- it only
+                    # flips to idle/error once the WHOLE pass finishes.
+                last_checkpoint_to = leaf_to
     except WindowFetchError as e:
-        logger.error("sync_ml_orders_ops: window fetch failed, cursor NOT advanced: %s", e)
+        logger.error("sync_ml_orders_ops: window fetch failed, cursor NOT advanced past the last completed leaf: %s", e)
         with get_background_db() as db:
             cursor = _load_cursor(db)
             if cursor is None:
@@ -238,25 +416,20 @@ def run_sweep(seller_id: Optional[int] = None, window_days: Optional[int] = None
                 db.add(cursor)
             cursor.state = "error"
             cursor.detail = str(e)[:500]
-        result.window_to = prior_window_to
+        result.window_to = last_checkpoint_to
         result.error = str(e)
         return result
 
-    for start in range(0, len(raw_orders), BATCH_SIZE):
-        _process_batch(raw_orders[start : start + BATCH_SIZE], window_from_floor, result)
+    _flush_pending()
 
-    # The window is fully accounted for -- every row got an explicit
-    # outcome (upserted, skipped-stale, mapping-error, or recorded as
-    # out-of-window). Only NOW is it safe to checkpoint the cursor.
     with get_background_db() as db:
         cursor = _load_cursor(db)
         if cursor is None:
             cursor = MlOpsSyncCursor(name=CURSOR_NAME)
             db.add(cursor)
-        cursor.window_from = window_start
-        cursor.window_to = window_end
-        cursor.last_success_at = now
         cursor.state = "idle"
+        cursor.last_success_at = now
         cursor.detail = None
 
+    result.window_to = last_checkpoint_to
     return result

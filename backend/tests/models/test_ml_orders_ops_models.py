@@ -268,6 +268,21 @@ class TestMlOpsDivergence:
 
         assert row.id is not None
 
+    def test_window_not_enumerable_kind_is_representable(self, db) -> None:
+        """Post-review escape hatch (finding 3, ml-ventas sweep review
+        round): a leaf window that cannot be enumerated even at the
+        minimum bisectable span is recorded with this kind instead of
+        wedging the sweep forever."""
+        row = MlOpsDivergence(
+            order_id=0,
+            kind="window_not_enumerable",
+            field="2026-01-01T00:00:00+00:00|2026-01-01T00:01:00+00:00",
+        )
+        db.add(row)
+        db.flush()
+
+        assert row.id is not None
+
     def test_duplicate_order_kind_field_violates_unique_constraint(self, db) -> None:
         db.add(MlOpsDivergence(order_id=1, kind="field_mismatch", field="status"))
         db.flush()
@@ -313,6 +328,7 @@ class TestSyncCursorStateConstraint:
 
         with pytest.raises(IntegrityError):
             db.flush()
+        db.rollback()
 
     def test_valid_cursor_states_are_accepted(self, db) -> None:
         from app.models.ml_orders_ops import MlOpsSyncCursor
