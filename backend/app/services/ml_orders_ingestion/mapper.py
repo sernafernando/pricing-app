@@ -85,14 +85,14 @@ class ShipmentOpsDTO:
     raw_shipment: Dict[str, Any] = field(default_factory=dict)
 
 
-def _as_dict(value: Any, field: str) -> Dict[str, Any]:
+def _as_dict(value: Any, field_name: str) -> Dict[str, Any]:
     """Returns a nested ML object as a dict. Absent means empty; present
     but not a dict is a mapping failure, so it raises rather than being
     coerced away by `or {}` (which would hide a malformed payload)."""
     if value is None:
         return {}
     if not isinstance(value, dict):
-        raise TypeError(f"{field} is not an object: {value!r}")
+        raise TypeError(f"{field_name} is not an object: {value!r}")
     return value
 
 
@@ -120,9 +120,11 @@ def _map_item(raw_item: Dict[str, Any]) -> OrderItemOpsDTO:
     raw_item_id = item.get("id")
     if raw_item_id is None:
         raise ValueError("order_items[].item.id is required")
+    raw_variation_id = item.get("variation_id")
+    variation_id = int(raw_variation_id) if raw_variation_id is not None else None
     return OrderItemOpsDTO(
         item_id=str(raw_item_id),
-        variation_id=item.get("variation_id"),
+        variation_id=variation_id,
         seller_sku=item.get("seller_sku"),
         title=item.get("title"),
         quantity=raw_item.get("quantity"),

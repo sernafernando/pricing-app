@@ -315,3 +315,27 @@ class TestMapperRootPayloadShape:
         payload = {**FULL_ORDER_PAYLOAD, "tags": "paid"}
 
         assert isinstance(map_order(payload), MappingError)
+
+
+class TestVariationIdCoercion:
+    """`variation_id` is annotated Optional[int] but ML sometimes sends it
+    as a string, so the annotation has to be made true rather than assumed."""
+
+    def test_string_variation_id_is_coerced_to_int(self) -> None:
+        payload = {
+            **FULL_ORDER_PAYLOAD,
+            "order_items": [{"item": {"id": "MLA123", "variation_id": "987"}, "quantity": 1}],
+        }
+
+        result = map_order(payload)
+
+        assert not isinstance(result, MappingError)
+        assert result.items[0].variation_id == 987
+
+    def test_unparseable_variation_id_returns_mapping_error(self) -> None:
+        payload = {
+            **FULL_ORDER_PAYLOAD,
+            "order_items": [{"item": {"id": "MLA123", "variation_id": "abc"}, "quantity": 1}],
+        }
+
+        assert isinstance(map_order(payload), MappingError)
