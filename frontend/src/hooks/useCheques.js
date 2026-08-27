@@ -215,6 +215,44 @@ export default function useCheques() {
     [wrap],
   );
 
+  // ── Aplicar cheque propio a OP (S4 — compras-cheque-propio-aplicable-a-op) ──
+
+  /**
+   * Reservar un cheque propio pre-existente contra una OP pendiente.
+   * POST /administracion/compras/ordenes-pago/{opId}/cheques
+   * body: { cheque_id, monto, moneda, pedido_id? }
+   * NO paga: solo crea el link (reserva). 409 si la OP no está pendiente o
+   * el cheque ya está reservado; 422 si el cheque está en estado terminal o
+   * el beneficiario no coincide.
+   */
+  const reservarEnOp = useCallback(
+    (opId, payload) =>
+      wrap(async () => {
+        const { data } = await api.post(
+          `/administracion/compras/ordenes-pago/${opId}/cheques`,
+          payload,
+        );
+        return data;
+      }),
+    [wrap],
+  );
+
+  /**
+   * Liberar (desvincular) un cheque propio reservado en una OP.
+   * DELETE /administracion/compras/ordenes-pago/{opId}/cheques/{chequeId}
+   * Solo mientras la OP siga pendiente (409 en cualquier otro estado).
+   */
+  const liberarDeOp = useCallback(
+    (opId, chequeId) =>
+      wrap(async () => {
+        const { data } = await api.delete(
+          `/administracion/compras/ordenes-pago/${opId}/cheques/${chequeId}`,
+        );
+        return data;
+      }),
+    [wrap],
+  );
+
   return {
     loading,
     error,
@@ -232,5 +270,8 @@ export default function useCheques() {
     depositar,
     acreditar,
     obtenerReporte,
+    // S4 compras-cheque-propio-aplicable-a-op
+    reservarEnOp,
+    liberarDeOp,
   };
 }

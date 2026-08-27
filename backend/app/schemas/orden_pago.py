@@ -66,6 +66,62 @@ class NCAplicadaItem(BaseModel):
     tipo_cambio_override: Decimal | None = Field(None, gt=0)
 
 
+class ChequeAplicadoItem(BaseModel):
+    """Ítem dentro de `cheques` — cheque propio a emitir o cheque de tercero
+    a endosar como parte del pago de una OP.
+
+    Mirrors exactly the dict shape consumed by
+    `ordenes_pago_service.ejecutar_pago` (see the cheque loop, design §S1).
+    Two variants share this same model:
+
+      (a) Emisión de propio nuevo: `cheque_id` ausente/None. Requiere
+          `banco_empresa_id`, `instrumento`, `numero`, `monto`, `fecha_emision`,
+          `fecha_pago`. `chequera_id` es opcional (solo para físicos).
+      (b) Endoso de cheque de tercero existente: `cheque_id` presente.
+          Solo requiere `cheque_id`, `monto`, `moneda`.
+
+    En ambos casos `pedido_id` es opcional — cuando viene, la imputación CC
+    va contra ese pedido en vez de generar un haber directo.
+    """
+
+    cheque_id: int | None = Field(None, ge=1)
+    banco_empresa_id: int | None = Field(None, ge=1)
+    chequera_id: int | None = Field(None, ge=1)
+    instrumento: str | None = Field(None, max_length=32)
+    numero: str | None = Field(None, max_length=50)
+    monto: Decimal = Field(..., gt=0)
+    moneda: str | None = Field(None, pattern="^(ARS|USD)$", max_length=3)
+    fecha_emision: date | None = None
+    fecha_pago: date | None = None
+    proveedor_id: int | None = Field(None, ge=1)
+    pedido_id: int | None = Field(None, ge=1)
+
+
+class ReservarChequePropioRequest(BaseModel):
+    """Body del POST /ordenes-pago/{op_id}/cheques (S3b — reserva).
+
+    Reserva un cheque propio preexistente contra una OP `pendiente`. `monto`
+    y `moneda` deben coincidir exactamente con el cheque (defensa en
+    profundidad — mirrors `ordenes_pago_service.reservar_cheque_propio_en_op`).
+    """
+
+    cheque_id: int = Field(..., ge=1)
+    monto: Decimal = Field(..., gt=0)
+    moneda: str = Field(..., pattern="^(ARS|USD)$", max_length=3)
+    pedido_id: int | None = Field(None, ge=1)
+
+
+class ChequeEnOpResponse(BaseModel):
+    """Respuesta de reservar/liberar un cheque en una OP (S3b).
+
+    El resto del router expone schemas Pydantic sin excepción; estos dos
+    endpoints devolvían `dict` crudo, que queda fuera del OpenAPI.
+    """
+
+    cheque_id: int
+    orden_pago_id: int
+
+
 class OrdenPagoCreate(OrdenPagoBase):
     """Body del POST /ordenes-pago.
 
@@ -87,6 +143,7 @@ class OrdenPagoCreate(OrdenPagoBase):
     confirmar_duplicado: bool = False
     actualizar_tc_pedido: bool = False
     ncs_aplicadas: list[NCAplicadaItem] = Field(default_factory=list)
+    cheques: list[ChequeAplicadoItem] = Field(default_factory=list)
 
 
 class OrdenPagoEjecutarPago(BaseModel):
@@ -104,16 +161,23 @@ class OrdenPagoEjecutarPago(BaseModel):
     banco_id: int | None = None
     fecha_pago_real: date
     tipo_cambio_override: Decimal | None = Field(None, gt=0)
+    cheques: list[ChequeAplicadoItem] = Field(default_factory=list)
 
     @model_validator(mode="after")
-    def exactamente_una_fuente(self) -> Self:
-        """Exactamente una fuente de fondos: caja XOR banco (FR2.6 / AC-F2-7)."""
-        tiene_caja = self.caja_id is not None
-        tiene_banco = self.banco_id is not None
-        if tiene_caja and tiene_banco:
+    def fuentes_mutuamente_excluyentes(self) -> Self:
+        """Caja y banco son mutuamente excluyentes (FR2.6 / AC-F2-7).
+
+        Deliberadamente NO exige que venga una: una OP cubierta por completo
+        con cheques se paga sin caja ni banco, y los cheques pueden venir en
+        este body o ya estar reservados contra la OP — algo que este schema no
+        puede ver. Exigir una fuente acá hacía inalcanzable por HTTP el pago
+        íntegramente con cheques: 422 de Pydantic antes de llegar al servicio.
+
+        `ejecutar_pago` conserva el guard con el contexto completo y rechaza
+        el caso real de "sin fuente y sin cheques".
+        """
+        if self.caja_id is not None and self.banco_id is not None:
             raise ValueError("Solo se puede especificar una fuente de fondos: caja_id O banco_id, no ambos.")
-        if not tiene_caja and not tiene_banco:
-            raise ValueError("Se requiere exactamente una fuente de fondos: caja_id o banco_id.")
         return self
 
 

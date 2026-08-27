@@ -2057,3 +2057,126 @@ class TestListadosNoN1:
         data = r.json()
         assert data["total"] >= 10
         assert contador[0] <= 5, f"posible N+1 en OPs: {contador[0]} selects (esperado <= 5)"
+
+
+# ==========================================================================
+# S3b — Reserva/liberación de cheques propios en OP (endpoints OP-scoped)
+# ==========================================================================
+
+
+@pytest.fixture
+def solo_ejecutar_pagos():
+    """Forces `ejecutar_pagos` permiso true, all others false — used to prove
+    reserve/release require `gestionar_ordenes_compra`, NOT `ejecutar_pagos`
+    (reserving/releasing move no money)."""
+
+    def _fake(self, user, codigo):
+        return codigo == "administracion.ejecutar_pagos"
+
+    with (
+        patch("app.services.permisos_service.PermisosService.tiene_permiso", new=_fake),
+        patch(
+            "app.services.permisos_service.PermisosService.obtener_permisos_usuario",
+            return_value={"administracion.ejecutar_pagos"},
+        ),
+    ):
+        yield
+
+
+@pytest.fixture
+def banco_op_cheques(db, empresa):
+    from app.models.banco_empresa import BancoEmpresa
+
+    b = BancoEmpresa(banco="Banco S3b Endpoints", moneda="ARS", empresa_id=empresa.id, activo=True)
+    db.add(b)
+    db.flush()
+    return b
+
+
+@pytest.fixture
+def cheque_propio_op(db, banco_op_cheques):
+    from app.services import cheques_service
+
+    return cheques_service.emitir_cheque_propio(
+        db,
+        tipo="propio",
+        instrumento="echeq",
+        numero="P-S3B-EP-1",
+        monto=Decimal("15000"),
+        moneda="ARS",
+        fecha_emision=date(2026, 6, 22),
+        fecha_pago=date(2026, 6, 22),
+        banco_empresa_id=banco_op_cheques.id,
+    )
+
+
+@pytest.fixture
+def op_pendiente_s3b(db, empresa, proveedor, active_user):
+    op = ordenes_pago_service.crear(
+        db,
+        proveedor_id=proveedor.id,
+        empresa_id=empresa.id,
+        moneda="ARS",
+        monto_total=Decimal("15000"),
+        modo_imputacion="a_cuenta",
+        items=[],
+        creado_por_id=active_user.id,
+    )
+    db.commit()
+    return op
+
+
+class TestReservarLiberarChequeEnOp:
+    def test_reservar_201(self, client, auth_headers, db, op_pendiente_s3b, cheque_propio_op, con_todos_los_permisos):
+        r = client.post(
+            f"{BASE}/ordenes-pago/{op_pendiente_s3b.id}/cheques",
+            headers=auth_headers,
+            json={"cheque_id": cheque_propio_op.id, "monto": "15000", "moneda": "ARS"},
+        )
+        assert r.status_code == 201, r.text
+
+    def test_reservar_403_solo_ejecutar_pagos(
+        self, client, auth_headers, op_pendiente_s3b, cheque_propio_op, solo_ejecutar_pagos
+    ):
+        """Reserving moves no money — must NOT be gated by ejecutar_pagos."""
+        r = client.post(
+            f"{BASE}/ordenes-pago/{op_pendiente_s3b.id}/cheques",
+            headers=auth_headers,
+            json={"cheque_id": cheque_propio_op.id, "monto": "15000", "moneda": "ARS"},
+        )
+        assert r.status_code == 403
+
+    def test_liberar_200(self, client, auth_headers, db, op_pendiente_s3b, cheque_propio_op, con_todos_los_permisos):
+        r = client.post(
+            f"{BASE}/ordenes-pago/{op_pendiente_s3b.id}/cheques",
+            headers=auth_headers,
+            json={"cheque_id": cheque_propio_op.id, "monto": "15000", "moneda": "ARS"},
+        )
+        assert r.status_code == 201, r.text
+
+        r2 = client.delete(
+            f"{BASE}/ordenes-pago/{op_pendiente_s3b.id}/cheques/{cheque_propio_op.id}",
+            headers=auth_headers,
+        )
+        assert r2.status_code == 200, r2.text
+
+    def test_liberar_403_solo_ejecutar_pagos(
+        self, client, auth_headers, db, op_pendiente_s3b, cheque_propio_op, con_todos_los_permisos, solo_ejecutar_pagos
+    ):
+        r2 = client.delete(
+            f"{BASE}/ordenes-pago/{op_pendiente_s3b.id}/cheques/{cheque_propio_op.id}",
+            headers=auth_headers,
+        )
+        assert r2.status_code == 403
+
+    def test_reservar_op_no_pendiente_409(
+        self, client, auth_headers, db, op_pendiente_s3b, cheque_propio_op, con_todos_los_permisos
+    ):
+        op_pendiente_s3b.estado = "cancelado"
+        db.commit()
+        r = client.post(
+            f"{BASE}/ordenes-pago/{op_pendiente_s3b.id}/cheques",
+            headers=auth_headers,
+            json={"cheque_id": cheque_propio_op.id, "monto": "15000", "moneda": "ARS"},
+        )
+        assert r.status_code == 409

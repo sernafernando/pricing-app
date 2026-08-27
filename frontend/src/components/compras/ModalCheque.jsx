@@ -280,6 +280,11 @@ export default function ModalCheque({
 
   const handleSubmit = async (e) => {
     e.preventDefault();
+    // In mode="op" this form is nested inside the OP form (PanelCheques lives
+    // inside <form onSubmit> of ModalOrdenPagoNueva). The submit event bubbles,
+    // so without this the OP form submits too: the OP modal closes and the
+    // cheque is never added.
+    e.stopPropagation();
     if (submitting) return; // FIX 4: prevent double-submit in mode="op"
     const v = validar();
     if (v) {

@@ -33,6 +33,7 @@ from typing import Any, Final, Literal, Optional
 
 from fastapi import HTTPException, status
 from sqlalchemy import select, text
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.core.compras_erp_constants import ERP_SD_ID_ORDEN_PAGO
@@ -1079,6 +1080,289 @@ def _imputar_cheque_en_op(
         )
 
 
+def _imputar_y_registrar(
+    session: Session,
+    *,
+    cheque: "Any",
+    op: OrdenPago,
+    monto_op_moneda: Decimal,
+    pedido_id: Optional[int],
+    fecha_pago_real: date,
+    user_id: int,
+    cc_proveedor_service: "Any",
+    evento_payload_extra: Optional[dict] = None,
+) -> None:
+    """Cola compartida: imputa CC + registra evento 'imputado_cc' + loguea.
+
+    Factoriza `_imputar_cheque_en_op` + `registrar_evento` para que los
+    caminos de emisión de propio nuevo, endoso de tercero, y aplicación de
+    propio preexistente no puedan divergir en este último tramo.
+    """
+    from app.services import cheques_service  # noqa: PLC0415
+
+    _imputar_cheque_en_op(
+        session,
+        cheque=cheque,
+        op=op,
+        monto_op_moneda=monto_op_moneda,
+        pedido_id=pedido_id,
+        fecha_pago_real=fecha_pago_real,
+        user_id=user_id,
+        cc_proveedor_service=cc_proveedor_service,
+    )
+
+    payload = {
+        "orden_pago_id": op.id,
+        "monto_op_moneda": str(monto_op_moneda),
+        "moneda_op": str(op.moneda),
+        "pedido_id": pedido_id,
+    }
+    if evento_payload_extra:
+        payload.update(evento_payload_extra)
+
+    cheques_service.registrar_evento(
+        session,
+        cheque_id=cheque.id,
+        tipo="imputado_cc",
+        payload=payload,
+        usuario_id=user_id,
+    )
+
+
+def _validar_propio_aplicable(
+    cheque: "Any",
+    op: OrdenPago,
+    *,
+    cheque_label: str,
+) -> bool:
+    """Validación compartida R2/R3 para aplicar/reservar un cheque propio
+    preexistente a una OP. Usada tanto por el camino de aplicación en
+    `ejecutar_pago` (cheque_id existente) como por `reservar_cheque_propio_en_op`
+    y el camino `_ya_reservado`, para que las tres rutas no puedan divergir.
+
+    Returns:
+        `proveedor_asignado` — True si `cheque.proveedor_id` estaba vacío
+        (el caller debe completarlo con `op.proveedor_id`).
+
+    Raises:
+        HTTPException 422: tipo != 'propio', estado no aplicable, o
+            beneficiario ya asignado a un proveedor distinto.
+    """
+    if cheque.tipo != "propio":
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail=(f"Cheque {cheque_label} es de tipo '{cheque.tipo}'; solo se admiten cheques 'propio' acá."),
+        )
+    if cheque.estado not in ("emitido", "diferido"):
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail=(
+                f"Cheque {cheque_label} está en estado '{cheque.estado}'; "
+                f"solo se pueden aplicar/reservar cheques propios en estado 'emitido' o 'diferido'."
+            ),
+        )
+    if cheque.proveedor_id is not None and cheque.proveedor_id != op.proveedor_id:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail=(
+                f"Cheque {cheque_label} pertenece al proveedor id={cheque.proveedor_id}, "
+                f"distinto al de la OP (proveedor_id={op.proveedor_id})."
+            ),
+        )
+    return cheque.proveedor_id is None
+
+
+def reservar_cheque_propio_en_op(
+    session: Session,
+    *,
+    orden_pago_id: int,
+    cheque_id: int,
+    monto: Decimal,
+    moneda: str,
+    pedido_id: Optional[int] = None,
+    user_id: int,
+) -> "Any":
+    """Reserva un cheque propio preexistente contra una OP `pendiente` (S3b).
+
+    Persiste el link `OrdenPagoCheque` de inmediato — invariante R (design):
+    un link cuya OP no está `pagado` es una RESERVA, no una imputación. NO
+    crea movimiento CC ni `Imputacion`; eso ocurre recién al `ejecutar_pago`
+    vía el camino `_ya_reservado` del merge step.
+
+    Lock order: OP primero, luego cheque — mismo orden que `ejecutar_pago`
+    (evita deadlock con pagos concurrentes sobre la misma OP/cheque).
+
+    Args:
+        orden_pago_id: OP `pendiente` a la que se reserva el cheque.
+        cheque_id: cheque propio `emitido`/`diferido`.
+        monto, moneda: deben coincidir exactamente con el cheque (defensa en
+            profundidad — un cheque es un instrumento indivisible).
+        pedido_id: opcional; se persiste en el evento para que el merge step
+            de `ejecutar_pago` sepa contra qué pedido imputar al pagar.
+
+    Raises:
+        HTTPException 404: OP o cheque inexistente.
+        HTTPException 409: OP no está 'pendiente', o el cheque ya está
+            reservado/aplicado en OTRA OP (UNIQUE de OrdenPagoCheque.cheque_id
+            traducido a un error de dominio limpio — nunca un IntegrityError
+            crudo).
+        HTTPException 422: cheque no es 'propio', estado inválido,
+            beneficiario mismatch, o monto/moneda no coinciden con el cheque.
+    """
+    from app.models.cheque import Cheque as ChequeModel  # noqa: PLC0415
+    from app.models.cheque import OrdenPagoCheque  # noqa: PLC0415
+    from app.services import cheques_service  # noqa: PLC0415
+
+    op = session.execute(select(OrdenPago).where(OrdenPago.id == orden_pago_id).with_for_update()).scalar_one_or_none()
+    if op is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"OrdenPago id={orden_pago_id} no encontrada.",
+        )
+    if op.estado != "pendiente":
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=(f"OP {op.numero} en estado '{op.estado}' — solo se pueden reservar cheques en OPs 'pendiente'."),
+        )
+
+    cheque = session.get(ChequeModel, cheque_id, with_for_update=True)
+    if cheque is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Cheque id={cheque_id} no encontrado.",
+        )
+
+    proveedor_asignado = _validar_propio_aplicable(cheque, op, cheque_label=f"id={cheque_id}")
+
+    monto_dec = Decimal(str(monto))
+    moneda_norm = str(moneda)
+    if moneda_norm != str(cheque.moneda) or monto_dec != Decimal(cheque.monto):
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail=(
+                f"Cheque id={cheque_id} tiene monto={cheque.monto} {cheque.moneda}; "
+                f"la reserva debe coincidir exactamente ({monto_dec} {moneda_norm})."
+            ),
+        )
+
+    # Pre-check bajo el lock de fila (defensa en profundidad) — el UNIQUE de
+    # OrdenPagoCheque.cheque_id es el guard definitivo contra doble reserva
+    # concurrente (R4).
+    link_existente = session.execute(
+        select(OrdenPagoCheque).where(OrdenPagoCheque.cheque_id == cheque.id)
+    ).scalar_one_or_none()
+    if link_existente is not None:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=(f"Cheque id={cheque_id} ya está reservado/aplicado en la OP id={link_existente.orden_pago_id}."),
+        )
+
+    if proveedor_asignado:
+        cheque.proveedor_id = op.proveedor_id
+    cheque.orden_pago_id = op.id
+
+    link = OrdenPagoCheque(orden_pago_id=op.id, cheque_id=cheque.id, monto_op_moneda=monto_dec)
+    session.add(link)
+
+    try:
+        session.flush()
+    except IntegrityError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=(f"Cheque id={cheque_id} ya fue reservado/aplicado por otra transacción concurrente."),
+        ) from exc
+
+    cheques_service.registrar_evento(
+        session,
+        cheque_id=cheque.id,
+        tipo="aplicado_a_op",
+        payload={
+            "orden_pago_id": op.id,
+            "origen": "preexistente",
+            "proveedor_asignado": proveedor_asignado,
+            "pedido_id": pedido_id,
+        },
+        usuario_id=user_id,
+    )
+    session.flush()
+
+    logger.info(
+        "✅ Cheque propio id=%s reservado en OP op=%s (pendiente) monto=%s %s",
+        cheque.id,
+        op.id,
+        monto_dec,
+        moneda_norm,
+    )
+    return cheque
+
+
+def liberar_cheque_de_op(
+    session: Session,
+    *,
+    orden_pago_id: int,
+    cheque_id: int,
+    user_id: int,
+) -> None:
+    """Libera (des-reserva) un cheque puntual de una OP `pendiente` (S3b).
+
+    Lock order OP→cheque (igual que `reservar_cheque_propio_en_op` /
+    `ejecutar_pago`). NO toca CC — invariante R: a `pendiente` nunca hubo
+    movimiento de CC que revertir.
+
+    Raises:
+        HTTPException 404: OP o cheque inexistente.
+        HTTPException 409: OP no está 'pendiente', o el cheque no está
+            linkeado a ESTA OP.
+    """
+    from app.models.cheque import Cheque as ChequeModel  # noqa: PLC0415
+    from app.models.cheque import OrdenPagoCheque  # noqa: PLC0415
+
+    op = session.execute(select(OrdenPago).where(OrdenPago.id == orden_pago_id).with_for_update()).scalar_one_or_none()
+    if op is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"OrdenPago id={orden_pago_id} no encontrada.",
+        )
+    if op.estado != "pendiente":
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=(f"OP {op.numero} en estado '{op.estado}' — solo se pueden liberar cheques de OPs 'pendiente'."),
+        )
+
+    cheque = session.get(ChequeModel, cheque_id, with_for_update=True)
+    if cheque is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Cheque id={cheque_id} no encontrado.",
+        )
+
+    link = session.execute(select(OrdenPagoCheque).where(OrdenPagoCheque.cheque_id == cheque.id)).scalar_one_or_none()
+    if link is None or link.orden_pago_id != op.id:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=f"Cheque id={cheque_id} no está reservado en la OP {op.numero}.",
+        )
+
+    aplicacion = _resolver_aplicacion_preexistente(session, cheque_id=cheque.id)
+    if aplicacion is not None and aplicacion.get("proveedor_asignado"):
+        cheque.proveedor_id = None
+    cheque.orden_pago_id = None
+
+    session.delete(link)
+    session.flush()
+
+    _registrar_liberado_de_op(
+        session,
+        cheque_id=cheque.id,
+        orden_pago_id=op.id,
+        user_id=user_id,
+        motivo=f"Liberación manual de OP {op.numero} (pendiente)",
+    )
+    session.flush()
+
+    logger.info("🔄 Cheque id=%s liberado manualmente de OP id=%s (pendiente)", cheque.id, op.id)
+
+
 def ejecutar_pago(
     session: Session,
     *,
@@ -1156,6 +1440,50 @@ def ejecutar_pago(
 
     # Deep-copy cheque dicts to avoid mutating caller's data structures.
     cheques_norm: list[dict] = [dict(ch) for ch in (cheques or [])]
+
+    # ── S3b — merge step (ADR-3): fold any RESERVED cheque (link persisted
+    # while the OP was 'pendiente' — invariant R) into cheques_norm, so a
+    # pure-reserved-cheque OP (no caja_id/banco_id, no explicit `cheques=`)
+    # can still be paid. Runs BEFORE the fuente-de-fondos guard below. Lock
+    # order OP→cheque preserved (OP already locked at Paso 1).
+    from app.models.cheque import Cheque as _ChequeModelMerge  # noqa: PLC0415
+    from app.models.cheque import OrdenPagoCheque as _OrdenPagoChequeMerge  # noqa: PLC0415
+
+    reservados_links = list(
+        session.execute(select(_OrdenPagoChequeMerge).where(_OrdenPagoChequeMerge.orden_pago_id == op.id))
+        .scalars()
+        .all()
+    )
+    reservados_cheque_ids: set[int] = {int(link.cheque_id) for link in reservados_links}
+
+    # Duplicate guard: a payload entry cannot ALSO target an already-reserved
+    # cheque_id — it would be counted twice in suma_cheques_op.
+    for ch in cheques_norm:
+        ch_cheque_id = ch.get("cheque_id")
+        if ch_cheque_id is not None and int(ch_cheque_id) in reservados_cheque_ids:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+                detail=(
+                    f"Cheque id={ch_cheque_id} ya está reservado en esta OP; no debe repetirse en el payload 'cheques'."
+                ),
+            )
+
+    for link in reservados_links:
+        cheque_reservado_merge = session.get(_ChequeModelMerge, int(link.cheque_id), with_for_update=True)
+        if cheque_reservado_merge is None:
+            continue
+        aplicacion_merge = _resolver_aplicacion_preexistente(session, cheque_id=cheque_reservado_merge.id)
+        pedido_id_merge = (aplicacion_merge or {}).get("pedido_id")
+        cheques_norm.append(
+            {
+                "cheque_id": cheque_reservado_merge.id,
+                "monto": cheque_reservado_merge.monto,
+                "moneda": cheque_reservado_merge.moneda,
+                "_ya_reservado": True,
+                "_link_id": link.id,
+                "pedido_id": pedido_id_merge,
+            }
+        )
 
     # Aplicar tipo_cambio_override ANTES de validar cross-moneda.
     if tipo_cambio_override is not None:
@@ -1286,6 +1614,18 @@ def ejecutar_pago(
             monto_op = q_ars(ch_monto * Decimal(tc_efectivo))
         ch["_monto_op_moneda"] = monto_op
         suma_cheques_op += monto_op
+
+        # S3b — a reserved link's monto_op_moneda was computed at reservation
+        # time; a payment-time tipo_cambio_override may differ, and
+        # `_revertir_cc_si_linkeado` reads link.monto_op_moneda for the
+        # reversal amount. Keep the link in sync with the amount actually
+        # imputed now, or a later annulment reverses the wrong amount.
+        if ch.get("_ya_reservado"):
+            from app.models.cheque import OrdenPagoCheque as _OrdenPagoChequeSync  # noqa: PLC0415
+
+            link_sync = session.get(_OrdenPagoChequeSync, int(ch["_link_id"]))
+            if link_sync is not None:
+                link_sync.monto_op_moneda = monto_op
 
     # Monto de efectivo a registrar en la fuente (monto_total - cobertura por cheques).
     # Puede ser cero si los cheques cubren el total.
@@ -1586,7 +1926,49 @@ def ejecutar_pago(
         for ch in cheques_norm:
             cheque_id_existente: Optional[int] = ch.get("cheque_id")
 
-            if cheque_id_existente is not None:
+            if ch.get("_ya_reservado"):
+                # ── S3b — cheque ya reservado en esta OP: re-validar y solo
+                # imputar (el link ya existe, NO se inserta de nuevo). El
+                # banco pudo haber debitado el cheque mientras la OP seguía
+                # 'pendiente' — re-validamos, nunca confiamos ciegamente en
+                # la reserva.
+                cheque_reservado = session.get(ChequeModel, int(cheque_id_existente), with_for_update=True)
+                if cheque_reservado is None:
+                    raise HTTPException(
+                        status_code=status.HTTP_404_NOT_FOUND,
+                        detail=f"Cheque id={cheque_id_existente} no encontrado.",
+                    )
+                _validar_propio_aplicable(cheque_reservado, op, cheque_label=f"id={cheque_id_existente}")
+                if cheque_reservado.orden_pago_id != op.id:
+                    raise HTTPException(
+                        status_code=status.HTTP_409_CONFLICT,
+                        detail=(f"Cheque id={cheque_id_existente} ya no está reservado en la OP {op.numero}."),
+                    )
+
+                monto_op_moneda_reservado = ch["_monto_op_moneda"]
+                pedido_id_reservado: Optional[int] = ch.get("pedido_id")
+
+                _imputar_y_registrar(
+                    session,
+                    cheque=cheque_reservado,
+                    op=op,
+                    monto_op_moneda=monto_op_moneda_reservado,
+                    pedido_id=pedido_id_reservado,
+                    fecha_pago_real=fecha_pago_real,
+                    user_id=user_id,
+                    cc_proveedor_service=cc_proveedor_service,
+                    evento_payload_extra={"via": "reserva_previa"},
+                )
+
+                logger.info(
+                    "✅ Cheque propio id=%s (reservado) imputado al pagar OP op=%s monto_op=%s %s",
+                    cheque_reservado.id,
+                    op.id,
+                    monto_op_moneda_reservado,
+                    op.moneda,
+                )
+
+            elif cheque_id_existente is not None:
                 # ── Endoso de tercero (Slice 2) ──────────────────────────────
                 # Lock de fila para serializar endosos concurrentes (previene
                 # double-endoso en race condition: dos requests simultáneas sobre
@@ -1598,84 +1980,134 @@ def ejecutar_pago(
                         status_code=status.HTTP_404_NOT_FOUND,
                         detail=f"Cheque id={cheque_id_existente} no encontrado.",
                     )
-                if cheque_a_usar.tipo != "tercero":
+                if cheque_a_usar.tipo == "tercero":
+                    if cheque_a_usar.estado != "en_cartera":
+                        raise HTTPException(
+                            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+                            detail=(
+                                f"Cheque id={cheque_id_existente} está en estado '{cheque_a_usar.estado}'; "
+                                f"solo se pueden endosar cheques en 'en_cartera'."
+                            ),
+                        )
+
+                    # Transicionar en_cartera → entregado (endoso).
+                    cheques_service.transicionar_cheque(
+                        session,
+                        cheque_a_usar,
+                        "entregar",
+                        usuario_id=user_id,
+                    )
+
+                    # Asignar proveedor y OP al cheque (denormalizado).
+                    cheque_a_usar.proveedor_id = op.proveedor_id
+                    cheque_a_usar.orden_pago_id = op.id
+                    session.flush()
+
+                    # monto_op_moneda ya fue calculado arriba en el loop de derive.
+                    # Para terceros existentes el derive usa cheque.monto/moneda tal
+                    # como viene en el payload (que debe reflejar el cheque real).
+                    monto_op_moneda_tercero = ch["_monto_op_moneda"]
+
+                    # Tabla de enlace OP↔cheque
+                    link_t = OrdenPagoCheque(
+                        orden_pago_id=op.id,
+                        cheque_id=cheque_a_usar.id,
+                        monto_op_moneda=monto_op_moneda_tercero,
+                    )
+                    session.add(link_t)
+                    session.flush()
+
+                    pedido_id_tercero: Optional[int] = ch.get("pedido_id")
+                    _imputar_y_registrar(
+                        session,
+                        cheque=cheque_a_usar,
+                        op=op,
+                        monto_op_moneda=monto_op_moneda_tercero,
+                        pedido_id=pedido_id_tercero,
+                        fecha_pago_real=fecha_pago_real,
+                        user_id=user_id,
+                        cc_proveedor_service=cc_proveedor_service,
+                        evento_payload_extra={"via": "endoso_tercero"},
+                    )
+
+                    logger.info(
+                        "✅ Cheque tercero id=%s endosado a OP op=%s monto_op=%s %s",
+                        cheque_a_usar.id,
+                        op.id,
+                        monto_op_moneda_tercero,
+                        op.moneda,
+                    )
+
+                elif cheque_a_usar.tipo == "propio":
+                    # ── Aplicar cheque propio preexistente (Slice S2) ────────────
+                    # NO transicionar_cheque: no existe (ni se crea) una transición
+                    # (propio, emitido/diferido, entregar) — el cheque ya está
+                    # emitido, solo se lo vincula a esta OP.
+                    # Beneficiario: rechazar mismatch, nunca reasignar; completar
+                    # solo si estaba vacío. A diferencia del endoso de tercero, acá
+                    # NO se sobreescribe un proveedor_id ya asignado. Validación
+                    # factorizada en `_validar_propio_aplicable` (compartida con
+                    # `reservar_cheque_propio_en_op` y el camino '_ya_reservado').
+                    proveedor_asignado = _validar_propio_aplicable(
+                        cheque_a_usar, op, cheque_label=f"id={cheque_id_existente}"
+                    )
+                    if proveedor_asignado:
+                        cheque_a_usar.proveedor_id = op.proveedor_id
+
+                    cheque_a_usar.orden_pago_id = op.id
+                    session.flush()
+
+                    monto_op_moneda_propio = ch["_monto_op_moneda"]
+
+                    link_p = OrdenPagoCheque(
+                        orden_pago_id=op.id,
+                        cheque_id=cheque_a_usar.id,
+                        monto_op_moneda=monto_op_moneda_propio,
+                    )
+                    session.add(link_p)
+                    session.flush()
+
+                    cheques_service.registrar_evento(
+                        session,
+                        cheque_id=cheque_a_usar.id,
+                        tipo="aplicado_a_op",
+                        payload={
+                            "orden_pago_id": op.id,
+                            "origen": "preexistente",
+                            "proveedor_asignado": proveedor_asignado,
+                        },
+                        usuario_id=user_id,
+                    )
+
+                    pedido_id_propio_existente: Optional[int] = ch.get("pedido_id")
+                    _imputar_y_registrar(
+                        session,
+                        cheque=cheque_a_usar,
+                        op=op,
+                        monto_op_moneda=monto_op_moneda_propio,
+                        pedido_id=pedido_id_propio_existente,
+                        fecha_pago_real=fecha_pago_real,
+                        user_id=user_id,
+                        cc_proveedor_service=cc_proveedor_service,
+                        evento_payload_extra={"via": "aplicacion_propio_preexistente"},
+                    )
+
+                    logger.info(
+                        "✅ Cheque propio id=%s aplicado a OP op=%s monto_op=%s %s",
+                        cheque_a_usar.id,
+                        op.id,
+                        monto_op_moneda_propio,
+                        op.moneda,
+                    )
+
+                else:
                     raise HTTPException(
                         status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
                         detail=(
                             f"Cheque id={cheque_id_existente} es de tipo '{cheque_a_usar.tipo}'; "
-                            f"para endosar por cheque_id el tipo debe ser 'tercero'."
+                            f"solo se admiten cheques 'tercero' o 'propio' por cheque_id."
                         ),
                     )
-                if cheque_a_usar.estado != "en_cartera":
-                    raise HTTPException(
-                        status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
-                        detail=(
-                            f"Cheque id={cheque_id_existente} está en estado '{cheque_a_usar.estado}'; "
-                            f"solo se pueden endosar cheques en 'en_cartera'."
-                        ),
-                    )
-
-                # Transicionar en_cartera → entregado (endoso).
-                cheques_service.transicionar_cheque(
-                    session,
-                    cheque_a_usar,
-                    "entregar",
-                    usuario_id=user_id,
-                )
-
-                # Asignar proveedor y OP al cheque (denormalizado).
-                cheque_a_usar.proveedor_id = op.proveedor_id
-                cheque_a_usar.orden_pago_id = op.id
-                session.flush()
-
-                # monto_op_moneda ya fue calculado arriba en el loop de derive.
-                # Para terceros existentes el derive usa cheque.monto/moneda tal
-                # como viene en el payload (que debe reflejar el cheque real).
-                monto_op_moneda_tercero = ch["_monto_op_moneda"]
-
-                # Tabla de enlace OP↔cheque
-                link_t = OrdenPagoCheque(
-                    orden_pago_id=op.id,
-                    cheque_id=cheque_a_usar.id,
-                    monto_op_moneda=monto_op_moneda_tercero,
-                )
-                session.add(link_t)
-                session.flush()
-
-                # Imputar CC — MISMO camino que cheque propio.
-                pedido_id_tercero: Optional[int] = ch.get("pedido_id")
-                _imputar_cheque_en_op(
-                    session,
-                    cheque=cheque_a_usar,
-                    op=op,
-                    monto_op_moneda=monto_op_moneda_tercero,
-                    pedido_id=pedido_id_tercero,
-                    fecha_pago_real=fecha_pago_real,
-                    user_id=user_id,
-                    cc_proveedor_service=cc_proveedor_service,
-                )
-
-                cheques_service.registrar_evento(
-                    session,
-                    cheque_id=cheque_a_usar.id,
-                    tipo="imputado_cc",
-                    payload={
-                        "orden_pago_id": op.id,
-                        "monto_op_moneda": str(monto_op_moneda_tercero),
-                        "moneda_op": str(op.moneda),
-                        "pedido_id": pedido_id_tercero,
-                        "via": "endoso_tercero",
-                    },
-                    usuario_id=user_id,
-                )
-
-                logger.info(
-                    "✅ Cheque tercero id=%s endosado a OP op=%s monto_op=%s %s",
-                    cheque_a_usar.id,
-                    op.id,
-                    monto_op_moneda_tercero,
-                    op.moneda,
-                )
 
             else:
                 # ── Emisión de propio nuevo (Slice 1 — comportamiento original) ─
@@ -2036,17 +2468,21 @@ def cancelar_pendiente(
     user_id: int,
 ) -> OrdenPago:
     """
-    Transiciona una OP `pendiente` → `cancelado`. Cero efecto colateral.
+    Transiciona una OP `pendiente` → `cancelado`.
 
-    Es seguro porque en `pendiente`:
+    Es seguro en cuanto a movimientos de fondos porque en `pendiente`:
       - NO hay `caja_movimiento` asociado.
       - NO hay `caja_documento` asociado.
       - NO hay imputaciones físicas (los items viven solo como payload
         en `compras_eventos.items_registrados` / `items_editados`).
       - NO se movió la CC del proveedor.
 
-    Por eso la cancelación es solo un UPDATE de `estado` + un evento
-    auditado `op_cancelada_pendiente`. No hay nada que revertir.
+    SÍ tiene un efecto colateral sobre cheques: si la OP tiene cheques
+    (propios) reservados/aplicados (ver `_liberar_cheques_de_op`), cada uno
+    se LIBERA — se desvincula (orden_pago_id/proveedor_id se limpian según
+    corresponda, el link OrdenPagoCheque se borra) y se registra evento
+    'liberado_de_op'. El cheque sigue siendo un instrumento válido; ningún
+    movimiento de CC se toca porque nunca existió ninguno en `pendiente`.
 
     Args:
         session: tx activa.
@@ -2082,6 +2518,8 @@ def cancelar_pendiente(
                 f"OPs en 'pendiente'. Para OPs pagadas usá 'anular'."
             ),
         )
+
+    _liberar_cheques_de_op(session, op=op, user_id=user_id, motivo=f"Cancelación de OP {op.numero} pendiente")
 
     op.estado = "cancelado"
     session.flush()
@@ -2226,6 +2664,102 @@ def _des_endosar_cheques_tercero_de_op(
         )
 
 
+def _resolver_aplicacion_preexistente(session: Session, *, cheque_id: int) -> Optional[dict]:
+    """Discriminador ADR-5: devuelve el payload del evento 'aplicado_a_op' con
+    origen='preexistente' si este cheque fue APLICADO (ya emitido de antes) a
+    una OP, o None si fue EMITIDO para esa OP.
+
+    `emitir_cheque_propio` nunca escribe 'aplicado_a_op' — solo lo escriben los
+    caminos de aplicación de un propio preexistente en `ejecutar_pago`
+    (endoso/aplicación, ver ~:1752 y el camino '_ya_reservado' de S3b). Por eso
+    la presencia de este evento es un discriminador exacto entre "emitido para
+    esta OP" (debe anularse al revertir) y "meramente aplicado/reservado"
+    (debe liberarse, el instrumento sigue siendo válido).
+    """
+    from app.models.cheque import ChequeEvento  # noqa: PLC0415
+
+    eventos = (
+        session.execute(
+            select(ChequeEvento)
+            .where(ChequeEvento.cheque_id == cheque_id, ChequeEvento.tipo == "aplicado_a_op")
+            .order_by(ChequeEvento.id.desc())
+        )
+        .scalars()
+        .all()
+    )
+    for evento in eventos:
+        payload = evento.payload or {}
+        if payload.get("origen") == "preexistente":
+            return payload
+    return None
+
+
+def _registrar_liberado_de_op(
+    session: Session,
+    *,
+    cheque_id: int,
+    orden_pago_id: int,
+    user_id: int,
+    motivo: str,
+) -> None:
+    """Registra el evento 'liberado_de_op' (append-only) — contraparte de
+    'aplicado_a_op' cuando un cheque se desvincula de una OP sin ser anulado."""
+    from app.services import cheques_service  # noqa: PLC0415
+
+    cheques_service.registrar_evento(
+        session,
+        cheque_id=cheque_id,
+        tipo="liberado_de_op",
+        payload={"orden_pago_id": orden_pago_id, "motivo": motivo},
+        usuario_id=user_id,
+    )
+
+
+def _liberar_cheques_de_op(
+    session: Session,
+    *,
+    op: OrdenPago,
+    user_id: int,
+    motivo: str,
+) -> None:
+    """Libera (desvincula) todos los cheques linkeados a una OP `pendiente`,
+    sin tocar CC — a `pendiente` nunca hubo movimiento de CC que revertir
+    (invariante R). Usado por `cancelar_pendiente`.
+
+    Por cada OrdenPagoCheque:
+      1. Limpia orden_pago_id del cheque.
+      2. Limpia proveedor_id SOLO si fue auto-asignado al aplicar
+         (payload.proveedor_asignado == True del evento 'aplicado_a_op').
+      3. Elimina el link OrdenPagoCheque.
+      4. Registra evento 'liberado_de_op'.
+    """
+    from app.models.cheque import Cheque as ChequeModel  # noqa: PLC0415
+    from app.models.cheque import OrdenPagoCheque  # noqa: PLC0415
+
+    links = list(session.execute(select(OrdenPagoCheque).where(OrdenPagoCheque.orden_pago_id == op.id)).scalars().all())
+    for link in links:
+        cheque = session.get(ChequeModel, link.cheque_id)
+        if cheque is None:
+            continue
+
+        aplicacion = _resolver_aplicacion_preexistente(session, cheque_id=cheque.id)
+        if aplicacion is not None and aplicacion.get("proveedor_asignado"):
+            cheque.proveedor_id = None
+        cheque.orden_pago_id = None
+
+        db_link = session.get(OrdenPagoCheque, link.id)
+        if db_link is not None:
+            session.delete(db_link)
+
+        _registrar_liberado_de_op(session, cheque_id=cheque.id, orden_pago_id=op.id, user_id=user_id, motivo=motivo)
+        session.flush()
+        logger.info(
+            "🔄 Cheque id=%s liberado de OP id=%s (cancelación pendiente)",
+            cheque.id,
+            op.id,
+        )
+
+
 def _revertir_cheques_propios_de_op(
     session: Session,
     *,
@@ -2239,7 +2773,17 @@ def _revertir_cheques_propios_de_op(
     `revertir_imputaciones_de_origen(origen_tipo="orden_pago")`.
     `_des_endosar_cheques_tercero_de_op` los salta (solo procesa tipo='tercero').
 
-    Por cada OrdenPagoCheque cuyo cheque es tipo='propio':
+    Por cada OrdenPagoCheque cuyo cheque es tipo='propio', ADR-5 discrimina
+    dos casos vía `_resolver_aplicacion_preexistente`:
+
+    A) Aplicado (preexistente) — el cheque YA EXISTÍA y solo se vinculó a esta
+       OP (no se emitió para ella). El instrumento sigue siendo válido:
+         1. Revierte la CC (si la OP estaba 'pagado'; ver invariante R).
+         2. Limpia proveedor_id (solo si fue auto-asignado) y orden_pago_id.
+         3. Elimina el link OrdenPagoCheque.
+         4. Registra evento 'liberado_de_op'. NO se transiciona a 'anulado'.
+
+    B) Emitido para esta OP (comportamiento original):
       1. Llama a cheques_service._revertir_cc_si_linkeado para revertir la CC
          (Caso A: reversal de imputacion cheque→pedido / Caso B: debe directo CC).
       2. Transiciona el cheque a estado 'anulado' vía cheques_service.transicionar_cheque.
@@ -2258,6 +2802,38 @@ def _revertir_cheques_propios_de_op(
     for link in links:
         cheque = session.get(ChequeModel, link.cheque_id)
         if cheque is None or cheque.tipo != "propio":
+            continue
+
+        aplicacion = _resolver_aplicacion_preexistente(session, cheque_id=cheque.id)
+        if aplicacion is not None:
+            # ADR-5 — cheque preexistente meramente aplicado: LIBERAR, no anular.
+            cheques_service._revertir_cc_si_linkeado(
+                session,
+                cheque=cheque,
+                usuario_id=user_id,
+                empresa_id=op.empresa_id,
+            )
+            if aplicacion.get("proveedor_asignado"):
+                cheque.proveedor_id = None
+            cheque.orden_pago_id = None
+
+            db_link = session.get(OrdenPagoCheque, link.id)
+            if db_link is not None:
+                session.delete(db_link)
+
+            _registrar_liberado_de_op(
+                session,
+                cheque_id=cheque.id,
+                orden_pago_id=op.id,
+                user_id=user_id,
+                motivo=f"Anulación de OP {op.numero}",
+            )
+            session.flush()
+            logger.info(
+                "🔄 Cheque propio id=%s (preexistente) liberado al anular OP id=%s — sigue válido",
+                cheque.id,
+                op.id,
+            )
             continue
 
         # 'debitado'/'acreditado' ya fueron bloqueados antes de llegar aquí.

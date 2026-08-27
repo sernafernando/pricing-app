@@ -1,7 +1,10 @@
 import { useCallback, useEffect, useState } from 'react';
-import { ChevronDown, ChevronRight, Plus, X, Loader2, Inbox, Library } from 'lucide-react';
+import { ChevronDown, ChevronRight, Plus, X, Library, FileCheck2 } from 'lucide-react';
 import ModalCheque from '../ModalCheque';
 import useCheques from '../../../hooks/useCheques';
+import useChequesAplicables from '../../../hooks/useChequesAplicables';
+import SelectorListaModal from './SelectorListaModal';
+import selectorStyles from './SelectorListaModal.module.css';
 import styles from './PanelCheques.module.css';
 
 /**
@@ -23,6 +26,12 @@ import styles from './PanelCheques.module.css';
  *                 cada cheque pide destino explícito (mismo contrato que las NCs).
  *   onChange      ([cheques]) => void — notifica al padre los cheques acumulados.
  *   disabled      (bool)        — desactiva botones.
+ *   permiteNuevosCheques (bool) — default true. Cuando es false (creación de
+ *                 OP sin "pagar ahora"), "Emitir cheque propio" y "Endosar de
+ *                 cartera" se deshabilitan: el backend rechaza esas dos
+ *                 variantes con 422 en el camino crear-sin-pagar (S5) — solo
+ *                 "Aplicar cheque propio" es reservable ahí. "Pagar ahora"
+ *                 habilita las tres de nuevo.
  *
  * Sobre `pedido_id`: con 0 o 1 pedido el destino es inequívoco y lo resuelven el
  * caller y el backend. Con 2+ hay que preguntarlo — sin eso el cheque no descuenta
@@ -61,9 +70,11 @@ export default function PanelCheques({
   pedidos = [],
   onChange,
   disabled = false,
+  permiteNuevosCheques = true,
 }) {
   const requierePedido = pedidos.length > 1;
   const { listar, loading: loadingCartera } = useCheques();
+  const { fetchElegibles, loading: loadingAplicables } = useChequesAplicables();
 
   const [abierto, setAbierto] = useState(false);
   const [chequesEmitidos, setChequesEmitidos] = useState([]);
@@ -86,6 +97,15 @@ export default function PanelCheques({
       setLoadingCarteraLocal(false);
     }
   }, [listar]);
+
+  // ── Cheques propios elegibles para "aplicar" (S4) ──
+  const [showSelectorAplicar, setShowSelectorAplicar] = useState(false);
+  const [elegibles, setElegibles] = useState([]);
+
+  const fetchAplicables = useCallback(async () => {
+    const items = await fetchElegibles(proveedorId);
+    setElegibles(items);
+  }, [fetchElegibles, proveedorId]);
 
   // Reset when proveedor changes.
   useEffect(() => {
@@ -122,6 +142,30 @@ export default function PanelCheques({
       setChequesEmitidos(next);
       if (onChange) onChange(next);
       setShowSelectorCartera(false);
+    },
+    [chequesEmitidos, onChange],
+  );
+
+  // Aplicar un cheque propio pre-existente (S4): mismo shape que el endoso
+  // ({cheque_id, monto, moneda}) — el backend ya sabe distinguir tipo=propio
+  // vs tercero al pagar (ADR-3 paso 5). NO llama al backend acá: viaja como
+  // parte de `cheques` en crear_y_pagar/pagar, igual que un endoso.
+  const handleAplicarPropio = useCallback(
+    (cheque) => {
+      if (chequesEmitidos.some((c) => c.cheque_id === cheque.id)) return;
+      const payload = {
+        cheque_id: cheque.id,
+        monto: cheque.monto,
+        moneda: cheque.moneda,
+        _display_numero: cheque.numero,
+        _display_banco: cheque.banco_nombre,
+        _display_fecha_pago: cheque.fecha_pago,
+        _es_aplicado_propio: true,
+      };
+      const next = [...chequesEmitidos, payload];
+      setChequesEmitidos(next);
+      if (onChange) onChange(next);
+      setShowSelectorAplicar(false);
     },
     [chequesEmitidos, onChange],
   );
@@ -198,17 +242,20 @@ export default function PanelCheques({
             <div className={styles.lista}>
               {chequesEmitidos.map((ch, idx) => {
                 const esEndoso = ch._es_endoso === true;
-                const numero = esEndoso ? ch._display_numero : ch.numero;
-                const banco = esEndoso ? ch._display_banco : null;
-                const fechaPago = esEndoso ? ch._display_fecha_pago : ch.fecha_pago;
-                const esDiferido = !esEndoso && ch.fecha_pago > ch.fecha_emision;
-                // Key estable: cheque_id (endoso) o numero (emisión). Evita que React
-                // reconcilie la fila equivocada al quitar por índice.
-                const rowKey = esEndoso ? `endoso-${ch.cheque_id}` : `propio-${ch.numero}`;
+                const esAplicado = ch._es_aplicado_propio === true;
+                const esExistente = esEndoso || esAplicado;
+                const numero = esExistente ? ch._display_numero : ch.numero;
+                const banco = esExistente ? ch._display_banco : null;
+                const fechaPago = esExistente ? ch._display_fecha_pago : ch.fecha_pago;
+                const esDiferido = !esExistente && ch.fecha_pago > ch.fecha_emision;
+                // Key estable: cheque_id (endoso/aplicado) o numero (emisión). Evita
+                // que React reconcilie la fila equivocada al quitar por índice.
+                const rowKey = esExistente ? `existente-${ch.cheque_id}` : `propio-${ch.numero}`;
                 return (
-                  <div key={rowKey} className={`${styles.chequeRow} ${esEndoso ? styles.chequeRowEndoso : ''}`}>
+                  <div key={rowKey} className={`${styles.chequeRow} ${esExistente ? styles.chequeRowEndoso : ''}`}>
                     <div className={styles.chequeInfo}>
                       {esEndoso && <span className={styles.tagEndoso}>Endoso</span>}
+                      {esAplicado && <span className={styles.tagEndoso}>Cheque propio aplicado</span>}
                       <span className={styles.chequeNumero}>Nº {numero}</span>
                       {banco && <span className={styles.chequeBanco}>{banco}</span>}
                       <span className={styles.chequeMonto}>
@@ -262,12 +309,26 @@ export default function PanelCheques({
             </div>
           )}
 
+          {!permiteNuevosCheques && (
+            <p className={styles.panelHint}>
+              Para emitir un cheque propio nuevo o endosar uno de cartera, marcá
+              "Pagar ahora" — al crear la OP sin pagar solo se puede aplicar un
+              cheque propio ya existente.
+            </p>
+          )}
+
           {!disabled && (
             <div className={styles.botonesAccion}>
               <button
                 type="button"
                 className={styles.btnEmitir}
                 onClick={() => setShowModalEmitir(true)}
+                disabled={!permiteNuevosCheques}
+                title={
+                  permiteNuevosCheques
+                    ? undefined
+                    : 'Marcá "Pagar ahora" para emitir un cheque propio nuevo.'
+                }
               >
                 <Plus size={13} />
                 Emitir cheque propio
@@ -279,9 +340,26 @@ export default function PanelCheques({
                   fetchCartera();
                   setShowSelectorCartera(true);
                 }}
+                disabled={!permiteNuevosCheques}
+                title={
+                  permiteNuevosCheques
+                    ? undefined
+                    : 'Marcá "Pagar ahora" para endosar un cheque de cartera.'
+                }
               >
                 <Library size={13} />
                 Endosar de cartera
+              </button>
+              <button
+                type="button"
+                className={styles.btnEmitir}
+                onClick={() => {
+                  fetchAplicables();
+                  setShowSelectorAplicar(true);
+                }}
+              >
+                <FileCheck2 size={13} />
+                Aplicar cheque propio
               </button>
             </div>
           )}
@@ -300,72 +378,76 @@ export default function PanelCheques({
 
       {/* Selector de cartera para endoso */}
       {showSelectorCartera && (
-        <div className={styles.selectorOverlay}>
-          <div className={styles.selectorModal} role="dialog" aria-modal="true" aria-labelledby="selector-cartera-title">
-            <header className={styles.selectorHeader}>
-              <h3 id="selector-cartera-title" className={styles.selectorTitle}>
-                Cheques en cartera
-              </h3>
-              <button
-                type="button"
-                className={styles.btnClose}
-                onClick={() => setShowSelectorCartera(false)}
-                aria-label="Cerrar"
-              >
-                <X size={16} />
-              </button>
-            </header>
+        <SelectorListaModal
+          title="Cheques en cartera"
+          items={cartera}
+          loading={loadingCarteraLocal || loadingCartera}
+          emptyMessage="No hay cheques en cartera disponibles."
+          getKey={(ch) => ch.id}
+          ariaLabel={(ch) => `Endosar cheque ${ch.numero}`}
+          isDisabled={(ch) => chequesEmitidos.some((c) => c.cheque_id === ch.id)}
+          onSelect={handleEndosar}
+          onClose={() => setShowSelectorCartera(false)}
+          renderItem={(ch) => {
+            const yaAgregado = chequesEmitidos.some((c) => c.cheque_id === ch.id);
+            return (
+              <>
+                <div className={selectorStyles.selectorItemInfo}>
+                  <span className={selectorStyles.selectorNumero}>Nº {ch.numero}</span>
+                  <span className={selectorStyles.selectorBanco}>{ch.banco_nombre ?? '—'}</span>
+                  <span className={selectorStyles.selectorLibrador}>
+                    {ch.librador_nombre ?? ch.cuit_librador ?? '—'}
+                  </span>
+                </div>
+                <div className={selectorStyles.selectorItemRight}>
+                  <span className={selectorStyles.selectorMonto}>
+                    {formatCurrency(ch.monto, ch.moneda)} {ch.moneda}
+                  </span>
+                  <span className={selectorStyles.selectorFecha}>
+                    pago {formatDateShort(ch.fecha_pago)}
+                  </span>
+                  {yaAgregado && <span className={selectorStyles.selectorTagUsado}>Ya agregado</span>}
+                </div>
+              </>
+            );
+          }}
+        />
+      )}
 
-            <div className={styles.selectorBody}>
-              {loadingCarteraLocal || loadingCartera ? (
-                <div className={styles.selectorLoading}>
-                  <Loader2 size={18} className={styles.spin} />
-                  <span>Cargando cartera...</span>
+      {/* Selector de cheques propios elegibles para aplicar (S4) */}
+      {showSelectorAplicar && (
+        <SelectorListaModal
+          title="Cheques propios para aplicar"
+          items={elegibles}
+          loading={loadingAplicables}
+          emptyMessage="No hay cheques propios elegibles para este proveedor."
+          getKey={(ch) => ch.id}
+          ariaLabel={(ch) => `Aplicar cheque propio ${ch.numero}`}
+          isDisabled={(ch) => chequesEmitidos.some((c) => c.cheque_id === ch.id)}
+          onSelect={handleAplicarPropio}
+          onClose={() => setShowSelectorAplicar(false)}
+          renderItem={(ch) => {
+            const yaAgregado = chequesEmitidos.some((c) => c.cheque_id === ch.id);
+            return (
+              <>
+                <div className={selectorStyles.selectorItemInfo}>
+                  <span className={selectorStyles.selectorNumero}>Nº {ch.numero}</span>
+                  <span className={selectorStyles.selectorBanco}>{ch.banco_nombre ?? '—'}</span>
+                  <span className={selectorStyles.selectorLibrador}>{ch.estado}</span>
                 </div>
-              ) : cartera.length === 0 ? (
-                <div className={styles.selectorEmpty}>
-                  <Inbox size={28} />
-                  <p>No hay cheques en cartera disponibles.</p>
+                <div className={selectorStyles.selectorItemRight}>
+                  <span className={selectorStyles.selectorMonto}>
+                    {formatCurrency(ch.monto, ch.moneda)} {ch.moneda}
+                  </span>
+                  <span className={selectorStyles.selectorFecha}>
+                    pago {formatDateShort(ch.fecha_pago)}
+                  </span>
+                  {yaAgregado && <span className={selectorStyles.selectorTagUsado}>Ya agregado</span>}
                 </div>
-              ) : (
-                <div className={styles.selectorLista}>
-                  {cartera.map((ch) => {
-                    const yaAgregado = chequesEmitidos.some((c) => c.cheque_id === ch.id);
-                    return (
-                      <button
-                        key={ch.id}
-                        type="button"
-                        className={`${styles.selectorItem} ${yaAgregado ? styles.selectorItemUsado : ''}`}
-                        onClick={() => handleEndosar(ch)}
-                        disabled={yaAgregado}
-                        aria-label={`Endosar cheque ${ch.numero}`}
-                      >
-                        <div className={styles.selectorItemInfo}>
-                          <span className={styles.selectorNumero}>Nº {ch.numero}</span>
-                          <span className={styles.selectorBanco}>{ch.banco_nombre ?? '—'}</span>
-                          <span className={styles.selectorLibrador}>
-                            {ch.librador_nombre ?? ch.cuit_librador ?? '—'}
-                          </span>
-                        </div>
-                        <div className={styles.selectorItemRight}>
-                          <span className={styles.selectorMonto}>
-                            {formatCurrency(ch.monto, ch.moneda)} {ch.moneda}
-                          </span>
-                          <span className={styles.selectorFecha}>
-                            pago {formatDateShort(ch.fecha_pago)}
-                          </span>
-                          {yaAgregado && (
-                            <span className={styles.selectorTagUsado}>Ya agregado</span>
-                          )}
-                        </div>
-                      </button>
-                    );
-                  })}
-                </div>
-              )}
-            </div>
-          </div>
-        </div>
+              </>
+            );
+          }}
+        />
       )}
     </div>
   );

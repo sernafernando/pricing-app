@@ -1091,3 +1091,96 @@ class TestRecibirChequeTerceroEndpoint:
         ch_tercero = next(i for i in items if i["numero"] == "T-LIST-001")
         assert ch_tercero["banco_nombre"] == "Banco Test List"
         assert ch_tercero["cuit_librador"] == "20999888777"
+
+
+# ──────────────────────────────────────────────────────────────────────────
+# R8 — filtros proveedor_id (IS NULL OR = X) y sin_orden_pago
+# ──────────────────────────────────────────────────────────────────────────
+
+
+class TestListarChequesFiltrosS3b:
+    def _emitir(self, db, *, numero, banco_empresa_id, proveedor_id=None, monto=Decimal("1000")):
+        from app.services.cheques_service import emitir_cheque_propio
+
+        return emitir_cheque_propio(
+            db,
+            tipo="propio",
+            instrumento="echeq",
+            numero=numero,
+            monto=monto,
+            moneda="ARS",
+            fecha_emision=date(2026, 6, 22),
+            fecha_pago=date(2026, 6, 22),
+            banco_empresa_id=banco_empresa_id,
+            proveedor_id=proveedor_id,
+        )
+
+    def test_filtro_proveedor_id_incluye_null_y_match(
+        self, client, auth_headers, db, banco, active_user, _permiso_solo
+    ):
+        from app.models.proveedor import OrigenProveedor, Proveedor
+
+        prov_a = Proveedor(nombre="ProvFiltroA", activo=True, origen=OrigenProveedor.ERP.value, supp_id=9001)
+        prov_b = Proveedor(nombre="ProvFiltroB", activo=True, origen=OrigenProveedor.ERP.value, supp_id=9002)
+        db.add_all([prov_a, prov_b])
+        db.flush()
+
+        self._emitir(db, numero="P-FILT-NULL", banco_empresa_id=banco.id, proveedor_id=None)
+        self._emitir(db, numero="P-FILT-A", banco_empresa_id=banco.id, proveedor_id=prov_a.id)
+        self._emitir(db, numero="P-FILT-B", banco_empresa_id=banco.id, proveedor_id=prov_b.id)
+        db.commit()
+
+        r = client.get(f"{BASE}/cheques?proveedor_id={prov_a.id}", headers=auth_headers)
+        assert r.status_code == 200
+        numeros = {i["numero"] for i in r.json()["items"]}
+        assert "P-FILT-NULL" in numeros
+        assert "P-FILT-A" in numeros
+        assert "P-FILT-B" not in numeros
+
+    def test_filtro_sin_orden_pago_true_excluye_linkeados(
+        self, client, auth_headers, db, banco, active_user, _permiso_solo
+    ):
+        from app.models.cheque import OrdenPagoCheque
+        from app.models.empresa import Empresa
+        from app.models.orden_pago import OrdenPago
+        from app.models.proveedor import OrigenProveedor, Proveedor
+
+        empresa = Empresa(nombre="EmpresaFiltroSOP", activo=True, orden=0)
+        proveedor = Proveedor(nombre="ProvFiltroSOP", activo=True, origen=OrigenProveedor.ERP.value, supp_id=9003)
+        db.add_all([empresa, proveedor])
+        db.flush()
+
+        op = OrdenPago(
+            numero="OP-FILT-SOP",
+            empresa_id=empresa.id,
+            proveedor_id=proveedor.id,
+            moneda="ARS",
+            monto_total=Decimal("1000"),
+            modo_imputacion="a_cuenta",
+            estado="pendiente",
+            creado_por_id=active_user.id,
+        )
+        db.add(op)
+        db.flush()
+
+        cheque_linkeado = self._emitir(db, numero="P-FILT-LINKED", banco_empresa_id=banco.id)
+        self._emitir(db, numero="P-FILT-FREE", banco_empresa_id=banco.id)
+        db.add(OrdenPagoCheque(orden_pago_id=op.id, cheque_id=cheque_linkeado.id, monto_op_moneda=Decimal("1000")))
+        db.commit()
+
+        r = client.get(f"{BASE}/cheques?sin_orden_pago=true", headers=auth_headers)
+        assert r.status_code == 200
+        numeros = {i["numero"] for i in r.json()["items"]}
+        assert "P-FILT-FREE" in numeros
+        assert "P-FILT-LINKED" not in numeros
+
+    def test_filtro_sin_orden_pago_compone_con_tipo_y_estado(
+        self, client, auth_headers, db, banco, active_user, _permiso_solo
+    ):
+        self._emitir(db, numero="P-FILT-COMPOSE", banco_empresa_id=banco.id)
+        db.commit()
+
+        r = client.get(f"{BASE}/cheques?sin_orden_pago=true&tipo=propio&estado=emitido", headers=auth_headers)
+        assert r.status_code == 200
+        numeros = {i["numero"] for i in r.json()["items"]}
+        assert "P-FILT-COMPOSE" in numeros
