@@ -125,3 +125,92 @@ describe('PanelNCsProveedor — mode="seleccionar"', () => {
     ]);
   });
 });
+
+const NC_USD = {
+  id: 7,
+  numero: 'NC-0007',
+  monto: '100.00',
+  saldo_pendiente: '100.00',
+  moneda: 'USD',
+  tipo_cambio: '1450',
+  proveedor_id: 10,
+};
+
+const NC_USD_SIN_TC = { ...NC_USD, id: 8, numero: 'NC-0008', tipo_cambio: null };
+
+describe('PanelNCsProveedor — TC de una NC cross-moneda', () => {
+  it('prefill: al tildar una NC en otra moneda muestra su propio TC y lo emite', async () => {
+    // El TC de la NC era sólo un placeholder gris: invisible para el cálculo y
+    // no editable sin escribirlo a mano. Ahora es el valor por defecto, visible
+    // en el input y editable, y viaja como `tipo_cambio_override`.
+    hookValue.listarDisponibles.mockReset().mockResolvedValue([NC_USD]);
+    const user = userEvent.setup();
+    const onChange = vi.fn();
+    render(
+      <PanelNCsProveedor
+        proveedorId={10}
+        opMoneda="ARS"
+        mode="seleccionar"
+        pedidos={[PEDIDO_A]}
+        onChange={onChange}
+      />
+    );
+    await user.click(screen.getByRole('button', { name: /NCs disponibles del proveedor/i }));
+    await screen.findByText('NC-0007');
+
+    await user.click(screen.getByLabelText('Seleccionar NC NC-0007'));
+
+    expect(screen.getByLabelText(/TC override para NC NC-0007/i)).toHaveValue(1450);
+    expect(onChange).toHaveBeenLastCalledWith([
+      expect.objectContaining({ nc_id: 7, tipo_cambio: '1450', tipo_cambio_override: 1450 }),
+    ]);
+  });
+
+  it('el usuario puede cambiar el TC prellenado y gana el valor tipeado', async () => {
+    hookValue.listarDisponibles.mockReset().mockResolvedValue([NC_USD]);
+    const user = userEvent.setup();
+    const onChange = vi.fn();
+    render(
+      <PanelNCsProveedor
+        proveedorId={10}
+        opMoneda="ARS"
+        mode="seleccionar"
+        pedidos={[PEDIDO_A]}
+        onChange={onChange}
+      />
+    );
+    await user.click(screen.getByRole('button', { name: /NCs disponibles del proveedor/i }));
+    await screen.findByText('NC-0007');
+    await user.click(screen.getByLabelText('Seleccionar NC NC-0007'));
+
+    const input = screen.getByLabelText(/TC override para NC NC-0007/i);
+    await user.clear(input);
+    await user.type(input, '1500');
+
+    expect(onChange).toHaveBeenLastCalledWith([
+      expect.objectContaining({ tipo_cambio_override: 1500 }),
+    ]);
+  });
+
+  it('sin TC propio el campo queda vacío y no se emite override', async () => {
+    hookValue.listarDisponibles.mockReset().mockResolvedValue([NC_USD_SIN_TC]);
+    const user = userEvent.setup();
+    const onChange = vi.fn();
+    render(
+      <PanelNCsProveedor
+        proveedorId={10}
+        opMoneda="ARS"
+        mode="seleccionar"
+        pedidos={[PEDIDO_A]}
+        onChange={onChange}
+      />
+    );
+    await user.click(screen.getByRole('button', { name: /NCs disponibles del proveedor/i }));
+    await screen.findByText('NC-0008');
+    await user.click(screen.getByLabelText('Seleccionar NC NC-0008'));
+
+    expect(screen.getByLabelText(/TC override para NC NC-0008/i)).toHaveValue(null);
+    const emitido = onChange.mock.calls.at(-1)[0][0];
+    expect(emitido).not.toHaveProperty('tipo_cambio_override');
+  });
+});

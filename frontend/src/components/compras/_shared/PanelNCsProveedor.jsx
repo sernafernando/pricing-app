@@ -169,9 +169,22 @@ export default function PanelNCsProveedor({
     const defaultMonto = !cur.checked
       ? String(Number(nc.saldo_pendiente ?? nc.monto) || '')
       : cur.monto;
+    // Default TC to the NC's own cotización when checking. It used to live only
+    // in the placeholder — invisible to the calculation and impossible to edit
+    // without retyping it. Prefilled it is both visible and editable, and what
+    // the box shows is exactly what gets sent.
+    const defaultTc =
+      !cur.checked && !cur.tcOverride && Number(nc.tipo_cambio) > 0
+        ? String(nc.tipo_cambio)
+        : cur.tcOverride;
     const next = {
       ...seleccion,
-      [nc.id]: { ...cur, checked: !cur.checked, monto: !cur.checked ? defaultMonto : cur.monto },
+      [nc.id]: {
+        ...cur,
+        checked: !cur.checked,
+        monto: !cur.checked ? defaultMonto : cur.monto,
+        tcOverride: defaultTc,
+      },
     };
     setSeleccion(next);
     notifyChange(next);

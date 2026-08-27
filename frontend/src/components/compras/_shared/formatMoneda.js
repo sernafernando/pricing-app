@@ -143,3 +143,87 @@ export const formatTC = (tc) => {
     maximumFractionDigits: 4,
   });
 };
+
+/**
+ * First strictly-positive, finite TC of the candidate list; `null` if none.
+ *
+ * Mirrors the backend authority `_resolver_tc_nc`
+ * (backend/app/services/ordenes_pago_service.py).
+ *
+ * @param {...(number|string|null|undefined)} candidatos
+ * @returns {number|null}
+ */
+export const resolverTc = (...candidatos) => {
+  for (const candidato of candidatos) {
+    if (candidato === null || candidato === undefined || candidato === '') continue;
+    const num = Number(candidato);
+    if (Number.isFinite(num) && num > 0) return num;
+  }
+  return null;
+};
+
+/**
+ * Converts an NC amount to `destinoMoneda` walking the chain NC → OP → destino.
+ *
+ * Mirrors the backend authority `_convertir_nc_por_cadena_op`
+ * (backend/app/services/ordenes_pago_service.py). An NC is a MEANS OF PAYMENT:
+ * it funds the OP and from there rides the same OP→pedido conversion the items
+ * do. The chain has two legs and, inside the ARS/USD whitelist, at most one of
+ * them is not the identity:
+ *
+ *   1. NC → OP. Identity when `ncMoneda === opMoneda`. Otherwise the rate is
+ *      resolved as `tipoCambioOverride` → `ncTipoCambio` (the NC's own quote,
+ *      from the day it was issued) → `opTipoCambio`.
+ *   2. OP → destino. Identity when `opMoneda === destinoMoneda`. Otherwise it
+ *      uses `opTipoCambio` and ONLY `opTipoCambio` — the NC's own quote says
+ *      how the NC funds the OP, not how the OP pays the pedido.
+ *
+ * When `ncMoneda === destinoMoneda` both legs cancel out and the result is the
+ * identity, exactly like the backend row.
+ *
+ * Returns `null` — never 0 and NEVER the unconverted amount — when a leg that
+ * has to convert has no usable TC. Falling back to the raw amount would add,
+ * say, USD into an ARS total: that is a discount the total never received, and
+ * callers MUST surface it instead of silently swallowing the NC.
+ *
+ * This is the single resolver for the NC number. Every consumer (the per-item
+ * deduction AND the on-screen summary) goes through it: three divergent
+ * implementations of one amount is what made the summary and the total disagree.
+ *
+ * @param {object} args
+ * @param {number|string} args.monto - amount in the NC's own currency
+ * @param {string} args.ncMoneda
+ * @param {string} args.opMoneda
+ * @param {string} args.destinoMoneda
+ * @param {number|string|null|undefined} [args.tipoCambioOverride]
+ * @param {number|string|null|undefined} [args.ncTipoCambio]
+ * @param {number|string|null|undefined} [args.opTipoCambio]
+ * @returns {number|null} null = not deductible, the caller must say so
+ */
+export const convertirMontoNC = ({
+  monto,
+  ncMoneda,
+  opMoneda,
+  destinoMoneda,
+  tipoCambioOverride = null,
+  ncTipoCambio = null,
+  opTipoCambio = null,
+}) => {
+  // Leg 1 — NC → OP.
+  let tcNcOp = null;
+  if (ncMoneda !== opMoneda) {
+    tcNcOp = resolverTc(tipoCambioOverride, ncTipoCambio, opTipoCambio);
+    if (tcNcOp === null) return null;
+  }
+
+  // Leg 2 — OP → destino.
+  let tcOpDestino = null;
+  if (opMoneda !== destinoMoneda) {
+    tcOpDestino = resolverTc(opTipoCambio);
+    if (tcOpDestino === null) return null;
+  }
+
+  // Exactly one leg converts — that one defines the origen↔destino rate.
+  const tcEfectivo = tcOpDestino === null ? tcNcOp : tcOpDestino;
+  return convertirMonto(monto, ncMoneda, destinoMoneda, tcEfectivo);
+};

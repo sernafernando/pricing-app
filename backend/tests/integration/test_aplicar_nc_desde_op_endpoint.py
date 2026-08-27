@@ -151,6 +151,47 @@ def nc_aprobada(db, empresa, proveedor, active_user) -> NotaCreditoLocal:
     return nc
 
 
+@pytest.fixture
+def nc_usd_con_tc(db, empresa, proveedor, active_user) -> NotaCreditoLocal:
+    """NC local aprobada en USD con su propia cotización (USD 100 @ 1450)."""
+    nc = NotaCreditoLocal(
+        numero="NC-NCEp-2026-00002",
+        empresa_id=empresa.id,
+        proveedor_id=proveedor.id,
+        moneda="USD",
+        tipo_cambio=Decimal("1450"),
+        monto=Decimal("100"),
+        fecha_emision=date(2026, 1, 10),
+        motivo="NC en USD con TC propio",
+        estado="aprobado",
+        tipo="credito",
+        creado_por_id=active_user.id,
+    )
+    db.add(nc)
+    db.flush()
+    return nc
+
+
+@pytest.fixture
+def nc_usd_sin_tc(db, empresa, proveedor, active_user) -> NotaCreditoLocal:
+    """NC local aprobada en USD SIN cotización propia."""
+    nc = NotaCreditoLocal(
+        numero="NC-NCEp-2026-00003",
+        empresa_id=empresa.id,
+        proveedor_id=proveedor.id,
+        moneda="USD",
+        monto=Decimal("100"),
+        fecha_emision=date(2026, 1, 10),
+        motivo="NC en USD sin TC propio",
+        estado="aprobado",
+        tipo="credito",
+        creado_por_id=active_user.id,
+    )
+    db.add(nc)
+    db.flush()
+    return nc
+
+
 # ---------------------------------------------------------------------------
 # Tests
 # ---------------------------------------------------------------------------
@@ -191,6 +232,36 @@ class TestAplicarNCDesdeOPEndpoint:
         assert "nc_estado" in data
         assert isinstance(data["imputacion_id"], int)
         assert data["nc_estado"] in {"aprobado", "aplicada_parcial", "aplicada"}
+
+    def test_nc_usd_sobre_op_ars_sin_tc_usa_el_tc_de_la_nc_201(
+        self, db, client, auth_headers, op, pedido, nc_usd_con_tc, imputacion_op_pedido, con_permisos
+    ) -> None:
+        """NC USD con TC propio + OP ARS sin TC → 201 e imputa 10 USD × 1450 ARS.
+
+        Este es el bug reportado end-to-end: la NC en USD no descontaba nada
+        porque la cadena de TC ignoraba la cotización de la propia NC.
+        """
+        r = client.post(
+            f"{BASE}/ordenes-pago/{op.id}/aplicar-nc",
+            headers=auth_headers,
+            json={"nc_id": nc_usd_con_tc.id, "monto": "10"},
+        )
+        assert r.status_code == 201, r.text
+        imp = db.get(Imputacion, r.json()["imputacion_id"])
+        assert imp.monto_imputado == Decimal("14500.00")
+        assert imp.moneda_imputada == "ARS"
+        assert imp.tipo_cambio == Decimal("1450")
+
+    def test_nc_usd_sobre_op_ars_sin_tc_en_ningun_lado_422(
+        self, client, auth_headers, op, pedido, nc_usd_sin_tc, imputacion_op_pedido, con_permisos
+    ) -> None:
+        """Sin override, sin TC en la NC y sin TC en la OP → sigue siendo 422."""
+        r = client.post(
+            f"{BASE}/ordenes-pago/{op.id}/aplicar-nc",
+            headers=auth_headers,
+            json={"nc_id": nc_usd_sin_tc.id, "monto": "10"},
+        )
+        assert r.status_code == 422, r.text
 
     def test_op_not_found_404(self, client, auth_headers, nc_aprobada, con_permisos) -> None:
         """OP inexistente → 404."""
