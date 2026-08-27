@@ -632,3 +632,41 @@ class TestMergeStepEjecutarPago:
             "El reversal CC usó el monto de RESERVA en vez del de pago — "
             "prueba que el resync de link.monto_op_moneda es load-bearing."
         )
+
+
+class TestSinFuenteNiCheques:
+    """The schema no longer rejects a missing funding source — the service does.
+
+    Relaxing `OrdenPagoEjecutarPago` was necessary so a fully cheque-covered OP
+    could be paid over HTTP, but it moved this rejection rather than removing
+    it. Without this test the relaxation silently drops the guard.
+    """
+
+    def test_ejecutar_pago_sin_fuente_ni_cheques_422(self, db, empresa, proveedor, active_user) -> None:
+        from fastapi import HTTPException
+
+        op = ordenes_pago_service.crear(
+            db,
+            proveedor_id=proveedor.id,
+            empresa_id=empresa.id,
+            moneda="ARS",
+            monto_total=Decimal("1000.00"),
+            modo_imputacion="a_cuenta",
+            items=[],
+            creado_por_id=active_user.id,
+        )
+        db.flush()
+
+        with pytest.raises(HTTPException) as exc_info:
+            ordenes_pago_service.ejecutar_pago(
+                db,
+                orden_pago_id=op.id,
+                caja_id=None,
+                banco_id=None,
+                fecha_pago_real=date(2026, 6, 25),
+                user_id=active_user.id,
+                cheques=[],
+            )
+
+        assert exc_info.value.status_code == 422
+        assert "fuente de fondos" in str(exc_info.value.detail)

@@ -87,6 +87,7 @@ from app.schemas.nota_credito_local import (
     VincularFacturaNCRequest,
 )
 from app.schemas.orden_pago import (
+    ChequeEnOpResponse,
     AplicarNCDesdeOPRequest,
     AplicarNCDesdeOPResponse,
     CajaMovimientoResumen,
@@ -1826,6 +1827,7 @@ def cancelar_orden_pago_pendiente(
 
 @router.post(
     "/ordenes-pago/{op_id}/cheques",
+    response_model=ChequeEnOpResponse,
     status_code=status.HTTP_201_CREATED,
     summary="Reservar un cheque propio preexistente contra una OP pendiente (S3b)",
 )
@@ -1834,7 +1836,7 @@ def reservar_cheque_en_op(
     data: ReservarChequePropioRequest,
     db: Session = Depends(get_db),
     user: Usuario = Depends(require_permiso("administracion.gestionar_ordenes_compra")),
-) -> dict:
+) -> ChequeEnOpResponse:
     """Reserva un cheque propio preexistente contra una OP `pendiente` (S3b).
 
     NO mueve dinero — solo persiste el link `OrdenPagoCheque` de inmediato
@@ -1868,11 +1870,12 @@ def reservar_cheque_en_op(
         raise HTTPException(status_code=500, detail="Error al reservar el cheque en la OP.") from exc
 
     _commit_or_rollback(db, operacion="reservar_cheque_en_op")
-    return {"cheque_id": cheque.id, "orden_pago_id": op_id}
+    return ChequeEnOpResponse(cheque_id=cheque.id, orden_pago_id=op_id)
 
 
 @router.delete(
     "/ordenes-pago/{op_id}/cheques/{cheque_id}",
+    response_model=ChequeEnOpResponse,
     status_code=status.HTTP_200_OK,
     summary="Liberar (des-reservar) un cheque propio de una OP pendiente (S3b)",
 )
@@ -1881,7 +1884,7 @@ def liberar_cheque_de_op(
     cheque_id: int,
     db: Session = Depends(get_db),
     user: Usuario = Depends(require_permiso("administracion.gestionar_ordenes_compra")),
-) -> dict:
+) -> ChequeEnOpResponse:
     """Libera un cheque reservado en una OP `pendiente` (S3b). NO toca CC —
     a `pendiente` nunca hubo movimiento de CC que revertir.
 
@@ -1905,7 +1908,7 @@ def liberar_cheque_de_op(
         raise HTTPException(status_code=500, detail="Error al liberar el cheque de la OP.") from exc
 
     _commit_or_rollback(db, operacion="liberar_cheque_de_op")
-    return {"cheque_id": cheque_id, "orden_pago_id": op_id}
+    return ChequeEnOpResponse(cheque_id=cheque_id, orden_pago_id=op_id)
 
 
 @router.post(

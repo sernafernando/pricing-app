@@ -16,12 +16,17 @@ import {
   ArrowDownCircle,
   BarChart3,
   BookOpen,
+  FileCheck2,
+  Link2Off,
 } from 'lucide-react';
 import api from '../../services/api';
 import { usePermisos } from '../../contexts/PermisosContext';
 import useCheques from '../../hooks/useCheques';
+import useComprasOP from '../../hooks/useComprasOP';
 import ModalCheque from './ModalCheque';
 import ModalChequeras from './ModalChequeras';
+import SelectorListaModal from './_shared/SelectorListaModal';
+import selectorStyles from './_shared/SelectorListaModal.module.css';
 import styles from './TabCheques.module.css';
 
 /**
@@ -81,6 +86,30 @@ const ESTADO_BADGE_MAP = {
   en_custodia:       { cls: 'badgeEnCustodia',        label: 'En custodia' },
 };
 
+/**
+ * OrdenPagoLinkBadge — R11 (compras-cheque-propio-aplicable-a-op): un cheque
+ * propio con `orden_pago_id` NO es necesariamente pagado — puede estar
+ * meramente RESERVADO contra una OP pendiente (INVARIANT R, design ADR).
+ * `opEstado` (estado de esa OP, cargado aparte — el endpoint de cheques no
+ * lo expone) decide la etiqueta:
+ *   - desconocido todavía (fetch en curso) → "Vinculado a OP N" (neutral)
+ *   - op.estado === 'pendiente'            → "Reservado en OP N"
+ *   - op.estado === 'pagado'               → "Aplicado en OP N" (imputado, NUNCA "pagado" a secas del cheque)
+ *   - cualquier otro (anulado/cancelado)    → "Vinculado a OP N"
+ * Nunca renderiza la palabra "Pagado" — ese estado no existe para el cheque.
+ */
+function OrdenPagoLinkBadge({ ordenPagoId, opEstado }) {
+  if (!ordenPagoId) return null;
+  let label = `Vinculado a OP ${ordenPagoId}`;
+  if (opEstado === 'pendiente') label = `Reservado en OP ${ordenPagoId}`;
+  else if (opEstado === 'pagado') label = `Aplicado en OP ${ordenPagoId}`;
+  return (
+    <span className={`${styles.badge} ${styles.badgeFallback}`} title={label}>
+      {label}
+    </span>
+  );
+}
+
 function EstadoBadgeCheque({ estado }) {
   const tone = ESTADO_BADGE_MAP[estado] ?? { cls: 'badgeFallback', label: estado };
   return (
@@ -95,8 +124,10 @@ export default function TabCheques() {
   const {
     listar, anular: anularCheque, transicionarEcheq,
     debitar, depositar, acreditar, obtenerReporte,
+    reservarEnOp, liberarDeOp,
     loading, error,
   } = useCheques();
+  const { listar: listarOP, obtener: obtenerOP } = useComprasOP();
 
   // ── Vista activa ──
   const [vista, setVista] = useState(VISTAS.PROPIOS);
@@ -158,6 +189,22 @@ export default function TabCheques() {
   // Reporte FR-4.4
   const [reporte, setReporte] = useState(null);
   const [loadingReporte, setLoadingReporte] = useState(false);
+
+  // ── S4 — aplicar cheque propio a OP pendiente ──
+  // estado de las OPs vinculadas a los cheques de la página actual (para
+  // distinguir "reservado" de "aplicado/pagado" en el badge — el listado de
+  // cheques no expone el estado de la OP).
+  const [opEstados, setOpEstados] = useState({});
+  // { cheque } — abre el selector de OPs pendientes del mismo proveedor
+  const [aplicando, setAplicando] = useState(null);
+  const [opsPendientes, setOpsPendientes] = useState([]);
+  const [loadingOpsPendientes, setLoadingOpsPendientes] = useState(false);
+  const [errorAplicar, setErrorAplicar] = useState(null);
+  const [savingAplicar, setSavingAplicar] = useState(false);
+  // { cheque } — confirmar desvinculación
+  const [desvinculando, setDesvinculando] = useState(null);
+  const [savingDesvincular, setSavingDesvincular] = useState(false);
+  const [errorDesvincular, setErrorDesvincular] = useState(null);
 
   const fetchCheques = useCallback(async () => {
     if (vista === VISTAS.CARTERA) {
@@ -226,6 +273,33 @@ export default function TabCheques() {
       })
       .catch(() => setBancosDisponibles([]));
   }, [depositando]);
+
+  // Resolver el estado de las OPs vinculadas a los cheques propios de la
+  // página actual — necesario para el badge (R11: nunca mostrar "pagado"
+  // cuando en realidad es una reserva). Ninguna llamada al backend cambia:
+  // reusa GET /ordenes-pago/{id}, ya existente.
+  useEffect(() => {
+    const idsFaltantes = [...new Set(
+      cheques
+        .filter((ch) => ch.tipo === 'propio' && ch.orden_pago_id != null)
+        .map((ch) => ch.orden_pago_id),
+    )].filter((id) => !(id in opEstados));
+    if (idsFaltantes.length === 0) return;
+    let cancelado = false;
+    Promise.all(
+      idsFaltantes.map((id) =>
+        obtenerOP(id)
+          .then((op) => [id, op?.estado ?? null])
+          .catch(() => [id, null]),
+      ),
+    ).then((pares) => {
+      if (cancelado) return;
+      setOpEstados((prev) => ({ ...prev, ...Object.fromEntries(pares) }));
+    });
+    return () => {
+      cancelado = true;
+    };
+  }, [cheques, opEstados, obtenerOP]);
 
   const handleCambiarVista = (v) => {
     setVista(v);
@@ -359,6 +433,74 @@ export default function TabCheques() {
       setErrorAcreditar(typeof msg === 'string' ? msg : 'Error al acreditar.');
     } finally {
       setSavingAcreditar(false);
+    }
+  };
+
+  // Abrir el selector: busca OPs pendientes del mismo proveedor del cheque.
+  const handleAbrirAplicar = async (cheque) => {
+    setErrorAplicar(null);
+    setAplicando(cheque);
+    setLoadingOpsPendientes(true);
+    try {
+      // A cheque with no beneficiary can go to ANY proveedor, so the list is
+      // deliberately unfiltered in that case — but the user has to be told,
+      // otherwise it silently looks like a filtered list that went wrong.
+      const params = { estado: 'pendiente', page_size: 200 };
+      if (cheque.proveedor_id != null) params.proveedor_id = cheque.proveedor_id;
+      const result = await listarOP(params);
+      const items = result?.items ?? (Array.isArray(result) ? result : []);
+      setOpsPendientes(items);
+    } catch (err) {
+      // Swallowing this would render "no hay OPs pendientes" for a call that
+      // actually blew up — a failure disguised as an empty list.
+      setOpsPendientes([]);
+      const d = err.response?.data;
+      setErrorAplicar(
+        (typeof d?.detail === 'string' && d.detail) || d?.mensaje || 'No se pudieron cargar las OPs pendientes.',
+      );
+    } finally {
+      setLoadingOpsPendientes(false);
+    }
+  };
+
+  // Reservar (NO paga) el cheque contra la OP pendiente elegida.
+  const handleAplicarAOP = async (op) => {
+    if (!aplicando) return;
+    setSavingAplicar(true);
+    setErrorAplicar(null);
+    try {
+      await reservarEnOp(op.id, {
+        cheque_id: aplicando.id,
+        monto: aplicando.monto,
+        moneda: aplicando.moneda,
+      });
+      setAplicando(null);
+      setOpsPendientes([]);
+      fetchCheques();
+    } catch (err) {
+      const d = err.response?.data;
+      const msg = (typeof d?.detail === 'string' && d.detail) || err.message || 'Error al aplicar el cheque a la OP.';
+      setErrorAplicar(typeof msg === 'string' ? msg : 'Error al aplicar el cheque a la OP.');
+    } finally {
+      setSavingAplicar(false);
+    }
+  };
+
+  // Desvincular un cheque reservado (NO disponible si la OP ya no está pendiente).
+  const handleDesvincular = async () => {
+    if (!desvinculando) return;
+    setSavingDesvincular(true);
+    setErrorDesvincular(null);
+    try {
+      await liberarDeOp(desvinculando.orden_pago_id, desvinculando.id);
+      setDesvinculando(null);
+      fetchCheques();
+    } catch (err) {
+      const d = err.response?.data;
+      const msg = (typeof d?.detail === 'string' && d.detail) || err.message || 'Error al desvincular el cheque.';
+      setErrorDesvincular(typeof msg === 'string' ? msg : 'Error al desvincular el cheque.');
+    } finally {
+      setSavingDesvincular(false);
     }
   };
 
@@ -683,6 +825,12 @@ export default function TabCheques() {
                     <td className={styles.tdSecondary}>{formatDate(ch.fecha_pago)}</td>
                     <td>
                       <EstadoBadgeCheque estado={ch.estado} />
+                      {ch.tipo === 'propio' && (
+                        <OrdenPagoLinkBadge
+                          ordenPagoId={ch.orden_pago_id}
+                          opEstado={ch.orden_pago_id != null ? opEstados[ch.orden_pago_id] : undefined}
+                        />
+                      )}
                     </td>
                     {puedeGestionar && (
                       <td className={`${styles.tdRight} ${styles.actionsCell}`}>
@@ -696,6 +844,31 @@ export default function TabCheques() {
                           >
                             <CreditCard size={12} />
                             Debitar
+                          </button>
+                        )}
+                        {/* Aplicar a OP (S4): propio, sin OP vinculada, emitido/diferido */}
+                        {ch.tipo === 'propio' && ch.orden_pago_id == null && ['emitido', 'diferido'].includes(ch.estado) && (
+                          <button
+                            type="button"
+                            className={styles.btnAction}
+                            onClick={() => handleAbrirAplicar(ch)}
+                            aria-label={`Aplicar cheque ${ch.numero} a una orden de pago`}
+                          >
+                            <FileCheck2 size={12} />
+                            Aplicar a OP
+                          </button>
+                        )}
+                        {/* Desvincular (S4): reservado, y la OP sigue pendiente */}
+                        {ch.tipo === 'propio' && ch.orden_pago_id != null
+                          && opEstados[ch.orden_pago_id] === 'pendiente' && (
+                          <button
+                            type="button"
+                            className={styles.btnAction}
+                            onClick={() => { setErrorDesvincular(null); setDesvinculando(ch); }}
+                            aria-label={`Desvincular cheque ${ch.numero} de la OP ${ch.orden_pago_id}`}
+                          >
+                            <Link2Off size={12} />
+                            Desvincular
                           </button>
                         )}
                         {/* Anular: propios emitido/diferido */}
@@ -1189,6 +1362,85 @@ export default function TabCheques() {
               </button>
               <button type="button" className={styles.btnPrimary} onClick={handleAcreditar} disabled={savingAcreditar}>
                 {savingAcreditar ? <><Loader2 size={13} className={styles.spin} /> Acreditando...</> : <><ArrowDownCircle size={13} /> Confirmar acreditación</>}
+              </button>
+            </footer>
+          </div>
+        </div>
+      )}
+
+      {/* Selector de OP pendiente para "Aplicar a OP" (S4) — reusa el mismo
+          shape que PanelCheques usa para elegir cheques (SelectorListaModal). */}
+      {/* El error y el selector NUNCA se muestran juntos: comparten z-index y
+          el selector va después en el DOM, así que lo taparía — el fallo
+          volvería a leerse como "no hay OPs pendientes". */}
+      {aplicando && (
+        <>
+          {errorAplicar && (
+            <div className={styles.modalOverlay}>
+              <div className={styles.modalAnular} role="alertdialog" aria-modal="true">
+                <div className={styles.modalAnularBody}>
+                  <div className={styles.errorBanner} role="alert">{errorAplicar}</div>
+                </div>
+                <footer className={styles.modalAnularFooter}>
+                  <button type="button" className={styles.btnCancel} onClick={() => setErrorAplicar(null)}>
+                    Cerrar
+                  </button>
+                </footer>
+              </div>
+            </div>
+          )}
+          {!errorAplicar && (
+          <SelectorListaModal
+            title={
+              aplicando.proveedor_id == null
+                ? `Aplicar cheque ${aplicando.numero} — sin beneficiario, se listan OPs de todos los proveedores`
+                : `Aplicar cheque ${aplicando.numero} a una OP pendiente`
+            }
+            items={opsPendientes}
+            loading={loadingOpsPendientes || savingAplicar}
+            emptyMessage="No hay órdenes de pago pendientes para este proveedor."
+            getKey={(op) => op.id}
+            ariaLabel={(op) => `Aplicar cheque a la OP ${op.id}`}
+            onSelect={handleAplicarAOP}
+            onClose={() => { setAplicando(null); setOpsPendientes([]); setErrorAplicar(null); }}
+            renderItem={(op) => (
+              <div className={selectorStyles.selectorItemInfo}>
+                <span className={selectorStyles.selectorNumero}>OP #{op.id}</span>
+                <span className={selectorStyles.selectorBanco}>
+                  {formatCurrency(op.monto_total, op.moneda)} {op.moneda}
+                </span>
+              </div>
+            )}
+          />
+          )}
+        </>
+      )}
+
+      {/* Confirmar desvinculación (S4) */}
+      {desvinculando && (
+        <div className={styles.modalOverlay}>
+          <div className={styles.modalAnular} role="dialog" aria-modal="true" aria-labelledby="modal-desvincular-title">
+            <header className={styles.modalAnularHeader}>
+              <h3 id="modal-desvincular-title" className={styles.modalAnularTitle}>
+                Desvincular cheque {desvinculando.numero}
+              </h3>
+              <button type="button" className={styles.btnClose} onClick={() => setDesvinculando(null)} aria-label="Cerrar">
+                <X size={16} />
+              </button>
+            </header>
+            <div className={styles.modalAnularBody}>
+              <p className={styles.modalAnularDesc}>
+                Se libera la reserva contra la OP {desvinculando.orden_pago_id}. El cheque NO se toca
+                — sigue disponible para aplicarse a otra OP. No hay movimiento de cuenta corriente que revertir.
+              </p>
+              {errorDesvincular && <div className={styles.errorBanner} role="alert">{errorDesvincular}</div>}
+            </div>
+            <footer className={styles.modalAnularFooter}>
+              <button type="button" className={styles.btnCancel} onClick={() => setDesvinculando(null)} disabled={savingDesvincular}>
+                Cancelar
+              </button>
+              <button type="button" className={styles.btnPrimary} onClick={handleDesvincular} disabled={savingDesvincular}>
+                {savingDesvincular ? <><Loader2 size={13} className={styles.spin} /> Desvinculando...</> : <><Link2Off size={13} /> Confirmar</>}
               </button>
             </footer>
           </div>

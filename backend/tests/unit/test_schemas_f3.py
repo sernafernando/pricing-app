@@ -44,9 +44,26 @@ class TestOrdenPagoCrearYPagar:
         assert payload.caja_id == 3
         assert payload.fecha_pago_real == date(2026, 1, 15)
 
-    def test_caja_id_required(self) -> None:
-        """Missing caja_id → ValidationError."""
+    def test_sin_caja_ni_banco_lo_acepta_el_schema(self) -> None:
+        """No funding source is now valid AT THE SCHEMA LEVEL.
+
+        It used to raise here. An OP covered entirely by cheques is paid with
+        no caja and no banco, and the cheques may already be reserved against
+        the OP — something this schema cannot see. Demanding a source made
+        that path unreachable over HTTP (Pydantic 422 before the service ran).
+
+        The real rejection did not disappear, it moved to where the context
+        lives: `ejecutar_pago` still raises when there is no source AND no
+        cheques (see test_ejecutar_pago_sin_fuente_ni_cheques_422).
+        """
         payload = {k: v for k, v in PAYLOAD_BASE.items() if k != "caja_id"}
+        schema = OrdenPagoCrearYPagar(**payload)
+        assert schema.caja_id is None
+        assert schema.banco_id is None
+
+    def test_caja_y_banco_juntos_siguen_invalidos(self) -> None:
+        """Relaxing the validator must not lose mutual exclusion."""
+        payload = {**PAYLOAD_BASE, "banco_id": 9}
         with pytest.raises(ValidationError):
             OrdenPagoCrearYPagar(**payload)
 
