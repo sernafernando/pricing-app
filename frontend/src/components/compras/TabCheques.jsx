@@ -450,8 +450,14 @@ export default function TabCheques() {
       const result = await listarOP(params);
       const items = result?.items ?? (Array.isArray(result) ? result : []);
       setOpsPendientes(items);
-    } catch {
+    } catch (err) {
+      // Swallowing this would render "no hay OPs pendientes" for a call that
+      // actually blew up — a failure disguised as an empty list.
       setOpsPendientes([]);
+      const d = err.response?.data;
+      setErrorAplicar(
+        (typeof d?.detail === 'string' && d.detail) || d?.mensaje || 'No se pudieron cargar las OPs pendientes.',
+      );
     } finally {
       setLoadingOpsPendientes(false);
     }

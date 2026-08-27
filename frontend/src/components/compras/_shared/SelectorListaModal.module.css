@@ -19,7 +19,7 @@
   max-height: 80vh;
   display: flex;
   flex-direction: column;
-  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.4);
+  box-shadow: var(--cf-shadow-modal);
   overflow: hidden;
 }
 
@@ -177,12 +177,3 @@
   color: var(--cf-accent-blue);
   font-weight: var(--font-semibold);
 }
-
-/* ── Destino del cheque (OPs con varios pedidos) ──────────── */
-.chequeDestino {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  flex-shrink: 0;
-}
-
