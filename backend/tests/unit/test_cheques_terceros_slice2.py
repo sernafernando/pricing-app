@@ -561,8 +561,16 @@ class TestEndosoTerceroEnOP:
             )
         assert exc_info.value.status_code == 422
 
-    def test_endoso_cheque_propio_por_id_levanta_422(self, db, empresa, proveedor, banco, active_user) -> None:
-        """No se puede endosar un cheque propio usando cheque_id (solo terceros)."""
+    def test_endoso_cheque_propio_debitado_por_id_levanta_422(self, db, empresa, proveedor, banco, active_user) -> None:
+        """Un cheque propio en estado terminal ('debitado') no puede aplicarse a una OP.
+
+        NOTA (Slice S2 — compras-cheque-propio-aplicable-a-op): antes de S2,
+        CUALQUIER cheque propio pasado por cheque_id levantaba 422 (solo
+        'tercero' era admitido). Desde S2, un cheque propio 'emitido' o
+        'diferido' se puede aplicar (ver test_cheques_propio_aplicado_op.py);
+        este test se reescribió a un estado realmente inválido para seguir
+        cubriendo el 422 con el nuevo motivo (estado terminal, no tipo).
+        """
         from fastapi import HTTPException
 
         # Crear un cheque propio sin chequera (echeq)
@@ -577,6 +585,8 @@ class TestEndosoTerceroEnOP:
             fecha_pago=date(2026, 6, 22),
             banco_empresa_id=banco.id,
         )
+        db.flush()
+        cheque_propio.estado = "debitado"
         db.flush()
 
         with pytest.raises(HTTPException) as exc_info:
@@ -601,6 +611,7 @@ class TestEndosoTerceroEnOP:
                 ],
             )
         assert exc_info.value.status_code == 422
+        assert "debitado" in str(exc_info.value.detail)
 
 
 # ──────────────────────────────────────────────────────────────────────────

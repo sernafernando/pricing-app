@@ -1079,6 +1079,55 @@ def _imputar_cheque_en_op(
         )
 
 
+def _imputar_y_registrar(
+    session: Session,
+    *,
+    cheque: "Any",
+    op: OrdenPago,
+    monto_op_moneda: Decimal,
+    pedido_id: Optional[int],
+    fecha_pago_real: date,
+    user_id: int,
+    cc_proveedor_service: "Any",
+    evento_payload_extra: Optional[dict] = None,
+) -> None:
+    """Cola compartida: imputa CC + registra evento 'imputado_cc' + loguea.
+
+    Factoriza `_imputar_cheque_en_op` + `registrar_evento` para que los
+    caminos de emisión de propio nuevo, endoso de tercero, y aplicación de
+    propio preexistente no puedan divergir en este último tramo.
+    """
+    from app.services import cheques_service  # noqa: PLC0415
+
+    _imputar_cheque_en_op(
+        session,
+        cheque=cheque,
+        op=op,
+        monto_op_moneda=monto_op_moneda,
+        pedido_id=pedido_id,
+        fecha_pago_real=fecha_pago_real,
+        user_id=user_id,
+        cc_proveedor_service=cc_proveedor_service,
+    )
+
+    payload = {
+        "orden_pago_id": op.id,
+        "monto_op_moneda": str(monto_op_moneda),
+        "moneda_op": str(op.moneda),
+        "pedido_id": pedido_id,
+    }
+    if evento_payload_extra:
+        payload.update(evento_payload_extra)
+
+    cheques_service.registrar_evento(
+        session,
+        cheque_id=cheque.id,
+        tipo="imputado_cc",
+        payload=payload,
+        usuario_id=user_id,
+    )
+
+
 def ejecutar_pago(
     session: Session,
     *,
@@ -1598,84 +1647,149 @@ def ejecutar_pago(
                         status_code=status.HTTP_404_NOT_FOUND,
                         detail=f"Cheque id={cheque_id_existente} no encontrado.",
                     )
-                if cheque_a_usar.tipo != "tercero":
+                if cheque_a_usar.tipo == "tercero":
+                    if cheque_a_usar.estado != "en_cartera":
+                        raise HTTPException(
+                            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+                            detail=(
+                                f"Cheque id={cheque_id_existente} está en estado '{cheque_a_usar.estado}'; "
+                                f"solo se pueden endosar cheques en 'en_cartera'."
+                            ),
+                        )
+
+                    # Transicionar en_cartera → entregado (endoso).
+                    cheques_service.transicionar_cheque(
+                        session,
+                        cheque_a_usar,
+                        "entregar",
+                        usuario_id=user_id,
+                    )
+
+                    # Asignar proveedor y OP al cheque (denormalizado).
+                    cheque_a_usar.proveedor_id = op.proveedor_id
+                    cheque_a_usar.orden_pago_id = op.id
+                    session.flush()
+
+                    # monto_op_moneda ya fue calculado arriba en el loop de derive.
+                    # Para terceros existentes el derive usa cheque.monto/moneda tal
+                    # como viene en el payload (que debe reflejar el cheque real).
+                    monto_op_moneda_tercero = ch["_monto_op_moneda"]
+
+                    # Tabla de enlace OP↔cheque
+                    link_t = OrdenPagoCheque(
+                        orden_pago_id=op.id,
+                        cheque_id=cheque_a_usar.id,
+                        monto_op_moneda=monto_op_moneda_tercero,
+                    )
+                    session.add(link_t)
+                    session.flush()
+
+                    pedido_id_tercero: Optional[int] = ch.get("pedido_id")
+                    _imputar_y_registrar(
+                        session,
+                        cheque=cheque_a_usar,
+                        op=op,
+                        monto_op_moneda=monto_op_moneda_tercero,
+                        pedido_id=pedido_id_tercero,
+                        fecha_pago_real=fecha_pago_real,
+                        user_id=user_id,
+                        cc_proveedor_service=cc_proveedor_service,
+                        evento_payload_extra={"via": "endoso_tercero"},
+                    )
+
+                    logger.info(
+                        "✅ Cheque tercero id=%s endosado a OP op=%s monto_op=%s %s",
+                        cheque_a_usar.id,
+                        op.id,
+                        monto_op_moneda_tercero,
+                        op.moneda,
+                    )
+
+                elif cheque_a_usar.tipo == "propio":
+                    # ── Aplicar cheque propio preexistente (Slice S2) ────────────
+                    # NO transicionar_cheque: no existe (ni se crea) una transición
+                    # (propio, emitido/diferido, entregar) — el cheque ya está
+                    # emitido, solo se lo vincula a esta OP.
+                    if cheque_a_usar.estado not in ("emitido", "diferido"):
+                        raise HTTPException(
+                            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+                            detail=(
+                                f"Cheque id={cheque_id_existente} está en estado "
+                                f"'{cheque_a_usar.estado}'; solo se pueden aplicar cheques "
+                                f"propios en estado 'emitido' o 'diferido'."
+                            ),
+                        )
+
+                    # Beneficiario: rechazar mismatch, nunca reasignar; completar
+                    # solo si estaba vacío. A diferencia del endoso de tercero, acá
+                    # NO se sobreescribe un proveedor_id ya asignado.
+                    if cheque_a_usar.proveedor_id is not None and cheque_a_usar.proveedor_id != op.proveedor_id:
+                        raise HTTPException(
+                            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+                            detail=(
+                                f"Cheque id={cheque_id_existente} pertenece al proveedor "
+                                f"id={cheque_a_usar.proveedor_id}, distinto al de la OP "
+                                f"(proveedor_id={op.proveedor_id})."
+                            ),
+                        )
+                    proveedor_asignado = cheque_a_usar.proveedor_id is None
+                    if proveedor_asignado:
+                        cheque_a_usar.proveedor_id = op.proveedor_id
+
+                    cheque_a_usar.orden_pago_id = op.id
+                    session.flush()
+
+                    monto_op_moneda_propio = ch["_monto_op_moneda"]
+
+                    link_p = OrdenPagoCheque(
+                        orden_pago_id=op.id,
+                        cheque_id=cheque_a_usar.id,
+                        monto_op_moneda=monto_op_moneda_propio,
+                    )
+                    session.add(link_p)
+                    session.flush()
+
+                    cheques_service.registrar_evento(
+                        session,
+                        cheque_id=cheque_a_usar.id,
+                        tipo="aplicado_a_op",
+                        payload={
+                            "orden_pago_id": op.id,
+                            "origen": "preexistente",
+                            "proveedor_asignado": proveedor_asignado,
+                        },
+                        usuario_id=user_id,
+                    )
+
+                    pedido_id_propio_existente: Optional[int] = ch.get("pedido_id")
+                    _imputar_y_registrar(
+                        session,
+                        cheque=cheque_a_usar,
+                        op=op,
+                        monto_op_moneda=monto_op_moneda_propio,
+                        pedido_id=pedido_id_propio_existente,
+                        fecha_pago_real=fecha_pago_real,
+                        user_id=user_id,
+                        cc_proveedor_service=cc_proveedor_service,
+                        evento_payload_extra={"via": "aplicacion_propio_preexistente"},
+                    )
+
+                    logger.info(
+                        "✅ Cheque propio id=%s aplicado a OP op=%s monto_op=%s %s",
+                        cheque_a_usar.id,
+                        op.id,
+                        monto_op_moneda_propio,
+                        op.moneda,
+                    )
+
+                else:
                     raise HTTPException(
                         status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
                         detail=(
                             f"Cheque id={cheque_id_existente} es de tipo '{cheque_a_usar.tipo}'; "
-                            f"para endosar por cheque_id el tipo debe ser 'tercero'."
+                            f"solo se admiten cheques 'tercero' o 'propio' por cheque_id."
                         ),
                     )
-                if cheque_a_usar.estado != "en_cartera":
-                    raise HTTPException(
-                        status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
-                        detail=(
-                            f"Cheque id={cheque_id_existente} está en estado '{cheque_a_usar.estado}'; "
-                            f"solo se pueden endosar cheques en 'en_cartera'."
-                        ),
-                    )
-
-                # Transicionar en_cartera → entregado (endoso).
-                cheques_service.transicionar_cheque(
-                    session,
-                    cheque_a_usar,
-                    "entregar",
-                    usuario_id=user_id,
-                )
-
-                # Asignar proveedor y OP al cheque (denormalizado).
-                cheque_a_usar.proveedor_id = op.proveedor_id
-                cheque_a_usar.orden_pago_id = op.id
-                session.flush()
-
-                # monto_op_moneda ya fue calculado arriba en el loop de derive.
-                # Para terceros existentes el derive usa cheque.monto/moneda tal
-                # como viene en el payload (que debe reflejar el cheque real).
-                monto_op_moneda_tercero = ch["_monto_op_moneda"]
-
-                # Tabla de enlace OP↔cheque
-                link_t = OrdenPagoCheque(
-                    orden_pago_id=op.id,
-                    cheque_id=cheque_a_usar.id,
-                    monto_op_moneda=monto_op_moneda_tercero,
-                )
-                session.add(link_t)
-                session.flush()
-
-                # Imputar CC — MISMO camino que cheque propio.
-                pedido_id_tercero: Optional[int] = ch.get("pedido_id")
-                _imputar_cheque_en_op(
-                    session,
-                    cheque=cheque_a_usar,
-                    op=op,
-                    monto_op_moneda=monto_op_moneda_tercero,
-                    pedido_id=pedido_id_tercero,
-                    fecha_pago_real=fecha_pago_real,
-                    user_id=user_id,
-                    cc_proveedor_service=cc_proveedor_service,
-                )
-
-                cheques_service.registrar_evento(
-                    session,
-                    cheque_id=cheque_a_usar.id,
-                    tipo="imputado_cc",
-                    payload={
-                        "orden_pago_id": op.id,
-                        "monto_op_moneda": str(monto_op_moneda_tercero),
-                        "moneda_op": str(op.moneda),
-                        "pedido_id": pedido_id_tercero,
-                        "via": "endoso_tercero",
-                    },
-                    usuario_id=user_id,
-                )
-
-                logger.info(
-                    "✅ Cheque tercero id=%s endosado a OP op=%s monto_op=%s %s",
-                    cheque_a_usar.id,
-                    op.id,
-                    monto_op_moneda_tercero,
-                    op.moneda,
-                )
 
             else:
                 # ── Emisión de propio nuevo (Slice 1 — comportamiento original) ─
