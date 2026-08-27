@@ -60,6 +60,7 @@ import {
   computeSummaryCounts,
   matchesSearch,
   matchesSummaryFilter,
+  resolvePublishToast,
 } from './tiendaNubeReconcileHelpers';
 import ReconcileSummaryStrip from '../components/tn-reconcile/ReconcileSummaryStrip';
 import ReconcileFilterBar from '../components/tn-reconcile/ReconcileFilterBar';
@@ -672,9 +673,14 @@ export default function TiendaNubeReconcile() {
           row={publishingRow}
           isOpen
           onClose={() => setPublishingRow(null)}
-          onPublished={(ean) => {
+          onPublished={(ean, data) => {
             setPublishingRow(null);
-            showToast(`Producto con EAN ${ean} publicado`, 'success');
+            // El backend devuelve 200 con `submitted: false` para seis
+            // desenlaces en los que el producto NO se publicó — ver
+            // `resolvePublishToast`. Descartar `data` acá era exactamente
+            // lo que hacía que un fracaso se anunciara en verde.
+            const { message, type } = resolvePublishToast(ean, data);
+            showToast(message, type);
             cargarReporte();
           }}
         />
