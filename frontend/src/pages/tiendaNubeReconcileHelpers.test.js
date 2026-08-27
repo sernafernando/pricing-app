@@ -13,6 +13,7 @@ import {
   primaryTnMatch,
   matchPublishedLabel,
   rowIdentity,
+  resolvePublishToast,
 } from './tiendaNubeReconcileHelpers';
 
 describe('selectTabItems', () => {
@@ -388,5 +389,56 @@ describe('resolveExcepcionAction', () => {
     // trails for the same decision.
     expect(resolveExcepcionAction({ verdict: 'OK', evidencia: null }, true)).toBeNull();
     expect(resolveExcepcionAction({ verdict: 'FALTA_PUBLICAR', evidencia: null }, true)).toBeNull();
+  });
+});
+
+describe('resolvePublishToast', () => {
+  it('reports a real success as success', () => {
+    const toast = resolvePublishToast('111', { submitted: true, status: 'submitted', product_id: 7 });
+    expect(toast.type).toBe('success');
+    expect(toast.message).toContain('111');
+  });
+
+  it('treats a missing payload as success (legacy callers)', () => {
+    expect(resolvePublishToast('111', undefined).type).toBe('success');
+  });
+
+  it.each(['already_published', 'already_exists'])(
+    'reports %s as informative, not success',
+    (status) => {
+      const toast = resolvePublishToast('111', {
+        submitted: false,
+        status,
+        detail: 'detalle del backend',
+      });
+      expect(toast.type).toBe('info');
+      expect(toast.message).toContain('111');
+      expect(toast.message).toContain('detalle del backend');
+    },
+  );
+
+  it.each(['precheck_failed', 'rejected_by_proxy', 'rate_limited', 'ambiguous'])(
+    'reports %s as an error',
+    (status) => {
+      const toast = resolvePublishToast('111', {
+        submitted: false,
+        status,
+        detail: 'detalle del backend',
+      });
+      expect(toast.type).toBe('error');
+      expect(toast.message).toContain('detalle del backend');
+    },
+  );
+
+  it('falls back to an error for an unknown non-submitted status', () => {
+    const toast = resolvePublishToast('111', { submitted: false, status: 'lo_que_sea' });
+    expect(toast.type).toBe('error');
+    expect(toast.message).toContain('lo_que_sea');
+  });
+
+  it('never claims success when submitted is false and no detail came back', () => {
+    const toast = resolvePublishToast('111', { submitted: false, status: 'already_exists' });
+    expect(toast.type).toBe('info');
+    expect(toast.message).not.toContain('undefined');
   });
 });

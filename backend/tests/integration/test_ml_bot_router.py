@@ -468,6 +468,34 @@ class TestPublishNow:
         r = client.post(f"{BASE}/questions/{q.id}/publish-now", headers=auth_headers)
         assert r.status_code == 409
 
+    @pytest.mark.parametrize("outcome", ["published", "retry", "failed", "skipped_claimed_elsewhere"])
+    def test_response_wraps_outcome_and_keeps_http_200(
+        self, client, auth_headers, db, con_todos_los_permisos, outcome
+    ) -> None:
+        """ADR-2 (design #1806): `publish_question_now()`'s outcome must no
+        longer be discarded — the router wraps it in `PublishNowResponse`
+        with `published` (bool, True only for "published") and the raw
+        `outcome` string, and HTTP stays 200 for ALL four outcomes (the CAS
+        already committed before the ML POST ran, so a 4xx would falsely
+        claim nothing happened)."""
+        q = _seed_question(db, status="taken_over")
+        db.commit()
+        q_id = q.id
+
+        with patch(
+            "app.services.ml_questions.publisher_service.publish_question_now",
+            new_callable=AsyncMock,
+            return_value=outcome,
+        ):
+            r = client.post(f"{BASE}/questions/{q_id}/publish-now", headers=auth_headers)
+
+        assert r.status_code == 200
+        body = r.json()
+        assert body["outcome"] == outcome
+        assert body["published"] is (outcome == "published")
+        assert "question" in body
+        assert body["question"]["id"] == q_id
+
 
 # ==========================================================================
 # POST /questions/{id}/hold
