@@ -58,9 +58,9 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, Iterator, List, Optional, Tuple
 
-from app.core.config import settings
 from sqlalchemy.exc import IntegrityError
 
+from app.core.config import settings
 from app.core.database import get_background_db
 from app.models.ml_orders_ops import MlOpsDivergence, MlOpsSyncCursor
 from app.services.ml_orders_ingestion.ingestion_service import UpsertOutcome, upsert_order
@@ -196,6 +196,13 @@ def _iter_window_events(
     yield ("page", page_results)
     offset = len(page_results)
     while offset < total:
+        # Pages are charged too. Spending the budget only at offset=0 let a
+        # single leaf issue ~19 requests for one unit, which made the
+        # documented ceiling wrong by more than an order of magnitude.
+        if budget[0] <= 0:
+            yield ("budget_exhausted", date_from, date_to)
+            return
+        budget[0] -= 1
         page = resolve_maybe_async(ml_webhook_client.search_orders(seller_id, date_from, date_to, offset=offset))
         if page is None:
             raise WindowFetchError(
@@ -333,16 +340,40 @@ def _ensure_cursor_row(db) -> None:
         pass
 
 
+def _release_lock_as_idle(now: datetime) -> None:
+    """Clears the run lock after a successful pass. Swallows its own
+    failures for the same reason as `_release_lock_as_error`."""
+    try:
+        with get_background_db() as db:
+            cursor = _load_cursor(db)
+            if cursor is None:
+                cursor = MlOpsSyncCursor(name=CURSOR_NAME)
+                db.add(cursor)
+            cursor.state = "idle"
+            cursor.last_success_at = now
+            cursor.detail = None
+    except Exception:
+        logger.exception("sync_ml_orders_ops: could not clear the run lock; the stale timeout will reclaim it")
+
+
 def _release_lock_as_error(error: BaseException) -> None:
     """Marks the run lock as 'error' so the next pass may run immediately
-    instead of waiting out the stale-lock timeout."""
-    with get_background_db() as db:
-        cursor = _load_cursor(db)
-        if cursor is None:
-            cursor = MlOpsSyncCursor(name=CURSOR_NAME)
-            db.add(cursor)
-        cursor.state = "error"
-        cursor.detail = str(error)[:500]
+    instead of waiting out the stale-lock timeout.
+
+    Swallows its own failures on purpose: this opens a fresh session, and
+    if the database is what failed in the first place, raising here would
+    strand the lock AND bury the original error under this one. A stale
+    lock is recovered by the timeout; a lost traceback is not."""
+    try:
+        with get_background_db() as db:
+            cursor = _load_cursor(db)
+            if cursor is None:
+                cursor = MlOpsSyncCursor(name=CURSOR_NAME)
+                db.add(cursor)
+            cursor.state = "error"
+            cursor.detail = str(error)[:500]
+    except Exception:
+        logger.exception("sync_ml_orders_ops: could not release the run lock; the stale timeout will reclaim it")
 
 
 def _tz_aware(value: Optional[datetime]) -> Optional[datetime]:
@@ -449,6 +480,8 @@ def run_sweep(seller_id: Optional[int] = None, window_days: Optional[int] = None
             _process_batch(pending, window_from_floor, result)
             pending = []
 
+    failure: Optional[BaseException] = None
+
     try:
         for event in _iter_window_events(int(resolved_seller_id), window_start, window_end):
             kind = event[0]
@@ -490,34 +523,26 @@ def run_sweep(seller_id: Optional[int] = None, window_days: Optional[int] = None
                     # state intentionally left as 'running' here -- it only
                     # flips to idle/error once the WHOLE pass finishes.
                 last_checkpoint_to = leaf_to
+        # Inside the try on purpose: `budget_exhausted` breaks out with up
+        # to BATCH_SIZE-1 orders still buffered, and this flush writes them.
+        _flush_pending()
     except WindowFetchError as e:
         logger.error("sync_ml_orders_ops: window fetch failed, cursor NOT advanced past the last completed leaf: %s", e)
-        _release_lock_as_error(e)
-        result.window_to = last_checkpoint_to
+        failure = e
         result.error = str(e)
-        return result
-    except Exception as e:  # noqa: BLE001 -- see below
-        # Anything that is not a WindowFetchError used to escape here, and
-        # the run lock stayed at 'running' until the 30-minute stale
-        # timeout: three cron cycles lost to a bug we did not predict. The
-        # whole point of this module is that it never gets stuck, so an
-        # unexpected failure has to release the lock like any other.
+    except Exception as e:  # noqa: BLE001
+        # Not just WindowFetchError. Closing each individual path that could
+        # strand the run lock has failed three times now, so the release is
+        # guaranteed by structure instead: whatever happens above, the
+        # `finally` below runs.
         logger.exception("sync_ml_orders_ops: sweep failed unexpectedly, releasing the run lock")
-        _release_lock_as_error(e)
-        result.window_to = last_checkpoint_to
+        failure = e
         result.error = f"{type(e).__name__}: {e}"
-        return result
-
-    _flush_pending()
-
-    with get_background_db() as db:
-        cursor = _load_cursor(db)
-        if cursor is None:
-            cursor = MlOpsSyncCursor(name=CURSOR_NAME)
-            db.add(cursor)
-        cursor.state = "idle"
-        cursor.last_success_at = now
-        cursor.detail = None
+    finally:
+        if failure is not None:
+            _release_lock_as_error(failure)
+        else:
+            _release_lock_as_idle(now)
 
     result.window_to = last_checkpoint_to
     return result

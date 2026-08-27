@@ -24,6 +24,19 @@ depends_on: Union[str, Sequence[str], None] = None
 
 
 def upgrade() -> None:
+    # These tables are new and nothing writes to them yet, but "nothing
+    # writes to them yet" is an assumption, and a CHECK that fails takes
+    # the whole deploy down. Anything unexpected is normalised first so
+    # the constraint cannot block an upgrade.
+    op.execute("UPDATE ml_ops_sync_cursor SET state = 'idle' WHERE state NOT IN ('idle', 'running', 'error')")
+    op.execute(
+        "DELETE FROM ml_ops_divergence "
+        "WHERE kind NOT IN ('missing_in_gbp', 'missing_in_ml', 'field_mismatch', "
+        "'out_of_window_update', 'window_not_enumerable')"
+    )
+    op.execute(
+        "UPDATE ml_ops_divergence SET state = 'open' WHERE state NOT IN ('open', 'acknowledged', 'resolved', 'ignored')"
+    )
     op.create_check_constraint(
         "ck_ml_ops_sync_cursor_state",
         "ml_ops_sync_cursor",

@@ -9,6 +9,7 @@ happy-path behaviour.
 from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
+from unittest import mock
 from unittest.mock import AsyncMock
 
 import pytest
@@ -480,3 +481,68 @@ class TestRunLockIsAlwaysReleased:
 
         assert second.ran is True
         assert second.error != "already running"
+
+
+class TestLockReleaseIsStructural:
+    """Closing each individual path that could strand the lock has now
+    failed three times. The release has to be guaranteed by structure."""
+
+    def test_failure_in_the_final_flush_still_releases_the_lock(self, db, monkeypatch) -> None:
+        from app.models.ml_orders_ops import MlOpsSyncCursor
+        from app.services.ml_orders_ingestion import sweep_service
+
+        monkeypatch.setattr(settings, "ML_ORDERS_OPS_ENABLED", True)
+
+        async def one_page(seller_id, date_from, date_to, offset=0):
+            return {
+                "results": [_order(1, 999, datetime.now(timezone.utc), datetime.now(timezone.utc))],
+                "paging": {"total": 1},
+            }
+
+        monkeypatch.setattr(sweep_service.ml_webhook_client, "search_orders", one_page)
+        monkeypatch.setattr(sweep_service, "_process_batch", mock.Mock(side_effect=RuntimeError("db died mid-flush")))
+
+        result = sweep_service.run_sweep(seller_id=999, window_days=90)
+
+        assert result.error is not None
+        cursor = db.query(MlOpsSyncCursor).filter_by(name=sweep_service.CURSOR_NAME).first()
+        assert cursor.state != "running"
+
+    def test_a_failing_lock_release_does_not_propagate(self, monkeypatch) -> None:
+        """`_release_lock_as_error` opens its own session. If the database
+        is what failed in the first place, the release must not raise on
+        top of it — that leaves the lock stuck AND a raw traceback."""
+        from app.services.ml_orders_ingestion import sweep_service
+
+        monkeypatch.setattr(sweep_service, "get_background_db", mock.Mock(side_effect=RuntimeError("pool exhausted")))
+
+        sweep_service._release_lock_as_error(RuntimeError("original failure"))
+
+
+class TestBudgetCountsEveryFetch:
+    """The budget was spent once per window, at offset=0, while the
+    pagination loop fetched freely. A leaf with total=950 costs ~19 HTTP
+    calls and one unit of budget, so the documented ceiling was off by
+    more than an order of magnitude. The earlier budget test never
+    reached this branch because its fake was always over cap."""
+
+    def test_pagination_pages_are_charged_to_the_budget(self, db, monkeypatch) -> None:
+        from app.services.ml_orders_ingestion import sweep_service
+
+        monkeypatch.setattr(settings, "ML_ORDERS_OPS_ENABLED", True)
+        monkeypatch.setattr(sweep_service, "MAX_WINDOW_FETCHES_PER_PASS", 5)
+
+        calls = {"n": 0}
+        page_size = 50
+
+        async def paged(seller_id, date_from, date_to, offset=0):
+            calls["n"] += 1
+            when = datetime.now(timezone.utc)
+            results = [_order(offset + i, 999, when, when) for i in range(page_size)]
+            return {"results": results, "paging": {"total": 900}}
+
+        monkeypatch.setattr(sweep_service.ml_webhook_client, "search_orders", paged)
+
+        sweep_service.run_sweep(seller_id=999, window_days=90)
+
+        assert calls["n"] <= sweep_service.MAX_WINDOW_FETCHES_PER_PASS
