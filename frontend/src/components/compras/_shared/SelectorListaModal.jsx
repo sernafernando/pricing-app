@@ -1,3 +1,4 @@
+import { useId } from 'react';
 import { X, Loader2, Inbox } from 'lucide-react';
 import styles from './SelectorListaModal.module.css';
 
@@ -34,16 +35,19 @@ export default function SelectorListaModal({
   emptyMessage = 'No hay elementos disponibles.',
   onClose,
 }) {
+  // A fixed id would collide if two selectors ever coexisted in the DOM.
+  const titleId = useId();
+
   return (
     <div className={styles.selectorOverlay}>
       <div
         className={styles.selectorModal}
         role="dialog"
         aria-modal="true"
-        aria-labelledby="selector-lista-title"
+        aria-labelledby={titleId}
       >
         <header className={styles.selectorHeader}>
-          <h3 id="selector-lista-title" className={styles.selectorTitle}>
+          <h3 id={titleId} className={styles.selectorTitle}>
             {title}
           </h3>
           <button
