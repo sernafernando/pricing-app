@@ -3251,6 +3251,7 @@ def _convertir_nc_por_cadena_op(
     op_moneda: str,
     pedido_moneda: str,
     op_tipo_cambio: Optional[Decimal],
+    nc_tipo_cambio: Optional[Decimal],
     tipo_cambio_override: Optional[Decimal],
 ) -> tuple[Decimal, Optional[Decimal]]:
     """Convierte el monto de una NC a moneda del pedido por la cadena NC → OP → pedido.
@@ -3261,10 +3262,13 @@ def _convertir_nc_por_cadena_op(
     no es la identidad:
 
       1. NC → OP. Identidad si `nc_moneda == op_moneda` (no se pide TC). Si
-         difieren, se exige TC: primero el `tipo_cambio_override` de esta NC,
-         y si no hay, el `op_tipo_cambio`.
+         difieren, se exige TC en este orden: el `tipo_cambio_override` de esta
+         NC, luego la cotización propia de la NC (`nc_tipo_cambio`, la del día
+         en que se emitió) y por último el `op_tipo_cambio`.
       2. OP → pedido. Identidad si `op_moneda == pedido_moneda`. Si difieren,
          usa `op_tipo_cambio` (el mismo TC con el que la OP paga el pedido).
+         La cotización propia de la NC NO participa de esta pata: describe cómo
+         se fondea la NC contra la OP, no cómo la OP paga el pedido.
 
     Cuando `nc_moneda == pedido_moneda` pero ambas difieren de `op_moneda`, las
     dos patas se cancelan y el resultado es la identidad. NO se propaga la
@@ -3283,14 +3287,14 @@ def _convertir_nc_por_cadena_op(
     """
     tc_nc_op: Optional[Decimal] = None
     if nc_moneda != op_moneda:
-        tc_nc_op = _resolver_tc_nc(tipo_cambio_override, op_tipo_cambio)
+        tc_nc_op = _resolver_tc_nc(tipo_cambio_override, nc_tipo_cambio, op_tipo_cambio)
         if tc_nc_op is None:
             raise HTTPException(
                 status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
                 detail=(
                     f"NC id={nc_id} en {nc_moneda} aplicada sobre una OP en {op_moneda} "
-                    f"requiere tipo_cambio > 0: informá `tipo_cambio_override` en la NC "
-                    f"o `tipo_cambio` en la OP."
+                    f"requiere tipo_cambio > 0: informá `tipo_cambio_override` en la NC, "
+                    f"cargá el `tipo_cambio` de la NC o el `tipo_cambio` de la OP."
                 ),
             )
 
@@ -3370,11 +3374,12 @@ def imputar_nc_a_pedido(
         creado_por_id: FK a usuarios.
         op_moneda: moneda de la OP que aplica la NC. La NC es un medio de pago:
             se convierte primero a esta moneda y desde ahí al pedido.
-        op_tipo_cambio: TC declarado en la OP. Obligatorio (> 0) para cualquier
-            pata cross-moneda que no tenga override.
+        op_tipo_cambio: TC declarado en la OP. Último recurso de la pata NC→OP
+            y ÚNICA fuente de la pata OP→pedido.
         tipo_cambio_override: TC específico de ESTA NC para la pata NC→OP.
-            Gana sobre `op_tipo_cambio`. Sólo aplica cuando la NC y la OP están
-            en monedas distintas.
+            Gana sobre la cotización propia de la NC (`nc.tipo_cambio`) y sobre
+            `op_tipo_cambio`. Sólo aplica cuando la NC y la OP están en monedas
+            distintas.
 
     Returns:
         La `Imputacion` creada.
@@ -3430,6 +3435,7 @@ def imputar_nc_a_pedido(
         op_moneda=op_moneda,
         pedido_moneda=str(pedido.moneda),
         op_tipo_cambio=op_tipo_cambio,
+        nc_tipo_cambio=getattr(nc, "tipo_cambio", None),
         tipo_cambio_override=tipo_cambio_override,
     )
 

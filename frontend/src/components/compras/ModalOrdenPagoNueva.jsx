@@ -6,7 +6,7 @@ import useComprasOP from '../../hooks/useComprasOP';
 import ProveedorComprasAutocomplete from './ProveedorComprasAutocomplete';
 import PanelNCsProveedor from './_shared/PanelNCsProveedor';
 import PanelCheques from './_shared/PanelCheques';
-import { convertirMonto } from './_shared/formatMoneda';
+import { convertirMonto, convertirMontoNC } from './_shared/formatMoneda';
 import { resolverDestinoItemId, requiereDestino } from './_shared/destinoValores';
 import styles from './ModalOrdenPagoNueva.module.css';
 
@@ -475,32 +475,45 @@ export default function ModalOrdenPagoNueva({
     return pedido?.moneda ?? form.moneda;
   };
 
-  // ncDeductForItem: sum of NC credits applying to this pedido item, expressed in
-  // the PEDIDO's native currency so it can be subtracted from the item's native monto.
-  //
-  // An NC is a means of payment: it lives in the OP's currency and rides the same
-  // OP→pedido conversion as the items. The backend walks NC → OP → pedido and, in
-  // the ARS/USD whitelist, at most one of those two legs actually converts, so the
-  // effective NC↔pedido rate is the per-NC `tipo_cambio_override` when present and
-  // the OP's TC otherwise — which is exactly what this reproduces.
-  // See backend imputar_nc_a_pedido / _convertir_nc_por_cadena_op.
-  //
-  // Cross-currency with no usable TC: the NC is skipped (safe — net won't go negative)
-  // rather than deducted at face value in the wrong currency.
   // Destino de cada valor. La deducción del ítem y el renglón del resumen leen
   // ESTA función y ninguna otra: ver _shared/destinoValores.js.
   const ncDestinoItemId = (nc) => resolverDestinoItemId(nc, pedidoItemIds, isSinglePedido);
 
+  // ncMontoEn: THE single resolver for what one NC is worth in a given currency.
+  //
+  // An NC is a means of payment: it funds the OP and from there rides the same
+  // OP→pedido conversion the items do. `convertirMontoNC` mirrors the backend
+  // authority `_convertir_nc_por_cadena_op` (rate chain for the NC→OP leg:
+  // per-NC override → the NC's own tipo_cambio → the OP's tipo_cambio; the
+  // OP→pedido leg uses the OP's TC and only the OP's TC).
+  //
+  // Every consumer goes through this — the per-item deduction AND the summary
+  // row. They used to compute the same number two different ways, so the
+  // summary showed a discount the total never received.
+  //
+  // Returns null when no rate is resolvable: the NC does NOT deduct and the
+  // caller must SAY SO (see `ncsSinTcResoluble`). It is never worth its face
+  // value in the wrong currency.
+  const ncMontoEn = (nc, destinoMoneda) =>
+    convertirMontoNC({
+      monto: nc.monto,
+      ncMoneda: nc.moneda ?? form.moneda,
+      opMoneda: form.moneda,
+      destinoMoneda,
+      tipoCambioOverride: nc.tipo_cambio_override,
+      ncTipoCambio: nc.tipo_cambio,
+      opTipoCambio: form.tipo_cambio,
+    });
+
+  // ncDeductForItem: sum of NC credits applying to this pedido item, expressed in
+  // the PEDIDO's native currency so it can be subtracted from the item's native monto.
   const ncDeductForItem = (itemId) => {
     const id = String(itemId);
     const pedidoMoneda = monedaDePedidoItem(id);
 
     return ncsAplicadas.reduce((acc, nc) => {
       if (ncDestinoItemId(nc) !== id) return acc;
-      const ncMoneda = nc.moneda ?? form.moneda;
-      const tcOverride = parseFloat(nc.tipo_cambio_override);
-      const tc = Number.isFinite(tcOverride) && tcOverride > 0 ? tcOverride : tcNumLive;
-      const convertido = convertirMonto(nc.monto, ncMoneda, pedidoMoneda, tc);
+      const convertido = ncMontoEn(nc, pedidoMoneda);
       return convertido === null ? acc : acc + convertido;
     }, 0);
   };
@@ -854,20 +867,22 @@ export default function ModalOrdenPagoNueva({
   // the summary claimed a reduction the "Total a pagar" never had.
   const ncsConDestino = ncsAplicadas.filter((nc) => ncDestinoItemId(nc) !== null);
   const ncsSinDestino = ncsAplicadas.filter((nc) => ncDestinoItemId(nc) === null);
+  // Misma función que la deducción real del ítem (`ncMontoEn`), sólo que en la
+  // moneda de la OP porque este renglón vive entre los demás importes de la OP.
+  // Antes esta suma recorría OTRA cadena de TC y, cuando no encontraba ninguno,
+  // hacía `acc + montoNC`: sumaba USD dentro de un total ARS e inventaba un
+  // descuento que el total nunca tuvo.
   const sumaNCsOP = ncsConDestino.reduce((acc, nc) => {
-    const montoNC = parseFloat(nc.monto) || 0;
-    if (nc.moneda === undefined || nc.moneda === form.moneda) {
-      return acc + montoNC;
-    }
-    const tc = parseFloat(nc.tipo_cambio_override) > 0
-      ? parseFloat(nc.tipo_cambio_override)
-      : parseFloat(nc.tipo_cambio);
-    if (!Number.isFinite(tc) || tc <= 0) return acc + montoNC;
-    let convertido = montoNC;
-    if (form.moneda === 'ARS' && nc.moneda === 'USD') convertido = montoNC * tc;
-    else if (form.moneda === 'USD' && nc.moneda === 'ARS') convertido = montoNC / tc;
-    return acc + Math.round(convertido * 100) / 100;
+    const convertido = ncMontoEn(nc, form.moneda);
+    return convertido === null ? acc : acc + convertido;
   }, 0);
+
+  // NCs cross-moneda sin ningún TC resoluble (ni override, ni el de la NC, ni
+  // el de la OP). No descuentan nada — ni acá ni en el backend, que responde
+  // 422 — así que hay que decirlo en pantalla en vez de omitirlas en silencio.
+  const ncsSinTcResoluble = ncsConDestino.filter(
+    (nc) => ncMontoEn(nc, monedaDePedidoItem(ncDestinoItemId(nc))) === null,
+  );
 
   // net: cash amount the user needs to pay.
   // In the net-item model, sumaItems already incorporates NC and DAC discounts.
@@ -929,6 +944,17 @@ export default function ModalOrdenPagoNueva({
         `La OP tiene ${pedidoItemIds.length} pedidos: elegí contra qué pedido se ` +
         `descuenta cada nota de crédito (falta${ncsSinDestino.length > 1 ? 'n' : ''} ` +
         `${ncsSinDestino.length}).`
+      );
+    }
+    // Una NC cross-moneda sin TC resoluble no descuenta nada acá y el backend
+    // la rechaza con 422. Frenarlo antes evita mandar una OP que no puede cerrar
+    // y, sobre todo, evita que la NC se "aplique" sin bajar el total.
+    if (ncsSinTcResoluble.length > 0) {
+      return (
+        `Falta el tipo de cambio para ${ncsSinTcResoluble.length} nota` +
+        `${ncsSinTcResoluble.length > 1 ? 's' : ''} de crédito en otra moneda: ` +
+        `sin TC no se descuenta${ncsSinTcResoluble.length > 1 ? 'n' : ''} del total. ` +
+        `Cargá el TC de la OP o uno por nota de crédito.`
       );
     }
     if (chequesSinDestino.length > 0) {
@@ -1800,6 +1826,19 @@ export default function ModalOrdenPagoNueva({
                       </div>
                     )}
                   </div>
+
+                  {/* Una NC cross-moneda sin TC no descuenta: decirlo acá, que es
+                      donde el usuario mira el total. Antes desaparecía sin aviso. */}
+                  {ncsSinTcResoluble.length > 0 && (
+                    <div className={styles.itemsSumWarning} role="alert">
+                      <AlertTriangle size={13} style={{ flexShrink: 0 }} />
+                      <span>
+                        {ncsSinTcResoluble.length === 1 ? 'Hay 1 nota de crédito' : `Hay ${ncsSinTcResoluble.length} notas de crédito`}
+                        {' '}en otra moneda que no se está descontando: falta el tipo de cambio.
+                        Cargá el TC de la OP o escribí uno en la columna &quot;TC&quot; de la nota de crédito.
+                      </span>
+                    </div>
+                  )}
 
                   <hr className={styles.summaryDivider} />
 

@@ -12,7 +12,8 @@ Cubre:
   - Cross-moneda NC→pedido: convierte por la cadena NC → OP → pedido y graba
     las dos patas (origen en moneda NC, destino en moneda pedido).
   - Fails 422: cross-moneda NC↔OP sin TC resolvable (ni override ni op.tipo_cambio).
-  - `tipo_cambio_override` por NC gana sobre `op_tipo_cambio`.
+  - Cadena de TC de la pata NC→OP: `tipo_cambio_override` → `nc.tipo_cambio` →
+    `op_tipo_cambio`.
   - NC state transitions: monto == saldo_disponible → nc.estado = 'aplicada'.
   - monto < saldo_disponible → nc.estado = 'aplicada_parcial'.
   - nc.monto_ya_aplicado incrementado correctamente.
@@ -138,6 +139,7 @@ def _make_nc(
     estado: str,
     monto: Decimal,
     moneda: str = "ARS",
+    tipo_cambio: Decimal | None = None,
     creado_por_id: int,
 ) -> NotaCreditoLocal:
     nc = NotaCreditoLocal(
@@ -146,6 +148,7 @@ def _make_nc(
         empresa_id=empresa_id,
         proveedor_id=proveedor_id,
         moneda=moneda,
+        tipo_cambio=tipo_cambio,
         monto=monto,
         fecha_emision=date(2026, 1, 10),
         motivo="Test helper",
@@ -504,6 +507,137 @@ class TestImputarNcAPedidoHelper:
         assert imp.monto_origen == Decimal("14000")
         assert imp.moneda_origen == "ARS"
         assert imp.tipo_cambio == Decimal("1400")
+
+    def test_cross_moneda_usa_el_tc_propio_de_la_nc_cuando_la_op_no_tiene(
+        self, db, empresa, proveedor, pedido_ars, active_user
+    ) -> None:
+        """NC USD con `tipo_cambio` propio + OP ARS sin TC → imputa con el TC de la NC.
+
+        Antes esta combinación era un 422: la cadena sólo miraba el override y el
+        TC de la OP, así que una NC en USD cargada con su propia cotización no
+        descontaba nada de una OP en ARS sin TC. La NC trae su cotización del día
+        en que se emitió; usarla es mejor que rechazar la imputación.
+        """
+        nc = _make_nc(
+            db,
+            id=216,
+            proveedor_id=proveedor.id,
+            empresa_id=empresa.id,
+            estado="aprobado",
+            monto=Decimal("100"),
+            moneda="USD",
+            tipo_cambio=Decimal("1450"),
+            creado_por_id=active_user.id,
+        )
+
+        imp = ordenes_pago_service.imputar_nc_a_pedido(
+            db,
+            nc=nc,
+            pedido=pedido_ars,
+            monto=Decimal("10"),
+            creado_por_id=active_user.id,
+            op_moneda="ARS",
+            op_tipo_cambio=None,
+        )
+
+        assert imp.monto_imputado == Decimal("14500.00")
+        assert imp.moneda_imputada == "ARS"
+        assert imp.monto_origen == Decimal("10")
+        assert imp.moneda_origen == "USD"
+        assert imp.tipo_cambio == Decimal("1450")
+
+    def test_cross_moneda_tc_de_la_nc_gana_sobre_el_de_la_op(
+        self, db, empresa, proveedor, pedido_ars, active_user
+    ) -> None:
+        """Cadena override → TC de la NC → TC de la OP: el de la NC gana al de la OP."""
+        nc = _make_nc(
+            db,
+            id=217,
+            proveedor_id=proveedor.id,
+            empresa_id=empresa.id,
+            estado="aprobado",
+            monto=Decimal("100"),
+            moneda="USD",
+            tipo_cambio=Decimal("1450"),
+            creado_por_id=active_user.id,
+        )
+
+        imp = ordenes_pago_service.imputar_nc_a_pedido(
+            db,
+            nc=nc,
+            pedido=pedido_ars,
+            monto=Decimal("10"),
+            creado_por_id=active_user.id,
+            op_moneda="ARS",
+            op_tipo_cambio=Decimal("1400"),
+        )
+
+        assert imp.monto_imputado == Decimal("14500.00")
+        assert imp.tipo_cambio == Decimal("1450")
+
+    def test_cross_moneda_override_gana_sobre_el_tc_de_la_nc(
+        self, db, empresa, proveedor, pedido_ars, active_user
+    ) -> None:
+        """El override explícito sigue ganando por encima del TC propio de la NC."""
+        nc = _make_nc(
+            db,
+            id=218,
+            proveedor_id=proveedor.id,
+            empresa_id=empresa.id,
+            estado="aprobado",
+            monto=Decimal("100"),
+            moneda="USD",
+            tipo_cambio=Decimal("1450"),
+            creado_por_id=active_user.id,
+        )
+
+        imp = ordenes_pago_service.imputar_nc_a_pedido(
+            db,
+            nc=nc,
+            pedido=pedido_ars,
+            monto=Decimal("10"),
+            creado_por_id=active_user.id,
+            op_moneda="ARS",
+            op_tipo_cambio=Decimal("1400"),
+            tipo_cambio_override=Decimal("1500"),
+        )
+
+        assert imp.monto_imputado == Decimal("15000.00")
+        assert imp.tipo_cambio == Decimal("1500")
+
+    def test_cross_moneda_op_pedido_ignora_el_tc_de_la_nc(
+        self, db, empresa, proveedor, pedido_usd, active_user
+    ) -> None:
+        """La pata OP→pedido sigue usando SÓLO el TC de la OP.
+
+        El TC propio de la NC describe cómo se fondea la NC contra la OP (pata 1);
+        no dice nada sobre cómo la OP paga el pedido (pata 2). Con NC ARS = OP ARS
+        y pedido USD, la única pata que convierte es la segunda: sin TC en la OP
+        esto es 422 aunque la NC traiga cotización.
+        """
+        nc = _make_nc(
+            db,
+            id=219,
+            proveedor_id=proveedor.id,
+            empresa_id=empresa.id,
+            estado="aprobado",
+            monto=Decimal("10000"),
+            moneda="ARS",
+            tipo_cambio=Decimal("1450"),
+            creado_por_id=active_user.id,
+        )
+
+        with pytest.raises(HTTPException) as exc_info:
+            ordenes_pago_service.imputar_nc_a_pedido(
+                db,
+                nc=nc,
+                pedido=pedido_usd,
+                monto=Decimal("1400"),
+                creado_por_id=active_user.id,
+                op_moneda="ARS",
+                op_tipo_cambio=None,
+            )
+        assert exc_info.value.status_code == 422
 
     def test_nc_y_pedido_misma_moneda_distinta_de_la_op_es_identidad(
         self, db, empresa, proveedor, pedido_usd, active_user

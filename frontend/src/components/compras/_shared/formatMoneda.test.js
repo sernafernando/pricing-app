@@ -1,5 +1,11 @@
 import { describe, it, expect } from 'vitest';
-import { convertirMonto, formatMoneda, formatMonedaErp, monedaDeCurrId } from './formatMoneda';
+import {
+  convertirMonto,
+  convertirMontoNC,
+  formatMoneda,
+  formatMonedaErp,
+  monedaDeCurrId,
+} from './formatMoneda';
 
 /**
  * `curr_id_transaction` is the ERP's own currency on a factura / NC. The mapper
@@ -112,5 +118,99 @@ describe('convertirMonto — origin→destination leg conversion', () => {
 
   it('returns null for a currency pair outside the ARS/USD whitelist', () => {
     expect(convertirMonto(100, 'EUR', 'ARS', 1500)).toBeNull();
+  });
+});
+
+/**
+ * `convertirMontoNC` mirrors the backend authority `_convertir_nc_por_cadena_op`
+ * (backend/app/services/ordenes_pago_service.py): an NC is a means of payment,
+ * so it travels NC → OP → destino and, inside the ARS/USD whitelist, at most one
+ * of those two legs actually converts.
+ */
+describe('convertirMontoNC — cadena NC → OP → destino', () => {
+  const base = {
+    monto: 10,
+    ncMoneda: 'USD',
+    opMoneda: 'ARS',
+    destinoMoneda: 'ARS',
+  };
+
+  it('uses the NC own tipo_cambio when the OP has none (the reported bug)', () => {
+    // A USD NC on an ARS OP with no TC used to be dropped silently: the total
+    // never went down. The NC carries the quote of the day it was issued.
+    expect(convertirMontoNC({ ...base, ncTipoCambio: 1450, opTipoCambio: null })).toBe(14500);
+  });
+
+  it('prefers the NC own tipo_cambio over the OP one', () => {
+    expect(convertirMontoNC({ ...base, ncTipoCambio: 1450, opTipoCambio: 1400 })).toBe(14500);
+  });
+
+  it('lets an explicit per-NC override win over both', () => {
+    expect(
+      convertirMontoNC({ ...base, tipoCambioOverride: 1500, ncTipoCambio: 1450, opTipoCambio: 1400 }),
+    ).toBe(15000);
+  });
+
+  it('falls back to the OP tipo_cambio when the NC has none', () => {
+    expect(convertirMontoNC({ ...base, ncTipoCambio: null, opTipoCambio: 1400 })).toBe(14000);
+  });
+
+  it('returns null — never the raw amount — when no TC is resolvable anywhere', () => {
+    // Returning `monto` here would add USD into an ARS total. That is the
+    // fabricated discount the on-screen summary used to show.
+    expect(convertirMontoNC({ ...base, ncTipoCambio: null, opTipoCambio: null })).toBeNull();
+  });
+
+  it('ignores unusable TC candidates (0, negative, non-numeric) and keeps walking the chain', () => {
+    expect(
+      convertirMontoNC({ ...base, tipoCambioOverride: 0, ncTipoCambio: -1, opTipoCambio: 1400 }),
+    ).toBe(14000);
+    expect(
+      convertirMontoNC({ ...base, tipoCambioOverride: '', ncTipoCambio: 'x', opTipoCambio: 1400 }),
+    ).toBe(14000);
+  });
+
+  it('is the identity when the NC and the destino share a currency', () => {
+    // Both legs cancel out: the NC↔OP funding rate never reaches the row.
+    expect(
+      convertirMontoNC({
+        monto: 100,
+        ncMoneda: 'USD',
+        opMoneda: 'ARS',
+        destinoMoneda: 'USD',
+        tipoCambioOverride: 1520,
+        opTipoCambio: 1500,
+      }),
+    ).toBe(100);
+  });
+
+  it('uses ONLY the OP tipo_cambio on the OP → destino leg', () => {
+    // The NC quote describes how the NC funds the OP, not how the OP pays the
+    // pedido. With NC ARS = OP ARS and a USD pedido, only the second leg
+    // converts, so the NC own rate must not rescue a missing OP TC.
+    expect(
+      convertirMontoNC({
+        monto: 1400,
+        ncMoneda: 'ARS',
+        opMoneda: 'ARS',
+        destinoMoneda: 'USD',
+        ncTipoCambio: 1450,
+        opTipoCambio: null,
+      }),
+    ).toBeNull();
+    expect(
+      convertirMontoNC({
+        monto: 1400,
+        ncMoneda: 'ARS',
+        opMoneda: 'ARS',
+        destinoMoneda: 'USD',
+        ncTipoCambio: 1450,
+        opTipoCambio: 1400,
+      }),
+    ).toBe(1);
+  });
+
+  it('returns null for a non-numeric amount', () => {
+    expect(convertirMontoNC({ ...base, monto: '', ncTipoCambio: 1450 })).toBeNull();
   });
 });
