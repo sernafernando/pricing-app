@@ -354,6 +354,7 @@ def _audit_publish(
     submitted_price: Optional[str] = None,
     offset_percent: Optional[float] = None,
     price_base_source: Optional[str] = None,
+    extra_valores: Optional[Dict[str, Any]] = None,
 ) -> None:
     """Same best-effort audit contract as `_audit`, for `TN_PUBLICAR`.
 
@@ -370,8 +371,15 @@ def _audit_publish(
     is what makes the trail reconstructable: the price alone cannot
     distinguish an intended web-transfer price from a mistakenly-seeded
     Clásica one.
+
+    `extra_valores` lets a NON-`submitted` caller record the few facts that
+    make its outcome diagnosable on its own. It exists because the
+    `already_published` short-circuit used to persist a null
+    `valores_nuevos`, which forced the production incident to be diagnosed
+    by deducing the product back from `item_id`. Keys given here win over
+    the money-path keys above, and `product_id` is always included.
     """
-    valores_nuevos = None
+    valores_nuevos: Optional[Dict[str, Any]] = None
     if outcome.get("status") == "submitted":
         valores_nuevos = {"product_id": item_id}
         if submitted_price is not None:
@@ -380,6 +388,8 @@ def _audit_publish(
             valores_nuevos["offset_percent"] = offset_percent
         if price_base_source is not None:
             valores_nuevos["price_base_source"] = price_base_source
+    if extra_valores:
+        valores_nuevos = {"product_id": item_id, **(valores_nuevos or {}), **extra_valores}
     try:
         db.add(
             Auditoria(
@@ -776,14 +786,56 @@ def publish_product(
         _audit_publish(db, usuario, None, outcome)
         return outcome
 
-    existing = db.query(TiendaNubeProducto).filter(TiendaNubeProducto.variant_sku == ean).first()
-    if existing is not None:
+    # `variant_sku` has no unique constraint (the model's __table_args__ is
+    # empty), so one EAN can legitimately carry more than one row: a ghost
+    # left by a product TN dropped, plus the fresh one a later publish keys
+    # by its new product_id. Order explicitly — an unordered `.first()`
+    # would pick between them at the database's whim, making the gate below
+    # non-deterministic for the very rows this fix is about. Credible rows
+    # first, newest as the tiebreaker.
+    existing = (
+        db.query(TiendaNubeProducto)
+        .filter(TiendaNubeProducto.variant_sku == ean)
+        .order_by(
+            (TiendaNubeProducto.activo.is_(False)).asc(),
+            TiendaNubeProducto.id.desc(),
+        )
+        .first()
+    )
+    # Production defect fix: this cheap local gate must only short-circuit
+    # when the mirror row is still CREDIBLE. In `tienda_nube_productos`,
+    # `activo` is the EXISTENCE axis (see `tn_reconciliation_service`): each
+    # full sync marks every row inactive and revives only what TN's
+    # `/products` actually returned, so `activo=False` means "TN no longer
+    # has this product". A row like that is a ghost — answering
+    # `already_published` from it made the EAN permanently unpublishable
+    # (operators saw five green toasts and nothing ever reached TN).
+    #
+    # `activo IS NULL` is deliberately NOT treated as absent. The column is
+    # nullable and only carries a Python-side `default=True`, so a legacy /
+    # bulk-inserted row can hold NULL, which means "unknown", not evidence
+    # that TN lacks the product. Only an explicit `False` is that evidence,
+    # so `is False` — never a falsy test — is what opens the fall-through.
+    # An unknown row keeps the conservative old answer.
+    #
+    # Falling through costs nothing in safety: the LIVE pre-check below is
+    # "the authority for idempotency" (see its comment) and either finds the
+    # product on TN (`already_exists`, which also resyncs this mirror row)
+    # or confirms it is gone and publishes. `activo=True` — the common
+    # case — still returns here without any TN round-trip.
+    if existing is not None and existing.activo is not False:
         outcome: Dict[str, Any] = {
             "submitted": False,
             "status": "already_published",
             "detail": f"A tienda_nube_productos row already exists locally for ean={ean}",
         }
-        _audit_publish(db, usuario, existing.product_id, outcome)
+        _audit_publish(
+            db,
+            usuario,
+            existing.product_id,
+            outcome,
+            extra_valores={"ean": ean, "activo": existing.activo},
+        )
         return outcome
 
     active_client = client if client is not None else TiendaNubeProductClient()
