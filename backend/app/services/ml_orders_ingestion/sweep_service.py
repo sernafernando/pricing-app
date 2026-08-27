@@ -254,7 +254,16 @@ def _record_unenumerable_window(db, date_from: datetime, date_to: datetime) -> N
     is no single order to key this on -- `order_id=0` is a sentinel (the
     column is NOT NULL) and the leaf's own bounds are the dedup key via
     `field`, so a repeat detection of the SAME leaf updates `detected_at`
-    instead of duplicating (unique `(order_id, kind, field)`)."""
+    instead of duplicating (unique `(order_id, kind, field)`).
+
+    UNBOUNDED GROWTH, on purpose, for now: a dense region bisected to the
+    one-minute floor yields one row per minute, and since the checkpoint
+    advances, later passes produce fresh bounds rather than matching these.
+    Nothing collapses or expires them. That is acceptable while this is the
+    only signal that a window could not be read at all, but the slice that
+    builds the divergence dashboard MUST (a) filter or label the
+    `order_id=0` sentinel so it is not rendered as an order, and (b) decide
+    a retention or collapse policy for these rows."""
     field_key = _unenumerable_field_key(date_from, date_to)
     existing = (
         db.query(MlOpsDivergence)
@@ -539,7 +548,12 @@ def run_sweep(seller_id: Optional[int] = None, window_days: Optional[int] = None
                         db.add(cursor)
                     cursor.window_from = window_start
                     cursor.window_to = leaf_to
-                    cursor.last_success_at = now
+                    # `window_to` is this pass's PROGRESS. `last_success_at`
+                    # is not written here: it means "a whole pass finished",
+                    # and stamping it per leaf let a sweep that dies on a
+                    # later leaf keep refreshing its own freshness signal
+                    # forever -- an alert on "no success in N minutes" would
+                    # never fire while the sweep was broken.
                     # state intentionally left as 'running' here -- it only
                     # flips to idle/error once the WHOLE pass finishes.
                 last_checkpoint_to = leaf_to

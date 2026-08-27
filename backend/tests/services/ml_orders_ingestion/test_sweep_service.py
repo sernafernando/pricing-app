@@ -594,3 +594,40 @@ class TestTruncatedPassIsNotReportedAsSuccess:
         cursor = db.query(MlOpsSyncCursor).filter_by(name=sweep_service.CURSOR_NAME).first()
         assert cursor.state != "running"
         assert cursor.last_success_at is None
+
+
+class TestLastSuccessAtMeansTheWholePass:
+    """The mixed case: one leaf completes and checkpoints, the next fails.
+    Both earlier tests missed it because neither fixture ever reached a
+    checkpoint at all."""
+
+    def test_a_completed_leaf_does_not_stamp_success_when_a_later_leaf_fails(self, db, monkeypatch) -> None:
+        from app.models.ml_orders_ops import MlOpsSyncCursor
+        from app.services.ml_orders_ingestion import sweep_service
+
+        monkeypatch.setattr(settings, "ML_ORDERS_OPS_ENABLED", True)
+
+        calls = {"n": 0}
+
+        async def bisect_then_left_ok_right_dead(seller_id, date_from, date_to, offset=0):
+            calls["n"] += 1
+            if calls["n"] == 1:
+                # over cap -> forces a bisection into two leaves
+                return {"results": [], "paging": {"total": 5000}}
+            if calls["n"] == 2:
+                # left leaf completes and emits a checkpoint
+                when = datetime.now(timezone.utc)
+                return {"results": [_order(1, 999, when, when)], "paging": {"total": 1}}
+            # right leaf: proxy is down
+            return None
+
+        monkeypatch.setattr(sweep_service.ml_webhook_client, "search_orders", bisect_then_left_ok_right_dead)
+
+        result = sweep_service.run_sweep(seller_id=999, window_days=90)
+        assert result.error is not None
+
+        cursor = db.query(MlOpsSyncCursor).filter_by(name=sweep_service.CURSOR_NAME).first()
+
+        # A broken sweep must not keep refreshing its own freshness signal:
+        # an alert on "no successful pass in N minutes" would never fire.
+        assert cursor.last_success_at is None
