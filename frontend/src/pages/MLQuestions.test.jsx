@@ -163,7 +163,7 @@ describe('Mensajes tab filters -> GET /ml-bot/messages params', () => {
 
 describe('Preguntas fallback_reason filter + counts (PR5)', () => {
   function mockQuestionsWithFallback({ counts = {}, rows = [], total } = {}) {
-    api.get.mockImplementation((url, config) => {
+    api.get.mockImplementation((url) => {
       if (url === '/ml-bot/status') return Promise.resolve({ data: { bot_enabled: true, auto_publish_enabled: false } });
       if (url === '/ml-bot/questions') {
         return Promise.resolve({ data: { questions: rows, total: total ?? rows.length } });
@@ -188,7 +188,7 @@ describe('Preguntas fallback_reason filter + counts (PR5)', () => {
     });
 
     // Advance to page 2 first, so we can prove the filter resets it back to 0.
-    api.get.mockImplementation((url, config) => {
+    api.get.mockImplementation((url) => {
       if (url === '/ml-bot/status') return Promise.resolve({ data: { bot_enabled: true, auto_publish_enabled: false } });
       if (url === '/ml-bot/questions') {
         return Promise.resolve({ data: { questions: [], total: 200 } });
