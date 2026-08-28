@@ -145,16 +145,35 @@ class MlOperationLink(Base):
     __table_args__ = (
         UniqueConstraint("entity_type", "entity_id", "order_id", name="uq_ml_operation_links_entity_order"),
         Index("ix_ml_operation_links_order_id_entity_type", "order_id", "entity_type"),
+        # `entity_type`/`link_source`/`link_confidence` documented their valid
+        # values in a comment only (slice 1, nothing wrote to them). Slice 4's
+        # link resolver is the first writer, so per the change's own
+        # instructions (and the slice-3 lesson, obs #1843/#1852) the contract
+        # moves into a real CHECK constraint here, not a comment.
+        CheckConstraint(
+            "entity_type IN ('claim', 'question', 'message')",
+            name="ck_ml_operation_links_entity_type",
+        ),
+        CheckConstraint(
+            "link_source IN ('claim_resource_id', 'pack_id', 'item_id', 'manual')",
+            name="ck_ml_operation_links_link_source",
+        ),
+        CheckConstraint(
+            "link_confidence IN ('exact', 'inferred')",
+            name="ck_ml_operation_links_link_confidence",
+        ),
     )
 
     id = Column(Integer, primary_key=True, index=True)
 
     order_id = Column(BigInteger, nullable=False, index=True)
-    entity_type = Column(String(20), nullable=False)  # claim | question | message
+    entity_type = Column(String(20), nullable=False)  # claim | question | message (enforced by CHECK above)
     entity_id = Column(BigInteger, nullable=False)
 
-    link_source = Column(String(20), nullable=False)  # claim_resource_id | pack_id | item_id | manual
-    link_confidence = Column(String(10), nullable=False)  # exact | inferred
+    # claim_resource_id | pack_id | item_id | manual (enforced by CHECK above)
+    link_source = Column(String(20), nullable=False)
+    # exact | inferred (enforced by CHECK above)
+    link_confidence = Column(String(10), nullable=False)
 
     resolved_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
 
