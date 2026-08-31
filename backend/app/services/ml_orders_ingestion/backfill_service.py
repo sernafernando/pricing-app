@@ -68,6 +68,7 @@ from app.services.ml_orders_ingestion.sweep_service import (
     iter_window_events,
     load_cursor,
     process_batch,
+    record_unenumerable_window,
     release_lock_as_error,
     release_lock_as_idle,
     try_acquire_run_lock,
@@ -139,13 +140,34 @@ class BackfillResult:
     orders_skipped_stale: int = 0
     orders_mapping_error: int = 0
     orders_out_of_window: int = 0
+    windows_unenumerable: int = 0
     budget_exhausted: bool = False
+    # True only for a REAL (non-dry-run) pass that found the checkpoint
+    # already covering the entire requested range and did zero new work
+    # as a result -- distinguishes a legitimate no-op from a pass that
+    # processed `days_completed` days for real (finding 4, round 3).
+    already_up_to_date: bool = False
     error: Optional[str] = None
+
+
+def _fold_counts(dst: BackfillResult, src: SweepResult) -> None:
+    """Adds one `process_batch` call's counters into the running result.
+    Called right after EACH batch, not just once at the end of the day
+    (finding 2, round 3): `process_batch` commits its own session as it
+    goes, so a batch that already landed in the database must be counted
+    even if a LATER page in the same day raises `WindowFetchError` --
+    under-reporting already-committed work is as wrong as over-reporting
+    rolled-back work."""
+    dst.orders_seen += src.orders_seen
+    dst.orders_upserted += src.orders_upserted
+    dst.orders_skipped_stale += src.orders_skipped_stale
+    dst.orders_mapping_error += src.orders_mapping_error
+    dst.orders_out_of_window += src.orders_out_of_window
 
 
 def _dry_run_count_window(
     seller_id: int, day_from: datetime, day_to: datetime, window_from_floor: datetime
-) -> tuple[int, int, int]:
+) -> tuple[int, int, int, bool]:
     """The `--dry-run` equivalent of `process_batch`: enumerates the
     window (so `search_orders` really is called and the window bounds are
     really computed, per the RED test's own promise) but never opens a DB
@@ -153,12 +175,16 @@ def _dry_run_count_window(
     rather than by a flag threaded through the write path.
 
     Applies the SAME window filter as the real run and returns
-    `(seen, out_of_window, mapping_error)`. A preview that counts rows the
-    real run would exclude -- or silently drops ones it would report -- is
-    not a preview."""
+    `(seen, out_of_window, mapping_error, budget_exhausted)`. A preview
+    that counts rows the real run would exclude, silently drops ones it
+    would report, or fails to say it truncated on the fetch budget -- is
+    not a preview (finding 3, round 3: parity with the real run, which
+    DOES report `budget_exhausted`, extends to every field, not just the
+    three this function already returned)."""
     seen = 0
     out_of_window = 0
     mapping_error = 0
+    budget_exhausted = False
     for event in iter_window_events(seller_id, day_from, day_to):
         kind = event[0]
         if kind == "page":
@@ -174,6 +200,7 @@ def _dry_run_count_window(
             # `break` below, like run_sweep: draining the generator emits one
             # warning per remaining sub-window and floods the log in an
             # already-degraded run.
+            budget_exhausted = True
             logger.warning(
                 "backfill(dry-run): fetch budget spent before [%s, %s) finished enumerating",
                 day_from.isoformat(),
@@ -192,7 +219,7 @@ def _dry_run_count_window(
         day_to.isoformat(),
         seen,
     )
-    return seen, out_of_window, mapping_error
+    return seen, out_of_window, mapping_error, budget_exhausted
 
 
 def _process_day(
@@ -219,14 +246,15 @@ def _process_day(
     window, and an order created long before the day it was updated on is
     exactly what a backfill exists to fetch -- passing `day_from` here
     excluded almost everything and filed a divergence row for each."""
-    sweep_shaped_result = SweepResult(ran=True)
     pending: list = []
     day_completed = True
 
     def _flush() -> None:
         nonlocal pending
         if pending:
-            process_batch(pending, window_from_floor, sweep_shaped_result)
+            batch_result = SweepResult(ran=True)
+            process_batch(pending, window_from_floor, batch_result)
+            _fold_counts(result, batch_result)
             pending = []
 
     for event in iter_window_events(seller_id, day_from, day_to):
@@ -234,11 +262,25 @@ def _process_day(
         if kind == "page":
             pending.extend(event[1])
             while len(pending) >= BATCH_SIZE:
-                process_batch(pending[:BATCH_SIZE], window_from_floor, sweep_shaped_result)
+                batch_result = SweepResult(ran=True)
+                process_batch(pending[:BATCH_SIZE], window_from_floor, batch_result)
+                # Folded IMMEDIATELY, not at the end of the day (finding 2,
+                # round 3): `process_batch` already committed this batch in
+                # its own session, so if a LATER page in this same day
+                # raises `WindowFetchError`, this batch's writes must still
+                # be counted -- they happened, regardless of how the day
+                # as a whole ends.
+                _fold_counts(result, batch_result)
                 pending = pending[BATCH_SIZE:]
         elif kind == "unenumerable":
             _, leaf_from, leaf_to = event
-            sweep_shaped_result.windows_unenumerable += 1
+            # Same instrumentation the sweep persists (finding 1, round
+            # 3): a leaf that cannot be enumerated even at the minimum
+            # bisect span leaves a `ml_ops_divergence` row, not just a
+            # local counter that dies with this function's stack frame.
+            with get_background_db() as db:
+                record_unenumerable_window(db, leaf_from, leaf_to)
+            result.windows_unenumerable += 1
             logger.warning(
                 "backfill: [%s, %s) is not enumerable even at the minimum bisect span -- recorded, skipped",
                 leaf_from.isoformat(),
@@ -257,11 +299,6 @@ def _process_day(
             break
     _flush()
 
-    result.orders_seen += sweep_shaped_result.orders_seen
-    result.orders_upserted += sweep_shaped_result.orders_upserted
-    result.orders_skipped_stale += sweep_shaped_result.orders_skipped_stale
-    result.orders_mapping_error += sweep_shaped_result.orders_mapping_error
-    result.orders_out_of_window += sweep_shaped_result.orders_out_of_window
     return day_completed
 
 
@@ -270,6 +307,7 @@ def run_backfill(
     days_to: Optional[int] = None,
     seller_id: Optional[int] = None,
     dry_run: bool = False,
+    restart: bool = False,
 ) -> BackfillResult:
     """Entry point for `app/scripts/backfill_ml_orders_ops.py`.
 
@@ -280,6 +318,13 @@ def run_backfill(
     `now - days_to`, checkpointing `ml_ops_sync_cursor(name='backfill')`
     after each day so a killed run resumes at the last fully-completed
     day instead of restarting (see module docstring).
+
+    `restart=True` ignores any existing checkpoint for `name='backfill'`
+    and walks the entire requested range from scratch, regardless of
+    whether it matches or is a subset of a previously-completed range
+    (finding 4, round 3): a checkpoint whose range is EXACTLY the one
+    requested again is otherwise a permanent no-op with no operator
+    escape hatch short of deleting the cursor row by hand.
     """
     if not settings.ML_ORDERS_OPS_ENABLED:
         return BackfillResult(ran=False, dry_run=dry_run)
@@ -304,13 +349,15 @@ def run_backfill(
         current_end = newest_boundary
         while current_end > oldest_boundary:
             day_start = max(current_end - DAY, oldest_boundary)
-            day_seen, day_out, day_bad = _dry_run_count_window(
+            day_seen, day_out, day_bad, day_budget_exhausted = _dry_run_count_window(
                 int(resolved_seller_id), day_start, current_end, oldest_boundary
             )
             result.orders_seen += day_seen
             result.orders_out_of_window += day_out
             result.orders_mapping_error += day_bad
             result.days_completed += 1
+            if day_budget_exhausted:
+                result.budget_exhausted = True
             current_end = day_start
         return result
 
@@ -333,7 +380,14 @@ def run_backfill(
     # Discard a resume point that falls outside the CURRENT request
     # instead of trusting it blindly; a stale/mismatched checkpoint means
     # "start this range from scratch", not "nothing to do".
-    if resume_from is not None and not (oldest_boundary <= resume_from < newest_boundary):
+    if restart:
+        if resume_from is not None:
+            logger.info(
+                "backfill_ml_orders_ops: --restart requested, ignoring existing checkpoint window_from=%s",
+                resume_from.isoformat(),
+            )
+        resume_from = None
+    elif resume_from is not None and not (oldest_boundary <= resume_from < newest_boundary):
         logger.info(
             "backfill_ml_orders_ops: checkpoint window_from=%s is outside the requested range "
             "[%s, %s) -- ignoring it and starting this range from scratch",
@@ -346,6 +400,21 @@ def run_backfill(
     current_end = resume_from if resume_from is not None else newest_boundary
     if current_end > newest_boundary:
         current_end = newest_boundary
+
+    if resume_from is not None and current_end <= oldest_boundary:
+        # The checkpoint already covers the ENTIRE requested range -- a
+        # legitimate no-op, but it must be distinguishable in the result
+        # from a genuine completed pass (finding 4, round 3): the
+        # operator needs `--restart` to force a rerun, and the log/result
+        # must say "nothing to do" rather than imply real work happened.
+        result.already_up_to_date = True
+        logger.info(
+            "backfill_ml_orders_ops: range [%s, %s) is already fully covered by the existing checkpoint "
+            "(window_from=%s) -- nothing to do; pass --restart to force a full rerun",
+            oldest_boundary.isoformat(),
+            newest_boundary.isoformat(),
+            resume_from.isoformat(),
+        )
 
     failure: Optional[BaseException] = None
     last_checkpoint: Optional[datetime] = resume_from

@@ -55,6 +55,12 @@ def _build_parser() -> argparse.ArgumentParser:
         default=None,
         help="Override ML_USER_ID for this run.",
     )
+    parser.add_argument(
+        "--restart",
+        action="store_true",
+        help="Ignore any existing checkpoint for this range and walk it from scratch. "
+        "Use this to force a rerun of a range the checkpoint already reports as fully covered.",
+    )
     return parser
 
 
@@ -73,19 +79,33 @@ def main(argv: list[str] | None = None) -> None:
         days_to=days_to,
         seller_id=args.seller_id,
         dry_run=args.dry_run,
+        restart=args.restart,
     )
 
     if not result.ran:
         reason = result.error or "flag off or misconfigured"
         logger.info("backfill_ml_orders_ops: did not run (%s)", reason)
+        if result.error:
+            # Finding 5: the flag-off no-op (`result.error is None`) is a
+            # genuine success and exits 0; anything else that kept this
+            # pass from running -- "already running", a misconfigured
+            # seller -- is a real failure an operator chaining this
+            # script (or any runner checking the exit code) must see as
+            # non-zero, not silent success.
+            sys.exit(1)
         return
     if result.error:
         logger.error("backfill_ml_orders_ops: failed: %s", result.error)
-        return
-    outcome = "backfill stopped early (fetch budget)" if result.budget_exhausted else "backfill complete"
+        sys.exit(1)
+    if result.already_up_to_date:
+        outcome = "backfill already up to date (nothing to do; pass --restart to force a rerun)"
+    elif result.budget_exhausted:
+        outcome = "backfill stopped early (fetch budget)"
+    else:
+        outcome = "backfill complete"
     logger.info(
         "backfill_ml_orders_ops: %s (dry_run=%s) — days_completed=%s seen=%s upserted=%s "
-        "skipped_stale=%s mapping_error=%s out_of_window=%s",
+        "skipped_stale=%s mapping_error=%s out_of_window=%s unenumerable=%s",
         outcome,
         result.dry_run,
         result.days_completed,
@@ -94,6 +114,7 @@ def main(argv: list[str] | None = None) -> None:
         result.orders_skipped_stale,
         result.orders_mapping_error,
         result.orders_out_of_window,
+        result.windows_unenumerable,
     )
 
 

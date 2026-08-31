@@ -248,7 +248,7 @@ def _unenumerable_field_key(date_from: datetime, date_to: datetime) -> str:
     return f"{int(date_from.timestamp())}|{int(date_to.timestamp())}"
 
 
-def _record_unenumerable_window(db, date_from: datetime, date_to: datetime) -> None:
+def record_unenumerable_window(db, date_from: datetime, date_to: datetime) -> None:
     """Escape hatch for a leaf window that cannot be enumerated at all
     (finding 3): recorded, never ingested, never silently dropped. There
     is no single order to key this on -- `order_id=0` is a sentinel (the
@@ -556,7 +556,7 @@ def run_sweep(seller_id: Optional[int] = None, window_days: Optional[int] = None
             elif kind == "unenumerable":
                 _, leaf_from, leaf_to = event
                 with get_background_db() as db:
-                    _record_unenumerable_window(db, leaf_from, leaf_to)
+                    record_unenumerable_window(db, leaf_from, leaf_to)
                 result.windows_unenumerable += 1
             elif kind == "checkpoint":
                 _, leaf_to = event
