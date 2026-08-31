@@ -150,16 +150,21 @@ def _apply_divergence(
         row.ml_value = ml_value
         row.gbp_value = gbp_value
         return False
-    db.add(
-        MlOpsDivergence(
-            order_id=order_id,
-            kind=kind,
-            field=field,
-            ml_value=ml_value,
-            gbp_value=gbp_value,
-            detected_at=now,
-        )
+    row = MlOpsDivergence(
+        order_id=order_id,
+        kind=kind,
+        field=field,
+        ml_value=ml_value,
+        gbp_value=gbp_value,
+        detected_at=now,
     )
+    db.add(row)
+    # Registered immediately: the preload runs once, so without this a
+    # second candidate resolving to the same key in the SAME pass stages a
+    # duplicate and the flush dies on the unique constraint, losing the
+    # whole pass. GBP can hold two headers whose `mlorder_id` differs only
+    # by padding, which the trimmed join now folds into one id.
+    existing[(order_id, field)] = row
     return True
 
 
@@ -281,6 +286,10 @@ def detect_divergences(db: Session, now: Optional[datetime] = None) -> Divergenc
         db.flush()
     except Exception as e:  # noqa: BLE001
         logger.exception("detect_ml_divergences: detection pass failed")
+        # `get_background_db` commits on exit, so a session left in a failed
+        # state turns this reported error into PendingRollbackError and a
+        # traceback -- the error handling would be decorative.
+        db.rollback()
         return DivergenceDetectionResult(ran=True, error=f"{type(e).__name__}: {e}")
 
     truncated_kinds = []

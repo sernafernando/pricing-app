@@ -8,8 +8,10 @@ from __future__ import annotations
 from datetime import datetime, timedelta, timezone
 
 import pytest
+from unittest import mock
 
 from app.core.config import settings
+from app.services.ml_orders_ingestion import divergence_service
 from app.models.mercadolibre_order_header import MercadoLibreOrderHeader
 from app.models.ml_orders_ops import MlOpsDivergence, MlOrdersOps
 from app.services.ml_orders_ingestion.divergence_service import (
@@ -330,3 +332,37 @@ class TestUnenumerableSentinelRetention:
 
         assert result.unenumerable_purged == 1
         assert db.query(MlOpsDivergence).filter(MlOpsDivergence.kind == "window_not_enumerable").count() == 0
+
+
+class TestDuplicateGbpHeadersDoNotBreakThePass:
+    """GBP can hold two headers whose `mlorder_id` differs only by padding
+    — distinct rows there, the same id here now that the join trims. Two
+    candidates then resolve to one `(order_id, kind, field)` key, and the
+    preload dict never learns about a row staged earlier in the same pass."""
+
+    def test_two_gbp_headers_for_one_order_do_not_raise(self, db, monkeypatch):
+        monkeypatch.setattr(settings, "ML_ORDERS_OPS_ENABLED", True)
+        _make_gbp_header(db, mlo_id=1, mlorder_id="306")
+        _make_gbp_header(db, mlo_id=2, mlorder_id=" 306 ")
+        db.commit()
+
+        result = detect_divergences(db)
+
+        assert result.error is None
+        rows = db.query(MlOpsDivergence).filter_by(kind="missing_in_ml").all()
+        assert len(rows) == 1
+
+    def test_a_failed_pass_leaves_the_session_usable(self, db, monkeypatch):
+        """The error path must be able to finish: `get_background_db`
+        commits on exit, so a session left in a failed state turns a
+        reported error into PendingRollbackError and a traceback."""
+        monkeypatch.setattr(settings, "ML_ORDERS_OPS_ENABLED", True)
+        _make_ops_order(db, 1)
+        db.commit()
+
+        with mock.patch.object(divergence_service, "_detect_missing_in_gbp", side_effect=RuntimeError("boom")):
+            result = detect_divergences(db)
+
+        assert result.error is not None
+        # a usable session can still answer a query
+        assert db.query(MlOpsDivergence).count() >= 0
