@@ -122,6 +122,11 @@ class Settings(BaseSettings):
     # Bounded so a typo in .env cannot silently trigger a huge cold
     # start; a year is already far past what the ops layer needs.
     ML_ORDERS_OPS_WINDOW_DAYS: int = Field(default=180, ge=1, le=365)
+    # Retention (days) for `ml_ops_divergence.kind='window_not_enumerable'`
+    # rows (the `order_id=0` sentinel) -- purged by the divergence
+    # detection job; the leaf they describe is re-attempted by the next
+    # sweep pass regardless (obs #1824 debt slice 6 must pay off).
+    ML_ORDERS_OPS_UNENUMERABLE_RETENTION_DAYS: int = Field(default=30, ge=1, le=365)
 
     # Mapbox Geocoding API
     MAPBOX_ACCESS_TOKEN: Optional[str] = None
