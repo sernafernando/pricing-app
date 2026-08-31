@@ -1184,3 +1184,89 @@ class TestListarChequesFiltrosS3b:
         assert r.status_code == 200
         numeros = {i["numero"] for i in r.json()["items"]}
         assert "P-FILT-COMPOSE" in numeros
+
+
+# ──────────────────────────────────────────────────────────────────────────
+# R11 — orden_pago_estado en el listado (mata el N+1 del frontend)
+# ──────────────────────────────────────────────────────────────────────────
+
+
+class TestListarChequesOrdenPagoEstado:
+    """GET /cheques must expose the linked OP's estado.
+
+    A row in `orden_pago_cheque` on a NON-`pagado` OP is a RESERVATION (no CC
+    movement); the same row on a `pagado` OP is an IMPUTATION. A cheque with
+    `orden_pago_id` set is therefore NOT necessarily paid, and the list
+    consumer cannot render that distinction without the OP's estado. Serving
+    it here removes the per-row GET /ordenes-pago/{id} the UI used to issue.
+    """
+
+    def _emitir(self, db, *, numero, banco_empresa_id, proveedor_id=None):
+        from app.services.cheques_service import emitir_cheque_propio
+
+        return emitir_cheque_propio(
+            db,
+            tipo="propio",
+            instrumento="echeq",
+            numero=numero,
+            monto=Decimal("1000"),
+            moneda="ARS",
+            fecha_emision=date(2026, 6, 22),
+            fecha_pago=date(2026, 6, 22),
+            banco_empresa_id=banco_empresa_id,
+            proveedor_id=proveedor_id,
+        )
+
+    def _op(self, db, *, numero, estado, active_user):
+        from app.models.empresa import Empresa
+        from app.models.orden_pago import OrdenPago
+        from app.models.proveedor import OrigenProveedor, Proveedor
+
+        empresa = Empresa(nombre=f"Empresa {numero}", activo=True, orden=0)
+        proveedor = Proveedor(
+            nombre=f"Prov {numero}",
+            activo=True,
+            origen=OrigenProveedor.ERP.value,
+        )
+        db.add_all([empresa, proveedor])
+        db.flush()
+        op = OrdenPago(
+            numero=numero,
+            empresa_id=empresa.id,
+            proveedor_id=proveedor.id,
+            moneda="ARS",
+            monto_total=Decimal("1000"),
+            modo_imputacion="a_cuenta",
+            estado=estado,
+            creado_por_id=active_user.id,
+        )
+        db.add(op)
+        db.flush()
+        return op
+
+    def test_listado_expone_estado_de_la_op_vinculada(
+        self, client, auth_headers, db, banco, active_user, _permiso_solo
+    ):
+        op_pendiente = self._op(db, numero="OP-EST-PEND", estado="pendiente", active_user=active_user)
+        op_pagada = self._op(db, numero="OP-EST-PAG", estado="pagado", active_user=active_user)
+
+        reservado = self._emitir(db, numero="P-EST-RESERVADO", banco_empresa_id=banco.id)
+        imputado = self._emitir(db, numero="P-EST-IMPUTADO", banco_empresa_id=banco.id)
+        reservado.orden_pago_id = op_pendiente.id
+        imputado.orden_pago_id = op_pagada.id
+        db.commit()
+
+        r = client.get(f"{BASE}/cheques", headers=auth_headers)
+        assert r.status_code == 200
+        by_numero = {i["numero"]: i for i in r.json()["items"]}
+        assert by_numero["P-EST-RESERVADO"]["orden_pago_estado"] == "pendiente"
+        assert by_numero["P-EST-IMPUTADO"]["orden_pago_estado"] == "pagado"
+
+    def test_cheque_sin_op_trae_estado_none(self, client, auth_headers, db, banco, active_user, _permiso_solo):
+        self._emitir(db, numero="P-EST-LIBRE", banco_empresa_id=banco.id)
+        db.commit()
+
+        r = client.get(f"{BASE}/cheques", headers=auth_headers)
+        assert r.status_code == 200
+        ch = next(i for i in r.json()["items"] if i["numero"] == "P-EST-LIBRE")
+        assert ch["orden_pago_estado"] is None

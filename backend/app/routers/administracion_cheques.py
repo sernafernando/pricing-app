@@ -442,11 +442,27 @@ def listar_cheques(
         .limit(page_size)
         .all()
     )
+    # R11 — resolve the linked OPs' estado for this page in ONE query. A link
+    # to an OP does NOT mean the cheque was paid: a link row on a non-`pagado`
+    # OP is a RESERVATION (no CC movement), the same row on a `pagado` OP is an
+    # IMPUTATION. Consumers cannot render that distinction from
+    # `orden_pago_id` alone, so serving it here is what keeps them from
+    # fetching GET /ordenes-pago/{id} once per row.
+    op_ids = {ch.orden_pago_id for ch in rows if ch.orden_pago_id is not None}
+    op_estados: dict[int, str] = {}
+    if op_ids:
+        from app.models.orden_pago import OrdenPago  # noqa: PLC0415
+
+        op_estados = {
+            op_id: estado
+            for op_id, estado in db.query(OrdenPago.id, OrdenPago.estado).filter(OrdenPago.id.in_(op_ids)).all()
+        }
     items = [
         ChequeListResponse.model_validate(ch).model_copy(
             update={
                 "banco_nombre": ch.banco_empresa.banco if ch.banco_empresa else ch.banco_nombre,
                 "proveedor_nombre": ch.proveedor.nombre if ch.proveedor else None,
+                "orden_pago_estado": (op_estados.get(ch.orden_pago_id) if ch.orden_pago_id is not None else None),
             }
         )
         for ch in rows

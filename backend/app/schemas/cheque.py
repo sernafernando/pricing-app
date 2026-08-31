@@ -195,6 +195,12 @@ class ChequeListResponse(BaseModel):
     proveedor_nombre: Optional[str] = None
     cuit_librador: Optional[str] = None
     librador_nombre: Optional[str] = None
+    # R11 — estado of the linked OP, resolved by the list endpoint in one
+    # batched query. `orden_pago_id` alone cannot tell a RESERVATION (link row
+    # on a non-`pagado` OP, no CC movement) from an IMPUTATION (same row on a
+    # `pagado` OP), so a consumer without this field would have to fetch
+    # GET /ordenes-pago/{id} per row. None when the cheque has no linked OP.
+    orden_pago_estado: Optional[str] = None
 
     model_config = ConfigDict(from_attributes=True)
 

@@ -90,9 +90,9 @@ const ESTADO_BADGE_MAP = {
  * OrdenPagoLinkBadge — R11 (compras-cheque-propio-aplicable-a-op): un cheque
  * propio con `orden_pago_id` NO es necesariamente pagado — puede estar
  * meramente RESERVADO contra una OP pendiente (INVARIANT R, design ADR).
- * `opEstado` (estado de esa OP, cargado aparte — el endpoint de cheques no
- * lo expone) decide la etiqueta:
- *   - desconocido todavía (fetch en curso) → "Vinculado a OP N" (neutral)
+ * `opEstado` (campo `orden_pago_estado` que ya viene en el listado de cheques)
+ * decide la etiqueta:
+ *   - ausente/desconocido                  → "Vinculado a OP N" (neutral)
  *   - op.estado === 'pendiente'            → "Reservado en OP N"
  *   - op.estado === 'pagado'               → "Aplicado en OP N" (imputado, NUNCA "pagado" a secas del cheque)
  *   - cualquier otro (anulado/cancelado)    → "Vinculado a OP N"
@@ -127,7 +127,7 @@ export default function TabCheques() {
     reservarEnOp, liberarDeOp,
     loading, error,
   } = useCheques();
-  const { listar: listarOP, obtener: obtenerOP } = useComprasOP();
+  const { listar: listarOP } = useComprasOP();
 
   // ── Vista activa ──
   const [vista, setVista] = useState(VISTAS.PROPIOS);
@@ -191,10 +191,9 @@ export default function TabCheques() {
   const [loadingReporte, setLoadingReporte] = useState(false);
 
   // ── S4 — aplicar cheque propio a OP pendiente ──
-  // estado de las OPs vinculadas a los cheques de la página actual (para
-  // distinguir "reservado" de "aplicado/pagado" en el badge — el listado de
-  // cheques no expone el estado de la OP).
-  const [opEstados, setOpEstados] = useState({});
+  // El estado de la OP vinculada llega en el propio listado de cheques
+  // (`orden_pago_estado`), necesario para distinguir "reservado" de
+  // "aplicado/pagado" en el badge sin pedir cada OP por separado.
   // { cheque } — abre el selector de OPs pendientes del mismo proveedor
   const [aplicando, setAplicando] = useState(null);
   const [opsPendientes, setOpsPendientes] = useState([]);
@@ -274,32 +273,6 @@ export default function TabCheques() {
       .catch(() => setBancosDisponibles([]));
   }, [depositando]);
 
-  // Resolver el estado de las OPs vinculadas a los cheques propios de la
-  // página actual — necesario para el badge (R11: nunca mostrar "pagado"
-  // cuando en realidad es una reserva). Ninguna llamada al backend cambia:
-  // reusa GET /ordenes-pago/{id}, ya existente.
-  useEffect(() => {
-    const idsFaltantes = [...new Set(
-      cheques
-        .filter((ch) => ch.tipo === 'propio' && ch.orden_pago_id != null)
-        .map((ch) => ch.orden_pago_id),
-    )].filter((id) => !(id in opEstados));
-    if (idsFaltantes.length === 0) return;
-    let cancelado = false;
-    Promise.all(
-      idsFaltantes.map((id) =>
-        obtenerOP(id)
-          .then((op) => [id, op?.estado ?? null])
-          .catch(() => [id, null]),
-      ),
-    ).then((pares) => {
-      if (cancelado) return;
-      setOpEstados((prev) => ({ ...prev, ...Object.fromEntries(pares) }));
-    });
-    return () => {
-      cancelado = true;
-    };
-  }, [cheques, opEstados, obtenerOP]);
 
   const handleCambiarVista = (v) => {
     setVista(v);
@@ -464,6 +437,12 @@ export default function TabCheques() {
   };
 
   // Reservar (NO paga) el cheque contra la OP pendiente elegida.
+  //
+  // Acá la OP YA existe y está pendiente, así que tiene id: se reserva contra
+  // ella con POST /ordenes-pago/{op_id}/cheques. Es a propósito que este
+  // camino NO comparta ruta con PanelCheques (dentro de ModalOrdenPagoNueva),
+  // donde la OP puede no existir todavía y el cheque viaja en el payload
+  // `cheques` de la OP. Pinneado en cheque-op-entrypoints.test.jsx.
   const handleAplicarAOP = async (op) => {
     if (!aplicando) return;
     setSavingAplicar(true);
@@ -828,7 +807,7 @@ export default function TabCheques() {
                       {ch.tipo === 'propio' && (
                         <OrdenPagoLinkBadge
                           ordenPagoId={ch.orden_pago_id}
-                          opEstado={ch.orden_pago_id != null ? opEstados[ch.orden_pago_id] : undefined}
+                          opEstado={ch.orden_pago_estado}
                         />
                       )}
                     </td>
@@ -860,7 +839,7 @@ export default function TabCheques() {
                         )}
                         {/* Desvincular (S4): reservado, y la OP sigue pendiente */}
                         {ch.tipo === 'propio' && ch.orden_pago_id != null
-                          && opEstados[ch.orden_pago_id] === 'pendiente' && (
+                          && ch.orden_pago_estado === 'pendiente' && (
                           <button
                             type="button"
                             className={styles.btnAction}
