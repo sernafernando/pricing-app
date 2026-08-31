@@ -121,7 +121,7 @@ describe('Fetching the list', () => {
       expect(calls[calls.length - 1][1].params.offset).toBe(50);
     });
 
-    const kindSelect = screen.getAllByRole('combobox')[0];
+    const kindSelect = screen.getByRole('combobox', { name: /filtrar por tipo/i });
     await user.selectOptions(kindSelect, 'field_mismatch');
 
     await waitFor(() => {
@@ -132,7 +132,7 @@ describe('Fetching the list', () => {
       );
     });
 
-    const stateSelect = screen.getAllByRole('combobox')[1];
+    const stateSelect = screen.getByRole('combobox', { name: /filtrar por estado/i });
     await user.selectOptions(stateSelect, 'resolved');
 
     await waitFor(() => {
@@ -197,8 +197,11 @@ describe('window_not_enumerable rows render distinctly', () => {
     await waitFor(() => {
       expect(screen.getByText(/Ventana no enumerable/)).toBeInTheDocument();
     });
-    expect(screen.getByText(/2026-08-01T00:00:00Z/)).toBeInTheDocument();
-    expect(screen.getByText(/2026-08-01T06:00:00Z/)).toBeInTheDocument();
+    const expectedFrom = new Date('2026-08-01T00:00:00Z').toLocaleString();
+    const expectedTo = new Date('2026-08-01T06:00:00Z').toLocaleString();
+    expect(screen.getByText(new RegExp(`${expectedFrom}.*${expectedTo}`))).toBeInTheDocument();
+    // an unenumerable row covers a window, not an order
+    expect(screen.queryByText(/2026-08-01T00:00:00Z/)).not.toBeInTheDocument();
   });
 });
 

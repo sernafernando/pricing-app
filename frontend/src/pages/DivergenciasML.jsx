@@ -22,7 +22,7 @@
  * assumes a closed row stays closed.
  */
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { AlertTriangle, ShieldAlert } from 'lucide-react';
 import { usePermisos } from '../contexts/PermisosContext';
 import { useToast } from '../hooks/useToast';
@@ -65,6 +65,7 @@ function formatDate(value) {
 }
 
 export default function DivergenciasML() {
+  const latestRequestRef = useRef(0);
   const { tienePermiso } = usePermisos();
   const puedeVer = tienePermiso('ml_ops.ver');
   const puedeGestionar = tienePermiso('ml_ops.gestionar');
@@ -101,6 +102,10 @@ export default function DivergenciasML() {
 
   const cargarDivergencias = useCallback(async () => {
     if (!puedeVer) return;
+    // Changing a filter twice quickly can land the older response last and
+    // overwrite the list with the previous filter's rows. Only the newest
+    // request is allowed to write.
+    const requestId = ++latestRequestRef.current;
     setLoading(true);
     setErrorKind(null);
     try {
@@ -108,9 +113,11 @@ export default function DivergenciasML() {
       if (kindFilter) params.kind = kindFilter;
       if (stateFilter) params.state = stateFilter;
       const { data } = await api.get('/ml-ventas-ops/divergences', { params });
+      if (requestId !== latestRequestRef.current) return;
       setDivergences(data.divergences || []);
       setTotal(data.total ?? 0);
     } catch (err) {
+      if (requestId !== latestRequestRef.current) return;
       const httpStatus = err?.response?.status;
       if (httpStatus === 403) {
         setErrorKind('forbidden');
@@ -122,7 +129,7 @@ export default function DivergenciasML() {
       setDivergences([]);
       setTotal(0);
     } finally {
-      setLoading(false);
+      if (requestId === latestRequestRef.current) setLoading(false);
     }
   }, [puedeVer, kindFilter, stateFilter, offset]);
 
@@ -221,6 +228,7 @@ export default function DivergenciasML() {
         <select
           className={styles.select}
           value={kindFilter}
+          aria-label="Filtrar por tipo"
           onChange={(e) => handleKindFilterChange(e.target.value)}
         >
           <option value="">Todos los tipos</option>
@@ -231,6 +239,7 @@ export default function DivergenciasML() {
         <select
           className={styles.select}
           value={stateFilter}
+          aria-label="Filtrar por estado"
           onChange={(e) => handleStateFilterChange(e.target.value)}
         >
           <option value="">Todos los estados</option>
@@ -278,7 +287,7 @@ export default function DivergenciasML() {
                     <td>
                       {isUnenumerable ? (
                         <span className={styles.windowBounds} title="No se pudo enumerar esta ventana">
-                          Ventana: {row.window_from || '—'} a {row.window_to || '—'}
+                          Ventana: {formatDate(row.window_from)} a {formatDate(row.window_to)}
                         </span>
                       ) : (
                         row.order_id ?? '—'
