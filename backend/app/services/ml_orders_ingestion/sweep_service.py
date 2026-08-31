@@ -133,7 +133,7 @@ class SweepResult:
 
 # ── Streaming window walk ──────────────────────────────────────────────
 #
-# `_iter_window_events` recursively bisects [date_from, date_to) and
+# `iter_window_events` recursively bisects [date_from, date_to) and
 # yields events AS SOON AS each one is known, so the caller never has to
 # hold more than one page (bounded by BATCH_SIZE) in memory:
 #   ("page", [raw_order, ...])       -- one fetched page, chronological
@@ -151,7 +151,7 @@ class SweepResult:
 # docstring).
 
 
-def _iter_window_events(
+def iter_window_events(
     seller_id: int,
     date_from: datetime,
     date_to: datetime,
@@ -186,8 +186,8 @@ def _iter_window_events(
             yield ("checkpoint", date_to)
             return
         midpoint = date_from + span / 2
-        yield from _iter_window_events(seller_id, date_from, midpoint, budget)
-        yield from _iter_window_events(seller_id, midpoint, date_to, budget)
+        yield from iter_window_events(seller_id, date_from, midpoint, budget)
+        yield from iter_window_events(seller_id, midpoint, date_to, budget)
         return
 
     # Leaf window within cap -- page through it, yielding each page as
@@ -290,7 +290,7 @@ def _record_unenumerable_window(db, date_from: datetime, date_to: datetime) -> N
         )
 
 
-def _process_batch(raw_orders: List[Dict[str, Any]], window_from_floor: datetime, result: SweepResult) -> None:
+def process_batch(raw_orders: List[Dict[str, Any]], window_from_floor: datetime, result: SweepResult) -> None:
     """Upserts one bounded batch in its OWN short-lived session. No HTTP
     call happens inside this block -- every raw order was already fetched
     during the (HTTP-only) search phase.
@@ -337,25 +337,29 @@ def _process_batch(raw_orders: List[Dict[str, Any]], window_from_floor: datetime
     result.orders_out_of_window += out_of_window
 
 
-def _load_cursor(db, for_update: bool = False) -> Optional[MlOpsSyncCursor]:
+def load_cursor(db, for_update: bool = False, cursor_name: str = CURSOR_NAME) -> Optional[MlOpsSyncCursor]:
     """`for_update` locks the row for the read-modify-write that claims the
     run lock. Without it two runs both read 'idle' and both proceed, which
-    is the exact race the lock exists to prevent. SQLite ignores the hint."""
-    query = db.query(MlOpsSyncCursor).filter_by(name=CURSOR_NAME)
+    is the exact race the lock exists to prevent. SQLite ignores the hint.
+
+    `cursor_name` is parameterised (default `'sweep'`) so the backfill job
+    (slice 5) reuses this exact function under `name='backfill'` instead of
+    a second, drifting copy -- see obs #1852 lesson 3."""
+    query = db.query(MlOpsSyncCursor).filter_by(name=cursor_name)
     if for_update:
         query = query.with_for_update()
     return query.first()
 
 
-def _ensure_cursor_row(db) -> None:
+def ensure_cursor_row(db, cursor_name: str = CURSOR_NAME) -> None:
     """Creates the cursor row if it does not exist, tolerating a concurrent
     creator. Dialect-agnostic: the insert is attempted in a SAVEPOINT so a
     losing racer rolls back only that statement."""
-    if db.query(MlOpsSyncCursor).filter_by(name=CURSOR_NAME).first() is not None:
+    if db.query(MlOpsSyncCursor).filter_by(name=cursor_name).first() is not None:
         return
     try:
         with db.begin_nested():
-            db.add(MlOpsSyncCursor(name=CURSOR_NAME, state="idle"))
+            db.add(MlOpsSyncCursor(name=cursor_name, state="idle"))
             db.flush()
     except IntegrityError:
         # Someone else created it between our SELECT and our INSERT, which
@@ -363,17 +367,17 @@ def _ensure_cursor_row(db) -> None:
         pass
 
 
-def _release_lock_as_idle(now: datetime, complete: bool = True) -> None:
+def release_lock_as_idle(now: datetime, complete: bool = True, cursor_name: str = CURSOR_NAME) -> None:
     """Clears the run lock after a pass that did not raise. `complete` is
     False when the pass stopped early on its fetch budget: it covered only
     part of the window, so stamping `last_success_at` would record partial
     work as a finished sweep. Swallows its own failures for the same
-    reason as `_release_lock_as_error`."""
+    reason as `release_lock_as_error`."""
     try:
         with get_background_db() as db:
-            cursor = _load_cursor(db)
+            cursor = load_cursor(db, cursor_name=cursor_name)
             if cursor is None:
-                cursor = MlOpsSyncCursor(name=CURSOR_NAME)
+                cursor = MlOpsSyncCursor(name=cursor_name)
                 db.add(cursor)
             cursor.state = "idle"
             if complete:
@@ -382,10 +386,10 @@ def _release_lock_as_idle(now: datetime, complete: bool = True) -> None:
             else:
                 cursor.detail = "stopped early: fetch budget exhausted"
     except Exception:
-        logger.exception("sync_ml_orders_ops: could not clear the run lock; the stale timeout will reclaim it")
+        logger.exception("%s: could not clear the run lock; the stale timeout will reclaim it", cursor_name)
 
 
-def _release_lock_as_error(error: BaseException) -> None:
+def release_lock_as_error(error: BaseException, cursor_name: str = CURSOR_NAME) -> None:
     """Marks the run lock as 'error' so the next pass may run immediately
     instead of waiting out the stale-lock timeout.
 
@@ -395,17 +399,17 @@ def _release_lock_as_error(error: BaseException) -> None:
     lock is recovered by the timeout; a lost traceback is not."""
     try:
         with get_background_db() as db:
-            cursor = _load_cursor(db)
+            cursor = load_cursor(db, cursor_name=cursor_name)
             if cursor is None:
-                cursor = MlOpsSyncCursor(name=CURSOR_NAME)
+                cursor = MlOpsSyncCursor(name=cursor_name)
                 db.add(cursor)
             cursor.state = "error"
             cursor.detail = str(error)[:500]
     except Exception:
-        logger.exception("sync_ml_orders_ops: could not release the run lock; the stale timeout will reclaim it")
+        logger.exception("%s: could not release the run lock; the stale timeout will reclaim it", cursor_name)
 
 
-def _tz_aware(value: Optional[datetime]) -> Optional[datetime]:
+def tz_aware(value: Optional[datetime]) -> Optional[datetime]:
     """SQLite loses tzinfo on a value round-tripped through the DB (the
     test DB, `tests/conftest.py`'s `sqlite://`) -- a naive value read back
     here is defensively assumed UTC, exactly like the mapper's
@@ -419,8 +423,8 @@ def _tz_aware(value: Optional[datetime]) -> Optional[datetime]:
     return value
 
 
-def _parse_running_since(detail: Optional[str]) -> Optional[datetime]:
-    """Parses the ISO timestamp `_try_acquire_run_lock` stashes in
+def parse_running_since(detail: Optional[str]) -> Optional[datetime]:
+    """Parses the ISO timestamp `try_acquire_run_lock` stashes in
     `cursor.detail` while `state='running'` (no dedicated column -- reuses
     the existing free-text field). Never raises: an unparsable/missing
     value is treated as "age unknown", which the caller resolves as
@@ -432,32 +436,38 @@ def _parse_running_since(detail: Optional[str]) -> Optional[datetime]:
         parsed = datetime.fromisoformat(detail)
     except ValueError:
         return None
-    return _tz_aware(parsed)
+    return tz_aware(parsed)
 
 
-def _try_acquire_run_lock(db, now: datetime) -> bool:
+def try_acquire_run_lock(db, now: datetime, cursor_name: str = CURSOR_NAME) -> bool:
     """Sets `state='running'` for the duration of this pass, so an
     overlapping cron invocation skips instead of racing this cursor
     (finding 4). Returns False (do not run) if another pass is genuinely
     in flight; reclaims (returns True) a 'running' lock older than
-    `STALE_LOCK_TIMEOUT`, on the assumption its owner died."""
+    `STALE_LOCK_TIMEOUT`, on the assumption its owner died.
+
+    Keyed by `cursor_name`: the sweep (`'sweep'`) and the backfill
+    (`'backfill'`) each hold their OWN row/lock, so they never block each
+    other -- both may run concurrently, safely, because both converge on
+    the same idempotent `upsert_order` (design D5)."""
     # `SELECT ... FOR UPDATE` locks an existing row, not the gap where one
     # would go, so on a cold start two simultaneous runs both read None and
     # both INSERT -- one of them dying on the primary key. Seeding the row
     # first (idempotently) means the FOR UPDATE below always has something
     # real to lock.
-    _ensure_cursor_row(db)
-    cursor = _load_cursor(db, for_update=True)
-    if cursor is None:  # pragma: no cover -- _ensure_cursor_row just created it
-        db.add(MlOpsSyncCursor(name=CURSOR_NAME, state="running", detail=now.isoformat()))
+    ensure_cursor_row(db, cursor_name=cursor_name)
+    cursor = load_cursor(db, for_update=True, cursor_name=cursor_name)
+    if cursor is None:  # pragma: no cover -- ensure_cursor_row just created it
+        db.add(MlOpsSyncCursor(name=cursor_name, state="running", detail=now.isoformat()))
         return True
 
     if cursor.state == "running":
-        running_since = _parse_running_since(cursor.detail)
+        running_since = parse_running_since(cursor.detail)
         if running_since is not None and (now - running_since) < STALE_LOCK_TIMEOUT:
             return False
         logger.warning(
-            "sync_ml_orders_ops: reclaiming a stale 'running' lock (detail=%r) -- a previous run likely died",
+            "%s: reclaiming a stale 'running' lock (detail=%r) -- a previous run likely died",
+            cursor_name,
             cursor.detail,
         )
 
@@ -487,12 +497,12 @@ def run_sweep(seller_id: Optional[int] = None, window_days: Optional[int] = None
     window_from_floor = now - timedelta(days=resolved_window_days)
 
     with get_background_db() as db:
-        acquired = _try_acquire_run_lock(db, now)
+        acquired = try_acquire_run_lock(db, now)
         if not acquired:
             logger.info("sync_ml_orders_ops: another sweep run is already in flight, skipping this pass")
             return SweepResult(ran=False, error="already running")
-        cursor = _load_cursor(db)
-        prior_window_to = _tz_aware(cursor.window_to) if cursor is not None else None
+        cursor = load_cursor(db)
+        prior_window_to = tz_aware(cursor.window_to) if cursor is not None else None
 
     window_start = (prior_window_to - CURSOR_OVERLAP) if prior_window_to is not None else window_from_floor
     if window_start < window_from_floor:
@@ -506,18 +516,18 @@ def run_sweep(seller_id: Optional[int] = None, window_days: Optional[int] = None
     def _flush_pending() -> None:
         nonlocal pending
         if pending:
-            _process_batch(pending, window_from_floor, result)
+            process_batch(pending, window_from_floor, result)
             pending = []
 
     failure: Optional[BaseException] = None
 
     try:
-        for event in _iter_window_events(int(resolved_seller_id), window_start, window_end):
+        for event in iter_window_events(int(resolved_seller_id), window_start, window_end):
             kind = event[0]
             if kind == "page":
                 pending.extend(event[1])
                 while len(pending) >= BATCH_SIZE:
-                    _process_batch(pending[:BATCH_SIZE], window_from_floor, result)
+                    process_batch(pending[:BATCH_SIZE], window_from_floor, result)
                     pending = pending[BATCH_SIZE:]
             elif kind == "budget_exhausted":
                 # Stop this pass without advancing past the unfinished
@@ -542,7 +552,7 @@ def run_sweep(seller_id: Optional[int] = None, window_days: Optional[int] = None
                 _, leaf_to = event
                 _flush_pending()
                 with get_background_db() as db:
-                    cursor = _load_cursor(db)
+                    cursor = load_cursor(db)
                     if cursor is None:
                         cursor = MlOpsSyncCursor(name=CURSOR_NAME, state="running")
                         db.add(cursor)
@@ -574,9 +584,9 @@ def run_sweep(seller_id: Optional[int] = None, window_days: Optional[int] = None
         result.error = f"{type(e).__name__}: {e}"
     finally:
         if failure is not None:
-            _release_lock_as_error(failure)
+            release_lock_as_error(failure)
         else:
-            _release_lock_as_idle(now, complete=not result.budget_exhausted)
+            release_lock_as_idle(now, complete=not result.budget_exhausted)
 
     result.window_to = last_checkpoint_to
     return result
