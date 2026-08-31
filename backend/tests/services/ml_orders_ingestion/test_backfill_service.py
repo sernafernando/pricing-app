@@ -398,3 +398,23 @@ class TestDryRunPredictsTheRealRun:
 
         assert dry.orders_seen == real.orders_seen
         assert dry.orders_out_of_window == real.orders_out_of_window
+        assert dry.orders_mapping_error == real.orders_mapping_error
+
+    def test_dry_run_predicts_mapping_errors_too(self, db, monkeypatch) -> None:
+        from app.services.ml_orders_ingestion import backfill_service
+
+        monkeypatch.setattr(settings, "ML_ORDERS_OPS_ENABLED", True)
+        updated = datetime.now(timezone.utc) - timedelta(days=2)
+
+        async def unmappable(seller_id, date_from, date_to, offset=0):
+            if date_from <= updated < date_to:
+                return {"results": [{"id": None}], "paging": {"total": 1}}
+            return {"results": [], "paging": {"total": 0}}
+
+        monkeypatch.setattr(ml_webhook_client, "search_orders", unmappable)
+
+        dry = backfill_service.run_backfill(days_from=0, days_to=30, seller_id=999, dry_run=True)
+        real = backfill_service.run_backfill(days_from=0, days_to=30, seller_id=999)
+
+        assert real.orders_mapping_error == 1
+        assert dry.orders_mapping_error == real.orders_mapping_error

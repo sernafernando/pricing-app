@@ -57,6 +57,7 @@ from typing import Optional, Tuple
 
 from app.core.config import settings
 from app.core.database import get_background_db
+from app.models.ml_orders_ops import MlOpsSyncCursor
 from app.services.ml_orders_ingestion.mapper import MappingError, map_order
 from app.services.ml_orders_ingestion.sweep_service import (
     BATCH_SIZE,
@@ -144,7 +145,7 @@ class BackfillResult:
 
 def _dry_run_count_window(
     seller_id: int, day_from: datetime, day_to: datetime, window_from_floor: datetime
-) -> tuple[int, int]:
+) -> tuple[int, int, int]:
     """The `--dry-run` equivalent of `process_batch`: enumerates the
     window (so `search_orders` really is called and the window bounds are
     really computed, per the RED test's own promise) but never opens a DB
@@ -152,10 +153,12 @@ def _dry_run_count_window(
     rather than by a flag threaded through the write path.
 
     Applies the SAME window filter as the real run and returns
-    `(seen, out_of_window)`. A preview that counts rows the real run would
-    exclude is not a preview."""
+    `(seen, out_of_window, mapping_error)`. A preview that counts rows the
+    real run would exclude -- or silently drops ones it would report -- is
+    not a preview."""
     seen = 0
     out_of_window = 0
+    mapping_error = 0
     for event in iter_window_events(seller_id, day_from, day_to):
         kind = event[0]
         if kind == "page":
@@ -163,6 +166,7 @@ def _dry_run_count_window(
                 seen += 1
                 mapped = map_order(raw_order)
                 if isinstance(mapped, MappingError):
+                    mapping_error += 1
                     continue
                 if mapped.date_created is not None and mapped.date_created < window_from_floor:
                     out_of_window += 1
@@ -188,7 +192,7 @@ def _dry_run_count_window(
         day_to.isoformat(),
         seen,
     )
-    return seen, out_of_window
+    return seen, out_of_window, mapping_error
 
 
 def _process_day(
@@ -300,9 +304,12 @@ def run_backfill(
         current_end = newest_boundary
         while current_end > oldest_boundary:
             day_start = max(current_end - DAY, oldest_boundary)
-            day_seen, day_out = _dry_run_count_window(int(resolved_seller_id), day_start, current_end, oldest_boundary)
+            day_seen, day_out, day_bad = _dry_run_count_window(
+                int(resolved_seller_id), day_start, current_end, oldest_boundary
+            )
             result.orders_seen += day_seen
             result.orders_out_of_window += day_out
+            result.orders_mapping_error += day_bad
             result.days_completed += 1
             current_end = day_start
         return result
@@ -364,6 +371,13 @@ def run_backfill(
             result.days_completed += 1
             with get_background_db() as db:
                 cursor = load_cursor(db, cursor_name=CURSOR_NAME)
+                if cursor is None:
+                    # The sweep's own checkpoint guards the same way. A
+                    # backfill walks for hours, so an operator deleting the
+                    # row mid-run would otherwise raise AttributeError and
+                    # abandon the rest of the range.
+                    cursor = MlOpsSyncCursor(name=CURSOR_NAME, state="running")
+                    db.add(cursor)
                 cursor.window_from = day_start
                 cursor.window_to = newest_boundary
             last_checkpoint = day_start
