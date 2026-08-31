@@ -62,7 +62,7 @@ from sqlalchemy.exc import IntegrityError
 
 from app.core.config import settings
 from app.core.database import get_background_db
-from app.models.ml_orders_ops import MlOpsDivergence, MlOpsSyncCursor
+from app.models.ml_orders_ops import UNENUMERABLE_KIND, MlOpsDivergence, MlOpsSyncCursor
 from app.services.ml_orders_ingestion.ingestion_service import UpsertOutcome, upsert_order
 from app.services.ml_orders_ingestion.mapper import MappingError, map_order
 from app.services.ml_webhook_client import ml_webhook_client
@@ -107,7 +107,9 @@ STALE_LOCK_TIMEOUT = timedelta(minutes=30)
 
 CURSOR_NAME = "sweep"
 OUT_OF_WINDOW_KIND = "out_of_window_update"
-UNENUMERABLE_KIND = "window_not_enumerable"
+# UNENUMERABLE_KIND now lives on the model (app/models/ml_orders_ops.py) --
+# it describes a value of that table's `kind` column, and the divergence
+# detector/dashboard router need it too. Imported above, not redefined.
 
 
 class WindowFetchError(Exception):

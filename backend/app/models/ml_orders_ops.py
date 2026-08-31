@@ -208,6 +208,16 @@ class MlOpsSyncCursor(Base):
     detail = Column(Text, nullable=True)
 
 
+# `window_not_enumerable` (module docstring "cross-slice contract",
+# obs #1828): the sweep (`sweep_service.py`), the divergence detector
+# (`divergence_service.py`), and the dashboard router all need this
+# literal, and it describes a value of THIS table's `kind` column, so it
+# lives here rather than being imported sideways from a service module
+# (which used to pull the whole ingestion service into the router's
+# import graph for one string constant).
+UNENUMERABLE_KIND = "window_not_enumerable"
+
+
 class MlOpsDivergence(Base):
     """One row per open divergence between ML-sourced and GBP-sourced data.
 
@@ -241,6 +251,16 @@ class MlOpsDivergence(Base):
         CheckConstraint(
             "state IN ('open', 'acknowledged', 'resolved', 'ignored')",
             name="ck_ml_ops_divergence_state",
+        ),
+        # The dashboard's real access pattern (`routers/ml_ventas_ops.py`):
+        # filter by `kind` and/or `state`, order by `detected_at` DESC.
+        # Neither column was indexed -- only `id`/`order_id` -- which is a
+        # guaranteed sequential scan on a table with unbounded growth.
+        Index(
+            "ix_ml_ops_divergence_kind_state_detected_at",
+            "kind",
+            "state",
+            "detected_at",
         ),
     )
 
