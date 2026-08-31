@@ -164,11 +164,23 @@ export default function DivergenciasML() {
 
   const handleSaveEdit = async () => {
     if (!editRow) return;
+
+    // `<input type="number">` accepts partial entries the browser considers
+    // in progress ("1e", "-", "."), and `Number()` turns those into NaN,
+    // which JSON serialises as null. Saving would then unassign the
+    // divergence while telling the operator it succeeded.
+    const rawAssignee = editAssignedToId.trim();
+    const parsedAssignee = rawAssignee === '' ? null : Number(rawAssignee);
+    if (parsedAssignee !== null && !Number.isInteger(parsedAssignee)) {
+      showToast('El ID de usuario asignado debe ser un número entero', 'error');
+      return;
+    }
+
     setSaving(true);
     try {
       await api.patch(`/ml-ventas-ops/divergences/${editRow.id}`, {
         state: editState,
-        assigned_to_id: editAssignedToId.trim() === '' ? null : Number(editAssignedToId.trim()),
+        assigned_to_id: parsedAssignee,
         note: editNote.trim() === '' ? null : editNote,
       });
       showToast('Divergencia actualizada', 'success');
@@ -391,7 +403,13 @@ export default function DivergenciasML() {
           <label>
             Asignada a (ID de usuario)
             <input
-              type="number"
+              // Deliberately not `type="number"`: the browser discards a
+              // partial entry like "1e" and leaves the field EMPTY, and empty
+              // means "unassign" -- so a typo would silently release the
+              // divergence while reporting success. Text keeps the raw value
+              // so it can be validated and rejected.
+              type="text"
+              inputMode="numeric"
               className={styles.configInput}
               value={editAssignedToId}
               onChange={(e) => setEditAssignedToId(e.target.value)}

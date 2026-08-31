@@ -286,3 +286,23 @@ describe('a stale response never overwrites the list', () => {
     expect(screen.queryByText(/Ventana:/)).not.toBeInTheDocument();
   });
 });
+
+describe('a malformed assignee is rejected, not silently cleared', () => {
+  it('does not PATCH when assigned_to_id is not a whole number', async () => {
+    // `Number("1e")` is NaN, and NaN serialises to null in JSON — so
+    // "saving" would have quietly unassigned the divergence instead of
+    // reporting a bad input.
+    mockTienePermiso.mockImplementation(() => true);
+    mockDivergencesList([FIELD_MISMATCH_ROW]);
+    await renderWithRouter(<DivergenciasML />);
+    await waitFor(() => expect(screen.getByText('555')).toBeInTheDocument());
+
+    await userEvent.click(screen.getByRole('button', { name: /gestionar/i }));
+    const assigneeInput = await screen.findByLabelText(/asignada a/i);
+    await userEvent.clear(assigneeInput);
+    await userEvent.type(assigneeInput, '1e');
+    await userEvent.click(screen.getByRole('button', { name: /guardar/i }));
+
+    expect(api.patch).not.toHaveBeenCalled();
+  });
+});
