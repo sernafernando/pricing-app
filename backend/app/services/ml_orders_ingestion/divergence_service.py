@@ -5,8 +5,10 @@ Compares `ml_orders_ops` (ML API) against the GBP-fed
 `kind` in `missing_in_gbp`, `missing_in_ml`, `field_mismatch`. The other
 two kinds the table's CHECK constraint allows, `out_of_window_update` and
 `window_not_enumerable`, are owned by `sweep_service.py` -- this module
-imports `UNENUMERABLE_KIND` from there rather than duplicating the
-literal, so a rename on that side cannot silently stop the purge below.
+imports `UNENUMERABLE_KIND` from `app.models.ml_orders_ops` (it describes
+a value of that table's `kind` column, so that is where it is defined)
+rather than duplicating the literal, so a rename cannot silently stop the
+purge below.
 
 Join key: `ml_orders_ops.order_id` CAST to text vs
 `TRIM(tb_mercadolibre_orders_header.mlorder_id)`. Only the ML side is
@@ -108,8 +110,7 @@ from sqlalchemy.orm import Session
 
 from app.core.config import settings
 from app.models.mercadolibre_order_header import MercadoLibreOrderHeader
-from app.models.ml_orders_ops import MlOpsDivergence, MlOrdersOps
-from app.services.ml_orders_ingestion.sweep_service import UNENUMERABLE_KIND
+from app.models.ml_orders_ops import UNENUMERABLE_KIND, MlOpsDivergence, MlOrdersOps
 
 logger = logging.getLogger(__name__)
 
@@ -441,9 +442,9 @@ def purge_stale_unenumerable(db: Session, now: datetime, retention: Optional[tim
     leaf is re-attempted by the very next sweep pass regardless of
     whether this row still exists, so purging an OLD one only loses
     instrumentation that already stopped being actionable.
-    `UNENUMERABLE_KIND` is imported from `sweep_service.py`, not
-    re-typed -- that kind belongs to the sweep, this module only cleans
-    up after it."""
+    `UNENUMERABLE_KIND` is imported from `app.models.ml_orders_ops`, not
+    re-typed -- it describes a value of that table's `kind` column, this
+    module only cleans up after the sweep that writes it."""
     retention_delta = (
         retention if retention is not None else timedelta(days=settings.ML_ORDERS_OPS_UNENUMERABLE_RETENTION_DAYS)
     )

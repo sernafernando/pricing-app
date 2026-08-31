@@ -23,7 +23,7 @@ switched off right now" for a user who already cleared the permission gate.
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import datetime
 from typing import List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
@@ -35,8 +35,14 @@ from app.core.config import settings
 from app.core.database import get_db
 from app.models.ml_bot_message import MlBotMessage
 from app.models.ml_bot_question import MlBotQuestion
-from app.models.ml_orders_ops import MlOperationLink, MlOpsDivergence, MlOrderItemOps, MlOrdersOps, MlShipmentOps
-from app.services.ml_orders_ingestion.sweep_service import UNENUMERABLE_KIND
+from app.models.ml_orders_ops import (
+    UNENUMERABLE_KIND,
+    MlOperationLink,
+    MlOpsDivergence,
+    MlOrderItemOps,
+    MlOrdersOps,
+    MlShipmentOps,
+)
 from app.models.rma_claim_ml import RmaClaimML
 from app.models.usuario import Usuario
 from app.services.permisos_service import PermisosService
@@ -293,7 +299,9 @@ def listar_divergencias(
         query = query.filter(MlOpsDivergence.state == state)
 
     total = query.count()
-    rows = query.order_by(MlOpsDivergence.detected_at.desc()).limit(limit).offset(offset).all()
+    rows = (
+        query.order_by(MlOpsDivergence.detected_at.desc(), MlOpsDivergence.id.desc()).limit(limit).offset(offset).all()
+    )
 
     return DivergenceListResponse(
         total=total,
@@ -335,17 +343,38 @@ def actualizar_divergencia(
     if row is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Divergencia no encontrada")
 
-    if payload.state is not None:
-        if payload.state not in DIVERGENCE_STATES:
+    # `exclude_unset` via `model_fields_set` distinguishes an ABSENT field
+    # (leave alone) from an EXPLICIT `null` (clear it) -- a plain
+    # `is not None` check treated both the same, so `{"assigned_to_id":
+    # null}` silently did nothing while still returning 200 with the old
+    # assignee: the operator believes they released it, and they have not.
+    fields_set = payload.model_fields_set
+
+    if "state" in fields_set:
+        if payload.state is not None and payload.state not in DIVERGENCE_STATES:
             raise HTTPException(
                 status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=f"state inválido: {payload.state}"
             )
         row.state = payload.state
-    if payload.assigned_to_id is not None:
+    if "assigned_to_id" in fields_set:
+        if payload.assigned_to_id is not None:
+            # The column is an FK to usuarios.id; a nonexistent id used to
+            # reach `db.commit()` unvalidated and raise IntegrityError --
+            # a 500 that also left the session broken. Validated the same
+            # way `state` is: reject before touching the row.
+            assignee_exists = db.query(Usuario.id).filter(Usuario.id == payload.assigned_to_id).first() is not None
+            if not assignee_exists:
+                raise HTTPException(
+                    status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                    detail=f"assigned_to_id inválido: no existe el usuario {payload.assigned_to_id}",
+                )
         row.assigned_to_id = payload.assigned_to_id
-    if payload.note is not None:
+    if "note" in fields_set:
         row.note = payload.note
-    row.updated_at = datetime.now(timezone.utc)
+    # `updated_at` is NOT set here: the column already has
+    # `onupdate=func.now()`, and setting it by hand overwrites the
+    # database's clock with the app server's -- two different clocks for
+    # one column.
 
     db.commit()
     db.refresh(row)
