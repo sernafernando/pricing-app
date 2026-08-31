@@ -439,17 +439,27 @@ def parse_running_since(detail: Optional[str]) -> Optional[datetime]:
     return tz_aware(parsed)
 
 
-def try_acquire_run_lock(db, now: datetime, cursor_name: str = CURSOR_NAME) -> bool:
+def try_acquire_run_lock(
+    db, now: datetime, cursor_name: str = CURSOR_NAME, stale_timeout: timedelta = STALE_LOCK_TIMEOUT
+) -> bool:
     """Sets `state='running'` for the duration of this pass, so an
     overlapping cron invocation skips instead of racing this cursor
     (finding 4). Returns False (do not run) if another pass is genuinely
     in flight; reclaims (returns True) a 'running' lock older than
-    `STALE_LOCK_TIMEOUT`, on the assumption its owner died.
+    `stale_timeout`, on the assumption its owner died.
 
     Keyed by `cursor_name`: the sweep (`'sweep'`) and the backfill
     (`'backfill'`) each hold their OWN row/lock, so they never block each
     other -- both may run concurrently, safely, because both converge on
-    the same idempotent `upsert_order` (design D5)."""
+    the same idempotent `upsert_order` (design D5).
+
+    `stale_timeout` is parameterised (default `STALE_LOCK_TIMEOUT`, tuned
+    for the 10-minute sweep) so a caller whose own pass legitimately runs
+    much longer -- the backfill, see `backfill_service.py` -- can supply a
+    timeout appropriate to ITS runtime instead of inheriting one tuned for
+    a different job. Post-review fix: reusing the sweep's 30-minute
+    timeout unmodified let a second invocation reclaim a live multi-hour
+    backfill's lock out from under it."""
     # `SELECT ... FOR UPDATE` locks an existing row, not the gap where one
     # would go, so on a cold start two simultaneous runs both read None and
     # both INSERT -- one of them dying on the primary key. Seeding the row
@@ -463,7 +473,7 @@ def try_acquire_run_lock(db, now: datetime, cursor_name: str = CURSOR_NAME) -> b
 
     if cursor.state == "running":
         running_since = parse_running_since(cursor.detail)
-        if running_since is not None and (now - running_since) < STALE_LOCK_TIMEOUT:
+        if running_since is not None and (now - running_since) < stale_timeout:
             return False
         logger.warning(
             "%s: reclaiming a stale 'running' lock (detail=%r) -- a previous run likely died",

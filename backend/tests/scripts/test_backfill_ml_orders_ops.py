@@ -40,12 +40,19 @@ class TestArgParsing:
 
         mock_run.assert_called_once_with(days_from=0, days_to=90, seller_id=None, dry_run=False)
 
-    def test_invalid_days_argument_raises_before_calling_run_backfill(self, monkeypatch):
+    def test_invalid_days_argument_exits_with_a_usage_message_not_a_traceback(self, monkeypatch, capsys):
+        # Finding 6: an operator typo in --days must produce argparse's
+        # normal usage/error output and a clean exit, never an unhandled
+        # ValueError traceback.
         monkeypatch.setattr(settings, "ML_ORDERS_OPS_ENABLED", True)
         with patch.object(backfill_ml_orders_ops, "run_backfill") as mock_run:
-            with pytest.raises(ValueError):
+            with pytest.raises(SystemExit) as exc_info:
                 backfill_ml_orders_ops.main(["--days", "180..90"])
+        assert exc_info.value.code != 0
         mock_run.assert_not_called()
+        captured = capsys.readouterr()
+        assert "usage:" in captured.err.lower()
+        assert "Traceback" not in captured.err
 
 
 class TestLogSurfacesProgress:

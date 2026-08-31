@@ -40,6 +40,7 @@ def _build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--days",
         required=True,
+        type=parse_days_arg,
         help="Either N (full width from today back to N days ago) or FROM..TO "
         "(only the historical tail between FROM and TO days ago), e.g. '90' or '90..180'.",
     )
@@ -59,9 +60,13 @@ def _build_parser() -> argparse.ArgumentParser:
 
 def main(argv: list[str] | None = None) -> None:
     logging.basicConfig(level=logging.INFO)
+    # `type=parse_days_arg` above already converts and validates --days;
+    # argparse catches the ValueError it can raise and turns it into its
+    # own usage message + a clean SystemExit(2), never an unhandled
+    # traceback for an operator typo (finding 6).
     args = _build_parser().parse_args(argv)
 
-    days_from, days_to = parse_days_arg(args.days)
+    days_from, days_to = args.days
 
     result = run_backfill(
         days_from=days_from,

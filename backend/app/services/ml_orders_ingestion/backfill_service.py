@@ -59,6 +59,7 @@ from app.core.config import settings
 from app.core.database import get_background_db
 from app.services.ml_orders_ingestion.mapper import MappingError, map_order
 from app.services.ml_orders_ingestion.sweep_service import (
+    BATCH_SIZE,
     CURSOR_NAME as SWEEP_CURSOR_NAME,
     SweepResult,
     WindowFetchError,
@@ -77,10 +78,23 @@ logger = logging.getLogger(__name__)
 CURSOR_NAME = "backfill"
 
 # Never reused by anything else: guards against a future refactor
-# accidentally pointing the backfill at the sweep's own row.
-assert CURSOR_NAME != SWEEP_CURSOR_NAME
+# accidentally pointing the backfill at the sweep's own row. A plain
+# `assert` is stripped under `python -O` and is worth nothing as a
+# structural guard -- fail loudly and unconditionally instead.
+if CURSOR_NAME == SWEEP_CURSOR_NAME:
+    raise RuntimeError("backfill_service.CURSOR_NAME must not collide with the sweep's own cursor name")
 
 DAY = timedelta(days=1)
+
+# The sweep's 30-minute stale-lock timeout is tuned for its own 10-minute
+# cron cadence. A backfill is an operator-invoked, long-running walk
+# (module docstring: "expected to take many minutes", and in practice can
+# run for hours over a wide `--days` range). Inheriting the sweep's
+# timeout would let a second invocation reclaim a still-running backfill's
+# lock out from under it. 12 hours comfortably covers a cold 180-day
+# backfill while still recovering a genuinely dead process well within a
+# single business day.
+BACKFILL_STALE_LOCK_TIMEOUT = timedelta(hours=12)
 
 _DAYS_RANGE_RE = re.compile(r"^\s*(\d+)\s*\.\.\s*(\d+)\s*$")
 
@@ -190,9 +204,9 @@ def _process_day(seller_id: int, day_from: datetime, day_to: datetime, result: B
         kind = event[0]
         if kind == "page":
             pending.extend(event[1])
-            while len(pending) >= 200:
-                process_batch(pending[:200], day_from, sweep_shaped_result)
-                pending = pending[200:]
+            while len(pending) >= BATCH_SIZE:
+                process_batch(pending[:BATCH_SIZE], day_from, sweep_shaped_result)
+                pending = pending[BATCH_SIZE:]
         elif kind == "unenumerable":
             _, leaf_from, leaf_to = event
             sweep_shaped_result.windows_unenumerable += 1
@@ -257,19 +271,39 @@ def run_backfill(
         current_end = newest_boundary
         while current_end > oldest_boundary:
             day_start = max(current_end - DAY, oldest_boundary)
-            _dry_run_count_window(int(resolved_seller_id), day_start, current_end)
+            result.orders_seen += _dry_run_count_window(int(resolved_seller_id), day_start, current_end)
             result.days_completed += 1
             current_end = day_start
         return result
 
     with get_background_db() as db:
-        acquired = try_acquire_run_lock(db, now, cursor_name=CURSOR_NAME)
+        acquired = try_acquire_run_lock(db, now, cursor_name=CURSOR_NAME, stale_timeout=BACKFILL_STALE_LOCK_TIMEOUT)
         if not acquired:
             logger.info("backfill_ml_orders_ops: another backfill run is already in flight, skipping this pass")
             return BackfillResult(ran=False, dry_run=dry_run, error="already running")
         ensure_cursor_row(db, cursor_name=CURSOR_NAME)
         cursor = load_cursor(db, cursor_name=CURSOR_NAME)
         resume_from = tz_aware(cursor.window_from) if cursor is not None else None
+
+    # A checkpoint belongs to whatever `[oldest_boundary, newest_boundary)`
+    # range the run that left it was asked to cover. A DIFFERENT range
+    # requested now (e.g. a completed `--days 90` followed by `--days 30`)
+    # leaves a `resume_from` that already sits below THIS call's
+    # `oldest_boundary` -- honouring it would enter the walk loop zero
+    # times, report `ran=True`/`days_completed=0` and still stamp
+    # `last_success_at`, exactly as if the range had really been covered.
+    # Discard a resume point that falls outside the CURRENT request
+    # instead of trusting it blindly; a stale/mismatched checkpoint means
+    # "start this range from scratch", not "nothing to do".
+    if resume_from is not None and not (oldest_boundary <= resume_from < newest_boundary):
+        logger.info(
+            "backfill_ml_orders_ops: checkpoint window_from=%s is outside the requested range "
+            "[%s, %s) -- ignoring it and starting this range from scratch",
+            resume_from.isoformat(),
+            oldest_boundary.isoformat(),
+            newest_boundary.isoformat(),
+        )
+        resume_from = None
 
     current_end = resume_from if resume_from is not None else newest_boundary
     if current_end > newest_boundary:
