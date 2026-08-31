@@ -500,7 +500,7 @@ class TestLockReleaseIsStructural:
             }
 
         monkeypatch.setattr(sweep_service.ml_webhook_client, "search_orders", one_page)
-        monkeypatch.setattr(sweep_service, "_process_batch", mock.Mock(side_effect=RuntimeError("db died mid-flush")))
+        monkeypatch.setattr(sweep_service, "process_batch", mock.Mock(side_effect=RuntimeError("db died mid-flush")))
 
         result = sweep_service.run_sweep(seller_id=999, window_days=90)
 
@@ -516,7 +516,7 @@ class TestLockReleaseIsStructural:
 
         monkeypatch.setattr(sweep_service, "get_background_db", mock.Mock(side_effect=RuntimeError("pool exhausted")))
 
-        sweep_service._release_lock_as_error(RuntimeError("original failure"))
+        sweep_service.release_lock_as_error(RuntimeError("original failure"))
 
 
 class TestBudgetCountsEveryFetch:

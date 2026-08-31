@@ -1,0 +1,593 @@
+"""Tests for the historical backfill over the rolling window (slice 5).
+
+Contract-first (obs #1843/#1852 lesson): assert the PROMISES -- flag-gated,
+day-sized checkpointing under a SEPARATE cursor (`name='backfill'`),
+resumability, `--dry-run` makes zero writes, fail-closed per day, and the
+backfill's own run lock never races the sweep's -- not just the happy path.
+"""
+
+from __future__ import annotations
+
+from datetime import datetime, timedelta, timezone
+from unittest.mock import AsyncMock
+
+import pytest
+
+from app.core.config import settings
+from app.models.ml_orders_ops import MlOpsDivergence, MlOpsSyncCursor, MlOrdersOps
+from app.services.ml_orders_ingestion import backfill_service, sweep_service
+from app.services.ml_webhook_client import ml_webhook_client
+
+
+def _fake_ctx(db):
+    class _Ctx:
+        def __enter__(self):
+            return db
+
+        def __exit__(self, *a):
+            return False
+
+    return lambda: _Ctx()
+
+
+@pytest.fixture(autouse=True)
+def _background_db(db, monkeypatch):
+    # `process_batch` (reused from sweep_service) opens its OWN
+    # `get_background_db()` bound in sweep_service's module scope, so both
+    # sites must be bridged to the same sqlite test session.
+    monkeypatch.setattr(backfill_service, "get_background_db", _fake_ctx(db))
+    monkeypatch.setattr(sweep_service, "get_background_db", _fake_ctx(db))
+
+
+@pytest.fixture(autouse=True)
+def _flag_on(monkeypatch):
+    monkeypatch.setattr(settings, "ML_ORDERS_OPS_ENABLED", True)
+
+
+def _order(order_id: int, seller_id: int, when: datetime, created: datetime) -> dict:
+    return {
+        "id": order_id,
+        "status": "paid",
+        "date_created": created.isoformat(),
+        "date_last_updated": when.isoformat(),
+        "seller": {"id": seller_id},
+        "buyer": {"id": 1, "nickname": "x"},
+        "order_items": [],
+    }
+
+
+def _page(results, total=None):
+    return {"results": results, "paging": {"total": total if total is not None else len(results)}}
+
+
+class TestFlagGate:
+    def test_flag_off_is_a_complete_noop(self, db, monkeypatch):
+        monkeypatch.setattr(settings, "ML_ORDERS_OPS_ENABLED", False)
+        mock_search = AsyncMock(return_value=_page([]))
+        monkeypatch.setattr(ml_webhook_client, "search_orders", mock_search)
+
+        result = backfill_service.run_backfill(seller_id=999, days_from=0, days_to=3)
+
+        assert result.ran is False
+        mock_search.assert_not_called()
+        assert db.query(MlOrdersOps).count() == 0
+        assert db.query(MlOpsSyncCursor).count() == 0
+
+
+class TestDayWindowsCheckpointBackwards:
+    def test_walks_day_sized_windows_and_checkpoints_each(self, db, monkeypatch):
+        calls = []
+
+        async def fake_search(seller_id, date_from, date_to, offset=0):
+            calls.append((date_from, date_to))
+            return _page([])
+
+        monkeypatch.setattr(ml_webhook_client, "search_orders", fake_search)
+
+        result = backfill_service.run_backfill(seller_id=999, days_from=0, days_to=3)
+
+        assert result.ran is True
+        assert result.error is None
+        # 3 day-sized windows, walked backwards (most recent first).
+        assert len(calls) == 3
+        for (day_from, day_to), next_call in zip(calls, calls[1:]):
+            assert day_from < day_to
+            assert (day_to - day_from) <= timedelta(days=1)
+            # walking backwards: each subsequent window ends where the
+            # previous one started.
+            assert next_call[1] == day_from
+
+        cursor = db.query(MlOpsSyncCursor).filter_by(name="backfill").one()
+        assert cursor.state == "idle"
+        assert cursor.last_success_at is not None
+        # progress marker moved all the way back to the oldest boundary.
+        assert cursor.window_from is not None
+
+    def test_uses_its_own_cursor_row_separate_from_sweep(self, db, monkeypatch):
+        mock_search = AsyncMock(return_value=_page([]))
+        monkeypatch.setattr(ml_webhook_client, "search_orders", mock_search)
+
+        backfill_service.run_backfill(seller_id=999, days_from=0, days_to=1)
+
+        assert db.query(MlOpsSyncCursor).filter_by(name="backfill").count() == 1
+        assert db.query(MlOpsSyncCursor).filter_by(name=sweep_service.CURSOR_NAME).count() == 0
+
+
+class TestResumability:
+    def test_resumes_from_last_checkpoint_without_reprocessing(self, db, monkeypatch):
+        now = datetime.now(timezone.utc)
+        # Simulate a previous run that completed down to `now - 1 day`.
+        db.add(
+            MlOpsSyncCursor(
+                name="backfill",
+                window_from=now - timedelta(days=1),
+                state="idle",
+                last_success_at=None,
+            )
+        )
+        db.flush()
+
+        calls = []
+
+        async def fake_search(seller_id, date_from, date_to, offset=0):
+            calls.append((date_from, date_to))
+            return _page([])
+
+        monkeypatch.setattr(ml_webhook_client, "search_orders", fake_search)
+
+        result = backfill_service.run_backfill(seller_id=999, days_from=0, days_to=3)
+
+        assert result.ran is True
+        # Only the remaining ~2 days get processed, not all 3.
+        assert len(calls) == 2
+        for day_from, day_to in calls:
+            assert day_to <= now - timedelta(days=1) + timedelta(seconds=5)
+
+
+class TestDryRun:
+    def test_dry_run_makes_no_writes_but_still_computes_and_logs_windows(self, db, monkeypatch, caplog):
+        order = _order(1, 999, datetime.now(timezone.utc), datetime.now(timezone.utc))
+        mock_search = AsyncMock(return_value=_page([order]))
+        monkeypatch.setattr(ml_webhook_client, "search_orders", mock_search)
+
+        with caplog.at_level("INFO"):
+            result = backfill_service.run_backfill(seller_id=999, days_from=0, days_to=1, dry_run=True)
+
+        assert result.ran is True
+        assert result.dry_run is True
+        mock_search.assert_called()
+        assert db.query(MlOrdersOps).count() == 0
+        # Dry run must not persist backfill progress either -- rerunning it
+        # for real must start from scratch, not from a dry-run checkpoint.
+        assert db.query(MlOpsSyncCursor).filter_by(name="backfill").count() == 0
+        assert any("dry" in record.message.lower() for record in caplog.records)
+
+
+class TestSessionPerBatch:
+    def test_each_day_batch_opens_and_closes_its_own_session(self, db, monkeypatch):
+        """Reuses sweep's `process_batch`, which already opens a fresh
+        `get_background_db()` context per call -- proven here at the
+        backfill's own call site, not assumed by import alone."""
+        order = _order(1, 999, datetime.now(timezone.utc), datetime.now(timezone.utc))
+        mock_search = AsyncMock(return_value=_page([order]))
+        monkeypatch.setattr(ml_webhook_client, "search_orders", mock_search)
+
+        session_opens = []
+        real_ctx = backfill_service.get_background_db
+
+        def counting_ctx():
+            session_opens.append(1)
+            return real_ctx()
+
+        monkeypatch.setattr(backfill_service, "get_background_db", counting_ctx)
+
+        backfill_service.run_backfill(seller_id=999, days_from=0, days_to=1)
+
+        # At least one session per day window (batch flush + lock
+        # acquire/release), never a single session held for the whole run.
+        assert len(session_opens) >= 2
+
+
+class TestFailClosedPerDay:
+    def test_a_day_failure_does_not_advance_the_cursor_past_it(self, db, monkeypatch):
+        async def boom(seller_id, date_from, date_to, offset=0):
+            raise RuntimeError("proxy down")
+
+        monkeypatch.setattr(ml_webhook_client, "search_orders", boom)
+
+        result = backfill_service.run_backfill(seller_id=999, days_from=0, days_to=2)
+
+        assert result.error is not None
+        cursor = db.query(MlOpsSyncCursor).filter_by(name="backfill").one()
+        assert cursor.state == "error"
+        assert cursor.last_success_at is None
+        assert cursor.window_from is None  # nothing checkpointed
+
+
+class TestOverlapWithSweepIsSafe:
+    def test_backfill_and_sweep_both_converge_on_the_same_idempotent_upsert(self, db, monkeypatch):
+        """Both jobs call `ingestion_service.upsert_order`, keyed on
+        `order_id` with a `ml_last_updated`-wins guard (design D5), so
+        running them over the same order concurrently must never
+        duplicate or corrupt a row."""
+        now = datetime.now(timezone.utc)
+        order_payload = _order(42, 999, now, now)
+
+        mock_search = AsyncMock(return_value=_page([order_payload]))
+        monkeypatch.setattr(ml_webhook_client, "search_orders", mock_search)
+        monkeypatch.setattr(sweep_service, "get_background_db", _fake_ctx(db))
+        monkeypatch.setattr(settings, "ML_ORDERS_OPS_WINDOW_DAYS", 90)
+
+        sweep_service.run_sweep(seller_id=999, window_days=90)
+        backfill_service.run_backfill(seller_id=999, days_from=0, days_to=1)
+
+        assert db.query(MlOrdersOps).filter_by(order_id=42).count() == 1
+
+
+class TestDaysArgParsing:
+    def test_parses_single_int_as_full_width_from_zero(self):
+        assert backfill_service.parse_days_arg("90") == (0, 90)
+
+    def test_parses_range_syntax(self):
+        assert backfill_service.parse_days_arg("90..180") == (90, 180)
+
+    def test_rejects_inverted_range(self):
+        with pytest.raises(ValueError):
+            backfill_service.parse_days_arg("180..90")
+
+
+class TestMismatchedRangeResumeIsIgnored:
+    """Finding 1 (blocking): a checkpoint left by a DIFFERENT --days range
+    must not be silently treated as 'nothing to do'. Concrete sequence
+    from the review: `--days 90` completes leaving `window_from ~ now-90d`;
+    a later `--days 30` call has `oldest_boundary = now-30d`, and
+    `now-90d` already sits below that -- the resume point belongs to a
+    range this call never asked for and must be discarded, not obeyed."""
+
+    def test_a_narrower_range_after_a_wider_one_still_does_real_work(self, db, monkeypatch):
+        now = datetime.now(timezone.utc)
+        # Simulate a completed `--days 90` run: checkpoint sits at ~now-90d.
+        db.add(
+            MlOpsSyncCursor(
+                name="backfill",
+                window_from=now - timedelta(days=90),
+                window_to=now,
+                state="idle",
+                last_success_at=now,
+            )
+        )
+        db.flush()
+
+        calls = []
+
+        async def fake_search(seller_id, date_from, date_to, offset=0):
+            calls.append((date_from, date_to))
+            return _page([])
+
+        monkeypatch.setattr(ml_webhook_client, "search_orders", fake_search)
+
+        result = backfill_service.run_backfill(seller_id=999, days_from=0, days_to=30)
+
+        assert result.ran is True
+        assert result.days_completed == 30
+        assert len(calls) == 30
+        cursor = db.query(MlOpsSyncCursor).filter_by(name="backfill").one()
+        assert cursor.window_from is not None
+        assert backfill_service.tz_aware(cursor.window_from) <= now - timedelta(days=30) + timedelta(seconds=5)
+
+    def test_a_stale_out_of_range_checkpoint_is_not_reported_as_a_completed_pass(self, db, monkeypatch):
+        """Even the log-facing result must make a real pass distinguishable
+        from a no-op: `days_completed` must reflect the actual work done,
+        never silently stay 0 for a request that legitimately has work."""
+        now = datetime.now(timezone.utc)
+        db.add(
+            MlOpsSyncCursor(
+                name="backfill",
+                window_from=now - timedelta(days=90),
+                window_to=now,
+                state="idle",
+                last_success_at=now,
+            )
+        )
+        db.flush()
+
+        mock_search = AsyncMock(return_value=_page([]))
+        monkeypatch.setattr(ml_webhook_client, "search_orders", mock_search)
+
+        result = backfill_service.run_backfill(seller_id=999, days_from=0, days_to=5)
+
+        assert result.days_completed > 0
+
+
+class TestLongRunningLockIsNotReclaimedBySweepTimeout:
+    """Finding 2 (blocking): the backfill's own docstring says it runs for
+    hours; inheriting the sweep's 30-minute stale-lock timeout means a
+    second invocation can reclaim a live backfill's lock."""
+
+    def test_a_lock_held_for_over_thirty_minutes_is_not_reclaimed(self, db, monkeypatch):
+        now = datetime.now(timezone.utc)
+        running_since = now - timedelta(minutes=40)  # past the SWEEP's 30-min timeout
+        db.add(
+            MlOpsSyncCursor(
+                name="backfill",
+                state="running",
+                detail=running_since.isoformat(),
+            )
+        )
+        db.flush()
+
+        mock_search = AsyncMock(return_value=_page([]))
+        monkeypatch.setattr(ml_webhook_client, "search_orders", mock_search)
+
+        result = backfill_service.run_backfill(seller_id=999, days_from=0, days_to=1)
+
+        assert result.ran is False
+        assert result.error == "already running"
+        mock_search.assert_not_called()
+
+
+class TestBatchSizeIsSharedNotHardcoded:
+    def test_batch_flush_threshold_matches_sweep_batch_size(self):
+        # Finding 4: the backfill must not carry its own copy of the
+        # sweep's batch size -- it must import and use the same constant.
+        assert backfill_service.BATCH_SIZE is sweep_service.BATCH_SIZE
+
+
+class TestDryRunReportsWhatItCounted:
+    def test_dry_run_accumulates_orders_seen_into_the_result(self, db, monkeypatch):
+        # Finding 5: a dry run that counted orders must report that count,
+        # not silently discard it and log seen=0.
+        order = _order(1, 999, datetime.now(timezone.utc), datetime.now(timezone.utc))
+        mock_search = AsyncMock(return_value=_page([order]))
+        monkeypatch.setattr(ml_webhook_client, "search_orders", mock_search)
+
+        result = backfill_service.run_backfill(seller_id=999, days_from=0, days_to=1, dry_run=True)
+
+        assert result.orders_seen == 1
+
+
+class TestOrdersCreatedBeforeTheDayBeingWalked:
+    """The whole point of a backfill is history: an order created months
+    ago and updated recently. Every other fixture here uses
+    `date_created == now`, which is the one case a backfill does not care
+    about."""
+
+    def test_an_order_created_long_before_its_update_day_is_ingested(self, db, monkeypatch) -> None:
+        from app.services.ml_orders_ingestion import backfill_service
+
+        monkeypatch.setattr(settings, "ML_ORDERS_OPS_ENABLED", True)
+
+        updated = datetime.now(timezone.utc) - timedelta(days=5)
+        created = updated - timedelta(days=40)
+
+        async def one_old_order(seller_id, date_from, date_to, offset=0):
+            if date_from <= updated < date_to:
+                return {"results": [_order(1, 999, updated, created)], "paging": {"total": 1}}
+            return {"results": [], "paging": {"total": 0}}
+
+        monkeypatch.setattr(ml_webhook_client, "search_orders", one_old_order)
+
+        result = backfill_service.run_backfill(days_from=0, days_to=90, seller_id=999)
+
+        assert result.orders_upserted == 1
+        assert result.orders_out_of_window == 0
+
+
+class TestDryRunPredictsTheRealRun:
+    """A dry run has exactly one job: say what the real run will do. If it
+    counts orders the real run would exclude, it is not a preview."""
+
+    def test_dry_run_and_real_run_report_the_same_counts(self, db, monkeypatch) -> None:
+        from app.services.ml_orders_ingestion import backfill_service
+
+        monkeypatch.setattr(settings, "ML_ORDERS_OPS_ENABLED", True)
+
+        updated = datetime.now(timezone.utc) - timedelta(days=2)
+        inside = _order(1, 999, updated, updated - timedelta(days=10))
+        outside = _order(2, 999, updated, updated - timedelta(days=300))
+
+        async def two_orders(seller_id, date_from, date_to, offset=0):
+            if date_from <= updated < date_to:
+                return {"results": [inside, outside], "paging": {"total": 2}}
+            return {"results": [], "paging": {"total": 0}}
+
+        monkeypatch.setattr(ml_webhook_client, "search_orders", two_orders)
+
+        dry = backfill_service.run_backfill(days_from=0, days_to=30, seller_id=999, dry_run=True)
+        real = backfill_service.run_backfill(days_from=0, days_to=30, seller_id=999)
+
+        assert dry.orders_seen == real.orders_seen
+        assert dry.orders_out_of_window == real.orders_out_of_window
+        assert dry.orders_mapping_error == real.orders_mapping_error
+
+    def test_dry_run_predicts_mapping_errors_too(self, db, monkeypatch) -> None:
+        from app.services.ml_orders_ingestion import backfill_service
+
+        monkeypatch.setattr(settings, "ML_ORDERS_OPS_ENABLED", True)
+        updated = datetime.now(timezone.utc) - timedelta(days=2)
+
+        async def unmappable(seller_id, date_from, date_to, offset=0):
+            if date_from <= updated < date_to:
+                return {"results": [{"id": None}], "paging": {"total": 1}}
+            return {"results": [], "paging": {"total": 0}}
+
+        monkeypatch.setattr(ml_webhook_client, "search_orders", unmappable)
+
+        dry = backfill_service.run_backfill(days_from=0, days_to=30, seller_id=999, dry_run=True)
+        real = backfill_service.run_backfill(days_from=0, days_to=30, seller_id=999)
+
+        assert real.orders_mapping_error == 1
+        assert dry.orders_mapping_error == real.orders_mapping_error
+
+
+class TestUnenumerableWindowIsRecordedLikeTheSweep:
+    """Finding 1 (round 3): a day leaf that cannot be enumerated even at
+    the minimum bisect span must leave the SAME divergence row the sweep
+    leaves (`ml_ops_divergence.kind='window_not_enumerable'`), and the
+    count must be visible on the result -- not just a local counter that
+    dies with the stack frame."""
+
+    def test_unenumerable_day_is_recorded_in_divergence_and_on_the_result(self, db, monkeypatch):
+        async def always_over_cap(seller_id, date_from, date_to, offset=0):
+            return {"results": [], "paging": {"total": 5000}}
+
+        monkeypatch.setattr(ml_webhook_client, "search_orders", always_over_cap)
+
+        result = backfill_service.run_backfill(seller_id=999, days_from=0, days_to=1)
+
+        assert result.error is None
+        assert result.windows_unenumerable > 0
+        rows = db.query(MlOpsDivergence).filter_by(kind="window_not_enumerable").all()
+        assert len(rows) == result.windows_unenumerable
+
+
+class TestCountersSurviveAMidDayFailure:
+    """Finding 2 (round 3): `process_batch` commits each bounded batch in
+    its OWN session as it goes. If a LATER page in the same day raises
+    `WindowFetchError`, the earlier batches are already committed -- the
+    result must say so, not report `upserted=0` for a day that wrote
+    rows."""
+
+    def test_committed_batches_are_counted_even_if_the_day_later_fails(self, db, monkeypatch):
+        """`BATCH_SIZE`-sized first page forces an immediate, COMMITTED
+        `process_batch` call inside the streaming walk (the mid-loop
+        flush, not the end-of-day one) before the second page's fetch
+        fails outright -- exactly the "batches already committed, day
+        still unresolved" sequence the finding describes."""
+        now = datetime.now(timezone.utc)
+        updated = now - timedelta(hours=1)
+        first_page = [_order(i, 999, updated, updated) for i in range(1, 201)]
+        call_count = {"n": 0}
+
+        async def first_page_ok_then_fails(seller_id, date_from, date_to, offset=0):
+            call_count["n"] += 1
+            if call_count["n"] == 1:
+                return {"results": first_page, "paging": {"total": 201}}
+            return None  # proxy down on the second page of the SAME leaf
+
+        monkeypatch.setattr(ml_webhook_client, "search_orders", first_page_ok_then_fails)
+
+        result = backfill_service.run_backfill(seller_id=999, days_from=0, days_to=1)
+
+        assert result.error is not None
+        # The first page's 200 orders were already upserted (and
+        # committed, in their own session) before the second page's fetch
+        # blew up -- they must be counted, not silently dropped because
+        # the day never finished.
+        assert result.orders_upserted == 200
+        assert db.query(MlOrdersOps).count() == 200
+
+
+class TestDryRunReportsBudgetExhaustion:
+    """Finding 3 (round 3): a dry run that truncates on the fetch budget
+    must say so, exactly like the real run does -- otherwise the preview
+    silently undercounts and the operator sees 'backfill complete' for a
+    truncated dry run."""
+
+    def test_dry_run_sets_budget_exhausted_when_a_day_truncates(self, db, monkeypatch):
+        from app.services.ml_orders_ingestion import sweep_service as _sweep
+
+        # Force the budget to exhaust on the very first fetch.
+        monkeypatch.setattr(_sweep, "MAX_WINDOW_FETCHES_PER_PASS", 0)
+
+        mock_search = AsyncMock(return_value=_page([]))
+        monkeypatch.setattr(ml_webhook_client, "search_orders", mock_search)
+
+        result = backfill_service.run_backfill(seller_id=999, days_from=0, days_to=1, dry_run=True)
+
+        assert result.budget_exhausted is True
+
+
+class TestCompletedRangeCanBeRestarted:
+    """Finding 4 (round 3): a checkpoint left by a run over the EXACT SAME
+    range must not become a permanent no-op with no operator escape
+    hatch. A rerun must be distinguishable in the result from a run that
+    genuinely had nothing new to do."""
+
+    def test_rerunning_a_fully_completed_range_reports_it_explicitly(self, db, monkeypatch):
+        """A real rerun's OWN `now` always drifts a little past the
+        original run's `now` (time passes), so the checkpoint left by a
+        genuinely-identical range only lands EXACTLY on `oldest_boundary`
+        when both runs share the same clock reading -- freeze
+        `backfill_service`'s `datetime.now()` to make that reproducible
+        instead of depending on sub-millisecond real-clock luck."""
+        frozen_now = datetime.now(timezone.utc)
+
+        class _FrozenDatetime(datetime):
+            @classmethod
+            def now(cls, tz=None):
+                return frozen_now
+
+        monkeypatch.setattr(backfill_service, "datetime", _FrozenDatetime)
+
+        db.add(
+            MlOpsSyncCursor(
+                name="backfill",
+                window_from=frozen_now - timedelta(days=1),
+                window_to=frozen_now,
+                state="idle",
+                last_success_at=frozen_now,
+            )
+        )
+        db.flush()
+
+        mock_search = AsyncMock(return_value=_page([]))
+        monkeypatch.setattr(ml_webhook_client, "search_orders", mock_search)
+
+        result = backfill_service.run_backfill(seller_id=999, days_from=0, days_to=1)
+
+        assert result.days_completed == 0
+        assert result.already_up_to_date is True
+        mock_search.assert_not_called()
+
+    def test_restart_flag_forces_a_full_rerun_of_an_already_completed_range(self, db, monkeypatch):
+        now = datetime.now(timezone.utc)
+        db.add(
+            MlOpsSyncCursor(
+                name="backfill",
+                window_from=now - timedelta(days=3),
+                window_to=now,
+                state="idle",
+                last_success_at=now,
+            )
+        )
+        db.flush()
+
+        calls = []
+
+        async def fake_search(seller_id, date_from, date_to, offset=0):
+            calls.append((date_from, date_to))
+            return _page([])
+
+        monkeypatch.setattr(ml_webhook_client, "search_orders", fake_search)
+
+        result = backfill_service.run_backfill(seller_id=999, days_from=0, days_to=3, restart=True)
+
+        assert result.days_completed == 3
+        assert len(calls) == 3
+        assert result.already_up_to_date is False
+
+
+class TestDryRunStopsWhereTheRealRunStops:
+    """The budget tests so far used `days_to=1`, where continuing and
+    stopping are indistinguishable. With two days the difference is the
+    whole point: the real run breaks on the first truncated day, so a dry
+    run that keeps walking previews days that will never be touched."""
+
+    def test_dry_run_and_real_run_complete_the_same_number_of_days(self, db, monkeypatch) -> None:
+        from app.services.ml_orders_ingestion import backfill_service
+
+        monkeypatch.setattr(settings, "ML_ORDERS_OPS_ENABLED", True)
+        monkeypatch.setattr(sweep_service, "MAX_WINDOW_FETCHES_PER_PASS", 2)
+
+        async def always_over_cap(seller_id, date_from, date_to, offset=0):
+            return {"results": [], "paging": {"total": 99999}}
+
+        monkeypatch.setattr(ml_webhook_client, "search_orders", always_over_cap)
+
+        dry = backfill_service.run_backfill(days_from=0, days_to=5, seller_id=999, dry_run=True)
+        real = backfill_service.run_backfill(days_from=0, days_to=5, seller_id=999)
+
+        assert dry.budget_exhausted is True
+        assert real.budget_exhausted is True
+        assert dry.days_completed == real.days_completed
