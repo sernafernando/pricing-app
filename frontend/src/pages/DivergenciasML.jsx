@@ -59,6 +59,17 @@ const STATE_BADGE_CLASS = {
 const KIND_OPTIONS = Object.keys(KIND_LABELS);
 const STATE_OPTIONS = Object.keys(STATE_LABELS);
 
+// Written by `sweep_service`, rewritten on every pass: for these two the
+// timestamp genuinely means "last seen". The three compared kinds skip an
+// unchanged divergence, so theirs is the first detection.
+const LAST_SEEN_KINDS = new Set(['out_of_window_update', 'window_not_enumerable']);
+
+function detectedAtTitle(kind) {
+  return LAST_SEEN_KINDS.has(kind)
+    ? 'Última vez vista — esta clase se reescribe en cada barrido'
+    : 'Primera detección — no avanza mientras la misma diferencia persista';
+}
+
 function formatDate(value) {
   if (!value) return '—';
   return new Date(value).toLocaleString();
@@ -301,7 +312,7 @@ export default function DivergenciasML() {
                         {STATE_LABELS[row.state] || row.state}
                       </span>
                     </td>
-                    <td title="Primera detección — no avanza mientras la misma diferencia persista">
+                    <td title={detectedAtTitle(row.kind)}>
                       {formatDate(row.detected_at)}
                     </td>
                     <td>{row.assigned_to_id ?? '—'}</td>

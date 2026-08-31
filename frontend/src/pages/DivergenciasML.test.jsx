@@ -177,15 +177,29 @@ describe('403 vs 503 — distinct messages', () => {
   });
 });
 
-describe('detected_at — first detection, never "last seen"', () => {
-  it('never renders "última detección" or "visto por última vez"', async () => {
+describe('detected_at means different things per kind', () => {
+  it('a compared kind is first detection, not last seen', async () => {
     mockDivergencesList([FIELD_MISMATCH_ROW]);
     await renderWithRouter(<DivergenciasML />);
     await waitFor(() => {
       expect(screen.getByText('Detectada')).toBeInTheDocument();
     });
-    expect(screen.queryByText(/última detección/i)).not.toBeInTheDocument();
-    expect(screen.queryByText(/visto por última vez/i)).not.toBeInTheDocument();
+
+    const cell = screen.getByTitle(/primera detección/i);
+    expect(cell).toBeInTheDocument();
+  });
+
+  it('a sweep-written kind says last seen, because it is rewritten every pass', async () => {
+    mockDivergencesList([UNENUMERABLE_ROW]);
+    await renderWithRouter(<DivergenciasML />);
+    await waitFor(() => {
+      expect(screen.getByText(/Ventana no enumerable/)).toBeInTheDocument();
+    });
+
+    // the backend field description is explicit that these two kinds do
+    // mean last seen; one blanket tooltip was wrong for them
+    expect(screen.getByTitle(/última vez vista/i)).toBeInTheDocument();
+    expect(screen.queryByTitle(/primera detección/i)).not.toBeInTheDocument();
   });
 });
 
@@ -237,5 +251,38 @@ describe('Actions gated by ml_ops.gestionar', () => {
         expect.objectContaining({ state: 'resolved', assigned_to_id: null, note: null })
       );
     });
+  });
+});
+
+describe('a stale response never overwrites the list', () => {
+  it('ignores an older request that resolves last', async () => {
+    // Two in-flight requests, the first resolving AFTER the second: without
+    // the sequence guard the older filter's rows win. Nothing covered this
+    // when the guard was written, so deleting it would have gone unnoticed.
+    const resolvers = [];
+    api.get.mockImplementation((url) => {
+      if (url === '/ml-ventas-ops/divergences') {
+        return new Promise((resolve) => resolvers.push(resolve));
+      }
+      return Promise.resolve({ data: {} });
+    });
+
+    await renderWithRouter(<DivergenciasML />);
+    await waitFor(() => expect(resolvers.length).toBe(1));
+
+    const kindSelect = screen.getByRole('combobox', { name: /filtrar por tipo/i });
+    await userEvent.selectOptions(kindSelect, 'field_mismatch');
+    await waitFor(() => expect(resolvers.length).toBe(2));
+
+    const page = (rows) => ({ data: { divergences: rows, total: rows.length, limit: 50, offset: 0 } });
+    resolvers[1](page([FIELD_MISMATCH_ROW]));
+    await waitFor(() => expect(screen.getByText('555')).toBeInTheDocument());
+
+    resolvers[0](page([UNENUMERABLE_ROW]));
+    await waitFor(() => expect(screen.getByText('555')).toBeInTheDocument());
+
+    // the kind label also lives in the filter's <option>, so assert on the
+    // row's own content: the stale page's window bounds must not appear
+    expect(screen.queryByText(/Ventana:/)).not.toBeInTheDocument();
   });
 });
