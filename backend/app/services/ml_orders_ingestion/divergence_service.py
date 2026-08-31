@@ -1,8 +1,8 @@
 """ML-vs-GBP divergence detection (slice 6 of ml-ventas-fuente-de-verdad).
 
 Compares `ml_orders_ops` (ML API, slice 3) against the GBP-fed
-`tb_mercadolibre_orders_header` and writes/refreshes `ml_ops_divergence`
-rows with `kind` in `missing_in_gbp`, `missing_in_ml`, `field_mismatch`
+`tb_mercadolibre_orders_header` and writes `ml_ops_divergence` rows with
+`kind` in `missing_in_gbp`, `missing_in_ml`, `field_mismatch`
 (`out_of_window_update`/`window_not_enumerable` stay owned by
 `sweep_service.py`, obs #1828 cross-slice contract).
 
@@ -29,31 +29,45 @@ happen to share a scale today, but a text compare would falsely flag
 every order the day either scale changes. Values are only stringified
 once, at persistence time, for the `Text` `ml_value`/`gbp_value` columns.
 
-Cost (precedent D3, `link_resolver_service.py`): each detection kind is
-ONE set-based JOIN query, never a per-row Python loop over either source
-table, both scoped to `ML_ORDERS_OPS_WINDOW_DAYS` so a years-deep GBP
-backlog predating this ops layer is never flagged `missing_in_ml`. Each
-query is also capped at `MAX_CANDIDATES_PER_KIND` (pre-push review
-finding 2): a cold start -- flag flipped on with `ml_orders_ops` still
-empty and the full window of GBP orders already there -- would otherwise
-attempt one write per GBP order in a single pass. A capped pass is
-recorded as `truncated=True` in the result AND logged explicitly (this
-chain's most repeated defect is a job under-reporting what it knows; a
-silently-capped pass would be the sixth instance) -- the NEXT pass picks
-up whatever the cap left out, since nothing here advances a cursor.
+Cost / cap / progress guarantee (round 2 review, blocking finding 1): each
+detection kind is ONE set-based JOIN query, scoped to
+`ML_ORDERS_OPS_WINDOW_DAYS` and capped at `MAX_CANDIDATES_PER_KIND` so a
+cold start (flag flipped on, `ml_orders_ops` empty, the full window of GBP
+orders already there) cannot turn one pass into tens of thousands of
+writes. The query ALSO excludes any `(order_id, kind[, field])` that
+already has an `ml_ops_divergence` row -- a plain `LIMIT` with no
+exclusion would let an unordered query return the SAME rows every pass
+(Postgres, same plan, same pages), truncating some candidates FOREVER
+instead of "eventually". With the exclusion, every candidate a pass
+records is new, so the NEXT pass's query genuinely no longer sees it and
+advances into what is not yet recorded -- a `truncated=True` pass really
+is a "come back next run" pass, not a wedge. `ORDER BY` is added too, for
+determinism (repeatable pagination) rather than as the correctness fix
+itself.
 
-Persistence (pre-push review finding 1): writing one `SELECT ... LIMIT 1`
-per candidate is an N+1 that would fire tens of thousands of queries on
-the cold start above -- the project has a production pool-exhaustion
-incident on record from exactly this shape. Instead, the existing
-divergences for a `kind` are preloaded into a dict with ONE query before
-the loop; the loop itself only mutates already-loaded ORM objects
-in-memory or stages new ones with `db.add`, flushed once at the end.
+Consequence of the exclusion (spec if the dashboard ever surfaces this):
+`detected_at` on `missing_in_gbp`/`missing_in_ml`/`field_mismatch` rows
+now means FIRST detected, not last seen -- a divergence that keeps
+reproducing is never re-selected by the query, so nothing refreshes its
+timestamp. `out_of_window_update`/`window_not_enumerable` are unaffected
+(different write path, `sweep_service.py`, genuinely "last seen").
 
-Dedup: re-detection updates `detected_at` (unique `(order_id, kind,
-field)`, NULLS NOT DISTINCT), never duplicates. A divergence no longer
-reproduced is NOT auto-resolved -- state changes are an explicit
-`ml_ops.gestionar` action, never a silent side effect of detection.
+Persistence (pre-push review finding 1, round 1): writing one
+`SELECT ... LIMIT 1` per candidate was an N+1 that could fire tens of
+thousands of queries on a cold start -- the project has a production
+pool-exhaustion incident on record from exactly this shape. The
+exclusion above makes every row the query returns provably new, so there
+is no cross-pass preload to bound anymore (round 2 finding 2 resolved as
+a side effect): `_apply_divergence` only guards against TWO candidates
+in the SAME batch resolving to the same key (GBP can hold two headers
+whose `mlorder_id` differs only by padding, which the trimmed join folds
+into one id -- round 1 finding, made reachable by the TRIM fix). That
+guard is a plain in-memory dict scoped to one call, never a query.
+Determinism for that case (round 2 finding 3): `_detect_field_mismatches`
+orders by `mlo_id DESC`, so the first row seen for a duplicate key is
+always the highest `mlo_id`, and `_apply_divergence` keeps the FIRST
+value for a key it sees twice in one batch -- never an arbitrary winner
+based on whatever order the database happens to return.
 """
 
 from __future__ import annotations
@@ -76,9 +90,11 @@ MISSING_IN_GBP_KIND = "missing_in_gbp"
 MISSING_IN_ML_KIND = "missing_in_ml"
 FIELD_MISMATCH_KIND = "field_mismatch"
 
-# Per-kind, per-pass cap (pre-push review finding 2). Generous enough that a
-# healthy environment never hits it, small enough that a cold start cannot
-# turn one detection pass into tens of thousands of writes.
+# Per-kind, per-pass cap (pre-push review finding 2, round 1). Generous
+# enough that a healthy environment never hits it, small enough that a
+# cold start cannot turn one detection pass into tens of thousands of
+# writes. Safe to keep small: the exclusion filter (module docstring)
+# guarantees a truncated pass's remainder is picked up next run, not lost.
 MAX_CANDIDATES_PER_KIND = 5000
 
 # (field name, ml_orders_ops column, GBP header column) -- compared on
@@ -113,10 +129,10 @@ def _window_floor(now: datetime, window_days: Optional[int] = None) -> datetime:
 
 def _fetch_capped(query, cap: Optional[int] = None) -> Tuple[list, bool]:
     """Fetches at most `cap` rows and reports whether MORE existed (finding
-    2): asks for `cap + 1` and checks the extra row, so truncation is known
-    without a separate COUNT query. `cap` defaults to the MODULE-LEVEL
-    `MAX_CANDIDATES_PER_KIND` resolved at CALL time (not bound as a default
-    argument), so tests can monkeypatch it."""
+    2, round 1): asks for `cap + 1` and checks the extra row, so
+    truncation is known without a separate COUNT query. `cap` defaults to
+    the MODULE-LEVEL `MAX_CANDIDATES_PER_KIND` resolved at CALL time (not
+    bound as a default argument), so tests can monkeypatch it."""
     resolved_cap = cap if cap is not None else MAX_CANDIDATES_PER_KIND
     rows = query.limit(resolved_cap + 1).all()
     if len(rows) > resolved_cap:
@@ -124,17 +140,9 @@ def _fetch_capped(query, cap: Optional[int] = None) -> Tuple[list, bool]:
     return rows, False
 
 
-def _preload_existing(db: Session, kind: str) -> Dict[Tuple[int, Optional[str]], MlOpsDivergence]:
-    """ONE query per kind (finding 1), never one per candidate. Bounded by
-    how many divergences of this `kind` already exist, not by the
-    (possibly much larger) candidate list a cold start produces."""
-    rows = db.query(MlOpsDivergence).filter(MlOpsDivergence.kind == kind).all()
-    return {(row.order_id, row.field): row for row in rows}
-
-
 def _apply_divergence(
     db: Session,
-    existing: Dict[Tuple[int, Optional[str]], MlOpsDivergence],
+    seen: Dict[Tuple[int, Optional[str]], None],
     order_id: int,
     kind: str,
     field: Optional[str],
@@ -142,34 +150,49 @@ def _apply_divergence(
     gbp_value: Optional[str],
     now: datetime,
 ) -> bool:
-    """Mutates an already-loaded ORM object or stages a new one -- no
-    query. Returns True if a NEW row was staged."""
-    row = existing.get((order_id, field))
-    if row is not None:
-        row.detected_at = now
-        row.ml_value = ml_value
-        row.gbp_value = gbp_value
+    """Stages a NEW divergence row. Every candidate reaching this function
+    was already excluded-if-known by the SQL query (module docstring), so
+    there is nothing to update here -- `seen` only guards against two
+    candidates in the SAME batch resolving to the same key: the FIRST one
+    wins (round 2 finding 3 determinism -- callers that care about which
+    one wins order their query so the first row IS the intended winner),
+    later ones are silently skipped (they describe the same divergence,
+    not a different one). Returns True if a row was staged."""
+    key = (order_id, field)
+    if key in seen:
         return False
-    row = MlOpsDivergence(
-        order_id=order_id,
-        kind=kind,
-        field=field,
-        ml_value=ml_value,
-        gbp_value=gbp_value,
-        detected_at=now,
+    seen[key] = None
+    db.add(
+        MlOpsDivergence(
+            order_id=order_id,
+            kind=kind,
+            field=field,
+            ml_value=ml_value,
+            gbp_value=gbp_value,
+            detected_at=now,
+        )
     )
-    db.add(row)
-    # Registered immediately: the preload runs once, so without this a
-    # second candidate resolving to the same key in the SAME pass stages a
-    # duplicate and the flush dies on the unique constraint, losing the
-    # whole pass. GBP can hold two headers whose `mlorder_id` differs only
-    # by padding, which the trimmed join now folds into one id.
-    existing[(order_id, field)] = row
     return True
 
 
+def _not_already_recorded(db: Session, kind: str, field: Optional[str], order_id_match):
+    """SQL exclusion (round 2 blocking finding 1): a candidate whose
+    `(order_id, kind[, field])` already has an `ml_ops_divergence` row is
+    excluded from the result set entirely, so an unordered `LIMIT` cannot
+    return the identical page forever -- every pass's candidates are
+    provably not-yet-recorded, and the NEXT pass's query genuinely no
+    longer sees what THIS pass just wrote. `order_id_match` is the FULL
+    boolean condition correlating `MlOpsDivergence.order_id` to the outer
+    query's order id (callers differ on whether that needs a cast, e.g.
+    `missing_in_ml` compares against GBP's text `mlorder_id`) -- passed
+    as-is, never re-wrapped in another equality."""
+    field_match = MlOpsDivergence.field == field if field is not None else MlOpsDivergence.field.is_(None)
+    return ~(db.query(MlOpsDivergence.id).filter(MlOpsDivergence.kind == kind, field_match, order_id_match).exists())
+
+
 def _detect_missing_in_gbp(db: Session, now: datetime, floor: datetime) -> Tuple[int, bool]:
-    """ml_orders_ops rows in-window with no matching GBP header."""
+    """ml_orders_ops rows in-window with no matching GBP header, excluding
+    ones already recorded (see module docstring)."""
     query = (
         db.query(MlOrdersOps.order_id)
         .outerjoin(MercadoLibreOrderHeader, _join_condition())
@@ -177,22 +200,26 @@ def _detect_missing_in_gbp(db: Session, now: datetime, floor: datetime) -> Tuple
             MercadoLibreOrderHeader.mlo_id.is_(None),
             MlOrdersOps.date_created.isnot(None),
             MlOrdersOps.date_created >= floor,
+            _not_already_recorded(db, MISSING_IN_GBP_KIND, None, MlOpsDivergence.order_id == MlOrdersOps.order_id),
         )
+        .order_by(MlOrdersOps.order_id)
     )
     rows, truncated = _fetch_capped(query)
-    existing = _preload_existing(db, MISSING_IN_GBP_KIND)
+    seen: Dict[Tuple[int, Optional[str]], None] = {}
     count = 0
     for (order_id,) in rows:
-        if _apply_divergence(db, existing, order_id, MISSING_IN_GBP_KIND, None, None, None, now):
+        if _apply_divergence(db, seen, order_id, MISSING_IN_GBP_KIND, None, None, None, now):
             count += 1
     return count, truncated
 
 
 def _detect_missing_in_ml(db: Session, now: datetime, floor: datetime) -> Tuple[int, bool]:
-    """GBP header rows in-window with no matching ml_orders_ops row.
-    `mlorder_id` is validated as a plain integer on the already-bounded
-    result set -- a malformed value is skipped, never crashes the pass."""
+    """GBP header rows in-window with no matching ml_orders_ops row,
+    excluding ones already recorded. `mlorder_id` is validated as a plain
+    integer on the already-bounded result set -- a malformed value is
+    skipped, never crashes the pass."""
     floor_naive = floor.astimezone(timezone.utc).replace(tzinfo=None)
+    order_id_match = cast(MlOpsDivergence.order_id, String) == func.trim(MercadoLibreOrderHeader.mlorder_id)
     query = (
         db.query(MercadoLibreOrderHeader.mlorder_id)
         .outerjoin(MlOrdersOps, _join_condition())
@@ -201,16 +228,18 @@ def _detect_missing_in_ml(db: Session, now: datetime, floor: datetime) -> Tuple[
             MercadoLibreOrderHeader.mlorder_id.isnot(None),
             MercadoLibreOrderHeader.ml_date_created.isnot(None),
             MercadoLibreOrderHeader.ml_date_created >= floor_naive,
+            _not_already_recorded(db, MISSING_IN_ML_KIND, None, order_id_match),
         )
+        .order_by(MercadoLibreOrderHeader.mlorder_id)
     )
     rows, truncated = _fetch_capped(query)
-    existing = _preload_existing(db, MISSING_IN_ML_KIND)
+    seen: Dict[Tuple[int, Optional[str]], None] = {}
     count = 0
     for (mlorder_id_str,) in rows:
         if not mlorder_id_str or not mlorder_id_str.strip().isdigit():
             continue
         order_id = int(mlorder_id_str.strip())
-        if _apply_divergence(db, existing, order_id, MISSING_IN_ML_KIND, None, None, None, now):
+        if _apply_divergence(db, seen, order_id, MISSING_IN_ML_KIND, None, None, None, now):
             count += 1
     return count, truncated
 
@@ -218,7 +247,6 @@ def _detect_missing_in_ml(db: Session, now: datetime, floor: datetime) -> Tuple[
 def _detect_field_mismatches(db: Session, now: datetime, floor: datetime) -> Tuple[int, bool]:
     count = 0
     truncated = False
-    existing = _preload_existing(db, FIELD_MISMATCH_KIND)
     for field_name, ml_col, gbp_col in _FIELD_MISMATCH_SPECS:
         query = (
             db.query(MlOrdersOps.order_id, ml_col, gbp_col)
@@ -229,13 +257,23 @@ def _detect_field_mismatches(db: Session, now: datetime, floor: datetime) -> Tup
                 ml_col != gbp_col,
                 MlOrdersOps.date_created.isnot(None),
                 MlOrdersOps.date_created >= floor,
+                _not_already_recorded(
+                    db, FIELD_MISMATCH_KIND, field_name, MlOpsDivergence.order_id == MlOrdersOps.order_id
+                ),
             )
+            # Round 2 finding 3: two GBP headers differing only by padding
+            # can resolve to the same order_id with different values --
+            # ordering by the GBP-internal id (never a compared field
+            # itself, see module docstring "Join key") makes which one
+            # wins deterministic instead of "whatever the DB returns".
+            .order_by(MlOrdersOps.order_id, MercadoLibreOrderHeader.mlo_id.desc())
         )
         rows, field_truncated = _fetch_capped(query)
         truncated = truncated or field_truncated
+        seen: Dict[Tuple[int, Optional[str]], None] = {}
         for order_id, ml_value, gbp_value in rows:
             if _apply_divergence(
-                db, existing, order_id, FIELD_MISMATCH_KIND, field_name, str(ml_value), str(gbp_value), now
+                db, seen, order_id, FIELD_MISMATCH_KIND, field_name, str(ml_value), str(gbp_value), now
             ):
                 count += 1
     return count, truncated
@@ -301,10 +339,11 @@ def detect_divergences(db: Session, now: Optional[datetime] = None) -> Divergenc
         truncated_kinds.append(FIELD_MISMATCH_KIND)
     if truncated_kinds:
         # Never silent (this chain's most repeated defect, five prior
-        # instances): the next pass covers whatever this cap left out.
+        # instances): the exclusion filter (module docstring) guarantees
+        # the next pass covers whatever this cap left out.
         logger.warning(
             "detect_ml_divergences: pass truncated at MAX_CANDIDATES_PER_KIND=%s for kind(s)=%s -- "
-            "not every divergence in-window was recorded this pass",
+            "the remainder will be recorded on the next pass",
             MAX_CANDIDATES_PER_KIND,
             truncated_kinds,
         )

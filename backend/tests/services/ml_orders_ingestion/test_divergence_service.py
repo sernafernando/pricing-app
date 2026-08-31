@@ -98,7 +98,12 @@ class TestMissingInGbp:
         assert result.missing_in_gbp == 0
         assert db.query(MlOpsDivergence).count() == 0
 
-    def test_redetection_updates_instead_of_duplicating(self, db):
+    def test_redetection_does_not_duplicate_and_keeps_first_detected_at(self, db):
+        """Round 2: the query now EXCLUDES already-recorded rows (the
+        fix for finding 1's permanent-truncation bug), so a re-detected
+        divergence is neither duplicated NOR refreshed -- `detected_at`
+        means "first detected" now, documented in the module docstring's
+        "Consequence" section."""
         _make_ops_order(db, 103)
         db.commit()
 
@@ -108,12 +113,13 @@ class TestMissingInGbp:
         first_detected_at = first.detected_at
 
         later = NOW + timedelta(hours=1)
-        detect_divergences(db, now=later)
+        result = detect_divergences(db, now=later)
         db.commit()
 
         rows = db.query(MlOpsDivergence).filter(MlOpsDivergence.kind == "missing_in_gbp").all()
         assert len(rows) == 1
-        assert rows[0].detected_at > first_detected_at
+        assert rows[0].detected_at == first_detected_at
+        assert result.missing_in_gbp == 0
 
 
 class TestMissingInMl:
@@ -200,6 +206,27 @@ class TestFieldMismatch:
 
         assert result.field_mismatches == 0
 
+    def test_duplicate_gbp_headers_resolve_deterministically_to_highest_mlo_id(self, db):
+        """Round 2 non-blocking finding 3: two GBP headers whose
+        `mlorder_id` differs only by padding both resolve to the same
+        `(order_id, 'field_mismatch', 'status')` key. The persisted value
+        must not depend on database row-return order -- the header with
+        the HIGHEST `mlo_id` wins, deterministically, every time."""
+        _make_ops_order(db, 310, status="paid")
+        _make_gbp_header(db, mlo_id=100, mlorder_id="310", mlo_status="cancelled")
+        _make_gbp_header(db, mlo_id=200, mlorder_id=" 310 ", mlo_status="refunded")
+        db.commit()
+
+        detect_divergences(db, now=NOW)
+
+        row = (
+            db.query(MlOpsDivergence)
+            .filter(MlOpsDivergence.kind == "field_mismatch", MlOpsDivergence.order_id == 310)
+            .all()
+        )
+        assert len(row) == 1
+        assert row[0].gbp_value == "refunded"
+
     def test_paid_amount_is_compared_numerically_not_as_text(self):
         """Pre-push review finding 3: a text (`::text`) comparison happens
         to work today because `Numeric(14,2)` and `Numeric(18,2)` share a
@@ -285,6 +312,30 @@ class TestTruncation:
         assert result.truncated is False
         assert result.truncated_kinds == []
         assert MAX_CANDIDATES_PER_KIND > 1
+
+    def test_a_second_pass_records_what_the_cap_left_out(self, db, monkeypatch):
+        """The docstring's core claim (round 2 blocking finding 1): a
+        truncated pass is recoverable, not a permanent wedge. Without the
+        exclusion filter, an unordered `LIMIT` can return the SAME rows
+        every pass and the remainder is never recorded -- this is the
+        test that would have caught it."""
+        monkeypatch.setattr("app.services.ml_orders_ingestion.divergence_service.MAX_CANDIDATES_PER_KIND", 3)
+        for i in range(5):
+            _make_gbp_header(db, mlo_id=4000 + i, mlorder_id=str(970 + i))
+        db.commit()
+
+        first = detect_divergences(db, now=NOW)
+        db.commit()
+        assert first.missing_in_ml == 3
+        assert first.truncated is True
+
+        second = detect_divergences(db, now=NOW + timedelta(hours=1))
+        db.commit()
+        assert second.missing_in_ml == 2
+        assert second.truncated is False
+
+        recorded = db.query(MlOpsDivergence.order_id).filter(MlOpsDivergence.kind == "missing_in_ml").distinct().all()
+        assert {row[0] for row in recorded} == {970, 971, 972, 973, 974}
 
 
 class TestUnenumerableSentinelRetention:
