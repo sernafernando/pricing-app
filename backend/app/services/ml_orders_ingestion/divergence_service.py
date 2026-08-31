@@ -2,9 +2,13 @@
 
 Compares `ml_orders_ops` (ML API, slice 3) against the GBP-fed
 `tb_mercadolibre_orders_header` and writes `ml_ops_divergence` rows with
-`kind` in `missing_in_gbp`, `missing_in_ml`, `field_mismatch`
-(`out_of_window_update`/`window_not_enumerable` stay owned by
-`sweep_service.py`, obs #1828 cross-slice contract).
+`kind` in `missing_in_gbp`, `missing_in_ml`, `field_mismatch`. The other
+two kinds the table's CHECK constraint allows, `out_of_window_update` and
+`window_not_enumerable`, stay owned by `sweep_service.py` (obs #1828
+cross-slice contract) -- this module imports `UNENUMERABLE_KIND` from
+there rather than re-typing the literal (round 5 minor finding: a
+duplicated string is a contract with no enforcement; if the other side
+renames it, this module's purge silently stops working).
 
 Join key: `ml_orders_ops.order_id` CAST to text vs
 `TRIM(tb_mercadolibre_orders_header.mlorder_id)`. Only the ML side is cast
@@ -29,59 +33,79 @@ happen to share a scale today, but a text compare would falsely flag
 every order the day either scale changes. Values are only stringified
 once, at persistence time, for the `Text` `ml_value`/`gbp_value` columns.
 
-Cost / cap / progress guarantee (round 2 review, blocking finding 1): each
+Cost / cap / progress guarantee (round 2 blocking finding 1): each
 detection kind is ONE set-based JOIN query, scoped to
 `ML_ORDERS_OPS_WINDOW_DAYS` and capped at `MAX_CANDIDATES_PER_KIND` so a
 cold start (flag flipped on, `ml_orders_ops` empty, the full window of GBP
 orders already there) cannot turn one pass into tens of thousands of
-writes. The query ALSO excludes any `(order_id, kind[, field])` that
-already has an `ml_ops_divergence` row -- a plain `LIMIT` with no
-exclusion would let an unordered query return the SAME rows every pass
-(Postgres, same plan, same pages), truncating some candidates FOREVER
-instead of "eventually". With the exclusion, every candidate a pass
-records is new, so the NEXT pass's query genuinely no longer sees it and
-advances into what is not yet recorded -- a `truncated=True` pass really
-is a "come back next run" pass, not a wedge. `ORDER BY` is added too, for
-determinism (repeatable pagination) rather than as the correctness fix
-itself.
-
-Consequence of the exclusion (spec if the dashboard ever surfaces this):
-`detected_at` on `missing_in_gbp`/`missing_in_ml`/`field_mismatch` rows
-now means FIRST detected, not last seen -- a divergence that keeps
-reproducing is never re-selected by the query, so nothing refreshes its
-timestamp. `out_of_window_update`/`window_not_enumerable` are unaffected
-(different write path, `sweep_service.py`, genuinely "last seen").
-
-Persistence (pre-push review finding 1, round 1): writing one
-`SELECT ... LIMIT 1` per candidate was an N+1 that could fire tens of
-thousands of queries on a cold start -- the project has a production
-pool-exhaustion incident on record from exactly this shape. The
-exclusion above makes every row the query returns provably new, so there
-is no cross-pass preload to bound anymore (round 2 finding 2 resolved as
-a side effect): `_apply_divergence` only guards against TWO candidates
-in the SAME batch resolving to the same key (GBP can hold two headers
-whose `mlorder_id` differs only by padding, which the trimmed join folds
-into one id -- round 1 finding, made reachable by the TRIM fix). That
-guard is a plain in-memory dict scoped to one call, never a query.
-Determinism for that case (round 2 finding 3): `_detect_field_mismatches`
-orders by `mlo_id DESC`, so the first row seen for a duplicate key is
-always the highest `mlo_id`, and `_apply_divergence` keeps the FIRST
-value for a key it sees twice in one batch -- never an arbitrary winner
-based on whatever order the database happens to return.
-
+writes. The query ALSO excludes rows that do not need re-processing (see
+"Reopening contract" below), so an unordered `LIMIT` cannot return the
+SAME rows every pass and truncate some candidates FOREVER instead of
+"eventually" -- a `truncated=True` pass really is a "come back next run"
+pass. `ORDER BY` is added too, for determinism (repeatable pagination),
+not as the correctness fix itself.
 
 Numeric validity/normalisation for `missing_in_ml` (round 4 blocking
-finding): the exclusion above only protects a candidate that ALREADY has
-a divergence row. A `mlorder_id` that Python discarded AFTER the fetch
-(non-numeric) or normalised DIFFERENTLY from what the exclusion compared
-against (`"0101"` vs `"101"`) never earned that row, so it kept spending
-a cap slot -- with a deterministic `ORDER BY`, potentially every slot,
-every pass, forever: the exact defect the exclusion exists to close,
-reached through the one candidate path it structurally cannot see.
-`_valid_numeric_gbp_order_id` and the `numeric_order_id` CASE expression
-in `_detect_missing_in_ml` move both the validity check AND the
-int-normalisation into the SAME SQL query that also does the exclusion,
-so there is no separate Python conversion step left to disagree with it.
+finding, extended round 5): `_valid_numeric_gbp_order_id` filters IN SQL
+-- never in Python, post-fetch -- so a malformed `mlorder_id` never
+consumes a cap slot in the first place (round 4: a value dropped only
+AFTER the fetch could occupy every slot forever with a deterministic
+`ORDER BY`). It also bounds the LENGTH of the digit run (round 5 blocking
+finding): `mlorder_id` is `String(50)`, so an all-digit value can still
+be far longer than a `BigInteger` can hold -- `CAST('9'*40 AS BIGINT)`
+raises "bigint out of range" on PostgreSQL, which aborted the ENTIRE
+pass (including the other two kinds and the purge, already completed)
+for a row that then repeats identically every run: the same permanent
+wedge the exclusion exists to close, reached through digits that are
+valid but too long. The length bound is part of the SAME predicate used
+for the exclusion and the cast, not a separate check that could drift
+from it.
+
+Reopening contract (round 5 blocking findings 2 and 3 -- decided
+together, this is an operational dashboard someone works from daily, per
+the change's own scope, not a one-off trust exercise, so a divergence
+that recurs must become visible again): the exclusion is VALUE-aware, not
+merely EXISTENCE-aware. A candidate is skipped only when a matching row
+already exists AND is either still actively tracked (`state` in `open`,
+`acknowledged` -- no need to re-process something already on someone's
+plate) OR closed (`resolved`/`ignored`) with UNCHANGED values (the
+operator's call stands; re-selecting an identical, already-resolved
+divergence every pass would consume a cap slot forever for no new
+information). A closed row IS re-selected -- and reopened to `open`,
+values and `detected_at` refreshed -- when its values changed.
+`field_mismatch` has real values, so "changed" is a real comparison
+(`ml_value`/`gbp_value` cast to text, same persistence-time
+stringification as before). `missing_in_gbp`/`missing_in_ml` carry no
+value (`ml_value`/`gbp_value` are always NULL) -- there is nothing that
+could "change" to compare, so treating them the same way would mean a
+closed row of these kinds is excluded FOREVER once resolved, which is
+exactly finding 2's bug ("GBP loses the order again" -- and, structurally,
+it can only become a candidate again after having left the candidate set
+entirely, since the JOIN itself excludes an order that IS present in GBP;
+regaining candidacy after that gap is inherently new information, not a
+repeat of the original report). So for these two kinds the "unchanged"
+branch is hardcoded false: a closed row is ALWAYS reopened on
+rediscovery, an open/acknowledged one is never re-touched (same
+progress-guarantee cost as before). `detected_at` therefore means
+"first detected, or first detected since the last reopen" -- not "last
+seen" (`out_of_window_update`/`window_not_enumerable` are unaffected,
+different write path, `sweep_service.py`, genuinely "last seen").
+
+Persistence (pre-push review finding 1, round 1 -- revised round 5): a
+candidate can now legitimately correspond to an EXISTING (closed, about
+to reopen) row, so `_apply_divergence` can no longer assume every
+candidate is a fresh insert. Each detect function preloads the existing
+rows matching ONLY this pass's (already-capped, already bounded by
+`MAX_CANDIDATES_PER_KIND`) candidate order_ids -- one query per kind,
+bounded by the cap, never by table size, and never one query per
+candidate (the N+1 this whole chain started from). `_apply_divergence`
+then mutates a preloaded row in place or stages a new one; a SECOND
+candidate in the SAME batch resolving to the same key (GBP can hold two
+headers whose `mlorder_id` differs only by padding, which the trimmed
+join folds into one id) is skipped once the first one has been applied --
+`_detect_field_mismatches` orders by `mlo_id DESC` so the first one
+applied is deterministically the highest `mlo_id`, never an arbitrary
+winner based on whatever order the database happens to return.
 """
 
 from __future__ import annotations
@@ -91,12 +115,13 @@ from dataclasses import dataclass, field as dataclass_field
 from datetime import datetime, timedelta, timezone
 from typing import Dict, List, Optional, Tuple
 
-from sqlalchemy import BigInteger, String, and_, case, cast, func
+from sqlalchemy import BigInteger, String, and_, case, cast, false, func
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
 from app.models.mercadolibre_order_header import MercadoLibreOrderHeader
 from app.models.ml_orders_ops import MlOpsDivergence, MlOrdersOps
+from app.services.ml_orders_ingestion.sweep_service import UNENUMERABLE_KIND
 
 logger = logging.getLogger(__name__)
 
@@ -104,12 +129,22 @@ MISSING_IN_GBP_KIND = "missing_in_gbp"
 MISSING_IN_ML_KIND = "missing_in_ml"
 FIELD_MISMATCH_KIND = "field_mismatch"
 
+# States that mean "already closed, nothing left to do unless the facts
+# changed" (round 5 reopening contract, module docstring).
+_CLOSED_STATES = ("resolved", "ignored")
+
 # Per-kind, per-pass cap (pre-push review finding 2, round 1). Generous
 # enough that a healthy environment never hits it, small enough that a
 # cold start cannot turn one detection pass into tens of thousands of
 # writes. Safe to keep small: the exclusion filter (module docstring)
 # guarantees a truncated pass's remainder is picked up next run, not lost.
 MAX_CANDIDATES_PER_KIND = 5000
+
+# `mlorder_id` is `String(50)` -- an all-digit value can still overflow a
+# BigInteger (round 5 blocking finding 1). This is the same bound used by
+# `_valid_numeric_gbp_order_id`'s predicate and its CAST, never a separate
+# check that could drift out of sync with it.
+_MAX_GBP_ORDER_ID_DIGITS = 18
 
 # (field name, ml_orders_ops column, GBP header column) -- compared on
 # their native types (see module docstring "Field comparability"), never
@@ -137,22 +172,21 @@ def _join_condition():
 
 
 def _valid_numeric_gbp_order_id(db: Session, col):
-    """Dialect-aware, all-digits-after-trim check (round 4 blocking
-    finding): this MUST run in SQL, not after the fetch. A malformed
-    value that was only dropped in Python, post-fetch, still consumed a
-    cap slot -- with a deterministic `ORDER BY` it could occupy every
-    slot on every pass, a permanent wedge through candidates the
-    `NOT EXISTS` exclusion can never see (they never earned a divergence
-    row to be excluded BY). Mirrors the `_insert_stmt` dialect-branch
-    precedent used elsewhere in this package."""
+    """Dialect-aware, all-digits-after-trim check, WITH a length bound
+    (round 5 blocking finding 1) -- this MUST run in SQL, not after the
+    fetch, and MUST reject a digit run too long for `BigInteger` before
+    anything casts it, or the cast itself raises and aborts the whole
+    pass. Mirrors the `_insert_stmt` dialect-branch precedent used
+    elsewhere in this package."""
     dialect_name = db.bind.dialect.name if db.bind is not None else "postgresql"
     trimmed = func.trim(col)
+    length_ok = func.length(trimmed) <= _MAX_GBP_ORDER_ID_DIGITS
     if dialect_name == "sqlite":
         # No `~` regexp operator here. GLOB supports negated character
         # classes and is always a full-string match in SQLite, so "does
         # NOT contain a non-digit anywhere" is the portable equivalent.
-        return and_(trimmed != "", ~trimmed.op("GLOB")("*[^0-9]*"))
-    return and_(trimmed != "", trimmed.op("~")("^[0-9]+$"))
+        return and_(trimmed != "", length_ok, ~trimmed.op("GLOB")("*[^0-9]*"))
+    return and_(trimmed != "", length_ok, trimmed.op("~")("^[0-9]+$"))
 
 
 def _window_floor(now: datetime, window_days: Optional[int] = None) -> datetime:
@@ -173,9 +207,29 @@ def _fetch_capped(query, cap: Optional[int] = None) -> Tuple[list, bool]:
     return rows, False
 
 
+def _preload_batch(
+    db: Session, kind: str, field: Optional[str], order_ids
+) -> Dict[Tuple[int, Optional[str]], MlOpsDivergence]:
+    """ONE query per kind, scoped to THIS pass's already-capped candidate
+    order_ids -- bounded by `MAX_CANDIDATES_PER_KIND`, never by table
+    size, and never one query per candidate (module docstring
+    "Persistence"). Needed because a candidate can now correspond to an
+    existing, about-to-reopen row (round 5 reopening contract)."""
+    order_ids = list(order_ids)
+    if not order_ids:
+        return {}
+    field_match = MlOpsDivergence.field == field if field is not None else MlOpsDivergence.field.is_(None)
+    rows = (
+        db.query(MlOpsDivergence)
+        .filter(MlOpsDivergence.kind == kind, field_match, MlOpsDivergence.order_id.in_(order_ids))
+        .all()
+    )
+    return {(row.order_id, row.field): row for row in rows}
+
+
 def _apply_divergence(
     db: Session,
-    seen: Dict[Tuple[int, Optional[str]], None],
+    existing: Dict[Tuple[int, Optional[str]], object],
     order_id: int,
     kind: str,
     field: Optional[str],
@@ -183,18 +237,27 @@ def _apply_divergence(
     gbp_value: Optional[str],
     now: datetime,
 ) -> bool:
-    """Stages a NEW divergence row. Every candidate reaching this function
-    was already excluded-if-known by the SQL query (module docstring), so
-    there is nothing to update here -- `seen` only guards against two
-    candidates in the SAME batch resolving to the same key: the FIRST one
-    wins (round 2 finding 3 determinism -- callers that care about which
-    one wins order their query so the first row IS the intended winner),
-    later ones are silently skipped (they describe the same divergence,
-    not a different one). Returns True if a row was staged."""
+    """Mutates a preloaded row in place, or stages a new one. `existing`
+    doubles as the same-batch duplicate guard (round 2 finding 3): once a
+    key has been applied (inserted OR updated), it is marked `True` in
+    `existing`, so a second candidate in the SAME batch resolving to the
+    same key (padded GBP `mlorder_id` duplicates) is silently skipped --
+    the FIRST one applied wins, and callers that care about which one
+    that is order their query accordingly. Returns True if a row was
+    written (inserted or updated) -- used for the pass's reported
+    counters."""
     key = (order_id, field)
-    if key in seen:
+    row = existing.get(key)
+    if row is True:
         return False
-    seen[key] = None
+    if isinstance(row, MlOpsDivergence):
+        row.ml_value = ml_value
+        row.gbp_value = gbp_value
+        row.detected_at = now
+        if row.state in _CLOSED_STATES:
+            row.state = "open"
+        existing[key] = True
+        return True
     db.add(
         MlOpsDivergence(
             order_id=order_id,
@@ -205,27 +268,39 @@ def _apply_divergence(
             detected_at=now,
         )
     )
+    existing[key] = True
     return True
 
 
-def _not_already_recorded(db: Session, kind: str, field: Optional[str], order_id_match):
-    """SQL exclusion (round 2 blocking finding 1): a candidate whose
-    `(order_id, kind[, field])` already has an `ml_ops_divergence` row is
-    excluded from the result set entirely, so an unordered `LIMIT` cannot
-    return the identical page forever -- every pass's candidates are
-    provably not-yet-recorded, and the NEXT pass's query genuinely no
-    longer sees what THIS pass just wrote. `order_id_match` is the FULL
-    boolean condition correlating `MlOpsDivergence.order_id` to the outer
-    query's order id (callers differ on whether that needs a cast, e.g.
-    `missing_in_ml` compares against GBP's text `mlorder_id`) -- passed
-    as-is, never re-wrapped in another equality."""
+def _not_already_recorded(db: Session, kind: str, field: Optional[str], order_id_match, unchanged_match):
+    """SQL exclusion (round 2 blocking finding 1, value-aware since round
+    5 -- module docstring "Reopening contract"). A candidate is excluded
+    only when a matching row exists that is either still actively
+    tracked (`state` in `open`/`acknowledged`) or closed with UNCHANGED
+    values (`unchanged_match`). `unchanged_match` is `false()` for the
+    two value-less kinds, so a closed row of theirs is never treated as
+    "unchanged" and is always reopened on rediscovery. `order_id_match`
+    is the FULL boolean condition correlating `MlOpsDivergence.order_id`
+    to the outer query's order id (callers differ on whether that needs a
+    cast, e.g. `missing_in_ml` compares against GBP's text `mlorder_id`)
+    -- passed as-is, never re-wrapped in another equality."""
     field_match = MlOpsDivergence.field == field if field is not None else MlOpsDivergence.field.is_(None)
-    return ~(db.query(MlOpsDivergence.id).filter(MlOpsDivergence.kind == kind, field_match, order_id_match).exists())
+    still_active = MlOpsDivergence.state.notin_(_CLOSED_STATES)
+    return ~(
+        db.query(MlOpsDivergence.id)
+        .filter(
+            MlOpsDivergence.kind == kind,
+            field_match,
+            order_id_match,
+            (still_active | unchanged_match),
+        )
+        .exists()
+    )
 
 
 def _detect_missing_in_gbp(db: Session, now: datetime, floor: datetime) -> Tuple[int, bool]:
     """ml_orders_ops rows in-window with no matching GBP header, excluding
-    ones already recorded (see module docstring)."""
+    ones that do not need re-processing (see module docstring)."""
     query = (
         db.query(MlOrdersOps.order_id)
         .outerjoin(MercadoLibreOrderHeader, _join_condition())
@@ -233,34 +308,31 @@ def _detect_missing_in_gbp(db: Session, now: datetime, floor: datetime) -> Tuple
             MercadoLibreOrderHeader.mlo_id.is_(None),
             MlOrdersOps.date_created.isnot(None),
             MlOrdersOps.date_created >= floor,
-            _not_already_recorded(db, MISSING_IN_GBP_KIND, None, MlOpsDivergence.order_id == MlOrdersOps.order_id),
+            _not_already_recorded(
+                db, MISSING_IN_GBP_KIND, None, MlOpsDivergence.order_id == MlOrdersOps.order_id, false()
+            ),
         )
         .order_by(MlOrdersOps.order_id)
     )
     rows, truncated = _fetch_capped(query)
-    seen: Dict[Tuple[int, Optional[str]], None] = {}
+    order_ids = [order_id for (order_id,) in rows]
+    existing = _preload_batch(db, MISSING_IN_GBP_KIND, None, order_ids)
     count = 0
-    for (order_id,) in rows:
-        if _apply_divergence(db, seen, order_id, MISSING_IN_GBP_KIND, None, None, None, now):
+    for order_id in order_ids:
+        if _apply_divergence(db, existing, order_id, MISSING_IN_GBP_KIND, None, None, None, now):
             count += 1
     return count, truncated
 
 
 def _detect_missing_in_ml(db: Session, now: datetime, floor: datetime) -> Tuple[int, bool]:
     """GBP header rows in-window with no matching ml_orders_ops row,
-    excluding ones already recorded. Numeric validity AND normalisation
-    (leading zeros) both happen IN SQL now (round 4 blocking finding),
-    computed ONCE as `numeric_order_id` and reused for the candidate
-    value, the exclusion, and the ordering -- there is no separate Python
-    conversion step left that could disagree with what SQL already
-    filtered. Two failure shapes this closes:
-    - a non-numeric `mlorder_id` used to pass the SQL filter, get dropped
-      by a Python `continue` AFTER already spending a cap slot, and (with
-      a deterministic `ORDER BY`) could occupy every slot forever;
-    - `"0101"` and `"101"` convert to the same integer, but comparing the
-      exclusion against the RAW string never matched an already-recorded
-      `order_id=101`, so it re-detected forever.
-    """
+    excluding ones that do not need re-processing. Numeric validity,
+    length, AND normalisation (leading zeros) all happen IN SQL, computed
+    ONCE as `numeric_order_id` and reused for the candidate value, the
+    exclusion, and the ordering -- there is no separate Python conversion
+    step left that could disagree with what SQL already decided (round 4
+    blocking finding, extended round 5 for the length bound -- see
+    `_valid_numeric_gbp_order_id`)."""
     floor_naive = floor.astimezone(timezone.utc).replace(tzinfo=None)
     valid = _valid_numeric_gbp_order_id(db, MercadoLibreOrderHeader.mlorder_id)
     numeric_order_id = case(
@@ -277,15 +349,16 @@ def _detect_missing_in_ml(db: Session, now: datetime, floor: datetime) -> Tuple[
             MercadoLibreOrderHeader.ml_date_created.isnot(None),
             MercadoLibreOrderHeader.ml_date_created >= floor_naive,
             valid,
-            _not_already_recorded(db, MISSING_IN_ML_KIND, None, MlOpsDivergence.order_id == numeric_order_id),
+            _not_already_recorded(db, MISSING_IN_ML_KIND, None, MlOpsDivergence.order_id == numeric_order_id, false()),
         )
         .order_by(numeric_order_id)
     )
     rows, truncated = _fetch_capped(query)
-    seen: Dict[Tuple[int, Optional[str]], None] = {}
+    order_ids = [order_id for (order_id,) in rows]
+    existing = _preload_batch(db, MISSING_IN_ML_KIND, None, order_ids)
     count = 0
-    for (order_id,) in rows:
-        if _apply_divergence(db, seen, order_id, MISSING_IN_ML_KIND, None, None, None, now):
+    for order_id in order_ids:
+        if _apply_divergence(db, existing, order_id, MISSING_IN_ML_KIND, None, None, None, now):
             count += 1
     return count, truncated
 
@@ -294,6 +367,14 @@ def _detect_field_mismatches(db: Session, now: datetime, floor: datetime) -> Tup
     count = 0
     truncated = False
     for field_name, ml_col, gbp_col in _FIELD_MISMATCH_SPECS:
+        # A closed row is "unchanged" (stays closed, module docstring
+        # "Reopening contract") only if BOTH stored values still match
+        # what this pass would write -- same stringification as
+        # persistence itself, never a separate comparison rule.
+        unchanged = and_(
+            MlOpsDivergence.ml_value == cast(ml_col, String),
+            MlOpsDivergence.gbp_value == cast(gbp_col, String),
+        )
         query = (
             db.query(MlOrdersOps.order_id, ml_col, gbp_col)
             .join(MercadoLibreOrderHeader, _join_condition())
@@ -304,7 +385,11 @@ def _detect_field_mismatches(db: Session, now: datetime, floor: datetime) -> Tup
                 MlOrdersOps.date_created.isnot(None),
                 MlOrdersOps.date_created >= floor,
                 _not_already_recorded(
-                    db, FIELD_MISMATCH_KIND, field_name, MlOpsDivergence.order_id == MlOrdersOps.order_id
+                    db,
+                    FIELD_MISMATCH_KIND,
+                    field_name,
+                    MlOpsDivergence.order_id == MlOrdersOps.order_id,
+                    unchanged,
                 ),
             )
             # Round 2 finding 3: two GBP headers differing only by padding
@@ -316,10 +401,11 @@ def _detect_field_mismatches(db: Session, now: datetime, floor: datetime) -> Tup
         )
         rows, field_truncated = _fetch_capped(query)
         truncated = truncated or field_truncated
-        seen: Dict[Tuple[int, Optional[str]], None] = {}
+        order_ids = [order_id for order_id, _ml, _gbp in rows]
+        existing = _preload_batch(db, FIELD_MISMATCH_KIND, field_name, order_ids)
         for order_id, ml_value, gbp_value in rows:
             if _apply_divergence(
-                db, seen, order_id, FIELD_MISMATCH_KIND, field_name, str(ml_value), str(gbp_value), now
+                db, existing, order_id, FIELD_MISMATCH_KIND, field_name, str(ml_value), str(gbp_value), now
             ):
                 count += 1
     return count, truncated
@@ -333,7 +419,10 @@ def purge_stale_unenumerable(db: Session, now: datetime, retention: Optional[tim
     here (a background job, not `downgrade()`) is safe: the unenumerable
     leaf is re-attempted by the very next sweep pass regardless of
     whether this row still exists, so purging an OLD one only loses
-    instrumentation that already stopped being actionable."""
+    instrumentation that already stopped being actionable. `UNENUMERABLE_KIND`
+    is imported from `sweep_service.py` (round 5 minor finding), not
+    re-typed -- that kind belongs to the sweep, this module only cleans
+    up after it."""
     retention_delta = (
         retention if retention is not None else timedelta(days=settings.ML_ORDERS_OPS_UNENUMERABLE_RETENTION_DAYS)
     )
@@ -342,7 +431,7 @@ def purge_stale_unenumerable(db: Session, now: datetime, retention: Optional[tim
         db.query(MlOpsDivergence)
         .filter(
             MlOpsDivergence.order_id == 0,
-            MlOpsDivergence.kind == "window_not_enumerable",
+            MlOpsDivergence.kind == UNENUMERABLE_KIND,
             MlOpsDivergence.detected_at < cutoff,
         )
         .delete(synchronize_session=False)

@@ -98,12 +98,15 @@ class TestMissingInGbp:
         assert result.missing_in_gbp == 0
         assert db.query(MlOpsDivergence).count() == 0
 
-    def test_redetection_does_not_duplicate_and_keeps_first_detected_at(self, db):
-        """Round 2: the query now EXCLUDES already-recorded rows (the
-        fix for finding 1's permanent-truncation bug), so a re-detected
-        divergence is neither duplicated NOR refreshed -- `detected_at`
-        means "first detected" now, documented in the module docstring's
-        "Consequence" section."""
+    def test_redetection_does_not_duplicate_and_keeps_first_detected_at_while_open(self, db):
+        """Round 2: the query EXCLUDES rows that do not need re-processing
+        (the fix for finding 1's permanent-truncation bug), so a
+        re-detected divergence that is still `open` is neither duplicated
+        NOR refreshed. This is narrower than round 2 first stated it:
+        since round 5, the "never refreshed" half is conditional on the
+        row staying `open`/`acknowledged` -- see
+        `test_a_resolved_divergence_is_reopened_on_rediscovery` right
+        below for the case where it DOES refresh."""
         _make_ops_order(db, 103)
         db.commit()
 
@@ -111,6 +114,7 @@ class TestMissingInGbp:
         db.commit()
         first = db.query(MlOpsDivergence).filter(MlOpsDivergence.kind == "missing_in_gbp").first()
         first_detected_at = first.detected_at
+        assert first.state == "open"
 
         later = NOW + timedelta(hours=1)
         result = detect_divergences(db, now=later)
@@ -120,6 +124,55 @@ class TestMissingInGbp:
         assert len(rows) == 1
         assert rows[0].detected_at == first_detected_at
         assert result.missing_in_gbp == 0
+
+    def test_a_resolved_divergence_is_reopened_on_rediscovery(self, db):
+        """Round 5 blocking findings 2/3: `missing_in_gbp`/`missing_in_ml`
+        carry no value, so once a divergence is closed the ONLY way it
+        can become a candidate again is a genuine gap-then-recurrence
+        (the order appeared in GBP, removing it from candidacy, then
+        disappeared again) -- that must reopen it, or the table lies by
+        omission forever after the first resolution."""
+        _make_ops_order(db, 104)
+        db.commit()
+
+        first = detect_divergences(db, now=NOW)
+        db.commit()
+        assert first.missing_in_gbp == 1
+        row = db.query(MlOpsDivergence).filter(MlOpsDivergence.kind == "missing_in_gbp").one()
+        row.state = "resolved"
+        db.commit()
+
+        later = NOW + timedelta(hours=1)
+        second = detect_divergences(db, now=later)
+        db.commit()
+
+        assert second.missing_in_gbp == 1
+        row = db.query(MlOpsDivergence).filter(MlOpsDivergence.kind == "missing_in_gbp").one()
+        assert row.state == "open"
+        # SQLite loses tzinfo on round-trip (documented project gotcha).
+        assert row.detected_at.replace(tzinfo=timezone.utc) == later
+
+    def test_an_ignored_divergence_is_also_reopened_on_rediscovery(self, db, monkeypatch):
+        """`ignored` is a CLOSED state exactly like `resolved` (module
+        docstring "Reopening contract"): the exclusion's `still_active`
+        branch only covers `open`/`acknowledged`, so `ignored` falls into
+        the "closed, no value to compare, always reopen" branch too --
+        this proves the exclusion does not special-case `resolved` only."""
+        _make_ops_order(db, 105)
+        db.commit()
+
+        detect_divergences(db, now=NOW)
+        db.commit()
+        row = db.query(MlOpsDivergence).filter(MlOpsDivergence.kind == "missing_in_gbp").one()
+        row.state = "ignored"
+        db.commit()
+
+        result = detect_divergences(db, now=NOW + timedelta(hours=1))
+        db.commit()
+
+        assert result.missing_in_gbp == 1
+        row = db.query(MlOpsDivergence).filter(MlOpsDivergence.kind == "missing_in_gbp").one()
+        assert row.state == "open"
 
 
 class TestMissingInMl:
@@ -151,6 +204,25 @@ class TestMissingInMl:
 
         assert result.error is None
         assert result.missing_in_ml == 0
+
+    def test_overlong_all_digit_mlorder_id_does_not_wedge_the_pass(self, db):
+        """Round 5 blocking finding 1: an all-digit `mlorder_id` can still
+        be too long for `BigInteger` (`mlorder_id` is `String(50)`).
+        Without the length bound, `CAST('9'*40 AS BIGINT)` raises "bigint
+        out of range" on PostgreSQL and the WHOLE pass errors out --
+        including the other two kinds and the purge, already completed --
+        and the same row repeats identically every run: a permanent
+        wedge through digits that are valid but too long."""
+        _make_gbp_header(db, mlo_id=6, mlorder_id="9" * 40)
+        _make_gbp_header(db, mlo_id=7, mlorder_id="850")
+        db.commit()
+
+        result = detect_divergences(db, now=NOW)
+
+        assert result.error is None
+        assert result.missing_in_ml == 1
+        row = db.query(MlOpsDivergence).filter(MlOpsDivergence.kind == "missing_in_ml").one()
+        assert row.order_id == 850
 
     def test_leading_zeros_normalize_and_do_not_redetect_forever(self, db):
         """Round 4 blocking finding, second instance: `"0101"` and
@@ -248,6 +320,74 @@ class TestFieldMismatch:
         )
         assert row is not None
         assert row.order_id == 302
+
+    def test_a_resolved_field_mismatch_with_unchanged_values_stays_resolved(self, db):
+        """Reviewer's explicit worked example: identical values + a
+        CLOSED state means the operator already dealt with it -- re-
+        selecting it every pass would consume a cap slot forever for no
+        new information, so it must stay excluded (and closed)."""
+        _make_ops_order(db, 320, status="paid")
+        _make_gbp_header(db, mlo_id=40, mlorder_id="320", mlo_status="cancelled")
+        db.commit()
+
+        detect_divergences(db, now=NOW)
+        db.commit()
+        row = (
+            db.query(MlOpsDivergence)
+            .filter(MlOpsDivergence.kind == "field_mismatch", MlOpsDivergence.field == "status")
+            .one()
+        )
+        row.state = "resolved"
+        db.commit()
+
+        result = detect_divergences(db, now=NOW + timedelta(hours=1))
+        db.commit()
+
+        assert result.field_mismatches == 0
+        row = (
+            db.query(MlOpsDivergence)
+            .filter(MlOpsDivergence.kind == "field_mismatch", MlOpsDivergence.field == "status")
+            .one()
+        )
+        assert row.state == "resolved"
+        assert row.gbp_value == "cancelled"
+
+    def test_a_resolved_field_mismatch_reopens_when_the_value_changes(self, db):
+        """Round 5 blocking finding 3: the stored pair used to be frozen
+        forever ("first detected"). A CLOSED row whose value genuinely
+        changed must reopen -- the whole point of an operational
+        dashboard someone works from daily."""
+        _make_ops_order(db, 321, status="paid")
+        _make_gbp_header(db, mlo_id=41, mlorder_id="321", mlo_status="cancelled")
+        db.commit()
+
+        detect_divergences(db, now=NOW)
+        db.commit()
+        row = (
+            db.query(MlOpsDivergence)
+            .filter(MlOpsDivergence.kind == "field_mismatch", MlOpsDivergence.field == "status")
+            .one()
+        )
+        row.state = "resolved"
+        db.commit()
+
+        header = db.query(MercadoLibreOrderHeader).filter(MercadoLibreOrderHeader.mlorder_id == "321").one()
+        header.mlo_status = "refunded"
+        db.commit()
+
+        later = NOW + timedelta(hours=1)
+        result = detect_divergences(db, now=later)
+        db.commit()
+
+        assert result.field_mismatches == 1
+        row = (
+            db.query(MlOpsDivergence)
+            .filter(MlOpsDivergence.kind == "field_mismatch", MlOpsDivergence.field == "status")
+            .one()
+        )
+        assert row.state == "open"
+        assert row.gbp_value == "refunded"
+        assert row.detected_at.replace(tzinfo=timezone.utc) == later
 
     def test_matching_paid_amount_is_not_flagged(self, db):
         """Negative case: equal amounts must never be flagged."""
