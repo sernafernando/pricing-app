@@ -152,6 +152,59 @@ class TestMissingInMl:
         assert result.error is None
         assert result.missing_in_ml == 0
 
+    def test_leading_zeros_normalize_and_do_not_redetect_forever(self, db):
+        """Round 4 blocking finding, second instance: `"0101"` and
+        `"101"` convert to the same integer, but the OLD exclusion
+        compared against the raw string and never matched an
+        already-recorded `order_id=101` -- it re-detected every pass."""
+        _make_gbp_header(db, mlo_id=10, mlorder_id="0101")
+        db.commit()
+
+        first = detect_divergences(db, now=NOW)
+        db.commit()
+        assert first.missing_in_ml == 1
+        row = db.query(MlOpsDivergence).filter(MlOpsDivergence.kind == "missing_in_ml").one()
+        assert row.order_id == 101
+
+        second = detect_divergences(db, now=NOW + timedelta(hours=1))
+        db.commit()
+        assert second.missing_in_ml == 0
+        assert db.query(MlOpsDivergence).filter(MlOpsDivergence.kind == "missing_in_ml").count() == 1
+
+    def test_malformed_candidates_never_consume_a_cap_slot(self, db, monkeypatch):
+        """Round 4 blocking finding: a malformed `mlorder_id` used to pass
+        the SQL filter, get discarded by a Python `continue` AFTER
+        already spending a cap slot -- filled with enough of them (or
+        sorted ahead of the valid ones, as here via a low-ASCII prefix),
+        a pass could return NOTHING but garbage forever. The fix filters
+        non-numeric values IN SQL, so they are never candidates at all:
+        the cap is spent only on real candidates, and a following pass
+        still reaches whatever the cap didn't fit."""
+        monkeypatch.setattr("app.services.ml_orders_ingestion.divergence_service.MAX_CANDIDATES_PER_KIND", 2)
+        for i in range(5):
+            # '#' (0x23) sorts before any digit in a plain text ORDER BY,
+            # so these would occupy every cap slot first under the old,
+            # Python-side-only filtering.
+            _make_gbp_header(db, mlo_id=20 + i, mlorder_id=f"#bad-{i}")
+        for i in range(3):
+            _make_gbp_header(db, mlo_id=30 + i, mlorder_id=str(800 + i))
+        db.commit()
+
+        first = detect_divergences(db, now=NOW)
+        db.commit()
+        assert first.missing_in_ml == 2
+        assert first.truncated is True
+
+        second = detect_divergences(db, now=NOW + timedelta(hours=1))
+        db.commit()
+        assert second.missing_in_ml == 1
+        assert second.truncated is False
+
+        recorded = {
+            row[0] for row in db.query(MlOpsDivergence.order_id).filter(MlOpsDivergence.kind == "missing_in_ml")
+        }
+        assert recorded == {800, 801, 802}
+
 
 class TestFieldMismatch:
     def test_status_mismatch_is_flagged(self, db):
@@ -237,7 +290,7 @@ class TestFieldMismatch:
 
         from app.services.ml_orders_ingestion.divergence_service import _FIELD_MISMATCH_SPECS
 
-        (field_name, ml_col, gbp_col) = next(spec for spec in _FIELD_MISMATCH_SPECS if spec[0] == "paid_amount")
+        (_field_name, ml_col, gbp_col) = next(spec for spec in _FIELD_MISMATCH_SPECS if spec[0] == "paid_amount")
         assert isinstance(ml_col.type, sa.Numeric)
         assert isinstance(gbp_col.type, sa.Numeric)
 
@@ -285,7 +338,7 @@ class TestPersistenceIsSetBased:
         # SELECT per candidate to check for an existing row). Writes are
         # legitimately proportional to new rows (50 real INSERTs) -- what
         # must stay bounded is the SELECT count: one detection query per
-        # kind plus one preload query per kind, never one per candidate.
+        # kind plus its NOT EXISTS exclusion, never one per candidate.
         select_count = sum(1 for q in queries if q.strip().upper().startswith("SELECT"))
         assert select_count < 10, f"expected a bounded SELECT count, got {select_count}: {queries}"
 
@@ -388,8 +441,10 @@ class TestUnenumerableSentinelRetention:
 class TestDuplicateGbpHeadersDoNotBreakThePass:
     """GBP can hold two headers whose `mlorder_id` differs only by padding
     — distinct rows there, the same id here now that the join trims. Two
-    candidates then resolve to one `(order_id, kind, field)` key, and the
-    preload dict never learns about a row staged earlier in the same pass."""
+    candidates then resolve to one `(order_id, kind, field)` key in the
+    SAME pass, before either one has a divergence row of its own to be
+    excluded by -- the in-memory `seen` dict in `_apply_divergence` is
+    what keeps the second one from being staged as a duplicate insert."""
 
     def test_two_gbp_headers_for_one_order_do_not_raise(self, db, monkeypatch):
         monkeypatch.setattr(settings, "ML_ORDERS_OPS_ENABLED", True)

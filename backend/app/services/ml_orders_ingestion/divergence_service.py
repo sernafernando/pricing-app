@@ -68,6 +68,20 @@ orders by `mlo_id DESC`, so the first row seen for a duplicate key is
 always the highest `mlo_id`, and `_apply_divergence` keeps the FIRST
 value for a key it sees twice in one batch -- never an arbitrary winner
 based on whatever order the database happens to return.
+
+
+Numeric validity/normalisation for `missing_in_ml` (round 4 blocking
+finding): the exclusion above only protects a candidate that ALREADY has
+a divergence row. A `mlorder_id` that Python discarded AFTER the fetch
+(non-numeric) or normalised DIFFERENTLY from what the exclusion compared
+against (`"0101"` vs `"101"`) never earned that row, so it kept spending
+a cap slot -- with a deterministic `ORDER BY`, potentially every slot,
+every pass, forever: the exact defect the exclusion exists to close,
+reached through the one candidate path it structurally cannot see.
+`_valid_numeric_gbp_order_id` and the `numeric_order_id` CASE expression
+in `_detect_missing_in_ml` move both the validity check AND the
+int-normalisation into the SAME SQL query that also does the exclusion,
+so there is no separate Python conversion step left to disagree with it.
 """
 
 from __future__ import annotations
@@ -77,7 +91,7 @@ from dataclasses import dataclass, field as dataclass_field
 from datetime import datetime, timedelta, timezone
 from typing import Dict, List, Optional, Tuple
 
-from sqlalchemy import String, cast, func
+from sqlalchemy import BigInteger, String, and_, case, cast, func
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
@@ -120,6 +134,25 @@ class DivergenceDetectionResult:
 
 def _join_condition():
     return cast(MlOrdersOps.order_id, String) == func.trim(MercadoLibreOrderHeader.mlorder_id)
+
+
+def _valid_numeric_gbp_order_id(db: Session, col):
+    """Dialect-aware, all-digits-after-trim check (round 4 blocking
+    finding): this MUST run in SQL, not after the fetch. A malformed
+    value that was only dropped in Python, post-fetch, still consumed a
+    cap slot -- with a deterministic `ORDER BY` it could occupy every
+    slot on every pass, a permanent wedge through candidates the
+    `NOT EXISTS` exclusion can never see (they never earned a divergence
+    row to be excluded BY). Mirrors the `_insert_stmt` dialect-branch
+    precedent used elsewhere in this package."""
+    dialect_name = db.bind.dialect.name if db.bind is not None else "postgresql"
+    trimmed = func.trim(col)
+    if dialect_name == "sqlite":
+        # No `~` regexp operator here. GLOB supports negated character
+        # classes and is always a full-string match in SQLite, so "does
+        # NOT contain a non-digit anywhere" is the portable equivalent.
+        return and_(trimmed != "", ~trimmed.op("GLOB")("*[^0-9]*"))
+    return and_(trimmed != "", trimmed.op("~")("^[0-9]+$"))
 
 
 def _window_floor(now: datetime, window_days: Optional[int] = None) -> datetime:
@@ -215,30 +248,43 @@ def _detect_missing_in_gbp(db: Session, now: datetime, floor: datetime) -> Tuple
 
 def _detect_missing_in_ml(db: Session, now: datetime, floor: datetime) -> Tuple[int, bool]:
     """GBP header rows in-window with no matching ml_orders_ops row,
-    excluding ones already recorded. `mlorder_id` is validated as a plain
-    integer on the already-bounded result set -- a malformed value is
-    skipped, never crashes the pass."""
+    excluding ones already recorded. Numeric validity AND normalisation
+    (leading zeros) both happen IN SQL now (round 4 blocking finding),
+    computed ONCE as `numeric_order_id` and reused for the candidate
+    value, the exclusion, and the ordering -- there is no separate Python
+    conversion step left that could disagree with what SQL already
+    filtered. Two failure shapes this closes:
+    - a non-numeric `mlorder_id` used to pass the SQL filter, get dropped
+      by a Python `continue` AFTER already spending a cap slot, and (with
+      a deterministic `ORDER BY`) could occupy every slot forever;
+    - `"0101"` and `"101"` convert to the same integer, but comparing the
+      exclusion against the RAW string never matched an already-recorded
+      `order_id=101`, so it re-detected forever.
+    """
     floor_naive = floor.astimezone(timezone.utc).replace(tzinfo=None)
-    order_id_match = cast(MlOpsDivergence.order_id, String) == func.trim(MercadoLibreOrderHeader.mlorder_id)
+    valid = _valid_numeric_gbp_order_id(db, MercadoLibreOrderHeader.mlorder_id)
+    numeric_order_id = case(
+        (valid, cast(func.trim(MercadoLibreOrderHeader.mlorder_id), BigInteger)),
+        else_=None,
+    )
     query = (
-        db.query(MercadoLibreOrderHeader.mlorder_id)
+        db.query(numeric_order_id)
+        .select_from(MercadoLibreOrderHeader)
         .outerjoin(MlOrdersOps, _join_condition())
         .filter(
             MlOrdersOps.order_id.is_(None),
             MercadoLibreOrderHeader.mlorder_id.isnot(None),
             MercadoLibreOrderHeader.ml_date_created.isnot(None),
             MercadoLibreOrderHeader.ml_date_created >= floor_naive,
-            _not_already_recorded(db, MISSING_IN_ML_KIND, None, order_id_match),
+            valid,
+            _not_already_recorded(db, MISSING_IN_ML_KIND, None, MlOpsDivergence.order_id == numeric_order_id),
         )
-        .order_by(MercadoLibreOrderHeader.mlorder_id)
+        .order_by(numeric_order_id)
     )
     rows, truncated = _fetch_capped(query)
     seen: Dict[Tuple[int, Optional[str]], None] = {}
     count = 0
-    for (mlorder_id_str,) in rows:
-        if not mlorder_id_str or not mlorder_id_str.strip().isdigit():
-            continue
-        order_id = int(mlorder_id_str.strip())
+    for (order_id,) in rows:
         if _apply_divergence(db, seen, order_id, MISSING_IN_ML_KIND, None, None, None, now):
             count += 1
     return count, truncated
