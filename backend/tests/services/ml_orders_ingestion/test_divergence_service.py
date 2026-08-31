@@ -99,12 +99,10 @@ class TestMissingInGbp:
         assert db.query(MlOpsDivergence).count() == 0
 
     def test_redetection_does_not_duplicate_and_keeps_first_detected_at_while_open(self, db):
-        """Round 2: the query EXCLUDES rows that do not need re-processing
-        (the fix for finding 1's permanent-truncation bug), so a
+        """The query EXCLUDES rows that do not need re-processing, so a
         re-detected divergence that is still `open` is neither duplicated
-        NOR refreshed. This is narrower than round 2 first stated it:
-        since round 5, the "never refreshed" half is conditional on the
-        row staying `open`/`acknowledged` -- see
+        NOR refreshed. That "never refreshed" guarantee is conditional on
+        the row staying `open`/`acknowledged` -- see
         `test_a_resolved_divergence_is_reopened_on_rediscovery` right
         below for the case where it DOES refresh."""
         _make_ops_order(db, 103)
@@ -126,12 +124,12 @@ class TestMissingInGbp:
         assert result.missing_in_gbp == 0
 
     def test_a_resolved_divergence_is_reopened_on_rediscovery(self, db):
-        """Round 5 blocking findings 2/3: `missing_in_gbp`/`missing_in_ml`
-        carry no value, so once a divergence is closed the ONLY way it
-        can become a candidate again is a genuine gap-then-recurrence
-        (the order appeared in GBP, removing it from candidacy, then
-        disappeared again) -- that must reopen it, or the table lies by
-        omission forever after the first resolution."""
+        """`missing_in_gbp`/`missing_in_ml` carry no value, so once a
+        divergence is closed the ONLY way it can become a candidate again
+        is a genuine gap-then-recurrence (the order appeared in GBP,
+        removing it from candidacy, then disappeared again) -- that must
+        reopen it, or the table lies by omission forever after the first
+        resolution."""
         _make_ops_order(db, 104)
         db.commit()
 
@@ -206,13 +204,13 @@ class TestMissingInMl:
         assert result.missing_in_ml == 0
 
     def test_overlong_all_digit_mlorder_id_does_not_wedge_the_pass(self, db):
-        """Round 5 blocking finding 1: an all-digit `mlorder_id` can still
-        be too long for `BigInteger` (`mlorder_id` is `String(50)`).
-        Without the length bound, `CAST('9'*40 AS BIGINT)` raises "bigint
-        out of range" on PostgreSQL and the WHOLE pass errors out --
-        including the other two kinds and the purge, already completed --
-        and the same row repeats identically every run: a permanent
-        wedge through digits that are valid but too long."""
+        """An all-digit `mlorder_id` can still be too long for `BigInteger`
+        (`mlorder_id` is `String(50)`). Without the length bound,
+        `CAST('9'*40 AS BIGINT)` raises "bigint out of range" on
+        PostgreSQL and the WHOLE pass errors out -- including the other
+        two kinds and the purge, already completed -- and the same row
+        repeats identically every run: a permanent wedge through digits
+        that are valid but too long."""
         _make_gbp_header(db, mlo_id=6, mlorder_id="9" * 40)
         _make_gbp_header(db, mlo_id=7, mlorder_id="850")
         db.commit()
@@ -225,7 +223,7 @@ class TestMissingInMl:
         assert row.order_id == 850
 
     def test_leading_zeros_normalize_and_do_not_redetect_forever(self, db):
-        """Round 4 blocking finding, second instance: `"0101"` and
+        """`"0101"` and
         `"101"` convert to the same integer, but the OLD exclusion
         compared against the raw string and never matched an
         already-recorded `order_id=101` -- it re-detected every pass."""
@@ -244,7 +242,7 @@ class TestMissingInMl:
         assert db.query(MlOpsDivergence).filter(MlOpsDivergence.kind == "missing_in_ml").count() == 1
 
     def test_malformed_candidates_never_consume_a_cap_slot(self, db, monkeypatch):
-        """Round 4 blocking finding: a malformed `mlorder_id` used to pass
+        """A malformed `mlorder_id` used to pass
         the SQL filter, get discarded by a Python `continue` AFTER
         already spending a cap slot -- filled with enough of them (or
         sorted ahead of the valid ones, as here via a low-ASCII prefix),
@@ -352,11 +350,46 @@ class TestFieldMismatch:
         assert row.state == "resolved"
         assert row.gbp_value == "cancelled"
 
+    def test_a_resolved_paid_amount_mismatch_with_unchanged_value_stays_resolved(self, db):
+        """The persisted value and the "unchanged" comparison must be the
+        SAME representation. `50.00` is a real, reproducible case where
+        they would otherwise disagree: SQLite's `CAST(NUMERIC AS TEXT)`
+        renders a whole-number amount as `"50"`, but Python's
+        `str(Decimal("50.00"))` preserves the declared scale as
+        `"50.00"` -- if persistence used the Python string while the
+        comparison used the SQL cast (two separate representations of
+        the "same" rule), an unchanged, already-resolved amount mismatch
+        would incorrectly look "changed" and reopen on every single pass,
+        burning a cap slot forever for no new information."""
+        _make_ops_order(db, 330, paid_amount=50)
+        _make_gbp_header(db, mlo_id=50, mlorder_id="330", mlo_total_paid_amount=10)
+        db.commit()
+
+        detect_divergences(db, now=NOW)
+        db.commit()
+        row = (
+            db.query(MlOpsDivergence)
+            .filter(MlOpsDivergence.kind == "field_mismatch", MlOpsDivergence.field == "paid_amount")
+            .one()
+        )
+        row.state = "resolved"
+        db.commit()
+
+        result = detect_divergences(db, now=NOW + timedelta(hours=1))
+        db.commit()
+
+        assert result.field_mismatches == 0
+        row = (
+            db.query(MlOpsDivergence)
+            .filter(MlOpsDivergence.kind == "field_mismatch", MlOpsDivergence.field == "paid_amount")
+            .one()
+        )
+        assert row.state == "resolved"
+
     def test_a_resolved_field_mismatch_reopens_when_the_value_changes(self, db):
-        """Round 5 blocking finding 3: the stored pair used to be frozen
-        forever ("first detected"). A CLOSED row whose value genuinely
-        changed must reopen -- the whole point of an operational
-        dashboard someone works from daily."""
+        """A CLOSED row whose value genuinely changed must reopen -- the
+        whole point of an operational dashboard someone works from
+        daily."""
         _make_ops_order(db, 321, status="paid")
         _make_gbp_header(db, mlo_id=41, mlorder_id="321", mlo_status="cancelled")
         db.commit()
@@ -400,7 +433,7 @@ class TestFieldMismatch:
         assert result.field_mismatches == 0
 
     def test_duplicate_gbp_headers_resolve_deterministically_to_highest_mlo_id(self, db):
-        """Round 2 non-blocking finding 3: two GBP headers whose
+        """Two GBP headers whose
         `mlorder_id` differs only by padding both resolve to the same
         `(order_id, 'field_mismatch', 'status')` key. The persisted value
         must not depend on database row-return order -- the header with
@@ -421,7 +454,7 @@ class TestFieldMismatch:
         assert row[0].gbp_value == "refunded"
 
     def test_paid_amount_is_compared_numerically_not_as_text(self):
-        """Pre-push review finding 3: a text (`::text`) comparison happens
+        """A text (`::text`) comparison happens
         to work today because `Numeric(14,2)` and `Numeric(18,2)` share a
         scale, but silently breaks -- flagging every order -- the day
         either column's scale changes. The spec must compare the raw
@@ -435,7 +468,7 @@ class TestFieldMismatch:
         assert isinstance(gbp_col.type, sa.Numeric)
 
     def test_padded_mlorder_id_still_joins(self, db):
-        """Pre-push review finding 4: GBP padding must not produce a
+        """GBP padding must not produce a
         false `missing_in_ml` for an order that genuinely exists in
         `ml_orders_ops`."""
         _make_ops_order(db, 306, status="paid")
@@ -450,7 +483,7 @@ class TestFieldMismatch:
 
 class TestPersistenceIsSetBased:
     def test_a_cold_start_pass_issues_a_bounded_number_of_queries(self, db, monkeypatch):
-        """Pre-push review finding 1: writing must not be one SELECT per
+        """Writing must not be one SELECT per
         candidate. Simulates the cold-start shape the review flagged --
         `ml_orders_ops` empty, many GBP header rows in-window -- and
         asserts the query count stays small (a handful of set-based
@@ -496,6 +529,24 @@ class TestTruncation:
         assert "missing_in_ml" in result.truncated_kinds
         assert result.missing_in_ml == 3
 
+    def test_truncated_field_mismatch_names_the_specific_field(self, db, monkeypatch):
+        """The cap is per FIELD, not per kind -- a bare "field_mismatch"
+        in `truncated_kinds` would not say WHICH field was cut. Two
+        different fields truncated independently must both be named."""
+        monkeypatch.setattr("app.services.ml_orders_ingestion.divergence_service.MAX_CANDIDATES_PER_KIND", 1)
+        _make_ops_order(db, 900, status="paid", paid_amount=100)
+        _make_gbp_header(db, mlo_id=900, mlorder_id="900", mlo_status="cancelled", mlo_total_paid_amount=50)
+        _make_ops_order(db, 901, status="paid", paid_amount=100)
+        _make_gbp_header(db, mlo_id=901, mlorder_id="901", mlo_status="refunded", mlo_total_paid_amount=75)
+        db.commit()
+
+        result = detect_divergences(db, now=NOW)
+
+        assert result.truncated is True
+        assert "field_mismatch:status" in result.truncated_kinds
+        assert "field_mismatch:paid_amount" in result.truncated_kinds
+        assert "field_mismatch" not in result.truncated_kinds
+
     def test_a_pass_under_the_cap_is_not_marked_truncated(self, db):
         _make_gbp_header(db, mlo_id=3000, mlorder_id="960")
         db.commit()
@@ -507,8 +558,8 @@ class TestTruncation:
         assert MAX_CANDIDATES_PER_KIND > 1
 
     def test_a_second_pass_records_what_the_cap_left_out(self, db, monkeypatch):
-        """The docstring's core claim (round 2 blocking finding 1): a
-        truncated pass is recoverable, not a permanent wedge. Without the
+        """The module's core progress-guarantee claim: a truncated pass
+        is recoverable, not a permanent wedge. Without the
         exclusion filter, an unordered `LIMIT` can return the SAME rows
         every pass and the remainder is never recorded -- this is the
         test that would have caught it."""
