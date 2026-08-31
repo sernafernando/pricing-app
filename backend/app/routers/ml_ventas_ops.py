@@ -23,10 +23,11 @@ switched off right now" for a user who already cleared the permission gate.
 
 from __future__ import annotations
 
+from datetime import datetime, timezone
 from typing import List, Optional
 
-from fastapi import APIRouter, Depends, HTTPException, status
-from pydantic import BaseModel, ConfigDict
+from fastapi import APIRouter, Depends, HTTPException, Query, status
+from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_current_user
@@ -34,10 +35,25 @@ from app.core.config import settings
 from app.core.database import get_db
 from app.models.ml_bot_message import MlBotMessage
 from app.models.ml_bot_question import MlBotQuestion
-from app.models.ml_orders_ops import MlOperationLink, MlOrderItemOps, MlOrdersOps, MlShipmentOps
+from app.models.ml_orders_ops import MlOperationLink, MlOpsDivergence, MlOrderItemOps, MlOrdersOps, MlShipmentOps
+from app.services.ml_orders_ingestion.sweep_service import UNENUMERABLE_KIND
 from app.models.rma_claim_ml import RmaClaimML
 from app.models.usuario import Usuario
 from app.services.permisos_service import PermisosService
+
+DIVERGENCE_KINDS = (
+    "missing_in_gbp",
+    "missing_in_ml",
+    "field_mismatch",
+    "out_of_window_update",
+    UNENUMERABLE_KIND,
+    "unknown",
+)
+DIVERGENCE_STATES = ("open", "acknowledged", "resolved", "ignored")
+# `window_not_enumerable` uses `order_id=0` as a sentinel (no single order
+# for an unenumerable leaf, see `sweep_service.record_unenumerable_window`)
+# -- MUST NOT render as an order id (mandatory debt from slice 3).
+_UNENUMERABLE_SENTINEL_ORDER_ID = 0
 
 router = APIRouter(prefix="/ml-ventas-ops", tags=["ML Ventas Ops"])
 
@@ -144,6 +160,68 @@ class SaleCentricOperation(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
 
+class DivergenceSummary(BaseModel):
+    """A single `ml_ops_divergence` row. `order_id` is `None` for
+    `window_not_enumerable` rows (see `_UNENUMERABLE_SENTINEL_ORDER_ID`);
+    `window_from`/`window_to` carry that kind's leaf bounds instead."""
+
+    id: int
+    order_id: Optional[int] = None
+    kind: str
+    field: Optional[str] = None
+    ml_value: Optional[str] = None
+    gbp_value: Optional[str] = None
+    window_from: Optional[str] = None
+    window_to: Optional[str] = None
+    state: str
+    assigned_to_id: Optional[int] = None
+    note: Optional[str] = None
+    detected_at: datetime = Field(
+        description=(
+            "When this divergence was FIRST detected, or first detected since it last "
+            "reopened -- not when it was last seen. Detection skips a divergence whose "
+            "values have not changed, so this timestamp does not advance while the same "
+            "difference persists. `out_of_window_update` and `window_not_enumerable` "
+            "come from a different write path and do mean last seen."
+        )
+    )
+    updated_at: datetime
+
+    model_config = ConfigDict(from_attributes=True)
+
+    @classmethod
+    def from_row(cls, row: MlOpsDivergence) -> "DivergenceSummary":
+        is_unenumerable = row.kind == UNENUMERABLE_KIND and row.order_id == _UNENUMERABLE_SENTINEL_ORDER_ID
+        return cls(
+            id=row.id,
+            order_id=None if is_unenumerable else row.order_id,
+            kind=row.kind,
+            field=None if is_unenumerable else row.field,
+            ml_value=None if is_unenumerable else row.ml_value,
+            gbp_value=None if is_unenumerable else row.gbp_value,
+            window_from=row.ml_value if is_unenumerable else None,
+            window_to=row.gbp_value if is_unenumerable else None,
+            state=row.state,
+            assigned_to_id=row.assigned_to_id,
+            note=row.note,
+            detected_at=row.detected_at,
+            updated_at=row.updated_at,
+        )
+
+
+class DivergenceListResponse(BaseModel):
+    total: int
+    limit: int
+    offset: int
+    divergences: List[DivergenceSummary]
+
+
+class DivergenceUpdateRequest(BaseModel):
+    state: Optional[str] = Field(default=None, description="One of: " + ", ".join(DIVERGENCE_STATES))
+    assigned_to_id: Optional[int] = None
+    note: Optional[str] = None
+
+
 # ── Endpoints ────────────────────────────────────────────────────
 
 
@@ -188,3 +266,87 @@ def obtener_operacion(
         questions=[QuestionSummary.model_validate(q) for q in questions],
         messages=[MessageSummary.model_validate(m) for m in messages],
     )
+
+
+@router.get("/divergences", response_model=DivergenceListResponse)
+def listar_divergencias(
+    kind: Optional[str] = Query(default=None, description="Filter by kind"),
+    state: Optional[str] = Query(default=None, description="Filter by state"),
+    limit: int = Query(default=50, ge=1, le=200),
+    offset: int = Query(default=0, ge=0),
+    current_user: Usuario = Depends(require_permission("ml_ops.ver")),
+    db: Session = Depends(get_db),
+) -> DivergenceListResponse:
+    """Paginated (slice 4a precedent: every list endpoint MUST paginate).
+    Requires `ml_ops.ver`. 503 while `ML_ORDERS_OPS_ENABLED` is false."""
+    _require_flag_enabled()
+
+    if kind is not None and kind not in DIVERGENCE_KINDS:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=f"kind inválido: {kind}")
+    if state is not None and state not in DIVERGENCE_STATES:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=f"state inválido: {state}")
+
+    query = db.query(MlOpsDivergence)
+    if kind is not None:
+        query = query.filter(MlOpsDivergence.kind == kind)
+    if state is not None:
+        query = query.filter(MlOpsDivergence.state == state)
+
+    total = query.count()
+    rows = query.order_by(MlOpsDivergence.detected_at.desc()).limit(limit).offset(offset).all()
+
+    return DivergenceListResponse(
+        total=total,
+        limit=limit,
+        offset=offset,
+        divergences=[DivergenceSummary.from_row(row) for row in rows],
+    )
+
+
+@router.get("/divergences/{divergence_id}", response_model=DivergenceSummary)
+def obtener_divergencia(
+    divergence_id: int,
+    current_user: Usuario = Depends(require_permission("ml_ops.ver")),
+    db: Session = Depends(get_db),
+) -> DivergenceSummary:
+    """Requires `ml_ops.ver`. 503 while `ML_ORDERS_OPS_ENABLED` is false."""
+    _require_flag_enabled()
+
+    row = db.query(MlOpsDivergence).filter(MlOpsDivergence.id == divergence_id).first()
+    if row is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Divergencia no encontrada")
+    return DivergenceSummary.from_row(row)
+
+
+@router.patch("/divergences/{divergence_id}", response_model=DivergenceSummary)
+def actualizar_divergencia(
+    divergence_id: int,
+    payload: DivergenceUpdateRequest,
+    current_user: Usuario = Depends(require_permission("ml_ops.gestionar")),
+    db: Session = Depends(get_db),
+) -> DivergenceSummary:
+    """State/assignee/note changes. Requires `ml_ops.gestionar`, distinct
+    from the read-only `ml_ops.ver`. 503 while `ML_ORDERS_OPS_ENABLED` is
+    false. Never touches the ML/GBP data the divergence describes -- only
+    this row's own bookkeeping (`state`, `assigned_to_id`, `note`)."""
+    _require_flag_enabled()
+
+    row = db.query(MlOpsDivergence).filter(MlOpsDivergence.id == divergence_id).first()
+    if row is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Divergencia no encontrada")
+
+    if payload.state is not None:
+        if payload.state not in DIVERGENCE_STATES:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=f"state inválido: {payload.state}"
+            )
+        row.state = payload.state
+    if payload.assigned_to_id is not None:
+        row.assigned_to_id = payload.assigned_to_id
+    if payload.note is not None:
+        row.note = payload.note
+    row.updated_at = datetime.now(timezone.utc)
+
+    db.commit()
+    db.refresh(row)
+    return DivergenceSummary.from_row(row)
