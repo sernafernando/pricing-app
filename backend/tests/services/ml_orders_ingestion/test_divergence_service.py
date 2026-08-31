@@ -663,3 +663,42 @@ class TestDuplicateGbpHeadersDoNotBreakThePass:
         assert result.error is not None
         # a usable session can still answer a query
         assert db.query(MlOpsDivergence).count() >= 0
+
+
+class TestOpenRowsTrackTheCurrentValues:
+    """An operator works from an open row. Freezing its values means the
+    dashboard shows a pair the table already knows is out of date, and the
+    decision to resolve is taken against it."""
+
+    def test_an_open_field_mismatch_follows_a_changed_gbp_value(self, db, monkeypatch):
+        monkeypatch.setattr(settings, "ML_ORDERS_OPS_ENABLED", True)
+        _make_ops_order(db, 300, status="paid")
+        header = _make_gbp_header(db, mlo_id=1, mlorder_id="300", mlo_status="cancelled")
+        db.commit()
+
+        detect_divergences(db)
+        row = db.query(MlOpsDivergence).filter_by(kind="field_mismatch", order_id=300).one()
+        assert row.gbp_value == "cancelled"
+        assert row.state == "open"
+        first_detected = row.detected_at
+
+        header.mlo_status = "refunded"
+        db.commit()
+        detect_divergences(db)
+        db.expire_all()
+
+        row = db.query(MlOpsDivergence).filter_by(kind="field_mismatch", order_id=300).one()
+        assert row.gbp_value == "refunded"
+        # still the same divergence, so `detected_at` keeps meaning first seen
+        assert row.detected_at == first_detected
+
+    def test_an_open_row_with_unchanged_values_is_not_reselected(self, db, monkeypatch):
+        monkeypatch.setattr(settings, "ML_ORDERS_OPS_ENABLED", True)
+        _make_ops_order(db, 301, status="paid")
+        _make_gbp_header(db, mlo_id=2, mlorder_id="301", mlo_status="cancelled")
+        db.commit()
+
+        detect_divergences(db)
+        second = detect_divergences(db)
+
+        assert second.field_mismatches == 0

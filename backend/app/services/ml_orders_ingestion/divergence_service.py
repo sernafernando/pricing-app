@@ -49,24 +49,26 @@ for the candidate value, the exclusion, and the ordering, so there is no
 separate Python conversion step that could disagree with what SQL
 already decided, and no invalid or oversized value is ever a candidate.
 
-Reopening contract: the exclusion is VALUE-aware, not merely
-EXISTENCE-aware. A candidate is skipped only when a matching row already
-exists AND is either still actively tracked (`state` in `open`,
-`acknowledged`) or CLOSED (`resolved`/`ignored`) with UNCHANGED values --
-re-selecting an identical, already-closed divergence every pass would
-consume a cap slot forever for no new information, so it stays closed. A
-closed row IS re-selected, reopened to `open`, and has its values and
-`detected_at` refreshed when its values changed. `missing_in_gbp` and
-`missing_in_ml` carry no value (`ml_value`/`gbp_value` are always NULL),
-so there is nothing that could "stay unchanged" -- a closed row of these
-two kinds is ALWAYS reopened on rediscovery (which, structurally, can
-only happen after a genuine gap: the JOIN itself excludes an order that
-IS present in GBP, so regaining candidacy is inherently new information).
-`field_mismatch` compares real values (see "Value persistence" below).
-`detected_at` therefore means "first detected, or first detected since
-the last reopen" -- not "last seen" (`out_of_window_update`/
-`window_not_enumerable` are unaffected, different write path,
-`sweep_service.py`, genuinely "last seen").
+Reopening contract: for a kind that carries values (`field_mismatch`),
+the exclusion depends on the VALUES, not on the row's state. A candidate
+is skipped only while its stored `ml_value`/`gbp_value` still match what
+the comparison finds; re-selecting an unchanged divergence every pass
+would spend a cap slot forever for no new information. When the values
+change the row is re-selected and updated, whatever its state -- an open
+row an operator is reading must not show a pair the table knows is stale,
+and a closed one reopens because the facts moved again.
+
+For the two kinds with no values (`missing_in_gbp`, `missing_in_ml`)
+there is nothing that could change, so an active row is skipped and a
+closed one always reopens on rediscovery. Structurally that can only
+follow a genuine gap: the JOIN excludes an order while it IS present in
+GBP, so regaining candidacy is new information by construction.
+
+`detected_at` means "first detected, or first detected since the last
+reopen". Refreshing values on an already-open row does not move it: it is
+the same divergence with newer facts, not a new one. (`out_of_window_update`
+and `window_not_enumerable` come from `sweep_service.py` on a different
+write path and genuinely mean "last seen".)
 
 Value persistence for `field_mismatch`: the stored `ml_value`/`gbp_value`
 and the "unchanged" comparison both use the EXACT SAME SQL expression --
@@ -242,9 +244,13 @@ def _apply_divergence(
     if isinstance(row, MlOpsDivergence):
         row.ml_value = ml_value
         row.gbp_value = gbp_value
-        row.detected_at = now
         if row.state in _CLOSED_STATES:
+            # A closed row coming back is a recurrence, so it reopens and
+            # `detected_at` marks that recurrence. An already-open row is
+            # the same divergence with fresher values, so its timestamp
+            # keeps meaning when it was first seen.
             row.state = "open"
+            row.detected_at = now
         existing[key] = True
         return True
     db.add(
@@ -261,7 +267,14 @@ def _apply_divergence(
     return True
 
 
-def _not_already_recorded(db: Session, kind: str, field: Optional[str], order_id_match, unchanged_match):
+def _not_already_recorded(
+    db: Session,
+    kind: str,
+    field: Optional[str],
+    order_id_match,
+    unchanged_match,
+    has_values: bool = True,
+):
     """SQL exclusion, value-aware (module docstring "Reopening contract").
     A candidate is excluded only when a matching row exists that is
     either still actively tracked (`state` in `open`/`acknowledged`) or
@@ -281,7 +294,14 @@ def _not_already_recorded(db: Session, kind: str, field: Optional[str], order_id
             MlOpsDivergence.kind == kind,
             field_match,
             order_id_match,
-            (still_active | unchanged_match),
+            # For a kind that carries values, staying out of the result set
+            # depends only on the values being unchanged -- regardless of
+            # state. Excluding every active row froze `ml_value`/`gbp_value`
+            # on exactly the rows an operator reads, so the dashboard showed
+            # a pair the table already knew was stale. Kinds without values
+            # have nothing that could change, so an active row of theirs is
+            # still the same fact and is excluded.
+            (still_active if not has_values else unchanged_match),
         )
         .exists()
     )
@@ -298,7 +318,12 @@ def _detect_missing_in_gbp(db: Session, now: datetime, floor: datetime) -> Tuple
             MlOrdersOps.date_created.isnot(None),
             MlOrdersOps.date_created >= floor,
             _not_already_recorded(
-                db, MISSING_IN_GBP_KIND, None, MlOpsDivergence.order_id == MlOrdersOps.order_id, false()
+                db,
+                MISSING_IN_GBP_KIND,
+                None,
+                MlOpsDivergence.order_id == MlOrdersOps.order_id,
+                false(),
+                has_values=False,
             ),
         )
         .order_by(MlOrdersOps.order_id)
@@ -337,7 +362,14 @@ def _detect_missing_in_ml(db: Session, now: datetime, floor: datetime) -> Tuple[
             MercadoLibreOrderHeader.ml_date_created.isnot(None),
             MercadoLibreOrderHeader.ml_date_created >= floor_naive,
             valid,
-            _not_already_recorded(db, MISSING_IN_ML_KIND, None, MlOpsDivergence.order_id == numeric_order_id, false()),
+            _not_already_recorded(
+                db,
+                MISSING_IN_ML_KIND,
+                None,
+                MlOpsDivergence.order_id == numeric_order_id,
+                false(),
+                has_values=False,
+            ),
         )
         .order_by(numeric_order_id)
     )
