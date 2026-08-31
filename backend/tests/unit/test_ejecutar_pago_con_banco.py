@@ -108,6 +108,19 @@ class TestEjecutarPagoConBanco:
         session = MagicMock()
         # SELECT FOR UPDATE returns op
         session.execute.return_value.scalar_one_or_none.return_value = op
+        # DELIBERATELY EMPTY — do not "fix" this to return links.
+        # `ejecutar_pago` runs a merge step that pulls the OrdenPagoCheque rows
+        # already RESERVED against this OP (ordenes_pago_service, "Paso 1.5")
+        # and folds them into the payload. This file covers banco-payment
+        # mechanics only: every OP built here is paid with a banco and has no
+        # reserved cheque, so the merge step must find nothing. Stating that
+        # explicitly instead of leaning on MagicMock's default empty iteration,
+        # which would make the same outcome accidental and unreadable.
+        # These tests are therefore NOT merge-step coverage. The real coverage
+        # of reserved-link merging lives in:
+        #   tests/unit/test_cheques_reserva_s3b.py
+        #   tests/integration/test_cheque_reserva_al_crear_s5.py
+        session.execute.return_value.scalars.return_value.all.return_value = []
         # session.get calls: banco by id, Proveedor
         proveedor = MagicMock()
         proveedor.nombre = "Proveedor Test"
@@ -392,8 +405,10 @@ class TestAnularOpPagadaConBanco:
         session = MagicMock()
         session.execute.return_value.scalar_one_or_none.return_value = op
         session.get.return_value = egreso_original  # session.get(BancoMovimiento, 77)
-        # imputaciones query
-        session.execute.return_value.scalars.return_value.all.return_value = []
+        # NOTE: no blanket `scalars().all()` stub here — `session.execute` is
+        # driven entirely by the explicit `side_effect` list below, one entry
+        # per query `anular` runs, so a blanket stub would be dead and would
+        # misread as coverage of queries the list already pins.
 
         with (
             patch("app.services.ordenes_pago_service.BancoService") as MockBancoSvc,

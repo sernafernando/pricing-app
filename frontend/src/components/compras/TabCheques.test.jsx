@@ -23,6 +23,10 @@ const CHEQUE_RESERVADO = {
   proveedor_id: 77,
   proveedor_nombre: 'Proveedor SA',
   orden_pago_id: 900,
+  // R11 — served by GET /cheques itself. `orden_pago_id` alone cannot tell a
+  // reservation from an imputation, so the list endpoint resolves the linked
+  // OP's estado; the tab must NOT fetch each OP one at a time to learn it.
+  orden_pago_estado: 'pendiente',
   cuit_librador: null,
   librador_nombre: null,
 };
@@ -62,9 +66,10 @@ describe('TabCheques — R11 reservado no es pagado', () => {
 
     await waitFor(() => expect(screen.getByText(/Nº 00000099|00000099/)).toBeTruthy());
 
-    await waitFor(() => expect(hookValueOP.obtener).toHaveBeenCalledWith(900));
-
     await waitFor(() => expect(screen.getByText('Reservado en OP 900')).toBeTruthy());
+
+    // No per-row GET /ordenes-pago/{id}: the estado arrives with the listing.
+    expect(hookValueOP.obtener).not.toHaveBeenCalled();
 
     expect(screen.queryByText(/^Pagado$/i)).toBeNull();
     expect(screen.queryByText(/Aplicado en OP/)).toBeNull();

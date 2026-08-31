@@ -150,6 +150,12 @@ export default function PanelCheques({
   // ({cheque_id, monto, moneda}) — el backend ya sabe distinguir tipo=propio
   // vs tercero al pagar (ADR-3 paso 5). NO llama al backend acá: viaja como
   // parte de `cheques` en crear_y_pagar/pagar, igual que un endoso.
+  //
+  // NO unificar con `useCheques.reservarEnOp` (el camino de TabCheques): ese
+  // endpoint es POST /ordenes-pago/{op_id}/cheques y acá, dentro de
+  // ModalOrdenPagoNueva, la OP todavía puede no existir — no hay `op_id`
+  // contra el cual reservar. La reserva la hace el backend al crear la OP,
+  // a partir de este payload. Pinneado en cheque-op-entrypoints.test.jsx.
   const handleAplicarPropio = useCallback(
     (cheque) => {
       if (chequesEmitidos.some((c) => c.cheque_id === cheque.id)) return;
