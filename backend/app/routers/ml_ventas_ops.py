@@ -351,7 +351,10 @@ def actualizar_divergencia(
     fields_set = payload.model_fields_set
 
     if "state" in fields_set:
-        if payload.state is not None and payload.state not in DIVERGENCE_STATES:
+        # `state` is NOT NULL, so an explicit null has to be rejected here.
+        # Before absent and null were distinguished, `None` meant "leave
+        # alone" and never reached the column; now it does.
+        if payload.state not in DIVERGENCE_STATES:
             raise HTTPException(
                 status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=f"state inválido: {payload.state}"
             )

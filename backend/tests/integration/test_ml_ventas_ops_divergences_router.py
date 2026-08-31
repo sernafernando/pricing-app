@@ -265,6 +265,20 @@ class TestUpdateDivergence:
         )
         assert resp.status_code == 422
 
+    def test_explicit_null_state_is_422_not_500(self, db, client, admin_auth_headers, rol_admin) -> None:
+        """`state` is NOT NULL. Once an explicit null stopped meaning
+        "leave alone", it started reaching the column and failing there."""
+        _grant(db, rol_admin, "ml_ops.gestionar", es_critico=True)
+        row = _seed_divergence(db, order_id=812)
+
+        resp = client.patch(
+            f"/api/ml-ventas-ops/divergences/{row.id}", json={"state": None}, headers=admin_auth_headers
+        )
+
+        assert resp.status_code == 422
+        # the session must survive a rejected payload
+        assert db.query(MlOpsDivergence).filter_by(id=row.id).one().state == "open"
+
     def test_flag_off_returns_503_for_a_user_with_gestionar(
         self, db, client, admin_auth_headers, rol_admin, monkeypatch
     ) -> None:
