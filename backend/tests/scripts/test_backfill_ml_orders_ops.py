@@ -67,7 +67,6 @@ class TestArgParsing:
 
 class TestLogSurfacesProgress:
     def test_days_completed_is_logged(self, caplog):
-        import logging
 
         result = BackfillResult(ran=True, days_completed=5, orders_seen=12, orders_upserted=10)
         with patch.object(backfill_ml_orders_ops, "run_backfill", return_value=result):

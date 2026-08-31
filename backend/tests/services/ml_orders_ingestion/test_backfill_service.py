@@ -566,3 +566,28 @@ class TestCompletedRangeCanBeRestarted:
         assert result.days_completed == 3
         assert len(calls) == 3
         assert result.already_up_to_date is False
+
+
+class TestDryRunStopsWhereTheRealRunStops:
+    """The budget tests so far used `days_to=1`, where continuing and
+    stopping are indistinguishable. With two days the difference is the
+    whole point: the real run breaks on the first truncated day, so a dry
+    run that keeps walking previews days that will never be touched."""
+
+    def test_dry_run_and_real_run_complete_the_same_number_of_days(self, db, monkeypatch) -> None:
+        from app.services.ml_orders_ingestion import backfill_service
+
+        monkeypatch.setattr(settings, "ML_ORDERS_OPS_ENABLED", True)
+        monkeypatch.setattr(sweep_service, "MAX_WINDOW_FETCHES_PER_PASS", 2)
+
+        async def always_over_cap(seller_id, date_from, date_to, offset=0):
+            return {"results": [], "paging": {"total": 99999}}
+
+        monkeypatch.setattr(ml_webhook_client, "search_orders", always_over_cap)
+
+        dry = backfill_service.run_backfill(days_from=0, days_to=5, seller_id=999, dry_run=True)
+        real = backfill_service.run_backfill(days_from=0, days_to=5, seller_id=999)
+
+        assert dry.budget_exhausted is True
+        assert real.budget_exhausted is True
+        assert dry.days_completed == real.days_completed

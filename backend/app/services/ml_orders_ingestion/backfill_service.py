@@ -355,9 +355,14 @@ def run_backfill(
             result.orders_seen += day_seen
             result.orders_out_of_window += day_out
             result.orders_mapping_error += day_bad
-            result.days_completed += 1
             if day_budget_exhausted:
+                # Stop where the real run stops. It breaks on the first
+                # truncated day, so continuing here would preview days the
+                # real run will never reach -- and the day itself was only
+                # partly enumerated, so it does not count as completed.
                 result.budget_exhausted = True
+                break
+            result.days_completed += 1
             current_end = day_start
         return result
 
@@ -467,7 +472,12 @@ def run_backfill(
         if failure is not None:
             release_lock_as_error(failure, cursor_name=CURSOR_NAME)
         else:
-            complete = last_checkpoint is not None and last_checkpoint <= oldest_boundary
+            # `already_up_to_date` did no work, so it must not refresh
+            # `last_success_at`: a no-op keeping a staleness alert quiet is
+            # the defect this chain has corrected three times already.
+            complete = (
+                not result.already_up_to_date and last_checkpoint is not None and last_checkpoint <= oldest_boundary
+            )
             release_lock_as_idle(now, complete=complete, cursor_name=CURSOR_NAME)
 
     return result
