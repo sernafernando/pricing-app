@@ -38,13 +38,16 @@ def main() -> None:
     if result.error:
         logger.error("detect_ml_divergences: detection failed: %s", result.error)
         return
+    outcome = "pass truncated (cap hit)" if result.truncated else "pass complete"
     logger.info(
-        "detect_ml_divergences: pass complete — missing_in_gbp=%s missing_in_ml=%s "
-        "field_mismatches=%s unenumerable_purged=%s",
+        "detect_ml_divergences: %s — missing_in_gbp=%s missing_in_ml=%s "
+        "field_mismatches=%s unenumerable_purged=%s truncated_kinds=%s",
+        outcome,
         result.missing_in_gbp,
         result.missing_in_ml,
         result.field_mismatches,
         result.unenumerable_purged,
+        result.truncated_kinds,
     )
 
 

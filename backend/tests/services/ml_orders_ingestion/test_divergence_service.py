@@ -13,6 +13,7 @@ from app.core.config import settings
 from app.models.mercadolibre_order_header import MercadoLibreOrderHeader
 from app.models.ml_orders_ops import MlOpsDivergence, MlOrdersOps
 from app.services.ml_orders_ingestion.divergence_service import (
+    MAX_CANDIDATES_PER_KIND,
     detect_divergences,
     purge_stale_unenumerable,
 )
@@ -186,6 +187,102 @@ class TestFieldMismatch:
         )
         assert row is not None
         assert row.order_id == 302
+
+    def test_matching_paid_amount_is_not_flagged(self, db):
+        """Negative case: equal amounts must never be flagged."""
+        _make_ops_order(db, 305, paid_amount=100)
+        _make_gbp_header(db, mlo_id=8, mlorder_id="305", mlo_total_paid_amount=100)
+        db.commit()
+
+        result = detect_divergences(db, now=NOW)
+
+        assert result.field_mismatches == 0
+
+    def test_paid_amount_is_compared_numerically_not_as_text(self):
+        """Pre-push review finding 3: a text (`::text`) comparison happens
+        to work today because `Numeric(14,2)` and `Numeric(18,2)` share a
+        scale, but silently breaks -- flagging every order -- the day
+        either column's scale changes. The spec must compare the raw
+        `Numeric` columns; only persistence may stringify."""
+        import sqlalchemy as sa
+
+        from app.services.ml_orders_ingestion.divergence_service import _FIELD_MISMATCH_SPECS
+
+        (field_name, ml_col, gbp_col) = next(spec for spec in _FIELD_MISMATCH_SPECS if spec[0] == "paid_amount")
+        assert isinstance(ml_col.type, sa.Numeric)
+        assert isinstance(gbp_col.type, sa.Numeric)
+
+    def test_padded_mlorder_id_still_joins(self, db):
+        """Pre-push review finding 4: GBP padding must not produce a
+        false `missing_in_ml` for an order that genuinely exists in
+        `ml_orders_ops`."""
+        _make_ops_order(db, 306, status="paid")
+        _make_gbp_header(db, mlo_id=9, mlorder_id=" 306 ", mlo_status="paid")
+        db.commit()
+
+        result = detect_divergences(db, now=NOW)
+
+        assert result.missing_in_ml == 0
+        assert db.query(MlOpsDivergence).filter(MlOpsDivergence.kind == "missing_in_ml").count() == 0
+
+
+class TestPersistenceIsSetBased:
+    def test_a_cold_start_pass_issues_a_bounded_number_of_queries(self, db, monkeypatch):
+        """Pre-push review finding 1: writing must not be one SELECT per
+        candidate. Simulates the cold-start shape the review flagged --
+        `ml_orders_ops` empty, many GBP header rows in-window -- and
+        asserts the query count stays small (a handful of set-based
+        statements) instead of scaling with the number of divergences."""
+        for i in range(50):
+            _make_gbp_header(db, mlo_id=1000 + i, mlorder_id=str(900 + i))
+        db.commit()
+
+        queries = []
+        engine = db.get_bind()
+
+        def _count(conn, cursor, statement, parameters, context, executemany):
+            queries.append(statement)
+
+        from sqlalchemy import event
+
+        event.listen(engine, "before_cursor_execute", _count)
+        try:
+            result = detect_divergences(db, now=NOW)
+        finally:
+            event.remove(engine, "before_cursor_execute", _count)
+
+        assert result.missing_in_ml == 50
+        # The blocking finding was reads scaling with candidate count (one
+        # SELECT per candidate to check for an existing row). Writes are
+        # legitimately proportional to new rows (50 real INSERTs) -- what
+        # must stay bounded is the SELECT count: one detection query per
+        # kind plus one preload query per kind, never one per candidate.
+        select_count = sum(1 for q in queries if q.strip().upper().startswith("SELECT"))
+        assert select_count < 10, f"expected a bounded SELECT count, got {select_count}: {queries}"
+
+
+class TestTruncation:
+    def test_a_pass_over_the_cap_is_marked_truncated_not_silently_dropped(self, db, monkeypatch):
+        monkeypatch.setattr("app.services.ml_orders_ingestion.divergence_service.MAX_CANDIDATES_PER_KIND", 3)
+        for i in range(5):
+            _make_gbp_header(db, mlo_id=2000 + i, mlorder_id=str(950 + i))
+        db.commit()
+
+        result = detect_divergences(db, now=NOW)
+
+        assert result.truncated is True
+        assert "missing_in_ml" in result.truncated_kinds
+        assert result.missing_in_ml == 3
+
+    def test_a_pass_under_the_cap_is_not_marked_truncated(self, db):
+        _make_gbp_header(db, mlo_id=3000, mlorder_id="960")
+        db.commit()
+
+        result = detect_divergences(db, now=NOW)
+
+        assert result.truncated is False
+        assert result.truncated_kinds == []
+        assert MAX_CANDIDATES_PER_KIND > 1
 
 
 class TestUnenumerableSentinelRetention:
