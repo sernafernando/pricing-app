@@ -142,13 +142,20 @@ class BackfillResult:
     error: Optional[str] = None
 
 
-def _dry_run_count_window(seller_id: int, day_from: datetime, day_to: datetime) -> int:
+def _dry_run_count_window(
+    seller_id: int, day_from: datetime, day_to: datetime, window_from_floor: datetime
+) -> tuple[int, int]:
     """The `--dry-run` equivalent of `process_batch`: enumerates the
     window (so `search_orders` really is called and the window bounds are
     really computed, per the RED test's own promise) but never opens a DB
     session and never calls `upsert_order` -- zero writes, by construction
-    rather than by a flag threaded through the write path."""
+    rather than by a flag threaded through the write path.
+
+    Applies the SAME window filter as the real run and returns
+    `(seen, out_of_window)`. A preview that counts rows the real run would
+    exclude is not a preview."""
     seen = 0
+    out_of_window = 0
     for event in iter_window_events(seller_id, day_from, day_to):
         kind = event[0]
         if kind == "page":
@@ -157,12 +164,18 @@ def _dry_run_count_window(seller_id: int, day_from: datetime, day_to: datetime) 
                 mapped = map_order(raw_order)
                 if isinstance(mapped, MappingError):
                     continue
+                if mapped.date_created is not None and mapped.date_created < window_from_floor:
+                    out_of_window += 1
         elif kind == "budget_exhausted":
+            # `break` below, like run_sweep: draining the generator emits one
+            # warning per remaining sub-window and floods the log in an
+            # already-degraded run.
             logger.warning(
                 "backfill(dry-run): fetch budget spent before [%s, %s) finished enumerating",
                 day_from.isoformat(),
                 day_to.isoformat(),
             )
+            break
         elif kind == "unenumerable":
             logger.warning(
                 "backfill(dry-run): [%s, %s) is not enumerable even at the minimum bisect span",
@@ -175,10 +188,16 @@ def _dry_run_count_window(seller_id: int, day_from: datetime, day_to: datetime) 
         day_to.isoformat(),
         seen,
     )
-    return seen
+    return seen, out_of_window
 
 
-def _process_day(seller_id: int, day_from: datetime, day_to: datetime, result: BackfillResult) -> bool:
+def _process_day(
+    seller_id: int,
+    day_from: datetime,
+    day_to: datetime,
+    window_from_floor: datetime,
+    result: BackfillResult,
+) -> bool:
     """Processes one calendar-day window for real, reusing the sweep's
     exact streaming walk + bounded-batch upsert. Raises `WindowFetchError`
     on an unresolved fetch failure (fail-closed per day, mirroring the
@@ -189,7 +208,13 @@ def _process_day(seller_id: int, day_from: datetime, day_to: datetime, result: B
     fetch budget ran out partway through this single day: the caller must
     NOT checkpoint `window_from` past `day_from` in that case, so the next
     pass resumes and finishes this exact day instead of treating a
-    partial day as done."""
+    partial day as done.
+
+    `window_from_floor` is the floor of the REQUESTED RANGE, not of the day
+    being walked. `process_batch` uses it to decide what falls outside the
+    window, and an order created long before the day it was updated on is
+    exactly what a backfill exists to fetch -- passing `day_from` here
+    excluded almost everything and filed a divergence row for each."""
     sweep_shaped_result = SweepResult(ran=True)
     pending: list = []
     day_completed = True
@@ -197,7 +222,7 @@ def _process_day(seller_id: int, day_from: datetime, day_to: datetime, result: B
     def _flush() -> None:
         nonlocal pending
         if pending:
-            process_batch(pending, day_from, sweep_shaped_result)
+            process_batch(pending, window_from_floor, sweep_shaped_result)
             pending = []
 
     for event in iter_window_events(seller_id, day_from, day_to):
@@ -205,7 +230,7 @@ def _process_day(seller_id: int, day_from: datetime, day_to: datetime, result: B
         if kind == "page":
             pending.extend(event[1])
             while len(pending) >= BATCH_SIZE:
-                process_batch(pending[:BATCH_SIZE], day_from, sweep_shaped_result)
+                process_batch(pending[:BATCH_SIZE], window_from_floor, sweep_shaped_result)
                 pending = pending[BATCH_SIZE:]
         elif kind == "unenumerable":
             _, leaf_from, leaf_to = event
@@ -216,12 +241,16 @@ def _process_day(seller_id: int, day_from: datetime, day_to: datetime, result: B
                 leaf_to.isoformat(),
             )
         elif kind == "budget_exhausted":
+            # `break` below, like run_sweep: draining the generator emits one
+            # warning per remaining sub-window and floods the log in an
+            # already-degraded run.
             day_completed = False
             logger.warning(
                 "backfill: fetch budget spent before day [%s, %s) finished; will resume this exact day next run",
                 day_from.isoformat(),
                 day_to.isoformat(),
             )
+            break
     _flush()
 
     result.orders_seen += sweep_shaped_result.orders_seen
@@ -271,7 +300,9 @@ def run_backfill(
         current_end = newest_boundary
         while current_end > oldest_boundary:
             day_start = max(current_end - DAY, oldest_boundary)
-            result.orders_seen += _dry_run_count_window(int(resolved_seller_id), day_start, current_end)
+            day_seen, day_out = _dry_run_count_window(int(resolved_seller_id), day_start, current_end, oldest_boundary)
+            result.orders_seen += day_seen
+            result.orders_out_of_window += day_out
             result.days_completed += 1
             current_end = day_start
         return result
@@ -315,7 +346,7 @@ def run_backfill(
     try:
         while current_end > oldest_boundary:
             day_start = max(current_end - DAY, oldest_boundary)
-            day_completed = _process_day(int(resolved_seller_id), day_start, current_end, result)
+            day_completed = _process_day(int(resolved_seller_id), day_start, current_end, oldest_boundary, result)
 
             if not day_completed:
                 # Partial day: do NOT checkpoint past `current_end` (the

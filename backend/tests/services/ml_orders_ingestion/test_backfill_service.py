@@ -344,3 +344,57 @@ class TestDryRunReportsWhatItCounted:
         result = backfill_service.run_backfill(seller_id=999, days_from=0, days_to=1, dry_run=True)
 
         assert result.orders_seen == 1
+
+
+class TestOrdersCreatedBeforeTheDayBeingWalked:
+    """The whole point of a backfill is history: an order created months
+    ago and updated recently. Every other fixture here uses
+    `date_created == now`, which is the one case a backfill does not care
+    about."""
+
+    def test_an_order_created_long_before_its_update_day_is_ingested(self, db, monkeypatch) -> None:
+        from app.services.ml_orders_ingestion import backfill_service
+
+        monkeypatch.setattr(settings, "ML_ORDERS_OPS_ENABLED", True)
+
+        updated = datetime.now(timezone.utc) - timedelta(days=5)
+        created = updated - timedelta(days=40)
+
+        async def one_old_order(seller_id, date_from, date_to, offset=0):
+            if date_from <= updated < date_to:
+                return {"results": [_order(1, 999, updated, created)], "paging": {"total": 1}}
+            return {"results": [], "paging": {"total": 0}}
+
+        monkeypatch.setattr(ml_webhook_client, "search_orders", one_old_order)
+
+        result = backfill_service.run_backfill(days_from=0, days_to=90, seller_id=999)
+
+        assert result.orders_upserted == 1
+        assert result.orders_out_of_window == 0
+
+
+class TestDryRunPredictsTheRealRun:
+    """A dry run has exactly one job: say what the real run will do. If it
+    counts orders the real run would exclude, it is not a preview."""
+
+    def test_dry_run_and_real_run_report_the_same_counts(self, db, monkeypatch) -> None:
+        from app.services.ml_orders_ingestion import backfill_service
+
+        monkeypatch.setattr(settings, "ML_ORDERS_OPS_ENABLED", True)
+
+        updated = datetime.now(timezone.utc) - timedelta(days=2)
+        inside = _order(1, 999, updated, updated - timedelta(days=10))
+        outside = _order(2, 999, updated, updated - timedelta(days=300))
+
+        async def two_orders(seller_id, date_from, date_to, offset=0):
+            if date_from <= updated < date_to:
+                return {"results": [inside, outside], "paging": {"total": 2}}
+            return {"results": [], "paging": {"total": 0}}
+
+        monkeypatch.setattr(ml_webhook_client, "search_orders", two_orders)
+
+        dry = backfill_service.run_backfill(days_from=0, days_to=30, seller_id=999, dry_run=True)
+        real = backfill_service.run_backfill(days_from=0, days_to=30, seller_id=999)
+
+        assert dry.orders_seen == real.orders_seen
+        assert dry.orders_out_of_window == real.orders_out_of_window
