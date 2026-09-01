@@ -716,3 +716,35 @@ class TestShipmentIngestion:
         sweep_service.run_sweep(seller_id=999, window_days=90)
 
         mock_get_shipment.assert_called_once_with(500)
+
+
+class TestShipmentFetchesShareTheBudget:
+    """`MAX_WINDOW_FETCHES_PER_PASS` exists so a pass cannot spend itself on
+    HTTP. Shipment lookups did not participate in it: a cold start could
+    issue one per order, sequentially, for tens of thousands of orders —
+    long past the stale-lock timeout, so a second pass would start on top."""
+
+    def test_a_pass_stops_fetching_shipments_once_the_budget_is_spent(self, db, monkeypatch) -> None:
+        from app.services.ml_orders_ingestion import sweep_service
+
+        monkeypatch.setattr(settings, "ML_ORDERS_OPS_ENABLED", True)
+        monkeypatch.setattr(sweep_service, "MAX_WINDOW_FETCHES_PER_PASS", 4)
+
+        when = datetime.now(timezone.utc)
+        orders = [{**_order(i, 999, when, when), "shipping": {"id": 40000 + i}} for i in range(20)]
+
+        async def one_page(seller_id, date_from, date_to, offset=0):
+            return {"results": orders, "paging": {"total": len(orders)}}
+
+        shipment_calls = {"n": 0}
+
+        async def a_shipment(shipment_id):
+            shipment_calls["n"] += 1
+            return {"id": shipment_id, "status": "delivered"}
+
+        monkeypatch.setattr(ml_webhook_client, "search_orders", one_page)
+        monkeypatch.setattr(ml_webhook_client, "get_shipment", a_shipment)
+
+        sweep_service.run_sweep(seller_id=999, window_days=90)
+
+        assert shipment_calls["n"] <= sweep_service.MAX_WINDOW_FETCHES_PER_PASS

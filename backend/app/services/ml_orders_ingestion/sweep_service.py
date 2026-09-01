@@ -292,7 +292,7 @@ def record_unenumerable_window(db, date_from: datetime, date_to: datetime) -> No
         )
 
 
-def _fetch_shipments(raw_orders: List[Dict[str, Any]]) -> Dict[int, Dict[str, Any]]:
+def _fetch_shipments(raw_orders: List[Dict[str, Any]], budget: Optional[List[int]] = None) -> Dict[int, Dict[str, Any]]:
     """Fetches the shipment payload for every order that carries a
     `shipping.id`, entirely BEFORE any DB session opens (same HTTP-before-
     write discipline as the order/page fetch above -- design D8).
@@ -300,7 +300,15 @@ def _fetch_shipments(raw_orders: List[Dict[str, Any]]) -> Dict[int, Dict[str, An
     Best-effort per shipment: a failed fetch is logged and skipped rather
     than raised, so one flaky shipment lookup never turns into a
     `WindowFetchError` that discards an otherwise-good page of orders.
+
+    Shares the pass's `budget` with the page fetches. A cold start would
+    otherwise issue one lookup per order, sequentially, for as many orders
+    as the window holds -- long past the stale-lock timeout, so a second
+    pass would start on top of the first. A caller that passes none gets a
+    fresh per-batch allowance rather than no limit at all.
     """
+    if budget is None:
+        budget = [MAX_WINDOW_FETCHES_PER_PASS]
     shipments: Dict[int, Dict[str, Any]] = {}
     for raw_order in raw_orders:
         shipping = raw_order.get("shipping")
@@ -315,6 +323,10 @@ def _fetch_shipments(raw_orders: List[Dict[str, Any]]) -> Dict[int, Dict[str, An
             continue
         if shipping_id in shipments:
             continue
+        if budget[0] <= 0:
+            logger.warning("sweep: fetch budget spent before every shipment was read; the next pass resumes")
+            break
+        budget[0] -= 1
         try:
             payload = resolve_maybe_async(ml_webhook_client.get_shipment(shipping_id))
         except Exception:
@@ -325,7 +337,12 @@ def _fetch_shipments(raw_orders: List[Dict[str, Any]]) -> Dict[int, Dict[str, An
     return shipments
 
 
-def process_batch(raw_orders: List[Dict[str, Any]], window_from_floor: datetime, result: SweepResult) -> None:
+def process_batch(
+    raw_orders: List[Dict[str, Any]],
+    window_from_floor: datetime,
+    result: SweepResult,
+    budget: Optional[List[int]] = None,
+) -> None:
     """Upserts one bounded batch in its OWN short-lived session. Every
     shipment payload was already fetched (HTTP-only, see `_fetch_shipments`)
     BEFORE this function is called -- no HTTP call happens inside this
@@ -338,7 +355,7 @@ def process_batch(raw_orders: List[Dict[str, Any]], window_from_floor: datetime,
     against in its DISABLED branch."""
     seen = upserted = skipped_stale = mapping_error = out_of_window = 0
 
-    shipments = _fetch_shipments(raw_orders)
+    shipments = _fetch_shipments(raw_orders, budget)
 
     with get_background_db() as db:
         for raw_order in raw_orders:
@@ -577,22 +594,26 @@ def run_sweep(seller_id: Optional[int] = None, window_days: Optional[int] = None
     result = SweepResult(ran=True, window_from=window_start, window_to=prior_window_to)
     last_checkpoint_to = prior_window_to
     pending: List[Dict[str, Any]] = []
+    # ONE allowance for the whole pass, shared by the page walk and the
+    # shipment lookups. Two separate budgets would each stay under their own
+    # limit while the pass as a whole ran far past the stale-lock timeout.
+    fetch_budget: List[int] = [MAX_WINDOW_FETCHES_PER_PASS]
 
     def _flush_pending() -> None:
         nonlocal pending
         if pending:
-            process_batch(pending, window_from_floor, result)
+            process_batch(pending, window_from_floor, result, fetch_budget)
             pending = []
 
     failure: Optional[BaseException] = None
 
     try:
-        for event in iter_window_events(int(resolved_seller_id), window_start, window_end):
+        for event in iter_window_events(int(resolved_seller_id), window_start, window_end, fetch_budget):
             kind = event[0]
             if kind == "page":
                 pending.extend(event[1])
                 while len(pending) >= BATCH_SIZE:
-                    process_batch(pending[:BATCH_SIZE], window_from_floor, result)
+                    process_batch(pending[:BATCH_SIZE], window_from_floor, result, fetch_budget)
                     pending = pending[BATCH_SIZE:]
             elif kind == "budget_exhausted":
                 # Stop this pass without advancing past the unfinished
