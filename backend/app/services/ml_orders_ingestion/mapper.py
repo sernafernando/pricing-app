@@ -9,11 +9,17 @@ never observe a partially-populated DTO (fail-closed contract, design D7:
 
 from __future__ import annotations
 
+import logging
+
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional, Union
 
 from dateutil.parser import isoparse
+
+from app.models.ml_orders_ops import PAYMENT_STATUSES
+
+logger = logging.getLogger(__name__)
 
 
 class MappingError:
@@ -203,7 +209,7 @@ def map_order(payload: Dict[str, Any]) -> Union[OrderOpsDTO, MappingError]:
         return MappingError(f"unparseable order_items: {e}", payload)
 
     # `payment_status`: the FIRST payment's status. Verified against a real
-    # production order (see `operation_status.py` module docstring):
+    # production order:
     # `payments[0].status` is where "in_mediation" actually shows up while a
     # dispute is open. A missing/malformed `payments` array is NOT a mapping
     # error -- most of an order's lifecycle has no payment yet -- it just
@@ -213,7 +219,16 @@ def map_order(payload: Dict[str, Any]) -> Union[OrderOpsDTO, MappingError]:
     if isinstance(raw_payments, list) and raw_payments:
         first_payment = raw_payments[0]
         if isinstance(first_payment, dict):
-            payment_status = first_payment.get("status")
+            raw_status = first_payment.get("status")
+            # The column's CHECK is closed. A value outside the vocabulary
+            # would raise on insert and take the whole batch down, breaking
+            # `upsert_order`'s promise never to raise for one bad payload.
+            # An unrecognised status is dropped to None -- an optional fact
+            # nobody has classified, not a reason to lose the order.
+            if raw_status in PAYMENT_STATUSES:
+                payment_status = raw_status
+            elif raw_status is not None:
+                logger.warning("map_order: unrecognised payment status %r, stored as NULL", raw_status)
 
     # `covered_by_marketplace`: whether Mercado Libre's Buyer Protection
     # Programme itself refunded the buyer on a cancelled order (so the

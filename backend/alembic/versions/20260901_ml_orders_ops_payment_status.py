@@ -4,12 +4,12 @@ Revision ID: 20260901_ml_ops_pay_status
 Revises: 20260831_ml_ops_div_idx
 Create Date: 2026-09-01
 
-Two new facts on `ml_orders_ops`, both inputs to the `operation_status`
-derivation in `app/services/ml_orders_ingestion/operation_status.py`:
+Two new facts on `ml_orders_ops`. Both exist to tell apart sales that the
+order's own status alone reports identically:
 
 - `payment_status`: the order's first payment status (`payments[0].status`
   in the raw ML payload). `in_mediation` is the value that matters -- see
-  `operation_status.py`'s module docstring for why this needs its own
+  below for why this needs its own
   column instead of a JSONB reach-in at query time. CHECK-constrained to
   Mercado Pago's documented payment status values
   (`app/models/ml_orders_ops.py::PAYMENT_STATUSES`); NULL passes the CHECK

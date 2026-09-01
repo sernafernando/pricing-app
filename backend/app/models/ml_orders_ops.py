@@ -37,7 +37,7 @@ from app.core.database import Base
 
 
 # Mercado Pago's documented payment `status` values (ML orders/payments
-# API). `in_mediation` is the one `operation_status.py` keys off of --
+# API). `in_mediation` is the value that matters --
 # see that module's docstring for the production incident this closes.
 PAYMENT_STATUSES = (
     "approved",
@@ -87,7 +87,7 @@ class MlOrdersOps(Base):
     shipping_id = Column(BigInteger, nullable=True, index=True)
 
     # First payment's status (`payments[0].status`). See `PAYMENT_STATUSES`
-    # above and `operation_status.py`'s module docstring for why this is
+    # above for why this is
     # its own column instead of being read out of `raw_order` at query
     # time (design D7 precedent: a value the derivation depends on gets a
     # real column, not a JSONB reach-in).
@@ -98,7 +98,7 @@ class MlOrdersOps(Base):
     # cancellation). NULLABLE WITH NO RELIABLE WRITER YET: this ingestion
     # slice could not verify where this fact appears in the order payload
     # (see `mapper.py`'s `map_order`) -- every row is written NULL for now
-    # rather than guessed. `operation_status.py` treats NULL/False the
+    # rather than guessed. NULL and False are treated the
     # same (falls through to plain `cancelled`), so this is a safe default
     # until a follow-up slice fills it in.
     covered_by_marketplace = Column(Boolean, nullable=True)

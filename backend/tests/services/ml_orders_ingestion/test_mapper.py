@@ -384,3 +384,37 @@ class TestPaymentStatusAndCoveredByMarketplace:
 
         assert not isinstance(result, MappingError)
         assert result.covered_by_marketplace is None
+
+
+class TestUnknownPaymentStatusIsDropped:
+    """`payment_status` has a closed CHECK in Postgres. A value ML has not
+    used before would raise IntegrityError on insert and take the whole
+    batch with it, breaking `upsert_order`'s "never raises" contract. SQLite
+    does not enforce the constraint, so nothing here would show it."""
+
+    def test_a_status_outside_the_vocabulary_becomes_none(self) -> None:
+        from app.models.ml_orders_ops import PAYMENT_STATUSES
+
+        payload = {**FULL_ORDER_PAYLOAD, "payments": [{"status": "a_status_ml_invented"}]}
+
+        result = map_order(payload)
+
+        assert not isinstance(result, MappingError)
+        assert result.payment_status is None
+        assert "a_status_ml_invented" not in PAYMENT_STATUSES
+
+    def test_a_known_status_survives(self) -> None:
+        payload = {**FULL_ORDER_PAYLOAD, "payments": [{"status": "in_mediation"}]}
+
+        result = map_order(payload)
+
+        assert not isinstance(result, MappingError)
+        assert result.payment_status == "in_mediation"
+
+    def test_a_non_string_status_becomes_none(self) -> None:
+        payload = {**FULL_ORDER_PAYLOAD, "payments": [{"status": 42}]}
+
+        result = map_order(payload)
+
+        assert not isinstance(result, MappingError)
+        assert result.payment_status is None
