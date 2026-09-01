@@ -18,6 +18,7 @@ from __future__ import annotations
 
 from sqlalchemy import (
     BigInteger,
+    Boolean,
     CheckConstraint,
     Column,
     DateTime,
@@ -35,6 +36,22 @@ from sqlalchemy.sql import func
 from app.core.database import Base
 
 
+# Mercado Pago's documented payment `status` values (ML orders/payments
+# API). `in_mediation` is the one `operation_status.py` keys off of --
+# see that module's docstring for the production incident this closes.
+PAYMENT_STATUSES = (
+    "approved",
+    "pending",
+    "authorized",
+    "in_process",
+    "in_mediation",
+    "rejected",
+    "cancelled",
+    "refunded",
+    "charged_back",
+)
+
+
 class MlOrdersOps(Base):
     """One row per ML order. Writer of record: ML ingestion service."""
 
@@ -42,6 +59,10 @@ class MlOrdersOps(Base):
     __table_args__ = (
         Index("ix_ml_orders_ops_seller_id_ml_last_updated", "seller_id", "ml_last_updated"),
         Index("ix_ml_orders_ops_status_date_created", "status", "date_created"),
+        CheckConstraint(
+            "payment_status IN (" + ", ".join(f"'{v}'" for v in PAYMENT_STATUSES) + ")",
+            name="ck_ml_orders_ops_payment_status",
+        ),
     )
 
     order_id = Column(BigInteger, primary_key=True)
@@ -64,6 +85,23 @@ class MlOrdersOps(Base):
     currency_id = Column(String(5), nullable=True)
 
     shipping_id = Column(BigInteger, nullable=True, index=True)
+
+    # First payment's status (`payments[0].status`). See `PAYMENT_STATUSES`
+    # above and `operation_status.py`'s module docstring for why this is
+    # its own column instead of being read out of `raw_order` at query
+    # time (design D7 precedent: a value the derivation depends on gets a
+    # real column, not a JSONB reach-in).
+    payment_status = Column(String(20), nullable=True, index=True)
+
+    # Whether ML's Buyer Protection Programme covered a cancelled order's
+    # refund out of its own pocket (money still came in, despite the
+    # cancellation). NULLABLE WITH NO RELIABLE WRITER YET: this ingestion
+    # slice could not verify where this fact appears in the order payload
+    # (see `mapper.py`'s `map_order`) -- every row is written NULL for now
+    # rather than guessed. `operation_status.py` treats NULL/False the
+    # same (falls through to plain `cancelled`), so this is a safe default
+    # until a follow-up slice fills it in.
+    covered_by_marketplace = Column(Boolean, nullable=True)
 
     tags = Column(JSONB, nullable=True)
     raw_order = Column(JSONB, nullable=True)

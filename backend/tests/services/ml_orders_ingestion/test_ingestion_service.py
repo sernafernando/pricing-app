@@ -12,10 +12,11 @@ from __future__ import annotations
 import pytest
 
 from app.core.config import settings
-from app.models.ml_orders_ops import MlOrderItemOps, MlOrdersOps
+from app.models.ml_orders_ops import MlOrderItemOps, MlOrdersOps, MlShipmentOps
 from app.services.ml_orders_ingestion.ingestion_service import (
     UpsertOutcome,
     upsert_order,
+    upsert_shipment,
 )
 
 
@@ -189,3 +190,84 @@ class TestUpsertOrderDeletesStaleItems:
 
         assert outcome == UpsertOutcome.SKIPPED_STALE
         assert db.query(MlOrderItemOps).filter_by(order_id=111).count() == 1
+
+
+def _shipment_payload(
+    shipment_id: int = 900,
+    order_id: int = 111,
+    status: str = "shipped",
+    last_updated: str = "2026-08-20T10:00:00.000-04:00",
+) -> dict:
+    return {
+        "id": shipment_id,
+        "order_id": order_id,
+        "status": status,
+        "substatus": None,
+        "logistic_type": "cross_docking",
+        "tracking_number": "TRACK1",
+        "tracking_method": "correo",
+        "date_created": "2026-08-19T10:00:00.000-04:00",
+        "last_updated": last_updated,
+        "receiver_address": {"city": "CABA"},
+    }
+
+
+class TestUpsertShipmentFlagGate:
+    def test_flag_off_writes_nothing(self, db, monkeypatch):
+        monkeypatch.setattr(settings, "ML_ORDERS_OPS_ENABLED", False)
+        outcome = upsert_shipment(db, _shipment_payload())
+        assert outcome == UpsertOutcome.DISABLED
+        assert db.query(MlShipmentOps).count() == 0
+
+
+class TestUpsertShipment:
+    def test_creates_shipment_row(self, db):
+        outcome = upsert_shipment(db, _shipment_payload())
+
+        assert outcome == UpsertOutcome.OK
+        row = db.query(MlShipmentOps).filter_by(shipment_id=900).one()
+        assert row.order_id == 111
+        assert row.status == "shipped"
+        assert row.tracking_number == "TRACK1"
+
+    def test_mapping_error_for_malformed_payload_writes_nothing(self, db):
+        outcome = upsert_shipment(db, {"order_id": 111})  # missing required "id"
+
+        assert outcome == UpsertOutcome.MAPPING_ERROR
+        assert db.query(MlShipmentOps).count() == 0
+
+    def test_never_raises_on_malformed_payload(self, db):
+        outcome = upsert_shipment(db, "not-a-dict")  # type: ignore[arg-type]
+        assert outcome == UpsertOutcome.MAPPING_ERROR
+
+    def test_newer_update_overwrites_stored_row(self, db):
+        upsert_shipment(db, _shipment_payload(status="ready_to_ship", last_updated="2026-08-20T10:00:00.000-04:00"))
+        outcome = upsert_shipment(
+            db, _shipment_payload(status="delivered", last_updated="2026-08-21T10:00:00.000-04:00")
+        )
+
+        assert outcome == UpsertOutcome.OK
+        row = db.query(MlShipmentOps).filter_by(shipment_id=900).one()
+        assert row.status == "delivered"
+
+    def test_stale_update_is_skipped(self, db):
+        upsert_shipment(db, _shipment_payload(status="delivered", last_updated="2026-08-21T10:00:00.000-04:00"))
+        outcome = upsert_shipment(
+            db, _shipment_payload(status="ready_to_ship", last_updated="2026-08-20T10:00:00.000-04:00")
+        )
+
+        assert outcome == UpsertOutcome.SKIPPED_STALE
+        row = db.query(MlShipmentOps).filter_by(shipment_id=900).one()
+        assert row.status == "delivered"
+
+    def test_shipment_with_no_last_updated_always_overwrites(self, db):
+        """A shipment payload that ever omits `last_updated` has nothing
+        to compare against, so it must always apply rather than getting
+        permanently stuck as stale against itself."""
+        upsert_shipment(db, _shipment_payload(status="shipped", last_updated=""))
+        payload2 = _shipment_payload(status="delivered", last_updated="")
+        outcome = upsert_shipment(db, payload2)
+
+        assert outcome == UpsertOutcome.OK
+        row = db.query(MlShipmentOps).filter_by(shipment_id=900).one()
+        assert row.status == "delivered"

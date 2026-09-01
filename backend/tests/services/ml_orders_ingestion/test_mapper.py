@@ -339,3 +339,48 @@ class TestVariationIdCoercion:
         }
 
         assert isinstance(map_order(payload), MappingError)
+
+
+class TestPaymentStatusAndCoveredByMarketplace:
+    """ml-ventas-listado: `payment_status` (`payments[0].status`) and
+    `covered_by_marketplace` (currently always `None`, undetermined --
+    see `map_order`'s inline comment)."""
+
+    def test_payment_status_read_from_first_payment(self) -> None:
+        payload = {**FULL_ORDER_PAYLOAD, "payments": [{"status": "in_mediation"}, {"status": "approved"}]}
+
+        result = map_order(payload)
+
+        assert not isinstance(result, MappingError)
+        assert result.payment_status == "in_mediation"
+
+    def test_payment_status_none_when_no_payments(self) -> None:
+        result = map_order(FULL_ORDER_PAYLOAD)
+
+        assert not isinstance(result, MappingError)
+        assert result.payment_status is None
+
+    def test_payment_status_none_when_payments_not_a_list(self) -> None:
+        payload = {**FULL_ORDER_PAYLOAD, "payments": "not-a-list"}
+
+        result = map_order(payload)
+
+        assert not isinstance(result, MappingError)
+        assert result.payment_status is None
+
+    def test_payment_status_none_when_first_payment_not_a_dict(self) -> None:
+        payload = {**FULL_ORDER_PAYLOAD, "payments": ["not-a-dict"]}
+
+        result = map_order(payload)
+
+        assert not isinstance(result, MappingError)
+        assert result.payment_status is None
+
+    def test_covered_by_marketplace_is_always_none(self) -> None:
+        """No verified field/tag exists for this yet -- see `map_order`'s
+        inline comment. This test pins the honest current behaviour so a
+        future slice that fills it in has to deliberately change this."""
+        result = map_order(FULL_ORDER_PAYLOAD)
+
+        assert not isinstance(result, MappingError)
+        assert result.covered_by_marketplace is None

@@ -63,7 +63,7 @@ from sqlalchemy.exc import IntegrityError
 from app.core.config import settings
 from app.core.database import get_background_db
 from app.models.ml_orders_ops import UNENUMERABLE_KIND, MlOpsDivergence, MlOpsSyncCursor
-from app.services.ml_orders_ingestion.ingestion_service import UpsertOutcome, upsert_order
+from app.services.ml_orders_ingestion.ingestion_service import UpsertOutcome, upsert_order, upsert_shipment
 from app.services.ml_orders_ingestion.mapper import MappingError, map_order
 from app.services.ml_webhook_client import ml_webhook_client
 from app.utils.async_bridge import resolve_maybe_async
@@ -292,10 +292,44 @@ def record_unenumerable_window(db, date_from: datetime, date_to: datetime) -> No
         )
 
 
+def _fetch_shipments(raw_orders: List[Dict[str, Any]]) -> Dict[int, Dict[str, Any]]:
+    """Fetches the shipment payload for every order that carries a
+    `shipping.id`, entirely BEFORE any DB session opens (same HTTP-before-
+    write discipline as the order/page fetch above -- design D8).
+
+    Best-effort per shipment: a failed fetch is logged and skipped rather
+    than raised, so one flaky shipment lookup never turns into a
+    `WindowFetchError` that discards an otherwise-good page of orders.
+    """
+    shipments: Dict[int, Dict[str, Any]] = {}
+    for raw_order in raw_orders:
+        shipping = raw_order.get("shipping")
+        if not isinstance(shipping, dict):
+            continue
+        raw_shipping_id = shipping.get("id")
+        if raw_shipping_id is None:
+            continue
+        try:
+            shipping_id = int(raw_shipping_id)
+        except (TypeError, ValueError):
+            continue
+        if shipping_id in shipments:
+            continue
+        try:
+            payload = resolve_maybe_async(ml_webhook_client.get_shipment(shipping_id))
+        except Exception:
+            logger.warning("sweep: shipment fetch failed for shipping_id=%s", shipping_id, exc_info=True)
+            continue
+        if isinstance(payload, dict):
+            shipments[shipping_id] = payload
+    return shipments
+
+
 def process_batch(raw_orders: List[Dict[str, Any]], window_from_floor: datetime, result: SweepResult) -> None:
-    """Upserts one bounded batch in its OWN short-lived session. No HTTP
-    call happens inside this block -- every raw order was already fetched
-    during the (HTTP-only) search phase.
+    """Upserts one bounded batch in its OWN short-lived session. Every
+    shipment payload was already fetched (HTTP-only, see `_fetch_shipments`)
+    BEFORE this function is called -- no HTTP call happens inside this
+    block, only the order/shipment payloads already in hand.
 
     Counters accumulate in locals and are folded into `result` only once
     the session exits cleanly. Incrementing `result` row by row inside the
@@ -303,6 +337,8 @@ def process_batch(raw_orders: List[Dict[str, Any]], window_from_floor: datetime,
     "metric that lies by construction" this function already guards
     against in its DISABLED branch."""
     seen = upserted = skipped_stale = mapping_error = out_of_window = 0
+
+    shipments = _fetch_shipments(raw_orders)
 
     with get_background_db() as db:
         for raw_order in raw_orders:
@@ -331,6 +367,23 @@ def process_batch(raw_orders: List[Dict[str, Any]], window_from_floor: datetime,
                 # must never lie by construction -- this is NOT a mapping
                 # error, so it must not be counted as one.
                 logger.error("sweep: upsert_order returned DISABLED mid-window -- flag toggled during a run?")
+                continue
+
+            # Shipment upsert failures are NOT folded into the order
+            # counters above -- a shipment mapping error/staleness says
+            # nothing about whether the order itself was written, and
+            # conflating the two would make `orders_upserted` lie about
+            # what actually happened to the order row.
+            if mapped.shipping_id is not None:
+                shipment_payload = shipments.get(mapped.shipping_id)
+                if shipment_payload is not None:
+                    shipment_outcome = upsert_shipment(db, shipment_payload)
+                    if shipment_outcome == UpsertOutcome.MAPPING_ERROR:
+                        logger.warning(
+                            "sweep: shipment mapping error for shipping_id=%s (order_id=%s)",
+                            mapped.shipping_id,
+                            mapped.order_id,
+                        )
 
     result.orders_seen += seen
     result.orders_upserted += upserted
