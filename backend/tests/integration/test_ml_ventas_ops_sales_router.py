@@ -21,6 +21,9 @@ from app.services.ml_orders_ingestion.link_resolver_service import resolve_links
 
 @pytest.fixture(autouse=True)
 def _flag_on(monkeypatch):
+    # The listing is scoped to the configured seller, so the fixtures'
+    # seller has to be the configured one.
+    monkeypatch.setattr(settings, "ML_USER_ID", 999)
     monkeypatch.setattr(settings, "ML_ORDERS_OPS_ENABLED", True)
 
 
@@ -272,3 +275,38 @@ class TestFacetCounts:
         assert facets["paid"] == 1
         assert facets["cancelled"] == 1
         assert facets["delivered"] == 0
+
+
+class TestSoldMonthOutOfRangeIsNot500:
+    """`int("99999")` parses and month 1 is valid, so only `datetime`
+    rejects the year — and it did so outside the guard. The existing test
+    used "not-a-month", which dies at `int()` and never reaches that line."""
+
+    def test_an_impossible_year_is_422(self, db, client, admin_auth_headers, rol_admin) -> None:
+        _grant_ml_ops_ver(db, rol_admin)
+
+        for bad in ("99999-01", "0000-05"):
+            resp = client.get("/api/ml-ventas-ops/sales", params={"sold_month": bad}, headers=admin_auth_headers)
+            assert resp.status_code == 422, f"{bad} devolvió {resp.status_code}"
+
+
+class TestListingIsScopedToTheSeller:
+    """Without a seller filter the listing scans every row in the table,
+    and shows orders belonging to another account if one ever lands there.
+    The sweep already scopes its work this way."""
+
+    def test_only_the_configured_seller_is_listed(self, db, client, admin_auth_headers, rol_admin, monkeypatch):
+        _grant_ml_ops_ver(db, rol_admin)
+        monkeypatch.setattr(settings, "ML_USER_ID", 999)
+
+        when = datetime.now(timezone.utc)
+        db.add(MlOrdersOps(order_id=1, seller_id=999, ml_last_updated=when, date_created=when, status="paid"))
+        db.add(MlOrdersOps(order_id=2, seller_id=555, ml_last_updated=when, date_created=when, status="paid"))
+        db.commit()
+
+        resp = client.get("/api/ml-ventas-ops/sales", headers=admin_auth_headers)
+
+        assert resp.status_code == 200
+        body = resp.json()
+        assert [row["order_id"] for row in body["sales"]] == [1]
+        assert body["total"] == 1

@@ -329,15 +329,19 @@ def _parse_sold_month(sold_month: str) -> Tuple[datetime, datetime]:
         year, month = int(year_str), int(month_str)
         if not (1 <= month <= 12):
             raise ValueError("month out of range")
-    except ValueError as e:
+        # Inside the try on purpose: `int("99999")` parses fine and the month
+        # check passes, and only `datetime` rejects the year -- outside, that
+        # ValueError reached the client as a 500, which is exactly what this
+        # function's docstring says cannot happen.
+        month_start = datetime(year, month, 1, tzinfo=timezone.utc)
+        days_in_month = calendar.monthrange(year, month)[1]
+        next_month_start = month_start.replace(day=days_in_month) + timedelta(days=1)
+    except (ValueError, OverflowError) as e:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail=f"sold_month inválido (esperado YYYY-MM): {sold_month!r}",
         ) from e
 
-    month_start = datetime(year, month, 1, tzinfo=timezone.utc)
-    days_in_month = calendar.monthrange(year, month)[1]
-    next_month_start = month_start.replace(day=days_in_month) + timedelta(days=1)
     return month_start, next_month_start
 
 
@@ -391,6 +395,11 @@ def listar_ventas(
     base = db.query(MlOrdersOps, MlShipmentOps).outerjoin(
         MlShipmentOps, MlShipmentOps.shipment_id == MlOrdersOps.shipping_id
     )
+    # Always scoped to the configured seller, as the sweep is. Without it
+    # every query in this endpoint scans the whole table, and an order
+    # belonging to another account would show up in the listing.
+    if settings.ML_USER_ID:
+        base = base.filter(MlOrdersOps.seller_id == int(settings.ML_USER_ID))
     if sold_month_range is not None:
         base = base.filter(
             MlOrdersOps.date_created >= sold_month_range[0], MlOrdersOps.date_created < sold_month_range[1]
