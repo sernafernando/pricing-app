@@ -62,8 +62,14 @@ from sqlalchemy.exc import IntegrityError
 
 from app.core.config import settings
 from app.core.database import get_background_db
-from app.models.ml_orders_ops import UNENUMERABLE_KIND, MlOpsDivergence, MlOpsSyncCursor
-from app.services.ml_orders_ingestion.ingestion_service import UpsertOutcome, upsert_order
+from app.models.ml_orders_ops import (
+    UNENUMERABLE_KIND,
+    MlOpsDivergence,
+    MlOpsSyncCursor,
+    MlOrdersOps,
+    MlShipmentOps,
+)
+from app.services.ml_orders_ingestion.ingestion_service import UpsertOutcome, upsert_order, upsert_shipment
 from app.services.ml_orders_ingestion.mapper import MappingError, map_order
 from app.services.ml_webhook_client import ml_webhook_client
 from app.utils.async_bridge import resolve_maybe_async
@@ -292,10 +298,118 @@ def record_unenumerable_window(db, date_from: datetime, date_to: datetime) -> No
         )
 
 
-def process_batch(raw_orders: List[Dict[str, Any]], window_from_floor: datetime, result: SweepResult) -> None:
-    """Upserts one bounded batch in its OWN short-lived session. No HTTP
-    call happens inside this block -- every raw order was already fetched
-    during the (HTTP-only) search phase.
+def _fetch_shipments(raw_orders: List[Dict[str, Any]], budget: Optional[List[int]] = None) -> Dict[int, Dict[str, Any]]:
+    """Fetches the shipment payload for every order that carries a
+    `shipping.id`, entirely BEFORE any DB session opens (same HTTP-before-
+    write discipline as the order/page fetch above -- design D8).
+
+    Best-effort per shipment: a failed fetch is logged and skipped rather
+    than raised, so one flaky shipment lookup never turns into a
+    `WindowFetchError` that discards an otherwise-good page of orders.
+
+    Shares the pass's `budget` with the page fetches. A cold start would
+    otherwise issue one lookup per order, sequentially, for as many orders
+    as the window holds -- long past the stale-lock timeout, so a second
+    pass would start on top of the first. A caller that passes none gets a
+    fresh per-batch allowance rather than no limit at all.
+    """
+    if budget is None:
+        budget = [MAX_WINDOW_FETCHES_PER_PASS]
+    shipments: Dict[int, Dict[str, Any]] = {}
+    for raw_order in raw_orders:
+        shipping = raw_order.get("shipping")
+        if not isinstance(shipping, dict):
+            continue
+        raw_shipping_id = shipping.get("id")
+        if raw_shipping_id is None:
+            continue
+        try:
+            shipping_id = int(raw_shipping_id)
+        except (TypeError, ValueError):
+            continue
+        if shipping_id in shipments:
+            continue
+        if budget[0] <= 0:
+            logger.warning("sweep: fetch budget spent before every shipment was read; the next pass resumes")
+            break
+        budget[0] -= 1
+        try:
+            payload = resolve_maybe_async(ml_webhook_client.get_shipment(shipping_id))
+        except Exception:
+            logger.warning("sweep: shipment fetch failed for shipping_id=%s", shipping_id, exc_info=True)
+            continue
+        if isinstance(payload, dict):
+            shipments[shipping_id] = payload
+    return shipments
+
+
+def tz_aware(value: Optional[datetime]) -> Optional[datetime]:
+    """SQLite loses tzinfo on a value round-tripped through the DB (the
+    test DB, `tests/conftest.py`'s `sqlite://`) -- a naive value read back
+    here is defensively assumed UTC, exactly like the mapper's
+    `_parse_tz_aware` (real ML timestamps always carry an offset; this
+    only matters for the sqlite test round-trip and any future engine with
+    the same gap)."""
+    if value is None:
+        return None
+    if value.tzinfo is None:
+        return value.replace(tzinfo=timezone.utc)
+    return value
+
+
+# A shipment in one of these has finished moving: the goods reached the
+# buyer, or came back. Anything else is still in flight and can change
+# without the order changing with it.
+TERMINAL_SHIPMENT_STATUSES = frozenset({"delivered", "not_delivered", "cancelled"})
+
+
+def _stored_ml_last_updated(order_ids: List[int]) -> Dict[int, Optional[datetime]]:
+    """The `ml_last_updated` already stored for these orders, in one query.
+    Missing keys mean the order is new. Read-only and short-lived."""
+    if not order_ids:
+        return {}
+    with get_background_db() as db:
+        rows = (
+            db.query(MlOrdersOps.order_id, MlOrdersOps.ml_last_updated)
+            .filter(MlOrdersOps.order_id.in_(order_ids))
+            .all()
+        )
+    return {order_id: tz_aware(stored) for order_id, stored in rows}
+
+
+def _orders_with_a_settled_shipment(order_ids: List[int]) -> set:
+    """Orders whose stored shipment has finished moving, in one query.
+
+    Skipping an unchanged order's shipment assumes Mercado Libre bumps the
+    ORDER's `date_last_updated` whenever the SHIPMENT moves. That is not
+    verified, and if it does not hold in some case, the shipment freezes
+    and the listing's goods column lies about where the product is. A
+    shipment that already reached a terminal status cannot move again, so
+    it is the only one safe to skip on that assumption."""
+    if not order_ids:
+        return set()
+    with get_background_db() as db:
+        rows = (
+            db.query(MlShipmentOps.order_id)
+            .filter(
+                MlShipmentOps.order_id.in_(order_ids),
+                MlShipmentOps.status.in_(tuple(TERMINAL_SHIPMENT_STATUSES)),
+            )
+            .all()
+        )
+    return {order_id for (order_id,) in rows}
+
+
+def process_batch(
+    raw_orders: List[Dict[str, Any]],
+    window_from_floor: datetime,
+    result: SweepResult,
+    budget: Optional[List[int]] = None,
+) -> None:
+    """Upserts one bounded batch in its OWN short-lived session. Every
+    shipment payload was already fetched (HTTP-only, see `_fetch_shipments`)
+    BEFORE this function is called -- no HTTP call happens inside this
+    block, only the order/shipment payloads already in hand.
 
     Counters accumulate in locals and are folded into `result` only once
     the session exits cleanly. Incrementing `result` row by row inside the
@@ -304,15 +418,46 @@ def process_batch(raw_orders: List[Dict[str, Any]], window_from_floor: datetime,
     against in its DISABLED branch."""
     seen = upserted = skipped_stale = mapping_error = out_of_window = 0
 
-    with get_background_db() as db:
-        for raw_order in raw_orders:
-            seen += 1
-            mapped = map_order(raw_order)
-            if isinstance(mapped, MappingError):
-                mapping_error += 1
-                logger.warning("sweep: mapping error for a search result: %s", mapped.reason)
-                continue
+    # Map and classify first: both are pure, so they cost nothing, and they
+    # decide which orders are actually going to be written. Fetching a
+    # shipment for an order the window excludes would spend a slot of the
+    # shared budget the page walk needs, for a row that is never ingested.
+    classified: List[tuple[Dict[str, Any], Any]] = []
+    for raw_order in raw_orders:
+        seen += 1
+        mapped = map_order(raw_order)
+        if isinstance(mapped, MappingError):
+            mapping_error += 1
+            logger.warning("sweep: mapping error for a search result: %s", mapped.reason)
+            continue
+        classified.append((raw_order, mapped))
 
+    in_window = [
+        (raw_order, mapped)
+        for raw_order, mapped in classified
+        if not (mapped.date_created is not None and mapped.date_created < window_from_floor)
+    ]
+
+    # `CURSOR_OVERLAP` makes every pass reprocess the last stretch of the
+    # previous one on purpose, so in steady state most of a batch upserts to
+    # SKIPPED_STALE. Fetching those shipments would spend the shared budget
+    # on writes that never happen -- the common case, not an edge. One
+    # read-only query answers which orders are already at this version;
+    # reading is not writing, so the HTTP-before-write discipline holds.
+    in_window_ids = [mapped.order_id for _, mapped in in_window]
+    stored_versions = _stored_ml_last_updated(in_window_ids)
+    settled_shipments = _orders_with_a_settled_shipment(in_window_ids)
+    ingestable = [
+        (raw_order, mapped)
+        for raw_order, mapped in in_window
+        if stored_versions.get(mapped.order_id) is None
+        or mapped.ml_last_updated > stored_versions[mapped.order_id]
+        or mapped.order_id not in settled_shipments
+    ]
+    shipments = _fetch_shipments([raw for raw, _ in ingestable], budget)
+
+    with get_background_db() as db:
+        for raw_order, mapped in classified:
             if mapped.date_created is not None and mapped.date_created < window_from_floor:
                 _record_out_of_window(db, mapped.order_id)
                 out_of_window += 1
@@ -331,6 +476,23 @@ def process_batch(raw_orders: List[Dict[str, Any]], window_from_floor: datetime,
                 # must never lie by construction -- this is NOT a mapping
                 # error, so it must not be counted as one.
                 logger.error("sweep: upsert_order returned DISABLED mid-window -- flag toggled during a run?")
+                continue
+
+            # Shipment upsert failures are NOT folded into the order
+            # counters above -- a shipment mapping error/staleness says
+            # nothing about whether the order itself was written, and
+            # conflating the two would make `orders_upserted` lie about
+            # what actually happened to the order row.
+            if mapped.shipping_id is not None:
+                shipment_payload = shipments.get(mapped.shipping_id)
+                if shipment_payload is not None:
+                    shipment_outcome = upsert_shipment(db, shipment_payload)
+                    if shipment_outcome == UpsertOutcome.MAPPING_ERROR:
+                        logger.warning(
+                            "sweep: shipment mapping error for shipping_id=%s (order_id=%s)",
+                            mapped.shipping_id,
+                            mapped.order_id,
+                        )
 
     result.orders_seen += seen
     result.orders_upserted += upserted
@@ -409,20 +571,6 @@ def release_lock_as_error(error: BaseException, cursor_name: str = CURSOR_NAME) 
             cursor.detail = str(error)[:500]
     except Exception:
         logger.exception("%s: could not release the run lock; the stale timeout will reclaim it", cursor_name)
-
-
-def tz_aware(value: Optional[datetime]) -> Optional[datetime]:
-    """SQLite loses tzinfo on a value round-tripped through the DB (the
-    test DB, `tests/conftest.py`'s `sqlite://`) -- a naive value read back
-    here is defensively assumed UTC, exactly like the mapper's
-    `_parse_tz_aware` (real ML timestamps always carry an offset; this
-    only matters for the sqlite test round-trip and any future engine with
-    the same gap)."""
-    if value is None:
-        return None
-    if value.tzinfo is None:
-        return value.replace(tzinfo=timezone.utc)
-    return value
 
 
 def parse_running_since(detail: Optional[str]) -> Optional[datetime]:
@@ -524,22 +672,26 @@ def run_sweep(seller_id: Optional[int] = None, window_days: Optional[int] = None
     result = SweepResult(ran=True, window_from=window_start, window_to=prior_window_to)
     last_checkpoint_to = prior_window_to
     pending: List[Dict[str, Any]] = []
+    # ONE allowance for the whole pass, shared by the page walk and the
+    # shipment lookups. Two separate budgets would each stay under their own
+    # limit while the pass as a whole ran far past the stale-lock timeout.
+    fetch_budget: List[int] = [MAX_WINDOW_FETCHES_PER_PASS]
 
     def _flush_pending() -> None:
         nonlocal pending
         if pending:
-            process_batch(pending, window_from_floor, result)
+            process_batch(pending, window_from_floor, result, fetch_budget)
             pending = []
 
     failure: Optional[BaseException] = None
 
     try:
-        for event in iter_window_events(int(resolved_seller_id), window_start, window_end):
+        for event in iter_window_events(int(resolved_seller_id), window_start, window_end, fetch_budget):
             kind = event[0]
             if kind == "page":
                 pending.extend(event[1])
                 while len(pending) >= BATCH_SIZE:
-                    process_batch(pending[:BATCH_SIZE], window_from_floor, result)
+                    process_batch(pending[:BATCH_SIZE], window_from_floor, result, fetch_budget)
                     pending = pending[BATCH_SIZE:]
             elif kind == "budget_exhausted":
                 # Stop this pass without advancing past the unfinished

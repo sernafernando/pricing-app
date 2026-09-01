@@ -26,12 +26,14 @@ from sqlalchemy.dialects import postgresql, sqlite
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
-from app.models.ml_orders_ops import MlOrderItemOps, MlOrdersOps
+from app.models.ml_orders_ops import MlOrderItemOps, MlOrdersOps, MlShipmentOps
 from app.services.ml_orders_ingestion.mapper import (
     MappingError,
     OrderItemOpsDTO,
     OrderOpsDTO,
+    ShipmentOpsDTO,
     map_order,
+    map_shipment,
 )
 
 logger = logging.getLogger(__name__)
@@ -77,6 +79,8 @@ def _upsert_order_row(db: Session, dto: OrderOpsDTO) -> bool:
         "paid_amount": dto.paid_amount,
         "currency_id": dto.currency_id,
         "shipping_id": dto.shipping_id,
+        "payment_status": dto.payment_status,
+        "covered_by_marketplace": dto.covered_by_marketplace,
         "tags": dto.tags,
         "raw_order": dto.raw_order,
         "ingest_error": None,
@@ -132,6 +136,67 @@ def _upsert_item_row(db: Session, order_id: int, item: OrderItemOpsDTO) -> None:
         set_=update_cols,
     )
     db.execute(stmt)
+
+
+def _upsert_shipment_row(db: Session, dto: ShipmentOpsDTO) -> bool:
+    """Same idempotent ON CONFLICT pattern as `_upsert_order_row`. Guarded
+    by `last_updated` rather than `ml_last_updated` (shipments carry no
+    field of that name); a shipment payload with no `last_updated` (some
+    do not) always overwrites, since there is nothing to compare against."""
+    values: Dict[str, Any] = {
+        "shipment_id": dto.shipment_id,
+        "order_id": dto.order_id,
+        "status": dto.status,
+        "substatus": dto.substatus,
+        "logistic_type": dto.logistic_type,
+        "tracking_number": dto.tracking_number,
+        "tracking_method": dto.tracking_method,
+        "date_created": dto.date_created,
+        "last_updated": dto.last_updated,
+        "receiver_address": dto.receiver_address,
+        "raw_shipment": dto.raw_shipment,
+        "last_synced_at": func.now(),
+    }
+    stmt = _insert_stmt(db, MlShipmentOps.__table__).values(**values)
+    update_cols = {k: stmt.excluded[k] for k in values if k != "shipment_id"}
+    stmt = stmt.on_conflict_do_update(
+        index_elements=["shipment_id"],
+        set_=update_cols,
+        where=(
+            MlShipmentOps.__table__.c.last_updated.is_(None)
+            | (stmt.excluded.last_updated.is_(None))
+            | (MlShipmentOps.__table__.c.last_updated < stmt.excluded.last_updated)
+        ),
+    )
+    result = db.execute(stmt)
+    return bool(result.rowcount and result.rowcount > 0)
+
+
+def upsert_shipment(db: Session, payload: Dict[str, Any], mapped: Optional[ShipmentOpsDTO] = None) -> UpsertOutcome:
+    """Upserts one ML shipment, keyed on `shipment_id`. Same outcome
+    contract as `upsert_order` -- see that function's docstring.
+
+    Called by the sweep (`sweep_service.py`) for every order that carries
+    a `shipping_id`; the shipment payload is fetched OUTSIDE any DB
+    session (HTTP-before-write, same as the order fetch) and handed in
+    here already fetched. NEVER raises for a malformed payload.
+    """
+    if not settings.ML_ORDERS_OPS_ENABLED:
+        return UpsertOutcome.DISABLED
+
+    result = mapped if mapped is not None else map_shipment(payload)
+    if isinstance(result, MappingError):
+        raw_id = payload.get("id") if isinstance(payload, dict) else None
+        logger.warning("ml_shipments_ops: mapping error for shipment_id=%r: %s", raw_id, result.reason)
+        return UpsertOutcome.MAPPING_ERROR
+
+    dto = result
+    applied = _upsert_shipment_row(db, dto)
+    if not applied:
+        return UpsertOutcome.SKIPPED_STALE
+
+    db.flush()
+    return UpsertOutcome.OK
 
 
 def upsert_order(db: Session, payload: Dict[str, Any], mapped: Optional[OrderOpsDTO] = None) -> UpsertOutcome:

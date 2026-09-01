@@ -15,7 +15,7 @@ from unittest.mock import AsyncMock
 import pytest
 
 from app.core.config import settings
-from app.models.ml_orders_ops import MlOpsDivergence, MlOpsSyncCursor, MlOrdersOps
+from app.models.ml_orders_ops import MlOpsDivergence, MlOpsSyncCursor, MlOrdersOps, MlShipmentOps
 from app.services.ml_orders_ingestion import sweep_service
 from app.services.ml_webhook_client import ml_webhook_client
 
@@ -43,8 +43,8 @@ def _background_db(db, monkeypatch):
     monkeypatch.setattr(sweep_service, "get_background_db", _fake_ctx(db))
 
 
-def _order(order_id: int, seller_id: int, when: datetime, created: datetime) -> dict:
-    return {
+def _order(order_id: int, seller_id: int, when: datetime, created: datetime, shipping_id: int = None) -> dict:
+    order = {
         "id": order_id,
         "status": "paid",
         "date_created": created.isoformat(),
@@ -52,6 +52,18 @@ def _order(order_id: int, seller_id: int, when: datetime, created: datetime) -> 
         "seller": {"id": seller_id},
         "buyer": {"id": 1, "nickname": "x"},
         "order_items": [],
+    }
+    if shipping_id is not None:
+        order["shipping"] = {"id": shipping_id}
+    return order
+
+
+def _shipment(shipment_id: int, order_id: int, status: str = "shipped") -> dict:
+    return {
+        "id": shipment_id,
+        "order_id": order_id,
+        "status": status,
+        "last_updated": None,
     }
 
 
@@ -631,3 +643,242 @@ class TestLastSuccessAtMeansTheWholePass:
         # A broken sweep must not keep refreshing its own freshness signal:
         # an alert on "no successful pass in N minutes" would never fire.
         assert cursor.last_success_at is None
+
+
+class TestShipmentIngestion:
+    """ml-ventas-listado: the sweep is now the caller of `upsert_shipment`
+    -- fetches happen entirely OUTSIDE the DB session (`_fetch_shipments`),
+    and only for orders that carry a `shipping.id`."""
+
+    def test_order_with_shipping_id_populates_ml_shipments_ops(self, db, monkeypatch):
+        now = datetime.now(timezone.utc)
+        recent = now - timedelta(days=1)
+        mock_search = AsyncMock(return_value=_page([_order(1, 999, recent, recent, shipping_id=500)]))
+        monkeypatch.setattr(ml_webhook_client, "search_orders", mock_search)
+        mock_get_shipment = AsyncMock(return_value=_shipment(500, 1, status="delivered"))
+        monkeypatch.setattr(ml_webhook_client, "get_shipment", mock_get_shipment)
+
+        sweep_service.run_sweep(seller_id=999, window_days=90)
+
+        mock_get_shipment.assert_called_once_with(500)
+        row = db.query(MlShipmentOps).filter_by(shipment_id=500).one()
+        assert row.order_id == 1
+        assert row.status == "delivered"
+
+    def test_order_without_shipping_id_never_calls_get_shipment(self, db, monkeypatch):
+        now = datetime.now(timezone.utc)
+        recent = now - timedelta(days=1)
+        mock_search = AsyncMock(return_value=_page([_order(1, 999, recent, recent)]))
+        monkeypatch.setattr(ml_webhook_client, "search_orders", mock_search)
+        mock_get_shipment = AsyncMock(return_value=None)
+        monkeypatch.setattr(ml_webhook_client, "get_shipment", mock_get_shipment)
+
+        sweep_service.run_sweep(seller_id=999, window_days=90)
+
+        mock_get_shipment.assert_not_called()
+        assert db.query(MlShipmentOps).count() == 0
+
+    def test_shipment_fetch_failure_does_not_block_order_ingestion(self, db, monkeypatch):
+        """A flaky shipment lookup must not turn into a `WindowFetchError`
+        that discards an otherwise-good page of orders (best-effort per
+        shipment, see `_fetch_shipments`)."""
+        now = datetime.now(timezone.utc)
+        recent = now - timedelta(days=1)
+        mock_search = AsyncMock(return_value=_page([_order(1, 999, recent, recent, shipping_id=500)]))
+        monkeypatch.setattr(ml_webhook_client, "search_orders", mock_search)
+
+        async def broken_get_shipment(shipment_id):
+            raise ConnectionError("proxy down")
+
+        monkeypatch.setattr(ml_webhook_client, "get_shipment", broken_get_shipment)
+
+        result = sweep_service.run_sweep(seller_id=999, window_days=90)
+
+        assert result.orders_upserted == 1
+        assert db.query(MlOrdersOps).filter_by(order_id=1).count() == 1
+        assert db.query(MlShipmentOps).count() == 0
+
+    def test_two_orders_sharing_a_shipping_id_fetch_it_once(self, db, monkeypatch):
+        now = datetime.now(timezone.utc)
+        recent = now - timedelta(days=1)
+        mock_search = AsyncMock(
+            return_value=_page(
+                [
+                    _order(1, 999, recent, recent, shipping_id=500),
+                    _order(2, 999, recent, recent, shipping_id=500),
+                ]
+            )
+        )
+        monkeypatch.setattr(ml_webhook_client, "search_orders", mock_search)
+        mock_get_shipment = AsyncMock(return_value=_shipment(500, 1))
+        monkeypatch.setattr(ml_webhook_client, "get_shipment", mock_get_shipment)
+
+        sweep_service.run_sweep(seller_id=999, window_days=90)
+
+        mock_get_shipment.assert_called_once_with(500)
+
+
+class TestShipmentFetchesShareTheBudget:
+    """`MAX_WINDOW_FETCHES_PER_PASS` exists so a pass cannot spend itself on
+    HTTP. Shipment lookups did not participate in it: a cold start could
+    issue one per order, sequentially, for tens of thousands of orders —
+    long past the stale-lock timeout, so a second pass would start on top."""
+
+    def test_a_pass_stops_fetching_shipments_once_the_budget_is_spent(self, db, monkeypatch) -> None:
+        from app.services.ml_orders_ingestion import sweep_service
+
+        monkeypatch.setattr(settings, "ML_ORDERS_OPS_ENABLED", True)
+        monkeypatch.setattr(sweep_service, "MAX_WINDOW_FETCHES_PER_PASS", 4)
+
+        when = datetime.now(timezone.utc)
+        orders = [{**_order(i, 999, when, when), "shipping": {"id": 40000 + i}} for i in range(20)]
+
+        async def one_page(seller_id, date_from, date_to, offset=0):
+            return {"results": orders, "paging": {"total": len(orders)}}
+
+        shipment_calls = {"n": 0}
+
+        async def a_shipment(shipment_id):
+            shipment_calls["n"] += 1
+            return {"id": shipment_id, "status": "delivered"}
+
+        monkeypatch.setattr(ml_webhook_client, "search_orders", one_page)
+        monkeypatch.setattr(ml_webhook_client, "get_shipment", a_shipment)
+
+        sweep_service.run_sweep(seller_id=999, window_days=90)
+
+        assert shipment_calls["n"] <= sweep_service.MAX_WINDOW_FETCHES_PER_PASS
+
+
+class TestShipmentBudgetIsNotSpentOnDiscardedOrders:
+    """An out-of-window order is hard-excluded and never ingested. Fetching
+    its shipment spends a slot of the shared budget the page walk needs."""
+
+    def test_no_shipment_is_fetched_for_an_out_of_window_order(self, db, monkeypatch) -> None:
+        from app.services.ml_orders_ingestion import sweep_service
+
+        monkeypatch.setattr(settings, "ML_ORDERS_OPS_ENABLED", True)
+
+        updated = datetime.now(timezone.utc)
+        old = updated - timedelta(days=400)
+        order = {**_order(1, 999, updated, old), "shipping": {"id": 4001}}
+
+        async def one_page(seller_id, date_from, date_to, offset=0):
+            return {"results": [order], "paging": {"total": 1}}
+
+        calls = {"n": 0}
+
+        async def a_shipment(shipment_id):
+            calls["n"] += 1
+            return {"id": shipment_id, "status": "delivered"}
+
+        monkeypatch.setattr(ml_webhook_client, "search_orders", one_page)
+        monkeypatch.setattr(ml_webhook_client, "get_shipment", a_shipment)
+
+        result = sweep_service.run_sweep(seller_id=999, window_days=90)
+
+        assert result.orders_out_of_window == 1
+        assert calls["n"] == 0
+
+
+class TestShipmentBudgetSkipsAlreadyCurrentOrders:
+    """`CURSOR_OVERLAP` makes every pass reprocess the last 15 minutes on
+    purpose. Those orders upsert to SKIPPED_STALE — so fetching their
+    shipments spends the shared budget on writes that will not happen. In
+    steady state that is the common case, not an edge."""
+
+    def test_no_shipment_is_fetched_for_an_order_already_stored_at_the_same_version(self, db, monkeypatch) -> None:
+        from app.models.ml_orders_ops import MlOrdersOps, MlShipmentOps
+        from app.services.ml_orders_ingestion import sweep_service
+
+        monkeypatch.setattr(settings, "ML_ORDERS_OPS_ENABLED", True)
+
+        when = datetime.now(timezone.utc)
+        db.add(MlOrdersOps(order_id=1, seller_id=999, ml_last_updated=when, date_created=when))
+        # settled: the goods reached the buyer, so nothing can move again
+        # and skipping the lookup cannot hide a change
+        db.add(MlShipmentOps(shipment_id=4001, order_id=1, status="delivered"))
+        db.commit()
+
+        order = {**_order(1, 999, when, when), "shipping": {"id": 4001}}
+
+        async def one_page(seller_id, date_from, date_to, offset=0):
+            return {"results": [order], "paging": {"total": 1}}
+
+        calls = {"n": 0}
+
+        async def a_shipment(shipment_id):
+            calls["n"] += 1
+            return {"id": shipment_id, "status": "delivered"}
+
+        monkeypatch.setattr(ml_webhook_client, "search_orders", one_page)
+        monkeypatch.setattr(ml_webhook_client, "get_shipment", a_shipment)
+
+        sweep_service.run_sweep(seller_id=999, window_days=90)
+
+        assert calls["n"] == 0
+
+
+class TestShipmentsInFlightAreRefreshedAnyway:
+    """Skipping an unchanged order's shipment assumes ML bumps the ORDER's
+    `date_last_updated` whenever the SHIPMENT moves. That is unverified —
+    and if it does not hold, a shipment freezes forever and the listing's
+    goods column lies. Only a terminal shipment is safe to skip."""
+
+    def test_a_shipment_still_in_transit_is_refetched(self, db, monkeypatch) -> None:
+        from app.models.ml_orders_ops import MlOrdersOps, MlShipmentOps
+        from app.services.ml_orders_ingestion import sweep_service
+
+        monkeypatch.setattr(settings, "ML_ORDERS_OPS_ENABLED", True)
+
+        when = datetime.now(timezone.utc)
+        db.add(MlOrdersOps(order_id=1, seller_id=999, ml_last_updated=when, date_created=when))
+        db.add(MlShipmentOps(shipment_id=4001, order_id=1, status="shipped"))
+        db.commit()
+
+        order = {**_order(1, 999, when, when), "shipping": {"id": 4001}}
+
+        async def one_page(seller_id, date_from, date_to, offset=0):
+            return {"results": [order], "paging": {"total": 1}}
+
+        calls = {"n": 0}
+
+        async def a_shipment(shipment_id):
+            calls["n"] += 1
+            return {"id": shipment_id, "status": "delivered"}
+
+        monkeypatch.setattr(ml_webhook_client, "search_orders", one_page)
+        monkeypatch.setattr(ml_webhook_client, "get_shipment", a_shipment)
+
+        sweep_service.run_sweep(seller_id=999, window_days=90)
+
+        assert calls["n"] == 1
+
+    def test_a_delivered_shipment_is_not_refetched(self, db, monkeypatch) -> None:
+        from app.models.ml_orders_ops import MlOrdersOps, MlShipmentOps
+        from app.services.ml_orders_ingestion import sweep_service
+
+        monkeypatch.setattr(settings, "ML_ORDERS_OPS_ENABLED", True)
+
+        when = datetime.now(timezone.utc)
+        db.add(MlOrdersOps(order_id=2, seller_id=999, ml_last_updated=when, date_created=when))
+        db.add(MlShipmentOps(shipment_id=4002, order_id=2, status="delivered"))
+        db.commit()
+
+        order = {**_order(2, 999, when, when), "shipping": {"id": 4002}}
+
+        async def one_page(seller_id, date_from, date_to, offset=0):
+            return {"results": [order], "paging": {"total": 1}}
+
+        calls = {"n": 0}
+
+        async def a_shipment(shipment_id):
+            calls["n"] += 1
+            return {"id": shipment_id, "status": "delivered"}
+
+        monkeypatch.setattr(ml_webhook_client, "search_orders", one_page)
+        monkeypatch.setattr(ml_webhook_client, "get_shipment", a_shipment)
+
+        sweep_service.run_sweep(seller_id=999, window_days=90)
+
+        assert calls["n"] == 0

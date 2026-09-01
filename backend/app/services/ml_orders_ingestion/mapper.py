@@ -9,11 +9,17 @@ never observe a partially-populated DTO (fail-closed contract, design D7:
 
 from __future__ import annotations
 
+import logging
+
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional, Union
 
 from dateutil.parser import isoparse
+
+from app.models.ml_orders_ops import PAYMENT_STATUSES
+
+logger = logging.getLogger(__name__)
 
 
 class MappingError:
@@ -65,6 +71,8 @@ class OrderOpsDTO:
     paid_amount: Optional[float]
     currency_id: Optional[str]
     shipping_id: Optional[int]
+    payment_status: Optional[str] = None
+    covered_by_marketplace: Optional[bool] = None
     tags: List[Any] = field(default_factory=list)
     raw_order: Dict[str, Any] = field(default_factory=dict)
     items: List[OrderItemOpsDTO] = field(default_factory=list)
@@ -200,6 +208,40 @@ def map_order(payload: Dict[str, Any]) -> Union[OrderOpsDTO, MappingError]:
     except (AttributeError, TypeError, ValueError) as e:
         return MappingError(f"unparseable order_items: {e}", payload)
 
+    # `payment_status`: the FIRST payment's status. Verified against a real
+    # production order:
+    # `payments[0].status` is where "in_mediation" actually shows up while a
+    # dispute is open. A missing/malformed `payments` array is NOT a mapping
+    # error -- most of an order's lifecycle has no payment yet -- it just
+    # leaves this field `None`, same as any other optional fact.
+    raw_payments = payload.get("payments")
+    payment_status: Optional[str] = None
+    if isinstance(raw_payments, list) and raw_payments:
+        first_payment = raw_payments[0]
+        if isinstance(first_payment, dict):
+            raw_status = first_payment.get("status")
+            # The column's CHECK is closed. A value outside the vocabulary
+            # would raise on insert and take the whole batch down, breaking
+            # `upsert_order`'s promise never to raise for one bad payload.
+            # An unrecognised status is dropped to None -- an optional fact
+            # nobody has classified, not a reason to lose the order.
+            if raw_status in PAYMENT_STATUSES:
+                payment_status = raw_status
+            elif raw_status is not None:
+                logger.warning("map_order: unrecognised payment status %r, stored as NULL", raw_status)
+
+    # `covered_by_marketplace`: whether Mercado Libre's Buyer Protection
+    # Programme itself refunded the buyer on a cancelled order (so the
+    # settlement is untouched even though ML shows "cancelled"). This
+    # cannot be reliably derived from the order payload available to this
+    # ingestion path today -- no confirmed field/tag was found and
+    # verified against a real payload (unlike `payment_status` above,
+    # which WAS verified). Persisted as `None` rather than guessed, per
+    # this slice's explicit instruction to fail closed instead of
+    # inventing a rule. A follow-up slice should investigate this against
+    # a real ML-covered cancellation once one is captured.
+    covered_by_marketplace: Optional[bool] = None
+
     return OrderOpsDTO(
         order_id=order_id,
         seller_id=seller_id,
@@ -215,6 +257,8 @@ def map_order(payload: Dict[str, Any]) -> Union[OrderOpsDTO, MappingError]:
         paid_amount=payload.get("paid_amount"),
         currency_id=payload.get("currency_id"),
         shipping_id=shipping_id,
+        payment_status=payment_status,
+        covered_by_marketplace=covered_by_marketplace,
         tags=raw_tags or [],
         raw_order=payload,
         items=items,

@@ -23,11 +23,13 @@ switched off right now" for a user who already cleared the permission gate.
 
 from __future__ import annotations
 
-from datetime import datetime
-from typing import List, Optional
+import calendar
+from datetime import datetime, timedelta, timezone
+from typing import Dict, List, Optional, Tuple
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel, ConfigDict, Field
+from sqlalchemy import case, func
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_current_user
@@ -45,6 +47,13 @@ from app.models.ml_orders_ops import (
 )
 from app.models.rma_claim_ml import RmaClaimML
 from app.models.usuario import Usuario
+from app.services.ml_orders_ingestion.operation_status import (
+    GOODS_STATUS_BY_SHIPPING_STATUS,
+    GOODS_STATUSES,
+    OPERATION_STATUSES,
+    PAID_ORDER_STATUSES,
+    SETTLED_CLAIM_STATUSES,
+)
 from app.services.permisos_service import PermisosService
 
 DIVERGENCE_KINDS = (
@@ -228,7 +237,226 @@ class DivergenceUpdateRequest(BaseModel):
     note: Optional[str] = None
 
 
+class SaleListItem(BaseModel):
+    order_id: int
+    pack_id: Optional[int] = None
+    status: Optional[str] = None
+    date_created: Optional[datetime] = None
+    buyer_nickname: Optional[str] = None
+    total_amount: Optional[float] = None
+    paid_amount: Optional[float] = None
+    currency_id: Optional[str] = None
+    payment_status: Optional[str] = None
+    shipping_status: Optional[str] = None
+    operation_status: str
+    goods_status: str
+
+
+class SaleFacetCounts(BaseModel):
+    """Counts per value of one filter axis, computed WITHIN the scope the
+    OTHER active filters leave standing (not the globally unfiltered
+    total) -- see `listar_ventas`'s docstring."""
+
+    operation_status: Dict[str, int]
+    goods_status: Dict[str, int]
+
+
+class SaleListResponse(BaseModel):
+    total: int
+    limit: int
+    offset: int
+    sales: List[SaleListItem]
+    facets: SaleFacetCounts
+
+
 # ── Endpoints ────────────────────────────────────────────────────
+
+
+def _open_claim_exists_subquery(db: Session):
+    """Correlated EXISTS: does this order have a linked claim whose status
+    is present and NOT settled (`SETTLED_CLAIM_STATUSES`)? Mirrors
+    `operation_status.operation_status_of`'s `claim_status` row -- see that
+    module for the shared source of truth."""
+    return (
+        db.query(MlOperationLink.id)
+        .join(RmaClaimML, RmaClaimML.id == MlOperationLink.entity_id)
+        .filter(
+            MlOperationLink.entity_type == "claim",
+            MlOperationLink.order_id == MlOrdersOps.order_id,
+            RmaClaimML.status.isnot(None),
+            ~RmaClaimML.status.in_(tuple(SETTLED_CLAIM_STATUSES)),
+        )
+        .exists()
+    )
+
+
+def _operation_status_expr(open_claim_exists):
+    """SQL `CASE` mirroring `operation_status.operation_status_of` row for
+    row -- built from that module's exact `PAID_ORDER_STATUSES`/
+    `SETTLED_CLAIM_STATUSES` sets so the two never drift independently."""
+    return case(
+        (
+            MlOrdersOps.status == "cancelled",
+            case(
+                (MlOrdersOps.covered_by_marketplace.is_(True), "cancelled_ml_covered"),
+                else_="cancelled",
+            ),
+        ),
+        (MlOrdersOps.payment_status == "in_mediation", "in_dispute"),
+        (open_claim_exists, "in_dispute"),
+        (MlShipmentOps.status == "delivered", "delivered"),
+        (MlOrdersOps.status.in_(tuple(PAID_ORDER_STATUSES)), "paid"),
+        else_="unknown",
+    )
+
+
+def _goods_status_expr():
+    """SQL `CASE` mirroring `operation_status.goods_status_of`, built from
+    that module's exact `GOODS_STATUS_BY_SHIPPING_STATUS` map."""
+    whens = [
+        (MlShipmentOps.status == shipping_status, goods_status)
+        for shipping_status, goods_status in GOODS_STATUS_BY_SHIPPING_STATUS.items()
+    ]
+    return case(*whens, else_="unknown")
+
+
+def _parse_sold_month(sold_month: str) -> Tuple[datetime, datetime]:
+    """Parses `YYYY-MM` into a tz-aware `[month_start, next_month_start)`
+    range. Raises `HTTPException(422)` for anything else -- never a bare
+    `ValueError` reaching the client as a 500."""
+    try:
+        year_str, month_str = sold_month.split("-", 1)
+        year, month = int(year_str), int(month_str)
+        if not (1 <= month <= 12):
+            raise ValueError("month out of range")
+    except ValueError as e:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=f"sold_month inválido (esperado YYYY-MM): {sold_month!r}",
+        ) from e
+
+    month_start = datetime(year, month, 1, tzinfo=timezone.utc)
+    days_in_month = calendar.monthrange(year, month)[1]
+    next_month_start = month_start.replace(day=days_in_month) + timedelta(days=1)
+    return month_start, next_month_start
+
+
+@router.get("/sales", response_model=SaleListResponse)
+def listar_ventas(
+    operation_status_filter: Optional[str] = Query(default=None, alias="operation_status"),
+    goods_status_filter: Optional[str] = Query(default=None, alias="goods_status"),
+    sold_month: Optional[str] = Query(default=None, description="YYYY-MM"),
+    limit: int = Query(default=50, ge=1, le=200),
+    offset: int = Query(default=0, ge=0),
+    current_user: Usuario = Depends(require_permission("ml_ops.ver")),
+    db: Session = Depends(get_db),
+) -> SaleListResponse:
+    """The sales list (design: no read-model table -- `ml_orders_ops` is
+    already one row per order, `operation_status`/`goods_status` are
+    derived query-time via `_operation_status_expr`/`_goods_status_expr`,
+    the single source of truth those mirror lives in `operation_status.py`).
+
+    Paginated with a deterministic tiebreaker (`date_created` DESC, then
+    `order_id` DESC) -- `date_created` alone is not unique across orders.
+
+    Facet counts (`facets.operation_status`, `facets.goods_status`) are
+    each computed WITHIN the scope the OTHER active filters leave
+    standing: the `operation_status` facet applies `goods_status`/
+    `sold_month` but NOT `operation_status` itself, and vice versa, so a
+    facet count answers "how many if I also picked this value" rather than
+    a meaningless global total.
+
+    Requires `ml_ops.ver`, checked BEFORE the feature flag (403 before
+    503) -- same precedent as every other endpoint in this router.
+    """
+    _require_flag_enabled()
+
+    if operation_status_filter is not None and operation_status_filter not in OPERATION_STATUSES:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=f"operation_status inválido: {operation_status_filter}",
+        )
+    if goods_status_filter is not None and goods_status_filter not in GOODS_STATUSES:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=f"goods_status inválido: {goods_status_filter}",
+        )
+
+    sold_month_range: Optional[Tuple[datetime, datetime]] = _parse_sold_month(sold_month) if sold_month else None
+
+    open_claim_exists = _open_claim_exists_subquery(db)
+    op_status_expr = _operation_status_expr(open_claim_exists)
+    goods_status_expr = _goods_status_expr()
+
+    base = db.query(MlOrdersOps, MlShipmentOps).outerjoin(
+        MlShipmentOps, MlShipmentOps.shipment_id == MlOrdersOps.shipping_id
+    )
+    if sold_month_range is not None:
+        base = base.filter(
+            MlOrdersOps.date_created >= sold_month_range[0], MlOrdersOps.date_created < sold_month_range[1]
+        )
+
+    listing_query = base
+    if operation_status_filter is not None:
+        listing_query = listing_query.filter(op_status_expr == operation_status_filter)
+    if goods_status_filter is not None:
+        listing_query = listing_query.filter(goods_status_expr == goods_status_filter)
+
+    total = listing_query.count()
+    rows = (
+        listing_query.add_columns(op_status_expr.label("operation_status"), goods_status_expr.label("goods_status"))
+        .order_by(MlOrdersOps.date_created.desc().nullslast(), MlOrdersOps.order_id.desc())
+        .limit(limit)
+        .offset(offset)
+        .all()
+    )
+
+    sales = []
+    for order, shipment, operation_status_value, goods_status_value in rows:
+        sales.append(
+            SaleListItem(
+                order_id=order.order_id,
+                pack_id=order.pack_id,
+                status=order.status,
+                date_created=order.date_created,
+                buyer_nickname=order.buyer_nickname,
+                total_amount=float(order.total_amount) if order.total_amount is not None else None,
+                paid_amount=float(order.paid_amount) if order.paid_amount is not None else None,
+                currency_id=order.currency_id,
+                payment_status=order.payment_status,
+                shipping_status=shipment.status if shipment is not None else None,
+                operation_status=operation_status_value,
+                goods_status=goods_status_value,
+            )
+        )
+
+    # Facets: each axis scoped by the OTHER active filter(s), never by its
+    # own -- see docstring above.
+    op_facet_query = base
+    if goods_status_filter is not None:
+        op_facet_query = op_facet_query.filter(goods_status_expr == goods_status_filter)
+    op_facet_rows = op_facet_query.with_entities(op_status_expr.label("bucket"), func.count()).group_by("bucket").all()
+    op_facet = {value: 0 for value in OPERATION_STATUSES}
+    for bucket, count in op_facet_rows:
+        op_facet[bucket] = count
+
+    goods_facet_query = base
+    if operation_status_filter is not None:
+        goods_facet_query = goods_facet_query.filter(op_status_expr == operation_status_filter)
+    goods_facet_rows = (
+        goods_facet_query.with_entities(goods_status_expr.label("bucket"), func.count()).group_by("bucket").all()
+    )
+    goods_facet = {value: 0 for value in GOODS_STATUSES}
+    for bucket, count in goods_facet_rows:
+        goods_facet[bucket] = count
+
+    return SaleListResponse(
+        total=total,
+        limit=limit,
+        offset=offset,
+        sales=sales,
+        facets=SaleFacetCounts(operation_status=op_facet, goods_status=goods_facet),
+    )
 
 
 @router.get("/orders/{order_id}", response_model=SaleCentricOperation)
