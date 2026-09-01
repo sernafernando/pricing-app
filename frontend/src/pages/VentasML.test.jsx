@@ -194,6 +194,53 @@ describe('The two axes are independent and read correctly', () => {
     expect(screen.queryByText('Cancelada')).not.toBeInTheDocument();
   });
 
+  it('renders a plain cancellation as cancelled, with the goods still in the warehouse', async () => {
+    // The covered case asserts "Cancelada" is ABSENT. Nothing asserted it
+    // appears when it should, so both could have been broken at once — and
+    // this is the row whose two axes carry the most operational weight: the
+    // money did not come in, and the product never left.
+    const CANCELLED_SALE = {
+      ...PAID_SALE,
+      order_id: 1005,
+      status: 'cancelled',
+      buyer_nickname: 'comprador5',
+      operation_status: 'cancelled',
+      goods_status: 'in_warehouse',
+      shipping_status: 'ready_to_ship',
+    };
+    mockSalesList([CANCELLED_SALE]);
+    await renderWithRouter(<VentasML />);
+    await waitFor(() => {
+      expect(screen.getByText('comprador5')).toBeInTheDocument();
+    });
+
+    expect(screen.getByText('Cancelada')).toBeInTheDocument();
+    expect(screen.getByText('En depósito')).toBeInTheDocument();
+    expect(screen.queryByText('Cubierta por ML')).not.toBeInTheDocument();
+  });
+
+  it('tells a returned sale apart from one that never shipped', async () => {
+    // Both leave the goods with the seller, and they are not the same
+    // situation: one came back, the other never left.
+    const RETURNED_SALE = {
+      ...PAID_SALE,
+      order_id: 1006,
+      status: 'cancelled',
+      buyer_nickname: 'comprador6',
+      operation_status: 'cancelled',
+      goods_status: 'returned_undelivered',
+      shipping_status: 'not_delivered',
+    };
+    mockSalesList([RETURNED_SALE]);
+    await renderWithRouter(<VentasML />);
+    await waitFor(() => {
+      expect(screen.getByText('comprador6')).toBeInTheDocument();
+    });
+
+    expect(screen.getByText('Devuelto sin entregar')).toBeInTheDocument();
+    expect(screen.queryByText('En depósito')).not.toBeInTheDocument();
+  });
+
   it('keeps an unclassified sale visible on both axes as "A revisar"', async () => {
     mockSalesList([UNKNOWN_SALE]);
     await renderWithRouter(<VentasML />);
