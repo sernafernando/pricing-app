@@ -62,7 +62,7 @@ from sqlalchemy.exc import IntegrityError
 
 from app.core.config import settings
 from app.core.database import get_background_db
-from app.models.ml_orders_ops import UNENUMERABLE_KIND, MlOpsDivergence, MlOpsSyncCursor
+from app.models.ml_orders_ops import UNENUMERABLE_KIND, MlOpsDivergence, MlOpsSyncCursor, MlOrdersOps
 from app.services.ml_orders_ingestion.ingestion_service import UpsertOutcome, upsert_order, upsert_shipment
 from app.services.ml_orders_ingestion.mapper import MappingError, map_order
 from app.services.ml_webhook_client import ml_webhook_client
@@ -337,6 +337,34 @@ def _fetch_shipments(raw_orders: List[Dict[str, Any]], budget: Optional[List[int
     return shipments
 
 
+def tz_aware(value: Optional[datetime]) -> Optional[datetime]:
+    """SQLite loses tzinfo on a value round-tripped through the DB (the
+    test DB, `tests/conftest.py`'s `sqlite://`) -- a naive value read back
+    here is defensively assumed UTC, exactly like the mapper's
+    `_parse_tz_aware` (real ML timestamps always carry an offset; this
+    only matters for the sqlite test round-trip and any future engine with
+    the same gap)."""
+    if value is None:
+        return None
+    if value.tzinfo is None:
+        return value.replace(tzinfo=timezone.utc)
+    return value
+
+
+def _stored_ml_last_updated(order_ids: List[int]) -> Dict[int, Optional[datetime]]:
+    """The `ml_last_updated` already stored for these orders, in one query.
+    Missing keys mean the order is new. Read-only and short-lived."""
+    if not order_ids:
+        return {}
+    with get_background_db() as db:
+        rows = (
+            db.query(MlOrdersOps.order_id, MlOrdersOps.ml_last_updated)
+            .filter(MlOrdersOps.order_id.in_(order_ids))
+            .all()
+        )
+    return {order_id: tz_aware(stored) for order_id, stored in rows}
+
+
 def process_batch(
     raw_orders: List[Dict[str, Any]],
     window_from_floor: datetime,
@@ -369,10 +397,23 @@ def process_batch(
             continue
         classified.append((raw_order, mapped))
 
-    ingestable = [
+    in_window = [
         (raw_order, mapped)
         for raw_order, mapped in classified
         if not (mapped.date_created is not None and mapped.date_created < window_from_floor)
+    ]
+
+    # `CURSOR_OVERLAP` makes every pass reprocess the last stretch of the
+    # previous one on purpose, so in steady state most of a batch upserts to
+    # SKIPPED_STALE. Fetching those shipments would spend the shared budget
+    # on writes that never happen -- the common case, not an edge. One
+    # read-only query answers which orders are already at this version;
+    # reading is not writing, so the HTTP-before-write discipline holds.
+    stored_versions = _stored_ml_last_updated([mapped.order_id for _, mapped in in_window])
+    ingestable = [
+        (raw_order, mapped)
+        for raw_order, mapped in in_window
+        if stored_versions.get(mapped.order_id) is None or mapped.ml_last_updated > stored_versions[mapped.order_id]
     ]
     shipments = _fetch_shipments([raw for raw, _ in ingestable], budget)
 
@@ -491,20 +532,6 @@ def release_lock_as_error(error: BaseException, cursor_name: str = CURSOR_NAME) 
             cursor.detail = str(error)[:500]
     except Exception:
         logger.exception("%s: could not release the run lock; the stale timeout will reclaim it", cursor_name)
-
-
-def tz_aware(value: Optional[datetime]) -> Optional[datetime]:
-    """SQLite loses tzinfo on a value round-tripped through the DB (the
-    test DB, `tests/conftest.py`'s `sqlite://`) -- a naive value read back
-    here is defensively assumed UTC, exactly like the mapper's
-    `_parse_tz_aware` (real ML timestamps always carry an offset; this
-    only matters for the sqlite test round-trip and any future engine with
-    the same gap)."""
-    if value is None:
-        return None
-    if value.tzinfo is None:
-        return value.replace(tzinfo=timezone.utc)
-    return value
 
 
 def parse_running_since(detail: Optional[str]) -> Optional[datetime]:

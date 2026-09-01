@@ -779,3 +779,38 @@ class TestShipmentBudgetIsNotSpentOnDiscardedOrders:
 
         assert result.orders_out_of_window == 1
         assert calls["n"] == 0
+
+
+class TestShipmentBudgetSkipsAlreadyCurrentOrders:
+    """`CURSOR_OVERLAP` makes every pass reprocess the last 15 minutes on
+    purpose. Those orders upsert to SKIPPED_STALE — so fetching their
+    shipments spends the shared budget on writes that will not happen. In
+    steady state that is the common case, not an edge."""
+
+    def test_no_shipment_is_fetched_for_an_order_already_stored_at_the_same_version(self, db, monkeypatch) -> None:
+        from app.models.ml_orders_ops import MlOrdersOps
+        from app.services.ml_orders_ingestion import sweep_service
+
+        monkeypatch.setattr(settings, "ML_ORDERS_OPS_ENABLED", True)
+
+        when = datetime.now(timezone.utc)
+        db.add(MlOrdersOps(order_id=1, seller_id=999, ml_last_updated=when, date_created=when))
+        db.commit()
+
+        order = {**_order(1, 999, when, when), "shipping": {"id": 4001}}
+
+        async def one_page(seller_id, date_from, date_to, offset=0):
+            return {"results": [order], "paging": {"total": 1}}
+
+        calls = {"n": 0}
+
+        async def a_shipment(shipment_id):
+            calls["n"] += 1
+            return {"id": shipment_id, "status": "delivered"}
+
+        monkeypatch.setattr(ml_webhook_client, "search_orders", one_page)
+        monkeypatch.setattr(ml_webhook_client, "get_shipment", a_shipment)
+
+        sweep_service.run_sweep(seller_id=999, window_days=90)
+
+        assert calls["n"] == 0

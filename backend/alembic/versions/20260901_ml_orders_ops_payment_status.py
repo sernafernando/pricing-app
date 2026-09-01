@@ -60,11 +60,19 @@ def upgrade() -> None:
         op.execute(
             "CREATE INDEX CONCURRENTLY IF NOT EXISTS ix_ml_orders_ops_payment_status ON ml_orders_ops (payment_status)"
         )
-    op.create_check_constraint(
-        "ck_ml_orders_ops_payment_status",
-        "ml_orders_ops",
-        "payment_status IN (" + ", ".join(f"'{v}'" for v in _PAYMENT_STATUSES) + ")",
+    # NOT VALID first, then VALIDATE. `ADD CONSTRAINT ... CHECK` on its own
+    # takes ACCESS EXCLUSIVE and scans the whole table -- a stronger lock
+    # than the ShareLock the CONCURRENTLY index above exists to avoid, which
+    # would have made that care pointless. NOT VALID takes the lock only
+    # briefly and skips the scan; VALIDATE then takes just SHARE UPDATE
+    # EXCLUSIVE. Every existing row is NULL, so validation passes.
+    allowed = ", ".join(f"'{v}'" for v in _PAYMENT_STATUSES)
+    op.execute(
+        "ALTER TABLE ml_orders_ops ADD CONSTRAINT ck_ml_orders_ops_payment_status "
+        f"CHECK (payment_status IN ({allowed})) NOT VALID"
     )
+    with op.get_context().autocommit_block():
+        op.execute("ALTER TABLE ml_orders_ops VALIDATE CONSTRAINT ck_ml_orders_ops_payment_status")
 
 
 def downgrade() -> None:
