@@ -62,7 +62,13 @@ from sqlalchemy.exc import IntegrityError
 
 from app.core.config import settings
 from app.core.database import get_background_db
-from app.models.ml_orders_ops import UNENUMERABLE_KIND, MlOpsDivergence, MlOpsSyncCursor, MlOrdersOps
+from app.models.ml_orders_ops import (
+    UNENUMERABLE_KIND,
+    MlOpsDivergence,
+    MlOpsSyncCursor,
+    MlOrdersOps,
+    MlShipmentOps,
+)
 from app.services.ml_orders_ingestion.ingestion_service import UpsertOutcome, upsert_order, upsert_shipment
 from app.services.ml_orders_ingestion.mapper import MappingError, map_order
 from app.services.ml_webhook_client import ml_webhook_client
@@ -351,6 +357,12 @@ def tz_aware(value: Optional[datetime]) -> Optional[datetime]:
     return value
 
 
+# A shipment in one of these has finished moving: the goods reached the
+# buyer, or came back. Anything else is still in flight and can change
+# without the order changing with it.
+TERMINAL_SHIPMENT_STATUSES = frozenset({"delivered", "not_delivered", "cancelled"})
+
+
 def _stored_ml_last_updated(order_ids: List[int]) -> Dict[int, Optional[datetime]]:
     """The `ml_last_updated` already stored for these orders, in one query.
     Missing keys mean the order is new. Read-only and short-lived."""
@@ -363,6 +375,29 @@ def _stored_ml_last_updated(order_ids: List[int]) -> Dict[int, Optional[datetime
             .all()
         )
     return {order_id: tz_aware(stored) for order_id, stored in rows}
+
+
+def _orders_with_a_settled_shipment(order_ids: List[int]) -> set:
+    """Orders whose stored shipment has finished moving, in one query.
+
+    Skipping an unchanged order's shipment assumes Mercado Libre bumps the
+    ORDER's `date_last_updated` whenever the SHIPMENT moves. That is not
+    verified, and if it does not hold in some case, the shipment freezes
+    and the listing's goods column lies about where the product is. A
+    shipment that already reached a terminal status cannot move again, so
+    it is the only one safe to skip on that assumption."""
+    if not order_ids:
+        return set()
+    with get_background_db() as db:
+        rows = (
+            db.query(MlShipmentOps.order_id)
+            .filter(
+                MlShipmentOps.order_id.in_(order_ids),
+                MlShipmentOps.status.in_(tuple(TERMINAL_SHIPMENT_STATUSES)),
+            )
+            .all()
+        )
+    return {order_id for (order_id,) in rows}
 
 
 def process_batch(
@@ -409,11 +444,15 @@ def process_batch(
     # on writes that never happen -- the common case, not an edge. One
     # read-only query answers which orders are already at this version;
     # reading is not writing, so the HTTP-before-write discipline holds.
-    stored_versions = _stored_ml_last_updated([mapped.order_id for _, mapped in in_window])
+    in_window_ids = [mapped.order_id for _, mapped in in_window]
+    stored_versions = _stored_ml_last_updated(in_window_ids)
+    settled_shipments = _orders_with_a_settled_shipment(in_window_ids)
     ingestable = [
         (raw_order, mapped)
         for raw_order, mapped in in_window
-        if stored_versions.get(mapped.order_id) is None or mapped.ml_last_updated > stored_versions[mapped.order_id]
+        if stored_versions.get(mapped.order_id) is None
+        or mapped.ml_last_updated > stored_versions[mapped.order_id]
+        or mapped.order_id not in settled_shipments
     ]
     shipments = _fetch_shipments([raw for raw, _ in ingestable], budget)
 
