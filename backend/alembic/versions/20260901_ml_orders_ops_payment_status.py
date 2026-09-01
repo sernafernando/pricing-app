@@ -13,7 +13,7 @@ order's own status alone reports identically:
   column instead of a JSONB reach-in at query time. CHECK-constrained to
   Mercado Pago's documented payment status values
   (`app/models/ml_orders_ops.py::PAYMENT_STATUSES`); NULL passes the CHECK
-  (SQL: NULL is never "false" under IN), so existing/未-payment rows are
+  (SQL: NULL is never "false" under IN), so existing rows with no payment are
   unaffected.
 - `covered_by_marketplace`: whether ML's Buyer Protection Programme itself
   refunded a cancelled order's buyer. This ingestion slice could not
@@ -51,11 +51,15 @@ _PAYMENT_STATUSES = (
 def upgrade() -> None:
     op.add_column("ml_orders_ops", sa.Column("payment_status", sa.String(length=20), nullable=True))
     op.add_column("ml_orders_ops", sa.Column("covered_by_marketplace", sa.Boolean(), nullable=True))
-    op.create_index(
-        "ix_ml_orders_ops_payment_status",
-        "ml_orders_ops",
-        ["payment_status"],
-    )
+    # CONCURRENTLY, following the precedent in
+    # `20260710_add_index_mlo_cd_orders_header.py`: a plain CREATE INDEX
+    # takes a ShareLock and blocks the sweep's writes for as long as it
+    # builds, on a table designed to grow without bound. It cannot run
+    # inside a transaction, hence the autocommit block.
+    with op.get_context().autocommit_block():
+        op.execute(
+            "CREATE INDEX CONCURRENTLY IF NOT EXISTS ix_ml_orders_ops_payment_status ON ml_orders_ops (payment_status)"
+        )
     op.create_check_constraint(
         "ck_ml_orders_ops_payment_status",
         "ml_orders_ops",
@@ -65,6 +69,7 @@ def upgrade() -> None:
 
 def downgrade() -> None:
     op.drop_constraint("ck_ml_orders_ops_payment_status", "ml_orders_ops", type_="check")
-    op.drop_index("ix_ml_orders_ops_payment_status", table_name="ml_orders_ops")
+    with op.get_context().autocommit_block():
+        op.execute("DROP INDEX CONCURRENTLY IF EXISTS ix_ml_orders_ops_payment_status")
     op.drop_column("ml_orders_ops", "covered_by_marketplace")
     op.drop_column("ml_orders_ops", "payment_status")

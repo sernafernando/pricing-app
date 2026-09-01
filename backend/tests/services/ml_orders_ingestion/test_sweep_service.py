@@ -748,3 +748,34 @@ class TestShipmentFetchesShareTheBudget:
         sweep_service.run_sweep(seller_id=999, window_days=90)
 
         assert shipment_calls["n"] <= sweep_service.MAX_WINDOW_FETCHES_PER_PASS
+
+
+class TestShipmentBudgetIsNotSpentOnDiscardedOrders:
+    """An out-of-window order is hard-excluded and never ingested. Fetching
+    its shipment spends a slot of the shared budget the page walk needs."""
+
+    def test_no_shipment_is_fetched_for_an_out_of_window_order(self, db, monkeypatch) -> None:
+        from app.services.ml_orders_ingestion import sweep_service
+
+        monkeypatch.setattr(settings, "ML_ORDERS_OPS_ENABLED", True)
+
+        updated = datetime.now(timezone.utc)
+        old = updated - timedelta(days=400)
+        order = {**_order(1, 999, updated, old), "shipping": {"id": 4001}}
+
+        async def one_page(seller_id, date_from, date_to, offset=0):
+            return {"results": [order], "paging": {"total": 1}}
+
+        calls = {"n": 0}
+
+        async def a_shipment(shipment_id):
+            calls["n"] += 1
+            return {"id": shipment_id, "status": "delivered"}
+
+        monkeypatch.setattr(ml_webhook_client, "search_orders", one_page)
+        monkeypatch.setattr(ml_webhook_client, "get_shipment", a_shipment)
+
+        result = sweep_service.run_sweep(seller_id=999, window_days=90)
+
+        assert result.orders_out_of_window == 1
+        assert calls["n"] == 0

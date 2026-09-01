@@ -355,17 +355,29 @@ def process_batch(
     against in its DISABLED branch."""
     seen = upserted = skipped_stale = mapping_error = out_of_window = 0
 
-    shipments = _fetch_shipments(raw_orders, budget)
+    # Map and classify first: both are pure, so they cost nothing, and they
+    # decide which orders are actually going to be written. Fetching a
+    # shipment for an order the window excludes would spend a slot of the
+    # shared budget the page walk needs, for a row that is never ingested.
+    classified: List[tuple[Dict[str, Any], Any]] = []
+    for raw_order in raw_orders:
+        seen += 1
+        mapped = map_order(raw_order)
+        if isinstance(mapped, MappingError):
+            mapping_error += 1
+            logger.warning("sweep: mapping error for a search result: %s", mapped.reason)
+            continue
+        classified.append((raw_order, mapped))
+
+    ingestable = [
+        (raw_order, mapped)
+        for raw_order, mapped in classified
+        if not (mapped.date_created is not None and mapped.date_created < window_from_floor)
+    ]
+    shipments = _fetch_shipments([raw for raw, _ in ingestable], budget)
 
     with get_background_db() as db:
-        for raw_order in raw_orders:
-            seen += 1
-            mapped = map_order(raw_order)
-            if isinstance(mapped, MappingError):
-                mapping_error += 1
-                logger.warning("sweep: mapping error for a search result: %s", mapped.reason)
-                continue
-
+        for raw_order, mapped in classified:
             if mapped.date_created is not None and mapped.date_created < window_from_floor:
                 _record_out_of_window(db, mapped.order_id)
                 out_of_window += 1
