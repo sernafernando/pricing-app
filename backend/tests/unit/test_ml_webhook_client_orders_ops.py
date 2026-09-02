@@ -3,12 +3,14 @@ RED/GREEN — `MLWebhookClient.get_order` / `get_shipment` / `search_orders`
 (ml-ventas-fuente-de-verdad, slice 2).
 
 Spec coverage:
-  REQ-1 — `get_order`/`get_shipment` fetch via the existing
-          `/api/ml/preview?resource=` proxy convention, mirroring every
-          other read method in this client.
+  REQ-1 — `get_order`/`get_shipment` fetch via `/api/ml/orders?resource=`.
+          Not `/api/ml/preview`, which only accepts item resources: this
+          ingestion was pointed there and silently got 400s until the flag
+          was first turned on. ml-webhook added `/api/ml/orders` for it,
+          matching three anchored patterns rather than a path prefix.
   REQ-2 — 404 -> None (never raises).
   REQ-3 — any other error/timeout -> None (never raises).
-  REQ-4 — `search_orders` fetches via `/api/ml/preview?resource=/orders/search`
+  REQ-4 — `search_orders` fetches via `/api/ml/orders?resource=/orders/search`
           with seller id, ISO date-range params and an `offset`.
   REQ-5 (Threat Matrix, SSRF row) — `order_id`/`shipment_id` are coerced to
           `int` BEFORE any HTTP call is made. A non-numeric id raises
@@ -44,7 +46,7 @@ SEARCH_PAYLOAD = {"results": [ORDER_PAYLOAD], "paging": {"total": 1, "offset": 0
 class TestGetOrder:
     def test_success_returns_payload(self, monkeypatch: pytest.MonkeyPatch) -> None:
         def handler(request: httpx.Request) -> httpx.Response:
-            assert request.url.path == "/api/ml/preview"
+            assert request.url.path == "/api/ml/orders"
             assert request.url.params["resource"] == "/orders/2000003508498841"
             return httpx.Response(200, json=ORDER_PAYLOAD)
 
@@ -113,7 +115,7 @@ class TestGetOrder:
 class TestGetShipment:
     def test_success_returns_payload(self, monkeypatch: pytest.MonkeyPatch) -> None:
         def handler(request: httpx.Request) -> httpx.Response:
-            assert request.url.path == "/api/ml/preview"
+            assert request.url.path == "/api/ml/orders"
             assert request.url.params["resource"] == "/shipments/40000012345"
             return httpx.Response(200, json=SHIPMENT_PAYLOAD)
 
@@ -163,7 +165,7 @@ class TestSearchOrders:
         from datetime import datetime, timezone
 
         def handler(request: httpx.Request) -> httpx.Response:
-            assert request.url.path == "/api/ml/preview"
+            assert request.url.path == "/api/ml/orders"
             assert request.url.params["resource"].startswith("/orders/search")
             assert "seller=456" in request.url.params["resource"]
             assert "order.date_last_updated.from=2026-08-01T00" in request.url.params["resource"]
