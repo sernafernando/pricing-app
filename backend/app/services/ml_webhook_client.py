@@ -20,6 +20,19 @@ def _ml_datetime(value: datetime) -> str:
     return value.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.") + f"{value.microsecond // 1000:03d}Z"
 
 
+def _describe_exc(exc: BaseException) -> str:
+    """Renders an exception for a log line without losing timeouts.
+
+    `httpx.ReadTimeout` and friends carry an EMPTY message, so the usual
+    `f"...: {e}"` produced `Error obteniendo shipment 47869534985:` and
+    nothing after the colon -- a timeout was indistinguishable from an
+    error with no cause. That cost real diagnosis time when the proxy
+    started hanging. Always lead with the class name.
+    """
+    detail = str(exc)
+    return f"{type(exc).__name__}: {detail}" if detail else type(exc).__name__
+
+
 class MLWebhookClient:
     """Cliente para el servicio ml-webhook que consulta la API de MercadoLibre"""
 
@@ -54,7 +67,7 @@ class MLWebhookClient:
                 return response.json()
 
         except Exception as e:
-            logger.error(f"Error obteniendo preview de {mla_id}: {e}")
+            logger.error(f"Error obteniendo preview de {mla_id}: {_describe_exc(e)}")
             return None
 
     async def get_item_full(self, mla_id: str) -> Optional[Dict]:
@@ -89,7 +102,7 @@ class MLWebhookClient:
                 return response.json()
 
         except Exception as e:
-            logger.error(f"Error obteniendo item completo {mla_id}: {e}")
+            logger.error(f"Error obteniendo item completo {mla_id}: {_describe_exc(e)}")
             return None
 
     async def get_catalog_competition(self, mla_id: str) -> Dict:
@@ -129,7 +142,7 @@ class MLWebhookClient:
                     params={"input": mla_id, "format": "processed"},
                 )
         except Exception as e:
-            logger.error(f"Error (transporte) obteniendo competencia de catálogo para {mla_id}: {e}")
+            logger.error(f"Error (transporte) obteniendo competencia de catálogo para {mla_id}: {_describe_exc(e)}")
             return {"status": "error", "detail": str(e)[:200]}
 
         if response.status_code == 400:
@@ -195,7 +208,7 @@ class MLWebhookClient:
                 try:
                     item = await self.get_item_full(mla_id)
                 except Exception as e:
-                    logger.error(f"Error obteniendo item completo en batch {mla_id}: {e}")
+                    logger.error(f"Error obteniendo item completo en batch {mla_id}: {_describe_exc(e)}")
                     continue
 
                 if item is None:
@@ -246,11 +259,11 @@ class MLWebhookClient:
                             data = response.json()
                             results[mla_id] = data
                     except Exception as e:
-                        logger.error(f"Error obteniendo {mla_id}: {e}")
+                        logger.error(f"Error obteniendo {mla_id}: {_describe_exc(e)}")
                         continue
 
         except Exception as e:
-            logger.error(f"Error en batch de items: {e}")
+            logger.error(f"Error en batch de items: {_describe_exc(e)}")
 
         return results
 
@@ -296,7 +309,7 @@ class MLWebhookClient:
                 return response.json()
 
         except Exception as e:
-            logger.error(f"Error obteniendo orden {order_id_int}: {e}")
+            logger.error(f"Error obteniendo orden {order_id_int}: {_describe_exc(e)}")
             return None
 
     async def get_shipment(self, shipment_id: Union[int, str]) -> Optional[Dict]:
@@ -332,7 +345,7 @@ class MLWebhookClient:
                 return response.json()
 
         except Exception as e:
-            logger.error(f"Error obteniendo shipment {shipment_id_int}: {e}")
+            logger.error(f"Error obteniendo shipment {shipment_id_int}: {_describe_exc(e)}")
             return None
 
     async def search_orders(
@@ -387,7 +400,7 @@ class MLWebhookClient:
                 return response.json()
 
         except Exception as e:
-            logger.error(f"Error buscando órdenes (seller={seller_id_int}, offset={offset}): {e}")
+            logger.error(f"Error buscando órdenes (seller={seller_id_int}, offset={offset}): {_describe_exc(e)}")
             return None
 
     # ── ML Seller Promotions (READ-ONLY, PR1) ───────────────────────
@@ -408,7 +421,7 @@ class MLWebhookClient:
                 response.raise_for_status()
                 return response.json()
         except Exception as e:
-            logger.error(f"Error obteniendo promociones: {e}")
+            logger.error(f"Error obteniendo promociones: {_describe_exc(e)}")
             return None
 
     async def get_promotion_items(
@@ -462,7 +475,7 @@ class MLWebhookClient:
 
             return {"items": all_items, "count": len(all_items)}
         except Exception as e:
-            logger.error(f"Error obteniendo items de la promoción {promotion_id}: {e}")
+            logger.error(f"Error obteniendo items de la promoción {promotion_id}: {_describe_exc(e)}")
             return None
 
     # ── ML Seller Promotions (WRITE, PR2) ────────────────────────────
@@ -512,7 +525,7 @@ class MLWebhookClient:
             async with httpx.AsyncClient(timeout=15.0) as client:
                 response = await client.post(f"{self.base_url}/api/promociones/item/{mla_id}", json=payload)
         except Exception as e:
-            logger.error(f"Error (ambiguo) inscribiendo item {mla_id} en promoción {promotion_id}: {e}")
+            logger.error(f"Error (ambiguo) inscribiendo item {mla_id} en promoción {promotion_id}: {_describe_exc(e)}")
             return {"ok": False, "status_code": None, "ambiguous": True, "body": None}
 
         return self._classify_write_response(response)
@@ -546,7 +559,7 @@ class MLWebhookClient:
             async with httpx.AsyncClient(timeout=15.0) as client:
                 response = await client.delete(f"{self.base_url}/api/promociones/item/{mla_id}", params=params)
         except Exception as e:
-            logger.error(f"Error (ambiguo) removiendo item {mla_id} de promoción {promotion_id}: {e}")
+            logger.error(f"Error (ambiguo) removiendo item {mla_id} de promoción {promotion_id}: {_describe_exc(e)}")
             return {"ok": False, "status_code": None, "ambiguous": True, "body": None}
 
         return self._classify_write_response(response)
@@ -589,7 +602,7 @@ class MLWebhookClient:
                 response.raise_for_status()
                 return response.json()
         except Exception as e:
-            logger.error(f"Error obteniendo promociones del item {mla_id}: {e}")
+            logger.error(f"Error obteniendo promociones del item {mla_id}: {_describe_exc(e)}")
             return None
 
     async def refresh_item_promotions(self, mla_id: str) -> bool:
@@ -613,7 +626,7 @@ class MLWebhookClient:
                 response.raise_for_status()
                 return True
         except Exception as e:
-            logger.error(f"Error refrescando promociones del item {mla_id}: {e}")
+            logger.error(f"Error refrescando promociones del item {mla_id}: {_describe_exc(e)}")
             return False
 
     # ── PxQ (wholesale price-by-quantity, PR3) ───────────────────────
@@ -638,7 +651,7 @@ class MLWebhookClient:
                 response.raise_for_status()
                 return response.json()
         except Exception as e:
-            logger.error(f"Error obteniendo precios PxQ del item {item_id}: {e}")
+            logger.error(f"Error obteniendo precios PxQ del item {item_id}: {_describe_exc(e)}")
             return None
 
     async def post_pxq_prices(self, item_id: str, prices: List[Dict]) -> Dict:
@@ -654,7 +667,7 @@ class MLWebhookClient:
             async with httpx.AsyncClient(timeout=15.0) as client:
                 response = await client.post(f"{self.base_url}/api/pxq/item/{item_id}", json={"prices": prices})
         except Exception as e:
-            logger.error(f"Error (ambiguo) escribiendo precios PxQ del item {item_id}: {e}")
+            logger.error(f"Error (ambiguo) escribiendo precios PxQ del item {item_id}: {_describe_exc(e)}")
             return {"ok": False, "status_code": None, "ambiguous": True, "body": None}
 
         return self._classify_pxq_write_response(response)
@@ -753,7 +766,7 @@ class MLWebhookClient:
                 response.raise_for_status()
                 body = response.json()
         except Exception as e:
-            logger.error(f"Error obteniendo costo de envío PxQ del item {item_id}: {e}")
+            logger.error(f"Error obteniendo costo de envío PxQ del item {item_id}: {_describe_exc(e)}")
             return None
 
         if not isinstance(body, dict):
@@ -787,7 +800,9 @@ class MLWebhookClient:
                 response.raise_for_status()
                 seller = response.json()
         except Exception as e:
-            logger.error(f"Error obteniendo vendedor {seller_id} para elegibilidad PxQ de {item_id}: {e}")
+            logger.error(
+                f"Error obteniendo vendedor {seller_id} para elegibilidad PxQ de {item_id}: {_describe_exc(e)}"
+            )
             return None
         return {"item_tags": item.get("tags") or [], "seller_tags": seller.get("tags") or []}
 
