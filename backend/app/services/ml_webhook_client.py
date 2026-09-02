@@ -1,12 +1,23 @@
 import asyncio
 import httpx
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Dict, Optional, List, Union
 import logging
 
 from app.core.config import settings
 
 logger = logging.getLogger(__name__)
+
+
+def _ml_datetime(value: datetime) -> str:
+    """Formats a tz-aware datetime the way MercadoLibre's order search
+    accepts it: milliseconds and a `Z` suffix.
+
+    `datetime.isoformat()` produces `2026-08-31T12:00:00+00:00` for a UTC
+    value, and ML answers that with `invalid_date_format`. Verified against
+    the live API: the offset form is rejected, the `Z` form is accepted.
+    """
+    return value.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.") + f"{value.microsecond // 1000:03d}Z"
 
 
 class MLWebhookClient:
@@ -364,8 +375,8 @@ class MLWebhookClient:
 
         resource = (
             f"/orders/search?seller={seller_id_int}"
-            f"&order.date_last_updated.from={date_from.isoformat()}"
-            f"&order.date_last_updated.to={date_to.isoformat()}"
+            f"&order.date_last_updated.from={_ml_datetime(date_from)}"
+            f"&order.date_last_updated.to={_ml_datetime(date_to)}"
             f"&offset={offset}"
         )
 
