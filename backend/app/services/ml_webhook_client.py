@@ -274,7 +274,7 @@ class MLWebhookClient:
         try:
             async with httpx.AsyncClient(timeout=10.0) as client:
                 response = await client.get(
-                    f"{self.base_url}/api/ml/preview", params={"resource": f"/orders/{order_id_int}"}
+                    f"{self.base_url}/api/ml/orders", params={"resource": f"/orders/{order_id_int}"}
                 )
 
                 if response.status_code == 404:
@@ -310,7 +310,7 @@ class MLWebhookClient:
         try:
             async with httpx.AsyncClient(timeout=10.0) as client:
                 response = await client.get(
-                    f"{self.base_url}/api/ml/preview", params={"resource": f"/shipments/{shipment_id_int}"}
+                    f"{self.base_url}/api/ml/orders", params={"resource": f"/shipments/{shipment_id_int}"}
                 )
 
                 if response.status_code == 404:
@@ -371,7 +371,7 @@ class MLWebhookClient:
 
         try:
             async with httpx.AsyncClient(timeout=15.0) as client:
-                response = await client.get(f"{self.base_url}/api/ml/preview", params={"resource": resource})
+                response = await client.get(f"{self.base_url}/api/ml/orders", params={"resource": resource})
                 response.raise_for_status()
                 return response.json()
 
