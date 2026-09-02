@@ -581,21 +581,31 @@ def listar_ventas(
         dates = [m.date_created for m in members if m.date_created is not None]
         amounts = [m.total_amount for m in members if m.total_amount is not None]
         currencies = {m.currency_id for m in members if m.currency_id}
+        # Resolved BEFORE the constructor: `currencies.pop()` mutates the set,
+        # so reading `len(currencies)` in a later argument would depend on
+        # argument evaluation order.
+        single_currency = currencies.pop() if len(currencies) == 1 else None
         groups.append(
             SaleGroup(
                 group_key=key,
                 pack_id=pack_id,
-                # The EARLIEST member, matching the key's own sort value, so
-                # a group never appears out of order against its own date.
+                # The earliest member. NOTE this is not always the value the
+                # row is sorted by: the sort uses `min` over the FILTERED
+                # orders, this uses `min` over all of them. For the pack that
+                # straddles a month boundary they differ -- filtering
+                # `2026-09` shows `31/08` on a row sorted by `01/09`. Showing
+                # the parcel's real date is the right trade; claiming the two
+                # always agree was not.
                 date_created=min(dates) if dates else None,
                 buyer_nickname=next((m.buyer_nickname for m in members if m.buyer_nickname), None),
                 # A pack is one purchase: its worth is what the buyer paid
                 # for all of it, which is why three rows of 27.868 / 27.299 /
                 # 24.750 could not be read as the two parcels they were.
-                total_amount=float(sum(amounts)) if amounts else None,
-                # Only when the members agree -- summing across currencies
-                # would produce a number that means nothing.
-                currency_id=currencies.pop() if len(currencies) == 1 else None,
+                # None across currencies, not a bare sum: adding ARS to USD
+                # produces a number that means nothing, and dropping only the
+                # currency label would render exactly that number.
+                total_amount=float(sum(amounts)) if amounts and single_currency is not None else None,
+                currency_id=single_currency,
                 operation_status=_collapse([m.operation_status for m in members]),
                 goods_status=_collapse([m.goods_status for m in members]),
                 orders=members,

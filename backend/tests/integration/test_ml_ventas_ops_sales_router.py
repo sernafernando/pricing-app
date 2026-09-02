@@ -483,3 +483,21 @@ class TestAFilterNeverSplitsAPack:
 
         assert body["total"] == 1
         assert sorted(o["order_id"] for o in body["sales"][0]["orders"]) == [1001, 1002]
+
+
+class TestMixedCurrencyPack:
+    def test_a_pack_across_two_currencies_reports_no_amount_at_all(self, db, client, admin_auth_headers, rol_admin):
+        """Adding ARS to USD produces a number that means nothing. Dropping
+        only the currency label would render exactly that number."""
+        _grant_ml_ops_ver(db, rol_admin)
+        when = datetime(2026, 9, 1, tzinfo=timezone.utc)
+        _seed_order(db, 1101, pack_id=666, total_amount=100, date_created=when)
+        _seed_order(db, 1102, pack_id=666, total_amount=50, date_created=when)
+        db.query(MlOrdersOps).filter(MlOrdersOps.order_id == 1102).update({"currency_id": "USD"})
+        db.commit()
+
+        body = client.get("/api/ml-ventas-ops/sales", headers=admin_auth_headers).json()
+        group = _group_holding(body, 1101)
+
+        assert group["currency_id"] is None
+        assert group["total_amount"] is None, "no fabricated 150"
