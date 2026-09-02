@@ -1,0 +1,125 @@
+/* VentasML — ML Ventas fuente de verdad, sales list page */
+
+.container {
+  padding: var(--spacing-lg);
+  width: 100%;
+}
+
+.header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: var(--spacing-sm);
+  gap: var(--spacing-md);
+  flex-wrap: wrap;
+}
+
+.headerLeft {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-sm);
+}
+
+.headerLeft h1 {
+  font-size: 1.5rem;
+  font-weight: 600;
+  color: var(--cf-text-primary);
+  margin: 0;
+}
+
+.headerLeft svg {
+  color: var(--cf-accent-orange);
+}
+
+.headerActions {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-sm);
+}
+
+.description {
+  font-size: 0.85rem;
+  color: var(--cf-text-secondary);
+  margin: 0 0 var(--spacing-md);
+}
+
+.errorBar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 12px;
+  background: color-mix(in srgb, var(--cf-accent-red) 10%, transparent);
+  color: var(--cf-accent-red);
+  border-radius: var(--radius-md);
+  font-size: 0.82rem;
+  margin-bottom: var(--spacing-md);
+}
+
+.filtersBar {
+  display: flex;
+  gap: var(--spacing-sm);
+  margin-bottom: var(--spacing-sm);
+  flex-wrap: wrap;
+  align-items: center;
+}
+
+.filterGroupLabel {
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: var(--cf-text-tertiary);
+  margin-right: 4px;
+}
+
+.chip {
+  border: 1px solid var(--cf-border-primary);
+  background: var(--cf-bg-secondary);
+  color: var(--cf-text-secondary);
+  border-radius: var(--radius-full, 999px);
+  padding: 4px 10px;
+  font-size: 0.78rem;
+  cursor: pointer;
+  transition: background 0.15s ease, color 0.15s ease, border-color 0.15s ease;
+}
+
+.chip:hover {
+  background: var(--cf-bg-tertiary);
+}
+
+.chipActive {
+  background: var(--cf-accent-orange);
+  border-color: var(--cf-accent-orange);
+  color: var(--text-inverse);
+}
+
+.monthLabel {
+  font-size: 0.78rem;
+  color: var(--cf-text-tertiary);
+}
+
+.monthInput {
+  composes: input from '../styles/forms-tesla.css';
+  width: auto;
+}
+
+.loadingCell,
+.emptyCell {
+  text-align: center;
+  padding: var(--spacing-lg);
+  color: var(--cf-text-tertiary);
+  font-size: 0.85rem;
+}
+
+.paginationBar {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-sm);
+  margin-top: var(--spacing-md);
+  font-size: 0.82rem;
+  color: var(--cf-text-secondary);
+}
+
+.stale {
+  margin-top: var(--spacing-sm);
+  font-size: 0.78rem;
+  color: var(--cf-text-tertiary);
+}
