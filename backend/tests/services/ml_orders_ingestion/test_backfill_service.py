@@ -591,3 +591,54 @@ class TestDryRunStopsWhereTheRealRunStops:
         assert dry.budget_exhausted is True
         assert real.budget_exhausted is True
         assert dry.days_completed == real.days_completed
+
+
+class TestBackfillRangeIsAboutUpdatesNotAge:
+    """`--days 2` asks for orders UPDATED in the last two days. Passing that
+    same boundary as the out-of-window floor read it as "created in the last
+    two days", so an order created a month ago and updated yesterday — the
+    exact case a backfill exists for — was discarded and filed as a
+    divergence. The rolling window is what bounds age, not the requested
+    range."""
+
+    def test_an_old_order_updated_recently_is_ingested(self, db, monkeypatch) -> None:
+        from app.services.ml_orders_ingestion import backfill_service
+
+        monkeypatch.setattr(settings, "ML_ORDERS_OPS_ENABLED", True)
+        monkeypatch.setattr(settings, "ML_ORDERS_OPS_WINDOW_DAYS", 180)
+
+        updated = datetime.now(timezone.utc) - timedelta(hours=12)
+        created = updated - timedelta(days=45)
+
+        async def one_old_order(seller_id, date_from, date_to, offset=0):
+            if date_from <= updated < date_to:
+                return _page([_order(1, 999, updated, created)])
+            return _page([])
+
+        monkeypatch.setattr(ml_webhook_client, "search_orders", one_old_order)
+
+        result = backfill_service.run_backfill(seller_id=999, days_from=0, days_to=2)
+
+        assert result.orders_upserted == 1
+        assert result.orders_out_of_window == 0
+
+    def test_an_order_older_than_the_rolling_window_is_still_excluded(self, db, monkeypatch) -> None:
+        from app.services.ml_orders_ingestion import backfill_service
+
+        monkeypatch.setattr(settings, "ML_ORDERS_OPS_ENABLED", True)
+        monkeypatch.setattr(settings, "ML_ORDERS_OPS_WINDOW_DAYS", 30)
+
+        updated = datetime.now(timezone.utc) - timedelta(hours=12)
+        created = updated - timedelta(days=200)
+
+        async def one_ancient_order(seller_id, date_from, date_to, offset=0):
+            if date_from <= updated < date_to:
+                return _page([_order(2, 999, updated, created)])
+            return _page([])
+
+        monkeypatch.setattr(ml_webhook_client, "search_orders", one_ancient_order)
+
+        result = backfill_service.run_backfill(seller_id=999, days_from=0, days_to=2)
+
+        assert result.orders_upserted == 0
+        assert result.orders_out_of_window == 1
