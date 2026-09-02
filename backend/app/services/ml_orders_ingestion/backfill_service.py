@@ -339,6 +339,13 @@ def run_backfill(
     now = datetime.now(timezone.utc)
     newest_boundary = now - timedelta(days=days_from)
     oldest_boundary = now - timedelta(days=resolved_days_to)
+    # `--days N` asks for orders UPDATED in that span. What decides whether an
+    # order is too OLD to ingest is the rolling window, exactly as in the
+    # sweep. Using the requested range for both threw away every order created
+    # before it -- an order created a month ago and updated yesterday is the
+    # very thing a backfill is for, and it was being discarded and filed as a
+    # divergence.
+    window_from_floor = now - timedelta(days=settings.ML_ORDERS_OPS_WINDOW_DAYS)
 
     result = BackfillResult(ran=True, dry_run=dry_run)
 
@@ -350,7 +357,7 @@ def run_backfill(
         while current_end > oldest_boundary:
             day_start = max(current_end - DAY, oldest_boundary)
             day_seen, day_out, day_bad, day_budget_exhausted = _dry_run_count_window(
-                int(resolved_seller_id), day_start, current_end, oldest_boundary
+                int(resolved_seller_id), day_start, current_end, window_from_floor
             )
             result.orders_seen += day_seen
             result.orders_out_of_window += day_out
@@ -427,7 +434,7 @@ def run_backfill(
     try:
         while current_end > oldest_boundary:
             day_start = max(current_end - DAY, oldest_boundary)
-            day_completed = _process_day(int(resolved_seller_id), day_start, current_end, oldest_boundary, result)
+            day_completed = _process_day(int(resolved_seller_id), day_start, current_end, window_from_floor, result)
 
             if not day_completed:
                 # Partial day: do NOT checkpoint past `current_end` (the
