@@ -300,3 +300,37 @@ class TestSearchOrdersDateContract:
 
         with pytest.raises(ValueError):
             asyncio.run(client.search_orders(123, datetime(2026, 1, 1, tzinfo=timezone.utc), None))  # type: ignore[arg-type]
+
+
+class TestSearchOrdersDateFormat:
+    """ML rejects `2026-08-31T12:00:00+00:00` with `invalid_date_format`,
+    which is exactly what `datetime.isoformat()` produces for a UTC-aware
+    value. Verified live against the API: the offset form fails, the `Z`
+    form works. Nothing here caught it because every test asserted the
+    range was PRESENT, never the shape it was written in."""
+
+    def test_the_range_is_sent_in_the_form_ml_accepts(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        from datetime import datetime, timezone
+
+        seen = {}
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            seen["resource"] = request.url.params["resource"]
+            return httpx.Response(200, json={"results": [], "paging": {"total": 0}})
+
+        _patch_client(monkeypatch, httpx.MockTransport(handler))
+        client = MLWebhookClient()
+
+        asyncio.run(
+            client.search_orders(
+                123,
+                datetime(2026, 8, 31, 12, 0, 0, 123456, tzinfo=timezone.utc),
+                datetime(2026, 9, 2, 12, 0, 0, tzinfo=timezone.utc),
+            )
+        )
+
+        resource = seen["resource"]
+        assert "+00:00" not in resource, resource
+        # 123456 microseconds -> 123 milliseconds, not truncated to .000
+        assert "order.date_last_updated.from=2026-08-31T12:00:00.123Z" in resource, resource
+        assert "order.date_last_updated.to=2026-09-02T12:00:00.000Z" in resource, resource
