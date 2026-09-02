@@ -453,6 +453,15 @@ export default function VentasML() {
                       </td>
                       <td className={styles.numeric}>
                         {formatMoney(group.total_amount, group.currency_id)}
+                        {/* A lone order has exactly one shipping status, so
+                            the header row can carry it. A pack's orders can
+                            ship separately — there is no single value, and
+                            each member row shows its own. Losing it entirely
+                            for the lone orders (most of the listing) was a
+                            silent regression against the old page. */}
+                        {!isPack && orders[0]?.shipping_status && (
+                          <span className={styles.subline}>{orders[0].shipping_status}</span>
+                        )}
                       </td>
                     </tr>
                     {/* The orders inside the parcel. Rendered only when

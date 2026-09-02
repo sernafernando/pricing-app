@@ -124,7 +124,7 @@
 }
 
 .monthInput {
-  composes: inputSm from '../styles/forms-tesla.css';
+  composes: input inputSm from '../styles/forms-tesla.css';
   width: auto;
   cursor: pointer;
 }

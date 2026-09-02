@@ -496,3 +496,31 @@ describe('The "Todas" chip follows the same arithmetic as the chips beside it', 
     expect(within(operationGroup).queryByRole('button', { name: 'Todas · 1' })).not.toBeInTheDocument();
   });
 });
+
+describe("ML's own shipping status stays reachable", () => {
+  it('shows it on a lone order, which has exactly one', async () => {
+    // Most of the listing is lone orders. Dropping the raw column was
+    // right; dropping the information was not.
+    mockSalesList([{ ...PAID_SALE, shipping_status: 'ready_to_ship' }]);
+    await renderWithRouter(<VentasML />);
+
+    expect(await screen.findByText('ready_to_ship')).toBeInTheDocument();
+  });
+
+  it('does not claim one for a pack, whose orders can ship separately', async () => {
+    const pack = packOf(
+      [
+        { ...PAID_SALE, order_id: 11, shipping_status: 'ready_to_ship' },
+        { ...PAID_SALE, order_id: 12, shipping_status: 'shipped' },
+      ],
+      99
+    );
+    mockSalesList([pack]);
+    await renderWithRouter(<VentasML />);
+
+    await screen.findByText(/Pack 99/);
+    // Collapsed: neither member's status is presented as the pack's.
+    expect(screen.queryByText('ready_to_ship')).not.toBeInTheDocument();
+    expect(screen.queryByText('shipped')).not.toBeInTheDocument();
+  });
+});
