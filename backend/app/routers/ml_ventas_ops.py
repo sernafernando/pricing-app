@@ -29,7 +29,7 @@ from typing import Dict, List, Optional, Tuple
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel, ConfigDict, Field
-from sqlalchemy import String, case, func
+from sqlalchemy import String, case, cast, func, literal
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_current_user
@@ -281,7 +281,6 @@ class SaleGroup(BaseModel):
     buyer_nickname: Optional[str] = None
     total_amount: Optional[float] = None
     currency_id: Optional[str] = None
-    shipping_status: Optional[str] = None
     operation_status: str
     goods_status: str
     orders: List[SaleListItem]
@@ -367,9 +366,12 @@ def _group_key_expr():
     same numeric range, so an unprefixed `COALESCE(pack_id, order_id)`
     can collide and merge a pack with an unrelated order.
     """
+    # `||`, not `func.concat`: SQLite only grew a `concat()` function in
+    # 3.44, and the integration tests run on SQLite. Passing locally on a
+    # newer sqlite would have hidden this until CI.
     return case(
-        (MlOrdersOps.pack_id.isnot(None), func.concat("p:", func.cast(MlOrdersOps.pack_id, String))),
-        else_=func.concat("o:", func.cast(MlOrdersOps.order_id, String)),
+        (MlOrdersOps.pack_id.isnot(None), literal("p:") + cast(MlOrdersOps.pack_id, String)),
+        else_=literal("o:") + cast(MlOrdersOps.order_id, String),
     )
 
 
@@ -578,7 +580,6 @@ def listar_ventas(
                 # Only when the members agree -- summing across currencies
                 # would produce a number that means nothing.
                 currency_id=currencies.pop() if len(currencies) == 1 else None,
-                shipping_status=_collapse([m.shipping_status for m in members]),
                 operation_status=_collapse([m.operation_status for m in members]),
                 goods_status=_collapse([m.goods_status for m in members]),
                 orders=members,

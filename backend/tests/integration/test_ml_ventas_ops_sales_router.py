@@ -362,9 +362,7 @@ class TestPacks:
         # What the buyer paid for the parcel, which is the number the
         # operator could not see while the three rows stood apart.
         assert pack["total_amount"] == pytest.approx(52618.10)
-        assert _group_holding(body, 947902)["orders"] == [
-            o for o in _group_holding(body, 947902)["orders"] if o["order_id"] == 947902
-        ]
+        assert [o["order_id"] for o in _group_holding(body, 947902)["orders"]] == [947902]
 
     def test_an_order_without_a_pack_is_its_own_row(self, db, client, admin_auth_headers, rol_admin):
         _grant_ml_ops_ver(db, rol_admin)

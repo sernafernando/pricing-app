@@ -456,3 +456,24 @@ describe('A pack is one row', () => {
     expect(await screen.findByText('ELIAADRIANAREYES')).toBeInTheDocument();
   });
 });
+
+describe('The "Todas" chip follows the same arithmetic as the chips beside it', () => {
+  it('counts the axis facets, not the doubly-filtered total', async () => {
+    // `total` is scoped by BOTH axes; the facets by the OTHER one. Reading
+    // `total` here made "Todas" smaller than the sum of the chips under it
+    // as soon as the other axis was filtered.
+    mockSalesList([PAID_SALE], {
+      total: 1,
+      facets: {
+        operation_status: { paid: 7, cancelled: 3 },
+        goods_status: { in_warehouse: 10 },
+      },
+    });
+    await renderWithRouter(<VentasML />);
+
+    const operationGroup = await screen.findByRole('group', {
+      name: /estado de operaci[oó]n/i,
+    });
+    expect(within(operationGroup).getByRole('button', { name: 'Todas · 10' })).toBeInTheDocument();
+  });
+});

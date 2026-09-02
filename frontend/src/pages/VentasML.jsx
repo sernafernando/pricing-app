@@ -191,6 +191,12 @@ export default function VentasML() {
 
   const hasActiveFilters = Boolean(operationStatusFilter || goodsStatusFilter || soldMonthFilter);
 
+  // The "Todas" chip has to follow the SAME arithmetic as the chips beside
+  // it: the facets are scoped by the OTHER axis, while `total` is scoped by
+  // BOTH. Showing `total` made "Todas" smaller than the sum of the chips
+  // under it the moment the other axis was filtered.
+  const sumOf = (counts) => Object.values(counts || {}).reduce((acc, n) => acc + (n || 0), 0);
+
   const cargarVentas = useCallback(async () => {
     if (!puedeVer) return;
     // Changing a filter twice quickly can land the older response last and
@@ -291,7 +297,7 @@ export default function VentasML() {
             aria-pressed={operationStatusFilter === ''}
             onClick={() => handleOperationStatusChange('')}
           >
-            Todas · {total}
+            Todas · {sumOf(facets.operation_status)}
           </button>
           {OPERATION_STATUS_OPTIONS.map((value) => (
             <button
@@ -319,7 +325,7 @@ export default function VentasML() {
             aria-pressed={goodsStatusFilter === ''}
             onClick={() => handleGoodsStatusChange('')}
           >
-            Todas · {total}
+            Todas · {sumOf(facets.goods_status)}
           </button>
           {GOODS_STATUS_OPTIONS.map((value) => (
             <button

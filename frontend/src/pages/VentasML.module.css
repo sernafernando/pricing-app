@@ -1,8 +1,14 @@
-/* Follows the `SalesConsolePage` idiom from gbs-pricing: tokens only, no
-   literal hex, so the page switches with `data-theme` like the rest of the
-   app. The previous version rendered a wall of unseparated 20px rows the
-   operator described as reading like a .txt — everything here about row
-   height, dividers and alignment exists to fix that. */
+/* Layout follows the `SalesConsolePage` idiom from gbs-pricing — the
+   previous version rendered a wall of unseparated rows the operator
+   described as reading like a .txt, and everything here about row height,
+   dividers and alignment exists to fix that.
+
+   The COMPONENTS stay on this project's design system: buttons compose
+   from `buttons-tesla.css` and the month field from `forms-tesla.css`,
+   rather than being re-implemented in an idiom borrowed from another
+   repository. Colors are tokens only, so `data-theme` still switches the
+   page. The remaining literals are layout metrics (row height, the label
+   column width) with no token to name them. */
 
 .container {
   padding: var(--spacing-lg);
@@ -44,7 +50,7 @@
   gap: var(--space-2);
   padding: var(--space-3);
   margin-bottom: var(--spacing-md);
-  font-size: 13px;
+  font-size: var(--font-sm);
   color: var(--text-primary);
   background: var(--bg-secondary);
   border: 1px solid var(--border-primary);
@@ -97,7 +103,7 @@
   height: 32px;
   padding: 0 14px;
   font-family: inherit;
-  font-size: 13px;
+  font-size: var(--font-sm);
   font-weight: var(--font-medium);
   letter-spacing: 0.02em;
   color: var(--text-primary);
@@ -118,27 +124,13 @@
 }
 
 .monthInput {
-  height: 32px;
-  padding: 0 var(--space-3);
-  font-family: inherit;
-  font-size: 13px;
-  color: var(--text-primary);
-  background: var(--bg-primary);
-  border: 1px solid var(--border-primary);
-  border-radius: var(--radius-md);
+  composes: inputSm from '../styles/forms-tesla.css';
+  width: auto;
   cursor: pointer;
 }
 
 .clearFilters {
-  height: 32px;
-  padding: 0 14px;
-  font-family: inherit;
-  font-size: 13px;
-  color: var(--text-secondary);
-  background: none;
-  border: 1px solid var(--border-primary);
-  border-radius: var(--radius-md);
-  cursor: pointer;
+  composes: btn-tesla ghost sm from '../styles/buttons-tesla.css';
 }
 
 .divider {
@@ -152,7 +144,7 @@
 }
 
 .stale {
-  font-size: 13px;
+  font-size: var(--font-sm);
   color: var(--text-tertiary);
 }
 
@@ -168,7 +160,7 @@
 .table {
   width: 100%;
   border-collapse: collapse;
-  font-size: 13px;
+  font-size: var(--font-sm);
 }
 
 .table thead th {
@@ -206,7 +198,7 @@
 
 .orden {
   font-family: var(--font-mono);
-  font-size: 13px;
+  font-size: var(--font-sm);
 }
 
 .fecha {
@@ -222,7 +214,7 @@
 
 .subline {
   display: block;
-  font-size: 11px;
+  font-size: var(--font-xs);
   color: var(--text-tertiary);
 }
 
@@ -234,13 +226,20 @@
 
 /* ── Packs ───────────────────────────────────────────────── */
 
+/* The parcel's own row: it heads the orders under it, so it carries the
+   weight they do not. Referenced from the JSX — it used to be applied
+   with no rule behind it, which styled nothing. */
+.packRow td {
+  font-weight: var(--font-medium);
+}
+
 .packToggle {
   display: flex;
   align-items: center;
   gap: var(--space-2);
   padding: 0;
   font-family: inherit;
-  font-size: 13px;
+  font-size: var(--font-sm);
   text-align: left;
   color: var(--text-primary);
   background: none;
@@ -267,7 +266,7 @@
 .memberOrden {
   padding-left: 22px;
   font-family: var(--font-mono);
-  font-size: 12px;
+  font-size: var(--font-xs);
   color: var(--text-secondary);
 }
 
@@ -278,6 +277,6 @@
   align-items: center;
   gap: var(--spacing-md);
   padding: var(--spacing-md) 0;
-  font-size: 13px;
+  font-size: var(--font-sm);
   color: var(--text-secondary);
 }
