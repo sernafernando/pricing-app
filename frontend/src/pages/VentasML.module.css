@@ -1,125 +1,283 @@
-/* VentasML — ML Ventas fuente de verdad, sales list page */
+/* Follows the `SalesConsolePage` idiom from gbs-pricing: tokens only, no
+   literal hex, so the page switches with `data-theme` like the rest of the
+   app. The previous version rendered a wall of unseparated 20px rows the
+   operator described as reading like a .txt — everything here about row
+   height, dividers and alignment exists to fix that. */
 
 .container {
   padding: var(--spacing-lg);
-  width: 100%;
 }
 
 .header {
   display: flex;
-  align-items: center;
-  justify-content: space-between;
-  margin-bottom: var(--spacing-sm);
+  align-items: flex-end;
   gap: var(--spacing-md);
-  flex-wrap: wrap;
+  margin-bottom: var(--space-1);
 }
 
 .headerLeft {
   display: flex;
   align-items: center;
-  gap: var(--spacing-sm);
+  gap: var(--space-2);
 }
 
 .headerLeft h1 {
-  font-size: 1.5rem;
-  font-weight: 600;
-  color: var(--cf-text-primary);
   margin: 0;
-}
-
-.headerLeft svg {
-  color: var(--cf-accent-orange);
+  font-size: var(--font-xl);
+  font-weight: var(--font-semibold);
+  letter-spacing: -0.01em;
 }
 
 .headerActions {
-  display: flex;
-  align-items: center;
-  gap: var(--spacing-sm);
+  margin-left: auto;
 }
 
 .description {
-  font-size: 0.85rem;
-  color: var(--cf-text-secondary);
   margin: 0 0 var(--spacing-md);
+  font-size: var(--font-xs);
+  color: var(--text-secondary);
 }
 
 .errorBar {
   display: flex;
   align-items: center;
-  gap: 6px;
-  padding: 8px 12px;
-  background: color-mix(in srgb, var(--cf-accent-red) 10%, transparent);
-  color: var(--cf-accent-red);
-  border-radius: var(--radius-md);
-  font-size: 0.82rem;
+  gap: var(--space-2);
+  padding: var(--space-3);
   margin-bottom: var(--spacing-md);
+  font-size: 13px;
+  color: var(--text-primary);
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-primary);
+  border-radius: var(--radius-md);
 }
 
-.filtersBar {
+/* ── Filters ─────────────────────────────────────────────── */
+
+.filters {
   display: flex;
-  gap: var(--spacing-sm);
-  margin-bottom: var(--spacing-sm);
-  flex-wrap: wrap;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding: var(--spacing-md);
+  margin-bottom: var(--spacing-md);
+  background: var(--bg-primary);
+  border: 1px solid var(--border-primary);
+  border-radius: var(--radius-lg);
+}
+
+.filterRow {
+  display: flex;
   align-items: center;
+  gap: var(--space-2);
+  flex-wrap: wrap;
 }
 
-.filterGroupLabel {
-  font-size: 0.78rem;
-  font-weight: 600;
-  color: var(--cf-text-tertiary);
-  margin-right: 4px;
+/* Fixed width so the three rows' chips line up in a column instead of
+   starting at three different x positions. */
+.fieldLabel {
+  display: inline-block;
+  width: 118px;
+  flex-shrink: 0;
+  font-size: 11px;
+  font-weight: var(--font-semibold);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--text-tertiary);
 }
 
-.chip {
-  border: 1px solid var(--cf-border-primary);
-  background: var(--cf-bg-secondary);
-  color: var(--cf-text-secondary);
-  border-radius: var(--radius-full, 999px);
-  padding: 4px 10px;
-  font-size: 0.78rem;
+.fieldLabelSub {
+  display: block;
+  font-weight: var(--font-medium);
+  letter-spacing: 0;
+  text-transform: none;
+  font-size: 11px;
+  color: var(--text-tertiary);
+}
+
+.filter {
+  height: 32px;
+  padding: 0 14px;
+  font-family: inherit;
+  font-size: 13px;
+  font-weight: var(--font-medium);
+  letter-spacing: 0.02em;
+  color: var(--text-primary);
+  background: var(--bg-primary);
+  border: 1px solid var(--border-primary);
+  border-radius: var(--radius-md);
   cursor: pointer;
-  transition: background 0.15s ease, color 0.15s ease, border-color 0.15s ease;
 }
 
-.chip:hover {
-  background: var(--cf-bg-tertiary);
+.filter:hover {
+  background: var(--bg-hover);
 }
 
-.chipActive {
-  background: var(--cf-accent-orange);
-  border-color: var(--cf-accent-orange);
-  color: var(--text-inverse);
-}
-
-.monthLabel {
-  font-size: 0.78rem;
-  color: var(--cf-text-tertiary);
+.filterActive {
+  color: var(--bg-primary);
+  background: var(--text-primary);
+  border-color: var(--text-primary);
 }
 
 .monthInput {
-  composes: input from '../styles/forms-tesla.css';
-  width: auto;
+  height: 32px;
+  padding: 0 var(--space-3);
+  font-family: inherit;
+  font-size: 13px;
+  color: var(--text-primary);
+  background: var(--bg-primary);
+  border: 1px solid var(--border-primary);
+  border-radius: var(--radius-md);
+  cursor: pointer;
 }
 
-.loadingCell,
-.emptyCell {
-  text-align: center;
-  padding: var(--spacing-lg);
-  color: var(--cf-text-tertiary);
-  font-size: 0.85rem;
+.clearFilters {
+  height: 32px;
+  padding: 0 14px;
+  font-family: inherit;
+  font-size: 13px;
+  color: var(--text-secondary);
+  background: none;
+  border: 1px solid var(--border-primary);
+  border-radius: var(--radius-md);
+  cursor: pointer;
 }
+
+.divider {
+  height: 1px;
+  background: var(--border-primary);
+  margin: var(--space-1) 0;
+}
+
+.spacer {
+  flex-grow: 1;
+}
+
+.stale {
+  font-size: 13px;
+  color: var(--text-tertiary);
+}
+
+/* ── Table ───────────────────────────────────────────────── */
+
+.tableCard {
+  overflow-x: auto;
+  background: var(--bg-primary);
+  border: 1px solid var(--border-primary);
+  border-radius: var(--radius-lg);
+}
+
+.table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+
+.table thead th {
+  padding: var(--space-3) var(--spacing-md);
+  text-align: left;
+  font-size: 11px;
+  font-weight: var(--font-semibold);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--text-tertiary);
+  border-bottom: 1px solid var(--border-primary);
+  white-space: nowrap;
+}
+
+/* The row height and the divider ARE the fix: without them consecutive
+   sales blur into one block of text. */
+.table tbody td {
+  padding: var(--space-3) var(--spacing-md);
+  border-bottom: 1px solid var(--border-primary);
+  color: var(--text-primary);
+  vertical-align: middle;
+}
+
+.table tbody tr:last-child td {
+  border-bottom: none;
+}
+
+.table tbody tr:hover td {
+  background: var(--bg-hover);
+}
+
+.colOrden {
+  white-space: nowrap;
+}
+
+.orden {
+  font-family: var(--font-mono);
+  font-size: 13px;
+}
+
+.fecha {
+  white-space: nowrap;
+  color: var(--text-secondary);
+}
+
+.numeric {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.subline {
+  display: block;
+  font-size: 11px;
+  color: var(--text-tertiary);
+}
+
+.stateCell {
+  padding: var(--spacing-lg);
+  text-align: center;
+  color: var(--text-tertiary);
+}
+
+/* ── Packs ───────────────────────────────────────────────── */
+
+.packToggle {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: 0;
+  font-family: inherit;
+  font-size: 13px;
+  text-align: left;
+  color: var(--text-primary);
+  background: none;
+  border: none;
+  cursor: pointer;
+}
+
+.chevron {
+  flex-shrink: 0;
+  transition: transform 120ms ease;
+}
+
+.chevronOpen {
+  transform: rotate(90deg);
+}
+
+/* The orders inside a parcel are subordinate to it, and have to read that
+   way — indented, quieter, and visually inside the row above. */
+.memberRow td {
+  background: var(--bg-secondary);
+  color: var(--text-secondary);
+}
+
+.memberOrden {
+  padding-left: 22px;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+/* ── Pagination ──────────────────────────────────────────── */
 
 .paginationBar {
   display: flex;
   align-items: center;
-  gap: var(--spacing-sm);
-  margin-top: var(--spacing-md);
-  font-size: 0.82rem;
-  color: var(--cf-text-secondary);
-}
-
-.stale {
-  margin-top: var(--spacing-sm);
-  font-size: 0.78rem;
-  color: var(--cf-text-tertiary);
+  gap: var(--spacing-md);
+  padding: var(--spacing-md) 0;
+  font-size: 13px;
+  color: var(--text-secondary);
 }
