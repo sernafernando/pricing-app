@@ -293,6 +293,12 @@ class SaleFacetCounts(BaseModel):
 
     operation_status: Dict[str, int]
     goods_status: Dict[str, int]
+    # The number of ROWS in that axis's scope, which is NOT the sum of its
+    # buckets: a pack whose orders disagree counts in two buckets, so the
+    # sum double-counts it. The UI's "Todas" chip needs the count of rows
+    # it would actually render, or it contradicts the table under it.
+    operation_status_total: int = 0
+    goods_status_total: int = 0
 
 
 class SaleListResponse(BaseModel):
@@ -489,6 +495,14 @@ def listar_ventas(
             MlOrdersOps.date_created >= sold_month_range[0], MlOrdersOps.date_created < sold_month_range[1]
         )
 
+    # Every order of a group on the page, regardless of the filters that
+    # selected that group. Scoped to the seller like everything else.
+    members_base = db.query(MlOrdersOps, MlShipmentOps).outerjoin(
+        MlShipmentOps, MlShipmentOps.shipment_id == MlOrdersOps.shipping_id
+    )
+    if settings.ML_USER_ID:
+        members_base = members_base.filter(MlOrdersOps.seller_id == int(settings.ML_USER_ID))
+
     listing_query = base
     if operation_status_filter is not None:
         listing_query = listing_query.filter(op_status_expr == operation_status_filter)
@@ -522,12 +536,14 @@ def listar_ventas(
 
     members_by_key: Dict[str, List[SaleListItem]] = {}
     if page_keys:
-        # Deliberately NOT `listing_query`: a status filter selects which
-        # GROUPS to show, never which of their orders to hide. Filtering the
-        # members too would render a pack missing the very order that failed
-        # the filter -- an incomplete parcel presented as a complete one.
+        # Deliberately NOT `listing_query`, and NOT `base` either: a filter
+        # -- status OR month -- selects which GROUPS to show, never which of
+        # their orders to hide. `base` carries `sold_month`, so a pack whose
+        # orders straddle midnight on the last day of a month came back
+        # missing one: an incomplete parcel presented as a complete one,
+        # which is exactly what this query exists to avoid.
         member_rows = (
-            base.add_columns(
+            members_base.add_columns(
                 group_key.label("group_key"),
                 op_status_expr.label("operation_status"),
                 goods_status_expr.label("goods_status"),
@@ -603,6 +619,8 @@ def listar_ventas(
     goods_facet_query = base
     if operation_status_filter is not None:
         goods_facet_query = goods_facet_query.filter(op_status_expr == operation_status_filter)
+    op_facet_total = op_facet_query.with_entities(func.count(func.distinct(group_key))).scalar() or 0
+
     goods_facet_rows = (
         goods_facet_query.with_entities(goods_status_expr.label("bucket"), func.count(func.distinct(group_key)))
         .group_by("bucket")
@@ -612,12 +630,19 @@ def listar_ventas(
     for bucket, count in goods_facet_rows:
         goods_facet[bucket] = count
 
+    goods_facet_total = goods_facet_query.with_entities(func.count(func.distinct(group_key))).scalar() or 0
+
     return SaleListResponse(
         total=total,
         limit=limit,
         offset=offset,
         sales=groups,
-        facets=SaleFacetCounts(operation_status=op_facet, goods_status=goods_facet),
+        facets=SaleFacetCounts(
+            operation_status=op_facet,
+            goods_status=goods_facet,
+            operation_status_total=op_facet_total,
+            goods_status_total=goods_facet_total,
+        ),
     )
 
 

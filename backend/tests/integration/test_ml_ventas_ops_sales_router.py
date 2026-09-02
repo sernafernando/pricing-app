@@ -432,3 +432,54 @@ class TestPacks:
 
         assert first["total"] == 2, "two rows: the pack and the lone order"
         assert sorted(_order_ids(first)) == [801, 802], "the pack came back whole on page 1"
+
+        # The half the name promises and the first assertions do not prove:
+        # page 2 must hold the OTHER row, with no member of the pack in it.
+        second = client.get(
+            "/api/ml-ventas-ops/sales", params={"limit": 1, "offset": 1}, headers=admin_auth_headers
+        ).json()
+
+        assert _order_ids(second) == [803]
+
+
+class TestFacetTotalsAreRowsNotBuckets:
+    """A mixed pack counts in TWO buckets, so summing the buckets
+    double-counts it. The listing's "Todas" needs the number of rows it
+    would render, or the chip contradicts the table under it."""
+
+    def test_a_mixed_pack_makes_the_bucket_sum_exceed_the_row_count(self, db, client, admin_auth_headers, rol_admin):
+        _grant_ml_ops_ver(db, rol_admin)
+        when = datetime(2026, 9, 1, tzinfo=timezone.utc)
+        _seed_order(db, 901, pack_id=777, status="paid", date_created=when)
+        _seed_order(db, 902, pack_id=777, status="cancelled", date_created=when)
+        db.commit()
+
+        body = client.get("/api/ml-ventas-ops/sales", headers=admin_auth_headers).json()
+        facets = body["facets"]
+
+        assert body["total"] == 1, "one pack, one row"
+        assert facets["operation_status"]["paid"] == 1
+        assert facets["operation_status"]["cancelled"] == 1
+        assert sum(facets["operation_status"].values()) == 2, "the buckets legitimately sum to more"
+        # ...and this is the number the chip must show.
+        assert facets["operation_status_total"] == 1
+        assert facets["goods_status_total"] == 1
+
+
+class TestAFilterNeverSplitsAPack:
+    def test_the_month_filter_keeps_a_pack_that_straddles_midnight_whole(
+        self, db, client, admin_auth_headers, rol_admin
+    ):
+        """A pack whose orders fall either side of a month boundary must
+        still come back whole -- the same rule the status filter follows."""
+        _grant_ml_ops_ver(db, rol_admin)
+        _seed_order(db, 1001, pack_id=555, date_created=datetime(2026, 8, 31, 23, 59, tzinfo=timezone.utc))
+        _seed_order(db, 1002, pack_id=555, date_created=datetime(2026, 9, 1, 0, 1, tzinfo=timezone.utc))
+        db.commit()
+
+        body = client.get(
+            "/api/ml-ventas-ops/sales", params={"sold_month": "2026-09"}, headers=admin_auth_headers
+        ).json()
+
+        assert body["total"] == 1
+        assert sorted(o["order_id"] for o in body["sales"][0]["orders"]) == [1001, 1002]

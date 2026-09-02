@@ -43,6 +43,13 @@ import styles from './VentasML.module.css';
 
 const PAGE_SIZE = 50;
 
+const EMPTY_FACETS = {
+  operation_status: {},
+  goods_status: {},
+  operation_status_total: 0,
+  goods_status_total: 0,
+};
+
 const OPERATION_STATUS_LABELS = {
   paid: 'Pagada',
   cancelled: 'Cancelada',
@@ -139,7 +146,12 @@ export default function VentasML() {
   const [goodsStatusFilter, setGoodsStatusFilter] = useState('');
   const [soldMonthFilter, setSoldMonthFilter] = useState('');
 
-  const [facets, setFacets] = useState({ operation_status: {}, goods_status: {} });
+  const [facets, setFacets] = useState({
+    operation_status: {},
+    goods_status: {},
+    operation_status_total: 0,
+    goods_status_total: 0,
+  });
   // Keyed by `group_key`, so an open pack stays open across a re-render.
   // Reset on every load: the keys of the previous page mean nothing here.
   const [expanded, setExpanded] = useState(() => new Set());
@@ -191,11 +203,11 @@ export default function VentasML() {
 
   const hasActiveFilters = Boolean(operationStatusFilter || goodsStatusFilter || soldMonthFilter);
 
-  // The "Todas" chip has to follow the SAME arithmetic as the chips beside
-  // it: the facets are scoped by the OTHER axis, while `total` is scoped by
-  // BOTH. Showing `total` made "Todas" smaller than the sum of the chips
-  // under it the moment the other axis was filtered.
-  const sumOf = (counts) => Object.values(counts || {}).reduce((acc, n) => acc + (n || 0), 0);
+  // "Todas" is neither `total` (scoped by BOTH axes, so it under-counts
+  // once the other axis is filtered) nor the sum of the buckets (a pack
+  // whose orders disagree counts in two of them, so the sum double-counts
+  // it and contradicts the table below). The backend sends the exact row
+  // count for each axis's scope; read it, never re-derive it here.
 
   const cargarVentas = useCallback(async () => {
     if (!puedeVer) return;
@@ -215,7 +227,7 @@ export default function VentasML() {
       setSales(data.sales || []);
       setExpanded(new Set());
       setTotal(data.total ?? 0);
-      setFacets(data.facets || { operation_status: {}, goods_status: {} });
+      setFacets(data.facets || EMPTY_FACETS);
       setLastLoadedAt(new Date());
     } catch (err) {
       if (requestId !== latestRequestRef.current) return;
@@ -229,7 +241,7 @@ export default function VentasML() {
       }
       setSales([]);
       setTotal(0);
-      setFacets({ operation_status: {}, goods_status: {} });
+      setFacets(EMPTY_FACETS);
     } finally {
       if (requestId === latestRequestRef.current) setLoading(false);
     }
@@ -297,7 +309,7 @@ export default function VentasML() {
             aria-pressed={operationStatusFilter === ''}
             onClick={() => handleOperationStatusChange('')}
           >
-            Todas · {sumOf(facets.operation_status)}
+            Todas · {facets.operation_status_total ?? 0}
           </button>
           {OPERATION_STATUS_OPTIONS.map((value) => (
             <button
@@ -325,7 +337,7 @@ export default function VentasML() {
             aria-pressed={goodsStatusFilter === ''}
             onClick={() => handleGoodsStatusChange('')}
           >
-            Todas · {sumOf(facets.goods_status)}
+            Todas · {facets.goods_status_total ?? 0}
           </button>
           {GOODS_STATUS_OPTIONS.map((value) => (
             <button
@@ -471,6 +483,14 @@ export default function VentasML() {
                           </td>
                           <td className={styles.numeric}>
                             {formatMoney(order.total_amount, order.currency_id)}
+                            {/* ML's own shipping status, per order. The
+                                header row cannot carry it — a pack's
+                                orders can ship separately — and
+                                `goods_status` is the coarse reading of
+                                it, not a replacement. */}
+                            {order.shipping_status && (
+                              <span className={styles.subline}>{order.shipping_status}</span>
+                            )}
                           </td>
                         </tr>
                       ))}

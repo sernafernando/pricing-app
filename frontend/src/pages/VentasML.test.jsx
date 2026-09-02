@@ -394,6 +394,18 @@ describe('A pack is one row', () => {
     expect(screen.queryByText('2000018230951686')).not.toBeInTheDocument();
   });
 
+  it("shows each order's own shipping status inside the pack", async () => {
+    mockSalesList([
+      packOf([{ ...PACK_A1, shipping_status: 'ready_to_ship' }, PACK_A2], 2000014816536209),
+    ]);
+    const user = userEvent.setup();
+    await renderWithRouter(<VentasML />);
+
+    await user.click(await screen.findByRole('button', { name: /Pack 2000014816536209/ }));
+
+    expect(await screen.findByText('ready_to_ship')).toBeInTheDocument();
+  });
+
   it('reveals the orders inside when opened, and hides them again', async () => {
     mockSalesList([packOf([PACK_A1, PACK_A2], 2000014816536209)]);
     const user = userEvent.setup();
@@ -462,11 +474,16 @@ describe('The "Todas" chip follows the same arithmetic as the chips beside it', 
     // `total` is scoped by BOTH axes; the facets by the OTHER one. Reading
     // `total` here made "Todas" smaller than the sum of the chips under it
     // as soon as the other axis was filtered.
+    // A mixed pack counts in two buckets, so the buckets sum to 11 while
+    // only 10 rows exist. Neither `total` (1, scoped by both axes) nor the
+    // bucket sum (11) is the number the chip must show.
     mockSalesList([PAID_SALE], {
       total: 1,
       facets: {
-        operation_status: { paid: 7, cancelled: 3 },
+        operation_status: { paid: 8, cancelled: 3 },
         goods_status: { in_warehouse: 10 },
+        operation_status_total: 10,
+        goods_status_total: 10,
       },
     });
     await renderWithRouter(<VentasML />);
@@ -475,5 +492,7 @@ describe('The "Todas" chip follows the same arithmetic as the chips beside it', 
       name: /estado de operaci[oó]n/i,
     });
     expect(within(operationGroup).getByRole('button', { name: 'Todas · 10' })).toBeInTheDocument();
+    expect(within(operationGroup).queryByRole('button', { name: 'Todas · 11' })).not.toBeInTheDocument();
+    expect(within(operationGroup).queryByRole('button', { name: 'Todas · 1' })).not.toBeInTheDocument();
   });
 });
