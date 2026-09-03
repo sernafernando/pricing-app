@@ -394,18 +394,6 @@ describe('A pack is one row', () => {
     expect(screen.queryByText('2000018230951686')).not.toBeInTheDocument();
   });
 
-  it("shows each order's own shipping status inside the pack", async () => {
-    mockSalesList([
-      packOf([{ ...PACK_A1, shipping_status: 'ready_to_ship' }, PACK_A2], 2000014816536209),
-    ]);
-    const user = userEvent.setup();
-    await renderWithRouter(<VentasML />);
-
-    await user.click(await screen.findByRole('button', { name: /Pack 2000014816536209/ }));
-
-    expect(await screen.findByText('ready_to_ship')).toBeInTheDocument();
-  });
-
   it('reveals the orders inside when opened, and hides them again', async () => {
     mockSalesList([packOf([PACK_A1, PACK_A2], 2000014816536209)]);
     const user = userEvent.setup();
@@ -497,30 +485,16 @@ describe('The "Todas" chip follows the same arithmetic as the chips beside it', 
   });
 });
 
-describe("ML's own shipping status stays reachable", () => {
-  it('shows it on a lone order, which has exactly one', async () => {
-    // Most of the listing is lone orders. Dropping the raw column was
-    // right; dropping the information was not.
-    mockSalesList([{ ...PAID_SALE, shipping_status: 'ready_to_ship' }]);
+describe("ML's raw shipping status is not rendered", () => {
+  // `goods_status` is derived from `shipping_status`, so rendering both
+  // said the same thing twice — once in Spanish the operator reads, once
+  // in ML's untranslated English. Which status maps where is not this
+  // test's business.
+  it('shows the Mercadería badge instead of the raw ML value', async () => {
+    mockSalesList([{ ...PAID_SALE, shipping_status: 'ready_to_ship', goods_status: 'in_warehouse' }]);
     await renderWithRouter(<VentasML />);
 
-    expect(await screen.findByText('ready_to_ship')).toBeInTheDocument();
-  });
-
-  it('does not claim one for a pack, whose orders can ship separately', async () => {
-    const pack = packOf(
-      [
-        { ...PAID_SALE, order_id: 11, shipping_status: 'ready_to_ship' },
-        { ...PAID_SALE, order_id: 12, shipping_status: 'shipped' },
-      ],
-      99
-    );
-    mockSalesList([pack]);
-    await renderWithRouter(<VentasML />);
-
-    await screen.findByText(/Pack 99/);
-    // Collapsed: neither member's status is presented as the pack's.
+    expect(await screen.findByText('En depósito')).toBeInTheDocument();
     expect(screen.queryByText('ready_to_ship')).not.toBeInTheDocument();
-    expect(screen.queryByText('shipped')).not.toBeInTheDocument();
   });
 });

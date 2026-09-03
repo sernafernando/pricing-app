@@ -33,6 +33,18 @@
  *
  * `mixed` is not a status either axis defines. It is the row saying its
  * orders disagree and the operator has to open it.
+ *
+ * ML's own `shipping_status` is deliberately NOT rendered. `goods_status`
+ * is derived from it and answers the question the operator acts on — is
+ * the parcel still mine, or has it left? — so the raw value restates that
+ * badge in untranslated English beside it. It bought no distinction and
+ * cost a column: a 20-shipment sample of live orders came back
+ * `ready_to_ship` 17 times.
+ *
+ * The argument is about the two columns saying the same thing, not about
+ * which status maps where — `GOODS_STATUS_BY_SHIPPING_STATUS` owns that,
+ * and this comment stays true when it changes. The raw value is still in
+ * the API per order for whoever needs the finer reading.
  */
 
 import { Fragment, useState, useEffect, useCallback, useRef } from 'react';
@@ -453,15 +465,6 @@ export default function VentasML() {
                       </td>
                       <td className={styles.numeric}>
                         {formatMoney(group.total_amount, group.currency_id)}
-                        {/* A lone order has exactly one shipping status, so
-                            the header row can carry it. A pack's orders can
-                            ship separately — there is no single value, and
-                            each member row shows its own. Losing it entirely
-                            for the lone orders (most of the listing) was a
-                            silent regression against the old page. */}
-                        {!isPack && orders[0]?.shipping_status && (
-                          <span className={styles.subline}>{orders[0].shipping_status}</span>
-                        )}
                       </td>
                     </tr>
                     {/* The orders inside the parcel. Rendered only when
@@ -492,14 +495,6 @@ export default function VentasML() {
                           </td>
                           <td className={styles.numeric}>
                             {formatMoney(order.total_amount, order.currency_id)}
-                            {/* ML's own shipping status, per order. The
-                                header row cannot carry it — a pack's
-                                orders can ship separately — and
-                                `goods_status` is the coarse reading of
-                                it, not a replacement. */}
-                            {order.shipping_status && (
-                              <span className={styles.subline}>{order.shipping_status}</span>
-                            )}
                           </td>
                         </tr>
                       ))}
