@@ -6,6 +6,7 @@ import { usePermisos } from '../contexts/PermisosContext';
 import ExportModal from '../components/ExportModal';
 import CalcularWebModal from '../components/CalcularWebModal';
 import CalcularPVPModal from '../components/CalcularPVPModal';
+import AplicarMarkupMasivoModal from '../components/AplicarMarkupMasivoModal';
 import ModalInfoProducto from '../components/ModalInfoProducto';
 import StatCard from '../components/StatCard';
 import SearchInput from '../components/SearchInput';
@@ -34,6 +35,7 @@ export default function Productos() {
   const [mostrarExportModal, setMostrarExportModal] = useState(false);
   const [mostrarCalcularWebModal, setMostrarCalcularWebModal] = useState(false);
   const [mostrarCalcularPVPModal, setMostrarCalcularPVPModal] = useState(false);
+  const [mostrarMarkupMasivoModal, setMostrarMarkupMasivoModal] = useState(false);
   const [busquedaMarca, setBusquedaMarca] = useState('');
   const [busquedaSubcategoria, setBusquedaSubcategoria] = useState('');
 
@@ -132,6 +134,7 @@ export default function Productos() {
   const puedeMarcarColorLote = tienePermiso('productos.marcar_color_lote');
   const puedeCalcularWebMasivo = tienePermiso('productos.calcular_web_masivo');
   const puedeCalcularPVPMasivo = tienePermiso('productos.calcular_pvp_masivo');
+  const puedeAplicarMarkupMasivo = tienePermiso('productos.aplicar_markup_masivo');
   const puedeToggleOutOfCards = tienePermiso('productos.toggle_out_of_cards');
 
   // Legacy: puedeEditar es true si tiene al menos un permiso de edición
@@ -649,6 +652,16 @@ export default function Productos() {
             title="Calcular precios PVP masivamente (Ctrl+Shift+P)"
           >
             Calcular PVP
+          </button>
+          )}
+
+          {puedeAplicarMarkupMasivo && (
+          <button
+            onClick={() => setMostrarMarkupMasivoModal(true)}
+            className="btn-tesla outline-subtle-primary sm"
+            title="Acciones masivas sobre los productos visibles (markup ML y config de cuotas)"
+          >
+            Acciones masivas
           </button>
           )}
 
@@ -2422,6 +2435,19 @@ export default function Productos() {
             audit_fecha_hasta: filtrosAuditoria.fecha_hasta
           }}
           showToast={showToast}
+        />
+      )}
+
+      {mostrarMarkupMasivoModal && (
+        <AplicarMarkupMasivoModal
+          onClose={() => setMostrarMarkupMasivoModal(false)}
+          onSuccess={() => {
+            cargarProductos();
+            cargarStats();
+          }}
+          productos={productosOrdenados}
+          showToast={showToast}
+          puedeEditarCuotas={puedeEditarCuotas}
         />
       )}
 

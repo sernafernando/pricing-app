@@ -272,6 +272,13 @@ class ConfigCuotasRequest(BaseModel):
     markup_adicional_cuotas_pvp_custom: Optional[float] = None
 
 
+class ConfigCuotasMasivoRequest(BaseModel):
+    item_ids: List[int] = Field(..., min_length=1, max_length=500)
+    recalcular_cuotas_auto: Optional[bool] = None
+    markup_adicional_cuotas_custom: Optional[float] = None
+    markup_adicional_cuotas_pvp_custom: Optional[float] = None
+
+
 class ColorLoteRequest(BaseModel):
     item_ids: List[int]
     color: Optional[str] = None
