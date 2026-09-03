@@ -69,7 +69,8 @@ export default function AplicarMarkupMasivoModal({
     const lotes = chunkIds(itemIds, MAX_ITEMS_POR_REQUEST);
     const totalLotes = lotes.length;
     const acumulado = { total: 0, ok: 0, errores: 0, resultados: [] };
-    let lotesCompletos = 0;
+    let lotesConfig = 0;
+    let lotesMarkup = 0;
     let interrumpido = false;
 
     try {
@@ -88,12 +89,11 @@ export default function AplicarMarkupMasivoModal({
               recalcularAuto === 'null' ? null : recalcularAuto === 'true',
             markup_adicional_cuotas_custom: adicional,
           });
-          lotesCompletos += 1;
+          lotesConfig += 1;
         }
       }
 
       if (aplicarMarkup) {
-        lotesCompletos = 0;
         for (let i = 0; i < lotes.length; i++) {
           setProgresoLote({ actual: i + 1, total: totalLotes, accion: 'markup' });
           const response = await api.post('/precios/aplicar-markup-masivo', {
@@ -106,7 +106,7 @@ export default function AplicarMarkupMasivoModal({
           acumulado.ok += response.data.ok;
           acumulado.errores += response.data.errores;
           acumulado.resultados.push(...response.data.resultados);
-          lotesCompletos += 1;
+          lotesMarkup += 1;
         }
       }
     } catch {
@@ -120,13 +120,16 @@ export default function AplicarMarkupMasivoModal({
     }
 
     if (interrumpido) {
+      const fases = [];
+      if (aplicarConfig) fases.push(`config ${lotesConfig}/${totalLotes}`);
+      if (aplicarMarkup) fases.push(`markup ${lotesMarkup}/${totalLotes}`);
       showToast(
-        `Error al aplicar. Completados ${lotesCompletos}/${totalLotes} lotes${
-          acumulado.ok ? ` (${acumulado.ok} productos ya actualizados)` : ''
+        `Error al aplicar. Completados ${fases.join(', ')}${
+          acumulado.ok ? ` (${acumulado.ok} productos con markup ya actualizado)` : ''
         }`,
         'error',
       );
-      if (acumulado.ok > 0 || (aplicarConfig && lotesCompletos > 0)) onSuccess();
+      if (acumulado.ok > 0 || lotesConfig > 0) onSuccess();
       return;
     }
 
