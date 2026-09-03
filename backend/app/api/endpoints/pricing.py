@@ -13,6 +13,7 @@ logger = logging.getLogger(__name__)
 from app.models.producto import ProductoERP, ProductoPricing, HistorialPrecio
 from app.models.producto_precio_origen import upsert_origen_manual
 from app.models.auditoria_precio import AuditoriaPrecio
+from app.models.auditoria import Auditoria, TipoAccion
 from app.models.usuario import Usuario
 from app.services.pricing_calculator import (
     calcular_precio_producto,
@@ -50,10 +51,7 @@ def _registrar_cambio_precio_clasica(
     comentario: str,
     motivo: str,
 ) -> None:
-    """Mismos rastros que set-rapido: AuditoriaPrecio + auditoria nueva + HistorialPrecio."""
-    from app.services.auditoria_service import registrar_auditoria
-    from app.models.auditoria import TipoAccion
-
+    """Mismos rastros que set-rapido, sin commit: viven o mueren con el precio."""
     if getattr(pricing, "id", None) is None:
         db.flush()
 
@@ -69,13 +67,14 @@ def _registrar_cambio_precio_clasica(
                 comentario=comentario,
             )
         )
-        registrar_auditoria(
-            db=db,
-            usuario_id=usuario_id,
-            tipo_accion=TipoAccion.MODIFICAR_PRECIO_CLASICA,
-            item_id=item_id,
-            valores_anteriores={"precio_lista_ml": float(precio_anterior) if precio_anterior is not None else None},
-            valores_nuevos={"precio_lista_ml": float(precio_nuevo)},
+        db.add(
+            Auditoria(
+                item_id=item_id,
+                usuario_id=usuario_id,
+                tipo_accion=TipoAccion.MODIFICAR_PRECIO_CLASICA,
+                valores_anteriores={"precio_lista_ml": float(precio_anterior) if precio_anterior is not None else None},
+                valores_nuevos={"precio_lista_ml": float(precio_nuevo)},
+            )
         )
 
     db.add(

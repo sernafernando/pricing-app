@@ -68,6 +68,9 @@ export default function AplicarMarkupMasivoModal({
 
     const lotes = chunkIds(itemIds, MAX_ITEMS_POR_REQUEST);
     const totalLotes = lotes.length;
+    const acumulado = { total: 0, ok: 0, errores: 0, resultados: [] };
+    let lotesCompletos = 0;
+    let interrumpido = false;
 
     try {
       if (aplicarConfig) {
@@ -85,11 +88,12 @@ export default function AplicarMarkupMasivoModal({
               recalcularAuto === 'null' ? null : recalcularAuto === 'true',
             markup_adicional_cuotas_custom: adicional,
           });
+          lotesCompletos += 1;
         }
       }
 
       if (aplicarMarkup) {
-        const acumulado = { total: 0, ok: 0, errores: 0, resultados: [] };
+        lotesCompletos = 0;
         for (let i = 0; i < lotes.length; i++) {
           setProgresoLote({ actual: i + 1, total: totalLotes, accion: 'markup' });
           const response = await api.post('/precios/aplicar-markup-masivo', {
@@ -102,27 +106,41 @@ export default function AplicarMarkupMasivoModal({
           acumulado.ok += response.data.ok;
           acumulado.errores += response.data.errores;
           acumulado.resultados.push(...response.data.resultados);
+          lotesCompletos += 1;
         }
-        setResultados(acumulado);
-        if (acumulado.errores === 0) {
-          showToast(`✅ ${acumulado.ok} productos actualizados`);
-        } else {
-          showToast(`⚠️ ${acumulado.ok} OK / ${acumulado.errores} con error`, 'warning');
-        }
-      } else {
-        showToast(`✅ Config de cuotas aplicada a ${total} producto${total !== 1 ? 's' : ''}`);
-        onSuccess();
-        onClose();
-        return;
       }
-
-      onSuccess();
-    } catch (error) {
-      console.error('Error acciones masivas:', error);
-      showToast('❌ Error al aplicar acciones masivas', 'error');
+    } catch {
+      interrumpido = true;
     } finally {
       setAplicando(false);
       setProgresoLote(null);
+      if (aplicarMarkup && acumulado.total > 0) {
+        setResultados(acumulado);
+      }
+    }
+
+    if (interrumpido) {
+      showToast(
+        `Error al aplicar. Completados ${lotesCompletos}/${totalLotes} lotes${
+          acumulado.ok ? ` (${acumulado.ok} productos ya actualizados)` : ''
+        }`,
+        'error',
+      );
+      if (acumulado.ok > 0 || (aplicarConfig && lotesCompletos > 0)) onSuccess();
+      return;
+    }
+
+    if (aplicarMarkup) {
+      if (acumulado.errores === 0) {
+        showToast(`✅ ${acumulado.ok} productos actualizados`);
+      } else {
+        showToast(`⚠️ ${acumulado.ok} OK / ${acumulado.errores} con error`, 'warning');
+      }
+      onSuccess();
+    } else {
+      showToast(`✅ Config de cuotas aplicada a ${total} producto${total !== 1 ? 's' : ''}`);
+      onSuccess();
+      onClose();
     }
   };
 
