@@ -138,8 +138,11 @@ class TestGoodsStatus:
     def test_ready_to_ship_is_in_warehouse(self):
         assert goods_status_of("ready_to_ship") == "in_warehouse"
 
-    def test_handling_is_in_warehouse(self):
-        assert goods_status_of("handling") == "in_warehouse"
+    def test_handling_is_in_transit_because_the_first_carrier_has_it(self):
+        """`handling` means the first carrier already collected the parcel
+        (operator, 2026-09-03). Calling it `in_warehouse` told the operator
+        it was still on their floor after it had left."""
+        assert goods_status_of("handling") == "in_transit"
 
     def test_shipped_is_in_transit(self):
         assert goods_status_of("shipped") == "in_transit"

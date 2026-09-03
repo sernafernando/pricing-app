@@ -45,9 +45,10 @@ about the same sale. A cancellation with the goods still in the warehouse,
 one where they went out and came back, and one where the buyer has them
 are three different operational situations behind the identical
 `operation_status == "cancelled"`. Vocabulary matches this repo's existing
-Flex vocabulary (`app/api/endpoints/etiquetas_*.py`): `ready_to_ship` /
-`handling` -> `in_warehouse`, `shipped` -> `in_transit`, `delivered` ->
-`delivered`, `not_delivered` -> `returned_undelivered`. Anything else
+Flex vocabulary (`app/api/endpoints/etiquetas_*.py`). The line the axis
+draws is whether the parcel is still ours: `GOODS_STATUS_BY_SHIPPING_STATUS`
+below is the one place that says which side each shipping status falls on,
+and this docstring deliberately does not repeat it. Anything else
 (including no shipment at all) is `unknown` -- distinct from "never
 shipped", which this system cannot assert either.
 """
@@ -87,9 +88,21 @@ GOODS_STATUSES = (
     "returned_undelivered",
 )
 
+# The line this axis draws is the one the business acts on: is the parcel
+# still OURS, or has it left? `ready_to_ship` is ours -- its substatuses
+# (`ready_to_print`, `ready_to_pack`, `packed`, `in_warehouse`) are our own
+# internal pipeline, all of them inside the warehouse.
+#
+# `handling` is NOT ours: the first carrier has already collected it
+# (operator, 2026-09-03). It was mapped to `in_warehouse` here, which said
+# the parcel was still on our floor after it had left. It does not appear
+# in this account's traffic today -- a 20-shipment sample of live orders
+# returned only `ready_to_ship`, `shipped` and `cancelled` -- so this was a
+# latent defect rather than an active one, and it is corrected before it
+# can surface.
 GOODS_STATUS_BY_SHIPPING_STATUS = {
     "ready_to_ship": "in_warehouse",
-    "handling": "in_warehouse",
+    "handling": "in_transit",
     "shipped": "in_transit",
     "delivered": "delivered",
     "not_delivered": "returned_undelivered",
