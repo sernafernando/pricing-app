@@ -2,6 +2,16 @@ import { useState, useEffect } from 'react';
 import api from '../services/api';
 import styles from './AplicarMarkupMasivoModal.module.css';
 
+const MAX_ITEMS_POR_REQUEST = 500;
+
+function chunkIds(ids, size) {
+  const chunks = [];
+  for (let i = 0; i < ids.length; i += size) {
+    chunks.push(ids.slice(i, i + size));
+  }
+  return chunks;
+}
+
 export default function AplicarMarkupMasivoModal({
   onClose,
   onSuccess,
@@ -18,6 +28,7 @@ export default function AplicarMarkupMasivoModal({
   const [markupAdicional, setMarkupAdicional] = useState('');
 
   const [aplicando, setAplicando] = useState(false);
+  const [progresoLote, setProgresoLote] = useState(null);
   const [resultados, setResultados] = useState(null);
 
   const pricelistId = 4;
@@ -53,6 +64,10 @@ export default function AplicarMarkupMasivoModal({
 
     setAplicando(true);
     setResultados(null);
+    setProgresoLote(null);
+
+    const lotes = chunkIds(itemIds, MAX_ITEMS_POR_REQUEST);
+    const totalLotes = lotes.length;
 
     try {
       if (aplicarConfig) {
@@ -62,26 +77,37 @@ export default function AplicarMarkupMasivoModal({
           setAplicando(false);
           return;
         }
-        await api.post('/productos/config-cuotas-masivo', {
-          item_ids: itemIds,
-          recalcular_cuotas_auto:
-            recalcularAuto === 'null' ? null : recalcularAuto === 'true',
-          markup_adicional_cuotas_custom: adicional,
-        });
+        for (let i = 0; i < lotes.length; i++) {
+          setProgresoLote({ actual: i + 1, total: totalLotes, accion: 'config' });
+          await api.post('/productos/config-cuotas-masivo', {
+            item_ids: lotes[i],
+            recalcular_cuotas_auto:
+              recalcularAuto === 'null' ? null : recalcularAuto === 'true',
+            markup_adicional_cuotas_custom: adicional,
+          });
+        }
       }
 
       if (aplicarMarkup) {
-        const response = await api.post('/precios/aplicar-markup-masivo', {
-          markup_objetivo: markup,
-          pricelist_id: pricelistId,
-          recalcular_cuotas: recalcularCuotas,
-          item_ids: itemIds,
-        });
-        setResultados(response.data);
-        if (response.data.errores === 0) {
-          showToast(`✅ ${response.data.ok} productos actualizados`);
+        const acumulado = { total: 0, ok: 0, errores: 0, resultados: [] };
+        for (let i = 0; i < lotes.length; i++) {
+          setProgresoLote({ actual: i + 1, total: totalLotes, accion: 'markup' });
+          const response = await api.post('/precios/aplicar-markup-masivo', {
+            markup_objetivo: markup,
+            pricelist_id: pricelistId,
+            recalcular_cuotas: recalcularCuotas,
+            item_ids: lotes[i],
+          });
+          acumulado.total += response.data.total;
+          acumulado.ok += response.data.ok;
+          acumulado.errores += response.data.errores;
+          acumulado.resultados.push(...response.data.resultados);
+        }
+        setResultados(acumulado);
+        if (acumulado.errores === 0) {
+          showToast(`✅ ${acumulado.ok} productos actualizados`);
         } else {
-          showToast(`⚠️ ${response.data.ok} OK / ${response.data.errores} con error`, 'warning');
+          showToast(`⚠️ ${acumulado.ok} OK / ${acumulado.errores} con error`, 'warning');
         }
       } else {
         showToast(`✅ Config de cuotas aplicada a ${total} producto${total !== 1 ? 's' : ''}`);
@@ -96,6 +122,7 @@ export default function AplicarMarkupMasivoModal({
       showToast('❌ Error al aplicar acciones masivas', 'error');
     } finally {
       setAplicando(false);
+      setProgresoLote(null);
     }
   };
 
@@ -218,6 +245,12 @@ export default function AplicarMarkupMasivoModal({
 
               <div className={styles.infoBox}>
                 Opera solo sobre los productos visibles en la grilla (página actual y filtros).
+                {total > MAX_ITEMS_POR_REQUEST && (
+                  <>
+                    {' '}
+                    Hay {total} visibles: se enviará en {Math.ceil(total / MAX_ITEMS_POR_REQUEST)} tandas de hasta {MAX_ITEMS_POR_REQUEST}.
+                  </>
+                )}
               </div>
             </>
           ) : (
@@ -275,7 +308,11 @@ export default function AplicarMarkupMasivoModal({
                 onClick={handleAplicar}
                 disabled={aplicando || !puedeAplicar}
               >
-                {aplicando ? 'Aplicando...' : `Aplicar a ${total} producto${total !== 1 ? 's' : ''}`}
+                {aplicando
+                  ? progresoLote
+                    ? `Aplicando lote ${progresoLote.actual}/${progresoLote.total}...`
+                    : 'Aplicando...'
+                  : `Aplicar a ${total} producto${total !== 1 ? 's' : ''}`}
               </button>
             </>
           ) : (

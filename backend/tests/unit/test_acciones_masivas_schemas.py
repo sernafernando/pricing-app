@@ -22,6 +22,11 @@ def test_aplicar_markup_masivo_rechaza_lista_vacia():
         AplicarMarkupMasivoRequest(markup_objetivo=5, item_ids=[])
 
 
+def test_aplicar_markup_masivo_rechaza_mas_de_500_items():
+    with pytest.raises(ValidationError):
+        AplicarMarkupMasivoRequest(markup_objetivo=5, item_ids=list(range(1, 502)))
+
+
 def test_config_cuotas_masivo_requiere_items():
     with pytest.raises(ValidationError):
         ConfigCuotasMasivoRequest(item_ids=[])

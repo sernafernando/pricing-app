@@ -6,7 +6,8 @@ from fastapi import HTTPException
 from app.api.endpoints.pricing import AplicarMarkupMasivoRequest, aplicar_markup_masivo
 from app.api.endpoints.productos_pricing import actualizar_config_cuotas_masivo
 from app.api.endpoints.productos_shared import ConfigCuotasMasivoRequest
-from app.models.producto import ProductoERP, ProductoPricing
+from app.models.producto import ProductoERP, ProductoPricing, HistorialPrecio
+from app.models.auditoria_precio import AuditoriaPrecio
 
 
 def _db_for_models(producto=None, pricing=None):
@@ -38,7 +39,10 @@ def test_aplicar_markup_masivo_producto_inexistente():
     request = AplicarMarkupMasivoRequest(markup_objetivo=5, item_ids=[99], recalcular_cuotas=False)
     db = _db_for_models(producto=None)
     user = MagicMock(id=19)
-    with patch("app.services.permisos_service.verificar_permiso", return_value=True):
+    with (
+        patch("app.services.permisos_service.verificar_permiso", return_value=True),
+        patch("app.api.endpoints.pricing.obtener_tipo_cambio_actual", return_value=None),
+    ):
         result = aplicar_markup_masivo(request, db, user)
     assert result["total"] == 1
     assert result["ok"] == 0
@@ -75,6 +79,7 @@ def test_aplicar_markup_masivo_happy_path_guarda_markup_en_porcentaje():
         patch("app.services.pricing_calculator.calcular_markup", return_value=0.05),
         patch("app.api.endpoints.pricing.calcular_markup_rebate", return_value=None),
         patch("app.api.endpoints.pricing.calcular_markup_oferta", return_value=None),
+        patch("app.api.endpoints.pricing.obtener_tipo_cambio_actual", return_value=None),
         patch("app.services.auditoria_service.registrar_auditoria") as audit,
     ):
         result = aplicar_markup_masivo(request, db, user)
@@ -85,7 +90,13 @@ def test_aplicar_markup_masivo_happy_path_guarda_markup_en_porcentaje():
     assert pricing.markup_calculado == 5.0
     assert pricing.precio_lista_ml == 15000
     db.commit.assert_called()
-    audit.assert_called_once()
+    added_types = [type(call.args[0]) for call in db.add.call_args_list]
+    assert HistorialPrecio in added_types
+    assert AuditoriaPrecio in added_types
+    assert audit.call_count == 2
+    kwargs_calls = [call.kwargs for call in audit.call_args_list]
+    assert any(k.get("item_id") == 10 for k in kwargs_calls)
+    assert any((k.get("valores_nuevos") or {}).get("item_ids") == [10] for k in kwargs_calls)
 
 
 def test_config_cuotas_masivo_sin_permiso_403():

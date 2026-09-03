@@ -1,7 +1,7 @@
 """Agregar permiso productos.aplicar_markup_masivo
 
 Revision ID: 20260903_markup_masivo
-Revises: 20260708_ml_bot_defs
+Revises: 20260901_ml_ops_pay_status
 Create Date: 2026-09-03
 
 """
@@ -9,7 +9,7 @@ Create Date: 2026-09-03
 from alembic import op
 
 revision = "20260903_markup_masivo"
-down_revision = "20260708_ml_bot_defs"
+down_revision = "20260901_ml_ops_pay_status"
 branch_labels = None
 depends_on = None
 
