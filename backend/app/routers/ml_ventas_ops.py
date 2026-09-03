@@ -29,7 +29,7 @@ from typing import Dict, List, Optional, Tuple
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel, ConfigDict, Field
-from sqlalchemy import case, func
+from sqlalchemy import String, case, cast, func, literal
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_current_user
@@ -252,6 +252,40 @@ class SaleListItem(BaseModel):
     goods_status: str
 
 
+class SaleGroup(BaseModel):
+    """One ROW of the listing: a pack, or a lone order.
+
+    Mercado Libre splits a single purchase into one `order` per item and
+    ties them together with `pack_id`. Rendered one-per-row, three orders
+    from the same buyer at the same second with different amounts read as
+    three unrelated sales -- the operator could not tell what they were
+    looking at, and that is what this type exists to fix. Verified live on
+    2000018230951686 / 2000018230945962: same `pack_id`, same shipment,
+    one physical parcel.
+
+    `group_key` is a STRING, never the bare numeric id. Pack ids and order
+    ids are drawn from the same numeric range on ML (`2000014816536209`
+    and `2000018230951686` are a pack and an order), so a bare
+    `COALESCE(pack_id, order_id)` could collide and silently merge a pack
+    with an unrelated order.
+
+    A group's status is its members' only when they AGREE. `"mixed"` is
+    not a status either axis defines -- it is this type saying the members
+    disagree and the operator has to open the group. Collapsing a
+    disagreement into one badge would hide exactly the case worth seeing.
+    """
+
+    group_key: str
+    pack_id: Optional[int] = None
+    date_created: Optional[datetime] = None
+    buyer_nickname: Optional[str] = None
+    total_amount: Optional[float] = None
+    currency_id: Optional[str] = None
+    operation_status: str
+    goods_status: str
+    orders: List[SaleListItem]
+
+
 class SaleFacetCounts(BaseModel):
     """Counts per value of one filter axis, computed WITHIN the scope the
     OTHER active filters leave standing (not the globally unfiltered
@@ -259,13 +293,23 @@ class SaleFacetCounts(BaseModel):
 
     operation_status: Dict[str, int]
     goods_status: Dict[str, int]
+    # The number of ROWS in that axis's scope, which is NOT the sum of its
+    # buckets: a pack whose orders disagree counts in two buckets, so the
+    # sum double-counts it. The UI's "Todas" chip needs the count of rows
+    # it would actually render, or it contradicts the table under it.
+    operation_status_total: int = 0
+    goods_status_total: int = 0
 
 
 class SaleListResponse(BaseModel):
+    """`total`/`limit`/`offset` count GROUPS, not orders: the listing
+    paginates over what it renders, so a pack can never be split across
+    two pages."""
+
     total: int
     limit: int
     offset: int
-    sales: List[SaleListItem]
+    sales: List[SaleGroup]
     facets: SaleFacetCounts
 
 
@@ -320,6 +364,37 @@ def _goods_status_expr():
     return case(*whens, else_="unknown")
 
 
+def _group_key_expr():
+    """The listing's grouping key, as TEXT.
+
+    A pack's orders share `pack_id`; a lone order is its own group. The
+    prefix is not decoration: ML draws pack ids and order ids from the
+    same numeric range, so an unprefixed `COALESCE(pack_id, order_id)`
+    can collide and merge a pack with an unrelated order.
+    """
+    # `||`, not `func.concat`: SQLite only grew a `concat()` function in
+    # 3.44, and the integration tests run on SQLite. Passing locally on a
+    # newer sqlite would have hidden this until CI.
+    return case(
+        (MlOrdersOps.pack_id.isnot(None), literal("p:") + cast(MlOrdersOps.pack_id, String)),
+        else_=literal("o:") + cast(MlOrdersOps.order_id, String),
+    )
+
+
+def _collapse(values: "list[Optional[str]]") -> str:
+    """The members' shared value, or `"mixed"` when they disagree.
+
+    Never silently picks a winner: a pack holding one cancelled order and
+    one delivered order is precisely what the operator needs to notice.
+    """
+    distinct = {v for v in values if v is not None}
+    if not distinct:
+        return "unknown"
+    if len(distinct) == 1:
+        return distinct.pop()
+    return "mixed"
+
+
 def _parse_sold_month(sold_month: str) -> Tuple[datetime, datetime]:
     """Parses `YYYY-MM` into a tz-aware `[month_start, next_month_start)`
     range. Raises `HTTPException(422)` for anything else -- never a bare
@@ -370,6 +445,21 @@ def listar_ventas(
     facet count answers "how many if I also picked this value" rather than
     a meaningless global total.
 
+    One row per GROUP -- a pack, or a lone order (see `SaleGroup`).
+    Everything paginated and counted here is groups, never orders, so a
+    pack cannot straddle a page boundary.
+
+    A status filter selects GROUPS: a group is shown when ANY of its
+    orders matches, and all of its orders come back regardless. The
+    alternative -- filtering the members too -- would render a pack
+    missing exactly the order that failed the filter, which is a lie about
+    what is in the parcel.
+
+    That also means a pack whose orders disagree counts in BOTH buckets of
+    a facet, so the facets can add up to more than `total`. That is the
+    honest arithmetic for "how many rows would I see if I picked this",
+    which is what a facet count answers.
+
     Requires `ml_ops.ver`, checked BEFORE the feature flag (403 before
     503) -- same precedent as every other endpoint in this router.
     """
@@ -405,37 +495,120 @@ def listar_ventas(
             MlOrdersOps.date_created >= sold_month_range[0], MlOrdersOps.date_created < sold_month_range[1]
         )
 
+    # Every order of a group on the page, regardless of the filters that
+    # selected that group. Scoped to the seller like everything else.
+    members_base = db.query(MlOrdersOps, MlShipmentOps).outerjoin(
+        MlShipmentOps, MlShipmentOps.shipment_id == MlOrdersOps.shipping_id
+    )
+    if settings.ML_USER_ID:
+        members_base = members_base.filter(MlOrdersOps.seller_id == int(settings.ML_USER_ID))
+
     listing_query = base
     if operation_status_filter is not None:
         listing_query = listing_query.filter(op_status_expr == operation_status_filter)
     if goods_status_filter is not None:
         listing_query = listing_query.filter(goods_status_expr == goods_status_filter)
 
-    total = listing_query.count()
-    rows = (
-        listing_query.add_columns(op_status_expr.label("operation_status"), goods_status_expr.label("goods_status"))
-        .order_by(MlOrdersOps.date_created.desc().nullslast(), MlOrdersOps.order_id.desc())
+    # Pagination happens over GROUPS, so a pack can never be split across
+    # two pages: page the keys first, then fetch every member of those keys.
+    group_key = _group_key_expr()
+    key_page = (
+        listing_query.with_entities(
+            group_key.label("group_key"),
+            func.min(MlOrdersOps.date_created).label("group_date"),
+        )
+        .group_by("group_key")
+        # The tiebreaker is `max(order_id)`, NOT `group_key`: the key is TEXT,
+        # and text ordering puts "o:9" after "o:10". Ordering groups by their
+        # key would silently drop the deterministic numeric tiebreaker the
+        # per-order listing had, which is what `TestPagination` pins.
+        .order_by(
+            func.min(MlOrdersOps.date_created).desc().nullslast(),
+            func.max(MlOrdersOps.order_id).desc(),
+        )
         .limit(limit)
         .offset(offset)
         .all()
     )
+    page_keys = [row.group_key for row in key_page]
 
-    sales = []
-    for order, shipment, operation_status_value, goods_status_value in rows:
-        sales.append(
-            SaleListItem(
-                order_id=order.order_id,
-                pack_id=order.pack_id,
-                status=order.status,
-                date_created=order.date_created,
-                buyer_nickname=order.buyer_nickname,
-                total_amount=float(order.total_amount) if order.total_amount is not None else None,
-                paid_amount=float(order.paid_amount) if order.paid_amount is not None else None,
-                currency_id=order.currency_id,
-                payment_status=order.payment_status,
-                shipping_status=shipment.status if shipment is not None else None,
-                operation_status=operation_status_value,
-                goods_status=goods_status_value,
+    total = listing_query.with_entities(func.count(func.distinct(group_key))).scalar() or 0
+
+    members_by_key: Dict[str, List[SaleListItem]] = {}
+    if page_keys:
+        # Deliberately NOT `listing_query`, and NOT `base` either: a filter
+        # -- status OR month -- selects which GROUPS to show, never which of
+        # their orders to hide. `base` carries `sold_month`, so a pack whose
+        # orders straddle midnight on the last day of a month came back
+        # missing one: an incomplete parcel presented as a complete one,
+        # which is exactly what this query exists to avoid.
+        member_rows = (
+            members_base.add_columns(
+                group_key.label("group_key"),
+                op_status_expr.label("operation_status"),
+                goods_status_expr.label("goods_status"),
+            )
+            .filter(group_key.in_(page_keys))
+            .order_by(MlOrdersOps.date_created.asc().nullslast(), MlOrdersOps.order_id.asc())
+            .all()
+        )
+        for order, shipment, key, operation_status_value, goods_status_value in member_rows:
+            members_by_key.setdefault(key, []).append(
+                SaleListItem(
+                    order_id=order.order_id,
+                    pack_id=order.pack_id,
+                    status=order.status,
+                    date_created=order.date_created,
+                    buyer_nickname=order.buyer_nickname,
+                    total_amount=float(order.total_amount) if order.total_amount is not None else None,
+                    paid_amount=float(order.paid_amount) if order.paid_amount is not None else None,
+                    currency_id=order.currency_id,
+                    payment_status=order.payment_status,
+                    shipping_status=shipment.status if shipment is not None else None,
+                    operation_status=operation_status_value,
+                    goods_status=goods_status_value,
+                )
+            )
+
+    groups: List[SaleGroup] = []
+    for key in page_keys:
+        members = members_by_key.get(key, [])
+        if not members:
+            continue
+        # The pack's own identity, not the first member's: every member of a
+        # pack carries the same `pack_id`, and a lone order carries none.
+        pack_id = members[0].pack_id
+        dates = [m.date_created for m in members if m.date_created is not None]
+        amounts = [m.total_amount for m in members if m.total_amount is not None]
+        currencies = {m.currency_id for m in members if m.currency_id}
+        # Resolved BEFORE the constructor: `currencies.pop()` mutates the set,
+        # so reading `len(currencies)` in a later argument would depend on
+        # argument evaluation order.
+        single_currency = currencies.pop() if len(currencies) == 1 else None
+        groups.append(
+            SaleGroup(
+                group_key=key,
+                pack_id=pack_id,
+                # The earliest member. NOTE this is not always the value the
+                # row is sorted by: the sort uses `min` over the FILTERED
+                # orders, this uses `min` over all of them. For the pack that
+                # straddles a month boundary they differ -- filtering
+                # `2026-09` shows `31/08` on a row sorted by `01/09`. Showing
+                # the parcel's real date is the right trade; claiming the two
+                # always agree was not.
+                date_created=min(dates) if dates else None,
+                buyer_nickname=next((m.buyer_nickname for m in members if m.buyer_nickname), None),
+                # A pack is one purchase: its worth is what the buyer paid
+                # for all of it, which is why three rows of 27.868 / 27.299 /
+                # 24.750 could not be read as the two parcels they were.
+                # None across currencies, not a bare sum: adding ARS to USD
+                # produces a number that means nothing, and dropping only the
+                # currency label would render exactly that number.
+                total_amount=float(sum(amounts)) if amounts and single_currency is not None else None,
+                currency_id=single_currency,
+                operation_status=_collapse([m.operation_status for m in members]),
+                goods_status=_collapse([m.goods_status for m in members]),
+                orders=members,
             )
         )
 
@@ -444,7 +617,11 @@ def listar_ventas(
     op_facet_query = base
     if goods_status_filter is not None:
         op_facet_query = op_facet_query.filter(goods_status_expr == goods_status_filter)
-    op_facet_rows = op_facet_query.with_entities(op_status_expr.label("bucket"), func.count()).group_by("bucket").all()
+    op_facet_rows = (
+        op_facet_query.with_entities(op_status_expr.label("bucket"), func.count(func.distinct(group_key)))
+        .group_by("bucket")
+        .all()
+    )
     op_facet = {value: 0 for value in OPERATION_STATUSES}
     for bucket, count in op_facet_rows:
         op_facet[bucket] = count
@@ -452,19 +629,30 @@ def listar_ventas(
     goods_facet_query = base
     if operation_status_filter is not None:
         goods_facet_query = goods_facet_query.filter(op_status_expr == operation_status_filter)
+    op_facet_total = op_facet_query.with_entities(func.count(func.distinct(group_key))).scalar() or 0
+
     goods_facet_rows = (
-        goods_facet_query.with_entities(goods_status_expr.label("bucket"), func.count()).group_by("bucket").all()
+        goods_facet_query.with_entities(goods_status_expr.label("bucket"), func.count(func.distinct(group_key)))
+        .group_by("bucket")
+        .all()
     )
     goods_facet = {value: 0 for value in GOODS_STATUSES}
     for bucket, count in goods_facet_rows:
         goods_facet[bucket] = count
 
+    goods_facet_total = goods_facet_query.with_entities(func.count(func.distinct(group_key))).scalar() or 0
+
     return SaleListResponse(
         total=total,
         limit=limit,
         offset=offset,
-        sales=sales,
-        facets=SaleFacetCounts(operation_status=op_facet, goods_status=goods_facet),
+        sales=groups,
+        facets=SaleFacetCounts(
+            operation_status=op_facet,
+            goods_status=goods_facet,
+            operation_status_total=op_facet_total,
+            goods_status_total=goods_facet_total,
+        ),
     )
 
 

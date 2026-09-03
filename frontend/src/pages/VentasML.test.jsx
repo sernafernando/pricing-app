@@ -10,10 +10,15 @@
  *  - Operation/goods status chips filter independently and reset offset.
  *  - A stale response never overwrites the list (sequence guard).
  *  - Empty list and paging past the first page.
+ *  - A pack renders as ONE row whose spoiler holds its orders.
+ *
+ * The endpoint returns GROUPS (a pack, or a lone order). `asGroup` wraps a
+ * lone-order fixture into that shape so the fixtures stay readable as the
+ * orders they describe.
  */
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { screen, waitFor } from '@testing-library/react';
+import { screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { renderWithRouter } from '../test/renderWithRouter';
 import VentasML from './VentasML';
@@ -75,12 +80,42 @@ const UNKNOWN_SALE = {
   goods_status: 'unknown',
 };
 
+function asGroup(order) {
+  return {
+    group_key: `o:${order.order_id}`,
+    pack_id: null,
+    date_created: order.date_created,
+    buyer_nickname: order.buyer_nickname,
+    total_amount: order.total_amount,
+    currency_id: order.currency_id,
+    shipping_status: order.shipping_status,
+    operation_status: order.operation_status,
+    goods_status: order.goods_status,
+    orders: [order],
+  };
+}
+
+function packOf(orders, packId) {
+  return {
+    group_key: `p:${packId}`,
+    pack_id: packId,
+    date_created: orders[0].date_created,
+    buyer_nickname: orders[0].buyer_nickname,
+    total_amount: orders.reduce((sum, o) => sum + o.total_amount, 0),
+    currency_id: orders[0].currency_id,
+    shipping_status: orders[0].shipping_status,
+    operation_status: orders[0].operation_status,
+    goods_status: orders[0].goods_status,
+    orders,
+  };
+}
+
 function mockSalesList(rows, { total, facets } = {}) {
   api.get.mockImplementation((url) => {
     if (url === '/ml-ventas-ops/sales') {
       return Promise.resolve({
         data: {
-          sales: rows,
+          sales: rows.map((row) => (row.group_key ? row : asGroup(row))),
           total: total ?? rows.length,
           limit: 50,
           offset: 0,
@@ -314,7 +349,13 @@ describe('a stale response never overwrites the list', () => {
     await waitFor(() => expect(resolvers.length).toBe(2));
 
     const page = (rows) => ({
-      data: { sales: rows, total: rows.length, limit: 50, offset: 0, facets: { operation_status: {}, goods_status: {} } },
+      data: {
+        sales: rows.map((row) => (row.group_key ? row : asGroup(row))),
+        total: rows.length,
+        limit: 50,
+        offset: 0,
+        facets: { operation_status: {}, goods_status: {} },
+      },
     });
     resolvers[1](page([PAID_SALE]));
     await waitFor(() => expect(screen.getByText('comprador1')).toBeInTheDocument());
@@ -323,5 +364,163 @@ describe('a stale response never overwrites the list', () => {
     await waitFor(() => expect(screen.getByText('comprador1')).toBeInTheDocument());
 
     expect(screen.queryByText('comprador2')).not.toBeInTheDocument();
+  });
+});
+
+describe('A pack is one row', () => {
+  // The production report (2026-09-02): three rows, same buyer, same
+  // timestamp, where two were a single parcel and the third another.
+  const PACK_A1 = {
+    ...PAID_SALE,
+    order_id: 2000018230951686,
+    pack_id: 2000014816536209,
+    total_amount: 27868.1,
+    buyer_nickname: 'ELIAADRIANAREYES',
+  };
+  const PACK_A2 = {
+    ...PAID_SALE,
+    order_id: 2000018230945962,
+    pack_id: 2000014816536209,
+    total_amount: 24750,
+    buyer_nickname: 'ELIAADRIANAREYES',
+  };
+
+  it('shows the pack, not its orders, until it is opened', async () => {
+    mockSalesList([packOf([PACK_A1, PACK_A2], 2000014816536209)]);
+    await renderWithRouter(<VentasML />);
+
+    expect(await screen.findByText(/Pack 2000014816536209/)).toBeInTheDocument();
+    expect(screen.getByText('2 órdenes')).toBeInTheDocument();
+    expect(screen.queryByText('2000018230951686')).not.toBeInTheDocument();
+  });
+
+  it("shows each order's own shipping status inside the pack", async () => {
+    mockSalesList([
+      packOf([{ ...PACK_A1, shipping_status: 'ready_to_ship' }, PACK_A2], 2000014816536209),
+    ]);
+    const user = userEvent.setup();
+    await renderWithRouter(<VentasML />);
+
+    await user.click(await screen.findByRole('button', { name: /Pack 2000014816536209/ }));
+
+    expect(await screen.findByText('ready_to_ship')).toBeInTheDocument();
+  });
+
+  it('reveals the orders inside when opened, and hides them again', async () => {
+    mockSalesList([packOf([PACK_A1, PACK_A2], 2000014816536209)]);
+    const user = userEvent.setup();
+    await renderWithRouter(<VentasML />);
+
+    const toggle = await screen.findByRole('button', { name: /Pack 2000014816536209/ });
+    await user.click(toggle);
+
+    expect(await screen.findByText('2000018230951686')).toBeInTheDocument();
+    expect(screen.getByText('2000018230945962')).toBeInTheDocument();
+
+    await user.click(toggle);
+    await waitFor(() => {
+      expect(screen.queryByText('2000018230951686')).not.toBeInTheDocument();
+    });
+  });
+
+  it('shows the amount of the whole parcel, not of one of its orders', async () => {
+    mockSalesList([packOf([PACK_A1, PACK_A2], 2000014816536209)]);
+    await renderWithRouter(<VentasML />);
+
+    // 27.868,10 + 24.750,00 — the number that was invisible while the
+    // three rows stood apart.
+    expect(await screen.findByText('52.618,10 ARS')).toBeInTheDocument();
+  });
+
+  it('gives a lone order no spoiler to open', async () => {
+    mockSalesList([PAID_SALE]);
+    await renderWithRouter(<VentasML />);
+
+    expect(await screen.findByText('1001')).toBeInTheDocument();
+    expect(screen.queryByText(/órdenes$/)).not.toBeInTheDocument();
+  });
+
+  it('renders a pack whose orders disagree as mixed, never picking a winner', async () => {
+    const mixed = packOf([PACK_A1, PACK_A2], 2000014816536209);
+    mixed.operation_status = 'mixed';
+    mockSalesList([mixed]);
+    await renderWithRouter(<VentasML />);
+
+    expect(await screen.findByText('Mixta')).toBeInTheDocument();
+    // Scoped to the table: "Pagada" also appears as a filter chip, and
+    // asserting against the whole document would pass for the wrong reason.
+    const table = screen.getByRole('table');
+    expect(within(table).queryByText('Pagada')).not.toBeInTheDocument();
+  });
+
+  it('does not offer "Mixta" as a filter — it is a property of a row, not of an order', async () => {
+    await renderWithRouter(<VentasML />);
+    await screen.findByText('Ventas ML');
+    expect(screen.queryByRole('button', { name: /^Mixta/ })).not.toBeInTheDocument();
+  });
+
+  it('survives a group that carries no orders instead of white-screening', async () => {
+    const broken = packOf([PACK_A1], 1);
+    delete broken.orders;
+    mockSalesList([broken]);
+    await renderWithRouter(<VentasML />);
+
+    expect(await screen.findByText('ELIAADRIANAREYES')).toBeInTheDocument();
+  });
+});
+
+describe('The "Todas" chip follows the same arithmetic as the chips beside it', () => {
+  it('counts the axis facets, not the doubly-filtered total', async () => {
+    // `total` is scoped by BOTH axes; the facets by the OTHER one. Reading
+    // `total` here made "Todas" smaller than the sum of the chips under it
+    // as soon as the other axis was filtered.
+    // A mixed pack counts in two buckets, so the buckets sum to 11 while
+    // only 10 rows exist. Neither `total` (1, scoped by both axes) nor the
+    // bucket sum (11) is the number the chip must show.
+    mockSalesList([PAID_SALE], {
+      total: 1,
+      facets: {
+        operation_status: { paid: 8, cancelled: 3 },
+        goods_status: { in_warehouse: 10 },
+        operation_status_total: 10,
+        goods_status_total: 10,
+      },
+    });
+    await renderWithRouter(<VentasML />);
+
+    const operationGroup = await screen.findByRole('group', {
+      name: /estado de operaci[oó]n/i,
+    });
+    expect(within(operationGroup).getByRole('button', { name: 'Todas · 10' })).toBeInTheDocument();
+    expect(within(operationGroup).queryByRole('button', { name: 'Todas · 11' })).not.toBeInTheDocument();
+    expect(within(operationGroup).queryByRole('button', { name: 'Todas · 1' })).not.toBeInTheDocument();
+  });
+});
+
+describe("ML's own shipping status stays reachable", () => {
+  it('shows it on a lone order, which has exactly one', async () => {
+    // Most of the listing is lone orders. Dropping the raw column was
+    // right; dropping the information was not.
+    mockSalesList([{ ...PAID_SALE, shipping_status: 'ready_to_ship' }]);
+    await renderWithRouter(<VentasML />);
+
+    expect(await screen.findByText('ready_to_ship')).toBeInTheDocument();
+  });
+
+  it('does not claim one for a pack, whose orders can ship separately', async () => {
+    const pack = packOf(
+      [
+        { ...PAID_SALE, order_id: 11, shipping_status: 'ready_to_ship' },
+        { ...PAID_SALE, order_id: 12, shipping_status: 'shipped' },
+      ],
+      99
+    );
+    mockSalesList([pack]);
+    await renderWithRouter(<VentasML />);
+
+    await screen.findByText(/Pack 99/);
+    // Collapsed: neither member's status is presented as the pack's.
+    expect(screen.queryByText('ready_to_ship')).not.toBeInTheDocument();
+    expect(screen.queryByText('shipped')).not.toBeInTheDocument();
   });
 });

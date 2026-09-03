@@ -2,8 +2,8 @@
 
 Covers: permission-before-flag gate (403 before 503, same precedent as the
 rest of this router), the derived `operation_status`/`goods_status` axes,
-filters, deterministic pagination, and per-axis facet counts scoped by the
-OTHER active filter.
+filters, deterministic pagination, per-axis facet counts scoped by the
+OTHER active filter, and the grouping of a pack's orders into one row.
 """
 
 from __future__ import annotations
@@ -49,27 +49,48 @@ def _seed_order(
     shipping_status: str | None = None,
     date_created: datetime,
     claim_status: str | None = None,
+    pack_id: int | None = None,
+    total_amount: float = 100,
+    shipping_id: int | None = None,
 ) -> None:
-    shipping_id = order_id * 10 if shipping_status is not None else None
+    if shipping_id is None:
+        shipping_id = order_id * 10 if shipping_status is not None else None
     order = MlOrdersOps(
         order_id=order_id,
+        pack_id=pack_id,
         status=status,
         payment_status=payment_status,
         covered_by_marketplace=covered_by_marketplace,
         ml_last_updated=date_created,
         date_created=date_created,
         seller_id=999,
-        total_amount=100,
-        paid_amount=100,
+        total_amount=total_amount,
+        paid_amount=total_amount,
         currency_id="ARS",
         shipping_id=shipping_id,
     )
     db.add(order)
-    if shipping_id is not None:
-        db.add(MlShipmentOps(shipment_id=shipping_id, order_id=order_id, status=shipping_status))
+    if shipping_id is not None and shipping_status is not None:
+        existing = db.query(MlShipmentOps).filter(MlShipmentOps.shipment_id == shipping_id).first()
+        if existing is None:
+            db.add(MlShipmentOps(shipment_id=shipping_id, order_id=order_id, status=shipping_status))
     if claim_status is not None:
         db.add(RmaClaimML(claim_id=order_id * 100, resource_id=order_id, status=claim_status))
     db.flush()
+
+
+def _order_ids(body) -> list[int]:
+    """Every order id in the page, in group order then member order.
+
+    The listing returns GROUPS now, so a test that used to read
+    `sale["order_id"]` has to say which of the two it means. These
+    fixtures seed lone orders, so one group is one order -- except in
+    `TestPacks`, which is the whole point."""
+    return [order["order_id"] for group in body["sales"] for order in group["orders"]]
+
+
+def _group_holding(body, order_id: int):
+    return next(g for g in body["sales"] if any(o["order_id"] == order_id for o in g["orders"]))
 
 
 class TestPermissionAndFlagGate:
@@ -101,7 +122,7 @@ class TestOperationStatusDerivationInResponse:
 
         assert resp.status_code == 200
         body = resp.json()
-        sale = next(s for s in body["sales"] if s["order_id"] == 1)
+        sale = _group_holding(body, 1)
         assert sale["operation_status"] == "cancelled"
 
     def test_delivered_order_with_no_claim_shows_as_delivered(self, db, client, admin_auth_headers, rol_admin):
@@ -117,7 +138,7 @@ class TestOperationStatusDerivationInResponse:
 
         resp = client.get("/api/ml-ventas-ops/sales", headers=admin_auth_headers)
 
-        sale = next(s for s in resp.json()["sales"] if s["order_id"] == 2)
+        sale = _group_holding(resp.json(), 2)
         assert sale["operation_status"] == "delivered"
         assert sale["goods_status"] == "delivered"
 
@@ -136,7 +157,7 @@ class TestOperationStatusDerivationInResponse:
 
         resp = client.get("/api/ml-ventas-ops/sales", headers=admin_auth_headers)
 
-        sale = next(s for s in resp.json()["sales"] if s["order_id"] == 3)
+        sale = _group_holding(resp.json(), 3)
         assert sale["operation_status"] == "in_dispute"
 
     def test_unrecognised_status_is_unknown(self, db, client, admin_auth_headers, rol_admin):
@@ -146,7 +167,7 @@ class TestOperationStatusDerivationInResponse:
 
         resp = client.get("/api/ml-ventas-ops/sales", headers=admin_auth_headers)
 
-        sale = next(s for s in resp.json()["sales"] if s["order_id"] == 4)
+        sale = _group_holding(resp.json(), 4)
         assert sale["operation_status"] == "unknown"
 
 
@@ -165,7 +186,7 @@ class TestFilters:
 
         assert resp.status_code == 200
         body = resp.json()
-        assert [s["order_id"] for s in body["sales"]] == [10]
+        assert _order_ids(body) == [10]
 
     def test_invalid_operation_status_is_422(self, db, client, admin_auth_headers, rol_admin):
         _grant_ml_ops_ver(db, rol_admin)
@@ -189,7 +210,7 @@ class TestFilters:
         resp = client.get("/api/ml-ventas-ops/sales", params={"goods_status": "in_transit"}, headers=admin_auth_headers)
 
         body = resp.json()
-        assert [s["order_id"] for s in body["sales"]] == [20]
+        assert _order_ids(body) == [20]
 
     def test_sold_month_filter(self, db, client, admin_auth_headers, rol_admin):
         _grant_ml_ops_ver(db, rol_admin)
@@ -200,7 +221,7 @@ class TestFilters:
         resp = client.get("/api/ml-ventas-ops/sales", params={"sold_month": "2026-08"}, headers=admin_auth_headers)
 
         body = resp.json()
-        assert [s["order_id"] for s in body["sales"]] == [31]
+        assert _order_ids(body) == [31]
 
     def test_invalid_sold_month_is_422(self, db, client, admin_auth_headers, rol_admin):
         _grant_ml_ops_ver(db, rol_admin)
@@ -220,9 +241,9 @@ class TestPagination:
         db.commit()
 
         resp = client.get("/api/ml-ventas-ops/sales", params={"limit": 1, "offset": 0}, headers=admin_auth_headers)
-        first_page = [s["order_id"] for s in resp.json()["sales"]]
+        first_page = _order_ids(resp.json())
         resp2 = client.get("/api/ml-ventas-ops/sales", params={"limit": 1, "offset": 1}, headers=admin_auth_headers)
-        second_page = [s["order_id"] for s in resp2.json()["sales"]]
+        second_page = _order_ids(resp2.json())
 
         assert first_page == [101]
         assert second_page == [100]
@@ -308,5 +329,175 @@ class TestListingIsScopedToTheSeller:
 
         assert resp.status_code == 200
         body = resp.json()
-        assert [row["order_id"] for row in body["sales"]] == [1]
+        assert _order_ids(body) == [1]
         assert body["total"] == 1
+
+
+class TestPacks:
+    """A pack is ONE row.
+
+    Mercado Libre splits a purchase into one order per item, tied together
+    by `pack_id`. Rendered one-per-row this reads as several unrelated
+    sales -- reported from production on 2026-09-02, where orders
+    2000018230951686 and 2000018230945962 (same pack, same shipment, one
+    parcel) sat beside 2000018230947902 (a different pack) with the same
+    buyer and the same timestamp, and could not be told apart.
+    """
+
+    def test_a_pack_is_one_row_carrying_its_orders(self, db, client, admin_auth_headers, rol_admin):
+        _grant_ml_ops_ver(db, rol_admin)
+        when = datetime(2026, 9, 1, 4, 48, 58, tzinfo=timezone.utc)
+        _seed_order(db, 951686, pack_id=816536209, total_amount=27868.10, date_created=when)
+        _seed_order(db, 945962, pack_id=816536209, total_amount=24750.00, date_created=when)
+        _seed_order(db, 947902, pack_id=816536211, total_amount=27299.00, date_created=when)
+        db.commit()
+
+        body = client.get("/api/ml-ventas-ops/sales", headers=admin_auth_headers).json()
+
+        assert body["total"] == 2, "two packs, not three sales"
+        assert len(body["sales"]) == 2
+        pack = _group_holding(body, 951686)
+        assert pack["pack_id"] == 816536209
+        assert sorted(o["order_id"] for o in pack["orders"]) == [945962, 951686]
+        # What the buyer paid for the parcel, which is the number the
+        # operator could not see while the three rows stood apart.
+        assert pack["total_amount"] == pytest.approx(52618.10)
+        assert [o["order_id"] for o in _group_holding(body, 947902)["orders"]] == [947902]
+
+    def test_an_order_without_a_pack_is_its_own_row(self, db, client, admin_auth_headers, rol_admin):
+        _grant_ml_ops_ver(db, rol_admin)
+        _seed_order(db, 7, date_created=datetime(2026, 9, 1, tzinfo=timezone.utc))
+        db.commit()
+
+        body = client.get("/api/ml-ventas-ops/sales", headers=admin_auth_headers).json()
+
+        assert body["total"] == 1
+        group = body["sales"][0]
+        assert group["pack_id"] is None
+        assert [o["order_id"] for o in group["orders"]] == [7]
+
+    def test_a_pack_id_equal_to_another_order_id_does_not_merge_them(self, db, client, admin_auth_headers, rol_admin):
+        """ML draws pack ids and order ids from the same numeric range, so
+        an unprefixed `COALESCE(pack_id, order_id)` key would merge a pack
+        with an unrelated order that happens to share the number."""
+        _grant_ml_ops_ver(db, rol_admin)
+        when = datetime(2026, 9, 1, tzinfo=timezone.utc)
+        _seed_order(db, 500, pack_id=4242, date_created=when)
+        _seed_order(db, 4242, date_created=when)
+        db.commit()
+
+        body = client.get("/api/ml-ventas-ops/sales", headers=admin_auth_headers).json()
+
+        assert body["total"] == 2
+        assert _group_holding(body, 500)["group_key"] != _group_holding(body, 4242)["group_key"]
+
+    def test_a_pack_whose_orders_disagree_reads_as_mixed(self, db, client, admin_auth_headers, rol_admin):
+        """Never collapse a disagreement into one badge: a pack holding a
+        cancelled order and a paid one is exactly what deserves a look."""
+        _grant_ml_ops_ver(db, rol_admin)
+        when = datetime(2026, 9, 1, tzinfo=timezone.utc)
+        _seed_order(db, 601, pack_id=777, status="paid", date_created=when)
+        _seed_order(db, 602, pack_id=777, status="cancelled", date_created=when)
+        db.commit()
+
+        body = client.get("/api/ml-ventas-ops/sales", headers=admin_auth_headers).json()
+
+        assert _group_holding(body, 601)["operation_status"] == "mixed"
+
+    def test_a_filter_keeps_the_whole_pack_not_just_the_matching_order(self, db, client, admin_auth_headers, rol_admin):
+        """Filtering the members too would render a pack missing exactly the
+        order that failed the filter -- an incomplete parcel shown as a
+        complete one."""
+        _grant_ml_ops_ver(db, rol_admin)
+        when = datetime(2026, 9, 1, tzinfo=timezone.utc)
+        _seed_order(db, 701, pack_id=888, status="paid", date_created=when)
+        _seed_order(db, 702, pack_id=888, status="cancelled", date_created=when)
+        db.commit()
+
+        body = client.get(
+            "/api/ml-ventas-ops/sales", params={"operation_status": "cancelled"}, headers=admin_auth_headers
+        ).json()
+
+        assert body["total"] == 1
+        assert sorted(o["order_id"] for o in body["sales"][0]["orders"]) == [701, 702]
+
+    def test_pagination_never_splits_a_pack_across_two_pages(self, db, client, admin_auth_headers, rol_admin):
+        _grant_ml_ops_ver(db, rol_admin)
+        _seed_order(db, 801, pack_id=900, date_created=datetime(2026, 9, 2, tzinfo=timezone.utc))
+        _seed_order(db, 802, pack_id=900, date_created=datetime(2026, 9, 2, tzinfo=timezone.utc))
+        _seed_order(db, 803, date_created=datetime(2026, 9, 1, tzinfo=timezone.utc))
+        db.commit()
+
+        first = client.get("/api/ml-ventas-ops/sales", params={"limit": 1}, headers=admin_auth_headers).json()
+
+        assert first["total"] == 2, "two rows: the pack and the lone order"
+        assert sorted(_order_ids(first)) == [801, 802], "the pack came back whole on page 1"
+
+        # The half the name promises and the first assertions do not prove:
+        # page 2 must hold the OTHER row, with no member of the pack in it.
+        second = client.get(
+            "/api/ml-ventas-ops/sales", params={"limit": 1, "offset": 1}, headers=admin_auth_headers
+        ).json()
+
+        assert _order_ids(second) == [803]
+
+
+class TestFacetTotalsAreRowsNotBuckets:
+    """A mixed pack counts in TWO buckets, so summing the buckets
+    double-counts it. The listing's "Todas" needs the number of rows it
+    would render, or the chip contradicts the table under it."""
+
+    def test_a_mixed_pack_makes_the_bucket_sum_exceed_the_row_count(self, db, client, admin_auth_headers, rol_admin):
+        _grant_ml_ops_ver(db, rol_admin)
+        when = datetime(2026, 9, 1, tzinfo=timezone.utc)
+        _seed_order(db, 901, pack_id=777, status="paid", date_created=when)
+        _seed_order(db, 902, pack_id=777, status="cancelled", date_created=when)
+        db.commit()
+
+        body = client.get("/api/ml-ventas-ops/sales", headers=admin_auth_headers).json()
+        facets = body["facets"]
+
+        assert body["total"] == 1, "one pack, one row"
+        assert facets["operation_status"]["paid"] == 1
+        assert facets["operation_status"]["cancelled"] == 1
+        assert sum(facets["operation_status"].values()) == 2, "the buckets legitimately sum to more"
+        # ...and this is the number the chip must show.
+        assert facets["operation_status_total"] == 1
+        assert facets["goods_status_total"] == 1
+
+
+class TestAFilterNeverSplitsAPack:
+    def test_the_month_filter_keeps_a_pack_that_straddles_midnight_whole(
+        self, db, client, admin_auth_headers, rol_admin
+    ):
+        """A pack whose orders fall either side of a month boundary must
+        still come back whole -- the same rule the status filter follows."""
+        _grant_ml_ops_ver(db, rol_admin)
+        _seed_order(db, 1001, pack_id=555, date_created=datetime(2026, 8, 31, 23, 59, tzinfo=timezone.utc))
+        _seed_order(db, 1002, pack_id=555, date_created=datetime(2026, 9, 1, 0, 1, tzinfo=timezone.utc))
+        db.commit()
+
+        body = client.get(
+            "/api/ml-ventas-ops/sales", params={"sold_month": "2026-09"}, headers=admin_auth_headers
+        ).json()
+
+        assert body["total"] == 1
+        assert sorted(o["order_id"] for o in body["sales"][0]["orders"]) == [1001, 1002]
+
+
+class TestMixedCurrencyPack:
+    def test_a_pack_across_two_currencies_reports_no_amount_at_all(self, db, client, admin_auth_headers, rol_admin):
+        """Adding ARS to USD produces a number that means nothing. Dropping
+        only the currency label would render exactly that number."""
+        _grant_ml_ops_ver(db, rol_admin)
+        when = datetime(2026, 9, 1, tzinfo=timezone.utc)
+        _seed_order(db, 1101, pack_id=666, total_amount=100, date_created=when)
+        _seed_order(db, 1102, pack_id=666, total_amount=50, date_created=when)
+        db.query(MlOrdersOps).filter(MlOrdersOps.order_id == 1102).update({"currency_id": "USD"})
+        db.commit()
+
+        body = client.get("/api/ml-ventas-ops/sales", headers=admin_auth_headers).json()
+        group = _group_holding(body, 1101)
+
+        assert group["currency_id"] is None
+        assert group["total_amount"] is None, "no fabricated 150"
