@@ -318,6 +318,11 @@ class ConfigCuotasMasivoRequest(BaseModel):
     markup_adicional_cuotas_pvp_custom: Optional[float] = None
 
 
+class ConfigCuotasMasivoResponse(BaseModel):
+    ok: int
+    total: int
+
+
 class ColorLoteRequest(BaseModel):
     item_ids: List[int]
     color: Optional[str] = None

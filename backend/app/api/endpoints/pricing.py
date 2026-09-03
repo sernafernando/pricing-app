@@ -1244,7 +1244,25 @@ class AplicarMarkupMasivoRequest(BaseModel):
         return v
 
 
-@router.post("/precios/aplicar-markup-masivo")
+class AplicarMarkupMasivoItemResult(BaseModel):
+    item_id: int
+    codigo: str = ""
+    descripcion: str = ""
+    precio_antes: Optional[float] = None
+    precio_nuevo: Optional[float] = None
+    markup_real: Optional[float] = None
+    ok: bool = False
+    error: Optional[str] = None
+
+
+class AplicarMarkupMasivoResponse(BaseModel):
+    total: int
+    ok: int
+    errores: int
+    resultados: list[AplicarMarkupMasivoItemResult]
+
+
+@router.post("/precios/aplicar-markup-masivo", response_model=AplicarMarkupMasivoResponse)
 def aplicar_markup_masivo(
     request: AplicarMarkupMasivoRequest,
     db: Session = Depends(get_db),

@@ -1,8 +1,12 @@
 from pydantic import ValidationError
 import pytest
 
-from app.api.endpoints.productos_shared import ConfigCuotasMasivoRequest
-from app.api.endpoints.pricing import AplicarMarkupMasivoRequest
+from app.api.endpoints.productos_shared import ConfigCuotasMasivoRequest, ConfigCuotasMasivoResponse
+from app.api.endpoints.pricing import (
+    AplicarMarkupMasivoRequest,
+    AplicarMarkupMasivoResponse,
+    AplicarMarkupMasivoItemResult,
+)
 
 
 def test_aplicar_markup_masivo_requiere_markup_positivo():
@@ -38,3 +42,20 @@ def test_config_cuotas_masivo_no_incluye_campos_omitidos():
     assert dumped["markup_adicional_cuotas_custom"] == 3
     assert "markup_adicional_cuotas_pvp_custom" not in dumped
     assert "recalcular_cuotas_auto" not in dumped
+
+
+def test_aplicar_markup_masivo_response_schema():
+    res = AplicarMarkupMasivoResponse(
+        total=1,
+        ok=1,
+        errores=0,
+        resultados=[AplicarMarkupMasivoItemResult(item_id=10, codigo="ABC", ok=True, precio_nuevo=15000)],
+    )
+    assert res.ok == 1
+    assert res.resultados[0].item_id == 10
+
+
+def test_config_cuotas_masivo_response_schema():
+    res = ConfigCuotasMasivoResponse(ok=3, total=3)
+    assert res.ok == 3
+    assert res.total == 3

@@ -20,6 +20,7 @@ from app.api.endpoints.productos_shared import (  # noqa: F401
     RecalcularCuotasMasivoRequest,
     ConfigCuotasRequest,
     ConfigCuotasMasivoRequest,
+    ConfigCuotasMasivoResponse,
     color_slot,
     filtro_colores,
     join_color_layer,
@@ -1281,7 +1282,7 @@ def actualizar_config_cuotas_producto(
     }
 
 
-@router.post("/productos/config-cuotas-masivo")
+@router.post("/productos/config-cuotas-masivo", response_model=ConfigCuotasMasivoResponse)
 def actualizar_config_cuotas_masivo(
     body: ConfigCuotasMasivoRequest,
     db: Session = Depends(get_db),
