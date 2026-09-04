@@ -1,21 +1,22 @@
 import { useState, useEffect } from 'react';
+import { Check, X } from 'lucide-react';
 import api from '../services/api';
+import { productosAPI } from '../services/api';
+import {
+  resolveFilteredItemIds,
+  ResolveFilteredIdsError,
+  chunkIds,
+} from './resolveFilteredItemIds';
 import styles from './AplicarMarkupMasivoModal.module.css';
 
 const MAX_ITEMS_POR_REQUEST = 100;
-
-function chunkIds(ids, size) {
-  const chunks = [];
-  for (let i = 0; i < ids.length; i += size) {
-    chunks.push(ids.slice(i, i + size));
-  }
-  return chunks;
-}
+const CONFIRM_THRESHOLD = 50;
 
 export default function AplicarMarkupMasivoModal({
   onClose,
   onSuccess,
-  productos,
+  filtrosActivos = {},
+  totalProductos = 0,
   showToast,
   puedeEditarCuotas = false,
 }) {
@@ -31,60 +32,28 @@ export default function AplicarMarkupMasivoModal({
   const [aplicando, setAplicando] = useState(false);
   const [progresoLote, setProgresoLote] = useState(null);
   const [resultados, setResultados] = useState(null);
+  const [resolvedItemIds, setResolvedItemIds] = useState(null);
+  /** Pending apply job awaiting Tesla confirm when count > CONFIRM_THRESHOLD */
+  const [confirmacion, setConfirmacion] = useState(null);
 
   const pricelistId = 4;
-  const total = productos?.length ?? 0;
-  const itemIds = (productos || []).map((p) => p.item_id);
+  const total =
+    resolvedItemIds != null ? resolvedItemIds.length : Number(totalProductos) || 0;
 
   useEffect(() => {
     const handleKeyDown = (e) => {
-      if (e.key === 'Escape' && !aplicando) onClose();
+      if (e.key !== 'Escape' || aplicando) return;
+      if (confirmacion) {
+        setConfirmacion(null);
+        return;
+      }
+      onClose();
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [onClose, aplicando]);
+  }, [onClose, aplicando, confirmacion]);
 
-  const handleAplicar = async () => {
-    if (total === 0) {
-      showToast('No hay productos en la vista actual', 'error');
-      return;
-    }
-    if (!aplicarMarkup && !aplicarConfig) {
-      showToast('Activá al menos una acción', 'error');
-      return;
-    }
-
-    let markup = null;
-    if (aplicarMarkup) {
-      markup = parseFloat(markupObjetivo.replace(',', '.'));
-      if (isNaN(markup) || markup <= 0) {
-        showToast('Ingresá un markup válido mayor a 0', 'error');
-        return;
-      }
-    }
-
-    const configBodyBase = {};
-    if (aplicarConfig) {
-      if (recalcularAuto !== '') {
-        configBodyBase.recalcular_cuotas_auto =
-          recalcularAuto === 'null' ? null : recalcularAuto === 'true';
-      }
-      if (markupAdicionalGlobal) {
-        configBodyBase.markup_adicional_cuotas_custom = null;
-      } else if (markupAdicional !== '') {
-        const adicional = parseFloat(String(markupAdicional).replace(',', '.'));
-        if (isNaN(adicional) || adicional < 0 || adicional > 100) {
-          showToast('Markup adicional de cuotas debe estar entre 0 y 100', 'error');
-          return;
-        }
-        configBodyBase.markup_adicional_cuotas_custom = adicional;
-      }
-      if (Object.keys(configBodyBase).length === 0) {
-        showToast('Elegí al menos un campo de config de cuotas para aplicar', 'error');
-        return;
-      }
-    }
-
+  const ejecutarAplicacion = async ({ itemIds, markup, configBodyBase }) => {
     setAplicando(true);
     setResultados(null);
     setProgresoLote(null);
@@ -150,16 +119,104 @@ export default function AplicarMarkupMasivoModal({
 
     if (aplicarMarkup) {
       if (acumulado.errores === 0) {
-        showToast(`✅ ${acumulado.ok} productos actualizados`);
+        showToast(`${acumulado.ok} productos actualizados`);
       } else {
-        showToast(`⚠️ ${acumulado.ok} OK / ${acumulado.errores} con error`, 'warning');
+        showToast(`${acumulado.ok} OK / ${acumulado.errores} con error`, 'warning');
       }
       onSuccess();
     } else {
-      showToast(`✅ Config de cuotas aplicada a ${total} producto${total !== 1 ? 's' : ''}`);
+      showToast(
+        `Config de cuotas aplicada a ${itemIds.length} producto${itemIds.length !== 1 ? 's' : ''}`,
+      );
       onSuccess();
       onClose();
     }
+  };
+
+  const handleAplicar = async () => {
+    if (total === 0) {
+      showToast('No hay productos en el conjunto filtrado', 'error');
+      return;
+    }
+    if (!aplicarMarkup && !aplicarConfig) {
+      showToast('Activá al menos una acción', 'error');
+      return;
+    }
+
+    let markup = null;
+    if (aplicarMarkup) {
+      markup = parseFloat(markupObjetivo.replace(',', '.'));
+      if (isNaN(markup) || markup <= 0) {
+        showToast('Ingresá un markup válido mayor a 0', 'error');
+        return;
+      }
+    }
+
+    const configBodyBase = {};
+    if (aplicarConfig) {
+      if (recalcularAuto !== '') {
+        configBodyBase.recalcular_cuotas_auto =
+          recalcularAuto === 'null' ? null : recalcularAuto === 'true';
+      }
+      if (markupAdicionalGlobal) {
+        configBodyBase.markup_adicional_cuotas_custom = null;
+      } else if (markupAdicional !== '') {
+        const adicional = parseFloat(String(markupAdicional).replace(',', '.'));
+        if (isNaN(adicional) || adicional < 0 || adicional > 100) {
+          showToast('Markup adicional de cuotas debe estar entre 0 y 100', 'error');
+          return;
+        }
+        configBodyBase.markup_adicional_cuotas_custom = adicional;
+      }
+      if (Object.keys(configBodyBase).length === 0) {
+        showToast('Elegí al menos un campo de config de cuotas para aplicar', 'error');
+        return;
+      }
+    }
+
+    setAplicando(true);
+    setResultados(null);
+    setProgresoLote(null);
+
+    let itemIds;
+    try {
+      itemIds = await resolveFilteredItemIds({
+        listar: productosAPI.listar,
+        filtrosActivos,
+        totalProductos,
+      });
+      setResolvedItemIds(itemIds);
+    } catch (err) {
+      setAplicando(false);
+      const msg =
+        err instanceof ResolveFilteredIdsError
+          ? err.message
+          : 'No se pudo resolver el conjunto filtrado de productos';
+      showToast(msg, 'error');
+      return;
+    }
+
+    if (itemIds.length === 0) {
+      setAplicando(false);
+      showToast('No hay productos en el conjunto filtrado', 'error');
+      return;
+    }
+
+    const job = { itemIds, markup, configBodyBase };
+    if (itemIds.length > CONFIRM_THRESHOLD) {
+      setAplicando(false);
+      setConfirmacion(job);
+      return;
+    }
+
+    await ejecutarAplicacion(job);
+  };
+
+  const handleConfirmarAplicacion = async () => {
+    if (!confirmacion) return;
+    const job = confirmacion;
+    setConfirmacion(null);
+    await ejecutarAplicacion(job);
   };
 
   const formatPrecio = (v) =>
@@ -171,20 +228,38 @@ export default function AplicarMarkupMasivoModal({
     total > 0 && (aplicarMarkup || aplicarConfig) && (!aplicarConfig || tieneConfigParaEnviar);
 
   return (
-    <div
-      className={styles.overlay}
-      onClick={(e) => e.target === e.currentTarget && !aplicando && onClose()}
-    >
-      <div className={styles.modal}>
+    <div className={styles.overlay}>
+      <div className={styles.modal} role="dialog" aria-modal="true" aria-labelledby="acciones-masivas-title">
         <div className={styles.header}>
-          <span>Acciones masivas — {total} producto{total !== 1 ? 's' : ''} visible{total !== 1 ? 's' : ''}</span>
-          <button className={styles.closeBtn} onClick={onClose} disabled={aplicando}>
-            ×
+          <span id="acciones-masivas-title">
+            Acciones masivas — {total} producto{total !== 1 ? 's' : ''}
+          </span>
+          <button
+            type="button"
+            className={styles.closeBtn}
+            onClick={onClose}
+            disabled={aplicando}
+            aria-label="Cerrar"
+          >
+            <X size={18} aria-hidden="true" />
           </button>
         </div>
 
         <div className={styles.body}>
-          {!resultados ? (
+          {confirmacion ? (
+            <div className={styles.confirmacion}>
+              <p className={styles.confirmacionTitulo}>Confirmar acciones masivas</p>
+              <p className={styles.descripcion}>
+                Vas a aplicar las acciones seleccionadas a{' '}
+                <strong>{confirmacion.itemIds.length} productos</strong> del filtro actual.
+                Esta operación escribe precios y/o config de cuotas en lote.
+              </p>
+              <div className={styles.infoBox}>
+                Más de {CONFIRM_THRESHOLD} productos requieren confirmación explícita antes de
+                escribir.
+              </div>
+            </div>
+          ) : !resultados ? (
             <>
               <section className={styles.seccion}>
                 <label className={styles.seccionTitulo}>
@@ -246,8 +321,9 @@ export default function AplicarMarkupMasivoModal({
                   {aplicarConfig && (
                     <>
                       <p className={styles.descripcion}>
-                        Misma config que el engranaje de cada fila, aplicada a todos los visibles.
-                        Si también aplicás markup, se guarda primero esta config y después se calculan los precios.
+                        Misma config que el engranaje de cada fila, aplicada a todos los
+                        productos del filtro actual. Si también aplicás markup, se guarda
+                        primero esta config y después se calculan los precios.
                       </p>
                       <div className={styles.field}>
                         <label>Recalcular cuotas automáticamente:</label>
@@ -299,11 +375,13 @@ export default function AplicarMarkupMasivoModal({
               )}
 
               <div className={styles.infoBox}>
-                Opera solo sobre los productos visibles en la grilla (página actual y filtros).
+                Opera sobre todos los productos del filtro actual (Total {total}).
                 {total > MAX_ITEMS_POR_REQUEST && (
                   <>
                     {' '}
-                    Hay {total} visibles: se enviará en {Math.ceil(total / MAX_ITEMS_POR_REQUEST)} tandas de hasta {MAX_ITEMS_POR_REQUEST}.
+                    Hay {total} productos: se enviará en{' '}
+                    {Math.ceil(total / MAX_ITEMS_POR_REQUEST)} tandas de hasta{' '}
+                    {MAX_ITEMS_POR_REQUEST}.
                   </>
                 )}
               </div>
@@ -311,10 +389,13 @@ export default function AplicarMarkupMasivoModal({
           ) : (
             <div className={styles.resultados}>
               <div className={styles.resumen}>
-                <span className={styles.statOk}>✅ {resultados.ok} OK</span>
+                <span className={styles.statOk}>
+                  <Check size={16} aria-hidden="true" /> {resultados.ok} OK
+                </span>
                 {resultados.errores > 0 && (
                   <span className={styles.statError}>
-                    ❌ {resultados.errores} error{resultados.errores !== 1 ? 'es' : ''}
+                    <X size={16} aria-hidden="true" /> {resultados.errores} error
+                    {resultados.errores !== 1 ? 'es' : ''}
                   </span>
                 )}
               </div>
@@ -342,7 +423,17 @@ export default function AplicarMarkupMasivoModal({
                         <td>{formatPrecio(r.precio_antes)}</td>
                         <td>{formatPrecio(r.precio_nuevo)}</td>
                         <td>{r.markup_real != null ? `${r.markup_real}%` : '—'}</td>
-                        <td>{r.ok ? '✅' : `❌ ${r.error}`}</td>
+                        <td>
+                          {r.ok ? (
+                            <span className={styles.estadoOk}>
+                              <Check size={14} aria-hidden="true" /> OK
+                            </span>
+                          ) : (
+                            <span className={styles.estadoError}>
+                              <X size={14} aria-hidden="true" /> {r.error}
+                            </span>
+                          )}
+                        </td>
                       </tr>
                     ))}
                   </tbody>
@@ -353,12 +444,37 @@ export default function AplicarMarkupMasivoModal({
         </div>
 
         <div className={styles.footer}>
-          {!resultados ? (
+          {confirmacion ? (
             <>
-              <button className={styles.btnSecundario} onClick={onClose} disabled={aplicando}>
+              <button
+                type="button"
+                className={styles.btnSecundario}
+                onClick={() => setConfirmacion(null)}
+                disabled={aplicando}
+              >
+                Volver
+              </button>
+              <button
+                type="button"
+                className={styles.btnPrimario}
+                onClick={handleConfirmarAplicacion}
+                disabled={aplicando}
+              >
+                Confirmar
+              </button>
+            </>
+          ) : !resultados ? (
+            <>
+              <button
+                type="button"
+                className={styles.btnSecundario}
+                onClick={onClose}
+                disabled={aplicando}
+              >
                 Cancelar
               </button>
               <button
+                type="button"
                 className={styles.btnPrimario}
                 onClick={handleAplicar}
                 disabled={aplicando || !puedeAplicar}
@@ -371,7 +487,7 @@ export default function AplicarMarkupMasivoModal({
               </button>
             </>
           ) : (
-            <button className={styles.btnPrimario} onClick={onClose}>
+            <button type="button" className={styles.btnPrimario} onClick={onClose}>
               Cerrar
             </button>
           )}
