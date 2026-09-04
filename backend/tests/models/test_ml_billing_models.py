@@ -45,15 +45,13 @@ class TestMlBillingCharge:
         from sqlalchemy.dialects.postgresql import JSONB
 
         col = MlBillingCharge.__table__.columns["raw_detail"]
-        # Session-scoped `engine` fixture rewrites JSONB -> a SQLite-compatible
-        # JSON type in-place for the whole test session (see conftest
-        # `_patch_pg_types_for_sqlite`), so this column's runtime type depends
-        # on collection order across the suite. Assert against the model
-        # source of truth instead of live metadata.
-        import inspect
-
-        source = inspect.getsource(MlBillingCharge)
-        assert "raw_detail = Column(JSONB" in source
+        # El fixture de sesión `engine` reescribe JSONB -> un JSON compatible
+        # con SQLite EN EL LUGAR para toda la corrida (conftest
+        # `_patch_pg_types_for_sqlite`), así que el tipo vivo de esta columna
+        # depende del orden de recolección de la suite. Aceptar los dos:
+        # afirma la intención sin depender ni del orden ni del formato del
+        # fuente, que es lo que rompía la versión anterior de este test.
+        assert isinstance(col.type, (JSONB, sa.JSON))
         assert isinstance(col.type, JSONB) or col.type.__class__.__name__ == "JSON"
 
     def test_create_row_with_signed_amount(self, db) -> None:

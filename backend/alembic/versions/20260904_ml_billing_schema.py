@@ -65,7 +65,7 @@ def upgrade() -> None:
         sa.Column("porcentaje", sa.Numeric(6, 4), nullable=False),
         sa.Column("fecha_desde", sa.Date(), nullable=False),
         sa.Column("fecha_hasta", sa.Date(), nullable=True),
-        sa.Column("fecha_creacion", sa.DateTime(), nullable=True, server_default=sa.func.now()),
+        sa.Column("fecha_creacion", sa.DateTime(timezone=True), nullable=False, server_default=sa.func.now()),
         sa.Column("creado_por", sa.Integer(), nullable=True),
         sa.ForeignKeyConstraint(["creado_por"], ["usuarios.id"]),
         sa.PrimaryKeyConstraint("id"),

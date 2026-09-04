@@ -82,11 +82,19 @@ class MlIibbAliquot(Base):
 
     __tablename__ = "ml_iibb_aliquots"
 
-    id = Column(Integer, primary_key=True, index=True)
+    # Sin `index=True`: Postgres ya indexa la PK, la migración no crea ese
+    # índice, y declararlo acá dejaría a `alembic autogenerate` queriendo
+    # agregarlo en cada corrida. `pricing_constants` lo trae por herencia;
+    # no se replica el ruido.
+    id = Column(Integer, primary_key=True)
     porcentaje = Column(Numeric(6, 4), nullable=False)
     fecha_desde = Column(Date, nullable=False)
     fecha_hasta = Column(Date, nullable=True)
-    fecha_creacion = Column(DateTime, default=func.now())
+    # tz-aware y con `server_default`, igual que `created_at` en este mismo
+    # archivo. `pricing_constants` la trae tz-naive con default de cliente;
+    # copiarlo dejaría un solo campo raro justo cuando llegue el escritor,
+    # y SQLite pierde el tzinfo al releer, lo que esconde el problema.
+    fecha_creacion = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
     creado_por = Column(Integer, ForeignKey("usuarios.id"))
 
     usuario = relationship("Usuario")
