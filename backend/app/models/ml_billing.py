@@ -20,6 +20,7 @@ Design decisions:
 from __future__ import annotations
 
 from sqlalchemy import (
+    BigInteger,
     CheckConstraint,
     Column,
     Date,
@@ -66,7 +67,12 @@ class MlBillingChargeOrder(Base):
 
     id = Column(Integer, primary_key=True)
     detail_id = Column(String(60), ForeignKey("ml_billing_charges.detail_id"), nullable=False)
-    order_id = Column(Integer, nullable=False)
+    # BigInteger, NO Integer: un order_id de ML es del orden de
+    # 2000018265495500, muy por encima del máximo de un INTEGER de Postgres
+    # (2.147.483.647). SQLite no distingue anchos de enteros, así que los
+    # tests pasan igual y el desborde recién aparece en el primer INSERT
+    # real. Todos los `order_id` de `ml_orders_ops.py` ya son BigInteger.
+    order_id = Column(BigInteger, nullable=False)
 
     charge = relationship("MlBillingCharge")
 

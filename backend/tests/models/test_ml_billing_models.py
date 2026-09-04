@@ -35,6 +35,18 @@ class TestMlBillingCharge:
         assert isinstance(col.type, sa.String)
         assert col.type.length == 60
 
+    def test_order_id_is_bigint_not_int(self) -> None:
+        """Un `order_id` de ML es del orden de 2000018265495500, muy por
+        encima del máximo de un INTEGER de Postgres (2.147.483.647).
+
+        Este test afirma el TIPO y no el comportamiento a propósito: SQLite
+        no distingue anchos de enteros, así que un INSERT de ese valor pasa
+        limpio en los tests y recién revienta contra Postgres en producción.
+        El tipo es el único guardián posible acá."""
+        col = MlBillingChargeOrder.__table__.columns["order_id"]
+        assert isinstance(col.type, sa.BigInteger)
+        assert 2000018265495500 > 2**31 - 1
+
     def test_amount_column_type(self) -> None:
         col = MlBillingCharge.__table__.columns["amount"]
         assert isinstance(col.type, sa.Numeric)

@@ -52,7 +52,7 @@ def upgrade() -> None:
         "ml_billing_charge_orders",
         sa.Column("id", sa.Integer(), nullable=False),
         sa.Column("detail_id", sa.String(length=60), nullable=False),
-        sa.Column("order_id", sa.Integer(), nullable=False),
+        sa.Column("order_id", sa.BigInteger(), nullable=False),
         sa.ForeignKeyConstraint(["detail_id"], ["ml_billing_charges.detail_id"]),
         sa.PrimaryKeyConstraint("id"),
         sa.UniqueConstraint("detail_id", "order_id", name="uq_ml_billing_charge_orders_detail_order"),
