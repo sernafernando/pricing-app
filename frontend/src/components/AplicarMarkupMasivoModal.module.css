@@ -1,7 +1,7 @@
 .overlay {
   position: fixed;
   inset: 0;
-  background: rgba(0, 0, 0, 0.5);
+  background: var(--bg-overlay);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -63,10 +63,8 @@
 }
 
 .field {
+  composes: field from '../styles/forms-tesla.css';
   margin-bottom: 16px;
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
 }
 
 .field label {
@@ -76,22 +74,9 @@
 }
 
 .input {
+  composes: input from '../styles/forms-tesla.css';
   width: 130px;
-  padding: 10px 12px;
-  background: var(--bg-primary);
-  border: 2px solid var(--border-primary);
-  border-radius: 6px;
-  color: var(--text-primary);
-  font-size: 1rem;
-  box-sizing: border-box;
-  transition: border-color 0.2s, box-shadow 0.2s;
 }
-.input:focus {
-  outline: none;
-  border-color: var(--brand-primary);
-  box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
-}
-.input:disabled { opacity: 0.5; }
 
 .checkLabel {
   display: flex;
@@ -133,13 +118,8 @@
 }
 
 .select {
+  composes: select from '../styles/forms-tesla.css';
   max-width: 320px;
-  padding: 10px 12px;
-  border: 2px solid var(--border-primary);
-  border-radius: 6px;
-  background: var(--bg-primary);
-  color: var(--text-primary);
-  font-size: 0.9rem;
 }
 
 .help {
@@ -198,38 +178,9 @@
 }
 
 .btnPrimario {
-  padding: 10px 22px;
-  background: var(--gradient-primary, var(--brand-primary));
-  color: var(--text-inverse, #fff);
-  border: none;
-  border-radius: 6px;
-  font-size: 0.9rem;
-  font-weight: 600;
-  cursor: pointer;
-  transition: transform 0.15s, box-shadow 0.15s;
-}
-.btnPrimario:hover:not(:disabled) {
-  transform: translateY(-1px);
-  box-shadow: var(--shadow-md);
-}
-.btnPrimario:disabled {
-  background: var(--bg-tertiary);
-  color: var(--text-secondary);
-  opacity: 0.6;
-  cursor: not-allowed;
-  transform: none;
+  composes: btn-tesla primary from '../styles/buttons-tesla.css';
 }
 
 .btnSecundario {
-  padding: 10px 16px;
-  background: var(--bg-tertiary);
-  color: var(--text-primary);
-  border: none;
-  border-radius: 6px;
-  font-size: 0.9rem;
-  font-weight: 600;
-  cursor: pointer;
-  transition: background 0.15s;
+  composes: btn-tesla secondary from '../styles/buttons-tesla.css';
 }
-.btnSecundario:hover:not(:disabled) { background: var(--bg-hover); }
-.btnSecundario:disabled { opacity: 0.4; cursor: not-allowed; }
