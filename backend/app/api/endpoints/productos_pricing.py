@@ -19,6 +19,8 @@ from app.api.endpoints.productos_shared import (  # noqa: F401
     CalculoPVPMasivoRequest,
     RecalcularCuotasMasivoRequest,
     ConfigCuotasRequest,
+    ConfigCuotasMasivoRequest,
+    ConfigCuotasMasivoResponse,
     color_slot,
     filtro_colores,
     join_color_layer,
@@ -1278,6 +1280,68 @@ def actualizar_config_cuotas_producto(
         if producto_pricing.markup_adicional_cuotas_pvp_custom
         else None,
     }
+
+
+@router.post("/productos/config-cuotas-masivo", response_model=ConfigCuotasMasivoResponse)
+def actualizar_config_cuotas_masivo(
+    body: ConfigCuotasMasivoRequest,
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(get_current_user),
+):
+    """Aplica la config de cuotas (engranaje) a una lista de productos.
+
+    Solo escribe los campos presentes en el body. Requiere el permiso
+    crítico de acciones masivas, no el de edición unitaria de cuotas.
+    """
+    from app.services.permisos_service import verificar_permiso
+
+    if not verificar_permiso(db, current_user, "productos.aplicar_markup_masivo"):
+        raise HTTPException(status_code=403, detail="No tienes permiso para aplicar configuración masiva de cuotas")
+
+    data = body.model_dump(exclude_unset=True)
+    item_ids = data.pop("item_ids")
+    if not data:
+        raise HTTPException(status_code=400, detail="No se envió ningún campo de configuración")
+
+    if data.get("markup_adicional_cuotas_custom") is not None:
+        if data["markup_adicional_cuotas_custom"] < 0 or data["markup_adicional_cuotas_custom"] > 100:
+            raise HTTPException(status_code=400, detail="Markup web debe estar entre 0 y 100")
+    if data.get("markup_adicional_cuotas_pvp_custom") is not None:
+        if data["markup_adicional_cuotas_pvp_custom"] < 0 or data["markup_adicional_cuotas_pvp_custom"] > 100:
+            raise HTTPException(status_code=400, detail="Markup PVP debe estar entre 0 y 100")
+
+    actualizados = 0
+    for item_id in item_ids:
+        pricing = db.query(ProductoPricing).filter(ProductoPricing.item_id == item_id).first()
+        if not pricing:
+            pricing = ProductoPricing(item_id=item_id, usuario_id=current_user.id)
+            db.add(pricing)
+        if "recalcular_cuotas_auto" in data:
+            pricing.recalcular_cuotas_auto = data["recalcular_cuotas_auto"]
+        if "markup_adicional_cuotas_custom" in data:
+            pricing.markup_adicional_cuotas_custom = data["markup_adicional_cuotas_custom"]
+        if "markup_adicional_cuotas_pvp_custom" in data:
+            pricing.markup_adicional_cuotas_pvp_custom = data["markup_adicional_cuotas_pvp_custom"]
+        pricing.usuario_id = current_user.id
+        pricing.fecha_modificacion = datetime.now(UTC)
+        actualizados += 1
+
+    db.commit()
+
+    from app.services.auditoria_service import registrar_auditoria
+    from app.models.auditoria import TipoAccion
+
+    registrar_auditoria(
+        db=db,
+        usuario_id=current_user.id,
+        tipo_accion=TipoAccion.MODIFICACION_MASIVA,
+        es_masivo=True,
+        productos_afectados=actualizados,
+        valores_nuevos={"accion": "config_cuotas_masivo", **data},
+        comentario="Configuración masiva de cuotas",
+    )
+
+    return {"ok": actualizados, "total": len(item_ids)}
 
 
 @router.patch("/productos/{item_id}/out-of-cards")

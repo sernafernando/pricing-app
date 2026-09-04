@@ -13,6 +13,7 @@ logger = logging.getLogger(__name__)
 from app.models.producto import ProductoERP, ProductoPricing, HistorialPrecio
 from app.models.producto_precio_origen import upsert_origen_manual
 from app.models.auditoria_precio import AuditoriaPrecio
+from app.models.auditoria import Auditoria, TipoAccion
 from app.models.usuario import Usuario
 from app.services.pricing_calculator import (
     calcular_precio_producto,
@@ -37,6 +38,54 @@ def obtener_markup_adicional_cuotas(db: Session) -> float:
 
     constantes = obtener_constantes_pricing(db)
     return constantes.get("markup_adicional_cuotas", 4.0)
+
+
+def _registrar_cambio_precio_clasica(
+    db: Session,
+    *,
+    pricing: ProductoPricing,
+    item_id: int,
+    usuario_id: int,
+    precio_anterior: Optional[float],
+    precio_nuevo: float,
+    comentario: str,
+    motivo: str,
+) -> None:
+    """Mismos rastros que set-rapido, sin commit: viven o mueren con el precio."""
+    if getattr(pricing, "id", None) is None:
+        db.flush()
+
+    if precio_anterior != precio_nuevo:
+        db.add(
+            AuditoriaPrecio(
+                producto_id=pricing.id,
+                usuario_id=usuario_id,
+                precio_anterior=precio_anterior,
+                precio_contado_anterior=None,
+                precio_nuevo=precio_nuevo,
+                precio_contado_nuevo=None,
+                comentario=comentario,
+            )
+        )
+        db.add(
+            Auditoria(
+                item_id=item_id,
+                usuario_id=usuario_id,
+                tipo_accion=TipoAccion.MODIFICAR_PRECIO_CLASICA,
+                valores_anteriores={"precio_lista_ml": float(precio_anterior) if precio_anterior is not None else None},
+                valores_nuevos={"precio_lista_ml": float(precio_nuevo)},
+            )
+        )
+
+    db.add(
+        HistorialPrecio(
+            producto_pricing_id=pricing.id,
+            precio_anterior=precio_anterior,
+            precio_nuevo=precio_nuevo,
+            usuario_id=usuario_id,
+            motivo=motivo,
+        )
+    )
 
 
 class CalcularPorMarkupRequest(BaseModel):
@@ -684,42 +733,16 @@ def setear_precio_rapido(
 
     # Guardar precio (pricing ya se obtuvo arriba)
     if pricing:
-        if pricing.precio_lista_ml != precio:
-            # Registro en tabla vieja
-            auditoria = AuditoriaPrecio(
-                producto_id=pricing.id,
-                usuario_id=current_user.id,
-                precio_anterior=pricing.precio_lista_ml,
-                precio_contado_anterior=None,
-                precio_nuevo=precio,
-                precio_contado_nuevo=None,
-                comentario="Edición rápida",
-            )
-            db.add(auditoria)
-
-            # Registro en tabla nueva para filtros
-            from app.services.auditoria_service import registrar_auditoria
-            from app.models.auditoria import TipoAccion
-
-            registrar_auditoria(
-                db=db,
-                usuario_id=current_user.id,
-                tipo_accion=TipoAccion.MODIFICAR_PRECIO_CLASICA,
-                item_id=item_id,
-                valores_anteriores={
-                    "precio_lista_ml": float(pricing.precio_lista_ml) if pricing.precio_lista_ml else None
-                },
-                valores_nuevos={"precio_lista_ml": float(precio)},
-            )
-
-        historial = HistorialPrecio(
-            producto_pricing_id=pricing.id,
+        _registrar_cambio_precio_clasica(
+            db,
+            pricing=pricing,
+            item_id=item_id,
+            usuario_id=current_user.id,
             precio_anterior=pricing.precio_lista_ml,
             precio_nuevo=precio,
-            usuario_id=current_user.id,
+            comentario="Edición rápida",
             motivo="Edición rápida",
         )
-        db.add(historial)
         # Actualizar precio según lista_tipo
         if lista_tipo == "pvp":
             pricing.precio_pvp = precio
@@ -1197,4 +1220,260 @@ def setear_precio_cuota(
         campo_markup: markup_porcentaje,
         "limpio": round(limpio, 2),
         "costo_ars": round(costo_ars, 2),
+    }
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# POST /precios/aplicar-markup-masivo
+# Aplica un markup objetivo a una lista de productos (ML Clásica).
+# Porta la lógica del script de consola aplicar-markup-visible.js al backend.
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+class AplicarMarkupMasivoRequest(BaseModel):
+    markup_objetivo: float = Field(..., gt=0, description="Markup objetivo en % (ej: 5 = 5%)")
+    pricelist_id: int = Field(4, description="Lista de precios (4 = ML Clásica web)")
+    recalcular_cuotas: bool = Field(True)
+    item_ids: list[int] = Field(..., min_length=1, max_length=100)
+
+
+class AplicarMarkupMasivoItemResult(BaseModel):
+    item_id: int
+    codigo: str = ""
+    descripcion: str = ""
+    precio_antes: Optional[float] = None
+    precio_nuevo: Optional[float] = None
+    markup_real: Optional[float] = None
+    ok: bool = False
+    error: Optional[str] = None
+
+
+class AplicarMarkupMasivoResponse(BaseModel):
+    total: int
+    ok: int
+    errores: int
+    resultados: list[AplicarMarkupMasivoItemResult]
+
+
+@router.post("/precios/aplicar-markup-masivo", response_model=AplicarMarkupMasivoResponse)
+def aplicar_markup_masivo(
+    request: AplicarMarkupMasivoRequest,
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(get_current_user),
+):
+    """
+    Aplica un markup objetivo a múltiples productos en ML Clásica.
+    Para cada producto: calcula el precio via calcular_precio_producto,
+    luego lo persiste (precio + cuotas opcionales).
+    Porta la lógica del script de consola aplicar-markup-visible.js.
+    """
+    from app.services.permisos_service import verificar_permiso
+    from app.services.pricing_calculator import (
+        convertir_a_pesos,
+        obtener_grupo_subcategoria,
+        obtener_comision_base,
+        calcular_comision_ml_total,
+        calcular_limpio,
+        calcular_markup,
+    )
+
+    if not verificar_permiso(db, current_user, "productos.aplicar_markup_masivo"):
+        raise HTTPException(status_code=403, detail="No tienes permiso para aplicar markup masivo")
+
+    tipo_cambio_usd = obtener_tipo_cambio_actual(db, "USD")
+    resultados = []
+
+    for item_id in request.item_ids:
+        res: dict = {
+            "item_id": item_id,
+            "codigo": "",
+            "descripcion": "",
+            "precio_antes": None,
+            "precio_nuevo": None,
+            "markup_real": None,
+            "ok": False,
+            "error": None,
+        }
+        try:
+            producto = db.query(ProductoERP).filter(ProductoERP.item_id == item_id).first()
+            if not producto:
+                res["error"] = "Producto no encontrado"
+                resultados.append(res)
+                continue
+
+            res["codigo"] = producto.codigo or ""
+            res["descripcion"] = producto.descripcion or ""
+
+            pricing_obj = db.query(ProductoPricing).filter(ProductoPricing.item_id == item_id).first()
+            res["precio_antes"] = (
+                float(pricing_obj.precio_lista_ml)
+                if pricing_obj is not None and pricing_obj.precio_lista_ml is not None
+                else None
+            )
+
+            # Tipo de cambio USD si aplica (un solo fetch por request)
+            tipo_cambio = None
+            if producto.moneda_costo == "USD":
+                tipo_cambio = tipo_cambio_usd
+                if not tipo_cambio:
+                    res["error"] = "Sin tipo de cambio USD disponible"
+                    resultados.append(res)
+                    continue
+
+            costo_envio = resolver_costo_envio(db, producto)
+
+            # Calcular precio para el markup objetivo (sin adicional de cuotas)
+            calculo = calcular_precio_producto(
+                db=db,
+                costo=producto.costo,
+                moneda_costo=producto.moneda_costo,
+                iva=producto.iva,
+                envio=costo_envio,
+                subcategoria_id=producto.subcategoria_id,
+                pricelist_id=request.pricelist_id,
+                markup_objetivo=request.markup_objetivo,
+                tipo_cambio=tipo_cambio,
+                adicional_markup=0,  # Sin adicional → markup real == objetivo
+            )
+
+            if "error" in calculo:
+                res["error"] = calculo["error"]
+                resultados.append(res)
+                continue
+
+            precio_nuevo = float(calculo["precio"])
+
+            # Calcular markup real a partir del precio resultante
+            costo_ars = convertir_a_pesos(producto.costo, producto.moneda_costo, tipo_cambio)
+            grupo_id = obtener_grupo_subcategoria(db, producto.subcategoria_id)
+            comision_base = obtener_comision_base(db, request.pricelist_id, grupo_id)
+
+            if not comision_base:
+                res["error"] = f"Sin comisión configurada para lista {request.pricelist_id}"
+                resultados.append(res)
+                continue
+
+            comisiones = calcular_comision_ml_total(precio_nuevo, comision_base, producto.iva, db=db)
+            limpio = calcular_limpio(
+                precio_nuevo,
+                producto.iva,
+                costo_envio,
+                comisiones["comision_total"],
+                db=db,
+                grupo_id=grupo_id,
+            )
+            markup_real = calcular_markup(limpio, costo_ars)
+
+            # Persistir / crear registro de pricing
+            if not pricing_obj:
+                pricing_obj = ProductoPricing(item_id=item_id)
+                db.add(pricing_obj)
+
+            precio_anterior = pricing_obj.precio_lista_ml
+            _registrar_cambio_precio_clasica(
+                db,
+                pricing=pricing_obj,
+                item_id=item_id,
+                usuario_id=current_user.id,
+                precio_anterior=precio_anterior,
+                precio_nuevo=round(precio_nuevo),
+                comentario="Acción masiva markup ML Clásica",
+                motivo="Acción masiva markup ML Clásica",
+            )
+
+            pricing_obj.precio_lista_ml = round(precio_nuevo)
+            # Igual que set-rapido: markup_calculado se guarda en % (ej: 4.96), no decimal
+            pricing_obj.markup_calculado = round(markup_real * 100, 2)
+            pricing_obj.usuario_id = current_user.id
+            pricing_obj.fecha_modificacion = datetime.now(UTC)
+
+            # Recalcular cuotas si se solicitó (mismas listas que set-rapido web)
+            if request.recalcular_cuotas:
+                if pricing_obj.markup_adicional_cuotas_custom is not None:
+                    adicional = float(pricing_obj.markup_adicional_cuotas_custom)
+                else:
+                    adicional = obtener_markup_adicional_cuotas(db)
+
+                cuotas_config = {
+                    "precio_3_cuotas": 17,
+                    "precio_6_cuotas": 14,
+                    "precio_9_cuotas": 13,
+                    "precio_12_cuotas": 23,
+                }
+                for campo, pricelist_cuota in cuotas_config.items():
+                    try:
+                        cal_cuota = calcular_precio_producto(
+                            db=db,
+                            costo=producto.costo,
+                            moneda_costo=producto.moneda_costo,
+                            iva=producto.iva,
+                            envio=costo_envio,
+                            subcategoria_id=producto.subcategoria_id,
+                            pricelist_id=pricelist_cuota,
+                            markup_objetivo=request.markup_objetivo,
+                            tipo_cambio=tipo_cambio,
+                            adicional_markup=adicional,
+                        )
+                        if "error" not in cal_cuota:
+                            precio_cuota = round(cal_cuota["precio"], 2)
+                            if precio_cuota > 0:
+                                setattr(pricing_obj, campo, precio_cuota)
+                    except Exception as exc_cuota:
+                        logger.warning(
+                            "Error calculando cuota %s para item %s: %s",
+                            campo,
+                            item_id,
+                            exc_cuota,
+                        )
+
+            # Recalcular markups derivados
+            pricing_obj.markup_rebate = calcular_markup_rebate(
+                db, producto, pricing_obj, tipo_cambio, costo_envio=costo_envio
+            )
+            pricing_obj.markup_oferta = calcular_markup_oferta(db, producto, tipo_cambio, costo_envio=costo_envio)
+
+            db.commit()
+
+            res["precio_nuevo"] = precio_nuevo
+            res["markup_real"] = round(markup_real * 100, 2)
+            res["ok"] = True
+
+        except Exception as exc:
+            logger.error("Error en markup masivo item_id=%s: %s", item_id, exc)
+            try:
+                db.rollback()
+            except Exception:
+                logger.exception("Rollback falló en markup masivo item_id=%s", item_id)
+            res["error"] = str(exc)
+
+        resultados.append(res)
+
+    ok_count = sum(1 for r in resultados if r["ok"])
+    error_count = len(resultados) - ok_count
+
+    if ok_count:
+        from app.services.auditoria_service import registrar_auditoria
+        from app.models.auditoria import TipoAccion
+
+        registrar_auditoria(
+            db=db,
+            usuario_id=current_user.id,
+            tipo_accion=TipoAccion.MODIFICACION_MASIVA,
+            es_masivo=True,
+            productos_afectados=ok_count,
+            valores_nuevos={
+                "accion": "aplicar_markup_masivo",
+                "markup_objetivo": request.markup_objetivo,
+                "pricelist_id": request.pricelist_id,
+                "recalcular_cuotas": request.recalcular_cuotas,
+                "item_ids": [r["item_id"] for r in resultados if r["ok"]],
+            },
+            comentario="Aplicación masiva de markup ML Clásica",
+        )
+
+    return {
+        "total": len(resultados),
+        "ok": ok_count,
+        "errores": error_count,
+        "resultados": resultados,
     }
