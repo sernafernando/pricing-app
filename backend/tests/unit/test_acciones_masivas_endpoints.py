@@ -65,7 +65,7 @@ def test_aplicar_markup_masivo_happy_path_guarda_markup_en_porcentaje():
         iva=21,
         subcategoria_id=1,
     )
-    pricing = MagicMock(precio_lista_ml=14000, markup_adicional_cuotas_custom=None)
+    pricing = MagicMock(precio_lista_ml=0, markup_adicional_cuotas_custom=None)
     db = _db_for_models(producto=producto, pricing=pricing)
     user = MagicMock(id=19)
 
@@ -91,6 +91,7 @@ def test_aplicar_markup_masivo_happy_path_guarda_markup_en_porcentaje():
 
     assert result["ok"] == 1
     assert result["errores"] == 0
+    assert result["resultados"][0]["precio_antes"] == 0.0
     assert result["resultados"][0]["markup_real"] == 5.0
     assert pricing.markup_calculado == 5.0
     assert pricing.precio_lista_ml == 15000
@@ -165,10 +166,19 @@ def test_si_falla_despues_del_helper_no_queda_auditoria_commiteada():
 
 def test_config_cuotas_masivo_sin_permiso_403():
     body = ConfigCuotasMasivoRequest(item_ids=[1], markup_adicional_cuotas_custom=3)
-    with patch("app.services.permisos_service.verificar_permiso", return_value=False):
+    with patch("app.services.permisos_service.verificar_permiso", return_value=False) as vp:
         with pytest.raises(HTTPException) as exc:
             actualizar_config_cuotas_masivo(body, MagicMock(), MagicMock())
     assert exc.value.status_code == 403
+    assert vp.call_args.args[2] == "productos.aplicar_markup_masivo"
+
+
+def test_config_cuotas_masivo_sin_campos_400():
+    body = ConfigCuotasMasivoRequest(item_ids=[1])
+    with patch("app.services.permisos_service.verificar_permiso", return_value=True):
+        with pytest.raises(HTTPException) as exc:
+            actualizar_config_cuotas_masivo(body, MagicMock(), MagicMock())
+    assert exc.value.status_code == 400
 
 
 def test_config_cuotas_masivo_no_pisa_markup_pvp_omitido():

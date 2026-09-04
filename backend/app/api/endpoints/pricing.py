@@ -2,7 +2,7 @@ import logging
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field
 from typing import Optional
 from datetime import UTC, datetime
 from app.api.deps import get_current_user
@@ -1234,14 +1234,7 @@ class AplicarMarkupMasivoRequest(BaseModel):
     markup_objetivo: float = Field(..., gt=0, description="Markup objetivo en % (ej: 5 = 5%)")
     pricelist_id: int = Field(4, description="Lista de precios (4 = ML Clásica web)")
     recalcular_cuotas: bool = Field(True)
-    item_ids: list[int] = Field(..., min_length=1, max_length=500)
-
-    @field_validator("markup_objetivo")
-    @classmethod
-    def markup_debe_ser_positivo(cls, v: float) -> float:
-        if v <= 0:
-            raise ValueError("markup_objetivo debe ser > 0")
-        return v
+    item_ids: list[int] = Field(..., min_length=1, max_length=100)
 
 
 class AplicarMarkupMasivoItemResult(BaseModel):
@@ -1313,7 +1306,9 @@ def aplicar_markup_masivo(
 
             pricing_obj = db.query(ProductoPricing).filter(ProductoPricing.item_id == item_id).first()
             res["precio_antes"] = (
-                float(pricing_obj.precio_lista_ml) if pricing_obj and pricing_obj.precio_lista_ml else None
+                float(pricing_obj.precio_lista_ml)
+                if pricing_obj is not None and pricing_obj.precio_lista_ml is not None
+                else None
             )
 
             # Tipo de cambio USD si aplica (un solo fetch por request)

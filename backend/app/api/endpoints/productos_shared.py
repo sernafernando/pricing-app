@@ -312,7 +312,7 @@ class ConfigCuotasRequest(BaseModel):
 
 
 class ConfigCuotasMasivoRequest(BaseModel):
-    item_ids: List[int] = Field(..., min_length=1, max_length=500)
+    item_ids: List[int] = Field(..., min_length=1, max_length=100)
     recalcular_cuotas_auto: Optional[bool] = None
     markup_adicional_cuotas_custom: Optional[float] = None
     markup_adicional_cuotas_pvp_custom: Optional[float] = None

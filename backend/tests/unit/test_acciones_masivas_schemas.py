@@ -26,14 +26,30 @@ def test_aplicar_markup_masivo_rechaza_lista_vacia():
         AplicarMarkupMasivoRequest(markup_objetivo=5, item_ids=[])
 
 
-def test_aplicar_markup_masivo_rechaza_mas_de_500_items():
+def test_aplicar_markup_masivo_acepta_hasta_100_items():
+    req = AplicarMarkupMasivoRequest(markup_objetivo=5, item_ids=list(range(1, 101)))
+    assert len(req.item_ids) == 100
+
+
+def test_aplicar_markup_masivo_rechaza_mas_de_100_items():
     with pytest.raises(ValidationError):
-        AplicarMarkupMasivoRequest(markup_objetivo=5, item_ids=list(range(1, 502)))
+        AplicarMarkupMasivoRequest(markup_objetivo=5, item_ids=list(range(1, 102)))
 
 
 def test_config_cuotas_masivo_requiere_items():
     with pytest.raises(ValidationError):
         ConfigCuotasMasivoRequest(item_ids=[])
+
+
+def test_config_cuotas_masivo_rechaza_mas_de_100_items():
+    with pytest.raises(ValidationError):
+        ConfigCuotasMasivoRequest(item_ids=list(range(1, 102)))
+
+
+def test_config_cuotas_masivo_null_explicito_queda_en_dump():
+    req = ConfigCuotasMasivoRequest(item_ids=[1], markup_adicional_cuotas_custom=None)
+    dumped = req.model_dump(exclude_unset=True)
+    assert dumped["markup_adicional_cuotas_custom"] is None
 
 
 def test_config_cuotas_masivo_no_incluye_campos_omitidos():

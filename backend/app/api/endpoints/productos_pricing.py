@@ -1288,14 +1288,20 @@ def actualizar_config_cuotas_masivo(
     db: Session = Depends(get_db),
     current_user: Usuario = Depends(get_current_user),
 ):
-    """Aplica la config de cuotas (engranaje) a una lista de productos."""
+    """Aplica la config de cuotas (engranaje) a una lista de productos.
+
+    Solo escribe los campos presentes en el body. Requiere el permiso
+    crítico de acciones masivas, no el de edición unitaria de cuotas.
+    """
     from app.services.permisos_service import verificar_permiso
 
-    if not verificar_permiso(db, current_user, "productos.editar_precio_cuotas"):
-        raise HTTPException(status_code=403, detail="No tienes permiso para editar configuración de cuotas")
+    if not verificar_permiso(db, current_user, "productos.aplicar_markup_masivo"):
+        raise HTTPException(status_code=403, detail="No tienes permiso para aplicar configuración masiva de cuotas")
 
     data = body.model_dump(exclude_unset=True)
     item_ids = data.pop("item_ids")
+    if not data:
+        raise HTTPException(status_code=400, detail="No se envió ningún campo de configuración")
 
     if data.get("markup_adicional_cuotas_custom") is not None:
         if data["markup_adicional_cuotas_custom"] < 0 or data["markup_adicional_cuotas_custom"] > 100:

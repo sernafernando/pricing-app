@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import api from '../services/api';
 import styles from './AplicarMarkupMasivoModal.module.css';
 
-const MAX_ITEMS_POR_REQUEST = 500;
+const MAX_ITEMS_POR_REQUEST = 100;
 
 function chunkIds(ids, size) {
   const chunks = [];
@@ -24,8 +24,9 @@ export default function AplicarMarkupMasivoModal({
   const [recalcularCuotas, setRecalcularCuotas] = useState(true);
 
   const [aplicarConfig, setAplicarConfig] = useState(false);
-  const [recalcularAuto, setRecalcularAuto] = useState('null');
+  const [recalcularAuto, setRecalcularAuto] = useState('');
   const [markupAdicional, setMarkupAdicional] = useState('');
+  const [markupAdicionalGlobal, setMarkupAdicionalGlobal] = useState(false);
 
   const [aplicando, setAplicando] = useState(false);
   const [progresoLote, setProgresoLote] = useState(null);
@@ -62,6 +63,28 @@ export default function AplicarMarkupMasivoModal({
       }
     }
 
+    const configBodyBase = {};
+    if (aplicarConfig) {
+      if (recalcularAuto !== '') {
+        configBodyBase.recalcular_cuotas_auto =
+          recalcularAuto === 'null' ? null : recalcularAuto === 'true';
+      }
+      if (markupAdicionalGlobal) {
+        configBodyBase.markup_adicional_cuotas_custom = null;
+      } else if (markupAdicional !== '') {
+        const adicional = parseFloat(String(markupAdicional).replace(',', '.'));
+        if (isNaN(adicional) || adicional < 0 || adicional > 100) {
+          showToast('Markup adicional de cuotas debe estar entre 0 y 100', 'error');
+          return;
+        }
+        configBodyBase.markup_adicional_cuotas_custom = adicional;
+      }
+      if (Object.keys(configBodyBase).length === 0) {
+        showToast('Elegí al menos un campo de config de cuotas para aplicar', 'error');
+        return;
+      }
+    }
+
     setAplicando(true);
     setResultados(null);
     setProgresoLote(null);
@@ -75,19 +98,11 @@ export default function AplicarMarkupMasivoModal({
 
     try {
       if (aplicarConfig) {
-        const adicional = markupAdicional === '' ? null : parseFloat(String(markupAdicional).replace(',', '.'));
-        if (adicional != null && (isNaN(adicional) || adicional < 0 || adicional > 100)) {
-          showToast('Markup adicional de cuotas debe estar entre 0 y 100', 'error');
-          setAplicando(false);
-          return;
-        }
         for (let i = 0; i < lotes.length; i++) {
           setProgresoLote({ actual: i + 1, total: totalLotes, accion: 'config' });
           await api.post('/productos/config-cuotas-masivo', {
             item_ids: lotes[i],
-            recalcular_cuotas_auto:
-              recalcularAuto === 'null' ? null : recalcularAuto === 'true',
-            markup_adicional_cuotas_custom: adicional,
+            ...configBodyBase,
           });
           lotesConfig += 1;
         }
@@ -150,7 +165,10 @@ export default function AplicarMarkupMasivoModal({
   const formatPrecio = (v) =>
     v != null ? `$${Number(v).toLocaleString('es-AR', { maximumFractionDigits: 0 })}` : '—';
 
-  const puedeAplicar = total > 0 && (aplicarMarkup || aplicarConfig);
+  const tieneConfigParaEnviar =
+    recalcularAuto !== '' || markupAdicionalGlobal || markupAdicional !== '';
+  const puedeAplicar =
+    total > 0 && (aplicarMarkup || aplicarConfig) && (!aplicarConfig || tieneConfigParaEnviar);
 
   return (
     <div
@@ -239,6 +257,7 @@ export default function AplicarMarkupMasivoModal({
                           onChange={(e) => setRecalcularAuto(e.target.value)}
                           disabled={aplicando}
                         >
+                          <option value="">No cambiar</option>
                           <option value="null">Usar configuración global</option>
                           <option value="true">Siempre recalcular</option>
                           <option value="false">Nunca recalcular</option>
@@ -249,14 +268,29 @@ export default function AplicarMarkupMasivoModal({
                         <input
                           type="text"
                           value={markupAdicional}
-                          onChange={(e) => setMarkupAdicional(e.target.value)}
+                          onChange={(e) => {
+                            setMarkupAdicional(e.target.value);
+                            if (e.target.value !== '') setMarkupAdicionalGlobal(false);
+                          }}
                           onFocus={(e) => e.target.select()}
                           className={styles.input}
-                          placeholder="Vacío = global"
-                          disabled={aplicando}
+                          placeholder="No cambiar"
+                          disabled={aplicando || markupAdicionalGlobal}
                         />
+                        <label className={styles.checkLabel}>
+                          <input
+                            type="checkbox"
+                            checked={markupAdicionalGlobal}
+                            onChange={(e) => {
+                              setMarkupAdicionalGlobal(e.target.checked);
+                              if (e.target.checked) setMarkupAdicional('');
+                            }}
+                            disabled={aplicando}
+                          />
+                          Restablecer al global
+                        </label>
                         <span className={styles.help}>
-                          Vacío usa el global. 0 deja las cuotas sin extra sobre clásica.
+                          Vacío no toca el valor actual. 0 deja las cuotas sin extra sobre clásica.
                         </span>
                       </div>
                     </>
