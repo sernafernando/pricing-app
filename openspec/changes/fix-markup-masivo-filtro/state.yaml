@@ -1,0 +1,30 @@
+change_id: fix-markup-masivo-filtro
+project: pricing-app
+phase: tasks
+status: completed
+persistence_mode: hybrid
+execution_mode: auto
+delivery_strategy: ask-on-risk
+created_at: "2026-09-04"
+updated_at: "2026-09-04"
+artifacts:
+  exploration: openspec/changes/fix-markup-masivo-filtro/exploration.md
+  research: openspec/changes/fix-markup-masivo-filtro/research.md
+  preproposal: openspec/changes/fix-markup-masivo-filtro/preproposal.json
+  proposal: openspec/changes/fix-markup-masivo-filtro/proposal.md
+  specs:
+    - openspec/changes/fix-markup-masivo-filtro/specs/productos-acciones-masivas-scope/spec.md
+  design: openspec/changes/fix-markup-masivo-filtro/design.md
+  tasks: openspec/changes/fix-markup-masivo-filtro/tasks.md
+  evidence:
+    - openspec/changes/fix-markup-masivo-filtro/evidence/2026-09-04-grid-mostrando-18.png
+    - openspec/changes/fix-markup-masivo-filtro/evidence/2026-09-04-modal-4291.png
+next_phase: apply
+notes: >
+  Tasks: 5 phases / 12 checkboxes. PR1 = resolve helper + modal
+  scope/confirm/chunks + modal tests; PR2 = Productos wiring +
+  useProductosData request-generation guard + hook tests.
+  delivery_strategy ask-on-risk → Decision needed before apply: Yes;
+  chain strategy pending. Backend schemas unchanged. Threat matrix N/A.
+chain_strategy: feature-branch-chain
+delivery_strategy: ask-on-risk
