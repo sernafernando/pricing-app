@@ -403,6 +403,113 @@ class MLWebhookClient:
             logger.error(f"Error buscando órdenes (seller={seller_id_int}, offset={offset}): {_describe_exc(e)}")
             return None
 
+    # ── ML Billing (ml-ventas-desglose-costos, corte 2) ──────────────
+    # Additive read-only methods over the billing/shipment-costs proxy
+    # resources. Same error-swallow shape as every other read method:
+    # timeout/error -> None, never raises. Ids ARE coerced to int BEFORE
+    # any HTTP call (Threat Matrix SSRF row), same as get_order/get_shipment.
+    #
+    # Rate limit (verified live, see investigation doc §3): billing is
+    # 5 requests/minute PER ACCOUNT, not per endpoint. These methods do
+    # NOT retry or throttle themselves -- the caller (a once-daily sweep,
+    # corte 3) owns the pacing. Calling `get_billing_details` per-order
+    # would exhaust the account's budget and starve every other billing
+    # consumer (promos, PxQ); it must only ever be called per PERIOD.
+
+    async def get_billing_periods(self, group: str) -> Optional[Dict]:
+        """Lista los períodos de facturación de ML vía el proxy `billing`.
+
+        Args:
+            group: `"ML"` o `"MP"` (grupo de facturación de ML).
+
+        Returns:
+            Dict crudo `{periods: [...]}`, o None si hay error/timeout.
+        """
+        resource = f"/billing/integration/monthly/periods?group={group}&document_type=BILL"
+        try:
+            async with httpx.AsyncClient(timeout=15.0) as client:
+                response = await client.get(f"{self.base_url}/api/ml/billing", params={"resource": resource})
+                response.raise_for_status()
+                return response.json()
+        except Exception as e:
+            logger.error(f"Error obteniendo períodos de facturación (group={group}): {_describe_exc(e)}")
+            return None
+
+    async def get_billing_details(
+        self, period_key: str, group: str, limit: int = 1000, offset: int = 0
+    ) -> Optional[Dict]:
+        """Obtiene una página de cargos de facturación de un período vía el
+        proxy `billing`.
+
+        Args:
+            period_key: Clave del período (ej: "2026-09-01").
+            group: `"ML"` o `"MP"`.
+            limit: Tamaño de página (ML acepta hasta 1000).
+            offset: Offset de paginación; el llamador (sweep, corte 3)
+                avanza este valor entre páginas hasta cubrir `paging.total`.
+
+        Returns:
+            Dict crudo `{results: [...], paging: {total, limit, offset}}`,
+            o None si hay error/timeout.
+        """
+        resource = (
+            f"/billing/integration/periods/key/{period_key}/group/{group}/details"
+            f"?document_type=BILL&limit={limit}&offset={offset}"
+        )
+        try:
+            async with httpx.AsyncClient(timeout=30.0) as client:
+                response = await client.get(f"{self.base_url}/api/ml/billing", params={"resource": resource})
+                response.raise_for_status()
+                return response.json()
+        except Exception as e:
+            logger.error(
+                f"Error obteniendo detalle de facturación (period={period_key}, group={group}, "
+                f"offset={offset}): {_describe_exc(e)}"
+            )
+            return None
+
+    async def get_shipment_costs(self, shipment_id: Union[int, str]) -> Optional[Dict]:
+        """Obtiene el desglose de costos de un envío de MercadoLibre vía el
+        proxy `orders`.
+
+        El costo real del vendedor es `senders[0].cost`, tomado TAL CUAL
+        viene de ML -- NUNCA derivado de `base_cost/2` u otro cálculo. Ver
+        investigación §1: `base_cost` puede no reflejar un descuento
+        (`senders[0].discounts[]`) que ML aplica y puede cambiar.
+
+        Args:
+            shipment_id: El id numérico del shipment ML.
+
+        Returns:
+            Dict con el payload crudo de costos, o None si hay
+            error/timeout/404.
+
+        Raises:
+            ValueError: si `shipment_id` no es coercionable a `int` — se
+                levanta ANTES de cualquier llamada HTTP (SSRF-safe).
+        """
+        try:
+            shipment_id_int = int(shipment_id)
+        except (TypeError, ValueError) as e:
+            raise ValueError(f"shipment_id no coercionable a int: {shipment_id!r}") from e
+
+        try:
+            async with httpx.AsyncClient(timeout=10.0) as client:
+                response = await client.get(
+                    f"{self.base_url}/api/ml/orders", params={"resource": f"/shipments/{shipment_id_int}/costs"}
+                )
+
+                if response.status_code == 404:
+                    logger.warning(f"Costos de envío {shipment_id_int} no encontrados en ML")
+                    return None
+
+                response.raise_for_status()
+                return response.json()
+
+        except Exception as e:
+            logger.error(f"Error obteniendo costos de envío {shipment_id_int}: {_describe_exc(e)}")
+            return None
+
     # ── ML Seller Promotions (READ-ONLY, PR1) ───────────────────────
     # Write methods (enroll/remove) are added in PR2. No retry on any
     # of these: timeout/error -> None, mirroring the existing read
