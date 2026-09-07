@@ -9,6 +9,7 @@ happy-path behaviour.
 from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
+from decimal import Decimal
 from unittest import mock
 from unittest.mock import AsyncMock
 
@@ -18,6 +19,66 @@ from app.core.config import settings
 from app.models.ml_orders_ops import MlOpsDivergence, MlOpsSyncCursor, MlOrdersOps, MlShipmentOps
 from app.services.ml_orders_ingestion import sweep_service
 from app.services.ml_webhook_client import ml_webhook_client
+
+
+def _benign_costs_payload(shipment_id):
+    """A benign, STRUCTURALLY VALID answer for any test that triggers the
+    cost sync without declaring it.
+
+    This used to `raise AssertionError`, meaning to fail loudly. It did not
+    work: `_sync_shipment_costs` is fail-open and catches `Exception` -- and
+    `AssertionError` IS an `Exception`. The code under test ate its own
+    guard, logged it as "cost fetch failed", and the test stayed green. The
+    defence against reaching the network defended nothing, and lifting it
+    exposed SIX pre-existing tests that were really calling out.
+
+    Failing with `pytest.fail` (which inherits `BaseException` and survives
+    an `except Exception`) is not right either: those six cover orders and
+    shipments, not costs, and breaking them over something they do not test
+    is noise, not signal.
+
+    The property that matters is that NO test touches the real network, and
+    the `monkeypatch` is what guarantees it -- not the exception type. Tests
+    that do measure the cost sync bring their own mocks and assertions.
+
+    The payload satisfies the identity measured across 18 real shipments,
+    `gross = receiver.cost + receiver.save + senders[0].cost + senders[0].save`
+    (1000 = 0 + 500 + 400 + 100). A fixture that does not close it teaches a
+    shape ML never produces to whoever copies it next.
+    """
+    return {
+        "gross_amount": 1000,
+        "receiver": {"cost": 0, "save": 500, "discounts": []},
+        "senders": [{"cost": 400, "save": 100, "discounts": [], "charges": {}}],
+    }
+
+
+@pytest.fixture(autouse=True)
+def _no_real_cost_fetch(monkeypatch):
+    """Every test in this module gets `get_shipment_costs` cut by default,
+    same discipline as `get_shipment` (which every test already mocks
+    explicitly): a test that exercises the new cost sync must provide its
+    own mock. The sweep's cost sync is fail-open per shipment
+    (`_sync_shipment_costs` catches and logs), so an un-mocked call here
+    never becomes a real HTTP request and never silently returns a fake
+    success -- it is caught, logged loudly, and `costs_synced_at` stays
+    NULL, so any assertion coupled to a persisted cost fails honestly."""
+    monkeypatch.setattr(ml_webhook_client, "get_shipment_costs", AsyncMock(side_effect=_benign_costs_payload))
+
+
+def _shipment_costs(sender_cost, receiver_cost=None, base_cost=None) -> dict:
+    """Builds a `get_shipment_costs` payload shaped like the real ML
+    response (investigation §1): the seller's real charge lives at
+    `senders[0].cost`, already net of whatever `discounts[]` ML applied --
+    `base_cost` (when present) is the PRE-discount figure and must never be
+    used to derive the seller's cost."""
+    payload: dict = {
+        "receiver": {"cost": receiver_cost},
+        "senders": [{"cost": sender_cost, "discounts": [{"rate": 50}]}],
+    }
+    if base_cost is not None:
+        payload["base_cost"] = base_cost
+    return payload
 
 
 def _fake_ctx(db):
@@ -882,3 +943,353 @@ class TestShipmentsInFlightAreRefreshedAnyway:
         sweep_service.run_sweep(seller_id=999, window_days=90)
 
         assert calls["n"] == 0
+
+
+class TestShipmentCostSync:
+    """ml-ventas-desglose-costos corte 4: the sweep now also fetches and
+    persists `sender_cost`/`receiver_cost`, guarded ONLY by
+    `costs_synced_at IS NULL` -- independent of shipment status."""
+
+    def test_unsynced_non_terminal_shipment_gets_costs_fetched_and_persisted(self, db, monkeypatch) -> None:
+        now = datetime.now(timezone.utc)
+        recent = now - timedelta(days=1)
+        mock_search = AsyncMock(return_value=_page([_order(1, 999, recent, recent, shipping_id=500)]))
+        monkeypatch.setattr(ml_webhook_client, "search_orders", mock_search)
+        monkeypatch.setattr(
+            ml_webhook_client, "get_shipment", AsyncMock(return_value=_shipment(500, 1, status="shipped"))
+        )
+        mock_costs = AsyncMock(return_value=_shipment_costs(sender_cost=15190, receiver_cost=20000, base_cost=30380))
+        monkeypatch.setattr(ml_webhook_client, "get_shipment_costs", mock_costs)
+
+        sweep_service.run_sweep(seller_id=999, window_days=90)
+
+        mock_costs.assert_called_once_with(500)
+        row = db.query(MlShipmentOps).filter_by(shipment_id=500).one()
+        assert row.sender_cost == Decimal("15190")
+        assert row.receiver_cost == Decimal("20000")
+        assert row.costs_synced_at is not None
+
+    def test_already_synced_shipment_is_never_refetched(self, db, monkeypatch) -> None:
+        now = datetime.now(timezone.utc)
+        recent = now - timedelta(days=1)
+        db.add(MlOrdersOps(order_id=1, seller_id=999, ml_last_updated=recent, date_created=recent))
+        db.add(
+            MlShipmentOps(
+                shipment_id=500,
+                order_id=1,
+                status="shipped",
+                sender_cost=Decimal("15190"),
+                receiver_cost=Decimal("20000"),
+                costs_synced_at=now,
+            )
+        )
+        db.commit()
+
+        # A newer update so the order/shipment DOES get reprocessed this
+        # pass -- the guard under test is on the cost sync specifically,
+        # not "nothing about this shipment changes".
+        newer = now
+        mock_search = AsyncMock(return_value=_page([_order(1, 999, newer, recent, shipping_id=500)]))
+        monkeypatch.setattr(ml_webhook_client, "search_orders", mock_search)
+        monkeypatch.setattr(
+            ml_webhook_client, "get_shipment", AsyncMock(return_value=_shipment(500, 1, status="shipped"))
+        )
+        mock_costs = AsyncMock(return_value=_shipment_costs(sender_cost=1, receiver_cost=1))
+        monkeypatch.setattr(ml_webhook_client, "get_shipment_costs", mock_costs)
+
+        sweep_service.run_sweep(seller_id=999, window_days=90)
+
+        mock_costs.assert_not_called()
+        row = db.query(MlShipmentOps).filter_by(shipment_id=500).one()
+        assert row.sender_cost == Decimal("15190")
+        assert row.receiver_cost == Decimal("20000")
+
+    def test_terminal_shipment_without_synced_costs_is_synced_exactly_once(self, db, monkeypatch) -> None:
+        now = datetime.now(timezone.utc)
+        db.add(MlOrdersOps(order_id=1, seller_id=999, ml_last_updated=now, date_created=now))
+        # Terminal AND never cost-synced: the order will be treated as
+        # "settled" (skip re-fetching the shipment payload/`get_shipment`)
+        # but the cost sync must still fire, exactly once.
+        db.add(MlShipmentOps(shipment_id=500, order_id=1, status="delivered", costs_synced_at=None))
+        db.commit()
+
+        order = _order(1, 999, now, now, shipping_id=500)
+        mock_search = AsyncMock(return_value=_page([order]))
+        monkeypatch.setattr(ml_webhook_client, "search_orders", mock_search)
+        mock_get_shipment = AsyncMock(return_value=_shipment(500, 1, status="delivered"))
+        monkeypatch.setattr(ml_webhook_client, "get_shipment", mock_get_shipment)
+        mock_costs = AsyncMock(return_value=_shipment_costs(sender_cost=999, receiver_cost=1200))
+        monkeypatch.setattr(ml_webhook_client, "get_shipment_costs", mock_costs)
+
+        sweep_service.run_sweep(seller_id=999, window_days=90)
+
+        mock_costs.assert_called_once_with(500)
+        mock_get_shipment.assert_not_called()
+        row = db.query(MlShipmentOps).filter_by(shipment_id=500).one()
+        assert row.costs_synced_at is not None
+        assert row.sender_cost == Decimal("999")
+
+        # A LATER pass, same terminal shipment, now already synced: never
+        # fires again -- this is the exact "one-shot" rule task 5 asks for.
+        mock_search_2 = AsyncMock(return_value=_page([order]))
+        monkeypatch.setattr(ml_webhook_client, "search_orders", mock_search_2)
+        mock_costs_2 = AsyncMock(return_value=_shipment_costs(sender_cost=1, receiver_cost=1))
+        monkeypatch.setattr(ml_webhook_client, "get_shipment_costs", mock_costs_2)
+
+        sweep_service.run_sweep(seller_id=999, window_days=90)
+
+        mock_costs_2.assert_not_called()
+        row2 = db.query(MlShipmentOps).filter_by(shipment_id=500).one()
+        assert row2.sender_cost == Decimal("999")
+
+    def test_non_coercible_shipment_id_never_reaches_http(self, db, monkeypatch) -> None:
+        """Regression for the SSRF guard `get_shipment_costs` already
+        enforces (corte 2, `tests/unit/test_ml_webhook_client_billing.py`):
+        the sweep's own cost-sync hook must stay fail-open even when the
+        client raises for a bad id -- it must not crash the batch or
+        persist anything for that shipment."""
+        now = datetime.now(timezone.utc)
+        db.add(MlOrdersOps(order_id=1, seller_id=999, ml_last_updated=now, date_created=now))
+        db.add(MlShipmentOps(shipment_id=500, order_id=1, status="delivered", costs_synced_at=None))
+        db.commit()
+
+        order = _order(1, 999, now, now, shipping_id=500)
+        monkeypatch.setattr(ml_webhook_client, "search_orders", AsyncMock(return_value=_page([order])))
+        monkeypatch.setattr(ml_webhook_client, "get_shipment", AsyncMock(return_value=None))
+
+        async def raises_for_bad_id(shipment_id):
+            raise ValueError(f"shipment_id no coercionable a int: {shipment_id!r}")
+
+        monkeypatch.setattr(ml_webhook_client, "get_shipment_costs", raises_for_bad_id)
+
+        result = sweep_service.run_sweep(seller_id=999, window_days=90)
+
+        assert result.error is None
+        row = db.query(MlShipmentOps).filter_by(shipment_id=500).one()
+        assert row.costs_synced_at is None
+        assert row.sender_cost is None
+
+    def test_sender_cost_is_senders_zero_cost_never_base_cost_over_two(self, db, monkeypatch) -> None:
+        """Explicit assert of the investigation's core finding: `base_cost`
+        (30380) with a 50% discount is NOT computed by halving it here --
+        `senders[0].cost` (15190) is used directly. No `base_cost` key is
+        even present in the payload, proving the sync path never reads it,
+        not just that it prefers `senders[0].cost` when both exist."""
+        now = datetime.now(timezone.utc)
+        recent = now - timedelta(days=1)
+        mock_search = AsyncMock(return_value=_page([_order(1, 999, recent, recent, shipping_id=500)]))
+        monkeypatch.setattr(ml_webhook_client, "search_orders", mock_search)
+        monkeypatch.setattr(
+            ml_webhook_client, "get_shipment", AsyncMock(return_value=_shipment(500, 1, status="shipped"))
+        )
+        payload = {"receiver": {"cost": 20000}, "senders": [{"cost": 15190, "discounts": [{"rate": 50}]}]}
+        assert "base_cost" not in payload
+        mock_costs = AsyncMock(return_value=payload)
+        monkeypatch.setattr(ml_webhook_client, "get_shipment_costs", mock_costs)
+
+        sweep_service.run_sweep(seller_id=999, window_days=90)
+
+        row = db.query(MlShipmentOps).filter_by(shipment_id=500).one()
+        assert row.sender_cost == Decimal("15190")
+        assert row.sender_cost == payload["senders"][0]["cost"]
+
+
+class TestTheNetworkGuardIsActuallyWired:
+    """Proves the `_no_real_cost_fetch` fixture is what answers, not the
+    network.
+
+    The previous guard raised `AssertionError`, which `_sync_shipment_costs`
+    swallowed whole in its fail-open: the tests stayed green while six of
+    them really called ML's API. A guard nobody verifies is
+    indistinguishable from no guard.
+    """
+
+    def test_the_client_is_patched_during_the_run(self) -> None:
+        from unittest.mock import AsyncMock as _AsyncMock
+
+        assert isinstance(ml_webhook_client.get_shipment_costs, _AsyncMock), (
+            "get_shipment_costs is not mocked: a test could reach the real network"
+        )
+
+    def test_persisted_costs_come_from_the_fixture_not_the_network(self, db, monkeypatch) -> None:
+        """If the sync writes the benign payload's values, the fixture answered.
+        Anything else -- or nothing -- means something else did."""
+        now = datetime.now(timezone.utc)
+        recent = now - timedelta(days=1)
+        monkeypatch.setattr(
+            ml_webhook_client,
+            "search_orders",
+            AsyncMock(return_value=_page([_order(1, 999, recent, recent, shipping_id=500)])),
+        )
+        monkeypatch.setattr(
+            ml_webhook_client, "get_shipment", AsyncMock(return_value=_shipment(500, 1, status="shipped"))
+        )
+        # Deliberately NOT mocking `get_shipment_costs`: we want to see who
+        # answers when no test declares it. If the fixture answers, the
+        # values are the benign payload's.
+
+        sweep_service.run_sweep(seller_id=999, window_days=90)
+
+        row = db.query(MlShipmentOps).filter_by(shipment_id=500).one()
+        assert row.sender_cost == Decimal("400"), "the fixture did not answer: who did?"
+        assert row.receiver_cost == Decimal("0")
+        assert row.costs_synced_at is not None
+
+
+class TestAnIncompletePayloadIsNotSealed:
+    """`costs_synced_at IS NULL` is the ONLY retry gate.
+
+    A payload that IS a dict but carries no usable costs passed the
+    `isinstance(payload, dict)` filter, wrote NULL into both columns and
+    stamped `costs_synced_at` -- losing that shipment's cost forever, on
+    the money path. Not hypothetical: it is what ML returns while a
+    shipment's costs are not settled yet.
+    """
+
+    def test_a_dict_without_senders_is_left_for_the_next_pass(self, db, monkeypatch) -> None:
+        now = datetime.now(timezone.utc)
+        recent = now - timedelta(days=1)
+        monkeypatch.setattr(
+            ml_webhook_client,
+            "search_orders",
+            AsyncMock(return_value=_page([_order(1, 999, recent, recent, shipping_id=500)])),
+        )
+        monkeypatch.setattr(
+            ml_webhook_client, "get_shipment", AsyncMock(return_value=_shipment(500, 1, status="shipped"))
+        )
+        # Valid dict, empty inside: exactly what ML returns while a
+        # shipment's costs are not settled yet.
+        monkeypatch.setattr(
+            ml_webhook_client, "get_shipment_costs", AsyncMock(return_value={"gross_amount": 0, "senders": []})
+        )
+
+        sweep_service.run_sweep(seller_id=999, window_days=90)
+
+        row = db.query(MlShipmentOps).filter_by(shipment_id=500).one()
+        assert row.costs_synced_at is None, "sealed: this shipment is never retried again"
+        assert row.sender_cost is None
+
+    def test_a_good_cost_from_an_earlier_pass_is_not_overwritten_with_null(self, db, monkeypatch) -> None:
+        now = datetime.now(timezone.utc)
+        recent = now - timedelta(days=1)
+        db.add(MlOrdersOps(order_id=1, seller_id=999, ml_last_updated=recent, date_created=recent))
+        db.add(
+            MlShipmentOps(
+                shipment_id=500,
+                order_id=1,
+                status="shipped",
+                sender_cost=Decimal("15190"),
+                receiver_cost=Decimal("20000"),
+            )
+        )
+        db.commit()
+        monkeypatch.setattr(
+            ml_webhook_client, "get_shipment_costs", AsyncMock(return_value={"gross_amount": 0, "senders": []})
+        )
+
+        sweep_service._sync_shipment_costs([500])
+
+        row = db.query(MlShipmentOps).filter_by(shipment_id=500).one()
+        assert row.sender_cost == Decimal("15190"), "an empty payload overwrote a good cost"
+
+
+class TestThePassStopsOnTheClock:
+    """Contar llamadas no alcanza como techo: cada presupuesto nuevo vuelve
+    a abrir el agujero que el presupuesto único protegía. El corte 4 sumó un
+    segundo presupuesto (2000 + 500 llamadas secuenciales) contra un lock
+    que se reclama a los 30 minutos. El límite va donde está el riesgo."""
+
+    def test_cost_sync_stops_once_the_pass_is_out_of_time(self, db, monkeypatch) -> None:
+        db.add(MlShipmentOps(shipment_id=500, order_id=1, status="shipped", last_updated=datetime.now(timezone.utc)))
+        db.commit()
+        get_costs = AsyncMock(return_value=_shipment_costs(sender_cost=100, receiver_cost=0, base_cost=200))
+        monkeypatch.setattr(ml_webhook_client, "get_shipment_costs", get_costs)
+
+        # a pass that started longer ago than its time budget
+        vencida = datetime.now(timezone.utc) - sweep_service.PASS_TIME_BUDGET - timedelta(minutes=1)
+        synced = sweep_service._sync_shipment_costs([500], started_at=vencida)
+
+        assert synced == 0
+        get_costs.assert_not_called()
+
+    def test_no_started_at_disables_the_cutoff(self, db, monkeypatch) -> None:
+        """`None` disables the cutoff, so tests that do not exercise it keep
+        working unchanged."""
+        assert sweep_service._pass_deadline_reached(None) is False
+
+    def test_a_partial_payload_does_not_null_the_other_column_nor_seal(self, db, monkeypatch) -> None:
+        """The first fix only caught the both-None case. A payload with
+        `senders` but no `receiver` still wrote NULL over the other column
+        and sealed the row -- the same failure the fix was for, closed on
+        the total case and open on the partial one."""
+        db.add(
+            MlOrdersOps(
+                order_id=1,
+                seller_id=999,
+                ml_last_updated=datetime.now(timezone.utc),
+                date_created=datetime.now(timezone.utc),
+            )
+        )
+        db.add(
+            MlShipmentOps(
+                shipment_id=500,
+                order_id=1,
+                status="shipped",
+                sender_cost=Decimal("15190"),
+                receiver_cost=Decimal("20000"),
+            )
+        )
+        db.commit()
+        monkeypatch.setattr(
+            ml_webhook_client,
+            "get_shipment_costs",
+            AsyncMock(return_value={"gross_amount": 999, "senders": [{"cost": 111}]}),
+        )
+
+        sweep_service._sync_shipment_costs([500])
+
+        row = db.query(MlShipmentOps).filter_by(shipment_id=500).one()
+        assert row.sender_cost == Decimal("111"), "the value that arrived was not written"
+        assert row.receiver_cost == Decimal("20000"), "the missing half overwrote a good value with NULL"
+        assert row.costs_synced_at is None, "sealed on a partial payload: the rest is never fetched"
+
+
+class TestTheClockGuardsEveryFetchLoop:
+    """The clock cutoff first landed only in the cost sync, while the
+    comment above it claimed it protected the whole pass. It did not: a slow
+    proxy blows the deadline on the page walk alone -- 2000 pages at 1.2s is
+    40 minutes against a lock reclaimed at 30 -- and the cost section is
+    never reached. A comment promising a guarantee that does not exist is
+    worse than no comment."""
+
+    def test_the_page_walk_stops_once_the_pass_is_out_of_time(self, monkeypatch) -> None:
+        search = AsyncMock(return_value=_page([]))
+        monkeypatch.setattr(ml_webhook_client, "search_orders", search)
+        expired = datetime.now(timezone.utc) - sweep_service.PASS_TIME_BUDGET - timedelta(minutes=1)
+
+        events = list(
+            sweep_service.iter_window_events(
+                999,
+                datetime.now(timezone.utc) - timedelta(days=1),
+                datetime.now(timezone.utc),
+                [sweep_service.MAX_WINDOW_FETCHES_PER_PASS],
+                expired,
+            )
+        )
+
+        assert events == [("budget_exhausted", events[0][1], events[0][2])]
+        search.assert_not_called()
+
+    def test_the_shipment_lookups_stop_once_the_pass_is_out_of_time(self, monkeypatch) -> None:
+        get_shipment = AsyncMock(return_value=_shipment(500, 1, status="shipped"))
+        monkeypatch.setattr(ml_webhook_client, "get_shipment", get_shipment)
+        expired = datetime.now(timezone.utc) - sweep_service.PASS_TIME_BUDGET - timedelta(minutes=1)
+
+        got = sweep_service._fetch_shipments(
+            [_order(1, 999, datetime.now(timezone.utc), datetime.now(timezone.utc), shipping_id=500)],
+            [sweep_service.MAX_WINDOW_FETCHES_PER_PASS],
+            started_at=expired,
+        )
+
+        assert got == {}
+        get_shipment.assert_not_called()
