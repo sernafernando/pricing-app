@@ -18,6 +18,8 @@ Spec coverage:
 
 from __future__ import annotations
 
+from decimal import Decimal
+
 from app.services.ml_billing_ingestion.mapper import BillingChargeDTO, MappingError, map_billing_detail
 
 
@@ -112,3 +114,36 @@ class TestMappingError:
         result = map_billing_detail(raw, period_key="2026-09-01")
 
         assert isinstance(result, MappingError)
+
+
+class TestAmountIsDecimalNotFloat:
+    """La columna es `Numeric(14, 2)` y estos montos se suman de a miles
+    para armar el "Neto" de una venta. Binario flotante en el camino del
+    dinero introduce un error que decimal no tiene."""
+
+    def test_amount_is_decimal(self) -> None:
+        raw = _raw_detail()
+        result = map_billing_detail(raw, period_key="2026-09-01")
+
+        assert isinstance(result.amount, Decimal)
+        assert not isinstance(result.amount, float)
+
+    def test_a_float_from_ml_does_not_carry_its_binary_noise(self) -> None:
+        """ML manda `detail_amount` como número JSON, que llega como float.
+        Convertir con `str()` primero corta el ruido binario ahí mismo, en
+        vez de arrastrarlo a la suma."""
+        raw = _raw_detail()
+        raw["charge_info"]["detail_amount"] = 1125.60
+        result = map_billing_detail(raw, period_key="2026-09-01")
+
+        assert result.amount == Decimal("1125.60")
+        # La vía ingenua arrastra el ruido; la nuestra no.
+        assert Decimal(1125.60) != Decimal("1125.60")
+
+    def test_a_bonus_stays_decimal_when_negated(self) -> None:
+        raw = _raw_detail()
+        raw["charge_info"]["detail_type"] = "BONUS"
+        result = map_billing_detail(raw, period_key="2026-09-01")
+
+        assert isinstance(result.amount, Decimal)
+        assert result.amount < 0

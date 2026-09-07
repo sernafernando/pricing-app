@@ -23,6 +23,7 @@ from __future__ import annotations
 import copy
 import logging
 from dataclasses import dataclass, field
+from decimal import Decimal
 from typing import Any, Dict, List, Optional, Union
 
 logger = logging.getLogger(__name__)
@@ -59,7 +60,7 @@ class BillingChargeDTO:
     period_key: Optional[str]
     detail_type: Optional[str]
     detail_sub_type: Optional[str]
-    amount: Optional[float]
+    amount: Optional[Decimal]
     document_id: Optional[str]
     order_ids: List[int] = field(default_factory=list)
     raw_detail: Dict[str, Any] = field(default_factory=dict)
@@ -141,9 +142,15 @@ def map_billing_detail(raw: Dict[str, Any], period_key: Optional[str]) -> Union[
         document_id = _as_dict(raw.get("document_info"), "document_info").get("document_id")
 
         raw_amount = charge_info.get("detail_amount")
-        amount: Optional[float] = None
+        # `Decimal(str(...))`, NO `float(...)`: la columna es `Numeric(14, 2)`
+        # y estos montos se suman de a miles para armar el "Neto" de una
+        # venta. Pasar por binario flotante en el camino del dinero
+        # introduce un error que no existe en decimal (0.1 + 0.2 da
+        # 0.30000000000000004) y que después es imposible de rastrear.
+        # `str()` primero para no heredar el ruido si ML mandó un float.
+        amount: Optional[Decimal] = None
         if raw_amount is not None:
-            amount = float(raw_amount)
+            amount = Decimal(str(raw_amount))
             if detail_type in _NEGATIVE_DETAIL_TYPES:
                 amount = -amount
 

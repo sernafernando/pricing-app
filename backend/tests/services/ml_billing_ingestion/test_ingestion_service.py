@@ -14,6 +14,8 @@ Spec coverage:
 
 from __future__ import annotations
 
+from sqlalchemy import func
+
 from app.models.ml_billing import MlBillingCharge, MlBillingChargeOrder
 from app.services.ml_billing_ingestion.ingestion_service import upsert_billing_charge
 from app.services.ml_billing_ingestion.mapper import BillingChargeDTO
@@ -49,6 +51,36 @@ class TestPackDedup:
             2000018265495501,
             2000018265495502,
         }
+
+    def test_the_naive_join_sum_would_triple_the_shipping_charge(self, db) -> None:
+        """Hace ejecutable la trampa que el lector del corte 6 tiene que
+        esquivar.
+
+        El envío de un pack es UN cargo que la tabla puente enlaza a las
+        tres órdenes. Sumar `amount` sobre ese join lo carga una vez por
+        orden: es el doble conteo que ya mordió en las métricas de TP-Link.
+        La forma correcta suma sobre cargos DISTINTOS.
+
+        No protege código que exista todavía. Protege contra escribirlo
+        mal: acá está el número equivocado, con nombre, antes de que
+        alguien lo descubra en producción.
+        """
+        upsert_billing_charge(db, _pack_dto())
+        db.commit()
+
+        naive = (
+            db.query(func.sum(MlBillingCharge.amount))
+            .join(MlBillingChargeOrder, MlBillingChargeOrder.detail_id == MlBillingCharge.detail_id)
+            .scalar()
+        )
+        correcto = (
+            db.query(func.sum(MlBillingCharge.amount))
+            .filter(MlBillingCharge.detail_id.in_(db.query(MlBillingChargeOrder.detail_id).distinct()))
+            .scalar()
+        )
+
+        assert float(naive) == 45570.0, "el join ingenuo triplica: 15.190 x 3"
+        assert float(correcto) == 15190.0
 
     def test_sum_of_shipping_charge_counts_once_not_times_three(self, db) -> None:
         upsert_billing_charge(db, _pack_dto())
