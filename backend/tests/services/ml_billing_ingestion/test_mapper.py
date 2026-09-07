@@ -147,3 +147,38 @@ class TestAmountIsDecimalNotFloat:
 
         assert isinstance(result.amount, Decimal)
         assert result.amount < 0
+
+
+class TestNeverRaises:
+    """El contrato del mapper es fail-closed: cualquier cargo raro vuelve
+    como `MappingError`, nunca como excepción. Un solo detalle malo no
+    puede voltear el barrido diario de 18.000 cargos."""
+
+    def test_un_detail_amount_no_numerico_no_levanta(self) -> None:
+        """`Decimal(str("N/A"))` levanta `InvalidOperation`, que hereda de
+        `ArithmeticError` y NO de `ValueError`.
+
+        Cuando el mapper usaba `float()` alcanzaba con `ValueError` en el
+        `except`; al pasar a Decimal por el camino del dinero, ese contrato
+        se rompió en silencio. Este test lo fija."""
+        raw = _raw_detail()
+        raw["charge_info"]["detail_amount"] = "N/A"
+
+        result = map_billing_detail(raw, period_key="2026-09-01")
+
+        assert isinstance(result, MappingError)
+
+    def test_un_monto_con_formato_local_no_levanta(self) -> None:
+        raw = _raw_detail()
+        raw["charge_info"]["detail_amount"] = "1.234,56"
+
+        result = map_billing_detail(raw, period_key="2026-09-01")
+
+        assert isinstance(result, MappingError)
+
+    def test_un_detalle_que_no_es_dict_no_levanta(self) -> None:
+        """ML devuelve `results: [...]`; un elemento que no sea dict
+        rompería en el primer `.get()` con AttributeError."""
+        for basura in (["no", "soy", "dict"], "un string", 42, None):
+            result = map_billing_detail(basura, period_key="2026-09-01")
+            assert isinstance(result, MappingError), f"falló con {basura!r}"

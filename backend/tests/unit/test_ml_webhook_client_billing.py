@@ -23,6 +23,8 @@ from __future__ import annotations
 
 import asyncio
 
+from unittest.mock import AsyncMock, MagicMock, patch
+
 import httpx
 import pytest
 
@@ -191,3 +193,36 @@ class TestGetShipmentCosts:
 
         with pytest.raises(ValueError):
             asyncio.run(client.get_shipment_costs(None))  # type: ignore[arg-type]
+
+
+class TestBillingResourceValidation:
+    """`group` y `period_key` van en el PATH del resource, no en un query
+    param. `params=` los url-encodea hacia el proxy, pero el proxy los
+    decodifica y los usa como path: el encoding es transporte, no
+    validación. El sweep del corte 3 los deriva, así que el chequeo va acá.
+    """
+
+    @pytest.mark.asyncio
+    async def test_group_invalido_levanta_antes_de_cualquier_http(self):
+        client = MLWebhookClient()
+        with patch("httpx.AsyncClient") as fake:
+            with pytest.raises(ValueError, match="group de facturación inválido"):
+                await client.get_billing_periods("ML/details?document_type=BILL&")
+            fake.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_period_key_con_traversal_levanta_antes_de_cualquier_http(self):
+        client = MLWebhookClient()
+        with patch("httpx.AsyncClient") as fake:
+            with pytest.raises(ValueError, match="period_key inválido"):
+                await client.get_billing_details("../../users/me", "ML")
+            fake.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_group_valido_no_levanta(self):
+        client = MLWebhookClient()
+        with patch("httpx.AsyncClient") as fake:
+            fake.return_value.__aenter__.return_value.get = AsyncMock(
+                return_value=MagicMock(json=MagicMock(return_value={"results": []}), raise_for_status=MagicMock())
+            )
+            assert await client.get_billing_details("2026-09-01", "MP") == {"results": []}

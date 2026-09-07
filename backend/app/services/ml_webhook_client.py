@@ -1,4 +1,5 @@
 import asyncio
+import re
 import httpx
 from datetime import datetime, timezone
 from typing import Dict, Optional, List, Union
@@ -31,6 +32,30 @@ def _describe_exc(exc: BaseException) -> str:
     """
     detail = str(exc)
     return f"{type(exc).__name__}: {detail}" if detail else type(exc).__name__
+
+
+_BILLING_GROUPS = frozenset({"ML", "MP"})
+_PERIOD_KEY_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
+
+
+def _validate_billing_group(group: str) -> str:
+    """`group` termina en el PATH del resource, no en un query param.
+
+    Un valor como `"ML/details?document_type=BILL&"` reescribiría qué
+    recurso de ML consulta el proxy. Conjunto cerrado, y levanta ANTES de
+    cualquier HTTP.
+    """
+    if group not in _BILLING_GROUPS:
+        raise ValueError(f"group de facturación inválido: {group!r} (esperado ML o MP)")
+    return group
+
+
+def _validate_period_key(period_key: str) -> str:
+    """Misma razón que `_validate_billing_group`: va en el path. Un
+    `period_key` con `../` cambiaría el recurso consultado."""
+    if not isinstance(period_key, str) or not _PERIOD_KEY_RE.match(period_key):
+        raise ValueError(f"period_key inválido: {period_key!r} (esperado YYYY-MM-DD)")
+    return period_key
 
 
 class MLWebhookClient:
@@ -406,8 +431,15 @@ class MLWebhookClient:
     # ── ML Billing (ml-ventas-desglose-costos, corte 2) ──────────────
     # Additive read-only methods over the billing/shipment-costs proxy
     # resources. Same error-swallow shape as every other read method:
-    # timeout/error -> None, never raises. Ids ARE coerced to int BEFORE
-    # any HTTP call (Threat Matrix SSRF row), same as get_order/get_shipment.
+    # timeout/error -> None, never raises.
+    #
+    # EVERY value interpolated into `resource` is validated BEFORE any HTTP
+    # call (Threat Matrix SSRF row): ids coerced to `int`, `group` checked
+    # against a closed set, `period_key` against a date shape. `params=`
+    # url-encodes the resource on the hop to the proxy, but the proxy
+    # decodes it and uses it as a path -- encoding is transport, not
+    # validation. These methods are called by the sweep with parameters it
+    # derives, so the check belongs here and not at each call site.
     #
     # Rate limit (verified live, see investigation doc §3): billing is
     # 5 requests/minute PER ACCOUNT, not per endpoint. These methods do
@@ -425,6 +457,7 @@ class MLWebhookClient:
         Returns:
             Dict crudo `{periods: [...]}`, o None si hay error/timeout.
         """
+        group = _validate_billing_group(group)
         resource = f"/billing/integration/monthly/periods?group={group}&document_type=BILL"
         try:
             async with httpx.AsyncClient(timeout=15.0) as client:
@@ -452,6 +485,10 @@ class MLWebhookClient:
             Dict crudo `{results: [...], paging: {total, limit, offset}}`,
             o None si hay error/timeout.
         """
+        group = _validate_billing_group(group)
+        period_key = _validate_period_key(period_key)
+        limit = int(limit)
+        offset = int(offset)
         resource = (
             f"/billing/integration/periods/key/{period_key}/group/{group}/details"
             f"?document_type=BILL&limit={limit}&offset={offset}"

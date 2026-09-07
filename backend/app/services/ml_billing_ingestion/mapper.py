@@ -130,6 +130,12 @@ def map_billing_detail(raw: Dict[str, Any], period_key: Optional[str]) -> Union[
         A `BillingChargeDTO`, or a `MappingError` if the payload is
         malformed. Never raises.
     """
+    # ML devuelve `results: [...]`; un elemento que no sea dict rompería en
+    # el primer `.get()` con AttributeError y voltearía el barrido. Fail
+    # closed acá, con el mismo shape de error que el resto.
+    if not isinstance(raw, dict):
+        return MappingError(f"detalle no es un dict: {type(raw).__name__}", raw)
+
     try:
         charge_info = _as_dict(raw.get("charge_info"), "charge_info")
         detail_id = charge_info.get("detail_id")
@@ -177,6 +183,14 @@ def map_billing_detail(raw: Dict[str, Any], period_key: Optional[str]) -> Union[
             order_ids=order_ids,
             raw_detail=raw_detail,
         )
-    except (TypeError, ValueError) as e:
+    # `ArithmeticError` está acá por `decimal.InvalidOperation`, que es lo
+    # que levanta `Decimal(str(...))` con un `detail_amount` como "N/A" o
+    # "1.234,56". Hereda de `ArithmeticError`, NO de `ValueError`: cuando
+    # este mapper usaba `float()` alcanzaba con `ValueError`, y al pasar a
+    # Decimal el contrato "nunca levanta" se rompió en silencio. Un solo
+    # cargo raro habría volteado el barrido diario entero.
+    # `AttributeError` por un `raw` que no sea dict (ver el guard de arriba,
+    # que cubre el caso conocido; esto es el cinturón).
+    except (TypeError, ValueError, ArithmeticError, AttributeError) as e:
         logger.warning(f"Error mapeando detalle de facturación: {e}")
         return MappingError(str(e), raw)

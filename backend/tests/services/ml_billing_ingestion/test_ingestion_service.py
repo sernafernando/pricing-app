@@ -14,6 +14,8 @@ Spec coverage:
 
 from __future__ import annotations
 
+from decimal import Decimal
+
 from sqlalchemy import func
 
 from app.models.ml_billing import MlBillingCharge, MlBillingChargeOrder
@@ -27,7 +29,7 @@ def _pack_dto() -> BillingChargeDTO:
         period_key="2026-09-01",
         detail_type="CHARGE",
         detail_sub_type="CSSTEC",
-        amount=15190.0,
+        amount=Decimal("15190.00"),
         document_id="DOC1",
         order_ids=[2000018265495500, 2000018265495501, 2000018265495502],
         raw_detail={"charge_info": {"detail_id": "SHIP-1"}},
