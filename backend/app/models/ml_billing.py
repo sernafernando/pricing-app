@@ -13,8 +13,11 @@ Design decisions:
   reported once by ML but must be attributed to every order in that pack.
 - `ml_iibb_aliquots` clones the `pricing_constants` fecha_desde/fecha_hasta
   validity-window pattern.
-- `ml_billing_period_stats` tracks reconciliation totals per billing period;
-  no writer yet, so no uniqueness constraint on `period_key` in this cut.
+- `ml_billing_period_stats` tracks reconciliation totals per billing period.
+  Corte 1 shipped it WITHOUT a uniqueness constraint on `period_key`
+  because it had no writer yet; corte 3 (the daily billing sweep) added
+  one, since the sweep upserts one stat row per period and would
+  otherwise accumulate duplicate rows on every daily re-run.
 """
 
 from __future__ import annotations
@@ -111,8 +114,8 @@ class MlIibbAliquot(Base):
 
 
 class MlBillingPeriodStat(Base):
-    """Reconciliation totals per ML billing period. No writer yet, so no
-    uniqueness constraint on `period_key` in this cut."""
+    """Reconciliation totals per ML billing period. Written by the daily
+    billing sweep (corte 3), which upserts one row per `period_key`."""
 
     __tablename__ = "ml_billing_period_stats"
 
@@ -122,3 +125,5 @@ class MlBillingPeriodStat(Base):
     stored_total = Column(Numeric(14, 2), nullable=True)
     documents_count_details = Column(Integer, nullable=True)
     swept_at = Column(DateTime(timezone=True), nullable=True)
+
+    __table_args__ = (UniqueConstraint("period_key", name="uq_ml_billing_period_stats_period_key"),)

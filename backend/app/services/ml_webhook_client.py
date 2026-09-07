@@ -513,6 +513,47 @@ class MLWebhookClient:
             )
             return None
 
+    async def get_billing_documents(self, period_key: str, group: str) -> Optional[Dict]:
+        """Lista los documentos de un período de facturación vía el proxy
+        `billing`. Usado como chequeo de completitud (OBSERVACIÓN, nunca
+        alarma -- investigación §3: `documents.count_details` sumado no
+        coincide con `paging.total` del detalle por una diferencia sin
+        explicar, así que nunca puede bloquear el barrido).
+
+        Args:
+            period_key: Clave del período (ej: "2026-09-01").
+            group: `"ML"` o `"MP"`.
+
+        OJO -- ESTE RECURSO NO ESTÁ SCOPEADO POR GRUPO. El path de ML no
+        lleva `group`, así que el conteo abarca TODOS los grupos del
+        período. `group` se sigue validando (llega de un llamador que lo
+        deriva, y validar barato es mejor que confiar) pero NO cambia la
+        respuesta.
+
+        Consecuencia directa: `count_details` NO es comparable contra el
+        `paging.total` de los detalles de un solo grupo. Esa comparación no
+        puede cerrar por construcción, y es candidata a explicar la
+        discrepancia de 329 que la investigación dejó abierta (18.414 de
+        `documents` contra 18.743 del detalle de `group=ML`). Por eso el
+        barrido lo guarda como OBSERVACIÓN y nunca como alarma.
+
+        Returns:
+            Dict crudo `{documents: [...]}`, o None si hay error/timeout.
+        """
+        group = _validate_billing_group(group)
+        period_key = _validate_period_key(period_key)
+        resource = f"/billing/integration/periods/key/{period_key}/documents?document_type=BILL"
+        try:
+            async with httpx.AsyncClient(timeout=15.0) as client:
+                response = await client.get(f"{self.base_url}/api/ml/billing", params={"resource": resource})
+                response.raise_for_status()
+                return response.json()
+        except Exception as e:
+            logger.error(
+                f"Error obteniendo documentos de facturación (period={period_key}, group={group}): {_describe_exc(e)}"
+            )
+            return None
+
     async def get_shipment_costs(self, shipment_id: Union[int, str]) -> Optional[Dict]:
         """Obtiene el desglose de costos de un envío de MercadoLibre vía el
         proxy `orders`.
