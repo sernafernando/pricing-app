@@ -22,27 +22,29 @@ from app.services.ml_webhook_client import ml_webhook_client
 
 
 def _benign_costs_payload(shipment_id):
-    """Respuesta inocua y ESTRUCTURALMENTE VÁLIDA para cualquier test que
-    dispare el sync de costos sin declararlo.
+    """A benign, STRUCTURALLY VALID answer for any test that triggers the
+    cost sync without declaring it.
 
-    Antes esto era un `raise AssertionError`, con la idea de fallar
-    ruidosamente. No servía: `_sync_shipment_costs` es fail-open y atrapa
-    `Exception`, y `AssertionError` ES una `Exception`, así que el propio
-    código bajo prueba se tragaba el guard, lo logueaba como "cost fetch
-    failed" y el test seguía en verde. La defensa contra salir a la red no
-    defendía nada.
+    This used to `raise AssertionError`, meaning to fail loudly. It did not
+    work: `_sync_shipment_costs` is fail-open and catches `Exception` -- and
+    `AssertionError` IS an `Exception`. The code under test ate its own
+    guard, logged it as "cost fetch failed", and the test stayed green. The
+    defence against reaching the network defended nothing, and lifting it
+    exposed SIX pre-existing tests that were really calling out.
 
-    Fallar con `pytest.fail` (que hereda de `BaseException` y sobrevive al
-    `except`) tampoco corresponde: seis tests preexistentes de órdenes y
-    envíos disparan el sweep y no tienen por qué romperse por algo que no
-    están probando.
+    Failing with `pytest.fail` (which inherits `BaseException` and survives
+    an `except Exception`) is not right either: those six cover orders and
+    shipments, not costs, and breaking them over something they do not test
+    is noise, not signal.
 
-    La propiedad que importa es que NINGÚN test toque la red de verdad, y
-    eso lo garantiza el `monkeypatch`. Los tests que sí miden el sync de
-    costos ponen su propio mock con sus asserts.
+    The property that matters is that NO test touches the real network, and
+    the `monkeypatch` is what guarantees it -- not the exception type. Tests
+    that do measure the cost sync bring their own mocks and assertions.
 
-    Cumple la identidad medida en 18 envíos reales:
-    `gross = receiver.cost + receiver.save + senders[0].cost + senders[0].save`.
+    The payload satisfies the identity measured across 18 real shipments,
+    `gross = receiver.cost + receiver.save + senders[0].cost + senders[0].save`
+    (1000 = 0 + 500 + 400 + 100). A fixture that does not close it teaches a
+    shape ML never produces to whoever copies it next.
     """
     return {
         "gross_amount": 1000,
@@ -1092,27 +1094,26 @@ class TestShipmentCostSync:
         assert row.sender_cost == payload["senders"][0]["cost"]
 
 
-class TestElGuardDeRedEstaEnchufado:
-    """Prueba que el fixture `_no_real_cost_fetch` sea quien contesta, y no
-    la red.
+class TestTheNetworkGuardIsActuallyWired:
+    """Proves the `_no_real_cost_fetch` fixture is what answers, not the
+    network.
 
-    El guard anterior era un `raise AssertionError` que el fail-open de
-    `_sync_shipment_costs` se tragaba entero: los tests pasaban en verde
-    mientras seis de ellos llamaban de verdad a la API de ML. Un guard que
-    nadie verifica es indistinguible de no tener guard.
+    The previous guard raised `AssertionError`, which `_sync_shipment_costs`
+    swallowed whole in its fail-open: the tests stayed green while six of
+    them really called ML's API. A guard nobody verifies is
+    indistinguishable from no guard.
     """
 
-    def test_el_cliente_esta_parcheado_durante_los_tests(self) -> None:
+    def test_the_client_is_patched_during_the_run(self) -> None:
         from unittest.mock import AsyncMock as _AsyncMock
 
         assert isinstance(ml_webhook_client.get_shipment_costs, _AsyncMock), (
-            "get_shipment_costs no está mockeado: un test podría salir a la red real"
+            "get_shipment_costs is not mocked: a test could reach the real network"
         )
 
-    def test_los_costos_persistidos_vienen_del_fixture_y_no_de_la_red(self, db, monkeypatch) -> None:
-        """Si el sync escribe los valores del payload inocuo, entonces el
-        fixture respondió. Si escribiera otra cosa -- o nada -- habría que
-        preguntarse quién contestó."""
+    def test_persisted_costs_come_from_the_fixture_not_the_network(self, db, monkeypatch) -> None:
+        """If the sync writes the benign payload's values, the fixture answered.
+        Anything else -- or nothing -- means something else did."""
         now = datetime.now(timezone.utc)
         recent = now - timedelta(days=1)
         monkeypatch.setattr(
@@ -1123,29 +1124,29 @@ class TestElGuardDeRedEstaEnchufado:
         monkeypatch.setattr(
             ml_webhook_client, "get_shipment", AsyncMock(return_value=_shipment(500, 1, status="shipped"))
         )
-        # A propósito NO mockeamos `get_shipment_costs`: queremos ver quién
-        # contesta cuando nadie lo declara. Si contesta el fixture, los
-        # valores son los del payload inocuo.
+        # Deliberately NOT mocking `get_shipment_costs`: we want to see who
+        # answers when no test declares it. If the fixture answers, the
+        # values are the benign payload's.
 
         sweep_service.run_sweep(seller_id=999, window_days=90)
 
         row = db.query(MlShipmentOps).filter_by(shipment_id=500).one()
-        assert row.sender_cost == Decimal("400"), "no contestó el fixture: ¿quién respondió?"
+        assert row.sender_cost == Decimal("400"), "the fixture did not answer: who did?"
         assert row.receiver_cost == Decimal("0")
         assert row.costs_synced_at is not None
 
 
-class TestUnPayloadIncompletoNoSeSella:
-    """`costs_synced_at IS NULL` es la ÚNICA compuerta de reintento.
+class TestAnIncompletePayloadIsNotSealed:
+    """`costs_synced_at IS NULL` is the ONLY retry gate.
 
-    Un payload que ES un dict pero viene sin costos usables pasaba el
-    filtro `isinstance(payload, dict)`, escribía NULL en las dos columnas y
-    sellaba `costs_synced_at` — perdiendo el costo de ese envío para
-    siempre, en la ruta de la plata. No es teórico: es lo que ML devuelve
-    mientras un envío todavía no tiene costos liquidados.
+    A payload that IS a dict but carries no usable costs passed the
+    `isinstance(payload, dict)` filter, wrote NULL into both columns and
+    stamped `costs_synced_at` -- losing that shipment's cost forever, on
+    the money path. Not hypothetical: it is what ML returns while a
+    shipment's costs are not settled yet.
     """
 
-    def test_dict_sin_senders_deja_el_envio_para_la_proxima_pasada(self, db, monkeypatch) -> None:
+    def test_a_dict_without_senders_is_left_for_the_next_pass(self, db, monkeypatch) -> None:
         now = datetime.now(timezone.utc)
         recent = now - timedelta(days=1)
         monkeypatch.setattr(
@@ -1156,8 +1157,8 @@ class TestUnPayloadIncompletoNoSeSella:
         monkeypatch.setattr(
             ml_webhook_client, "get_shipment", AsyncMock(return_value=_shipment(500, 1, status="shipped"))
         )
-        # Dict válido, contenido vacío: exactamente lo que devuelve ML
-        # mientras el envío no tiene costos liquidados.
+        # Valid dict, empty inside: exactly what ML returns while a
+        # shipment's costs are not settled yet.
         monkeypatch.setattr(
             ml_webhook_client, "get_shipment_costs", AsyncMock(return_value={"gross_amount": 0, "senders": []})
         )
@@ -1165,10 +1166,10 @@ class TestUnPayloadIncompletoNoSeSella:
         sweep_service.run_sweep(seller_id=999, window_days=90)
 
         row = db.query(MlShipmentOps).filter_by(shipment_id=500).one()
-        assert row.costs_synced_at is None, "quedó sellado: este envío no se reintenta nunca más"
+        assert row.costs_synced_at is None, "sealed: this shipment is never retried again"
         assert row.sender_cost is None
 
-    def test_no_pisa_con_null_un_costo_bueno_de_una_pasada_anterior(self, db, monkeypatch) -> None:
+    def test_a_good_cost_from_an_earlier_pass_is_not_overwritten_with_null(self, db, monkeypatch) -> None:
         now = datetime.now(timezone.utc)
         recent = now - timedelta(days=1)
         db.add(MlOrdersOps(order_id=1, seller_id=999, ml_last_updated=recent, date_created=recent))
@@ -1189,29 +1190,106 @@ class TestUnPayloadIncompletoNoSeSella:
         sweep_service._sync_shipment_costs([500])
 
         row = db.query(MlShipmentOps).filter_by(shipment_id=500).one()
-        assert row.sender_cost == Decimal("15190"), "un payload vacío pisó un costo bueno"
+        assert row.sender_cost == Decimal("15190"), "an empty payload overwrote a good cost"
 
 
-class TestLaPasadaCortaPorReloj:
+class TestThePassStopsOnTheClock:
     """Contar llamadas no alcanza como techo: cada presupuesto nuevo vuelve
     a abrir el agujero que el presupuesto único protegía. El corte 4 sumó un
     segundo presupuesto (2000 + 500 llamadas secuenciales) contra un lock
     que se reclama a los 30 minutos. El límite va donde está el riesgo."""
 
-    def test_el_sync_de_costos_se_corta_si_la_pasada_agoto_su_tiempo(self, db, monkeypatch) -> None:
+    def test_cost_sync_stops_once_the_pass_is_out_of_time(self, db, monkeypatch) -> None:
         db.add(MlShipmentOps(shipment_id=500, order_id=1, status="shipped", last_updated=datetime.now(timezone.utc)))
         db.commit()
         get_costs = AsyncMock(return_value=_shipment_costs(sender_cost=100, receiver_cost=0, base_cost=200))
         monkeypatch.setattr(ml_webhook_client, "get_shipment_costs", get_costs)
 
-        # una pasada que arrancó hace más que su presupuesto de tiempo
+        # a pass that started longer ago than its time budget
         vencida = datetime.now(timezone.utc) - sweep_service.PASS_TIME_BUDGET - timedelta(minutes=1)
         synced = sweep_service._sync_shipment_costs([500], started_at=vencida)
 
         assert synced == 0
         get_costs.assert_not_called()
 
-    def test_sin_started_at_no_corta(self, db, monkeypatch) -> None:
-        """`None` desactiva el corte: los tests que no lo ejercitan siguen
-        andando igual."""
+    def test_no_started_at_disables_the_cutoff(self, db, monkeypatch) -> None:
+        """`None` disables the cutoff, so tests that do not exercise it keep
+        working unchanged."""
         assert sweep_service._pass_deadline_reached(None) is False
+
+    def test_a_partial_payload_does_not_null_the_other_column_nor_seal(self, db, monkeypatch) -> None:
+        """The first fix only caught the both-None case. A payload with
+        `senders` but no `receiver` still wrote NULL over the other column
+        and sealed the row -- the same failure the fix was for, closed on
+        the total case and open on the partial one."""
+        db.add(
+            MlOrdersOps(
+                order_id=1,
+                seller_id=999,
+                ml_last_updated=datetime.now(timezone.utc),
+                date_created=datetime.now(timezone.utc),
+            )
+        )
+        db.add(
+            MlShipmentOps(
+                shipment_id=500,
+                order_id=1,
+                status="shipped",
+                sender_cost=Decimal("15190"),
+                receiver_cost=Decimal("20000"),
+            )
+        )
+        db.commit()
+        monkeypatch.setattr(
+            ml_webhook_client,
+            "get_shipment_costs",
+            AsyncMock(return_value={"gross_amount": 999, "senders": [{"cost": 111}]}),
+        )
+
+        sweep_service._sync_shipment_costs([500])
+
+        row = db.query(MlShipmentOps).filter_by(shipment_id=500).one()
+        assert row.sender_cost == Decimal("111"), "the value that arrived was not written"
+        assert row.receiver_cost == Decimal("20000"), "the missing half overwrote a good value with NULL"
+        assert row.costs_synced_at is None, "sealed on a partial payload: the rest is never fetched"
+
+
+class TestTheClockGuardsEveryFetchLoop:
+    """The clock cutoff first landed only in the cost sync, while the
+    comment above it claimed it protected the whole pass. It did not: a slow
+    proxy blows the deadline on the page walk alone -- 2000 pages at 1.2s is
+    40 minutes against a lock reclaimed at 30 -- and the cost section is
+    never reached. A comment promising a guarantee that does not exist is
+    worse than no comment."""
+
+    def test_the_page_walk_stops_once_the_pass_is_out_of_time(self, monkeypatch) -> None:
+        search = AsyncMock(return_value=_page([]))
+        monkeypatch.setattr(ml_webhook_client, "search_orders", search)
+        expired = datetime.now(timezone.utc) - sweep_service.PASS_TIME_BUDGET - timedelta(minutes=1)
+
+        events = list(
+            sweep_service.iter_window_events(
+                999,
+                datetime.now(timezone.utc) - timedelta(days=1),
+                datetime.now(timezone.utc),
+                [sweep_service.MAX_WINDOW_FETCHES_PER_PASS],
+                expired,
+            )
+        )
+
+        assert events == [("budget_exhausted", events[0][1], events[0][2])]
+        search.assert_not_called()
+
+    def test_the_shipment_lookups_stop_once_the_pass_is_out_of_time(self, monkeypatch) -> None:
+        get_shipment = AsyncMock(return_value=_shipment(500, 1, status="shipped"))
+        monkeypatch.setattr(ml_webhook_client, "get_shipment", get_shipment)
+        expired = datetime.now(timezone.utc) - sweep_service.PASS_TIME_BUDGET - timedelta(minutes=1)
+
+        got = sweep_service._fetch_shipments(
+            [_order(1, 999, datetime.now(timezone.utc), datetime.now(timezone.utc), shipping_id=500)],
+            [sweep_service.MAX_WINDOW_FETCHES_PER_PASS],
+            started_at=expired,
+        )
+
+        assert got == {}
+        get_shipment.assert_not_called()
