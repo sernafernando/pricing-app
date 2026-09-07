@@ -36,6 +36,23 @@ def _describe_exc(exc: BaseException) -> str:
 
 _BILLING_GROUPS = frozenset({"ML", "MP"})
 _PERIOD_KEY_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
+_FROM_ID_RE = re.compile(r"^\d{1,20}$")
+
+
+def _validate_from_id(from_id: int | str) -> str:
+    """Valida el cursor de paginación de facturación.
+
+    `from_id` viaja dentro del `resource` que el proxy reenvía a ML, así
+    que un valor arbitrario acá es una inyección en la query de ML. Los
+    `detail_id` de ML son enteros (ej. 70714313961), y el arranque es 0:
+    cualquier otra cosa es un dato que no entendemos, y ante eso el
+    programador falla fuerte -- devolver None lo haría indistinguible de
+    un timeout, y el barrido seguiría creyendo que el período vino vacío.
+    """
+    texto = str(from_id).strip()
+    if not _FROM_ID_RE.match(texto):
+        raise ValueError(f"from_id inválido: {from_id!r}")
+    return texto
 
 
 def _validate_billing_group(group: str) -> str:
@@ -477,7 +494,7 @@ class MLWebhookClient:
             return None
 
     async def get_billing_details(
-        self, period_key: str, group: str, limit: int = 1000, offset: int = 0
+        self, period_key: str, group: str, limit: int = 1000, from_id: int | str = 0
     ) -> Optional[Dict]:
         """Obtiene una página de cargos de facturación de un período vía el
         proxy `billing`.
@@ -486,20 +503,28 @@ class MLWebhookClient:
             period_key: Clave del período (ej: "2026-09-01").
             group: `"ML"` o `"MP"`.
             limit: Tamaño de página (ML acepta hasta 1000).
-            offset: Offset de paginación; el llamador (sweep, corte 3)
-                avanza este valor entre páginas hasta cubrir `paging.total`.
+            from_id: Cursor de paginación. Empieza en 0 y después lleva el
+                `last_id` de la página anterior.
+
+        NO USAR `offset`: ML rechaza `offset + limit > 10_000` con un 422
+        y el período abierto tuvo 22.538 cargos. Como el orden es
+        ascendente, lo que `offset` no alcanza es lo MÁS RECIENTE, que es
+        justo lo que sirve. La guía de ML es explícita: `from_id` es el
+        único método que garantiza integridad en listados largos, y se
+        combina con `sort_by=ID`.
 
         Returns:
-            Dict crudo `{results: [...], paging: {total, limit, offset}}`,
-            o None si hay error/timeout.
+            Dict crudo `{results: [...], total, limit, offset, last_id}`,
+            o None si hay error/timeout. `total` y `last_id` vienen en el
+            NIVEL SUPERIOR; ML no manda ningún objeto `paging`.
         """
         group = _validate_billing_group(group)
         period_key = _validate_period_key(period_key)
         limit = int(limit)
-        offset = int(offset)
+        from_id = _validate_from_id(from_id)
         resource = (
             f"/billing/integration/periods/key/{period_key}/group/{group}/details"
-            f"?document_type=BILL&limit={limit}&offset={offset}"
+            f"?document_type=BILL&limit={limit}&from_id={from_id}&sort_by=ID&order_by=ASC"
         )
         try:
             async with httpx.AsyncClient(timeout=30.0) as client:
@@ -509,7 +534,7 @@ class MLWebhookClient:
         except Exception as e:
             logger.error(
                 f"Error obteniendo detalle de facturación (period={period_key}, group={group}, "
-                f"offset={offset}): {_describe_exc(e)}"
+                f"from_id={from_id}): {_describe_exc(e)}"
             )
             return None
 

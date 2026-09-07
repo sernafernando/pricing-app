@@ -94,7 +94,25 @@ def _detail(detail_id: str, amount: str = "100.00", order_id: int = 200001826549
 
 
 def _page(results: list, total: int, offset: int = 0) -> dict:
-    return {"results": results, "paging": {"total": total, "limit": 1000, "offset": offset}}
+    """A details page exactly as ML returns it.
+
+    `total`, `limit` and `offset` live at the TOP LEVEL. There is no
+    `paging` object -- measured against the real API on 2026-09-07:
+
+        {"total": 22538, "limit": 1000, "offset": 0,
+         "last_id": 69329569041, "errors": [], "results": [...]}
+
+    The previous helper invented a `paging` wrapper, so every test here
+    passed against a shape the API never sent.
+    """
+    return {
+        "results": results,
+        "total": total,
+        "limit": 1000,
+        "offset": offset,
+        "last_id": (results[-1]["charge_info"]["detail_id"] if results else None),
+        "errors": [],
+    }
 
 
 def _documents(count_details: int) -> dict:
@@ -381,3 +399,94 @@ class TestLockIsAlwaysReleased:
             billing_sweep_service.run_billing_sweep(group="MP")
 
         assert get_periods.call_args.args[0] == "MP"
+
+
+class TestPagingShapeIsMlsShapeNotOurs:
+    """The sweep read `paging.total`; ML sends `total` at the top level.
+
+    Every test in this file used to pass because the fixture invented the
+    `paging` wrapper. They verified the code against the shape its author
+    imagined, not against the API.
+    """
+
+    def test_total_comes_from_the_top_level_not_from_paging(self, db) -> None:
+        # total=1 para que la pasada corte por total y llegue a escribir
+        # la stat. Con el bug (`paging.total`) esto daba None y la
+        # comparación de completitud no comparaba nada.
+        page = _page([_detail("D1")], total=1)
+        assert "paging" not in page
+
+        with (
+            mock.patch.object(ml_webhook_client, "get_billing_details", new=mock.AsyncMock(return_value=page)),
+            mock.patch.object(
+                ml_webhook_client, "get_billing_documents", new=mock.AsyncMock(return_value=_documents(1))
+            ),
+        ):
+            result = billing_sweep_service.run_billing_sweep()
+
+        stat = db.query(MlBillingPeriodStat).filter_by(period_key=result.period_key).first()
+        assert stat is not None
+        # None here means the completeness check is dead: it can never
+        # compare anything, and it never says so.
+        assert stat.reported_total == 1
+
+    def test_a_page_that_does_not_advance_the_cursor_stops_the_pass(self, db) -> None:
+        """Without a usable total, a repeating page loops forever.
+
+        This is not hypothetical: with `total` stuck at None the only
+        thing that ended a pass in production was the request failing.
+        """
+        page = _page([_detail("D1")], total=99999)
+        llamadas = {"n": 0}
+
+        async def _misma_pagina_siempre(*a, **k):
+            llamadas["n"] += 1
+            if llamadas["n"] > 4:
+                raise RuntimeError("el barrido esta ciclando: la pagina no avanza y no corta")
+            return page
+
+        with (
+            mock.patch.object(ml_webhook_client, "get_billing_details", new=_misma_pagina_siempre),
+            mock.patch.object(
+                ml_webhook_client, "get_billing_documents", new=mock.AsyncMock(return_value=_documents(1))
+            ),
+        ):
+            result = billing_sweep_service.run_billing_sweep()
+
+        # Cortar está bien; cortar en silencio no. Una pasada que se
+        # detiene sin decirlo se ve igual que una que terminó.
+        assert result.stopped_early is True
+        assert result.error == "billing pagination cursor did not advance"
+        assert llamadas["n"] <= 2
+
+
+class TestFromIdPagination:
+    """`offset` cannot reach past 10.000 -- ML answers 422.
+
+    The period had 22.538 charges and the order is ascending by date, so
+    what offset cannot reach is the most recent. ML's own guidance: use
+    `from_id`, it is the only method that guarantees full integrity on
+    long listings.
+    """
+
+    def test_pages_with_from_id_and_sorts_by_id(self, db) -> None:
+        page1 = _page([_detail("D1"), _detail("D2")], total=3)
+        page2 = _page([_detail("D3")], total=3)
+        get_details = mock.AsyncMock(side_effect=[page1, page2])
+
+        with (
+            mock.patch.object(ml_webhook_client, "get_billing_details", new=get_details),
+            mock.patch.object(
+                ml_webhook_client, "get_billing_documents", new=mock.AsyncMock(return_value=_documents(3))
+            ),
+        ):
+            billing_sweep_service.run_billing_sweep()
+
+        assert get_details.await_count == 2
+        primera = get_details.await_args_list[0].kwargs
+        segunda = get_details.await_args_list[1].kwargs
+        # The cursor starts at 0 and then carries the previous page's
+        # last_id. `offset` must not be how this paginates any more.
+        assert primera.get("from_id") == 0
+        assert segunda.get("from_id") == "D2"
+        assert "offset" not in primera and "offset" not in segunda

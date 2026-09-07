@@ -206,7 +206,8 @@ def run_billing_sweep(group: str = BILLING_GROUP) -> BillingSweepResult:
 
     try:
         with get_background_db() as db:
-            offset = 0
+            from_id: int | str = 0
+            seen_in_period = 0
             total: Optional[int] = None
             first_request = True
 
@@ -216,7 +217,7 @@ def run_billing_sweep(group: str = BILLING_GROUP) -> BillingSweepResult:
                 first_request = False
 
                 page = resolve_maybe_async(
-                    ml_webhook_client.get_billing_details(period_key, group, limit=PAGE_LIMIT, offset=offset)
+                    ml_webhook_client.get_billing_details(period_key, group, limit=PAGE_LIMIT, from_id=from_id)
                 )
                 if page is None:
                     # A 429 (proxy throttle) and a genuine transport error
@@ -226,18 +227,24 @@ def run_billing_sweep(group: str = BILLING_GROUP) -> BillingSweepResult:
                     # retrying immediately is exactly the access pattern
                     # that burns the account's shared 5/minute budget.
                     logger.error(
-                        "sync_ml_billing: get_billing_details failed (period=%s, group=%s, offset=%s) "
+                        "sync_ml_billing: get_billing_details failed (period=%s, group=%s, from_id=%s) "
                         "-- stopping this pass, no retry",
                         period_key,
                         group,
-                        offset,
+                        from_id,
                     )
                     result.stopped_early = True
                     result.error = "billing details request failed"
                     break
 
-                paging = page.get("paging") or {}
-                page_total = paging.get("total")
+                # `total` viene en el NIVEL SUPERIOR. ML no manda ningún
+                # objeto `paging`: leerlo de ahí daba None SIEMPRE, y con
+                # None el chequeo de completitud de abajo no comparaba
+                # nada -- callado, que es la peor forma de no funcionar.
+                page_total = page.get("total")
+                if not isinstance(page_total, int):
+                    paging = page.get("paging") or {}
+                    page_total = paging.get("total")
                 if isinstance(page_total, int):
                     total = page_total
 
@@ -254,9 +261,30 @@ def run_billing_sweep(group: str = BILLING_GROUP) -> BillingSweepResult:
 
                 db.commit()
 
-                offset += len(raw_results)
-                if not raw_results or (total is not None and offset >= total):
+                seen_in_period += len(raw_results)
+                next_from_id = page.get("last_id")
+
+                if not raw_results:
                     break
+                if total is not None and seen_in_period >= total:
+                    break
+                if next_from_id is None or next_from_id == from_id:
+                    # El cursor no avanzó. Sin esto la pasada cicla para
+                    # siempre re-escribiendo la misma página: mientras
+                    # `total` fue None, lo único que terminaba un barrido
+                    # era que la request fallara.
+                    logger.warning(
+                        "sync_ml_billing: el cursor no avanzó (period=%s, group=%s, from_id=%s, last_id=%s) "
+                        "-- corto la pasada para no ciclar",
+                        period_key,
+                        group,
+                        from_id,
+                        next_from_id,
+                    )
+                    result.stopped_early = True
+                    result.error = "billing pagination cursor did not advance"
+                    break
+                from_id = next_from_id
 
             if not result.stopped_early:
                 documents_count_details: Optional[int] = None
@@ -272,7 +300,7 @@ def run_billing_sweep(group: str = BILLING_GROUP) -> BillingSweepResult:
                         # raised, never blocks, never marks the pass as an
                         # error.
                         logger.info(
-                            "sync_ml_billing: documents.count_details=%s differs from details.paging.total=%s "
+                            "sync_ml_billing: documents.count_details=%s differs from details.total=%s "
                             "(period=%s) -- known open discrepancy, recorded as observation only",
                             documents_count_details,
                             total,
