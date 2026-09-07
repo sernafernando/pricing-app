@@ -207,7 +207,15 @@ def run_billing_sweep(group: str = BILLING_GROUP) -> BillingSweepResult:
     try:
         with get_background_db() as db:
             from_id: int | str = 0
-            seen_in_period = 0
+            # `detail_id` distintos, NO longitud acumulada de las páginas.
+            # Medido el 2026-09-07 contra el período real, `from_id` es
+            # EXCLUSIVO (solapamiento 0 entre páginas), así que hoy los dos
+            # conteos coinciden. Contamos únicos igual: si ML lo volviera
+            # inclusivo, contar filas recibidas dispararía el corte antes
+            # de tiempo y, con orden ASC, lo que se perdería es lo MÁS
+            # RECIENTE -- el motivo mismo por el que abandonamos `offset`.
+            # Y la pasada se vería completa.
+            seen_ids: set[str] = set()
             total: Optional[int] = None
             first_request = True
 
@@ -250,6 +258,9 @@ def run_billing_sweep(group: str = BILLING_GROUP) -> BillingSweepResult:
                 raw_results = list(page.get("results") or [])
                 for raw in raw_results:
                     result.charges_seen += 1
+                    raw_detail_id = (raw.get("charge_info") or {}).get("detail_id")
+                    if raw_detail_id is not None:
+                        seen_ids.add(str(raw_detail_id))
                     mapped = map_billing_detail(raw, period_key)
                     if isinstance(mapped, MappingError):
                         result.charges_mapping_error += 1
@@ -260,12 +271,11 @@ def run_billing_sweep(group: str = BILLING_GROUP) -> BillingSweepResult:
 
                 db.commit()
 
-                seen_in_period += len(raw_results)
                 next_from_id = page.get("last_id")
 
                 if not raw_results:
                     break
-                if total is not None and seen_in_period >= total:
+                if total is not None and len(seen_ids) >= total:
                     break
                 if next_from_id is None or next_from_id == from_id:
                     # El cursor no avanzó. Sin esto la pasada cicla para

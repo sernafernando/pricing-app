@@ -81,7 +81,12 @@ def _no_real_sleep(monkeypatch):
 # solo no existe: `_validate_from_id` lo rechazaría, y el test verde no
 # lo vería nunca porque el cliente está mockeado. Es exactamente la
 # trampa del `paging` inventado, una vuelta más arriba.
-_DETAIL_IDS = {"D1": 70714313961, "D2": 70714313962, "D3": 70714313963}
+_DETAIL_IDS = {
+    "D1": 70714313961,
+    "D2": 70714313962,
+    "D3": 70714313963,
+    "D4": 70714313964,
+}
 
 
 def _detail(detail_id: str, amount: str = "100.00", order_id: int = 2000018265495500) -> dict:
@@ -521,3 +526,49 @@ class TestCursorSurvivesTheRealValidator:
         for basura in ("D2", "1 OR 1=1", "", "12&limit=1"):
             with pytest.raises(ValueError):
                 _validate_from_id(basura)
+
+
+class TestOverlappingPagesDoNotCutTheSweepShort:
+    """`from_id` is exclusive today -- measured 2026-09-07 against the
+    real period: page 2 asked with page 1's `last_id` shared zero rows
+    with it. But the sweep must not depend on that.
+
+    Counting rows *received* instead of distinct `detail_id`s would
+    overcount on an inclusive cursor and fire `len >= total` before the
+    last pages arrived. With ASC order the rows lost are the most recent
+    ones -- the exact failure that made us drop `offset` -- and the pass
+    would still report itself complete.
+
+    No fixture here repeated the boundary row, so no test could tell the
+    two behaviours apart. That blind spot is what let the invented
+    `paging` wrapper survive three merged cuts.
+    """
+
+    def test_a_repeated_boundary_row_does_not_end_the_pass_early(self, db) -> None:
+        # Three pages with an INCLUSIVE cursor: each opens with the
+        # previous one's last row. 6 rows arrive, 4 are distinct.
+        #
+        # Two pages are not enough to catch this: the cut happens AFTER
+        # the page is processed, so an overcount that fires on the last
+        # page loses nothing. It takes a third page for the early cut to
+        # actually drop data -- which is the whole point.
+        d1, d2, d3, d4 = _detail("D1"), _detail("D2"), _detail("D3"), _detail("D4")
+        page1 = _page([d1, d2], total=4)
+        page2 = _page([d2, d3], total=4)
+        page3 = _page([d3, d4], total=4)
+        get_details = mock.AsyncMock(side_effect=[page1, page2, page3])
+
+        with (
+            mock.patch.object(ml_webhook_client, "get_billing_details", new=get_details),
+            mock.patch.object(
+                ml_webhook_client, "get_billing_documents", new=mock.AsyncMock(return_value=_documents(4))
+            ),
+        ):
+            result = billing_sweep_service.run_billing_sweep()
+
+        # Counting arrivals stops after page 2 (2 + 2 >= 4) and D4 never
+        # arrives. Counting distinct ids reaches the third page.
+        assert get_details.await_count == 3
+        assert result.error is None
+        assert result.stopped_early is False
+        assert db.query(MlBillingCharge).filter_by(period_key=result.period_key).count() == 4

@@ -542,7 +542,7 @@ class MLWebhookClient:
         """Lista los documentos de un período de facturación vía el proxy
         `billing`. Usado como chequeo de completitud (OBSERVACIÓN, nunca
         alarma -- investigación §3: `documents.count_details` sumado no
-        coincide con `paging.total` del detalle por una diferencia sin
+        coincide con `total` del detalle por una diferencia sin
         explicar, así que nunca puede bloquear el barrido).
 
         Args:
@@ -556,7 +556,7 @@ class MLWebhookClient:
         respuesta.
 
         Consecuencia directa: `count_details` NO es comparable contra el
-        `paging.total` de los detalles de un solo grupo. Esa comparación no
+        `total` de los detalles de un solo grupo. Esa comparación no
         puede cerrar por construcción, y es candidata a explicar la
         discrepancia de 329 que la investigación dejó abierta (18.414 de
         `documents` contra 18.743 del detalle de `group=ML`). Por eso el
