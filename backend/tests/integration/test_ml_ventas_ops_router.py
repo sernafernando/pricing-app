@@ -13,10 +13,13 @@ from datetime import datetime, timezone
 
 import pytest
 
+from decimal import Decimal
+
 from app.core.config import settings
 from app.models.ml_bot_message import MlBotMessage
 from app.models.ml_bot_question import MlBotQuestion
 from app.models.ml_orders_ops import MlOrdersOps, MlOrderItemOps, MlShipmentOps
+from app.models.ml_payments import MlPaymentCharge, MlPaymentOps
 from app.models.permiso import Permiso, RolPermisoBase
 from app.models.rma_claim_ml import RmaClaimML
 from app.services.ml_orders_ingestion.link_resolver_service import resolve_links
@@ -183,3 +186,122 @@ class TestMlBotSurfaceUnchanged:
         assert body["questions"][0]["ml_question_id"] == 1234
         # The bot surface's own status field is untouched by the resolver.
         assert body["questions"][0]["status"] == "received"
+
+
+class TestBreakdown:
+    """Corte 6: the `breakdown` block added to `GET /orders/{order_id}`.
+    Additive -- every existing field asserted elsewhere in this file must
+    stay unaffected."""
+
+    def test_breakdown_sums_two_approved_payments_for_the_order(
+        self, db, client, admin_auth_headers, rol_admin
+    ) -> None:
+        order_id = 655
+        db.add(
+            MlOrdersOps(
+                order_id=order_id,
+                status="paid",
+                ml_last_updated=datetime(2026, 8, 20, tzinfo=timezone.utc),
+                seller_id=999,
+            )
+        )
+        db.add(
+            MlPaymentOps(
+                payment_id=1001,
+                order_id=order_id,
+                status="approved",
+                net_received_amount=Decimal("7371.11"),
+            )
+        )
+        db.add(
+            MlPaymentOps(
+                payment_id=1002,
+                order_id=order_id,
+                status="approved",
+                net_received_amount=Decimal("12528.89"),
+                shipping_amount=Decimal("1500"),
+            )
+        )
+        db.commit()
+        _grant_ml_ops_ver(db, rol_admin)
+
+        resp = client.get(f"/api/ml-ventas-ops/orders/{order_id}", headers=admin_auth_headers)
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["breakdown"]["neto"] == 19900.00
+        assert body["breakdown"]["incompleto"] is False
+
+    def test_breakdown_is_incomplete_with_a_reason_when_payments_not_synced(
+        self, db, client, admin_auth_headers, rol_admin
+    ) -> None:
+        db.add(
+            MlOrdersOps(
+                order_id=656,
+                status="paid",
+                ml_last_updated=datetime(2026, 8, 20, tzinfo=timezone.utc),
+                seller_id=999,
+            )
+        )
+        db.commit()
+        _grant_ml_ops_ver(db, rol_admin)
+
+        resp = client.get("/api/ml-ventas-ops/orders/656", headers=admin_auth_headers)
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["breakdown"]["incompleto"] is True
+        assert "payments_not_synced" in body["breakdown"]["incomplete_reasons"]
+        assert body["breakdown"]["neto"] is None
+
+    def test_breakdown_covers_every_sibling_order_of_the_same_pack(
+        self, db, client, admin_auth_headers, rol_admin
+    ) -> None:
+        pack_id = 6570
+        order_a, order_b = 6571, 6572
+        for order_id in (order_a, order_b):
+            db.add(
+                MlOrdersOps(
+                    order_id=order_id,
+                    pack_id=pack_id,
+                    status="paid",
+                    ml_last_updated=datetime(2026, 8, 20, tzinfo=timezone.utc),
+                    seller_id=999,
+                )
+            )
+        db.add(MlPaymentOps(payment_id=2001, order_id=order_a, status="approved", net_received_amount=Decimal("100")))
+        db.add(MlPaymentOps(payment_id=2002, order_id=order_b, status="approved", net_received_amount=Decimal("200")))
+        db.commit()
+        _grant_ml_ops_ver(db, rol_admin)
+
+        resp = client.get(f"/api/ml-ventas-ops/orders/{order_a}", headers=admin_auth_headers)
+        assert resp.status_code == 200
+        body = resp.json()
+        # Neto covers BOTH orders of the pack, not only the requested one.
+        assert body["breakdown"]["neto"] == 300.00
+
+    def test_breakdown_shipping_line_excludes_sender_cost_and_uses_shp_charges(
+        self, db, client, admin_auth_headers, rol_admin
+    ) -> None:
+        order_id = 658
+        db.add(
+            MlOrdersOps(
+                order_id=order_id,
+                status="paid",
+                ml_last_updated=datetime(2026, 8, 20, tzinfo=timezone.utc),
+                seller_id=999,
+                shipping_id=888,
+            )
+        )
+        # self_service shipment with a nonzero sender_cost -- must NEVER
+        # leak into the breakdown (obs #1965).
+        db.add(MlShipmentOps(shipment_id=888, order_id=order_id, status="delivered", logistic_type="self_service"))
+        db.add(MlPaymentOps(payment_id=3001, order_id=order_id, status="approved", net_received_amount=Decimal("100")))
+        db.add(MlPaymentCharge(payment_id=3001, name="shp_hub_lm_out", type="shipping", amount=Decimal("450.00")))
+        db.commit()
+        _grant_ml_ops_ver(db, rol_admin)
+
+        resp = client.get(f"/api/ml-ventas-ops/orders/{order_id}", headers=admin_auth_headers)
+        assert resp.status_code == 200
+        body = resp.json()
+        lines = {line["concepto"]: line["monto"] for line in body["breakdown"]["lines"]}
+        assert lines["Envios"] == 450.00
+        assert body["breakdown"]["incompleto"] is False

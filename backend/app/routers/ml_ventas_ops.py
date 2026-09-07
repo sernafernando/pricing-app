@@ -54,6 +54,7 @@ from app.services.ml_orders_ingestion.operation_status import (
     PAID_ORDER_STATUSES,
     SETTLED_CLAIM_STATUSES,
 )
+from app.services.ml_ventas_desglose.breakdown_service import compute_breakdown
 from app.services.permisos_service import PermisosService
 
 DIVERGENCE_KINDS = (
@@ -164,6 +165,40 @@ class MessageSummary(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
 
+class BreakdownLineSummary(BaseModel):
+    """One line of the cost breakdown. `origen` is always `"api"`: every
+    line comes straight from ML's own payment/billing data, nothing is
+    computed here (corte 6 of ml-ventas-desglose-costos)."""
+
+    concepto: str
+    monto: float
+    origen: str = "api"
+
+
+class OperationBreakdownSummary(BaseModel):
+    """The sale's cost breakdown. `incompleto=True` with a populated
+    `incomplete_reasons` means data is missing -- `neto` is never a
+    fabricated number in that case (it is `None` when payments have not
+    even synced)."""
+
+    lines: List[BreakdownLineSummary]
+    neto: Optional[float] = None
+    incompleto: bool
+    incomplete_reasons: List[str]
+
+    @classmethod
+    def from_domain(cls, breakdown) -> "OperationBreakdownSummary":
+        return cls(
+            lines=[
+                BreakdownLineSummary(concepto=line.concepto, monto=float(line.monto), origen=line.origen)
+                for line in breakdown.lines
+            ],
+            neto=float(breakdown.neto) if breakdown.neto is not None else None,
+            incompleto=breakdown.incompleto,
+            incomplete_reasons=list(breakdown.incomplete_reasons),
+        )
+
+
 class SaleCentricOperation(BaseModel):
     order: OrderOpsSummary
     items: List[OrderItemOpsSummary]
@@ -171,6 +206,7 @@ class SaleCentricOperation(BaseModel):
     claim: Optional[ClaimSummary] = None
     questions: List[QuestionSummary]
     messages: List[MessageSummary]
+    breakdown: OperationBreakdownSummary
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -689,6 +725,17 @@ def obtener_operacion(
     questions = db.query(MlBotQuestion).filter(MlBotQuestion.id.in_(question_ids)).all() if question_ids else []
     messages = db.query(MlBotMessage).filter(MlBotMessage.id.in_(message_ids)).all() if message_ids else []
 
+    # The breakdown is of the PACK, not just this order -- same grouping
+    # `listar_ventas` uses (`_group_key_expr`): a lone order is its own
+    # group, an order in a pack shares its breakdown with every sibling.
+    if order.pack_id is not None:
+        breakdown_order_ids = [
+            row.order_id for row in db.query(MlOrdersOps.order_id).filter(MlOrdersOps.pack_id == order.pack_id).all()
+        ]
+    else:
+        breakdown_order_ids = [order.order_id]
+    breakdown = compute_breakdown(db, breakdown_order_ids)
+
     return SaleCentricOperation(
         order=OrderOpsSummary.model_validate(order),
         items=[OrderItemOpsSummary.model_validate(item) for item in items],
@@ -696,6 +743,7 @@ def obtener_operacion(
         claim=ClaimSummary.model_validate(claim) if claim else None,
         questions=[QuestionSummary.model_validate(q) for q in questions],
         messages=[MessageSummary.model_validate(m) for m in messages],
+        breakdown=OperationBreakdownSummary.from_domain(breakdown),
     )
 
 
