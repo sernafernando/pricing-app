@@ -1,0 +1,225 @@
+"""Tests for the ML billing daily sweep (ml-ventas-desglose-costos, corte 3).
+
+Contract-first: assert the PROMISES (flag-gated, lock reuse, pagination,
+request spacing, 429 clean cutoff with no retry, idempotent writes,
+completeness stat as observation-only) not just the happy path.
+
+ASSUMPTION (not yet confirmed by the user, see module docstring on
+`billing_sweep_service.py`): this sweep covers ONLY the currently OPEN
+billing period, re-swept whole every day. No backfill of closed periods.
+"""
+
+from __future__ import annotations
+
+from datetime import datetime, timezone
+from unittest import mock
+
+import pytest
+
+from app.core.config import settings
+from app.models.ml_billing import MlBillingCharge, MlBillingChargeOrder, MlBillingPeriodStat
+from app.services.ml_billing import billing_sweep_service
+from app.services.ml_webhook_client import ml_webhook_client
+
+
+def _fake_ctx(db):
+    class _Ctx:
+        def __enter__(self):
+            return db
+
+        def __exit__(self, *a):
+            return False
+
+    return lambda: _Ctx()
+
+
+@pytest.fixture(autouse=True)
+def _background_db(db, monkeypatch):
+    monkeypatch.setattr(billing_sweep_service, "get_background_db", _fake_ctx(db))
+
+
+@pytest.fixture(autouse=True)
+def _no_flag(monkeypatch):
+    monkeypatch.setattr(settings, "ML_BILLING_ENABLED", True)
+
+
+@pytest.fixture(autouse=True)
+def _no_real_sleep(monkeypatch):
+    monkeypatch.setattr(billing_sweep_service.time, "sleep", mock.Mock())
+
+
+def _detail(detail_id: str, amount: str = "100.00", order_id: int = 2000018265495500) -> dict:
+    return {
+        "charge_info": {
+            "detail_id": detail_id,
+            "detail_type": "CHARGE",
+            "detail_sub_type": "CVFV",
+            "detail_amount": amount,
+        },
+        "items_info": [{"order_id": order_id}],
+        "sales_info": [],
+        "shipping_info": {},
+        "discount_info": {},
+        "document_info": {"document_id": "DOC1"},
+    }
+
+
+def _page(results: list, total: int, offset: int = 0) -> dict:
+    return {"results": results, "paging": {"total": total, "limit": 1000, "offset": offset}}
+
+
+def _documents(count_details: int) -> dict:
+    return {"documents": [{"count_details": count_details}]}
+
+
+class TestFlagGate:
+    def test_flag_off_makes_zero_requests_and_writes_nothing(self, monkeypatch) -> None:
+        monkeypatch.setattr(settings, "ML_BILLING_ENABLED", False)
+        with mock.patch.object(ml_webhook_client, "get_billing_details", new=mock.AsyncMock()) as m:
+            result = billing_sweep_service.run_billing_sweep()
+        assert result.ran is False
+        m.assert_not_called()
+
+
+class TestLockReuse:
+    def test_lock_not_acquired_cuts_pass_without_writing(self, monkeypatch, db) -> None:
+        monkeypatch.setattr(billing_sweep_service, "try_acquire_run_lock", lambda *a, **k: False)
+        with mock.patch.object(ml_webhook_client, "get_billing_details", new=mock.AsyncMock()) as m:
+            result = billing_sweep_service.run_billing_sweep()
+        assert result.ran is False
+        m.assert_not_called()
+        assert db.query(MlBillingCharge).count() == 0
+
+    def test_lock_functions_called_with_billing_cursor_name(self, monkeypatch, db) -> None:
+        calls = {}
+
+        def _fake_acquire(db_, now, cursor_name="sweep", **k):
+            calls["acquire"] = cursor_name
+            return True
+
+        monkeypatch.setattr(billing_sweep_service, "try_acquire_run_lock", _fake_acquire)
+        monkeypatch.setattr(
+            billing_sweep_service,
+            "release_lock_as_idle",
+            lambda *a, cursor_name="sweep", **k: calls.setdefault("release", cursor_name),
+        )
+        with (
+            mock.patch.object(ml_webhook_client, "get_billing_details", new=mock.AsyncMock(return_value=_page([], 0))),
+            mock.patch.object(
+                ml_webhook_client, "get_billing_documents", new=mock.AsyncMock(return_value=_documents(0))
+            ),
+        ):
+            billing_sweep_service.run_billing_sweep()
+
+        assert calls["acquire"] == "billing"
+        assert calls["release"] == "billing"
+
+
+class TestPagination:
+    def test_pages_until_paging_total_covered(self, db) -> None:
+        page1 = _page([_detail("D1"), _detail("D2")], total=3, offset=0)
+        page2 = _page([_detail("D3")], total=3, offset=2)
+        get_details = mock.AsyncMock(side_effect=[page1, page2])
+        with (
+            mock.patch.object(ml_webhook_client, "get_billing_details", new=get_details),
+            mock.patch.object(
+                ml_webhook_client, "get_billing_documents", new=mock.AsyncMock(return_value=_documents(3))
+            ),
+        ):
+            result = billing_sweep_service.run_billing_sweep()
+
+        assert result.charges_seen == 3
+        assert get_details.call_count == 2
+        assert db.query(MlBillingCharge).count() == 3
+
+
+class TestSpacing:
+    def test_sleeps_between_pages_with_correct_spacing(self, db) -> None:
+        page1 = _page([_detail("D1")], total=2, offset=0)
+        page2 = _page([_detail("D2")], total=2, offset=1)
+        get_details = mock.AsyncMock(side_effect=[page1, page2])
+        with (
+            mock.patch.object(ml_webhook_client, "get_billing_details", new=get_details),
+            mock.patch.object(
+                ml_webhook_client, "get_billing_documents", new=mock.AsyncMock(return_value=_documents(2))
+            ),
+        ):
+            billing_sweep_service.run_billing_sweep()
+
+        billing_sweep_service.time.sleep.assert_called_with(billing_sweep_service.REQUEST_SPACING_SECONDS)
+
+
+class Test429CleanCutoff:
+    def test_failed_request_stops_pass_without_retry(self, db) -> None:
+        get_details = mock.AsyncMock(return_value=None)
+        with mock.patch.object(ml_webhook_client, "get_billing_details", new=get_details):
+            result = billing_sweep_service.run_billing_sweep()
+
+        assert result.stopped_early is True
+        assert get_details.call_count == 1
+        assert db.query(MlBillingCharge).count() == 0
+
+
+class TestIdempotency:
+    def test_two_passes_same_overlapping_data_do_not_duplicate(self, db) -> None:
+        page = _page([_detail("D1"), _detail("D2")], total=2, offset=0)
+        for _ in range(2):
+            get_details = mock.AsyncMock(return_value=page)
+            with (
+                mock.patch.object(ml_webhook_client, "get_billing_details", new=get_details),
+                mock.patch.object(
+                    ml_webhook_client, "get_billing_documents", new=mock.AsyncMock(return_value=_documents(2))
+                ),
+            ):
+                billing_sweep_service.run_billing_sweep()
+
+        assert db.query(MlBillingCharge).count() == 2
+        assert db.query(MlBillingChargeOrder).count() == 2
+
+
+class TestCompletenessStat:
+    def test_documents_count_mismatch_is_observation_not_error(self, db) -> None:
+        page = _page([_detail("D1")], total=1, offset=0)
+        with (
+            mock.patch.object(ml_webhook_client, "get_billing_details", new=mock.AsyncMock(return_value=page)),
+            mock.patch.object(
+                ml_webhook_client, "get_billing_documents", new=mock.AsyncMock(return_value=_documents(999))
+            ),
+        ):
+            result = billing_sweep_service.run_billing_sweep()
+
+        assert result.error is None
+        assert result.stopped_early is False
+
+        stat = db.query(MlBillingPeriodStat).filter_by(period_key=result.period_key).first()
+        assert stat is not None
+        assert stat.documents_count_details == 999
+        assert stat.stored_total == 1
+        assert stat.reported_total == 1
+
+    def test_rerun_same_period_upserts_stat_row_not_duplicates(self, db) -> None:
+        page = _page([_detail("D1")], total=1, offset=0)
+        for _ in range(2):
+            with (
+                mock.patch.object(ml_webhook_client, "get_billing_details", new=mock.AsyncMock(return_value=page)),
+                mock.patch.object(
+                    ml_webhook_client, "get_billing_documents", new=mock.AsyncMock(return_value=_documents(1))
+                ),
+            ):
+                billing_sweep_service.run_billing_sweep()
+
+        assert db.query(MlBillingPeriodStat).count() == 1
+
+
+class TestOpenPeriodKey:
+    def test_period_key_before_17th_is_current_month(self) -> None:
+        now = datetime(2026, 9, 5, tzinfo=timezone.utc)
+        assert billing_sweep_service._current_open_period_key(now) == "2026-09-01"
+
+    def test_period_key_on_or_after_17th_is_next_month(self) -> None:
+        now = datetime(2026, 9, 17, tzinfo=timezone.utc)
+        assert billing_sweep_service._current_open_period_key(now) == "2026-10-01"
+
+    def test_period_key_rolls_over_year(self) -> None:
+        now = datetime(2026, 12, 20, tzinfo=timezone.utc)
+        assert billing_sweep_service._current_open_period_key(now) == "2027-01-01"

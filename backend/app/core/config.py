@@ -127,6 +127,12 @@ class Settings(BaseSettings):
     # detection job; the leaf they describe is re-attempted by the next
     # sweep pass regardless (obs #1824 debt slice 6 must pay off).
     ML_ORDERS_OPS_UNENUMERABLE_RETENTION_DAYS: int = Field(default=30, ge=1, le=365)
+    # Kill-switch for the ML billing daily sweep (ml-ventas-desglose-costos,
+    # corte 3). Default OFF, same PROMOS_WRITE_ENABLED precedent -- billing
+    # carries a hard account-wide rate limit of 5 requests/minute, shared
+    # with promos/PxQ/everything else, so this must stay opt-in per
+    # environment until the sweep is proven safe in production.
+    ML_BILLING_ENABLED: bool = False
 
     # Mapbox Geocoding API
     MAPBOX_ACCESS_TOKEN: Optional[str] = None
