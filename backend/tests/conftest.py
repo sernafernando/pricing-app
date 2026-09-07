@@ -466,6 +466,46 @@ def pg_tickets_db(pg_tickets_engine):
     connection.close()
 
 
+@pytest.fixture(scope="session")
+def pg_payments_engine():
+    """Session-scoped PostgreSQL engine with only `ml_payments_ops` and
+    `ml_payment_charges` (ml-ventas-desglose-costos corte 5, post-review
+    fix): the duplicate `(name, type)` `ON CONFLICT DO UPDATE` crash this
+    exists to reproduce is Postgres-only -- SQLite's `INSERT OR REPLACE`
+    based emulation does not raise `cannot affect row a second time`, so
+    a SQLite-backed test of this would stay green while production
+    crashes the whole batch transaction."""
+    if not _postgres_reachable():
+        pytest.skip(
+            f"PostgreSQL not reachable at {POSTGRES_TEST_URL} — set POSTGRES_TEST_URL "
+            "or start a local PostgreSQL to run @pytest.mark.postgres tests. "
+            "CI provides this via the `postgres` service in .github/workflows/ci.yml."
+        )
+
+    from app.models.ml_payments import MlPaymentCharge as _MlPaymentCharge
+    from app.models.ml_payments import MlPaymentOps as _MlPaymentOps
+
+    tables = [_MlPaymentOps.__table__, _MlPaymentCharge.__table__]
+    eng = create_engine(POSTGRES_TEST_URL)
+    Base.metadata.create_all(bind=eng, tables=tables)
+    yield eng
+    Base.metadata.drop_all(bind=eng, tables=tables)
+    eng.dispose()
+
+
+@pytest.fixture()
+def pg_payments_db(pg_payments_engine):
+    """Transactional PostgreSQL session (ml_payments_ops/ml_payment_charges), rolled back after each test."""
+    connection = pg_payments_engine.connect()
+    transaction = connection.begin()
+    Session = sessionmaker(bind=connection)
+    session = Session()
+    yield session
+    session.close()
+    transaction.rollback()
+    connection.close()
+
+
 @pytest.fixture()
 def query_counter(db):
     """

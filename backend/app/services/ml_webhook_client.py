@@ -621,6 +621,46 @@ class MLWebhookClient:
             logger.error(f"Error obteniendo costos de envío {shipment_id_int}: {_describe_exc(e)}")
             return None
 
+    # ── ML Payments (ml-ventas-desglose-costos, corte 5) ─────────────
+    # Different proxy resource than orders/shipments: `/api/ml/payment`,
+    # NOT `/api/ml/orders`, and NOT via `resource=` -- it takes a plain
+    # `payment_id` query param. Same error-swallow shape as every other
+    # read method: timeout/error/404 -> None, never raises for those.
+
+    async def get_payment(self, payment_id: Union[int, str]) -> Optional[Dict]:
+        """Obtiene un pago de Mercado Pago vía el proxy `payment`.
+
+        Args:
+            payment_id: El id numérico del pago MP.
+
+        Returns:
+            Dict con el payload crudo del pago, o None si hay
+            error/timeout/404.
+
+        Raises:
+            ValueError: si `payment_id` no es coercionable a `int` — se
+                levanta ANTES de cualquier llamada HTTP (SSRF-safe).
+        """
+        try:
+            payment_id_int = int(payment_id)
+        except (TypeError, ValueError) as e:
+            raise ValueError(f"payment_id no coercionable a int: {payment_id!r}") from e
+
+        try:
+            async with httpx.AsyncClient(timeout=10.0) as client:
+                response = await client.get(f"{self.base_url}/api/ml/payment", params={"payment_id": payment_id_int})
+
+                if response.status_code == 404:
+                    logger.warning(f"Pago {payment_id_int} no encontrado en ML")
+                    return None
+
+                response.raise_for_status()
+                return response.json()
+
+        except Exception as e:
+            logger.error(f"Error obteniendo pago {payment_id_int}: {_describe_exc(e)}")
+            return None
+
     # ── ML Seller Promotions (READ-ONLY, PR1) ───────────────────────
     # Write methods (enroll/remove) are added in PR2. No retry on any
     # of these: timeout/error -> None, mirroring the existing read
