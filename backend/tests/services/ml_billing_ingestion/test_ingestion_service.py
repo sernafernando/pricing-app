@@ -111,7 +111,7 @@ class TestIdempotent:
             period_key="2026-09-01",
             detail_type="CHARGE",
             detail_sub_type="CSSTEC",
-            amount=99999.0,
+            amount=Decimal("99999.00"),
             document_id="DOC1",
             order_ids=[2000018265495500, 2000018265495501, 2000018265495502],
             raw_detail={"charge_info": {"detail_id": "SHIP-1"}},

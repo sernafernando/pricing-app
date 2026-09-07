@@ -153,13 +153,13 @@ def map_billing_detail(raw: Dict[str, Any], period_key: Optional[str]) -> Union[
     # el primer `.get()` con AttributeError y voltearía el barrido. Fail
     # closed acá, con el mismo shape de error que el resto.
     if not isinstance(raw, dict):
-        return MappingError(f"detalle no es un dict: {type(raw).__name__}", raw)
+        return MappingError(f"detalle no es un dict: {type(raw).__name__}", _payload_without_pii(raw))
 
     try:
         charge_info = _as_dict(raw.get("charge_info"), "charge_info")
         detail_id = charge_info.get("detail_id")
         if not detail_id:
-            return MappingError("missing charge_info.detail_id", raw)
+            return MappingError("missing charge_info.detail_id", _payload_without_pii(raw))
         detail_id = str(detail_id)
 
         detail_type = charge_info.get("detail_type")

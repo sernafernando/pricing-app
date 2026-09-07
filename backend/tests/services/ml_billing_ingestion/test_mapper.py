@@ -202,3 +202,33 @@ class TestErrorPathAlsoStripsPii:
         assert "CORDOBA" not in serializado
         # y no se perdió lo que sí sirve para diagnosticar
         assert "2000018265495500" in serializado
+
+    def test_las_tres_salidas_de_error_filtran_la_pii(self) -> None:
+        """El mapper tiene TRES salidas de error, no una. La primera versión
+        de este arreglo filtró solo la del `except` y dejó las dos salidas
+        tempranas devolviendo el payload crudo — con la de
+        `missing detail_id`, que es la que llega CON `sales_info` entera.
+
+        Este test recorre las tres a propósito: arreglar una instancia de un
+        patrón y dejar las hermanas es exactamente cómo vuelve el agujero.
+        """
+        pii = [{"order_id": 2000018265495500, "payer_nickname": "INU03", "state_name": "CORDOBA"}]
+
+        sin_detail_id = _raw_detail()
+        sin_detail_id["charge_info"].pop("detail_id", None)
+        sin_detail_id["sales_info"] = pii
+
+        monto_roto = _raw_detail()
+        monto_roto["charge_info"]["detail_amount"] = "N/A"
+        monto_roto["sales_info"] = pii
+
+        for nombre, raw in (("sin detail_id", sin_detail_id), ("monto no numérico", monto_roto)):
+            result = map_billing_detail(raw, period_key="2026-09-01")
+            assert isinstance(result, MappingError), nombre
+            serializado = str(result.raw_payload)
+            assert "INU03" not in serializado, f"PII filtrada en: {nombre}"
+            assert "CORDOBA" not in serializado, f"PII filtrada en: {nombre}"
+
+        # La tercera salida (raw que no es dict) no puede llevar PII porque
+        # no es un dict, pero pasa por el mismo filtro igual.
+        assert isinstance(map_billing_detail(["no soy dict"], period_key="2026-09-01"), MappingError)
