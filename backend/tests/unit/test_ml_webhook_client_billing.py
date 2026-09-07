@@ -48,13 +48,26 @@ PERIODS_PAYLOAD = {
     ]
 }
 
+# A details page exactly as ML returns it: `total`, `limit`, `offset`
+# and `last_id` at the TOP LEVEL, and integer `detail_id`s. There is no
+# `paging` object -- measured against the real API on 2026-09-07. These
+# payloads used to invent one, which is why the sweep could read
+# `paging.total` for three merged cuts without a single test noticing.
 DETAILS_PAYLOAD_PAGE_1 = {
-    "results": [{"charge_info": {"detail_id": "1"}}] * 3,
-    "paging": {"total": 5, "limit": 3, "offset": 0},
+    "results": [{"charge_info": {"detail_id": 69328325191 + i}} for i in range(3)],
+    "total": 5,
+    "limit": 3,
+    "offset": 0,
+    "last_id": 69328325193,
+    "errors": [],
 }
 DETAILS_PAYLOAD_PAGE_2 = {
-    "results": [{"charge_info": {"detail_id": "2"}}] * 2,
-    "paging": {"total": 5, "limit": 3, "offset": 3},
+    "results": [{"charge_info": {"detail_id": 69329025483 + i}} for i in range(2)],
+    "total": 5,
+    "limit": 3,
+    "offset": 0,
+    "last_id": 69329025484,
+    "errors": [],
 }
 
 SHIPMENT_COSTS_PAYLOAD = {
@@ -99,7 +112,12 @@ class TestGetBillingDetails:
             assert resource.startswith("/billing/integration/periods/key/2026-09-01/group/ML/details")
             assert "document_type=BILL" in resource
             assert "limit=1000" in resource
-            assert "offset=0" in resource
+            # `from_id`, never `offset`: ML rejects offset+limit > 10.000
+            # and the open period held 22.538 charges.
+            assert "from_id=0" in resource
+            assert "sort_by=ID" in resource
+            assert "order_by=ASC" in resource
+            assert "offset=" not in resource
             return httpx.Response(200, json=DETAILS_PAYLOAD_PAGE_1)
 
         _patch_client(monkeypatch, httpx.MockTransport(handler))
@@ -109,20 +127,46 @@ class TestGetBillingDetails:
 
         assert result == DETAILS_PAYLOAD_PAGE_1
 
-    def test_offset_and_limit_are_forwarded(self, monkeypatch: pytest.MonkeyPatch) -> None:
+    def test_from_id_and_limit_are_forwarded(self, monkeypatch: pytest.MonkeyPatch) -> None:
         def handler(request: httpx.Request) -> httpx.Response:
             resource = request.url.params["resource"]
-            assert "offset=3" in resource
+            assert "from_id=69328325193" in resource
             assert "limit=3" in resource
+            assert "offset=" not in resource
             return httpx.Response(200, json=DETAILS_PAYLOAD_PAGE_2)
 
         _patch_client(monkeypatch, httpx.MockTransport(handler))
         client = MLWebhookClient()
 
-        result = asyncio.run(client.get_billing_details("2026-09-01", "ML", limit=3, offset=3))
+        result = asyncio.run(
+            client.get_billing_details("2026-09-01", "ML", limit=3, from_id=DETAILS_PAYLOAD_PAGE_1["last_id"])
+        )
 
         assert result == DETAILS_PAYLOAD_PAGE_2
-        assert result["paging"]["total"] == 5
+        # Top level, not under `paging`.
+        assert result["total"] == 5
+
+    def test_a_cursor_that_is_not_an_id_raises_before_any_request(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """The network fails soft; the programmer fails hard.
+
+        `from_id` travels inside the `resource` the proxy forwards to ML,
+        so junk there is an injection into ML's query. Returning None
+        would be indistinguishable from a timeout and the sweep would
+        carry on believing the period came back empty.
+        """
+        llamadas = {"n": 0}
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            llamadas["n"] += 1
+            return httpx.Response(200, json=DETAILS_PAYLOAD_PAGE_1)
+
+        _patch_client(monkeypatch, httpx.MockTransport(handler))
+        client = MLWebhookClient()
+
+        for basura in ("D2", "1 OR 1=1", "", "12&limit=1"):
+            with pytest.raises(ValueError):
+                asyncio.run(client.get_billing_details("2026-09-01", "ML", from_id=basura))
+        assert llamadas["n"] == 0
 
     def test_error_returns_none_never_raises(self, monkeypatch: pytest.MonkeyPatch) -> None:
         def handler(request: httpx.Request) -> httpx.Response:
