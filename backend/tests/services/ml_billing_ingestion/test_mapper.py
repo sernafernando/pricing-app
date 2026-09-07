@@ -182,3 +182,23 @@ class TestNeverRaises:
         for basura in (["no", "soy", "dict"], "un string", 42, None):
             result = map_billing_detail(basura, period_key="2026-09-01")
             assert isinstance(result, MappingError), f"falló con {basura!r}"
+
+
+class TestErrorPathAlsoStripsPii:
+    """El happy path descarta `payer_nickname` y `state_name`. El camino de
+    ERROR guardaba el payload crudo — y `MappingError.raw_payload` existe
+    justamente para que el barrido lo loguee o lo persista."""
+
+    def test_un_mapping_error_no_lleva_pii(self) -> None:
+        raw = _raw_detail()
+        raw["charge_info"]["detail_amount"] = "N/A"  # fuerza el error
+        raw["sales_info"] = [{"order_id": 2000018265495500, "payer_nickname": "INU03", "state_name": "CORDOBA"}]
+
+        result = map_billing_detail(raw, period_key="2026-09-01")
+
+        assert isinstance(result, MappingError)
+        serializado = str(result.raw_payload)
+        assert "INU03" not in serializado
+        assert "CORDOBA" not in serializado
+        # y no se perdió lo que sí sirve para diagnosticar
+        assert "2000018265495500" in serializado

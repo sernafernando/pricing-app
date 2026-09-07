@@ -202,27 +202,30 @@ class TestBillingResourceValidation:
     validación. El sweep del corte 3 los deriva, así que el chequeo va acá.
     """
 
-    @pytest.mark.asyncio
-    async def test_group_invalido_levanta_antes_de_cualquier_http(self):
+    # `asyncio.run(...)` y no `@pytest.mark.asyncio`, igual que el resto de
+    # este archivo: `pytest-asyncio` está en el `.venv` local pero NO en
+    # `requirements.txt`, y el CI instala solo `pytest httpx`. Con el marker,
+    # allá el cuerpo de la corrutina no se ejecuta y el test pasa en verde
+    # sin correr un solo assert -- justo sobre la fila SSRF.
+
+    def test_group_invalido_levanta_antes_de_cualquier_http(self):
         client = MLWebhookClient()
         with patch("httpx.AsyncClient") as fake:
             with pytest.raises(ValueError, match="group de facturación inválido"):
-                await client.get_billing_periods("ML/details?document_type=BILL&")
+                asyncio.run(client.get_billing_periods("ML/details?document_type=BILL&"))
             fake.assert_not_called()
 
-    @pytest.mark.asyncio
-    async def test_period_key_con_traversal_levanta_antes_de_cualquier_http(self):
+    def test_period_key_con_traversal_levanta_antes_de_cualquier_http(self):
         client = MLWebhookClient()
         with patch("httpx.AsyncClient") as fake:
             with pytest.raises(ValueError, match="period_key inválido"):
-                await client.get_billing_details("../../users/me", "ML")
+                asyncio.run(client.get_billing_details("../../users/me", "ML"))
             fake.assert_not_called()
 
-    @pytest.mark.asyncio
-    async def test_group_valido_no_levanta(self):
+    def test_group_valido_no_levanta(self):
         client = MLWebhookClient()
         with patch("httpx.AsyncClient") as fake:
             fake.return_value.__aenter__.return_value.get = AsyncMock(
                 return_value=MagicMock(json=MagicMock(return_value={"results": []}), raise_for_status=MagicMock())
             )
-            assert await client.get_billing_details("2026-09-01", "MP") == {"results": []}
+            assert asyncio.run(client.get_billing_details("2026-09-01", "MP")) == {"results": []}

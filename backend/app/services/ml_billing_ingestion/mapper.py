@@ -97,6 +97,25 @@ def _strip_sales_info_pii(sales_info: List[Any]) -> List[Dict[str, Any]]:
     return cleaned
 
 
+def _payload_without_pii(raw: Any) -> Any:
+    """El payload crudo, con la PII de `sales_info` afuera.
+
+    Existe para el camino de ERROR. `_strip_sales_info_pii` recibe la lista
+    de `sales_info`; acá hace falta limpiar el payload entero, porque el
+    `MappingError` lo guarda tal cual y el barrido del corte 3 lo va a
+    loguear o persistir -- que es justamente para lo que existe
+    `raw_payload`. El happy path ya limpiaba; este no, y la PII salía por
+    la puerta de atrás.
+    """
+    if not isinstance(raw, dict):
+        return raw
+    cleaned = dict(raw)
+    sales_info = cleaned.get("sales_info")
+    if isinstance(sales_info, list):
+        cleaned["sales_info"] = _strip_sales_info_pii(sales_info)
+    return cleaned
+
+
 def _dedup_order_ids(items_info: List[Any]) -> List[int]:
     """Order-preserving dedup of `items_info[].order_id`, coerced to
     `int` (BigInteger-range safe, see `app/models/ml_billing.py`)."""
@@ -193,4 +212,9 @@ def map_billing_detail(raw: Dict[str, Any], period_key: Optional[str]) -> Union[
     # que cubre el caso conocido; esto es el cinturón).
     except (TypeError, ValueError, ArithmeticError, AttributeError) as e:
         logger.warning(f"Error mapeando detalle de facturación: {e}")
-        return MappingError(str(e), raw)
+        # El payload va SIN PII también por el camino de error. El happy
+        # path lo limpiaba y este no: en cuanto el barrido del corte 3
+        # loguee o persista un MappingError -- que es exactamente para lo
+        # que existe `raw_payload` -- el `payer_nickname` y el `state_name`
+        # salían por donde el diseño dijo que nunca iban a salir.
+        return MappingError(str(e), _payload_without_pii(raw))

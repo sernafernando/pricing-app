@@ -431,7 +431,15 @@ class MLWebhookClient:
     # ── ML Billing (ml-ventas-desglose-costos, corte 2) ──────────────
     # Additive read-only methods over the billing/shipment-costs proxy
     # resources. Same error-swallow shape as every other read method:
-    # timeout/error -> None, never raises.
+    # timeout/error -> None.
+    #
+    # OJO, y es una diferencia con el resto del cliente: estos tres métodos
+    # SÍ levantan `ValueError` ante un parámetro inválido, antes de tocar la
+    # red. No es una inconsistencia: un `group` o un `period_key` mal
+    # formado es un bug del llamador, no una falla de ML, y devolver `None`
+    # lo haría indistinguible de un timeout -- el barrido del corte 3
+    # seguiría de largo creyendo que el período vino vacío. La red falla
+    # blando; el programador falla fuerte.
     #
     # EVERY value interpolated into `resource` is validated BEFORE any HTTP
     # call (Threat Matrix SSRF row): ids coerced to `int`, `group` checked
