@@ -11,8 +11,6 @@ Design decisions:
 - `ml_billing_charge_orders` is the bridge table that lets a single billing
   detail settle across multiple orders -- the shipping charge for a pack is
   reported once by ML but must be attributed to every order in that pack.
-- `ml_iibb_aliquots` clones the `pricing_constants` fecha_desde/fecha_hasta
-  validity-window pattern.
 - `ml_billing_period_stats` tracks reconciliation totals per billing period.
   Corte 1 shipped it WITHOUT a uniqueness constraint on `period_key`
   because it had no writer yet; corte 3 (the daily billing sweep) added
@@ -24,9 +22,7 @@ from __future__ import annotations
 
 from sqlalchemy import (
     BigInteger,
-    CheckConstraint,
     Column,
-    Date,
     DateTime,
     ForeignKey,
     Index,
@@ -82,34 +78,6 @@ class MlBillingChargeOrder(Base):
     __table_args__ = (
         UniqueConstraint("detail_id", "order_id", name="uq_ml_billing_charge_orders_detail_order"),
         Index("ix_ml_billing_charge_orders_order_id", "order_id"),
-    )
-
-
-class MlIibbAliquot(Base):
-    """IIBB (gross-receipts tax) aliquot with a validity window, cloning the
-    `pricing_constants` fecha_desde/fecha_hasta pattern."""
-
-    __tablename__ = "ml_iibb_aliquots"
-
-    # Sin `index=True`: Postgres ya indexa la PK, la migración no crea ese
-    # índice, y declararlo acá dejaría a `alembic autogenerate` queriendo
-    # agregarlo en cada corrida. `pricing_constants` lo trae por herencia;
-    # no se replica el ruido.
-    id = Column(Integer, primary_key=True)
-    porcentaje = Column(Numeric(6, 4), nullable=False)
-    fecha_desde = Column(Date, nullable=False)
-    fecha_hasta = Column(Date, nullable=True)
-    # tz-aware y con `server_default`, igual que `created_at` en este mismo
-    # archivo. `pricing_constants` la trae tz-naive con default de cliente;
-    # copiarlo dejaría un solo campo raro justo cuando llegue el escritor,
-    # y SQLite pierde el tzinfo al releer, lo que esconde el problema.
-    fecha_creacion = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
-    creado_por = Column(Integer, ForeignKey("usuarios.id"))
-
-    usuario = relationship("Usuario")
-
-    __table_args__ = (
-        CheckConstraint("fecha_hasta IS NULL OR fecha_hasta >= fecha_desde", name="chk_ml_iibb_aliquots_fecha_hasta"),
     )
 
 
