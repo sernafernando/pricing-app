@@ -1133,3 +1133,85 @@ class TestElGuardDeRedEstaEnchufado:
         assert row.sender_cost == Decimal("400"), "no contestó el fixture: ¿quién respondió?"
         assert row.receiver_cost == Decimal("0")
         assert row.costs_synced_at is not None
+
+
+class TestUnPayloadIncompletoNoSeSella:
+    """`costs_synced_at IS NULL` es la ÚNICA compuerta de reintento.
+
+    Un payload que ES un dict pero viene sin costos usables pasaba el
+    filtro `isinstance(payload, dict)`, escribía NULL en las dos columnas y
+    sellaba `costs_synced_at` — perdiendo el costo de ese envío para
+    siempre, en la ruta de la plata. No es teórico: es lo que ML devuelve
+    mientras un envío todavía no tiene costos liquidados.
+    """
+
+    def test_dict_sin_senders_deja_el_envio_para_la_proxima_pasada(self, db, monkeypatch) -> None:
+        now = datetime.now(timezone.utc)
+        recent = now - timedelta(days=1)
+        monkeypatch.setattr(
+            ml_webhook_client,
+            "search_orders",
+            AsyncMock(return_value=_page([_order(1, 999, recent, recent, shipping_id=500)])),
+        )
+        monkeypatch.setattr(
+            ml_webhook_client, "get_shipment", AsyncMock(return_value=_shipment(500, 1, status="shipped"))
+        )
+        # Dict válido, contenido vacío: exactamente lo que devuelve ML
+        # mientras el envío no tiene costos liquidados.
+        monkeypatch.setattr(
+            ml_webhook_client, "get_shipment_costs", AsyncMock(return_value={"gross_amount": 0, "senders": []})
+        )
+
+        sweep_service.run_sweep(seller_id=999, window_days=90)
+
+        row = db.query(MlShipmentOps).filter_by(shipment_id=500).one()
+        assert row.costs_synced_at is None, "quedó sellado: este envío no se reintenta nunca más"
+        assert row.sender_cost is None
+
+    def test_no_pisa_con_null_un_costo_bueno_de_una_pasada_anterior(self, db, monkeypatch) -> None:
+        now = datetime.now(timezone.utc)
+        recent = now - timedelta(days=1)
+        db.add(MlOrdersOps(order_id=1, seller_id=999, ml_last_updated=recent, date_created=recent))
+        db.add(
+            MlShipmentOps(
+                shipment_id=500,
+                order_id=1,
+                status="shipped",
+                sender_cost=Decimal("15190"),
+                receiver_cost=Decimal("20000"),
+            )
+        )
+        db.commit()
+        monkeypatch.setattr(
+            ml_webhook_client, "get_shipment_costs", AsyncMock(return_value={"gross_amount": 0, "senders": []})
+        )
+
+        sweep_service._sync_shipment_costs([500])
+
+        row = db.query(MlShipmentOps).filter_by(shipment_id=500).one()
+        assert row.sender_cost == Decimal("15190"), "un payload vacío pisó un costo bueno"
+
+
+class TestLaPasadaCortaPorReloj:
+    """Contar llamadas no alcanza como techo: cada presupuesto nuevo vuelve
+    a abrir el agujero que el presupuesto único protegía. El corte 4 sumó un
+    segundo presupuesto (2000 + 500 llamadas secuenciales) contra un lock
+    que se reclama a los 30 minutos. El límite va donde está el riesgo."""
+
+    def test_el_sync_de_costos_se_corta_si_la_pasada_agoto_su_tiempo(self, db, monkeypatch) -> None:
+        db.add(MlShipmentOps(shipment_id=500, order_id=1, status="shipped", last_updated=datetime.now(timezone.utc)))
+        db.commit()
+        get_costs = AsyncMock(return_value=_shipment_costs(sender_cost=100, receiver_cost=0, base_cost=200))
+        monkeypatch.setattr(ml_webhook_client, "get_shipment_costs", get_costs)
+
+        # una pasada que arrancó hace más que su presupuesto de tiempo
+        vencida = datetime.now(timezone.utc) - sweep_service.PASS_TIME_BUDGET - timedelta(minutes=1)
+        synced = sweep_service._sync_shipment_costs([500], started_at=vencida)
+
+        assert synced == 0
+        get_costs.assert_not_called()
+
+    def test_sin_started_at_no_corta(self, db, monkeypatch) -> None:
+        """`None` desactiva el corte: los tests que no lo ejercitan siguen
+        andando igual."""
+        assert sweep_service._pass_deadline_reached(None) is False

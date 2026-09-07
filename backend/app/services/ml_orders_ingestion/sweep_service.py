@@ -125,6 +125,32 @@ MAX_COST_FETCHES_PER_PASS = 500
 # never mistaken for a stale one.
 STALE_LOCK_TIMEOUT = timedelta(minutes=30)
 
+# Techo de TIEMPO para la pasada entera, por encima de cualquier
+# presupuesto de llamadas.
+#
+# El comentario de `run_sweep` decía que había UN solo presupuesto porque
+# "dos presupuestos separados se quedarían cada uno bajo su propio límite
+# mientras la pasada entera se pasa del stale-lock timeout". El corte 4
+# agregó exactamente ese segundo presupuesto -- con una razón válida, el
+# starvation de la búsqueda de órdenes -- y así dejó abierto el otro lado:
+# 2000 + 500 llamadas secuenciales contra un lock que se reclama a los 30
+# minutos, y dos sweeps encima del mismo cursor.
+#
+# Contar llamadas no cierra ese agujero: cada presupuesto nuevo lo vuelve a
+# abrir. El límite va donde está el riesgo, que es el reloj. Con margen,
+# para que la pasada termine y libere el lock ANTES de que otro lo reclame.
+PASS_DEADLINE_MARGIN = timedelta(minutes=5)
+PASS_TIME_BUDGET = STALE_LOCK_TIMEOUT - PASS_DEADLINE_MARGIN
+
+
+def _pass_deadline_reached(started_at: Optional[datetime]) -> bool:
+    """True cuando la pasada agotó su tiempo. `None` desactiva el corte
+    (tests que no lo ejercitan)."""
+    if started_at is None:
+        return False
+    return datetime.now(timezone.utc) - started_at >= PASS_TIME_BUDGET
+
+
 CURSOR_NAME = "sweep"
 OUT_OF_WINDOW_KIND = "out_of_window_update"
 # UNENUMERABLE_KIND now lives on the model (app/models/ml_orders_ops.py) --
@@ -149,6 +175,9 @@ class SweepResult:
     orders_mapping_error: int = 0
     orders_out_of_window: int = 0
     windows_unenumerable: int = 0
+    # Sin esto no hay forma de ver desde afuera si el backlog de costos
+    # está drenando o si cada pasada gasta su presupuesto sin avanzar.
+    shipment_costs_synced: int = 0
     budget_exhausted: bool = False
     error: Optional[str] = None
 
@@ -468,7 +497,11 @@ def _shipments_needing_cost_sync(shipment_ids: List[int]) -> List[int]:
     return [shipment_id for (shipment_id,) in rows]
 
 
-def _sync_shipment_costs(shipment_ids: List[int], budget: Optional[List[int]] = None) -> int:
+def _sync_shipment_costs(
+    shipment_ids: List[int],
+    budget: Optional[List[int]] = None,
+    started_at: Optional[datetime] = None,
+) -> int:
     """Fetches and persists `sender_cost`/`receiver_cost` for every shipment
     in `shipment_ids` whose `costs_synced_at` is still NULL.
 
@@ -490,6 +523,9 @@ def _sync_shipment_costs(shipment_ids: List[int], budget: Optional[List[int]] = 
 
     fetched: Dict[int, Dict[str, Any]] = {}
     for shipment_id in to_sync:
+        if _pass_deadline_reached(started_at):
+            logger.warning("sweep: se acabó el tiempo de la pasada durante el sync de costos; la próxima retoma")
+            break
         if budget[0] <= 0:
             logger.warning(
                 "sweep: cost-fetch budget spent before every unsynced shipment was read; the next pass resumes"
@@ -515,8 +551,25 @@ def _sync_shipment_costs(shipment_ids: List[int], budget: Optional[List[int]] = 
             payload = fetched.get(row.shipment_id)
             if payload is None:
                 continue
-            row.sender_cost = _extract_sender_cost(payload)
-            row.receiver_cost = _extract_receiver_cost(payload)
+            sender = _extract_sender_cost(payload)
+            receiver = _extract_receiver_cost(payload)
+            # Un dict SIN costos usables no se sella. `costs_synced_at IS
+            # NULL` es la ÚNICA compuerta de reintento, así que marcarlo
+            # acá perdería el costo de ese envío para siempre -- y en la
+            # ruta de la plata. Peor: pisaría con NULL valores buenos que
+            # una pasada anterior hubiera dejado. El caso no es teórico: es
+            # lo que ML devuelve mientras un envío todavía no tiene costos
+            # liquidados. El fail-open que promete el docstring solo valía
+            # para un payload que no fuera dict; ahora vale también para un
+            # dict vacío por dentro.
+            if sender is None and receiver is None:
+                logger.warning(
+                    "sweep: cost payload sin costos usables para shipment_id=%s; queda para la próxima pasada",
+                    row.shipment_id,
+                )
+                continue
+            row.sender_cost = sender
+            row.receiver_cost = receiver
             row.costs_synced_at = now
             synced += 1
     return synced
@@ -528,6 +581,7 @@ def process_batch(
     result: SweepResult,
     budget: Optional[List[int]] = None,
     cost_budget: Optional[List[int]] = None,
+    pass_started_at: Optional[datetime] = None,
 ) -> None:
     """Upserts one bounded batch in its OWN short-lived session. Every
     shipment payload was already fetched (HTTP-only, see `_fetch_shipments`)
@@ -631,7 +685,9 @@ def process_batch(
     # is the only gate, independent of shipment status).
     shipping_ids_this_batch = sorted({mapped.shipping_id for _, mapped in classified if mapped.shipping_id is not None})
     if shipping_ids_this_batch:
-        _sync_shipment_costs(shipping_ids_this_batch, cost_budget)
+        result.shipment_costs_synced += _sync_shipment_costs(
+            shipping_ids_this_batch, cost_budget, started_at=pass_started_at
+        )
 
 
 def load_cursor(db, for_update: bool = False, cursor_name: str = CURSOR_NAME) -> Optional[MlOpsSyncCursor]:
@@ -805,20 +861,23 @@ def run_sweep(seller_id: Optional[int] = None, window_days: Optional[int] = None
     result = SweepResult(ran=True, window_from=window_start, window_to=prior_window_to)
     last_checkpoint_to = prior_window_to
     pending: List[Dict[str, Any]] = []
-    # ONE allowance for the whole pass, shared by the page walk and the
-    # shipment lookups. Two separate budgets would each stay under their own
-    # limit while the pass as a whole ran far past the stale-lock timeout.
+    # Presupuesto para el recorrido de páginas y los `get_shipment`. Ya no
+    # es el único techo de la pasada: `PASS_TIME_BUDGET` corta por reloj
+    # antes del stale-lock, que es lo que este comentario protegía cuando
+    # contar llamadas alcanzaba. Ver la nota en `PASS_DEADLINE_MARGIN`.
     fetch_budget: List[int] = [MAX_WINDOW_FETCHES_PER_PASS]
     # A SEPARATE per-pass allowance for `get_shipment_costs` (see
     # `MAX_COST_FETCHES_PER_PASS`): sharing `fetch_budget` would let a
     # first-pass backlog of thousands of unsynced shipments starve the page
     # walk / `get_shipment` of their own budget on that same pass.
     cost_budget: List[int] = [MAX_COST_FETCHES_PER_PASS]
+    # El reloj de la pasada: `PASS_TIME_BUDGET` se mide contra esto.
+    pass_started_at = datetime.now(timezone.utc)
 
     def _flush_pending() -> None:
         nonlocal pending
         if pending:
-            process_batch(pending, window_from_floor, result, fetch_budget, cost_budget)
+            process_batch(pending, window_from_floor, result, fetch_budget, cost_budget, pass_started_at)
             pending = []
 
     failure: Optional[BaseException] = None
@@ -829,7 +888,9 @@ def run_sweep(seller_id: Optional[int] = None, window_days: Optional[int] = None
             if kind == "page":
                 pending.extend(event[1])
                 while len(pending) >= BATCH_SIZE:
-                    process_batch(pending[:BATCH_SIZE], window_from_floor, result, fetch_budget, cost_budget)
+                    process_batch(
+                        pending[:BATCH_SIZE], window_from_floor, result, fetch_budget, cost_budget, pass_started_at
+                    )
                     pending = pending[BATCH_SIZE:]
             elif kind == "budget_exhausted":
                 # Stop this pass without advancing past the unfinished
