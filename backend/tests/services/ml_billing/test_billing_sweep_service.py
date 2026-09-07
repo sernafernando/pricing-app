@@ -36,6 +36,35 @@ def _fake_ctx(db):
 @pytest.fixture(autouse=True)
 def _background_db(db, monkeypatch):
     monkeypatch.setattr(billing_sweep_service, "get_background_db", _fake_ctx(db))
+    # También en `sweep_service`: `release_lock_as_error` y sus hermanas
+    # abren su PROPIA sesión desde ese namespace. Sin parchearlo, el lock
+    # se libera contra otra base y el test no puede ver el resultado --
+    # solo que la función fue llamada, que es bastante menos.
+    from app.services.ml_orders_ingestion import sweep_service as _sweep
+
+    monkeypatch.setattr(_sweep, "get_background_db", _fake_ctx(db))
+
+
+@pytest.fixture(autouse=True)
+def _sin_red_de_verdad(monkeypatch):
+    """Corta `get_billing_periods` en TODO el módulo, por defecto.
+
+    Cuando el barrido derivaba el período de la fecha no llamaba a nadie, y
+    ningún test necesitaba mockearlo. Al pasar a preguntarle a ML, ocho
+    tests empezaron a salir a producción de verdad — y se comían el
+    presupuesto de 5 requests por minuto de la CUENTA, que es exactamente
+    lo que este módulo existe para proteger. Uno devolvió 429 y así lo
+    descubrimos.
+
+    Acordarse de mockearlo test por test no es una defensa: el que agregue
+    el número nueve se va a olvidar. El corte va acá, y el que necesite
+    otra respuesta la sobreescribe en su propio `with`.
+    """
+    monkeypatch.setattr(
+        ml_webhook_client,
+        "get_billing_periods",
+        mock.AsyncMock(side_effect=AssertionError("un test intentó salir a la red: mockeá get_billing_periods")),
+    )
 
 
 @pytest.fixture(autouse=True)
@@ -292,3 +321,44 @@ class TestOpenPeriodComesFromMlNotFromArithmetic:
         assert get_details.call_args.args[0] == "2026-10-01"
         assert result.period_key == "2026-10-01"
         assert db.query(MlBillingPeriodStat).one().period_key == "2026-10-01"
+
+
+class TestLockIsAlwaysReleased:
+    """El camino más caro del módulo y el único que no tenía red.
+
+    Si una excepción en medio del loop deja el lock tomado, el cron de
+    mañana encuentra el cursor trabado y se va sin hacer nada — en
+    silencio, todos los días, hasta que alguien mira la tabla."""
+
+    def test_una_excepcion_en_medio_del_barrido_libera_el_lock(self, db) -> None:
+        get_details = mock.AsyncMock(side_effect=RuntimeError("se cayó a mitad de camino"))
+        with (
+            mock.patch.object(ml_webhook_client, "get_billing_details", new=get_details),
+            mock.patch.object(
+                billing_sweep_service, "release_lock_as_error", wraps=billing_sweep_service.release_lock_as_error
+            ) as release_error,
+        ):
+            result = billing_sweep_service.run_billing_sweep()
+
+        assert result.error is not None
+        release_error.assert_called_once()
+
+        from app.services.ml_orders_ingestion.sweep_service import load_cursor
+
+        cursor = load_cursor(db, cursor_name=billing_sweep_service.CURSOR_NAME)
+        assert cursor is not None
+        assert cursor.state != "running", "el lock quedó tomado: el cron de mañana no va a correr"
+
+    def test_el_periodo_se_resuelve_despues_del_lock_no_antes(self) -> None:
+        """Si dos crons se solapan, el segundo tiene que irse SIN gastar una
+        request del presupuesto de 5/minuto, que es de toda la cuenta."""
+        get_periods = mock.AsyncMock(return_value={"results": []})
+        with (
+            mock.patch.object(billing_sweep_service, "try_acquire_run_lock", return_value=False),
+            mock.patch.object(ml_webhook_client, "get_billing_periods", new=get_periods),
+        ):
+            result = billing_sweep_service.run_billing_sweep()
+
+        assert result.ran is False
+        assert result.error == "already running"
+        get_periods.assert_not_called()

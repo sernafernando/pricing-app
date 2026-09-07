@@ -33,8 +33,11 @@ def main() -> int:
     logging.basicConfig(level=logging.INFO)
     result = run_billing_sweep()
     if not result.ran:
-        # `already running` is neither of those, and saying so sends
-        # whoever reads this log looking at the wrong thing.
+        # `result.error` cuando lo hay, y solo si no lo hay se asume
+        # "flag apagado o mal configurado". La distinción importa: un
+        # `already running` NO es ninguna de esas dos, y reportarlo como
+        # tal manda a quien lee el log a revisar la config cuando lo único
+        # que pasó es que la pasada anterior seguía corriendo.
         reason = result.error or "flag off or misconfigured"
         logger.info("sync_ml_billing: sweep did not run (%s)", reason)
         return 0

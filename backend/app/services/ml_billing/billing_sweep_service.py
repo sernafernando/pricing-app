@@ -182,15 +182,20 @@ def run_billing_sweep(group: str = BILLING_GROUP) -> BillingSweepResult:
         return BillingSweepResult(ran=False)
 
     now = datetime.now(timezone.utc)
-    period_key = _resolve_open_period_key(now)
 
     with get_background_db() as db:
         ensure_cursor_row(db, cursor_name=CURSOR_NAME)
         acquired = try_acquire_run_lock(db, now, cursor_name=CURSOR_NAME)
         if not acquired:
             logger.info("sync_ml_billing: another billing sweep run is already in flight, skipping this pass")
-            return BillingSweepResult(ran=False, error="already running", period_key=period_key)
+            return BillingSweepResult(ran=False, error="already running")
         db.commit()
+
+    # Después del lock, no antes: si dos crons se solapan, el segundo se va
+    # sin haber gastado una request del presupuesto de 5/minuto que es de
+    # toda la CUENTA. Ese gasto es justo lo que este módulo existe para
+    # evitar, y resolverlo antes del lock lo reintroducía por la ventana.
+    period_key = _resolve_open_period_key(now)
 
     result = BillingSweepResult(ran=True, period_key=period_key)
 
@@ -276,7 +281,12 @@ def run_billing_sweep(group: str = BILLING_GROUP) -> BillingSweepResult:
                     reported_total=total,
                     stored_total=stored_total,
                     documents_count_details=documents_count_details,
-                    swept_at=now,
+                    # El FIN del barrido, no el inicio: `now` se capturó
+                    # antes de ~19 páginas espaciadas 15s, o sea unos 5
+                    # minutos antes. En una tabla de reconciliación,
+                    # `swept_at` tiene que ser el momento en que los datos
+                    # quedaron consistentes.
+                    swept_at=datetime.now(timezone.utc),
                 )
                 db.commit()
     except Exception as e:  # noqa: BLE001 -- fail-closed: release the lock as errored, never leave it stuck
