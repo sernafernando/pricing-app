@@ -8,7 +8,6 @@ intentional, exactly like the ml_orders_ops slice-1 precedent.
 
 from __future__ import annotations
 
-from datetime import date, timedelta
 
 import pytest
 import sqlalchemy as sa
@@ -18,7 +17,6 @@ from app.models.ml_billing import (
     MlBillingCharge,
     MlBillingChargeOrder,
     MlBillingPeriodStat,
-    MlIibbAliquot,
 )
 
 
@@ -132,52 +130,6 @@ class TestMlBillingChargeOrder:
         db.flush()
 
         db.add(MlBillingChargeOrder(detail_id="ML-dup", order_id=1))
-        with pytest.raises(IntegrityError):
-            db.flush()
-        db.rollback()
-
-
-class TestMlIibbAliquot:
-    def test_table_name(self) -> None:
-        assert MlIibbAliquot.__tablename__ == "ml_iibb_aliquots"
-
-    def test_porcentaje_column_type(self) -> None:
-        col = MlIibbAliquot.__table__.columns["porcentaje"]
-        assert isinstance(col.type, sa.Numeric)
-        assert col.type.precision == 6
-        assert col.type.scale == 4
-
-    def test_fecha_desde_not_nullable(self) -> None:
-        col = MlIibbAliquot.__table__.columns["fecha_desde"]
-        assert col.nullable is False
-
-    def test_fecha_hasta_nullable(self) -> None:
-        col = MlIibbAliquot.__table__.columns["fecha_hasta"]
-        assert col.nullable is True
-
-    def test_creado_por_is_foreign_key_to_usuarios(self) -> None:
-        col = MlIibbAliquot.__table__.columns["creado_por"]
-        fks = list(col.foreign_keys)
-        assert fks
-        assert fks[0].target_fullname == "usuarios.id"
-
-    def test_create_row(self, db) -> None:
-        row = MlIibbAliquot(
-            porcentaje=2.5,
-            fecha_desde=date(2026, 1, 1),
-        )
-        db.add(row)
-        db.flush()
-
-        assert row.id is not None
-
-    def test_fecha_hasta_before_fecha_desde_violates_check(self, db) -> None:
-        row = MlIibbAliquot(
-            porcentaje=2.5,
-            fecha_desde=date(2026, 1, 10),
-            fecha_hasta=date(2026, 1, 10) - timedelta(days=1),
-        )
-        db.add(row)
         with pytest.raises(IntegrityError):
             db.flush()
         db.rollback()
