@@ -82,12 +82,19 @@ class BillingSweepResult:
     error: Optional[str] = None
 
 
-def _current_open_period_key(now: datetime) -> str:
-    """ML billing periods run from the 17th of a month to the 16th of the
-    next, named by the period's END month (investigation §3: the period
-    covering 17/08-16/09 is keyed `"2026-09-01"`). Computed locally instead
-    of calling `get_billing_periods` -- one fewer request against the
-    5/minute account-wide billing budget every single day."""
+def _derived_period_key(now: datetime) -> str:
+    """La clave del período abierto, DERIVADA de la fecha.
+
+    Es el FALLBACK, no la fuente. Los períodos de ML van del 17 de un mes
+    al 16 del siguiente y se nombran por el mes en que terminan (el que
+    cubre 17/08-16/09 tiene clave `"2026-09-01"`). Ese corte se sostiene en
+    los cuatro períodos que medimos, pero es una regla de negocio DE ML: si
+    la cambian, derivarla acá nos haría barrer un período equivocado en
+    silencio, y el chequeo de completitud compararía contra el total de
+    otro período.
+
+    `_resolve_open_period_key` pregunta primero; esto es lo que queda si esa
+    llamada falla."""
     if now.day <= 16:
         year, month = now.year, now.month
     else:
@@ -96,6 +103,41 @@ def _current_open_period_key(now: datetime) -> str:
             year += 1
             month = 1
     return f"{year:04d}-{month:02d}-01"
+
+
+def _resolve_open_period_key(now: datetime) -> str:
+    """Pregunta a ML cuál es el período abierto; deriva solo si no puede.
+
+    `get_billing_periods` devuelve `period_status` por período (`"OPEN"` /
+    `"CLOSED"`), así que la respuesta es autoritativa en vez de inferida.
+    Cuesta UNA request de las ~20 que hace el barrido, una vez por día:
+    barato al lado de barrer el período equivocado sin enterarse.
+
+    Si la llamada falla -- timeout, 429, proxy caído -- cae al derivado y lo
+    loguea, en vez de abortar la pasada entera por no poder confirmar algo
+    que casi siempre coincide.
+    """
+    derived = _derived_period_key(now)
+    try:
+        payload = resolve_maybe_async(ml_webhook_client.get_billing_periods("ML"))
+    except Exception as e:
+        logger.warning(f"sync_ml_billing: no se pudo consultar los períodos, uso el derivado {derived}: {e}")
+        return derived
+
+    results = (payload or {}).get("results") or []
+    for entry in results:
+        if isinstance(entry, dict) and entry.get("period_status") == "OPEN":
+            key = entry.get("key")
+            if key:
+                if key != derived:
+                    logger.warning(
+                        f"sync_ml_billing: ML dice que el período abierto es {key} y el derivado da "
+                        f"{derived} -- gana ML. Si esto se repite, el corte 17-16 cambió."
+                    )
+                return str(key)
+
+    logger.warning(f"sync_ml_billing: ML no marcó ningún período como OPEN, uso el derivado {derived}")
+    return derived
 
 
 def _insert_stmt(db, table):
@@ -140,7 +182,7 @@ def run_billing_sweep(group: str = BILLING_GROUP) -> BillingSweepResult:
         return BillingSweepResult(ran=False)
 
     now = datetime.now(timezone.utc)
-    period_key = _current_open_period_key(now)
+    period_key = _resolve_open_period_key(now)
 
     with get_background_db() as db:
         ensure_cursor_row(db, cursor_name=CURSOR_NAME)

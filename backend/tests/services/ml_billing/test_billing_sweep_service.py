@@ -214,12 +214,81 @@ class TestCompletenessStat:
 class TestOpenPeriodKey:
     def test_period_key_before_17th_is_current_month(self) -> None:
         now = datetime(2026, 9, 5, tzinfo=timezone.utc)
-        assert billing_sweep_service._current_open_period_key(now) == "2026-09-01"
+        assert billing_sweep_service._derived_period_key(now) == "2026-09-01"
 
     def test_period_key_on_or_after_17th_is_next_month(self) -> None:
         now = datetime(2026, 9, 17, tzinfo=timezone.utc)
-        assert billing_sweep_service._current_open_period_key(now) == "2026-10-01"
+        assert billing_sweep_service._derived_period_key(now) == "2026-10-01"
 
     def test_period_key_rolls_over_year(self) -> None:
         now = datetime(2026, 12, 20, tzinfo=timezone.utc)
-        assert billing_sweep_service._current_open_period_key(now) == "2027-01-01"
+        assert billing_sweep_service._derived_period_key(now) == "2027-01-01"
+
+
+class TestOpenPeriodComesFromMlNotFromArithmetic:
+    """El corte 17-16 es una regla de negocio DE ML. Derivarla acá haría
+    barrer un período equivocado en silencio el día que la cambien, y el
+    chequeo de completitud compararía contra el total de otro período.
+    `get_billing_periods` marca cuál está `OPEN`: cuesta UNA request de las
+    ~20 del barrido, una vez por día."""
+
+    def test_gana_el_period_status_open_de_ml_sobre_el_derivado(self) -> None:
+        from app.services.ml_billing import billing_sweep_service as svc
+
+        # ML dice que el abierto es otro (como si hubieran movido el corte)
+        payload = {
+            "results": [
+                {"key": "2026-10-01", "period_status": "OPEN"},
+                {"key": "2026-09-01", "period_status": "CLOSED"},
+            ]
+        }
+        with mock.patch.object(svc.ml_webhook_client, "get_billing_periods", return_value=payload):
+            resolved = svc._resolve_open_period_key(datetime(2026, 9, 7, tzinfo=timezone.utc))
+
+        assert resolved == "2026-10-01"
+        assert svc._derived_period_key(datetime(2026, 9, 7, tzinfo=timezone.utc)) == "2026-09-01"
+
+    def test_si_la_llamada_falla_cae_al_derivado_y_no_aborta(self) -> None:
+        from app.services.ml_billing import billing_sweep_service as svc
+
+        with mock.patch.object(svc.ml_webhook_client, "get_billing_periods", side_effect=RuntimeError("proxy caído")):
+            resolved = svc._resolve_open_period_key(datetime(2026, 9, 7, tzinfo=timezone.utc))
+
+        assert resolved == "2026-09-01"
+
+    def test_si_ml_no_marca_ninguno_como_open_cae_al_derivado(self) -> None:
+        from app.services.ml_billing import billing_sweep_service as svc
+
+        with mock.patch.object(svc.ml_webhook_client, "get_billing_periods", return_value={"results": []}):
+            resolved = svc._resolve_open_period_key(datetime(2026, 9, 7, tzinfo=timezone.utc))
+
+        assert resolved == "2026-09-01"
+
+    def test_el_barrido_consulta_el_periodo_que_ML_reporta_abierto(self, db) -> None:
+        """Cierra el hueco entre `_resolve_open_period_key` y quien lo usa.
+
+        Mutar el call site de vuelta al derivado no ponía ningún test en
+        rojo: la función estaba probada, pero nada verificaba que el barrido
+        la llamara. Un test que prueba una pieza sin probar que esté
+        enchufada deja pasar exactamente ese cambio.
+        """
+        periodos = {
+            "results": [
+                {"key": "2026-10-01", "period_status": "OPEN"},
+                {"key": "2026-09-01", "period_status": "CLOSED"},
+            ]
+        }
+        get_details = mock.AsyncMock(return_value=_page([_detail("D1")], total=1, offset=0))
+        with (
+            mock.patch.object(ml_webhook_client, "get_billing_periods", new=mock.AsyncMock(return_value=periodos)),
+            mock.patch.object(ml_webhook_client, "get_billing_details", new=get_details),
+            mock.patch.object(
+                ml_webhook_client, "get_billing_documents", new=mock.AsyncMock(return_value=_documents(1))
+            ),
+        ):
+            result = billing_sweep_service.run_billing_sweep()
+
+        # el período que pidió, no el que da la aritmética local
+        assert get_details.call_args.args[0] == "2026-10-01"
+        assert result.period_key == "2026-10-01"
+        assert db.query(MlBillingPeriodStat).one().period_key == "2026-10-01"
