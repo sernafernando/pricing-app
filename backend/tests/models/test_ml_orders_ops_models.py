@@ -173,6 +173,24 @@ class TestMlShipmentOps:
 
         assert shipment.shipment_id == 555
 
+    def test_cost_split_columns_exist(self) -> None:
+        """ml-ventas-desglose-costos corte 1: shipment-level cost split."""
+        columns = {c.name for c in MlShipmentOps.__table__.columns}
+        assert {"sender_cost", "receiver_cost", "costs_synced_at"}.issubset(columns)
+
+    def test_create_row_with_cost_split(self, db) -> None:
+        shipment = MlShipmentOps(
+            shipment_id=556,
+            order_id=2,
+            status="shipped",
+            sender_cost=100.50,
+            receiver_cost=0,
+        )
+        db.add(shipment)
+        db.flush()
+
+        assert shipment.sender_cost == pytest.approx(100.50)
+
 
 class TestMlOperationLink:
     def test_table_name(self) -> None:

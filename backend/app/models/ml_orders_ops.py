@@ -170,6 +170,12 @@ class MlShipmentOps(Base):
 
     last_synced_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
 
+    # ml-ventas-desglose-costos corte 1: shipment-level cost split. No
+    # writer yet -- populated by a later cut.
+    sender_cost = Column(Numeric(14, 2), nullable=True)
+    receiver_cost = Column(Numeric(14, 2), nullable=True)
+    costs_synced_at = Column(DateTime(timezone=True), nullable=True)
+
 
 class MlOperationLink(Base):
     """Link from a claim/question/message to its ML order.

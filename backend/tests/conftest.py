@@ -53,6 +53,12 @@ from app.models.ml_orders_ops import (  # noqa: F401 — registers tables for cr
     MlOpsSyncCursor,
     MlShipmentOps,
 )
+from app.models.ml_billing import (  # noqa: F401 — registers tables for create_all
+    MlBillingCharge,
+    MlBillingChargeOrder,
+    MlBillingPeriodStat,
+    MlIibbAliquot,
+)
 
 # ---------------------------------------------------------------------------
 # Token revocation test seam
