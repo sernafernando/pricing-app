@@ -108,6 +108,18 @@ class MlOrdersOps(Base):
 
     ingest_error = Column(Text, nullable=True)
 
+    # ml-ventas-desglose-costos corte 5, post-review fix: the ONLY retry
+    # gate for `order.payments[]` ingestion, mirroring
+    # `MlShipmentOps.costs_synced_at` (corte 1/4). NULL means "at least one
+    # of this order's payments is still missing/unsynced" -- independent
+    # of `ml_last_updated` staleness, exactly like the shipment cost gate.
+    # Without this column the trigger was `UpsertOutcome.OK`, a ONE-SHOT
+    # event: a payment fetch that failed on the same pass the order itself
+    # upserted successfully was never retried, because the next pass finds
+    # the order no longer stale and never asks for its payments again --
+    # the order silently ends up ingested with no net forever.
+    payments_synced_at = Column(DateTime(timezone=True), nullable=True)
+
     first_seen_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
     last_synced_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
 
