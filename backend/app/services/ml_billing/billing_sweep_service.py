@@ -20,9 +20,14 @@ overlapping cron invocation of the ORDERS sweep and this billing sweep
 never contend, because each holds its own row.
 
 ASSUMPTION -- NOT YET CONFIRMED BY THE USER: temporal scope is ONLY the
-currently OPEN billing period (computed locally from the 17th-to-16th
-period boundary, investigation §3 -- no extra request to
-`get_billing_periods` needed), re-swept ENTIRELY every day. There is no
+currently OPEN billing period, re-swept ENTIRELY every day.
+
+Which period is open is ASKED, not derived: `get_billing_periods` marks
+each one `OPEN`/`CLOSED`, and that costs one request out of the ~20 this
+sweep already makes. The 17th-to-16th boundary (investigation §3) survives
+only as the fallback in `_derived_period_key`, for when that call times
+out -- it is Mercado Libre's business rule, not ours, and deriving it would
+sweep the wrong period in silence the day they move it. There is no
 backfill of closed periods and no separate lag window: idempotent upsert
 on `detail_id` makes a full daily re-sweep of the open period free, and
 that subsumes the measured billing lag (median 1h, 99.5% within 24h, 100%
@@ -105,7 +110,7 @@ def _derived_period_key(now: datetime) -> str:
     return f"{year:04d}-{month:02d}-01"
 
 
-def _resolve_open_period_key(now: datetime) -> str:
+def _resolve_open_period_key(now: datetime, group: str) -> str:
     """Pregunta a ML cuál es el período abierto; deriva solo si no puede.
 
     `get_billing_periods` devuelve `period_status` por período (`"OPEN"` /
@@ -119,7 +124,7 @@ def _resolve_open_period_key(now: datetime) -> str:
     """
     derived = _derived_period_key(now)
     try:
-        payload = resolve_maybe_async(ml_webhook_client.get_billing_periods("ML"))
+        payload = resolve_maybe_async(ml_webhook_client.get_billing_periods(group))
     except Exception as e:
         logger.warning(f"sync_ml_billing: no se pudo consultar los períodos, uso el derivado {derived}: {e}")
         return derived
@@ -195,7 +200,7 @@ def run_billing_sweep(group: str = BILLING_GROUP) -> BillingSweepResult:
     # sin haber gastado una request del presupuesto de 5/minuto que es de
     # toda la CUENTA. Ese gasto es justo lo que este módulo existe para
     # evitar, y resolverlo antes del lock lo reintroducía por la ventana.
-    period_key = _resolve_open_period_key(now)
+    period_key = _resolve_open_period_key(now, group)
 
     result = BillingSweepResult(ran=True, period_key=period_key)
 

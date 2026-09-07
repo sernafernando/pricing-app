@@ -524,6 +524,19 @@ class MLWebhookClient:
             period_key: Clave del período (ej: "2026-09-01").
             group: `"ML"` o `"MP"`.
 
+        OJO -- ESTE RECURSO NO ESTÁ SCOPEADO POR GRUPO. El path de ML no
+        lleva `group`, así que el conteo abarca TODOS los grupos del
+        período. `group` se sigue validando (llega de un llamador que lo
+        deriva, y validar barato es mejor que confiar) pero NO cambia la
+        respuesta.
+
+        Consecuencia directa: `count_details` NO es comparable contra el
+        `paging.total` de los detalles de un solo grupo. Esa comparación no
+        puede cerrar por construcción, y es candidata a explicar la
+        discrepancia de 329 que la investigación dejó abierta (18.414 de
+        `documents` contra 18.743 del detalle de `group=ML`). Por eso el
+        barrido lo guarda como OBSERVACIÓN y nunca como alarma.
+
         Returns:
             Dict crudo `{documents: [...]}`, o None si hay error/timeout.
         """

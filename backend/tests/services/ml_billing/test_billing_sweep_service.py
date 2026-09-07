@@ -272,7 +272,7 @@ class TestOpenPeriodComesFromMlNotFromArithmetic:
             ]
         }
         with mock.patch.object(svc.ml_webhook_client, "get_billing_periods", return_value=payload):
-            resolved = svc._resolve_open_period_key(datetime(2026, 9, 7, tzinfo=timezone.utc))
+            resolved = svc._resolve_open_period_key(datetime(2026, 9, 7, tzinfo=timezone.utc), "ML")
 
         assert resolved == "2026-10-01"
         assert svc._derived_period_key(datetime(2026, 9, 7, tzinfo=timezone.utc)) == "2026-09-01"
@@ -281,7 +281,7 @@ class TestOpenPeriodComesFromMlNotFromArithmetic:
         from app.services.ml_billing import billing_sweep_service as svc
 
         with mock.patch.object(svc.ml_webhook_client, "get_billing_periods", side_effect=RuntimeError("proxy caído")):
-            resolved = svc._resolve_open_period_key(datetime(2026, 9, 7, tzinfo=timezone.utc))
+            resolved = svc._resolve_open_period_key(datetime(2026, 9, 7, tzinfo=timezone.utc), "ML")
 
         assert resolved == "2026-09-01"
 
@@ -289,7 +289,7 @@ class TestOpenPeriodComesFromMlNotFromArithmetic:
         from app.services.ml_billing import billing_sweep_service as svc
 
         with mock.patch.object(svc.ml_webhook_client, "get_billing_periods", return_value={"results": []}):
-            resolved = svc._resolve_open_period_key(datetime(2026, 9, 7, tzinfo=timezone.utc))
+            resolved = svc._resolve_open_period_key(datetime(2026, 9, 7, tzinfo=timezone.utc), "ML")
 
         assert resolved == "2026-09-01"
 
@@ -362,3 +362,22 @@ class TestLockIsAlwaysReleased:
         assert result.ran is False
         assert result.error == "already running"
         get_periods.assert_not_called()
+
+    def test_el_grupo_del_barrido_llega_a_la_consulta_de_periodos(self) -> None:
+        """`run_billing_sweep(group=...)` aceptaba el grupo y adentro
+        preguntaba por "ML" hardcodeado: con `group="MP"` resolvía el
+        período abierto de ML y después pedía los detalles de MP con esa
+        clave. Silencioso, y ningún test lo agarraba porque todos usaban el
+        default."""
+        get_periods = mock.AsyncMock(return_value={"results": [{"key": "2026-09-01", "period_status": "OPEN"}]})
+        get_details = mock.AsyncMock(return_value=_page([], total=0, offset=0))
+        with (
+            mock.patch.object(ml_webhook_client, "get_billing_periods", new=get_periods),
+            mock.patch.object(ml_webhook_client, "get_billing_details", new=get_details),
+            mock.patch.object(
+                ml_webhook_client, "get_billing_documents", new=mock.AsyncMock(return_value=_documents(0))
+            ),
+        ):
+            billing_sweep_service.run_billing_sweep(group="MP")
+
+        assert get_periods.call_args.args[0] == "MP"
