@@ -185,6 +185,58 @@ def _payment_effective_net(payment: MlPaymentOps, seller_charges: Sequence[MlPay
     return net - refunded_total + seller_refunded
 
 
+def compute_neto_by_order_ids(db: Session, order_ids: Sequence[int]) -> Dict[int, Optional[Decimal]]:
+    """Bulk `neto` for every order in `order_ids`, in exactly two queries
+    regardless of how many order_ids are passed in.
+
+    This exists for the sales LISTING (`GET /ml-ventas-ops/sales`), which
+    pages up to 200 rows: calling `compute_breakdown` once per row would be
+    hundreds of queries per request. This function applies the exact same
+    rule instead -- `_RELEVANT_PAYMENT_STATUSES`, `_is_seller_charge`,
+    `_payment_effective_net` are the SAME predicates `compute_breakdown`
+    uses, imported/reused here, never reimplemented -- but resolves it with
+    two bulk queries scoped to every `order_id` on the page at once,
+    mirroring `listar_ventas`'s own `members_base` pattern (page the keys,
+    then fetch every member in bulk).
+
+    `None` for an order_id with no synced payment rows at all -- a sale
+    still waiting on the sweep, never conflated with a returned sale's
+    real, measured ZERO. An order with at least one payment row (even one
+    later excluded, e.g. `rejected`) resolves to a Decimal, matching
+    `compute_breakdown`'s own `neto=neto if payments else None`.
+    """
+    order_ids = list(order_ids)
+    result: Dict[int, Optional[Decimal]] = dict.fromkeys(order_ids)
+    if not order_ids:
+        return result
+
+    payments = db.query(MlPaymentOps).filter(MlPaymentOps.order_id.in_(order_ids)).all()
+    payments_by_order: Dict[int, List[MlPaymentOps]] = {}
+    for payment in payments:
+        payments_by_order.setdefault(payment.order_id, []).append(payment)
+
+    relevant_payments = [p for p in payments if p.status in _RELEVANT_PAYMENT_STATUSES]
+    payment_ids = [p.payment_id for p in relevant_payments]
+
+    charges: List[MlPaymentCharge] = []
+    if payment_ids:
+        charges = db.query(MlPaymentCharge).filter(MlPaymentCharge.payment_id.in_(payment_ids)).all()
+    charges_by_payment: Dict[int, List[MlPaymentCharge]] = {}
+    for charge in charges:
+        charges_by_payment.setdefault(charge.payment_id, []).append(charge)
+
+    for order_id, order_payments in payments_by_order.items():
+        order_relevant = [p for p in order_payments if p.status in _RELEVANT_PAYMENT_STATUSES]
+        neto = Decimal("0")
+        for payment in order_relevant:
+            payment_charges = charges_by_payment.get(payment.payment_id, [])
+            seller_charges = [c for c in payment_charges if _is_seller_charge(c.type, c.name)]
+            neto += _payment_effective_net(payment, seller_charges)
+        result[order_id] = neto
+
+    return result
+
+
 def compute_breakdown(db: Session, order_ids: Sequence[int]) -> OperationBreakdown:
     """The cost breakdown for a sale -- one order, or every order sharing a
     pack (caller resolves which order_ids belong together, mirroring
