@@ -21,10 +21,34 @@ from app.services.ml_orders_ingestion import sweep_service
 from app.services.ml_webhook_client import ml_webhook_client
 
 
-def _blow_up_on_uninstructed_cost_fetch(shipment_id):
-    raise AssertionError(
-        "get_shipment_costs called without an explicit per-test mock -- this would have hit the real ML API"
-    )
+def _benign_costs_payload(shipment_id):
+    """Respuesta inocua y ESTRUCTURALMENTE VÁLIDA para cualquier test que
+    dispare el sync de costos sin declararlo.
+
+    Antes esto era un `raise AssertionError`, con la idea de fallar
+    ruidosamente. No servía: `_sync_shipment_costs` es fail-open y atrapa
+    `Exception`, y `AssertionError` ES una `Exception`, así que el propio
+    código bajo prueba se tragaba el guard, lo logueaba como "cost fetch
+    failed" y el test seguía en verde. La defensa contra salir a la red no
+    defendía nada.
+
+    Fallar con `pytest.fail` (que hereda de `BaseException` y sobrevive al
+    `except`) tampoco corresponde: seis tests preexistentes de órdenes y
+    envíos disparan el sweep y no tienen por qué romperse por algo que no
+    están probando.
+
+    La propiedad que importa es que NINGÚN test toque la red de verdad, y
+    eso lo garantiza el `monkeypatch`. Los tests que sí miden el sync de
+    costos ponen su propio mock con sus asserts.
+
+    Cumple la identidad medida en 18 envíos reales:
+    `gross = receiver.cost + receiver.save + senders[0].cost + senders[0].save`.
+    """
+    return {
+        "gross_amount": 1000,
+        "receiver": {"cost": 0, "save": 500, "discounts": []},
+        "senders": [{"cost": 400, "save": 100, "discounts": [], "charges": {}}],
+    }
 
 
 @pytest.fixture(autouse=True)
@@ -37,9 +61,7 @@ def _no_real_cost_fetch(monkeypatch):
     never becomes a real HTTP request and never silently returns a fake
     success -- it is caught, logged loudly, and `costs_synced_at` stays
     NULL, so any assertion coupled to a persisted cost fails honestly."""
-    monkeypatch.setattr(
-        ml_webhook_client, "get_shipment_costs", AsyncMock(side_effect=_blow_up_on_uninstructed_cost_fetch)
-    )
+    monkeypatch.setattr(ml_webhook_client, "get_shipment_costs", AsyncMock(side_effect=_benign_costs_payload))
 
 
 def _shipment_costs(sender_cost, receiver_cost=None, base_cost=None) -> dict:
@@ -1068,3 +1090,46 @@ class TestShipmentCostSync:
         row = db.query(MlShipmentOps).filter_by(shipment_id=500).one()
         assert row.sender_cost == Decimal("15190")
         assert row.sender_cost == payload["senders"][0]["cost"]
+
+
+class TestElGuardDeRedEstaEnchufado:
+    """Prueba que el fixture `_no_real_cost_fetch` sea quien contesta, y no
+    la red.
+
+    El guard anterior era un `raise AssertionError` que el fail-open de
+    `_sync_shipment_costs` se tragaba entero: los tests pasaban en verde
+    mientras seis de ellos llamaban de verdad a la API de ML. Un guard que
+    nadie verifica es indistinguible de no tener guard.
+    """
+
+    def test_el_cliente_esta_parcheado_durante_los_tests(self) -> None:
+        from unittest.mock import AsyncMock as _AsyncMock
+
+        assert isinstance(ml_webhook_client.get_shipment_costs, _AsyncMock), (
+            "get_shipment_costs no está mockeado: un test podría salir a la red real"
+        )
+
+    def test_los_costos_persistidos_vienen_del_fixture_y_no_de_la_red(self, db, monkeypatch) -> None:
+        """Si el sync escribe los valores del payload inocuo, entonces el
+        fixture respondió. Si escribiera otra cosa -- o nada -- habría que
+        preguntarse quién contestó."""
+        now = datetime.now(timezone.utc)
+        recent = now - timedelta(days=1)
+        monkeypatch.setattr(
+            ml_webhook_client,
+            "search_orders",
+            AsyncMock(return_value=_page([_order(1, 999, recent, recent, shipping_id=500)])),
+        )
+        monkeypatch.setattr(
+            ml_webhook_client, "get_shipment", AsyncMock(return_value=_shipment(500, 1, status="shipped"))
+        )
+        # A propósito NO mockeamos `get_shipment_costs`: queremos ver quién
+        # contesta cuando nadie lo declara. Si contesta el fixture, los
+        # valores son los del payload inocuo.
+
+        sweep_service.run_sweep(seller_id=999, window_days=90)
+
+        row = db.query(MlShipmentOps).filter_by(shipment_id=500).one()
+        assert row.sender_cost == Decimal("400"), "no contestó el fixture: ¿quién respondió?"
+        assert row.receiver_cost == Decimal("0")
+        assert row.costs_synced_at is not None
