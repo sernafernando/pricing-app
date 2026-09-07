@@ -241,10 +241,9 @@ def run_billing_sweep(group: str = BILLING_GROUP) -> BillingSweepResult:
                 # objeto `paging`: leerlo de ahí daba None SIEMPRE, y con
                 # None el chequeo de completitud de abajo no comparaba
                 # nada -- callado, que es la peor forma de no funcionar.
+                # Sin fallback a `paging` a propósito: dejarlo mantendría
+                # viva la creencia que este arreglo viene a enterrar.
                 page_total = page.get("total")
-                if not isinstance(page_total, int):
-                    paging = page.get("paging") or {}
-                    page_total = paging.get("total")
                 if isinstance(page_total, int):
                     total = page_total
 

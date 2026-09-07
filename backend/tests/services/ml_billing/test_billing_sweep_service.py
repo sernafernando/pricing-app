@@ -19,7 +19,7 @@ import pytest
 from app.core.config import settings
 from app.models.ml_billing import MlBillingCharge, MlBillingChargeOrder, MlBillingPeriodStat
 from app.services.ml_billing import billing_sweep_service
-from app.services.ml_webhook_client import ml_webhook_client
+from app.services.ml_webhook_client import _validate_from_id, ml_webhook_client
 
 
 def _fake_ctx(db):
@@ -77,7 +77,15 @@ def _no_real_sleep(monkeypatch):
     monkeypatch.setattr(billing_sweep_service.time, "sleep", mock.Mock())
 
 
+# Los `detail_id` de ML son ENTEROS (medido: 70714313961). Un "D1" no
+# solo no existe: `_validate_from_id` lo rechazaría, y el test verde no
+# lo vería nunca porque el cliente está mockeado. Es exactamente la
+# trampa del `paging` inventado, una vuelta más arriba.
+_DETAIL_IDS = {"D1": 70714313961, "D2": 70714313962, "D3": 70714313963}
+
+
 def _detail(detail_id: str, amount: str = "100.00", order_id: int = 2000018265495500) -> dict:
+    detail_id = _DETAIL_IDS.get(detail_id, detail_id)
     return {
         "charge_info": {
             "detail_id": detail_id,
@@ -488,5 +496,28 @@ class TestFromIdPagination:
         # The cursor starts at 0 and then carries the previous page's
         # last_id. `offset` must not be how this paginates any more.
         assert primera.get("from_id") == 0
-        assert segunda.get("from_id") == "D2"
+        assert segunda.get("from_id") == _DETAIL_IDS["D2"]
         assert "offset" not in primera and "offset" not in segunda
+
+
+class TestCursorSurvivesTheRealValidator:
+    """Mocking `get_billing_details` hides `_validate_from_id`.
+
+    Every pagination test here mocks the client, so the cursor never
+    reaches the validator that guards it in production. A fixture with
+    an invented `detail_id` would stay green while the real sweep died
+    on its second page -- the same blind spot that let the `paging`
+    wrapper live for three merged cuts.
+    """
+
+    def test_a_real_last_id_is_accepted_by_the_client_validator(self) -> None:
+        page = _page([_detail("D1")], total=2)
+        assert _validate_from_id(page["last_id"]) == str(_DETAIL_IDS["D1"])
+        assert _validate_from_id(0) == "0"
+
+    def test_a_cursor_that_is_not_an_id_fails_loud_before_any_http(self) -> None:
+        # Devolver None lo haría indistinguible de un timeout y el
+        # barrido seguiría creyendo que el período vino vacío.
+        for basura in ("D2", "1 OR 1=1", "", "12&limit=1"):
+            with pytest.raises(ValueError):
+                _validate_from_id(basura)
