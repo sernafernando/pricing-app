@@ -174,6 +174,17 @@ def _has_ganancia(current_user: Usuario, db: Session) -> bool:
     return svc.tiene_permiso(current_user, "dashboard_tplink.ver_ganancia")
 
 
+def _has_ganancia_productos(current_user: Usuario, db: Session) -> bool:
+    """Return True if the user can see ganancia/markup on the Top Productos tables.
+
+    Separate from `_has_ganancia`: the per-product margin is currently
+    miscalculated, so it is gated by its own permission and stays hidden until
+    the calculation is fixed.
+    """
+    svc = PermisosService(db)
+    return svc.tiene_permiso(current_user, "dashboard_tplink.ver_ganancia_productos")
+
+
 # ---------------------------------------------------------------------------
 # Endpoints
 # ---------------------------------------------------------------------------
@@ -406,7 +417,7 @@ def get_top_productos_tplink(
 ) -> List[TopProductoTPLinkResponse]:
     """
     Top-selling products for the TP-Link brand.
-    Store locked to 2645. Margin fields gated by .ver_ganancia.
+    Store locked to 2645. Margin fields gated by .ver_ganancia_productos.
     """
     query = db.query(
         TplinkVentaMetrica.item_id,
@@ -435,7 +446,7 @@ def get_top_productos_tplink(
         .all()
     )
 
-    show_ganancia = _has_ganancia(current_user, db)
+    show_ganancia = _has_ganancia_productos(current_user, db)
 
     return [
         TopProductoTPLinkResponse(
