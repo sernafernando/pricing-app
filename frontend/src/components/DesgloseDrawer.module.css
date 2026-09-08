@@ -1,0 +1,147 @@
+/* A MODAL anchored to the right edge. `.overlay` is fixed over the whole
+   viewport on the modal backdrop layer, so the table behind it is not
+   operable -- which is why the component carries `aria-modal`, a focus
+   trap and focus restore. An earlier version of this header called it a
+   non-blocking panel; the CSS never behaved that way. */
+
+.overlay {
+  position: fixed;
+  inset: 0;
+  background: var(--bg-overlay);
+  display: flex;
+  justify-content: flex-end;
+  z-index: var(--z-modal-backdrop, 1040);
+}
+
+.drawer {
+  width: 420px;
+  max-width: 100%;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg-primary);
+  border-left: 1px solid var(--border-primary);
+  box-shadow: var(--cf-shadow-modal);
+  overflow-y: auto;
+}
+
+.header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: var(--spacing-md);
+  border-bottom: 1px solid var(--border-primary);
+}
+
+.title {
+  margin: 0;
+  font-size: var(--font-lg);
+  font-weight: var(--font-semibold);
+  color: var(--text-primary);
+}
+
+.closeButton {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  color: var(--text-secondary);
+  background: none;
+  border: none;
+  border-radius: var(--radius-md);
+  cursor: pointer;
+}
+
+.closeButton:hover {
+  color: var(--text-primary);
+  background: var(--bg-hover);
+}
+
+.body {
+  padding: var(--spacing-md);
+}
+
+.stateText {
+  color: var(--text-tertiary);
+  font-size: var(--font-sm);
+}
+
+.incompleteBanner {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-2);
+  padding: var(--space-3);
+  margin-bottom: var(--spacing-md);
+  font-size: var(--font-sm);
+  color: var(--warning-text, var(--text-primary));
+  background: var(--warning-bg, var(--bg-secondary));
+  border: 1px solid var(--warning);
+  border-radius: var(--radius-md);
+}
+
+.incompleteBanner p {
+  margin: 0;
+}
+
+.incompleteBanner p + p {
+  margin-top: var(--space-1);
+}
+
+.lineList {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.line {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: var(--space-2) 0;
+  border-bottom: 1px solid var(--border-primary);
+  font-size: var(--font-sm);
+  color: var(--text-primary);
+}
+
+.lineConcepto {
+  color: var(--text-secondary);
+}
+
+.lineMonto {
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+
+.total {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-top: var(--spacing-md);
+  padding: var(--space-3);
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-primary);
+  border-radius: var(--radius-md);
+}
+
+/* An incomplete breakdown's total is never allowed to look closed --
+   the warning border/background carry that signal instead of hiding or
+   rounding the number underneath. */
+.totalIncomplete {
+  background: var(--warning-bg, var(--bg-secondary));
+  border-color: var(--warning);
+}
+
+.totalLabel {
+  font-size: var(--font-sm);
+  font-weight: var(--font-semibold);
+  color: var(--text-primary);
+}
+
+.totalMonto {
+  font-size: var(--font-lg);
+  font-weight: var(--font-semibold);
+  font-variant-numeric: tabular-nums;
+  color: var(--text-primary);
+}

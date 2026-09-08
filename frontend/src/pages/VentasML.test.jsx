@@ -91,6 +91,7 @@ function asGroup(order) {
     shipping_status: order.shipping_status,
     operation_status: order.operation_status,
     goods_status: order.goods_status,
+    neto: order.neto,
     orders: [order],
   };
 }
@@ -102,6 +103,12 @@ function packOf(orders, packId) {
     date_created: orders[0].date_created,
     buyer_nickname: orders[0].buyer_nickname,
     total_amount: orders.reduce((sum, o) => sum + o.total_amount, 0),
+    // The backend sums the members' nets for the group row; without this
+    // every pack rendered `—` in Neto and no test could tell the
+    // difference -- a blind spot in the very column this feature adds.
+    neto: orders.every((o) => o.neto != null)
+      ? orders.reduce((sum, o) => sum + o.neto, 0)
+      : null,
     currency_id: orders[0].currency_id,
     shipping_status: orders[0].shipping_status,
     operation_status: orders[0].operation_status,
@@ -455,6 +462,70 @@ describe('A pack is one row', () => {
 
     expect(await screen.findByText('ELIAADRIANAREYES')).toBeInTheDocument();
   });
+
+  it("shows the pack's own net on its row, and each member's on theirs", async () => {
+    // The only Neto path covered was the lone-order one. A pack row takes
+    // a different branch, and until `packOf` carried `neto` at all every
+    // pack rendered a dash that nothing could contradict.
+    const user = userEvent.setup();
+    mockSalesList([
+      packOf(
+        [
+          { ...PACK_A1, neto: 60 },
+          { ...PACK_A2, neto: 40 },
+        ],
+        2000014816536209,
+      ),
+    ]);
+
+    await renderWithRouter(<VentasML />);
+
+    const toggle = await screen.findByRole('button', { name: /Pack 2000014816536209/ });
+    // The group row carries the sum of its members.
+    expect(await screen.findByRole('button', { name: 'Ver desglose de costos' })).toHaveTextContent(
+      '100,00',
+    );
+
+    await user.click(toggle);
+    const netoButtons = await screen.findAllByRole('button', { name: 'Ver desglose de costos' });
+    const textos = netoButtons.map((b) => b.textContent);
+    expect(textos.some((t) => t.includes('60,00'))).toBe(true);
+    expect(textos.some((t) => t.includes('40,00'))).toBe(true);
+  });
+
+  it('opening a pack does NOT also open the breakdown drawer', async () => {
+    // The toggle lives inside a row whose own onClick opens the drawer,
+    // so it calls stopPropagation. Nothing covered that: delete the call
+    // and every other test stays green while the operator gets a panel
+    // they never asked for on top of the orders they wanted to see.
+    const pack = packOf([PACK_A1, PACK_A2], 2000014816536209);
+    const user = userEvent.setup();
+    api.get.mockImplementation((url) => {
+      if (url === '/ml-ventas-ops/sales') {
+        return Promise.resolve({
+          data: {
+            sales: [pack],
+            total: 1,
+            limit: 50,
+            offset: 0,
+            facets: { operation_status: {}, goods_status: {} },
+          },
+        });
+      }
+      return Promise.resolve({ data: {} });
+    });
+
+    await renderWithRouter(<VentasML />);
+
+    const toggle = await screen.findByRole('button', { name: /Pack 2000014816536209/ });
+    await user.click(toggle);
+
+    // The orders are revealed...
+    expect(await screen.findByText('2000018230951686')).toBeInTheDocument();
+    // ...and no breakdown was ever requested.
+    expect(api.get).not.toHaveBeenCalledWith(expect.stringContaining('/ml-ventas-ops/orders/'));
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+  });
 });
 
 describe('The "Todas" chip follows the same arithmetic as the chips beside it', () => {
@@ -482,6 +553,76 @@ describe('The "Todas" chip follows the same arithmetic as the chips beside it', 
     expect(within(operationGroup).getByRole('button', { name: 'Todas · 10' })).toBeInTheDocument();
     expect(within(operationGroup).queryByRole('button', { name: 'Todas · 11' })).not.toBeInTheDocument();
     expect(within(operationGroup).queryByRole('button', { name: 'Todas · 1' })).not.toBeInTheDocument();
+  });
+});
+
+describe('The Neto column', () => {
+  it('shows a dash when neto is null — payments have not synced yet, not zero', async () => {
+    mockSalesList([{ ...PAID_SALE, neto: null }]);
+    await renderWithRouter(<VentasML />);
+    await waitFor(() => expect(screen.getByText('comprador1')).toBeInTheDocument());
+
+    const row = screen.getByText('comprador1').closest('tr');
+    expect(within(row).getByText('—')).toBeInTheDocument();
+  });
+
+  it('shows a real zero when neto is 0 — a fully returned sale, never a dash', async () => {
+    mockSalesList([{ ...PAID_SALE, neto: 0 }]);
+    await renderWithRouter(<VentasML />);
+    await waitFor(() => expect(screen.getByText('comprador1')).toBeInTheDocument());
+
+    const row = screen.getByText('comprador1').closest('tr');
+    expect(within(row).getByText('0,00 ARS')).toBeInTheDocument();
+  });
+
+  it('formats a positive neto like the other money columns', async () => {
+    mockSalesList([{ ...PAID_SALE, neto: 82.5 }]);
+    await renderWithRouter(<VentasML />);
+    await waitFor(() => expect(screen.getByText('comprador1')).toBeInTheDocument());
+
+    const row = screen.getByText('comprador1').closest('tr');
+    expect(within(row).getByText('82,50 ARS')).toBeInTheDocument();
+  });
+});
+
+describe('Opening the cost breakdown drawer', () => {
+  it('opens the drawer when a lone-order row is clicked, fetching its breakdown', async () => {
+    mockSalesList([{ ...PAID_SALE, neto: 100 }]);
+    api.get.mockImplementation((url) => {
+      if (url === '/ml-ventas-ops/sales') {
+        return Promise.resolve({
+          data: {
+            sales: [asGroup({ ...PAID_SALE, neto: 100 })],
+            total: 1,
+            limit: 50,
+            offset: 0,
+            facets: { operation_status: {}, goods_status: {} },
+          },
+        });
+      }
+      if (url === '/ml-ventas-ops/orders/1001') {
+        return Promise.resolve({
+          data: {
+            breakdown: {
+              lines: [{ concepto: 'Cargo por vender', monto: 12.5, origen: 'api' }],
+              neto: 87.5,
+              incompleto: false,
+              incomplete_reasons: [],
+            },
+          },
+        });
+      }
+      return Promise.resolve({ data: {} });
+    });
+    const user = userEvent.setup();
+    await renderWithRouter(<VentasML />);
+    await waitFor(() => expect(screen.getByText('comprador1')).toBeInTheDocument());
+
+    await user.click(screen.getByText('comprador1').closest('tr'));
+
+    expect(await screen.findByRole('dialog', { name: /desglose de costos/i })).toBeInTheDocument();
+    expect(await screen.findByText('Cargo por vender')).toBeInTheDocument();
+    expect(api.get).toHaveBeenCalledWith('/ml-ventas-ops/orders/1001');
   });
 });
 
