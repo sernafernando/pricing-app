@@ -9,11 +9,13 @@ OTHER active filter, and the grouping of a pack's orders into one row.
 from __future__ import annotations
 
 from datetime import datetime, timezone
+from decimal import Decimal
 
 import pytest
 
 from app.core.config import settings
 from app.models.ml_orders_ops import MlOrdersOps, MlShipmentOps
+from app.models.ml_payments import MlPaymentCharge, MlPaymentOps
 from app.models.permiso import Permiso, RolPermisoBase
 from app.models.rma_claim_ml import RmaClaimML
 from app.services.ml_orders_ingestion.link_resolver_service import resolve_links
@@ -485,6 +487,154 @@ class TestAFilterNeverSplitsAPack:
         assert sorted(o["order_id"] for o in body["sales"][0]["orders"]) == [1001, 1002]
 
 
+def _payment(
+    db,
+    payment_id: int,
+    order_id: int,
+    status: str = "approved",
+    net_received_amount=None,
+    transaction_amount_refunded=None,
+) -> None:
+    db.add(
+        MlPaymentOps(
+            payment_id=payment_id,
+            order_id=order_id,
+            status=status,
+            net_received_amount=net_received_amount,
+            transaction_amount_refunded=transaction_amount_refunded,
+        )
+    )
+
+
+def _charge(db, payment_id: int, name: str, type_: str, amount, refunded=None) -> None:
+    db.add(
+        MlPaymentCharge(
+            payment_id=payment_id,
+            name=name,
+            type=type_,
+            amount=amount,
+            refunded=refunded,
+        )
+    )
+
+
+class TestNetoInListing:
+    """`neto` on `SaleListItem`/`SaleGroup` (ml-neto-en-listado). The rule
+    itself is `compute_breakdown`'s (obs #1960/#1966); these tests pin that
+    the listing reuses it, never a second copy, and never per-row queries.
+    """
+
+    def test_two_approved_payments_are_summed(self, db, client, admin_auth_headers, rol_admin):
+        """Order 2000018322969636 -- two approved payments split the total."""
+        _grant_ml_ops_ver(db, rol_admin)
+        order_id = 2000018322969636
+        _seed_order(db, order_id, date_created=datetime(2026, 9, 1, tzinfo=timezone.utc))
+        _payment(db, 1, order_id, status="approved", net_received_amount=Decimal("7371.11"))
+        _payment(db, 2, order_id, status="approved", net_received_amount=Decimal("12528.89"))
+        db.commit()
+
+        body = client.get("/api/ml-ventas-ops/sales", headers=admin_auth_headers).json()
+
+        sale = _group_holding(body, order_id)
+        assert sale["neto"] == pytest.approx(19900.00)
+        assert sale["orders"][0]["neto"] == pytest.approx(19900.00)
+
+    def test_fully_refunded_sale_nets_exactly_zero(self, db, client, admin_auth_headers, rol_admin):
+        """The reported `net_received_amount` stays positive even though
+        everything was refunded -- the listing must not show that lie."""
+        _grant_ml_ops_ver(db, rol_admin)
+        order_id = 2000018325540962
+        _seed_order(db, order_id, date_created=datetime(2026, 9, 1, tzinfo=timezone.utc))
+        _payment(
+            db,
+            20,
+            order_id,
+            status="refunded",
+            net_received_amount=Decimal("27614.00"),
+            transaction_amount_refunded=Decimal("29000.00"),
+        )
+        _charge(db, 20, "meli_percentage_fee", "fee", Decimal("1386.00"), refunded=Decimal("1386.00"))
+        db.commit()
+
+        body = client.get("/api/ml-ventas-ops/sales", headers=admin_auth_headers).json()
+
+        sale = _group_holding(body, order_id)
+        assert sale["neto"] == pytest.approx(0.0)
+
+    def test_order_without_synced_payments_has_neto_none(self, db, client, admin_auth_headers, rol_admin):
+        """`None`, never a fabricated zero -- a zero means "returned", not
+        "not synced yet"."""
+        _grant_ml_ops_ver(db, rol_admin)
+        _seed_order(db, 55, date_created=datetime(2026, 9, 1, tzinfo=timezone.utc))
+        db.commit()
+
+        body = client.get("/api/ml-ventas-ops/sales", headers=admin_auth_headers).json()
+
+        sale = _group_holding(body, 55)
+        assert sale["neto"] is None
+        assert sale["orders"][0]["neto"] is None
+
+    def test_pack_neto_is_sum_of_its_orders(self, db, client, admin_auth_headers, rol_admin):
+        _grant_ml_ops_ver(db, rol_admin)
+        when = datetime(2026, 9, 1, tzinfo=timezone.utc)
+        _seed_order(db, 61001, pack_id=61000, date_created=when)
+        _seed_order(db, 61002, pack_id=61000, date_created=when)
+        _payment(db, 61, 61001, status="approved", net_received_amount=Decimal("1000.00"))
+        _payment(db, 62, 61002, status="approved", net_received_amount=Decimal("500.00"))
+        db.commit()
+
+        body = client.get("/api/ml-ventas-ops/sales", headers=admin_auth_headers).json()
+
+        pack = _group_holding(body, 61001)
+        assert pack["neto"] == pytest.approx(1500.00)
+
+    def test_buyer_charge_does_not_alter_neto(self, db, client, admin_auth_headers, rol_admin):
+        """A buyer-paid `financing_fee` refunded alongside a partial return
+        must NOT be folded into `seller_refunded` -- only a SELLER charge's
+        `refunded` is added back by the formula. If the exclusion were
+        dropped, the buyer charge's 40 would wrongly cancel out the 50
+        refunded, and neto would read 100 instead of 60."""
+        _grant_ml_ops_ver(db, rol_admin)
+        order_id = 71
+        _seed_order(db, order_id, date_created=datetime(2026, 9, 1, tzinfo=timezone.utc))
+        _payment(
+            db,
+            71,
+            order_id,
+            status="refunded",
+            net_received_amount=Decimal("100.00"),
+            transaction_amount_refunded=Decimal("50.00"),
+        )
+        _charge(db, 71, "meli_percentage_fee", "fee", Decimal("10.00"), refunded=Decimal("10.00"))
+        _charge(db, 71, "financing_fee", "fee", Decimal("40.00"), refunded=Decimal("40.00"))
+        db.commit()
+
+        body = client.get("/api/ml-ventas-ops/sales", headers=admin_auth_headers).json()
+
+        sale = _group_holding(body, order_id)
+        assert sale["neto"] == pytest.approx(60.00)
+
+    def test_listing_does_not_query_payments_per_row(self, db, client, admin_auth_headers, rol_admin, query_counter):
+        """The whole point of the design: batched, not N+1. Regardless of
+        how many rows the page holds, `ml_payments_ops`/`ml_payment_charges`
+        are each queried AT MOST once."""
+        _grant_ml_ops_ver(db, rol_admin)
+        when = datetime(2026, 9, 1, tzinfo=timezone.utc)
+        for i in range(5):
+            order_id = 81000 + i
+            _seed_order(db, order_id, date_created=when)
+            _payment(db, 81000 + i, order_id, status="approved", net_received_amount=Decimal("100.00"))
+            _charge(db, 81000 + i, "meli_percentage_fee", "fee", Decimal("10.00"))
+        db.commit()
+
+        with query_counter() as counter:
+            resp = client.get("/api/ml-ventas-ops/sales", headers=admin_auth_headers)
+        assert resp.status_code == 200
+
+        assert counter.matching("ml_payments_ops") <= 1
+        assert counter.matching("ml_payment_charges") <= 1
+
+
 class TestMixedCurrencyPack:
     def test_a_pack_across_two_currencies_reports_no_amount_at_all(self, db, client, admin_auth_headers, rol_admin):
         """Adding ARS to USD produces a number that means nothing. Dropping
@@ -501,3 +651,28 @@ class TestMixedCurrencyPack:
 
         assert group["currency_id"] is None
         assert group["total_amount"] is None, "no fabricated 150"
+
+    def test_a_mixed_currency_pack_reports_no_neto_either(self, db, client, admin_auth_headers, rol_admin):
+        """The net cannot escape the rule the amount above obeys.
+
+        A mixed pack rendering a null `total_amount` beside a numeric
+        `neto` is worse than either alone: the row reads as MORE
+        trustworthy than the honest null sitting next to it, and the
+        number it shows is ARS added to USD.
+        """
+        _grant_ml_ops_ver(db, rol_admin)
+        when = datetime(2026, 9, 1, tzinfo=timezone.utc)
+        _seed_order(db, 1111, pack_id=777, total_amount=100, date_created=when)
+        _seed_order(db, 1112, pack_id=777, total_amount=50, date_created=when)
+        db.query(MlOrdersOps).filter(MlOrdersOps.order_id == 1112).update({"currency_id": "USD"})
+        # Both orders DO have synced payments: without the currency gate
+        # the group would happily sum them.
+        _payment(db, 91111, 1111, status="approved", net_received_amount=Decimal("80"))
+        _payment(db, 91112, 1112, status="approved", net_received_amount=Decimal("40"))
+        db.commit()
+
+        body = client.get("/api/ml-ventas-ops/sales", headers=admin_auth_headers).json()
+        group = _group_holding(body, 1111)
+
+        assert group["total_amount"] is None
+        assert group["neto"] is None, "no fabricated 120 across two currencies"
