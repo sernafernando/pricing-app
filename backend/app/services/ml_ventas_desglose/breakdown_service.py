@@ -61,8 +61,8 @@ before summing.
 
 ## "Zero shipping charge" is the NORMAL case, not a missing-data signal
 
-`REASON_SHIPMENT_COSTS_MISSING` is defined but deliberately NEVER emitted.
-A first version raised it whenever an order had a shipment, zero shipping
+There is deliberately NO incompleteness reason for a missing shipping
+charge. A first version raised one whenever an order had a shipment, zero shipping
 charges, AND at least one billing row already linked (reasoning: the sweep
 ran, so a missing shipping charge must mean the shipping charge itself is
 missing). That is wrong, and it was caught before shipping because it was
@@ -85,8 +85,10 @@ free and correctly has no charge." Inventing one is worse than not having
 one: an operator who trusts a badge that lies stops trusting the badge
 that tells the truth. If a real signal for this ever surfaces (e.g. an ML
 field that distinguishes free/self_service from a genuinely uncollected
-charge), wire it here -- until then, leave this reason defined for
-contract stability and NEVER emit it.
+charge), wire it here. Until then this module emits no reason at all for
+it, and the constant that once held one is gone: a reason that can never
+fire is a promise the code does not keep, and the next reader tries to
+make it fire.
 """
 
 from __future__ import annotations
@@ -102,8 +104,17 @@ from app.models.ml_orders_ops import MlOrdersOps
 from app.models.ml_payments import MlPaymentCharge, MlPaymentOps
 
 # Payment statuses whose charges/net are meaningful for a breakdown.
-# `rejected`/`cancelled` are excluded -- see module docstring.
-_RELEVANT_PAYMENT_STATUSES = frozenset({"approved", "refunded"})
+#
+# `in_mediation` is money COLLECTED and held while a claim is settled, not
+# money that never arrived: it reports a real `net_received_amount` and no
+# refund. Measured 2026-09-08 across the 117 payments behind our open and
+# closed claims: 46 approved, 36 in_mediation, 31 refunded, 4 rejected.
+# `in_mediation` is 31% of them -- and while it was missing here, every one
+# of those sales showed a net of ZERO, which is what a fully refunded sale
+# reports. Order 2000018092595428 collected 199.707,50 and read as nothing.
+#
+# `rejected`/`cancelled` stay out -- see module docstring.
+_RELEVANT_PAYMENT_STATUSES = frozenset({"approved", "refunded", "in_mediation"})
 
 # Charge classification -- see module docstring. The ONE predicate, never
 # duplicated elsewhere.
@@ -124,11 +135,13 @@ CONCEPTO_IMPUESTOS = "Impuestos"
 CONCEPTO_ENVIOS = "Envios"
 
 REASON_PAYMENTS_NOT_SYNCED = "payments_not_synced"
+# Rows EXIST and are synced, but none of them counts: all rejected, or a
+# status ML added that we do not model yet. Distinct from
+# `payments_not_synced` on purpose -- telling the operator the sweep has
+# not run yet, when it has, is the badge that lies about which the module
+# docstring warns. One says "wait"; this one says "look at the payment".
+REASON_PAYMENTS_NOT_COUNTABLE = "payments_not_countable"
 REASON_BILLING_NOT_SWEPT = "billing_not_swept"
-# Defined for contract stability, NEVER emitted -- see the module
-# docstring's "zero shipping charge is the normal case" section for the
-# measured reason (121/125 self_service orders correctly have none).
-REASON_SHIPMENT_COSTS_MISSING = "shipment_costs_missing"
 
 
 def _is_seller_charge(charge_type: Optional[str], charge_name: Optional[str]) -> bool:
@@ -199,11 +212,12 @@ def compute_neto_by_order_ids(db: Session, order_ids: Sequence[int]) -> Dict[int
     mirroring `listar_ventas`'s own `members_base` pattern (page the keys,
     then fetch every member in bulk).
 
-    `None` for an order_id with no synced payment rows at all -- a sale
-    still waiting on the sweep, never conflated with a returned sale's
-    real, measured ZERO. An order with at least one payment row (even one
-    later excluded, e.g. `rejected`) resolves to a Decimal, matching
-    `compute_breakdown`'s own `neto=neto if payments else None`.
+    `None` for an order_id with no payment row we can count -- either
+    none synced yet, or none in a status we recognise. Never conflated
+    with a returned sale's real, measured ZERO: zero is an answer, this is
+    the absence of one. `compute_breakdown` applies the SAME rule, keyed
+    off its own `relevant_payments`; the two must agree, and
+    `TestTheTwoPathsToTheNetAgree` holds them to it.
     """
     order_ids = list(order_ids)
     result: Dict[int, Optional[Decimal]] = dict.fromkeys(order_ids)
@@ -227,6 +241,15 @@ def compute_neto_by_order_ids(db: Session, order_ids: Sequence[int]) -> Dict[int
 
     for order_id, order_payments in payments_by_order.items():
         order_relevant = [p for p in order_payments if p.status in _RELEVANT_PAYMENT_STATUSES]
+        if not order_relevant:
+            # Rows exist but none of them count. That is NOT zero: zero
+            # means the sale left nothing, which is what a refunded sale
+            # reports. Whatever status we do not recognise yet lands here,
+            # and the honest answer is "we do not know" -- the same answer
+            # an unsynced sale gets. This is the guard that would have
+            # caught `in_mediation` before it read as a returned sale.
+            result[order_id] = None
+            continue
         neto = Decimal("0")
         for payment in order_relevant:
             payment_charges = charges_by_payment.get(payment.payment_id, [])
@@ -248,10 +271,19 @@ def compute_breakdown(db: Session, order_ids: Sequence[int]) -> OperationBreakdo
     incomplete_reasons: List[str] = []
 
     payments = db.query(MlPaymentOps).filter(MlPaymentOps.order_id.in_(order_ids)).all()
-    if not payments:
-        incomplete_reasons.append(REASON_PAYMENTS_NOT_SYNCED)
-
     relevant_payments = [p for p in payments if p.status in _RELEVANT_PAYMENT_STATUSES]
+    if not relevant_payments:
+        # Keyed off `relevant_payments`, not `payments`: rows can exist and
+        # still leave us with no net. Off `payments` the panel returned a
+        # null net with `incompleto=False` and no reason at all -- a silent
+        # blank, in the one place that HAS a channel for saying "we do not
+        # know". The listing can only stay quiet; this must not.
+        #
+        # WHICH reason matters: no rows means the sweep owes us data;
+        # rows that do not count means the sweep did its job and the
+        # payments themselves are the story. Saying "not synced yet" for
+        # the second is the badge that lies.
+        incomplete_reasons.append(REASON_PAYMENTS_NOT_SYNCED if not payments else REASON_PAYMENTS_NOT_COUNTABLE)
     payment_ids = [p.payment_id for p in relevant_payments]
 
     charges: List[MlPaymentCharge] = []
@@ -322,7 +354,13 @@ def compute_breakdown(db: Session, order_ids: Sequence[int]) -> OperationBreakdo
 
     return OperationBreakdown(
         lines=lines,
-        neto=neto if payments else None,
+        # `relevant_payments`, NOT `payments`: an order whose payment rows
+        # exist but none of them count has an UNKNOWN net, not a zero.
+        # Keyed off `payments` this returned Decimal("0") while the listing
+        # returned None for the same sale -- the two-numbers-for-one-sale
+        # failure this module's own tests call the worst available here,
+        # introduced by the guard that was meant to prevent it.
+        neto=neto if relevant_payments else None,
         incompleto=bool(incomplete_reasons),
         incomplete_reasons=incomplete_reasons,
     )

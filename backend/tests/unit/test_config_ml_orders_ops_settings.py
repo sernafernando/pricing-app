@@ -2,12 +2,21 @@
 
 from __future__ import annotations
 
-from app.core.config import settings
-
 
 class TestMlOrdersOpsSettings:
     def test_ml_orders_ops_enabled_defaults_off(self) -> None:
-        assert settings.ML_ORDERS_OPS_ENABLED is False
+        """The DECLARED default, not whatever this machine's .env says.
+
+        Reading the loaded `settings` singleton made this assert the
+        environment instead of the code: it failed on every machine
+        running with the flag on -- which is every machine actually using
+        the feature -- and passed in CI purely because CI has no .env.
+        A test that reports the developer's config as a defect trains
+        people to ignore a red suite.
+        """
+        from app.core.config import Settings
+
+        assert Settings.model_fields["ML_ORDERS_OPS_ENABLED"].default is False
 
     def test_ml_orders_ops_enabled_is_overridable_via_env(self, monkeypatch) -> None:
         from app.core.config import Settings
@@ -18,8 +27,13 @@ class TestMlOrdersOpsSettings:
         assert overridden.ML_ORDERS_OPS_ENABLED is True
 
     def test_ml_orders_ops_window_days_defaults_within_agreed_range(self) -> None:
-        """Rolling window boundary (obs #1820): 90-180 days, user-agreed."""
-        assert 90 <= settings.ML_ORDERS_OPS_WINDOW_DAYS <= 180
+        """Rolling window boundary (obs #1820): 90-180 days, user-agreed.
+
+        The declared default, for the same reason as above.
+        """
+        from app.core.config import Settings
+
+        assert 90 <= Settings.model_fields["ML_ORDERS_OPS_WINDOW_DAYS"].default <= 180
 
     def test_ml_orders_ops_window_days_is_overridable_via_env(self, monkeypatch) -> None:
         from app.core.config import Settings

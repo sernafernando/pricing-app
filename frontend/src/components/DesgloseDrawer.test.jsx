@@ -300,3 +300,43 @@ describe('A response with no breakdown', () => {
     expect(screen.queryByText('Error al cargar el desglose.')).not.toBeInTheDocument();
   });
 });
+
+describe('The incomplete reason must match what actually happened', () => {
+  it('tells the operator to check the payment, not to wait for a sweep that already ran', async () => {
+    // `payments_not_countable` fires when the rows ARE here and none of
+    // them counts (all rejected, or a status ML added). Reusing the
+    // "not synced yet" copy sent the operator to wait for a sweep that
+    // had already done its job -- the badge that lies, which makes the
+    // badge that tells the truth worthless.
+    api.get.mockResolvedValue({
+      data: {
+        breakdown: {
+          lines: [],
+          neto: null,
+          incompleto: true,
+          incomplete_reasons: ['payments_not_countable'],
+        },
+      },
+    });
+    render(<DesgloseDrawer orderId={1001} open onClose={vi.fn()} />);
+
+    expect(await screen.findByText(/ninguno se puede computar/i)).toBeInTheDocument();
+    expect(screen.queryByText(/todavía no los trajo/i)).not.toBeInTheDocument();
+  });
+
+  it('still says "waiting for the sweep" when there are no payments at all', async () => {
+    api.get.mockResolvedValue({
+      data: {
+        breakdown: {
+          lines: [],
+          neto: null,
+          incompleto: true,
+          incomplete_reasons: ['payments_not_synced'],
+        },
+      },
+    });
+    render(<DesgloseDrawer orderId={1002} open onClose={vi.fn()} />);
+
+    expect(await screen.findByText(/todavía no los trajo/i)).toBeInTheDocument();
+  });
+});

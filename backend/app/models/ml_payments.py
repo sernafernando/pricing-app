@@ -85,7 +85,12 @@ class MlPaymentCharge(Base):
     payment_id = Column(BigInteger, ForeignKey("ml_payments_ops.payment_id"), nullable=False, index=True)
 
     name = Column(String(120), nullable=False)
-    type = Column(String(30), nullable=False)
+    # Nullable because ML sends it null: order 4430760076 carries a
+    # `meli_fee` charge with no type at all (older data). While this was
+    # NOT NULL the mapper rejected the whole charge, `map_payment`
+    # returned a MappingError, and the ENTIRE payment was dropped -- the
+    # sale kept an empty net forever over one missing field on one line.
+    type = Column(String(30), nullable=True)
     amount = Column(Numeric(14, 2), nullable=True)
     refunded = Column(Numeric(14, 2), nullable=True)
 
