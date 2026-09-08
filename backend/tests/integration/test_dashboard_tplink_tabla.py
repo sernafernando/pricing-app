@@ -207,6 +207,21 @@ def perm_ver_ganancia_t(db) -> Permiso:
 
 
 @pytest.fixture()
+def perm_ver_ganancia_productos_t(db) -> Permiso:
+    p = Permiso(
+        codigo="dashboard_tplink.ver_ganancia_productos",
+        nombre="Ver ganancia por producto TP-Link",
+        descripcion="Per-product margin access",
+        categoria="ventas_ml",
+        orden=62,
+        es_critico=False,
+    )
+    db.add(p)
+    db.flush()
+    return p
+
+
+@pytest.fixture()
 def user_no_perm_t(db, brand_rol) -> Usuario:
     user = Usuario(
         username="t_no_perm",
@@ -457,6 +472,59 @@ def test_category_filter(client, db, user_ver_t):
 # ---------------------------------------------------------------------------
 # Tests — Margin masking
 # ---------------------------------------------------------------------------
+
+
+@pytest.fixture()
+def user_ganancia_productos_t(db, brand_rol, perm_ver_t, perm_ver_ganancia_t, perm_ver_ganancia_productos_t) -> Usuario:
+    from app.models.permiso import UsuarioPermisoOverride
+
+    user = Usuario(
+        username="t_ganancia_productos",
+        email="t_prod@tplink.com",
+        nombre="Ganancia Productos T",
+        password_hash=get_password_hash("Pass123!"),
+        rol=RolUsuario.VENTAS,
+        rol_id=brand_rol.id,
+        auth_provider=AuthProvider.LOCAL,
+        activo=True,
+    )
+    db.add(user)
+    db.flush()
+    for perm in (perm_ver_t, perm_ver_ganancia_t, perm_ver_ganancia_productos_t):
+        db.add(UsuarioPermisoOverride(usuario_id=user.id, permiso_id=perm.id, concedido=True))
+    db.flush()
+    return user
+
+
+def test_top_productos_margin_absent_with_only_ver_ganancia(client, db, user_ver_ganancia_t):
+    """General .ver_ganancia must NOT unlock per-product ganancia/markup."""
+    _make_tplink_venta(db, ganancia=2000.0, costo_total_sin_iva=6000.0)
+
+    resp = client.get(
+        "/api/dashboard-tplink/top-productos",
+        headers=_bearer(user_ver_ganancia_t),
+    )
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data
+    for row in data:
+        assert "total_ganancia" not in row
+        assert "markup_porcentaje" not in row
+
+
+def test_top_productos_margin_present_with_ver_ganancia_productos(client, db, user_ganancia_productos_t):
+    """.ver_ganancia_productos unlocks per-product ganancia/markup."""
+    _make_tplink_venta(db, ganancia=2000.0, costo_total_sin_iva=6000.0)
+
+    resp = client.get(
+        "/api/dashboard-tplink/top-productos",
+        headers=_bearer(user_ganancia_productos_t),
+    )
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data
+    assert float(data[0]["total_ganancia"]) == pytest.approx(2000.0)
+    assert "markup_porcentaje" in data[0]
 
 
 def test_margin_fields_absent_without_ver_ganancia(client, db, user_ver_t):

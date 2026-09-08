@@ -26,6 +26,9 @@ const getDefaultFechaHasta = () => {
 export default function DashboardTPLink() {
   const { tienePermiso } = usePermisos();
   const puedeVerGanancia = tienePermiso('dashboard_tplink.ver_ganancia');
+  // Per-product margin has its own gate: the ganancia/markup shown in the Top
+  // Productos tables is currently miscalculated and stays hidden until fixed.
+  const puedeVerGananciaProductos = tienePermiso('dashboard_tplink.ver_ganancia_productos');
 
   const [loading, setLoading] = useState(true);
   const [filtroRapidoActivo, setFiltroRapidoActivo] = useState('mesActual');
@@ -734,8 +737,8 @@ export default function DashboardTPLink() {
                       <th>Código</th>
                       <th>Descripción</th>
                       <th>Ventas</th>
-                      {puedeVerGanancia && <th>Ganancia</th>}
-                      {puedeVerGanancia && <th>Markup</th>}
+                      {puedeVerGananciaProductos && <th>Ganancia</th>}
+                      {puedeVerGananciaProductos && <th>Markup</th>}
                       <th>Unids</th>
                     </tr>
                   </thead>
@@ -745,8 +748,8 @@ export default function DashboardTPLink() {
                         <td>{item.codigo}</td>
                         <td className={styles.descripcion}>{item.descripcion}</td>
                         <td className={styles.monto}>{formatearMoneda(item.total_ventas)}</td>
-                        {puedeVerGanancia && <td className={styles.monto}>{formatearMoneda(item.total_ganancia)}</td>}
-                        {puedeVerGanancia && <td className={styles.centrado}>{renderMarkup(item.markup_porcentaje)}</td>}
+                        {puedeVerGananciaProductos && <td className={styles.monto}>{formatearMoneda(item.total_ganancia)}</td>}
+                        {puedeVerGananciaProductos && <td className={styles.centrado}>{renderMarkup(item.markup_porcentaje)}</td>}
                         <td className={styles.centrado}>{item.cantidad_unidades}</td>
                       </tr>
                     ))}
@@ -774,8 +777,8 @@ export default function DashboardTPLink() {
                       <th>Código</th>
                       <th>Descripción</th>
                       <th>Ventas</th>
-                      {puedeVerGanancia && <th>Ganancia</th>}
-                      {puedeVerGanancia && <th>Markup</th>}
+                      {puedeVerGananciaProductos && <th>Ganancia</th>}
+                      {puedeVerGananciaProductos && <th>Markup</th>}
                       <th>Unids</th>
                     </tr>
                   </thead>
@@ -785,8 +788,8 @@ export default function DashboardTPLink() {
                         <td>{item.codigo}</td>
                         <td className={styles.descripcion}>{item.descripcion}</td>
                         <td className={styles.monto}>{formatearMoneda(item.total_ventas)}</td>
-                        {puedeVerGanancia && <td className={styles.monto}>{formatearMoneda(item.total_ganancia)}</td>}
-                        {puedeVerGanancia && <td className={styles.centrado}>{renderMarkup(item.markup_porcentaje)}</td>}
+                        {puedeVerGananciaProductos && <td className={styles.monto}>{formatearMoneda(item.total_ganancia)}</td>}
+                        {puedeVerGananciaProductos && <td className={styles.centrado}>{renderMarkup(item.markup_porcentaje)}</td>}
                         <td className={styles.centrado}>{item.cantidad_unidades}</td>
                       </tr>
                     ))}
