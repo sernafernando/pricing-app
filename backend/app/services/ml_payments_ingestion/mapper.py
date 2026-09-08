@@ -51,7 +51,7 @@ class MappingError:
 @dataclass(frozen=True)
 class ChargeDTO:
     name: str
-    type: str
+    type: Optional[str]
     amount: Optional[Decimal]
     refunded: Optional[Decimal]
 
@@ -104,11 +104,22 @@ def _map_charge(raw: Any) -> ChargeDTO:
         raise TypeError(f"charge is not an object: {raw!r}")
     name = raw.get("name")
     charge_type = raw.get("type")
-    if not name or not charge_type:
-        raise ValueError(f"charge missing name/type: {raw!r}")
+    # `name` is required: without it the seller/buyer predicate cannot
+    # classify the charge, and a charge we cannot classify would silently
+    # land on the wrong side of the money.
+    #
+    # `type` is NOT required. ML sends it null on older charges, and
+    # rejecting those cost the WHOLE payment: one untyped `meli_fee` and
+    # the sale had no net at all. The predicate already treats a missing
+    # type as "not one of the buyer's types", which is the safe reading.
+    if not name:
+        raise ValueError(f"charge missing name: {raw!r}")
     return ChargeDTO(
         name=str(name),
-        type=str(charge_type),
+        # `is not None`, so an empty string is NOT quietly folded into a
+        # missing type: null is what ML actually sends, and "" would be
+        # dirty data that should look like it rather than blend in.
+        type=str(charge_type) if charge_type is not None else None,
         amount=_decimal(raw.get("amount")),
         refunded=_decimal(raw.get("refunded")),
     )

@@ -162,3 +162,35 @@ class TestFailClosed:
         result = map_payment(raw)
 
         assert isinstance(result, MappingError)
+
+
+class TestAChargeWithNoType:
+    """ML sends `type: null` on older charges, and rejecting them cost the
+    WHOLE payment.
+
+    Order 4430760076 carries a `meli_fee` with no type. While `_map_charge`
+    demanded one, `map_payment` returned a MappingError for that payload
+    and the sale never got ingested at all -- an empty net forever, over
+    one missing field on one line out of six.
+    """
+
+    def test_the_payment_still_maps(self) -> None:
+        raw = _raw_payment(
+            charges_details=[
+                {"name": "meli_fee", "type": None, "amount": 475.70, "refunded": 475.70},
+            ]
+        )
+        result = map_payment(raw)
+
+        assert not isinstance(result, MappingError), f"the whole payment was dropped: {result}"
+        assert len(result.charges) == 1
+        assert result.charges[0].name == "meli_fee"
+        assert result.charges[0].type is None
+        assert result.charges[0].amount == Decimal("475.70")
+
+    def test_a_charge_with_no_name_is_still_rejected(self) -> None:
+        # `name` stays required: the seller/buyer predicate classifies by
+        # name, so an unnamed charge could land on the wrong side of the
+        # money without anyone noticing.
+        raw = _raw_payment(charges_details=[{"type": "fee", "amount": 10, "refunded": 0}])
+        assert isinstance(map_payment(raw), MappingError)

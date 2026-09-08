@@ -41,9 +41,10 @@ const INCOMPLETE_REASON_LABELS = {
   // in front of them is too high or too low, which is the one thing they
   // need in order to decide anything with it.
   payments_not_synced: 'Faltan los pagos de esta venta: el sincronizador todavía no los trajo.',
+  payments_not_countable:
+    'Los pagos de esta venta llegaron, pero ninguno se puede computar: revisá su estado en MercadoLibre.',
   billing_not_swept:
     'Falta el barrido de facturación: los cargos que ML factura aparte, como el envío, todavía no se descontaron. El neto real es MENOR que el que ves acá.',
-  shipment_costs_missing: 'Faltan los costos de envío de esta venta.',
 };
 
 function formatAmount(value) {
