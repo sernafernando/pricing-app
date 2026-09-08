@@ -58,7 +58,7 @@ def _order(order_id: int, seller_id: int, when: datetime, created: datetime, pay
         "buyer": {"id": 1, "nickname": "x"},
         "order_items": [],
     }
-    if payment_ids:
+    if payment_ids is not None:
         order["payments"] = [{"id": pid} for pid in payment_ids]
     return order
 
@@ -218,12 +218,16 @@ class TestPaymentFetchOnIngest:
         assert shipping[2] == Decimal("0")
 
     def test_order_with_no_payments_never_calls_get_payment_but_is_sealed(self, db, monkeypatch) -> None:
-        """No `payments[]` at all is trivially "fully synced" -- must
-        still seal `payments_synced_at`, or a payment-less order would be
-        re-queried on every single pass forever."""
+        """`payments: []` -- ML's own contract says this order genuinely
+        has none -- is trivially "fully synced" and must still seal
+        `payments_synced_at`, or a payment-less order would be re-queried
+        on every single pass forever. Note this is `payment_ids=[]`, NOT
+        the key absent entirely: an absent key is a different, unknown-
+        state fact (see `sync_payments_for_order`'s post-review fix) and
+        must NOT seal."""
         now = datetime.now(timezone.utc)
         recent = now - timedelta(days=1)
-        order = _order(1, 999, recent, recent, payment_ids=None)
+        order = _order(1, 999, recent, recent, payment_ids=[])
         monkeypatch.setattr(ml_webhook_client, "search_orders", AsyncMock(return_value=_page([order])))
         mock_get_payment = AsyncMock(return_value=_payment_payload(500, 1))
         monkeypatch.setattr(ml_webhook_client, "get_payment", mock_get_payment)
@@ -233,6 +237,25 @@ class TestPaymentFetchOnIngest:
         mock_get_payment.assert_not_called()
         order_row = db.query(MlOrdersOps).filter_by(order_id=1).one()
         assert order_row.payments_synced_at is not None
+
+    def test_the_payments_key_absent_entirely_is_never_sealed(self, db, monkeypatch) -> None:
+        """The absent key is NOT the same fact as `payments: []` -- it
+        means the source never told us either way, and must be treated
+        as unresolved, never as "zero payments, done" (post-review
+        blocking fix, ml-backfill-pagos-y-costos)."""
+        now = datetime.now(timezone.utc)
+        recent = now - timedelta(days=1)
+        order = _order(1, 999, recent, recent, payment_ids=None)
+        assert "payments" not in order
+        monkeypatch.setattr(ml_webhook_client, "search_orders", AsyncMock(return_value=_page([order])))
+        mock_get_payment = AsyncMock(return_value=_payment_payload(500, 1))
+        monkeypatch.setattr(ml_webhook_client, "get_payment", mock_get_payment)
+
+        sweep_service.run_sweep(seller_id=999, window_days=90)
+
+        mock_get_payment.assert_not_called()
+        order_row = db.query(MlOrdersOps).filter_by(order_id=1).one()
+        assert order_row.payments_synced_at is None
 
 
 class TestRetryGate:

@@ -475,6 +475,67 @@ def _fetch_payments(
     return payments
 
 
+def sync_payments_for_order(
+    db,
+    order_id: int,
+    raw_order: Dict[str, Any],
+    payments_payload: Dict[int, Dict[str, Any]],
+) -> Tuple[int, bool]:
+    """Maps and persists every `raw_order['payments'][].id` present in
+    `payments_payload`, then seals `MlOrdersOps.payments_synced_at` ONLY
+    if every one of this order's payment ids resolved. A partial result
+    (a missing id, a fetch failure already excluded from
+    `payments_payload`, or a mapping error) leaves it NULL so the retry
+    gate (`payments_synced_at IS NULL`) picks it up again next pass.
+
+    Extracted (post-review fix, ml-backfill-pagos-y-costos) so the sweep's
+    own `process_batch` and the historical backfill
+    (`app/scripts/backfill_ml_payments_costs.py`) share this EXACT
+    sealing rule instead of drifting into two implementations of the same
+    money-path logic. Returns `(payments_synced, sealed)`.
+
+    Post-review fix (BLOCKING, ml-backfill-pagos-y-costos): the `payments`
+    key ABSENT is not the same fact as `payments` present and EMPTY.
+    ML's own order schema guarantees the key on every live order, so
+    `payments: []` means "ML says this order genuinely has none" -- fine
+    to seal. The key being absent means the SOURCE never told us either
+    way, and this function's `raw_order` is no longer guaranteed fresh
+    from ML: the backfill reads it back out of `MlOrdersOps.raw_order`,
+    written by whatever ingestion version was running at the time, which
+    may have truncated, half-written, or otherwise never persisted this
+    field. Sealing on an ABSENT key there converts an unknown into "zero
+    payments, done" -- and since `payments_synced_at IS NULL` is the ONLY
+    retry gate, that order can never become a candidate again. Never seal
+    on missing information, whichever caller this runs under."""
+    if raw_order.get("payments") is None:
+        return 0, False
+    payment_ids = _extract_payment_ids(raw_order)
+    synced = 0
+    all_synced = True
+    for payment_id in payment_ids:
+        payment_payload = payments_payload.get(payment_id)
+        if payment_payload is None:
+            all_synced = False
+            continue
+        mapped_payment = map_payment(payment_payload)
+        if isinstance(mapped_payment, PaymentMappingError):
+            logger.warning(
+                "sync_payments_for_order: payment mapping error for payment_id=%s (order_id=%s): %s",
+                payment_id,
+                order_id,
+                mapped_payment.reason,
+            )
+            all_synced = False
+            continue
+        upsert_payment(db, mapped_payment)
+        synced += 1
+    if all_synced:
+        db.query(MlOrdersOps).filter(MlOrdersOps.order_id == order_id).update(
+            {"payments_synced_at": datetime.now(timezone.utc)}
+        )
+    return synced, all_synced
+
+
 def tz_aware(value: Optional[datetime]) -> Optional[datetime]:
     """SQLite loses tzinfo on a value round-tripped through the DB (the
     test DB, `tests/conftest.py`'s `sqlite://`) -- a naive value read back
@@ -818,29 +879,8 @@ def process_batch(
             # retries exactly the missing ones (`payments_payload` is
             # re-fetched fresh every pass for any still-NULL order).
             if mapped.order_id in payment_candidate_ids:
-                payment_ids = _extract_payment_ids(raw_order)
-                all_synced = True
-                for payment_id in payment_ids:
-                    payment_payload = payments_payload.get(payment_id)
-                    if payment_payload is None:
-                        all_synced = False
-                        continue
-                    mapped_payment = map_payment(payment_payload)
-                    if isinstance(mapped_payment, PaymentMappingError):
-                        logger.warning(
-                            "sweep: payment mapping error for payment_id=%s (order_id=%s): %s",
-                            payment_id,
-                            mapped.order_id,
-                            mapped_payment.reason,
-                        )
-                        all_synced = False
-                        continue
-                    upsert_payment(db, mapped_payment)
-                    payments_synced += 1
-                if all_synced:
-                    db.query(MlOrdersOps).filter(MlOrdersOps.order_id == mapped.order_id).update(
-                        {"payments_synced_at": datetime.now(timezone.utc)}
-                    )
+                order_synced, _sealed = sync_payments_for_order(db, mapped.order_id, raw_order, payments_payload)
+                payments_synced += order_synced
 
             # Shipment upsert failures are NOT folded into the order
             # counters above -- a shipment mapping error/staleness says

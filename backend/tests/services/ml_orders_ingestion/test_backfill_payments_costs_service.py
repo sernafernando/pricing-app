@@ -1,0 +1,547 @@
+"""Tests for the historical backfill of payments and shipment costs
+(ml-backfill-pagos-y-costos).
+
+Contract-first (obs #1843/#1852/#1965 lesson): assert the PROMISES --
+flag-gated, candidates come from the BASE tables (not a sweep window),
+`--dry-run` makes zero HTTP calls and zero writes, sealing only on a
+FULLY resolved order (never on a partial result), its own run lock never
+collides with the sweep's or the orders backfill's, and fetch/mapping/
+sealing are the exact same functions the sweep uses -- not a second copy.
+"""
+
+from __future__ import annotations
+
+from datetime import datetime, timedelta, timezone
+from decimal import Decimal
+from unittest.mock import AsyncMock
+
+import pytest
+
+from app.core.config import settings
+from app.models.ml_orders_ops import MlOpsSyncCursor, MlOrdersOps, MlShipmentOps
+from app.models.ml_payments import MlPaymentOps
+from app.services.ml_orders_ingestion import backfill_payments_costs_service as service
+from app.services.ml_orders_ingestion import sweep_service
+from app.services.ml_webhook_client import ml_webhook_client
+
+
+def _fake_ctx(db):
+    class _Ctx:
+        def __enter__(self):
+            return db
+
+        def __exit__(self, *a):
+            return False
+
+    return lambda: _Ctx()
+
+
+@pytest.fixture(autouse=True)
+def _background_db(db, monkeypatch):
+    # `sync_payments_for_order`/`_sync_shipment_costs` are reused straight
+    # from `sweep_service`, which opens ITS OWN `get_background_db()` --
+    # both module bindings must land in the same sqlite test session.
+    monkeypatch.setattr(service, "get_background_db", _fake_ctx(db))
+    monkeypatch.setattr(sweep_service, "get_background_db", _fake_ctx(db))
+
+
+@pytest.fixture(autouse=True)
+def _flag_on(monkeypatch):
+    monkeypatch.setattr(settings, "ML_ORDERS_OPS_ENABLED", True)
+
+
+def _raw_order(order_id: int, payment_ids=None) -> dict:
+    """`payment_ids=None` (default) means the `payments` key is ABSENT --
+    an ambiguous, "we don't know" payload, e.g. an older ingestion write
+    that never persisted it. `payment_ids=[]` sets `payments: []`, ML's
+    own way of saying an order genuinely has none. These are DIFFERENT
+    facts on purpose (post-review blocking fix) -- do not collapse them."""
+    order = {"id": order_id, "status": "paid", "order_items": []}
+    if payment_ids is not None:
+        order["payments"] = [{"id": pid} for pid in payment_ids]
+    return order
+
+
+def _payment_payload(payment_id: int, order_id: int, **overrides) -> dict:
+    base = {
+        "payment_id": payment_id,
+        "order_id": order_id,
+        "status": "approved",
+        "currency_id": "ARS",
+        "net_received_amount": 100.0,
+        "total_paid_amount": 110.0,
+        "transaction_amount": 110.0,
+        "shipping_amount": 0,
+        "coupon_amount": 0,
+        "taxes_amount": 0,
+        "transaction_amount_refunded": 0,
+        "charges_details": [],
+    }
+    base.update(overrides)
+    return base
+
+
+def _shipment_costs(sender_cost, receiver_cost) -> dict:
+    return {
+        "gross_amount": float(sender_cost) + float(receiver_cost),
+        "receiver": {"cost": receiver_cost},
+        "senders": [{"cost": sender_cost, "discounts": []}],
+    }
+
+
+class TestFlagGate:
+    def test_disabled_is_a_complete_no_op(self, db, monkeypatch) -> None:
+        monkeypatch.setattr(settings, "ML_ORDERS_OPS_ENABLED", False)
+        db.add(MlOrdersOps(order_id=1, seller_id=999, ml_last_updated=datetime.now(timezone.utc)))
+        db.commit()
+        get_payment = AsyncMock()
+        monkeypatch.setattr(ml_webhook_client, "get_payment", get_payment)
+
+        result = service.run_backfill(limit=10)
+
+        assert result.ran is False
+        get_payment.assert_not_called()
+
+    def test_disabled_is_not_reported_as_an_error(self, monkeypatch) -> None:
+        """Finding 2: the flag-off no-op is a genuine success, not a
+        failure -- `error` must stay `None`, exactly like
+        `backfill_service.run_backfill`'s own flag-off branch, or the
+        CLI's `sys.exit(1)` (triggered only by `result.error`) fires on
+        an expected, benign outcome."""
+        monkeypatch.setattr(settings, "ML_ORDERS_OPS_ENABLED", False)
+
+        result = service.run_backfill(limit=10)
+
+        assert result.ran is False
+        assert result.error is None
+
+    def test_already_running_is_still_reported_as_an_error(self, db, monkeypatch) -> None:
+        """The contrasting case: a REAL failure to run (another pass in
+        flight) must still set `error`, or the CLI would never exit
+        non-zero for it either."""
+        monkeypatch.setattr(settings, "ML_ORDERS_OPS_ENABLED", True)
+        now = datetime.now(timezone.utc)
+        db.add(MlOpsSyncCursor(name=service.CURSOR_NAME, state="running", detail=now.isoformat()))
+        db.commit()
+
+        result = service.run_backfill(limit=10)
+
+        assert result.ran is False
+        assert result.error is not None
+
+
+class TestDryRun:
+    def test_dry_run_counts_but_makes_zero_http_calls_and_zero_writes(self, db, monkeypatch) -> None:
+        now = datetime.now(timezone.utc)
+        db.add(
+            MlOrdersOps(
+                order_id=1,
+                seller_id=999,
+                ml_last_updated=now,
+                raw_order=_raw_order(1, payment_ids=[500]),
+            )
+        )
+        db.add(MlShipmentOps(shipment_id=700, order_id=1))
+        db.commit()
+
+        get_payment = AsyncMock(return_value=_payment_payload(500, 1))
+        get_costs = AsyncMock(return_value=_shipment_costs(400, 0))
+        monkeypatch.setattr(ml_webhook_client, "get_payment", get_payment)
+        monkeypatch.setattr(ml_webhook_client, "get_shipment_costs", get_costs)
+
+        result = service.run_backfill(limit=10, dry_run=True)
+
+        assert result.ran is True
+        assert result.dry_run is True
+        assert result.order_candidates == 1
+        assert result.shipment_candidates == 1
+        get_payment.assert_not_called()
+        get_costs.assert_not_called()
+        assert db.query(MlPaymentOps).count() == 0
+        assert db.query(MlOrdersOps).filter_by(order_id=1).one().payments_synced_at is None
+        assert db.query(MlShipmentOps).filter_by(shipment_id=700).one().costs_synced_at is None
+        # A dry run must never take the lock either.
+        assert db.query(MlOpsSyncCursor).filter_by(name=service.CURSOR_NAME).first() is None
+
+    def test_dry_run_never_materializes_full_raw_order_rows(self, db, monkeypatch) -> None:
+        """Finding 4: a dry run is what an operator runs FIRST against
+        production, and its own docstring promises two COUNT queries and
+        nothing else. Prove it structurally: the row-fetching functions
+        that read `raw_order` (potentially several KB of JSONB per row)
+        must never even be called during a dry run."""
+
+        def _must_not_be_called(limit):
+            raise AssertionError("dry-run must not fetch full candidate rows")
+
+        monkeypatch.setattr(service, "_orders_needing_payments", _must_not_be_called)
+        monkeypatch.setattr(service, "_shipments_needing_costs", _must_not_be_called)
+
+        result = service.run_backfill(limit=10, dry_run=True)
+
+        assert result.ran is True
+
+
+class TestNewestFirst:
+    def test_orders_are_ordered_newest_created_first(self, db, monkeypatch) -> None:
+        """An operator watching the listing cares about recent sales --
+        oldest-first would spend the whole backlog on old history before
+        ever reaching what's on screen (post-review fix)."""
+        base = datetime.now(timezone.utc) - timedelta(days=100)
+        for order_id, age_days in ((1, 3), (2, 90), (3, 1)):
+            db.add(
+                MlOrdersOps(
+                    order_id=order_id,
+                    seller_id=999,
+                    ml_last_updated=base,
+                    date_created=base + timedelta(days=100 - age_days),
+                    raw_order=_raw_order(order_id, payment_ids=[]),
+                )
+            )
+        db.commit()
+
+        candidates = service._orders_needing_payments(limit=10)
+
+        assert [order_id for order_id, _ in candidates] == [3, 1, 2]
+
+    def test_shipments_are_ordered_newest_id_first(self, db, monkeypatch) -> None:
+        for shipment_id in (100, 300, 200):
+            db.add(MlShipmentOps(shipment_id=shipment_id, order_id=shipment_id))
+        db.commit()
+
+        candidates = service._shipments_needing_costs(limit=10)
+
+        assert candidates == [300, 200, 100]
+
+
+class TestBudgetExhausted:
+    def test_payments_budget_exhausted_is_surfaced_when_the_limit_outruns_it(self, db, monkeypatch) -> None:
+        """Finding 3: `--limit` counts CANDIDATES, and one order can carry
+        several payment ids -- the payment fetch budget can run out mid-
+        run while candidates remain unresolved, silently, unless this is
+        surfaced."""
+        now = datetime.now(timezone.utc)
+        db.add(
+            MlOrdersOps(
+                order_id=1,
+                seller_id=999,
+                ml_last_updated=now,
+                raw_order=_raw_order(1, payment_ids=[500, 501]),
+            )
+        )
+        db.commit()
+        monkeypatch.setattr(ml_webhook_client, "get_payment", AsyncMock(return_value=_payment_payload(500, 1)))
+        monkeypatch.setattr(service, "MAX_PAYMENT_FETCHES_PER_PASS", 1)
+
+        result = service.run_backfill(limit=10)
+
+        assert result.payments_budget_exhausted is True
+        assert result.orders_sealed == 0  # order 1 is left unresolved, not silently claimed done
+
+    def test_payments_budget_not_exhausted_when_every_candidate_resolves(self, db, monkeypatch) -> None:
+        now = datetime.now(timezone.utc)
+        db.add(
+            MlOrdersOps(
+                order_id=1,
+                seller_id=999,
+                ml_last_updated=now,
+                raw_order=_raw_order(1, payment_ids=[500]),
+            )
+        )
+        db.commit()
+        monkeypatch.setattr(ml_webhook_client, "get_payment", AsyncMock(return_value=_payment_payload(500, 1)))
+
+        result = service.run_backfill(limit=10)
+
+        assert result.payments_budget_exhausted is False
+        assert result.orders_sealed == 1
+
+    def test_costs_budget_exhausted_is_surfaced_when_the_limit_outruns_it(self, db, monkeypatch) -> None:
+        db.add(MlShipmentOps(shipment_id=700, order_id=1))
+        db.add(MlShipmentOps(shipment_id=701, order_id=2))
+        db.commit()
+        monkeypatch.setattr(ml_webhook_client, "get_shipment_costs", AsyncMock(return_value=_shipment_costs(400, 0)))
+        monkeypatch.setattr(service, "MAX_COST_FETCHES_PER_PASS", 1)
+
+        result = service.run_backfill(limit=10)
+
+        assert result.costs_budget_exhausted is True
+        assert result.shipment_costs_synced == 1
+
+
+class TestBaseTableCandidates:
+    def test_an_order_never_touched_by_any_sweep_window_is_still_found_and_sealed(self, db, monkeypatch) -> None:
+        """The exact gap this script exists to close: an order whose
+        `ml_last_updated` is ancient (long outside any sweep window) but
+        whose `payments_synced_at` is still NULL."""
+        ancient = datetime.now(timezone.utc) - timedelta(days=400)
+        db.add(
+            MlOrdersOps(
+                order_id=1,
+                seller_id=999,
+                ml_last_updated=ancient,
+                raw_order=_raw_order(1, payment_ids=[500]),
+            )
+        )
+        db.commit()
+
+        monkeypatch.setattr(ml_webhook_client, "get_payment", AsyncMock(return_value=_payment_payload(500, 1)))
+
+        result = service.run_backfill(limit=10)
+
+        assert result.order_candidates == 1
+        assert result.payments_synced == 1
+        assert result.orders_sealed == 1
+        row = db.query(MlPaymentOps).filter_by(payment_id=500).one()
+        assert row.net_received_amount == Decimal("100")
+        assert db.query(MlOrdersOps).filter_by(order_id=1).one().payments_synced_at is not None
+
+    def test_an_already_sealed_order_is_never_a_candidate(self, db, monkeypatch) -> None:
+        now = datetime.now(timezone.utc)
+        db.add(
+            MlOrdersOps(
+                order_id=1,
+                seller_id=999,
+                ml_last_updated=now,
+                payments_synced_at=now,
+                raw_order=_raw_order(1, payment_ids=[500]),
+            )
+        )
+        db.commit()
+        get_payment = AsyncMock(return_value=_payment_payload(500, 1))
+        monkeypatch.setattr(ml_webhook_client, "get_payment", get_payment)
+
+        result = service.run_backfill(limit=10)
+
+        assert result.order_candidates == 0
+        get_payment.assert_not_called()
+
+    def test_a_terminal_shipment_never_touched_by_any_sweep_window_is_still_found_and_synced(
+        self, db, monkeypatch
+    ) -> None:
+        db.add(MlShipmentOps(shipment_id=700, order_id=1, status="delivered"))
+        db.commit()
+        monkeypatch.setattr(ml_webhook_client, "get_shipment_costs", AsyncMock(return_value=_shipment_costs(400, 0)))
+
+        result = service.run_backfill(limit=10)
+
+        assert result.shipment_candidates == 1
+        assert result.shipment_costs_synced == 1
+        row = db.query(MlShipmentOps).filter_by(shipment_id=700).one()
+        assert row.sender_cost == Decimal("400")
+        assert row.costs_synced_at is not None
+
+    def test_a_shipment_already_synced_is_never_a_candidate(self, db, monkeypatch) -> None:
+        now = datetime.now(timezone.utc)
+        db.add(MlShipmentOps(shipment_id=700, order_id=1, costs_synced_at=now))
+        db.commit()
+        get_costs = AsyncMock(return_value=_shipment_costs(400, 0))
+        monkeypatch.setattr(ml_webhook_client, "get_shipment_costs", get_costs)
+
+        result = service.run_backfill(limit=10)
+
+        assert result.shipment_candidates == 0
+        get_costs.assert_not_called()
+
+
+class TestAbsentPaymentsKeyIsNeverSealed:
+    """Finding 1, BLOCKING: sealing an order whose `raw_order` never even
+    HAS a `payments` key is irrecoverable, because `payments_synced_at IS
+    NULL` is the only retry gate -- a false seal here means that sale's
+    `--` becomes permanent, written by the very script meant to remove
+    it."""
+
+    def test_a_stored_raw_order_with_no_payments_key_at_all_is_never_sealed(self, db, monkeypatch) -> None:
+        now = datetime.now(timezone.utc)
+        db.add(
+            MlOrdersOps(
+                order_id=1,
+                seller_id=999,
+                ml_last_updated=now,
+                raw_order=_raw_order(1, payment_ids=None),  # key ABSENT, not []
+            )
+        )
+        db.commit()
+        assert "payments" not in db.query(MlOrdersOps).filter_by(order_id=1).one().raw_order
+        get_payment = AsyncMock()
+        monkeypatch.setattr(ml_webhook_client, "get_payment", get_payment)
+
+        result = service.run_backfill(limit=10)
+
+        get_payment.assert_not_called()
+        assert result.orders_sealed == 0
+        assert db.query(MlOrdersOps).filter_by(order_id=1).one().payments_synced_at is None
+
+    def test_a_stored_raw_order_with_an_explicit_empty_payments_list_is_sealed(self, db, monkeypatch) -> None:
+        """The contrasting case: `payments: []` IS a real fact from ML
+        and must still seal -- this fix must not turn EVERY order into an
+        unsealable one."""
+        now = datetime.now(timezone.utc)
+        db.add(
+            MlOrdersOps(
+                order_id=1,
+                seller_id=999,
+                ml_last_updated=now,
+                raw_order=_raw_order(1, payment_ids=[]),  # key present, empty
+            )
+        )
+        db.commit()
+
+        result = service.run_backfill(limit=10)
+
+        assert result.orders_sealed == 1
+        assert db.query(MlOrdersOps).filter_by(order_id=1).one().payments_synced_at is not None
+
+
+class TestPartialFailureNeverSealsMoney:
+    def test_a_payment_fetch_failure_is_fail_open_and_leaves_the_order_unsealed(self, db, monkeypatch) -> None:
+        now = datetime.now(timezone.utc)
+        db.add(
+            MlOrdersOps(
+                order_id=1,
+                seller_id=999,
+                ml_last_updated=now,
+                raw_order=_raw_order(1, payment_ids=[500, 501]),
+            )
+        )
+        db.commit()
+
+        async def flaky(payment_id):
+            if payment_id == 500:
+                return _payment_payload(500, 1)
+            raise ValueError("boom")
+
+        monkeypatch.setattr(ml_webhook_client, "get_payment", flaky)
+
+        result = service.run_backfill(limit=10)
+
+        assert result.error is None
+        assert db.query(MlPaymentOps).filter_by(payment_id=500).count() == 1
+        assert db.query(MlPaymentOps).filter_by(payment_id=501).count() == 0
+        row = db.query(MlOrdersOps).filter_by(order_id=1).one()
+        assert row.payments_synced_at is None  # NOT sealed: must retry next run
+        assert result.orders_sealed == 0
+
+    def test_a_cost_fetch_failure_is_fail_open_and_leaves_the_shipment_unsynced(self, db, monkeypatch) -> None:
+        db.add(MlShipmentOps(shipment_id=700, order_id=1))
+        db.commit()
+
+        async def raises(shipment_id):
+            raise ValueError("boom")
+
+        monkeypatch.setattr(ml_webhook_client, "get_shipment_costs", raises)
+
+        result = service.run_backfill(limit=10)
+
+        assert result.error is None
+        row = db.query(MlShipmentOps).filter_by(shipment_id=700).one()
+        assert row.costs_synced_at is None
+        assert result.shipment_costs_synced == 0
+
+
+class TestLimit:
+    def _add_three_orders(self, db) -> None:
+        now = datetime.now(timezone.utc)
+        # Distinct `date_created` per row -- ordering is now newest-first
+        # (post-review fix), and a tie on the sort key would make which
+        # 2-of-3 land in a `limit=2` slice implementation-defined.
+        for order_id, age_days in ((1, 3), (2, 2), (3, 1)):
+            db.add(
+                MlOrdersOps(
+                    order_id=order_id,
+                    seller_id=999,
+                    ml_last_updated=now,
+                    date_created=now - timedelta(days=age_days),
+                    raw_order=_raw_order(order_id, payment_ids=[]),
+                )
+            )
+        db.commit()
+
+    def test_limit_bounds_the_number_of_candidates_pulled_per_run(self, db, monkeypatch) -> None:
+        self._add_three_orders(db)
+
+        result = service.run_backfill(limit=2)
+
+        assert result.order_candidates == 2
+
+    def test_a_second_run_resumes_where_the_first_left_off(self, db, monkeypatch) -> None:
+        """Reanudable by construction: a sealed order drops out of the
+        `payments_synced_at IS NULL` query, so a second bounded run picks
+        up whatever the first one did not reach -- no separate cursor
+        bookkeeping needed for this part."""
+        self._add_three_orders(db)
+
+        first = service.run_backfill(limit=2)
+        assert first.order_candidates == 2
+        assert first.orders_sealed == 2
+
+        second = service.run_backfill(limit=2)
+        assert second.order_candidates == 1
+        assert second.orders_sealed == 1
+
+
+class TestOwnLockDoesNotCollide:
+    def test_own_cursor_name_is_distinct_from_sweep_and_orders_backfill(self) -> None:
+        assert service.CURSOR_NAME == "backfill_payments_costs"
+        assert service.CURSOR_NAME != sweep_service.CURSOR_NAME
+        assert service.CURSOR_NAME != "backfill"
+
+    def test_a_concurrent_run_is_skipped_not_raced(self, db, monkeypatch) -> None:
+        now = datetime.now(timezone.utc)
+        db.add(MlOpsSyncCursor(name=service.CURSOR_NAME, state="running", detail=now.isoformat()))
+        db.commit()
+        get_payment = AsyncMock()
+        monkeypatch.setattr(ml_webhook_client, "get_payment", get_payment)
+
+        result = service.run_backfill(limit=10)
+
+        assert result.ran is False
+        get_payment.assert_not_called()
+
+    def test_the_sweeps_own_running_lock_does_not_block_this_backfill(self, db, monkeypatch) -> None:
+        now = datetime.now(timezone.utc)
+        db.add(MlOpsSyncCursor(name=sweep_service.CURSOR_NAME, state="running", detail=now.isoformat()))
+        db.add(
+            MlOrdersOps(
+                order_id=1,
+                seller_id=999,
+                ml_last_updated=now,
+                raw_order=_raw_order(1, payment_ids=[500]),
+            )
+        )
+        db.commit()
+        monkeypatch.setattr(ml_webhook_client, "get_payment", AsyncMock(return_value=_payment_payload(500, 1)))
+
+        result = service.run_backfill(limit=10)
+
+        assert result.ran is True
+        assert result.orders_sealed == 1
+
+
+class TestSharedImplementationWithTheSweep:
+    def test_run_backfill_calls_the_sweeps_exact_sealing_function(self, db, monkeypatch) -> None:
+        """Guards against a future edit reintroducing a second, drifting
+        copy of the sealing rule (obs #1965/#1966 lesson)."""
+        now = datetime.now(timezone.utc)
+        db.add(
+            MlOrdersOps(
+                order_id=1,
+                seller_id=999,
+                ml_last_updated=now,
+                raw_order=_raw_order(1, payment_ids=[500]),
+            )
+        )
+        db.commit()
+        monkeypatch.setattr(ml_webhook_client, "get_payment", AsyncMock(return_value=_payment_payload(500, 1)))
+
+        calls = []
+        original = service.sync_payments_for_order
+
+        def spy(db_arg, order_id, raw_order, payments_payload):
+            calls.append(order_id)
+            return original(db_arg, order_id, raw_order, payments_payload)
+
+        monkeypatch.setattr(service, "sync_payments_for_order", spy)
+
+        service.run_backfill(limit=10)
+
+        assert calls == [1]
