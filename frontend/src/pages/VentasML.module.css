@@ -224,6 +224,43 @@
   color: var(--text-tertiary);
 }
 
+/* A row that opens the cost breakdown drawer.
+
+   The cursor IS the affordance here: `.table tbody tr:hover td` already
+   highlights every row on hover, clickable or not, so the highlight says
+   nothing about whether this one does anything. Adding a second hover
+   treatment just for these rows would fight that one. */
+.clickableRow {
+  cursor: pointer;
+}
+
+.netoButton {
+  padding: 0;
+  font-family: inherit;
+  font-size: inherit;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-primary);
+  background: none;
+  border: none;
+  cursor: pointer;
+  text-decoration: underline;
+  text-decoration-color: transparent;
+}
+
+.netoButton:hover,
+.netoButton:focus-visible {
+  color: var(--brand-primary);
+  text-decoration-color: currentColor;
+}
+
+/* Color-plus-underline alone repeats the hover treatment almost exactly,
+   so a keyboard user cannot tell hover from focus. The outline is the one
+   signal that is focus-only. */
+.netoButton:focus-visible {
+  outline: 2px solid var(--brand-primary);
+  outline-offset: 2px;
+}
+
 /* ── Packs ───────────────────────────────────────────────── */
 
 /* The parcel's own row: it heads the orders under it, so it carries the

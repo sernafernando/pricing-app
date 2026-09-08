@@ -51,6 +51,7 @@ import { Fragment, useState, useEffect, useCallback, useRef } from 'react';
 import { ShoppingBag, ShieldAlert, ChevronRight } from 'lucide-react';
 import { usePermisos } from '../contexts/PermisosContext';
 import api from '../services/api';
+import DesgloseDrawer from '../components/DesgloseDrawer';
 import styles from './VentasML.module.css';
 
 const PAGE_SIZE = 50;
@@ -175,6 +176,21 @@ export default function VentasML() {
       else next.add(key);
       return next;
     });
+  }, []);
+
+  // The drawer opens for a GROUP (pack or lone order) and stays open while
+  // the operator picks another row -- it only carries the order_id the
+  // per-order endpoint needs, since the backend resolves the whole pack's
+  // breakdown from any order inside it.
+  const [drawerOrderId, setDrawerOrderId] = useState(null);
+  const isDrawerOpen = drawerOrderId !== null;
+
+  const openDrawer = useCallback((orderId) => {
+    setDrawerOrderId(orderId);
+  }, []);
+
+  const closeDrawer = useCallback(() => {
+    setDrawerOrderId(null);
   }, []);
 
   const handleOperationStatusChange = useCallback((value) => {
@@ -398,18 +414,19 @@ export default function VentasML() {
               <th>Operación</th>
               <th>Mercadería</th>
               <th className={styles.numeric}>Importe</th>
+              <th className={styles.numeric}>Neto</th>
             </tr>
           </thead>
           <tbody>
             {loading ? (
               <tr>
-                <td className={styles.stateCell} colSpan={6}>
+                <td className={styles.stateCell} colSpan={7}>
                   Cargando ventas…
                 </td>
               </tr>
             ) : sales.length === 0 ? (
               <tr>
-                <td className={styles.stateCell} colSpan={6}>
+                <td className={styles.stateCell} colSpan={7}>
                   No hay ventas que coincidan con los filtros
                 </td>
               </tr>
@@ -420,16 +437,41 @@ export default function VentasML() {
                 const orders = group.orders || [];
                 const isPack = orders.length > 1;
                 const isOpen = expanded.has(group.group_key);
+                // Any order in the group resolves the same pack-level
+                // breakdown on the backend -- the first one is enough.
+                // `!= null` on purpose below, not `!== undefined`: a null order_id
+                // would pass that check, mark the row clickable, and then call
+                // openDrawer(null) -- which is the very sentinel for "closed",
+                // so the click would do nothing at all.
+                const representativeOrderId = orders[0]?.order_id;
                 return (
                   <Fragment key={group.group_key}>
-                    <tr className={isPack ? styles.packRow : undefined}>
+                    {/* The row click is a MOUSE SHORTCUT, deliberately not a
+                        widget: the keyboard route is the real <button> in
+                        the Neto cell below. Making a <tr> focusable would
+                        announce a control that screen readers cannot
+                        describe, and the button already carries the
+                        accessible name. */}
+                    <tr
+                      className={`${isPack ? styles.packRow : ''} ${
+                        representativeOrderId != null ? styles.clickableRow : ''
+                      }`.trim()}
+                      onClick={
+                        representativeOrderId != null
+                          ? () => openDrawer(representativeOrderId)
+                          : undefined
+                      }
+                    >
                       <td className={styles.colOrden}>
                         {isPack ? (
                           <button
                             type="button"
                             className={styles.packToggle}
                             aria-expanded={isOpen}
-                            onClick={() => toggleExpanded(group.group_key)}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              toggleExpanded(group.group_key);
+                            }}
                           >
                             <ChevronRight
                               size={14}
@@ -466,6 +508,26 @@ export default function VentasML() {
                       <td className={styles.numeric}>
                         {formatMoney(group.total_amount, group.currency_id)}
                       </td>
+                      <td className={styles.numeric}>
+                        {representativeOrderId != null ? (
+                          <button
+                            type="button"
+                            className={styles.netoButton}
+                            // The visible text is the amount, so without
+                            // this a screen reader announces "button,
+                            // 82,50 ARS" and never says what it does.
+                            aria-label="Ver desglose de costos"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              openDrawer(representativeOrderId);
+                            }}
+                          >
+                            {formatMoney(group.neto, group.currency_id)}
+                          </button>
+                        ) : (
+                          formatMoney(group.neto, group.currency_id)
+                        )}
+                      </td>
                     </tr>
                     {/* The orders inside the parcel. Rendered only when
                         opened, and never for a lone order — there is
@@ -473,7 +535,11 @@ export default function VentasML() {
                     {isPack &&
                       isOpen &&
                       orders.map((order) => (
-                        <tr key={order.order_id} className={styles.memberRow}>
+                        <tr
+                          key={order.order_id}
+                          className={`${styles.memberRow} ${styles.clickableRow}`}
+                          onClick={() => openDrawer(order.order_id)}
+                        >
                           <td className={styles.colOrden}>
                             <span className={styles.memberOrden}>{order.order_id}</span>
                           </td>
@@ -495,6 +561,19 @@ export default function VentasML() {
                           </td>
                           <td className={styles.numeric}>
                             {formatMoney(order.total_amount, order.currency_id)}
+                          </td>
+                          <td className={styles.numeric}>
+                            <button
+                              type="button"
+                              className={styles.netoButton}
+                              aria-label="Ver desglose de costos"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                openDrawer(order.order_id);
+                              }}
+                            >
+                              {formatMoney(order.neto, order.currency_id)}
+                            </button>
                           </td>
                         </tr>
                       ))}
@@ -528,6 +607,7 @@ export default function VentasML() {
         </button>
       </div>
 
+      <DesgloseDrawer orderId={drawerOrderId} open={isDrawerOpen} onClose={closeDrawer} />
     </div>
   );
 }
