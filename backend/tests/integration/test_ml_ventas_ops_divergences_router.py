@@ -11,7 +11,13 @@ from datetime import datetime, timezone
 import pytest
 
 from app.core.config import settings
-from app.models.ml_orders_ops import MlOpsDivergence
+from app.models.ml_orders_ops import (
+    COST_SYNC_FIELD_PREFIX,
+    COST_SYNC_KIND,
+    COST_SYNC_SENTINEL_ORDER_ID,
+    MlOpsDivergence,
+)
+from app.routers.ml_ventas_ops import DivergenceSummary
 from app.models.permiso import Permiso, RolPermisoBase
 
 
@@ -364,3 +370,47 @@ class TestUpdateDivergence:
         assert body["state"] == "acknowledged"
         assert body["assigned_to_id"] == admin_user.id
         assert body["note"] == "ya asignado"
+
+
+class TestCostSyncRowsAreNotRenderedAsOrderZero:
+    """The payments/costs backfill counts its cost-sync give-up attempts
+    in `ml_ops_divergence` under the same `order_id=0` sentinel the
+    unenumerable-window rows use, but under the generic `unknown` kind.
+    Without its own test in `from_row` the operator sees a divergence
+    against ML order 0 -- an order that does not exist."""
+
+    def _row(self, **overrides) -> MlOpsDivergence:
+        now = datetime.now(timezone.utc)
+        defaults = dict(
+            id=1,
+            order_id=COST_SYNC_SENTINEL_ORDER_ID,
+            kind=COST_SYNC_KIND,
+            field=f"{COST_SYNC_FIELD_PREFIX}700",
+            ml_value="5",
+            gbp_value=None,
+            state="open",
+            assigned_to_id=None,
+            note=None,
+            detected_at=now,
+            updated_at=now,
+        )
+        defaults.update(overrides)
+        return MlOpsDivergence(**defaults)
+
+    def test_the_sentinel_order_id_is_masked(self) -> None:
+        summary = DivergenceSummary.from_row(self._row())
+        assert summary.order_id is None
+
+    def test_the_shipment_and_attempt_count_survive(self) -> None:
+        """Only the order id is a lie -- `field` names the shipment and
+        `ml_value` is how many attempts it took, both worth reading."""
+        summary = DivergenceSummary.from_row(self._row())
+        assert summary.field == f"{COST_SYNC_FIELD_PREFIX}700"
+        assert summary.ml_value == "5"
+
+    def test_a_real_unknown_divergence_on_a_real_order_is_untouched(self) -> None:
+        """The sentinel test must not swallow a genuine `unknown`
+        divergence that happens to carry a different field."""
+        summary = DivergenceSummary.from_row(self._row(order_id=2000018265495500, field="payments_key_missing"))
+        assert summary.order_id == 2000018265495500
+        assert summary.field == "payments_key_missing"

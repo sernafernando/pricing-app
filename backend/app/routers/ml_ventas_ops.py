@@ -38,6 +38,9 @@ from app.core.database import get_db
 from app.models.ml_bot_message import MlBotMessage
 from app.models.ml_bot_question import MlBotQuestion
 from app.models.ml_orders_ops import (
+    COST_SYNC_FIELD_PREFIX,
+    COST_SYNC_KIND,
+    COST_SYNC_SENTINEL_ORDER_ID,
     UNENUMERABLE_KIND,
     MlOperationLink,
     MlOpsDivergence,
@@ -243,9 +246,20 @@ class DivergenceSummary(BaseModel):
     @classmethod
     def from_row(cls, row: MlOpsDivergence) -> "DivergenceSummary":
         is_unenumerable = row.kind == UNENUMERABLE_KIND and row.order_id == _UNENUMERABLE_SENTINEL_ORDER_ID
+        # Cost-sync give-up counters share the `order_id=0` sentinel but
+        # not the `window_not_enumerable` kind, so they need their own
+        # test: without it they render as ML order 0, an order that does
+        # not exist. Their `field` (`cost_sync:<shipment_id>`) and
+        # `ml_value` (the attempt count) ARE meaningful, so only the
+        # sentinel order id is masked.
+        is_cost_sync = (
+            row.kind == COST_SYNC_KIND
+            and row.order_id == COST_SYNC_SENTINEL_ORDER_ID
+            and (row.field or "").startswith(COST_SYNC_FIELD_PREFIX)
+        )
         return cls(
             id=row.id,
-            order_id=None if is_unenumerable else row.order_id,
+            order_id=None if (is_unenumerable or is_cost_sync) else row.order_id,
             kind=row.kind,
             field=None if is_unenumerable else row.field,
             ml_value=None if is_unenumerable else row.ml_value,

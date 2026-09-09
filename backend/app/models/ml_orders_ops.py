@@ -273,6 +273,16 @@ class MlOpsSyncCursor(Base):
 # import graph for one string constant).
 UNENUMERABLE_KIND = "window_not_enumerable"
 
+# Cost-sync give-up counters (the payments/costs backfill). Like
+# `UNENUMERABLE_KIND` these live on the model rather than in the writer,
+# because the reader -- `DivergenceSummary.from_row` -- has to recognize
+# them to avoid rendering the `order_id=0` sentinel as a real ML order.
+# They reuse the generic `unknown` kind: the CHECK constraint on `kind`
+# has no dedicated value and adding one is a migration of its own.
+COST_SYNC_KIND = "unknown"
+COST_SYNC_FIELD_PREFIX = "cost_sync:"
+COST_SYNC_SENTINEL_ORDER_ID = 0
+
 
 class MlOpsDivergence(Base):
     """One row per open divergence between ML-sourced and GBP-sourced data.

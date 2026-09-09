@@ -57,7 +57,7 @@ import logging
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal, InvalidOperation
-from typing import Any, Dict, Iterator, List, Optional, Tuple
+from typing import Any, Dict, Iterator, List, Optional, Set, Tuple
 
 from sqlalchemy.exc import IntegrityError
 
@@ -475,6 +475,109 @@ def _fetch_payments(
     return payments
 
 
+PAYMENTS_KEY_MISSING_FIELD = "payments_key_missing"
+
+
+def _record_payments_key_missing(db, order_id: int) -> None:
+    """ML's own order payload omitted `payments[]` entirely -- not the
+    same fact as `payments: []` (see `sync_payments_for_order`'s
+    docstring). This only ever runs for a raw order FRESH off
+    `search_orders`/`get_order`, so the omission IS ML's own answer and
+    it is safe to treat as "no payments" -- but that must stay VISIBLE
+    instead of silently vanishing into a seal, exactly like
+    `record_unenumerable_window`'s escape hatch for a leaf that cannot be
+    enumerated. Reuses the generic `kind='unknown'` bucket: the CHECK
+    constraint on `ml_ops_divergence.kind` has no dedicated value for
+    this and a migration is out of scope for this fix. Re-detection
+    updates `detected_at`, deduped by the `(order_id, kind, field)`
+    unique constraint."""
+    existing = (
+        db.query(MlOpsDivergence)
+        .filter(
+            MlOpsDivergence.order_id == order_id,
+            MlOpsDivergence.kind == "unknown",
+            MlOpsDivergence.field == PAYMENTS_KEY_MISSING_FIELD,
+        )
+        .first()
+    )
+    now = datetime.now(timezone.utc)
+    if existing is not None:
+        existing.detected_at = now
+    else:
+        db.add(MlOpsDivergence(order_id=order_id, kind="unknown", field=PAYMENTS_KEY_MISSING_FIELD, detected_at=now))
+
+
+def sync_payments_for_order(
+    db,
+    order_id: int,
+    raw_order: Dict[str, Any],
+    payments_payload: Dict[int, Dict[str, Any]],
+    missing_key_is_empty: bool = False,
+) -> Tuple[int, bool]:
+    """Maps and persists every `raw_order['payments'][].id` present in
+    `payments_payload`, then seals `MlOrdersOps.payments_synced_at` ONLY
+    if every one of this order's payment ids resolved. A partial result
+    (a missing id, a fetch failure already excluded from
+    `payments_payload`, or a mapping error) leaves it NULL so the retry
+    gate (`payments_synced_at IS NULL`) picks it up again next pass.
+
+    Extracted (post-review fix, ml-backfill-pagos-y-costos) so the sweep's
+    own `process_batch` and the historical backfill
+    (`app/scripts/backfill_ml_payments_costs.py`) share this EXACT
+    sealing rule instead of drifting into two implementations of the same
+    money-path logic. Returns `(payments_synced, sealed)`.
+
+    The `payments`
+    key ABSENT is not the same fact as `payments` present and EMPTY.
+    ML's own order schema guarantees the key on every live order, so
+    `payments: []` means "ML says this order genuinely has none" -- fine
+    to seal. The key being absent means the SOURCE never told us either
+    way -- UNLESS the caller can vouch that `raw_order` is genuinely
+    fresh off ML (`missing_key_is_empty=True`), in which case the
+    omission itself IS ML's answer and sealing is correct (the sweep's
+    `process_batch` also records `_record_payments_key_missing` first, so
+    this stays visible rather than silently vanishing).
+
+    The default (`missing_key_is_empty=False`) is for a `raw_order` NOT
+    guaranteed fresh -- e.g. the backfill's first read of
+    `MlOrdersOps.raw_order`, written by whatever ingestion version was
+    running at the time, which may have truncated, half-written, or
+    otherwise never persisted this field. Sealing on an ABSENT key there
+    converts an unknown into "zero payments, done" -- and since
+    `payments_synced_at IS NULL` is the ONLY retry gate, that order could
+    never become a candidate again. The backfill
+    itself now refetches such an order fresh from ML BEFORE ever calling
+    this function with `missing_key_is_empty=True`, instead of leaving it
+    permanently unresolved -- see `backfill_payments_costs_service.py`."""
+    if raw_order.get("payments") is None and not missing_key_is_empty:
+        return 0, False
+    payment_ids = _extract_payment_ids(raw_order)
+    synced = 0
+    all_synced = True
+    for payment_id in payment_ids:
+        payment_payload = payments_payload.get(payment_id)
+        if payment_payload is None:
+            all_synced = False
+            continue
+        mapped_payment = map_payment(payment_payload)
+        if isinstance(mapped_payment, PaymentMappingError):
+            logger.warning(
+                "sync_payments_for_order: payment mapping error for payment_id=%s (order_id=%s): %s",
+                payment_id,
+                order_id,
+                mapped_payment.reason,
+            )
+            all_synced = False
+            continue
+        upsert_payment(db, mapped_payment)
+        synced += 1
+    if all_synced:
+        db.query(MlOrdersOps).filter(MlOrdersOps.order_id == order_id).update(
+            {"payments_synced_at": datetime.now(timezone.utc)}
+        )
+    return synced, all_synced
+
+
 def tz_aware(value: Optional[datetime]) -> Optional[datetime]:
     """SQLite loses tzinfo on a value round-tripped through the DB (the
     test DB, `tests/conftest.py`'s `sqlite://`) -- a naive value read back
@@ -609,6 +712,7 @@ def _sync_shipment_costs(
     shipment_ids: List[int],
     budget: Optional[List[int]] = None,
     started_at: Optional[datetime] = None,
+    attempted_out: Optional[Set[int]] = None,
 ) -> int:
     """Fetches and persists `sender_cost`/`receiver_cost` for every shipment
     in `shipment_ids` whose `costs_synced_at` is still NULL.
@@ -622,6 +726,12 @@ def _sync_shipment_costs(
 
     HTTP happens entirely before any DB session opens for the write, same
     HTTP-before-write discipline as `_fetch_shipments` (design D8).
+
+    `attempted_out`, when given, collects the ids this call actually
+    spent an HTTP fetch on. A shipment skipped because the budget or the
+    pass deadline ran out never reaches ML, so a caller that counts
+    give-up attempts must not charge it one -- see the backfill's
+    `_record_cost_sync_attempt` call site.
     """
     to_sync = _shipments_needing_cost_sync(shipment_ids)
     if not to_sync:
@@ -640,6 +750,8 @@ def _sync_shipment_costs(
             )
             break
         budget[0] -= 1
+        if attempted_out is not None:
+            attempted_out.add(shipment_id)
         try:
             payload = resolve_maybe_async(ml_webhook_client.get_shipment_costs(shipment_id))
         except Exception:
@@ -818,29 +930,18 @@ def process_batch(
             # retries exactly the missing ones (`payments_payload` is
             # re-fetched fresh every pass for any still-NULL order).
             if mapped.order_id in payment_candidate_ids:
-                payment_ids = _extract_payment_ids(raw_order)
-                all_synced = True
-                for payment_id in payment_ids:
-                    payment_payload = payments_payload.get(payment_id)
-                    if payment_payload is None:
-                        all_synced = False
-                        continue
-                    mapped_payment = map_payment(payment_payload)
-                    if isinstance(mapped_payment, PaymentMappingError):
-                        logger.warning(
-                            "sweep: payment mapping error for payment_id=%s (order_id=%s): %s",
-                            payment_id,
-                            mapped.order_id,
-                            mapped_payment.reason,
-                        )
-                        all_synced = False
-                        continue
-                    upsert_payment(db, mapped_payment)
-                    payments_synced += 1
-                if all_synced:
-                    db.query(MlOrdersOps).filter(MlOrdersOps.order_id == mapped.order_id).update(
-                        {"payments_synced_at": datetime.now(timezone.utc)}
-                    )
+                # `raw_order` here is fresh off THIS pass's `search_orders`
+                # call (design D5's single source of truth), so an absent
+                # `payments` key is ML's own answer, not an unknown --
+                # `missing_key_is_empty=True` -- but it is recorded first
+                # so it stays visible instead of silently vanishing into a
+                # seal (post-review fix #1/#2).
+                if raw_order.get("payments") is None:
+                    _record_payments_key_missing(db, mapped.order_id)
+                order_synced, _sealed = sync_payments_for_order(
+                    db, mapped.order_id, raw_order, payments_payload, missing_key_is_empty=True
+                )
+                payments_synced += order_synced
 
             # Shipment upsert failures are NOT folded into the order
             # counters above -- a shipment mapping error/staleness says
