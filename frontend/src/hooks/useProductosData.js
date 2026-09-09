@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { productosAPI } from '../services/api';
 import api from '../services/api';
 
@@ -67,15 +67,22 @@ export function useProductosData({
   // exacta del recargo con el que TnPublishModal publica.
   const [porcentajeTarjetaTn, setPorcentajeTarjetaTn] = useState(null);
 
+  // Request-generation guards: overlapping listar/stats must not let a stale
+  // (e.g. unfiltered) response desync the page buffer from Total cards.
+  const latestProductosRequestRef = useRef(0);
+  const latestStatsRequestRef = useRef(0);
+
   /**
    * cargarStats — OWNED here (ADR-2).
    * Uses construirFiltrosParams() for the full filter param set.
    * showToast dep dropped — catch is intentionally silent (no toast on stats error).
    */
   const cargarStats = useCallback(async () => {
+    const requestId = ++latestStatsRequestRef.current;
     try {
       const params = construirFiltrosParams();
       const statsRes = await productosAPI.statsDinamicos(params);
+      if (requestId !== latestStatsRequestRef.current) return;
       setStats(statsRes.data);
     } catch {
       // Error silencioso, no afecta funcionalidad principal
@@ -86,6 +93,7 @@ export function useProductosData({
    * cargarProductos — uses construirFiltrosParams() + pagination + ordering.
    */
   const cargarProductos = useCallback(async () => {
+    const requestId = ++latestProductosRequestRef.current;
     setLoading(true);
     try {
       const params = { ...construirFiltrosParams(), page, page_size: pageSize };
@@ -94,12 +102,14 @@ export function useProductosData({
         params.orden_direcciones = ordenColumnas.map(o => o.direccion).join(',');
       }
       const productosRes = await productosAPI.listar(params);
+      if (requestId !== latestProductosRequestRef.current) return;
       setTotalProductos(productosRes.data.total || productosRes.data.productos.length);
       setProductos(productosRes.data.productos);
     } catch {
+      if (requestId !== latestProductosRequestRef.current) return;
       showToast('Error al cargar productos', 'error');
     } finally {
-      setLoading(false);
+      if (requestId === latestProductosRequestRef.current) setLoading(false);
     }
   }, [construirFiltrosParams, page, pageSize, ordenColumnas, showToast]);
 

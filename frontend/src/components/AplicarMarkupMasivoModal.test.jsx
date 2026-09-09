@@ -7,8 +7,8 @@
  * - fail-closed empty/mismatch (no catalog widen)
  * - chunks ≤ 100
  */
-import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, waitFor } from '@testing-library/react';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { render, screen, waitFor, fireEvent } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import AplicarMarkupMasivoModal from './AplicarMarkupMasivoModal';
 import api, { productosAPI } from '../services/api';
@@ -390,5 +390,231 @@ describe('AplicarMarkupMasivoModal', () => {
       expect(showToast).toHaveBeenCalledWith(expect.stringMatching(/no resolvió/i), 'error'),
     );
     expect(api.post).not.toHaveBeenCalled();
+  });
+});
+
+async function setMarkupObjetivo(user, value) {
+  const input = screen.getByRole('textbox');
+  await user.clear(input);
+  await user.type(input, value);
+}
+
+function renderModal({
+  totalProductos = 18,
+  listarParams = LISTAR_18,
+  showToast = () => {},
+  onSuccess = () => {},
+  onClose = () => {},
+} = {}) {
+  return render(
+    <AplicarMarkupMasivoModal
+      onClose={onClose}
+      onSuccess={onSuccess}
+      listarParams={listarParams}
+      totalProductos={totalProductos}
+      showToast={showToast}
+    />,
+  );
+}
+
+describe('AplicarMarkupMasivoModal markup 0 and negative', () => {
+  let confirmSpy;
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    confirmSpy = vi.spyOn(window, 'confirm').mockImplementation(() => true);
+    api.post.mockImplementation(async (url, body) => {
+      if (url.includes('aplicar-markup-masivo')) {
+        return markupOkResponse(body.item_ids);
+      }
+      return { data: { ok: true } };
+    });
+  });
+
+  afterEach(() => {
+    confirmSpy.mockRestore();
+  });
+
+  it('markup 0 shows CS-4 Tesla pane then writes after confirm when count ≤ 50', async () => {
+    const ids = makeIds(18);
+    mockListarPages(ids, 500);
+    const onSuccess = vi.fn();
+    const user = userEvent.setup();
+    renderModal({ onSuccess });
+
+    await setMarkupObjetivo(user, '0');
+    await user.click(screen.getByRole('button', { name: /Aplicar a 18 productos/i }));
+
+    expect(await screen.findByText('MarkUp Negativo')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /Guardar de todas formas/i })).toBeInTheDocument();
+    expect(api.post).not.toHaveBeenCalled();
+    expect(confirmSpy).not.toHaveBeenCalled();
+
+    await user.click(screen.getByRole('button', { name: /Guardar de todas formas/i }));
+    await waitFor(() => expect(onSuccess).toHaveBeenCalled());
+    const markupCalls = api.post.mock.calls.filter(([url]) =>
+      url.includes('aplicar-markup-masivo'),
+    );
+    expect(markupCalls).toHaveLength(1);
+    expect(markupCalls[0][1].markup_objetivo).toBe(0);
+    expect(confirmSpy).not.toHaveBeenCalled();
+  });
+
+  it('blur keeps 0 and -3 instead of resetting to 5.0', async () => {
+    const user = userEvent.setup();
+    renderModal();
+
+    await setMarkupObjetivo(user, '0');
+    await user.tab();
+    expect(screen.getByRole('textbox')).toHaveValue('0');
+
+    await setMarkupObjetivo(user, '-3');
+    await user.tab();
+    expect(screen.getByRole('textbox')).toHaveValue('-3');
+  });
+
+  it('rejects NaN/empty markup with toast and no write', async () => {
+    mockListarPages(makeIds(18), 500);
+    const showToast = vi.fn();
+    renderModal({ showToast });
+
+    fireEvent.change(screen.getByRole('textbox'), { target: { value: 'abc' } });
+    fireEvent.click(screen.getByRole('button', { name: /Aplicar a 18 productos/i }));
+
+    await waitFor(() =>
+      expect(showToast).toHaveBeenCalledWith('Ingresá un markup válido', 'error'),
+    );
+    expect(api.post).not.toHaveBeenCalled();
+    expect(screen.queryByText(/MarkUp Negativo/i)).not.toBeInTheDocument();
+    expect(confirmSpy).not.toHaveBeenCalled();
+
+    fireEvent.change(screen.getByRole('textbox'), { target: { value: '' } });
+    fireEvent.click(screen.getByRole('button', { name: /Aplicar a 18 productos/i }));
+    await waitFor(() => expect(showToast).toHaveBeenCalledTimes(2));
+    expect(showToast).toHaveBeenLastCalledWith('Ingresá un markup válido', 'error');
+    expect(api.post).not.toHaveBeenCalled();
+  });
+
+  it('rejects markup below -100 with toast naming the floor (no resolve/write)', async () => {
+    mockListarPages(makeIds(18), 500);
+    const showToast = vi.fn();
+    const user = userEvent.setup();
+    renderModal({ showToast });
+
+    await setMarkupObjetivo(user, '-500');
+    await user.click(screen.getByRole('button', { name: /Aplicar a 18 productos/i }));
+
+    await waitFor(() =>
+      expect(showToast).toHaveBeenCalledWith(
+        'El markup no puede ser menor a -100',
+        'error',
+      ),
+    );
+    expect(productosAPI.listar).not.toHaveBeenCalled();
+    expect(api.post).not.toHaveBeenCalled();
+    expect(screen.queryByText(/MarkUp Negativo/i)).not.toBeInTheDocument();
+    expect(confirmSpy).not.toHaveBeenCalled();
+  });
+
+  it('negative markup shows CS-4 Tesla pane then writes after confirm', async () => {
+    const ids = makeIds(18);
+    mockListarPages(ids, 500);
+    const onSuccess = vi.fn();
+    const user = userEvent.setup();
+    renderModal({ onSuccess });
+
+    await setMarkupObjetivo(user, '-3');
+    await user.click(screen.getByRole('button', { name: /Aplicar a 18 productos/i }));
+
+    expect(await screen.findByText('MarkUp Negativo')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /Guardar de todas formas/i })).toBeInTheDocument();
+    expect(screen.getByText(/costo \+ comisiones/i)).toBeInTheDocument();
+    expect(api.post).not.toHaveBeenCalled();
+    expect(confirmSpy).not.toHaveBeenCalled();
+
+    await user.click(screen.getByRole('button', { name: /Guardar de todas formas/i }));
+    await waitFor(() => expect(onSuccess).toHaveBeenCalled());
+    const markupCalls = api.post.mock.calls.filter(([url]) =>
+      url.includes('aplicar-markup-masivo'),
+    );
+    expect(markupCalls).toHaveLength(1);
+    expect(markupCalls[0][1].markup_objetivo).toBe(-3);
+    expect(confirmSpy).not.toHaveBeenCalled();
+  });
+
+  it('Volver on negative pane aborts write and keeps the value', async () => {
+    mockListarPages(makeIds(18), 500);
+    const user = userEvent.setup();
+    renderModal();
+
+    await setMarkupObjetivo(user, '-3');
+    await user.click(screen.getByRole('button', { name: /Aplicar a 18 productos/i }));
+    expect(await screen.findByText('MarkUp Negativo')).toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: /^Volver$/i }));
+    expect(screen.queryByText('MarkUp Negativo')).not.toBeInTheDocument();
+    expect(screen.getByRole('textbox')).toHaveValue('-3');
+    expect(screen.getByRole('button', { name: /Aplicar a 18 productos/i })).toBeInTheDocument();
+    expect(api.post).not.toHaveBeenCalled();
+  });
+
+  it('stacks negative pane then >50 before writes', async () => {
+    const ids = makeIds(51);
+    mockListarPages(ids, 500);
+    const onSuccess = vi.fn();
+    const user = userEvent.setup();
+    renderModal({ totalProductos: 51, onSuccess });
+
+    await setMarkupObjetivo(user, '-3');
+    await user.click(screen.getByRole('button', { name: /Aplicar a 51 productos/i }));
+
+    expect(await screen.findByText('MarkUp Negativo')).toBeInTheDocument();
+    expect(screen.queryByText(/Confirmar acciones masivas/i)).not.toBeInTheDocument();
+    expect(api.post).not.toHaveBeenCalled();
+
+    await user.click(screen.getByRole('button', { name: /Guardar de todas formas/i }));
+    expect(await screen.findByText(/Confirmar acciones masivas/i)).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /^Confirmar$/i })).toBeInTheDocument();
+    expect(screen.queryByText('MarkUp Negativo')).not.toBeInTheDocument();
+    expect(api.post).not.toHaveBeenCalled();
+
+    await user.click(screen.getByRole('button', { name: /^Confirmar$/i }));
+    await waitFor(() => expect(onSuccess).toHaveBeenCalled());
+    const markupCalls = api.post.mock.calls.filter(([url]) =>
+      url.includes('aplicar-markup-masivo'),
+    );
+    expect(markupCalls).toHaveLength(1);
+    expect(markupCalls[0][1].markup_objetivo).toBe(-3);
+    expect(markupCalls[0][1].item_ids).toHaveLength(51);
+    expect(confirmSpy).not.toHaveBeenCalled();
+  });
+
+  it('stacks zero pane then >50 before writes', async () => {
+    const ids = makeIds(51);
+    mockListarPages(ids, 500);
+    const onSuccess = vi.fn();
+    const user = userEvent.setup();
+    renderModal({ totalProductos: 51, onSuccess });
+
+    await setMarkupObjetivo(user, '0');
+    await user.click(screen.getByRole('button', { name: /Aplicar a 51 productos/i }));
+
+    expect(await screen.findByText('MarkUp Negativo')).toBeInTheDocument();
+    expect(screen.queryByText(/Confirmar acciones masivas/i)).not.toBeInTheDocument();
+    expect(api.post).not.toHaveBeenCalled();
+
+    await user.click(screen.getByRole('button', { name: /Guardar de todas formas/i }));
+    expect(await screen.findByText(/Confirmar acciones masivas/i)).toBeInTheDocument();
+    expect(screen.queryByText('MarkUp Negativo')).not.toBeInTheDocument();
+    expect(api.post).not.toHaveBeenCalled();
+
+    await user.click(screen.getByRole('button', { name: /^Confirmar$/i }));
+    await waitFor(() => expect(onSuccess).toHaveBeenCalled());
+    const markupCalls = api.post.mock.calls.filter(([url]) =>
+      url.includes('aplicar-markup-masivo'),
+    );
+    expect(markupCalls).toHaveLength(1);
+    expect(markupCalls[0][1].markup_objetivo).toBe(0);
+    expect(confirmSpy).not.toHaveBeenCalled();
   });
 });

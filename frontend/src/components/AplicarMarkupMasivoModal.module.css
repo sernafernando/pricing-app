@@ -169,6 +169,10 @@
   color: var(--text-primary);
 }
 
+.confirmacionTituloDanger {
+  color: var(--cf-accent-red);
+}
+
 .tablaWrap { overflow-x: auto; }
 
 .tabla {

@@ -1083,4 +1083,3 @@ describe('Acciones masivas open/cancel preserves Total/listar sync', () => {
     expect(screen.getByText('18')).toBeInTheDocument();
   });
 });
-

@@ -11,6 +11,8 @@ import styles from './AplicarMarkupMasivoModal.module.css';
 
 const MAX_ITEMS_POR_REQUEST = 100;
 const CONFIRM_THRESHOLD = 50;
+/** Matches AplicarMarkupMasivoRequest.ge=-100 (goalseek floor). */
+const MARKUP_OBJETIVO_MIN = -100;
 
 export default function AplicarMarkupMasivoModal({
   onClose,
@@ -34,7 +36,7 @@ export default function AplicarMarkupMasivoModal({
   const [progresoLote, setProgresoLote] = useState(null);
   const [resultados, setResultados] = useState(null);
   const [resolvedItemIds, setResolvedItemIds] = useState(null);
-  /** Pending apply job awaiting Tesla confirm when count > CONFIRM_THRESHOLD */
+  /** Pending Tesla confirm: gate 'negative' then 'threshold' when both apply */
   const [confirmacion, setConfirmacion] = useState(null);
 
   const pricelistId = 4;
@@ -147,8 +149,15 @@ export default function AplicarMarkupMasivoModal({
     let markup = null;
     if (aplicarMarkup) {
       markup = parseFloat(markupObjetivo.replace(',', '.'));
-      if (isNaN(markup) || markup <= 0) {
-        showToast('Ingresá un markup válido mayor a 0', 'error');
+      if (!Number.isFinite(markup)) {
+        showToast('Ingresá un markup válido', 'error');
+        return;
+      }
+      if (markup < MARKUP_OBJETIVO_MIN) {
+        showToast(
+          `El markup no puede ser menor a ${MARKUP_OBJETIVO_MIN}`,
+          'error',
+        );
         return;
       }
     }
@@ -204,9 +213,15 @@ export default function AplicarMarkupMasivoModal({
     }
 
     const job = { itemIds, markup, configBodyBase };
+    // Chicho/#1260: zero is also margin-wipe risk — same Tesla pane as negative.
+    if (aplicarMarkup && markup <= 0) {
+      setAplicando(false);
+      setConfirmacion({ ...job, gate: 'negative' });
+      return;
+    }
     if (itemIds.length > CONFIRM_THRESHOLD) {
       setAplicando(false);
-      setConfirmacion(job);
+      setConfirmacion({ ...job, gate: 'threshold' });
       return;
     }
 
@@ -216,6 +231,10 @@ export default function AplicarMarkupMasivoModal({
   const handleConfirmarAplicacion = async () => {
     if (!confirmacion) return;
     const job = confirmacion;
+    if (job.gate === 'negative' && job.itemIds.length > CONFIRM_THRESHOLD) {
+      setConfirmacion({ ...job, gate: 'threshold' });
+      return;
+    }
     setConfirmacion(null);
     await ejecutarAplicacion(job);
   };
@@ -238,7 +257,13 @@ export default function AplicarMarkupMasivoModal({
           <button
             type="button"
             className={styles.closeBtn}
-            onClick={onClose}
+            onClick={() => {
+              if (confirmacion) {
+                setConfirmacion(null);
+                return;
+              }
+              onClose();
+            }}
             disabled={aplicando}
             aria-label="Cerrar"
           >
@@ -249,16 +274,35 @@ export default function AplicarMarkupMasivoModal({
         <div className={styles.body}>
           {confirmacion ? (
             <div className={styles.confirmacion}>
-              <p className={styles.confirmacionTitulo}>Confirmar acciones masivas</p>
-              <p className={styles.descripcion}>
-                Vas a aplicar las acciones seleccionadas a{' '}
-                <strong>{confirmacion.itemIds.length} productos</strong> del filtro actual.
-                Esta operación escribe precios y/o config de cuotas en lote.
-              </p>
-              <div className={styles.infoBox}>
-                Más de {CONFIRM_THRESHOLD} productos requieren confirmación explícita antes de
-                escribir.
-              </div>
+              {confirmacion.gate === 'negative' ? (
+                <>
+                  <p className={`${styles.confirmacionTitulo} ${styles.confirmacionTituloDanger}`}>
+                    MarkUp Negativo
+                  </p>
+                  <p className={styles.descripcion}>
+                    Vas a guardar <strong>{confirmacion.itemIds.length} productos</strong> del
+                    filtro actual con un MarkUp Negativo del{' '}
+                    <strong>{confirmacion.markup}%</strong>.
+                  </p>
+                  <div className={styles.infoBox}>
+                    Esto significa que los precios de venta quedan por debajo del costo +
+                    comisiones.
+                  </div>
+                </>
+              ) : (
+                <>
+                  <p className={styles.confirmacionTitulo}>Confirmar acciones masivas</p>
+                  <p className={styles.descripcion}>
+                    Vas a aplicar las acciones seleccionadas a{' '}
+                    <strong>{confirmacion.itemIds.length} productos</strong> del filtro actual.
+                    Esta operación escribe precios y/o config de cuotas en lote.
+                  </p>
+                  <div className={styles.infoBox}>
+                    Más de {CONFIRM_THRESHOLD} productos requieren confirmación explícita antes de
+                    escribir.
+                  </div>
+                </>
+              )}
             </div>
           ) : !resultados ? (
             <>
@@ -285,7 +329,7 @@ export default function AplicarMarkupMasivoModal({
                         onChange={(e) => setMarkupObjetivo(e.target.value)}
                         onBlur={(e) => {
                           const v = parseFloat(e.target.value.replace(',', '.'));
-                          setMarkupObjetivo(isNaN(v) || v <= 0 ? '5.0' : v.toString());
+                          setMarkupObjetivo(Number.isFinite(v) ? v.toString() : '5.0');
                         }}
                         onFocus={(e) => e.target.select()}
                         className={styles.input}
@@ -461,7 +505,7 @@ export default function AplicarMarkupMasivoModal({
                 onClick={handleConfirmarAplicacion}
                 disabled={aplicando}
               >
-                Confirmar
+                {confirmacion.gate === 'negative' ? 'Guardar de todas formas' : 'Confirmar'}
               </button>
             </>
           ) : !resultados ? (
