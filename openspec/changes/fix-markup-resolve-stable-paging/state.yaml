@@ -1,0 +1,12 @@
+change: fix-markup-resolve-stable-paging
+phase: tasks
+status: ready_for_apply
+artifact_store: openspec
+relationships:
+  amends:
+    - fix-markup-masivo-filtro
+artifacts:
+  proposal: true
+  specs: true
+  design: true
+  tasks: true

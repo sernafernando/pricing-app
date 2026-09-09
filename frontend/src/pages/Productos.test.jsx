@@ -1031,3 +1031,56 @@ describe('CS-10: promo type/status filter control', () => {
     });
   });
 });
+
+// ---------------------------------------------------------------------------
+// Acciones masivas — open/cancel must not reload listing (scope wiring smoke)
+// ---------------------------------------------------------------------------
+describe('Acciones masivas open/cancel preserves Total/listar sync', () => {
+  it('open then cancel does not call listar/stats again and keeps filtered Total', async () => {
+    setupApiMocks({
+      productos: [makeProducto({ item_id: 'F1', descripcion: 'Filtrado Uno' })],
+      total: 18,
+    });
+    productosAPI.statsDinamicos.mockResolvedValue({
+      data: { total_productos: 18 },
+    });
+
+    const user = userEvent.setup();
+
+    await act(async () => {
+      renderWithRouter(<Productos />);
+    });
+
+    await waitFor(() => {
+      expect(screen.getByText('Filtrado Uno')).toBeInTheDocument();
+    });
+    await waitFor(() => {
+      expect(screen.getByText('18')).toBeInTheDocument();
+    });
+
+    const listarAfterMount = productosAPI.listar.mock.calls.length;
+    const statsAfterMount = productosAPI.statsDinamicos.mock.calls.length;
+
+    await act(async () => {
+      await user.click(screen.getByRole('button', { name: /Acciones masivas/i }));
+    });
+
+    expect(
+      await screen.findByText(/Acciones masivas — 18 productos/i),
+    ).toBeInTheDocument();
+
+    await act(async () => {
+      await user.click(screen.getByRole('button', { name: /^Cancelar$/i }));
+    });
+
+    await waitFor(() => {
+      expect(screen.queryByText(/Acciones masivas — 18 productos/i)).not.toBeInTheDocument();
+    });
+
+    expect(productosAPI.listar.mock.calls.length).toBe(listarAfterMount);
+    expect(productosAPI.statsDinamicos.mock.calls.length).toBe(statsAfterMount);
+    expect(screen.getByText('Filtrado Uno')).toBeInTheDocument();
+    expect(screen.getByText('18')).toBeInTheDocument();
+  });
+});
+

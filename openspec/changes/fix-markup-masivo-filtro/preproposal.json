@@ -1,0 +1,67 @@
+{
+  "schemaName": "gentle-ai.sdd-preproposal/v1",
+  "revision": 6,
+  "change": "fix-markup-masivo-filtro",
+  "updated_at": "2026-09-04T16:05:29Z",
+  "exploration": {
+    "outcome": "completed",
+    "reference_openspec": "openspec/changes/fix-markup-masivo-filtro/exploration.md",
+    "reference_engram_topic": "sdd/fix-markup-masivo-filtro/explore",
+    "reference_engram_id": 19
+  },
+  "research_request": {
+    "selected": true,
+    "classes": [
+      "documentation",
+      "open-web"
+    ],
+    "questions": [
+      "Q1",
+      "Q2",
+      "Q3"
+    ]
+  },
+  "admission": {
+    "status": "admitted",
+    "capability_schema": "gentle-ai.sdd-research-capability/v1",
+    "observed_grants": {
+      "documentation": [
+        "/home/user/.herdr/worktrees/pricing-app/fix-markup-filtro/openspec/changes/fix-markup-masivo-filtro/exploration.md",
+        "/home/user/.herdr/worktrees/pricing-app/fix-markup-filtro/frontend/src/components/AplicarMarkupMasivoModal.jsx",
+        "/home/user/.herdr/worktrees/pricing-app/fix-markup-filtro/frontend/src/pages/Productos.jsx",
+        "/home/user/.herdr/worktrees/pricing-app/fix-markup-filtro/frontend/src/hooks/useProductosData.js",
+        "/home/user/.herdr/worktrees/pricing-app/fix-markup-filtro/frontend/src/hooks/useProductosFilters.js"
+      ],
+      "open-web": [
+        "https://github.com/sernafernando/pricing-app/pull/1242"
+      ]
+    }
+  },
+  "research_outcome": "done",
+  "evidence_references": {
+    "openspec": "openspec/changes/fix-markup-masivo-filtro/research.md",
+    "openspec_preproposal": "openspec/changes/fix-markup-masivo-filtro/preproposal.json",
+    "engram_topic": "sdd/fix-markup-masivo-filtro/research",
+    "engram_research_id": 21,
+    "engram_preproposal_topic": "sdd/fix-markup-masivo-filtro/preproposal",
+    "engram_preproposal_id": 22,
+    "research_revision": 2,
+    "preproposal_revision": 3
+  },
+  "product_decisions": "confirmed",
+  "proposal_ready": true,
+  "readiness_notes": "Research done; product decisions confirmed. Ready for sdd-propose.",
+  "confirmed_product_decisions": {
+    "scope": "full_filtered_set",
+    "scope_detail": "Modal applies to entire filter result (e.g. Mostrando 50 de 200 → apply 200), not current page only",
+    "no_filters": "apply to full loaded/catalog result as listed (e.g. 4199)",
+    "confirmation_threshold": 50,
+    "confirmation_behavior": "alert/confirm before apply when target count > 50",
+    "screenshot_evidence": [
+      "openspec/changes/fix-markup-masivo-filtro/evidence/2026-09-04-grid-mostrando-18.png",
+      "openspec/changes/fix-markup-masivo-filtro/evidence/2026-09-04-modal-4291.png"
+    ],
+    "observed_bug": "With marca+con_stock+con_precio, Total/Mostrando showed 18; opening Acciones masivas showed 4291 in modal and Mostrando 4291 while Total cards stayed at 18",
+    "preferred_approach": "filter_scoped_like_calcular_web_pvp_full_filter_set_plus_gt50_confirm"
+  }
+}
