@@ -59,36 +59,38 @@
 #
 # The cost of that choice, stated so it is a known trade and not a
 # surprise: an order the BRIDGE lost at 10:00 stays invisible until the
-# next night's pass. That is acceptable only because it is the rare
-# failure -- the drain above already covers every order the bridge did
-# record, all day, within seconds of the ping and within 15 minutes
-# without it.
+# next night's pass. That is acceptable because the ping covers the
+# normal path within seconds, and because a receiver that has genuinely
+# stopped shows up as "no sales are appearing" -- which the operator
+# notices far sooner than any polling interval would have caught it.
 47 4 * * * cd /var/www/html/pricing-app/backend && /var/www/html/pricing-app/backend/venv/bin/python -m app.scripts.sync_ml_orders_ops >> /var/log/pricing-app/sync_ml_orders_ops.log 2>&1
 
-# ML activity drain (ml-activity-receiver, slice 4) - THE FLOOR UNDER THE
-# PING, not the transport. ml-webhook pings us on every new event and that
-# is what makes a sale show up in seconds; this pass exists for when the
-# ping does not arrive at all (ml-webhook down, the 90-day service token
-# expired, a restart that never re-read its .env). The stored cursor
-# guarantees no event is ever LOST, but not that one arrives on TIME:
-# "a lost ping is recovered by the next one" only holds if there IS a
-# next one, and a ping dropped on a quiet Saturday night is not recovered
-# until somebody buys something.
+# ML activity drain (ml-activity-receiver, slice 4) - ONCE A NIGHT, right
+# before the audit below. This is NOT the transport: ml-webhook pings us
+# on every event and that is what makes a sale appear in seconds. This
+# pass exists for one narrow job -- keeping the bridge cursor moving.
 #
-# Runs ALL DAY on purpose, unlike the 06-21 block above: a sale at 03:00
-# is still a sale, and this is the only automatic path when the ping is
-# broken. It costs ONE http call when the feed has nothing new.
+# Why it is not more frequent: with the ping working, a drain cron does
+# nothing almost every time it runs, and a cron that runs all day to do
+# nothing is the exact thing this feature set out to remove. If the ping
+# breaks, the operator notices that sales stopped appearing long before
+# any polling interval would have mattered, and the audit below brings
+# them in regardless.
 #
-# It also carries the first-run catch-up: the bridge holds a backlog of
-# thousands of events and one pass resolves at most 500 orders, so the
-# initial drain needs several passes rather than waiting for enough pings
-# to trickle in.
+# Why it is not removed either: the audit below fetches orders from ML's
+# own search, so it never consumes the activity feed. With the ping down
+# and no drain at all, the cursor freezes and the bridge backlog grows
+# until somebody notices; one pass a night keeps it walking for the cost
+# of a single HTTP call.
 #
-# No-op while ML_ORDERS_OPS_ENABLED is False (default OFF). Minute 7 so it
-# never shares a tick with the */10 and */5 crons above. Overlap with a
-# ping-triggered drain is safe: `drain_activity` takes the run lock for
-# its own cursor and returns without running if one is already in flight.
-7-52/15 * * * * cd /var/www/html/pricing-app/backend && /var/www/html/pricing-app/backend/venv/bin/python -m app.scripts.drain_ml_activity >> /var/log/pricing-app/drain_ml_activity.log 2>&1
+# Order matters: drain FIRST (04:27), audit twenty minutes later. The
+# audit is then checking what the bridge has actually delivered, instead
+# of "finding" orders the drain was about to bring in anyway.
+#
+# No-op while ML_ORDERS_OPS_ENABLED is False (default OFF). Overlap with
+# a ping-triggered drain is safe: the service takes the run lock for its
+# own cursor and returns without running if one is already in flight.
+27 4 * * * cd /var/www/html/pricing-app/backend && /var/www/html/pricing-app/backend/venv/bin/python -m app.scripts.drain_ml_activity >> /var/log/pricing-app/drain_ml_activity.log 2>&1
 
 # ML Billing daily sweep (ml-ventas-desglose-costos, corte 3) - downloads
 # the OPEN billing period once a day (ML enforces a HARD 5 requests/minute
