@@ -17,4 +17,4 @@
 
 ## Phase 2: Delivery
 
-- [ ] 2.1 Commit + push `fix/markup-masivo-02-wiring-desync`; reply to Chicho comment.
+- [x] 2.1 Commit + push `fix/markup-masivo-02-wiring-desync`; reply to Chicho comment.
