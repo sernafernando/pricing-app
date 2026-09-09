@@ -484,7 +484,11 @@ class TestSmartWritableRegressionGuard:
 
 
 class TestSmartEnroll:
-    def test_happy_path_uses_ref_id_as_offer_id_and_entry_price(self, monkeypatch: pytest.MonkeyPatch) -> None:
+    def test_happy_path_uses_ref_id_as_offer_id_and_omits_deal_price(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """SMART/PRE_NEGOTIATED/PRICE_MATCHING's POST body only carries
+        promotion_id/promotion_type/offer_id per ML docs — deal_price is
+        omitted (None), even though the read-side entry_price is still
+        used for the fail-closed check and for `result["price"]`."""
         monkeypatch.setattr(write_service.settings, "PROMOS_WRITE_ENABLED", True)
 
         with (
@@ -512,7 +516,7 @@ class TestSmartEnroll:
             "MLA1859172999",
             "P-MLA1",
             "SMART",
-            19585.27,
+            deal_price=None,
             top_deal_price=None,
             offer_id="CANDIDATE-MLA1-1",
         )
@@ -1151,7 +1155,11 @@ class TestPreNegotiatedWritableRegressionGuard:
 
 
 class TestPreNegotiatedEnroll:
-    def test_happy_path_uses_ref_id_as_offer_id_and_entry_price(self, monkeypatch: pytest.MonkeyPatch) -> None:
+    def test_happy_path_uses_ref_id_as_offer_id_and_omits_deal_price(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """SMART/PRE_NEGOTIATED/PRICE_MATCHING's POST body only carries
+        promotion_id/promotion_type/offer_id per ML docs — deal_price is
+        omitted (None), even though the read-side entry_price is still
+        used for the fail-closed check and for `result["price"]`."""
         monkeypatch.setattr(write_service.settings, "PROMOS_WRITE_ENABLED", True)
 
         with (
@@ -1179,7 +1187,7 @@ class TestPreNegotiatedEnroll:
             "MLA1859172999",
             "PN-MLA1",
             "PRE_NEGOTIATED",
-            19585.27,
+            deal_price=None,
             top_deal_price=None,
             offer_id="CANDIDATE-MLA1-1",
         )
@@ -1424,7 +1432,11 @@ class TestPriceMatchingWritableRegressionGuard:
 
 
 class TestPriceMatchingEnroll:
-    def test_happy_path_uses_ref_id_as_offer_id_and_entry_price(self, monkeypatch: pytest.MonkeyPatch) -> None:
+    def test_happy_path_uses_ref_id_as_offer_id_and_omits_deal_price(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """SMART/PRE_NEGOTIATED/PRICE_MATCHING's POST body only carries
+        promotion_id/promotion_type/offer_id per ML docs — deal_price is
+        omitted (None), even though the read-side entry_price is still
+        used for the fail-closed check and for `result["price"]`."""
         monkeypatch.setattr(write_service.settings, "PROMOS_WRITE_ENABLED", True)
 
         with (
@@ -1452,7 +1464,7 @@ class TestPriceMatchingEnroll:
             "MLA1859172999",
             "PM-MLA1",
             "PRICE_MATCHING",
-            19585.27,
+            deal_price=None,
             top_deal_price=None,
             offer_id="CANDIDATE-MLA1-1",
         )

@@ -46,6 +46,17 @@ def _co_funding_amount(promo: Dict[str, Any]) -> float:
     SMART. Any other promo type (SELLER_CAMPAIGN, DEAL, PRICE_DISCOUNT,
     unknown) funds nothing: 0.0. Defensive against missing/None inputs —
     always returns 0.0 on any unresolvable input rather than raising.
+
+    ML boost: when `payload["boosted_offer"]` is truthy, ML's real
+    contribution is the `meli_percentage` share PLUS an independent boost
+    (ML's docs state `discount_meli_boosted_percentage` is independent of
+    `meli_percentage`, not a replacement for it). The boost amount prefers
+    the absolute `discount_meli_boost_amount` when present — ML's boost
+    percentages are rounded to one decimal, and on high prices that rounding
+    drifts by hundreds of currency units — falling back to
+    `(discount_meli_boosted_percentage / 100) * original_price` when the
+    absolute is missing. Any unresolvable boost value (missing/None/garbage)
+    contributes 0.0 to the boost rather than raising.
     """
     if promo.get("promotion_type") not in ("SMART", "PRE_NEGOTIATED", "PRICE_MATCHING"):
         return 0.0
@@ -58,9 +69,36 @@ def _co_funding_amount(promo: Dict[str, Any]) -> float:
         return 0.0
 
     try:
-        return (float(meli_percentage) / 100) * float(original_price)
+        base_amount = (float(meli_percentage) / 100) * float(original_price)
     except (TypeError, ValueError):
         return 0.0
+
+    if not payload.get("boosted_offer"):
+        return base_amount
+
+    return base_amount + _boost_amount(payload, original_price)
+
+
+def _boost_amount(payload: Dict[str, Any], original_price: Any) -> float:
+    """ML's boost contribution: prefers the absolute
+    `discount_meli_boost_amount`, falls back to
+    `discount_meli_boosted_percentage * original_price`. Returns 0.0 on any
+    unresolvable/garbage value rather than raising."""
+    boost_amount = payload.get("discount_meli_boost_amount")
+    if boost_amount is not None:
+        try:
+            return float(boost_amount)
+        except (TypeError, ValueError):
+            pass
+
+    boost_percentage = payload.get("discount_meli_boosted_percentage")
+    if boost_percentage is not None:
+        try:
+            return (float(boost_percentage) / 100) * float(original_price)
+        except (TypeError, ValueError):
+            pass
+
+    return 0.0
 
 
 def _effective_discounted_price(promo: Dict[str, Any]) -> Optional[float]:

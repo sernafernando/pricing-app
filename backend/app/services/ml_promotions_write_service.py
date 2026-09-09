@@ -462,7 +462,7 @@ def _enroll_one_item(
                 mla_id,
                 promotion_id,
                 promotion_type,
-                entry_price,
+                deal_price=None,
                 top_deal_price=top_deal_price,
                 offer_id=offer_id,
             )

@@ -283,7 +283,9 @@ class MLWebhookClient:
 
         Returns:
             Dict con `items` (todas las páginas agregadas) y `count`, o
-            None si hay error/timeout en cualquier página.
+            None si hay error/timeout en cualquier página. La respuesta
+            real del proxy trae la clave `results`; se acepta `items`
+            también por compatibilidad hacia atrás.
 
         Raises:
             ValueError: si promotion_type no se pasa.
@@ -305,7 +307,7 @@ class MLWebhookClient:
                     response.raise_for_status()
                     page = response.json()
 
-                    all_items.extend(page.get("items") or [])
+                    all_items.extend(page.get("results") or page.get("items") or [])
 
                     next_cursor = (page.get("paging") or {}).get("searchAfter")
                     if not next_cursor or next_cursor == search_after:
@@ -330,7 +332,7 @@ class MLWebhookClient:
         mla_id: str,
         promotion_id: str,
         promotion_type: str,
-        deal_price: float,
+        deal_price: Optional[float] = None,
         top_deal_price: Optional[float] = None,
         offer_id: Optional[str] = None,
     ) -> Dict:
@@ -340,7 +342,10 @@ class MLWebhookClient:
             mla_id: El ID del item (ej: MLA2361127120).
             promotion_id: ID de la promoción.
             promotion_type: Tipo de promoción (SELLER_CAMPAIGN, DEAL o SMART).
-            deal_price: Precio con descuento a aplicar.
+            deal_price: Precio con descuento a aplicar. Opcional: la doc de
+                ML solo documenta `deal_price` en el body para
+                SELLER_CAMPAIGN/DEAL; para SMART/PRE_NEGOTIATED/
+                PRICE_MATCHING se omite (None) y no se envía en el payload.
             top_deal_price: Precio tope opcional (solo algunos tipos lo usan).
             offer_id: Requerido por SMART (el `ref_id` de la entrada SMART
                 candidata en la lectura live); ignorado/omitido para
@@ -354,7 +359,9 @@ class MLWebhookClient:
             SMART, el body del 201 trae el `offer_id` autoritativo nuevo
             (forma "OFFER-...") — se propaga sin modificar en `body`.
         """
-        payload: Dict = {"promotion_id": promotion_id, "promotion_type": promotion_type, "deal_price": deal_price}
+        payload: Dict = {"promotion_id": promotion_id, "promotion_type": promotion_type}
+        if deal_price is not None:
+            payload["deal_price"] = deal_price
         if top_deal_price is not None:
             payload["top_deal_price"] = top_deal_price
         if offer_id is not None:

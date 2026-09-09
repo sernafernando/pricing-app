@@ -79,6 +79,74 @@ class TestCoFundingAmount:
         promo = {"promotion_type": "SMART", "payload": {"meli_percentage": 5}}
         assert _co_funding_amount(promo) == 0.0
 
+    def test_no_boost_fields_keeps_current_behavior(self) -> None:
+        """(a) Absent boost fields: unchanged from meli_percentage share alone."""
+        promo = {
+            "promotion_type": "SMART",
+            "original_price": 5000,
+            "payload": {"meli_percentage": 8},
+        }
+        assert _co_funding_amount(promo) == pytest.approx(400.0)
+
+    def test_boosted_offer_with_absolute_amount_uses_ml_official_example(self) -> None:
+        """(b) boosted_offer=True + discount_meli_boost_amount -> add the
+        absolute amount (ML's official worked example: 400 + 555 = 955)."""
+        promo = {
+            "promotion_type": "SMART",
+            "original_price": 5000,
+            "payload": {
+                "meli_percentage": 8,
+                "boosted_offer": True,
+                "discount_meli_boosted_percentage": 11.1,
+                "discount_meli_boost_amount": 555,
+            },
+        }
+        assert _co_funding_amount(promo) == pytest.approx(955.0)
+
+    def test_boosted_offer_without_absolute_amount_falls_back_to_percentage(self) -> None:
+        """(c) boosted_offer=True, no discount_meli_boost_amount -> derive
+        the boost from discount_meli_boosted_percentage * original_price."""
+        promo = {
+            "promotion_type": "SMART",
+            "original_price": 5000,
+            "payload": {
+                "meli_percentage": 8,
+                "boosted_offer": True,
+                "discount_meli_boosted_percentage": 11.1,
+            },
+        }
+        # 400 (meli_percentage share) + 555 (11.1% of 5000)
+        assert _co_funding_amount(promo) == pytest.approx(955.0)
+
+    def test_boost_fields_present_but_boosted_offer_falsy_is_ignored(self) -> None:
+        """(d) boost fields present but boosted_offer absent/falsy -> no
+        boost is added (ML documents the flag as the source of truth)."""
+        promo = {
+            "promotion_type": "SMART",
+            "original_price": 5000,
+            "payload": {
+                "meli_percentage": 8,
+                "discount_meli_boosted_percentage": 11.1,
+                "discount_meli_boost_amount": 555,
+            },
+        }
+        assert _co_funding_amount(promo) == pytest.approx(400.0)
+
+    def test_boosted_offer_with_garbage_boost_values_adds_nothing(self) -> None:
+        """(e) boosted_offer=True with unresolvable boost values (None or a
+        non-numeric string) never raises and contributes 0.0 for the boost."""
+        promo = {
+            "promotion_type": "SMART",
+            "original_price": 5000,
+            "payload": {
+                "meli_percentage": 8,
+                "boosted_offer": True,
+                "discount_meli_boost_amount": "not-a-number",
+                "discount_meli_boosted_percentage": None,
+            },
+        }
+        assert _co_funding_amount(promo) == pytest.approx(400.0)
+
 
 # ── _effective_discounted_price ──────────────────────────────────────
 
