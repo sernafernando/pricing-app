@@ -79,6 +79,16 @@ describe('buildListarParamsFromFiltros', () => {
     expect(params.con_pxq).toBe(true);
     expect(params.promo_tipos).toBe('SMART');
     expect(params.promo_estado).toBe('aplicada');
+    expect(params.orden_campos).toBe('item_id');
+    expect(params.orden_direcciones).toBe('asc');
+  });
+
+  it('always sends stable item_id order even when unfiltered', () => {
+    const params = buildListarParamsFromFiltros({});
+    expect(params).toEqual({
+      orden_campos: 'item_id',
+      orden_direcciones: 'asc',
+    });
   });
 });
 
@@ -101,6 +111,8 @@ describe('resolveFilteredItemIds', () => {
       con_stock: true,
       page: 1,
       page_size: 100,
+      orden_campos: 'item_id',
+      orden_direcciones: 'asc',
     });
   });
 
@@ -124,6 +136,49 @@ describe('resolveFilteredItemIds', () => {
         totalProductos: 18,
       }),
     ).rejects.toMatchObject({ code: 'mismatch' });
+  });
+
+  it('fail-closed on mismatch when unfiltered but Total is finite', async () => {
+    mockListarPages(makeIds(9), 500);
+    await expect(
+      resolveFilteredItemIds({
+        listar: productosAPI.listar,
+        filtrosActivos: {},
+        totalProductos: 10,
+      }),
+    ).rejects.toMatchObject({ code: 'mismatch' });
+  });
+
+  it('dedupes duplicated page rows so mismatch is detectable', async () => {
+    // Unique size 2 but claimed Total 3 — classic OFFSET reshuffle compensation case.
+    productosAPI.listar.mockImplementation(async ({ page = 1 }) => {
+      if (page === 1) {
+        return { data: { total: 3, productos: [{ item_id: 'A' }, { item_id: 'B' }] } };
+      }
+      return { data: { total: 3, productos: [{ item_id: 'A' }] } };
+    });
+    await expect(
+      resolveFilteredItemIds({
+        listar: productosAPI.listar,
+        filtrosActivos: FILTROS_18,
+        totalProductos: 3,
+        pageSize: 2,
+      }),
+    ).rejects.toMatchObject({ code: 'mismatch' });
+  });
+
+  it('stops with api error when page ceiling is exceeded', async () => {
+    productosAPI.listar.mockResolvedValue({
+      data: { productos: [{ item_id: 'X1' }, { item_id: 'X2' }] },
+    });
+    await expect(
+      resolveFilteredItemIds({
+        listar: productosAPI.listar,
+        filtrosActivos: {},
+        totalProductos: 2,
+        pageSize: 2,
+      }),
+    ).rejects.toMatchObject({ code: 'api' });
   });
 
   it('does not fail-closed empty when unfiltered (no page-buffer fallback needed)', async () => {

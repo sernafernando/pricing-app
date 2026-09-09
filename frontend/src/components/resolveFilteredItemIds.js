@@ -5,9 +5,14 @@
  * query params (same keys as `construirFiltrosParams`), pages until all `item_id`s
  * are collected, and fail-closes when filters are active but the resolve is empty
  * or mismatches `totalProductos`. Never falls back to the page buffer.
+ *
+ * Always requests stable `item_id` ASC order so OFFSET paging cannot reshuffle rows.
  */
 
 export const RESOLVE_PAGE_SIZE = 500;
+
+/** Params that do not mean "user filters are active" (always sent for stable paging). */
+const NON_FILTER_LISTAR_KEYS = new Set(['orden_campos', 'orden_direcciones']);
 
 export class ResolveFilteredIdsError extends Error {
   /**
@@ -24,6 +29,7 @@ export class ResolveFilteredIdsError extends Error {
 /**
  * Convert modal `filtrosActivos` into listar query params.
  * Param names match `useProductosFilters.construirFiltrosParams` (e.g. `tn_*`).
+ * Always includes stable order for safe OFFSET pagination.
  */
 export function buildListarParamsFromFiltros(filtrosActivos = {}) {
   const params = {};
@@ -83,11 +89,26 @@ export function buildListarParamsFromFiltros(filtrosActivos = {}) {
   }
   if (filtrosActivos.con_promo_aplicada) params.con_promo_aplicada = true;
   if (filtrosActivos.con_promo_sin_aplicar) params.con_promo_sin_aplicar = true;
+
+  // Stable ORDER BY for OFFSET paging (Postgres otherwise may reshuffle ties).
+  params.orden_campos = 'item_id';
+  params.orden_direcciones = 'asc';
   return params;
 }
 
 export function hasActiveFilters(filtrosActivos) {
-  return Object.keys(buildListarParamsFromFiltros(filtrosActivos)).length > 0;
+  return Object.keys(buildListarParamsFromFiltros(filtrosActivos)).some(
+    (k) => !NON_FILTER_LISTAR_KEYS.has(k),
+  );
+}
+
+function resolveMaxPages(totalProductos, pageSize) {
+  const expected = Number(totalProductos);
+  if (Number.isFinite(expected) && expected > 0) {
+    return Math.max(2, Math.ceil(expected / pageSize) + 2);
+  }
+  // No usable Total: still bound the loop (avoid unbounded memory growth).
+  return 50;
 }
 
 /**
@@ -107,25 +128,33 @@ export async function resolveFilteredItemIds({
   pageSize = RESOLVE_PAGE_SIZE,
 }) {
   const filterParams = buildListarParamsFromFiltros(filtrosActivos);
-  const filtersActive = Object.keys(filterParams).length > 0;
-  const ids = [];
+  const filtersActive = Object.keys(filterParams).some((k) => !NON_FILTER_LISTAR_KEYS.has(k));
+  const idSet = new Set();
   let page = 1;
   let apiTotal = null;
+  const maxPages = resolveMaxPages(totalProductos, pageSize);
 
   try {
-    while (true) {
+    while (page <= maxPages) {
       const res = await listar({ ...filterParams, page, page_size: pageSize });
       const productos = res?.data?.productos ?? [];
       if (typeof res?.data?.total === 'number') apiTotal = res.data.total;
 
       for (const p of productos) {
-        if (p?.item_id != null) ids.push(p.item_id);
+        if (p?.item_id != null) idSet.add(p.item_id);
       }
 
       if (productos.length === 0) break;
-      if (apiTotal != null && ids.length >= apiTotal) break;
+      if (apiTotal != null && idSet.size >= apiTotal) break;
       if (productos.length < pageSize) break;
       page += 1;
+    }
+
+    if (page > maxPages) {
+      throw new ResolveFilteredIdsError(
+        'El resolve superó el máximo de páginas permitido; no se aplicará nada',
+        'api',
+      );
     }
   } catch (err) {
     if (err instanceof ResolveFilteredIdsError) throw err;
@@ -135,23 +164,24 @@ export async function resolveFilteredItemIds({
     );
   }
 
-  if (filtersActive) {
-    if (ids.length === 0) {
-      throw new ResolveFilteredIdsError(
-        'El filtro activo no resolvió productos; no se aplicará nada',
-        'empty',
-      );
-    }
-    if (
-      totalProductos != null &&
-      Number.isFinite(Number(totalProductos)) &&
-      ids.length !== Number(totalProductos)
-    ) {
-      throw new ResolveFilteredIdsError(
-        `El conjunto resuelto (${ids.length}) no coincide con el Total (${totalProductos})`,
-        'mismatch',
-      );
-    }
+  const ids = [...idSet];
+
+  if (filtersActive && ids.length === 0) {
+    throw new ResolveFilteredIdsError(
+      'El filtro activo no resolvió productos; no se aplicará nada',
+      'empty',
+    );
+  }
+
+  if (
+    totalProductos != null &&
+    Number.isFinite(Number(totalProductos)) &&
+    ids.length !== Number(totalProductos)
+  ) {
+    throw new ResolveFilteredIdsError(
+      `El conjunto resuelto (${ids.length}) no coincide con el Total (${totalProductos})`,
+      'mismatch',
+    );
   }
 
   return ids;
