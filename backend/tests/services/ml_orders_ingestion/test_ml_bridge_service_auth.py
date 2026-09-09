@@ -23,6 +23,7 @@ Run:
 
 from datetime import timedelta
 
+import pytest
 from fastapi import Depends
 from fastapi.testclient import TestClient
 
@@ -85,14 +86,36 @@ def _bridge_headers(user: Usuario) -> dict:
     return {"Authorization": f"Bearer {token}"}
 
 
-# A throwaway route guarded by `ml_ops.ingest`, registered only for these
-# tests -- slice 1 is inert on purpose (no real endpoint requires this
-# permission until slice 3's ping handler). Exercising the SAME
-# `require_permission()` dependency the ping will use is what actually
-# proves the auth plumbing, not a bespoke stand-in.
-@app.get("/__test_only/ml_ops_ingest_probe")
+PROBE_PATH = "/__test_only/ml_ops_ingest_probe"
+
+
 def _ml_ops_ingest_probe(current_user: Usuario = Depends(require_permission("ml_ops.ingest"))):
+    """A throwaway route guarded by `ml_ops.ingest`. Slice 1 is inert on
+    purpose -- no real endpoint requires this permission until slice 3's
+    ping handler -- but exercising the SAME `require_permission()`
+    dependency the ping will use is what actually proves the auth
+    plumbing, rather than a bespoke stand-in."""
     return {"username": current_user.username}
+
+
+@pytest.fixture(autouse=True)
+def _probe_route():
+    """Registers the probe on the shared app for ONE test and removes it
+    afterwards.
+
+    Registering it at import time instead leaves a phantom route on the
+    process-wide FastAPI instance for the whole pytest session: any test
+    that enumerates `app.routes` or snapshots the OpenAPI schema then sees
+    it or not depending on collection order. A test-only route that is
+    never removed is also exactly how a debug endpoint reaches production.
+    """
+    app.add_api_route(PROBE_PATH, _ml_ops_ingest_probe, methods=["GET"])
+    app.openapi_schema = None
+    try:
+        yield
+    finally:
+        app.router.routes[:] = [r for r in app.router.routes if getattr(r, "path", None) != PROBE_PATH]
+        app.openapi_schema = None
 
 
 class TestServiceUserGrantedIngestScope:
@@ -103,7 +126,7 @@ class TestServiceUserGrantedIngestScope:
         bridge = _make_bridge_user(db)
 
         resp = client.get(
-            "/__test_only/ml_ops_ingest_probe",
+            PROBE_PATH,
             headers=_bridge_headers(bridge),
         )
 
@@ -143,13 +166,13 @@ class TestKillSwitch:
         bridge = _make_bridge_user(db)
         headers = _bridge_headers(bridge)
 
-        ok = client.get("/__test_only/ml_ops_ingest_probe", headers=headers)
+        ok = client.get(PROBE_PATH, headers=headers)
         assert ok.status_code == 200
 
         bridge.activo = False
         db.flush()
 
-        resp = client.get("/__test_only/ml_ops_ingest_probe", headers=headers)
+        resp = client.get(PROBE_PATH, headers=headers)
         assert resp.status_code == 401
 
 
@@ -183,7 +206,7 @@ class TestUserWithoutPermissionDenied:
         db.flush()
 
         resp = client.get(
-            "/__test_only/ml_ops_ingest_probe",
+            PROBE_PATH,
             headers=_bridge_headers(user),
         )
 

@@ -24,12 +24,14 @@ Seeds, in order (same shape as `20260807_seed_agente_ia_service_user.py`):
    (`scripts/mint_ml_bridge_token.py`); `usuario.activo=False` is this
    row's own kill switch (`deps.py:44-45`).
 
-`downgrade()` refuses rather than orphans: if this user is ever referenced
-by another table's FK in the future, deleting it silently would be worse
-than refusing -- same convention as `20260807_seed_agente_ia_service_user.py`.
-Currently no FK references this user (slice 1 is inert), so the guard list
-is empty on purpose and simply always allows downgrade; it exists as a
-placeholder for later slices that may attribute writes to this user.
+`downgrade()` removes ONLY what `upgrade()` certainly created: the user
+and its role. It deliberately leaves `ml_ops.ingest` in place, because
+`upgrade()` inserts that permission with `ON CONFLICT (codigo) DO NOTHING`
+and therefore cannot know whether it created the row or found it already
+there. Deleting it on the way down would cascade away grants and overrides
+belonging to roles and users this migration never touched -- that is a
+destructive teardown, not a rollback. A leftover permission that nothing
+references is inert; a deleted one that something referenced is not.
 
 Revision ID: 20260909_seed_ml_bridge
 Revises: 20260908_tplink_ganancia_prod
@@ -135,10 +137,11 @@ def downgrade() -> None:
         # FK is ondelete="CASCADE") -- no separate DELETE needed.
         bind.execute(sa.text("DELETE FROM roles WHERE id = :rid"), {"rid": rol_id})
 
-    bind.execute(
-        sa.text(
-            "DELETE FROM usuarios_permisos_override WHERE permiso_id IN (SELECT id FROM permisos WHERE codigo = :c)"
-        ),
-        {"c": PERMISO_CODIGO},
-    )
-    bind.execute(sa.text("DELETE FROM permisos WHERE codigo = :c"), {"c": PERMISO_CODIGO})
+    # `ml_ops.ingest` is intentionally NOT deleted here -- see the module
+    # docstring. `upgrade()` created it with ON CONFLICT DO NOTHING, so it
+    # cannot know whether the row is ours to remove, and both
+    # `usuarios_permisos_override.permiso_id` and
+    # `roles_permisos_base.permiso_id` cascade on delete: dropping the
+    # permission would silently revoke it from every other role and user
+    # that holds it. This migration's own user is already gone above, and
+    # its overrides cascaded with it (`usuario_id` is ON DELETE CASCADE).
