@@ -27,7 +27,7 @@ import calendar
 from datetime import datetime, timedelta, timezone
 from typing import Dict, List, Optional, Tuple
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, status
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import String, case, cast, func, literal
 from sqlalchemy.orm import Session
@@ -50,6 +50,7 @@ from app.models.ml_orders_ops import (
 )
 from app.models.rma_claim_ml import RmaClaimML
 from app.models.usuario import Usuario
+from app.services.ml_orders_ingestion.activity_receiver_service import drain_activity
 from app.services.ml_orders_ingestion.operation_status import (
     GOODS_STATUS_BY_SHIPPING_STATUS,
     GOODS_STATUSES,
@@ -892,3 +893,49 @@ def actualizar_divergencia(
     db.commit()
     db.refresh(row)
     return DivergenceSummary.from_row(row)
+
+
+@router.post(
+    "/activity/ping",
+    status_code=status.HTTP_202_ACCEPTED,
+    responses={
+        202: {"description": "Drain encolado en background; el resultado no vuelve por este request"},
+        403: {"description": "Falta el permiso ml_ops.ingest"},
+    },
+)
+def ping_activity(
+    background_tasks: BackgroundTasks,
+    current_user: Usuario = Depends(require_permission("ml_ops.ingest")),
+) -> dict:
+    """Ping liviano del bridge ml-webhook (ml-activity-receiver, slice 3):
+    encola un drain de `/api/ml/activity` vía `BackgroundTasks` y responde
+    202 de inmediato.
+
+    Permiso `ml_ops.ingest` (distinto de `ml_ops.ver`/`ml_ops.gestionar`),
+    exclusivo del service user del bridge (slice 1). NO chequea
+    `ML_ORDERS_OPS_ENABLED` acá -- a diferencia del resto de este router,
+    la bandera apagada es un no-op COMPLETO manejado dentro de
+    `drain_activity` (mismo precedente que `backfill_payments_costs_service
+    .run_backfill`): el ping sigue devolviendo 202 y el drain encolado no
+    hace ningún HTTP ni ninguna escritura, en vez de un 503 que haría que
+    un estado deliberadamente apagado se lea como una falla del bridge.
+
+    El cuerpo del request se ignora por completo -- no se declara ningún
+    modelo de body, así que FastAPI no lo parsea ni lo valida; este
+    endpoint no confía en nada que el bridge le mande en el payload, solo
+    en que llegó.
+
+    Un segundo ping mientras un drain ya está en vuelo es inofensivo: el
+    lock de corrida (`try_acquire_run_lock`, cursor `ml_activity`) es
+    exclusivo por `cursor_name`, así que el segundo background task
+    simplemente ve el lock tomado y vuelve sin hacer nada -- nunca dos
+    drains concurrentes sobre el mismo cursor.
+
+    `BackgroundTasks` + `get_background_db` (dentro de `drain_activity`),
+    NUNCA una sesión de request (`Depends(get_db)`) sostenida durante el
+    drain -- este proyecto ya tuvo un incidente de agotamiento del pool de
+    conexiones por sostener una sesión de request en un trabajo de larga
+    duración (obs `project_db_pool_exhaustion_incident`).
+    """
+    background_tasks.add_task(drain_activity)
+    return {"accepted": True}
