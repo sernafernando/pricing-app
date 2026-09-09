@@ -16,6 +16,13 @@ def test_aplicar_markup_masivo_acepta_cero_y_negativo():
     assert cero.markup_objetivo == 0
     negativo = AplicarMarkupMasivoRequest(markup_objetivo=-5, item_ids=[1])
     assert negativo.markup_objetivo == -5
+    piso = AplicarMarkupMasivoRequest(markup_objetivo=-100, item_ids=[1])
+    assert piso.markup_objetivo == -100
+
+
+def test_aplicar_markup_masivo_rechaza_bajo_piso():
+    with pytest.raises(ValidationError):
+        AplicarMarkupMasivoRequest(markup_objetivo=-100.1, item_ids=[1])
 
 
 def test_aplicar_markup_masivo_rechaza_inf_y_nan():

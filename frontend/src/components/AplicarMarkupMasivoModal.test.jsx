@@ -435,7 +435,7 @@ describe('AplicarMarkupMasivoModal markup 0 and negative', () => {
     confirmSpy.mockRestore();
   });
 
-  it('applies markup 0 without negative confirm when count ≤ 50', async () => {
+  it('markup 0 shows CS-4 Tesla pane then writes after confirm when count ≤ 50', async () => {
     const ids = makeIds(18);
     mockListarPages(ids, 500);
     const onSuccess = vi.fn();
@@ -445,9 +445,13 @@ describe('AplicarMarkupMasivoModal markup 0 and negative', () => {
     await setMarkupObjetivo(user, '0');
     await user.click(screen.getByRole('button', { name: /Aplicar a 18 productos/i }));
 
+    expect(await screen.findByText('MarkUp Negativo')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /Guardar de todas formas/i })).toBeInTheDocument();
+    expect(api.post).not.toHaveBeenCalled();
+    expect(confirmSpy).not.toHaveBeenCalled();
+
+    await user.click(screen.getByRole('button', { name: /Guardar de todas formas/i }));
     await waitFor(() => expect(onSuccess).toHaveBeenCalled());
-    expect(screen.queryByText(/MarkUp Negativo/i)).not.toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: /Guardar de todas formas/i })).not.toBeInTheDocument();
     const markupCalls = api.post.mock.calls.filter(([url]) =>
       url.includes('aplicar-markup-masivo'),
     );
@@ -564,7 +568,7 @@ describe('AplicarMarkupMasivoModal markup 0 and negative', () => {
     expect(confirmSpy).not.toHaveBeenCalled();
   });
 
-  it('zero plus >50 uses only the volume confirm', async () => {
+  it('stacks zero pane then >50 before writes', async () => {
     const ids = makeIds(51);
     mockListarPages(ids, 500);
     const onSuccess = vi.fn();
@@ -574,6 +578,11 @@ describe('AplicarMarkupMasivoModal markup 0 and negative', () => {
     await setMarkupObjetivo(user, '0');
     await user.click(screen.getByRole('button', { name: /Aplicar a 51 productos/i }));
 
+    expect(await screen.findByText('MarkUp Negativo')).toBeInTheDocument();
+    expect(screen.queryByText(/Confirmar acciones masivas/i)).not.toBeInTheDocument();
+    expect(api.post).not.toHaveBeenCalled();
+
+    await user.click(screen.getByRole('button', { name: /Guardar de todas formas/i }));
     expect(await screen.findByText(/Confirmar acciones masivas/i)).toBeInTheDocument();
     expect(screen.queryByText('MarkUp Negativo')).not.toBeInTheDocument();
     expect(api.post).not.toHaveBeenCalled();

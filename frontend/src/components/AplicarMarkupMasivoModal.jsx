@@ -204,7 +204,8 @@ export default function AplicarMarkupMasivoModal({
     }
 
     const job = { itemIds, markup, configBodyBase };
-    if (aplicarMarkup && markup < 0) {
+    // Chicho/#1260: zero is also margin-wipe risk — same Tesla pane as negative.
+    if (aplicarMarkup && markup <= 0) {
       setAplicando(false);
       setConfirmacion({ ...job, gate: 'negative' });
       return;
