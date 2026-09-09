@@ -11,14 +11,14 @@
 
 ## Phase 1: Resolve hardening
 
-- [ ] 1.1 Add stable `orden_campos`/`orden_direcciones` in `buildListarParamsFromFiltros`; accumulate IDs via `Set`.
-- [ ] 1.2 Always enforce mismatch vs finite `totalProductos`; keep empty fail-closed only when filters active.
-- [ ] 1.3 Add `maxPages` ceiling; fail closed if exceeded.
+- [x] 1.1 Add stable `orden_campos`/`orden_direcciones` in `buildListarParamsFromFiltros`; accumulate IDs via `Set`.
+- [x] 1.2 Always enforce mismatch vs finite `totalProductos`; keep empty fail-closed only when filters active.
+- [x] 1.3 Add `maxPages` ceiling; fail closed if exceeded.
 
 ## Phase 2: Tests
 
-- [ ] 2.1 Update/add Vitest: params include order; unfiltered mismatch; duplicate pages → mismatch; maxPages trip.
-- [ ] 2.2 Keep existing modal/resolve suites green.
+- [x] 2.1 Update/add Vitest: params include order; unfiltered mismatch; duplicate pages → mismatch; maxPages trip.
+- [x] 2.2 Keep existing modal/resolve suites green.
 
 ## Phase 3: Delivery
 
