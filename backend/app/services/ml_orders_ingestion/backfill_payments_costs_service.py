@@ -113,13 +113,21 @@ from typing import Any, Dict, List, Optional, Tuple
 
 from app.core.config import settings
 from app.core.database import get_background_db
-from app.models.ml_orders_ops import MlOpsDivergence, MlOrdersOps, MlShipmentOps
+from app.models.ml_orders_ops import (
+    COST_SYNC_FIELD_PREFIX,
+    COST_SYNC_KIND,
+    COST_SYNC_SENTINEL_ORDER_ID,
+    MlOpsDivergence,
+    MlOrdersOps,
+    MlShipmentOps,
+)
 from app.services.ml_orders_ingestion.sweep_service import (
     CURSOR_NAME as SWEEP_CURSOR_NAME,
     MAX_COST_FETCHES_PER_PASS,
     MAX_PAYMENT_FETCHES_PER_PASS,
     _extract_payment_ids,
     _fetch_payments,
+    _record_payments_key_missing,
     _sync_shipment_costs,
     release_lock_as_error,
     release_lock_as_idle,
@@ -161,12 +169,12 @@ FLAG_OFF_REASON = "ML_ORDERS_OPS_ENABLED is False"
 # excluded from future candidate queries -- see module docstring.
 MAX_COST_SYNC_ATTEMPTS = 5
 
-_COST_SYNC_DIVERGENCE_KIND = "unknown"
-_COST_SYNC_FIELD_PREFIX = "cost_sync:"
+_COST_SYNC_DIVERGENCE_KIND = COST_SYNC_KIND
+_COST_SYNC_FIELD_PREFIX = COST_SYNC_FIELD_PREFIX
 # Sentinel `order_id`, same convention as
 # `sweep_service.record_unenumerable_window`: there is no single ML
 # order this divergence is "about", it is about a shipment.
-_COST_SYNC_SENTINEL_ORDER_ID = 0
+_COST_SYNC_SENTINEL_ORDER_ID = COST_SYNC_SENTINEL_ORDER_ID
 
 
 @dataclass
@@ -480,6 +488,12 @@ def run_backfill(limit: int = DEFAULT_LIMIT, dry_run: bool = False) -> BackfillP
                 # those or freshly-refetched rows through) or a payload
                 # fresh off `get_order` -- in both cases a still-missing
                 # key is now a trustworthy "ML says none" answer.
+                if raw_order.get("payments") is None:
+                    # Same discipline as the sweep: sealing on an omitted
+                    # key is correct here (this payload is fresh off ML),
+                    # but the omission must stay VISIBLE instead of
+                    # disappearing into the seal.
+                    _record_payments_key_missing(db, order_id)
                 synced, sealed = sync_payments_for_order(
                     db, order_id, raw_order, payments_payload, missing_key_is_empty=True
                 )
@@ -498,7 +512,12 @@ def run_backfill(limit: int = DEFAULT_LIMIT, dry_run: bool = False) -> BackfillP
         result.shipment_costs_synced = _sync_shipment_costs(
             shipment_ids, cost_budget, attempted_out=attempted_shipment_ids
         )
-        result.costs_budget_exhausted = cost_budget[0] <= 0 and result.shipment_costs_synced < len(shipment_ids)
+        # Measured against what the budget NEVER REACHED, not against what
+        # failed to resolve. A shipment that WAS fetched and still did not
+        # settle is ML being slow, not this pass being truncated --
+        # comparing against `shipment_costs_synced` raises the staleness
+        # alert on a run that did everything it could.
+        result.costs_budget_exhausted = cost_budget[0] <= 0 and len(attempted_shipment_ids) < len(shipment_ids)
 
         # A shipment in this run's candidate
         # set that is still unresolved counts as one more attempt --

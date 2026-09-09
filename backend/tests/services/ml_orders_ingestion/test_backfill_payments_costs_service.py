@@ -987,3 +987,79 @@ class TestNewestFirstDoesNotPutNullsAtTheHead:
 
     def test_the_candidate_ordering_asks_for_nulls_last(self) -> None:
         assert "NULLS LAST" in str(service._orders_newest_first().compile()).upper()
+
+
+class TestCostTruncationMeasuresWhatWasNeverReached:
+    """`costs_budget_exhausted` decides whether the run is stamped
+    complete, so it must mean "the budget cut this pass short", not "some
+    shipment did not settle". A shipment that WAS fetched and still came
+    back unresolved is ML being slow -- reporting that as truncation
+    raises the staleness alert on a run that did everything it could."""
+
+    def _fails(self, shipment_id):
+        raise ValueError("boom")
+
+    def test_a_fetched_but_unresolved_shipment_is_not_truncation(self, db, monkeypatch) -> None:
+        db.add(MlShipmentOps(shipment_id=700, order_id=1))
+        db.commit()
+        # Budget of exactly one, and exactly one candidate: the budget is
+        # spent to zero, yet nothing went unreached.
+        monkeypatch.setattr(service, "MAX_COST_FETCHES_PER_PASS", 1)
+        monkeypatch.setattr(ml_webhook_client, "get_shipment_costs", self._fails)
+
+        result = service.run_backfill(limit=10)
+
+        assert result.shipment_costs_synced == 0
+        assert result.costs_budget_exhausted is False
+
+    def test_a_shipment_the_budget_never_reached_is_truncation(self, db, monkeypatch) -> None:
+        db.add(MlShipmentOps(shipment_id=700, order_id=1))
+        db.add(MlShipmentOps(shipment_id=701, order_id=2))
+        db.commit()
+        monkeypatch.setattr(service, "MAX_COST_FETCHES_PER_PASS", 1)
+        monkeypatch.setattr(ml_webhook_client, "get_shipment_costs", self._fails)
+
+        result = service.run_backfill(limit=10)
+
+        assert result.costs_budget_exhausted is True
+
+
+class TestAFreshPayloadStillMissingPaymentsStaysVisible:
+    """Sealing on an omitted `payments` key is correct once the payload is
+    fresh off ML -- the omission IS ML's answer. But it is the same fact
+    the sweep records a divergence for, and it must not disappear into
+    the seal just because it arrived through the backfill instead."""
+
+    def test_the_omission_is_recorded_before_sealing(self, db, monkeypatch) -> None:
+        now = datetime.now(timezone.utc)
+        db.add(MlOrdersOps(order_id=1, seller_id=999, ml_last_updated=now, raw_order=_raw_order(1, payment_ids=None)))
+        db.commit()
+        # The refetch SUCCEEDS, and what comes back still has no key.
+        monkeypatch.setattr(ml_webhook_client, "get_order", AsyncMock(return_value={"id": 1}))
+
+        result = service.run_backfill(limit=10)
+
+        assert result.orders_sealed == 1
+        assert db.query(MlOrdersOps).filter_by(order_id=1).one().payments_synced_at is not None
+        recorded = (
+            db.query(MlOpsDivergence)
+            .filter(
+                MlOpsDivergence.order_id == 1,
+                MlOpsDivergence.field == sweep_service.PAYMENTS_KEY_MISSING_FIELD,
+            )
+            .one_or_none()
+        )
+        assert recorded is not None
+
+    def test_an_order_that_does_have_payments_records_nothing(self, db, monkeypatch) -> None:
+        now = datetime.now(timezone.utc)
+        db.add(MlOrdersOps(order_id=1, seller_id=999, ml_last_updated=now, raw_order=_raw_order(1, payment_ids=[9])))
+        db.commit()
+        monkeypatch.setattr(ml_webhook_client, "get_payment", AsyncMock(return_value=_payment_payload(9, 1)))
+
+        service.run_backfill(limit=10)
+
+        assert (
+            db.query(MlOpsDivergence).filter(MlOpsDivergence.field == sweep_service.PAYMENTS_KEY_MISSING_FIELD).count()
+            == 0
+        )
