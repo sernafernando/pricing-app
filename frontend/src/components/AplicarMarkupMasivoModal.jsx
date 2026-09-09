@@ -11,6 +11,8 @@ import styles from './AplicarMarkupMasivoModal.module.css';
 
 const MAX_ITEMS_POR_REQUEST = 100;
 const CONFIRM_THRESHOLD = 50;
+/** Matches AplicarMarkupMasivoRequest.ge=-100 (goalseek floor). */
+const MARKUP_OBJETIVO_MIN = -100;
 
 export default function AplicarMarkupMasivoModal({
   onClose,
@@ -149,6 +151,13 @@ export default function AplicarMarkupMasivoModal({
       markup = parseFloat(markupObjetivo.replace(',', '.'));
       if (!Number.isFinite(markup)) {
         showToast('Ingresá un markup válido', 'error');
+        return;
+      }
+      if (markup < MARKUP_OBJETIVO_MIN) {
+        showToast(
+          `El markup no puede ser menor a ${MARKUP_OBJETIVO_MIN}`,
+          'error',
+        );
         return;
       }
     }

@@ -18,3 +18,7 @@
 ## Phase 2: Delivery
 
 - [x] 2.1 Commit + push `fix/markup-masivo-02-wiring-desync`; reply to Chicho comment.
+
+## Phase 3: Follow-up (Chicho #2)
+
+- [x] 3.1 Client range check `markup >= -100` before resolve; toast names the floor; Vitest −500.

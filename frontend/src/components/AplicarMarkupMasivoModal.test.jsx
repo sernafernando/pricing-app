@@ -495,6 +495,27 @@ describe('AplicarMarkupMasivoModal markup 0 and negative', () => {
     expect(api.post).not.toHaveBeenCalled();
   });
 
+  it('rejects markup below -100 with toast naming the floor (no resolve/write)', async () => {
+    mockListarPages(makeIds(18), 500);
+    const showToast = vi.fn();
+    const user = userEvent.setup();
+    renderModal({ showToast });
+
+    await setMarkupObjetivo(user, '-500');
+    await user.click(screen.getByRole('button', { name: /Aplicar a 18 productos/i }));
+
+    await waitFor(() =>
+      expect(showToast).toHaveBeenCalledWith(
+        'El markup no puede ser menor a -100',
+        'error',
+      ),
+    );
+    expect(productosAPI.listar).not.toHaveBeenCalled();
+    expect(api.post).not.toHaveBeenCalled();
+    expect(screen.queryByText(/MarkUp Negativo/i)).not.toBeInTheDocument();
+    expect(confirmSpy).not.toHaveBeenCalled();
+  });
+
   it('negative markup shows CS-4 Tesla pane then writes after confirm', async () => {
     const ids = makeIds(18);
     mockListarPages(ids, 500);
