@@ -1,0 +1,71 @@
+change: feat-compras-oc-match
+change_id: feat-compras-oc-match
+project: pricing-app
+phase: tasks
+status: ready_for_apply
+artifact_store: openspec
+persistence_mode: hybrid
+created_at: "2026-09-09"
+updated_at: "2026-09-09"
+artifacts:
+  exploration: openspec/changes/feat-compras-oc-match/exploration.md
+  proposal: openspec/changes/feat-compras-oc-match/proposal.md
+  specs:
+    - openspec/changes/feat-compras-oc-match/specs/compras-oc-match-jobs/spec.md
+    - openspec/changes/feat-compras-oc-match/specs/compras-oc-match-pipeline/spec.md
+    - openspec/changes/feat-compras-oc-match/specs/compras-oc-match-ui/spec.md
+  design: openspec/changes/feat-compras-oc-match/design.md
+  tasks: openspec/changes/feat-compras-oc-match/tasks.md
+next_phase: apply
+nextRecommended: apply
+notes: >
+  Tasks complete. Four chained PR slices (foundations → trigger → pipeline → UI),
+  22 unchecked work units, tests per slice. High 400-line risk; feature-branch-chain;
+  ask-on-risk decision before apply. Ready for apply.
+locked_decisions:
+  port_target: pricing_in_process
+  trigger: pedido_adjunto_upload
+  mime_enqueue: [pdf, jpg, jpeg, png, webp]
+  source_of_truth: pricing_db
+  ui: compras_tab_cheques_pattern_poll
+  mail_belen: off
+  sync: background_tasks_job_table
+  excel_storage: local_disk
+  maestro: tb_item_plus_brand_cat
+  ean: item_code
+  empresa_map:
+    1: PASTORIZA
+    2: GRUPO GAUSS
+  gemini_keys: 3
+  port_core: [extractor, matching, excel, host/acta.py]
+  deprecate_for_this_path: [mail, sheet, coolify_api]
+  fabricante_exact_match: skip_mvp
+  tab_permission_view: administracion.ver_ordenes_compra
+  tab_permission_retry: administracion.gestionar_ordenes_compra
+  idempotency_key: [pedido_id, attachment_id]
+  reclaim_running_minutes: 15
+  excel_template: vendored_automations_gbp_carga_masiva
+  list_scope: jobs_for_accessible_pedidos
+  list_status_filter: [queued, running, done, error]
+  pr_slices: [foundations, trigger, pipeline, ui]
+design_decisions:
+  hook_site: router_after_commit_pedido_adjunto_only
+  worker_sessions: two_short_no_session_during_gemini
+  empresa_map_module: compras_empresa_oc_map
+  kill_switch: COMPRAS_OC_MATCH_ENABLED
+  poll_interval_seconds: 3
+  excel_dir_default: uploads/compras_oc
+  list_acl: ver_ordenes_compra_only
+engram:
+  explore: sdd/feat-compras-oc-match/explore
+  proposal: sdd/feat-compras-oc-match/proposal
+  spec: sdd/feat-compras-oc-match/spec
+  design: sdd/feat-compras-oc-match/design
+  tasks: sdd/feat-compras-oc-match/tasks
+review_forecast:
+  estimated_changed_lines: "900-1400"
+  budget_risk: High
+  chained_prs: Yes
+  delivery_strategy: ask-on-risk
+  decision_needed_before_apply: Yes
+  chain_strategy: feature-branch-chain

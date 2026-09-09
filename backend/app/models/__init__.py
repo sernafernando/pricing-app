@@ -165,6 +165,7 @@ from app.models.cc_proveedor_movimiento import CCProveedorMovimiento
 from app.models.cc_reconciliacion_log import CCReconciliacionLog
 from app.models.compras_papelera import ComprasPapelera
 from app.models.compra_adjunto import CompraAdjunto
+from app.models.oc_match_job import OcMatchJob, OcMatchRenglon
 from app.models.tn_image_normalizer import (
     TnImageArtifact,
     TnImageNormalizationItem,
@@ -377,6 +378,8 @@ __all__ = [
     "CCReconciliacionLog",
     "ComprasPapelera",
     "CompraAdjunto",
+    "OcMatchJob",
+    "OcMatchRenglon",
     "NotaCreditoLocal",
     "DineroACuenta",
     # Compras — Órdenes de compra ERP (mirror local)
