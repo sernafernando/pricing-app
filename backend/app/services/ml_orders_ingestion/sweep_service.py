@@ -57,7 +57,7 @@ import logging
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal, InvalidOperation
-from typing import Any, Dict, Iterator, List, Optional, Tuple
+from typing import Any, Dict, Iterator, List, Optional, Set, Tuple
 
 from sqlalchemy.exc import IntegrityError
 
@@ -712,6 +712,7 @@ def _sync_shipment_costs(
     shipment_ids: List[int],
     budget: Optional[List[int]] = None,
     started_at: Optional[datetime] = None,
+    attempted_out: Optional[Set[int]] = None,
 ) -> int:
     """Fetches and persists `sender_cost`/`receiver_cost` for every shipment
     in `shipment_ids` whose `costs_synced_at` is still NULL.
@@ -725,6 +726,12 @@ def _sync_shipment_costs(
 
     HTTP happens entirely before any DB session opens for the write, same
     HTTP-before-write discipline as `_fetch_shipments` (design D8).
+
+    `attempted_out`, when given, collects the ids this call actually
+    spent an HTTP fetch on. A shipment skipped because the budget or the
+    pass deadline ran out never reaches ML, so a caller that counts
+    give-up attempts must not charge it one -- see the backfill's
+    `_record_cost_sync_attempt` call site.
     """
     to_sync = _shipments_needing_cost_sync(shipment_ids)
     if not to_sync:
@@ -743,6 +750,8 @@ def _sync_shipment_costs(
             )
             break
         budget[0] -= 1
+        if attempted_out is not None:
+            attempted_out.add(shipment_id)
         try:
             payload = resolve_maybe_async(ml_webhook_client.get_shipment_costs(shipment_id))
         except Exception:

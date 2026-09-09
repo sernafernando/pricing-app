@@ -18,7 +18,7 @@ from unittest.mock import AsyncMock
 import pytest
 
 from app.core.config import settings
-from app.models.ml_orders_ops import MlOpsSyncCursor, MlOrdersOps, MlShipmentOps
+from app.models.ml_orders_ops import MlOpsDivergence, MlOpsSyncCursor, MlOrdersOps, MlShipmentOps
 from app.models.ml_payments import MlPaymentOps
 from app.services.ml_orders_ingestion import backfill_payments_costs_service as service
 from app.services.ml_orders_ingestion import sweep_service
@@ -814,3 +814,121 @@ class TestSharedImplementationWithTheSweep:
         service.run_backfill(limit=10)
 
         assert calls == [1]
+
+
+class TestOnlyAnActualFetchCountsAsAnAttempt:
+    """Round-4 finding 1: the give-up counter used to be charged to every
+    unresolved candidate of the run, including the ones the cost budget
+    never reached. With a backlog wider than the budget, a shipment could
+    be abandoned after `MAX_COST_SYNC_ATTEMPTS` runs without ML ever
+    having been asked about it once."""
+
+    def _always_fails(self, shipment_id):
+        raise ValueError("boom")
+
+    def _cost_sync_attempts(self, db) -> dict:
+        rows = (
+            db.query(MlOpsDivergence.field, MlOpsDivergence.ml_value)
+            .filter(MlOpsDivergence.kind == service._COST_SYNC_DIVERGENCE_KIND)
+            .all()
+        )
+        return {field: ml_value for field, ml_value in rows}
+
+    def test_a_shipment_the_budget_never_reached_is_not_charged_an_attempt(self, db, monkeypatch) -> None:
+        db.add(MlShipmentOps(shipment_id=700, order_id=1))
+        db.add(MlShipmentOps(shipment_id=701, order_id=2))
+        db.commit()
+        # Room for exactly ONE fetch, and two candidates needing one.
+        monkeypatch.setattr(service, "MAX_COST_FETCHES_PER_PASS", 1)
+        monkeypatch.setattr(ml_webhook_client, "get_shipment_costs", self._always_fails)
+
+        service.run_backfill(limit=10)
+
+        attempts = self._cost_sync_attempts(db)
+        # 700 is read first and spends the only fetch; 701 is never
+        # reached, so it must carry no attempt at all.
+        assert attempts == {service._cost_sync_field(700): "1"}
+
+    def test_a_starved_shipment_never_gives_up(self, db, monkeypatch) -> None:
+        """The whole point: run it far more times than the attempt limit
+        while the budget is always spent elsewhere. The starved shipment
+        must still be a candidate at the end."""
+        db.add(MlShipmentOps(shipment_id=700, order_id=1))
+        db.add(MlShipmentOps(shipment_id=701, order_id=2))
+        db.commit()
+        monkeypatch.setattr(service, "MAX_COST_FETCHES_PER_PASS", 1)
+        monkeypatch.setattr(ml_webhook_client, "get_shipment_costs", self._always_fails)
+
+        for _ in range(service.MAX_COST_SYNC_ATTEMPTS + 2):
+            service.run_backfill(limit=10)
+
+        # 700 burned through its attempts and gave up. Only once it is
+        # out of the way does the budget ever reach 701 -- which is the
+        # point: 701 is never charged for the runs it did not take part
+        # in, so it cannot be abandoned unasked.
+        assert 700 in service._gave_up_shipment_ids(db)
+        assert 701 not in service._gave_up_shipment_ids(db)
+
+    def test_the_attempt_counter_is_clamped_at_the_limit(self, db) -> None:
+        """Round-4 finding 3: `_gave_up_shipment_ids` filters on ONE exact
+        stored value in SQL, which only holds if the counter stops growing
+        at the limit. Driven straight through `_record_cost_sync_attempt`
+        on purpose: via `run_backfill` a shipment leaves the candidate set
+        the moment it gives up, so the overflow this guards against is
+        unreachable from there and a test going through it would pass
+        whether the clamp existed or not."""
+        for _ in range(service.MAX_COST_SYNC_ATTEMPTS + 3):
+            attempts = service._record_cost_sync_attempt(db, 700)
+        db.commit()
+
+        assert attempts == service.MAX_COST_SYNC_ATTEMPTS
+        assert self._cost_sync_attempts(db) == {service._cost_sync_field(700): str(service.MAX_COST_SYNC_ATTEMPTS)}
+        assert 700 in service._gave_up_shipment_ids(db)
+
+
+class TestARefetchThatRaisesDoesNotTakeTheRunDown:
+    """Round-4 finding 2: `_resolve_ambiguous_orders` called `get_order`
+    with no `try/except`, so one proxy 5xx aborted the entire run through
+    `run_backfill`'s outer handler -- taking the shipment cost sync,
+    which had not run yet, down with it."""
+
+    def test_the_run_survives_and_still_syncs_shipment_costs(self, db, monkeypatch) -> None:
+        # An order whose stored payload has NO `payments` key: the only
+        # path that triggers a refetch.
+        now = datetime.now(timezone.utc)
+        db.add(MlOrdersOps(order_id=1, seller_id=999, ml_last_updated=now, raw_order=_raw_order(1, payment_ids=None)))
+        db.add(MlShipmentOps(shipment_id=700, order_id=1))
+        db.commit()
+
+        def _boom(order_id):
+            raise ConnectionError("proxy 502")
+
+        monkeypatch.setattr(ml_webhook_client, "get_order", _boom)
+        monkeypatch.setattr(ml_webhook_client, "get_shipment_costs", AsyncMock(return_value=_shipment_costs(400, 0)))
+
+        result = service.run_backfill(limit=10)
+
+        assert result.error is None
+        assert result.shipment_costs_synced == 1
+        # The order stayed unresolved -- never sealed on a failed refetch.
+        assert db.query(MlOrdersOps).filter_by(order_id=1).one().payments_synced_at is None
+
+    def test_the_refetch_answers_to_the_payment_budget(self, db, monkeypatch) -> None:
+        now = datetime.now(timezone.utc)
+        for order_id in (1, 2):
+            db.add(
+                MlOrdersOps(
+                    order_id=order_id,
+                    seller_id=999,
+                    ml_last_updated=now,
+                    raw_order=_raw_order(order_id, payment_ids=None),
+                )
+            )
+        db.commit()
+        monkeypatch.setattr(service, "MAX_PAYMENT_FETCHES_PER_PASS", 1)
+        get_order = AsyncMock(return_value=None)
+        monkeypatch.setattr(ml_webhook_client, "get_order", get_order)
+
+        service.run_backfill(limit=10)
+
+        assert get_order.call_count == 1

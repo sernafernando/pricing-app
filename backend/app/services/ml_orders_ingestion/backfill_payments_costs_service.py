@@ -191,24 +191,33 @@ def _cost_sync_field(shipment_id: int) -> str:
 def _gave_up_shipment_ids(db) -> set:
     """Shipment ids whose cost sync has already been attempted
     `MAX_COST_SYNC_ATTEMPTS` times without resolving -- excluded from
-    future candidate queries (module docstring)."""
+    future candidate queries (module docstring).
+
+    Post-review fix (round 4, finding 3): the give-up test lives in the
+    WHERE clause, not in Python. `_record_cost_sync_attempt` clamps the
+    counter at `MAX_COST_SYNC_ATTEMPTS`, so "gave up" is one exact
+    stored value and this reads only the rows it actually needs --
+    previously it pulled every `cost_sync:%` row, in-progress ones
+    included, and filtered them in the process.
+
+    # ponytail: the returned set still has no ceiling of its own, and it
+    # goes on to feed a `NOT IN (...)`. Bounded by the number of
+    # shipments ML never settles, which we expect to stay small; if it
+    # ever does not, this belongs in a column on `ml_shipments_ops`
+    # rather than in the divergence table.
+    """
     rows = (
-        db.query(MlOpsDivergence.field, MlOpsDivergence.ml_value)
+        db.query(MlOpsDivergence.field)
         .filter(
             MlOpsDivergence.order_id == _COST_SYNC_SENTINEL_ORDER_ID,
             MlOpsDivergence.kind == _COST_SYNC_DIVERGENCE_KIND,
             MlOpsDivergence.field.like(f"{_COST_SYNC_FIELD_PREFIX}%"),
+            MlOpsDivergence.ml_value == str(MAX_COST_SYNC_ATTEMPTS),
         )
         .all()
     )
     given_up = set()
-    for field, ml_value in rows:
-        try:
-            attempts = int(ml_value or "0")
-        except ValueError:
-            attempts = 0
-        if attempts < MAX_COST_SYNC_ATTEMPTS:
-            continue
+    for (field,) in rows:
         try:
             given_up.add(int(field[len(_COST_SYNC_FIELD_PREFIX) :]))
         except ValueError:
@@ -219,8 +228,10 @@ def _gave_up_shipment_ids(db) -> set:
 def _record_cost_sync_attempt(db, shipment_id: int) -> int:
     """Increments (creating if needed) the attempt counter for a shipment
     whose cost sync did not fully resolve this run. Returns the new
-    count. Dedup via the `(order_id, kind, field)` unique constraint,
-    same as `record_unenumerable_window`."""
+    count, CLAMPED at `MAX_COST_SYNC_ATTEMPTS` so that "gave up" is a
+    single exact stored value `_gave_up_shipment_ids` can filter on in
+    SQL. Dedup via the `(order_id, kind, field)` unique constraint, same
+    as `record_unenumerable_window`."""
     field = _cost_sync_field(shipment_id)
     existing = (
         db.query(MlOpsDivergence)
@@ -234,7 +245,7 @@ def _record_cost_sync_attempt(db, shipment_id: int) -> int:
     now = datetime.now(timezone.utc)
     if existing is not None:
         try:
-            attempts = int(existing.ml_value or "0") + 1
+            attempts = min(int(existing.ml_value or "0") + 1, MAX_COST_SYNC_ATTEMPTS)
         except ValueError:
             attempts = 1
         existing.ml_value = str(attempts)
@@ -310,19 +321,50 @@ def _count_shipments_needing_costs(limit: int) -> int:
 
 def _resolve_ambiguous_orders(
     order_candidates: List[Tuple[int, Optional[Dict[str, Any]]]],
+    budget: List[int],
 ) -> List[Tuple[int, Dict[str, Any]]]:
     """Any candidate whose stored `raw_order` has no `payments` key is
     refetched fresh via `get_order` (HTTP-before-write, before any DB
     write session opens -- module docstring, post-review fix #1/#2). A
     candidate whose refetch fails is DROPPED from this run entirely
     (left NULL, retried next run) rather than passed on to
-    `sync_payments_for_order` with stale, ambiguous data."""
+    `sync_payments_for_order` with stale, ambiguous data.
+
+    Post-review fix (round 4, finding 2). Two properties this used to
+    lack, both of which the module docstring already claimed:
+
+    - Fail-open per order, exactly like `_fetch_payments` /
+      `_sync_shipment_costs`: a single `get_order` raising (proxy 5xx,
+      timeout) used to abort the whole run through `run_backfill`'s
+      `except Exception`, taking the shipment cost sync down with it.
+      Now it is logged and skipped, and the order is retried next run.
+    - It spends network, so it answers to a budget. It shares the
+      caller's payment budget rather than introducing a new one: these
+      refetches exist only to resolve payments for this same batch, so
+      they are the same spend under the same declared ceiling.
+    """
     resolved: List[Tuple[int, Dict[str, Any]]] = []
     for order_id, raw_order in order_candidates:
         if isinstance(raw_order, dict) and raw_order.get("payments") is not None:
             resolved.append((order_id, raw_order))
             continue
-        fresh = resolve_maybe_async(ml_webhook_client.get_order(order_id))
+        if budget[0] <= 0:
+            logger.warning(
+                "backfill_ml_payments_costs: refetch budget spent before resolving every ambiguous stored "
+                "payload; order_id=%s left unresolved for a later run",
+                order_id,
+            )
+            continue
+        budget[0] -= 1
+        try:
+            fresh = resolve_maybe_async(ml_webhook_client.get_order(order_id))
+        except Exception:
+            logger.warning(
+                "backfill_ml_payments_costs: order_id=%s refetch failed; left unresolved for a later run",
+                order_id,
+                exc_info=True,
+            )
+            continue
         if isinstance(fresh, dict):
             resolved.append((order_id, fresh))
         else:
@@ -384,12 +426,14 @@ def run_backfill(limit: int = DEFAULT_LIMIT, dry_run: bool = False) -> BackfillP
         # Post-review fix #1/#2: resolve any ambiguous (no `payments` key)
         # stored row BEFORE fetching any payment -- still entirely HTTP,
         # still entirely before any DB write session opens.
-        resolved_orders = _resolve_ambiguous_orders(order_candidates)
+        # An explicit budget list (rather than the functions' own
+        # `None`-default) so the call site can inspect it afterward, and
+        # so the refetch below and the payment fetch answer to the SAME
+        # declared ceiling.
+        payment_budget = [MAX_PAYMENT_FETCHES_PER_PASS]
+        resolved_orders = _resolve_ambiguous_orders(order_candidates, payment_budget)
 
         raw_orders = [raw for _, raw in resolved_orders]
-        # An explicit budget list (rather than the functions' own
-        # `None`-default) so the call site can inspect it afterward.
-        payment_budget = [MAX_PAYMENT_FETCHES_PER_PASS]
         payments_payload = _fetch_payments(raw_orders, payment_budget)
         # Post-review fix (round 2, finding 4): "the budget hit zero" is
         # NOT the same fact as "the budget was the reason something is
@@ -416,7 +460,16 @@ def run_backfill(limit: int = DEFAULT_LIMIT, dry_run: bool = False) -> BackfillP
                     result.orders_sealed += 1
 
         cost_budget = [MAX_COST_FETCHES_PER_PASS]
-        result.shipment_costs_synced = _sync_shipment_costs(shipment_ids, cost_budget)
+        # Post-review fix (round 4, finding 1): only a shipment this run
+        # actually spent an HTTP fetch on may be charged a give-up
+        # attempt. Without this, a backlog larger than
+        # `MAX_COST_FETCHES_PER_PASS` charges the shipments the budget
+        # never reached, and after `MAX_COST_SYNC_ATTEMPTS` runs they are
+        # abandoned without ML ever having been asked once.
+        attempted_shipment_ids: set = set()
+        result.shipment_costs_synced = _sync_shipment_costs(
+            shipment_ids, cost_budget, attempted_out=attempted_shipment_ids
+        )
         result.costs_budget_exhausted = cost_budget[0] <= 0 and result.shipment_costs_synced < len(shipment_ids)
 
         # Post-review fix (round 3): a shipment in THIS run's candidate
@@ -425,7 +478,7 @@ def run_backfill(limit: int = DEFAULT_LIMIT, dry_run: bool = False) -> BackfillP
         # candidate at all (module docstring), so a shipment ML never
         # settles cannot block the backlog behind it forever, and stops
         # spending one HTTP fetch per run once given up.
-        if shipment_ids:
+        if attempted_shipment_ids:
             with get_background_db() as db:
                 unresolved_ids = {
                     shipment_id
@@ -433,7 +486,7 @@ def run_backfill(limit: int = DEFAULT_LIMIT, dry_run: bool = False) -> BackfillP
                         MlShipmentOps.shipment_id.in_(shipment_ids),
                         MlShipmentOps.costs_synced_at.is_(None),
                     )
-                }
+                } & attempted_shipment_ids
                 for shipment_id in unresolved_ids:
                     attempts = _record_cost_sync_attempt(db, shipment_id)
                     if attempts >= MAX_COST_SYNC_ATTEMPTS:
