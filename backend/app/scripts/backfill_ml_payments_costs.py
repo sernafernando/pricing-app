@@ -82,7 +82,7 @@ def main(argv: list[str] | None = None) -> None:
     logger.info(
         "backfill_ml_payments_costs: complete (dry_run=%s, limit=%s) -- "
         "order_candidates=%s payments_synced=%s orders_sealed=%s payments_budget_exhausted=%s "
-        "shipment_candidates=%s shipment_costs_synced=%s costs_budget_exhausted=%s",
+        "shipment_candidates=%s shipment_costs_synced=%s costs_budget_exhausted=%s shipments_gave_up=%s",
         result.dry_run,
         args.limit,
         result.order_candidates,
@@ -92,6 +92,7 @@ def main(argv: list[str] | None = None) -> None:
         result.shipment_candidates,
         result.shipment_costs_synced,
         result.costs_budget_exhausted,
+        result.shipments_gave_up,
     )
 
 

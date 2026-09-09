@@ -42,7 +42,7 @@ from unittest.mock import AsyncMock
 import pytest
 
 from app.core.config import settings
-from app.models.ml_orders_ops import MlOrdersOps
+from app.models.ml_orders_ops import MlOpsDivergence, MlOrdersOps
 from app.models.ml_payments import MlPaymentOps
 from app.services.ml_orders_ingestion import sweep_service
 from app.services.ml_webhook_client import ml_webhook_client
@@ -238,11 +238,14 @@ class TestPaymentFetchOnIngest:
         order_row = db.query(MlOrdersOps).filter_by(order_id=1).one()
         assert order_row.payments_synced_at is not None
 
-    def test_the_payments_key_absent_entirely_is_never_sealed(self, db, monkeypatch) -> None:
-        """The absent key is NOT the same fact as `payments: []` -- it
-        means the source never told us either way, and must be treated
-        as unresolved, never as "zero payments, done" (post-review
-        blocking fix, ml-backfill-pagos-y-costos)."""
+    def test_the_payments_key_absent_on_a_fresh_order_is_sealed_and_recorded(self, db, monkeypatch) -> None:
+        """The absent key is NOT the same fact as `payments: []`, but
+        `raw_order` here is FRESH off `search_orders` -- ML's own
+        omission IS ML's answer. Sealing is correct (a payment-less order
+        must not be re-queried forever), but it must stay VISIBLE via a
+        divergence row instead of silently vanishing (post-review fix
+        #1/#2, ml-backfill-pagos-y-costos): only the BACKFILL's stored,
+        not-guaranteed-fresh `raw_order` must refuse to seal on this."""
         now = datetime.now(timezone.utc)
         recent = now - timedelta(days=1)
         order = _order(1, 999, recent, recent, payment_ids=None)
@@ -255,7 +258,13 @@ class TestPaymentFetchOnIngest:
 
         mock_get_payment.assert_not_called()
         order_row = db.query(MlOrdersOps).filter_by(order_id=1).one()
-        assert order_row.payments_synced_at is None
+        assert order_row.payments_synced_at is not None
+        divergence = (
+            db.query(MlOpsDivergence)
+            .filter_by(order_id=1, kind="unknown", field=sweep_service.PAYMENTS_KEY_MISSING_FIELD)
+            .one()
+        )
+        assert divergence is not None
 
 
 class TestRetryGate:

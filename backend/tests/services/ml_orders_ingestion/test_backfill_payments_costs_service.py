@@ -50,6 +50,16 @@ def _flag_on(monkeypatch):
     monkeypatch.setattr(settings, "ML_ORDERS_OPS_ENABLED", True)
 
 
+@pytest.fixture(autouse=True)
+def _no_real_get_order(monkeypatch):
+    """A candidate whose stored `raw_order` lacks the `payments` key is
+    now refetched via `get_order` (post-review fix #1/#2). Defaults to a
+    failed refetch (`None`) so a test that does not care about this path
+    gets "left unresolved", never a real network call; a test exercising
+    the refetch brings its own mock."""
+    monkeypatch.setattr(ml_webhook_client, "get_order", AsyncMock(return_value=None))
+
+
 def _raw_order(order_id: int, payment_ids=None) -> dict:
     """`payment_ids=None` (default) means the `payments` key is ABSENT --
     an ambiguous, "we don't know" payload, e.g. an older ingestion write
@@ -267,6 +277,91 @@ class TestBudgetExhausted:
         assert result.costs_budget_exhausted is True
         assert result.shipment_costs_synced == 1
 
+    def test_payments_budget_exhausted_is_not_reported_when_the_budget_exactly_matches_full_success(
+        self, db, monkeypatch
+    ) -> None:
+        """Finding 4: `budget[0] <= 0` after every needed payment resolved
+        successfully is a COMPLETE pass, not a truncated one -- the old
+        check reported this exact edge as exhausted, which is the metric
+        that lies by construction the rest of this module avoids."""
+        now = datetime.now(timezone.utc)
+        db.add(
+            MlOrdersOps(
+                order_id=1,
+                seller_id=999,
+                ml_last_updated=now,
+                raw_order=_raw_order(1, payment_ids=[500]),
+            )
+        )
+        db.commit()
+        monkeypatch.setattr(ml_webhook_client, "get_payment", AsyncMock(return_value=_payment_payload(500, 1)))
+        # Exactly one payment id needed, exactly one unit of budget.
+        monkeypatch.setattr(service, "MAX_PAYMENT_FETCHES_PER_PASS", 1)
+
+        result = service.run_backfill(limit=10)
+
+        assert result.payments_budget_exhausted is False
+        assert result.orders_sealed == 1
+
+    def test_costs_budget_exhausted_is_not_reported_when_the_budget_exactly_matches_full_success(
+        self, db, monkeypatch
+    ) -> None:
+        db.add(MlShipmentOps(shipment_id=700, order_id=1))
+        db.commit()
+        monkeypatch.setattr(ml_webhook_client, "get_shipment_costs", AsyncMock(return_value=_shipment_costs(400, 0)))
+        monkeypatch.setattr(service, "MAX_COST_FETCHES_PER_PASS", 1)
+
+        result = service.run_backfill(limit=10)
+
+        assert result.costs_budget_exhausted is False
+        assert result.shipment_costs_synced == 1
+
+
+class TestCompleteFlagReflectsTruncation:
+    """Finding 5: a run truncated by either budget must NOT be stamped as
+    a completed pass (mirrors the sweep's own
+    `complete=not result.budget_exhausted`), or a staleness alert on "no
+    success in N minutes" never fires while this backfill keeps
+    truncating."""
+
+    def test_a_truncated_payments_pass_does_not_stamp_last_success_at(self, db, monkeypatch) -> None:
+        now = datetime.now(timezone.utc)
+        db.add(
+            MlOrdersOps(
+                order_id=1,
+                seller_id=999,
+                ml_last_updated=now,
+                raw_order=_raw_order(1, payment_ids=[500, 501]),
+            )
+        )
+        db.commit()
+        monkeypatch.setattr(ml_webhook_client, "get_payment", AsyncMock(return_value=_payment_payload(500, 1)))
+        monkeypatch.setattr(service, "MAX_PAYMENT_FETCHES_PER_PASS", 1)
+
+        service.run_backfill(limit=10)
+
+        cursor = db.query(MlOpsSyncCursor).filter_by(name=service.CURSOR_NAME).one()
+        assert cursor.state == "idle"
+        assert cursor.last_success_at is None
+
+    def test_a_complete_pass_does_stamp_last_success_at(self, db, monkeypatch) -> None:
+        now = datetime.now(timezone.utc)
+        db.add(
+            MlOrdersOps(
+                order_id=1,
+                seller_id=999,
+                ml_last_updated=now,
+                raw_order=_raw_order(1, payment_ids=[500]),
+            )
+        )
+        db.commit()
+        monkeypatch.setattr(ml_webhook_client, "get_payment", AsyncMock(return_value=_payment_payload(500, 1)))
+
+        service.run_backfill(limit=10)
+
+        cursor = db.query(MlOpsSyncCursor).filter_by(name=service.CURSOR_NAME).one()
+        assert cursor.last_success_at is not None
+
 
 class TestBaseTableCandidates:
     def test_an_order_never_touched_by_any_sweep_window_is_still_found_and_sealed(self, db, monkeypatch) -> None:
@@ -350,7 +445,13 @@ class TestAbsentPaymentsKeyIsNeverSealed:
     `--` becomes permanent, written by the very script meant to remove
     it."""
 
-    def test_a_stored_raw_order_with_no_payments_key_at_all_is_never_sealed(self, db, monkeypatch) -> None:
+    def test_a_stored_raw_order_with_no_payments_key_at_all_is_never_sealed_on_the_stale_payload(
+        self, db, monkeypatch
+    ) -> None:
+        """A refetch is always attempted for this case (see
+        `TestAmbiguousRowsAreResolvedByRefetching`); this test covers the
+        sub-case where the refetch itself FAILS -- the stale, ambiguous
+        stored payload alone must never be enough to seal."""
         now = datetime.now(timezone.utc)
         db.add(
             MlOrdersOps(
@@ -364,6 +465,9 @@ class TestAbsentPaymentsKeyIsNeverSealed:
         assert "payments" not in db.query(MlOrdersOps).filter_by(order_id=1).one().raw_order
         get_payment = AsyncMock()
         monkeypatch.setattr(ml_webhook_client, "get_payment", get_payment)
+        # `_no_real_get_order` fixture already defaults to a failed
+        # refetch (`None`) -- explicit here for clarity.
+        monkeypatch.setattr(ml_webhook_client, "get_order", AsyncMock(return_value=None))
 
         result = service.run_backfill(limit=10)
 
@@ -390,6 +494,115 @@ class TestAbsentPaymentsKeyIsNeverSealed:
 
         assert result.orders_sealed == 1
         assert db.query(MlOrdersOps).filter_by(order_id=1).one().payments_synced_at is not None
+
+
+class TestAmbiguousRowsAreResolvedByRefetching:
+    """Findings 1/2, round 2 (BLOCKING): refusing to seal an ambiguous
+    stored row is not enough on its own -- this backfill NEVER re-asks
+    ML for anything else, so without a refetch the exact same row is
+    reselected forever and blocks every candidate behind it. This is the
+    regression the first round of the fix reintroduced."""
+
+    def test_a_successful_refetch_confirming_no_payments_resolves_and_seals(self, db, monkeypatch) -> None:
+        now = datetime.now(timezone.utc)
+        db.add(
+            MlOrdersOps(
+                order_id=1,
+                seller_id=999,
+                ml_last_updated=now,
+                raw_order=_raw_order(1, payment_ids=None),  # stale, ambiguous
+            )
+        )
+        db.commit()
+        # ML's FRESH answer confirms the order genuinely has none.
+        monkeypatch.setattr(ml_webhook_client, "get_order", AsyncMock(return_value=_raw_order(1, payment_ids=[])))
+        get_payment = AsyncMock()
+        monkeypatch.setattr(ml_webhook_client, "get_payment", get_payment)
+
+        result = service.run_backfill(limit=10)
+
+        get_payment.assert_not_called()
+        assert result.orders_sealed == 1
+        assert db.query(MlOrdersOps).filter_by(order_id=1).one().payments_synced_at is not None
+
+    def test_a_successful_refetch_with_real_payments_fetches_and_seals(self, db, monkeypatch) -> None:
+        now = datetime.now(timezone.utc)
+        db.add(
+            MlOrdersOps(
+                order_id=1,
+                seller_id=999,
+                ml_last_updated=now,
+                raw_order=_raw_order(1, payment_ids=None),  # stale, ambiguous
+            )
+        )
+        db.commit()
+        monkeypatch.setattr(ml_webhook_client, "get_order", AsyncMock(return_value=_raw_order(1, payment_ids=[500])))
+        monkeypatch.setattr(ml_webhook_client, "get_payment", AsyncMock(return_value=_payment_payload(500, 1)))
+
+        result = service.run_backfill(limit=10)
+
+        assert result.orders_sealed == 1
+        assert db.query(MlPaymentOps).filter_by(payment_id=500).count() == 1
+        assert db.query(MlOrdersOps).filter_by(order_id=1).one().payments_synced_at is not None
+
+    def test_a_second_run_advances_past_an_ambiguous_row_once_it_resolves(self, db, monkeypatch) -> None:
+        """The exact regression: with a working refetch, a second run
+        must NOT reselect the same row -- it must have made progress."""
+        now = datetime.now(timezone.utc)
+        db.add(
+            MlOrdersOps(
+                order_id=1,
+                seller_id=999,
+                ml_last_updated=now,
+                date_created=now,
+                raw_order=_raw_order(1, payment_ids=None),
+            )
+        )
+        db.commit()
+        monkeypatch.setattr(ml_webhook_client, "get_order", AsyncMock(return_value=_raw_order(1, payment_ids=[])))
+
+        first = service.run_backfill(limit=10)
+        assert first.order_candidates == 1
+        assert first.orders_sealed == 1
+
+        second = service.run_backfill(limit=10)
+
+        assert second.order_candidates == 0  # NOT the same row again
+
+    def test_a_second_run_still_advances_when_other_candidates_exist_behind_a_stuck_ambiguous_row(
+        self, db, monkeypatch
+    ) -> None:
+        """Regression guard: even while order 1's refetch keeps failing
+        (permanently ambiguous), an order behind it must still be
+        resolved -- the stuck row must not be the ONLY thing blocking an
+        otherwise-resolvable candidate in the same run."""
+        now = datetime.now(timezone.utc)
+        db.add(
+            MlOrdersOps(
+                order_id=1,
+                seller_id=999,
+                ml_last_updated=now,
+                date_created=now,
+                raw_order=_raw_order(1, payment_ids=None),
+            )
+        )
+        db.add(
+            MlOrdersOps(
+                order_id=2,
+                seller_id=999,
+                ml_last_updated=now,
+                date_created=now - timedelta(days=1),
+                raw_order=_raw_order(2, payment_ids=[]),
+            )
+        )
+        db.commit()
+        monkeypatch.setattr(ml_webhook_client, "get_order", AsyncMock(return_value=None))  # keeps failing
+
+        result = service.run_backfill(limit=10)
+
+        assert result.orders_sealed == 1  # order 2, not order 1
+        assert db.query(MlOrdersOps).filter_by(order_id=2).one().payments_synced_at is not None
+        assert db.query(MlOrdersOps).filter_by(order_id=1).one().payments_synced_at is None
 
 
 class TestPartialFailureNeverSealsMoney:
@@ -436,6 +649,62 @@ class TestPartialFailureNeverSealsMoney:
         row = db.query(MlShipmentOps).filter_by(shipment_id=700).one()
         assert row.costs_synced_at is None
         assert result.shipment_costs_synced == 0
+
+
+class TestShipmentCostSyncGivesUpAfterRepeatedFailure:
+    """Finding 3: a shipment ML never fully settles would otherwise sit
+    at the head of `shipment_id DESC` forever, spending one real HTTP
+    fetch per run while blocking every candidate behind it."""
+
+    def _always_fails(self, shipment_id):
+        raise ValueError("boom")
+
+    def test_a_shipment_stuck_below_the_attempt_limit_is_still_a_candidate(self, db, monkeypatch) -> None:
+        db.add(MlShipmentOps(shipment_id=700, order_id=1))
+        db.commit()
+        monkeypatch.setattr(ml_webhook_client, "get_shipment_costs", self._always_fails)
+
+        for _ in range(service.MAX_COST_SYNC_ATTEMPTS - 1):
+            result = service.run_backfill(limit=10)
+            assert result.shipment_candidates == 1
+
+    def test_a_shipment_stuck_at_the_attempt_limit_stops_being_a_candidate(self, db, monkeypatch) -> None:
+        db.add(MlShipmentOps(shipment_id=700, order_id=1))
+        db.commit()
+        monkeypatch.setattr(ml_webhook_client, "get_shipment_costs", self._always_fails)
+
+        last_result = None
+        for _ in range(service.MAX_COST_SYNC_ATTEMPTS):
+            last_result = service.run_backfill(limit=10)
+
+        assert last_result.shipments_gave_up == 1
+
+        # It has now given up -- the NEXT run must not spend an HTTP call
+        # on it at all.
+        get_costs = AsyncMock(side_effect=self._always_fails)
+        monkeypatch.setattr(ml_webhook_client, "get_shipment_costs", get_costs)
+        result = service.run_backfill(limit=10)
+
+        assert result.shipment_candidates == 0
+        get_costs.assert_not_called()
+
+    def test_a_shipment_that_eventually_succeeds_never_gives_up(self, db, monkeypatch) -> None:
+        """The escape hatch must not fire on a shipment that is simply
+        slow to settle -- only on one that never resolves within the
+        attempt budget."""
+        db.add(MlShipmentOps(shipment_id=700, order_id=1))
+        db.commit()
+        monkeypatch.setattr(ml_webhook_client, "get_shipment_costs", self._always_fails)
+
+        for _ in range(service.MAX_COST_SYNC_ATTEMPTS - 1):
+            service.run_backfill(limit=10)
+
+        monkeypatch.setattr(ml_webhook_client, "get_shipment_costs", AsyncMock(return_value=_shipment_costs(400, 0)))
+        result = service.run_backfill(limit=10)
+
+        assert result.shipment_costs_synced == 1
+        assert result.shipments_gave_up == 0
+        assert db.query(MlShipmentOps).filter_by(shipment_id=700).one().costs_synced_at is not None
 
 
 class TestLimit:
@@ -536,9 +805,9 @@ class TestSharedImplementationWithTheSweep:
         calls = []
         original = service.sync_payments_for_order
 
-        def spy(db_arg, order_id, raw_order, payments_payload):
+        def spy(db_arg, order_id, raw_order, payments_payload, **kwargs):
             calls.append(order_id)
-            return original(db_arg, order_id, raw_order, payments_payload)
+            return original(db_arg, order_id, raw_order, payments_payload, **kwargs)
 
         monkeypatch.setattr(service, "sync_payments_for_order", spy)
 

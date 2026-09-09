@@ -475,11 +475,44 @@ def _fetch_payments(
     return payments
 
 
+PAYMENTS_KEY_MISSING_FIELD = "payments_key_missing"
+
+
+def _record_payments_key_missing(db, order_id: int) -> None:
+    """ML's own order payload omitted `payments[]` entirely -- not the
+    same fact as `payments: []` (see `sync_payments_for_order`'s
+    docstring). This only ever runs for a raw order FRESH off
+    `search_orders`/`get_order`, so the omission IS ML's own answer and
+    it is safe to treat as "no payments" -- but that must stay VISIBLE
+    instead of silently vanishing into a seal, exactly like
+    `record_unenumerable_window`'s escape hatch for a leaf that cannot be
+    enumerated. Reuses the generic `kind='unknown'` bucket: the CHECK
+    constraint on `ml_ops_divergence.kind` has no dedicated value for
+    this and a migration is out of scope for this fix. Re-detection
+    updates `detected_at`, deduped by the `(order_id, kind, field)`
+    unique constraint."""
+    existing = (
+        db.query(MlOpsDivergence)
+        .filter(
+            MlOpsDivergence.order_id == order_id,
+            MlOpsDivergence.kind == "unknown",
+            MlOpsDivergence.field == PAYMENTS_KEY_MISSING_FIELD,
+        )
+        .first()
+    )
+    now = datetime.now(timezone.utc)
+    if existing is not None:
+        existing.detected_at = now
+    else:
+        db.add(MlOpsDivergence(order_id=order_id, kind="unknown", field=PAYMENTS_KEY_MISSING_FIELD, detected_at=now))
+
+
 def sync_payments_for_order(
     db,
     order_id: int,
     raw_order: Dict[str, Any],
     payments_payload: Dict[int, Dict[str, Any]],
+    missing_key_is_empty: bool = False,
 ) -> Tuple[int, bool]:
     """Maps and persists every `raw_order['payments'][].id` present in
     `payments_payload`, then seals `MlOrdersOps.payments_synced_at` ONLY
@@ -499,15 +532,24 @@ def sync_payments_for_order(
     ML's own order schema guarantees the key on every live order, so
     `payments: []` means "ML says this order genuinely has none" -- fine
     to seal. The key being absent means the SOURCE never told us either
-    way, and this function's `raw_order` is no longer guaranteed fresh
-    from ML: the backfill reads it back out of `MlOrdersOps.raw_order`,
-    written by whatever ingestion version was running at the time, which
-    may have truncated, half-written, or otherwise never persisted this
-    field. Sealing on an ABSENT key there converts an unknown into "zero
-    payments, done" -- and since `payments_synced_at IS NULL` is the ONLY
-    retry gate, that order can never become a candidate again. Never seal
-    on missing information, whichever caller this runs under."""
-    if raw_order.get("payments") is None:
+    way -- UNLESS the caller can vouch that `raw_order` is genuinely
+    fresh off ML (`missing_key_is_empty=True`), in which case the
+    omission itself IS ML's answer and sealing is correct (the sweep's
+    `process_batch` also records `_record_payments_key_missing` first, so
+    this stays visible rather than silently vanishing).
+
+    The default (`missing_key_is_empty=False`) is for a `raw_order` NOT
+    guaranteed fresh -- e.g. the backfill's first read of
+    `MlOrdersOps.raw_order`, written by whatever ingestion version was
+    running at the time, which may have truncated, half-written, or
+    otherwise never persisted this field. Sealing on an ABSENT key there
+    converts an unknown into "zero payments, done" -- and since
+    `payments_synced_at IS NULL` is the ONLY retry gate, that order could
+    never become a candidate again. Post-review fix #1/#2: the backfill
+    itself now refetches such an order fresh from ML BEFORE ever calling
+    this function with `missing_key_is_empty=True`, instead of leaving it
+    permanently unresolved -- see `backfill_payments_costs_service.py`."""
+    if raw_order.get("payments") is None and not missing_key_is_empty:
         return 0, False
     payment_ids = _extract_payment_ids(raw_order)
     synced = 0
@@ -879,7 +921,17 @@ def process_batch(
             # retries exactly the missing ones (`payments_payload` is
             # re-fetched fresh every pass for any still-NULL order).
             if mapped.order_id in payment_candidate_ids:
-                order_synced, _sealed = sync_payments_for_order(db, mapped.order_id, raw_order, payments_payload)
+                # `raw_order` here is fresh off THIS pass's `search_orders`
+                # call (design D5's single source of truth), so an absent
+                # `payments` key is ML's own answer, not an unknown --
+                # `missing_key_is_empty=True` -- but it is recorded first
+                # so it stays visible instead of silently vanishing into a
+                # seal (post-review fix #1/#2).
+                if raw_order.get("payments") is None:
+                    _record_payments_key_missing(db, mapped.order_id)
+                order_synced, _sealed = sync_payments_for_order(
+                    db, mapped.order_id, raw_order, payments_payload, missing_key_is_empty=True
+                )
                 payments_synced += order_synced
 
             # Shipment upsert failures are NOT folded into the order
