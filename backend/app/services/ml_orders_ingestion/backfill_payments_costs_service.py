@@ -20,7 +20,7 @@ different SOURCE of candidates, so the sealing rule that decides whether
 a sale's money is trustworthy lives in exactly one place, never two that
 could drift (obs #1965/#1966 lesson).
 
-AMBIGUOUS STORED ROWS (post-review BLOCKING fix, round 2): a stored
+AMBIGUOUS STORED ROWS: a stored
 `raw_order` with no `payments` key at all is not guaranteed fresh from
 ML -- it may be an older, incomplete ingestion write -- so
 `sync_payments_for_order` refuses to seal it on that alone (see its own
@@ -43,7 +43,7 @@ The fix has two parts:
      discipline as everything else on this path.
 
 SHIPMENT COSTS -- the same stuck-candidate risk, plus wasted network
-(post-review fix, round 2): `_sync_shipment_costs` never seals a
+`_sync_shipment_costs` never seals a
 shipment on a partial `get_shipment_costs` payload (design decision,
 `sweep_service.py`), so a shipment ML never fully settles would sit at
 the head of `shipment_id DESC` forever, spending one real HTTP fetch on
@@ -87,13 +87,13 @@ budget silently truncates a pass mid-way (one candidate order can carry
 several payment ids): `BackfillPaymentsCostsResult.payments_budget_exhausted`
 / `.costs_budget_exhausted` surface that instead of leaving an operator
 staring at `order_candidates=1000 orders_sealed=380` with no explanation.
-Post-review fix (round 2): these flags are computed from ACTUAL
+These flags are computed from ACTUAL
 resolution counts (resolved < needed AND the budget list hit zero), not
 from `budget[0] <= 0` alone -- exactly hitting the budget with every
 single candidate resolved is a complete pass, not a truncated one, and
 the old check reported it as truncated.
 
-Post-review fix (round 2): `release_lock_as_idle`'s `complete` flag now
+`release_lock_as_idle`'s `complete` flag
 mirrors the sweep's own reasoning (`complete=not result.budget_exhausted`)
 -- a run that stopped early on either budget is NOT stamped as a
 completed pass, so a staleness alert on "no success in N minutes" still
@@ -193,7 +193,7 @@ def _gave_up_shipment_ids(db) -> set:
     `MAX_COST_SYNC_ATTEMPTS` times without resolving -- excluded from
     future candidate queries (module docstring).
 
-    Post-review fix (round 4, finding 3): the give-up test lives in the
+    The give-up test lives in the
     WHERE clause, not in Python. `_record_cost_sync_attempt` clamps the
     counter at `MAX_COST_SYNC_ATTEMPTS`, so "gave up" is one exact
     stored value and this reads only the rows it actually needs --
@@ -263,6 +263,20 @@ def _record_cost_sync_attempt(db, shipment_id: int) -> int:
     return 1
 
 
+def _orders_newest_first():
+    """The candidate ordering, defined once for the real query and its
+    `--dry-run` counterpart so the two can never drift.
+
+    `NULLS LAST` is not decoration: Postgres defaults `ORDER BY x DESC`
+    to NULLS FIRST, so a row whose `date_created` was never persisted --
+    plausible in exactly the legacy population this backfill exists to
+    repair -- would head every single run instead of the newest sale.
+    SQLite (the test database) orders NULLs last either way, so this is
+    asserted against the compiled SQL rather than by behaviour.
+    """
+    return MlOrdersOps.date_created.desc().nullslast()
+
+
 def _orders_needing_payments(limit: int) -> List[Tuple[int, Optional[Dict[str, Any]]]]:
     """Orders with `payments_synced_at IS NULL`, NEWEST `date_created`
     first (see module docstring) so a bounded run reaches what an
@@ -273,7 +287,7 @@ def _orders_needing_payments(limit: int) -> List[Tuple[int, Optional[Dict[str, A
         rows = (
             db.query(MlOrdersOps.order_id, MlOrdersOps.raw_order)
             .filter(MlOrdersOps.payments_synced_at.is_(None))
-            .order_by(MlOrdersOps.date_created.desc())
+            .order_by(_orders_newest_first())
             .limit(limit)
             .all()
         )
@@ -288,7 +302,7 @@ def _count_orders_needing_payments(limit: int) -> int:
         return (
             db.query(MlOrdersOps.order_id)
             .filter(MlOrdersOps.payments_synced_at.is_(None))
-            .order_by(MlOrdersOps.date_created.desc())
+            .order_by(_orders_newest_first())
             .limit(limit)
             .count()
         )
@@ -322,16 +336,16 @@ def _count_shipments_needing_costs(limit: int) -> int:
 def _resolve_ambiguous_orders(
     order_candidates: List[Tuple[int, Optional[Dict[str, Any]]]],
     budget: List[int],
-) -> List[Tuple[int, Dict[str, Any]]]:
+) -> Tuple[List[Tuple[int, Dict[str, Any]]], int]:
     """Any candidate whose stored `raw_order` has no `payments` key is
     refetched fresh via `get_order` (HTTP-before-write, before any DB
-    write session opens -- module docstring, post-review fix #1/#2). A
+    write session opens -- module docstring). A
     candidate whose refetch fails is DROPPED from this run entirely
     (left NULL, retried next run) rather than passed on to
     `sync_payments_for_order` with stale, ambiguous data.
 
-    Post-review fix (round 4, finding 2). Two properties this used to
-    lack, both of which the module docstring already claimed:
+    Two properties this must hold, both of which the module docstring
+    already claims for every network call on this path:
 
     - Fail-open per order, exactly like `_fetch_payments` /
       `_sync_shipment_costs`: a single `get_order` raising (proxy 5xx,
@@ -342,13 +356,22 @@ def _resolve_ambiguous_orders(
       caller's payment budget rather than introducing a new one: these
       refetches exist only to resolve payments for this same batch, so
       they are the same spend under the same declared ceiling.
+
+    Returns the resolved orders and HOW MANY candidates the budget never
+    reached. That second number is not decoration: a candidate dropped
+    for lack of budget leaves no trace in `raw_orders`, so the caller's
+    payment-side truncation check cannot see it, and a run truncated
+    here would otherwise be stamped complete -- silencing the staleness
+    alert while the backlog is still growing.
     """
     resolved: List[Tuple[int, Dict[str, Any]]] = []
+    starved = 0
     for order_id, raw_order in order_candidates:
         if isinstance(raw_order, dict) and raw_order.get("payments") is not None:
             resolved.append((order_id, raw_order))
             continue
         if budget[0] <= 0:
+            starved += 1
             logger.warning(
                 "backfill_ml_payments_costs: refetch budget spent before resolving every ambiguous stored "
                 "payload; order_id=%s left unresolved for a later run",
@@ -373,7 +396,7 @@ def _resolve_ambiguous_orders(
                 "stored payload (no `payments` key); left unresolved for a later run",
                 order_id,
             )
-    return resolved
+    return resolved, starved
 
 
 def run_backfill(limit: int = DEFAULT_LIMIT, dry_run: bool = False) -> BackfillPaymentsCostsResult:
@@ -381,7 +404,7 @@ def run_backfill(limit: int = DEFAULT_LIMIT, dry_run: bool = False) -> BackfillP
 
     Flag-gated exactly like the sweep and the orders backfill: a complete
     no-op (zero HTTP calls, zero DB writes) while `ML_ORDERS_OPS_ENABLED`
-    is False -- and `error` stays `None` in that case (post-review fix):
+    is False -- and `error` stays `None` in that case:
     the flag being off is a genuine, expected outcome, not a failure a
     chained/scripted invocation should read as one.
     """
@@ -423,7 +446,7 @@ def run_backfill(limit: int = DEFAULT_LIMIT, dry_run: bool = False) -> BackfillP
     )
     failure: Optional[BaseException] = None
     try:
-        # Post-review fix #1/#2: resolve any ambiguous (no `payments` key)
+        # Resolve any ambiguous (no `payments` key)
         # stored row BEFORE fetching any payment -- still entirely HTTP,
         # still entirely before any DB write session opens.
         # An explicit budget list (rather than the functions' own
@@ -431,18 +454,23 @@ def run_backfill(limit: int = DEFAULT_LIMIT, dry_run: bool = False) -> BackfillP
         # so the refetch below and the payment fetch answer to the SAME
         # declared ceiling.
         payment_budget = [MAX_PAYMENT_FETCHES_PER_PASS]
-        resolved_orders = _resolve_ambiguous_orders(order_candidates, payment_budget)
+        resolved_orders, refetch_starved = _resolve_ambiguous_orders(order_candidates, payment_budget)
 
         raw_orders = [raw for _, raw in resolved_orders]
         payments_payload = _fetch_payments(raw_orders, payment_budget)
-        # Post-review fix (round 2, finding 4): "the budget hit zero" is
+        # "The budget hit zero" is
         # NOT the same fact as "the budget was the reason something is
         # unresolved" -- exactly using up the budget while resolving
         # EVERY needed payment id is a complete pass, not a truncated
         # one. Compare against how many DISTINCT payment ids this batch
         # actually needed.
         needed_payment_ids = {pid for raw in raw_orders for pid in _extract_payment_ids(raw)}
-        result.payments_budget_exhausted = payment_budget[0] <= 0 and len(payments_payload) < len(needed_payment_ids)
+        # Either end of the shared budget can truncate the pass, and a
+        # candidate the refetch never reached is invisible to the payment
+        # side (it is not in `raw_orders` at all), so both are checked.
+        result.payments_budget_exhausted = refetch_starved > 0 or (
+            payment_budget[0] <= 0 and len(payments_payload) < len(needed_payment_ids)
+        )
 
         with get_background_db() as db:
             for order_id, raw_order in resolved_orders:
@@ -460,7 +488,7 @@ def run_backfill(limit: int = DEFAULT_LIMIT, dry_run: bool = False) -> BackfillP
                     result.orders_sealed += 1
 
         cost_budget = [MAX_COST_FETCHES_PER_PASS]
-        # Post-review fix (round 4, finding 1): only a shipment this run
+        # Only a shipment this run
         # actually spent an HTTP fetch on may be charged a give-up
         # attempt. Without this, a backlog larger than
         # `MAX_COST_FETCHES_PER_PASS` charges the shipments the budget
@@ -472,7 +500,7 @@ def run_backfill(limit: int = DEFAULT_LIMIT, dry_run: bool = False) -> BackfillP
         )
         result.costs_budget_exhausted = cost_budget[0] <= 0 and result.shipment_costs_synced < len(shipment_ids)
 
-        # Post-review fix (round 3): a shipment in THIS run's candidate
+        # A shipment in this run's candidate
         # set that is still unresolved counts as one more attempt --
         # once it reaches `MAX_COST_SYNC_ATTEMPTS` it stops being a
         # candidate at all (module docstring), so a shipment ML never
@@ -508,7 +536,7 @@ def run_backfill(limit: int = DEFAULT_LIMIT, dry_run: bool = False) -> BackfillP
         if failure is not None:
             release_lock_as_error(failure, cursor_name=CURSOR_NAME)
         else:
-            # Post-review fix (round 2, finding 5): mirrors the sweep's
+            # Mirrors the sweep's
             # own `complete=not result.budget_exhausted` -- a run
             # truncated by either budget must NOT be stamped as a
             # completed pass, or a staleness alert never fires while this

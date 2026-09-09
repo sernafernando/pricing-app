@@ -527,7 +527,7 @@ def sync_payments_for_order(
     sealing rule instead of drifting into two implementations of the same
     money-path logic. Returns `(payments_synced, sealed)`.
 
-    Post-review fix (BLOCKING, ml-backfill-pagos-y-costos): the `payments`
+    The `payments`
     key ABSENT is not the same fact as `payments` present and EMPTY.
     ML's own order schema guarantees the key on every live order, so
     `payments: []` means "ML says this order genuinely has none" -- fine
@@ -545,7 +545,7 @@ def sync_payments_for_order(
     otherwise never persisted this field. Sealing on an ABSENT key there
     converts an unknown into "zero payments, done" -- and since
     `payments_synced_at IS NULL` is the ONLY retry gate, that order could
-    never become a candidate again. Post-review fix #1/#2: the backfill
+    never become a candidate again. The backfill
     itself now refetches such an order fresh from ML BEFORE ever calling
     this function with `missing_key_is_empty=True`, instead of leaving it
     permanently unresolved -- see `backfill_payments_costs_service.py`."""

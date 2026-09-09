@@ -817,9 +817,9 @@ class TestSharedImplementationWithTheSweep:
 
 
 class TestOnlyAnActualFetchCountsAsAnAttempt:
-    """Round-4 finding 1: the give-up counter used to be charged to every
-    unresolved candidate of the run, including the ones the cost budget
-    never reached. With a backlog wider than the budget, a shipment could
+    """The give-up counter must only be charged to a shipment this run
+    actually spent an HTTP fetch on -- never to one the cost budget never
+    reached. With a backlog wider than the budget, a shipment could
     be abandoned after `MAX_COST_SYNC_ATTEMPTS` runs without ML ever
     having been asked about it once."""
 
@@ -870,7 +870,7 @@ class TestOnlyAnActualFetchCountsAsAnAttempt:
         assert 701 not in service._gave_up_shipment_ids(db)
 
     def test_the_attempt_counter_is_clamped_at_the_limit(self, db) -> None:
-        """Round-4 finding 3: `_gave_up_shipment_ids` filters on ONE exact
+        """`_gave_up_shipment_ids` filters on ONE exact
         stored value in SQL, which only holds if the counter stops growing
         at the limit. Driven straight through `_record_cost_sync_attempt`
         on purpose: via `run_backfill` a shipment leaves the candidate set
@@ -887,10 +887,9 @@ class TestOnlyAnActualFetchCountsAsAnAttempt:
 
 
 class TestARefetchThatRaisesDoesNotTakeTheRunDown:
-    """Round-4 finding 2: `_resolve_ambiguous_orders` called `get_order`
-    with no `try/except`, so one proxy 5xx aborted the entire run through
-    `run_backfill`'s outer handler -- taking the shipment cost sync,
-    which had not run yet, down with it."""
+    """A refetch is one network call among many on a fail-open path: one
+    proxy 5xx must not abort the entire run through `run_backfill`'s outer
+    handler, taking the shipment cost sync down with it."""
 
     def test_the_run_survives_and_still_syncs_shipment_costs(self, db, monkeypatch) -> None:
         # An order whose stored payload has NO `payments` key: the only
@@ -932,3 +931,59 @@ class TestARefetchThatRaisesDoesNotTakeTheRunDown:
         service.run_backfill(limit=10)
 
         assert get_order.call_count == 1
+
+
+class TestATruncatedRefetchIsNeverStampedComplete:
+    """A candidate the refetch budget never reached leaves no trace in
+    `raw_orders`, so the payment-side truncation check cannot see it. If
+    that run were stamped complete, `last_success_at` would move and the
+    staleness alert would stay quiet while the backlog kept growing --
+    the exact failure the truncation flags exist to prevent."""
+
+    def _ambiguous_orders(self, db, count: int) -> None:
+        now = datetime.now(timezone.utc)
+        for order_id in range(1, count + 1):
+            db.add(
+                MlOrdersOps(
+                    order_id=order_id,
+                    seller_id=999,
+                    ml_last_updated=now,
+                    raw_order=_raw_order(order_id, payment_ids=None),
+                )
+            )
+        db.commit()
+
+    def test_a_run_the_refetch_budget_truncated_reports_it(self, db, monkeypatch) -> None:
+        self._ambiguous_orders(db, 2)
+        monkeypatch.setattr(service, "MAX_PAYMENT_FETCHES_PER_PASS", 1)
+        # Every refetch RESOLVES, and to an order with no payments at all
+        # -- so nothing is left unresolved on the payment side and the
+        # only evidence of truncation is the starved candidate.
+        monkeypatch.setattr(ml_webhook_client, "get_order", AsyncMock(return_value={"id": 1, "payments": []}))
+
+        result = service.run_backfill(limit=10)
+
+        assert result.payments_budget_exhausted is True
+
+    def test_a_run_that_resolved_everything_is_not_reported_as_truncated(self, db, monkeypatch) -> None:
+        """The mirror image: spending the budget exactly is a complete
+        pass, not a truncated one."""
+        self._ambiguous_orders(db, 2)
+        monkeypatch.setattr(service, "MAX_PAYMENT_FETCHES_PER_PASS", 2)
+        monkeypatch.setattr(ml_webhook_client, "get_order", AsyncMock(return_value={"id": 1, "payments": []}))
+
+        result = service.run_backfill(limit=10)
+
+        assert result.payments_budget_exhausted is False
+
+
+class TestNewestFirstDoesNotPutNullsAtTheHead:
+    """Postgres defaults `ORDER BY x DESC` to NULLS FIRST, so a row whose
+    `date_created` was never persisted -- plausible in exactly the legacy
+    population this backfill targets -- would head every run instead of
+    the newest sale. SQLite orders NULLs last, so a behavioural test here
+    would pass with or without the fix; the compiled SQL is asserted
+    instead."""
+
+    def test_the_candidate_ordering_asks_for_nulls_last(self) -> None:
+        assert "NULLS LAST" in str(service._orders_newest_first().compile()).upper()
