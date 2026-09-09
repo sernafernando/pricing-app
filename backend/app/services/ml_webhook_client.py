@@ -34,6 +34,25 @@ def _describe_exc(exc: BaseException) -> str:
     return f"{type(exc).__name__}: {detail}" if detail else type(exc).__name__
 
 
+class ActivityCursorRejected(Exception):
+    """The bridge rejected the stored `activity_cursor` (HTTP 400 from
+    `GET /api/ml/activity`), body `{"error": "cursor invalido"}` (verified
+    live, obs #2008).
+
+    `get_activity()` is the ONE method in this file that raises instead
+    of swallowing the error into a `None` return -- deliberately, and it
+    must stay that way. Every other read method treats an error as
+    retryable and returns `None`; a 400 here is NOT retryable, and an
+    invalid cursor must never be silently reset to zero or null (spec
+    "Invalid cursor is a visible error, never a silent reset"). If this
+    method is ever "simplified" to match the neighbouring None-returning
+    convention, an unrecoverable 400 becomes indistinguishable from a
+    timeout, and the drain silently retries forever against a cursor the
+    bridge will keep rejecting. Let it propagate to
+    `release_lock_as_error` instead.
+    """
+
+
 _BILLING_GROUPS = frozenset({"ML", "MP"})
 _PERIOD_KEY_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 _FROM_ID_RE = re.compile(r"^\d{1,20}$")
@@ -1063,6 +1082,71 @@ class MLWebhookClient:
             )
             return None
         return {"item_tags": item.get("tags") or [], "seller_tags": seller.get("tags") or []}
+
+    # ── ML Activity bridge (ml-activity-receiver, slice 2) ───────────
+    # `GET /api/ml/activity` is a DIFFERENT bridge resource: it is not a
+    # `/api/ml/orders?resource=` proxy passthrough, it is ml-webhook's own
+    # activity-ping endpoint, hit directly against `self.base_url` and
+    # live-verified against it (obs #2008). Response shape, exact:
+    # `{"events": [...], "has_more": bool, "next_cursor": str}` -- there
+    # is NO `paging` object here, unlike `search_orders`.
+
+    async def get_activity(
+        self,
+        since: str,
+        topics: Optional[List[str]] = None,
+        limit: Optional[int] = None,
+    ) -> Optional[Dict]:
+        """Obtiene una página de actividad (eventos de órdenes/envíos) del
+        bridge ml-webhook.
+
+        Args:
+            since: El cursor OPAQUO devuelto por la página anterior
+                (`next_cursor`), o el valor persistido en
+                `MlOpsSyncCursor.activity_cursor`. Nunca se interpreta ni
+                se parsea -- es base64 con estructura interna
+                (`YTF8Mg==` -> `a1|2`, verificado en vivo), pero acá es
+                un string opaco de punta a punta.
+            topics: Lista de topics a filtrar (ej. `["orders_v2",
+                "shipments"]`). Si es None, no se manda el parámetro y el
+                bridge decide el default.
+            limit: Tamaño de página pedido. Se reenvía TAL CUAL -- el
+                bridge ya lo clampea en 500 del lado del servidor
+                (verificado en vivo, obs #2008); reimplementar el mismo
+                clamp acá sería una segunda fuente de verdad que puede
+                desincronizarse de la del bridge.
+
+        Returns:
+            Dict con `events`, `has_more`, `next_cursor`, o None si hay
+            timeout/error de red/5xx (retryable).
+
+        Raises:
+            ActivityCursorRejected: si el bridge devuelve HTTP 400 (cursor
+                inválido). A DIFERENCIA de todo otro método de este
+                archivo, esto NO devuelve None -- ver el docstring de
+                `ActivityCursorRejected`.
+        """
+        params: Dict[str, Union[str, int]] = {"since": since}
+        if topics:
+            params["topics"] = ",".join(topics)
+        if limit is not None:
+            params["limit"] = limit
+
+        try:
+            async with httpx.AsyncClient(timeout=10.0) as client:
+                response = await client.get(f"{self.base_url}/api/ml/activity", params=params)
+
+                if response.status_code == 400:
+                    raise ActivityCursorRejected(f"Bridge rechazó el cursor de actividad: {response.text}")
+
+                response.raise_for_status()
+                return response.json()
+
+        except ActivityCursorRejected:
+            raise
+        except Exception as e:
+            logger.error(f"Error obteniendo actividad ML (since={since!r}): {_describe_exc(e)}")
+            return None
 
 
 # Instancia global del cliente
