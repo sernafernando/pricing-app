@@ -263,6 +263,20 @@ class MlOpsSyncCursor(Base):
     state = Column(String(20), nullable=False, server_default="idle")  # idle | running | error
     detail = Column(Text, nullable=True)
 
+    # `activity_cursor` (ml-activity-receiver slice 2): the opaque bridge
+    # cursor for the `ml_activity` row (`GET /api/ml/activity?since=...`).
+    # NULL = "never drained" (cold-start marker). Deliberately NOT stored
+    # in `detail`: `release_lock_as_idle` (sweep_service.py:1012-1029) sets
+    # `detail = None` on every successful pass (`complete=True`) and
+    # `detail = "stopped early: fetch budget exhausted"` otherwise, so a
+    # cursor kept in `detail` would be ERASED after every successful drain.
+    # `detail` is also already triple-booked on this table (running-since
+    # marker, error text, truncation marker), and `parse_running_since`
+    # would try to parse the cursor's base64 as an ISO timestamp. This
+    # column MUST survive `release_lock_as_idle(complete=False)`, which
+    # writes only `detail` and never touches any other column.
+    activity_cursor = Column(Text, nullable=True)
+
 
 # `window_not_enumerable` (module docstring "cross-slice contract",
 # obs #1828): the sweep (`sweep_service.py`), the divergence detector
