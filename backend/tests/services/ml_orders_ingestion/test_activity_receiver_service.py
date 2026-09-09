@@ -25,7 +25,7 @@ from unittest.mock import AsyncMock
 import pytest
 
 from app.core.config import settings
-from app.models.ml_orders_ops import MlOpsSyncCursor, MlOrdersOps
+from app.models.ml_orders_ops import MlOpsDivergence, MlOpsSyncCursor, MlOrdersOps
 from app.services.ml_orders_ingestion import activity_receiver_service as service
 from app.services.ml_orders_ingestion import sweep_service
 from app.services.ml_webhook_client import ActivityCursorRejected, ml_webhook_client
@@ -256,36 +256,6 @@ class TestInvalidCursorIsVisibleNeverSilentReset:
         assert cursor.activity_cursor == "known-good"  # byte-identical, never reset
         get_order_mock.assert_not_called()
 
-    def test_mutation_resetting_cursor_on_400_would_fail(self, db, monkeypatch):
-        """Mutation-verify: temporarily make the 400 handler reset the
-        cursor to None instead of raising to `release_lock_as_error`, and
-        confirm the assertion above would fail."""
-        cursor = MlOpsSyncCursor(name="ml_activity", state="idle", activity_cursor="known-good")
-        db.add(cursor)
-        db.flush()
-
-        monkeypatch.setattr(
-            ml_webhook_client,
-            "get_activity",
-            AsyncMock(side_effect=ActivityCursorRejected("cursor invalido")),
-        )
-
-        # Simulate the forbidden behaviour directly against the DB, as the
-        # mutated code would have done instead of raising to
-        # `release_lock_as_error`.
-        cursor.activity_cursor = None
-        db.flush()
-
-        cursor = db.query(MlOpsSyncCursor).filter_by(name="ml_activity").one()
-        assert cursor.activity_cursor is None  # the mutation's own effect
-
-        # Restore and prove the REAL code path never does this.
-        cursor.activity_cursor = "known-good"
-        db.flush()
-        service.drain_activity()
-        cursor = db.query(MlOpsSyncCursor).filter_by(name="ml_activity").one()
-        assert cursor.activity_cursor == "known-good"
-
 
 class TestUnresolvedVsNotAttemptedDistinction:
     def test_budget_exhaustion_keeps_the_two_counters_distinct(self, db, monkeypatch):
@@ -308,32 +278,6 @@ class TestUnresolvedVsNotAttemptedDistinction:
         assert result.orders_resolved == 1
         assert result.orders_unresolved == 1  # order 2: attempted, ML said no
         assert result.orders_not_attempted == 1  # order 3: budget never reached it
-
-    def test_mutation_collapsing_counters_would_fail(self, db, monkeypatch):
-        """Mutation-verify: temporarily collapse both counters into one
-        shared increment and confirm the split assertion above fails."""
-        monkeypatch.setattr(
-            ml_webhook_client,
-            "get_activity",
-            AsyncMock(return_value=_page([_event(1), _event(2), _event(3)], has_more=True, next_cursor="c1")),
-        )
-
-        def _get_order(order_id):
-            if order_id == 1:
-                return _order(1)
-            return None
-
-        monkeypatch.setattr(ml_webhook_client, "get_order", AsyncMock(side_effect=_get_order))
-        monkeypatch.setattr(service, "MAX_ACTIVITY_ORDER_FETCHES_PER_PASS", 2)
-
-        result = service.drain_activity()
-        collapsed = result.orders_unresolved + result.orders_not_attempted
-        # Collapsing would report ONE combined number instead of 1 and 1
-        # separately -- both are still individually asserted above; this
-        # merely documents the total is not itself the promise.
-        assert collapsed == 2
-        assert result.orders_unresolved == 1
-        assert result.orders_not_attempted == 1
 
 
 class TestDedupPerPassNotPerPage:
@@ -393,3 +337,151 @@ class TestConcurrentPing:
         assert result.ran is False
         assert result.error == "already running"
         mock_activity.assert_not_called()
+
+
+class TestUnusableNextCursorIsNeverPersisted:
+    """A page whose `next_cursor` is missing or null must not reach
+    `activity_cursor`. Persisting NULL there IS the silent reset back to
+    "never drained" that this module promises is impossible -- the next
+    run would re-drain the entire feed from zero. With `has_more` still
+    true it is also an infinite walk: `since` returns to the start, the
+    per-pass dedup suppresses every `get_order`, and the loop spins
+    against the bridge until the pass deadline."""
+
+    # Capped on purpose, everywhere in this class. Without the guard the
+    # drain genuinely spins -- `since` goes back to the start, the
+    # per-pass dedup suppresses every `get_order`, and nothing consumes
+    # budget -- so it would only stop at `PASS_TIME_BUDGET`, roughly 25
+    # minutes. A regression has to fail these tests in seconds instead of
+    # hanging CI, so the mock runs out of pages and raises.
+    _MAX_PAGES_BEFORE_GIVING_UP = 3
+
+    def _drain_with_cursor(self, db, monkeypatch, next_cursor, has_more):
+        cursor = MlOpsSyncCursor(name="ml_activity", state="idle", activity_cursor="known-good")
+        db.add(cursor)
+        db.flush()
+        page = _page([_event(1)], has_more=has_more, next_cursor=next_cursor)
+        activity = AsyncMock(
+            side_effect=[page] * self._MAX_PAGES_BEFORE_GIVING_UP + [RuntimeError("walked past an unusable cursor")]
+        )
+        monkeypatch.setattr(ml_webhook_client, "get_activity", activity)
+        monkeypatch.setattr(ml_webhook_client, "get_order", AsyncMock(return_value=_order(1)))
+        return service.drain_activity(), activity
+
+    @pytest.mark.parametrize("next_cursor", [None, ""])
+    def test_the_stored_cursor_is_left_untouched(self, db, monkeypatch, next_cursor):
+        self._drain_with_cursor(db, monkeypatch, next_cursor, has_more=True)
+
+        stored = db.query(MlOpsSyncCursor).filter_by(name="ml_activity").one()
+        assert stored.activity_cursor == "known-good"
+
+    def test_the_pass_is_not_stamped_complete(self, db, monkeypatch):
+        self._drain_with_cursor(db, monkeypatch, None, has_more=True)
+
+        stored = db.query(MlOpsSyncCursor).filter_by(name="ml_activity").one()
+        assert stored.last_success_at is None
+
+    def test_it_stops_instead_of_walking_forever(self, db, monkeypatch):
+        """`has_more=True` with no usable cursor is the infinite-loop
+        shape: the bridge must be asked exactly once, not repeatedly.
+
+        The mock is capped on purpose. Without the guard the drain really
+        does spin -- `since` returns to the start, the per-pass dedup
+        suppresses every `get_order`, and nothing consumes budget -- so it
+        would only stop at `PASS_TIME_BUDGET`, roughly 25 minutes. A
+        regression must fail this test in seconds, not hang CI, so the
+        fourth call raises instead of returning another page.
+        """
+        _, activity = self._drain_with_cursor(db, monkeypatch, None, has_more=True)
+
+        assert activity.await_count == 1
+
+
+class TestAnUnresolvedOrderLeavesVisibleDebt:
+    """`get_order` returning None covers timeouts, network errors and 5xx
+    -- transient answers, not ML's final word. Once the cursor moves past
+    that page the event never comes back, so the miss must survive as an
+    operator-facing row instead of a number that dies with the request.
+
+    The cursor still advances on purpose: refusing to advance while any
+    order is unresolved wedges the whole feed behind a single permanently
+    dead order, which is the bug fixed in `9cc60ef7` for the payments
+    backfill. The debt is recorded and the audit sweep re-ingests it.
+    """
+
+    def _unresolved_rows(self, db):
+        return db.query(MlOpsDivergence).filter(MlOpsDivergence.field == service.UNRESOLVED_FIELD).all()
+
+    def test_a_miss_is_recorded_against_its_own_order(self, db, monkeypatch):
+        monkeypatch.setattr(
+            ml_webhook_client,
+            "get_activity",
+            AsyncMock(return_value=_page([_event(1), _event(2)], has_more=False, next_cursor="c1")),
+        )
+
+        def _get_order(order_id):
+            return _order(1) if order_id == 1 else None
+
+        monkeypatch.setattr(ml_webhook_client, "get_order", AsyncMock(side_effect=_get_order))
+
+        service.drain_activity()
+
+        rows = self._unresolved_rows(db)
+        assert [r.order_id for r in rows] == [2]
+
+    def test_the_cursor_still_advances_so_one_dead_order_cannot_wedge_the_feed(self, db, monkeypatch):
+        monkeypatch.setattr(
+            ml_webhook_client,
+            "get_activity",
+            AsyncMock(return_value=_page([_event(2)], has_more=False, next_cursor="c1")),
+        )
+        monkeypatch.setattr(ml_webhook_client, "get_order", AsyncMock(return_value=None))
+
+        service.drain_activity()
+
+        stored = db.query(MlOpsSyncCursor).filter_by(name="ml_activity").one()
+        assert stored.activity_cursor == "c1"
+
+    def test_resolving_later_clears_the_debt(self, db, monkeypatch):
+        """A settled debt must not linger as a permanent false alarm --
+        the same lesson as clearing the cost-sync give-up counter on
+        success."""
+        monkeypatch.setattr(
+            ml_webhook_client,
+            "get_activity",
+            AsyncMock(return_value=_page([_event(2)], has_more=False, next_cursor="c1")),
+        )
+        monkeypatch.setattr(ml_webhook_client, "get_order", AsyncMock(return_value=None))
+        service.drain_activity()
+        assert len(self._unresolved_rows(db)) == 1
+
+        # Second pass: the same order now resolves.
+        monkeypatch.setattr(
+            ml_webhook_client,
+            "get_activity",
+            AsyncMock(return_value=_page([_event(2)], has_more=False, next_cursor="c2")),
+        )
+        monkeypatch.setattr(ml_webhook_client, "get_order", AsyncMock(return_value=_order(2)))
+        service.drain_activity()
+
+        assert self._unresolved_rows(db) == []
+
+
+class TestColdStart:
+    """The very first run has `activity_cursor = NULL`. Verified live
+    against the bridge on 2026-09-09: `?since=` (empty) answers HTTP 200
+    and starts from the beginning of the feed, so a cold start is a
+    normal drain, not an `ActivityCursorRejected` that would park the
+    receiver in `state='error'` before it ever ran."""
+
+    def test_a_null_cursor_drains_normally_and_stores_the_first_cursor(self, db, monkeypatch):
+        activity = AsyncMock(return_value=_page([_event(1)], has_more=False, next_cursor="first"))
+        monkeypatch.setattr(ml_webhook_client, "get_activity", activity)
+        monkeypatch.setattr(ml_webhook_client, "get_order", AsyncMock(return_value=_order(1)))
+
+        result = service.drain_activity()
+
+        assert result.error is None
+        assert activity.await_args.kwargs["since"] is None
+        stored = db.query(MlOpsSyncCursor).filter_by(name="ml_activity").one()
+        assert stored.activity_cursor == "first"

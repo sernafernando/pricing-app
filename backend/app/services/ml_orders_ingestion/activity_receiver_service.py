@@ -81,6 +81,7 @@ from typing import Any, Dict, List, Optional
 
 from app.core.config import settings
 from app.core.database import get_background_db
+from app.models.ml_orders_ops import MlOpsDivergence
 from app.services.ml_orders_ingestion.sweep_service import (
     BATCH_SIZE,
     CURSOR_NAME as SWEEP_CURSOR_NAME,
@@ -157,6 +158,53 @@ def _collect_new_order_ids(events: List[Dict[str, Any]], seen_this_pass: Dict[in
     return list(new_ids.keys()), without_order_id
 
 
+UNRESOLVED_FIELD = "activity_unresolved"
+
+
+def _record_unresolved_order(db, order_id: int) -> None:
+    """A `get_order` that came back empty is a TRANSIENT answer -- the
+    client's own docstring counts timeouts, network errors and 5xx as
+    `None` -- so it must not vanish once the cursor moves past its page.
+
+    Why the debt is recorded instead of holding the cursor: refusing to
+    advance while ANY order is unresolved wedges the whole feed behind a
+    single permanently-dead order, which is precisely the bug fixed in
+    `9cc60ef7` for the payments/costs backfill (a row that never settled
+    blocked every candidate behind it). Recording the debt keeps the
+    stream moving AND keeps the miss visible: the row is operator-facing
+    in the divergence dashboard, and the audit sweep re-ingests the order
+    on its next window pass. Deduped by the `(order_id, kind, field)`
+    unique constraint, so a repeated miss refreshes `detected_at`.
+    """
+    existing = (
+        db.query(MlOpsDivergence)
+        .filter(
+            MlOpsDivergence.order_id == order_id,
+            MlOpsDivergence.kind == "unknown",
+            MlOpsDivergence.field == UNRESOLVED_FIELD,
+        )
+        .first()
+    )
+    now = datetime.now(timezone.utc)
+    if existing is not None:
+        existing.detected_at = now
+    else:
+        db.add(MlOpsDivergence(order_id=order_id, kind="unknown", field=UNRESOLVED_FIELD, detected_at=now))
+
+
+def _clear_unresolved_orders(db, order_ids) -> None:
+    """A later pass DID resolve these orders, so the recorded debt is
+    settled and must not linger as a permanent false alarm -- the same
+    lesson as clearing the cost-sync give-up counter on success."""
+    if not order_ids:
+        return
+    db.query(MlOpsDivergence).filter(
+        MlOpsDivergence.order_id.in_(list(order_ids)),
+        MlOpsDivergence.kind == "unknown",
+        MlOpsDivergence.field == UNRESOLVED_FIELD,
+    ).delete(synchronize_session=False)
+
+
 def drain_activity() -> ActivityDrainResult:
     """Entry point for the ping endpoint's background task (this same
     slice). Flag-gated exactly like the sweep/backfill: a complete no-op
@@ -231,6 +279,7 @@ def drain_activity() -> ActivityDrainResult:
             result.events_without_order_id += without_order_id
 
             resolved_raw_orders: List[Dict[str, Any]] = []
+            page_seen: Dict[int, bool] = {}
             page_not_attempted = 0
             for order_id in new_order_ids:
                 if order_fetch_budget[0] <= 0 or _pass_deadline_reached(pass_started_at):
@@ -249,14 +298,27 @@ def drain_activity() -> ActivityDrainResult:
 
                 if isinstance(raw_order, dict):
                     seen_this_pass[order_id] = True
+                    page_seen[order_id] = True
                     resolved_raw_orders.append(raw_order)
                     result.orders_resolved += 1
                 else:
                     seen_this_pass[order_id] = False
+                    page_seen[order_id] = False
                     result.orders_unresolved += 1
 
             if page_not_attempted:
                 result.orders_not_attempted += page_not_attempted
+
+            # The debt of this page's misses is persisted BEFORE the
+            # cursor can move past them, and the debt of orders that
+            # resolved this time is cleared in the same session.
+            page_resolved_ids = [oid for oid, ok in page_seen.items() if ok]
+            page_unresolved_ids = [oid for oid, ok in page_seen.items() if not ok]
+            if page_resolved_ids or page_unresolved_ids:
+                with get_background_db() as db:
+                    _clear_unresolved_orders(db, page_resolved_ids)
+                    for order_id in page_unresolved_ids:
+                        _record_unresolved_order(db, order_id)
 
             # HTTP-before-write: every `get_order` call for this page is
             # already done above. `process_batch` itself does its own
@@ -283,6 +345,29 @@ def drain_activity() -> ActivityDrainResult:
                 # silently skipping whatever this pass could not reach.
                 complete = False
                 result.budget_exhausted = True
+                break
+
+            if not isinstance(next_cursor, str) or not next_cursor:
+                # The bridge did not hand back a usable cursor. Writing
+                # this into `activity_cursor` would persist NULL -- the
+                # exact "silent reset back to never-drained" the module
+                # docstring promises is impossible, and the next run
+                # would re-drain the whole feed from zero. With
+                # `has_more` still true it is also an infinite loop:
+                # `since` returns to the start, `seen_this_pass`
+                # suppresses every `get_order`, and the walk spins
+                # against the bridge until the pass deadline. Treat it
+                # like an unusable page: keep `since` intact, do not
+                # stamp the pass complete, and stop.
+                logger.error(
+                    "activity_receiver: bridge returned no usable next_cursor (%r) with has_more=%r; "
+                    "keeping activity_cursor=%r and stopping this pass",
+                    next_cursor,
+                    has_more,
+                    since,
+                )
+                complete = False
+                result.error = "bridge returned no usable next_cursor"
                 break
 
             # Every order id this page introduced is resolved (or
