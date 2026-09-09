@@ -233,6 +233,21 @@ def _gave_up_shipment_ids(db) -> set:
     return given_up
 
 
+def _clear_cost_sync_attempts(db, shipment_ids) -> None:
+    """Drops the give-up counters of shipments that resolved. The counter
+    stands for a streak of runs that ended without a cost, so a single
+    success ends the streak -- keeping it would spend a later stall's
+    attempts before that stall ever began."""
+    if not shipment_ids:
+        return
+    fields = [_cost_sync_field(shipment_id) for shipment_id in shipment_ids]
+    db.query(MlOpsDivergence).filter(
+        MlOpsDivergence.order_id == _COST_SYNC_SENTINEL_ORDER_ID,
+        MlOpsDivergence.kind == _COST_SYNC_DIVERGENCE_KIND,
+        MlOpsDivergence.field.in_(fields),
+    ).delete(synchronize_session=False)
+
+
 def _record_cost_sync_attempt(db, shipment_id: int) -> int:
     """Increments (creating if needed) the attempt counter for a shipment
     whose cost sync did not fully resolve this run. Returns the new
@@ -534,6 +549,12 @@ def run_backfill(limit: int = DEFAULT_LIMIT, dry_run: bool = False) -> BackfillP
                         MlShipmentOps.costs_synced_at.is_(None),
                     )
                 } & attempted_shipment_ids
+                # A shipment that RESOLVED this run must not carry its
+                # old attempt count forward: leaving `cost_sync:<id>` at
+                # 3 means a future stall gives up after 2 attempts
+                # instead of `MAX_COST_SYNC_ATTEMPTS`. The counter
+                # describes an unresolved streak, so success ends it.
+                _clear_cost_sync_attempts(db, attempted_shipment_ids - unresolved_ids)
                 for shipment_id in unresolved_ids:
                     attempts = _record_cost_sync_attempt(db, shipment_id)
                     if attempts >= MAX_COST_SYNC_ATTEMPTS:

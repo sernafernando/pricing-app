@@ -1063,3 +1063,26 @@ class TestAFreshPayloadStillMissingPaymentsStaysVisible:
             db.query(MlOpsDivergence).filter(MlOpsDivergence.field == sweep_service.PAYMENTS_KEY_MISSING_FIELD).count()
             == 0
         )
+
+
+class TestASuccessClearsTheGiveUpStreak:
+    """The cost-sync counter stands for a streak of runs that ended
+    without a cost. A shipment that stalls twice, resolves, then stalls
+    again must get the full attempt budget the second time -- otherwise
+    the stored count spends attempts belonging to a streak that is over."""
+
+    def _fails(self, shipment_id):
+        raise ValueError("boom")
+
+    def test_the_counter_is_dropped_when_the_shipment_resolves(self, db, monkeypatch) -> None:
+        db.add(MlShipmentOps(shipment_id=700, order_id=1))
+        db.commit()
+        monkeypatch.setattr(ml_webhook_client, "get_shipment_costs", self._fails)
+        for _ in range(2):
+            service.run_backfill(limit=10)
+        assert db.query(MlOpsDivergence).filter(MlOpsDivergence.field == service._cost_sync_field(700)).count() == 1
+
+        monkeypatch.setattr(ml_webhook_client, "get_shipment_costs", AsyncMock(return_value=_shipment_costs(400, 0)))
+        service.run_backfill(limit=10)
+
+        assert db.query(MlOpsDivergence).filter(MlOpsDivergence.field == service._cost_sync_field(700)).count() == 0
