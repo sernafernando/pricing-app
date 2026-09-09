@@ -1,3 +1,5 @@
+import math
+
 from pydantic import ValidationError
 import pytest
 
@@ -9,9 +11,18 @@ from app.api.endpoints.pricing import (
 )
 
 
-def test_aplicar_markup_masivo_requiere_markup_positivo():
+def test_aplicar_markup_masivo_acepta_cero_y_negativo():
+    cero = AplicarMarkupMasivoRequest(markup_objetivo=0, item_ids=[1])
+    assert cero.markup_objetivo == 0
+    negativo = AplicarMarkupMasivoRequest(markup_objetivo=-5, item_ids=[1])
+    assert negativo.markup_objetivo == -5
+
+
+def test_aplicar_markup_masivo_rechaza_inf_y_nan():
     with pytest.raises(ValidationError):
-        AplicarMarkupMasivoRequest(markup_objetivo=0, item_ids=[1])
+        AplicarMarkupMasivoRequest(markup_objetivo=math.inf, item_ids=[1])
+    with pytest.raises(ValidationError):
+        AplicarMarkupMasivoRequest(markup_objetivo=math.nan, item_ids=[1])
 
 
 def test_aplicar_markup_masivo_acepta_porcentaje():

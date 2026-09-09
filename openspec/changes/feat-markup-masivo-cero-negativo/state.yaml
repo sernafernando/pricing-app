@@ -1,0 +1,24 @@
+change_id: feat-markup-masivo-cero-negativo
+project: pricing-app
+phase: apply
+status: completed
+persistence_mode: hybrid
+execution_mode: auto
+delivery_strategy: ask-on-risk
+created_at: "2026-09-09"
+updated_at: "2026-09-09"
+artifacts:
+  exploration: openspec/changes/feat-markup-masivo-cero-negativo/exploration.md
+  proposal: openspec/changes/feat-markup-masivo-cero-negativo/proposal.md
+  specs:
+    - openspec/changes/feat-markup-masivo-cero-negativo/specs/productos-acciones-masivas-markup-objetivo/spec.md
+  design: openspec/changes/feat-markup-masivo-cero-negativo/design.md
+  tasks: openspec/changes/feat-markup-masivo-cero-negativo/tasks.md
+  apply-progress: openspec/changes/feat-markup-masivo-cero-negativo/apply-progress.md
+next_phase: verify
+nextRecommended: verify
+notes: >
+  Apply completed WU0–WU2. Rebased onto upstream/main 6f4643ab (#1245).
+  Schema accepts 0/-5, rejects inf/NaN. Modal Tesla negative then >50.
+  Productos.jsx / resolve / useProductosData untouched. Next: verify.
+chain_strategy: pending

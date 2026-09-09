@@ -1231,7 +1231,7 @@ def setear_precio_cuota(
 
 
 class AplicarMarkupMasivoRequest(BaseModel):
-    markup_objetivo: float = Field(..., gt=0, description="Markup objetivo en % (ej: 5 = 5%)")
+    markup_objetivo: float = Field(..., allow_inf_nan=False, description="Markup objetivo en % (ej: 5 = 5%)")
     pricelist_id: int = Field(4, description="Lista de precios (4 = ML Clásica web)")
     recalcular_cuotas: bool = Field(True)
     item_ids: list[int] = Field(..., min_length=1, max_length=100)
