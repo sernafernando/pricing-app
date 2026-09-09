@@ -100,6 +100,22 @@ class TestGetPromotionItems:
             assert request.url.params.get("searchAfter") is None
             return httpx.Response(
                 200,
+                json={"results": [{"mla": "MLA111"}], "paging": {"searchAfter": None}},
+            )
+
+        _patch_client(monkeypatch, _mock_transport(handler))
+        client = MLWebhookClient()
+
+        result = asyncio.run(client.get_promotion_items("DEAL-1", promotion_type="DEAL"))
+        assert result == {"items": [{"mla": "MLA111"}], "count": 1}
+
+    def test_single_page_legacy_items_key_is_still_accepted(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Backward compatibility: an `items` key (not the real proxy shape,
+        which is `results`) is still accepted."""
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            return httpx.Response(
+                200,
                 json={"items": [{"mla": "MLA111"}], "paging": {"searchAfter": None}},
             )
 
@@ -118,16 +134,16 @@ class TestGetPromotionItems:
             if cursor is None:
                 return httpx.Response(
                     200,
-                    json={"items": [{"mla": "MLA111"}], "paging": {"searchAfter": "cursor-1"}},
+                    json={"results": [{"mla": "MLA111"}], "paging": {"searchAfter": "cursor-1"}},
                 )
             if cursor == "cursor-1":
                 return httpx.Response(
                     200,
-                    json={"items": [{"mla": "MLA222"}], "paging": {"searchAfter": "cursor-2"}},
+                    json={"results": [{"mla": "MLA222"}], "paging": {"searchAfter": "cursor-2"}},
                 )
             return httpx.Response(
                 200,
-                json={"items": [{"mla": "MLA333"}], "paging": {"searchAfter": None}},
+                json={"results": [{"mla": "MLA333"}], "paging": {"searchAfter": None}},
             )
 
         _patch_client(monkeypatch, _mock_transport(handler))
@@ -147,11 +163,11 @@ class TestGetPromotionItems:
             if cursor is None:
                 return httpx.Response(
                     200,
-                    json={"items": [{"mla": "MLA111"}], "paging": {"searchAfter": "cursor-1"}},
+                    json={"results": [{"mla": "MLA111"}], "paging": {"searchAfter": "cursor-1"}},
                 )
             return httpx.Response(
                 200,
-                json={"items": [{"mla": "MLA222"}], "paging": {"searchAfter": "cursor-1"}},
+                json={"results": [{"mla": "MLA222"}], "paging": {"searchAfter": "cursor-1"}},
             )
 
         _patch_client(monkeypatch, _mock_transport(handler))
