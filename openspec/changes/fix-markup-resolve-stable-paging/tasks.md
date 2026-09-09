@@ -22,4 +22,10 @@
 
 ## Phase 3: Delivery
 
-- [ ] 3.1 Commit on `fix/markup-masivo-01-resolve-modal`, push, rebase PR2, reply to #1245 review.
+- [x] 3.1 Commit on `fix/markup-masivo-01-resolve-modal`, push, rebase PR2, reply to #1245 review.
+
+## Phase 4: Review follow-up (#1245 comment)
+
+- [x] 4.1 Wire `listarParams={construirFiltrosParams()}` + `totalProductos` in Productos (PR1).
+- [x] 4.2 Replace dual filter mapper with `withStableListarOrder`; 403 → `forbidden`; drop unused `hasActiveFilters` export.
+- [x] 4.3 Tests + smoke open/cancel on PR1.

@@ -799,7 +799,7 @@ export default function Productos() {
           <button
             onClick={() => setMostrarMarkupMasivoModal(true)}
             className="btn-tesla outline-subtle-primary sm"
-            title="Acciones masivas sobre los productos visibles (markup ML y config de cuotas)"
+            title="Acciones masivas sobre el conjunto filtrado (markup ML y config de cuotas)"
           >
             Acciones masivas
           </button>
@@ -2715,7 +2715,8 @@ export default function Productos() {
             cargarProductos();
             cargarStats();
           }}
-          productos={productosOrdenados}
+          listarParams={construirFiltrosParams()}
+          totalProductos={totalProductos}
           showToast={showToast}
           puedeEditarCuotas={puedeEditarCuotas}
         />

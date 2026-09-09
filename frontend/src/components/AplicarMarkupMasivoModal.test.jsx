@@ -15,7 +15,7 @@ import api, { productosAPI } from '../services/api';
 import {
   resolveFilteredItemIds,
   chunkIds,
-  buildListarParamsFromFiltros,
+  withStableListarOrder,
 } from './resolveFilteredItemIds';
 
 vi.mock('../services/api', () => ({
@@ -59,18 +59,18 @@ function markupOkResponse(itemIds) {
   };
 }
 
-const FILTROS_18 = {
-  marcas: ['ACME'],
+const LISTAR_18 = {
+  marcas: 'ACME',
   con_stock: true,
   con_precio: true,
 };
 
-describe('buildListarParamsFromFiltros', () => {
-  it('maps filtrosActivos to listar keys (tn_*, joined marcas)', () => {
-    const params = buildListarParamsFromFiltros({
-      marcas: ['A', 'B'],
-      filtroTiendaNube: 'con_descuento',
-      filtroPxq: 'con_pxq',
+describe('withStableListarOrder', () => {
+  it('adds stable item_id order without altering filter params', () => {
+    const params = withStableListarOrder({
+      marcas: 'A,B',
+      tn_con_descuento: true,
+      con_pxq: true,
       promo_tipos: 'SMART',
       promo_estado: 'aplicada',
     });
@@ -83,8 +83,8 @@ describe('buildListarParamsFromFiltros', () => {
     expect(params.orden_direcciones).toBe('asc');
   });
 
-  it('always sends stable item_id order even when unfiltered', () => {
-    const params = buildListarParamsFromFiltros({});
+  it('adds stable item_id order even when unfiltered', () => {
+    const params = withStableListarOrder({});
     expect(params).toEqual({
       orden_campos: 'item_id',
       orden_direcciones: 'asc',
@@ -100,7 +100,7 @@ describe('resolveFilteredItemIds', () => {
     mockListarPages(ids, 100);
     const resolved = await resolveFilteredItemIds({
       listar: productosAPI.listar,
-      filtrosActivos: FILTROS_18,
+      listarParams: LISTAR_18,
       totalProductos: 200,
       pageSize: 100,
     });
@@ -121,7 +121,7 @@ describe('resolveFilteredItemIds', () => {
     await expect(
       resolveFilteredItemIds({
         listar: productosAPI.listar,
-        filtrosActivos: FILTROS_18,
+        listarParams: LISTAR_18,
         totalProductos: 18,
       }),
     ).rejects.toMatchObject({ code: 'empty' });
@@ -132,7 +132,7 @@ describe('resolveFilteredItemIds', () => {
     await expect(
       resolveFilteredItemIds({
         listar: productosAPI.listar,
-        filtrosActivos: FILTROS_18,
+        listarParams: LISTAR_18,
         totalProductos: 18,
       }),
     ).rejects.toMatchObject({ code: 'mismatch' });
@@ -143,7 +143,7 @@ describe('resolveFilteredItemIds', () => {
     await expect(
       resolveFilteredItemIds({
         listar: productosAPI.listar,
-        filtrosActivos: {},
+        listarParams: {},
         totalProductos: 10,
       }),
     ).rejects.toMatchObject({ code: 'mismatch' });
@@ -160,7 +160,7 @@ describe('resolveFilteredItemIds', () => {
     await expect(
       resolveFilteredItemIds({
         listar: productosAPI.listar,
-        filtrosActivos: FILTROS_18,
+        listarParams: LISTAR_18,
         totalProductos: 3,
         pageSize: 2,
       }),
@@ -174,7 +174,7 @@ describe('resolveFilteredItemIds', () => {
     await expect(
       resolveFilteredItemIds({
         listar: productosAPI.listar,
-        filtrosActivos: {},
+        listarParams: {},
         totalProductos: 2,
         pageSize: 2,
       }),
@@ -185,10 +185,21 @@ describe('resolveFilteredItemIds', () => {
     productosAPI.listar.mockResolvedValue({ data: { total: 0, productos: [] } });
     const resolved = await resolveFilteredItemIds({
       listar: productosAPI.listar,
-      filtrosActivos: {},
+      listarParams: {},
       totalProductos: 0,
     });
     expect(resolved).toEqual([]);
+  });
+
+  it('maps HTTP 403 to forbidden fail-closed', async () => {
+    productosAPI.listar.mockRejectedValue({ response: { status: 403 } });
+    await expect(
+      resolveFilteredItemIds({
+        listar: productosAPI.listar,
+        listarParams: LISTAR_18,
+        totalProductos: 18,
+      }),
+    ).rejects.toMatchObject({ code: 'forbidden' });
   });
 });
 
@@ -221,7 +232,7 @@ describe('AplicarMarkupMasivoModal', () => {
       <AplicarMarkupMasivoModal
         onClose={() => {}}
         onSuccess={() => {}}
-        filtrosActivos={FILTROS_18}
+        listarParams={LISTAR_18}
         totalProductos={18}
         showToast={() => {}}
       />,
@@ -243,7 +254,7 @@ describe('AplicarMarkupMasivoModal', () => {
       <AplicarMarkupMasivoModal
         onClose={() => {}}
         onSuccess={onSuccess}
-        filtrosActivos={FILTROS_18}
+        listarParams={LISTAR_18}
         totalProductos={200}
         showToast={showToast}
       />,
@@ -274,7 +285,7 @@ describe('AplicarMarkupMasivoModal', () => {
       <AplicarMarkupMasivoModal
         onClose={() => {}}
         onSuccess={onSuccess}
-        filtrosActivos={{}}
+        listarParams={{}}
         totalProductos={7}
         showToast={() => {}}
       />,
@@ -299,7 +310,7 @@ describe('AplicarMarkupMasivoModal', () => {
       <AplicarMarkupMasivoModal
         onClose={() => {}}
         onSuccess={() => {}}
-        filtrosActivos={FILTROS_18}
+        listarParams={LISTAR_18}
         totalProductos={200}
         showToast={() => {}}
       />,
@@ -324,7 +335,7 @@ describe('AplicarMarkupMasivoModal', () => {
       <AplicarMarkupMasivoModal
         onClose={() => {}}
         onSuccess={onSuccess}
-        filtrosActivos={FILTROS_18}
+        listarParams={LISTAR_18}
         totalProductos={18}
         showToast={() => {}}
       />,
@@ -345,7 +356,7 @@ describe('AplicarMarkupMasivoModal', () => {
       <AplicarMarkupMasivoModal
         onClose={() => {}}
         onSuccess={() => {}}
-        filtrosActivos={FILTROS_18}
+        listarParams={LISTAR_18}
         totalProductos={18}
         showToast={showToast}
       />,
@@ -368,7 +379,7 @@ describe('AplicarMarkupMasivoModal', () => {
       <AplicarMarkupMasivoModal
         onClose={() => {}}
         onSuccess={() => {}}
-        filtrosActivos={FILTROS_18}
+        listarParams={LISTAR_18}
         totalProductos={18}
         showToast={showToast}
       />,

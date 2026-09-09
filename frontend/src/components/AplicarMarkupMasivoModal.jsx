@@ -15,7 +15,8 @@ const CONFIRM_THRESHOLD = 50;
 export default function AplicarMarkupMasivoModal({
   onClose,
   onSuccess,
-  filtrosActivos = {},
+  /** Already-built listar query from `construirFiltrosParams()` */
+  listarParams = {},
   totalProductos = 0,
   showToast,
   puedeEditarCuotas = false,
@@ -182,7 +183,7 @@ export default function AplicarMarkupMasivoModal({
     try {
       itemIds = await resolveFilteredItemIds({
         listar: productosAPI.listar,
-        filtrosActivos,
+        listarParams,
         totalProductos,
       });
       setResolvedItemIds(itemIds);

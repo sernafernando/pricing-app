@@ -1,23 +1,22 @@
 /**
  * Client-side resolve of the Acciones masivas write-set.
  *
- * Maps `filtrosActivos` (same shape as Calcular Web / Export) to `productosAPI.listar`
- * query params (same keys as `construirFiltrosParams`), pages until all `item_id`s
- * are collected, and fail-closes when filters are active but the resolve is empty
- * or mismatches `totalProductos`. Never falls back to the page buffer.
- *
- * Always requests stable `item_id` ASC order so OFFSET paging cannot reshuffle rows.
+ * Expects already-built `listar` query params (same object as
+ * `construirFiltrosParams()`). Adds stable `item_id` ASC order, pages until all
+ * `item_id`s are collected, and fail-closes on empty (when filters active),
+ * mismatch vs finite `totalProductos`, or page ceiling. Never falls back to the
+ * page buffer.
  */
 
 export const RESOLVE_PAGE_SIZE = 500;
 
-/** Params that do not mean "user filters are active" (always sent for stable paging). */
+/** Params that do not mean "user filters are active". */
 const NON_FILTER_LISTAR_KEYS = new Set(['orden_campos', 'orden_direcciones']);
 
 export class ResolveFilteredIdsError extends Error {
   /**
    * @param {string} message
-   * @param {'empty' | 'mismatch' | 'api'} code
+   * @param {'empty' | 'mismatch' | 'api' | 'forbidden'} code
    */
   constructor(message, code) {
     super(message);
@@ -27,79 +26,19 @@ export class ResolveFilteredIdsError extends Error {
 }
 
 /**
- * Convert modal `filtrosActivos` into listar query params.
- * Param names match `useProductosFilters.construirFiltrosParams` (e.g. `tn_*`).
- * Always includes stable order for safe OFFSET pagination.
+ * Ensure listar params use a stable ORDER BY for safe OFFSET pagination.
+ * @param {object} listarParams output of `construirFiltrosParams()` (or equivalent)
  */
-export function buildListarParamsFromFiltros(filtrosActivos = {}) {
-  const params = {};
-  if (filtrosActivos.search) params.search = filtrosActivos.search;
-  if (filtrosActivos.con_stock === true) params.con_stock = true;
-  if (filtrosActivos.con_stock === false) params.con_stock = false;
-  if (filtrosActivos.con_precio === true) params.con_precio = true;
-  if (filtrosActivos.con_precio === false) params.con_precio = false;
-  if (filtrosActivos.marcas?.length > 0) params.marcas = filtrosActivos.marcas.join(',');
-  if (filtrosActivos.subcategorias?.length > 0) {
-    params.subcategorias = filtrosActivos.subcategorias.join(',');
-  }
-  if (filtrosActivos.audit_usuarios?.length > 0) {
-    params.audit_usuarios = filtrosActivos.audit_usuarios.join(',');
-  }
-  if (filtrosActivos.audit_tipos_accion?.length > 0) {
-    params.audit_tipos_accion = filtrosActivos.audit_tipos_accion.join(',');
-  }
-  if (filtrosActivos.audit_fecha_desde) params.audit_fecha_desde = filtrosActivos.audit_fecha_desde;
-  if (filtrosActivos.audit_fecha_hasta) params.audit_fecha_hasta = filtrosActivos.audit_fecha_hasta;
-  if (filtrosActivos.filtroRebate === 'con_rebate') params.con_rebate = true;
-  if (filtrosActivos.filtroRebate === 'sin_rebate') params.con_rebate = false;
-  if (filtrosActivos.filtroOferta === 'con_oferta') params.con_oferta = true;
-  if (filtrosActivos.filtroOferta === 'sin_oferta') params.con_oferta = false;
-  if (filtrosActivos.filtroWebTransf === 'con_web_transf') params.con_web_transf = true;
-  if (filtrosActivos.filtroWebTransf === 'sin_web_transf') params.con_web_transf = false;
-  if (filtrosActivos.filtroTiendaNube === 'con_descuento') params.tn_con_descuento = true;
-  if (filtrosActivos.filtroTiendaNube === 'sin_descuento') params.tn_sin_descuento = true;
-  if (filtrosActivos.filtroTiendaNube === 'no_publicado') params.tn_no_publicado = true;
-  if (filtrosActivos.filtroMarkupClasica === 'positivo') params.markup_clasica_positivo = true;
-  if (filtrosActivos.filtroMarkupClasica === 'negativo') params.markup_clasica_positivo = false;
-  if (filtrosActivos.filtroMarkupRebate === 'positivo') params.markup_rebate_positivo = true;
-  if (filtrosActivos.filtroMarkupRebate === 'negativo') params.markup_rebate_positivo = false;
-  if (filtrosActivos.filtroMarkupOferta === 'positivo') params.markup_oferta_positivo = true;
-  if (filtrosActivos.filtroMarkupOferta === 'negativo') params.markup_oferta_positivo = false;
-  if (filtrosActivos.filtroMarkupWebTransf === 'positivo') params.markup_web_transf_positivo = true;
-  if (filtrosActivos.filtroMarkupWebTransf === 'negativo') params.markup_web_transf_positivo = false;
-  if (filtrosActivos.filtroOutOfCards === 'con_out_of_cards') params.out_of_cards = true;
-  if (filtrosActivos.filtroOutOfCards === 'sin_out_of_cards') params.out_of_cards = false;
-  if (filtrosActivos.filtroMLA === 'con_mla') params.con_mla = true;
-  if (filtrosActivos.filtroMLA === 'sin_mla') params.con_mla = false;
-  if (filtrosActivos.filtroEstadoMLA === 'activa') params.estado_mla = 'activa';
-  if (filtrosActivos.filtroEstadoMLA === 'pausada') params.estado_mla = 'pausada';
-  if (filtrosActivos.filtroNuevos === 'ultimos_7_dias') params.nuevos_ultimos_7_dias = true;
-  if (filtrosActivos.filtroTiendaOficial) params.tienda_oficial = filtrosActivos.filtroTiendaOficial;
-  if (filtrosActivos.coloresSeleccionados?.length > 0) {
-    params.colores = filtrosActivos.coloresSeleccionados.join(',');
-  }
-  if (filtrosActivos.equipoActivoId) params.equipo_id = filtrosActivos.equipoActivoId;
-  if (filtrosActivos.pmsSeleccionados?.length > 0) {
-    params.pms = filtrosActivos.pmsSeleccionados.join(',');
-  }
-  if (filtrosActivos.filtroPxq === 'con_pxq') params.con_pxq = true;
-  if (filtrosActivos.promo_tipos) {
-    params.promo_tipos = filtrosActivos.promo_tipos;
-    if (filtrosActivos.promo_estado) params.promo_estado = filtrosActivos.promo_estado;
-  }
-  if (filtrosActivos.con_promo_aplicada) params.con_promo_aplicada = true;
-  if (filtrosActivos.con_promo_sin_aplicar) params.con_promo_sin_aplicar = true;
-
-  // Stable ORDER BY for OFFSET paging (Postgres otherwise may reshuffle ties).
-  params.orden_campos = 'item_id';
-  params.orden_direcciones = 'asc';
-  return params;
+export function withStableListarOrder(listarParams = {}) {
+  return {
+    ...listarParams,
+    orden_campos: 'item_id',
+    orden_direcciones: 'asc',
+  };
 }
 
-export function hasActiveFilters(filtrosActivos) {
-  return Object.keys(buildListarParamsFromFiltros(filtrosActivos)).some(
-    (k) => !NON_FILTER_LISTAR_KEYS.has(k),
-  );
+function listarParamsHaveFilters(listarParams) {
+  return Object.keys(listarParams || {}).some((k) => !NON_FILTER_LISTAR_KEYS.has(k));
 }
 
 function resolveMaxPages(totalProductos, pageSize) {
@@ -107,28 +46,27 @@ function resolveMaxPages(totalProductos, pageSize) {
   if (Number.isFinite(expected) && expected > 0) {
     return Math.max(2, Math.ceil(expected / pageSize) + 2);
   }
-  // No usable Total: still bound the loop (avoid unbounded memory growth).
   return 50;
 }
 
 /**
- * Page filtered `listar` until all item_ids are collected.
+ * Page `listar` until all item_ids are collected.
  *
  * @param {object} opts
  * @param {(params: object) => Promise<{ data: { productos?: object[], total?: number } }>} opts.listar
- * @param {object} opts.filtrosActivos
+ * @param {object} opts.listarParams already-built filter query (from construirFiltrosParams)
  * @param {number} [opts.totalProductos] expected Total from listing cards
  * @param {number} [opts.pageSize]
  * @returns {Promise<string[]>}
  */
 export async function resolveFilteredItemIds({
   listar,
-  filtrosActivos,
+  listarParams = {},
   totalProductos,
   pageSize = RESOLVE_PAGE_SIZE,
 }) {
-  const filterParams = buildListarParamsFromFiltros(filtrosActivos);
-  const filtersActive = Object.keys(filterParams).some((k) => !NON_FILTER_LISTAR_KEYS.has(k));
+  const filterParams = withStableListarOrder(listarParams);
+  const filtersActive = listarParamsHaveFilters(listarParams);
   const idSet = new Set();
   let page = 1;
   let apiTotal = null;
@@ -158,6 +96,12 @@ export async function resolveFilteredItemIds({
     }
   } catch (err) {
     if (err instanceof ResolveFilteredIdsError) throw err;
+    if (err?.response?.status === 403) {
+      throw new ResolveFilteredIdsError(
+        'No tenés permiso para listar el conjunto filtrado; no se aplicará nada',
+        'forbidden',
+      );
+    }
     throw new ResolveFilteredIdsError(
       'No se pudo resolver el conjunto filtrado de productos',
       'api',
