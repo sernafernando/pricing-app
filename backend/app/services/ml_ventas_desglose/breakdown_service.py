@@ -134,6 +134,98 @@ _CHARGE_LABELS: Dict[str, str] = {
 CONCEPTO_IMPUESTOS = "Impuestos"
 CONCEPTO_ENVIOS = "Envios"
 
+# ML encodes WHICH tax and WHERE inside the charge name, so a single
+# "Impuestos" line throws that away. Measured across production: 35
+# distinct `type='tax'` names in four shapes.
+#
+#   tax_withholding_sirtac-<prov>            SIRTAC withholding
+#   tax_withholding_sirtac_sobretasa-<prov>  its provincial surcharge
+#   tax_withholding-<prov>                   a provincial withholding
+#                                            charged outside SIRTAC
+#   tax_withholding_<who>-debitos_creditos   the debit/credit tax, where
+#                                            `collector` is US and
+#                                            `payer` is the buyer (the
+#                                            payer one never reaches here
+#                                            -- `_is_seller_charge` drops
+#                                            anything with "payer" in the
+#                                            name)
+#
+# The bare `tax_withholding-<prov>` shape is deliberately labelled just
+# "Retención": ML does not say which provincial tax it is, and naming it
+# IIBB would be us guessing on a money line.
+_TAX_PREFIX = "tax_withholding"
+
+_TAX_KINDS: Dict[str, str] = {
+    "": "Retención",
+    "sirtac": "Retención SIRTAC",
+    "sirtac_sobretasa": "Sobretasa SIRTAC",
+    "collector": "Impuesto a los débitos y créditos",
+}
+
+# Spelled out rather than title-cased from the slug: `entre_rios` is
+# "Entre Ríos", `caba` is not "Caba", and an operator reading a money
+# breakdown should not be shown mangled province names.
+_TAX_PLACES: Dict[str, str] = {
+    "buenos_aires": "Buenos Aires",
+    "caba": "CABA",
+    "catamarca": "Catamarca",
+    "chaco": "Chaco",
+    "chubut": "Chubut",
+    "cordoba": "Córdoba",
+    "corrientes": "Corrientes",
+    "entre_rios": "Entre Ríos",
+    "formosa": "Formosa",
+    "jujuy": "Jujuy",
+    "la_pampa": "La Pampa",
+    "la_rioja": "La Rioja",
+    "mendoza": "Mendoza",
+    "misiones": "Misiones",
+    "neuquen": "Neuquén",
+    "rio_negro": "Río Negro",
+    "salta": "Salta",
+    "san_juan": "San Juan",
+    "san_luis": "San Luis",
+    "santa_cruz": "Santa Cruz",
+    "santa_fe": "Santa Fe",
+    "santiago_del_estero": "Santiago del Estero",
+    "tierra_del_fuego": "Tierra del Fuego",
+    "tucuman": "Tucumán",
+}
+
+
+def _tax_label(charge_name: str) -> str:
+    """A readable line for one `type='tax'` charge.
+
+    Falls back to the plain `Impuestos` bucket for anything it does not
+    recognise, ON PURPOSE: a name ML adds tomorrow must still show up as
+    money the seller paid. Losing an amount because its label was
+    unfamiliar would be a breakdown that quietly stops adding up.
+    """
+    name = charge_name or ""
+    if not name.startswith(_TAX_PREFIX):
+        return CONCEPTO_IMPUESTOS
+
+    rest = name[len(_TAX_PREFIX) :]
+    kind_slug, _, place_slug = rest.partition("-")
+    kind_slug = kind_slug.lstrip("_")
+    if not place_slug:
+        return CONCEPTO_IMPUESTOS
+
+    kind = _TAX_KINDS.get(kind_slug)
+    if kind is None:
+        return CONCEPTO_IMPUESTOS
+
+    # The debit/credit tax is national -- its `place` is the tax itself,
+    # not a province, so appending it would read "... (Debitos Creditos)".
+    if place_slug == "debitos_creditos":
+        return kind
+
+    place = _TAX_PLACES.get(place_slug)
+    if place is None:
+        return CONCEPTO_IMPUESTOS
+    return f"{kind} ({place})"
+
+
 REASON_PAYMENTS_NOT_SYNCED = "payments_not_synced"
 # Rows EXIST and are synced, but none of them counts: all rejected, or a
 # status ML added that we do not model yet. Distinct from
@@ -313,7 +405,8 @@ def compute_breakdown(db: Session, order_ids: Sequence[int]) -> OperationBreakdo
         if label is not None:
             line_amounts[label] = line_amounts.get(label, Decimal("0")) + _net_amount(charge)
         elif charge.type == "tax":
-            line_amounts[CONCEPTO_IMPUESTOS] = line_amounts.get(CONCEPTO_IMPUESTOS, Decimal("0")) + _net_amount(charge)
+            tax_label = _tax_label(charge.name)
+            line_amounts[tax_label] = line_amounts.get(tax_label, Decimal("0")) + _net_amount(charge)
 
     # Shipping: `shp_*` payment charges (never shared -- summed per order).
     shipping_total = Decimal("0")

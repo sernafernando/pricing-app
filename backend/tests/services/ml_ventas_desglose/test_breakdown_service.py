@@ -223,7 +223,11 @@ class TestSellerVsBuyerPredicate:
 
         assert result.lines == []
 
-    def test_seller_tax_charges_collapse_into_one_impuestos_line(self, db) -> None:
+    def test_tax_names_ml_does_not_use_fall_back_to_one_impuestos_line(self, db) -> None:
+        """These two names are NOT shapes ML sends -- production has 35
+        distinct tax names and every one starts with `tax_withholding`.
+        They are here on purpose, as the unknown-name case: an unfamiliar
+        tax still has to appear as money the seller paid."""
         order_id = 303
         _order(db, order_id)
         _payment(db, 43, order_id, status="approved", net_received_amount=Decimal("100"))
@@ -236,6 +240,61 @@ class TestSellerVsBuyerPredicate:
         labels = {line.concepto: line.monto for line in result.lines}
         assert labels["Impuestos"] == Decimal("15.00")
         assert len(result.lines) == 1
+
+    def test_real_tax_names_become_one_line_each_naming_tax_and_province(self, db) -> None:
+        """The names below are recorded from production. Collapsing them
+        into a single "Impuestos" number tells the operator nothing: a
+        SIRTAC withholding, its provincial surcharge and the national
+        debit/credit tax are three different charges."""
+        order_id = 304
+        _order(db, order_id)
+        _payment(db, 44, order_id, status="approved", net_received_amount=Decimal("100"))
+        _charge(db, 44, "tax_withholding_sirtac-jujuy", "tax", Decimal("10.00"))
+        _charge(db, 44, "tax_withholding_sirtac_sobretasa-jujuy", "tax", Decimal("25.00"))
+        _charge(db, 44, "tax_withholding_collector-debitos_creditos", "tax", Decimal("7.00"))
+        db.commit()
+
+        result = compute_breakdown(db, [order_id])
+
+        labels = {line.concepto: line.monto for line in result.lines}
+        assert labels["Retención SIRTAC (Jujuy)"] == Decimal("10.00")
+        assert labels["Sobretasa SIRTAC (Jujuy)"] == Decimal("25.00")
+        assert labels["Impuesto a los débitos y créditos"] == Decimal("7.00")
+        assert "Impuestos" not in labels
+
+    def test_splitting_the_taxes_does_not_change_what_they_add_up_to(self, db) -> None:
+        """The point of this change is LABELLING. If naming the lines
+        moved the money, the breakdown would stop reconciling with the
+        net -- which is the one thing it exists to do."""
+        order_id = 305
+        _order(db, order_id)
+        _payment(db, 45, order_id, status="approved", net_received_amount=Decimal("100"))
+        _charge(db, 45, "tax_withholding_sirtac-salta", "tax", Decimal("3.50"))
+        _charge(db, 45, "tax_withholding_sirtac-catamarca", "tax", Decimal("6.25"))
+        _charge(db, 45, "tax_withholding_nunca_visto-marte", "tax", Decimal("0.25"))
+        db.commit()
+
+        result = compute_breakdown(db, [order_id])
+
+        tax_lines = [line for line in result.lines if "Retenci" in line.concepto or line.concepto == "Impuestos"]
+        assert sum(line.monto for line in tax_lines) == Decimal("10.00")
+
+    def test_two_provinces_do_not_get_merged_into_one_line(self, db) -> None:
+        """Same tax, different province, is two rows on ML's own side and
+        has to stay two rows here -- merging them hides where the money
+        went."""
+        order_id = 306
+        _order(db, order_id)
+        _payment(db, 46, order_id, status="approved", net_received_amount=Decimal("100"))
+        _charge(db, 46, "tax_withholding_sirtac-salta", "tax", Decimal("3.00"))
+        _charge(db, 46, "tax_withholding_sirtac-jujuy", "tax", Decimal("4.00"))
+        db.commit()
+
+        result = compute_breakdown(db, [order_id])
+
+        labels = {line.concepto: line.monto for line in result.lines}
+        assert labels["Retención SIRTAC (Salta)"] == Decimal("3.00")
+        assert labels["Retención SIRTAC (Jujuy)"] == Decimal("4.00")
 
 
 class TestFlatFeePerOrderInAPack:
