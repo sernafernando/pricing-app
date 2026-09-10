@@ -22,7 +22,12 @@ from app.services.ml_ventas_desglose.breakdown_service import (
     _tax_label,
 )
 
-NAMES_FILE = Path(__file__).resolve().parents[2] / "fixtures" / "ml_payloads" / "tax_charge_names.json"
+# Deliberately NOT under `fixtures/ml_payloads/`: that directory is globbed
+# by `test_mapper_against_recorded_payloads.py`, which hands every file in
+# it to `map_order`. A list of charge names is not an order payload, and
+# dropping it in there made that generic test try to map it -- green
+# locally, red in CI.
+NAMES_FILE = Path(__file__).resolve().parents[2] / "fixtures" / "ml_charges" / "tax_charge_names.json"
 
 # The buyer's own tax. `_is_seller_charge` drops anything with "payer" in
 # the name before labelling ever runs, so it has no label by design.
@@ -30,7 +35,7 @@ BUYER_TAX = "tax_withholding_payer-debitos_creditos"
 
 
 def _recorded_names() -> list[str]:
-    return json.loads(NAMES_FILE.read_text())["names"]
+    return json.loads(NAMES_FILE.read_text(encoding="utf-8"))["names"]
 
 
 class TestTheFourShapesMlActuallyUses:
@@ -67,6 +72,14 @@ class TestTheFourShapesMlActuallyUses:
 
 
 class TestEveryRecordedNameIsAccountedFor:
+    def test_the_recording_is_where_this_test_says_it_is(self):
+        """The file was MOVED out of `fixtures/ml_payloads/` because a
+        generic test there hands every file to `map_order`. If it drifts
+        back, or the path here goes stale, the parametrized test below
+        collects zero cases and the suite goes green having checked
+        nothing -- so the location is asserted, not assumed."""
+        assert NAMES_FILE.is_file(), f"missing recording: {NAMES_FILE}"
+
     def test_the_recording_is_not_empty(self):
         """Guards against this suite silently becoming a no-op."""
         assert len(_recorded_names()) >= 30
