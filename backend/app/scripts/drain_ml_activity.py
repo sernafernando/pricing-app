@@ -71,7 +71,9 @@ def main() -> None:
     # finished one.
     outcome = "drain stopped early (order fetch budget)" if result.budget_exhausted else "drain complete"
     logger.info(
-        "drain_ml_activity: %s — pages=%s events=%s without_order_id=%s resolved=%s unresolved=%s not_attempted=%s",
+        "drain_ml_activity: %s — pages=%s events=%s without_order_id=%s "
+        "resolved=%s unresolved=%s not_attempted=%s | upserted=%s stale=%s "
+        "mapping_error=%s out_of_window=%s",
         outcome,
         result.pages_walked,
         result.events_seen,
@@ -79,7 +81,37 @@ def main() -> None:
         result.orders_resolved,
         result.orders_unresolved,
         result.orders_not_attempted,
+        result.orders_upserted,
+        result.orders_skipped_stale,
+        result.orders_mapping_error,
+        result.orders_out_of_window,
     )
+    # `resolved` only means ML answered. A pass that resolved orders and
+    # wrote none of them is a broken pass wearing a healthy log line --
+    # exactly how a field-name mismatch went unnoticed for a week.
+    #
+    # But two outcomes explain a write that never happened WITHOUT
+    # anything being wrong: an order we already have at that version
+    # (stale) and one the rolling window excludes by design. Alarming on
+    # those turns a real signal into routine noise, and routine noise is
+    # how the next real signal gets ignored. So the alarm is what NOTHING
+    # accounts for -- today that is mapping errors, and by construction it
+    # also catches whatever silently drops orders next.
+    unaccounted = result.orders_resolved - (
+        result.orders_upserted + result.orders_skipped_stale + result.orders_out_of_window
+    )
+    if unaccounted > 0:
+        logger.error(
+            "drain_ml_activity: %s of %s order(s) fetched from ML were written NOWHERE and no "
+            "outcome accounts for them (upserted=%s stale=%s out_of_window=%s mapping_error=%s) — "
+            "the drain is running but not ingesting",
+            unaccounted,
+            result.orders_resolved,
+            result.orders_upserted,
+            result.orders_skipped_stale,
+            result.orders_out_of_window,
+            result.orders_mapping_error,
+        )
 
 
 if __name__ == "__main__":

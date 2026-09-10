@@ -1,0 +1,177 @@
+{
+  "__captured__": "2026-09-10, live against the ml-webhook proxy, unmodified",
+  "__source__": "One element of results[] from GET /orders/search -- exactly what the sweep maps",
+  "__why__": "Recorded verbatim on purpose. A hand-written fixture is a guess about ML's shape, and a wrong guess passes every test while production fails: this exact file exists because `_order()` invented `date_last_updated` (the search spelling) for the single-order endpoint, which returns `last_updated`, so every order the drain resolved failed to map and nothing was ingested for a week. Do not edit these by hand -- re-capture them.",
+  "payload": {
+    "buyer": {
+      "id": 2002933640,
+      "nickname": "VINTAGEPERICO"
+    },
+    "cancel_detail": {
+      "application_id": "2945779824588159",
+      "code": "mediations",
+      "date": "2026-06-09T15:51:15.000-04:00",
+      "description": "Mediations cancel the order",
+      "group": "mediations",
+      "requested_by": "meli"
+    },
+    "comment": null,
+    "context": {
+      "application": null,
+      "channel": "marketplace",
+      "flows": [
+        "catalog"
+      ],
+      "product_id": null,
+      "site": "MLA"
+    },
+    "coupon": {
+      "amount": 10572,
+      "id": null
+    },
+    "currency_id": "ARS",
+    "date_closed": "2026-05-20T20:17:28.000-04:00",
+    "date_created": "2026-05-20T20:17:26.000-04:00",
+    "date_created_ttl": null,
+    "date_last_updated": "2026-09-08T03:43:07+00:00",
+    "expiration_date": "2026-06-17T20:17:28.000-04:00",
+    "feedback": {
+      "buyer": null,
+      "seller": null
+    },
+    "fulfilled": false,
+    "id": 2000016532372504,
+    "last_updated": "2026-06-09T15:51:15.000-04:00",
+    "manufacturing_ending_date": null,
+    "mediations": [
+      {
+        "id": 5519281814
+      }
+    ],
+    "order_items": [
+      {
+        "base_currency_id": null,
+        "base_exchange_rate": null,
+        "bundle": null,
+        "currency_id": "ARS",
+        "element_id": 1,
+        "gross_price": 273202,
+        "item": {
+          "category_id": "MLA1676",
+          "condition": "new",
+          "global_price": null,
+          "id": "MLA1708298703",
+          "net_weight": null,
+          "seller_custom_field": "4236",
+          "seller_sku": "198828486035",
+          "title": "Impresora Multifuncional Hp Ink Advantage 2975 A Color Wi-fi Imprime Escanea Copia Negro",
+          "variation_attributes": [
+            {
+              "id": "COLOR",
+              "name": "Color",
+              "value_id": "52049",
+              "value_name": "Negro"
+            },
+            {
+              "id": "VOLTAGE",
+              "name": "Voltaje",
+              "value_id": "198813",
+              "value_name": "220V"
+            }
+          ],
+          "variation_id": null,
+          "warranty": "Garantía de fábrica: 6 meses"
+        },
+        "listing_type_id": "gold_special",
+        "manufacturing_days": null,
+        "picked_quantity": null,
+        "quantity": 1,
+        "requested_quantity": {
+          "measure": "unit",
+          "value": 1
+        },
+        "sale_fee": 23183.88,
+        "stock": {
+          "node_id": "ARBA01",
+          "store_id": null
+        },
+        "unit_price": 185471
+      }
+    ],
+    "order_request": {
+      "change": null,
+      "return": null
+    },
+    "pack_id": null,
+    "paid_amount": 0,
+    "payments": [
+      {
+        "activation_uri": null,
+        "atm_transfer_reference": {
+          "company_id": null,
+          "transaction_id": null
+        },
+        "authorization_code": null,
+        "available_actions": [
+          ""
+        ],
+        "card_id": null,
+        "collector": {
+          "id": 413658225
+        },
+        "coupon_amount": 10572,
+        "coupon_id": null,
+        "currency_id": "ARS",
+        "date_approved": "2026-05-20T20:17:27.000-04:00",
+        "date_created": "2026-05-20T20:17:27.000-04:00",
+        "date_last_modified": "2026-06-09T15:51:15.000-04:00",
+        "deferred_period": null,
+        "id": 159463907763,
+        "installment_amount": null,
+        "installments": 1,
+        "issuer_id": "2005",
+        "operation_type": "regular_payment",
+        "order_id": 2000016532372504,
+        "overpaid_amount": 0,
+        "payer_id": 2002933640,
+        "payment_method_id": "account_money",
+        "payment_type": "account_money",
+        "reason": "Impresora Multifuncional Hp Ink Advantage 2975 A Color Wi-fi Imprime Escanea Copia Negro",
+        "shipping_cost": 0,
+        "site_id": "MLA",
+        "status": "refunded",
+        "status_code": null,
+        "status_detail": "bpp_refunded",
+        "taxes_amount": 0,
+        "total_paid_amount": 174899,
+        "transaction_amount": 185471,
+        "transaction_amount_refunded": 185471,
+        "transaction_order_id": null
+      }
+    ],
+    "pickup_id": null,
+    "seller": {
+      "id": 413658225,
+      "nickname": "GAUSS ONLINE"
+    },
+    "shipping": {
+      "id": 47112066517
+    },
+    "shipping_cost": null,
+    "static_tags": [],
+    "status": "cancelled",
+    "status_detail": null,
+    "tags": [
+      "order_has_discount",
+      "catalog",
+      "delivered",
+      "not_paid"
+    ],
+    "taxes": {
+      "amount": null,
+      "currency_id": null,
+      "id": null
+    },
+    "total_amount": 185471
+  }
+}

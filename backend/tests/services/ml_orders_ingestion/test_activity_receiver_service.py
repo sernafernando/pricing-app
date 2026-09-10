@@ -71,13 +71,24 @@ def _no_real_cost_fetch(monkeypatch):
 
 
 def _order(order_id: int, seller_id: int = 999, when: datetime = None, created: datetime = None) -> dict:
+    """The shape `/orders/<id>` ACTUALLY returns, which is what the drain
+    calls -- note `last_updated`, NOT `date_last_updated`.
+
+    This fixture used to invent `date_last_updated`, the shape of
+    `/orders/search` (what the sweep calls). That single wrong key made
+    every test here pass against a payload ML never sends, while in
+    production every resolved order failed to map and nothing was
+    ingested for a week. Verified live on 2026-09-10 against order
+    2000018378699734: the single-order endpoint has no
+    `date_last_updated` key at all.
+    """
     when = when or (datetime.now(timezone.utc) - timedelta(days=1))
     created = created or when
     return {
         "id": order_id,
         "status": "paid",
         "date_created": created.isoformat(),
-        "date_last_updated": when.isoformat(),
+        "last_updated": when.isoformat(),
         "seller": {"id": seller_id},
         "buyer": {"id": 1, "nickname": "x"},
         "order_items": [],
@@ -485,3 +496,45 @@ class TestColdStart:
         assert activity.await_args.kwargs["since"] is None
         stored = db.query(MlOpsSyncCursor).filter_by(name="ml_activity").one()
         assert stored.activity_cursor == "first"
+
+
+class TestAResolvedOrderIsActuallyWritten:
+    """The drain used to count `orders_resolved` -- ML answered -- and
+    throw away what `process_batch` did next. A field-name mismatch made
+    every resolved order fail to map, and the pass still reported
+    "resolved=N" with nothing ingested. Resolution is the HTTP half; the
+    result has to carry the writing half too."""
+
+    def test_an_order_off_the_real_endpoint_is_upserted(self, db, monkeypatch):
+        monkeypatch.setattr(
+            ml_webhook_client,
+            "get_activity",
+            AsyncMock(return_value=_page([_event(1)], has_more=False, next_cursor="c1")),
+        )
+        monkeypatch.setattr(ml_webhook_client, "get_order", AsyncMock(return_value=_order(1)))
+
+        result = service.drain_activity()
+
+        assert result.orders_resolved == 1
+        assert result.orders_upserted == 1
+        assert result.orders_mapping_error == 0
+        assert db.query(MlOrdersOps).filter_by(order_id=1).one_or_none() is not None
+
+    def test_a_payload_that_cannot_map_is_counted_not_swallowed(self, db, monkeypatch):
+        """The failure that actually happened: resolved, then dropped. It
+        must show up as a mapping error rather than vanishing."""
+        broken = _order(1)
+        del broken["last_updated"]
+        monkeypatch.setattr(
+            ml_webhook_client,
+            "get_activity",
+            AsyncMock(return_value=_page([_event(1)], has_more=False, next_cursor="c1")),
+        )
+        monkeypatch.setattr(ml_webhook_client, "get_order", AsyncMock(return_value=broken))
+
+        result = service.drain_activity()
+
+        assert result.orders_resolved == 1
+        assert result.orders_upserted == 0
+        assert result.orders_mapping_error == 1
+        assert db.query(MlOrdersOps).filter_by(order_id=1).one_or_none() is None

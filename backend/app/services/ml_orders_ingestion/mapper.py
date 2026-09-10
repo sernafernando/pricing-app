@@ -147,9 +147,14 @@ def _map_item(raw_item: Dict[str, Any]) -> OrderItemOpsDTO:
 def map_order(payload: Dict[str, Any]) -> Union[OrderOpsDTO, MappingError]:
     """Maps a raw ML `/orders/{id}` payload to `OrderOpsDTO`.
 
-    Required (fail-closed if missing/unparseable): `id`, `seller.id`,
-    `date_last_updated`. Everything else is optional and defaults to
-    None/empty so a payload with only the required fields still maps.
+    Required (fail-closed if missing/unparseable): `id`, `seller.id`, and
+    the order's last-updated timestamp -- spelled `date_last_updated` by
+    `/orders/search` and `last_updated` by `/orders/<id>`. EITHER is
+    accepted; when a payload carries both, `date_last_updated` wins,
+    because in a search result the two disagree by months (see the
+    comment at the fallback below). Everything else is optional and
+    defaults to None/empty so a payload with only the required fields
+    still maps.
     """
     if not isinstance(payload, dict) or not payload:
         return MappingError(f"payload is not an object: {type(payload).__name__}", None)
@@ -174,13 +179,33 @@ def map_order(payload: Dict[str, Any]) -> Union[OrderOpsDTO, MappingError]:
     except (TypeError, ValueError):
         return MappingError(f"unparseable seller id: {raw_seller_id!r}", payload)
 
-    raw_last_updated = payload.get("date_last_updated")
+    # Two ML endpoints feed this mapper and they do NOT spell the order's
+    # last-updated fact the same way:
+    #   /orders/search  -> `date_last_updated`   (the sweep)
+    #   /orders/<id>    -> `last_updated`        (the activity receiver)
+    #
+    # Accepting only the first silently rejected EVERY order the activity
+    # receiver resolved -- fetched, mapped, failed closed, nothing
+    # ingested for a week, every test green. Verified live on 2026-09-10
+    # against order 2000018378699734: `/orders/<id>` has no
+    # `date_last_updated` key at all.
+    #
+    # The ORDER of this fallback is load-bearing, not cosmetic. A search
+    # result carries BOTH keys and they disagree: in the recorded capture
+    # `date_last_updated` is 2026-09-08 while `last_updated` is
+    # 2026-06-09, three months earlier. `date_last_updated` is the
+    # order's own last-updated fact and must win wherever both exist --
+    # flipping this would backdate every order the sweep ingests and make
+    # live sales look stale. Pinned by
+    # `test_mapper_against_recorded_payloads.py`, which runs against
+    # verbatim captures rather than hand-written guesses.
+    raw_last_updated = payload.get("date_last_updated") or payload.get("last_updated")
     if raw_last_updated is None or raw_last_updated == "":
-        return MappingError("missing required field: date_last_updated", payload)
+        return MappingError("missing required field: date_last_updated / last_updated", payload)
     try:
         ml_last_updated = _parse_tz_aware(raw_last_updated)
     except (TypeError, ValueError, OverflowError) as e:
-        return MappingError(f"unparseable date_last_updated: {raw_last_updated!r} ({e})", payload)
+        return MappingError(f"unparseable last-updated timestamp: {raw_last_updated!r} ({e})", payload)
 
     try:
         date_created = _parse_tz_aware(payload.get("date_created"))
