@@ -40,3 +40,14 @@ def get_system_user_id(db) -> int:
     if not usuario:
         raise RuntimeError(f"Usuario sistema '{SYSTEM_USERNAME}' no encontrado. Ejecutar: alembic upgrade head")
     return usuario.id
+
+
+# The business's own timezone. Timestamps are stored as UTC (`timestamptz`),
+# which is right, but a DAY is a local idea: a sale at 22:00 in Buenos Aires
+# is already the next day in UTC. Filtering "the 10th" against UTC midnight
+# silently moves every evening sale to the following day -- three hours of
+# business, every single day, landing on the wrong side of the boundary.
+#
+# Anything that turns a `YYYY-MM-DD` a human typed into a range MUST resolve
+# its midnights here, not in UTC.
+BUSINESS_TIMEZONE = "America/Argentina/Buenos_Aires"
