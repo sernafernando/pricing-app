@@ -196,6 +196,14 @@ class Settings(BaseSettings):
     # entidad_tipo ∈ {pedido_compra, orden_pago}.
     COMPRAS_UPLOADS_DIR: str = "uploads/compras"
     COMPRAS_MAX_FILE_SIZE_MB: int = 20
+    # OC-match (feat-compras-oc-match). Keys stay in Settings — never log them.
+    # COMPRAS_OC_MATCH_DIR is a sibling of COMPRAS_UPLOADS_DIR (excel on disk).
+    GEMINI_API_KEY: Optional[str] = None
+    GEMINI_API_KEY_2: Optional[str] = None
+    GEMINI_API_KEY_3: Optional[str] = None
+    GEMINI_MODEL: str = "gemini-3.6-flash"
+    COMPRAS_OC_MATCH_DIR: str = "uploads/compras_oc"
+    COMPRAS_OC_MATCH_ENABLED: bool = True
 
     # Tienda Nube — Image Normalizer (slice 3: schema only, no readers/writers yet)
     TN_IMG_NORMALIZER_DIR: str = "uploads/tn_images"
