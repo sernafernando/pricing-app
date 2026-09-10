@@ -10,6 +10,12 @@ map, nothing was ingested for a week, and every test was green.
 
 The fixtures under `tests/fixtures/ml_payloads/` are verbatim captures.
 Do not hand-edit them; re-capture them.
+
+That directory holds ORDER PAYLOADS ONLY, because every file in it is
+handed to `map_order` below. Recordings of anything else (a list of charge
+names, say) live elsewhere -- putting one here makes this test try to map
+it, which passes locally if you only run the suite you were editing and
+fails in CI.
 """
 
 from __future__ import annotations
@@ -25,11 +31,48 @@ PAYLOAD_DIR = Path(__file__).resolve().parents[2] / "fixtures" / "ml_payloads"
 
 
 def _load(name: str) -> dict:
-    return json.loads((PAYLOAD_DIR / name).read_text())["payload"]
+    return json.loads((PAYLOAD_DIR / name).read_text(encoding="utf-8"))["payload"]
 
 
 def _recorded_payloads():
     return sorted(p.name for p in PAYLOAD_DIR.glob("*.json"))
+
+
+class TestTheDirectoryHoldsOrderPayloadsAndNothingElse:
+    """The module docstring says this directory is order payloads only.
+    Saying it is not enforcing it -- a recording of something else
+    (a list of charge names, say) dropped in here gets handed to
+    `map_order` by the test below, which is exactly how CI went red on a
+    change that was green locally. So the invariant is asserted, not
+    described."""
+
+    def test_the_directory_is_not_empty(self):
+        """A parametrized test over an empty glob generates NO cases and
+        the suite goes green having checked nothing. If the recordings
+        move or the pattern stops matching, that has to be a failure, not
+        a silent skip."""
+        assert _recorded_payloads(), f"no recordings found under {PAYLOAD_DIR}"
+
+    @pytest.mark.parametrize("name", _recorded_payloads())
+    def test_each_file_is_shaped_like_an_ml_order(self, name: str):
+        # `encoding` is explicit because these payloads carry accented
+        # product titles: on a machine whose default encoding is not UTF-8
+        # this would raise a decode error that reads like a corrupt file.
+        doc = json.loads((PAYLOAD_DIR / name).read_text(encoding="utf-8"))
+
+        # Checked BEFORE indexing: a file whose top level is a list or a
+        # string would otherwise raise TypeError from the subscript below,
+        # and the failure would name Python's error rather than the actual
+        # problem, which is that the file does not belong here.
+        assert isinstance(doc, dict), f"{name} is a {type(doc).__name__} at top level, not an order recording"
+        assert "payload" in doc, f"{name} has no `payload` key -- is it an order recording?"
+        payload = doc["payload"]
+        assert isinstance(payload, dict), f"{name} carries a {type(payload).__name__}, not an order object"
+        for required in ("id", "seller"):
+            assert required in payload, (
+                f"{name} has no `{required}` -- ML order payloads always do. "
+                f"Recordings of anything else belong outside {PAYLOAD_DIR.name}/."
+            )
 
 
 class TestEveryRecordedPayloadMaps:
