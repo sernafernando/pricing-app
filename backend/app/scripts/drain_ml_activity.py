@@ -71,7 +71,9 @@ def main() -> None:
     # finished one.
     outcome = "drain stopped early (order fetch budget)" if result.budget_exhausted else "drain complete"
     logger.info(
-        "drain_ml_activity: %s — pages=%s events=%s without_order_id=%s resolved=%s unresolved=%s not_attempted=%s",
+        "drain_ml_activity: %s — pages=%s events=%s without_order_id=%s "
+        "resolved=%s unresolved=%s not_attempted=%s | upserted=%s stale=%s "
+        "mapping_error=%s out_of_window=%s",
         outcome,
         result.pages_walked,
         result.events_seen,
@@ -79,7 +81,23 @@ def main() -> None:
         result.orders_resolved,
         result.orders_unresolved,
         result.orders_not_attempted,
+        result.orders_upserted,
+        result.orders_skipped_stale,
+        result.orders_mapping_error,
+        result.orders_out_of_window,
     )
+    # `resolved` only means ML answered. A pass that resolved orders and
+    # wrote none of them is a broken pass wearing a healthy log line --
+    # exactly how a field-name mismatch went unnoticed for a week.
+    if result.orders_resolved and not result.orders_upserted:
+        logger.error(
+            "drain_ml_activity: %s order(s) were fetched from ML and NONE were written "
+            "(mapping_error=%s stale=%s out_of_window=%s) — the drain is running but not ingesting",
+            result.orders_resolved,
+            result.orders_mapping_error,
+            result.orders_skipped_stale,
+            result.orders_out_of_window,
+        )
 
 
 if __name__ == "__main__":

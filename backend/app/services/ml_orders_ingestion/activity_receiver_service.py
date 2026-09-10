@@ -136,6 +136,17 @@ class ActivityDrainResult:
     orders_resolved: int = 0
     orders_unresolved: int = 0
     orders_not_attempted: int = 0
+    # Everything below comes straight from `process_batch`'s own counters.
+    # They are copied out on purpose: this result used to report only that
+    # `get_order` had answered, and threw away what happened NEXT. When a
+    # field-name mismatch made EVERY resolved order fail to map, the drain
+    # still logged "drain complete ... resolved=N" and nothing anywhere
+    # said that N orders had been discarded. A pass that ingests nothing
+    # must not read like a pass that worked.
+    orders_upserted: int = 0
+    orders_skipped_stale: int = 0
+    orders_mapping_error: int = 0
+    orders_out_of_window: int = 0
     budget_exhausted: bool = False
     error: Optional[str] = None
 
@@ -335,6 +346,16 @@ def drain_activity() -> ActivityDrainResult:
                     pass_started_at,
                     payment_budget,
                 )
+
+            # Fold `process_batch`'s own accounting into ours. Without
+            # this the drain reports "resolved" and stops there, which is
+            # only the HTTP half of the story -- an order can be resolved
+            # and then dropped on the floor for a mapping error, and a
+            # result that cannot say so is a result that lies.
+            result.orders_upserted = batch_result.orders_upserted
+            result.orders_skipped_stale = batch_result.orders_skipped_stale
+            result.orders_mapping_error = batch_result.orders_mapping_error
+            result.orders_out_of_window = batch_result.orders_out_of_window
 
             if page_not_attempted:
                 # The budget (or the deadline) was spent before every new

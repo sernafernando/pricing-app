@@ -418,3 +418,55 @@ class TestUnknownPaymentStatusIsDropped:
 
         assert not isinstance(result, MappingError)
         assert result.payment_status is None
+
+
+class TestBothMlLastUpdatedSpellings:
+    """ML names the same fact differently depending on the endpoint, and
+    BOTH payloads reach this mapper:
+
+        /orders/search  -> `date_last_updated`   (the sweep)
+        /orders/<id>    -> `last_updated`        (the activity receiver)
+
+    Accepting only the first silently rejected every order the activity
+    receiver resolved: fetched, mapped, failed closed, nothing ingested,
+    for a week. Verified live on 2026-09-10 against order
+    2000018378699734 -- the single-order endpoint has no
+    `date_last_updated` key at all.
+    """
+
+    def _payload(self, key: str) -> dict:
+        return {
+            "id": 2000018378699734,
+            "status": "cancelled",
+            "date_created": "2026-09-09T19:55:52.000-04:00",
+            key: "2026-09-10T03:55:25.000-04:00",
+            "seller": {"id": 413658225},
+            "order_items": [],
+        }
+
+    def test_the_search_spelling_maps(self):
+        mapped = map_order(self._payload("date_last_updated"))
+
+        assert not isinstance(mapped, MappingError)
+        assert mapped.order_id == 2000018378699734
+
+    def test_the_single_order_spelling_maps(self):
+        mapped = map_order(self._payload("last_updated"))
+
+        assert not isinstance(mapped, MappingError)
+        assert mapped.order_id == 2000018378699734
+
+    def test_both_spellings_agree_on_the_timestamp(self):
+        from_search = map_order(self._payload("date_last_updated"))
+        from_single = map_order(self._payload("last_updated"))
+
+        assert from_search.ml_last_updated == from_single.ml_last_updated
+
+    def test_neither_spelling_present_still_fails_closed(self):
+        """The guard must not have been loosened into accepting a payload
+        with no last-updated fact at all -- that timestamp is the staleness
+        gate for every upsert."""
+        payload = self._payload("date_last_updated")
+        del payload["date_last_updated"]
+
+        assert isinstance(map_order(payload), MappingError)

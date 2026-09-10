@@ -174,13 +174,22 @@ def map_order(payload: Dict[str, Any]) -> Union[OrderOpsDTO, MappingError]:
     except (TypeError, ValueError):
         return MappingError(f"unparseable seller id: {raw_seller_id!r}", payload)
 
-    raw_last_updated = payload.get("date_last_updated")
+    # ML names this field DIFFERENTLY depending on which endpoint the
+    # payload came from, and both reach this mapper:
+    #   /orders/search  -> `date_last_updated`   (the sweep)
+    #   /orders/<id>    -> `last_updated`        (the activity receiver)
+    # Accepting only the first silently rejected EVERY order the activity
+    # receiver resolved -- it fetched them, mapped them, failed closed,
+    # and nothing was ingested for a week. Verified live on 2026-09-10
+    # against order 2000018378699734: `/orders/<id>` carries
+    # `last_updated` and has no `date_last_updated` key at all.
+    raw_last_updated = payload.get("date_last_updated") or payload.get("last_updated")
     if raw_last_updated is None or raw_last_updated == "":
-        return MappingError("missing required field: date_last_updated", payload)
+        return MappingError("missing required field: date_last_updated / last_updated", payload)
     try:
         ml_last_updated = _parse_tz_aware(raw_last_updated)
     except (TypeError, ValueError, OverflowError) as e:
-        return MappingError(f"unparseable date_last_updated: {raw_last_updated!r} ({e})", payload)
+        return MappingError(f"unparseable last-updated timestamp: {raw_last_updated!r} ({e})", payload)
 
     try:
         date_created = _parse_tz_aware(payload.get("date_created"))
