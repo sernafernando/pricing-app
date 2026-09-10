@@ -838,3 +838,12 @@ class TestSortByLastUpdate:
         group = _group_holding(body, 51)
         assert group["ml_last_updated"] is not None
         assert group["orders"][0]["ml_last_updated"] is not None
+
+
+# The business-day boundary is NOT tested through the API here on purpose.
+# These tests run on SQLite, which DROPS the offset of a tz-aware bound
+# instead of converting it, so the comparison happens between a naive UTC
+# column and a naive LOCAL bound and lands on the opposite answer from
+# Postgres. A test written against that would have to be wrong in
+# production to be green here. The boundary logic is pure, so it is pinned
+# purely, in `tests/unit/test_ml_ventas_date_bounds.py`.

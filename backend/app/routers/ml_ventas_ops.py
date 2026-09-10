@@ -24,7 +24,8 @@ switched off right now" for a user who already cleared the permission gate.
 from __future__ import annotations
 
 import calendar
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, time, timedelta, timezone
+from zoneinfo import ZoneInfo
 from typing import Dict, List, Optional, Tuple
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, status
@@ -34,6 +35,7 @@ from sqlalchemy.orm import Session
 
 from app.api.deps import get_current_user
 from app.core.config import settings
+from app.core.constants import BUSINESS_TIMEZONE
 from app.core.database import get_db
 from app.models.ml_bot_message import MlBotMessage
 from app.models.ml_bot_question import MlBotQuestion
@@ -466,9 +468,13 @@ def _parse_sold_month(sold_month: str) -> Tuple[datetime, datetime]:
         # check passes, and only `datetime` rejects the year -- outside, that
         # ValueError reached the client as a 500, which is exactly what this
         # function's docstring says cannot happen.
-        month_start = datetime(year, month, 1, tzinfo=timezone.utc)
+        # Local midnights, for the same reason as `_parse_date_range`: a
+        # month is a local idea too, and resolving its edges in UTC moved
+        # the first and last evenings of every month into the wrong one.
+        tz = ZoneInfo(BUSINESS_TIMEZONE)
+        month_start = datetime.combine(date(year, month, 1), time.min, tzinfo=tz)
         days_in_month = calendar.monthrange(year, month)[1]
-        next_month_start = month_start.replace(day=days_in_month) + timedelta(days=1)
+        next_month_start = datetime.combine(date(year, month, days_in_month) + timedelta(days=1), time.min, tzinfo=tz)
     except (ValueError, OverflowError) as e:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
@@ -496,18 +502,37 @@ def _parse_date_range(date_from: Optional[str], date_to: Optional[str]) -> Optio
     if not date_from and not date_to:
         return None
 
-    def _day(value: str, field: str) -> datetime:
+    def _day(value: str, field: str) -> date:
         try:
             year_str, month_str, day_str = value.split("-")
-            return datetime(int(year_str), int(month_str), int(day_str), tzinfo=timezone.utc)
+            return date(int(year_str), int(month_str), int(day_str))
         except (ValueError, OverflowError, TypeError) as e:
             raise HTTPException(
                 status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
                 detail=f"{field} inválido (esperado YYYY-MM-DD): {value!r}",
             ) from e
 
-    start = _day(date_from, "date_from") if date_from else datetime.min.replace(tzinfo=timezone.utc)
-    end = (_day(date_to, "date_to") + timedelta(days=1)) if date_to else datetime.max.replace(tzinfo=timezone.utc)
+    def _local_midnight(day: date) -> datetime:
+        """Midnight of `day` IN THE BUSINESS'S TIMEZONE.
+
+        The column is `timestamptz` holding UTC, which is correct, but the
+        day the operator typed is a local day. Resolving it at UTC midnight
+        pushes every sale after 21:00 local into the next day -- three hours
+        of business landing on the wrong side of the boundary, every day.
+        Built from the calendar date and localised, rather than by adding 24
+        hours to an instant, so a DST change shifts the boundary instead of
+        splitting or duplicating an hour of sales.
+        """
+        return datetime.combine(day, time.min, tzinfo=ZoneInfo(BUSINESS_TIMEZONE))
+
+    start = _local_midnight(_day(date_from, "date_from")) if date_from else datetime.min.replace(tzinfo=timezone.utc)
+    # The exclusive upper bound is the NEXT local midnight, which is what
+    # "up to 23:59:59.999" means without having to pick how many nines.
+    end = (
+        _local_midnight(_day(date_to, "date_to") + timedelta(days=1))
+        if date_to
+        else datetime.max.replace(tzinfo=timezone.utc)
+    )
 
     if start >= end:
         raise HTTPException(
