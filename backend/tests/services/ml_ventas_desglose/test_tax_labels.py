@@ -13,7 +13,6 @@ about exactly that cost this project a week of ingestion.
 from __future__ import annotations
 
 import json
-from decimal import Decimal
 from pathlib import Path
 
 import pytest
@@ -98,10 +97,16 @@ class TestAnUnknownNameKeepsItsMoney:
     def test_it_falls_back_to_the_generic_bucket(self, name: str):
         assert _tax_label(name) == CONCEPTO_IMPUESTOS
 
+    def test_a_charge_with_no_name_at_all_still_lands_in_the_bucket(self):
+        """`MlPaymentCharge.name` is nullable and a charge with a type and
+        no name has been seen in production -- it is what made an earlier
+        version discard whole payments. It must cost a label, never an
+        amount."""
+        assert _tax_label(None) == CONCEPTO_IMPUESTOS
+
     def test_the_fallback_is_a_real_line_not_a_dropped_charge(self):
         """The bucket must be a label the breakdown renders, not an empty
         string or None that a caller would skip."""
         label = _tax_label("tax_withholding_nuevo-marte")
 
         assert isinstance(label, str) and label.strip()
-        assert Decimal("1")  # the amount path is exercised in the breakdown tests

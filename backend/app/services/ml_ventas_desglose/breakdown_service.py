@@ -193,8 +193,12 @@ _TAX_PLACES: Dict[str, str] = {
 }
 
 
-def _tax_label(charge_name: str) -> str:
+def _tax_label(charge_name: Optional[str]) -> str:
     """A readable line for one `type='tax'` charge.
+
+    `charge_name` is Optional because `MlPaymentCharge.name` is nullable
+    and a charge with `type` set and no name has been seen in production
+    (it is what made an earlier version discard whole payments).
 
     Falls back to the plain `Impuestos` bucket for anything it does not
     recognise, ON PURPOSE: a name ML adds tomorrow must still show up as
