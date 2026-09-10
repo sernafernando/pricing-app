@@ -95,3 +95,52 @@ class TestTheLogDistinguishesTheOutcomes:
 
         assert "unresolved=2" in text
         assert "not_attempted=7" in text
+
+
+class TestTheAlarmFiresOnlyOnWhatNothingExplains:
+    """A pass that resolved orders and wrote none of them is how the
+    field-name mismatch hid for a week, so it has to shout. But two
+    outcomes explain a missing write with nothing wrong -- an order we
+    already hold at that version, and one the rolling window excludes by
+    design. Alarming on those makes the alarm routine, and a routine
+    alarm is one nobody reads the next time it matters.
+    """
+
+    def _run(self, caplog, **counters) -> tuple[str, bool]:
+        result = ActivityDrainResult(ran=True, **counters)
+        with patch.object(drain_ml_activity, "drain_activity", return_value=result):
+            with caplog.at_level(logging.INFO):
+                drain_ml_activity.main()
+        return caplog.text, any(r.levelno >= logging.ERROR for r in caplog.records)
+
+    def test_all_stale_is_not_an_alarm(self, caplog) -> None:
+        _, alarmed = self._run(caplog, orders_resolved=5, orders_skipped_stale=5)
+
+        assert alarmed is False
+
+    def test_all_out_of_window_is_not_an_alarm(self, caplog) -> None:
+        _, alarmed = self._run(caplog, orders_resolved=5, orders_out_of_window=5)
+
+        assert alarmed is False
+
+    def test_a_mix_that_adds_up_is_not_an_alarm(self, caplog) -> None:
+        _, alarmed = self._run(
+            caplog, orders_resolved=6, orders_upserted=2, orders_skipped_stale=3, orders_out_of_window=1
+        )
+
+        assert alarmed is False
+
+    def test_orders_nothing_accounts_for_do_alarm(self, caplog) -> None:
+        """The bug exactly: fetched, mapped, dropped."""
+        text, alarmed = self._run(caplog, orders_resolved=5, orders_mapping_error=5)
+
+        assert alarmed is True
+        assert "not ingesting" in text
+
+    def test_a_partial_hole_alarms_even_when_some_were_written(self, caplog) -> None:
+        """Four written, one gone. The one that vanished is the whole
+        point -- a pass is not healthy just because it was mostly healthy."""
+        text, alarmed = self._run(caplog, orders_resolved=5, orders_upserted=4)
+
+        assert alarmed is True
+        assert "1 of 5" in text

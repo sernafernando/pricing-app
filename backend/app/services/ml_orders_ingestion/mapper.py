@@ -147,9 +147,14 @@ def _map_item(raw_item: Dict[str, Any]) -> OrderItemOpsDTO:
 def map_order(payload: Dict[str, Any]) -> Union[OrderOpsDTO, MappingError]:
     """Maps a raw ML `/orders/{id}` payload to `OrderOpsDTO`.
 
-    Required (fail-closed if missing/unparseable): `id`, `seller.id`,
-    `date_last_updated`. Everything else is optional and defaults to
-    None/empty so a payload with only the required fields still maps.
+    Required (fail-closed if missing/unparseable): `id`, `seller.id`, and
+    the order's last-updated timestamp -- spelled `date_last_updated` by
+    `/orders/search` and `last_updated` by `/orders/<id>`. EITHER is
+    accepted; when a payload carries both, `date_last_updated` wins,
+    because in a search result the two disagree by months (see the
+    comment at the fallback below). Everything else is optional and
+    defaults to None/empty so a payload with only the required fields
+    still maps.
     """
     if not isinstance(payload, dict) or not payload:
         return MappingError(f"payload is not an object: {type(payload).__name__}", None)
