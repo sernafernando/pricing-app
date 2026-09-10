@@ -174,15 +174,26 @@ def map_order(payload: Dict[str, Any]) -> Union[OrderOpsDTO, MappingError]:
     except (TypeError, ValueError):
         return MappingError(f"unparseable seller id: {raw_seller_id!r}", payload)
 
-    # ML names this field DIFFERENTLY depending on which endpoint the
-    # payload came from, and both reach this mapper:
+    # Two ML endpoints feed this mapper and they do NOT spell the order's
+    # last-updated fact the same way:
     #   /orders/search  -> `date_last_updated`   (the sweep)
     #   /orders/<id>    -> `last_updated`        (the activity receiver)
+    #
     # Accepting only the first silently rejected EVERY order the activity
-    # receiver resolved -- it fetched them, mapped them, failed closed,
-    # and nothing was ingested for a week. Verified live on 2026-09-10
-    # against order 2000018378699734: `/orders/<id>` carries
-    # `last_updated` and has no `date_last_updated` key at all.
+    # receiver resolved -- fetched, mapped, failed closed, nothing
+    # ingested for a week, every test green. Verified live on 2026-09-10
+    # against order 2000018378699734: `/orders/<id>` has no
+    # `date_last_updated` key at all.
+    #
+    # The ORDER of this fallback is load-bearing, not cosmetic. A search
+    # result carries BOTH keys and they disagree: in the recorded capture
+    # `date_last_updated` is 2026-09-08 while `last_updated` is
+    # 2026-06-09, three months earlier. `date_last_updated` is the
+    # order's own last-updated fact and must win wherever both exist --
+    # flipping this would backdate every order the sweep ingests and make
+    # live sales look stale. Pinned by
+    # `test_mapper_against_recorded_payloads.py`, which runs against
+    # verbatim captures rather than hand-written guesses.
     raw_last_updated = payload.get("date_last_updated") or payload.get("last_updated")
     if raw_last_updated is None or raw_last_updated == "":
         return MappingError("missing required field: date_last_updated / last_updated", payload)

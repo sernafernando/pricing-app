@@ -1,0 +1,182 @@
+{
+  "__captured__": "2026-09-10, live against the ml-webhook proxy, unmodified",
+  "__source__": "GET /orders/<id> -- exactly what the activity receiver's get_order() returns",
+  "__why__": "Recorded verbatim on purpose. A hand-written fixture is a guess about ML's shape, and a wrong guess passes every test while production fails: this exact file exists because `_order()` invented `date_last_updated` (the search spelling) for the single-order endpoint, which returns `last_updated`, so every order the drain resolved failed to map and nothing was ingested for a week. Do not edit these by hand -- re-capture them.",
+  "payload": {
+    "buyer": {
+      "billing_info": {
+        "id": "885674454834647407"
+      },
+      "first_name": "Bianca",
+      "id": 145106201,
+      "last_name": "Castro Volpe",
+      "nickname": "BCVOLPE"
+    },
+    "buying_mode": "buy_equals_pay",
+    "cancel_detail": {
+      "application_id": "6494265323272007",
+      "code": "pack_splitted",
+      "date": "2026-09-10T03:23:16.000-04:00",
+      "description": "Purchases has splitted the pack",
+      "group": "internal",
+      "requested_by": "meli"
+    },
+    "context": {
+      "channel": "marketplace",
+      "flows": [
+        "catalog"
+      ],
+      "site": "MLA"
+    },
+    "currency_id": "ARS",
+    "date_closed": "2026-09-09T19:56:33.000-04:00",
+    "date_created": "2026-09-09T19:55:52.000-04:00",
+    "feedback": {
+      "buyer": null,
+      "seller": null
+    },
+    "fulfilled": false,
+    "id": 2000018378699734,
+    "last_updated": "2026-09-10T03:55:25.000-04:00",
+    "manufacturing_ending_date": null,
+    "mediations": [],
+    "order_items": [
+      {
+        "base_currency_id": null,
+        "base_exchange_rate": null,
+        "bundle": null,
+        "compat_id": null,
+        "currency_id": "ARS",
+        "discounts": null,
+        "element_id": null,
+        "gross_price": 67269.0,
+        "item": {
+          "attributes": [
+            {
+              "id": "ITEM_CONDITION",
+              "values": [
+                {
+                  "id": "2230284"
+                }
+              ]
+            }
+          ],
+          "category_id": "MLA5959",
+          "condition": "new",
+          "global_price": null,
+          "id": "MLA1145397784",
+          "net_weight": null,
+          "release_date": null,
+          "seller_custom_field": "70",
+          "seller_sku": "6935364088095",
+          "title": "Tp-link Tapo C200 Cámara De Seguridad Wifi Interior - Resolución Fhd - Cobertura 360° - Visión Nocturna Infrarroja - Detección De Movimiento - Audio Bidireccional Y Alarma - 512gb - App Tapo Blanco",
+          "user_product_id": "MLAU218060849",
+          "variation_attributes": [
+            {
+              "id": "COLOR",
+              "name": "Color",
+              "value_id": "52055",
+              "value_name": "Blanco"
+            }
+          ],
+          "variation_id": null,
+          "warranty": "Garantía de fábrica: 6 meses"
+        },
+        "kit_instance_id": null,
+        "listing_type_id": "gold_special",
+        "manufacturing_days": null,
+        "picked_quantity": null,
+        "quantity": 1,
+        "requested_quantity": {
+          "measure": "unit",
+          "value": 1
+        },
+        "sale_fee": 5180.0,
+        "stock": {
+          "node_id": "ARBA01",
+          "store_id": null
+        },
+        "unit_price": 37000.0
+      }
+    ],
+    "order_request": {
+      "change": null,
+      "return": null
+    },
+    "pack_id": 2000014956132009,
+    "paid_amount": 0.0,
+    "payments": [
+      {
+        "activation_uri": null,
+        "atm_transfer_reference": {
+          "company_id": null,
+          "transaction_id": null
+        },
+        "authorization_code": null,
+        "available_actions": [
+          ""
+        ],
+        "card_id": null,
+        "collector": {
+          "id": 413658225
+        },
+        "coupon_amount": 0.0,
+        "coupon_id": null,
+        "currency_id": "ARS",
+        "date_approved": "2026-09-09T19:56:32.000-04:00",
+        "date_created": "2026-09-09T19:56:32.000-04:00",
+        "date_last_modified": "2026-09-10T03:23:16.000-04:00",
+        "deferred_period": null,
+        "id": 177235887841,
+        "installment_amount": null,
+        "installments": 1,
+        "issuer_id": "2005",
+        "marketplace_fee": 0.0,
+        "operation_type": "regular_payment",
+        "order_id": 2000018378699734,
+        "overpaid_amount": 0.0,
+        "payer_id": 145106201,
+        "payment_method_id": "account_money",
+        "payment_type": "account_money",
+        "reason": "Tp-link Tapo C200 Cámara De Seguridad Wifi Interior - Resolución Fhd - Cobertura 360° - Visión Nocturna Infrarroja - Detección De Movimiento - Audio Bidireccional Y Alarma - 512gb - App Tapo Blanco",
+        "reference_id": null,
+        "shipping_cost": 0.0,
+        "site_id": "MLA",
+        "status": "refunded",
+        "status_code": null,
+        "status_detail": "by_admin",
+        "taxes_amount": 0.0,
+        "total_paid_amount": 37000.0,
+        "transaction_amount": 37000.0,
+        "transaction_amount_refunded": 37000.0,
+        "transaction_order_id": null
+      }
+    ],
+    "related_orders": null,
+    "seller": {
+      "id": 413658225
+    },
+    "shipping": {
+      "id": 47976892759
+    },
+    "shipping_cost": null,
+    "static_tags": [
+      "pack_order"
+    ],
+    "status": "cancelled",
+    "status_detail": null,
+    "tags": [
+      "order_has_discount",
+      "catalog",
+      "not_delivered",
+      "not_paid",
+      "pack_order"
+    ],
+    "taxes": {
+      "amount": null,
+      "currency_id": null,
+      "id": null
+    },
+    "total_amount": 37000.0
+  }
+}
