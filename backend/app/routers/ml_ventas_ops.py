@@ -293,6 +293,7 @@ class SaleListItem(BaseModel):
     pack_id: Optional[int] = None
     status: Optional[str] = None
     date_created: Optional[datetime] = None
+    ml_last_updated: Optional[datetime] = None
     buyer_nickname: Optional[str] = None
     total_amount: Optional[float] = None
     paid_amount: Optional[float] = None
@@ -330,6 +331,10 @@ class SaleGroup(BaseModel):
     group_key: str
     pack_id: Optional[int] = None
     date_created: Optional[datetime] = None
+    # The MOST RECENT update across the group's orders: a pack is stale only
+    # when every one of its parcels is, so `max` is the honest aggregate
+    # here, unlike `date_created` which takes the earliest.
+    ml_last_updated: Optional[datetime] = None
     buyer_nickname: Optional[str] = None
     total_amount: Optional[float] = None
     currency_id: Optional[str] = None
@@ -473,11 +478,53 @@ def _parse_sold_month(sold_month: str) -> Tuple[datetime, datetime]:
     return month_start, next_month_start
 
 
+SORT_BY_SALE_DATE = "date_created"
+SORT_BY_LAST_UPDATE = "ml_last_updated"
+SALE_SORTS = (SORT_BY_SALE_DATE, SORT_BY_LAST_UPDATE)
+
+
+def _parse_date_range(date_from: Optional[str], date_to: Optional[str]) -> Optional[Tuple[datetime, datetime]]:
+    """Parses `YYYY-MM-DD` bounds into a tz-aware `[from 00:00, to+1d 00:00)`
+    range, so `date_from == date_to` means that whole day rather than an
+    empty set.
+
+    Either bound may be omitted: only `date_from` is "from then on", only
+    `date_to` is "up to and including that day". Raises `HTTPException(422)`
+    for anything unparseable -- never a bare `ValueError` reaching the
+    client as a 500, same discipline as `_parse_sold_month`.
+    """
+    if not date_from and not date_to:
+        return None
+
+    def _day(value: str, field: str) -> datetime:
+        try:
+            year_str, month_str, day_str = value.split("-")
+            return datetime(int(year_str), int(month_str), int(day_str), tzinfo=timezone.utc)
+        except (ValueError, OverflowError, TypeError) as e:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail=f"{field} inválido (esperado YYYY-MM-DD): {value!r}",
+            ) from e
+
+    start = _day(date_from, "date_from") if date_from else datetime.min.replace(tzinfo=timezone.utc)
+    end = (_day(date_to, "date_to") + timedelta(days=1)) if date_to else datetime.max.replace(tzinfo=timezone.utc)
+
+    if start >= end:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=f"date_from ({date_from!r}) es posterior a date_to ({date_to!r})",
+        )
+    return start, end
+
+
 @router.get("/sales", response_model=SaleListResponse)
 def listar_ventas(
     operation_status_filter: Optional[str] = Query(default=None, alias="operation_status"),
     goods_status_filter: Optional[str] = Query(default=None, alias="goods_status"),
-    sold_month: Optional[str] = Query(default=None, description="YYYY-MM"),
+    sold_month: Optional[str] = Query(default=None, description="YYYY-MM (legacy, usar date_from/date_to)"),
+    date_from: Optional[str] = Query(default=None, description="YYYY-MM-DD, inclusive"),
+    date_to: Optional[str] = Query(default=None, description="YYYY-MM-DD, inclusive"),
+    sort: str = Query(default=SORT_BY_SALE_DATE, description=" | ".join(SALE_SORTS)),
     limit: int = Query(default=50, ge=1, le=200),
     offset: int = Query(default=0, ge=0),
     current_user: Usuario = Depends(require_permission("ml_ops.ver")),
@@ -529,7 +576,19 @@ def listar_ventas(
             detail=f"goods_status inválido: {goods_status_filter}",
         )
 
-    sold_month_range: Optional[Tuple[datetime, datetime]] = _parse_sold_month(sold_month) if sold_month else None
+    if sort not in SALE_SORTS:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=f"sort inválido: {sort!r} (esperado uno de {', '.join(SALE_SORTS)})",
+        )
+
+    # `date_from`/`date_to` win over `sold_month`. The month filter is the
+    # older, coarser shape of the same idea and is kept so a bookmarked URL
+    # does not 422; sending both would be ambiguous, and silently ANDing
+    # them can only ever return less than either asked for.
+    sold_range: Optional[Tuple[datetime, datetime]] = _parse_date_range(date_from, date_to)
+    if sold_range is None and sold_month:
+        sold_range = _parse_sold_month(sold_month)
 
     open_claim_exists = _open_claim_exists_subquery(db)
     op_status_expr = _operation_status_expr(open_claim_exists)
@@ -543,10 +602,12 @@ def listar_ventas(
     # belonging to another account would show up in the listing.
     if settings.ML_USER_ID:
         base = base.filter(MlOrdersOps.seller_id == int(settings.ML_USER_ID))
-    if sold_month_range is not None:
-        base = base.filter(
-            MlOrdersOps.date_created >= sold_month_range[0], MlOrdersOps.date_created < sold_month_range[1]
-        )
+    if sold_range is not None:
+        # Filters the SALE date, never the last-update date: "the sales of
+        # this week" has to keep meaning the ones sold this week, even when
+        # an old one was touched today. Sorting by update is a separate
+        # axis -- see `sort`.
+        base = base.filter(MlOrdersOps.date_created >= sold_range[0], MlOrdersOps.date_created < sold_range[1])
 
     # Every order of a group on the page, regardless of the filters that
     # selected that group. Scoped to the seller like everything else.
@@ -576,7 +637,14 @@ def listar_ventas(
         # key would silently drop the deterministic numeric tiebreaker the
         # per-order listing had, which is what `TestPagination` pins.
         .order_by(
-            func.min(MlOrdersOps.date_created).desc().nullslast(),
+            (
+                func.max(MlOrdersOps.ml_last_updated).desc()
+                if sort == SORT_BY_LAST_UPDATE
+                # `ml_last_updated` is NOT NULL, so it needs no nullslast();
+                # `date_created` is nullable and Postgres would otherwise put
+                # its NULLs first on a DESC sort.
+                else func.min(MlOrdersOps.date_created).desc().nullslast()
+            ),
             func.max(MlOrdersOps.order_id).desc(),
         )
         .limit(limit)
@@ -619,6 +687,7 @@ def listar_ventas(
                     pack_id=order.pack_id,
                     status=order.status,
                     date_created=order.date_created,
+                    ml_last_updated=order.ml_last_updated,
                     buyer_nickname=order.buyer_nickname,
                     total_amount=float(order.total_amount) if order.total_amount is not None else None,
                     paid_amount=float(order.paid_amount) if order.paid_amount is not None else None,
@@ -671,6 +740,11 @@ def listar_ventas(
                 # the parcel's real date is the right trade; claiming the two
                 # always agree was not.
                 date_created=min(dates) if dates else None,
+                ml_last_updated=(
+                    max(u for m in members if (u := m.ml_last_updated) is not None)
+                    if any(m.ml_last_updated is not None for m in members)
+                    else None
+                ),
                 buyer_nickname=next((m.buyer_nickname for m in members if m.buyer_nickname), None),
                 # A pack is one purchase: its worth is what the buyer paid
                 # for all of it, which is why three rows of 27.868 / 27.299 /

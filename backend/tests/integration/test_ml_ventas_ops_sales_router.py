@@ -54,6 +54,7 @@ def _seed_order(
     pack_id: int | None = None,
     total_amount: float = 100,
     shipping_id: int | None = None,
+    ml_last_updated: datetime | None = None,
 ) -> None:
     if shipping_id is None:
         shipping_id = order_id * 10 if shipping_status is not None else None
@@ -63,7 +64,10 @@ def _seed_order(
         status=status,
         payment_status=payment_status,
         covered_by_marketplace=covered_by_marketplace,
-        ml_last_updated=date_created,
+        # Defaults to the sale date, but separable on purpose: sorting by
+        # last update only means something when an OLD sale can have been
+        # touched recently, which is the case this listing has to surface.
+        ml_last_updated=ml_last_updated or date_created,
         date_created=date_created,
         seller_id=999,
         total_amount=total_amount,
@@ -676,3 +680,161 @@ class TestMixedCurrencyPack:
 
         assert group["total_amount"] is None
         assert group["neto"] is None, "no fabricated 120 across two currencies"
+
+
+class TestDateRangeFilter:
+    """`date_from`/`date_to` replace the month picker. Both bounds are
+    INCLUSIVE, because a user who types the same day twice means that day,
+    not an empty set."""
+
+    def _seed_three_days(self, db) -> None:
+        _seed_order(db, 40, status="paid", date_created=datetime(2026, 8, 10, 12, tzinfo=timezone.utc))
+        _seed_order(db, 41, status="paid", date_created=datetime(2026, 8, 11, 12, tzinfo=timezone.utc))
+        _seed_order(db, 42, status="paid", date_created=datetime(2026, 8, 12, 12, tzinfo=timezone.utc))
+        db.commit()
+
+    def test_both_bounds_are_inclusive(self, db, client, admin_auth_headers, rol_admin):
+        _grant_ml_ops_ver(db, rol_admin)
+        self._seed_three_days(db)
+
+        resp = client.get(
+            "/api/ml-ventas-ops/sales",
+            params={"date_from": "2026-08-10", "date_to": "2026-08-12"},
+            headers=admin_auth_headers,
+        )
+
+        assert sorted(_order_ids(resp.json())) == [40, 41, 42]
+
+    def test_the_same_day_twice_means_that_day(self, db, client, admin_auth_headers, rol_admin):
+        """The obvious way to ask for one day. Treating `to` as exclusive
+        would answer "no sales" for a day that had them."""
+        _grant_ml_ops_ver(db, rol_admin)
+        self._seed_three_days(db)
+
+        resp = client.get(
+            "/api/ml-ventas-ops/sales",
+            params={"date_from": "2026-08-11", "date_to": "2026-08-11"},
+            headers=admin_auth_headers,
+        )
+
+        assert _order_ids(resp.json()) == [41]
+
+    def test_only_from_means_from_then_on(self, db, client, admin_auth_headers, rol_admin):
+        _grant_ml_ops_ver(db, rol_admin)
+        self._seed_three_days(db)
+
+        resp = client.get("/api/ml-ventas-ops/sales", params={"date_from": "2026-08-12"}, headers=admin_auth_headers)
+
+        assert _order_ids(resp.json()) == [42]
+
+    def test_only_to_means_up_to_and_including(self, db, client, admin_auth_headers, rol_admin):
+        _grant_ml_ops_ver(db, rol_admin)
+        self._seed_three_days(db)
+
+        resp = client.get("/api/ml-ventas-ops/sales", params={"date_to": "2026-08-10"}, headers=admin_auth_headers)
+
+        assert _order_ids(resp.json()) == [40]
+
+    def test_a_range_that_runs_backwards_is_422_not_an_empty_list(self, db, client, admin_auth_headers, rol_admin):
+        """Silently answering "no sales" to an impossible range is how a
+        typo reads as a bad business day."""
+        _grant_ml_ops_ver(db, rol_admin)
+
+        resp = client.get(
+            "/api/ml-ventas-ops/sales",
+            params={"date_from": "2026-08-12", "date_to": "2026-08-10"},
+            headers=admin_auth_headers,
+        )
+
+        assert resp.status_code == 422
+
+    def test_an_unparseable_bound_is_422(self, db, client, admin_auth_headers, rol_admin):
+        _grant_ml_ops_ver(db, rol_admin)
+
+        resp = client.get("/api/ml-ventas-ops/sales", params={"date_from": "ayer"}, headers=admin_auth_headers)
+
+        assert resp.status_code == 422
+
+    def test_the_range_wins_over_the_legacy_month(self, db, client, admin_auth_headers, rol_admin):
+        """`sold_month` is kept so a bookmarked URL does not 422. ANDing
+        the two could only ever return less than either asked for."""
+        _grant_ml_ops_ver(db, rol_admin)
+        self._seed_three_days(db)
+
+        resp = client.get(
+            "/api/ml-ventas-ops/sales",
+            params={"sold_month": "2026-07", "date_from": "2026-08-11", "date_to": "2026-08-11"},
+            headers=admin_auth_headers,
+        )
+
+        assert _order_ids(resp.json()) == [41]
+
+
+class TestSortByLastUpdate:
+    """The listing has two independent axes: WHEN the sale happened and
+    WHEN ML last touched it. Filtering is always the first -- "the sales of
+    this week" cannot start including old ones just because they moved --
+    and sorting can be either."""
+
+    def _seed_old_sale_touched_today(self, db) -> None:
+        # 50 is the newer SALE; 51 is older but was UPDATED later.
+        _seed_order(db, 50, status="paid", date_created=datetime(2026, 8, 20, tzinfo=timezone.utc))
+        _seed_order(
+            db,
+            51,
+            status="paid",
+            date_created=datetime(2026, 8, 1, tzinfo=timezone.utc),
+            ml_last_updated=datetime(2026, 8, 25, tzinfo=timezone.utc),
+        )
+        db.commit()
+
+    def test_the_default_is_still_the_sale_date(self, db, client, admin_auth_headers, rol_admin):
+        _grant_ml_ops_ver(db, rol_admin)
+        self._seed_old_sale_touched_today(db)
+
+        resp = client.get("/api/ml-ventas-ops/sales", headers=admin_auth_headers)
+
+        assert _order_ids(resp.json()) == [50, 51]
+
+    def test_sorting_by_update_puts_the_recently_touched_sale_first(self, db, client, admin_auth_headers, rol_admin):
+        _grant_ml_ops_ver(db, rol_admin)
+        self._seed_old_sale_touched_today(db)
+
+        resp = client.get("/api/ml-ventas-ops/sales", params={"sort": "ml_last_updated"}, headers=admin_auth_headers)
+
+        assert _order_ids(resp.json()) == [51, 50]
+
+    def test_sorting_does_not_change_which_sales_are_returned(self, db, client, admin_auth_headers, rol_admin):
+        """Sorting is not a filter. A `date_from` still means the sale
+        date even when the order is by update."""
+        _grant_ml_ops_ver(db, rol_admin)
+        self._seed_old_sale_touched_today(db)
+
+        resp = client.get(
+            "/api/ml-ventas-ops/sales",
+            params={"sort": "ml_last_updated", "date_from": "2026-08-15"},
+            headers=admin_auth_headers,
+        )
+
+        assert _order_ids(resp.json()) == [50]
+
+    def test_an_unknown_sort_is_422_not_a_silent_default(self, db, client, admin_auth_headers, rol_admin):
+        """Falling back to the default would answer a question nobody
+        asked, in an order the caller did not request."""
+        _grant_ml_ops_ver(db, rol_admin)
+
+        resp = client.get("/api/ml-ventas-ops/sales", params={"sort": "precio"}, headers=admin_auth_headers)
+
+        assert resp.status_code == 422
+
+    def test_the_last_update_reaches_the_response(self, db, client, admin_auth_headers, rol_admin):
+        """The column the operator sorts by has to be visible, otherwise
+        the order looks arbitrary."""
+        _grant_ml_ops_ver(db, rol_admin)
+        self._seed_old_sale_touched_today(db)
+
+        body = client.get("/api/ml-ventas-ops/sales", headers=admin_auth_headers).json()
+
+        group = _group_holding(body, 51)
+        assert group["ml_last_updated"] is not None
+        assert group["orders"][0]["ml_last_updated"] is not None
