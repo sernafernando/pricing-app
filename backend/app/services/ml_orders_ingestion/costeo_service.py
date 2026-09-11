@@ -45,6 +45,13 @@ from app.services.tn_publish_core.resolve import (
 
 logger = logging.getLogger(__name__)
 
+# WHICH of design D6's two linkage paths resolved the product. Stamping a
+# single `"erp"` for both made the column useless for the one question it
+# gets asked: when a cost looks wrong, was it the authoritative publication
+# link or the SKU fallback that picked this product?
+FUENTE_PUBLICACION = "erp_publicacion"
+FUENTE_SKU = "erp_sku"
+
 
 @dataclass(frozen=True)
 class _ResolvedCost:
@@ -77,7 +84,7 @@ def _insert_stmt(db: Session, table: Any) -> Any:
     return postgresql.insert(table)
 
 
-def _productos_por_item(db: Session, items: Sequence[OrderItemOpsDTO]) -> Dict[int, ProductoERP]:
+def _productos_por_item(db: Session, items: Sequence[OrderItemOpsDTO]) -> Dict[int, tuple[ProductoERP, str]]:
     """Every item's `ProductoERP`, resolved in THREE queries for the whole
     order instead of up to three PER ITEM.
 
@@ -117,20 +124,23 @@ def _productos_por_item(db: Session, items: Sequence[OrderItemOpsDTO]) -> Dict[i
             producto.codigo: producto for producto in db.query(ProductoERP).filter(ProductoERP.codigo.in_(sorted(skus)))
         }
 
-    resueltos: Dict[int, ProductoERP] = {}
+    resueltos: Dict[int, tuple[ProductoERP, str]] = {}
     for idx, item in enumerate(items):
         erp_id = publicaciones.get(item.item_id) if item.item_id else None
         producto = productos_por_erp_id.get(erp_id) if erp_id is not None else None
-        if producto is None and item.seller_sku:
-            producto = productos_por_codigo.get(item.seller_sku)
         if producto is not None:
-            resueltos[idx] = producto
+            resueltos[idx] = (producto, FUENTE_PUBLICACION)
+            continue
+        if item.seller_sku:
+            producto = productos_por_codigo.get(item.seller_sku)
+            if producto is not None:
+                resueltos[idx] = (producto, FUENTE_SKU)
     return resueltos
 
 
 def _resolve_cost(
     db: Session,
-    producto: Optional[ProductoERP],
+    resuelto: Optional[tuple[ProductoERP, str]],
     usd_rate_cache: Dict[str, Any],
 ) -> Optional[_ResolvedCost]:
     """Resolves one item's cost snapshot, or `None` on any unknown step:
@@ -138,8 +148,9 @@ def _resolve_cost(
     product) no exchange rate available. `usd_rate_cache` is populated at
     most once per `congelar()` call (design: FX resolved once per batch,
     never per item)."""
-    if producto is None:
+    if resuelto is None:
         return None
+    producto, fuente = resuelto
 
     if producto.costo is None:
         return None
@@ -192,7 +203,7 @@ def _resolve_cost(
         tipo_cambio_fecha=tipo_cambio_fecha,
         costo_unitario_ars=costo_unitario_ars,
         iva_pct=iva_pct,
-        fuente="erp",
+        fuente=fuente,
         producto_item_id=producto.item_id,
     )
 
@@ -201,6 +212,13 @@ def congelar(db: Session, order_id: int, items: Sequence[OrderItemOpsDTO]) -> No
     """Freezes a cost/IVA/exchange-rate snapshot for every item in `items`
     that resolves completely (design D6/D7). Called once per order, AFTER
     `_upsert_item_row` for all of the order's items.
+
+    KNOWN GAP, stated rather than left implicit: this only runs when
+    `_upsert_order_row` applied, so an order that froze NOTHING because the
+    linkage did not resolve is retried only if ML updates that order again.
+    If ML never does, the sale stays uncosted forever. Closing that needs a
+    backfill pass over orders with items but no frozen rows -- it is NOT in
+    this slice, and it must not be forgotten.
 
     Runs BEFORE `_delete_stale_items`, and a frozen row deliberately
     OUTLIVES the item it describes: if an item later disappears from the

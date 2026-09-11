@@ -18,7 +18,7 @@ from app.models.ml_order_item_costo import MlOrderItemCosto
 from app.models.producto import ProductoERP, TipoMoneda
 from app.models.publicacion_ml import PublicacionML
 from app.models.tipo_cambio import TipoCambio
-from app.services.ml_orders_ingestion.costeo_service import congelar
+from app.services.ml_orders_ingestion.costeo_service import FUENTE_PUBLICACION, FUENTE_SKU, congelar
 from app.services.ml_orders_ingestion.mapper import OrderItemOpsDTO
 
 
@@ -188,7 +188,23 @@ class TestLinkage:
 
         row = db.query(MlOrderItemCosto).filter_by(order_id=4002).one()
         assert row.producto_item_id == 500
-        assert row.fuente == "erp"
+        assert row.fuente == FUENTE_SKU
+
+    def test_the_two_paths_are_distinguishable_afterwards(self, db) -> None:
+        """`fuente` has to say WHICH path resolved it. Stamping one value
+        for both makes the column useless for the only question it ever
+        gets asked: when a cost looks wrong, was it the authoritative
+        publication link or the SKU fallback that picked this product?"""
+        _producto(db, item_id=500)
+        _publicacion(db, mla="MLA1", item_id=500)
+        db.commit()
+
+        congelar(db, 4004, [_item(item_id="MLA1")])
+        db.commit()
+
+        row = db.query(MlOrderItemCosto).filter_by(order_id=4004).one()
+        assert row.fuente == FUENTE_PUBLICACION
+        assert FUENTE_PUBLICACION != FUENTE_SKU
 
     def test_the_publication_wins_over_the_sku(self, db) -> None:
         """Both paths resolve, to DIFFERENT products. The publication link
@@ -220,6 +236,21 @@ class TestLinkage:
 
         row = db.query(MlOrderItemCosto).filter_by(order_id=4003).one()
         assert row.producto_item_id == 888, "the SKU fallback beat the publication link"
+
+    def test_usd_product_without_any_rate_freezes_nothing(self, db) -> None:
+        """A USD cost with no usable `TipoCambio` is the one unknown that
+        could plausibly be "fixed" by letting the raw USD figure through as
+        if it were pesos. A cost of 10 would be frozen as $10 instead of
+        ~$9.500 -- a sale that looks almost pure profit. No row at all is
+        the only honest answer."""
+        _producto(db, costo=10.0, iva=21.0, moneda=TipoMoneda.USD)
+        _publicacion(db)
+        db.commit()
+
+        congelar(db, order_id=4005, items=[_item()])
+        db.commit()
+
+        assert db.query(MlOrderItemCosto).filter_by(order_id=4005).count() == 0
 
 
 class TestUnknownIsNotZero:
