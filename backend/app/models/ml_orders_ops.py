@@ -113,12 +113,6 @@ class MlOrdersOps(Base):
     # proven by a test running a different query than production.
     has_no_shipping_tag = Column(Boolean, nullable=True)
 
-    # The resolved cascade (design D1): shipment `logistic_type` -> the
-    # `no_shipping` tag -> "desconocido". See
-    # `mode_resolution.resolve_modo_logistico` for the precedence rule --
-    # the real shipment ALWAYS outranks the tag.
-    modo_logistico = Column(String(30), nullable=True)
-
     ingest_error = Column(Text, nullable=True)
 
     # ml-ventas-desglose-costos corte 5, post-review fix: the ONLY retry

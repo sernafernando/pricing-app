@@ -724,7 +724,7 @@ def listar_ventas(
             order_modo_logistico = resolve_modo_logistico(
                 shipment_logistic_type=shipment.logistic_type if shipment is not None else None,
                 has_shipment=shipment is not None,
-                has_no_shipping_tag=bool(order.has_no_shipping_tag),
+                tagged_no_shipping=bool(order.has_no_shipping_tag),
             )
             members_by_key.setdefault(key, []).append(
                 SaleListItem(

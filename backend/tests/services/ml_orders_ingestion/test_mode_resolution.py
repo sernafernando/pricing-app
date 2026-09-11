@@ -18,13 +18,27 @@ from app.services.ml_orders_ingestion.mode_resolution import (
 def test_shipment_wins_over_conflicting_tag():
     """Order 2000016977234624-shaped: carries BOTH the `no_shipping` tag AND
     a delivered `cross_docking` shipment. The shipment must win -- a
-    tag-driven badge would call a delivered sale "Retiro"."""
+    tag-driven badge would call a delivered sale "Retiro".
+
+    Mutation-verified. Applied to `resolve_modo_logistico` (in
+    `mode_resolution.py`), then reverted:
+
+        if tagged_no_shipping:           # tag checked FIRST
+            return MODO_RETIRO
+        if has_shipment:
+            return shipment_logistic_type if shipment_logistic_type else MODO_DESCONOCIDO
+        return MODO_DESCONOCIDO
+
+    With the tag branch first, this test FAILED: it asserts
+    `"cross_docking"` and got `"retiro"`, because the mutated order let the
+    tag win over the real shipment -- exactly the 2000016977234624 bug this
+    cascade exists to prevent. Reverted, suite re-run green."""
     tags = ["no_shipping"]
     assert (
         resolve_modo_logistico(
             shipment_logistic_type="cross_docking",
             has_shipment=True,
-            has_no_shipping_tag=has_no_shipping_tag(tags),
+            tagged_no_shipping=has_no_shipping_tag(tags),
         )
         == "cross_docking"
     )
@@ -35,7 +49,7 @@ def test_no_shipment_tag_present():
         resolve_modo_logistico(
             shipment_logistic_type=None,
             has_shipment=False,
-            has_no_shipping_tag=True,
+            tagged_no_shipping=True,
         )
         == MODO_RETIRO
     )
@@ -46,7 +60,7 @@ def test_no_shipment_no_tag():
         resolve_modo_logistico(
             shipment_logistic_type=None,
             has_shipment=False,
-            has_no_shipping_tag=False,
+            tagged_no_shipping=False,
         )
         == MODO_DESCONOCIDO
     )
@@ -60,7 +74,7 @@ def test_unknown_logistic_type_passthrough():
         resolve_modo_logistico(
             shipment_logistic_type="a_brand_new_ml_logistic_type",
             has_shipment=True,
-            has_no_shipping_tag=False,
+            tagged_no_shipping=False,
         )
         == "a_brand_new_ml_logistic_type"
     )
@@ -74,7 +88,7 @@ def test_shipment_present_without_logistic_type_resolves_unknown_not_tag():
         resolve_modo_logistico(
             shipment_logistic_type=None,
             has_shipment=True,
-            has_no_shipping_tag=True,
+            tagged_no_shipping=True,
         )
         == MODO_DESCONOCIDO
     )
@@ -91,39 +105,6 @@ def test_has_no_shipping_tag_false_when_absent():
 def test_has_no_shipping_tag_false_when_empty_or_none():
     assert has_no_shipping_tag([]) is False
     assert has_no_shipping_tag(None) is False
-
-
-def test_precedence_is_mutation_verified():
-    """Documents the mutation applied to prove
-    `test_shipment_wins_over_conflicting_tag` actually protects the
-    precedence rule.
-
-    Mutation applied to `resolve_modo_logistico` (in `mode_resolution.py`),
-    then reverted:
-
-        if has_no_shipping_tag:          # tag checked FIRST
-            return MODO_RETIRO
-        if has_shipment:
-            return shipment_logistic_type if shipment_logistic_type else MODO_DESCONOCIDO
-        return MODO_DESCONOCIDO
-
-    With the tag branch moved first, `test_shipment_wins_over_conflicting_tag`
-    FAILED: it asserted `"cross_docking"` and got `"retiro"` instead, because
-    the mutated order let the tag win over the real shipment -- exactly the
-    2000016977234624 bug this cascade exists to prevent. The mutation was
-    then reverted (shipment-first restored) and the full mode-resolution
-    suite was re-run green. This test itself only documents that fact; the
-    real protection is `test_shipment_wins_over_conflicting_tag` above.
-    """
-    tags = ["no_shipping"]
-    assert (
-        resolve_modo_logistico(
-            shipment_logistic_type="cross_docking",
-            has_shipment=True,
-            has_no_shipping_tag=has_no_shipping_tag(tags),
-        )
-        == "cross_docking"
-    )
 
 
 def test_pack_collapse_uniform():

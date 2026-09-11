@@ -50,7 +50,7 @@ def resolve_modo_logistico(
     *,
     shipment_logistic_type: Optional[str],
     has_shipment: bool,
-    has_no_shipping_tag: bool,
+    tagged_no_shipping: bool,
 ) -> str:
     """Resolves one order's logistic mode per the cascade above.
 
@@ -62,6 +62,6 @@ def resolve_modo_logistico(
     """
     if has_shipment:
         return shipment_logistic_type if shipment_logistic_type else MODO_DESCONOCIDO
-    if has_no_shipping_tag:
+    if tagged_no_shipping:
         return MODO_RETIRO
     return MODO_DESCONOCIDO
