@@ -35,6 +35,7 @@ from app.services.ml_orders_ingestion.mapper import (
     map_order,
     map_shipment,
 )
+from app.services.ml_orders_ingestion.mode_resolution import has_no_shipping_tag
 
 logger = logging.getLogger(__name__)
 
@@ -63,7 +64,20 @@ def _insert_stmt(db: Session, table):
 
 def _upsert_order_row(db: Session, dto: OrderOpsDTO) -> bool:
     """Returns True if the row was inserted or updated, False if the
-    write was a structural no-op (an equal-or-older `ml_last_updated`)."""
+    write was a structural no-op (an equal-or-older `ml_last_updated`).
+
+    `has_no_shipping_tag` (design D1 of ml-ventas-modo-logistico) is
+    derived here from `dto.tags` rather than queried at read time with a
+    Postgres JSONB containment predicate: the test suite runs on SQLite,
+    which cannot exercise that predicate, so a read-time rule would ship
+    proven by a test running a different query than production.
+
+    The resolved mode itself is NOT stored. It is recomputed live by the
+    API from the joined shipment row, because the shipment upsert runs
+    separately and may land after this one -- a stored mode would be a
+    snapshot that is wrong for exactly as long as that gap lasts.
+    """
+    no_shipping_tag = has_no_shipping_tag(dto.tags)
     values: Dict[str, Any] = {
         "order_id": dto.order_id,
         "pack_id": dto.pack_id,
@@ -83,6 +97,7 @@ def _upsert_order_row(db: Session, dto: OrderOpsDTO) -> bool:
         "covered_by_marketplace": dto.covered_by_marketplace,
         "tags": dto.tags,
         "raw_order": dto.raw_order,
+        "has_no_shipping_tag": no_shipping_tag,
         "ingest_error": None,
         "last_synced_at": func.now(),
     }

@@ -271,3 +271,30 @@ class TestUpsertShipment:
         assert outcome == UpsertOutcome.OK
         row = db.query(MlShipmentOps).filter_by(shipment_id=900).one()
         assert row.status == "delivered"
+
+
+class TestTheNoShippingTagIsPersisted:
+    """The router reads `ml_orders_ops.has_no_shipping_tag` to resolve the
+    logistic mode. If the write path stops filling it, every store-pickup
+    sale silently reads as `desconocido` -- green tests, wrong production."""
+
+    def test_an_order_tagged_no_shipping_stores_true(self, db):
+        payload = _order_payload(order_id=901)
+        payload["tags"] = ["paid", "no_shipping"]
+
+        assert upsert_order(db, payload) == UpsertOutcome.OK
+
+        row = db.query(MlOrdersOps).filter_by(order_id=901).one()
+        assert row.has_no_shipping_tag is True
+
+    def test_an_order_without_the_tag_stores_false_not_null(self, db):
+        """False, not NULL: the router coerces with `bool(...)`, so a NULL
+        reads the same as False and would hide a write path that never
+        ran."""
+        payload = _order_payload(order_id=902)
+        payload["tags"] = ["paid"]
+
+        assert upsert_order(db, payload) == UpsertOutcome.OK
+
+        row = db.query(MlOrdersOps).filter_by(order_id=902).one()
+        assert row.has_no_shipping_tag is False

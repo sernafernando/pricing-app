@@ -55,9 +55,11 @@ def _seed_order(
     total_amount: float = 100,
     shipping_id: int | None = None,
     ml_last_updated: datetime | None = None,
+    logistic_type: str | None = None,
+    has_no_shipping_tag: bool = False,
 ) -> None:
     if shipping_id is None:
-        shipping_id = order_id * 10 if shipping_status is not None else None
+        shipping_id = order_id * 10 if (shipping_status is not None or logistic_type is not None) else None
     order = MlOrdersOps(
         order_id=order_id,
         pack_id=pack_id,
@@ -74,12 +76,20 @@ def _seed_order(
         paid_amount=total_amount,
         currency_id="ARS",
         shipping_id=shipping_id,
+        has_no_shipping_tag=has_no_shipping_tag,
     )
     db.add(order)
-    if shipping_id is not None and shipping_status is not None:
+    if shipping_id is not None and (shipping_status is not None or logistic_type is not None):
         existing = db.query(MlShipmentOps).filter(MlShipmentOps.shipment_id == shipping_id).first()
         if existing is None:
-            db.add(MlShipmentOps(shipment_id=shipping_id, order_id=order_id, status=shipping_status))
+            db.add(
+                MlShipmentOps(
+                    shipment_id=shipping_id,
+                    order_id=order_id,
+                    status=shipping_status,
+                    logistic_type=logistic_type,
+                )
+            )
     if claim_status is not None:
         db.add(RmaClaimML(claim_id=order_id * 100, resource_id=order_id, status=claim_status))
     db.flush()
@@ -446,6 +456,91 @@ class TestPacks:
         ).json()
 
         assert _order_ids(second) == [803]
+
+
+class TestModoLogistico:
+    """The resolved logistic mode (design D1 of ml-ventas-modo-logistico):
+    the real shipment ALWAYS outranks the `no_shipping` tag."""
+
+    def test_shipment_wins_over_conflicting_tag(self, db, client, admin_auth_headers, rol_admin):
+        """Order 2000016977234624, verified in production: tagged
+        `no_shipping` AND carries a delivered `cross_docking` shipment. A
+        tag-only badge would call this delivered sale "Retiro"."""
+        _grant_ml_ops_ver(db, rol_admin)
+        _seed_order(
+            db,
+            2000016977234624,
+            shipping_status="delivered",
+            logistic_type="cross_docking",
+            has_no_shipping_tag=True,
+            date_created=datetime(2026, 9, 1, tzinfo=timezone.utc),
+        )
+        db.commit()
+
+        body = client.get("/api/ml-ventas-ops/sales", headers=admin_auth_headers).json()
+
+        sale = _group_holding(body, 2000016977234624)
+        assert sale["modo_logistico"] == "cross_docking"
+        assert sale["orders"][0]["modo_logistico"] == "cross_docking"
+
+    def test_tag_decides_only_when_there_is_no_shipment(self, db, client, admin_auth_headers, rol_admin):
+        _grant_ml_ops_ver(db, rol_admin)
+        _seed_order(
+            db,
+            10,
+            has_no_shipping_tag=True,
+            date_created=datetime(2026, 9, 1, tzinfo=timezone.utc),
+        )
+        db.commit()
+
+        body = client.get("/api/ml-ventas-ops/sales", headers=admin_auth_headers).json()
+
+        assert _group_holding(body, 10)["modo_logistico"] == "retiro"
+
+    def test_no_shipment_no_tag_reads_as_unknown(self, db, client, admin_auth_headers, rol_admin):
+        _grant_ml_ops_ver(db, rol_admin)
+        _seed_order(db, 11, date_created=datetime(2026, 9, 1, tzinfo=timezone.utc))
+        db.commit()
+
+        body = client.get("/api/ml-ventas-ops/sales", headers=admin_auth_headers).json()
+
+        assert _group_holding(body, 11)["modo_logistico"] == "desconocido"
+
+    def test_unobserved_logistic_type_passes_through(self, db, client, admin_auth_headers, rol_admin):
+        _grant_ml_ops_ver(db, rol_admin)
+        _seed_order(
+            db,
+            12,
+            logistic_type="a_brand_new_ml_type",
+            date_created=datetime(2026, 9, 1, tzinfo=timezone.utc),
+        )
+        db.commit()
+
+        body = client.get("/api/ml-ventas-ops/sales", headers=admin_auth_headers).json()
+
+        assert _group_holding(body, 12)["modo_logistico"] == "a_brand_new_ml_type"
+
+    def test_pack_mixing_modes_collapses_to_mixed(self, db, client, admin_auth_headers, rol_admin):
+        _grant_ml_ops_ver(db, rol_admin)
+        when = datetime(2026, 9, 1, tzinfo=timezone.utc)
+        _seed_order(db, 21, pack_id=999, logistic_type="cross_docking", date_created=when)
+        _seed_order(db, 22, pack_id=999, logistic_type="self_service", date_created=when)
+        db.commit()
+
+        body = client.get("/api/ml-ventas-ops/sales", headers=admin_auth_headers).json()
+
+        assert _group_holding(body, 21)["modo_logistico"] == "mixed"
+
+    def test_pack_single_mode_shows_that_mode(self, db, client, admin_auth_headers, rol_admin):
+        _grant_ml_ops_ver(db, rol_admin)
+        when = datetime(2026, 9, 1, tzinfo=timezone.utc)
+        _seed_order(db, 31, pack_id=888, logistic_type="fulfillment", date_created=when)
+        _seed_order(db, 32, pack_id=888, logistic_type="fulfillment", date_created=when)
+        db.commit()
+
+        body = client.get("/api/ml-ventas-ops/sales", headers=admin_auth_headers).json()
+
+        assert _group_holding(body, 31)["modo_logistico"] == "fulfillment"
 
 
 class TestFacetTotalsAreRowsNotBuckets:

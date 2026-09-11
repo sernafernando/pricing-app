@@ -106,6 +106,13 @@ class MlOrdersOps(Base):
     tags = Column(JSONB, nullable=True)
     raw_order = Column(JSONB, nullable=True)
 
+    # ml-ventas-modo-logistico PR1: derived at ingestion from `dto.tags`
+    # (see `mode_resolution.has_no_shipping_tag`), NOT a read-time Postgres
+    # JSONB containment query on `raw_order->tags` -- SQLite tests cannot
+    # exercise Postgres JSONB containment, and a read-time rule would ship
+    # proven by a test running a different query than production.
+    has_no_shipping_tag = Column(Boolean, nullable=True)
+
     ingest_error = Column(Text, nullable=True)
 
     # ml-ventas-desglose-costos corte 5, post-review fix: the ONLY retry
