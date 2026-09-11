@@ -87,6 +87,46 @@ def costo_efectivo(
     a `Decimal("0")` here would render as a shipment that cost us nothing,
     which is a lie a reader cannot detect.
     """
+    return _al_centavo(
+        _costo_sin_redondear(
+            costo_override=costo_override,
+            es_turbo=es_turbo,
+            es_lluvia=es_lluvia,
+            costo=costo,
+            costo_turbo=costo_turbo,
+            lluvia_tipo=lluvia_tipo,
+            lluvia_valor=lluvia_valor,
+        )
+    )
+
+
+def _al_centavo(valor: Optional[Decimal]) -> Optional[Decimal]:
+    """The cent, ONCE, on the way out.
+
+    `_build_costo_case` casts to `Numeric(12, 2)` in EVERY branch, so every
+    branch here has to land on the same cent. Rounding only the one branch
+    that happened to be covered by a test is how the first version of this
+    shipped: the percentage case agreed while the plain and fixed-surcharge
+    cases quietly differed by fractions on any tariff that is not round.
+    Quantizing at the single exit makes a new branch correct by
+    construction instead of by remembering.
+    """
+    if valor is None:
+        return None
+    return valor.quantize(Decimal("0.01"))
+
+
+def _costo_sin_redondear(
+    *,
+    costo_override: Any,
+    es_turbo: bool,
+    es_lluvia: bool,
+    costo: Any,
+    costo_turbo: Any,
+    lluvia_tipo: str,
+    lluvia_valor: float,
+) -> Optional[Decimal]:
+    """The precedence itself. Rounding is the caller's single exit above."""
     override = _a_decimal(costo_override)
     if override is not None:
         return override
@@ -106,13 +146,7 @@ def costo_efectivo(
 
     recargo = Decimal(str(lluvia_valor))
     if lluvia_tipo == "porcentaje":
-        # QUANTIZED, and this is not cosmetic. `_build_costo_case` casts the
-        # percentage result to `Numeric(12, 2)`, so SQL lands on the cent
-        # while raw Decimal multiplication keeps every digit. On a tariff
-        # that is not a round number the two answers differ -- 383.3295 here
-        # against 383.33 there -- which is the same shipment wearing two
-        # prices, the exact failure this module exists to prevent.
-        return (turbo_efectivo * (Decimal("1") + recargo / Decimal("100"))).quantize(Decimal("0.01"))
+        return turbo_efectivo * (Decimal("1") + recargo / Decimal("100"))
     return turbo_efectivo + recargo
 
 

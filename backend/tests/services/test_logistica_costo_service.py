@@ -89,6 +89,11 @@ _CASES = [
     # and 383.33 in SQL -- one shipment, two prices.
     (True, True, Decimal("255.553"), Decimal("255.553"), "porcentaje", 50.0),
     (True, True, Decimal("101.017"), Decimal("333.339"), "porcentaje", 33.0),
+    # The branches the first non-round cases did NOT reach. Both of these
+    # failed while `porcentaje` passed, because only that branch rounded.
+    (False, False, Decimal("255.553"), Decimal("900"), "fijo", 0.0),
+    (True, False, Decimal("500"), Decimal("255.553"), "fijo", 1800.0),
+    (True, True, Decimal("500"), Decimal("255.553"), "fijo", 100.0),
 ]
 
 
