@@ -308,9 +308,10 @@ class SaleListItem(BaseModel):
     neto: Optional[float] = None
     # Resolved cascade (design D1 of ml-ventas-modo-logistico): the real
     # shipment's `logistic_type` ALWAYS outranks the `no_shipping` tag --
-    # see `resolve_modo_logistico`. Recomputed live here, never read back
-    # from the `ml_orders_ops.modo_logistico` snapshot column, so a
-    # not-yet-refreshed row can never surface the wrong mode.
+    # see `resolve_modo_logistico`. Recomputed live here on every read; no
+    # snapshot column exists for this, by design -- the shipment upsert can
+    # land after the order's, so a stored mode would be wrong for exactly
+    # as long as that gap lasts.
     modo_logistico: str
 
 
