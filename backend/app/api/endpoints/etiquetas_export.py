@@ -39,6 +39,7 @@ from app.api.endpoints.etiquetas_shared import (
     EXPORT_MANUALES_COLUMNS,
     ExportManualesRequest,
 )
+from app.services.logistica_costo_service import cordon_normalizado_sql
 
 router = APIRouter()
 
@@ -126,7 +127,7 @@ def exportar_etiquetas(
         .subquery()
     )
 
-    cordon_norm_exp = func.replace(CodigoPostalCordon.cordon, "ó", "o")
+    cordon_norm_exp = cordon_normalizado_sql(CodigoPostalCordon.cordon)
 
     # Lluvia offset config
     lluvia_tipo_e, lluvia_valor_e = _get_lluvia_config(db)

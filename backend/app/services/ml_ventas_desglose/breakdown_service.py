@@ -94,14 +94,51 @@ make it fire.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 from typing import Dict, List, Optional, Sequence
 
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, joinedload
 
+from app.models.codigo_postal_cordon import CodigoPostalCordon
+from app.models.etiqueta_envio import EtiquetaEnvio
+from app.models.logistica_costo_cordon import LogisticaCostoCordon
 from app.models.ml_billing import MlBillingCharge, MlBillingChargeOrder
-from app.models.ml_orders_ops import MlOrdersOps
+from app.models.ml_orders_ops import MlOrdersOps, MlShipmentOps
 from app.models.ml_payments import MlPaymentCharge, MlPaymentOps
+from app.services.logistica_costo_service import costo_efectivo, get_lluvia_config, normalizar_cordon
+from app.services.ml_orders_ingestion.mode_resolution import (
+    MODO_RETIRO,
+    MODO_SELF_SERVICE,
+    resolve_modo_logistico,
+)
+
+# `MODO_SELF_SERVICE` and `MODO_RETIRO` are IMPORTED, not redeclared: a
+# second copy of those strings here is precisely the drift this module
+# argues against everywhere else. There is deliberately no "mixed" constant
+# in this file -- collapsing a pack into one label is the router's job, for
+# a badge; nothing here decides money off a collapsed value.
+
+# Modes for which a MISSING shipping charge is not a missing-data signal.
+#
+# `retiro` is the absolute case: no ML shipping is involved at all, so
+# there is nothing that could ever be billed.
+#
+# `self_service` is the statistical one, and the difference matters enough
+# to write down. ML DOES bill Flex sellers a technical charge sometimes --
+# `shp_self_service_tech` appears on 553 payments in production, against
+# 25.770 self_service shipments. So roughly 98% of Flex sales carry no ML
+# shipping charge because the seller pays their own carrier directly, and
+# the remaining 2% carry one legitimately.
+#
+# We cannot tell a genuinely missing `shp_self_service_tech` from the
+# overwhelmingly normal absence of one, and warning on the 98% to catch the
+# 2% is precisely the alarm-that-always-rings this module refuses to build.
+# So Flex does not warn -- and that is a deliberate blind spot, not a claim
+# that the charge never exists.
+_MODES_NEVER_WARN_BILLING = frozenset({MODO_SELF_SERVICE, MODO_RETIRO})
+
+_BILLING_AGE_THRESHOLD = timedelta(hours=48)
 
 # Payment statuses whose charges/net are meaningful for a breakdown.
 #
@@ -133,6 +170,20 @@ _CHARGE_LABELS: Dict[str, str] = {
 
 CONCEPTO_IMPUESTOS = "Impuestos"
 CONCEPTO_ENVIOS = "Envios"
+CONCEPTO_ENVIO_PROPIO = "Envío Flex (costo propio)"
+
+# ml-ventas-modo-logistico PR2 -- per-mode split of the single "Envios"
+# line. Mirrors `_tax_label`'s discipline exactly: a KNOWN `shp_*` type
+# gets its own readable line; anything else falls back to the generic
+# CONCEPTO_ENVIOS bucket instead of being dropped. Measured in production
+# (obs #1965/#1966): only 5.075 of 12.528 payments carry any `shp_*`
+# charge at all -- `shp_cross_docking` (3.818), `shp_fulfillment` (704),
+# `shp_self_service_tech` (553).
+_SHIPPING_CHARGE_LABELS: Dict[str, str] = {
+    "shp_cross_docking": "Envíos (Colecta)",
+    "shp_fulfillment": "Envíos (Full)",
+    "shp_self_service_tech": "Envíos (Flex — cargo ML)",
+}
 
 # ML encodes WHICH tax and WHERE inside the charge name, so a single
 # "Impuestos" line throws that away. Measured across production: 35
@@ -230,6 +281,255 @@ def _tax_label(charge_name: Optional[str]) -> str:
     return f"{kind} ({place})"
 
 
+def _shipping_label(charge_name: Optional[str]) -> str:
+    """A readable per-mode line for one `shp_*` payment charge.
+
+    Same discipline as `_tax_label`: falls back to the generic
+    `CONCEPTO_ENVIOS` bucket for any `shp_*` type not in the known set, ON
+    PURPOSE -- an unrecognised type must still show up as money the
+    seller's shipping cost, never silently vanish from the sum."""
+    return _SHIPPING_CHARGE_LABELS.get(charge_name or "", CONCEPTO_ENVIOS)
+
+
+def _ensure_utc(value: Optional[datetime]) -> Optional[datetime]:
+    """SQLite drops tzinfo on reload of a `DateTime(timezone=True)` column
+    -- the repo-wide pattern (see e.g. `pedidos_preparacion.py`,
+    `sweep_service.py`) is to treat a naive reload as UTC rather than
+    compare naive to aware and raise."""
+    if value is None:
+        return None
+    if value.tzinfo is None:
+        return value.replace(tzinfo=timezone.utc)
+    return value
+
+
+def _resolve_modes(db: Session, orders: Sequence[MlOrdersOps]) -> tuple[Dict[int, str], Dict[int, MlShipmentOps]]:
+    """Per-order logistic modes, PLUS the shipment rows it already loaded.
+
+    It deliberately does not collapse them into one group mode. That value
+    is lossy: a pack that resolves to `"mixed"` still holds individual
+    self_service orders whose freight WE pay, and every decision in this
+    module that once read the collapsed value dropped exactly that cost --
+    silently, with no line and no reason. Not handing it out is how that
+    stops being available to reach for. Badges may collapse; money
+    decisions may not.
+
+    The shipments map rides along so the Flex resolver does not re-run the
+    identical query.
+
+    Always recomputed live from the shipment/tag join -- mirrors the D2
+    pattern (`total_gauss`/`modo_logistico` snapshot columns are sort/filter
+    keys only, never the displayed value) established in PR1. Mirrors the
+    router's own `_collapse()`: every member order shares one mode -> that
+    mode; disagreement -> `\"mixed\"`.
+    """
+    if not orders:
+        return {}, {}
+
+    shipping_ids = [o.shipping_id for o in orders if o.shipping_id is not None]
+    shipments_by_id: Dict[int, MlShipmentOps] = {}
+    if shipping_ids:
+        shipments = db.query(MlShipmentOps).filter(MlShipmentOps.shipment_id.in_(shipping_ids)).all()
+        shipments_by_id = {s.shipment_id: s for s in shipments}
+
+    modes_by_order: Dict[int, str] = {}
+    for order in orders:
+        shipment = shipments_by_id.get(order.shipping_id) if order.shipping_id is not None else None
+        modes_by_order[order.order_id] = resolve_modo_logistico(
+            shipment_logistic_type=shipment.logistic_type if shipment else None,
+            has_shipment=shipment is not None,
+            tagged_no_shipping=bool(order.has_no_shipping_tag),
+        )
+
+    return modes_by_order, shipments_by_id
+
+
+def _postal_code_for_cordon(
+    label: EtiquetaEnvio,
+    shipments_by_id: Dict[int, MlShipmentOps],
+) -> Optional[str]:
+    """The postal code that decides the CORDON, which is not always the
+    buyer's.
+
+    When a `Transporte` is assigned, the parcel goes to the transport's
+    depot and the carrier is paid for THAT trip, so the transport's CP
+    decides the tariff. The Etiquetas screens already resolve it this way
+    (`coalesce(Transporte.cp, eff_zip)`); reading the buyer's CP here would
+    land on a different cordon, a different tariff and a different cost for
+    the same `shipping_id`.
+
+    Falls back to the label's manual override, then to the shipment's own
+    receiver address.
+    """
+    transporte = label.transporte
+    if transporte is not None and transporte.cp:
+        return str(transporte.cp)
+    if label.manual_zip_code:
+        return str(label.manual_zip_code)
+    # `EtiquetaEnvio.shipping_id` is a String and manual shipments mint it
+    # by another route, so it is NOT guaranteed to be numeric. An uncaught
+    # ValueError here would take the whole endpoint down with a 500 on a
+    # money path; an unresolvable id is simply a postcode we do not have,
+    # which the caller already knows how to report as `flex_cost_unknown`.
+    try:
+        shipment_id = int(label.shipping_id) if label.shipping_id else None
+    except (TypeError, ValueError):
+        return None
+    shipment = shipments_by_id.get(shipment_id) if shipment_id is not None else None
+    if shipment is not None and shipment.receiver_address:
+        zip_code = shipment.receiver_address.get("zip_code")
+        if zip_code:
+            return str(zip_code)
+    return None
+
+
+def _resolve_flex_cost_line(
+    db: Session,
+    orders: Sequence[MlOrdersOps],
+    modes_by_order: Dict[int, str],
+    shipments_by_id: Dict[int, MlShipmentOps],
+) -> tuple[Optional["BreakdownLine"], bool]:
+    """The seller's OWN Flex shipping cost -- see spec "Flex Real Cost
+    Line". Resolution is `costo_override` (wins when set) else
+    `logistica_costo_cordon` by `(logistica_id, cordon, vigente_desde <=
+    fecha_envio)` taking `MAX(id)`. All-or-nothing across every self_service
+    shipment in the group: if ANY of them fails to resolve, NO line is
+    emitted at all and the caller adds `REASON_FLEX_COST_UNKNOWN` -- never a
+    `coalesce(..., 0)` that would render an unresolved cost as `$0`.
+
+    Selection is PER ORDER, never off the group's collapsed mode. A pack
+    that collapses to `"mixed"` can still hold a self_service order whose
+    freight we pay, and keying off the collapsed value would drop that cost
+    silently -- no line AND no `flex_cost_unknown`, which is worse than
+    either alone.
+
+    Returns `(None, False)` when no member order is self_service -- Flex
+    cost simply does not apply.
+    """
+    flex_orders = [o for o in orders if modes_by_order.get(o.order_id) == MODO_SELF_SERVICE]
+    if not flex_orders:
+        return None, False
+
+    shipping_ids = sorted({o.shipping_id for o in flex_orders if o.shipping_id is not None})
+    if not shipping_ids:
+        return None, True
+
+    labels = (
+        db.query(EtiquetaEnvio)
+        .options(joinedload(EtiquetaEnvio.logistica), joinedload(EtiquetaEnvio.transporte))
+        .filter(EtiquetaEnvio.shipping_id.in_([str(s) for s in shipping_ids]))
+        .all()
+    )
+    labels_by_shipping_id = {label.shipping_id: label for label in labels}
+
+    lluvia_tipo, lluvia_valor = get_lluvia_config(db)
+
+    # Both lookups below are resolved in ONE query each, before the loop.
+    # Querying inside it is the pattern AGENTS.md names outright, and a pack
+    # is not a bound worth trusting.
+    postal_code_by_shipping_id = {
+        label.shipping_id: _postal_code_for_cordon(label, shipments_by_id) for label in labels
+    }
+    postal_codes = {pc for pc in postal_code_by_shipping_id.values() if pc}
+    cordones_by_cp = {}
+    if postal_codes:
+        cordones_by_cp = {
+            row.codigo_postal: row
+            for row in db.query(CodigoPostalCordon)
+            .filter(CodigoPostalCordon.codigo_postal.in_(sorted(postal_codes)))
+            .all()
+        }
+
+    logistica_ids = {label.logistica_id for label in labels if label.logistica_id is not None}
+    tarifas: List[LogisticaCostoCordon] = []
+    if logistica_ids:
+        tarifas = (
+            db.query(LogisticaCostoCordon)
+            .filter(LogisticaCostoCordon.logistica_id.in_(sorted(logistica_ids)))
+            .order_by(LogisticaCostoCordon.id.asc())
+            .all()
+        )
+
+    total = Decimal("0")
+    logistica_names: List[str] = []
+
+    for shipping_id in shipping_ids:
+        label = labels_by_shipping_id.get(str(shipping_id))
+        if label is None:
+            return None, True
+
+        if label.costo_override is not None:
+            total += costo_efectivo(costo_override=label.costo_override)
+            if label.logistica is not None and label.logistica.nombre not in logistica_names:
+                logistica_names.append(label.logistica.nombre)
+            continue
+
+        if label.logistica_id is None:
+            return None, True
+
+        postal_code = postal_code_by_shipping_id.get(str(shipping_id))
+        if not postal_code:
+            return None, True
+
+        cordon_row = cordones_by_cp.get(str(postal_code))
+        if cordon_row is None or not cordon_row.cordon:
+            return None, True
+
+        if label.fecha_envio is None:
+            return None, True
+
+        cordon_buscado = normalizar_cordon(cordon_row.cordon)
+        # KNOWN, DELIBERATE DIVERGENCE from the Etiquetas screens, written
+        # down rather than left to be discovered: they select the tariff in
+        # force TODAY (`vigente_desde <= hoy`), because they answer "what
+        # would this cost now". This is a historical breakdown of a sale
+        # that already shipped, so it selects the tariff in force ON THE
+        # SHIPPING DATE. For an old label whose tariff was raised since,
+        # the two screens will legitimately show different numbers, and the
+        # one here is the one that was actually paid. If Etiquetas is ever
+        # aligned to this rule, delete this note along with the difference.
+        # MAX(id) among the rows in force on the shipping date -- `tarifas`
+        # is ordered ascending, so the last match is that row.
+        tarifa = None
+        for row in tarifas:
+            if (
+                row.logistica_id == label.logistica_id
+                and row.cordon == cordon_buscado
+                and row.vigente_desde <= label.fecha_envio
+            ):
+                tarifa = row
+        # NORMALISED, never raw: `cp_cordones` spells it "Cordón 1" and
+        # `logistica_costo_cordon` spells it "Cordon 1". Comparing them raw
+        # matches nothing, so every Flex sale without an override would
+        # resolve to "cost unknown" wearing the face of honest missing data.
+        if tarifa is None:
+            return None, True
+
+        # The tariff's plain `costo` is NOT the cost -- turbo and the rain
+        # surcharge move it, and the Etiquetas screens already apply both.
+        # Same function on both sides, so the two surfaces cannot disagree
+        # about the same shipment.
+        costo = costo_efectivo(
+            es_turbo=bool(label.es_turbo),
+            es_lluvia=bool(label.es_lluvia),
+            costo=tarifa.costo,
+            costo_turbo=tarifa.costo_turbo,
+            lluvia_tipo=lluvia_tipo,
+            lluvia_valor=lluvia_valor,
+        )
+        if costo is None:
+            return None, True
+        total += costo
+        if label.logistica is not None and label.logistica.nombre not in logistica_names:
+            logistica_names.append(label.logistica.nombre)
+
+    concepto = CONCEPTO_ENVIO_PROPIO
+    if logistica_names:
+        concepto = f"{CONCEPTO_ENVIO_PROPIO} ({', '.join(sorted(logistica_names))})"
+
+    return BreakdownLine(concepto=concepto, monto=total, origen="propio"), False
+
+
 REASON_PAYMENTS_NOT_SYNCED = "payments_not_synced"
 # Rows EXIST and are synced, but none of them counts: all rejected, or a
 # status ML added that we do not model yet. Distinct from
@@ -238,6 +538,26 @@ REASON_PAYMENTS_NOT_SYNCED = "payments_not_synced"
 # docstring warns. One says "wait"; this one says "look at the payment".
 REASON_PAYMENTS_NOT_COUNTABLE = "payments_not_countable"
 REASON_BILLING_NOT_SWEPT = "billing_not_swept"
+# The seller's own Flex cost could not be resolved -- see
+# `_resolve_flex_cost_line`. Never paired with a `$0` line.
+REASON_FLEX_COST_UNKNOWN = "flex_cost_unknown"
+# Genuinely informational: the order is too young to expect a billing
+# charge yet. Distinct from `REASON_BILLING_NOT_SWEPT` on purpose -- it
+# must NOT flip `incompleto` to True (see `_INFORMATIONAL_REASONS` below).
+REASON_BILLING_TOO_RECENT = "billing_too_recent"
+
+# Reasons that describe a real gap in the data (payments/billing genuinely
+# missing) flip `incompleto`. `REASON_BILLING_TOO_RECENT` reports a fact
+# about elapsed time, not a gap -- the operator did not lose data, the
+# sweep just has not had time to run yet. `REASON_FLEX_COST_UNKNOWN` is the
+# same kind of fact, not a data-integrity alarm about the SALE itself: the
+# pinned self_service regression (`test_self_service_shipment_with_no_...
+# _but_ordinary_billing_is_complete`, obs #1965) already established that a
+# self_service order with no shipping charge and ordinary billing is a
+# COMPLETE sale -- an unresolved Flex freight cost is a separate, additive
+# signal about that ONE line, not a reason to re-flag the whole sale as
+# incomplete.
+_INFORMATIONAL_REASONS = frozenset({REASON_BILLING_TOO_RECENT, REASON_FLEX_COST_UNKNOWN})
 
 
 def _is_seller_charge(charge_type: Optional[str], charge_name: Optional[str]) -> bool:
@@ -270,6 +590,23 @@ class BreakdownLine:
 
 @dataclass(frozen=True)
 class OperationBreakdown:
+    """The sale's cost breakdown.
+
+    `neto` DOES NOT include the `origen="propio"` lines, and that is by
+    design, not an oversight. `neto` is ML's own `net_received_amount`:
+    every `origen="api"` line is a charge ML already subtracted before
+    handing us the money, so those lines EXPLAIN the net rather than move
+    it. A `propio` line -- today the real Flex freight -- is a cost WE pay
+    to a carrier ML never sees, so it cannot be inside a number ML
+    computed.
+
+    The consequence is deliberate and has to be carried honestly by
+    whoever renders this: summing every line does NOT reproduce `neto`.
+    The `propio` lines are what the upcoming Total Gauss subtracts FROM
+    `neto` (spec: `Neto - envio flex - % = Total Gauss`), which is exactly
+    why they are reported separately instead of being folded in here.
+    """
+
     lines: List[BreakdownLine]
     neto: Optional[Decimal]
     incompleto: bool
@@ -412,15 +749,28 @@ def compute_breakdown(db: Session, order_ids: Sequence[int]) -> OperationBreakdo
             tax_label = _tax_label(charge.name)
             line_amounts[tax_label] = line_amounts.get(tax_label, Decimal("0")) + _net_amount(charge)
 
-    # Shipping: `shp_*` payment charges (never shared -- summed per order).
+    # Shipping: `shp_*` payment charges (never shared -- summed per order),
+    # split by KNOWN mode into its own line (ml-ventas-modo-logistico PR2)
+    # with an unrecognised type bucketed under CONCEPTO_ENVIOS, never
+    # dropped. `shipping_total` still tracks the FULL sum for the billing
+    # warning below -- summing every line it feeds is exactly the amount
+    # the single legacy line would have reported.
     shipping_total = Decimal("0")
     for charge in seller_charges_all:
-        if charge.name.startswith("shp_"):
-            shipping_total += _net_amount(charge)
+        # `(charge.name or "")`: the name is nullable and a NULL has been
+        # seen in production. The label lookup beside this line already
+        # handles None, so leaving the guard off here would be a defensive
+        # line sitting next to an undefended one.
+        if (charge.name or "").startswith("shp_"):
+            amount = _net_amount(charge)
+            shipping_total += amount
+            label = _shipping_label(charge.name)
+            line_amounts[label] = line_amounts.get(label, Decimal("0")) + amount
 
     # Shipping: billing-side charges, joined through the bridge table and
     # DEDUPED by detail_id -- a pack's shipping charge is reported once by
-    # ML but bridged to every order in the pack.
+    # ML but bridged to every order in the pack. These carry no `shp_*`
+    # name to split by mode, so they stay in the generic bucket.
     billing_links = db.query(MlBillingChargeOrder).filter(MlBillingChargeOrder.order_id.in_(order_ids)).all()
     linked_detail_ids = {link.detail_id for link in billing_links}
     billing_charges: List[MlBillingCharge] = []
@@ -429,25 +779,58 @@ def compute_breakdown(db: Session, order_ids: Sequence[int]) -> OperationBreakdo
     shipping_billing_charges = [c for c in billing_charges if c.detail_sub_type in _SHIPPING_BILLING_SUBTYPES]
     for charge in shipping_billing_charges:
         if charge.amount is not None:
-            shipping_total += Decimal(str(charge.amount))
+            amount = Decimal(str(charge.amount))
+            shipping_total += amount
+            line_amounts[CONCEPTO_ENVIOS] = line_amounts.get(CONCEPTO_ENVIOS, Decimal("0")) + amount
 
-    if shipping_total != 0:
-        line_amounts[CONCEPTO_ENVIOS] = line_amounts.get(CONCEPTO_ENVIOS, Decimal("0")) + shipping_total
+    orders = db.query(MlOrdersOps).filter(MlOrdersOps.order_id.in_(order_ids)).all()
+    has_shipment_order = any(order.shipping_id is not None for order in orders)
+    modes_by_order, shipments_by_id = _resolve_modes(db, orders)
 
-    # `billing_not_swept` is a real, verifiable signal, but ONLY meaningful
-    # for a sale that actually has a shipment: NO billing row at all is
-    # linked to this order/pack, meaning the billing sweep never even
-    # reached it. A zero shipping charge WITH billing rows present is the
-    # ordinary self_service/free-shipping case -- see module docstring --
-    # and is NEVER treated as incomplete.
-    has_shipment_order = any(
-        order.shipping_id is not None
-        for order in db.query(MlOrdersOps).filter(MlOrdersOps.order_id.in_(order_ids)).all()
-    )
-    if has_shipment_order and shipping_total == 0 and not linked_detail_ids:
-        incomplete_reasons.append(REASON_BILLING_NOT_SWEPT)
+    # The seller's OWN Flex freight cost -- see spec "Flex Real Cost Line".
+    # Applies to whichever member orders are self_service, chosen from the
+    # PER-ORDER modes and never from the collapsed one; all-or-nothing per
+    # `_resolve_flex_cost_line`, never a `$0` line for an unresolved input.
+    flex_line, flex_unknown = _resolve_flex_cost_line(db, orders, modes_by_order, shipments_by_id)
+    lines_extra: List[BreakdownLine] = []
+    if flex_line is not None:
+        lines_extra.append(flex_line)
+    if flex_unknown:
+        incomplete_reasons.append(REASON_FLEX_COST_UNKNOWN)
 
-    lines = [BreakdownLine(concepto=concepto, monto=monto, origen="api") for concepto, monto in line_amounts.items()]
+    # Three-case billing incompleteness (ml-ventas-modo-logistico PR2,
+    # replacing the single condition below the module docstring's own
+    # warning): (a) a mode that structurally never bills a shipping charge
+    # (`self_service`, `retiro`) never warns; (b) an order under 48h old
+    # gets the INFORMATIONAL `billing_too_recent` reason, which does not
+    # flip `incompleto`; (c) 48h or older with no charge and no billing
+    # link is a genuine `billing_not_swept`.
+    # Decided off the PER-ORDER modes for the same reason the Flex line is:
+    # a pack collapsing to `"mixed"` is not in `_MODES_NEVER_WARN_BILLING`,
+    # so an all-Flex pack with one order whose shipment has not landed yet
+    # would start warning about billing that structurally never arrives.
+    # A sale warns only if some member order is in a mode that really can
+    # be billed for shipping.
+    billable_modes = {m for m in modes_by_order.values() if m not in _MODES_NEVER_WARN_BILLING}
+    if has_shipment_order and billable_modes and shipping_total == 0 and not linked_detail_ids:
+        created_dates = [_ensure_utc(order.date_created) for order in orders if order.date_created is not None]
+        oldest_created = min(created_dates) if created_dates else None
+        if oldest_created is not None and (datetime.now(timezone.utc) - oldest_created) < _BILLING_AGE_THRESHOLD:
+            incomplete_reasons.append(REASON_BILLING_TOO_RECENT)
+        else:
+            incomplete_reasons.append(REASON_BILLING_NOT_SWEPT)
+
+    # A charge fully refunded nets to zero. Splitting `Envios` per mode made
+    # those surface as their own `Envios (Colecta): 0,00` row, which the
+    # single legacy line never showed. A zero row states nothing and costs
+    # the reader a second look, so it is dropped -- the sum is unchanged
+    # either way, which is why this is safe to do here and nowhere near the
+    # arithmetic.
+    lines = [
+        BreakdownLine(concepto=concepto, monto=monto, origen="api")
+        for concepto, monto in line_amounts.items()
+        if monto != 0
+    ] + lines_extra
 
     return OperationBreakdown(
         lines=lines,
@@ -458,6 +841,6 @@ def compute_breakdown(db: Session, order_ids: Sequence[int]) -> OperationBreakdo
         # failure this module's own tests call the worst available here,
         # introduced by the guard that was meant to prevent it.
         neto=neto if relevant_payments else None,
-        incompleto=bool(incomplete_reasons),
+        incompleto=any(reason not in _INFORMATIONAL_REASONS for reason in incomplete_reasons),
         incomplete_reasons=incomplete_reasons,
     )

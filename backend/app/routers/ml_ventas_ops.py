@@ -173,9 +173,17 @@ class MessageSummary(BaseModel):
 
 
 class BreakdownLineSummary(BaseModel):
-    """One line of the cost breakdown. `origen` is always `"api"`: every
-    line comes straight from ML's own payment/billing data, nothing is
-    computed here (corte 6 of ml-ventas-desglose-costos)."""
+    """One line of the cost breakdown.
+
+    `origen` says WHERE the number came from, and it is not one value any
+    more. `"api"` means ML's own payment/billing data, straight through
+    with nothing computed here (corte 6 of ml-ventas-desglose-costos).
+    `"propio"` means OUR preparation tables -- today the real Flex cost,
+    resolved from the shipping label's `costo_override` or the logistics
+    provider's cordon tariff, which ML never tells us.
+
+    The distinction is the point: an operator reading a Flex sale has to
+    be able to tell the cost we pay from the charge ML bills."""
 
     concepto: str
     monto: float
@@ -186,7 +194,13 @@ class OperationBreakdownSummary(BaseModel):
     """The sale's cost breakdown. `incompleto=True` with a populated
     `incomplete_reasons` means data is missing -- `neto` is never a
     fabricated number in that case (it is `None` when payments have not
-    even synced)."""
+    even synced).
+
+    The lines do NOT sum to `neto`. `origen="api"` lines explain what ML
+    already subtracted to arrive at `neto`; `origen="propio"` lines are
+    costs WE pay that ML never saw, and they sit alongside `neto` rather
+    than inside it. Anything rendering this must not present the two as a
+    single column that adds up."""
 
     lines: List[BreakdownLineSummary]
     neto: Optional[float] = None

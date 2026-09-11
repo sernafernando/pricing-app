@@ -27,6 +27,7 @@ from __future__ import annotations
 
 from typing import Any, List, Optional
 
+MODO_SELF_SERVICE = "self_service"
 MODO_RETIRO = "retiro"
 MODO_DESCONOCIDO = "desconocido"
 

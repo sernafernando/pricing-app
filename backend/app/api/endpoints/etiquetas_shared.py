@@ -21,7 +21,6 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 from sqlalchemy import and_, case, cast, desc, func, Numeric
 from sqlalchemy.orm import Session
 
-from app.models.configuracion import Configuracion
 from app.models.etiqueta_envio import EtiquetaEnvio
 from app.models.mercadolibre_order_shipping import MercadoLibreOrderShipping
 from app.models.sale_order_header import SaleOrderHeader
@@ -30,6 +29,7 @@ from app.models.transporte import Transporte
 from app.models.usuario import Usuario
 from app.services.permisos_service import verificar_permiso
 from app.services.geocoding_service import geocode_address
+from app.services.logistica_costo_service import get_lluvia_config
 
 # Regex para extraer JSONs del QR embebidos en ZPL
 QR_JSON_REGEX = re.compile(r'\{"id":"[^}]+\}')
@@ -73,20 +73,9 @@ def _check_any_permiso(db: Session, user: Usuario, codigos: list[str]) -> None:
 
 
 def _get_lluvia_config(db: Session) -> tuple[str, float]:
-    """Lee la configuración de offset por lluvia desde la tabla configuracion.
-
-    Returns:
-        (tipo, valor) — ej: ("fijo", 1800.0) o ("porcentaje", 50.0)
-        Si no existe, devuelve ("fijo", 0.0) (sin offset).
-    """
-    tipo_row = db.query(Configuracion.valor).filter(Configuracion.clave == "lluvia_offset_tipo").first()
-    valor_row = db.query(Configuracion.valor).filter(Configuracion.clave == "lluvia_offset_valor").first()
-    tipo = tipo_row[0] if tipo_row else "fijo"
-    try:
-        valor = float(valor_row[0]) if valor_row else 0.0
-    except (ValueError, TypeError):
-        valor = 0.0
-    return tipo, valor
+    """Kept as the name these endpoints already call; the rule itself lives
+    in `services/logistica_costo_service` so there is one definition."""
+    return get_lluvia_config(db)
 
 
 def _build_costo_case(

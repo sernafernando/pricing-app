@@ -37,6 +37,7 @@ from app.api.endpoints.etiquetas_shared import (
     EstadisticasEnvioResponse,
     EstadisticasPorDiaResponse,
 )
+from app.services.logistica_costo_service import cordon_normalizado_sql
 
 router = APIRouter()
 
@@ -358,7 +359,7 @@ def estadisticas_etiquetas(
         .subquery()
     )
 
-    cordon_norm = func.replace(CodigoPostalCordon.cordon, "ó", "o")
+    cordon_norm = cordon_normalizado_sql(CodigoPostalCordon.cordon)
 
     # Lluvia offset config
     lluvia_tipo_s, lluvia_valor_s = _get_lluvia_config(db)
