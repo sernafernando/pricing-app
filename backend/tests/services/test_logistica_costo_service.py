@@ -7,6 +7,15 @@ in the database, the other over objects already in memory -- so this file
 is what keeps them honest: every case is evaluated BOTH ways against the
 same row, and the two answers must be equal.
 
+THE LIMIT OF THAT PROMISE, stated rather than left to be discovered: these
+run on SQLite, where `CAST(x AS NUMERIC(12,2))` does not round and
+SQLAlchemy's result processor is what lands on the cent. Postgres rounds in
+the CAST itself. The two agree on every value here, but they can part on an
+exact tie (`.005`): Python's `quantize` is HALF_EVEN and Postgres is
+half-up. SQLite cannot exercise that case, so this file does not pin it --
+if a tariff ever lands exactly on a half-cent, this suite will not be what
+catches it.
+
 Without it, the ML sales breakdown and the Etiquetas screen would be free
 to show different costs for the same `shipping_id`, which is the
 two-numbers-for-one-sale failure the breakdown module calls the worst

@@ -757,7 +757,11 @@ def compute_breakdown(db: Session, order_ids: Sequence[int]) -> OperationBreakdo
     # the single legacy line would have reported.
     shipping_total = Decimal("0")
     for charge in seller_charges_all:
-        if charge.name.startswith("shp_"):
+        # `(charge.name or "")`: the name is nullable and a NULL has been
+        # seen in production. The label lookup beside this line already
+        # handles None, so leaving the guard off here would be a defensive
+        # line sitting next to an undefended one.
+        if (charge.name or "").startswith("shp_"):
             amount = _net_amount(charge)
             shipping_total += amount
             label = _shipping_label(charge.name)
