@@ -26,14 +26,20 @@ Every scenario below mirrors a real, measured case (see obs #1960, #1965,
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from decimal import Decimal
 
+from app.models.codigo_postal_cordon import CodigoPostalCordon
+from app.models.etiqueta_envio import EtiquetaEnvio
+from app.models.logistica import Logistica
+from app.models.logistica_costo_cordon import LogisticaCostoCordon
 from app.models.ml_billing import MlBillingCharge, MlBillingChargeOrder
-from app.models.ml_orders_ops import MlOrdersOps
+from app.models.ml_orders_ops import MlOrdersOps, MlShipmentOps
 from app.models.ml_payments import MlPaymentCharge, MlPaymentOps
 from app.services.ml_ventas_desglose.breakdown_service import (
+    CONCEPTO_ENVIOS,
     REASON_BILLING_NOT_SWEPT,
+    REASON_FLEX_COST_UNKNOWN,
     compute_neto_by_order_ids,
     REASON_PAYMENTS_NOT_COUNTABLE,
     REASON_PAYMENTS_NOT_SYNCED,
@@ -396,9 +402,13 @@ class TestIncompleteReasons:
         seller pays its own carrier, ML never bills it), and ordinary
         billing rows (a CVFV "Cargo por vender", not a shipping subtype).
         Measured 121/125 (obs #1965): this is the NORMAL case, not a
-        missing-data signal, and must never be marked incompleto."""
+        missing-data signal, and must never be marked incompleto.
+
+        The shipment row's `logistic_type="self_service"` is what now
+        drives the "never warns" mode -- ml-ventas-modo-logistico PR2."""
         order_id = 802
         _order(db, order_id, shipping_id=902)
+        db.add(MlShipmentOps(shipment_id=902, logistic_type="self_service"))
         _payment(db, 81, order_id, status="approved", net_received_amount=Decimal("100"))
         db.add(MlBillingCharge(detail_id="D-other", detail_sub_type="CVFV", amount=Decimal("10.00")))
         db.add(MlBillingChargeOrder(detail_id="D-other", order_id=order_id))
@@ -583,3 +593,164 @@ class TestTheTwoPathsToTheNetAgree:
         _charge(db, 23, "meli_fee", None, Decimal("475.70"), refunded=Decimal("475.70"))
         db.commit()
         assert self._assert_agree(db, [4430760076]) == Decimal("0.00")
+
+
+class TestPerModeShippingSplit:
+    """ml-ventas-modo-logistico PR2, task 2.2/2.6 -- the single `Envios`
+    line splits by known `shp_*` charge type, with an unrecognised type
+    bucketed rather than dropped."""
+
+    def test_known_shp_types_split_correctly(self, db) -> None:
+        order_id = 900
+        _order(db, order_id, shipping_id=None)
+        _payment(db, 90, order_id, status="approved", net_received_amount=Decimal("100"))
+        _charge(db, 90, "shp_cross_docking", "shipping", Decimal("300.00"))
+        _charge(db, 90, "shp_fulfillment", "shipping", Decimal("150.00"))
+        db.commit()
+
+        result = compute_breakdown(db, [order_id])
+
+        labels = {line.concepto: line.monto for line in result.lines}
+        assert labels["Envíos (Colecta)"] == Decimal("300.00")
+        assert labels["Envíos (Full)"] == Decimal("150.00")
+        envio_total = sum(monto for concepto, monto in labels.items() if concepto.startswith("Env"))
+        assert envio_total == Decimal("450.00")
+
+    def test_unrecognized_shp_bucketed_not_dropped(self, db) -> None:
+        order_id = 901
+        _order(db, order_id, shipping_id=None)
+        _payment(db, 91, order_id, status="approved", net_received_amount=Decimal("100"))
+        _charge(db, 91, "shp_never_seen_before", "shipping", Decimal("222.00"))
+        db.commit()
+
+        result = compute_breakdown(db, [order_id])
+
+        labels = {line.concepto: line.monto for line in result.lines}
+        assert labels[CONCEPTO_ENVIOS] == Decimal("222.00")
+
+
+class TestFlexRealCost:
+    """ml-ventas-modo-logistico PR2, task 2.4/2.7 -- the `propio` Flex
+    freight line, never a `$0` line when any input fails to resolve."""
+
+    def _self_service_shipment(self, db, shipment_id: int) -> None:
+        db.add(MlShipmentOps(shipment_id=shipment_id, logistic_type="self_service"))
+
+    def _logistica(self, db, logistica_id: int = 1, nombre: str = "Andreani") -> None:
+        db.add(Logistica(id=logistica_id, nombre=nombre))
+
+    def test_flex_cost_override_wins(self, db) -> None:
+        order_id = 950
+        _order(db, order_id, shipping_id=950)
+        self._self_service_shipment(db, 950)
+        _payment(db, 95, order_id, status="approved", net_received_amount=Decimal("100"))
+        self._logistica(db)
+        db.add(
+            EtiquetaEnvio(
+                shipping_id="950",
+                fecha_envio=date(2026, 8, 1),
+                logistica_id=1,
+                costo_override=Decimal("777.00"),
+            )
+        )
+        db.commit()
+
+        result = compute_breakdown(db, [order_id])
+
+        propio_lines = [line for line in result.lines if line.origen == "propio"]
+        assert len(propio_lines) == 1
+        assert propio_lines[0].monto == Decimal("777.00")
+        assert REASON_FLEX_COST_UNKNOWN not in result.incomplete_reasons
+
+    def test_flex_cost_from_tariff_table(self, db) -> None:
+        order_id = 951
+        _order(db, order_id, shipping_id=951)
+        self._self_service_shipment(db, 951)
+        _payment(db, 96, order_id, status="approved", net_received_amount=Decimal("100"))
+        self._logistica(db)
+        db.add(CodigoPostalCordon(codigo_postal="1900", cordon="Cordon 1"))
+        db.add(
+            LogisticaCostoCordon(
+                logistica_id=1,
+                cordon="Cordon 1",
+                costo=Decimal("500.00"),
+                vigente_desde=date(2026, 1, 1),
+            )
+        )
+        db.add(
+            EtiquetaEnvio(
+                shipping_id="951",
+                fecha_envio=date(2026, 8, 1),
+                logistica_id=1,
+                manual_zip_code="1900",
+            )
+        )
+        db.commit()
+
+        result = compute_breakdown(db, [order_id])
+
+        propio_lines = [line for line in result.lines if line.origen == "propio"]
+        assert len(propio_lines) == 1
+        assert propio_lines[0].monto == Decimal("500.00")
+        assert REASON_FLEX_COST_UNKNOWN not in result.incomplete_reasons
+
+    def test_flex_cost_unknown_no_label(self, db) -> None:
+        order_id = 952
+        _order(db, order_id, shipping_id=952)
+        self._self_service_shipment(db, 952)
+        _payment(db, 97, order_id, status="approved", net_received_amount=Decimal("100"))
+        db.commit()
+
+        result = compute_breakdown(db, [order_id])
+
+        assert not any(line.origen == "propio" for line in result.lines)
+        assert REASON_FLEX_COST_UNKNOWN in result.incomplete_reasons
+
+    def test_flex_cost_unknown_no_logistica(self, db) -> None:
+        order_id = 953
+        _order(db, order_id, shipping_id=953)
+        self._self_service_shipment(db, 953)
+        _payment(db, 98, order_id, status="approved", net_received_amount=Decimal("100"))
+        db.add(EtiquetaEnvio(shipping_id="953", fecha_envio=date(2026, 8, 1)))
+        db.commit()
+
+        result = compute_breakdown(db, [order_id])
+
+        assert not any(line.origen == "propio" for line in result.lines)
+        assert REASON_FLEX_COST_UNKNOWN in result.incomplete_reasons
+
+    def test_flex_cost_unknown_no_tariff_row(self, db) -> None:
+        order_id = 954
+        _order(db, order_id, shipping_id=954)
+        self._self_service_shipment(db, 954)
+        _payment(db, 99, order_id, status="approved", net_received_amount=Decimal("100"))
+        self._logistica(db)
+        db.add(CodigoPostalCordon(codigo_postal="1901", cordon="Cordon 2"))
+        db.add(
+            EtiquetaEnvio(
+                shipping_id="954",
+                fecha_envio=date(2026, 8, 1),
+                logistica_id=1,
+                manual_zip_code="1901",
+            )
+        )
+        db.commit()
+
+        result = compute_breakdown(db, [order_id])
+
+        assert not any(line.origen == "propio" for line in result.lines)
+        assert REASON_FLEX_COST_UNKNOWN in result.incomplete_reasons
+
+    def test_flex_cost_unknown_no_postcode(self, db) -> None:
+        order_id = 955
+        _order(db, order_id, shipping_id=955)
+        self._self_service_shipment(db, 955)
+        _payment(db, 100, order_id, status="approved", net_received_amount=Decimal("100"))
+        self._logistica(db)
+        db.add(EtiquetaEnvio(shipping_id="955", fecha_envio=date(2026, 8, 1), logistica_id=1))
+        db.commit()
+
+        result = compute_breakdown(db, [order_id])
+
+        assert not any(line.origen == "propio" for line in result.lines)
+        assert REASON_FLEX_COST_UNKNOWN in result.incomplete_reasons
