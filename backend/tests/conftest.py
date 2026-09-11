@@ -58,6 +58,7 @@ from app.models.ml_billing import (  # noqa: F401 — registers tables for creat
     MlBillingChargeOrder,
     MlBillingPeriodStat,
 )
+from app.models.ml_order_item_costo import MlOrderItemCosto  # noqa: F401 — registers table for create_all
 
 # ---------------------------------------------------------------------------
 # Token revocation test seam
