@@ -303,16 +303,19 @@ def _ensure_utc(value: Optional[datetime]) -> Optional[datetime]:
     return value
 
 
-def _resolve_modes(db: Session, orders: Sequence[MlOrdersOps]) -> tuple[str, Dict[int, str], Dict[int, MlShipmentOps]]:
-    """Group-level logistic mode, PLUS the per-order modes it collapsed and
-    the shipment rows it already loaded.
+def _resolve_modes(db: Session, orders: Sequence[MlOrdersOps]) -> tuple[Dict[int, str], Dict[int, MlShipmentOps]]:
+    """Per-order logistic modes, PLUS the shipment rows it already loaded.
 
-    All three come back together on purpose. The collapsed mode alone is
-    lossy: a pack that resolves to `"mixed"` still has individual
-    self_service orders whose freight WE pay, and a caller holding only
-    `"mixed"` would drop that cost with no trace -- the silent hole this
-    module's docstring exists to prevent. Returning the shipments map too
-    keeps the Flex resolver from re-running the identical query.
+    It deliberately does not collapse them into one group mode. That value
+    is lossy: a pack that resolves to `"mixed"` still holds individual
+    self_service orders whose freight WE pay, and every decision in this
+    module that once read the collapsed value dropped exactly that cost --
+    silently, with no line and no reason. Not handing it out is how that
+    stops being available to reach for. Badges may collapse; money
+    decisions may not.
+
+    The shipments map rides along so the Flex resolver does not re-run the
+    identical query.
 
     Always recomputed live from the shipment/tag join -- mirrors the D2
     pattern (`total_gauss`/`modo_logistico` snapshot columns are sort/filter
