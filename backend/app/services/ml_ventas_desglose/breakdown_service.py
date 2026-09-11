@@ -110,10 +110,14 @@ from app.services.logistica_costo_service import costo_efectivo, get_lluvia_conf
 from app.services.ml_orders_ingestion.mode_resolution import (
     MODO_DESCONOCIDO,
     MODO_RETIRO,
+    MODO_SELF_SERVICE,
     resolve_modo_logistico,
 )
 
-MODO_SELF_SERVICE = "self_service"
+# `MODO_SELF_SERVICE` is IMPORTED, not redeclared: a second copy of the
+# string here is precisely the drift this module argues against everywhere
+# else. `MODO_MIXED` has no home in the cascade -- nothing resolves TO it,
+# it only ever comes out of collapsing several orders -- so it lives here.
 MODO_MIXED = "mixed"
 
 # Modes for which a MISSING shipping charge is not a missing-data signal.
@@ -415,7 +419,10 @@ def _resolve_flex_cost_line(
     # Both lookups below are resolved in ONE query each, before the loop.
     # Querying inside it is the pattern AGENTS.md names outright, and a pack
     # is not a bound worth trusting.
-    postal_codes = {pc for pc in (_postal_code_for_cordon(label, shipments_by_id) for label in labels) if pc}
+    postal_code_by_shipping_id = {
+        label.shipping_id: _postal_code_for_cordon(label, shipments_by_id) for label in labels
+    }
+    postal_codes = {pc for pc in postal_code_by_shipping_id.values() if pc}
     cordones_by_cp = {}
     if postal_codes:
         cordones_by_cp = {
@@ -452,7 +459,7 @@ def _resolve_flex_cost_line(
         if label.logistica_id is None:
             return None, True
 
-        postal_code = _postal_code_for_cordon(label, shipments_by_id)
+        postal_code = postal_code_by_shipping_id.get(str(shipping_id))
         if not postal_code:
             return None, True
 
@@ -801,8 +808,16 @@ def compute_breakdown(db: Session, order_ids: Sequence[int]) -> OperationBreakdo
         else:
             incomplete_reasons.append(REASON_BILLING_NOT_SWEPT)
 
+    # A charge fully refunded nets to zero. Splitting `Envios` per mode made
+    # those surface as their own `Envios (Colecta): 0,00` row, which the
+    # single legacy line never showed. A zero row states nothing and costs
+    # the reader a second look, so it is dropped -- the sum is unchanged
+    # either way, which is why this is safe to do here and nowhere near the
+    # arithmetic.
     lines = [
-        BreakdownLine(concepto=concepto, monto=monto, origen="api") for concepto, monto in line_amounts.items()
+        BreakdownLine(concepto=concepto, monto=monto, origen="api")
+        for concepto, monto in line_amounts.items()
+        if monto != 0
     ] + lines_extra
 
     return OperationBreakdown(
