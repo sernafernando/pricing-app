@@ -98,7 +98,7 @@ from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 from typing import Dict, List, Optional, Sequence
 
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, joinedload
 
 from app.models.codigo_postal_cordon import CodigoPostalCordon
 from app.models.etiqueta_envio import EtiquetaEnvio
@@ -115,10 +115,23 @@ from app.services.ml_orders_ingestion.mode_resolution import (
 MODO_SELF_SERVICE = "self_service"
 MODO_MIXED = "mixed"
 
-# Modes that structurally never bill a shipping charge through the billing
-# sweep -- see `breakdown_service` module docstring's "Envios" section:
-# `self_service` sellers pay their own carrier directly, and `retiro` never
-# involves ML shipping at all. Neither is a missing-data signal.
+# Modes for which a MISSING shipping charge is not a missing-data signal.
+#
+# `retiro` is the absolute case: no ML shipping is involved at all, so
+# there is nothing that could ever be billed.
+#
+# `self_service` is the statistical one, and the difference matters enough
+# to write down. ML DOES bill Flex sellers a technical charge sometimes --
+# `shp_self_service_tech` appears on 553 payments in production, against
+# 25.770 self_service shipments. So roughly 98% of Flex sales carry no ML
+# shipping charge because the seller pays their own carrier directly, and
+# the remaining 2% carry one legitimately.
+#
+# We cannot tell a genuinely missing `shp_self_service_tech` from the
+# overwhelmingly normal absence of one, and warning on the 98% to catch the
+# 2% is precisely the alarm-that-always-rings this module refuses to build.
+# So Flex does not warn -- and that is a deliberate blind spot, not a claim
+# that the charge never exists.
 _MODES_NEVER_WARN_BILLING = frozenset({MODO_SELF_SERVICE, MODO_RETIRO})
 
 _BILLING_AGE_THRESHOLD = timedelta(hours=48)
@@ -286,8 +299,16 @@ def _ensure_utc(value: Optional[datetime]) -> Optional[datetime]:
     return value
 
 
-def _resolve_modo_for_orders(db: Session, orders: Sequence[MlOrdersOps]) -> str:
-    """Group-level logistic mode for a sale/pack.
+def _resolve_modes(db: Session, orders: Sequence[MlOrdersOps]) -> tuple[str, Dict[int, str], Dict[int, MlShipmentOps]]:
+    """Group-level logistic mode, PLUS the per-order modes it collapsed and
+    the shipment rows it already loaded.
+
+    All three come back together on purpose. The collapsed mode alone is
+    lossy: a pack that resolves to `"mixed"` still has individual
+    self_service orders whose freight WE pay, and a caller holding only
+    `"mixed"` would drop that cost with no trace -- the silent hole this
+    module's docstring exists to prevent. Returning the shipments map too
+    keeps the Flex resolver from re-running the identical query.
 
     Always recomputed live from the shipment/tag join -- mirrors the D2
     pattern (`total_gauss`/`modo_logistico` snapshot columns are sort/filter
@@ -296,7 +317,7 @@ def _resolve_modo_for_orders(db: Session, orders: Sequence[MlOrdersOps]) -> str:
     mode; disagreement -> `\"mixed\"`.
     """
     if not orders:
-        return MODO_DESCONOCIDO
+        return MODO_DESCONOCIDO, {}, {}
 
     shipping_ids = [o.shipping_id for o in orders if o.shipping_id is not None]
     shipments_by_id: Dict[int, MlShipmentOps] = {}
@@ -304,26 +325,26 @@ def _resolve_modo_for_orders(db: Session, orders: Sequence[MlOrdersOps]) -> str:
         shipments = db.query(MlShipmentOps).filter(MlShipmentOps.shipment_id.in_(shipping_ids)).all()
         shipments_by_id = {s.shipment_id: s for s in shipments}
 
-    modes = set()
+    modes_by_order: Dict[int, str] = {}
     for order in orders:
         shipment = shipments_by_id.get(order.shipping_id) if order.shipping_id is not None else None
-        modes.add(
-            resolve_modo_logistico(
-                shipment_logistic_type=shipment.logistic_type if shipment else None,
-                has_shipment=shipment is not None,
-                tagged_no_shipping=bool(order.has_no_shipping_tag),
-            )
+        modes_by_order[order.order_id] = resolve_modo_logistico(
+            shipment_logistic_type=shipment.logistic_type if shipment else None,
+            has_shipment=shipment is not None,
+            tagged_no_shipping=bool(order.has_no_shipping_tag),
         )
+    modes = set(modes_by_order.values())
 
     if len(modes) == 1:
-        return next(iter(modes))
-    return MODO_MIXED
+        return next(iter(modes)), modes_by_order, shipments_by_id
+    return MODO_MIXED, modes_by_order, shipments_by_id
 
 
 def _resolve_flex_cost_line(
     db: Session,
     orders: Sequence[MlOrdersOps],
-    modo: str,
+    modes_by_order: Dict[int, str],
+    shipments_by_id: Dict[int, MlShipmentOps],
 ) -> tuple[Optional["BreakdownLine"], bool]:
     """The seller's OWN Flex shipping cost -- see spec "Flex Real Cost
     Line". Resolution is `costo_override` (wins when set) else
@@ -333,21 +354,30 @@ def _resolve_flex_cost_line(
     emitted at all and the caller adds `REASON_FLEX_COST_UNKNOWN` -- never a
     `coalesce(..., 0)` that would render an unresolved cost as `$0`.
 
-    Returns `(None, False)` when the mode is not `self_service` -- Flex
+    Selection is PER ORDER, never off the group's collapsed mode. A pack
+    that collapses to `"mixed"` can still hold a self_service order whose
+    freight we pay, and keying off the collapsed value would drop that cost
+    silently -- no line AND no `flex_cost_unknown`, which is worse than
+    either alone.
+
+    Returns `(None, False)` when no member order is self_service -- Flex
     cost simply does not apply.
     """
-    if modo != MODO_SELF_SERVICE:
+    flex_orders = [o for o in orders if modes_by_order.get(o.order_id) == MODO_SELF_SERVICE]
+    if not flex_orders:
         return None, False
 
-    shipping_ids = sorted({o.shipping_id for o in orders if o.shipping_id is not None})
+    shipping_ids = sorted({o.shipping_id for o in flex_orders if o.shipping_id is not None})
     if not shipping_ids:
         return None, True
 
-    labels = db.query(EtiquetaEnvio).filter(EtiquetaEnvio.shipping_id.in_([str(s) for s in shipping_ids])).all()
+    labels = (
+        db.query(EtiquetaEnvio)
+        .options(joinedload(EtiquetaEnvio.logistica))
+        .filter(EtiquetaEnvio.shipping_id.in_([str(s) for s in shipping_ids]))
+        .all()
+    )
     labels_by_shipping_id = {label.shipping_id: label for label in labels}
-
-    shipments = db.query(MlShipmentOps).filter(MlShipmentOps.shipment_id.in_(shipping_ids)).all()
-    shipments_by_id = {s.shipment_id: s for s in shipments}
 
     total = Decimal("0")
     logistica_names: List[str] = []
@@ -465,6 +495,23 @@ class BreakdownLine:
 
 @dataclass(frozen=True)
 class OperationBreakdown:
+    """The sale's cost breakdown.
+
+    `neto` DOES NOT include the `origen="propio"` lines, and that is by
+    design, not an oversight. `neto` is ML's own `net_received_amount`:
+    every `origen="api"` line is a charge ML already subtracted before
+    handing us the money, so those lines EXPLAIN the net rather than move
+    it. A `propio` line -- today the real Flex freight -- is a cost WE pay
+    to a carrier ML never sees, so it cannot be inside a number ML
+    computed.
+
+    The consequence is deliberate and has to be carried honestly by
+    whoever renders this: summing every line does NOT reproduce `neto`.
+    The `propio` lines are what the upcoming Total Gauss subtracts FROM
+    `neto` (spec: `Neto - envio flex - % = Total Gauss`), which is exactly
+    why they are reported separately instead of being folded in here.
+    """
+
     lines: List[BreakdownLine]
     neto: Optional[Decimal]
     incompleto: bool
@@ -639,12 +686,13 @@ def compute_breakdown(db: Session, order_ids: Sequence[int]) -> OperationBreakdo
 
     orders = db.query(MlOrdersOps).filter(MlOrdersOps.order_id.in_(order_ids)).all()
     has_shipment_order = any(order.shipping_id is not None for order in orders)
-    modo = _resolve_modo_for_orders(db, orders)
+    modo, modes_by_order, shipments_by_id = _resolve_modes(db, orders)
 
     # The seller's OWN Flex freight cost -- see spec "Flex Real Cost Line".
-    # Only applies when the mode is self_service; all-or-nothing per
+    # Applies to whichever member orders are self_service, chosen from the
+    # PER-ORDER modes and never from the collapsed one; all-or-nothing per
     # `_resolve_flex_cost_line`, never a `$0` line for an unresolved input.
-    flex_line, flex_unknown = _resolve_flex_cost_line(db, orders, modo)
+    flex_line, flex_unknown = _resolve_flex_cost_line(db, orders, modes_by_order, shipments_by_id)
     lines_extra: List[BreakdownLine] = []
     if flex_line is not None:
         lines_extra.append(flex_line)
@@ -658,7 +706,14 @@ def compute_breakdown(db: Session, order_ids: Sequence[int]) -> OperationBreakdo
     # gets the INFORMATIONAL `billing_too_recent` reason, which does not
     # flip `incompleto`; (c) 48h or older with no charge and no billing
     # link is a genuine `billing_not_swept`.
-    if has_shipment_order and modo not in _MODES_NEVER_WARN_BILLING and shipping_total == 0 and not linked_detail_ids:
+    # Decided off the PER-ORDER modes for the same reason the Flex line is:
+    # a pack collapsing to `"mixed"` is not in `_MODES_NEVER_WARN_BILLING`,
+    # so an all-Flex pack with one order whose shipment has not landed yet
+    # would start warning about billing that structurally never arrives.
+    # A sale warns only if some member order is in a mode that really can
+    # be billed for shipping.
+    billable_modes = {m for m in modes_by_order.values() if m not in _MODES_NEVER_WARN_BILLING}
+    if has_shipment_order and billable_modes and shipping_total == 0 and not linked_detail_ids:
         created_dates = [_ensure_utc(order.date_created) for order in orders if order.date_created is not None]
         oldest_created = min(created_dates) if created_dates else None
         if oldest_created is not None and (datetime.now(timezone.utc) - oldest_created) < _BILLING_AGE_THRESHOLD:

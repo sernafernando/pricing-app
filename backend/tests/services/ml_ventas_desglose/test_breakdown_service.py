@@ -662,6 +662,55 @@ class TestFlexRealCost:
         assert propio_lines[0].monto == Decimal("777.00")
         assert REASON_FLEX_COST_UNKNOWN not in result.incomplete_reasons
 
+    def test_mixed_pack_still_charges_the_flex_order(self, db) -> None:
+        """A pack whose orders disagree collapses to `"mixed"`, and keying
+        the Flex resolver off that collapsed value dropped the cost with NO
+        line and NO `flex_cost_unknown` -- a freight cost we really pay,
+        gone without a trace. Selection is per order, so the self_service
+        member still gets charged even when its packmate is not Flex."""
+        flex_order, other_order = 958, 959
+        _order(db, flex_order, shipping_id=958, pack_id=9580)
+        _order(db, other_order, shipping_id=959, pack_id=9580)
+        self._self_service_shipment(db, 958)
+        db.add(MlShipmentOps(shipment_id=959, logistic_type="cross_docking"))
+        _payment(db, 103, flex_order, status="approved", net_received_amount=Decimal("100"))
+        self._logistica(db)
+        db.add(
+            EtiquetaEnvio(
+                shipping_id="958",
+                fecha_envio=date(2026, 8, 1),
+                logistica_id=1,
+                costo_override=Decimal("640.00"),
+            )
+        )
+        db.commit()
+
+        result = compute_breakdown(db, [flex_order, other_order])
+
+        propio_lines = [line for line in result.lines if line.origen == "propio"]
+        assert len(propio_lines) == 1
+        assert propio_lines[0].monto == Decimal("640.00")
+        # The cost RESOLVED, so the unknown reason must be absent: a line
+        # plus the reason would be the sale claiming both at once.
+        assert REASON_FLEX_COST_UNKNOWN not in result.incomplete_reasons
+
+    def test_mixed_pack_with_unresolved_flex_says_so(self, db) -> None:
+        """Same shape, but the Flex member has no label: the cost is UNKNOWN
+        and must be reported as such. Silence would be the same hole the
+        test above closes, just wearing a different disguise."""
+        flex_order, other_order = 960, 961
+        _order(db, flex_order, shipping_id=960, pack_id=9600)
+        _order(db, other_order, shipping_id=961, pack_id=9600)
+        self._self_service_shipment(db, 960)
+        db.add(MlShipmentOps(shipment_id=961, logistic_type="cross_docking"))
+        _payment(db, 104, flex_order, status="approved", net_received_amount=Decimal("100"))
+        db.commit()
+
+        result = compute_breakdown(db, [flex_order, other_order])
+
+        assert not [line for line in result.lines if line.origen == "propio"]
+        assert REASON_FLEX_COST_UNKNOWN in result.incomplete_reasons
+
     def test_flex_cost_from_tariff_table(self, db) -> None:
         order_id = 951
         _order(db, order_id, shipping_id=951)

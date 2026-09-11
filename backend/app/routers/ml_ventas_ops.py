@@ -194,7 +194,13 @@ class OperationBreakdownSummary(BaseModel):
     """The sale's cost breakdown. `incompleto=True` with a populated
     `incomplete_reasons` means data is missing -- `neto` is never a
     fabricated number in that case (it is `None` when payments have not
-    even synced)."""
+    even synced).
+
+    The lines do NOT sum to `neto`. `origen="api"` lines explain what ML
+    already subtracted to arrive at `neto`; `origen="propio"` lines are
+    costs WE pay that ML never saw, and they sit alongside `neto` rather
+    than inside it. Anything rendering this must not present the two as a
+    single column that adds up."""
 
     lines: List[BreakdownLineSummary]
     neto: Optional[float] = None
