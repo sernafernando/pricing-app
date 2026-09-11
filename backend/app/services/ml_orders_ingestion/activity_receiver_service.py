@@ -124,6 +124,41 @@ if CURSOR_NAME == SWEEP_CURSOR_NAME:
 # into a payload `process_batch` can upsert.
 MAX_ACTIVITY_ORDER_FETCHES_PER_PASS = 500
 
+# A page MUST be smaller than the per-pass order budget, and this is the
+# whole reason the constant exists.
+#
+# The bridge clamps `limit` at 500. Asking for its maximum meant one page
+# could hold as many unique orders as the pass is allowed to fetch, so a
+# single page could exhaust the budget -- or hit the pass deadline --
+# before every order on it was attempted. And an unfinished page does not
+# advance the cursor, on purpose, so that nothing is skipped.
+#
+# Those two rules are each correct and together they wedge: the next pass
+# re-asks the SAME page, runs short at the same place, and the cursor
+# never moves. Observed in production on 2026-09-11 -- drains chaining
+# back to back for over half an hour with the cursor frozen, while the
+# orders recovery competed for the same proxy and made every fetch slow
+# enough to hit the deadline mid-page.
+#
+# With a page comfortably smaller than the budget, a pass always finishes
+# at least one page, so the cursor always moves. The safeguard stays
+# intact for the case it was written for -- running out mid-page.
+#
+# HONEST LIMIT: this closes the BUDGET path, not the clock. A 100-order
+# page still cannot finish if each fetch takes longer than the pass
+# deadline divided by the page -- roughly 15s each today. No page size
+# rules that out, so the stall is made LOUD rather than claimed
+# impossible, and the alarm says which ceiling ran out: the budget is
+# ours to raise, the clock means the fetches themselves got slow and
+# raising anything would not help.
+ACTIVITY_PAGE_LIMIT = 100
+
+if ACTIVITY_PAGE_LIMIT >= MAX_ACTIVITY_ORDER_FETCHES_PER_PASS:
+    raise RuntimeError(
+        "activity_receiver_service.ACTIVITY_PAGE_LIMIT must stay BELOW "
+        "MAX_ACTIVITY_ORDER_FETCHES_PER_PASS: a page the pass cannot finish freezes the cursor forever"
+    )
+
 FLAG_OFF_REASON = "ML_ORDERS_OPS_ENABLED is False"
 
 
@@ -131,6 +166,13 @@ FLAG_OFF_REASON = "ML_ORDERS_OPS_ENABLED is False"
 class ActivityDrainResult:
     ran: bool
     pages_walked: int = 0
+    # Pages whose cursor actually moved. A pass can walk pages and commit
+    # NONE of them -- that is the shape of a stall, and it is invisible in
+    # `pages_walked` alone.
+    pages_advanced: int = 0
+    # Which ceiling ended the unfinished page. See the alarm below.
+    stalled_on_deadline: bool = False
+    stalled_on_both: bool = False
     events_seen: int = 0
     events_without_order_id: int = 0
     orders_resolved: int = 0
@@ -267,10 +309,12 @@ def drain_activity() -> ActivityDrainResult:
             if _pass_deadline_reached(pass_started_at):
                 logger.warning("activity_receiver: pass deadline reached before the next page fetch; stopping")
                 complete = False
+                # A CLEAN stop, not a stall: the pass ended between pages
+                # with whatever it had already committed.
                 result.budget_exhausted = True
                 break
 
-            page = resolve_maybe_async(ml_webhook_client.get_activity(since=since))
+            page = resolve_maybe_async(ml_webhook_client.get_activity(since=since, limit=ACTIVITY_PAGE_LIMIT))
             if page is None:
                 # Retryable (timeout/network/5xx) -- NOT a persistent
                 # error like an invalid cursor. Stop this pass without
@@ -289,12 +333,26 @@ def drain_activity() -> ActivityDrainResult:
             new_order_ids, without_order_id = _collect_new_order_ids(events, seen_this_pass)
             result.events_without_order_id += without_order_id
 
+            stopped_by_deadline = False
+            stopped_by_budget = False
             resolved_raw_orders: List[Dict[str, Any]] = []
             page_seen: Dict[int, bool] = {}
             page_not_attempted = 0
             for order_id in new_order_ids:
-                if order_fetch_budget[0] <= 0 or _pass_deadline_reached(pass_started_at):
+                out_of_budget = order_fetch_budget[0] <= 0
+                out_of_time = _pass_deadline_reached(pass_started_at)
+                if out_of_budget or out_of_time:
                     page_not_attempted += 1
+                    # WHICH ceiling ran out decides what an operator does
+                    # about it: the budget is ours to raise, the clock
+                    # means the fetches themselves got slow (contention,
+                    # a degraded proxy) and raising anything would not
+                    # help. Collapsing them sends whoever reads the alarm
+                    # to the wrong lever.
+                    if out_of_time:
+                        stopped_by_deadline = True
+                    else:
+                        stopped_by_budget = True
                     continue
                 order_fetch_budget[0] -= 1
                 try:
@@ -366,6 +424,14 @@ def drain_activity() -> ActivityDrainResult:
                 # silently skipping whatever this pass could not reach.
                 complete = False
                 result.budget_exhausted = True
+                # Both ceilings can run out on the SAME page: some orders
+                # skipped for want of budget, the rest for want of time.
+                # Reporting only the clock would tell an operator that
+                # raising the budget cannot help, when for part of the page
+                # it would. Only a page stopped PURELY by the clock earns
+                # that claim.
+                result.stalled_on_deadline = stopped_by_deadline and not stopped_by_budget
+                result.stalled_on_both = stopped_by_deadline and stopped_by_budget
                 break
 
             if not isinstance(next_cursor, str) or not next_cursor:
@@ -399,6 +465,7 @@ def drain_activity() -> ActivityDrainResult:
                 # before the loop started.
                 write_cursor = load_cursor(db, cursor_name=CURSOR_NAME)
                 write_cursor.activity_cursor = next_cursor
+            result.pages_advanced += 1
             since = next_cursor
 
             if not has_more:
@@ -419,6 +486,28 @@ def drain_activity() -> ActivityDrainResult:
             release_lock_as_error(failure, cursor_name=CURSOR_NAME)
         else:
             release_lock_as_idle(now, complete=complete, cursor_name=CURSOR_NAME)
+
+    # Walking pages and committing none of them means the cursor did not
+    # move: the next pass re-asks the same page and runs short in the same
+    # place. That is a stall, not slowness, and it has to say so -- a pass
+    # that reports "stopped early" forever reads like a busy system.
+    if result.pages_walked and not result.pages_advanced and result.error is None:
+        logger.error(
+            "activity_receiver: walked %d page(s) and advanced the cursor past NONE of them — the drain is "
+            "stalled, not merely busy (events=%s resolved=%s not_attempted=%s). Ran out of: %s. A page that "
+            "cannot be finished within one pass freezes the feed.",
+            result.pages_walked,
+            result.events_seen,
+            result.orders_resolved,
+            result.orders_not_attempted,
+            "the pass clock AND the order-fetch budget (raising the budget helps only part of it)"
+            if result.stalled_on_both
+            else (
+                "the pass clock (fetches are slow — contention or a degraded proxy; raising the budget will not help)"
+                if result.stalled_on_deadline
+                else "the order-fetch budget (ours to raise)"
+            ),
+        )
 
     if result.budget_exhausted:
         logger.warning(

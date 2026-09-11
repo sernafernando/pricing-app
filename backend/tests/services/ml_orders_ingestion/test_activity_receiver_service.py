@@ -538,3 +538,222 @@ class TestAResolvedOrderIsActuallyWritten:
         assert result.orders_upserted == 0
         assert result.orders_mapping_error == 1
         assert db.query(MlOrdersOps).filter_by(order_id=1).one_or_none() is None
+
+
+class TestAPageAlwaysFitsInsideAPass:
+    """The stall that happened in production on 2026-09-11.
+
+    Two rules, each correct: a page that could not be fully handled does
+    NOT advance the cursor (so nothing is skipped), and a pass stops when
+    its order budget or its deadline runs out. Together, a page as large
+    as the budget wedges the feed -- the next pass re-asks the same page,
+    runs short in the same place, and the cursor never moves. Drains
+    chained back to back for over half an hour with the cursor frozen.
+    """
+
+    def test_the_page_asked_for_is_smaller_than_the_pass_budget(self):
+        """The invariant, checked directly: if a page can hold as many
+        orders as the pass may fetch, one page can consume the whole
+        budget and never finish."""
+        assert service.ACTIVITY_PAGE_LIMIT < service.MAX_ACTIVITY_ORDER_FETCHES_PER_PASS
+
+    def test_the_real_client_actually_takes_a_limit(self):
+        """The assertion below rides on a mock, and a bare AsyncMock
+        accepts any keyword: if `get_activity` had no `limit` parameter,
+        the call test would still pass while production kept asking for
+        500-event pages. So the real signature is checked too."""
+        import inspect
+
+        assert "limit" in inspect.signature(ml_webhook_client.get_activity).parameters
+
+    def test_the_bridge_is_asked_for_that_limit(self, db, monkeypatch):
+        """Asking without a limit gets the bridge's maximum (500), which
+        is exactly the budget -- the bug."""
+        activity = AsyncMock(return_value=_page([_event(1)], has_more=False, next_cursor="c1"))
+        monkeypatch.setattr(ml_webhook_client, "get_activity", activity)
+        monkeypatch.setattr(ml_webhook_client, "get_order", AsyncMock(return_value=_order(1)))
+
+        service.drain_activity()
+
+        assert activity.await_args.kwargs["limit"] == service.ACTIVITY_PAGE_LIMIT
+
+    def test_a_finished_page_counts_as_advanced(self, db, monkeypatch):
+        monkeypatch.setattr(
+            ml_webhook_client,
+            "get_activity",
+            AsyncMock(return_value=_page([_event(1)], has_more=False, next_cursor="c1")),
+        )
+        monkeypatch.setattr(ml_webhook_client, "get_order", AsyncMock(return_value=_order(1)))
+
+        result = service.drain_activity()
+
+        assert result.pages_walked == 1
+        assert result.pages_advanced == 1
+
+    def test_a_page_the_budget_cannot_finish_advances_nothing(self, db, monkeypatch):
+        """The safeguard still holds -- this is the case it was written
+        for. What must NOT happen is that this becomes permanent."""
+        monkeypatch.setattr(
+            ml_webhook_client,
+            "get_activity",
+            AsyncMock(return_value=_page([_event(1), _event(2)], has_more=True, next_cursor="c1")),
+        )
+        monkeypatch.setattr(ml_webhook_client, "get_order", AsyncMock(return_value=_order(1)))
+        monkeypatch.setattr(service, "MAX_ACTIVITY_ORDER_FETCHES_PER_PASS", 1)
+
+        result = service.drain_activity()
+
+        assert result.pages_walked == 1
+        assert result.pages_advanced == 0
+        stored = db.query(MlOpsSyncCursor).filter_by(name="ml_activity").one()
+        assert stored.activity_cursor is None
+
+    def test_a_stall_is_logged_as_an_error_not_as_business_as_usual(self, db, monkeypatch, caplog):
+        """A pass that walks pages and commits none reads like a busy
+        system unless it says otherwise. Half an hour of that went
+        unnoticed."""
+        import logging
+
+        monkeypatch.setattr(
+            ml_webhook_client,
+            "get_activity",
+            AsyncMock(return_value=_page([_event(1), _event(2)], has_more=True, next_cursor="c1")),
+        )
+        monkeypatch.setattr(ml_webhook_client, "get_order", AsyncMock(return_value=_order(1)))
+        monkeypatch.setattr(service, "MAX_ACTIVITY_ORDER_FETCHES_PER_PASS", 1)
+
+        with caplog.at_level(logging.INFO):
+            service.drain_activity()
+
+        assert "stalled" in caplog.text
+        assert any(r.levelno >= logging.ERROR for r in caplog.records)
+
+    def test_a_healthy_pass_does_not_cry_stall(self, db, monkeypatch, caplog):
+        import logging
+
+        monkeypatch.setattr(
+            ml_webhook_client,
+            "get_activity",
+            AsyncMock(return_value=_page([_event(1)], has_more=False, next_cursor="c1")),
+        )
+        monkeypatch.setattr(ml_webhook_client, "get_order", AsyncMock(return_value=_order(1)))
+
+        with caplog.at_level(logging.INFO):
+            service.drain_activity()
+
+        assert "stalled" not in caplog.text
+
+
+class TestTheStallAlarmNamesTheRightLever:
+    """Two different ceilings end an unfinished page, and an operator does
+    something DIFFERENT about each: the order budget is ours to raise, the
+    pass clock means the fetches themselves got slow and raising anything
+    would not help. An alarm that collapses them sends whoever reads it to
+    the wrong lever."""
+
+    def _stalling_page(self):
+        return _page([_event(1), _event(2)], has_more=True, next_cursor="c1")
+
+    def test_running_out_of_budget_says_so(self, db, monkeypatch, caplog):
+        import logging
+
+        monkeypatch.setattr(ml_webhook_client, "get_activity", AsyncMock(return_value=self._stalling_page()))
+        monkeypatch.setattr(ml_webhook_client, "get_order", AsyncMock(return_value=_order(1)))
+        monkeypatch.setattr(service, "MAX_ACTIVITY_ORDER_FETCHES_PER_PASS", 1)
+
+        with caplog.at_level(logging.INFO):
+            result = service.drain_activity()
+
+        assert result.stalled_on_deadline is False
+        assert "budget" in caplog.text
+
+    def test_running_out_of_clock_says_so_instead(self, db, monkeypatch, caplog):
+        """The case the page limit CANNOT rule out: no page size helps if
+        each fetch is slower than the deadline divided by the page."""
+        import logging
+
+        monkeypatch.setattr(ml_webhook_client, "get_activity", AsyncMock(return_value=self._stalling_page()))
+        monkeypatch.setattr(ml_webhook_client, "get_order", AsyncMock(return_value=_order(1)))
+        # Budget is ample; the clock is what runs out -- and it has to run
+        # out MID-PAGE, not before the first page is even fetched: the
+        # top-of-loop check would end the pass having walked nothing, which
+        # is a clean stop, not a stall.
+        llamadas = {"n": 0}
+
+        def _reloj(started):
+            llamadas["n"] += 1
+            return llamadas["n"] > 2
+
+        monkeypatch.setattr(service, "_pass_deadline_reached", _reloj)
+
+        with caplog.at_level(logging.INFO):
+            result = service.drain_activity()
+
+        assert result.stalled_on_deadline is True
+        assert "clock" in caplog.text
+        assert "will not help" in caplog.text
+
+    def test_an_unusable_cursor_does_not_also_cry_stall(self, db, monkeypatch, caplog):
+        """That path already logs its own, more specific error. Adding a
+        generic stall on top buries the line that actually says what
+        happened."""
+        import logging
+
+        monkeypatch.setattr(
+            ml_webhook_client,
+            "get_activity",
+            AsyncMock(return_value=_page([_event(1)], has_more=True, next_cursor=None)),
+        )
+        monkeypatch.setattr(ml_webhook_client, "get_order", AsyncMock(return_value=_order(1)))
+
+        with caplog.at_level(logging.INFO):
+            service.drain_activity()
+
+        assert "no usable next_cursor" in caplog.text
+        assert "stalled" not in caplog.text
+
+
+class TestBothCeilingsOnTheSamePage:
+    """A page can run out of budget for some orders and out of time for
+    the rest. Blaming only the clock tells an operator that raising the
+    budget cannot help, when for part of that page it would."""
+
+    def test_a_mixed_stall_says_both(self, db, monkeypatch, caplog):
+        import logging
+
+        monkeypatch.setattr(
+            ml_webhook_client,
+            "get_activity",
+            AsyncMock(return_value=_page([_event(1), _event(2), _event(3)], has_more=True, next_cursor="c1")),
+        )
+        monkeypatch.setattr(ml_webhook_client, "get_order", AsyncMock(return_value=_order(1)))
+        monkeypatch.setattr(service, "MAX_ACTIVITY_ORDER_FETCHES_PER_PASS", 1)
+        # Budget dies on the 2nd order; the clock then dies on the 3rd.
+        llamadas = {"n": 0}
+
+        def _reloj(started):
+            llamadas["n"] += 1
+            return llamadas["n"] > 3
+
+        monkeypatch.setattr(service, "_pass_deadline_reached", _reloj)
+
+        with caplog.at_level(logging.INFO):
+            result = service.drain_activity()
+
+        assert result.stalled_on_both is True
+        assert result.stalled_on_deadline is False
+        assert "helps only part of it" in caplog.text
+
+    def test_a_pure_budget_stall_does_not_claim_both(self, db, monkeypatch):
+        monkeypatch.setattr(
+            ml_webhook_client,
+            "get_activity",
+            AsyncMock(return_value=_page([_event(1), _event(2)], has_more=True, next_cursor="c1")),
+        )
+        monkeypatch.setattr(ml_webhook_client, "get_order", AsyncMock(return_value=_order(1)))
+        monkeypatch.setattr(service, "MAX_ACTIVITY_ORDER_FETCHES_PER_PASS", 1)
+
+        result = service.drain_activity()
+
+        assert result.stalled_on_both is False
+        assert result.stalled_on_deadline is False

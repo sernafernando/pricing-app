@@ -71,11 +71,12 @@ def main() -> None:
     # finished one.
     outcome = "drain stopped early (order fetch budget)" if result.budget_exhausted else "drain complete"
     logger.info(
-        "drain_ml_activity: %s — pages=%s events=%s without_order_id=%s "
+        "drain_ml_activity: %s — pages=%s advanced=%s events=%s without_order_id=%s "
         "resolved=%s unresolved=%s not_attempted=%s | upserted=%s stale=%s "
         "mapping_error=%s out_of_window=%s",
         outcome,
         result.pages_walked,
+        result.pages_advanced,
         result.events_seen,
         result.events_without_order_id,
         result.orders_resolved,
