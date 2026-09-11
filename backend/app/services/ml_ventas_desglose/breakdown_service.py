@@ -108,17 +108,16 @@ from app.models.ml_orders_ops import MlOrdersOps, MlShipmentOps
 from app.models.ml_payments import MlPaymentCharge, MlPaymentOps
 from app.services.logistica_costo_service import costo_efectivo, get_lluvia_config, normalizar_cordon
 from app.services.ml_orders_ingestion.mode_resolution import (
-    MODO_DESCONOCIDO,
     MODO_RETIRO,
     MODO_SELF_SERVICE,
     resolve_modo_logistico,
 )
 
-# `MODO_SELF_SERVICE` is IMPORTED, not redeclared: a second copy of the
-# string here is precisely the drift this module argues against everywhere
-# else. `MODO_MIXED` has no home in the cascade -- nothing resolves TO it,
-# it only ever comes out of collapsing several orders -- so it lives here.
-MODO_MIXED = "mixed"
+# `MODO_SELF_SERVICE` and `MODO_RETIRO` are IMPORTED, not redeclared: a
+# second copy of those strings here is precisely the drift this module
+# argues against everywhere else. There is deliberately no "mixed" constant
+# in this file -- collapsing a pack into one label is the router's job, for
+# a badge; nothing here decides money off a collapsed value.
 
 # Modes for which a MISSING shipping charge is not a missing-data signal.
 #
@@ -322,7 +321,7 @@ def _resolve_modes(db: Session, orders: Sequence[MlOrdersOps]) -> tuple[str, Dic
     mode; disagreement -> `\"mixed\"`.
     """
     if not orders:
-        return MODO_DESCONOCIDO, {}, {}
+        return {}, {}
 
     shipping_ids = [o.shipping_id for o in orders if o.shipping_id is not None]
     shipments_by_id: Dict[int, MlShipmentOps] = {}
@@ -338,11 +337,8 @@ def _resolve_modes(db: Session, orders: Sequence[MlOrdersOps]) -> tuple[str, Dic
             has_shipment=shipment is not None,
             tagged_no_shipping=bool(order.has_no_shipping_tag),
         )
-    modes = set(modes_by_order.values())
 
-    if len(modes) == 1:
-        return next(iter(modes)), modes_by_order, shipments_by_id
-    return MODO_MIXED, modes_by_order, shipments_by_id
+    return modes_by_order, shipments_by_id
 
 
 def _postal_code_for_cordon(
@@ -367,7 +363,16 @@ def _postal_code_for_cordon(
         return str(transporte.cp)
     if label.manual_zip_code:
         return str(label.manual_zip_code)
-    shipment = shipments_by_id.get(int(label.shipping_id)) if label.shipping_id else None
+    # `EtiquetaEnvio.shipping_id` is a String and manual shipments mint it
+    # by another route, so it is NOT guaranteed to be numeric. An uncaught
+    # ValueError here would take the whole endpoint down with a 500 on a
+    # money path; an unresolvable id is simply a postcode we do not have,
+    # which the caller already knows how to report as `flex_cost_unknown`.
+    try:
+        shipment_id = int(label.shipping_id) if label.shipping_id else None
+    except (TypeError, ValueError):
+        return None
+    shipment = shipments_by_id.get(shipment_id) if shipment_id is not None else None
     if shipment is not None and shipment.receiver_address:
         zip_code = shipment.receiver_address.get("zip_code")
         if zip_code:
@@ -773,7 +778,7 @@ def compute_breakdown(db: Session, order_ids: Sequence[int]) -> OperationBreakdo
 
     orders = db.query(MlOrdersOps).filter(MlOrdersOps.order_id.in_(order_ids)).all()
     has_shipment_order = any(order.shipping_id is not None for order in orders)
-    _, modes_by_order, shipments_by_id = _resolve_modes(db, orders)
+    modes_by_order, shipments_by_id = _resolve_modes(db, orders)
 
     # The seller's OWN Flex freight cost -- see spec "Flex Real Cost Line".
     # Applies to whichever member orders are self_service, chosen from the
