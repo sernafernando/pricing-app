@@ -173,9 +173,17 @@ class MessageSummary(BaseModel):
 
 
 class BreakdownLineSummary(BaseModel):
-    """One line of the cost breakdown. `origen` is always `"api"`: every
-    line comes straight from ML's own payment/billing data, nothing is
-    computed here (corte 6 of ml-ventas-desglose-costos)."""
+    """One line of the cost breakdown.
+
+    `origen` says WHERE the number came from, and it is not one value any
+    more. `"api"` means ML's own payment/billing data, straight through
+    with nothing computed here (corte 6 of ml-ventas-desglose-costos).
+    `"propio"` means OUR preparation tables -- today the real Flex cost,
+    resolved from the shipping label's `costo_override` or the logistics
+    provider's cordon tariff, which ML never tells us.
+
+    The distinction is the point: an operator reading a Flex sale has to
+    be able to tell the cost we pay from the charge ML bills."""
 
     concepto: str
     monto: float
