@@ -176,25 +176,27 @@ def congelar(db: Session, order_id: int, items: Sequence[OrderItemOpsDTO]) -> No
     """
     usd_rate_cache: Dict[str, Any] = {}
 
-    for item in items:
-        # Existence guard, dialect-independent: SQLite's unique index does
-        # NOT honour `postgresql_nulls_not_distinct` (a Postgres-only
-        # dialect kwarg -- SQLite still treats two NULL `variation_id`
-        # rows as distinct), so `ON CONFLICT DO NOTHING` alone would let a
-        # re-ingestion insert a SECOND row for the common no-variation
-        # case under the test DB. This query-first guard makes the
-        # INSERT-only invariant hold identically on both dialects; the
-        # `ON CONFLICT DO NOTHING` below remains the concurrency-safe
-        # backstop on PostgreSQL.
-        existing_query = db.query(MlOrderItemCosto).filter(
-            MlOrderItemCosto.order_id == order_id,
-            MlOrderItemCosto.item_id == item.item_id,
+    # Existence guard, dialect-independent, resolved in ONE query before the
+    # loop rather than one per item.
+    #
+    # It exists because SQLite's unique index does NOT honour
+    # `postgresql_nulls_not_distinct` -- that is a Postgres-only dialect
+    # kwarg, and SQLite keeps treating two NULL `variation_id` rows as
+    # distinct (measured, not assumed). So `ON CONFLICT DO NOTHING` alone
+    # would let a re-ingestion insert a SECOND row for the no-variation
+    # case, which is the COMMON one, under the test DB only: the invariant
+    # would read as proven while the proof ran on the one engine that
+    # cannot express it. `ON CONFLICT DO NOTHING` stays below as the
+    # concurrency-safe backstop on PostgreSQL.
+    ya_congelados = {
+        (row.item_id, row.variation_id)
+        for row in db.query(MlOrderItemCosto.item_id, MlOrderItemCosto.variation_id).filter(
+            MlOrderItemCosto.order_id == order_id
         )
-        if item.variation_id is None:
-            existing_query = existing_query.filter(MlOrderItemCosto.variation_id.is_(None))
-        else:
-            existing_query = existing_query.filter(MlOrderItemCosto.variation_id == item.variation_id)
-        if db.query(existing_query.exists()).scalar():
+    }
+
+    for item in items:
+        if (item.item_id, item.variation_id) in ya_congelados:
             continue
 
         if item.unit_price is None:
