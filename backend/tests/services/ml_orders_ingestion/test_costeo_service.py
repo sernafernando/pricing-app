@@ -159,6 +159,69 @@ class TestUsdExchangeRateFrozen:
         assert row_again.costo_unitario_ars == Decimal("9500.0")
 
 
+class TestLinkage:
+    """Design D6 gives TWO ways to reach the product, and both have to be
+    pinned. The SKU fallback had no test at all: removing it entirely left
+    the whole suite green, which means a real linkage path was shipping
+    unprotected."""
+
+    def test_the_publication_link_resolves_the_product(self, db) -> None:
+        _producto(db, item_id=500)
+        _publicacion(db, mla="MLA1", item_id=500)
+        db.commit()
+
+        congelar(db, 4001, [_item(item_id="MLA1", seller_sku=None)])
+        db.commit()
+
+        row = db.query(MlOrderItemCosto).filter_by(order_id=4001).one()
+        assert row.producto_item_id == 500
+
+    def test_the_sku_fallback_resolves_when_there_is_no_publication(self, db) -> None:
+        """No `PublicacionML` for this MLA, but the seller SKU matches the
+        ERP code. Without the fallback the sale would freeze NO cost and
+        look like an honest unknown."""
+        _producto(db, item_id=500)
+        db.commit()
+
+        congelar(db, 4002, [_item(item_id="MLA-SIN-PUBLICACION", seller_sku="SKU-1")])
+        db.commit()
+
+        row = db.query(MlOrderItemCosto).filter_by(order_id=4002).one()
+        assert row.producto_item_id == 500
+        assert row.fuente == "erp"
+
+    def test_the_publication_wins_over_the_sku(self, db) -> None:
+        """Both paths resolve, to DIFFERENT products. The publication link
+        is the authoritative one; the SKU is only a fallback."""
+        _producto(db, item_id=500)
+        otro = ProductoERP(
+            item_id=777,
+            codigo="SKU-1",
+            descripcion="Otro producto",
+            costo=999.0,
+            moneda_costo=TipoMoneda.ARS,
+            iva=21.0,
+        )
+        db.add(otro)
+        _producto_publicado = ProductoERP(
+            item_id=888,
+            codigo="OTRO-CODIGO",
+            descripcion="El publicado",
+            costo=123.0,
+            moneda_costo=TipoMoneda.ARS,
+            iva=21.0,
+        )
+        db.add(_producto_publicado)
+        _publicacion(db, mla="MLA-AMBOS", item_id=888)
+        db.commit()
+
+        congelar(db, 4003, [_item(item_id="MLA-AMBOS", seller_sku="SKU-1")])
+        db.commit()
+
+        row = db.query(MlOrderItemCosto).filter_by(order_id=4003).one()
+        assert row.producto_item_id == 888, "the SKU fallback beat the publication link"
+
+
 class TestUnknownIsNotZero:
     def test_unmatched_product_is_unknown_not_zero(self, db):
         """MUTATION-VERIFIED: substituting a `coalesce(costo, 0)` for the

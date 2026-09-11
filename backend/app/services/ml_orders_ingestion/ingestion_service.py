@@ -27,6 +27,7 @@ from sqlalchemy.orm import Session
 
 from app.core.config import settings
 from app.models.ml_orders_ops import MlOrderItemOps, MlOrdersOps, MlShipmentOps
+from app.services.ml_orders_ingestion.costeo_service import congelar
 from app.services.ml_orders_ingestion.mapper import (
     MappingError,
     OrderItemOpsDTO,
@@ -35,7 +36,6 @@ from app.services.ml_orders_ingestion.mapper import (
     map_order,
     map_shipment,
 )
-from app.services.ml_orders_ingestion.costeo_service import congelar
 from app.services.ml_orders_ingestion.mode_resolution import has_no_shipping_tag
 
 logger = logging.getLogger(__name__)

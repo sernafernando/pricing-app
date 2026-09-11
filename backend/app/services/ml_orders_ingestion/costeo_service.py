@@ -40,7 +40,6 @@ from app.models.producto import ProductoERP
 from app.models.publicacion_ml import PublicacionML
 from app.services.ml_orders_ingestion.mapper import OrderItemOpsDTO
 from app.services.tn_publish_core.resolve import (
-    MissingExchangeRateError,
     latest_usd_rate_with_date,
 )
 
@@ -49,10 +48,13 @@ logger = logging.getLogger(__name__)
 
 @dataclass(frozen=True)
 class _ResolvedCost:
-    """Everything needed to freeze one item's snapshot, or `None` fields
-    when the linkage/cost/IVA could not be resolved -- the caller checks
-    `is_complete` and skips the item entirely rather than writing a partial
-    row (design: "unknown is not zero", no half-frozen snapshot)."""
+    """Everything needed to freeze ONE item's snapshot, always complete.
+
+    There is no partially-resolved variant on purpose. When the linkage,
+    the cost, the IVA rate or the exchange rate cannot be resolved,
+    `_resolve_cost` returns `None` for the item as a whole and no row is
+    written at all -- "unknown is not zero", and never a half-frozen row
+    that reads like a real one."""
 
     costo_origen: Decimal
     moneda: str
@@ -75,27 +77,60 @@ def _insert_stmt(db: Session, table: Any) -> Any:
     return postgresql.insert(table)
 
 
-def _find_producto(db: Session, item: OrderItemOpsDTO) -> Optional[ProductoERP]:
-    """Resolves `item` to a `ProductoERP` row per design D6's linkage, or
-    `None` if neither the publication link nor the SKU fallback resolves --
-    that is an UNKNOWN, not an error."""
-    publicacion = db.query(PublicacionML).filter(PublicacionML.mla == item.item_id).first()
-    if publicacion is not None:
-        producto = db.query(ProductoERP).filter(ProductoERP.item_id == publicacion.item_id).first()
-        if producto is not None:
-            return producto
+def _productos_por_item(db: Session, items: Sequence[OrderItemOpsDTO]) -> Dict[int, ProductoERP]:
+    """Every item's `ProductoERP`, resolved in THREE queries for the whole
+    order instead of up to three PER ITEM.
 
-    if item.seller_sku:
-        producto = db.query(ProductoERP).filter(ProductoERP.codigo == item.seller_sku).first()
-        if producto is not None:
-            return producto
+    This runs inside `upsert_order`, which the reconciliation sweep calls
+    over thousands of orders -- "an order has few items" is not the bound
+    that matters, few-items x thousands-of-orders is. This module already
+    pays that discipline for the existence guard; resolving the product any
+    other way would break the same rule two lines below its own comment.
 
-    return None
+    Linkage per design D6: the MLA (`item_id`) through `PublicacionML` to
+    `ProductoERP.item_id`, falling back to `seller_sku` -> `ProductoERP
+    .codigo`. The MLA string is NEVER joined against the ERP integer id
+    directly. An item that resolves through neither is simply absent from
+    the returned map -- an UNKNOWN, not an error.
+    """
+    mlas = {item.item_id for item in items if item.item_id}
+    skus = {item.seller_sku for item in items if item.seller_sku}
+
+    publicaciones: Dict[str, int] = {}
+    if mlas:
+        publicaciones = {
+            row.mla: row.item_id
+            for row in db.query(PublicacionML.mla, PublicacionML.item_id).filter(PublicacionML.mla.in_(sorted(mlas)))
+        }
+
+    productos_por_erp_id: Dict[int, ProductoERP] = {}
+    erp_ids = {erp_id for erp_id in publicaciones.values() if erp_id is not None}
+    if erp_ids:
+        productos_por_erp_id = {
+            producto.item_id: producto
+            for producto in db.query(ProductoERP).filter(ProductoERP.item_id.in_(sorted(erp_ids)))
+        }
+
+    productos_por_codigo: Dict[str, ProductoERP] = {}
+    if skus:
+        productos_por_codigo = {
+            producto.codigo: producto for producto in db.query(ProductoERP).filter(ProductoERP.codigo.in_(sorted(skus)))
+        }
+
+    resueltos: Dict[int, ProductoERP] = {}
+    for idx, item in enumerate(items):
+        erp_id = publicaciones.get(item.item_id) if item.item_id else None
+        producto = productos_por_erp_id.get(erp_id) if erp_id is not None else None
+        if producto is None and item.seller_sku:
+            producto = productos_por_codigo.get(item.seller_sku)
+        if producto is not None:
+            resueltos[idx] = producto
+    return resueltos
 
 
 def _resolve_cost(
     db: Session,
-    item: OrderItemOpsDTO,
+    producto: Optional[ProductoERP],
     usd_rate_cache: Dict[str, Any],
 ) -> Optional[_ResolvedCost]:
     """Resolves one item's cost snapshot, or `None` on any unknown step:
@@ -103,7 +138,6 @@ def _resolve_cost(
     product) no exchange rate available. `usd_rate_cache` is populated at
     most once per `congelar()` call (design: FX resolved once per batch,
     never per item)."""
-    producto = _find_producto(db, item)
     if producto is None:
         return None
 
@@ -128,11 +162,11 @@ def _resolve_cost(
 
     if moneda == "USD":
         if "resolved" not in usd_rate_cache:
-            try:
-                result = latest_usd_rate_with_date(db)
-            except MissingExchangeRateError:
-                result = None
-            usd_rate_cache["resolved"] = result
+            # No try/except: `latest_usd_rate_with_date` RETURNS None when
+            # there is no usable rate, it does not raise. Catching
+            # `MissingExchangeRateError` here suggested a guarantee that is
+            # not there, and the `is None` branch below already covers it.
+            usd_rate_cache["resolved"] = latest_usd_rate_with_date(db)
         rate_result = usd_rate_cache["resolved"]
         if rate_result is None:
             # No usable TipoCambio row: a USD cost cannot be converted, so
@@ -168,6 +202,13 @@ def congelar(db: Session, order_id: int, items: Sequence[OrderItemOpsDTO]) -> No
     that resolves completely (design D6/D7). Called once per order, AFTER
     `_upsert_item_row` for all of the order's items.
 
+    Runs BEFORE `_delete_stale_items`, and a frozen row deliberately
+    OUTLIVES the item it describes: if an item later disappears from the
+    order (a partial cancellation), its cost snapshot stays. That is the
+    point of freezing -- what the sale cost us when it happened does not
+    stop being true because the order changed afterwards. So do NOT assume
+    every row here has a live `MlOrderItemOps` behind it.
+
     INSERT-only: `ON CONFLICT DO NOTHING` on `(order_id, item_id,
     variation_id)` means an item that already has a frozen row is a
     structural no-op here, regardless of what the ERP or the exchange rate
@@ -175,6 +216,7 @@ def congelar(db: Session, order_id: int, items: Sequence[OrderItemOpsDTO]) -> No
     transaction boundary, same as `upsert_order`.
     """
     usd_rate_cache: Dict[str, Any] = {}
+    productos_por_indice = _productos_por_item(db, items)
 
     # Existence guard, dialect-independent, resolved in ONE query before the
     # loop rather than one per item.
@@ -195,7 +237,7 @@ def congelar(db: Session, order_id: int, items: Sequence[OrderItemOpsDTO]) -> No
         )
     }
 
-    for item in items:
+    for indice, item in enumerate(items):
         if (item.item_id, item.variation_id) in ya_congelados:
             continue
 
@@ -204,7 +246,7 @@ def congelar(db: Session, order_id: int, items: Sequence[OrderItemOpsDTO]) -> No
             # off it later) -- an item with no price is unknown, not zero.
             continue
 
-        resolved = _resolve_cost(db, item, usd_rate_cache)
+        resolved = _resolve_cost(db, productos_por_indice.get(indice), usd_rate_cache)
         if resolved is None:
             continue
 
