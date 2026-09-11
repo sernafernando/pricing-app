@@ -35,6 +35,9 @@ from decimal import Decimal
 from typing import Any, Optional
 
 from sqlalchemy import func
+from sqlalchemy.orm import Session
+
+from app.models.configuracion import Configuracion
 
 # `cp_cordones` writes the accent, `logistica_costo_cordon` does not.
 _CORDON_ACCENT = "ó"
@@ -103,5 +106,30 @@ def costo_efectivo(
 
     recargo = Decimal(str(lluvia_valor))
     if lluvia_tipo == "porcentaje":
-        return turbo_efectivo * (Decimal("1") + recargo / Decimal("100"))
+        # QUANTIZED, and this is not cosmetic. `_build_costo_case` casts the
+        # percentage result to `Numeric(12, 2)`, so SQL lands on the cent
+        # while raw Decimal multiplication keeps every digit. On a tariff
+        # that is not a round number the two answers differ -- 383.3295 here
+        # against 383.33 there -- which is the same shipment wearing two
+        # prices, the exact failure this module exists to prevent.
+        return (turbo_efectivo * (Decimal("1") + recargo / Decimal("100"))).quantize(Decimal("0.01"))
     return turbo_efectivo + recargo
+
+
+def get_lluvia_config(db: Session) -> tuple[str, float]:
+    """The configured rain surcharge, as `(tipo, valor)`.
+
+    Lives here rather than behind a private helper in `api/endpoints/`
+    because a service must not reach up into the endpoint layer to learn a
+    business rule. Defaults to `("fijo", 0.0)` -- no surcharge -- when the
+    configuration is absent or unparseable, so a missing row cannot inflate
+    a cost.
+    """
+    tipo_row = db.query(Configuracion.valor).filter(Configuracion.clave == "lluvia_offset_tipo").first()
+    valor_row = db.query(Configuracion.valor).filter(Configuracion.clave == "lluvia_offset_valor").first()
+    tipo = tipo_row[0] if tipo_row else "fijo"
+    try:
+        valor = float(valor_row[0]) if valor_row else 0.0
+    except (ValueError, TypeError):
+        valor = 0.0
+    return tipo, valor

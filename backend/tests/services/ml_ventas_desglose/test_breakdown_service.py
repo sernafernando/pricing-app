@@ -33,6 +33,7 @@ from app.models.codigo_postal_cordon import CodigoPostalCordon
 from app.models.etiqueta_envio import EtiquetaEnvio
 from app.models.logistica import Logistica
 from app.models.logistica_costo_cordon import LogisticaCostoCordon
+from app.models.transporte import Transporte
 from app.models.ml_billing import MlBillingCharge, MlBillingChargeOrder
 from app.models.ml_orders_ops import MlOrdersOps, MlShipmentOps
 from app.models.ml_payments import MlPaymentCharge, MlPaymentOps
@@ -703,6 +704,49 @@ class TestFlexRealCost:
         assert len(propio_lines) == 1, "the accent broke the join -- the tariff never matched"
         assert propio_lines[0].monto == Decimal("820.00")
         assert REASON_FLEX_COST_UNKNOWN not in result.incomplete_reasons
+
+    def test_the_transport_postcode_decides_the_cordon_not_the_buyers(self, db) -> None:
+        """When a Transporte is assigned the parcel goes to ITS depot, and
+        the carrier is paid for that trip -- so the transport's CP picks the
+        tariff. The Etiquetas screens already resolve it this way. Reading
+        the buyer's CP lands on a different cordon, a different tariff and a
+        different cost for the same `shipping_id`: two prices, one
+        shipment."""
+        order_id = 964
+        _order(db, order_id, shipping_id=964)
+        self._self_service_shipment(db, 964)
+        _payment(db, 107, order_id, status="approved", net_received_amount=Decimal("100"))
+        self._logistica(db)
+        db.add(Transporte(id=1, nombre="Cruz del Sur", cp="8000"))
+        # The buyer is in cordon 1; the transport depot is in cordon 3.
+        db.add(CodigoPostalCordon(codigo_postal="1638", cordon="Cordón 1"))
+        db.add(CodigoPostalCordon(codigo_postal="8000", cordon="Cordón 3"))
+        db.add(
+            LogisticaCostoCordon(
+                logistica_id=1, cordon="Cordon 1", costo=Decimal("300.00"), vigente_desde=date(2026, 1, 1)
+            )
+        )
+        db.add(
+            LogisticaCostoCordon(
+                logistica_id=1, cordon="Cordon 3", costo=Decimal("1500.00"), vigente_desde=date(2026, 1, 1)
+            )
+        )
+        db.add(
+            EtiquetaEnvio(
+                shipping_id="964",
+                fecha_envio=date(2026, 8, 1),
+                logistica_id=1,
+                transporte_id=1,
+                manual_zip_code="1638",
+            )
+        )
+        db.commit()
+
+        result = compute_breakdown(db, [order_id])
+
+        propio_lines = [line for line in result.lines if line.origen == "propio"]
+        assert len(propio_lines) == 1
+        assert propio_lines[0].monto == Decimal("1500.00"), "the buyer's CP was used instead of the transport's"
 
     def test_turbo_label_costs_the_turbo_tariff_not_the_plain_one(self, db) -> None:
         """The tariff's plain `costo` is not what a turbo shipment costs us.

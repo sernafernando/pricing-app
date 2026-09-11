@@ -83,6 +83,12 @@ _CASES = [
     (True, False, Decimal("500"), None, "fijo", 1800.0),
     (True, True, Decimal("500"), None, "porcentaje", 50.0),
     (True, True, Decimal("500"), Decimal("900"), "fijo", 0.0),
+    # NOT round on purpose. Every case above happens to land on an exact
+    # cent, which let the two implementations agree while Python kept
+    # digits SQL had already cast away. 255.553 x 1.5 = 383.3295 in Python
+    # and 383.33 in SQL -- one shipment, two prices.
+    (True, True, Decimal("255.553"), Decimal("255.553"), "porcentaje", 50.0),
+    (True, True, Decimal("101.017"), Decimal("333.339"), "porcentaje", 33.0),
 ]
 
 

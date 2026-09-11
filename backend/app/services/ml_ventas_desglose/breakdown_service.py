@@ -102,12 +102,11 @@ from sqlalchemy.orm import Session, joinedload
 
 from app.models.codigo_postal_cordon import CodigoPostalCordon
 from app.models.etiqueta_envio import EtiquetaEnvio
-from app.api.endpoints.etiquetas_shared import _get_lluvia_config
 from app.models.logistica_costo_cordon import LogisticaCostoCordon
 from app.models.ml_billing import MlBillingCharge, MlBillingChargeOrder
 from app.models.ml_orders_ops import MlOrdersOps, MlShipmentOps
 from app.models.ml_payments import MlPaymentCharge, MlPaymentOps
-from app.services.logistica_costo_service import costo_efectivo, normalizar_cordon
+from app.services.logistica_costo_service import costo_efectivo, get_lluvia_config, normalizar_cordon
 from app.services.ml_orders_ingestion.mode_resolution import (
     MODO_DESCONOCIDO,
     MODO_RETIRO,
@@ -342,6 +341,36 @@ def _resolve_modes(db: Session, orders: Sequence[MlOrdersOps]) -> tuple[str, Dic
     return MODO_MIXED, modes_by_order, shipments_by_id
 
 
+def _postal_code_for_cordon(
+    label: EtiquetaEnvio,
+    shipments_by_id: Dict[int, MlShipmentOps],
+) -> Optional[str]:
+    """The postal code that decides the CORDON, which is not always the
+    buyer's.
+
+    When a `Transporte` is assigned, the parcel goes to the transport's
+    depot and the carrier is paid for THAT trip, so the transport's CP
+    decides the tariff. The Etiquetas screens already resolve it this way
+    (`coalesce(Transporte.cp, eff_zip)`); reading the buyer's CP here would
+    land on a different cordon, a different tariff and a different cost for
+    the same `shipping_id`.
+
+    Falls back to the label's manual override, then to the shipment's own
+    receiver address.
+    """
+    transporte = label.transporte
+    if transporte is not None and transporte.cp:
+        return str(transporte.cp)
+    if label.manual_zip_code:
+        return str(label.manual_zip_code)
+    shipment = shipments_by_id.get(int(label.shipping_id)) if label.shipping_id else None
+    if shipment is not None and shipment.receiver_address:
+        zip_code = shipment.receiver_address.get("zip_code")
+        if zip_code:
+            return str(zip_code)
+    return None
+
+
 def _resolve_flex_cost_line(
     db: Session,
     orders: Sequence[MlOrdersOps],
@@ -375,13 +404,36 @@ def _resolve_flex_cost_line(
 
     labels = (
         db.query(EtiquetaEnvio)
-        .options(joinedload(EtiquetaEnvio.logistica))
+        .options(joinedload(EtiquetaEnvio.logistica), joinedload(EtiquetaEnvio.transporte))
         .filter(EtiquetaEnvio.shipping_id.in_([str(s) for s in shipping_ids]))
         .all()
     )
     labels_by_shipping_id = {label.shipping_id: label for label in labels}
 
-    lluvia_tipo, lluvia_valor = _get_lluvia_config(db)
+    lluvia_tipo, lluvia_valor = get_lluvia_config(db)
+
+    # Both lookups below are resolved in ONE query each, before the loop.
+    # Querying inside it is the pattern AGENTS.md names outright, and a pack
+    # is not a bound worth trusting.
+    postal_codes = {pc for pc in (_postal_code_for_cordon(label, shipments_by_id) for label in labels) if pc}
+    cordones_by_cp = {}
+    if postal_codes:
+        cordones_by_cp = {
+            row.codigo_postal: row
+            for row in db.query(CodigoPostalCordon)
+            .filter(CodigoPostalCordon.codigo_postal.in_(sorted(postal_codes)))
+            .all()
+        }
+
+    logistica_ids = {label.logistica_id for label in labels if label.logistica_id is not None}
+    tarifas: List[LogisticaCostoCordon] = []
+    if logistica_ids:
+        tarifas = (
+            db.query(LogisticaCostoCordon)
+            .filter(LogisticaCostoCordon.logistica_id.in_(sorted(logistica_ids)))
+            .order_by(LogisticaCostoCordon.id.asc())
+            .all()
+        )
 
     total = Decimal("0")
     logistica_names: List[str] = []
@@ -400,36 +452,41 @@ def _resolve_flex_cost_line(
         if label.logistica_id is None:
             return None, True
 
-        postal_code = label.manual_zip_code
-        if not postal_code:
-            shipment = shipments_by_id.get(shipping_id)
-            if shipment is not None and shipment.receiver_address:
-                postal_code = shipment.receiver_address.get("zip_code")
+        postal_code = _postal_code_for_cordon(label, shipments_by_id)
         if not postal_code:
             return None, True
 
-        cordon_row = db.query(CodigoPostalCordon).filter(CodigoPostalCordon.codigo_postal == str(postal_code)).first()
+        cordon_row = cordones_by_cp.get(str(postal_code))
         if cordon_row is None or not cordon_row.cordon:
             return None, True
 
         if label.fecha_envio is None:
             return None, True
 
-        tarifa = (
-            db.query(LogisticaCostoCordon)
-            .filter(
-                LogisticaCostoCordon.logistica_id == label.logistica_id,
-                # NORMALISED, never raw: `cp_cordones` spells it "Cordón 1"
-                # and `logistica_costo_cordon` spells it "Cordon 1". A raw
-                # equality matches nothing, so every Flex sale without an
-                # override would resolve to "cost unknown" while wearing the
-                # face of an honest missing-data case.
-                LogisticaCostoCordon.cordon == normalizar_cordon(cordon_row.cordon),
-                LogisticaCostoCordon.vigente_desde <= label.fecha_envio,
-            )
-            .order_by(LogisticaCostoCordon.id.desc())
-            .first()
-        )
+        cordon_buscado = normalizar_cordon(cordon_row.cordon)
+        # KNOWN, DELIBERATE DIVERGENCE from the Etiquetas screens, written
+        # down rather than left to be discovered: they select the tariff in
+        # force TODAY (`vigente_desde <= hoy`), because they answer "what
+        # would this cost now". This is a historical breakdown of a sale
+        # that already shipped, so it selects the tariff in force ON THE
+        # SHIPPING DATE. For an old label whose tariff was raised since,
+        # the two screens will legitimately show different numbers, and the
+        # one here is the one that was actually paid. If Etiquetas is ever
+        # aligned to this rule, delete this note along with the difference.
+        # MAX(id) among the rows in force on the shipping date -- `tarifas`
+        # is ordered ascending, so the last match is that row.
+        tarifa = None
+        for row in tarifas:
+            if (
+                row.logistica_id == label.logistica_id
+                and row.cordon == cordon_buscado
+                and row.vigente_desde <= label.fecha_envio
+            ):
+                tarifa = row
+        # NORMALISED, never raw: `cp_cordones` spells it "Cordón 1" and
+        # `logistica_costo_cordon` spells it "Cordon 1". Comparing them raw
+        # matches nothing, so every Flex sale without an override would
+        # resolve to "cost unknown" wearing the face of honest missing data.
         if tarifa is None:
             return None, True
 
@@ -709,7 +766,7 @@ def compute_breakdown(db: Session, order_ids: Sequence[int]) -> OperationBreakdo
 
     orders = db.query(MlOrdersOps).filter(MlOrdersOps.order_id.in_(order_ids)).all()
     has_shipment_order = any(order.shipping_id is not None for order in orders)
-    modo, modes_by_order, shipments_by_id = _resolve_modes(db, orders)
+    _, modes_by_order, shipments_by_id = _resolve_modes(db, orders)
 
     # The seller's OWN Flex freight cost -- see spec "Flex Real Cost Line".
     # Applies to whichever member orders are self_service, chosen from the
