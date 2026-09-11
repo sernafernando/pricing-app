@@ -53,6 +53,7 @@ from app.models.ml_orders_ops import (
 from app.models.rma_claim_ml import RmaClaimML
 from app.models.usuario import Usuario
 from app.services.ml_orders_ingestion.activity_receiver_service import drain_activity
+from app.services.ml_orders_ingestion.mode_resolution import resolve_modo_logistico
 from app.services.ml_orders_ingestion.operation_status import (
     GOODS_STATUS_BY_SHIPPING_STATUS,
     GOODS_STATUSES,
@@ -305,6 +306,12 @@ class SaleListItem(BaseModel):
     operation_status: str
     goods_status: str
     neto: Optional[float] = None
+    # Resolved cascade (design D1 of ml-ventas-modo-logistico): the real
+    # shipment's `logistic_type` ALWAYS outranks the `no_shipping` tag --
+    # see `resolve_modo_logistico`. Recomputed live here, never read back
+    # from the `ml_orders_ops.modo_logistico` snapshot column, so a
+    # not-yet-refreshed row can never surface the wrong mode.
+    modo_logistico: str
 
 
 class SaleGroup(BaseModel):
@@ -344,6 +351,10 @@ class SaleGroup(BaseModel):
     goods_status: str
     orders: List[SaleListItem]
     neto: Optional[float] = None
+    # The group's modo_logistico, collapsed like `operation_status`/
+    # `goods_status`: `"mixed"` when the group's orders disagree, never a
+    # silently-picked winner (same `_collapse` used by both status axes).
+    modo_logistico: str
 
 
 class SaleFacetCounts(BaseModel):
@@ -706,6 +717,15 @@ def listar_ventas(
         neto_by_order = compute_neto_by_order_ids(db, page_order_ids)
         for order, shipment, key, operation_status_value, goods_status_value in member_rows:
             order_neto = neto_by_order.get(order.order_id)
+            # The real shipment ALWAYS outranks the `no_shipping` tag (order
+            # 2000016977234624: tagged `no_shipping` AND a delivered
+            # `cross_docking` shipment -- the shipment wins). Recomputed
+            # live from the already-joined `shipment` row, no new query.
+            order_modo_logistico = resolve_modo_logistico(
+                shipment_logistic_type=shipment.logistic_type if shipment is not None else None,
+                has_shipment=shipment is not None,
+                has_no_shipping_tag=bool(order.has_no_shipping_tag),
+            )
             members_by_key.setdefault(key, []).append(
                 SaleListItem(
                     order_id=order.order_id,
@@ -722,6 +742,7 @@ def listar_ventas(
                     operation_status=operation_status_value,
                     goods_status=goods_status_value,
                     neto=float(order_neto) if order_neto is not None else None,
+                    modo_logistico=order_modo_logistico,
                 )
             )
 
@@ -781,6 +802,7 @@ def listar_ventas(
                 currency_id=single_currency,
                 operation_status=_collapse([m.operation_status for m in members]),
                 goods_status=_collapse([m.goods_status for m in members]),
+                modo_logistico=_collapse([m.modo_logistico for m in members]),
                 orders=members,
             )
         )

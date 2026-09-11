@@ -27,6 +27,10 @@ from sqlalchemy.orm import Session
 
 from app.core.config import settings
 from app.models.ml_orders_ops import MlOrderItemOps, MlOrdersOps, MlShipmentOps
+from app.services.ml_orders_ingestion.mode_resolution import (
+    has_no_shipping_tag as _has_no_shipping_tag,
+)
+from app.services.ml_orders_ingestion.mode_resolution import resolve_modo_logistico
 from app.services.ml_orders_ingestion.mapper import (
     MappingError,
     OrderItemOpsDTO,
@@ -63,7 +67,29 @@ def _insert_stmt(db: Session, table):
 
 def _upsert_order_row(db: Session, dto: OrderOpsDTO) -> bool:
     """Returns True if the row was inserted or updated, False if the
-    write was a structural no-op (an equal-or-older `ml_last_updated`)."""
+    write was a structural no-op (an equal-or-older `ml_last_updated`).
+
+    `has_no_shipping_tag` and `modo_logistico` (design D1 of
+    ml-ventas-modo-logistico) are written here from `dto.tags` and any
+    ALREADY-STORED shipment for `dto.shipping_id` -- the shipment upsert
+    (`upsert_shipment`) runs separately and may land before or after this
+    row, so `modo_logistico` is a best-effort snapshot for sort/filter use
+    only. The API (`routers/ml_ventas_ops.py`) always RECOMPUTES the mode
+    live from the joined shipment at read time, so a stale snapshot here
+    can never surface a wrong mode -- only mis-sort a not-yet-refreshed
+    row, and nothing in this PR sorts by it yet.
+    """
+    no_shipping_tag = _has_no_shipping_tag(dto.tags)
+    existing_shipment: Optional[MlShipmentOps] = (
+        db.query(MlShipmentOps).filter(MlShipmentOps.shipment_id == dto.shipping_id).first()
+        if dto.shipping_id is not None
+        else None
+    )
+    modo_logistico = resolve_modo_logistico(
+        shipment_logistic_type=existing_shipment.logistic_type if existing_shipment is not None else None,
+        has_shipment=existing_shipment is not None,
+        has_no_shipping_tag=no_shipping_tag,
+    )
     values: Dict[str, Any] = {
         "order_id": dto.order_id,
         "pack_id": dto.pack_id,
@@ -83,6 +109,8 @@ def _upsert_order_row(db: Session, dto: OrderOpsDTO) -> bool:
         "covered_by_marketplace": dto.covered_by_marketplace,
         "tags": dto.tags,
         "raw_order": dto.raw_order,
+        "has_no_shipping_tag": no_shipping_tag,
+        "modo_logistico": modo_logistico,
         "ingest_error": None,
         "last_synced_at": func.now(),
     }
