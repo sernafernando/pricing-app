@@ -662,6 +662,84 @@ class TestFlexRealCost:
         assert propio_lines[0].monto == Decimal("777.00")
         assert REASON_FLEX_COST_UNKNOWN not in result.incomplete_reasons
 
+    def test_tariff_matches_across_the_accent_the_two_tables_disagree_on(self, db) -> None:
+        """THE REAL SHAPE OF THE DATA, not a convenient one. `cp_cordones`
+        stores `"Cordón 1"` with the accent; `logistica_costo_cordon` stores
+        `"Cordon 1"` without it. The original fixture wrote the SAME string
+        into both tables, so the join looked fine while production would
+        have matched nothing -- every Flex sale without an override falling
+        to `flex_cost_unknown`, wearing the face of honest missing data.
+
+        Same lesson as the `date_last_updated` week: a fixture is a guess
+        about the data's shape, and a guess that agrees with the code
+        proves only that they agree."""
+        order_id = 962
+        _order(db, order_id, shipping_id=962)
+        self._self_service_shipment(db, 962)
+        _payment(db, 105, order_id, status="approved", net_received_amount=Decimal("100"))
+        self._logistica(db)
+        db.add(CodigoPostalCordon(codigo_postal="1636", cordon="Cordón 1"))
+        db.add(
+            LogisticaCostoCordon(
+                logistica_id=1,
+                cordon="Cordon 1",
+                costo=Decimal("820.00"),
+                vigente_desde=date(2026, 1, 1),
+            )
+        )
+        db.add(
+            EtiquetaEnvio(
+                shipping_id="962",
+                fecha_envio=date(2026, 8, 1),
+                logistica_id=1,
+                manual_zip_code="1636",
+            )
+        )
+        db.commit()
+
+        result = compute_breakdown(db, [order_id])
+
+        propio_lines = [line for line in result.lines if line.origen == "propio"]
+        assert len(propio_lines) == 1, "the accent broke the join -- the tariff never matched"
+        assert propio_lines[0].monto == Decimal("820.00")
+        assert REASON_FLEX_COST_UNKNOWN not in result.incomplete_reasons
+
+    def test_turbo_label_costs_the_turbo_tariff_not_the_plain_one(self, db) -> None:
+        """The tariff's plain `costo` is not what a turbo shipment costs us.
+        Reading it would show a number that disagrees with the Etiquetas
+        screen for the very same `shipping_id`."""
+        order_id = 963
+        _order(db, order_id, shipping_id=963)
+        self._self_service_shipment(db, 963)
+        _payment(db, 106, order_id, status="approved", net_received_amount=Decimal("100"))
+        self._logistica(db)
+        db.add(CodigoPostalCordon(codigo_postal="1637", cordon="Cordón 2"))
+        db.add(
+            LogisticaCostoCordon(
+                logistica_id=1,
+                cordon="Cordon 2",
+                costo=Decimal("500.00"),
+                costo_turbo=Decimal("900.00"),
+                vigente_desde=date(2026, 1, 1),
+            )
+        )
+        db.add(
+            EtiquetaEnvio(
+                shipping_id="963",
+                fecha_envio=date(2026, 8, 1),
+                logistica_id=1,
+                manual_zip_code="1637",
+                es_turbo=True,
+            )
+        )
+        db.commit()
+
+        result = compute_breakdown(db, [order_id])
+
+        propio_lines = [line for line in result.lines if line.origen == "propio"]
+        assert len(propio_lines) == 1
+        assert propio_lines[0].monto == Decimal("900.00")
+
     def test_mixed_pack_still_charges_the_flex_order(self, db) -> None:
         """A pack whose orders disagree collapses to `"mixed"`, and keying
         the Flex resolver off that collapsed value dropped the cost with NO

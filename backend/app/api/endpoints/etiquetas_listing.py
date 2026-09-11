@@ -46,6 +46,7 @@ from app.api.endpoints.etiquetas_shared import (
     EtiquetaPaginatedResponse,
     LoteEnvioResponse,
 )
+from app.services.logistica_costo_service import cordon_normalizado_sql
 
 
 class ItemEnvioFlexResponse(BaseModel):
@@ -169,7 +170,7 @@ def listar_etiquetas(
     )
 
     # Expresión para normalizar cordón: "Cordón 1" → "Cordon 1" (quitar tilde)
-    cordon_normalizado = func.replace(CodigoPostalCordon.cordon, "ó", "o")
+    cordon_normalizado = cordon_normalizado_sql(CodigoPostalCordon.cordon)
 
     # Subquery deduplicada: una fila por mlshippingid (evita duplicados por items)
     shipping_sub = _shipping_dedup_subquery(db, shipping_ids_sub=ids_fecha_sub)

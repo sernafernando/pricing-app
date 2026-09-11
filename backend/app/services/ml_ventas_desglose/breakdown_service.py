@@ -102,10 +102,12 @@ from sqlalchemy.orm import Session, joinedload
 
 from app.models.codigo_postal_cordon import CodigoPostalCordon
 from app.models.etiqueta_envio import EtiquetaEnvio
+from app.api.endpoints.etiquetas_shared import _get_lluvia_config
 from app.models.logistica_costo_cordon import LogisticaCostoCordon
 from app.models.ml_billing import MlBillingCharge, MlBillingChargeOrder
 from app.models.ml_orders_ops import MlOrdersOps, MlShipmentOps
 from app.models.ml_payments import MlPaymentCharge, MlPaymentOps
+from app.services.logistica_costo_service import costo_efectivo, normalizar_cordon
 from app.services.ml_orders_ingestion.mode_resolution import (
     MODO_DESCONOCIDO,
     MODO_RETIRO,
@@ -379,6 +381,8 @@ def _resolve_flex_cost_line(
     )
     labels_by_shipping_id = {label.shipping_id: label for label in labels}
 
+    lluvia_tipo, lluvia_valor = _get_lluvia_config(db)
+
     total = Decimal("0")
     logistica_names: List[str] = []
 
@@ -388,7 +392,7 @@ def _resolve_flex_cost_line(
             return None, True
 
         if label.costo_override is not None:
-            total += Decimal(str(label.costo_override))
+            total += costo_efectivo(costo_override=label.costo_override)
             if label.logistica is not None and label.logistica.nombre not in logistica_names:
                 logistica_names.append(label.logistica.nombre)
             continue
@@ -415,7 +419,12 @@ def _resolve_flex_cost_line(
             db.query(LogisticaCostoCordon)
             .filter(
                 LogisticaCostoCordon.logistica_id == label.logistica_id,
-                LogisticaCostoCordon.cordon == cordon_row.cordon,
+                # NORMALISED, never raw: `cp_cordones` spells it "Cordón 1"
+                # and `logistica_costo_cordon` spells it "Cordon 1". A raw
+                # equality matches nothing, so every Flex sale without an
+                # override would resolve to "cost unknown" while wearing the
+                # face of an honest missing-data case.
+                LogisticaCostoCordon.cordon == normalizar_cordon(cordon_row.cordon),
                 LogisticaCostoCordon.vigente_desde <= label.fecha_envio,
             )
             .order_by(LogisticaCostoCordon.id.desc())
@@ -424,7 +433,21 @@ def _resolve_flex_cost_line(
         if tarifa is None:
             return None, True
 
-        total += Decimal(str(tarifa.costo))
+        # The tariff's plain `costo` is NOT the cost -- turbo and the rain
+        # surcharge move it, and the Etiquetas screens already apply both.
+        # Same function on both sides, so the two surfaces cannot disagree
+        # about the same shipment.
+        costo = costo_efectivo(
+            es_turbo=bool(label.es_turbo),
+            es_lluvia=bool(label.es_lluvia),
+            costo=tarifa.costo,
+            costo_turbo=tarifa.costo_turbo,
+            lluvia_tipo=lluvia_tipo,
+            lluvia_valor=lluvia_valor,
+        )
+        if costo is None:
+            return None, True
+        total += costo
         if label.logistica is not None and label.logistica.nombre not in logistica_names:
             logistica_names.append(label.logistica.nombre)
 
