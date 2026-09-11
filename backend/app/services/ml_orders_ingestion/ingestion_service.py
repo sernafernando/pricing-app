@@ -35,6 +35,7 @@ from app.services.ml_orders_ingestion.mapper import (
     map_order,
     map_shipment,
 )
+from app.services.ml_orders_ingestion.costeo_service import congelar
 from app.services.ml_orders_ingestion.mode_resolution import has_no_shipping_tag
 
 logger = logging.getLogger(__name__)
@@ -252,6 +253,13 @@ def upsert_order(db: Session, payload: Dict[str, Any], mapped: Optional[OrderOps
 
     for item in dto.items:
         _upsert_item_row(db, dto.order_id, item)
+
+    # Cost snapshot (ml-ventas-modo-logistico, design D4/D13): freezes each
+    # item's ERP cost/IVA/exchange rate the FIRST time it is ever seen.
+    # INSERT-only -- a re-ingestion of an already-costed item never rewrites
+    # its snapshot. Runs after the item rows themselves, and never reads or
+    # writes `MlOrderItemOps` -- keeps the cost seam that model documents.
+    congelar(db, dto.order_id, dto.items)
 
     keep_keys = {(item.item_id, item.variation_id) for item in dto.items}
     _delete_stale_items(db, dto.order_id, keep_keys)
