@@ -433,8 +433,8 @@ class TestTheTwoPathsToTheNetAgree:
 
     `compute_neto_by_order_ids` resolves a whole page in two bulk queries;
     `compute_breakdown` resolves one sale at a time. They share the
-    predicates -- `_is_seller_charge`, `_payment_effective_net`,
-    `_RELEVANT_PAYMENT_STATUSES` -- but they are separate loops, and
+    predicates -- `is_seller_charge`, `payment_effective_net`,
+    `RELEVANT_PAYMENT_STATUSES` -- but they are separate loops, and
     nothing forced them to agree until this test.
 
     They must, because a sale showing one net in the listing and another

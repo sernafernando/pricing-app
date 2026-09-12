@@ -19,7 +19,7 @@ import pytest
 
 from app.services.ml_ventas_desglose.breakdown_service import (
     CONCEPTO_IMPUESTOS,
-    _tax_label,
+    tax_label,
 )
 
 # Deliberately NOT under `fixtures/ml_payloads/`: that directory is globbed
@@ -29,7 +29,7 @@ from app.services.ml_ventas_desglose.breakdown_service import (
 # locally, red in CI.
 NAMES_FILE = Path(__file__).resolve().parents[2] / "fixtures" / "ml_charges" / "tax_charge_names.json"
 
-# The buyer's own tax. `_is_seller_charge` drops anything with "payer" in
+# The buyer's own tax. `is_seller_charge` drops anything with "payer" in
 # the name before labelling ever runs, so it has no label by design.
 BUYER_TAX = "tax_withholding_payer-debitos_creditos"
 
@@ -49,12 +49,12 @@ class TestTheFourShapesMlActuallyUses:
         ],
     )
     def test_it_names_the_tax_and_the_place(self, name: str, expected: str):
-        assert _tax_label(name) == expected
+        assert tax_label(name) == expected
 
     def test_the_national_tax_gets_no_province_in_parentheses(self):
         """Its slug is the tax itself, not a place -- appending it would
         read "... (Debitos Creditos)"."""
-        assert "(" not in _tax_label("tax_withholding_collector-debitos_creditos")
+        assert "(" not in tax_label("tax_withholding_collector-debitos_creditos")
 
     @pytest.mark.parametrize(
         "name,expected",
@@ -68,7 +68,7 @@ class TestTheFourShapesMlActuallyUses:
     def test_province_names_are_spelled_properly_not_title_cased(self, name: str, expected: str):
         """Title-casing the slug would print "Caba", "Entre Rios",
         "Santiago Del Estero" and "Cordoba" on a money breakdown."""
-        assert _tax_label(name) == expected
+        assert tax_label(name) == expected
 
 
 class TestEveryRecordedNameIsAccountedFor:
@@ -89,7 +89,7 @@ class TestEveryRecordedNameIsAccountedFor:
         """A seller-side tax that falls into the generic bucket means ML
         added a shape we do not read yet -- better a red test than a
         breakdown that hides which tax it charged."""
-        assert _tax_label(name) != CONCEPTO_IMPUESTOS
+        assert tax_label(name) != CONCEPTO_IMPUESTOS
 
 
 class TestAnUnknownNameKeepsItsMoney:
@@ -108,18 +108,18 @@ class TestAnUnknownNameKeepsItsMoney:
         ],
     )
     def test_it_falls_back_to_the_generic_bucket(self, name: str):
-        assert _tax_label(name) == CONCEPTO_IMPUESTOS
+        assert tax_label(name) == CONCEPTO_IMPUESTOS
 
     def test_a_charge_with_no_name_at_all_still_lands_in_the_bucket(self):
         """`MlPaymentCharge.name` is nullable and a charge with a type and
         no name has been seen in production -- it is what made an earlier
         version discard whole payments. It must cost a label, never an
         amount."""
-        assert _tax_label(None) == CONCEPTO_IMPUESTOS
+        assert tax_label(None) == CONCEPTO_IMPUESTOS
 
     def test_the_fallback_is_a_real_line_not_a_dropped_charge(self):
         """The bucket must be a label the breakdown renders, not an empty
         string or None that a caller would skip."""
-        label = _tax_label("tax_withholding_nuevo-marte")
+        label = tax_label("tax_withholding_nuevo-marte")
 
         assert isinstance(label, str) and label.strip()
