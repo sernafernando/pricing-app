@@ -261,7 +261,7 @@ def descomponer_neto(db: Session, order_ids: Sequence[int]) -> Dict[int, Descomp
         # An order with NO items at all needs no reason: its whole net is
         # unaccounted, `diferencia` equals `neto`, and that says it plainly.
         items_esperados = items_by_order.get(order_id, 0)
-        if items_esperados and len(costos_by_order.get(order_id, [])) != items_esperados:
+        if items_esperados and len(costos_by_order.get(order_id, [])) < items_esperados:
             razones.append(RAZON_ITEM_SIN_COSTO_CONGELADO)
 
         for costo in costos_by_order.get(order_id, []):
@@ -356,7 +356,14 @@ def descomponer_neto(db: Session, order_ids: Sequence[int]) -> Dict[int, Descomp
                         # "Cargo por vender" and "Envíos (Colecta)". That
                         # function already spells all 24 provinces out for
                         # exactly this reason.
-                        concepto=tax_label(name) if name else CONCEPTO_IVA_NO_DETERMINADO,
+                        # `tax_label` unguarded, exactly like
+                        # `compute_breakdown`: it already answers
+                        # "Impuestos" for a nameless charge. The inline
+                        # guard that used to sit here invented a THIRD
+                        # answer for that case, so one charge read
+                        # "IVA no determinado" on this surface and
+                        # "Impuestos" on the other.
+                        concepto=tax_label(name),
                         alicuota=None,
                         bruto=bruto,
                         base=base,

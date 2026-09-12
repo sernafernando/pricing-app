@@ -266,9 +266,12 @@ _TAX_PLACES: Dict[str, str] = {
 def tax_label(charge_name: Optional[str]) -> str:
     """A readable line for one `type='tax'` charge.
 
-    `charge_name` is Optional because `MlPaymentCharge.name` is nullable
-    and a charge with `type` set and no name has been seen in production
-    (it is what made an earlier version discard whole payments).
+    `charge_name` is typed Optional for the convenience of callers that
+    may hold one, NOT because the column allows NULL: `MlPaymentCharge
+    .name` is `NOT NULL` both in the model and in the production table
+    (checked against `information_schema`, not assumed). An earlier version
+    of this docstring asserted the opposite, and a repeated claim is not
+    evidence.
 
     Falls back to the plain `Impuestos` bucket for anything it does not
     recognise, ON PURPOSE: a name ML adds tomorrow must still show up as
@@ -776,10 +779,12 @@ def compute_breakdown(db: Session, order_ids: Sequence[int]) -> OperationBreakdo
     # the single legacy line would have reported.
     shipping_total = Decimal("0")
     for charge in seller_charges_all:
-        # `(charge.name or "")`: the name is nullable and a NULL has been
-        # seen in production. The label lookup beside this line already
-        # handles None, so leaving the guard off here would be a defensive
-        # line sitting next to an undefended one.
+        # `(charge.name or "")` is cheap insurance, NOT a real case:
+        # `ml_payment_charges.name` is `NOT NULL` in the model AND in the
+        # production table (verified against `information_schema`). An
+        # earlier comment here claimed the column was nullable and that a
+        # NULL had been seen in production -- neither is true, and a
+        # verified fact beats a repeated one.
         if (charge.name or "").startswith("shp_"):
             amount = net_amount(charge)
             shipping_total += amount
