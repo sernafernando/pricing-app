@@ -77,6 +77,7 @@ from app.services.ml_ventas_desglose.breakdown_service import (
     net_amount,
     payment_effective_net,
     shipping_label,
+    tax_label,
 )
 
 # ML's own IVA rate on its fees and freight -- authoritative per the
@@ -108,6 +109,7 @@ CONCEPTO_CUPON_ML = "Cupón financiado por ML"
 RAZON_VENTA_CON_DEVOLUCION = "venta_con_devolucion"
 RAZON_ITEM_SIN_CANTIDAD = "item_sin_cantidad"
 RAZON_ITEM_SIN_COSTO_CONGELADO = "item_sin_costo_congelado"
+RAZON_SIN_PAGOS_SINCRONIZADOS = "sin_pagos_sincronizados"
 
 _CENT = Decimal("0.01")
 
@@ -134,7 +136,9 @@ class DescomposicionNeto:
     componentes: List[ComponenteIVA]
     neto_sin_iva: Optional[Decimal]
     reconcilia: bool
-    diferencia: Decimal
+    # `None` when there is nothing to reconcile at all (no synced payments).
+    # Zero would read as a perfect balance.
+    diferencia: Optional[Decimal]
     razones: List[str] = field(default_factory=list)
 
 
@@ -203,8 +207,19 @@ def descomponer_neto(db: Session, order_ids: Sequence[int]) -> Dict[int, Descomp
     for order_id in order_ids:
         order_relevant = [p for p in payments_by_order.get(order_id, []) if p.status in RELEVANT_PAYMENT_STATUSES]
         if not order_relevant:
+            # NAMED, and `diferencia=None` rather than zero. Without the
+            # reason, "payments have not synced yet" and "the components do
+            # not add up" look identical from outside -- both empty
+            # `neto_sin_iva`, both `reconcilia=False` -- which is the badge
+            # that lies `breakdown_service` keeps two distinct reasons to
+            # avoid. And a zero difference would claim a perfect balance in
+            # the one case where there is nothing to balance at all.
             result[order_id] = DescomposicionNeto(
-                componentes=[], neto_sin_iva=None, reconcilia=False, diferencia=Decimal("0")
+                componentes=[],
+                neto_sin_iva=None,
+                reconcilia=False,
+                diferencia=None,
+                razones=[RAZON_SIN_PAGOS_SINCRONIZADOS],
             )
             continue
 
@@ -298,7 +313,17 @@ def descomponer_neto(db: Session, order_ids: Sequence[int]) -> Dict[int, Descomp
                 base, iva = _passthrough(bruto)
                 componentes.append(
                     ComponenteIVA(
-                        concepto=name or CONCEPTO_IVA_NO_DETERMINADO, alicuota=None, bruto=bruto, base=base, iva=iva
+                        # Through `tax_label`, like every other line: the raw
+                        # slug would show the operator
+                        # `tax_withholding_sirtac-buenos_aires` next to
+                        # "Cargo por vender" and "Envíos (Colecta)". That
+                        # function already spells all 24 provinces out for
+                        # exactly this reason.
+                        concepto=tax_label(name) if name else CONCEPTO_IVA_NO_DETERMINADO,
+                        alicuota=None,
+                        bruto=bruto,
+                        base=base,
+                        iva=iva,
                     )
                 )
             elif name in CHARGE_LABELS or name.startswith("shp_"):

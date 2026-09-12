@@ -20,7 +20,7 @@ from pathlib import Path
 from app.models.ml_order_item_costo import MlOrderItemCosto
 from app.models.ml_orders_ops import MlOrderItemOps, MlOrdersOps
 from app.models.ml_payments import MlPaymentCharge, MlPaymentOps
-from app.services.ml_ventas_desglose.breakdown_service import compute_neto_by_order_ids
+from app.services.ml_ventas_desglose.breakdown_service import compute_neto_by_order_ids, tax_label
 from app.services.ml_ventas_desglose.iva import (
     CONCEPTO_CUPON_ML,
     CONCEPTO_ENVIO_COMPRADOR,
@@ -198,7 +198,13 @@ class TestWithholdingTypeTaxNotSplit:
 
         result = descomponer_neto(db, [order_id])[order_id]
 
-        withholding = next(c for c in result.componentes if c.concepto == "tax_withholding_sirtac-buenos_aires")
+        withholding = next(
+            c for c in result.componentes if c.concepto == tax_label("tax_withholding_sirtac-buenos_aires")
+        )
+        # The LABEL, never the raw ML slug: the operator reading this sees
+        # "Cargo por vender" and "Envíos (Colecta)" beside it, not
+        # `tax_withholding_sirtac-buenos_aires`.
+        assert withholding.concepto != "tax_withholding_sirtac-buenos_aires"
         assert withholding.alicuota is None
         assert withholding.base == withholding.bruto
         assert withholding.iva == Decimal("0")
@@ -227,7 +233,7 @@ class TestWithholdingPredicateReusedNotDuplicated:
 
         assert result.reconcilia is True
         withholding_concepts = {c.concepto for c in result.componentes if c.alicuota is None}
-        assert set(seller_names) <= withholding_concepts
+        assert {tax_label(n) for n in seller_names} <= withholding_concepts
 
     def test_unknown_tax_name_never_recorded_still_recognised(self, db) -> None:
         """The mutation-verification: replacing `charge.type == 'tax'` with a
@@ -243,7 +249,9 @@ class TestWithholdingPredicateReusedNotDuplicated:
         assert result.reconcilia is True
         withholding = result.componentes[0]
         assert withholding.alicuota is None
-        assert withholding.concepto == "tax_withholding_a_brand_new_province_ml_never_billed_before"
+        # A province ML never billed before still gets a readable label
+        # through the generic fallback, never the raw slug.
+        assert withholding.concepto == tax_label("tax_withholding_a_brand_new_province_ml_never_billed_before")
 
 
 class TestMixedRatePerItemDiscrimination:
@@ -531,3 +539,45 @@ class TestAnOrderWithNoFrozenCostSaysSo:
 
         assert RAZON_ITEM_SIN_COSTO_CONGELADO in result.razones
         assert result.neto_sin_iva is None
+
+
+class TestTheThirdPathToTheNetAgrees:
+    """There are now THREE places that add a sale's net up:
+    `compute_neto_by_order_ids` (the listing), `compute_breakdown` (the
+    detail) and this module. The first two already have
+    `TestTheTwoPathsToTheNetAgree` pinning them together, written because
+    nothing forced them to match and an `in_mediation` bug once made them
+    disagree. This module reuses the predicates but writes its OWN summing
+    loop -- and the loop is exactly where that bug lived.
+
+    So the third path gets the same pin: over the same orders, the
+    components must add up to the listing's net."""
+
+    def test_components_sum_to_the_listing_net(self, db) -> None:
+        order_id = 910
+        _item_with_frozen_cost(db, order_id, "MLA1", Decimal("1000.00"), Decimal("21"))
+        _payment(db, 9101, order_id, net_received_amount=Decimal("1500.00"), shipping_amount=Decimal("700.00"))
+        _charge(db, 9101, "sale_fee", "fee", Decimal("200.00"))
+        db.commit()
+
+        descomposicion = descomponer_neto(db, [order_id])[order_id]
+        neto_listado = compute_neto_by_order_ids(db, [order_id])[order_id]
+
+        assert neto_listado is not None
+        assert sum((c.bruto for c in descomposicion.componentes), Decimal("0")) == neto_listado
+        assert descomposicion.reconcilia is True
+
+    def test_a_mediated_sale_agrees_too(self, db) -> None:
+        """`in_mediation` is money COLLECTED, not money lost -- the bug that
+        made the first two paths disagree. Pinned here as well so the third
+        path cannot drift back into it."""
+        order_id = 911
+        _item_with_frozen_cost(db, order_id, "MLA1", Decimal("1000.00"), Decimal("21"))
+        _payment(db, 9111, order_id, status="in_mediation", net_received_amount=Decimal("1000.00"))
+        db.commit()
+
+        descomposicion = descomponer_neto(db, [order_id])[order_id]
+        neto_listado = compute_neto_by_order_ids(db, [order_id])[order_id]
+
+        assert neto_listado == Decimal("1000.00")
+        assert sum((c.bruto for c in descomposicion.componentes), Decimal("0")) == neto_listado

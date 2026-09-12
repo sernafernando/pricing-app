@@ -173,7 +173,7 @@ CONCEPTO_ENVIOS = "Envios"
 CONCEPTO_ENVIO_PROPIO = "Envío Flex (costo propio)"
 
 # ml-ventas-modo-logistico PR2 -- per-mode split of the single "Envios"
-# line. Mirrors `_tax_label`'s discipline exactly: a KNOWN `shp_*` type
+# line. Mirrors `tax_label`'s discipline exactly: a KNOWN `shp_*` type
 # gets its own readable line; anything else falls back to the generic
 # CONCEPTO_ENVIOS bucket instead of being dropped. Measured in production
 # (obs #1965/#1966): only 5.075 of 12.528 payments carry any `shp_*`
@@ -244,7 +244,7 @@ _TAX_PLACES: Dict[str, str] = {
 }
 
 
-def _tax_label(charge_name: Optional[str]) -> str:
+def tax_label(charge_name: Optional[str]) -> str:
     """A readable line for one `type='tax'` charge.
 
     `charge_name` is Optional because `MlPaymentCharge.name` is nullable
@@ -284,7 +284,7 @@ def _tax_label(charge_name: Optional[str]) -> str:
 def shipping_label(charge_name: Optional[str]) -> str:
     """A readable per-mode line for one `shp_*` payment charge.
 
-    Same discipline as `_tax_label`: falls back to the generic
+    Same discipline as `tax_label`: falls back to the generic
     `CONCEPTO_ENVIOS` bucket for any `shp_*` type not in the known set, ON
     PURPOSE -- an unrecognised type must still show up as money the
     seller's shipping cost, never silently vanish from the sum."""
@@ -746,8 +746,8 @@ def compute_breakdown(db: Session, order_ids: Sequence[int]) -> OperationBreakdo
         if label is not None:
             line_amounts[label] = line_amounts.get(label, Decimal("0")) + net_amount(charge)
         elif charge.type == "tax":
-            tax_label = _tax_label(charge.name)
-            line_amounts[tax_label] = line_amounts.get(tax_label, Decimal("0")) + net_amount(charge)
+            etiqueta_impuesto = tax_label(charge.name)
+            line_amounts[etiqueta_impuesto] = line_amounts.get(etiqueta_impuesto, Decimal("0")) + net_amount(charge)
 
     # Shipping: `shp_*` payment charges (never shared -- summed per order),
     # split by KNOWN mode into its own line (ml-ventas-modo-logistico PR2)
