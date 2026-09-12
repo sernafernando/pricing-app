@@ -61,7 +61,7 @@ not a feature built for a consumer that does not exist yet.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from decimal import ROUND_HALF_UP, Decimal
 from typing import Dict, List, Optional, Sequence, Tuple
 
@@ -91,6 +91,23 @@ CONCEPTO_VENTA_ITEM = "Venta"
 # discipline of never discarding an unrecognised name.
 CONCEPTO_IVA_NO_DETERMINADO = "IVA no determinado"
 
+# Positive terms that are INSIDE `net_received_amount` but are not the
+# goods. Leaving them out was not a missing feature, it was a broken
+# premise: `neto` derives from what the buyer PAID, and the buyer pays the
+# shipping the seller charges plus, on a coupon, only part of the price --
+# ML funds the rest and settles it to us. Decomposing only the items made
+# every such order fail to reconcile, and `neto_sin_iva` went silently
+# None. Both carry ML's 21%, same as every other ML-side figure.
+CONCEPTO_ENVIO_COMPRADOR = "Envío cobrado al comprador"
+CONCEPTO_CUPON_ML = "Cupón financiado por ML"
+
+# Facts that make a per-rate decomposition IMPOSSIBLE, as opposed to merely
+# unbalanced. Reported by name for the same reason `breakdown_service` names
+# its own incomplete reasons: "it does not reconcile" sends the reader
+# hunting for an arithmetic bug that is not there.
+RAZON_VENTA_CON_DEVOLUCION = "venta_con_devolucion"
+RAZON_ITEM_SIN_CANTIDAD = "item_sin_cantidad"
+
 _CENT = Decimal("0.01")
 
 
@@ -105,10 +122,19 @@ class ComponenteIVA:
 
 @dataclass(frozen=True)
 class DescomposicionNeto:
+    """The net, split per IVA rate.
+
+    `neto_sin_iva` is `None` whenever the split cannot be trusted -- either
+    the components do not add up to `neto` exactly, or `razones` names
+    something that makes a per-rate split undeterminable from what we
+    store. A number here is always one that reconciles to the cent.
+    """
+
     componentes: List[ComponenteIVA]
     neto_sin_iva: Optional[Decimal]
     reconcilia: bool
     diferencia: Decimal
+    razones: List[str] = field(default_factory=list)
 
 
 def _split(bruto: Decimal, divisor: Decimal) -> Tuple[Decimal, Decimal]:
@@ -182,6 +208,7 @@ def descomponer_neto(db: Session, order_ids: Sequence[int]) -> Dict[int, Descomp
             seller_charges.extend(order_seller_charges)
 
         componentes: List[ComponenteIVA] = []
+        razones: List[str] = []
 
         # Sale, PER ITEM -- its OWN frozen alicuota, never a single 21
         # applied to the whole order (D8, task 4.8). Uses the FROZEN
@@ -191,6 +218,11 @@ def descomponer_neto(db: Session, order_ids: Sequence[int]) -> Dict[int, Descomp
             key = (costo.order_id, costo.item_id, costo.variation_id)
             quantity = quantity_by_key.get(key)
             if quantity is None:
+                # NAMED, never a bare `continue`: without the quantity this
+                # item contributes nothing and the order stops reconciling,
+                # which reads exactly like an arithmetic bug elsewhere.
+                if RAZON_ITEM_SIN_CANTIDAD not in razones:
+                    razones.append(RAZON_ITEM_SIN_CANTIDAD)
                 continue
             bruto = (costo.precio_unitario * quantity).quantize(_CENT, rounding=ROUND_HALF_UP)
             divisor = Decimal("1") + Decimal(costo.iva_pct) / Decimal("100")
@@ -204,6 +236,34 @@ def descomponer_neto(db: Session, order_ids: Sequence[int]) -> Dict[int, Descomp
                     iva=iva,
                 )
             )
+
+        # Shipping the BUYER paid and the coupon share ML funded are both
+        # inside `net_received_amount`, so they have to appear on the
+        # positive side too or the sum can never reach it.
+        # `order_relevant`, NOT every payment: `neto` was built from the
+        # relevant ones only, so adding a rejected payment's shipping here
+        # would inflate the positive side against a net that never saw it.
+        for payment in order_relevant:
+            for valor, concepto in (
+                (payment.shipping_amount, CONCEPTO_ENVIO_COMPRADOR),
+                (payment.coupon_amount, CONCEPTO_CUPON_ML),
+            ):
+                if valor is None:
+                    continue
+                bruto = Decimal(str(valor))
+                if bruto == 0:
+                    continue
+                base, iva = _split(bruto, IVA_ML_DIVISOR)
+                componentes.append(
+                    ComponenteIVA(concepto=concepto, alicuota=IVA_ML_PCT, bruto=bruto, base=base, iva=iva)
+                )
+            if payment.transaction_amount_refunded:
+                # A refund scales `neto` down, but nothing tells us WHICH
+                # items came back -- so the per-rate split of the goods is
+                # not determinable from what we store. Saying so beats a
+                # silent mismatch that looks like a bug in this module.
+                if RAZON_VENTA_CON_DEVOLUCION not in razones:
+                    razones.append(RAZON_VENTA_CON_DEVOLUCION)
 
         for charge in seller_charges:
             name = charge.name or ""
@@ -242,13 +302,18 @@ def descomponer_neto(db: Session, order_ids: Sequence[int]) -> Dict[int, Descomp
         diferencia = neto - suma_bruto
         reconcilia = diferencia == Decimal("0")
 
-        neto_sin_iva = sum((c.base for c in componentes), Decimal("0")) if reconcilia else None
+        # Both gates, not just the arithmetic one: a decomposition can add
+        # up and still be untrustworthy (a refund whose items we cannot
+        # identify), and one that does not add up is never trustworthy.
+        confiable = reconcilia and not razones
+        neto_sin_iva = sum((c.base for c in componentes), Decimal("0")) if confiable else None
 
         result[order_id] = DescomposicionNeto(
             componentes=componentes,
             neto_sin_iva=neto_sin_iva,
             reconcilia=reconcilia,
             diferencia=diferencia,
+            razones=razones,
         )
 
     return result

@@ -22,6 +22,10 @@ from app.models.ml_orders_ops import MlOrderItemOps, MlOrdersOps
 from app.models.ml_payments import MlPaymentCharge, MlPaymentOps
 from app.services.ml_ventas_desglose.breakdown_service import compute_neto_by_order_ids
 from app.services.ml_ventas_desglose.iva import (
+    CONCEPTO_CUPON_ML,
+    CONCEPTO_ENVIO_COMPRADOR,
+    RAZON_ITEM_SIN_CANTIDAD,
+    RAZON_VENTA_CON_DEVOLUCION,
     IVA_ML_DIVISOR,
     IVA_ML_PCT,
     CONCEPTO_IVA_NO_DETERMINADO,
@@ -42,13 +46,25 @@ def _order(db, order_id: int) -> None:
     )
 
 
-def _payment(db, payment_id: int, order_id: int, status: str = "approved", net_received_amount=None) -> None:
+def _payment(
+    db,
+    payment_id: int,
+    order_id: int,
+    status: str = "approved",
+    net_received_amount=None,
+    shipping_amount=None,
+    coupon_amount=None,
+    transaction_amount_refunded=None,
+) -> None:
     db.add(
         MlPaymentOps(
             payment_id=payment_id,
             order_id=order_id,
             status=status,
             net_received_amount=net_received_amount,
+            shipping_amount=shipping_amount,
+            coupon_amount=coupon_amount,
+            transaction_amount_refunded=transaction_amount_refunded,
         )
     )
 
@@ -145,14 +161,20 @@ class TestReconciliationIsExact:
         assert result.neto_sin_iva is None
 
 
-class TestReconciliationFailureOrder2000018322969636:
-    def test_known_one_of_488_mismatch(self, db) -> None:
-        """The one real order (of 488) whose composition does not close --
-        see obs #1952/D12. `total_gauss` (PR5) is downstream of
-        `neto_sin_iva`; withholding it here by leaving `neto_sin_iva=None`
-        is what makes an unaccountable net impossible to honestly de-IVA,
-        exactly like an unknown cost (D7) withholds Total Gauss."""
-        order_id = 2000018322969636
+class TestAnUnaccountableNetWithholdsTheTaxFreeNet:
+    def test_a_net_that_does_not_close_yields_no_neto_sin_iva(self, db) -> None:
+        """Production is known to hold one order (of 488) whose composition
+        does not close -- see obs #1952/D12. This test does NOT reproduce
+        it: the real payload has not been captured, and a hand-made cent of
+        mismatch is not that order. It pins the CONSEQUENCE instead, which
+        is what this module owes: a net nothing accounts for cannot be
+        honestly de-IVA'd, so `neto_sin_iva` is withheld -- exactly like an
+        unknown cost (D7) withholds Total Gauss.
+
+        Naming a test after a production order it does not reproduce would
+        claim a verification that never happened, which is the failure this
+        whole module is built to avoid."""
+        order_id = 777001
         _order(db, order_id)
         _payment(db, 4, order_id, net_received_amount=Decimal("19900.01"))
         _item_with_frozen_cost(db, order_id, "MLA1", Decimal("19900.00"), Decimal("21.0"))
@@ -364,3 +386,95 @@ class TestDecimalOnly:
         assert isinstance(IVA_ML_DIVISOR, Decimal)
         assert IVA_ML_PCT == Decimal("21")
         assert IVA_ML_DIVISOR == Decimal("1.21")
+
+
+class TestThePositiveSideIsNotOnlyTheItems:
+    """`neto` comes from what the buyer PAID, and that is more than the
+    goods. Decomposing only the items made every order where the buyer paid
+    shipping -- or where ML funded part of a coupon -- fail to reconcile,
+    and `neto_sin_iva` went silently None. The suite stayed green because
+    no fixture ever set those columns: the arithmetic was never wrong on
+    any case anyone had written down."""
+
+    def test_buyer_paid_shipping_is_a_component(self, db) -> None:
+        order_id = 900
+        _item_with_frozen_cost(db, order_id, "MLA1", Decimal("1000.00"), Decimal("21"))
+        _payment(db, 9001, order_id, net_received_amount=Decimal("1500.00"), shipping_amount=Decimal("500.00"))
+        db.commit()
+
+        result = descomponer_neto(db, [order_id])[order_id]
+
+        envios = [c for c in result.componentes if c.concepto == CONCEPTO_ENVIO_COMPRADOR]
+        assert len(envios) == 1
+        assert envios[0].bruto == Decimal("500.00")
+        assert envios[0].alicuota == IVA_ML_PCT
+        assert result.reconcilia is True, f"no cerró por {result.diferencia}"
+        assert result.neto_sin_iva is not None
+
+    def test_ml_funded_coupon_is_a_component(self, db) -> None:
+        order_id = 901
+        _item_with_frozen_cost(db, order_id, "MLA1", Decimal("1000.00"), Decimal("21"))
+        _payment(db, 9011, order_id, net_received_amount=Decimal("1200.00"), coupon_amount=Decimal("200.00"))
+        db.commit()
+
+        result = descomponer_neto(db, [order_id])[order_id]
+
+        cupones = [c for c in result.componentes if c.concepto == CONCEPTO_CUPON_ML]
+        assert len(cupones) == 1
+        assert cupones[0].bruto == Decimal("200.00")
+        assert result.reconcilia is True, f"no cerró por {result.diferencia}"
+
+    def test_a_rejected_payments_shipping_never_enters(self, db) -> None:
+        """`neto` is built from the relevant payments only. Reading shipping
+        off every payment would inflate the positive side against a net that
+        never saw that money."""
+        order_id = 902
+        _item_with_frozen_cost(db, order_id, "MLA1", Decimal("1000.00"), Decimal("21"))
+        _payment(db, 9021, order_id, net_received_amount=Decimal("1000.00"))
+        _payment(
+            db, 9022, order_id, status="rejected", net_received_amount=Decimal("9999"), shipping_amount=Decimal("777")
+        )
+        db.commit()
+
+        result = descomponer_neto(db, [order_id])[order_id]
+
+        assert not [c for c in result.componentes if c.concepto == CONCEPTO_ENVIO_COMPRADOR]
+        assert result.reconcilia is True
+
+
+class TestWhatCannotBeSplitSaysSo:
+    """An undeterminable split and a wrong sum look identical from the
+    outside -- both leave `neto_sin_iva` empty. Naming the reason is what
+    stops the reader hunting for an arithmetic bug that is not there."""
+
+    def test_a_refunded_sale_names_the_reason(self, db) -> None:
+        """Nothing we store says WHICH items came back, so the per-rate
+        split of the goods is not determinable -- regardless of whether the
+        totals happen to line up."""
+        order_id = 903
+        _item_with_frozen_cost(db, order_id, "MLA1", Decimal("1000.00"), Decimal("21"))
+        _payment(
+            db,
+            9031,
+            order_id,
+            net_received_amount=Decimal("1000.00"),
+            transaction_amount_refunded=Decimal("400.00"),
+        )
+        db.commit()
+
+        result = descomponer_neto(db, [order_id])[order_id]
+
+        assert RAZON_VENTA_CON_DEVOLUCION in result.razones
+        assert result.neto_sin_iva is None
+
+    def test_an_item_without_quantity_names_the_reason(self, db) -> None:
+        order_id = 904
+        _item_with_frozen_cost(db, order_id, "MLA1", Decimal("1000.00"), Decimal("21"))
+        db.query(MlOrderItemOps).filter_by(order_id=order_id).update({"quantity": None})
+        _payment(db, 9041, order_id, net_received_amount=Decimal("1000.00"))
+        db.commit()
+
+        result = descomponer_neto(db, [order_id])[order_id]
+
+        assert RAZON_ITEM_SIN_CANTIDAD in result.razones
+        assert result.neto_sin_iva is None
