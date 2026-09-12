@@ -29,7 +29,7 @@ from app.services.ml_ventas_desglose.breakdown_service import (
 # locally, red in CI.
 NAMES_FILE = Path(__file__).resolve().parents[2] / "fixtures" / "ml_charges" / "tax_charge_names.json"
 
-# The buyer's own tax. `_is_seller_charge` drops anything with "payer" in
+# The buyer's own tax. `is_seller_charge` drops anything with "payer" in
 # the name before labelling ever runs, so it has no label by design.
 BUYER_TAX = "tax_withholding_payer-debitos_creditos"
 

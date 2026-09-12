@@ -35,7 +35,7 @@ back into the wrong shape.
 ## Withholdings and residual charges pass through unstripped (D8/D11)
 
 A `type == 'tax'` charge (a withholding) carries no IVA to strip: it enters
-BOTH nets identically. `_is_seller_charge` and the `charge.type == 'tax'`
+BOTH nets identically. `is_seller_charge` and the `charge.type == 'tax'`
 branch are REUSED from `breakdown_service` -- see that module's own
 docstring: "the ONE place this exclusion is applied... must never be
 duplicated". A seller charge that is neither a known fee/freight nor a
@@ -71,12 +71,12 @@ from app.models.ml_order_item_costo import MlOrderItemCosto
 from app.models.ml_orders_ops import MlOrderItemOps
 from app.models.ml_payments import MlPaymentCharge, MlPaymentOps
 from app.services.ml_ventas_desglose.breakdown_service import (
-    _CHARGE_LABELS,
+    CHARGE_LABELS,
     _RELEVANT_PAYMENT_STATUSES,
-    _is_seller_charge,
-    _net_amount,
-    _payment_effective_net,
-    _shipping_label,
+    is_seller_charge,
+    net_amount,
+    payment_effective_net,
+    shipping_label,
 )
 
 # ML's own IVA rate on its fees and freight -- authoritative per the
@@ -107,6 +107,7 @@ CONCEPTO_CUPON_ML = "Cupón financiado por ML"
 # hunting for an arithmetic bug that is not there.
 RAZON_VENTA_CON_DEVOLUCION = "venta_con_devolucion"
 RAZON_ITEM_SIN_CANTIDAD = "item_sin_cantidad"
+RAZON_ITEM_SIN_COSTO_CONGELADO = "item_sin_costo_congelado"
 
 _CENT = Decimal("0.01")
 
@@ -187,9 +188,17 @@ def descomponer_neto(db: Session, order_ids: Sequence[int]) -> Dict[int, Descomp
         costos_by_order.setdefault(costo.order_id, []).append(costo)
 
     items = db.query(MlOrderItemOps).filter(MlOrderItemOps.order_id.in_(order_ids)).all()
+    # Assigning, not summing: `uq_ml_order_item_ops_order_item_variation`
+    # makes this triple unique (with `postgresql_nulls_not_distinct`), so a
+    # later row cannot silently replace an earlier one. Summing would not be
+    # the safer choice, it would be the wrong one -- it would double a
+    # quantity the constraint forbids from existing twice.
     quantity_by_key: Dict[Tuple[int, str, Optional[int]], Optional[int]] = {
         (it.order_id, it.item_id, it.variation_id): it.quantity for it in items
     }
+    items_by_order: Dict[int, int] = {}
+    for it in items:
+        items_by_order[it.order_id] = items_by_order.get(it.order_id, 0) + 1
 
     for order_id in order_ids:
         order_relevant = [p for p in payments_by_order.get(order_id, []) if p.status in _RELEVANT_PAYMENT_STATUSES]
@@ -203,8 +212,8 @@ def descomponer_neto(db: Session, order_ids: Sequence[int]) -> Dict[int, Descomp
         seller_charges: List[MlPaymentCharge] = []
         for payment in order_relevant:
             payment_charges = charges_by_payment.get(payment.payment_id, [])
-            order_seller_charges = [c for c in payment_charges if _is_seller_charge(c.type, c.name)]
-            neto += _payment_effective_net(payment, order_seller_charges)
+            order_seller_charges = [c for c in payment_charges if is_seller_charge(c.type, c.name)]
+            neto += payment_effective_net(payment, order_seller_charges)
             seller_charges.extend(order_seller_charges)
 
         componentes: List[ComponenteIVA] = []
@@ -214,6 +223,13 @@ def descomponer_neto(db: Session, order_ids: Sequence[int]) -> Dict[int, Descomp
         # applied to the whole order (D8, task 4.8). Uses the FROZEN
         # `precio_unitario`/`iva_pct` (design D4/D6); quantity is read live
         # from `MlOrderItemOps` -- it is not a fiscal fact that gets frozen.
+        # An order whose items were never frozen (PR3 runs only on new
+        # ingestions) contributes NOTHING on the goods side, and without a
+        # name that reads as an arithmetic bug in this module rather than
+        # as the absent snapshot it is.
+        if items_by_order.get(order_id) and not costos_by_order.get(order_id):
+            razones.append(RAZON_ITEM_SIN_COSTO_CONGELADO)
+
         for costo in costos_by_order.get(order_id, []):
             key = (costo.order_id, costo.item_id, costo.variation_id)
             quantity = quantity_by_key.get(key)
@@ -270,20 +286,20 @@ def descomponer_neto(db: Session, order_ids: Sequence[int]) -> Dict[int, Descomp
             if charge.type == "tax":
                 # Withholding -- reused branch, see module docstring; never
                 # a parallel name list (D11, task 4.7).
-                bruto = -_net_amount(charge)
+                bruto = -net_amount(charge)
                 base, iva = _passthrough(bruto)
                 componentes.append(
                     ComponenteIVA(
                         concepto=name or CONCEPTO_IVA_NO_DETERMINADO, alicuota=None, bruto=bruto, base=base, iva=iva
                     )
                 )
-            elif name in _CHARGE_LABELS or name.startswith("shp_"):
+            elif name in CHARGE_LABELS or name.startswith("shp_"):
                 # ML fee or freight -- ALWAYS 21% (D8/D10), always at its
                 # NET value: this IS the deduction, not a gross line
                 # reported alongside one.
-                bruto = -_net_amount(charge)
+                bruto = -net_amount(charge)
                 base, iva = _split(bruto, IVA_ML_DIVISOR)
-                concepto = _CHARGE_LABELS.get(name) or _shipping_label(name)
+                concepto = CHARGE_LABELS.get(name) or shipping_label(name)
                 componentes.append(
                     ComponenteIVA(concepto=concepto, alicuota=IVA_ML_PCT, bruto=bruto, base=base, iva=iva)
                 )
@@ -292,7 +308,7 @@ def descomponer_neto(db: Session, order_ids: Sequence[int]) -> Dict[int, Descomp
                 # withholding. Reported, never dropped (task 4.12) -- we do
                 # not know its rate, so it passes through like a
                 # withholding rather than being guessed at 21%.
-                bruto = -_net_amount(charge)
+                bruto = -net_amount(charge)
                 base, iva = _passthrough(bruto)
                 componentes.append(
                     ComponenteIVA(concepto=CONCEPTO_IVA_NO_DETERMINADO, alicuota=None, bruto=bruto, base=base, iva=iva)

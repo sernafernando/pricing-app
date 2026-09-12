@@ -9,7 +9,7 @@ against 514 real payments (see obs #1960, #1965, #1966).
 
 ## The seller-vs-buyer/coupon predicate
 
-`_is_seller_charge` is the ONE place this exclusion is applied. It must
+`is_seller_charge` is the ONE place this exclusion is applied. It must
 never be duplicated: a charge is NOT the seller's when
     type == "coupon" | type == "bonus" | name == "financing_fee" | "payer" in name
 
@@ -162,7 +162,7 @@ _NON_SELLER_NAMES = frozenset({"financing_fee"})
 # through the billing sweep (as opposed to a payment's own `shp_*` charges).
 _SHIPPING_BILLING_SUBTYPES = frozenset({"CXD", "CFF", "CSSTEC"})
 
-_CHARGE_LABELS: Dict[str, str] = {
+CHARGE_LABELS: Dict[str, str] = {
     "meli_percentage_fee": "Cargo por vender",
     "flat_fee": "Costo fijo",
     "financing_add_on_fee": "Costo por ofrecer cuotas",
@@ -197,7 +197,7 @@ _SHIPPING_CHARGE_LABELS: Dict[str, str] = {
 #                                            `collector` is US and
 #                                            `payer` is the buyer (the
 #                                            payer one never reaches here
-#                                            -- `_is_seller_charge` drops
+#                                            -- `is_seller_charge` drops
 #                                            anything with "payer" in the
 #                                            name)
 #
@@ -281,7 +281,7 @@ def _tax_label(charge_name: Optional[str]) -> str:
     return f"{kind} ({place})"
 
 
-def _shipping_label(charge_name: Optional[str]) -> str:
+def shipping_label(charge_name: Optional[str]) -> str:
     """A readable per-mode line for one `shp_*` payment charge.
 
     Same discipline as `_tax_label`: falls back to the generic
@@ -560,7 +560,7 @@ REASON_BILLING_TOO_RECENT = "billing_too_recent"
 _INFORMATIONAL_REASONS = frozenset({REASON_BILLING_TOO_RECENT, REASON_FLEX_COST_UNKNOWN})
 
 
-def _is_seller_charge(charge_type: Optional[str], charge_name: Optional[str]) -> bool:
+def is_seller_charge(charge_type: Optional[str], charge_name: Optional[str]) -> bool:
     """The single reusable seller-vs-buyer/coupon predicate. See module
     docstring -- this must never be reimplemented anywhere else."""
     charge_type = charge_type or ""
@@ -574,7 +574,7 @@ def _is_seller_charge(charge_type: Optional[str], charge_name: Optional[str]) ->
     return True
 
 
-def _net_amount(charge: MlPaymentCharge) -> Decimal:
+def net_amount(charge: MlPaymentCharge) -> Decimal:
     """A charge's amount net of whatever ML already refunded on it."""
     amount = Decimal(str(charge.amount)) if charge.amount is not None else Decimal("0")
     refunded = Decimal(str(charge.refunded)) if charge.refunded is not None else Decimal("0")
@@ -613,7 +613,7 @@ class OperationBreakdown:
     incomplete_reasons: List[str] = field(default_factory=list)
 
 
-def _payment_effective_net(payment: MlPaymentOps, seller_charges: Sequence[MlPaymentCharge]) -> Decimal:
+def payment_effective_net(payment: MlPaymentOps, seller_charges: Sequence[MlPaymentCharge]) -> Decimal:
     """`net_received_amount`, corrected for whatever was refunded -- see
     module docstring. Zero for a payment refunded in full, unchanged for
     one never refunded."""
@@ -638,8 +638,8 @@ def compute_neto_by_order_ids(db: Session, order_ids: Sequence[int]) -> Dict[int
     This exists for the sales LISTING (`GET /ml-ventas-ops/sales`), which
     pages up to 200 rows: calling `compute_breakdown` once per row would be
     hundreds of queries per request. This function applies the exact same
-    rule instead -- `_RELEVANT_PAYMENT_STATUSES`, `_is_seller_charge`,
-    `_payment_effective_net` are the SAME predicates `compute_breakdown`
+    rule instead -- `_RELEVANT_PAYMENT_STATUSES`, `is_seller_charge`,
+    `payment_effective_net` are the SAME predicates `compute_breakdown`
     uses, imported/reused here, never reimplemented -- but resolves it with
     two bulk queries scoped to every `order_id` on the page at once,
     mirroring `listar_ventas`'s own `members_base` pattern (page the keys,
@@ -686,8 +686,8 @@ def compute_neto_by_order_ids(db: Session, order_ids: Sequence[int]) -> Dict[int
         neto = Decimal("0")
         for payment in order_relevant:
             payment_charges = charges_by_payment.get(payment.payment_id, [])
-            seller_charges = [c for c in payment_charges if _is_seller_charge(c.type, c.name)]
-            neto += _payment_effective_net(payment, seller_charges)
+            seller_charges = [c for c in payment_charges if is_seller_charge(c.type, c.name)]
+            neto += payment_effective_net(payment, seller_charges)
         result[order_id] = neto
 
     return result
@@ -730,10 +730,10 @@ def compute_breakdown(db: Session, order_ids: Sequence[int]) -> OperationBreakdo
     neto = Decimal("0")
     for payment in relevant_payments:
         payment_charges = charges_by_payment.get(payment.payment_id, [])
-        seller_charges = [c for c in payment_charges if _is_seller_charge(c.type, c.name)]
-        neto += _payment_effective_net(payment, seller_charges)
+        seller_charges = [c for c in payment_charges if is_seller_charge(c.type, c.name)]
+        neto += payment_effective_net(payment, seller_charges)
 
-    seller_charges_all = [c for c in charges if _is_seller_charge(c.type, c.name)]
+    seller_charges_all = [c for c in charges if is_seller_charge(c.type, c.name)]
 
     line_amounts: Dict[str, Decimal] = {}
 
@@ -742,12 +742,12 @@ def compute_breakdown(db: Session, order_ids: Sequence[int]) -> OperationBreakdo
     # payment's flat_fee charge is correct, unlike shipping which is
     # shared once per pack.
     for charge in seller_charges_all:
-        label = _CHARGE_LABELS.get(charge.name)
+        label = CHARGE_LABELS.get(charge.name)
         if label is not None:
-            line_amounts[label] = line_amounts.get(label, Decimal("0")) + _net_amount(charge)
+            line_amounts[label] = line_amounts.get(label, Decimal("0")) + net_amount(charge)
         elif charge.type == "tax":
             tax_label = _tax_label(charge.name)
-            line_amounts[tax_label] = line_amounts.get(tax_label, Decimal("0")) + _net_amount(charge)
+            line_amounts[tax_label] = line_amounts.get(tax_label, Decimal("0")) + net_amount(charge)
 
     # Shipping: `shp_*` payment charges (never shared -- summed per order),
     # split by KNOWN mode into its own line (ml-ventas-modo-logistico PR2)
@@ -762,9 +762,9 @@ def compute_breakdown(db: Session, order_ids: Sequence[int]) -> OperationBreakdo
         # handles None, so leaving the guard off here would be a defensive
         # line sitting next to an undefended one.
         if (charge.name or "").startswith("shp_"):
-            amount = _net_amount(charge)
+            amount = net_amount(charge)
             shipping_total += amount
-            label = _shipping_label(charge.name)
+            label = shipping_label(charge.name)
             line_amounts[label] = line_amounts.get(label, Decimal("0")) + amount
 
     # Shipping: billing-side charges, joined through the bridge table and

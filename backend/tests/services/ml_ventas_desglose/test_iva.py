@@ -25,6 +25,7 @@ from app.services.ml_ventas_desglose.iva import (
     CONCEPTO_CUPON_ML,
     CONCEPTO_ENVIO_COMPRADOR,
     RAZON_ITEM_SIN_CANTIDAD,
+    RAZON_ITEM_SIN_COSTO_CONGELADO,
     RAZON_VENTA_CON_DEVOLUCION,
     IVA_ML_DIVISOR,
     IVA_ML_PCT,
@@ -210,7 +211,7 @@ class TestWithholdingPredicateReusedNotDuplicated:
         `type == 'tax'` branch is reused, not a name allowlist."""
         names = json.loads((_FIXTURES_DIR / "tax_charge_names.json").read_text())["names"]
         # `tax_withholding_payer-debitos_creditos` is the BUYER's tax --
-        # `_is_seller_charge` drops it (contains "payer"), so it never
+        # `is_seller_charge` drops it (contains "payer"), so it never
         # reduces `neto` even though it is recorded here (fixture's own
         # `__why__`).
         seller_names = [n for n in names if "payer" not in n]
@@ -325,7 +326,7 @@ class TestChargeNetOfRefundNotRawAmount:
     def test_partially_refunded_fee_uses_its_net_amount(self, db) -> None:
         """Mutation-verification companion to task 4.10: a fee charge that
         was PARTIALLY refunded must enter the chain at `amount - refunded`
-        (`_net_amount`, reused from `breakdown_service`), never at the raw
+        (`net_amount`, reused from `breakdown_service`), never at the raw
         `amount`. Substituting the raw gross for the net changes both
         `neto` and `neto_sin_iva` here."""
         order_id = 15
@@ -477,4 +478,31 @@ class TestWhatCannotBeSplitSaysSo:
         result = descomponer_neto(db, [order_id])[order_id]
 
         assert RAZON_ITEM_SIN_CANTIDAD in result.razones
+        assert result.neto_sin_iva is None
+
+
+class TestAnOrderWithNoFrozenCostSaysSo:
+    """PR3 freezes costs only for NEW ingestions, so historical orders have
+    items and no frozen rows. The goods side then contributes nothing and
+    the order stops reconciling -- which, unnamed, reads as an arithmetic
+    bug in this module instead of the absent snapshot it actually is."""
+
+    def test_items_without_frozen_costs_name_the_reason(self, db) -> None:
+        order_id = 905
+        db.add(
+            MlOrderItemOps(
+                order_id=order_id,
+                item_id="MLA1",
+                variation_id=None,
+                seller_sku="SKU-1",
+                quantity=1,
+                unit_price=Decimal("1000.00"),
+            )
+        )
+        _payment(db, 9051, order_id, net_received_amount=Decimal("1000.00"))
+        db.commit()
+
+        result = descomponer_neto(db, [order_id])[order_id]
+
+        assert RAZON_ITEM_SIN_COSTO_CONGELADO in result.razones
         assert result.neto_sin_iva is None
