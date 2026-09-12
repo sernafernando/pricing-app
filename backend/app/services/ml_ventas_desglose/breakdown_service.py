@@ -162,6 +162,25 @@ _NON_SELLER_NAMES = frozenset({"financing_fee"})
 # through the billing sweep (as opposed to a payment's own `shp_*` charges).
 _SHIPPING_BILLING_SUBTYPES = frozenset({"CXD", "CFF", "CSSTEC"})
 
+__all__ = [
+    # The module's SHARED surface: `iva.py` and the router read these, so
+    # they carry no underscore (a `_` that three modules import is a lie).
+    # Everything NOT listed here -- `_NON_SELLER_TYPES`, `_TAX_PLACES`,
+    # `_SHIPPING_CHARGE_LABELS` and friends -- is internal, and staying off
+    # this list is what says so.
+    "CHARGE_LABELS",
+    "RELEVANT_PAYMENT_STATUSES",
+    "BreakdownLine",
+    "OperationBreakdown",
+    "compute_breakdown",
+    "compute_neto_by_order_ids",
+    "is_seller_charge",
+    "net_amount",
+    "payment_effective_net",
+    "shipping_label",
+    "tax_label",
+]
+
 CHARGE_LABELS: Dict[str, str] = {
     "meli_percentage_fee": "Cargo por vender",
     "flat_fee": "Costo fijo",

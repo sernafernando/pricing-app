@@ -20,13 +20,18 @@ from pathlib import Path
 from app.models.ml_order_item_costo import MlOrderItemCosto
 from app.models.ml_orders_ops import MlOrderItemOps, MlOrdersOps
 from app.models.ml_payments import MlPaymentCharge, MlPaymentOps
-from app.services.ml_ventas_desglose.breakdown_service import compute_neto_by_order_ids, tax_label
+from app.services.ml_ventas_desglose.breakdown_service import (
+    compute_breakdown,
+    compute_neto_by_order_ids,
+    tax_label,
+)
 from app.services.ml_ventas_desglose.iva import (
     CONCEPTO_CUPON_ML,
     CONCEPTO_ENVIO_COMPRADOR,
     CONCEPTO_IVA_NO_DETERMINADO,
     IVA_ML_DIVISOR,
     IVA_ML_PCT,
+    RAZON_COSTO_SIN_ITEM,
     RAZON_ITEM_SIN_CANTIDAD,
     RAZON_ITEM_SIN_COSTO_CONGELADO,
     RAZON_VENTA_CON_DEVOLUCION,
@@ -581,3 +586,50 @@ class TestTheThirdPathToTheNetAgrees:
 
         assert neto_listado == Decimal("1000.00")
         assert sum((c.bruto for c in descomposicion.componentes), Decimal("0")) == neto_listado
+
+
+class TestBothModulesClassifyAChargeTheSameWay:
+    """`compute_breakdown` reads the NAME first and `type == "tax"` second.
+    This module used to do the opposite, so a charge typed `tax` whose name
+    is a known fee would pass without IVA here and be labelled a commission
+    there -- one charge, two treatments, which is exactly what
+    `TestTheTwoPathsToTheNetAgree` exists to prevent."""
+
+    def test_a_tax_typed_charge_with_a_fee_name_is_a_fee_in_both(self, db) -> None:
+        order_id = 912
+        _item_with_frozen_cost(db, order_id, "MLA1", Decimal("1000.00"), Decimal("21"))
+        _payment(db, 9121, order_id, net_received_amount=Decimal("900.00"))
+        # A known fee NAME carrying the `tax` TYPE -- the ambiguous shape.
+        _charge(db, 9121, "meli_percentage_fee", "tax", Decimal("100.00"))
+        db.commit()
+
+        result = descomponer_neto(db, [order_id])[order_id]
+        breakdown = compute_breakdown(db, [order_id])
+
+        componente = next(c for c in result.componentes if c.bruto == Decimal("-100.00"))
+        # Treated as a FEE: it carries ML's 21%, not passed through as a
+        # withholding -- and it is labelled the same on both surfaces.
+        assert componente.alicuota == IVA_ML_PCT
+        assert componente.concepto in {line.concepto for line in breakdown.lines}
+
+
+class TestAMissingItemRowIsNotAMissingQuantity:
+    """`.get()` returns None both when the item row is gone and when it
+    exists carrying a NULL quantity. Reporting the first as "item without
+    quantity" names the opposite of what happened -- there is no item at
+    all, there is a frozen cost left over from one."""
+
+    def test_an_orphan_frozen_cost_names_its_own_reason(self, db) -> None:
+        order_id = 913
+        _item_with_frozen_cost(db, order_id, "MLA1", Decimal("1000.00"), Decimal("21"))
+        # The item row disappears; its frozen cost deliberately survives
+        # (see `congelar`'s docstring), leaving the cost orphaned.
+        db.query(MlOrderItemOps).filter_by(order_id=order_id).delete()
+        _payment(db, 9131, order_id, net_received_amount=Decimal("1000.00"))
+        db.commit()
+
+        result = descomponer_neto(db, [order_id])[order_id]
+
+        assert RAZON_COSTO_SIN_ITEM in result.razones
+        assert RAZON_ITEM_SIN_CANTIDAD not in result.razones
+        assert result.neto_sin_iva is None

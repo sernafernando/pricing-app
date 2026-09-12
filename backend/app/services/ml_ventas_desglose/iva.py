@@ -88,7 +88,7 @@ IVA_ML_DIVISOR = Decimal("1") + IVA_ML_PCT / Decimal("100")
 CONCEPTO_VENTA_ITEM = "Venta"
 
 # A seller charge that is neither a known fee/freight nor a `type='tax'`
-# withholding. Reported, never dropped (task 4.12) -- mirrors `_tax_label`'s
+# withholding. Reported, never dropped (task 4.12) -- mirrors `tax_label`'s
 # discipline of never discarding an unrecognised name.
 CONCEPTO_IVA_NO_DETERMINADO = "IVA no determinado"
 
@@ -110,6 +110,10 @@ RAZON_VENTA_CON_DEVOLUCION = "venta_con_devolucion"
 RAZON_ITEM_SIN_CANTIDAD = "item_sin_cantidad"
 RAZON_ITEM_SIN_COSTO_CONGELADO = "item_sin_costo_congelado"
 RAZON_SIN_PAGOS_SINCRONIZADOS = "sin_pagos_sincronizados"
+# A frozen cost whose item row is gone -- the MIRROR of
+# `item_sin_costo_congelado`, and it needs its own name: calling this one
+# "item without frozen cost" says the opposite of what happened.
+RAZON_COSTO_SIN_ITEM = "costo_sin_item"
 
 _CENT = Decimal("0.01")
 
@@ -247,15 +251,31 @@ def descomponer_neto(db: Session, order_ids: Sequence[int]) -> Dict[int, Descomp
         # arithmetic bug in this module rather than as the missing rows it
         # actually is.
         #
+        # `<` is enough, and deliberately so. MORE frozen rows than items
+        # means at least one of them has no item row -- the keys are
+        # unique -- and the per-item loop below already names that as
+        # `costo_sin_item`. A `!=` here would add a branch no test can
+        # reach, which is a worse kind of dead code than none: it looks
+        # like a guarded case.
+        #
         # An order with NO items at all needs no reason: its whole net is
         # unaccounted, `diferencia` equals `neto`, and that says it plainly.
         items_esperados = items_by_order.get(order_id, 0)
-        if items_esperados and len(costos_by_order.get(order_id, [])) < items_esperados:
+        if items_esperados and len(costos_by_order.get(order_id, [])) != items_esperados:
             razones.append(RAZON_ITEM_SIN_COSTO_CONGELADO)
 
         for costo in costos_by_order.get(order_id, []):
             key = (costo.order_id, costo.item_id, costo.variation_id)
-            quantity = quantity_by_key.get(key)
+            # `key in` FIRST: `.get()` returns None both when the item row
+            # is missing entirely (an orphan frozen cost) and when the row
+            # exists with a NULL quantity. Reporting the first as
+            # "item without quantity" names the wrong thing, which is the
+            # lying-badge failure this module keeps insisting on avoiding.
+            if key not in quantity_by_key:
+                if RAZON_COSTO_SIN_ITEM not in razones:
+                    razones.append(RAZON_COSTO_SIN_ITEM)
+                continue
+            quantity = quantity_by_key[key]
             if quantity is None:
                 # NAMED, never a bare `continue`: without the quantity this
                 # item contributes nothing and the order stops reconciling,
@@ -306,7 +326,24 @@ def descomponer_neto(db: Session, order_ids: Sequence[int]) -> Dict[int, Descomp
 
         for charge in seller_charges:
             name = charge.name or ""
-            if charge.type == "tax":
+            # ORDER MATTERS, and it matches `compute_breakdown`'s exactly:
+            # the NAME is consulted first, `type == "tax"` second. The two
+            # modules must classify one charge the same way -- a charge
+            # typed `tax` whose name is a known fee would otherwise pass
+            # without IVA here and be labelled a commission there, which is
+            # the very divergence `TestTheTwoPathsToTheNetAgree` exists to
+            # catch. If this order ever changes, change it in BOTH.
+            if name in CHARGE_LABELS or name.startswith("shp_"):
+                # ML fee or freight -- ALWAYS 21% (D8/D10), always at its
+                # NET value: this IS the deduction, not a gross line
+                # reported alongside one.
+                bruto = -net_amount(charge)
+                base, iva = _split(bruto, IVA_ML_DIVISOR)
+                concepto = CHARGE_LABELS.get(name) or shipping_label(name)
+                componentes.append(
+                    ComponenteIVA(concepto=concepto, alicuota=IVA_ML_PCT, bruto=bruto, base=base, iva=iva)
+                )
+            elif charge.type == "tax":
                 # Withholding -- reused branch, see module docstring; never
                 # a parallel name list (D11, task 4.7).
                 bruto = -net_amount(charge)
@@ -325,16 +362,6 @@ def descomponer_neto(db: Session, order_ids: Sequence[int]) -> Dict[int, Descomp
                         base=base,
                         iva=iva,
                     )
-                )
-            elif name in CHARGE_LABELS or name.startswith("shp_"):
-                # ML fee or freight -- ALWAYS 21% (D8/D10), always at its
-                # NET value: this IS the deduction, not a gross line
-                # reported alongside one.
-                bruto = -net_amount(charge)
-                base, iva = _split(bruto, IVA_ML_DIVISOR)
-                concepto = CHARGE_LABELS.get(name) or shipping_label(name)
-                componentes.append(
-                    ComponenteIVA(concepto=concepto, alicuota=IVA_ML_PCT, bruto=bruto, base=base, iva=iva)
                 )
             else:
                 # Residual seller charge: not a known fee/freight, not a
