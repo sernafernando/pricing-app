@@ -151,7 +151,7 @@ _BILLING_AGE_THRESHOLD = timedelta(hours=48)
 # reports. Order 2000018092595428 collected 199.707,50 and read as nothing.
 #
 # `rejected`/`cancelled` stay out -- see module docstring.
-_RELEVANT_PAYMENT_STATUSES = frozenset({"approved", "refunded", "in_mediation"})
+RELEVANT_PAYMENT_STATUSES = frozenset({"approved", "refunded", "in_mediation"})
 
 # Charge classification -- see module docstring. The ONE predicate, never
 # duplicated elsewhere.
@@ -638,7 +638,7 @@ def compute_neto_by_order_ids(db: Session, order_ids: Sequence[int]) -> Dict[int
     This exists for the sales LISTING (`GET /ml-ventas-ops/sales`), which
     pages up to 200 rows: calling `compute_breakdown` once per row would be
     hundreds of queries per request. This function applies the exact same
-    rule instead -- `_RELEVANT_PAYMENT_STATUSES`, `is_seller_charge`,
+    rule instead -- `RELEVANT_PAYMENT_STATUSES`, `is_seller_charge`,
     `payment_effective_net` are the SAME predicates `compute_breakdown`
     uses, imported/reused here, never reimplemented -- but resolves it with
     two bulk queries scoped to every `order_id` on the page at once,
@@ -662,7 +662,7 @@ def compute_neto_by_order_ids(db: Session, order_ids: Sequence[int]) -> Dict[int
     for payment in payments:
         payments_by_order.setdefault(payment.order_id, []).append(payment)
 
-    relevant_payments = [p for p in payments if p.status in _RELEVANT_PAYMENT_STATUSES]
+    relevant_payments = [p for p in payments if p.status in RELEVANT_PAYMENT_STATUSES]
     payment_ids = [p.payment_id for p in relevant_payments]
 
     charges: List[MlPaymentCharge] = []
@@ -673,7 +673,7 @@ def compute_neto_by_order_ids(db: Session, order_ids: Sequence[int]) -> Dict[int
         charges_by_payment.setdefault(charge.payment_id, []).append(charge)
 
     for order_id, order_payments in payments_by_order.items():
-        order_relevant = [p for p in order_payments if p.status in _RELEVANT_PAYMENT_STATUSES]
+        order_relevant = [p for p in order_payments if p.status in RELEVANT_PAYMENT_STATUSES]
         if not order_relevant:
             # Rows exist but none of them count. That is NOT zero: zero
             # means the sale left nothing, which is what a refunded sale
@@ -704,7 +704,7 @@ def compute_breakdown(db: Session, order_ids: Sequence[int]) -> OperationBreakdo
     incomplete_reasons: List[str] = []
 
     payments = db.query(MlPaymentOps).filter(MlPaymentOps.order_id.in_(order_ids)).all()
-    relevant_payments = [p for p in payments if p.status in _RELEVANT_PAYMENT_STATUSES]
+    relevant_payments = [p for p in payments if p.status in RELEVANT_PAYMENT_STATUSES]
     if not relevant_payments:
         # Keyed off `relevant_payments`, not `payments`: rows can exist and
         # still leave us with no net. Off `payments` the panel returned a

@@ -72,7 +72,7 @@ from app.models.ml_orders_ops import MlOrderItemOps
 from app.models.ml_payments import MlPaymentCharge, MlPaymentOps
 from app.services.ml_ventas_desglose.breakdown_service import (
     CHARGE_LABELS,
-    _RELEVANT_PAYMENT_STATUSES,
+    RELEVANT_PAYMENT_STATUSES,
     is_seller_charge,
     net_amount,
     payment_effective_net,
@@ -172,7 +172,7 @@ def descomponer_neto(db: Session, order_ids: Sequence[int]) -> Dict[int, Descomp
     for payment in payments:
         payments_by_order.setdefault(payment.order_id, []).append(payment)
 
-    relevant_payments = [p for p in payments if p.status in _RELEVANT_PAYMENT_STATUSES]
+    relevant_payments = [p for p in payments if p.status in RELEVANT_PAYMENT_STATUSES]
     payment_ids = [p.payment_id for p in relevant_payments]
 
     charges: List[MlPaymentCharge] = []
@@ -201,7 +201,7 @@ def descomponer_neto(db: Session, order_ids: Sequence[int]) -> Dict[int, Descomp
         items_by_order[it.order_id] = items_by_order.get(it.order_id, 0) + 1
 
     for order_id in order_ids:
-        order_relevant = [p for p in payments_by_order.get(order_id, []) if p.status in _RELEVANT_PAYMENT_STATUSES]
+        order_relevant = [p for p in payments_by_order.get(order_id, []) if p.status in RELEVANT_PAYMENT_STATUSES]
         if not order_relevant:
             result[order_id] = DescomposicionNeto(
                 componentes=[], neto_sin_iva=None, reconcilia=False, diferencia=Decimal("0")
@@ -223,11 +223,19 @@ def descomponer_neto(db: Session, order_ids: Sequence[int]) -> Dict[int, Descomp
         # applied to the whole order (D8, task 4.8). Uses the FROZEN
         # `precio_unitario`/`iva_pct` (design D4/D6); quantity is read live
         # from `MlOrderItemOps` -- it is not a fiscal fact that gets frozen.
-        # An order whose items were never frozen (PR3 runs only on new
-        # ingestions) contributes NOTHING on the goods side, and without a
-        # name that reads as an arithmetic bug in this module rather than
-        # as the absent snapshot it is.
-        if items_by_order.get(order_id) and not costos_by_order.get(order_id):
+        # COUNTS, not all-or-nothing. PR3 freezes only on new ingestions,
+        # so an order can easily carry three items with two frozen rows --
+        # the goods side is then short by one item, the sum stops closing,
+        # and the first version of this check stayed silent because it
+        # demanded ZERO frozen rows. A partial snapshot is exactly as
+        # unaccountable as no snapshot, and silence here reads as an
+        # arithmetic bug in this module rather than as the missing rows it
+        # actually is.
+        #
+        # An order with NO items at all needs no reason: its whole net is
+        # unaccounted, `diferencia` equals `neto`, and that says it plainly.
+        items_esperados = items_by_order.get(order_id, 0)
+        if items_esperados and len(costos_by_order.get(order_id, [])) < items_esperados:
             razones.append(RAZON_ITEM_SIN_COSTO_CONGELADO)
 
         for costo in costos_by_order.get(order_id, []):

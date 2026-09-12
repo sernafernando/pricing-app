@@ -24,12 +24,12 @@ from app.services.ml_ventas_desglose.breakdown_service import compute_neto_by_or
 from app.services.ml_ventas_desglose.iva import (
     CONCEPTO_CUPON_ML,
     CONCEPTO_ENVIO_COMPRADOR,
+    CONCEPTO_IVA_NO_DETERMINADO,
+    IVA_ML_DIVISOR,
+    IVA_ML_PCT,
     RAZON_ITEM_SIN_CANTIDAD,
     RAZON_ITEM_SIN_COSTO_CONGELADO,
     RAZON_VENTA_CON_DEVOLUCION,
-    IVA_ML_DIVISOR,
-    IVA_ML_PCT,
-    CONCEPTO_IVA_NO_DETERMINADO,
     descomponer_neto,
 )
 
@@ -219,7 +219,7 @@ class TestWithholdingPredicateReusedNotDuplicated:
         _order(db, order_id)
         neto = Decimal("0.00") - Decimal(len(seller_names)) * Decimal("10.00")
         _payment(db, 6, order_id, net_received_amount=neto)
-        for i, name in enumerate(names):
+        for name in names:
             _charge(db, 6, name, "tax", Decimal("10.00"))
         db.commit()
 
@@ -486,6 +486,31 @@ class TestAnOrderWithNoFrozenCostSaysSo:
     items and no frozen rows. The goods side then contributes nothing and
     the order stops reconciling -- which, unnamed, reads as an arithmetic
     bug in this module instead of the absent snapshot it actually is."""
+
+    def test_a_PARTIALLY_frozen_order_names_the_reason_too(self, db) -> None:
+        """Two items, one frozen. The goods side is short by one item and
+        the sum stops closing -- and the first version of this check
+        demanded ZERO frozen rows, so it stayed silent on exactly the case
+        PR3's gradual rollout makes common."""
+        order_id = 906
+        _item_with_frozen_cost(db, order_id, "MLA1", Decimal("1000.00"), Decimal("21"))
+        db.add(
+            MlOrderItemOps(
+                order_id=order_id,
+                item_id="MLA2",
+                variation_id=None,
+                seller_sku="SKU-2",
+                quantity=1,
+                unit_price=Decimal("500.00"),
+            )
+        )
+        _payment(db, 9061, order_id, net_received_amount=Decimal("1500.00"))
+        db.commit()
+
+        result = descomponer_neto(db, [order_id])[order_id]
+
+        assert RAZON_ITEM_SIN_COSTO_CONGELADO in result.razones
+        assert result.neto_sin_iva is None
 
     def test_items_without_frozen_costs_name_the_reason(self, db) -> None:
         order_id = 905
