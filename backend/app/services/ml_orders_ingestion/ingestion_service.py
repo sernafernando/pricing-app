@@ -373,28 +373,37 @@ def upsert_order(db: Session, payload: Dict[str, Any], mapped: Optional[OrderOps
 
     dto = result
 
+    stale = False
     try:
         with db.begin_nested():
             applied = _upsert_order_row(db, dto)
             if not applied:
-                return UpsertOutcome.SKIPPED_STALE
+                # FLAGGED, not returned from inside the `with`. A `return`
+                # leaves the context manager by the no-exception path, so
+                # the SAVEPOINT is RELEASED rather than rolled back. The
+                # guarded upsert is a genuine no-op here so nothing is
+                # corrupted today, but the docstring promises the stored
+                # row is left completely unchanged, and releasing a
+                # savepoint is not how you keep that promise -- it only
+                # happens to look the same.
+                stale = True
+            else:
+                for item in dto.items:
+                    _upsert_item_row(db, dto.order_id, item)
 
-            for item in dto.items:
-                _upsert_item_row(db, dto.order_id, item)
+                # Cost snapshot (ml-ventas-modo-logistico, design D4/D13):
+                # freezes each item's ERP cost/IVA/exchange rate the FIRST
+                # time it is ever seen. INSERT-only -- a re-ingestion of an
+                # already-costed item never rewrites its snapshot. Runs
+                # after the item rows themselves, and never reads or writes
+                # `MlOrderItemOps` -- keeps the cost seam that model
+                # documents.
+                congelar(db, dto.order_id, dto.items)
 
-            # Cost snapshot (ml-ventas-modo-logistico, design D4/D13):
-            # freezes each item's ERP cost/IVA/exchange rate the FIRST
-            # time it is ever seen. INSERT-only -- a re-ingestion of an
-            # already-costed item never rewrites its snapshot. Runs after
-            # the item rows themselves, and never reads or writes
-            # `MlOrderItemOps` -- keeps the cost seam that model
-            # documents.
-            congelar(db, dto.order_id, dto.items)
+                keep_keys = {(item.item_id, item.variation_id) for item in dto.items}
+                _delete_stale_items(db, dto.order_id, keep_keys)
 
-            keep_keys = {(item.item_id, item.variation_id) for item in dto.items}
-            _delete_stale_items(db, dto.order_id, keep_keys)
-
-            db.flush()
+                db.flush()
     except SQLAlchemyError as exc:
         # A single failed statement poisons the ENTIRE surrounding
         # PostgreSQL transaction, not just this order's writes -- without
@@ -409,6 +418,8 @@ def upsert_order(db: Session, payload: Dict[str, Any], mapped: Optional[OrderOps
         _open_ingest_failed_divergence(db, dto.order_id, error_message)
         return UpsertOutcome.WRITE_ERROR
 
+    if stale:
+        return UpsertOutcome.SKIPPED_STALE
     return UpsertOutcome.OK
 
 
@@ -453,18 +464,25 @@ def retry_quarantined_orders(db: Session, limit: int = MAX_QUARANTINE_RETRIES_PE
     # never get a turn at all: the queue would be blocked by exactly the
     # rows that cannot move. Least-recently-attempted first is a natural
     # round robin, so every order gets its turn.
+    # TUPLES, taken before the loop, not ORM instances. The loop deletes
+    # from this very table and `upsert_order` may re-UPSERT the same row
+    # through `_quarantine_order`, so a live ORM object for it would be
+    # stale from the second iteration on -- working today only by the
+    # accident of the current ordering.
     rows = (
-        db.query(MlOrdersOpsCuarentena)
+        db.query(MlOrdersOpsCuarentena.order_id, MlOrdersOpsCuarentena.raw_order)
         .order_by(nullsfirst(MlOrdersOpsCuarentena.ultimo_intento_at.asc()))
         .limit(limit)
         .all()
     )
-    for row in rows:
+    for order_id, raw_order in rows:
         result.attempted += 1
-        outcome = upsert_order(db, row.raw_order)
+        outcome = upsert_order(db, raw_order)
         if outcome in (UpsertOutcome.OK, UpsertOutcome.SKIPPED_STALE):
-            db.query(MlOrdersOpsCuarentena).filter(MlOrdersOpsCuarentena.order_id == row.order_id).delete()
-            _resolve_ingest_failed_divergence(db, row.order_id)
+            db.query(MlOrdersOpsCuarentena).filter(MlOrdersOpsCuarentena.order_id == order_id).delete(
+                synchronize_session=False
+            )
+            _resolve_ingest_failed_divergence(db, order_id)
             result.recovered += 1
         else:
             result.still_failed += 1

@@ -125,13 +125,15 @@ def main() -> None:
     if unaccounted > 0:
         logger.error(
             "drain_ml_activity: %s of %s order(s) fetched from ML were written NOWHERE and no "
-            "outcome accounts for them (upserted=%s stale=%s out_of_window=%s mapping_error=%s) — "
+            "outcome accounts for them (upserted=%s stale=%s out_of_window=%s write_error=%s "
+            "mapping_error=%s) — "
             "the drain is running but not ingesting",
             unaccounted,
             result.orders_resolved,
             result.orders_upserted,
             result.orders_skipped_stale,
             result.orders_out_of_window,
+            result.orders_write_error,
             result.orders_mapping_error,
         )
 

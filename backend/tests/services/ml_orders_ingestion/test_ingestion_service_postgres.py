@@ -27,7 +27,12 @@ from app.services.ml_orders_ingestion import ingestion_service
 from app.services.ml_orders_ingestion.ingestion_service import UpsertOutcome, upsert_order
 
 
-def _order_payload(order_id: int, status_detail=None, last_updated: str = "2026-09-10T10:00:00.000-04:00") -> dict:
+def _order_payload(
+    order_id: int,
+    status_detail=None,
+    last_updated: str = "2026-09-10T10:00:00.000-04:00",
+    currency_id: str = "ARS",
+) -> dict:
     return {
         "id": order_id,
         "status": "paid",
@@ -38,7 +43,7 @@ def _order_payload(order_id: int, status_detail=None, last_updated: str = "2026-
         "buyer": {"id": 55, "nickname": "comprador"},
         "total_amount": 100.0,
         "paid_amount": 100.0,
-        "currency_id": "ARS",
+        "currency_id": currency_id,
         "order_items": [
             {"item": {"id": "MLA1", "seller_sku": "SKU-1"}, "quantity": 1, "unit_price": 100.0},
         ],
@@ -73,10 +78,17 @@ class TestQuarantineIsolationOnRealPostgres:
         statement). WITH it, 1 and 3 land, 2 is isolated and quarantined,
         and the pass can keep going."""
         db = pg_orders_ops_db
-        too_long_status_detail = "x" * 200  # column is String(60)
+        # POISON: a `currency_id` longer than its `String(5)` column.
+        #
+        # It used to be an over-long `status_detail`, and that stopped
+        # working the day the mapper started truncating that field (the fix
+        # for the 2026-09-10 incident). A test whose trigger has been
+        # defused silently proves nothing, so the poison moved to a field
+        # the mapper still passes through verbatim.
+        too_long = "PESOS-ARGENTINOS"  # column is String(5)
 
         first = upsert_order(db, _order_payload(order_id=1001))
-        second = upsert_order(db, _order_payload(order_id=1002, status_detail=too_long_status_detail))
+        second = upsert_order(db, _order_payload(order_id=1002, currency_id=too_long))
         third = upsert_order(db, _order_payload(order_id=1003))
 
         assert first == UpsertOutcome.OK
@@ -96,7 +108,8 @@ class TestQuarantineIsolationOnRealPostgres:
         assert db.query(MlOrderItemOps).filter_by(order_id=1003).count() == 1
 
         quarantined = db.query(MlOrdersOpsCuarentena).filter_by(order_id=1002).one()
-        assert quarantined.raw_order["status_detail"] == too_long_status_detail
+        # The payload is stored WHOLE, poison field included.
+        assert quarantined.raw_order["currency_id"] == too_long
 
         divergence = db.query(MlOpsDivergence).filter_by(order_id=1002, kind="ingest_failed").one()
         assert divergence.state == "open"
@@ -107,7 +120,7 @@ class TestQuarantineIsolationOnRealPostgres:
         would refuse the commit outright."""
         db = pg_orders_ops_db
         upsert_order(db, _order_payload(order_id=2001))
-        upsert_order(db, _order_payload(order_id=2002, status_detail="x" * 200))
+        upsert_order(db, _order_payload(order_id=2002, currency_id="PESOS-ARGENTINOS"))
         upsert_order(db, _order_payload(order_id=2003))
 
         db.commit()
