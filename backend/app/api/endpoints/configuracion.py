@@ -2,12 +2,13 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from sqlalchemy import and_, or_
 from typing import List, Optional
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from datetime import date
 from app.core.database import get_db
 from app.api.deps import get_current_user, require_role
 from app.models.usuario import Usuario, RolUsuario
 from app.models.pricing_constants import PricingConstants
+from app.models.varios_venta_pct import VariosVentaPct
 
 router = APIRouter()
 
@@ -240,3 +241,98 @@ def eliminar_pricing_constants(
     db.commit()
 
     return {"mensaje": "Constantes eliminadas correctamente"}
+
+
+# ── "% de varios" del Total Gauss (ml-ventas-modo-logistico, PR5) ─────
+#
+# Reusa el PATRÓN de arriba (versionado por `fecha_desde`/`fecha_hasta`,
+# el endpoint POST cierra la versión anterior), NO la fila de
+# `pricing_constants.varios_porcentaje`: ese es una ESTIMACIÓN de
+# impuestos + financiero + logística para presupuestar hacia adelante; en
+# el desglose de una venta esos tres ya son datos REALES (SIRTAC,
+# comisión de ML, flete), así que reusar la fila sería doble conteo.
+# `services/ml_ventas_desglose/deducciones.VariosDeduccion` lee la
+# versión vigente A LA FECHA DE LA VENTA, nunca la de hoy.
+
+
+class VariosVentaPctResponse(BaseModel):
+    id: int
+    porcentaje: float
+    fecha_desde: date
+    fecha_hasta: Optional[date] = None
+
+    model_config = {"from_attributes": True}
+
+
+class VariosVentaPctCreate(BaseModel):
+    # BOUNDED, because this multiplies against the net of EVERY sale in
+    # force on that date. A typo of -5 or 500 would otherwise sail through
+    # -- the column is `Numeric(5,2)`, so the database does not even stop
+    # it until three digits. `CostoOverrideRequest.costo` in this same file
+    # already uses `Field(ge=0)`; minimalism never applies to validation.
+    porcentaje: float = Field(ge=0, le=100)
+    fecha_desde: date
+
+
+@router.get("/varios-venta-pct", response_model=List[VariosVentaPctResponse])
+def listar_varios_venta_pct(
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(require_role([RolUsuario.ADMIN, RolUsuario.SUPERADMIN])),
+):
+    """Lista todas las versiones del "% de varios" de ventas."""
+    return db.query(VariosVentaPct).order_by(VariosVentaPct.fecha_desde.desc()).all()
+
+
+@router.get("/varios-venta-pct/actual", response_model=VariosVentaPctResponse)
+def obtener_varios_venta_pct_actual(db: Session = Depends(get_db), current_user: Usuario = Depends(get_current_user)):
+    """Obtiene la versión vigente HOY -- una venta histórica NO usa este
+    endpoint: lee la versión vigente a SU fecha vía `VariosDeduccion`."""
+    hoy = date.today()
+    version = (
+        db.query(VariosVentaPct)
+        .filter(
+            and_(
+                VariosVentaPct.fecha_desde <= hoy,
+                or_(VariosVentaPct.fecha_hasta.is_(None), VariosVentaPct.fecha_hasta >= hoy),
+            )
+        )
+        .order_by(VariosVentaPct.fecha_desde.desc())
+        .first()
+    )
+    if not version:
+        raise HTTPException(status_code=404, detail="No se encontró un % de varios vigente")
+    return version
+
+
+@router.post("/varios-venta-pct")
+def crear_varios_venta_pct(
+    data: VariosVentaPctCreate,
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(require_role([RolUsuario.ADMIN, RolUsuario.SUPERADMIN])),
+):
+    """Crea una nueva versión del "% de varios", cerrando la vigente
+    anterior -- mismo patrón que `crear_pricing_constants`."""
+    existing = db.query(VariosVentaPct).filter(VariosVentaPct.fecha_desde == data.fecha_desde).first()
+    if existing:
+        raise HTTPException(
+            status_code=400, detail=f"Ya existe una versión de % de varios para la fecha {data.fecha_desde}"
+        )
+
+    versiones_vigentes = (
+        db.query(VariosVentaPct)
+        .filter(and_(VariosVentaPct.fecha_desde < data.fecha_desde, VariosVentaPct.fecha_hasta.is_(None)))
+        .all()
+    )
+    for version in versiones_vigentes:
+        version.fecha_hasta = data.fecha_desde
+
+    nueva_version = VariosVentaPct(
+        porcentaje=data.porcentaje,
+        fecha_desde=data.fecha_desde,
+        creado_por=current_user.id,
+    )
+    db.add(nueva_version)
+    db.commit()
+    db.refresh(nueva_version)
+
+    return {"mensaje": "% de varios creado correctamente", "id": nueva_version.id}

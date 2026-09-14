@@ -179,6 +179,10 @@ __all__ = [
     "payment_effective_net",
     "shipping_label",
     "tax_label",
+    # ml-ventas-modo-logistico PR5: the Flex deduction of the Total Gauss
+    # chain reuses this EXACT resolution, per order rather than as one
+    # group-aggregate line.
+    "resolve_flex_cost_by_order_ids",
 ]
 
 CHARGE_LABELS: Dict[str, str] = {
@@ -405,41 +409,36 @@ def _postal_code_for_cordon(
     return None
 
 
-def _resolve_flex_cost_line(
+def _resolve_flex_cost_by_shipping_id(
     db: Session,
-    orders: Sequence[MlOrdersOps],
-    modes_by_order: Dict[int, str],
+    shipping_ids: Sequence[int],
     shipments_by_id: Dict[int, MlShipmentOps],
-) -> tuple[Optional["BreakdownLine"], bool]:
-    """The seller's OWN Flex shipping cost -- see spec "Flex Real Cost
-    Line". Resolution is `costo_override` (wins when set) else
+) -> tuple[Dict[int, Optional[Decimal]], Dict[int, str]]:
+    """Bulk-resolves each `shipping_id`'s OWN Flex cost in a handful of
+    queries TOTAL -- never one per shipment, regardless of how many are
+    requested together (mirrors `compute_neto_by_order_ids`'s bulk shape).
+
+    Resolution is `costo_override` (wins when set) else
     `logistica_costo_cordon` by `(logistica_id, cordon, vigente_desde <=
-    fecha_envio)` taking `MAX(id)`. All-or-nothing across every self_service
-    shipment in the group: if ANY of them fails to resolve, NO line is
-    emitted at all and the caller adds `REASON_FLEX_COST_UNKNOWN` -- never a
-    `coalesce(..., 0)` that would render an unresolved cost as `$0`.
+    fecha_envio)` taking `MAX(id)`. A missing key in the returned dict never
+    happens -- every requested `shipping_id` gets an entry, `None` meaning
+    unresolved (never a `coalesce(..., 0)` `$0`).
 
-    Selection is PER ORDER, never off the group's collapsed mode. A pack
-    that collapses to `"mixed"` can still hold a self_service order whose
-    freight we pay, and keying off the collapsed value would drop that cost
-    silently -- no line AND no `flex_cost_unknown`, which is worse than
-    either alone.
-
-    Returns `(None, False)` when no member order is self_service -- Flex
-    cost simply does not apply.
+    ml-ventas-modo-logistico PR5: extracted from `_resolve_flex_cost_line`
+    so the Total Gauss deduction chain (`deducciones.py`) can resolve the
+    SAME rule per order, in bulk, rather than reimplementing it or calling
+    the group-aggregate function once per order (a query-per-order loop).
     """
-    flex_orders = [o for o in orders if modes_by_order.get(o.order_id) == MODO_SELF_SERVICE]
-    if not flex_orders:
-        return None, False
-
-    shipping_ids = sorted({o.shipping_id for o in flex_orders if o.shipping_id is not None})
-    if not shipping_ids:
-        return None, True
+    ids = sorted({s for s in shipping_ids if s is not None})
+    cost_by_shipping_id: Dict[int, Optional[Decimal]] = {}
+    logistica_name_by_shipping_id: Dict[int, str] = {}
+    if not ids:
+        return cost_by_shipping_id, logistica_name_by_shipping_id
 
     labels = (
         db.query(EtiquetaEnvio)
         .options(joinedload(EtiquetaEnvio.logistica), joinedload(EtiquetaEnvio.transporte))
-        .filter(EtiquetaEnvio.shipping_id.in_([str(s) for s in shipping_ids]))
+        .filter(EtiquetaEnvio.shipping_id.in_([str(s) for s in ids]))
         .all()
     )
     labels_by_shipping_id = {label.shipping_id: label for label in labels}
@@ -472,33 +471,35 @@ def _resolve_flex_cost_line(
             .all()
         )
 
-    total = Decimal("0")
-    logistica_names: List[str] = []
-
-    for shipping_id in shipping_ids:
+    for shipping_id in ids:
         label = labels_by_shipping_id.get(str(shipping_id))
         if label is None:
-            return None, True
+            cost_by_shipping_id[shipping_id] = None
+            continue
 
         if label.costo_override is not None:
-            total += costo_efectivo(costo_override=label.costo_override)
-            if label.logistica is not None and label.logistica.nombre not in logistica_names:
-                logistica_names.append(label.logistica.nombre)
+            cost_by_shipping_id[shipping_id] = costo_efectivo(costo_override=label.costo_override)
+            if label.logistica is not None:
+                logistica_name_by_shipping_id[shipping_id] = label.logistica.nombre
             continue
 
         if label.logistica_id is None:
-            return None, True
+            cost_by_shipping_id[shipping_id] = None
+            continue
 
         postal_code = postal_code_by_shipping_id.get(str(shipping_id))
         if not postal_code:
-            return None, True
+            cost_by_shipping_id[shipping_id] = None
+            continue
 
         cordon_row = cordones_by_cp.get(str(postal_code))
         if cordon_row is None or not cordon_row.cordon:
-            return None, True
+            cost_by_shipping_id[shipping_id] = None
+            continue
 
         if label.fecha_envio is None:
-            return None, True
+            cost_by_shipping_id[shipping_id] = None
+            continue
 
         cordon_buscado = normalizar_cordon(cordon_row.cordon)
         # KNOWN, DELIBERATE DIVERGENCE from the Etiquetas screens, written
@@ -525,7 +526,8 @@ def _resolve_flex_cost_line(
         # matches nothing, so every Flex sale without an override would
         # resolve to "cost unknown" wearing the face of honest missing data.
         if tarifa is None:
-            return None, True
+            cost_by_shipping_id[shipping_id] = None
+            continue
 
         # The tariff's plain `costo` is NOT the cost -- turbo and the rain
         # surcharge move it, and the Etiquetas screens already apply both.
@@ -539,17 +541,101 @@ def _resolve_flex_cost_line(
             lluvia_tipo=lluvia_tipo,
             lluvia_valor=lluvia_valor,
         )
-        if costo is None:
+        cost_by_shipping_id[shipping_id] = costo
+        if costo is not None and label.logistica is not None:
+            logistica_name_by_shipping_id[shipping_id] = label.logistica.nombre
+
+    return cost_by_shipping_id, logistica_name_by_shipping_id
+
+
+def _resolve_flex_cost_line(
+    db: Session,
+    orders: Sequence[MlOrdersOps],
+    modes_by_order: Dict[int, str],
+    shipments_by_id: Dict[int, MlShipmentOps],
+) -> tuple[Optional["BreakdownLine"], bool]:
+    """The seller's OWN Flex shipping cost -- see spec "Flex Real Cost
+    Line". All-or-nothing across every self_service shipment in the group:
+    if ANY of them fails to resolve, NO line is emitted at all and the
+    caller adds `REASON_FLEX_COST_UNKNOWN` -- never a `coalesce(..., 0)`
+    that would render an unresolved cost as `$0`.
+
+    Selection is PER ORDER, never off the group's collapsed mode. A pack
+    that collapses to `"mixed"` can still hold a self_service order whose
+    freight we pay, and keying off the collapsed value would drop that cost
+    silently -- no line AND no `flex_cost_unknown`, which is worse than
+    either alone.
+
+    Returns `(None, False)` when no member order is self_service -- Flex
+    cost simply does not apply.
+    """
+    flex_orders = [o for o in orders if modes_by_order.get(o.order_id) == MODO_SELF_SERVICE]
+    if not flex_orders:
+        return None, False
+
+    shipping_ids = sorted({o.shipping_id for o in flex_orders if o.shipping_id is not None})
+    if not shipping_ids:
+        return None, True
+
+    cost_by_shipping_id, logistica_name_by_shipping_id = _resolve_flex_cost_by_shipping_id(
+        db, shipping_ids, shipments_by_id
+    )
+
+    total = Decimal("0")
+    logistica_names: List[str] = []
+    for shipping_id in shipping_ids:
+        cost = cost_by_shipping_id.get(shipping_id)
+        if cost is None:
             return None, True
-        total += costo
-        if label.logistica is not None and label.logistica.nombre not in logistica_names:
-            logistica_names.append(label.logistica.nombre)
+        total += cost
+        name = logistica_name_by_shipping_id.get(shipping_id)
+        if name and name not in logistica_names:
+            logistica_names.append(name)
 
     concepto = CONCEPTO_ENVIO_PROPIO
     if logistica_names:
         concepto = f"{CONCEPTO_ENVIO_PROPIO} ({', '.join(sorted(logistica_names))})"
 
     return BreakdownLine(concepto=concepto, monto=total, origen="propio"), False
+
+
+def resolve_flex_cost_by_order_ids(db: Session, order_ids: Sequence[int]) -> Dict[int, Optional[Decimal]]:
+    """The seller's OWN Flex shipping cost, PER ORDER -- the Total Gauss
+    deduction chain's shape (`deducciones.EnvioFlexDeduccion`), reusing the
+    exact same resolution `_resolve_flex_cost_line` applies as one
+    group-aggregate line for `compute_breakdown`.
+
+    Only `self_service` orders get a key in the returned dict -- a
+    non-Flex order is NOT APPLICABLE, which is different from unknown, and
+    the caller (the deduction chain orchestrator) treats an absent key as
+    "this deduction does not apply" rather than "unknown, block the whole
+    order". A present key with value `None` means the shipment's cost could
+    not be resolved (`flex_cost_unknown`).
+
+    Bulk: one query for the orders, one shared set of bulk lookups for
+    every shipment -- never one query per order.
+    """
+    order_ids = list(order_ids)
+    result: Dict[int, Optional[Decimal]] = {}
+    if not order_ids:
+        return result
+
+    orders = db.query(MlOrdersOps).filter(MlOrdersOps.order_id.in_(order_ids)).all()
+    modes_by_order, shipments_by_id = _resolve_modes(db, orders)
+    flex_orders = [o for o in orders if modes_by_order.get(o.order_id) == MODO_SELF_SERVICE]
+    if not flex_orders:
+        return result
+
+    shipping_ids = [o.shipping_id for o in flex_orders if o.shipping_id is not None]
+    cost_by_shipping_id, _names = _resolve_flex_cost_by_shipping_id(db, shipping_ids, shipments_by_id)
+
+    for order in flex_orders:
+        if order.shipping_id is None:
+            result[order.order_id] = None
+        else:
+            result[order.order_id] = cost_by_shipping_id.get(order.shipping_id)
+
+    return result
 
 
 REASON_PAYMENTS_NOT_SYNCED = "payments_not_synced"

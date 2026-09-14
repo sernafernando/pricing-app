@@ -130,6 +130,24 @@ class MlOrdersOps(Base):
     first_seen_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
     last_synced_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
 
+    # ml-ventas-modo-logistico PR5, design D2: a materialised SORT/FILTER
+    # KEY only. The paging `ORDER BY` in `routers/ml_ventas_ops.py` runs
+    # BEFORE the deduction chain can be computed for a page's rows, so
+    # something has to exist to sort/filter by -- but every DISPLAYED
+    # value is always recomputed live via
+    # `deducciones.calcular_total_gauss`, never served from this column.
+    # NULL means "never computed" (e.g. a historical sale with no frozen
+    # cost) -- sorted `nullslast()`, never treated as zero.
+    total_gauss = Column(Numeric(14, 2), nullable=True, index=True)
+    total_gauss_at = Column(DateTime(timezone=True), nullable=True)
+    # design D3: a write-side invalidation hook sets this True in the SAME
+    # transaction as any mutation that could change the order's Total
+    # Gauss (logistics reassignment, ship-date change, costo_override
+    # edit, or a Flex label being born). A stale column can misorder a
+    # page, but the displayed number is recomputed fresh regardless, so it
+    # can never SHOW a stale number -- only sort one.
+    total_gauss_stale = Column(Boolean, nullable=False, server_default="false")
+
 
 class MlOrderItemOps(Base):
     """One row per (order, item, variation). Writer of record: ML ingestion service.

@@ -63,6 +63,8 @@ from app.services.ml_orders_ingestion.operation_status import (
     SETTLED_CLAIM_STATUSES,
 )
 from app.services.ml_ventas_desglose.breakdown_service import compute_breakdown, compute_neto_by_order_ids
+from app.services.ml_ventas_desglose.deducciones import calcular_total_gauss
+from app.services.ml_ventas_desglose.iva import descomponer_neto
 from app.services.permisos_service import PermisosService
 
 DIVERGENCE_KINDS = (
@@ -230,6 +232,9 @@ class SaleCentricOperation(BaseModel):
     questions: List[QuestionSummary]
     messages: List[MessageSummary]
     breakdown: OperationBreakdownSummary
+    # ml-ventas-modo-logistico PR5: ALWAYS recomputed live (design D2), same
+    # as every field of `breakdown` above -- never `MlOrdersOps.total_gauss`.
+    total_gauss: Optional[float] = None
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -329,6 +334,12 @@ class SaleListItem(BaseModel):
     # land after the order's, so a stored mode would be wrong for exactly
     # as long as that gap lasts.
     modo_logistico: str
+    # ml-ventas-modo-logistico PR5, design D2: ALWAYS recomputed live for
+    # this row, NEVER read from `MlOrdersOps.total_gauss` (that column is a
+    # sort/filter key only). `None` means unknown -- either `neto_sin_iva`
+    # itself did not reconcile (design D12) or a chain deduction did not
+    # resolve (design D7), never a partial number.
+    total_gauss: Optional[float] = None
 
 
 class SaleGroup(BaseModel):
@@ -372,6 +383,10 @@ class SaleGroup(BaseModel):
     # `goods_status`: `"mixed"` when the group's orders disagree, never a
     # silently-picked winner (same `_collapse` used by both status axes).
     modo_logistico: str
+    # The pack's Total Gauss is the SUM of its orders', `None` if ANY
+    # member's is unknown -- same all-or-nothing rule `neto` already
+    # applies at group level (see `group_neto`).
+    total_gauss: Optional[float] = None
 
 
 class SaleFacetCounts(BaseModel):
@@ -514,7 +529,12 @@ def _parse_sold_month(sold_month: str) -> Tuple[datetime, datetime]:
 
 SORT_BY_SALE_DATE = "date_created"
 SORT_BY_LAST_UPDATE = "ml_last_updated"
-SALE_SORTS = (SORT_BY_SALE_DATE, SORT_BY_LAST_UPDATE)
+# ml-ventas-modo-logistico PR5, design D2: sorts/filters the MATERIALISED
+# `total_gauss` column -- a SORT KEY only. The value shown for every row on
+# the resulting page is still always recomputed live (see `listar_ventas`),
+# never read from this column.
+SORT_BY_TOTAL_GAUSS = "total_gauss"
+SALE_SORTS = (SORT_BY_SALE_DATE, SORT_BY_LAST_UPDATE, SORT_BY_TOTAL_GAUSS)
 
 
 def _parse_date_range(date_from: Optional[str], date_to: Optional[str]) -> Optional[Tuple[datetime, datetime]]:
@@ -693,6 +713,13 @@ def listar_ventas(
             (
                 func.max(MlOrdersOps.ml_last_updated).desc()
                 if sort == SORT_BY_LAST_UPDATE
+                # `nullslast()`: a historical order with no frozen cost (the
+                # overwhelming majority, design D7) has `total_gauss IS
+                # NULL` -- SQLite and Postgres order NULLs differently by
+                # default, so an explicit `nullslast()` is required or the
+                # sort disagrees between the test suite and production.
+                else func.max(MlOrdersOps.total_gauss).desc().nullslast()
+                if sort == SORT_BY_TOTAL_GAUSS
                 # `ml_last_updated` is NOT NULL, so it needs no nullslast();
                 # `date_created` is nullable and Postgres would otherwise put
                 # its NULLs first on a DESC sort.
@@ -732,8 +759,20 @@ def listar_ventas(
         # reused (not reimplemented) here for the whole page at once.
         page_order_ids = [order.order_id for order, _shipment, _key, _op, _goods in member_rows]
         neto_by_order = compute_neto_by_order_ids(db, page_order_ids)
+        # `total_gauss` for the page, ALWAYS recomputed here -- design D2,
+        # never served from `MlOrdersOps.total_gauss` (sort/filter key
+        # only). `descomponer_neto` bulk-resolves `neto_sin_iva`, then the
+        # deduction chain bulk-resolves on top of that -- two bulk calls
+        # total for the whole page, never one per row.
+        descomposicion_by_order = descomponer_neto(db, page_order_ids)
+        neto_sin_iva_by_order = {oid: desc.neto_sin_iva for oid, desc in descomposicion_by_order.items()}
+        total_gauss_by_order = calcular_total_gauss(db, page_order_ids, neto_sin_iva_by_order)
         for order, shipment, key, operation_status_value, goods_status_value in member_rows:
             order_neto = neto_by_order.get(order.order_id)
+            order_total_gauss_resultado = total_gauss_by_order.get(order.order_id)
+            order_total_gauss = (
+                order_total_gauss_resultado.total_gauss if order_total_gauss_resultado is not None else None
+            )
             # The real shipment ALWAYS outranks the `no_shipping` tag (order
             # 2000016977234624: tagged `no_shipping` AND a delivered
             # `cross_docking` shipment -- the shipment wins). Recomputed
@@ -760,6 +799,7 @@ def listar_ventas(
                     goods_status=goods_status_value,
                     neto=float(order_neto) if order_neto is not None else None,
                     modo_logistico=order_modo_logistico,
+                    total_gauss=float(order_total_gauss) if order_total_gauss is not None else None,
                 )
             )
 
@@ -790,11 +830,17 @@ def listar_ventas(
         # trustworthy than the honest null next to it.
         member_netos = [m.neto for m in members]
         group_neto = None if (single_currency is None or any(n is None for n in member_netos)) else sum(member_netos)
+        # Same all-or-nothing rule as `group_neto`: `total_gauss` is IVA-free
+        # already, so it needs no currency gate, but ANY member unknown
+        # still makes the pack's total unknown -- never a partial sum.
+        member_total_gauss = [m.total_gauss for m in members]
+        group_total_gauss = None if any(v is None for v in member_total_gauss) else sum(member_total_gauss)
         groups.append(
             SaleGroup(
                 group_key=key,
                 pack_id=pack_id,
                 neto=group_neto,
+                total_gauss=group_total_gauss,
                 # The earliest member. NOTE this is not always the value the
                 # row is sorted by: the sort uses `min` over the FILTERED
                 # orders, this uses `min` over all of them. For the pack that
@@ -912,6 +958,15 @@ def obtener_operacion(
         breakdown_order_ids = [order.order_id]
     breakdown = compute_breakdown(db, breakdown_order_ids)
 
+    # Same D2 discipline as the listing: ALWAYS recomputed here, for the
+    # whole pack this detail belongs to (design: "the breakdown is of the
+    # PACK, not just this order" -- same grouping the listing uses).
+    descomposicion_by_order = descomponer_neto(db, breakdown_order_ids)
+    neto_sin_iva_by_order = {oid: desc.neto_sin_iva for oid, desc in descomposicion_by_order.items()}
+    total_gauss_by_order = calcular_total_gauss(db, breakdown_order_ids, neto_sin_iva_by_order)
+    member_total_gauss = [r.total_gauss for r in total_gauss_by_order.values()]
+    pack_total_gauss = None if any(v is None for v in member_total_gauss) else sum(member_total_gauss)
+
     return SaleCentricOperation(
         order=OrderOpsSummary.model_validate(order),
         items=[OrderItemOpsSummary.model_validate(item) for item in items],
@@ -920,6 +975,7 @@ def obtener_operacion(
         questions=[QuestionSummary.model_validate(q) for q in questions],
         messages=[MessageSummary.model_validate(m) for m in messages],
         breakdown=OperationBreakdownSummary.from_domain(breakdown),
+        total_gauss=float(pack_total_gauss) if pack_total_gauss is not None else None,
     )
 
 
