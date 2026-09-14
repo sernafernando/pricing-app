@@ -671,6 +671,17 @@ describe('Ingestion-failure banner (open `ingest_failed` divergences)', () => {
   });
 
   it('a failure fetching divergences never breaks the sales list', async () => {
+    // WHERE THE TEETH ARE, written down because it is not obvious: the two
+    // assertions below pass even with the component's `.catch` removed --
+    // the rejection happens outside render, so React never notices, the
+    // list still draws and the banner is still absent. What actually
+    // catches that regression is the RUNNER: an unhandled rejection makes
+    // `vitest run` exit non-zero (verified: exit 1 with the catch removed,
+    // 0 with it). So CI fails even though this file reports "passed".
+    //
+    // A listener asserting on `unhandledrejection` was tried and does not
+    // fire under jsdom here, so it was removed rather than left in looking
+    // like protection it does not provide.
     api.get.mockImplementation((url) => {
       if (url === '/ml-ventas-ops/sales') {
         return Promise.resolve({
