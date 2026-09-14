@@ -216,6 +216,17 @@ class VariosDeduccion:
         )
         versiones = db.query(VariosVentaPct).order_by(VariosVentaPct.fecha_desde.asc()).all()
 
+        # SEEDED as unknown for EVERY requested id, before the loop. An
+        # order the query does not return -- because it is not in
+        # `ml_orders_ops` at all -- would otherwise simply have no key, and
+        # the orchestrator reads a missing key as "does not apply", which
+        # does not block the chain. But this absence comes from MISSING
+        # DATA, not from inapplicability, and the whole module's rule is
+        # that those two never look alike. `CostoMercaderiaDeduccion`
+        # already iterates the requested ids for exactly this reason.
+        for order_id in order_ids:
+            result[order_id] = None
+
         for order_id, date_created in orders:
             if date_created is None:
                 result[order_id] = None

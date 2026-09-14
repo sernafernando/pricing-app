@@ -432,3 +432,19 @@ class TestADeductionThatStoppedApplyingLosesItsRow:
         db.commit()
 
         assert db.query(MlVentaDeduccion).filter_by(order_id=order_id, code="envio_flex").count() == 0
+
+
+class TestAnAbsentOrderIsUnknownNotInapplicable:
+    """A missing key means "does not apply" to the orchestrator, which does
+    NOT block the chain. An order that is not in `ml_orders_ops` at all is
+    missing DATA, not an inapplicable deduction -- and this module's whole
+    rule is that those two never look alike."""
+
+    def test_an_order_that_does_not_exist_resolves_unknown(self, db) -> None:
+        db.add(VariosVentaPct(porcentaje=Decimal("5.00"), fecha_desde=date(2026, 1, 1)))
+        db.commit()
+
+        result = VariosDeduccion().resolve_bulk(db, [999999])
+
+        assert 999999 in result, "an absent order must not silently read as 'does not apply'"
+        assert result[999999] is None

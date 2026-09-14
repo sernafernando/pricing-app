@@ -11,7 +11,10 @@ coverage surface elsewhere in this router file).
 
 from __future__ import annotations
 
+import io
+import uuid as _uuid
 from datetime import date, datetime, timezone
+from types import SimpleNamespace
 
 import pytest
 
@@ -194,3 +197,55 @@ class TestNoStaleTriggerOnFrozenSnapshotEdit:
         # the order's `total_gauss_stale` stays exactly as it started.
         order_after = db.query(MlOrdersOps).filter(MlOrdersOps.order_id == 107).first()
         assert order_after.total_gauss_stale is False
+
+
+class TestStaleOnBulkLabelUpload:
+    def test_the_BULK_upload_path_also_invalidates(self, db, monkeypatch) -> None:
+        """The case this hook exists for -- a ZPL carrying hundreds of Flex
+        labels -- and the one that had no test at all.
+
+        That gap let a real bug through: moving `marcar_stale` out of the
+        per-label helper (to stop N+1) landed it AFTER `db.commit()` and
+        `db.close()`, where its "the caller commits" contract cannot be
+        met. The UPDATE opened a fresh transaction on a closed session and
+        was discarded, so the bulk path invalidated nothing while the
+        single-scan test kept passing."""
+        _order(db, 107, 5007)
+        _order(db, 108, 5008)
+        db.commit()
+        monkeypatch.setattr(etiquetas_upload, "_check_permiso", lambda *a, **k: True)
+        monkeypatch.setattr(
+            etiquetas_upload,
+            "_extraer_qrs_de_texto",
+            lambda _texto: [
+                '{"id":5007,"sender_id":1,"hash_code":"h7"}',
+                '{"id":5008,"sender_id":1,"hash_code":"h8"}',
+            ],
+        )
+        # The endpoint closes the session it was handed; keep ours usable.
+        monkeypatch.setattr(db, "close", lambda: None)
+        # `upload_batch_id` is a real UUID column in Postgres; SQLite's
+        # driver cannot bind a `UUID` object at all. Stringifying it here
+        # is a test-harness concession to that divergence, not a product
+        # behaviour -- production stores the UUID.
+        uuid4_original = _uuid.uuid4
+        monkeypatch.setattr(etiquetas_upload.uuid, "uuid4", lambda: str(uuid4_original()))
+
+        etiquetas_upload.upload_etiquetas(
+            background_tasks=BackgroundTasks(),
+            file=SimpleNamespace(filename="etiquetas.txt", file=io.BytesIO(b"^XA^XZ")),
+            fecha_envio=date(2026, 8, 1),
+            db=db,
+            current_user=None,
+        )
+
+        # ROLLBACK FIRST, and this is what makes the test discriminate.
+        # Reading straight after the call sees the session's OWN uncommitted
+        # UPDATE, so it passes whether or not the invalidation was inside
+        # the transaction -- which is exactly how the bug survived. Rolling
+        # back discards anything never committed; what remains was.
+        db.rollback()
+
+        for order_id in (107, 108):
+            order = db.query(MlOrdersOps).filter(MlOrdersOps.order_id == order_id).first()
+            assert order.total_gauss_stale is True, f"order {order_id} was never invalidated"

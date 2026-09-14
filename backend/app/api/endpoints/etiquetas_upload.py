@@ -129,6 +129,18 @@ def upload_etiquetas(
             errores += 1
             detalle_errores.append(f"Error parseando QR: {str(e)[:100]}")
 
+    if nuevos_shipping_ids:
+        # BEFORE the commit, and in the SAME transaction as the inserts.
+        # ONE call for the whole upload, not one per label: a ZPL carries
+        # hundreds, and `_insertar_etiqueta` runs once for each of them.
+        #
+        # An earlier version of this fix put it after `db.commit()` and
+        # `db.close()`, where `marcar_stale`'s own "the caller commits"
+        # contract cannot be met: the UPDATE opened a fresh transaction on
+        # a closed session and was thrown away. The bulk case -- the very
+        # one this moved here to serve -- invalidated nothing at all.
+        marcar_stale(db, nuevos_shipping_ids)
+
     try:
         db.commit()
     except Exception as e:
@@ -142,9 +154,6 @@ def upload_etiquetas(
 
     # Enriquecer etiquetas nuevas en background (coords, dirección, comentario)
     if nuevos_shipping_ids:
-        # ONE call for the whole upload, not one per label: a ZPL carries
-        # hundreds, and `_insertar_etiqueta` runs once for each of them.
-        marcar_stale(db, nuevos_shipping_ids)
         background_tasks.add_task(enriquecer_etiquetas_sync, nuevos_shipping_ids)
 
     # SSE: notify clients that etiquetas changed (single event for bulk upload)
