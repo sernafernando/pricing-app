@@ -470,3 +470,65 @@ class TestBothMlLastUpdatedSpellings:
         del payload["date_last_updated"]
 
         assert isinstance(map_order(payload), MappingError)
+
+
+class TestStatusDetailIsNotAlwaysAString:
+    """ML's `status_detail` is usually a short string. It is not always,
+    and the column is `String(60)`.
+
+    Order 2000018385513290 sent a DICT, psycopg2 answered
+    `can't adapt type 'dict'`, and that ONE order killed every drain pass
+    for four days: the pass died, the cursor never advanced, the next pass
+    re-fetched the same page and died in the same place. The shape below is
+    the one production actually sent, copied from the failing statement --
+    not a guess about what ML might do.
+    """
+
+    def _payload(self, status_detail):
+        return {
+            "id": 2000018385513290,
+            "status": "payment_required",
+            "status_detail": status_detail,
+            "date_created": "2026-09-10T07:21:54.000-04:00",
+            "date_last_updated": "2026-09-10T17:13:47.000-04:00",
+            "seller": {"id": 413658225},
+            "order_items": [],
+        }
+
+    def test_a_dict_status_detail_stores_its_code(self):
+        mapped = map_order(
+            self._payload({"code": "item_price_restriction", "description": "Order only in MercadoLibre Site"})
+        )
+
+        assert not isinstance(mapped, MappingError)
+        # The `code` is the field playing the same role as the plain string
+        # ML normally sends; the full dict survives in `raw_order`.
+        assert mapped.status_detail == "item_price_restriction"
+
+    def test_a_plain_string_is_untouched(self):
+        mapped = map_order(self._payload("payment_rejected"))
+
+        assert mapped.status_detail == "payment_rejected"
+
+    def test_none_stays_none_not_the_string_none(self):
+        """`str(None)` would store the four characters `None`, which reads
+        as a real ML status detail to anyone querying the column."""
+        mapped = map_order(self._payload(None))
+
+        assert mapped.status_detail is None
+
+    def test_a_value_too_long_for_the_column_is_capped(self):
+        """A 300-character detail would be rejected by Postgres exactly
+        like the dict was -- one poison order freezing the drain again."""
+        mapped = map_order(self._payload("x" * 300))
+
+        assert len(mapped.status_detail) <= 60
+
+    def test_the_whole_dict_survives_in_raw_order(self):
+        """Nothing is lost by storing only the code: the standing rule is
+        that everything ML sends is persisted, and `raw_order` is where."""
+        detail = {"code": "item_price_restriction", "description": "Order only in MercadoLibre Site"}
+
+        mapped = map_order(self._payload(detail))
+
+        assert mapped.raw_order["status_detail"] == detail
