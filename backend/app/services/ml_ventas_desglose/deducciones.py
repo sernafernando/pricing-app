@@ -39,7 +39,7 @@ from datetime import datetime, timezone
 from decimal import ROUND_HALF_UP, Decimal
 from typing import Dict, List, Optional, Protocol, Sequence, Tuple, runtime_checkable
 
-from sqlalchemy import func
+from sqlalchemy import func, or_
 from sqlalchemy.orm import Session
 
 from app.models.ml_order_item_costo import MlOrderItemCosto
@@ -332,6 +332,41 @@ def marcar_stale(db: Session, shipping_ids: Sequence[str]) -> int:
         .filter(MlOrdersOps.shipping_id.in_(ids))
         .update({MlOrdersOps.total_gauss_stale: True}, synchronize_session=False)
     )
+
+
+MAX_TOTAL_GAUSS_REFRESH_PER_PASS = 500
+
+
+def refrescar_total_gauss_pendientes(db: Session, limit: int = MAX_TOTAL_GAUSS_REFRESH_PER_PASS) -> int:
+    """Materialises `total_gauss` for the orders that need it, and returns
+    how many were refreshed.
+
+    THIS FUNCTION IS WHY THE COLUMN IS NOT A LIE. `total_gauss` exists only
+    to be sorted and filtered on -- the paging `ORDER BY` runs before the
+    net can be computed, so the value has to be on the row already. Without
+    a producer, every row stays NULL, `nullslast()` puts them all on the
+    same side, and "sort by Total Gauss" silently degrades into sort by id:
+    the operator asks for an ordering and gets another one, with nothing
+    saying so. The five `marcar_stale` hooks had the mirror problem --
+    they invalidated towards a recomputation that did not exist.
+
+    Picks stale rows FIRST (something changed under them) and then rows
+    never materialised at all, bounded per pass so a large backlog cannot
+    turn the sweep into this job. Displayed values are still ALWAYS
+    recomputed (design D2); this only feeds sorting.
+    """
+    pendientes = (
+        db.query(MlOrdersOps.order_id)
+        .filter(or_(MlOrdersOps.total_gauss_stale.is_(True), MlOrdersOps.total_gauss_at.is_(None)))
+        .order_by(MlOrdersOps.total_gauss_stale.desc().nullslast(), MlOrdersOps.order_id.desc())
+        .limit(limit)
+        .all()
+    )
+    order_ids = [row[0] for row in pendientes]
+    if not order_ids:
+        return 0
+    persistir_total_gauss(db, order_ids)
+    return len(order_ids)
 
 
 def persistir_total_gauss(db: Session, order_ids: Sequence[int]) -> Dict[int, TotalGaussResultado]:

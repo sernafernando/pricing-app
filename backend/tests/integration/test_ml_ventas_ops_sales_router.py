@@ -1010,11 +1010,26 @@ class TestTotalGaussInListing:
         # neto_sin_iva(100.00) - costo(10.00) == 90.00
         assert recomputed == pytest.approx(90.00)
 
-    def test_sort_by_total_gauss_accepted_and_orders_nulls_last(self, db, client, admin_auth_headers, rol_admin):
+    def test_sort_by_total_gauss_actually_orders_and_puts_nulls_last(self, db, client, admin_auth_headers, rol_admin):
+        """The previous version of this test seeded ONE order and asserted
+        only `status_code == 200`. Its name promised an ordering; its body
+        proved the query parameter is not rejected. With the materialised
+        column having had no producer at all, that is precisely the test
+        that let a dead feature pass for a live one -- every row NULL, the
+        sort silently degrading into sort by id, and nothing failing.
+
+        Three rows, two with values and one without, is the minimum that
+        can tell an ordering from an accident."""
         _grant_ml_ops_ver(db, rol_admin)
         when = datetime(2026, 9, 1, tzinfo=timezone.utc)
-        # No payments/items at all -- neto and total_gauss both None.
         _seed_order(db, 90010, date_created=when)
+        _seed_order(db, 90011, date_created=when)
+        _seed_order(db, 90012, date_created=when)
+        # The STORED column is the sort key (design D2). Seeded directly
+        # here: what this test pins is the ORDERING, not the producer.
+        db.query(MlOrdersOps).filter_by(order_id=90010).update({"total_gauss": Decimal("100.00")})
+        db.query(MlOrdersOps).filter_by(order_id=90011).update({"total_gauss": Decimal("900.00")})
+        # 90012 deliberately left NULL.
         db.commit()
 
         resp = client.get(
@@ -1024,6 +1039,9 @@ class TestTotalGaussInListing:
         )
 
         assert resp.status_code == 200
+        returned = [g["orders"][0]["order_id"] for g in resp.json()["sales"]]
+        assert returned[:2] == [90011, 90010], "highest Total Gauss first"
+        assert returned[-1] == 90012, "the unknown one goes last, never first"
 
     def test_list_and_breakdown_total_gauss_agree(self, db, client, admin_auth_headers, rol_admin):
         _grant_ml_ops_ver(db, rol_admin)

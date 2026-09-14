@@ -1,7 +1,7 @@
 """ml-ventas-modo-logistico PR5: total_gauss columns + deduction chain tables
 
 Revision ID: 20260914_total_gauss
-Revises: 20260911_costo_congelado
+Revises: 20260914_cuarentena
 Create Date: 2026-09-14
 
 Nullable adds on `ml_orders_ops` (design D2 -- a materialised SORT/FILTER

@@ -19,6 +19,7 @@ from app.models.ml_orders_ops import MlOrderItemOps, MlOrdersOps, MlShipmentOps
 from app.models.ml_venta_deduccion import MlVentaDeduccion
 from app.models.varios_venta_pct import VariosVentaPct
 from app.services.ml_ventas_desglose.deducciones import (
+    refrescar_total_gauss_pendientes,
     DEDUCCIONES,
     CostoMercaderiaDeduccion,
     EnvioFlexDeduccion,
@@ -348,3 +349,55 @@ class TestAPackSharingOneShipmentPaysTheFreightOnce:
         result = EnvioFlexDeduccion().resolve_bulk(db, [order_id])
 
         assert result[order_id] == Decimal("400.00")
+
+
+class TestTheSortKeyHasAProducer:
+    """`total_gauss` is a materialised SORT key, so something has to write
+    it. Nothing did: every row stayed NULL, `nullslast()` put them all on
+    the same side, and "sort by Total Gauss" silently became sort by id.
+    The five `marcar_stale` hooks had the mirror problem -- invalidating
+    towards a recomputation that did not exist."""
+
+    def test_a_stale_order_gets_rematerialised(self, db) -> None:
+        order_id = 9501
+        _order(db, order_id)
+        db.query(MlOrdersOps).filter_by(order_id=order_id).update(
+            {"total_gauss": Decimal("1.00"), "total_gauss_at": datetime.now(timezone.utc), "total_gauss_stale": True}
+        )
+        db.commit()
+
+        refrescados = refrescar_total_gauss_pendientes(db)
+        db.commit()
+
+        assert refrescados == 1
+        row = db.query(MlOrdersOps).filter_by(order_id=order_id).one()
+        assert row.total_gauss_stale is False, "the flag stays raised forever if nothing lowers it"
+
+    def test_an_order_never_materialised_is_picked_up(self, db) -> None:
+        order_id = 9502
+        _order(db, order_id)
+        db.commit()
+
+        refrescados = refrescar_total_gauss_pendientes(db)
+        db.commit()
+
+        assert refrescados == 1
+        assert db.query(MlOrdersOps).filter_by(order_id=order_id).one().total_gauss_at is not None
+
+    def test_an_already_fresh_order_is_left_alone(self, db) -> None:
+        """Otherwise every pass would redo the whole table."""
+        order_id = 9503
+        _order(db, order_id)
+        db.commit()
+        refrescar_total_gauss_pendientes(db)
+        db.commit()
+
+        assert refrescar_total_gauss_pendientes(db) == 0
+
+    def test_the_pass_is_bounded(self, db) -> None:
+        """A large backlog must not turn the sweep into this job."""
+        for offset in range(5):
+            _order(db, 9600 + offset)
+        db.commit()
+
+        assert refrescar_total_gauss_pendientes(db, limit=2) == 2
