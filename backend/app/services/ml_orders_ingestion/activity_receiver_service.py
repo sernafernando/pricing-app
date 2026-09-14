@@ -82,7 +82,7 @@ from typing import Any, Dict, List, Optional
 from app.core.config import settings
 from app.core.database import get_background_db
 from app.models.ml_orders_ops import MlOpsDivergence
-from app.services.ml_orders_ingestion.ingestion_service import retry_quarantined_orders
+from app.services.ml_orders_ingestion.ingestion_service import QuarantineRetryResult, retry_quarantined_orders
 from app.services.ml_orders_ingestion.sweep_service import (
     BATCH_SIZE,
     CURSOR_NAME as SWEEP_CURSOR_NAME,
@@ -296,7 +296,20 @@ def drain_activity() -> ActivityDrainResult:
         # as `run_sweep`'s own call: re-attempt every write-failed order
         # from its stored raw payload before touching anything new, zero
         # HTTP calls.
-        quarantine_result = retry_quarantined_orders(db)
+        # WRAPPED, and this wrapper is the whole point: this call sits
+        # BEFORE the `try/finally` that guarantees the run lock is
+        # released. The module docstring says closing each individual path
+        # that could strand the lock failed three times, so the release is
+        # guaranteed by STRUCTURE -- and this code was added into the one
+        # gap that structure does not cover. `upsert_order` no longer
+        # raises on a write error, but everything around it still can, and
+        # a leaked lock is exactly the failure that cost four days of
+        # ingestion. A retry that fails costs its own pass, never the lock.
+        try:
+            quarantine_result = retry_quarantined_orders(db)
+        except Exception:  # noqa: BLE001
+            logger.exception("activity_receiver: quarantine retry failed; continuing with the pass")
+            quarantine_result = QuarantineRetryResult()
         if quarantine_result.attempted:
             logger.warning(
                 "activity_receiver: quarantine retry — attempted=%s recovered=%s still_failed=%s",

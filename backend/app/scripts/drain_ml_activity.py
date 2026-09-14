@@ -112,8 +112,15 @@ def main() -> None:
     # how the next real signal gets ignored. So the alarm is what NOTHING
     # accounts for -- today that is mapping errors, and by construction it
     # also catches whatever silently drops orders next.
+    # `orders_write_error` counts as ACCOUNTED FOR. A write error is not a
+    # silent disappearance: the order sits in quarantine, it has a row in
+    # the divergences board, it logged its own error above, and the next
+    # pass retries it. Leaving it out of this subtraction made every
+    # quarantined order ALSO fire "written NOWHERE and no outcome accounts
+    # for them" -- which is false, and is precisely the routine noise the
+    # comment above warns turns a real signal into one nobody reads.
     unaccounted = result.orders_resolved - (
-        result.orders_upserted + result.orders_skipped_stale + result.orders_out_of_window
+        result.orders_upserted + result.orders_skipped_stale + result.orders_out_of_window + result.orders_write_error
     )
     if unaccounted > 0:
         logger.error(

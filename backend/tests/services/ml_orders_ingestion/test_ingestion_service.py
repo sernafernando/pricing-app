@@ -8,6 +8,8 @@ happens to do today.
 
 from __future__ import annotations
 
+from datetime import datetime, timezone
+
 
 import pytest
 
@@ -486,3 +488,47 @@ class TestRetryQuarantinedOrders:
         assert result.attempted == 0
         assert result.recovered == 0
         assert result.still_failed == 0
+
+
+class TestThePoisonPillCannotBlockTheQueue:
+    """Ordering the retry by FIRST failure puts the oldest quarantined
+    order first on every pass -- and the oldest is, by definition, the one
+    that has been failing longest. A permanently poisoned order would be
+    retried first forever, and past `limit` of them the newly quarantined
+    ones would never get a turn at all: the queue blocked by exactly the
+    rows that cannot move."""
+
+    def test_the_least_recently_attempted_order_goes_first(self, db):
+        vieja = _order_payload(order_id=801)
+        nueva = _order_payload(order_id=802)
+        # `801` failed first AND was retried a moment ago; `802` failed
+        # later but has never been attempted since.
+        db.add(
+            MlOrdersOpsCuarentena(
+                order_id=801,
+                raw_order=vieja,
+                error="boom",
+                intentos=40,
+                primera_falla_at=datetime(2026, 9, 1, tzinfo=timezone.utc),
+                ultimo_intento_at=datetime(2026, 9, 14, 12, 0, tzinfo=timezone.utc),
+            )
+        )
+        db.add(
+            MlOrdersOpsCuarentena(
+                order_id=802,
+                raw_order=nueva,
+                error="boom",
+                intentos=1,
+                primera_falla_at=datetime(2026, 9, 10, tzinfo=timezone.utc),
+                ultimo_intento_at=datetime(2026, 9, 10, tzinfo=timezone.utc),
+            )
+        )
+        db.commit()
+
+        result = retry_quarantined_orders(db, limit=1)
+
+        assert result.attempted == 1
+        # 802 is the one that has waited longest for a turn, even though
+        # 801 has been in quarantine longer.
+        assert db.query(MlOrdersOps).filter_by(order_id=802).count() == 1
+        assert db.query(MlOrdersOps).filter_by(order_id=801).count() == 0

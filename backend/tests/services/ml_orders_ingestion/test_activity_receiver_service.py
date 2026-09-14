@@ -20,7 +20,7 @@ true no-op.
 from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, Mock
 
 import pytest
 
@@ -757,3 +757,40 @@ class TestBothCeilingsOnTheSamePage:
 
         assert result.stalled_on_both is False
         assert result.stalled_on_deadline is False
+
+
+class TestTheQuarantineRetryCannotStrandTheRunLock:
+    """The quarantine retry runs BEFORE the `try/finally` that guarantees
+    the run lock is released. The module docstring says closing each
+    individual path that could strand the lock failed three times, so the
+    release is guaranteed by STRUCTURE -- and the retry was added into the
+    one gap that structure does not cover.
+
+    A stranded lock is not a hypothetical: on 2026-09-10 the lock stayed
+    held, every later pass skipped, and nothing was ingested for four days
+    while `ml_activity` sat at `state='running'`.
+
+    `upsert_order` no longer raises on a write error, but everything around
+    it still can. A failing retry must cost its own pass, never the lock.
+    """
+
+    def test_a_retry_that_explodes_leaves_the_lock_released(self, db, monkeypatch):
+        monkeypatch.setattr(settings, "ML_ORDERS_OPS_ENABLED", True)
+        monkeypatch.setattr(
+            service,
+            "retry_quarantined_orders",
+            Mock(side_effect=RuntimeError("boom inside the retry")),
+        )
+        monkeypatch.setattr(
+            ml_webhook_client,
+            "get_activity",
+            AsyncMock(return_value=_page([], has_more=False, next_cursor="c1")),
+        )
+
+        result = service.drain_activity()
+
+        # It must NOT raise: `drain_activity` promises a result, and the
+        # cron entry point logs that result instead of dying.
+        assert result.ran is True
+        cursor = db.query(MlOpsSyncCursor).filter_by(name="ml_activity").one()
+        assert cursor.state != "running", "the run lock was stranded -- every later pass will skip"

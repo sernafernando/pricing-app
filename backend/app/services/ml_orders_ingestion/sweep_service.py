@@ -71,6 +71,7 @@ from app.models.ml_orders_ops import (
     MlShipmentOps,
 )
 from app.services.ml_orders_ingestion.ingestion_service import (
+    QuarantineRetryResult,
     UpsertOutcome,
     retry_quarantined_orders,
     upsert_order,
@@ -1175,7 +1176,20 @@ def run_sweep(seller_id: Optional[int] = None, window_days: Optional[int] = None
         # write-failed order from its stored raw payload, zero HTTP
         # calls. This is what heals the data on its own the day a fix
         # ships, with nobody running anything by hand.
-        quarantine_result = retry_quarantined_orders(db)
+        # WRAPPED, and this wrapper is the whole point: this call sits
+        # BEFORE the `try/finally` that guarantees the run lock is
+        # released. The module docstring says closing each individual path
+        # that could strand the lock failed three times, so the release is
+        # guaranteed by STRUCTURE -- and this code was added into the one
+        # gap that structure does not cover. `upsert_order` no longer
+        # raises on a write error, but everything around it still can, and
+        # a leaked lock is exactly the failure that cost four days of
+        # ingestion. A retry that fails costs its own pass, never the lock.
+        try:
+            quarantine_result = retry_quarantined_orders(db)
+        except Exception:  # noqa: BLE001
+            logger.exception("sync_ml_orders_ops: quarantine retry failed; continuing with the pass")
+            quarantine_result = QuarantineRetryResult()
         if quarantine_result.attempted:
             logger.warning(
                 "sync_ml_orders_ops: quarantine retry — attempted=%s recovered=%s still_failed=%s",

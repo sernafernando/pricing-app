@@ -22,9 +22,9 @@ from dataclasses import dataclass
 from enum import Enum
 from typing import Any, Dict, Optional
 
-from sqlalchemy import func
+from sqlalchemy import func, nullsfirst
 from sqlalchemy.dialects import postgresql, sqlite
-from sqlalchemy.exc import DBAPIError, SQLAlchemyError
+from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
@@ -273,7 +273,7 @@ def _quarantine_order(db: Session, order_id: int, raw_order: Dict[str, Any], err
                 },
             )
             db.execute(stmt)
-    except (SQLAlchemyError, DBAPIError):
+    except SQLAlchemyError:
         logger.exception("ml_orders_ops: failed to quarantine order_id=%r after a write error", order_id)
 
 
@@ -306,7 +306,7 @@ def _open_ingest_failed_divergence(db: Session, order_id: int, error_message: st
                         state="open",
                     )
                 )
-    except (SQLAlchemyError, DBAPIError):
+    except SQLAlchemyError:
         logger.exception("ml_orders_ops: failed to open an ingest_failed divergence for order_id=%r", order_id)
 
 
@@ -389,7 +389,7 @@ def upsert_order(db: Session, payload: Dict[str, Any], mapped: Optional[OrderOps
             _delete_stale_items(db, dto.order_id, keep_keys)
 
             db.flush()
-    except (SQLAlchemyError, DBAPIError) as exc:
+    except SQLAlchemyError as exc:
         # A single failed statement poisons the ENTIRE surrounding
         # PostgreSQL transaction, not just this order's writes -- without
         # the SAVEPOINT above, this except block would be reached only
@@ -429,8 +429,30 @@ def retry_quarantined_orders(db: Session, limit: int = MAX_QUARANTINE_RETRIES_PE
     Bounded by `limit` per pass (see `MAX_QUARANTINE_RETRIES_PER_PASS`) so
     a large backlog cannot turn the retry into the main job.
     """
+    # DELIBERATELY WITHOUT the sweep's `window_from_floor`, and this is a
+    # decision, not an oversight: a quarantined order is NOT an old order
+    # discovered late. It arrived through the feed, inside the window, and
+    # we failed to write it. The floor exists so the sweep does not drag
+    # ancient history back in; applying it here would instead mean that an
+    # order we already accepted gets permanently dropped for having spent
+    # too long waiting for OUR fix -- punishing the sale for our own bug.
+    # Nothing here reaches ML either: the payload is the one already
+    # captured, so no window of API data is being reopened.
     result = QuarantineRetryResult()
-    rows = db.query(MlOrdersOpsCuarentena).order_by(MlOrdersOpsCuarentena.primera_falla_at.asc()).limit(limit).all()
+    # By LAST attempt, not by first failure. Ordering by `primera_falla_at`
+    # puts the oldest quarantined order first on EVERY pass -- and the
+    # oldest is, by definition, the one that has been failing longest. A
+    # permanently poisoned order would therefore be retried first, forever,
+    # and with more than `limit` of them the newly quarantined orders would
+    # never get a turn at all: the queue would be blocked by exactly the
+    # rows that cannot move. Least-recently-attempted first is a natural
+    # round robin, so every order gets its turn.
+    rows = (
+        db.query(MlOrdersOpsCuarentena)
+        .order_by(nullsfirst(MlOrdersOpsCuarentena.ultimo_intento_at.asc()))
+        .limit(limit)
+        .all()
+    )
     for row in rows:
         result.attempted += 1
         outcome = upsert_order(db, row.raw_order)
