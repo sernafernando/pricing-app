@@ -772,6 +772,23 @@ describe('Modo logístico badge (ml-ventas-modo-logistico PR6)', () => {
     expect(screen.queryByText('Desconocido')).not.toBeInTheDocument();
   });
 
+  it('renders an unrecognised value verbatim on the ORDER row too, not only the pack row', async () => {
+    // The sibling test above uses a SINGLE sale, which renders as a pack
+    // row -- so it only ever exercised the group badge. The per-order badge
+    // is a second call site with its own fallback, and mutating it to fold
+    // an unknown type into "Desconocido" changed nothing: a future ML
+    // logistic type would have been swallowed there in silence.
+    const user = userEvent.setup();
+    const packA1 = { ...PAID_SALE, order_id: 3101, pack_id: 9101, modo_logistico: 'another_future_type' };
+    const packA2 = { ...PAID_SALE, order_id: 3102, pack_id: 9101, modo_logistico: 'cross_docking' };
+    mockSalesList([{ ...packOf([packA1, packA2], 9101), modo_logistico: 'mixed' }]);
+    await renderWithRouter(<VentasML />);
+
+    await user.click(await screen.findByRole('button', { name: /Pack 9101/ }));
+
+    expect(await screen.findByText('another_future_type')).toBeInTheDocument();
+  });
+
   it('shows Mixto on the pack row when its orders carry the "mixed" value', async () => {
     const packA1 = { ...PAID_SALE, order_id: 3001, pack_id: 9001, modo_logistico: 'self_service' };
     const packA2 = { ...PAID_SALE, order_id: 3002, pack_id: 9001, modo_logistico: 'cross_docking' };
