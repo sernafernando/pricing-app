@@ -73,7 +73,8 @@ def main() -> None:
     logger.info(
         "drain_ml_activity: %s — pages=%s advanced=%s events=%s without_order_id=%s "
         "resolved=%s unresolved=%s not_attempted=%s | upserted=%s stale=%s "
-        "mapping_error=%s out_of_window=%s",
+        "mapping_error=%s out_of_window=%s write_error=%s | quarantine_recovered=%s "
+        "quarantine_still_failed=%s",
         outcome,
         result.pages_walked,
         result.pages_advanced,
@@ -86,7 +87,20 @@ def main() -> None:
         result.orders_skipped_stale,
         result.orders_mapping_error,
         result.orders_out_of_window,
+        result.orders_write_error,
+        result.orders_quarantine_recovered,
+        result.orders_quarantine_still_failed,
     )
+    if result.orders_write_error:
+        # A quarantined order does not vanish quietly -- it must GRIT its
+        # order_id, not just sum into a counter nobody reads. The order
+        # itself carries the error on `ml_orders_ops_cuarentena.error` and
+        # on the `ingest_failed` divergence dashboard row.
+        logger.error(
+            "drain_ml_activity: %s order(s) failed to WRITE this pass and were quarantined for "
+            "automatic retry — see ml_orders_ops_cuarentena / GET /ml-ventas-ops/divergences?kind=ingest_failed",
+            result.orders_write_error,
+        )
     # `resolved` only means ML answered. A pass that resolved orders and
     # wrote none of them is a broken pass wearing a healthy log line --
     # exactly how a field-name mismatch went unnoticed for a week.

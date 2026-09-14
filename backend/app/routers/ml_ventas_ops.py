@@ -43,6 +43,7 @@ from app.models.ml_orders_ops import (
     COST_SYNC_FIELD_PREFIX,
     COST_SYNC_KIND,
     COST_SYNC_SENTINEL_ORDER_ID,
+    INGEST_FAILED_KIND,
     UNENUMERABLE_KIND,
     MlOperationLink,
     MlOpsDivergence,
@@ -71,6 +72,7 @@ DIVERGENCE_KINDS = (
     "out_of_window_update",
     UNENUMERABLE_KIND,
     "unknown",
+    INGEST_FAILED_KIND,
 )
 DIVERGENCE_STATES = ("open", "acknowledged", "resolved", "ignored")
 # `window_not_enumerable` uses `order_id=0` as a sentinel (no single order

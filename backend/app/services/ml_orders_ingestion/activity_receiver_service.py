@@ -82,6 +82,7 @@ from typing import Any, Dict, List, Optional
 from app.core.config import settings
 from app.core.database import get_background_db
 from app.models.ml_orders_ops import MlOpsDivergence
+from app.services.ml_orders_ingestion.ingestion_service import retry_quarantined_orders
 from app.services.ml_orders_ingestion.sweep_service import (
     BATCH_SIZE,
     CURSOR_NAME as SWEEP_CURSOR_NAME,
@@ -189,6 +190,13 @@ class ActivityDrainResult:
     orders_skipped_stale: int = 0
     orders_mapping_error: int = 0
     orders_out_of_window: int = 0
+    # 2026-09-14 incident: same shape as `SweepResult`'s own fields --
+    # `orders_write_error` is THIS pass's fresh write failures,
+    # `orders_quarantine_recovered`/`orders_quarantine_still_failed` come
+    # from the automatic retry run once at the top of this pass.
+    orders_write_error: int = 0
+    orders_quarantine_recovered: int = 0
+    orders_quarantine_still_failed: int = 0
     budget_exhausted: bool = False
     error: Optional[str] = None
 
@@ -284,7 +292,22 @@ def drain_activity() -> ActivityDrainResult:
         cursor = load_cursor(db, cursor_name=CURSOR_NAME)
         since = cursor.activity_cursor if cursor is not None else None
 
+        # Automatic quarantine retry (2026-09-14 incident), same rationale
+        # as `run_sweep`'s own call: re-attempt every write-failed order
+        # from its stored raw payload before touching anything new, zero
+        # HTTP calls.
+        quarantine_result = retry_quarantined_orders(db)
+        if quarantine_result.attempted:
+            logger.warning(
+                "activity_receiver: quarantine retry — attempted=%s recovered=%s still_failed=%s",
+                quarantine_result.attempted,
+                quarantine_result.recovered,
+                quarantine_result.still_failed,
+            )
+
     result = ActivityDrainResult(ran=True)
+    result.orders_quarantine_recovered = quarantine_result.recovered
+    result.orders_quarantine_still_failed = quarantine_result.still_failed
     pass_started_at = now
     complete = True
     failure: Optional[BaseException] = None
@@ -414,6 +437,7 @@ def drain_activity() -> ActivityDrainResult:
             result.orders_skipped_stale = batch_result.orders_skipped_stale
             result.orders_mapping_error = batch_result.orders_mapping_error
             result.orders_out_of_window = batch_result.orders_out_of_window
+            result.orders_write_error = batch_result.orders_write_error
 
             if page_not_attempted:
                 # The budget (or the deadline) was spent before every new
