@@ -379,10 +379,18 @@ class TestUpsertOrderWriteError:
         def _boom(*args, **kwargs):
             raise SQLAlchemyError("boom")
 
+        # The ORIGINAL is restored by name, NOT with `monkeypatch.undo()`.
+        # `undo()` reverts every patch on this monkeypatch instance, and the
+        # autouse `_flag_on` fixture above shares that instance -- so it also
+        # switched `ML_ORDERS_OPS_ENABLED` back to whatever the environment
+        # says, and `upsert_order` answered DISABLED instead of OK. It
+        # passed locally only because a developer `.env` happens to set that
+        # flag true; CI, which does not, failed.
+        original_upsert_item_row = ingestion_service._upsert_item_row
         monkeypatch.setattr(ingestion_service, "_upsert_item_row", _boom)
         upsert_order(db, _order_payload(order_id=226))
 
-        monkeypatch.undo()
+        monkeypatch.setattr(ingestion_service, "_upsert_item_row", original_upsert_item_row)
         outcome = upsert_order(db, _order_payload(order_id=227))
 
         assert outcome == UpsertOutcome.OK
