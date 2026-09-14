@@ -89,7 +89,13 @@ class TestWhitelist:
         }
         assert COMBOS_VALIDOS_V1 == frozenset(esperados)
 
-    @pytest.mark.parametrize("origen,destino", list(COMBOS_VALIDOS_V1))
+    # SORTED, not `list()`: `COMBOS_VALIDOS_V1` is a frozenset, so its
+    # iteration order depends on PYTHONHASHSEED and differs between
+    # processes. Under `pytest-xdist` the workers then generate parametrised
+    # ids in different orders and refuse to run at all ("Different tests
+    # were collected between gw0 and gw1"). Harmless while the suite ran in
+    # one process; a hard blocker the moment it does not.
+    @pytest.mark.parametrize("origen,destino", sorted(COMBOS_VALIDOS_V1))
     def test_todos_los_combos_validos_pasan(self, origen: str, destino: str) -> None:
         # No raise
         _validar_whitelist(origen, destino)

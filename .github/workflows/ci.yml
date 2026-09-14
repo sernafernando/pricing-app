@@ -63,19 +63,20 @@ jobs:
         run: ruff format app/ --check --diff
 
   backend-smoke:
-    name: Backend Smoke Tests
+    name: Backend Tests
     runs-on: ubuntu-latest
     timeout-minutes: 30
     defaults:
       run:
         working-directory: backend
-    # Postgres service for `@pytest.mark.postgres` tests only (currently the
-    # PPP resolver's LATERAL-join tests — see costo_ppp_service.py's
-    # docstring and tests/conftest.py's "PostgreSQL fixtures" section). The
-    # rest of the ~3700-test suite keeps running on the in-memory SQLite `db`
-    # fixture (env vars below) — moving the full suite to Postgres was
-    # rejected as unnecessary disruption for this round; only the resolver's
-    # LATERAL path is PostgreSQL-only.
+    # This job runs the WHOLE suite, not a smoke subset -- it was named
+    # "Backend Smoke Tests" while running `pytest tests/`, which is the kind
+    # of name that sends the next reader to the wrong conclusion.
+    #
+    # Postgres service for `@pytest.mark.postgres` tests only (39 of ~6400:
+    # the PPP resolver's LATERAL joins and the ML ingestion SAVEPOINT
+    # isolation, both of which SQLite genuinely cannot express). Everything
+    # else runs on the per-process in-memory SQLite `db` fixture.
     services:
       postgres:
         image: postgres:16
@@ -102,10 +103,31 @@ jobs:
       - name: Install dependencies
         run: |
           pip install -r requirements.txt
-          pip install pytest httpx
+          pip install pytest pytest-xdist httpx
 
-      - name: Run tests (smoke + integration)
-        run: pytest tests/ -v --tb=short
+      # Split in two on purpose.
+      #
+      # The bulk runs in PARALLEL: every worker builds its own in-memory
+      # SQLite database (`TEST_DB_URL = "sqlite://"`), so there is nothing
+      # to contend over. Measured locally, 4 workers took the suite from
+      # 11m43s to 4m11s. `-v` is gone: printing one line per test for 6400
+      # tests costs time and buries the failures it is supposed to surface.
+      # `--durations` makes the slow tests visible instead of guessed at.
+      #
+      # The 39 `postgres` tests run SERIALLY afterwards: they share one real
+      # database in the `postgres` service, and handing that to four workers
+      # at once trades a slow suite for a flaky one -- a far worse deal.
+      - name: Run tests (parallel)
+        run: pytest tests/ -m "not postgres" -n 4 -q --tb=short --durations=15
+        env:
+          ENVIRONMENT: testing
+          DATABASE_URL: "sqlite:///./test.db"
+          SECRET_KEY: "ci-test-secret-key-minimum-32-bytes!"
+          ERP_BASE_URL: "http://localhost:9999"
+          POSTGRES_TEST_URL: "postgresql+psycopg2://postgres:postgres@localhost:5432/pricing_test"
+
+      - name: Run tests (postgres-only, serial)
+        run: pytest tests/ -m postgres -q --tb=short
         env:
           ENVIRONMENT: testing
           DATABASE_URL: "sqlite:///./test.db"

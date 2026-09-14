@@ -144,6 +144,44 @@ def _map_item(raw_item: Dict[str, Any]) -> OrderItemOpsDTO:
     )
 
 
+# `ml_orders_ops.status_detail` is String(60), and ML does NOT always send
+# a string there.
+_STATUS_DETAIL_MAX = 60
+
+
+def _status_detail(value: Any) -> Optional[str]:
+    """ML's `status_detail`, coerced to something a text column accepts.
+
+    It is USUALLY a short string. Order 2000018385513290 (captured from
+    production on 2026-09-10) proves it is not always: ML sent
+
+        {"code": "item_price_restriction",
+         "description": "Order only in MercadoLibre Site"}
+
+    and psycopg2 refused it with `can't adapt type 'dict'`. That single
+    order killed every drain pass for FOUR DAYS -- the pass died, the
+    cursor never advanced, the next pass re-fetched the same page and died
+    in the same place. Nothing was ingested except by the nightly audit
+    sweep.
+
+    So the dict's `code` is what gets stored: it is the field playing the
+    same role as the plain string ML normally sends. Nothing is lost by
+    choosing it -- `raw_order` keeps the ENTIRE payload verbatim, which is
+    where the description still lives.
+
+    Anything else that is neither string nor dict is stringified rather
+    than dropped, and the result is capped at the column width: a value
+    too long to store must not become the next poison order.
+    """
+    if value is None:
+        return None
+    if isinstance(value, dict):
+        value = value.get("code") or value.get("description") or str(value)
+    if not isinstance(value, str):
+        value = str(value)
+    return value[:_STATUS_DETAIL_MAX]
+
+
 def map_order(payload: Dict[str, Any]) -> Union[OrderOpsDTO, MappingError]:
     """Maps a raw ML `/orders/{id}` payload to `OrderOpsDTO`.
 
@@ -273,7 +311,7 @@ def map_order(payload: Dict[str, Any]) -> Union[OrderOpsDTO, MappingError]:
         ml_last_updated=ml_last_updated,  # type: ignore[arg-type]
         pack_id=payload.get("pack_id"),
         status=payload.get("status"),
-        status_detail=payload.get("status_detail"),
+        status_detail=_status_detail(payload.get("status_detail")),
         date_created=date_created,
         date_closed=date_closed,
         buyer_id=buyer.get("id"),
