@@ -17,7 +17,11 @@ import sqlalchemy as sa
 from alembic import op
 
 revision: str = "20260914_total_gauss"
-down_revision: Union[str, None] = "20260911_costo_congelado"
+# Re-parented onto the quarantine migration rather than adding a merge
+# revision: both were written off `20260911_costo_congelado` in parallel,
+# and this one had not shipped yet. Two heads in `main` is an incident this
+# project has already lived through once.
+down_revision: Union[str, None] = "20260914_cuarentena"
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 

@@ -289,3 +289,62 @@ class TestMarcarStale:
     def test_non_numeric_shipping_id_is_ignored_not_an_error(self, db) -> None:
         touched = marcar_stale(db, ["MAN_20260101_1"])
         assert touched == 0
+
+
+class TestAPackSharingOneShipmentPaysTheFreightOnce:
+    """A pack can hold several orders under ONE `shipping_id`. Charging
+    each of them the whole shipment made the group total -- which sums its
+    members -- count the same freight twice, so a two-order Flex pack read
+    as costing double what it did.
+
+    The precedent for splitting is already in the sibling module:
+    `compute_breakdown` dedupes a pack's billing shipping charge for
+    exactly this reason."""
+
+    def _pack_de_dos(self, db, costo: Decimal) -> tuple[int, int]:
+        primera, segunda = 8801, 8802
+        _order(db, primera, shipping_id=8800)
+        _order(db, segunda, shipping_id=8800)
+        db.add(MlShipmentOps(shipment_id=8800, logistic_type="self_service"))
+        db.add(Logistica(id=88, nombre="Andreani"))
+        db.add(EtiquetaEnvio(shipping_id="8800", fecha_envio=date(2026, 8, 1), logistica_id=88, costo_override=costo))
+        db.commit()
+        return primera, segunda
+
+    def test_the_members_split_it_instead_of_each_paying_it_whole(self, db) -> None:
+        primera, segunda = self._pack_de_dos(db, Decimal("300.00"))
+
+        result = EnvioFlexDeduccion().resolve_bulk(db, [primera, segunda])
+
+        assert result[primera] == Decimal("150.00")
+        assert result[segunda] == Decimal("150.00")
+        # What the group actually paid, which is the number the pack total
+        # has to reproduce.
+        assert result[primera] + result[segunda] == Decimal("300.00")
+
+    def test_the_split_does_not_depend_on_who_else_is_on_the_page(self, db) -> None:
+        """The divisor comes from the DATABASE, not from the batch. Taking
+        it from `order_ids` would make one order's freight change depending
+        on who else happened to be on the same page -- a number that moves
+        when you scroll."""
+        primera, _ = self._pack_de_dos(db, Decimal("300.00"))
+
+        solo = EnvioFlexDeduccion().resolve_bulk(db, [primera])
+
+        assert solo[primera] == Decimal("150.00")
+
+    def test_an_order_with_its_own_shipment_still_pays_it_whole(self, db) -> None:
+        order_id = 8803
+        _order(db, order_id, shipping_id=8810)
+        db.add(MlShipmentOps(shipment_id=8810, logistic_type="self_service"))
+        db.add(Logistica(id=89, nombre="OCA"))
+        db.add(
+            EtiquetaEnvio(
+                shipping_id="8810", fecha_envio=date(2026, 8, 1), logistica_id=89, costo_override=Decimal("400.00")
+            )
+        )
+        db.commit()
+
+        result = EnvioFlexDeduccion().resolve_bulk(db, [order_id])
+
+        assert result[order_id] == Decimal("400.00")

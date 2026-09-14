@@ -39,6 +39,7 @@ from datetime import datetime, timezone
 from decimal import ROUND_HALF_UP, Decimal
 from typing import Dict, List, Optional, Protocol, Sequence, Tuple, runtime_checkable
 
+from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from app.models.ml_order_item_costo import MlOrderItemCosto
@@ -133,7 +134,48 @@ class EnvioFlexDeduccion:
     es_porcentaje = False
 
     def resolve_bulk(self, db: Session, order_ids: Sequence[int]) -> Dict[int, Optional[Decimal]]:
-        return resolve_flex_cost_by_order_ids(db, order_ids)
+        resuelto = resolve_flex_cost_by_order_ids(db, order_ids)
+
+        # SPLIT across every order that shares the shipment, because the
+        # freight is ONE cost, not one per order.
+        #
+        # A pack can hold several orders under a single `shipping_id`, and
+        # charging each of them the whole shipment made the group total --
+        # which sums its members -- count the same freight twice. The
+        # precedent is already in this module's sibling: `compute_breakdown`
+        # DEDUPES a pack's billing shipping charge for exactly this reason.
+        #
+        # The divisor comes from the DATABASE, not from `order_ids`: taking
+        # it from the batch would make one order's cost depend on who else
+        # happened to be on the same page, which is the kind of number that
+        # changes when you scroll.
+        shipping_by_order = dict(
+            db.query(MlOrdersOps.order_id, MlOrdersOps.shipping_id)
+            .filter(MlOrdersOps.order_id.in_(list(resuelto.keys())))
+            .all()
+        )
+        shipping_ids = {sid for sid in shipping_by_order.values() if sid is not None}
+        if not shipping_ids:
+            return resuelto
+
+        compartidos: Dict[int, int] = {}
+        for shipping_id, cuantas in (
+            db.query(MlOrdersOps.shipping_id, func.count(MlOrdersOps.order_id))
+            .filter(MlOrdersOps.shipping_id.in_(sorted(shipping_ids)))
+            .group_by(MlOrdersOps.shipping_id)
+            .all()
+        ):
+            compartidos[shipping_id] = cuantas
+
+        repartido: Dict[int, Optional[Decimal]] = {}
+        for order_id, monto in resuelto.items():
+            shipping_id = shipping_by_order.get(order_id)
+            cuantas = compartidos.get(shipping_id, 1) if shipping_id is not None else 1
+            if monto is None or cuantas <= 1:
+                repartido[order_id] = monto
+            else:
+                repartido[order_id] = (monto / Decimal(cuantas)).quantize(_CENT, rounding=ROUND_HALF_UP)
+        return repartido
 
 
 class VariosDeduccion:
@@ -143,9 +185,19 @@ class VariosDeduccion:
 
     Returns the RATE (e.g. `Decimal("2.50")` for 2,5%), not an amount --
     `es_porcentaje=True` tells the orchestrator to multiply it against
-    `base` (here `"neto"`, i.e. `neto_sin_iva`, mirroring
-    `calcular_comision_ml_total`'s precedent of applying `varios_porcentaje`
-    to the price WITHOUT IVA -- obs #2064)."""
+    `base`.
+
+    `base = "neto"` means the percentage applies to `neto_sin_iva`, the
+    STARTING value, NOT to what is left after the cost of goods and the
+    Flex freight have been subtracted. The formula reads
+    `Neto - envio flex - % = Total Gauss`, which admits both readings, and
+    the maintainer chose this one explicitly when asked. It also matches
+    `calcular_comision_ml_total`, which applies `varios_porcentaje` to the
+    price without IVA (obs #2064).
+
+    The difference is not academic: on a $100.000 sale with $60.000 of
+    goods and $5.000 of freight, 5% is $5.000 here and would be $1.750 the
+    other way. Do not "fix" this into the running total."""
 
     code = "varios"
     concepto = "Varios (ventas)"
