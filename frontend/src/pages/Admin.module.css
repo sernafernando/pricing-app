@@ -33,6 +33,12 @@
   margin-bottom: 16px;
 }
 
+.syncButtonRow {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+
 .syncButton {
   padding: 12px 24px;
   background: rgba(59, 130, 246, 0.1);

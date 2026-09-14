@@ -26,6 +26,7 @@ registrarPagina({
 export default function Admin() {
   const [tabActiva, setTabActiva] = useState('general');
   const [sincronizando, setSincronizando] = useState(false);
+  const [sincronizandoIva, setSincronizandoIva] = useState(false);
   const [logSync, setLogSync] = useState([]);
   const [tipoCambio, setTipoCambio] = useState(null);
 
@@ -100,6 +101,24 @@ export default function Admin() {
       agregarLog(`❌ Error: ${error.message}`);
     } finally {
       setSincronizando(false);
+    }
+  };
+
+  const sincronizarIva = async () => {
+    if (!confirm('¿Sincronizar impuestos (IVA) desde el ERP?')) return;
+
+    setSincronizandoIva(true);
+    setLogSync([]);
+
+    try {
+      agregarLog('Sincronizando impuestos (IVA)...');
+      const ivaRes = await api.post('/sync-iva', {});
+      agregarLog(`✓ IVA: ${ivaRes.data.insertados || 0} insertados, ${ivaRes.data.items_reemplazados || 0} items reemplazados`);
+      agregarLog('=== SINCRONIZACIÓN COMPLETADA ===');
+    } catch (error) {
+      agregarLog(`❌ Error: ${error.message}`);
+    } finally {
+      setSincronizandoIva(false);
     }
   };
 
@@ -206,13 +225,23 @@ export default function Admin() {
           Sincroniza productos del ERP, publicaciones de Mercado Libre, ofertas desde Google Sheets y recalcula markups.
         </p>
         
-        <button 
-          onClick={sincronizarTodo} 
-          disabled={sincronizando}
-          className={styles.syncButton}
-        >
-          {sincronizando ? '⏳ Sincronizando...' : '🔄 Sincronizar Todo'}
-        </button>
+        <div className={styles.syncButtonRow}>
+          <button
+            onClick={sincronizarTodo}
+            disabled={sincronizando || sincronizandoIva}
+            className={styles.syncButton}
+          >
+            {sincronizando ? '⏳ Sincronizando...' : '🔄 Sincronizar Todo'}
+          </button>
+
+          <button
+            onClick={sincronizarIva}
+            disabled={sincronizando || sincronizandoIva}
+            className={styles.syncButton}
+          >
+            {sincronizandoIva ? '⏳ Sincronizando...' : '🔄 Sincronizar IVA'}
+          </button>
+        </div>
 
         {logSync.length > 0 && (
           <div className={styles.logContainer}>
