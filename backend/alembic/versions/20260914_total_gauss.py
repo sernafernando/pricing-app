@@ -29,6 +29,12 @@ depends_on: Union[str, Sequence[str], None] = None
 def upgrade() -> None:
     op.add_column("ml_orders_ops", sa.Column("total_gauss", sa.Numeric(14, 2), nullable=True))
     op.add_column("ml_orders_ops", sa.Column("total_gauss_at", sa.DateTime(timezone=True), nullable=True))
+    # INDEXED, because sorting is the column's ONLY purpose. `ml_orders_ops`
+    # grows without bound and the listing's `ORDER BY max(total_gauss) DESC
+    # NULLS LAST` would be a full sort on every page. Same reasoning, and
+    # the same fix, as `ix_ml_ops_divergence_kind_state_detected_at` in this
+    # very model file.
+    op.create_index("ix_ml_orders_ops_total_gauss", "ml_orders_ops", ["total_gauss"])
     op.add_column(
         "ml_orders_ops",
         sa.Column("total_gauss_stale", sa.Boolean(), nullable=False, server_default="false"),
@@ -68,5 +74,6 @@ def downgrade() -> None:
     op.drop_index("ix_ml_venta_deducciones_order_id", table_name="ml_venta_deducciones")
     op.drop_table("ml_venta_deducciones")
     op.drop_column("ml_orders_ops", "total_gauss_stale")
+    op.drop_index("ix_ml_orders_ops_total_gauss", table_name="ml_orders_ops")
     op.drop_column("ml_orders_ops", "total_gauss_at")
     op.drop_column("ml_orders_ops", "total_gauss")

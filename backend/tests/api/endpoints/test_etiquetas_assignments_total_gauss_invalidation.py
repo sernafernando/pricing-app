@@ -15,7 +15,9 @@ from datetime import date, datetime, timezone
 
 import pytest
 
-from app.api.endpoints import etiquetas_assignments, etiquetas_shared
+from fastapi import BackgroundTasks
+
+from app.api.endpoints import etiquetas_assignments, etiquetas_shared, etiquetas_upload
 from app.models.etiqueta_envio import EtiquetaEnvio
 from app.models.logistica import Logistica
 from app.models.ml_orders_ops import MlOrdersOps
@@ -133,21 +135,28 @@ class TestStaleOnLabelBirth:
     BIRTH (not just later edits) invalidates Total Gauss, because until the
     label exists there is no Flex cost to resolve at all."""
 
-    def test_new_real_ml_label_marks_matching_order_stale(self, db) -> None:
+    def test_new_real_ml_label_marks_matching_order_stale(self, db, monkeypatch) -> None:
+        """Exercised through the ENDPOINT, not `_insertar_etiqueta`.
+
+        That function runs once per label and a ZPL upload carries
+        hundreds, so the invalidation moved out of it and into its callers,
+        which already collect the ids they inserted and can do it in one
+        call. Pinning the old placement would pin an implementation detail
+        and, worse, would pass while the endpoint invalidated nothing."""
         _order(db, 106, 5006)
         db.commit()
+        monkeypatch.setattr(etiquetas_upload, "_check_permiso", lambda *a, **k: True)
 
-        inserted = etiquetas_shared._insertar_etiqueta(
-            db,
-            shipping_id="5006",
-            sender_id=None,
-            hash_code=None,
-            nombre_archivo="test.pdf",
-            fecha_envio=date(2026, 8, 1),
+        etiquetas_upload.registrar_manual(
+            payload=etiquetas_upload.ManualScanRequest(
+                json_data='{"id":5006,"sender_id":1,"hash_code":"h"}',
+                fecha_envio=date(2026, 8, 1),
+            ),
+            background_tasks=BackgroundTasks(),
+            db=db,
+            current_user=None,
         )
-        db.commit()
 
-        assert inserted is True
         order = db.query(MlOrdersOps).filter(MlOrdersOps.order_id == 106).first()
         assert order.total_gauss_stale is True
 

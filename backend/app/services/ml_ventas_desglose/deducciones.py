@@ -412,4 +412,19 @@ def persistir_total_gauss(db: Session, order_ids: Sequence[int]) -> Dict[int, To
                 row.orden = orden_by_code[code]
                 row.monto = monto
 
+        # A deduction that STOPPED applying must lose its row, not keep it.
+        # Concrete and unremarkable: a `self_service` order switched to
+        # `cross_docking`, or its label deleted -- `EnvioFlexDeduccion`
+        # returns no key, so no `envio_flex` line comes back, and the old
+        # row would sit there forever carrying a freight amount that is no
+        # longer owed. `total_gauss` itself stays right because it is
+        # recomputed whole; it is this table that would keep lying, against
+        # its own model docstring ("the last-resolved amount of one
+        # deduction").
+        vigentes = {code for code, _ in resultado.lineas}
+        for (row_order_id, code), row in list(existing_by_key.items()):
+            if row_order_id == order_id and code not in vigentes:
+                db.delete(row)
+                del existing_by_key[(row_order_id, code)]
+
     return resultados

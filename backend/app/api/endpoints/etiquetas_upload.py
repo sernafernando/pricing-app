@@ -25,6 +25,7 @@ from app.models.usuario import Usuario
 from app.models.etiqueta_envio import EtiquetaEnvio
 from app.models.etiqueta_envio_audit import EtiquetaEnvioAudit
 from app.services.etiqueta_enrichment_service import enriquecer_etiquetas_sync
+from app.services.ml_ventas_desglose.deducciones import marcar_stale
 
 from app.api.endpoints.etiquetas_shared import (
     _check_permiso,
@@ -141,6 +142,9 @@ def upload_etiquetas(
 
     # Enriquecer etiquetas nuevas en background (coords, dirección, comentario)
     if nuevos_shipping_ids:
+        # ONE call for the whole upload, not one per label: a ZPL carries
+        # hundreds, and `_insertar_etiqueta` runs once for each of them.
+        marcar_stale(db, nuevos_shipping_ids)
         background_tasks.add_task(enriquecer_etiquetas_sync, nuevos_shipping_ids)
 
     # SSE: notify clients that etiquetas changed (single event for bulk upload)
@@ -186,6 +190,11 @@ def registrar_manual(
         nombre_archivo="escaneo_manual",
         fecha_envio=payload.fecha_envio or date.today(),
     )
+    if es_nueva:
+        # A new Flex label is itself an invalidation event: until it exists
+        # there is no Flex cost to resolve, so Total Gauss changes the
+        # moment it appears.
+        marcar_stale(db, [parsed["shipping_id"]])
 
     try:
         db.commit()

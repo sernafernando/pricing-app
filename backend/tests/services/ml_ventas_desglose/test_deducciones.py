@@ -19,14 +19,14 @@ from app.models.ml_orders_ops import MlOrderItemOps, MlOrdersOps, MlShipmentOps
 from app.models.ml_venta_deduccion import MlVentaDeduccion
 from app.models.varios_venta_pct import VariosVentaPct
 from app.services.ml_ventas_desglose.deducciones import (
-    refrescar_total_gauss_pendientes,
-    DEDUCCIONES,
     CostoMercaderiaDeduccion,
+    DEDUCCIONES,
     EnvioFlexDeduccion,
     VariosDeduccion,
     calcular_total_gauss,
     marcar_stale,
     persistir_total_gauss,
+    refrescar_total_gauss_pendientes,
 )
 
 
@@ -401,3 +401,34 @@ class TestTheSortKeyHasAProducer:
         db.commit()
 
         assert refrescar_total_gauss_pendientes(db, limit=2) == 2
+
+
+class TestADeductionThatStoppedApplyingLosesItsRow:
+    """`total_gauss` stays right either way -- it is recomputed whole. It
+    is the persisted breakdown that would keep lying, against its own model
+    docstring ("the last-resolved amount of one deduction")."""
+
+    def test_the_flex_row_disappears_when_the_order_stops_being_flex(self, db) -> None:
+        order_id = 9701
+        _order(db, order_id, shipping_id=9700)
+        db.add(MlShipmentOps(shipment_id=9700, logistic_type="self_service"))
+        db.add(Logistica(id=97, nombre="Andreani"))
+        db.add(
+            EtiquetaEnvio(
+                shipping_id="9700", fecha_envio=date(2026, 8, 1), logistica_id=97, costo_override=Decimal("500.00")
+            )
+        )
+        db.commit()
+
+        persistir_total_gauss(db, [order_id])
+        db.commit()
+        assert db.query(MlVentaDeduccion).filter_by(order_id=order_id, code="envio_flex").count() == 1
+
+        # The shipment turns out not to be Flex after all.
+        db.query(MlShipmentOps).filter_by(shipment_id=9700).update({"logistic_type": "cross_docking"})
+        db.commit()
+
+        persistir_total_gauss(db, [order_id])
+        db.commit()
+
+        assert db.query(MlVentaDeduccion).filter_by(order_id=order_id, code="envio_flex").count() == 0

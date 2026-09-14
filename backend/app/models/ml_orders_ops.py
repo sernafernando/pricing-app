@@ -138,7 +138,7 @@ class MlOrdersOps(Base):
     # `deducciones.calcular_total_gauss`, never served from this column.
     # NULL means "never computed" (e.g. a historical sale with no frozen
     # cost) -- sorted `nullslast()`, never treated as zero.
-    total_gauss = Column(Numeric(14, 2), nullable=True)
+    total_gauss = Column(Numeric(14, 2), nullable=True, index=True)
     total_gauss_at = Column(DateTime(timezone=True), nullable=True)
     # design D3: a write-side invalidation hook sets this True in the SAME
     # transaction as any mutation that could change the order's Total

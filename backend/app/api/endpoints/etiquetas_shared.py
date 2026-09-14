@@ -30,7 +30,6 @@ from app.models.usuario import Usuario
 from app.services.permisos_service import verificar_permiso
 from app.services.geocoding_service import geocode_address
 from app.services.logistica_costo_service import get_lluvia_config
-from app.services.ml_ventas_desglose.deducciones import marcar_stale
 
 # Regex para extraer JSONs del QR embebidos en ZPL
 QR_JSON_REGEX = re.compile(r'\{"id":"[^}]+\}')
@@ -488,7 +487,11 @@ def _insertar_etiqueta(
     # ids that never match `MlOrdersOps.shipping_id` (a numeric ML id), so
     # `marcar_stale` on those is a harmless no-op there -- this is the one
     # site where the new label's id CAN match a real order.
-    marcar_stale(db, [shipping_id])
+    #
+    # The invalidation itself is NOT done here: this function runs once per
+    # label, and a ZPL upload carries hundreds, which would mean hundreds of
+    # UPDATEs in one transaction. The callers already collect the ids they
+    # inserted, so they call `marcar_stale` ONCE with the whole batch.
     return True
 
 

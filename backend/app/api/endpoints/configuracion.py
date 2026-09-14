@@ -2,7 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from sqlalchemy import and_, or_
 from typing import List, Optional
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from datetime import date
 from app.core.database import get_db
 from app.api.deps import get_current_user, require_role
@@ -265,7 +265,12 @@ class VariosVentaPctResponse(BaseModel):
 
 
 class VariosVentaPctCreate(BaseModel):
-    porcentaje: float
+    # BOUNDED, because this multiplies against the net of EVERY sale in
+    # force on that date. A typo of -5 or 500 would otherwise sail through
+    # -- the column is `Numeric(5,2)`, so the database does not even stop
+    # it until three digits. `CostoOverrideRequest.costo` in this same file
+    # already uses `Field(ge=0)`; minimalism never applies to validation.
+    porcentaje: float = Field(ge=0, le=100)
     fecha_desde: date
 
 
