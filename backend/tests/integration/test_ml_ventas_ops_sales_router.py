@@ -1058,3 +1058,78 @@ class TestTotalGaussInListing:
 
         list_total_gauss = _group_holding(list_body, order_id)["orders"][0]["total_gauss"]
         assert list_total_gauss == pytest.approx(detail_body["total_gauss"])
+
+
+class TestDetailIvaDecompositionAndDeductionChain(TestTotalGaussInListing):
+    """ml-ventas-modo-logistico PR6 -- the detail endpoint now also
+    exposes `iva_decomposicion` (PR4's split) and `cadena_total_gauss`
+    (PR5's chain), both already computed to produce `total_gauss`. These
+    pin the HISTORICAL/absent case first (no synced payments, the actual
+    shape of every pre-PR3 sale), then the fully-costed happy path.
+    """
+
+    def test_order_without_synced_payments_names_the_reason_never_zero(self, db, client, admin_auth_headers, rol_admin):
+        """No `MlPaymentOps` row at all -- the common historical shape.
+        `neto_sin_iva`/`total_gauss` must be `None` with a named reason,
+        never a fabricated `0`."""
+        _grant_ml_ops_ver(db, rol_admin)
+        order_id = 90030
+        _seed_order(db, order_id, date_created=datetime(2026, 9, 1, tzinfo=timezone.utc))
+        db.commit()
+
+        body = client.get(f"/api/ml-ventas-ops/orders/{order_id}", headers=admin_auth_headers).json()
+
+        assert body["total_gauss"] is None
+        assert body["iva_decomposicion"]["neto_sin_iva"] is None
+        assert body["iva_decomposicion"]["reconcilia"] is False
+        assert body["iva_decomposicion"]["diferencia"] is None
+        assert "sin_pagos_sincronizados" in body["iva_decomposicion"]["razones"]
+        assert body["cadena_total_gauss"]["total_gauss"] is None
+
+    def test_order_without_frozen_cost_blocks_chain_at_that_link_not_zero(
+        self, db, client, admin_auth_headers, rol_admin
+    ):
+        """Payments synced (so `neto_sin_iva` reconciles) but no frozen
+        cost row -- the chain must stop AT the cost link with `monto=None`
+        for that code, never silently skip it or report a zero cost."""
+        from app.models.ml_orders_ops import MlOrderItemOps
+
+        _grant_ml_ops_ver(db, rol_admin)
+        order_id = 90031
+        _seed_order(db, order_id, date_created=datetime(2026, 9, 1, tzinfo=timezone.utc))
+        _payment(db, order_id, order_id, status="approved", net_received_amount=Decimal("121.00"))
+        # The item row exists (so it is expected to carry a frozen cost)
+        # but has none -- the design's own "counts, not all-or-nothing"
+        # case: `items_esperados` is 1, `costos_by_order` is empty.
+        db.add(MlOrderItemOps(order_id=order_id, item_id="MLA1", seller_sku="SKU-1", quantity=1))
+        self._varios_baseline(db)
+        db.commit()
+
+        body = client.get(f"/api/ml-ventas-ops/orders/{order_id}", headers=admin_auth_headers).json()
+
+        assert "item_sin_costo_congelado" in body["iva_decomposicion"]["razones"]
+        assert body["cadena_total_gauss"]["total_gauss"] is None
+        lineas = body["cadena_total_gauss"]["lineas"]
+        blocked = [linea for linea in lineas if linea["monto"] is None]
+        assert blocked, "at least one deduction link must carry the unresolved monto=None"
+
+    def test_fully_costed_order_exposes_componentes_and_full_chain(self, db, client, admin_auth_headers, rol_admin):
+        """Happy path: payments synced AND frozen cost present -- every
+        component reconciles and the chain resolves end to end."""
+        _grant_ml_ops_ver(db, rol_admin)
+        order_id = 90032
+        _seed_order(db, order_id, date_created=datetime(2026, 9, 1, tzinfo=timezone.utc))
+        _payment(db, order_id, order_id, status="approved", net_received_amount=Decimal("121.00"))
+        self._item_with_frozen_cost(db, order_id, costo_unitario_ars=Decimal("10.00"))
+        self._varios_baseline(db)
+        db.commit()
+
+        body = client.get(f"/api/ml-ventas-ops/orders/{order_id}", headers=admin_auth_headers).json()
+
+        assert body["iva_decomposicion"]["reconcilia"] is True
+        assert body["iva_decomposicion"]["neto_sin_iva"] == pytest.approx(100.00)
+        assert body["iva_decomposicion"]["componentes"], "components must be populated on the happy path"
+        assert body["iva_decomposicion"]["razones"] == []
+        assert body["cadena_total_gauss"]["total_gauss"] is not None
+        assert body["cadena_total_gauss"]["lineas"]
+        assert all(linea["monto"] is not None for linea in body["cadena_total_gauss"]["lineas"])

@@ -14,7 +14,7 @@
  */
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, waitFor, act } from '@testing-library/react';
+import { render, screen, waitFor, act, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import DesgloseDrawer from './DesgloseDrawer';
 import api from '../services/api';
@@ -338,5 +338,166 @@ describe('The incomplete reason must match what actually happened', () => {
     render(<DesgloseDrawer orderId={1002} open onClose={vi.fn()} />);
 
     expect(await screen.findByText(/todavía no los trajo/i)).toBeInTheDocument();
+  });
+});
+
+describe('IVA decomposition and Total Gauss chain (ml-ventas-modo-logistico PR6)', () => {
+  function mockDetail(orderId, { breakdown, iva_decomposicion, cadena_total_gauss } = {}) {
+    api.get.mockImplementation((url) => {
+      if (url === `/ml-ventas-ops/orders/${orderId}`) {
+        return Promise.resolve({ data: { breakdown, iva_decomposicion, cadena_total_gauss } });
+      }
+      return Promise.resolve({ data: {} });
+    });
+  }
+
+  const BASE_BREAKDOWN = { lines: [], neto: 100, incompleto: false, incomplete_reasons: [] };
+
+  // Defensive FIRST: a response missing the new fields entirely (an older
+  // cached payload, or a malformed one) must not white-screen the drawer —
+  // this is the shape every response sent before PR6 actually has.
+  describe('defensive: fields absent', () => {
+    it('renders the existing breakdown fine when iva_decomposicion/cadena_total_gauss are absent', async () => {
+      mockDetail(1001, { breakdown: BASE_BREAKDOWN });
+      render(<DesgloseDrawer orderId={1001} open onClose={vi.fn()} />);
+
+      expect(await screen.findByRole('dialog', { name: /desglose de costos/i })).toBeInTheDocument();
+      expect(screen.getByText('Neto')).toBeInTheDocument();
+      expect(screen.queryByText('IVA por alícuota')).not.toBeInTheDocument();
+      expect(screen.queryByText('Total Gauss')).not.toBeInTheDocument();
+    });
+
+    it('renders fine when iva_decomposicion/cadena_total_gauss are explicitly null', async () => {
+      mockDetail(1001, { breakdown: BASE_BREAKDOWN, iva_decomposicion: null, cadena_total_gauss: null });
+      render(<DesgloseDrawer orderId={1001} open onClose={vi.fn()} />);
+
+      expect(await screen.findByRole('dialog', { name: /desglose de costos/i })).toBeInTheDocument();
+      expect(screen.queryByText('IVA por alícuota')).not.toBeInTheDocument();
+    });
+  });
+
+  describe('historical sale with no frozen cost', () => {
+    it('says "sin costo congelado" instead of an error, never a $0', async () => {
+      mockDetail(1001, {
+        breakdown: BASE_BREAKDOWN,
+        iva_decomposicion: {
+          componentes: [],
+          neto_sin_iva: null,
+          reconcilia: false,
+          diferencia: null,
+          razones: ['item_sin_costo_congelado'],
+        },
+        cadena_total_gauss: { total_gauss: null, lineas: [] },
+      });
+      render(<DesgloseDrawer orderId={1001} open onClose={vi.fn()} />);
+
+      expect(await screen.findByText(/sin costo congelado/i)).toBeInTheDocument();
+      expect(screen.queryByText('$0')).not.toBeInTheDocument();
+      expect(screen.queryByText('0,00')).not.toBeInTheDocument();
+    });
+  });
+
+  describe('chain blocked at one link', () => {
+    it('shows "—" for the unresolved link and names it under Total Gauss, never a zero', async () => {
+      mockDetail(1001, {
+        breakdown: BASE_BREAKDOWN,
+        iva_decomposicion: {
+          componentes: [{ concepto: 'Venta ítem', alicuota: 21, bruto: 100, base: 82.64, iva: 17.36 }],
+          neto_sin_iva: 82.64,
+          reconcilia: true,
+          diferencia: 0,
+          razones: [],
+        },
+        cadena_total_gauss: {
+          total_gauss: null,
+          lineas: [
+            { code: 'costo_mercaderia', monto: null },
+            { code: 'envio_flex', monto: 5 },
+            { code: 'varios', monto: 2 },
+          ],
+        },
+      });
+      render(<DesgloseDrawer orderId={1001} open onClose={vi.fn()} />);
+
+      await screen.findByRole('heading', { name: 'Total Gauss' });
+      expect(screen.getByText('Costo de mercadería')).toBeInTheDocument();
+      expect(screen.getByText(/sin costo de mercadería conocido/i)).toBeInTheDocument();
+      // The Total Gauss figure itself is a dash, never a fabricated number.
+      const totalLabels = screen.getAllByText('Total Gauss');
+      const totalRow = totalLabels[totalLabels.length - 1].closest('div');
+      expect(within(totalRow).getByText('—')).toBeInTheDocument();
+    });
+  });
+
+  describe('fully resolved chain', () => {
+    it('renders the full chain and a numeric Total Gauss', async () => {
+      mockDetail(1001, {
+        breakdown: BASE_BREAKDOWN,
+        iva_decomposicion: {
+          componentes: [{ concepto: 'Venta ítem', alicuota: 21, bruto: 100, base: 82.64, iva: 17.36 }],
+          neto_sin_iva: 82.64,
+          reconcilia: true,
+          diferencia: 0,
+          razones: [],
+        },
+        cadena_total_gauss: {
+          total_gauss: 70.64,
+          lineas: [
+            { code: 'costo_mercaderia', monto: 10 },
+            { code: 'envio_flex', monto: 0 },
+            { code: 'varios', monto: 2 },
+          ],
+        },
+      });
+      render(<DesgloseDrawer orderId={1001} open onClose={vi.fn()} />);
+
+      expect(await screen.findByText('Neto sin IVA')).toBeInTheDocument();
+      expect(screen.getByText('Envío Flex')).toBeInTheDocument();
+      expect(screen.getByText('% de varios')).toBeInTheDocument();
+      expect(screen.getByText('70,64')).toBeInTheDocument();
+    });
+  });
+
+  describe('IVA rows per alícuota', () => {
+    it('renders each componente with its own base/IVA/alícuota', async () => {
+      mockDetail(1001, {
+        breakdown: BASE_BREAKDOWN,
+        iva_decomposicion: {
+          componentes: [
+            { concepto: 'Venta ítem 21%', alicuota: 21, bruto: 121, base: 100, iva: 21 },
+            { concepto: 'Retención', alicuota: null, bruto: -5, base: -5, iva: 0 },
+          ],
+          neto_sin_iva: 95,
+          reconcilia: true,
+          diferencia: 0,
+          razones: [],
+        },
+        cadena_total_gauss: { total_gauss: null, lineas: [] },
+      });
+      render(<DesgloseDrawer orderId={1001} open onClose={vi.fn()} />);
+
+      expect(await screen.findByText('IVA por alícuota')).toBeInTheDocument();
+      expect(screen.getByText(/Venta ítem 21%/)).toBeInTheDocument();
+      expect(screen.getByText(/\(21,00%\)/)).toBeInTheDocument();
+      // A withholding carries no alícuota — never a fabricated "0%".
+      expect(screen.getByText(/Sin alícuota/)).toBeInTheDocument();
+    });
+
+    it('renders the named reason instead of a componentes table when it does not reconcile', async () => {
+      mockDetail(1001, {
+        breakdown: BASE_BREAKDOWN,
+        iva_decomposicion: {
+          componentes: [],
+          neto_sin_iva: null,
+          reconcilia: false,
+          diferencia: null,
+          razones: ['sin_pagos_sincronizados'],
+        },
+        cadena_total_gauss: { total_gauss: null, lineas: [] },
+      });
+      render(<DesgloseDrawer orderId={1001} open onClose={vi.fn()} />);
+
+      expect(await screen.findByText(/todavía no se sincronizaron/i)).toBeInTheDocument();
+    });
   });
 });

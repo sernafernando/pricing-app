@@ -224,6 +224,76 @@ class OperationBreakdownSummary(BaseModel):
         )
 
 
+class IvaComponenteSummary(BaseModel):
+    """One line of `DescomposicionIvaSummary`: `alicuota=None` marks a
+    withholding or residual charge that carries no IVA (D8/D11)."""
+
+    concepto: str
+    alicuota: Optional[float] = None
+    bruto: float
+    base: float
+    iva: float
+
+
+class DescomposicionIvaSummary(BaseModel):
+    """PR4's IVA split of THIS order's `neto` (ml-ventas-modo-logistico
+    PR6, design D8-D12). `neto_sin_iva=None` with a non-empty `razones`
+    means the split could not be trusted -- never a fabricated number."""
+
+    componentes: List[IvaComponenteSummary]
+    neto_sin_iva: Optional[float] = None
+    reconcilia: bool
+    diferencia: Optional[float] = None
+    razones: List[str]
+
+    @classmethod
+    def from_domain(cls, desc) -> "DescomposicionIvaSummary":
+        return cls(
+            componentes=[
+                IvaComponenteSummary(
+                    concepto=componente.concepto,
+                    alicuota=float(componente.alicuota) if componente.alicuota is not None else None,
+                    bruto=float(componente.bruto),
+                    base=float(componente.base),
+                    iva=float(componente.iva),
+                )
+                for componente in desc.componentes
+            ],
+            neto_sin_iva=float(desc.neto_sin_iva) if desc.neto_sin_iva is not None else None,
+            reconcilia=desc.reconcilia,
+            diferencia=float(desc.diferencia) if desc.diferencia is not None else None,
+            razones=list(desc.razones),
+        )
+
+
+class DeduccionLineaSummary(BaseModel):
+    """One link of `CadenaTotalGaussSummary.lineas`. `monto=None` is the
+    exact link that blocked the chain (design D7) -- the UI points at it,
+    it never reads as a zero deduction."""
+
+    code: str
+    monto: Optional[float] = None
+
+
+class CadenaTotalGaussSummary(BaseModel):
+    """This order's deduction chain, in chain order (`neto_sin_iva` minus
+    each applicable deduction). `total_gauss=None` whenever `neto_sin_iva`
+    itself is unknown OR any applicable deduction resolved unknown."""
+
+    total_gauss: Optional[float] = None
+    lineas: List[DeduccionLineaSummary]
+
+    @classmethod
+    def from_domain(cls, resultado) -> "CadenaTotalGaussSummary":
+        return cls(
+            total_gauss=float(resultado.total_gauss) if resultado.total_gauss is not None else None,
+            lineas=[
+                DeduccionLineaSummary(code=code, monto=float(monto) if monto is not None else None)
+                for code, monto in resultado.lineas
+            ],
+        )
+
+
 class SaleCentricOperation(BaseModel):
     order: OrderOpsSummary
     items: List[OrderItemOpsSummary]
@@ -235,6 +305,12 @@ class SaleCentricOperation(BaseModel):
     # ml-ventas-modo-logistico PR5: ALWAYS recomputed live (design D2), same
     # as every field of `breakdown` above -- never `MlOrdersOps.total_gauss`.
     total_gauss: Optional[float] = None
+    # ml-ventas-modo-logistico PR6: THIS order's own IVA split and
+    # deduction chain -- both already computed by PR4/PR5 to produce the
+    # `total_gauss` above, exposed here so the UI can show WHY it is (or
+    # is not) known, instead of just the final figure.
+    iva_decomposicion: DescomposicionIvaSummary
+    cadena_total_gauss: CadenaTotalGaussSummary
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -967,6 +1043,12 @@ def obtener_operacion(
     member_total_gauss = [r.total_gauss for r in total_gauss_by_order.values()]
     pack_total_gauss = None if any(v is None for v in member_total_gauss) else sum(member_total_gauss)
 
+    # THIS order's own split/chain -- the pack sum above answers "how much
+    # in total", these answer "why", and summing componentes/lineas across
+    # a pack would not be the honest per-order picture the drawer shows.
+    order_descomposicion = descomposicion_by_order[order.order_id]
+    order_total_gauss = total_gauss_by_order[order.order_id]
+
     return SaleCentricOperation(
         order=OrderOpsSummary.model_validate(order),
         items=[OrderItemOpsSummary.model_validate(item) for item in items],
@@ -976,6 +1058,8 @@ def obtener_operacion(
         messages=[MessageSummary.model_validate(m) for m in messages],
         breakdown=OperationBreakdownSummary.from_domain(breakdown),
         total_gauss=float(pack_total_gauss) if pack_total_gauss is not None else None,
+        iva_decomposicion=DescomposicionIvaSummary.from_domain(order_descomposicion),
+        cadena_total_gauss=CadenaTotalGaussSummary.from_domain(order_total_gauss),
     )
 
 

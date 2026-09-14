@@ -92,6 +92,7 @@ function asGroup(order) {
     operation_status: order.operation_status,
     goods_status: order.goods_status,
     neto: order.neto,
+    modo_logistico: order.modo_logistico,
     orders: [order],
   };
 }
@@ -718,5 +719,67 @@ describe("ML's raw shipping status is not rendered", () => {
 
     expect(await screen.findByText('En depósito')).toBeInTheDocument();
     expect(screen.queryByText('ready_to_ship')).not.toBeInTheDocument();
+  });
+});
+
+describe('Modo logístico badge (ml-ventas-modo-logistico PR6)', () => {
+  // Defensive first: a row missing `modo_logistico` (a shape the backend
+  // must not send, but the UI must not white-screen on) renders "undefined"
+  // via the raw-value fallback rather than crashing the whole listing.
+  it('does not crash when modo_logistico is absent, and the row still renders', async () => {
+    const { modo_logistico: _modoLogistico, ...withoutModo } = PAID_SALE;
+    mockSalesList([withoutModo]);
+    await renderWithRouter(<VentasML />);
+
+    expect(await screen.findByText('comprador1')).toBeInTheDocument();
+  });
+
+  it('shows Flex for self_service', async () => {
+    mockSalesList([{ ...PAID_SALE, modo_logistico: 'self_service' }]);
+    await renderWithRouter(<VentasML />);
+
+    expect(await screen.findByText('Flex')).toBeInTheDocument();
+  });
+
+  it('shows Full for fulfillment', async () => {
+    mockSalesList([{ ...PAID_SALE, modo_logistico: 'fulfillment' }]);
+    await renderWithRouter(<VentasML />);
+
+    expect(await screen.findByText('Full')).toBeInTheDocument();
+  });
+
+  it('shows Colecta for cross_docking', async () => {
+    mockSalesList([{ ...PAID_SALE, modo_logistico: 'cross_docking' }]);
+    await renderWithRouter(<VentasML />);
+
+    expect(await screen.findByText('Colecta')).toBeInTheDocument();
+  });
+
+  it('shows Retiro for retiro', async () => {
+    mockSalesList([{ ...PAID_SALE, modo_logistico: 'retiro' }]);
+    await renderWithRouter(<VentasML />);
+
+    expect(await screen.findByText('Retiro')).toBeInTheDocument();
+  });
+
+  it('renders an unrecognised value verbatim, never folded into "Desconocido"', async () => {
+    // The backend passes a future ML logistic type through on purpose —
+    // this pins that the UI never swallows it into the known-unknown label.
+    mockSalesList([{ ...PAID_SALE, modo_logistico: 'some_future_type' }]);
+    await renderWithRouter(<VentasML />);
+
+    expect(await screen.findByText('some_future_type')).toBeInTheDocument();
+    expect(screen.queryByText('Desconocido')).not.toBeInTheDocument();
+  });
+
+  it('shows Mixto on the pack row when its orders carry the "mixed" value', async () => {
+    const packA1 = { ...PAID_SALE, order_id: 3001, pack_id: 9001, modo_logistico: 'self_service' };
+    const packA2 = { ...PAID_SALE, order_id: 3002, pack_id: 9001, modo_logistico: 'cross_docking' };
+    mockSalesList([
+      { ...packOf([packA1, packA2], 9001), modo_logistico: 'mixed' },
+    ]);
+    await renderWithRouter(<VentasML />);
+
+    expect(await screen.findByText('Mixto')).toBeInTheDocument();
   });
 });

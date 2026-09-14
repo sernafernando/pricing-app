@@ -145,3 +145,43 @@
   font-variant-numeric: tabular-nums;
   color: var(--text-primary);
 }
+
+/* ml-ventas-modo-logistico PR6 — IVA breakdown / Total Gauss chain. */
+
+.section {
+  margin-top: var(--spacing-md);
+  padding-top: var(--spacing-md);
+  border-top: 1px solid var(--border-primary);
+}
+
+.sectionTitle {
+  margin: 0 0 var(--space-2) 0;
+  font-size: var(--font-sm);
+  font-weight: var(--font-semibold);
+  color: var(--text-primary);
+}
+
+.ivaAlicuota {
+  color: var(--text-tertiary);
+  font-size: var(--font-xs, var(--font-sm));
+}
+
+/* Same visual language as `.incompleteBanner`: this is the named-reason
+   box the IVA split shows INSTEAD OF a componentes table when it does
+   not reconcile -- never a bare number that would misreport it. */
+.reasonBox {
+  padding: var(--space-3);
+  font-size: var(--font-sm);
+  color: var(--warning-text, var(--text-primary));
+  background: var(--warning-bg, var(--bg-secondary));
+  border: 1px solid var(--warning);
+  border-radius: var(--radius-md);
+}
+
+.reasonBox p {
+  margin: 0;
+}
+
+.reasonBox p + p {
+  margin-top: var(--space-1);
+}
