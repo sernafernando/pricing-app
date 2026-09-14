@@ -40,6 +40,9 @@
 }
 
 .syncButton {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
   padding: 12px 24px;
   background: rgba(59, 130, 246, 0.1);
   color: rgba(96, 165, 250, 0.9);
@@ -48,6 +51,22 @@
   font-weight: 600;
   cursor: pointer;
   transition: all 0.2s;
+}
+
+.spin {
+  animation: adminSyncSpin 1s linear infinite;
+}
+
+@keyframes adminSyncSpin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.confirmSyncMessage {
+  color: var(--text-primary);
+  font-size: 14px;
+  line-height: 1.5;
 }
 
 .syncButton:hover:not(:disabled) {
