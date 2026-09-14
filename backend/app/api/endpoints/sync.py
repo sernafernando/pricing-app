@@ -8,6 +8,7 @@ from app.models.usuario import Usuario
 from app.services.erp_sync import sincronizar_erp
 from app.services.ml_sync import sincronizar_publicaciones_ml
 from app.services.google_sheets_sync import sincronizar_ofertas_sheets
+from app.services.erp_item_taxes_sync import sync_item_taxes_full
 
 logger = logging.getLogger(__name__)
 
@@ -44,6 +45,22 @@ async def sincronizar_ml(db: Session = Depends(get_async_db), current_user: Usua
         return resultado
     except Exception as e:
         logger.error("Sync ML failed: %s", e, exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Sync failed: {type(e).__name__}")
+
+
+@router.post("/sync-iva")
+async def sync_iva(db: Session = Depends(get_async_db), current_user: Usuario = Depends(get_admin_or_localhost)):
+    """Sincroniza impuestos (IVA) por item desde el ERP (tb_item_taxes)"""
+    try:
+        resultado = await sync_item_taxes_full(db)
+        if "error" in resultado:
+            logger.error("Sync IVA failed: %s", resultado["error"])
+            raise HTTPException(status_code=500, detail="Sync failed: ERPSyncError")
+        return resultado
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error("Sync IVA failed: %s", e, exc_info=True)
         raise HTTPException(status_code=500, detail=f"Sync failed: {type(e).__name__}")
 
 
