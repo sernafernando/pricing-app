@@ -217,12 +217,25 @@ def run_billing_sweep(group: str = BILLING_GROUP) -> BillingSweepResult:
             # Y la pasada se vería completa.
             seen_ids: set[str] = set()
             total: Optional[int] = None
-            first_request = True
 
             while True:
-                if not first_request:
-                    time.sleep(REQUEST_SPACING_SECONDS)
-                first_request = False
+                # ALWAYS space, including before the FIRST page.
+                #
+                # The spacing belongs to the PROXY (1 call/15s), not to this
+                # loop, and `_resolve_open_period_key` has already spent a
+                # call on `/monthly/periods` immediately above. An earlier
+                # version skipped the wait on the first iteration -- as if
+                # nothing had been requested yet -- so the two calls went
+                # out back to back and the proxy answered 429 on the second
+                # one, every single time.
+                #
+                # The sweep then did the right thing with the wrong input:
+                # it stopped without retrying, because a 429 means the
+                # access pattern is wrong. It was. The result is that this
+                # sweep could NEVER complete a pass -- `ml_billing_charges`
+                # stayed empty since the day it shipped, and every sale kept
+                # reporting "falta el barrido de facturación".
+                time.sleep(REQUEST_SPACING_SECONDS)
 
                 page = resolve_maybe_async(
                     ml_webhook_client.get_billing_details(period_key, group, limit=PAGE_LIMIT, from_id=from_id)
