@@ -42,6 +42,10 @@ async def main_async():
             print("=" * 60)
             sys.exit(1)
 
+        print(
+            f"  📦 Impuestos por item (TODOS)... ✓ ({resultado['insertados']} insertados, "
+            f"{resultado['items_reemplazados']} items reemplazados)"
+        )
         print("\n" + "=" * 60)
         print("✅ SINCRONIZACIÓN DE IMPUESTOS FINALIZADA")
         print("=" * 60)

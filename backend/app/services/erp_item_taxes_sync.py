@@ -14,13 +14,16 @@ que la corra sola, sin cargar con el resto del sync completo (pesado y poco
 frecuente).
 """
 
+import logging
+
 import httpx
+from sqlalchemy import tuple_
 from sqlalchemy.orm import Session
 
+from app.core.config import settings
 from app.models.tb_item_taxes import TBItemTaxes
 
-# URL del endpoint local que proxea al ERP
-GBP_PARSER_URL = "http://localhost:8002/api/gbp-parser"
+logger = logging.getLogger(__name__)
 
 
 def to_int(value):
@@ -29,7 +32,7 @@ def to_int(value):
         return None
     try:
         return int(value)
-    except:
+    except (TypeError, ValueError):
         return None
 
 
@@ -37,40 +40,51 @@ async def sync_item_taxes_full(db: Session):
     """
     Sincronizar TODOS los impuestos por item.
 
-    Estrategia REPLACE: borra las filas locales de los item_ids que vinieron
-    del ERP y reinserta todo lo recibido. Esto refleja cambios de tax_id
-    (el sync viejo solo insertaba, dejando filas huérfanas que rompían el
-    IVA del producto en la query local). Si el ERP devuelve vacío, NO se
+    Estrategia REPLACE: borra las filas locales de los pares (comp_id, item_id)
+    que vinieron del ERP y reinserta todo lo recibido. Esto refleja cambios de
+    tax_id (el sync viejo solo insertaba, dejando filas huérfanas que rompían
+    el IVA del producto en la query local). Si el ERP devuelve vacío, NO se
     borra nada (safeguard ante fallos transitorios).
+
+    El delete filtra por el PAR (comp_id, item_id), no solo por item_id: la PK
+    de TBItemTaxes es (comp_id, item_id, tax_id), y un item_id puede repetirse
+    en distintas comp_id. Filtrar solo por item_id borraría filas de otra
+    comp_id que el ERP no devolvió y que nunca se reinsertan.
     """
-    print("  📦 Impuestos por item (TODOS)...", end=" ", flush=True)
+    logger.info("Sincronizando impuestos por item (TODOS)...")
 
     try:
         # Sin parámetro para traer TODOS
         async with httpx.AsyncClient(timeout=600.0) as client:  # 10 min timeout
-            response = await client.get(GBP_PARSER_URL, params={"strScriptLabel": "scriptItemTaxes"})
+            response = await client.get(settings.GBP_PARSER_URL, params={"strScriptLabel": "scriptItemTaxes"})
             response.raise_for_status()
             data = response.json()
 
         if not isinstance(data, list) or len(data) == 0:
-            print("✓ (sin datos)")
+            logger.info("Sin datos de impuestos por item")
             return {"insertados": 0, "items_reemplazados": 0}
 
         if len(data) == 1 and "Column1" in data[0]:
-            print("⚠️ (sin datos disponibles)")
+            logger.warning("Sin datos disponibles de impuestos por item (respuesta centinela)")
             return {"insertados": 0, "items_reemplazados": 0}
 
-        print(f"recibidos {len(data)} registros...", end=" ", flush=True)
+        logger.info("Recibidos %d registros de impuestos por item", len(data))
 
-        item_ids_recibidos = {to_int(row.get("item_id")) for row in data if to_int(row.get("item_id"))}
+        pares_recibidos = {
+            (to_int(row.get("comp_id")), to_int(row.get("item_id")))
+            for row in data
+            if to_int(row.get("comp_id")) is not None and to_int(row.get("item_id")) is not None
+        }
 
         # Delete + insert van en UNA sola transacción: si algo se rompe a mitad,
         # el rollback restaura las filas viejas y no queda la tabla en estado parcial.
         delete_batch = 500
-        item_ids_list = list(item_ids_recibidos)
-        for i in range(0, len(item_ids_list), delete_batch):
-            batch_ids = item_ids_list[i : i + delete_batch]
-            db.query(TBItemTaxes).filter(TBItemTaxes.item_id.in_(batch_ids)).delete(synchronize_session=False)
+        pares_list = list(pares_recibidos)
+        for i in range(0, len(pares_list), delete_batch):
+            batch_pares = pares_list[i : i + delete_batch]
+            db.query(TBItemTaxes).filter(tuple_(TBItemTaxes.comp_id, TBItemTaxes.item_id).in_(batch_pares)).delete(
+                synchronize_session=False
+            )
 
         nuevos = [
             TBItemTaxes(
@@ -85,13 +99,10 @@ async def sync_item_taxes_full(db: Session):
         db.commit()
 
         insertados = len(nuevos)
-        print(f"✓ ({insertados} insertados, {len(item_ids_recibidos)} items reemplazados)")
-        return {"insertados": insertados, "items_reemplazados": len(item_ids_recibidos)}
+        logger.info("Sync IVA completo: %d insertados, %d items reemplazados", insertados, len(pares_recibidos))
+        return {"insertados": insertados, "items_reemplazados": len(pares_recibidos)}
 
     except Exception as e:
-        print(f"❌ Error: {str(e)}")
+        logger.error("Sync IVA falló: %s", e, exc_info=True)
         db.rollback()
-        import traceback
-
-        traceback.print_exc()
         return {"insertados": 0, "items_reemplazados": 0, "error": str(e)}
