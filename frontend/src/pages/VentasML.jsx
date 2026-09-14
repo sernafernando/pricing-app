@@ -113,6 +113,33 @@ const GOODS_STATUS_BADGE_CLASS = {
 
 const GOODS_STATUS_OPTIONS = Object.keys(GOODS_STATUS_LABELS).filter((v) => v !== 'mixed');
 
+// ml-ventas-modo-logistico PR6: `modo_logistico` badge. Known values come
+// straight from `MlShipmentOps.logistic_type` (`resolve_modo_logistico`,
+// backend): `self_service` is Flex, `fulfillment` is Full, `cross_docking`
+// is Colecta. `retiro` is the tag-only fallback when there is no shipment
+// at all. An UNRECOGNISED value is rendered VERBATIM — never folded into
+// "desconocido" — because the backend passes a future ML logistic type
+// through on purpose so it cannot silently vanish here.
+const MODO_LOGISTICO_LABELS = {
+  self_service: 'Flex',
+  fulfillment: 'Full',
+  cross_docking: 'Colecta',
+  retiro: 'Retiro',
+  desconocido: 'Desconocido',
+  // The group's modo_logistico when its orders disagree — same "mixed"
+  // discipline as the two status axes above.
+  mixed: 'Mixto',
+};
+
+const MODO_LOGISTICO_BADGE_CLASS = {
+  self_service: 'badge-primary',
+  fulfillment: 'badge-success',
+  cross_docking: 'badge-warning',
+  retiro: 'badge-neutral',
+  desconocido: 'badge-neutral',
+  mixed: 'badge-warning',
+};
+
 // Locale pinned, like every other page in the app (`Prearmado.jsx`,
 // `DashboardMetricasML.jsx`). Left to the browser, a client in en-US
 // renders MM/DD and AM/PM in the middle of a DD/MM table.
@@ -455,6 +482,7 @@ export default function VentasML() {
               <th>Comprador</th>
               <th>Operación</th>
               <th>Mercadería</th>
+              <th>Modo logístico</th>
               <th className={styles.numeric}>Importe</th>
               <th className={styles.numeric}>Neto</th>
             </tr>
@@ -462,13 +490,13 @@ export default function VentasML() {
           <tbody>
             {loading ? (
               <tr>
-                <td className={styles.stateCell} colSpan={7}>
+                <td className={styles.stateCell} colSpan={8}>
                   Cargando ventas…
                 </td>
               </tr>
             ) : sales.length === 0 ? (
               <tr>
-                <td className={styles.stateCell} colSpan={7}>
+                <td className={styles.stateCell} colSpan={8}>
                   No hay ventas que coincidan con los filtros
                 </td>
               </tr>
@@ -547,6 +575,13 @@ export default function VentasML() {
                           {GOODS_STATUS_LABELS[group.goods_status] || group.goods_status}
                         </span>
                       </td>
+                      <td>
+                        <span
+                          className={`badge ${MODO_LOGISTICO_BADGE_CLASS[group.modo_logistico] || 'badge-neutral'}`}
+                        >
+                          {MODO_LOGISTICO_LABELS[group.modo_logistico] || group.modo_logistico}
+                        </span>
+                      </td>
                       <td className={styles.numeric}>
                         {formatMoney(group.total_amount, group.currency_id)}
                       </td>
@@ -599,6 +634,13 @@ export default function VentasML() {
                               className={`badge ${GOODS_STATUS_BADGE_CLASS[order.goods_status] || 'badge-neutral'}`}
                             >
                               {GOODS_STATUS_LABELS[order.goods_status] || order.goods_status}
+                            </span>
+                          </td>
+                          <td>
+                            <span
+                              className={`badge ${MODO_LOGISTICO_BADGE_CLASS[order.modo_logistico] || 'badge-neutral'}`}
+                            >
+                              {MODO_LOGISTICO_LABELS[order.modo_logistico] || order.modo_logistico}
                             </span>
                           </td>
                           <td className={styles.numeric}>

@@ -25,6 +25,16 @@
  * visible (it can be a real partial number, not a placeholder) but
  * visually marked, with the reason spelled out for the operator instead of
  * ML's raw incomplete_reasons code.
+ *
+ * ml-ventas-modo-logistico PR6 adds two more sections, both from the SAME
+ * `GET /ml-ventas-ops/orders/{order_id}` response, never recomputed here:
+ *  - `iva_decomposicion` (PR4): the neto split by IVA rate. `reconcilia:
+ *    false` renders the NAMED reason instead of a componentes table — a
+ *    partial split would look like an arithmetic bug in this panel.
+ *  - `cadena_total_gauss` (PR5): neto sin IVA minus each applicable
+ *    deduction, in chain order. A `null` link is shown as "—" and named —
+ *    UNKNOWN is never a zero, and Total Gauss itself is only ever shown
+ *    when every link in the chain resolved.
  */
 
 import { useEffect, useCallback, useState, useRef } from 'react';
@@ -47,6 +57,34 @@ const INCOMPLETE_REASON_LABELS = {
     'Falta el barrido de facturación: los cargos que ML factura aparte, como el envío, todavía no se descontaron. El neto real es MENOR que el que ves acá.',
 };
 
+// ml-ventas-modo-logistico PR6, mirrors `iva.py`'s named RAZON_* constants
+// verbatim — the backend names WHY the split failed, never a bare "no
+// reconcilia" that reads like an arithmetic bug in this panel.
+const RAZON_LABELS = {
+  venta_con_devolucion:
+    'Esta venta tuvo una devolución: no se sabe qué ítems volvieron, así que el IVA no se puede desglosar por alícuota.',
+  item_sin_cantidad: 'Falta la cantidad de un ítem de esta venta.',
+  // The historical case (PR3 froze costs only for new ingestions): most
+  // sales made before it carry no frozen cost at all, and that must read
+  // as "sin costo congelado", never as a generic error.
+  item_sin_costo_congelado: 'Sin costo congelado: esta venta es anterior a la congelación de costos.',
+  costo_sin_item: 'Hay un costo congelado sin ítem asociado en esta venta.',
+  sin_pagos_sincronizados: 'Todavía no se sincronizaron los pagos de esta venta.',
+};
+
+// ml-ventas-modo-logistico PR5's deduction codes (`deducciones.py`), in the
+// same chain order the backend already applies them.
+const DEDUCCION_LABELS = {
+  costo_mercaderia: 'Costo de mercadería',
+  envio_flex: 'Envío Flex',
+  varios: '% de varios',
+};
+
+function formatAlicuota(value) {
+  if (value === null || value === undefined) return 'Sin alícuota';
+  return `${formatAmount(value)}%`;
+}
+
 function formatAmount(value) {
   if (value === null || value === undefined) return '—';
   return new Intl.NumberFormat('es-AR', {
@@ -57,6 +95,12 @@ function formatAmount(value) {
 
 export default function DesgloseDrawer({ orderId, open, onClose }) {
   const [breakdown, setBreakdown] = useState(null);
+  // ml-ventas-modo-logistico PR6: the IVA split and the Total Gauss chain,
+  // both from the SAME detail response. Kept separate from `breakdown`
+  // (the older `origen: api/propio` lines) since they are two different
+  // views of the sale, not one replacing the other.
+  const [ivaDecomposicion, setIvaDecomposicion] = useState(null);
+  const [cadenaTotalGauss, setCadenaTotalGauss] = useState(null);
   const [loading, setLoading] = useState(false);
   const [errorKind, setErrorKind] = useState(null); // 'generic' | null
 
@@ -94,10 +138,14 @@ export default function DesgloseDrawer({ orderId, open, onClose }) {
       const { data } = await api.get(`/ml-ventas-ops/orders/${orderId}`);
       if (requestId !== latestRequestRef.current) return;
       setBreakdown(data.breakdown || null);
+      setIvaDecomposicion(data.iva_decomposicion || null);
+      setCadenaTotalGauss(data.cadena_total_gauss || null);
     } catch {
       if (requestId !== latestRequestRef.current) return;
       setErrorKind('generic');
       setBreakdown(null);
+      setIvaDecomposicion(null);
+      setCadenaTotalGauss(null);
     } finally {
       if (requestId === latestRequestRef.current) setLoading(false);
     }
@@ -164,6 +212,13 @@ export default function DesgloseDrawer({ orderId, open, onClose }) {
   // wrong -- the worst moment to lose the panel.
   const reasons = breakdown?.incomplete_reasons || [];
   const lines = breakdown?.lines || [];
+
+  // Same defensive discipline: an absent/`null` `iva_decomposicion` (a
+  // stale client, or an old-shaped test fixture) must not white-screen the
+  // drawer — the new sections simply do not render.
+  const componentesIva = ivaDecomposicion?.componentes || [];
+  const razonesIva = ivaDecomposicion?.razones || [];
+  const lineasGauss = cadenaTotalGauss?.lineas || [];
 
   if (!open) return null;
 
@@ -239,6 +294,99 @@ export default function DesgloseDrawer({ orderId, open, onClose }) {
                 <span className={styles.totalLabel}>Neto</span>
                 <span className={styles.totalMonto}>{formatAmount(breakdown.neto)}</span>
               </div>
+
+              {/* ml-ventas-modo-logistico PR6 — IVA por alícuota. Absent
+                  entirely when the backend did not send it (defensive: an
+                  older cached response, a malformed payload). */}
+              {ivaDecomposicion && (
+                <section className={styles.section} aria-label="IVA por alícuota">
+                  <h3 className={styles.sectionTitle}>IVA por alícuota</h3>
+                  {ivaDecomposicion.reconcilia ? (
+                    <ul className={styles.lineList}>
+                      {componentesIva.map((componente, index) => (
+                        // Same index-keyed reasoning as `lines` above: the
+                        // backend can legitimately repeat a `concepto`.
+                        <li key={`${index}-${componente.concepto}`} className={styles.line}>
+                          <span className={styles.lineConcepto}>
+                            {componente.concepto}
+                            <span className={styles.ivaAlicuota}>
+                              {' '}
+                              ({formatAlicuota(componente.alicuota)})
+                            </span>
+                          </span>
+                          <span className={styles.lineMonto}>
+                            base {formatAmount(componente.base)} · IVA {formatAmount(componente.iva)}
+                          </span>
+                        </li>
+                      ))}
+                    </ul>
+                  ) : (
+                    // Never a bare number when it does not reconcile — the
+                    // NAMED reason, exactly as `iva.py` produced it.
+                    <div className={styles.reasonBox}>
+                      {razonesIva.length === 0 ? (
+                        <p>Este desglose de IVA no reconcilia.</p>
+                      ) : (
+                        razonesIva.map((razon) => <p key={razon}>{RAZON_LABELS[razon] || razon}</p>)
+                      )}
+                    </div>
+                  )}
+                </section>
+              )}
+
+              {/* ml-ventas-modo-logistico PR6 — the Total Gauss chain:
+                  neto sin IVA -> costo de mercadería -> envío Flex ->
+                  % de varios -> Total Gauss. A `null` link renders "—" and
+                  is named below the chain; Total Gauss itself is only
+                  ever shown once every link resolved -- never a zero. */}
+              {cadenaTotalGauss && (
+                <section className={styles.section} aria-label="Total Gauss">
+                  <h3 className={styles.sectionTitle}>Total Gauss</h3>
+                  <ul className={styles.lineList}>
+                    <li className={styles.line}>
+                      <span className={styles.lineConcepto}>Neto sin IVA</span>
+                      <span className={styles.lineMonto}>{formatAmount(ivaDecomposicion?.neto_sin_iva)}</span>
+                    </li>
+                    {lineasGauss.map((linea) => (
+                      <li key={linea.code} className={styles.line}>
+                        <span className={styles.lineConcepto}>{DEDUCCION_LABELS[linea.code] || linea.code}</span>
+                        <span className={styles.lineMonto}>
+                          {linea.monto === null ? '—' : formatAmount(linea.monto)}
+                        </span>
+                      </li>
+                    ))}
+                  </ul>
+
+                  {cadenaTotalGauss.total_gauss === null ? (
+                    <div>
+                      <div className={`${styles.total} ${styles.totalIncomplete}`}>
+                        <span className={styles.totalLabel}>Total Gauss</span>
+                        <span className={styles.totalMonto}>—</span>
+                      </div>
+                      {/* Names EXACTLY which link is missing, never a bare
+                          "unknown" -- the operator needs to know whether to
+                          wait for a sync or accept there is no frozen cost. */}
+                      <p className={styles.stateText}>
+                        {(() => {
+                          const unresolved = lineasGauss.find((linea) => linea.monto === null);
+                          if (unresolved) {
+                            return `Sin ${(DEDUCCION_LABELS[unresolved.code] || unresolved.code).toLowerCase()} conocido.`;
+                          }
+                          if (ivaDecomposicion && !ivaDecomposicion.reconcilia) {
+                            return 'El neto sin IVA no reconcilia — ver la razón arriba.';
+                          }
+                          return 'Total Gauss desconocido.';
+                        })()}
+                      </p>
+                    </div>
+                  ) : (
+                    <div className={styles.total}>
+                      <span className={styles.totalLabel}>Total Gauss</span>
+                      <span className={styles.totalMonto}>{formatAmount(cadenaTotalGauss.total_gauss)}</span>
+                    </div>
+                  )}
+                </section>
+              )}
             </>
           )}
         </div>
