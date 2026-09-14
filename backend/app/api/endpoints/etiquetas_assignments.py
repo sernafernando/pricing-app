@@ -27,6 +27,7 @@ from app.models.logistica import Logistica
 from app.models.transporte import Transporte
 from app.models.operador import Operador
 from app.models.operador_actividad import OperadorActividad
+from app.services.ml_ventas_desglose.deducciones import marcar_stale
 
 from app.api.endpoints.etiquetas_shared import (
     _check_permiso,
@@ -71,6 +72,10 @@ def asignar_logistica(
             raise HTTPException(404, "Logística no encontrada o inactiva")
 
     etiqueta.logistica_id = payload.logistica_id
+    # ml-ventas-modo-logistico PR5, design D3: a logistics reassignment can
+    # change which tariff resolves the Flex deduction of Total Gauss --
+    # invalidated in the SAME transaction as the assignment itself.
+    marcar_stale(db, [shipping_id])
     db.commit()
     sse_publish_bg("etiquetas:changed", {"hint": "reload"})
 
@@ -96,6 +101,10 @@ def cambiar_fecha(
         raise HTTPException(404, f"Etiqueta {shipping_id} no encontrada")
 
     etiqueta.fecha_envio = payload.fecha_envio
+    # design D3: `fecha_envio` selects the `vigente_desde` tariff row for
+    # the Flex deduction -- a reprogrammed ship date can move to a
+    # different tariff version, so Total Gauss is invalidated here too.
+    marcar_stale(db, [shipping_id])
     db.commit()
     sse_publish_bg("etiquetas:changed", {"hint": "reload"})
 
@@ -150,6 +159,10 @@ def set_costo_override(
     )
     db.add(actividad)
 
+    # design D3: `costo_override` is the FIRST thing the Flex deduction
+    # checks -- audited above in `OperadorActividad(accion="costo_override")`,
+    # never in `EtiquetaEnvioAudit` (that table records deletions only).
+    marcar_stale(db, [shipping_id])
     db.commit()
     sse_publish_bg("etiquetas:changed", {"hint": "reload"})
 
@@ -188,6 +201,7 @@ def asignar_masivo(
         )
     )
 
+    marcar_stale(db, payload.shipping_ids)
     db.commit()
     sse_publish_bg("etiquetas:changed", {"hint": "reload"})
 
@@ -225,6 +239,7 @@ def cambiar_fecha_masivo(
         )
     )
 
+    marcar_stale(db, payload.shipping_ids)
     db.commit()
     sse_publish_bg("etiquetas:changed", {"hint": "reload"})
 

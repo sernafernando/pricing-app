@@ -714,9 +714,13 @@ class TestNetoInListing:
         assert sale["neto"] == pytest.approx(60.00)
 
     def test_listing_does_not_query_payments_per_row(self, db, client, admin_auth_headers, rol_admin, query_counter):
-        """The whole point of the design: batched, not N+1. Regardless of
+        """The whole point of the design: BATCHED, not N+1. Regardless of
         how many rows the page holds, `ml_payments_ops`/`ml_payment_charges`
-        are each queried AT MOST once."""
+        are each queried AT MOST TWICE -- once by `compute_neto_by_order_ids`
+        (`neto`), once more by `iva.descomponer_neto` (`neto_sin_iva`, feeding
+        `total_gauss`, ml-ventas-modo-logistico PR5). Both are bulk, page-wide
+        calls -- never one query per row -- so the ceiling moved from 1 to 2,
+        it did not become unbounded."""
         _grant_ml_ops_ver(db, rol_admin)
         when = datetime(2026, 9, 1, tzinfo=timezone.utc)
         for i in range(5):
@@ -730,8 +734,8 @@ class TestNetoInListing:
             resp = client.get("/api/ml-ventas-ops/sales", headers=admin_auth_headers)
         assert resp.status_code == 200
 
-        assert counter.matching("ml_payments_ops") <= 1
-        assert counter.matching("ml_payment_charges") <= 1
+        assert counter.matching("ml_payments_ops") <= 2
+        assert counter.matching("ml_payment_charges") <= 2
 
 
 class TestMixedCurrencyPack:
@@ -942,3 +946,97 @@ class TestSortByLastUpdate:
 # Postgres. A test written against that would have to be wrong in
 # production to be green here. The boundary logic is pure, so it is pinned
 # purely, in `tests/unit/test_ml_ventas_date_bounds.py`.
+
+
+class TestTotalGaussInListing:
+    """ml-ventas-modo-logistico PR5, design D2 -- `total_gauss` on the
+    listing is ALWAYS recomputed for the page, never served from
+    `MlOrdersOps.total_gauss` (that column is a sort/filter key only).
+    """
+
+    def _varios_baseline(self, db) -> None:
+        """A 0% "varios" version covering every date -- these tests are not
+        ABOUT `VariosDeduccion`; without a version configured it is a
+        legitimate unknown that would make every `total_gauss` `None`."""
+        from datetime import date as date_type
+
+        from app.models.varios_venta_pct import VariosVentaPct
+
+        db.add(VariosVentaPct(porcentaje=Decimal("0.00"), fecha_desde=date_type(2020, 1, 1), fecha_hasta=None))
+
+    def _item_with_frozen_cost(self, db, order_id, item_id="MLA1", quantity=1, costo_unitario_ars=Decimal("10.00")):
+        from app.models.ml_order_item_costo import MlOrderItemCosto
+        from app.models.ml_orders_ops import MlOrderItemOps
+
+        db.add(MlOrderItemOps(order_id=order_id, item_id=item_id, seller_sku="SKU-1", quantity=quantity))
+        db.add(
+            MlOrderItemCosto(
+                order_id=order_id,
+                item_id=item_id,
+                costo_origen=costo_unitario_ars,
+                moneda="ARS",
+                costo_unitario_ars=costo_unitario_ars,
+                iva_pct=Decimal("21.00"),
+                precio_unitario=Decimal("121.00"),
+                fuente="sku",
+                producto_item_id=1,
+            )
+        )
+
+    def test_stored_total_gauss_agrees_with_recomputed(self, db, client, admin_auth_headers, rol_admin):
+        """Pins design D2: even when `MlOrdersOps.total_gauss` is stored
+        with a STALE, WRONG value, the listing shows the freshly recomputed
+        one, never the stored column."""
+        _grant_ml_ops_ver(db, rol_admin)
+        order_id = 90001
+        when = datetime(2026, 9, 1, tzinfo=timezone.utc)
+        _seed_order(db, order_id, date_created=when)
+        _payment(db, order_id, order_id, status="approved", net_received_amount=Decimal("121.00"))
+        self._item_with_frozen_cost(db, order_id, costo_unitario_ars=Decimal("10.00"))
+        self._varios_baseline(db)
+        # Deliberately wrong/stale stored value -- the display must NOT
+        # agree with this number.
+        db.query(MlOrdersOps).filter(MlOrdersOps.order_id == order_id).update(
+            {"total_gauss": Decimal("999999.00"), "total_gauss_stale": True}
+        )
+        db.commit()
+
+        body = client.get("/api/ml-ventas-ops/sales", headers=admin_auth_headers).json()
+
+        sale = _group_holding(body, order_id)
+        recomputed = sale["orders"][0]["total_gauss"]
+        assert recomputed is not None
+        assert recomputed != pytest.approx(999999.00)
+        # neto_sin_iva(100.00) - costo(10.00) == 90.00
+        assert recomputed == pytest.approx(90.00)
+
+    def test_sort_by_total_gauss_accepted_and_orders_nulls_last(self, db, client, admin_auth_headers, rol_admin):
+        _grant_ml_ops_ver(db, rol_admin)
+        when = datetime(2026, 9, 1, tzinfo=timezone.utc)
+        # No payments/items at all -- neto and total_gauss both None.
+        _seed_order(db, 90010, date_created=when)
+        db.commit()
+
+        resp = client.get(
+            "/api/ml-ventas-ops/sales",
+            params={"sort": "total_gauss"},
+            headers=admin_auth_headers,
+        )
+
+        assert resp.status_code == 200
+
+    def test_list_and_breakdown_total_gauss_agree(self, db, client, admin_auth_headers, rol_admin):
+        _grant_ml_ops_ver(db, rol_admin)
+        order_id = 90020
+        when = datetime(2026, 9, 1, tzinfo=timezone.utc)
+        _seed_order(db, order_id, date_created=when)
+        _payment(db, order_id, order_id, status="approved", net_received_amount=Decimal("121.00"))
+        self._item_with_frozen_cost(db, order_id, costo_unitario_ars=Decimal("10.00"))
+        self._varios_baseline(db)
+        db.commit()
+
+        list_body = client.get("/api/ml-ventas-ops/sales", headers=admin_auth_headers).json()
+        detail_body = client.get(f"/api/ml-ventas-ops/orders/{order_id}", headers=admin_auth_headers).json()
+
+        list_total_gauss = _group_holding(list_body, order_id)["orders"][0]["total_gauss"]
+        assert list_total_gauss == pytest.approx(detail_body["total_gauss"])

@@ -30,6 +30,7 @@ from app.models.usuario import Usuario
 from app.services.permisos_service import verificar_permiso
 from app.services.geocoding_service import geocode_address
 from app.services.logistica_costo_service import get_lluvia_config
+from app.services.ml_ventas_desglose.deducciones import marcar_stale
 
 # Regex para extraer JSONs del QR embebidos en ZPL
 QR_JSON_REGEX = re.compile(r'\{"id":"[^}]+\}')
@@ -477,6 +478,17 @@ def _insertar_etiqueta(
         upload_batch_id=upload_batch_id,
     )
     db.add(etiqueta)
+    # ml-ventas-modo-logistico PR5, design D3 (extended beyond the task
+    # list, per the maintainer): "un flex en algún momento va a tener envío
+    # no cuando se nutra, pero si cuando se cargue en depósito" -- until a
+    # real ML Flex label exists there is NO Flex cost to resolve, so the
+    # BIRTH of one here is itself an invalidation event, exactly like a
+    # later reassignment. Manual/retiro labels (`etiquetas_manual.py`,
+    # `etiqueta_retiro_service.py`) mint synthetic `MAN_.../RETIRO-...`
+    # ids that never match `MlOrdersOps.shipping_id` (a numeric ML id), so
+    # `marcar_stale` on those is a harmless no-op there -- this is the one
+    # site where the new label's id CAN match a real order.
+    marcar_stale(db, [shipping_id])
     return True
 
 
