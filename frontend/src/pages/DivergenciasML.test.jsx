@@ -219,6 +219,31 @@ describe('window_not_enumerable rows render distinctly', () => {
   });
 });
 
+describe('ingest_failed renders as Spanish text, never a raw slug', () => {
+  it('shows "Falló al ingresar", not the raw kind slug', async () => {
+    const INGEST_FAILED_ROW = {
+      id: 3,
+      order_id: 777,
+      kind: 'ingest_failed',
+      field: null,
+      ml_value: null,
+      gbp_value: null,
+      window_from: null,
+      window_to: null,
+      state: 'open',
+      assigned_to_id: null,
+      note: 'raw_order payload was a status_detail dict',
+      detected_at: '2026-09-14T08:00:00Z',
+      updated_at: '2026-09-14T08:00:00Z',
+    };
+    mockDivergencesList([INGEST_FAILED_ROW]);
+    await renderWithRouter(<DivergenciasML />);
+
+    expect(await screen.findByText('Falló al ingresar')).toBeInTheDocument();
+    expect(screen.queryByText('ingest_failed')).not.toBeInTheDocument();
+  });
+});
+
 describe('Actions gated by ml_ops.gestionar', () => {
   it('does not render the "Gestionar" action for a ml_ops.ver-only user', async () => {
     mockTienePermiso.mockImplementation((codigo) => codigo === 'ml_ops.ver');

@@ -626,6 +626,76 @@ describe('Opening the cost breakdown drawer', () => {
   });
 });
 
+describe('Ingestion-failure banner (open `ingest_failed` divergences)', () => {
+  function mockDivergencesTotal(total) {
+    api.get.mockImplementation((url) => {
+      if (url === '/ml-ventas-ops/sales') {
+        return Promise.resolve({
+          data: { sales: [], total: 0, limit: 50, offset: 0, facets: { operation_status: {}, goods_status: {} } },
+        });
+      }
+      if (url === '/ml-ventas-ops/divergences') {
+        return Promise.resolve({ data: { divergences: [], total } });
+      }
+      return Promise.resolve({ data: {} });
+    });
+  }
+
+  it('shows nothing when there are no open ingest_failed divergences', async () => {
+    mockDivergencesTotal(0);
+    await renderWithRouter(<VentasML />);
+    await screen.findByText('Ventas ML');
+    await waitFor(() => {
+      expect(api.get).toHaveBeenCalledWith(
+        '/ml-ventas-ops/divergences',
+        expect.objectContaining({ params: { kind: 'ingest_failed', state: 'open', limit: 1 } })
+      );
+    });
+    expect(screen.queryByText(/no pud(ieron|o) ingresar/i)).not.toBeInTheDocument();
+  });
+
+  it('shows a warning with a link to the divergences board when there are open failures', async () => {
+    mockDivergencesTotal(3);
+    await renderWithRouter(<VentasML />);
+
+    const banner = await screen.findByText(/3 ventas no pudieron ingresar/i);
+    expect(banner).toBeInTheDocument();
+    const link = screen.getByRole('link', { name: /ver divergencias/i });
+    expect(link).toHaveAttribute('href', '/ml-ventas-divergencias');
+  });
+
+  it('uses singular phrasing for exactly one failure', async () => {
+    mockDivergencesTotal(1);
+    await renderWithRouter(<VentasML />);
+    expect(await screen.findByText(/1 venta no pudo ingresar/i)).toBeInTheDocument();
+  });
+
+  it('a failure fetching divergences never breaks the sales list', async () => {
+    api.get.mockImplementation((url) => {
+      if (url === '/ml-ventas-ops/sales') {
+        return Promise.resolve({
+          data: {
+            sales: [asGroup(PAID_SALE)],
+            total: 1,
+            limit: 50,
+            offset: 0,
+            facets: { operation_status: {}, goods_status: {} },
+          },
+        });
+      }
+      if (url === '/ml-ventas-ops/divergences') {
+        return Promise.reject(new Error('network down'));
+      }
+      return Promise.resolve({ data: {} });
+    });
+
+    await renderWithRouter(<VentasML />);
+
+    expect(await screen.findByText('comprador1')).toBeInTheDocument();
+    expect(screen.queryByText(/no pud(ieron|o) ingresar/i)).not.toBeInTheDocument();
+  });
+});
+
 describe("ML's raw shipping status is not rendered", () => {
   // `goods_status` is derived from `shipping_status`, so rendering both
   // said the same thing twice — once in Spanish the operator reads, once
