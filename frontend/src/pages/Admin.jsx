@@ -1,6 +1,8 @@
 import { useState, useEffect } from 'react';
+import { RefreshCw, Loader2 } from 'lucide-react';
 import api from '../services/api';
 import styles from './Admin.module.css';
+import ModalTesla, { ModalFooterButtons } from '../components/ModalTesla';
 import PanelComisiones from '../components/PanelComisiones';
 import PanelConstantesPricing from '../components/PanelConstantesPricing';
 import PanelEmpresas from '../components/PanelEmpresas';
@@ -26,6 +28,7 @@ registrarPagina({
 export default function Admin() {
   const [tabActiva, setTabActiva] = useState('general');
   const [sincronizando, setSincronizando] = useState(false);
+  const [sincronizandoIva, setSincronizandoIva] = useState(false);
   const [logSync, setLogSync] = useState([]);
   const [tipoCambio, setTipoCambio] = useState(null);
 
@@ -34,6 +37,9 @@ export default function Admin() {
   const [tipoLimpieza, setTipoLimpieza] = useState(''); // 'rebate' o 'web-transferencia'
   const [palabraVerificacion, setPalabraVerificacion] = useState('');
   const [palabraObjetivo, setPalabraObjetivo] = useState('');
+
+  // Modal de confirmación de sincronización (Todo / IVA)
+  const [confirmSyncTipo, setConfirmSyncTipo] = useState(null); // 'todo' | 'iva' | null
 
   useEffect(() => {
     cargarDatos();
@@ -54,8 +60,6 @@ export default function Admin() {
   };
 
   const sincronizarTodo = async () => {
-    if (!confirm('¿Sincronizar todos los datos? Esto puede tardar varios minutos.')) return;
-    
     setSincronizando(true);
     setLogSync([]);
     
@@ -101,6 +105,33 @@ export default function Admin() {
     } finally {
       setSincronizando(false);
     }
+  };
+
+  const sincronizarIva = async () => {
+    setSincronizandoIva(true);
+    setLogSync([]);
+
+    try {
+      agregarLog('Sincronizando impuestos (IVA)...');
+      const ivaRes = await api.post('/sync-iva', {});
+      agregarLog(`✓ IVA: ${ivaRes.data.insertados || 0} insertados, ${ivaRes.data.items_reemplazados || 0} items reemplazados`);
+      agregarLog('=== SINCRONIZACIÓN COMPLETADA ===');
+    } catch (error) {
+      agregarLog(`❌ Error: ${error.message}`);
+    } finally {
+      setSincronizandoIva(false);
+    }
+  };
+
+  const pedirConfirmacionSync = (tipo) => {
+    setConfirmSyncTipo(tipo);
+  };
+
+  const confirmarSync = () => {
+    const tipo = confirmSyncTipo;
+    setConfirmSyncTipo(null);
+    if (tipo === 'todo') sincronizarTodo();
+    if (tipo === 'iva') sincronizarIva();
   };
 
   const abrirModalLimpieza = (tipo) => {
@@ -206,13 +237,60 @@ export default function Admin() {
           Sincroniza productos del ERP, publicaciones de Mercado Libre, ofertas desde Google Sheets y recalcula markups.
         </p>
         
-        <button 
-          onClick={sincronizarTodo} 
-          disabled={sincronizando}
-          className={styles.syncButton}
-        >
-          {sincronizando ? '⏳ Sincronizando...' : '🔄 Sincronizar Todo'}
-        </button>
+        <div className={styles.syncButtonRow}>
+          <button
+            onClick={() => pedirConfirmacionSync('todo')}
+            disabled={sincronizando || sincronizandoIva}
+            className={styles.syncButton}
+          >
+            {sincronizando ? (
+              <Loader2 size={16} className={styles.spin} aria-hidden="true" />
+            ) : (
+              <RefreshCw size={16} aria-hidden="true" />
+            )}
+            {sincronizando ? 'Sincronizando...' : 'Sincronizar Todo'}
+          </button>
+
+          <button
+            onClick={() => pedirConfirmacionSync('iva')}
+            disabled={sincronizando || sincronizandoIva}
+            className={styles.syncButton}
+          >
+            {sincronizandoIva ? (
+              <Loader2 size={16} className={styles.spin} aria-hidden="true" />
+            ) : (
+              <RefreshCw size={16} aria-hidden="true" />
+            )}
+            {sincronizandoIva ? 'Sincronizando...' : 'Sincronizar IVA'}
+          </button>
+        </div>
+
+        {confirmSyncTipo && (
+          <ModalTesla
+            isOpen={!!confirmSyncTipo}
+            onClose={() => setConfirmSyncTipo(null)}
+            title={
+              confirmSyncTipo === 'todo'
+                ? 'Confirmar sincronización completa'
+                : 'Confirmar sincronización de IVA'
+            }
+            size="sm"
+            footer={
+              <ModalFooterButtons
+                onCancel={() => setConfirmSyncTipo(null)}
+                onConfirm={confirmarSync}
+                confirmText="Sincronizar"
+                cancelText="Cancelar"
+              />
+            }
+          >
+            <p className={styles.confirmSyncMessage}>
+              {confirmSyncTipo === 'todo'
+                ? '¿Sincronizar todos los datos? Esto puede tardar varios minutos.'
+                : '¿Sincronizar impuestos (IVA) desde el ERP?'}
+            </p>
+          </ModalTesla>
+        )}
 
         {logSync.length > 0 && (
           <div className={styles.logContainer}>
