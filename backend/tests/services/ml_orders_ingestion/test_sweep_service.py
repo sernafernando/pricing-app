@@ -14,6 +14,7 @@ from unittest import mock
 from unittest.mock import AsyncMock
 
 import pytest
+from sqlalchemy.exc import SQLAlchemyError
 
 from app.core.config import settings
 from app.models.ml_orders_ops import MlOpsDivergence, MlOpsSyncCursor, MlOrdersOps, MlShipmentOps
@@ -1293,3 +1294,102 @@ class TestTheClockGuardsEveryFetchLoop:
 
         assert got == {}
         get_shipment.assert_not_called()
+
+
+class TestWriteErrorIsolationAndQuarantine:
+    """2026-09-14 incident, end to end: a single order whose WRITE fails
+    (not its mapping) must not take the batch or the pass down, must be
+    quarantined for automatic retry, and the pass must still finish and
+    advance its cursor. See `test_ingestion_service_postgres.py` for the
+    real transaction-poisoning proof this depends on."""
+
+    def test_a_bad_orders_write_failure_does_not_stop_the_pass_and_good_orders_still_land(self, db, monkeypatch):
+        from app.services.ml_orders_ingestion import ingestion_service
+
+        now = datetime.now(timezone.utc)
+        recent = now - timedelta(days=1)
+        good1 = _order(501, 999, recent, recent)
+        good1["order_items"] = [{"item": {"id": "MLA501"}, "quantity": 1, "unit_price": 10.0}]
+        bad = _order(502, 999, recent, recent)
+        bad["order_items"] = [{"item": {"id": "MLA502"}, "quantity": 1, "unit_price": 10.0}]
+        good2 = _order(503, 999, recent, recent)
+        good2["order_items"] = [{"item": {"id": "MLA503"}, "quantity": 1, "unit_price": 10.0}]
+        mock_search = AsyncMock(return_value=_page([good1, bad, good2]))
+        monkeypatch.setattr(ml_webhook_client, "search_orders", mock_search)
+
+        real_upsert_item_row = ingestion_service._upsert_item_row
+
+        def _boom_only_for_the_bad_order(db_arg, order_id, item):
+            if order_id == 502:
+                raise SQLAlchemyErrorForTest("can't adapt type 'dict'")
+            return real_upsert_item_row(db_arg, order_id, item)
+
+        monkeypatch.setattr(ingestion_service, "_upsert_item_row", _boom_only_for_the_bad_order)
+
+        result = sweep_service.run_sweep(seller_id=999, window_days=90)
+
+        assert result.ran is True
+        assert result.error is None  # the pass itself completed successfully
+        assert result.orders_write_error == 1
+        assert result.orders_upserted == 2
+
+        assert db.query(MlOrdersOps).filter_by(order_id=501).count() == 1
+        assert db.query(MlOrdersOps).filter_by(order_id=502).count() == 0
+        assert db.query(MlOrdersOps).filter_by(order_id=503).count() == 1
+
+        quarantined = db.query(ingestion_service.MlOrdersOpsCuarentena).filter_by(order_id=502).one()
+        assert quarantined.raw_order["id"] == 502
+
+        divergence = db.query(MlOpsDivergence).filter_by(order_id=502, kind="ingest_failed").one()
+        assert divergence.state == "open"
+
+        # The cursor checkpointed -- the whole point of isolation: one bad
+        # order used to stall the checkpoint for four real days.
+        cursor = db.query(MlOpsSyncCursor).filter_by(name="sweep").one()
+        assert cursor.state == "idle"
+        assert cursor.window_to is not None
+
+    def test_once_the_defect_is_fixed_the_next_pass_recovers_it_automatically(self, db, monkeypatch):
+        """No manual intervention: the very next sweep pass retries the
+        quarantined order from its stored payload, with the bug now
+        gone, and it heals on its own."""
+        from app.services.ml_orders_ingestion import ingestion_service
+
+        now = datetime.now(timezone.utc)
+        recent = now - timedelta(days=1)
+        bad = _order(602, 999, recent, recent)
+        bad["order_items"] = [{"item": {"id": "MLA602"}, "quantity": 1, "unit_price": 10.0}]
+
+        real_upsert_item_row = ingestion_service._upsert_item_row
+
+        def _boom_only_for_the_bad_order(db_arg, order_id, item):
+            if order_id == 602:
+                raise SQLAlchemyErrorForTest("can't adapt type 'dict'")
+            return real_upsert_item_row(db_arg, order_id, item)
+
+        monkeypatch.setattr(ingestion_service, "_upsert_item_row", _boom_only_for_the_bad_order)
+        mock_search = AsyncMock(return_value=_page([bad]))
+        monkeypatch.setattr(ml_webhook_client, "search_orders", mock_search)
+        sweep_service.run_sweep(seller_id=999, window_days=90)
+        assert db.query(ingestion_service.MlOrdersOpsCuarentena).filter_by(order_id=602).count() == 1
+
+        # The defect is fixed: undo the monkeypatch, and nothing new
+        # comes from ML this pass.
+        monkeypatch.setattr(ingestion_service, "_upsert_item_row", real_upsert_item_row)
+        mock_search.return_value = _page([])
+
+        result = sweep_service.run_sweep(seller_id=999, window_days=90)
+
+        assert result.orders_quarantine_recovered == 1
+        assert db.query(ingestion_service.MlOrdersOpsCuarentena).filter_by(order_id=602).count() == 0
+        assert db.query(MlOrdersOps).filter_by(order_id=602).count() == 1
+        divergence = db.query(MlOpsDivergence).filter_by(order_id=602, kind="ingest_failed").one()
+        assert divergence.state == "resolved"
+
+
+class SQLAlchemyErrorForTest(SQLAlchemyError):
+    """Stand-in raised inside the monkeypatched write path above. Must
+    subclass `sqlalchemy.exc.SQLAlchemyError` so `upsert_order`'s except
+    clause actually catches it -- a plain `Exception` would NOT be caught
+    (deliberately: the fail-closed contract only covers write failures,
+    never arbitrary bugs)."""

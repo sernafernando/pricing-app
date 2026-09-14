@@ -70,7 +70,13 @@ from app.models.ml_orders_ops import (
     MlOrdersOps,
     MlShipmentOps,
 )
-from app.services.ml_orders_ingestion.ingestion_service import UpsertOutcome, upsert_order, upsert_shipment
+from app.services.ml_orders_ingestion.ingestion_service import (
+    QuarantineRetryResult,
+    UpsertOutcome,
+    retry_quarantined_orders,
+    upsert_order,
+    upsert_shipment,
+)
 from app.services.ml_orders_ingestion.mapper import MappingError, map_order
 from app.services.ml_payments_ingestion.ingestion_service import upsert_payment
 from app.services.ml_payments_ingestion.mapper import MappingError as PaymentMappingError
@@ -186,6 +192,14 @@ class SweepResult:
     orders_skipped_stale: int = 0
     orders_mapping_error: int = 0
     orders_out_of_window: int = 0
+    # 2026-09-14 incident (per-order write isolation + quarantine):
+    # `orders_write_error` is THIS pass's own write failures;
+    # `orders_quarantine_recovered`/`orders_quarantine_still_failed` are
+    # the automatic retry's outcome against the BACKLOG from every past
+    # pass, run once at the top of this one (see `run_sweep`).
+    orders_write_error: int = 0
+    orders_quarantine_recovered: int = 0
+    orders_quarantine_still_failed: int = 0
     windows_unenumerable: int = 0
     # Without this there is no way to see from outside whether the cost
     # backlog is draining or spending its budget every pass without moving.
@@ -823,7 +837,7 @@ def process_batch(
     block would report writes that a rollback had undone -- the same
     "metric that lies by construction" this function already guards
     against in its DISABLED branch."""
-    seen = upserted = skipped_stale = mapping_error = out_of_window = 0
+    seen = upserted = skipped_stale = mapping_error = out_of_window = write_error = 0
 
     # Map and classify first: both are pure, so they cost nothing, and they
     # decide which orders are actually going to be written. Fetching a
@@ -912,6 +926,37 @@ def process_batch(
                 skipped_stale += 1
             elif outcome == UpsertOutcome.MAPPING_ERROR:
                 mapping_error += 1
+            elif outcome == UpsertOutcome.WRITE_ERROR:
+                # Quarantined + surfaced as an `ingest_failed` divergence
+                # already inside `upsert_order` -- this counter is ONLY
+                # for this pass's own visibility (2026-09-14 incident),
+                # never the recovery path itself (see `run_sweep`'s
+                # `retry_quarantined_orders` call at the top of the pass).
+                write_error += 1
+                logger.error("sweep: write error for order_id=%s — quarantined for automatic retry", mapped.order_id)
+                # The order row was rolled back to its pre-write state (or
+                # never existed) -- syncing payments/shipment for it now
+                # would write child rows for a parent that may not be
+                # there.
+                #
+                # The automatic retry re-attempts the ORDER, and NOT its
+                # payments: `retry_quarantined_orders` makes zero HTTP
+                # calls by design, and fetching payments needs one. A
+                # recovered order therefore lands with `payments_synced_at`
+                # still NULL, which IS the existing retry gate -- the next
+                # sweep pass that sees it in its window fetches them.
+                #
+                # Until that happens the sale is NOT silent: with no
+                # payments its breakdown reports `payments_not_synced` and
+                # its `neto` is None, never a zero pretending to be money.
+                #
+                # RESIDUAL, named rather than left to be discovered: an
+                # order that stays quarantined longer than the sweep's own
+                # window will not be re-swept once recovered, so its
+                # payments would stay unfetched. Today quarantine is
+                # measured in hours; if it ever is not, that gap needs its
+                # own pass.
+                continue
             else:
                 # UpsertOutcome.DISABLED: unreachable in practice (run_sweep
                 # already checked the flag before starting), but a metric
@@ -964,6 +1009,7 @@ def process_batch(
     result.orders_skipped_stale += skipped_stale
     result.orders_mapping_error += mapping_error
     result.orders_out_of_window += out_of_window
+    result.orders_write_error += write_error
     result.payments_synced += payments_synced
 
     # Cost sync runs for every shipping_id this batch touched (not just
@@ -1141,7 +1187,6 @@ def run_sweep(seller_id: Optional[int] = None, window_days: Optional[int] = None
             return SweepResult(ran=False, error="already running")
         cursor = load_cursor(db)
         prior_window_to = tz_aware(cursor.window_to) if cursor is not None else None
-
     window_start = (prior_window_to - CURSOR_OVERLAP) if prior_window_to is not None else window_from_floor
     if window_start < window_from_floor:
         window_start = window_from_floor
@@ -1177,6 +1222,36 @@ def run_sweep(seller_id: Optional[int] = None, window_days: Optional[int] = None
     failure: Optional[BaseException] = None
 
     try:
+        # Automatic quarantine retry -- BEFORE processing anything new
+        # (2026-09-14 incident): re-attempts every previously write-failed
+        # order from its stored raw payload, zero HTTP calls. This is what
+        # heals the data on its own the day a fix ships, with nobody
+        # running anything by hand.
+        #
+        # INSIDE this `try`, and in its OWN session, on purpose. The lock is
+        # taken further up, in a block whose COMMIT lands outside every
+        # try/finally; while that block only held the lock and a SELECT its
+        # commit was trivial, but carrying up to fifty upserts, deletes and
+        # divergence inserts through it means a failed commit escapes and
+        # strands the lock -- the exact failure that cost four days of
+        # ingestion. The release is guaranteed by STRUCTURE, so this belongs
+        # inside that structure.
+        try:
+            with get_background_db() as retry_db:
+                quarantine_result = retry_quarantined_orders(retry_db)
+        except Exception:  # noqa: BLE001
+            logger.exception("sync_ml_orders_ops: quarantine retry failed; continuing with the pass")
+            quarantine_result = QuarantineRetryResult()
+        result.orders_quarantine_recovered = quarantine_result.recovered
+        result.orders_quarantine_still_failed = quarantine_result.still_failed
+        if quarantine_result.attempted:
+            logger.warning(
+                "sync_ml_orders_ops: quarantine retry — attempted=%s recovered=%s still_failed=%s",
+                quarantine_result.attempted,
+                quarantine_result.recovered,
+                quarantine_result.still_failed,
+            )
+
         for event in iter_window_events(
             int(resolved_seller_id), window_start, window_end, fetch_budget, pass_started_at
         ):

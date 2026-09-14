@@ -304,6 +304,36 @@ COST_SYNC_KIND = "unknown"
 COST_SYNC_FIELD_PREFIX = "cost_sync:"
 COST_SYNC_SENTINEL_ORDER_ID = 0
 
+# Per-order write-failure quarantine (2026-09-14 incident: a `status_detail`
+# dict payload poisoned the batch transaction and stalled ingestion for
+# four days). Distinct from `UNENUMERABLE_KIND`/`COST_SYNC_KIND`: this one
+# names a REAL order that failed to WRITE, not a give-up sentinel -- the
+# dashboard renders it as an actual order, not `order_id=0`.
+INGEST_FAILED_KIND = "ingest_failed"
+
+
+class MlOrdersOpsCuarentena(Base):
+    """One row per ML order whose write failed (`UpsertOutcome.WRITE_ERROR`
+    in `ingestion_service.upsert_order`), keyed on `order_id`.
+
+    Writer of record: `ingestion_service._quarantine_order`, called from
+    its OWN SAVEPOINT so that failing to record a failure cannot itself
+    poison the batch. `raw_order` is the untouched ML payload (persist
+    ALL the data, never trim it) so a later automatic retry
+    (`ingestion_service.retry_quarantined_orders`) can re-attempt the
+    exact write with zero HTTP calls once the code is fixed -- this is
+    what keeps a quarantined order from being lost forever.
+    """
+
+    __tablename__ = "ml_orders_ops_cuarentena"
+
+    order_id = Column(BigInteger, primary_key=True)
+    raw_order = Column(JSONB, nullable=False)
+    error = Column(Text, nullable=False)
+    intentos = Column(Integer, nullable=False, server_default="1")
+    primera_falla_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
+    ultimo_intento_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now(), onupdate=func.now())
+
 
 class MlOpsDivergence(Base):
     """One row per open divergence between ML-sourced and GBP-sourced data.
@@ -332,7 +362,7 @@ class MlOpsDivergence(Base):
         # constraint, not a comment, in the same slice that starts writing.
         CheckConstraint(
             "kind IN ('missing_in_gbp', 'missing_in_ml', 'field_mismatch', 'out_of_window_update', "
-            "'window_not_enumerable', 'unknown')",
+            "'window_not_enumerable', 'unknown', 'ingest_failed')",
             name="ck_ml_ops_divergence_kind",
         ),
         CheckConstraint(

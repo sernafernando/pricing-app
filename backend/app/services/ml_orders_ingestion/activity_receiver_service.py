@@ -82,6 +82,7 @@ from typing import Any, Dict, List, Optional
 from app.core.config import settings
 from app.core.database import get_background_db
 from app.models.ml_orders_ops import MlOpsDivergence
+from app.services.ml_orders_ingestion.ingestion_service import QuarantineRetryResult, retry_quarantined_orders
 from app.services.ml_orders_ingestion.sweep_service import (
     BATCH_SIZE,
     CURSOR_NAME as SWEEP_CURSOR_NAME,
@@ -189,6 +190,13 @@ class ActivityDrainResult:
     orders_skipped_stale: int = 0
     orders_mapping_error: int = 0
     orders_out_of_window: int = 0
+    # 2026-09-14 incident: same shape as `SweepResult`'s own fields --
+    # `orders_write_error` is THIS pass's fresh write failures,
+    # `orders_quarantine_recovered`/`orders_quarantine_still_failed` come
+    # from the automatic retry run once at the top of this pass.
+    orders_write_error: int = 0
+    orders_quarantine_recovered: int = 0
+    orders_quarantine_still_failed: int = 0
     budget_exhausted: bool = False
     error: Optional[str] = None
 
@@ -305,6 +313,35 @@ def drain_activity() -> ActivityDrainResult:
     seen_this_pass: Dict[int, bool] = {}
 
     try:
+        # Automatic quarantine retry (2026-09-14 incident): re-attempt every
+        # write-failed order from its stored raw payload before touching
+        # anything new. Zero HTTP calls -- the payload is already in hand.
+        #
+        # INSIDE this `try`, and in its OWN session, on purpose. The lock is
+        # taken in the block above, whose COMMIT lands outside every
+        # try/finally; while that block only held the lock and one SELECT
+        # its commit was trivial, but carrying up to fifty upserts, deletes
+        # and divergence inserts through it means a failed commit escapes
+        # and strands the lock for thirty minutes -- the exact failure that
+        # cost four days of ingestion. The module docstring says closing
+        # each individual path failed three times and the release is
+        # guaranteed by STRUCTURE; this belongs inside that structure.
+        try:
+            with get_background_db() as retry_db:
+                quarantine_result = retry_quarantined_orders(retry_db)
+        except Exception:  # noqa: BLE001
+            logger.exception("activity_receiver: quarantine retry failed; continuing with the pass")
+            quarantine_result = QuarantineRetryResult()
+        result.orders_quarantine_recovered = quarantine_result.recovered
+        result.orders_quarantine_still_failed = quarantine_result.still_failed
+        if quarantine_result.attempted:
+            logger.warning(
+                "activity_receiver: quarantine retry — attempted=%s recovered=%s still_failed=%s",
+                quarantine_result.attempted,
+                quarantine_result.recovered,
+                quarantine_result.still_failed,
+            )
+
         while True:
             if _pass_deadline_reached(pass_started_at):
                 logger.warning("activity_receiver: pass deadline reached before the next page fetch; stopping")
@@ -414,6 +451,7 @@ def drain_activity() -> ActivityDrainResult:
             result.orders_skipped_stale = batch_result.orders_skipped_stale
             result.orders_mapping_error = batch_result.orders_mapping_error
             result.orders_out_of_window = batch_result.orders_out_of_window
+            result.orders_write_error = batch_result.orders_write_error
 
             if page_not_attempted:
                 # The budget (or the deadline) was spent before every new

@@ -18,15 +18,24 @@ try/except around this call.
 from __future__ import annotations
 
 import logging
+from dataclasses import dataclass
 from enum import Enum
 from typing import Any, Dict, Optional
 
-from sqlalchemy import func
+from sqlalchemy import func, nullsfirst
 from sqlalchemy.dialects import postgresql, sqlite
+from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
-from app.models.ml_orders_ops import MlOrderItemOps, MlOrdersOps, MlShipmentOps
+from app.models.ml_orders_ops import (
+    INGEST_FAILED_KIND,
+    MlOpsDivergence,
+    MlOrderItemOps,
+    MlOrdersOps,
+    MlOrdersOpsCuarentena,
+    MlShipmentOps,
+)
 from app.services.ml_orders_ingestion.costeo_service import congelar
 from app.services.ml_orders_ingestion.mapper import (
     MappingError,
@@ -40,6 +49,13 @@ from app.services.ml_orders_ingestion.mode_resolution import has_no_shipping_tag
 
 logger = logging.getLogger(__name__)
 
+# Cap on how many quarantined orders `retry_quarantined_orders` re-attempts
+# in a single pass. The retry is deliberately UNBOUNDED in how long it may
+# take to drain the whole backlog (it runs again every pass), but bounded
+# per pass so a large backlog cannot turn the retry into the main job and
+# starve fresh ingestion of its own budget.
+MAX_QUARANTINE_RETRIES_PER_PASS = 50
+
 
 class UpsertOutcome(str, Enum):
     """Every outcome `upsert_order` can return. Nothing
@@ -49,6 +65,15 @@ class UpsertOutcome(str, Enum):
     OK = "ok"
     SKIPPED_STALE = "skipped_stale"
     MAPPING_ERROR = "mapping_error"
+    # Distinct from MAPPING_ERROR on purpose: mapping_error means the
+    # payload could not be UNDERSTOOD; write_error means it WAS understood
+    # and the database rejected the write anyway (2026-09-14 incident: a
+    # `status_detail` payload shaped as a dict, not a string). Readers of
+    # these counters route them to different places -- a mapping error is
+    # a resolved per-row outcome the window checkpoint may advance past
+    # (design D7 row 2), while a write error is quarantined AND raised as
+    # a visible `ingest_failed` divergence so it is never silently lost.
+    WRITE_ERROR = "write_error"
     DISABLED = "disabled"
 
 
@@ -215,6 +240,97 @@ def upsert_shipment(db: Session, payload: Dict[str, Any], mapped: Optional[Shipm
     return UpsertOutcome.OK
 
 
+def _quarantine_order(db: Session, order_id: int, raw_order: Dict[str, Any], error_message: str) -> None:
+    """Records a per-order write failure (`UpsertOutcome.WRITE_ERROR`) so
+    it is never silently lost. Runs in its OWN SAVEPOINT: recording the
+    failure must not be able to take the batch down a second time.
+
+    `raw_order` is stored untouched (persist ALL the data, never trim it)
+    so `retry_quarantined_orders` can replay the exact same write with
+    zero HTTP calls once the underlying bug is fixed. Upserted, not just
+    inserted, on `order_id`: a repeat failure of the same order (from a
+    later pass, or from `retry_quarantined_orders` itself) updates the
+    existing row's `error`/`intentos` instead of erroring on the
+    duplicate primary key.
+    """
+    try:
+        with db.begin_nested():
+            stmt = _insert_stmt(db, MlOrdersOpsCuarentena.__table__).values(
+                order_id=order_id,
+                raw_order=raw_order,
+                error=error_message,
+                intentos=1,
+                primera_falla_at=func.now(),
+                ultimo_intento_at=func.now(),
+            )
+            stmt = stmt.on_conflict_do_update(
+                index_elements=["order_id"],
+                set_={
+                    "raw_order": stmt.excluded.raw_order,
+                    "error": stmt.excluded.error,
+                    "intentos": MlOrdersOpsCuarentena.__table__.c.intentos + 1,
+                    "ultimo_intento_at": func.now(),
+                },
+            )
+            db.execute(stmt)
+    except SQLAlchemyError:
+        logger.exception("ml_orders_ops: failed to quarantine order_id=%r after a write error", order_id)
+
+
+def _open_ingest_failed_divergence(db: Session, order_id: int, error_message: str) -> None:
+    """Surfaces a quarantined order on the existing divergences dashboard
+    (`GET /ml-ventas-ops/divergences`) instead of leaving it visible only
+    in a log line nobody watches (explicit user requirement). Own
+    SAVEPOINT for the same reason as `_quarantine_order`."""
+    try:
+        with db.begin_nested():
+            existing = (
+                db.query(MlOpsDivergence)
+                .filter(
+                    MlOpsDivergence.order_id == order_id,
+                    MlOpsDivergence.kind == INGEST_FAILED_KIND,
+                    MlOpsDivergence.field.is_(None),
+                )
+                .first()
+            )
+            if existing is not None:
+                existing.ml_value = error_message
+                # Only a RESOLVED divergence reopens. If an operator marked
+                # this one `ignored` or `acknowledged`, re-opening it on
+                # every pass would empty those states of meaning -- the
+                # PATCH endpoint exists precisely so a human's decision
+                # survives the next pass.
+                if existing.state == "resolved":
+                    existing.state = "open"
+            else:
+                db.add(
+                    MlOpsDivergence(
+                        order_id=order_id,
+                        kind=INGEST_FAILED_KIND,
+                        field=None,
+                        ml_value=error_message,
+                        state="open",
+                    )
+                )
+    except SQLAlchemyError:
+        logger.exception("ml_orders_ops: failed to open an ingest_failed divergence for order_id=%r", order_id)
+
+
+def _resolve_ingest_failed_divergence(db: Session, order_id: int) -> None:
+    """Closes the alarm once a quarantined order is recovered. Marked
+    `resolved`, not deleted: deleting would erase the audit trail of what
+    failed and for how long (persist-everything principle)."""
+    (
+        db.query(MlOpsDivergence)
+        .filter(
+            MlOpsDivergence.order_id == order_id,
+            MlOpsDivergence.kind == INGEST_FAILED_KIND,
+            MlOpsDivergence.state != "resolved",
+        )
+        .update({"state": "resolved"}, synchronize_session=False)
+    )
+
+
 def upsert_order(db: Session, payload: Dict[str, Any], mapped: Optional[OrderOpsDTO] = None) -> UpsertOutcome:
     """Upserts one ML order + its items, keyed on `order_id`.
 
@@ -225,7 +341,15 @@ def upsert_order(db: Session, payload: Dict[str, Any], mapped: Optional[OrderOps
             constraint): the caller (sweep) does NOT need to treat this as
             an unresolved window failure -- it is explicitly identified,
             just like `SKIPPED_STALE`, so the window checkpoint may still
-            advance as long as every row got one of these four outcomes.
+            advance as long as every row got one of these five outcomes.
+        WRITE_ERROR     -- the payload WAS mapped, but the database
+            rejected the write (2026-09-14 incident: a `status_detail`
+            payload shaped as a dict, not a string). The write runs
+            inside its own SAVEPOINT so it cannot poison the rest of the
+            caller's batch, the failing order is quarantined with its raw
+            payload (`ml_orders_ops_cuarentena`) for automatic retry, and
+            an `ingest_failed` divergence is opened so it is visible on
+            the dashboard -- never a silent drop.
         SKIPPED_STALE   -- the payload's `ml_last_updated` is not newer
             than the stored value (identical re-ingest or an out-of-order
             older update); the stored row is left completely unchanged.
@@ -235,7 +359,8 @@ def upsert_order(db: Session, payload: Dict[str, Any], mapped: Optional[OrderOps
     which needs the DTO to apply the window bound) hand it over instead of
     paying for a second identical mapping per row.
 
-    NEVER raises for a malformed payload -- see module docstring.
+    NEVER raises for a malformed payload OR a rejected write -- see module
+    docstring.
     """
     if not settings.ML_ORDERS_OPS_ENABLED:
         return UpsertOutcome.DISABLED
@@ -247,22 +372,127 @@ def upsert_order(db: Session, payload: Dict[str, Any], mapped: Optional[OrderOps
         return UpsertOutcome.MAPPING_ERROR
 
     dto = result
-    applied = _upsert_order_row(db, dto)
-    if not applied:
+
+    stale = False
+    try:
+        with db.begin_nested():
+            applied = _upsert_order_row(db, dto)
+            if not applied:
+                # FLAGGED, not returned from inside the `with`. A `return`
+                # leaves the context manager by the no-exception path, so
+                # the SAVEPOINT is RELEASED rather than rolled back. The
+                # guarded upsert is a genuine no-op here so nothing is
+                # corrupted today, but the docstring promises the stored
+                # row is left completely unchanged, and releasing a
+                # savepoint is not how you keep that promise -- it only
+                # happens to look the same.
+                stale = True
+            else:
+                for item in dto.items:
+                    _upsert_item_row(db, dto.order_id, item)
+
+                # Cost snapshot (ml-ventas-modo-logistico, design D4/D13):
+                # freezes each item's ERP cost/IVA/exchange rate the FIRST
+                # time it is ever seen. INSERT-only -- a re-ingestion of an
+                # already-costed item never rewrites its snapshot. Runs
+                # after the item rows themselves, and never reads or writes
+                # `MlOrderItemOps` -- keeps the cost seam that model
+                # documents.
+                congelar(db, dto.order_id, dto.items)
+
+                keep_keys = {(item.item_id, item.variation_id) for item in dto.items}
+                _delete_stale_items(db, dto.order_id, keep_keys)
+
+                db.flush()
+    except SQLAlchemyError as exc:
+        # A single failed statement poisons the ENTIRE surrounding
+        # PostgreSQL transaction, not just this order's writes -- without
+        # the SAVEPOINT above, this except block would be reached only
+        # after every sibling order in the same batch was already
+        # unrecoverably rolled back too. The `begin_nested()` context
+        # manager already rolled back to the savepoint on this exception,
+        # so the surrounding transaction is healthy again here.
+        error_message = str(exc)[:2000]
+        logger.error("ml_orders_ops: write error for order_id=%r: %s", dto.order_id, error_message)
+        _quarantine_order(db, dto.order_id, payload, error_message)
+        _open_ingest_failed_divergence(db, dto.order_id, error_message)
+        return UpsertOutcome.WRITE_ERROR
+
+    if stale:
         return UpsertOutcome.SKIPPED_STALE
-
-    for item in dto.items:
-        _upsert_item_row(db, dto.order_id, item)
-
-    # Cost snapshot (ml-ventas-modo-logistico, design D4/D13): freezes each
-    # item's ERP cost/IVA/exchange rate the FIRST time it is ever seen.
-    # INSERT-only -- a re-ingestion of an already-costed item never rewrites
-    # its snapshot. Runs after the item rows themselves, and never reads or
-    # writes `MlOrderItemOps` -- keeps the cost seam that model documents.
-    congelar(db, dto.order_id, dto.items)
-
-    keep_keys = {(item.item_id, item.variation_id) for item in dto.items}
-    _delete_stale_items(db, dto.order_id, keep_keys)
-
-    db.flush()
     return UpsertOutcome.OK
+
+
+@dataclass
+class QuarantineRetryResult:
+    """Outcome of one `retry_quarantined_orders` pass."""
+
+    attempted: int = 0
+    recovered: int = 0
+    still_failed: int = 0
+
+
+def retry_quarantined_orders(db: Session, limit: int = MAX_QUARANTINE_RETRIES_PER_PASS) -> QuarantineRetryResult:
+    """Automatically re-attempts quarantined orders from their STORED raw
+    payload -- zero HTTP calls, since the payload is already in hand.
+
+    This is the recovery half of the 2026-09-14 fix: isolating a bad order
+    (`WRITE_ERROR`) only stops it from taking down the batch; without this,
+    it would still be lost forever, because the sweep and the drain both
+    converge on the same `upsert_order` that failed on it the first time,
+    so a plain re-ingest fails identically. The day a fix ships, this is
+    what makes the data heal WITHOUT anyone running anything by hand.
+
+    Bounded by `limit` per pass (see `MAX_QUARANTINE_RETRIES_PER_PASS`) so
+    a large backlog cannot turn the retry into the main job.
+    """
+    # DELIBERATELY WITHOUT the sweep's `window_from_floor`, and this is a
+    # decision, not an oversight: a quarantined order is NOT an old order
+    # discovered late. It arrived through the feed, inside the window, and
+    # we failed to write it. The floor exists so the sweep does not drag
+    # ancient history back in; applying it here would instead mean that an
+    # order we already accepted gets permanently dropped for having spent
+    # too long waiting for OUR fix -- punishing the sale for our own bug.
+    # Nothing here reaches ML either: the payload is the one already
+    # captured, so no window of API data is being reopened.
+    result = QuarantineRetryResult()
+    # By LAST attempt, not by first failure. Ordering by `primera_falla_at`
+    # puts the oldest quarantined order first on EVERY pass -- and the
+    # oldest is, by definition, the one that has been failing longest. A
+    # permanently poisoned order would therefore be retried first, forever,
+    # and with more than `limit` of them the newly quarantined orders would
+    # never get a turn at all: the queue would be blocked by exactly the
+    # rows that cannot move. Least-recently-attempted first is a natural
+    # round robin, so every order gets its turn.
+    # TUPLES, taken before the loop, not ORM instances. The loop deletes
+    # from this very table and `upsert_order` may re-UPSERT the same row
+    # through `_quarantine_order`, so a live ORM object for it would be
+    # stale from the second iteration on -- working today only by the
+    # accident of the current ordering.
+    rows = (
+        db.query(MlOrdersOpsCuarentena.order_id, MlOrdersOpsCuarentena.raw_order)
+        .order_by(nullsfirst(MlOrdersOpsCuarentena.ultimo_intento_at.asc()))
+        .limit(limit)
+        .all()
+    )
+    for order_id, raw_order in rows:
+        result.attempted += 1
+        outcome = upsert_order(db, raw_order)
+        if outcome in (UpsertOutcome.OK, UpsertOutcome.SKIPPED_STALE):
+            db.query(MlOrdersOpsCuarentena).filter(MlOrdersOpsCuarentena.order_id == order_id).delete(
+                synchronize_session=False
+            )
+            _resolve_ingest_failed_divergence(db, order_id)
+            result.recovered += 1
+        else:
+            result.still_failed += 1
+
+    if rows:
+        logger.warning(
+            "ml_orders_ops: quarantine retry — attempted=%s recovered=%s still_failed=%s (limit=%s)",
+            result.attempted,
+            result.recovered,
+            result.still_failed,
+            limit,
+        )
+    return result

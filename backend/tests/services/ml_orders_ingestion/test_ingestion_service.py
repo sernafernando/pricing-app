@@ -8,13 +8,26 @@ happens to do today.
 
 from __future__ import annotations
 
+from datetime import datetime, timezone
+
 
 import pytest
 
+from sqlalchemy.exc import SQLAlchemyError
+
 from app.core.config import settings
-from app.models.ml_orders_ops import MlOrderItemOps, MlOrdersOps, MlShipmentOps
+from app.models.ml_orders_ops import (
+    INGEST_FAILED_KIND,
+    MlOpsDivergence,
+    MlOrderItemOps,
+    MlOrdersOps,
+    MlOrdersOpsCuarentena,
+    MlShipmentOps,
+)
+from app.services.ml_orders_ingestion import ingestion_service
 from app.services.ml_orders_ingestion.ingestion_service import (
     UpsertOutcome,
+    retry_quarantined_orders,
     upsert_order,
     upsert_shipment,
 )
@@ -298,3 +311,232 @@ class TestTheNoShippingTagIsPersisted:
 
         row = db.query(MlOrdersOps).filter_by(order_id=902).one()
         assert row.has_no_shipping_tag is False
+
+
+class TestUpsertOrderWriteError:
+    """2026-09-14 incident: a `status_detail` payload shaped as a dict
+    poisoned the batch transaction and stalled ingestion for four days.
+    `WRITE_ERROR` is the isolation half of the fix -- see
+    `TestRetryQuarantinedOrders` for the recovery half."""
+
+    def test_a_db_write_failure_returns_write_error_and_writes_nothing(self, db, monkeypatch):
+        def _boom(*args, **kwargs):
+            raise SQLAlchemyError("can't adapt type 'dict'")
+
+        monkeypatch.setattr(ingestion_service, "_upsert_item_row", _boom)
+
+        outcome = upsert_order(db, _order_payload(order_id=222))
+
+        assert outcome == UpsertOutcome.WRITE_ERROR
+        assert db.query(MlOrdersOps).filter_by(order_id=222).count() == 0
+        assert db.query(MlOrderItemOps).filter_by(order_id=222).count() == 0
+
+    def test_never_raises_for_a_db_write_failure(self, db, monkeypatch):
+        def _boom(*args, **kwargs):
+            raise SQLAlchemyError("boom")
+
+        monkeypatch.setattr(ingestion_service, "_upsert_item_row", _boom)
+
+        # Must not raise -- this IS the assertion.
+        outcome = upsert_order(db, _order_payload(order_id=223))
+        assert outcome == UpsertOutcome.WRITE_ERROR
+
+    def test_write_error_quarantines_the_raw_payload(self, db, monkeypatch):
+        def _boom(*args, **kwargs):
+            raise SQLAlchemyError("can't adapt type 'dict'")
+
+        monkeypatch.setattr(ingestion_service, "_upsert_item_row", _boom)
+        payload = _order_payload(order_id=224)
+
+        upsert_order(db, payload)
+
+        row = db.query(MlOrdersOpsCuarentena).filter_by(order_id=224).one()
+        assert row.raw_order == payload
+        assert "can't adapt type 'dict'" in row.error
+        assert row.intentos == 1
+
+    def test_write_error_opens_an_ingest_failed_divergence(self, db, monkeypatch):
+        """The user's explicit requirement: a quarantined order must be
+        VISIBLE on the divergences dashboard, not just in a log line."""
+
+        def _boom(*args, **kwargs):
+            raise SQLAlchemyError("boom")
+
+        monkeypatch.setattr(ingestion_service, "_upsert_item_row", _boom)
+
+        upsert_order(db, _order_payload(order_id=225))
+
+        row = db.query(MlOpsDivergence).filter_by(order_id=225, kind=INGEST_FAILED_KIND).one()
+        assert row.state == "open"
+        assert "boom" in row.ml_value
+
+    def test_a_healthy_order_in_the_same_session_is_unaffected_by_a_prior_write_error(self, db, monkeypatch):
+        """SQLite-only guardrail (see the Postgres-marked test in
+        test_sweep_service.py for the real transaction-poisoning proof):
+        at minimum, the ORM-level state after a `WRITE_ERROR` must not
+        prevent the very next call in the same session from succeeding."""
+
+        def _boom(*args, **kwargs):
+            raise SQLAlchemyError("boom")
+
+        # The ORIGINAL is restored by name, NOT with `monkeypatch.undo()`.
+        # `undo()` reverts every patch on this monkeypatch instance, and the
+        # autouse `_flag_on` fixture above shares that instance -- so it also
+        # switched `ML_ORDERS_OPS_ENABLED` back to whatever the environment
+        # says, and `upsert_order` answered DISABLED instead of OK. It
+        # passed locally only because a developer `.env` happens to set that
+        # flag true; CI, which does not, failed.
+        original_upsert_item_row = ingestion_service._upsert_item_row
+        monkeypatch.setattr(ingestion_service, "_upsert_item_row", _boom)
+        upsert_order(db, _order_payload(order_id=226))
+
+        monkeypatch.setattr(ingestion_service, "_upsert_item_row", original_upsert_item_row)
+        outcome = upsert_order(db, _order_payload(order_id=227))
+
+        assert outcome == UpsertOutcome.OK
+        assert db.query(MlOrdersOps).filter_by(order_id=227).count() == 1
+
+
+class TestRetryQuarantinedOrders:
+    def test_recovers_an_order_once_the_defect_is_fixed(self, db):
+        payload = _order_payload(order_id=333)
+        db.add(
+            MlOrdersOpsCuarentena(
+                order_id=333,
+                raw_order=payload,
+                error="can't adapt type 'dict'",
+                intentos=1,
+            )
+        )
+        db.flush()
+
+        result = retry_quarantined_orders(db)
+
+        assert result.attempted == 1
+        assert result.recovered == 1
+        assert result.still_failed == 0
+        assert db.query(MlOrdersOps).filter_by(order_id=333).count() == 1
+        assert db.query(MlOrdersOpsCuarentena).filter_by(order_id=333).count() == 0
+
+    def test_recovering_an_order_resolves_its_ingest_failed_divergence(self, db):
+        """An alarm for a problem that fixed itself must not stay open
+        forever (explicit user requirement)."""
+        payload = _order_payload(order_id=334)
+        db.add(MlOrdersOpsCuarentena(order_id=334, raw_order=payload, error="boom", intentos=1))
+        db.add(
+            MlOpsDivergence(
+                order_id=334,
+                kind=INGEST_FAILED_KIND,
+                field=None,
+                ml_value="boom",
+                state="open",
+            )
+        )
+        db.flush()
+
+        retry_quarantined_orders(db)
+
+        row = db.query(MlOpsDivergence).filter_by(order_id=334, kind=INGEST_FAILED_KIND).one()
+        assert row.state == "resolved"
+
+    def test_an_order_that_still_fails_stays_quarantined_with_incremented_attempts(self, db, monkeypatch):
+        def _boom(*args, **kwargs):
+            raise SQLAlchemyError("still broken")
+
+        payload = _order_payload(order_id=335)
+        db.add(MlOrdersOpsCuarentena(order_id=335, raw_order=payload, error="boom", intentos=1))
+        db.flush()
+
+        monkeypatch.setattr(ingestion_service, "_upsert_item_row", _boom)
+        result = retry_quarantined_orders(db)
+
+        assert result.attempted == 1
+        assert result.recovered == 0
+        assert result.still_failed == 1
+        row = db.query(MlOrdersOpsCuarentena).filter_by(order_id=335).one()
+        assert row.intentos == 2
+        assert "still broken" in row.error
+
+    def test_zero_http_calls_are_made(self, db, monkeypatch):
+        """The whole point of storing `raw_order` is that a retry replays
+        it directly -- no re-fetch from ML."""
+        import app.services.ml_webhook_client as ml_webhook_client_module
+
+        def _fail_any_http_call(*args, **kwargs):
+            raise AssertionError("retry_quarantined_orders must not make HTTP calls")
+
+        monkeypatch.setattr(ml_webhook_client_module.ml_webhook_client, "get", _fail_any_http_call, raising=False)
+
+        payload = _order_payload(order_id=336)
+        db.add(MlOrdersOpsCuarentena(order_id=336, raw_order=payload, error="boom", intentos=1))
+        db.flush()
+
+        result = retry_quarantined_orders(db)
+        assert result.recovered == 1
+
+    def test_respects_a_per_pass_retry_limit(self, db):
+        for order_id in range(400, 410):
+            db.add(
+                MlOrdersOpsCuarentena(
+                    order_id=order_id,
+                    raw_order=_order_payload(order_id=order_id),
+                    error="boom",
+                    intentos=1,
+                )
+            )
+        db.flush()
+
+        result = retry_quarantined_orders(db, limit=3)
+
+        assert result.attempted == 3
+        assert db.query(MlOrdersOpsCuarentena).count() == 7
+
+    def test_no_quarantined_rows_is_a_cheap_noop(self, db):
+        result = retry_quarantined_orders(db)
+        assert result.attempted == 0
+        assert result.recovered == 0
+        assert result.still_failed == 0
+
+
+class TestThePoisonPillCannotBlockTheQueue:
+    """Ordering the retry by FIRST failure puts the oldest quarantined
+    order first on every pass -- and the oldest is, by definition, the one
+    that has been failing longest. A permanently poisoned order would be
+    retried first forever, and past `limit` of them the newly quarantined
+    ones would never get a turn at all: the queue blocked by exactly the
+    rows that cannot move."""
+
+    def test_the_least_recently_attempted_order_goes_first(self, db):
+        vieja = _order_payload(order_id=801)
+        nueva = _order_payload(order_id=802)
+        # `801` failed first AND was retried a moment ago; `802` failed
+        # later but has never been attempted since.
+        db.add(
+            MlOrdersOpsCuarentena(
+                order_id=801,
+                raw_order=vieja,
+                error="boom",
+                intentos=40,
+                primera_falla_at=datetime(2026, 9, 1, tzinfo=timezone.utc),
+                ultimo_intento_at=datetime(2026, 9, 14, 12, 0, tzinfo=timezone.utc),
+            )
+        )
+        db.add(
+            MlOrdersOpsCuarentena(
+                order_id=802,
+                raw_order=nueva,
+                error="boom",
+                intentos=1,
+                primera_falla_at=datetime(2026, 9, 10, tzinfo=timezone.utc),
+                ultimo_intento_at=datetime(2026, 9, 10, tzinfo=timezone.utc),
+            )
+        )
+        db.commit()
+
+        result = retry_quarantined_orders(db, limit=1)
+
+        assert result.attempted == 1
+        # 802 is the one that has waited longest for a turn, even though
+        # 801 has been in quarantine longer.
+        assert db.query(MlOrdersOps).filter_by(order_id=802).count() == 1
+        assert db.query(MlOrdersOps).filter_by(order_id=801).count() == 0

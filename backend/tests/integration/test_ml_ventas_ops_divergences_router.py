@@ -414,3 +414,79 @@ class TestCostSyncRowsAreNotRenderedAsOrderZero:
         summary = DivergenceSummary.from_row(self._row(order_id=2000018265495500, field="payments_key_missing"))
         assert summary.order_id == 2000018265495500
         assert summary.field == "payments_key_missing"
+
+
+class TestIngestFailedQuarantineCycleOnTheDashboard:
+    """End-to-end proof of the explicit user requirement (2026-09-14
+    incident): a quarantined order must be VISIBLE on the SAME dashboard
+    that already exists -- not a new surface -- and its alarm must clear
+    itself once the automatic retry recovers it."""
+
+    def test_a_quarantined_order_appears_then_clears_once_recovered(
+        self, db, client, admin_auth_headers, rol_admin, monkeypatch
+    ) -> None:
+        from sqlalchemy.exc import SQLAlchemyError
+
+        from app.services.ml_orders_ingestion import ingestion_service
+
+        _grant(db, rol_admin, "ml_ops.ver")
+
+        order_payload = {
+            "id": 7001,
+            "status": "paid",
+            "date_created": "2026-09-09T10:00:00.000-04:00",
+            "date_last_updated": "2026-09-10T10:00:00.000-04:00",
+            "seller": {"id": 999},
+            "buyer": {"id": 1, "nickname": "x"},
+            "total_amount": 100.0,
+            "paid_amount": 100.0,
+            "currency_id": "ARS",
+            "order_items": [
+                {"item": {"id": "MLA7001"}, "quantity": 1, "unit_price": 100.0},
+            ],
+        }
+
+        real_upsert_item_row = ingestion_service._upsert_item_row
+
+        def _boom(db_arg, order_id, item):
+            raise SQLAlchemyError("can't adapt type 'dict'")
+
+        monkeypatch.setattr(settings, "ML_ORDERS_OPS_ENABLED", True)
+        monkeypatch.setattr(ingestion_service, "_upsert_item_row", _boom)
+
+        outcome = ingestion_service.upsert_order(db, order_payload)
+        db.commit()
+        assert outcome.value == "write_error"
+
+        # 1) It appears on the EXISTING dashboard endpoint, filterable by
+        # its own kind.
+        resp = client.get(
+            "/api/ml-ventas-ops/divergences", params={"kind": "ingest_failed"}, headers=admin_auth_headers
+        )
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["total"] == 1
+        assert body["divergences"][0]["order_id"] == 7001
+        assert body["divergences"][0]["state"] == "open"
+
+        # 2) The defect is fixed, and the automatic retry recovers it --
+        # no manual action, no endpoint call needed for the recovery
+        # itself.
+        monkeypatch.setattr(ingestion_service, "_upsert_item_row", real_upsert_item_row)
+        result = ingestion_service.retry_quarantined_orders(db)
+        db.commit()
+        assert result.recovered == 1
+
+        # 3) The alarm is no longer open on the same dashboard.
+        resp = client.get(
+            "/api/ml-ventas-ops/divergences",
+            params={"kind": "ingest_failed", "state": "open"},
+            headers=admin_auth_headers,
+        )
+        assert resp.status_code == 200
+        assert resp.json()["total"] == 0
+
+        resp = client.get(
+            "/api/ml-ventas-ops/divergences", params={"kind": "ingest_failed"}, headers=admin_auth_headers
+        )
+        assert resp.json()["divergences"][0]["state"] == "resolved"

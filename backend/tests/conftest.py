@@ -27,7 +27,18 @@ import fakeredis
 import pytest
 import sqlalchemy as sa
 from fastapi.testclient import TestClient
-from sqlalchemy import create_engine, event, BigInteger, Integer, JSON, String
+from sqlalchemy import (
+    CheckConstraint,
+    Column,
+    MetaData,
+    Table,
+    create_engine,
+    event,
+    BigInteger,
+    Integer,
+    JSON,
+    String,
+)
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 from sqlalchemy.dialects.postgresql import JSONB, UUID as PG_UUID
@@ -497,6 +508,88 @@ def pg_payments_engine():
 def pg_payments_db(pg_payments_engine):
     """Transactional PostgreSQL session (ml_payments_ops/ml_payment_charges), rolled back after each test."""
     connection = pg_payments_engine.connect()
+    transaction = connection.begin()
+    Session = sessionmaker(bind=connection)
+    session = Session()
+    yield session
+    session.close()
+    transaction.rollback()
+    connection.close()
+
+
+@pytest.fixture(scope="session")
+def pg_orders_ops_engine():
+    """Session-scoped PostgreSQL engine with `ml_orders_ops`,
+    `ml_order_items_ops`, `ml_orders_ops_cuarentena` and
+    `ml_ops_divergence` (2026-09-14 incident, quarantine isolation).
+
+    Postgres-only, same rationale as `pg_payments_engine`: a single failed
+    statement poisons the WHOLE surrounding transaction on real Postgres
+    (`current transaction is aborted, commands ignored until end of
+    transaction block`) -- SQLite has no equivalent, so a test proving the
+    per-order SAVEPOINT actually isolates one order's write failure from
+    its siblings can only be trusted against a real Postgres connection.
+    """
+    if not _postgres_reachable():
+        pytest.skip(
+            f"PostgreSQL not reachable at {POSTGRES_TEST_URL} — set POSTGRES_TEST_URL "
+            "or start a local PostgreSQL to run @pytest.mark.postgres tests. "
+            "CI provides this via the `postgres` service in .github/workflows/ci.yml."
+        )
+
+    from app.models.ml_orders_ops import MlOpsDivergence as _MlOpsDivergence
+    from app.models.ml_orders_ops import MlOrderItemOps as _MlOrderItemOps
+    from app.models.ml_orders_ops import MlOrdersOps as _MlOrdersOps
+    from app.models.ml_orders_ops import MlOrdersOpsCuarentena as _MlOrdersOpsCuarentena
+
+    # Deliberately NOT `ProductoERP`/`PublicacionML`/`MlOrderItemCosto`
+    # (what `upsert_order`'s `congelar()` call reads): `ProductoERP` owns
+    # the `tipomoneda` PostgreSQL ENUM type, and creating/dropping it from
+    # a SECOND independent session-scoped engine races the teardown of
+    # `pg_payments_engine`'s own copy (same "two engines, same physical
+    # DB" hazard `pg_tickets_engine`'s docstring already documents) --
+    # `DROP TYPE tipomoneda` fails intermittently depending on run order.
+    # The tests using this fixture monkeypatch `congelar` to a no-op
+    # instead of standing up its whole dependency chain.
+    #
+    # `ml_ops_divergence.assigned_to_id` FKs to `usuarios`, which is ALSO
+    # created/dropped by `pg_tickets_engine` in the SAME physical DB --
+    # two independent session-scoped engines racing to drop the same
+    # shared table/enum type is exactly the `DependentObjectsStillExist`
+    # hazard that fixture's own docstring documents. Rather than share
+    # ownership of `usuarios` across fixtures, this one builds its OWN
+    # isolated `MetaData` with a `ml_ops_divergence` mirror that drops the
+    # FK entirely -- Postgres does not care which Python object issued the
+    # DDL, only that the physical columns the ORM model expects exist.
+    local_metadata = MetaData()
+    divergence_table = Table(
+        "ml_ops_divergence",
+        local_metadata,
+        *(c._copy() for c in _MlOpsDivergence.__table__.columns if c.name != "assigned_to_id"),
+        Column("assigned_to_id", Integer, nullable=True),  # no FK -- see rationale above
+    )
+    for constraint in _MlOpsDivergence.__table__.constraints:
+        if isinstance(constraint, CheckConstraint):
+            divergence_table.append_constraint(CheckConstraint(constraint.sqltext, name=constraint.name))
+
+    own_tables = [
+        _MlOrdersOps.__table__,
+        _MlOrderItemOps.__table__,
+        _MlOrdersOpsCuarentena.__table__,
+    ]
+    eng = create_engine(POSTGRES_TEST_URL)
+    Base.metadata.create_all(bind=eng, tables=own_tables)
+    local_metadata.create_all(bind=eng)
+    yield eng
+    local_metadata.drop_all(bind=eng)
+    Base.metadata.drop_all(bind=eng, tables=own_tables)
+    eng.dispose()
+
+
+@pytest.fixture()
+def pg_orders_ops_db(pg_orders_ops_engine):
+    """Transactional PostgreSQL session (ml_orders_ops + cuarentena + divergence), rolled back after each test."""
+    connection = pg_orders_ops_engine.connect()
     transaction = connection.begin()
     Session = sessionmaker(bind=connection)
     session = Session()

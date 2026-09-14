@@ -73,7 +73,8 @@ def main() -> None:
     logger.info(
         "drain_ml_activity: %s — pages=%s advanced=%s events=%s without_order_id=%s "
         "resolved=%s unresolved=%s not_attempted=%s | upserted=%s stale=%s "
-        "mapping_error=%s out_of_window=%s",
+        "mapping_error=%s out_of_window=%s write_error=%s | quarantine_recovered=%s "
+        "quarantine_still_failed=%s",
         outcome,
         result.pages_walked,
         result.pages_advanced,
@@ -86,7 +87,20 @@ def main() -> None:
         result.orders_skipped_stale,
         result.orders_mapping_error,
         result.orders_out_of_window,
+        result.orders_write_error,
+        result.orders_quarantine_recovered,
+        result.orders_quarantine_still_failed,
     )
+    if result.orders_write_error:
+        # A quarantined order does not vanish quietly -- it must GRIT its
+        # order_id, not just sum into a counter nobody reads. The order
+        # itself carries the error on `ml_orders_ops_cuarentena.error` and
+        # on the `ingest_failed` divergence dashboard row.
+        logger.error(
+            "drain_ml_activity: %s order(s) failed to WRITE this pass and were quarantined for "
+            "automatic retry — see ml_orders_ops_cuarentena / GET /ml-ventas-ops/divergences?kind=ingest_failed",
+            result.orders_write_error,
+        )
     # `resolved` only means ML answered. A pass that resolved orders and
     # wrote none of them is a broken pass wearing a healthy log line --
     # exactly how a field-name mismatch went unnoticed for a week.
@@ -98,19 +112,28 @@ def main() -> None:
     # how the next real signal gets ignored. So the alarm is what NOTHING
     # accounts for -- today that is mapping errors, and by construction it
     # also catches whatever silently drops orders next.
+    # `orders_write_error` counts as ACCOUNTED FOR. A write error is not a
+    # silent disappearance: the order sits in quarantine, it has a row in
+    # the divergences board, it logged its own error above, and the next
+    # pass retries it. Leaving it out of this subtraction made every
+    # quarantined order ALSO fire "written NOWHERE and no outcome accounts
+    # for them" -- which is false, and is precisely the routine noise the
+    # comment above warns turns a real signal into one nobody reads.
     unaccounted = result.orders_resolved - (
-        result.orders_upserted + result.orders_skipped_stale + result.orders_out_of_window
+        result.orders_upserted + result.orders_skipped_stale + result.orders_out_of_window + result.orders_write_error
     )
     if unaccounted > 0:
         logger.error(
             "drain_ml_activity: %s of %s order(s) fetched from ML were written NOWHERE and no "
-            "outcome accounts for them (upserted=%s stale=%s out_of_window=%s mapping_error=%s) — "
+            "outcome accounts for them (upserted=%s stale=%s out_of_window=%s write_error=%s "
+            "mapping_error=%s) — "
             "the drain is running but not ingesting",
             unaccounted,
             result.orders_resolved,
             result.orders_upserted,
             result.orders_skipped_stale,
             result.orders_out_of_window,
+            result.orders_write_error,
             result.orders_mapping_error,
         )
 
