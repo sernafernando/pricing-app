@@ -776,13 +776,18 @@ class TestTheQuarantineRetryCannotStrandTheRunLock:
     """
 
     def test_a_retry_whose_COMMIT_explodes_also_leaves_the_lock_released(self, db, monkeypatch):
-        """The sharper version of the test below, and the one that caught a
-        real gap: wrapping only the CALL leaves the surrounding session's
-        commit outside the guard. While that block held nothing but the
-        lock and a SELECT its commit could not realistically fail; carrying
-        up to fifty upserts, deletes and divergence inserts through it, it
-        can -- and a failed commit there strands the lock just as
-        thoroughly as an exception in the function itself."""
+        """A failing COMMIT on the retry's session must not strand the lock
+        either -- carrying up to fifty upserts, deletes and divergence
+        inserts, that commit can genuinely fail, unlike the trivial one the
+        lock block used to do.
+
+        HONEST LIMIT, stated instead of implied: this test does not by
+        itself discriminate where the retry lives. It passes whether the
+        retry sits inside the `try/finally` or outside it, because in both
+        shapes some enclosing handler ends up releasing the lock for THIS
+        scenario. What pins the placement is its sibling below, which fails
+        when the retry is moved back into the lock's own block. This one
+        covers the commit path; that one covers the structure."""
         monkeypatch.setattr(settings, "ML_ORDERS_OPS_ENABLED", True)
 
         class _ExplodingCommitSession:
