@@ -20,6 +20,7 @@ true no-op.
 from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
+from contextlib import contextmanager
 from unittest.mock import AsyncMock, Mock
 
 import pytest
@@ -773,6 +774,50 @@ class TestTheQuarantineRetryCannotStrandTheRunLock:
     `upsert_order` no longer raises on a write error, but everything around
     it still can. A failing retry must cost its own pass, never the lock.
     """
+
+    def test_a_retry_whose_COMMIT_explodes_also_leaves_the_lock_released(self, db, monkeypatch):
+        """The sharper version of the test below, and the one that caught a
+        real gap: wrapping only the CALL leaves the surrounding session's
+        commit outside the guard. While that block held nothing but the
+        lock and a SELECT its commit could not realistically fail; carrying
+        up to fifty upserts, deletes and divergence inserts through it, it
+        can -- and a failed commit there strands the lock just as
+        thoroughly as an exception in the function itself."""
+        monkeypatch.setattr(settings, "ML_ORDERS_OPS_ENABLED", True)
+
+        class _ExplodingCommitSession:
+            def __init__(self, inner):
+                self._inner = inner
+
+            def __getattr__(self, name):
+                return getattr(self._inner, name)
+
+            def commit(self):
+                raise RuntimeError("boom on commit")
+
+        real_get_db = service.get_background_db
+        calls = {"n": 0}
+
+        @contextmanager
+        def _maybe_exploding():
+            calls["n"] += 1
+            with real_get_db() as inner:
+                # Only the RETRY's own session explodes on commit; the one
+                # that takes the lock behaves normally.
+                yield _ExplodingCommitSession(inner) if calls["n"] == 2 else inner
+
+        monkeypatch.setattr(service, "get_background_db", _maybe_exploding)
+        monkeypatch.setattr(
+            ml_webhook_client,
+            "get_activity",
+            AsyncMock(return_value=_page([], has_more=False, next_cursor="c1")),
+        )
+
+        result = service.drain_activity()
+
+        assert result.ran is True
+        cursor = db.query(MlOpsSyncCursor).filter_by(name="ml_activity").one()
+        assert cursor.state != "running", "the run lock was stranded by a failing commit"
 
     def test_a_retry_that_explodes_leaves_the_lock_released(self, db, monkeypatch):
         monkeypatch.setattr(settings, "ML_ORDERS_OPS_ENABLED", True)

@@ -295,7 +295,13 @@ def _open_ingest_failed_divergence(db: Session, order_id: int, error_message: st
             )
             if existing is not None:
                 existing.ml_value = error_message
-                existing.state = "open"
+                # Only a RESOLVED divergence reopens. If an operator marked
+                # this one `ignored` or `acknowledged`, re-opening it on
+                # every pass would empty those states of meaning -- the
+                # PATCH endpoint exists precisely so a human's decision
+                # survives the next pass.
+                if existing.state == "resolved":
+                    existing.state = "open"
             else:
                 db.add(
                     MlOpsDivergence(

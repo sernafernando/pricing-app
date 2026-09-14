@@ -292,35 +292,7 @@ def drain_activity() -> ActivityDrainResult:
         cursor = load_cursor(db, cursor_name=CURSOR_NAME)
         since = cursor.activity_cursor if cursor is not None else None
 
-        # Automatic quarantine retry (2026-09-14 incident), same rationale
-        # as `run_sweep`'s own call: re-attempt every write-failed order
-        # from its stored raw payload before touching anything new, zero
-        # HTTP calls.
-        # WRAPPED, and this wrapper is the whole point: this call sits
-        # BEFORE the `try/finally` that guarantees the run lock is
-        # released. The module docstring says closing each individual path
-        # that could strand the lock failed three times, so the release is
-        # guaranteed by STRUCTURE -- and this code was added into the one
-        # gap that structure does not cover. `upsert_order` no longer
-        # raises on a write error, but everything around it still can, and
-        # a leaked lock is exactly the failure that cost four days of
-        # ingestion. A retry that fails costs its own pass, never the lock.
-        try:
-            quarantine_result = retry_quarantined_orders(db)
-        except Exception:  # noqa: BLE001
-            logger.exception("activity_receiver: quarantine retry failed; continuing with the pass")
-            quarantine_result = QuarantineRetryResult()
-        if quarantine_result.attempted:
-            logger.warning(
-                "activity_receiver: quarantine retry — attempted=%s recovered=%s still_failed=%s",
-                quarantine_result.attempted,
-                quarantine_result.recovered,
-                quarantine_result.still_failed,
-            )
-
     result = ActivityDrainResult(ran=True)
-    result.orders_quarantine_recovered = quarantine_result.recovered
-    result.orders_quarantine_still_failed = quarantine_result.still_failed
     pass_started_at = now
     complete = True
     failure: Optional[BaseException] = None
@@ -341,6 +313,35 @@ def drain_activity() -> ActivityDrainResult:
     seen_this_pass: Dict[int, bool] = {}
 
     try:
+        # Automatic quarantine retry (2026-09-14 incident): re-attempt every
+        # write-failed order from its stored raw payload before touching
+        # anything new. Zero HTTP calls -- the payload is already in hand.
+        #
+        # INSIDE this `try`, and in its OWN session, on purpose. The lock is
+        # taken in the block above, whose COMMIT lands outside every
+        # try/finally; while that block only held the lock and one SELECT
+        # its commit was trivial, but carrying up to fifty upserts, deletes
+        # and divergence inserts through it means a failed commit escapes
+        # and strands the lock for thirty minutes -- the exact failure that
+        # cost four days of ingestion. The module docstring says closing
+        # each individual path failed three times and the release is
+        # guaranteed by STRUCTURE; this belongs inside that structure.
+        try:
+            with get_background_db() as retry_db:
+                quarantine_result = retry_quarantined_orders(retry_db)
+        except Exception:  # noqa: BLE001
+            logger.exception("activity_receiver: quarantine retry failed; continuing with the pass")
+            quarantine_result = QuarantineRetryResult()
+        result.orders_quarantine_recovered = quarantine_result.recovered
+        result.orders_quarantine_still_failed = quarantine_result.still_failed
+        if quarantine_result.attempted:
+            logger.warning(
+                "activity_receiver: quarantine retry — attempted=%s recovered=%s still_failed=%s",
+                quarantine_result.attempted,
+                quarantine_result.recovered,
+                quarantine_result.still_failed,
+            )
+
         while True:
             if _pass_deadline_reached(pass_started_at):
                 logger.warning("activity_receiver: pass deadline reached before the next page fetch; stopping")

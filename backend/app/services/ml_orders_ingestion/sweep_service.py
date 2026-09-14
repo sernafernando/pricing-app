@@ -934,11 +934,28 @@ def process_batch(
                 # `retry_quarantined_orders` call at the top of the pass).
                 write_error += 1
                 logger.error("sweep: write error for order_id=%s — quarantined for automatic retry", mapped.order_id)
-                # The order row was rolled back to its pre-write state
-                # (or never existed) -- syncing payments/shipment for it
-                # now would write child rows for a parent that may not be
-                # there. The automatic retry re-attempts the whole order,
-                # payments included, once it is unquarantined.
+                # The order row was rolled back to its pre-write state (or
+                # never existed) -- syncing payments/shipment for it now
+                # would write child rows for a parent that may not be
+                # there.
+                #
+                # The automatic retry re-attempts the ORDER, and NOT its
+                # payments: `retry_quarantined_orders` makes zero HTTP
+                # calls by design, and fetching payments needs one. A
+                # recovered order therefore lands with `payments_synced_at`
+                # still NULL, which IS the existing retry gate -- the next
+                # sweep pass that sees it in its window fetches them.
+                #
+                # Until that happens the sale is NOT silent: with no
+                # payments its breakdown reports `payments_not_synced` and
+                # its `neto` is None, never a zero pretending to be money.
+                #
+                # RESIDUAL, named rather than left to be discovered: an
+                # order that stays quarantined longer than the sweep's own
+                # window will not be re-swept once recovered, so its
+                # payments would stay unfetched. Today quarantine is
+                # measured in hours; if it ever is not, that gap needs its
+                # own pass.
                 continue
             else:
                 # UpsertOutcome.DISABLED: unreachable in practice (run_sweep
@@ -1170,42 +1187,12 @@ def run_sweep(seller_id: Optional[int] = None, window_days: Optional[int] = None
             return SweepResult(ran=False, error="already running")
         cursor = load_cursor(db)
         prior_window_to = tz_aware(cursor.window_to) if cursor is not None else None
-
-        # Automatic quarantine retry -- BEFORE processing anything new
-        # (2026-09-14 incident): re-attempts every previously
-        # write-failed order from its stored raw payload, zero HTTP
-        # calls. This is what heals the data on its own the day a fix
-        # ships, with nobody running anything by hand.
-        # WRAPPED, and this wrapper is the whole point: this call sits
-        # BEFORE the `try/finally` that guarantees the run lock is
-        # released. The module docstring says closing each individual path
-        # that could strand the lock failed three times, so the release is
-        # guaranteed by STRUCTURE -- and this code was added into the one
-        # gap that structure does not cover. `upsert_order` no longer
-        # raises on a write error, but everything around it still can, and
-        # a leaked lock is exactly the failure that cost four days of
-        # ingestion. A retry that fails costs its own pass, never the lock.
-        try:
-            quarantine_result = retry_quarantined_orders(db)
-        except Exception:  # noqa: BLE001
-            logger.exception("sync_ml_orders_ops: quarantine retry failed; continuing with the pass")
-            quarantine_result = QuarantineRetryResult()
-        if quarantine_result.attempted:
-            logger.warning(
-                "sync_ml_orders_ops: quarantine retry — attempted=%s recovered=%s still_failed=%s",
-                quarantine_result.attempted,
-                quarantine_result.recovered,
-                quarantine_result.still_failed,
-            )
-
     window_start = (prior_window_to - CURSOR_OVERLAP) if prior_window_to is not None else window_from_floor
     if window_start < window_from_floor:
         window_start = window_from_floor
     window_end = now
 
     result = SweepResult(ran=True, window_from=window_start, window_to=prior_window_to)
-    result.orders_quarantine_recovered = quarantine_result.recovered
-    result.orders_quarantine_still_failed = quarantine_result.still_failed
     last_checkpoint_to = prior_window_to
     pending: List[Dict[str, Any]] = []
     # Budget for the page walk and the `get_shipment` lookups. No longer
@@ -1235,6 +1222,36 @@ def run_sweep(seller_id: Optional[int] = None, window_days: Optional[int] = None
     failure: Optional[BaseException] = None
 
     try:
+        # Automatic quarantine retry -- BEFORE processing anything new
+        # (2026-09-14 incident): re-attempts every previously write-failed
+        # order from its stored raw payload, zero HTTP calls. This is what
+        # heals the data on its own the day a fix ships, with nobody
+        # running anything by hand.
+        #
+        # INSIDE this `try`, and in its OWN session, on purpose. The lock is
+        # taken further up, in a block whose COMMIT lands outside every
+        # try/finally; while that block only held the lock and a SELECT its
+        # commit was trivial, but carrying up to fifty upserts, deletes and
+        # divergence inserts through it means a failed commit escapes and
+        # strands the lock -- the exact failure that cost four days of
+        # ingestion. The release is guaranteed by STRUCTURE, so this belongs
+        # inside that structure.
+        try:
+            with get_background_db() as retry_db:
+                quarantine_result = retry_quarantined_orders(retry_db)
+        except Exception:  # noqa: BLE001
+            logger.exception("sync_ml_orders_ops: quarantine retry failed; continuing with the pass")
+            quarantine_result = QuarantineRetryResult()
+        result.orders_quarantine_recovered = quarantine_result.recovered
+        result.orders_quarantine_still_failed = quarantine_result.still_failed
+        if quarantine_result.attempted:
+            logger.warning(
+                "sync_ml_orders_ops: quarantine retry — attempted=%s recovered=%s still_failed=%s",
+                quarantine_result.attempted,
+                quarantine_result.recovered,
+                quarantine_result.still_failed,
+            )
+
         for event in iter_window_events(
             int(resolved_seller_id), window_start, window_end, fetch_budget, pass_started_at
         ):
