@@ -40,6 +40,11 @@ const KIND_LABELS = {
   out_of_window_update: 'Actualización fuera de ventana',
   window_not_enumerable: 'Ventana no enumerable',
   unknown: 'Desconocido',
+  // A real order whose WRITE failed (2026-09-14 incident) — distinct from
+  // `missing_in_*` (a comparison mismatch): this one names an order the
+  // ingest never persisted at all, so the sale is invisible on VentasML
+  // until it is retried.
+  ingest_failed: 'Falló al ingresar',
 };
 
 const STATE_LABELS = {
@@ -272,8 +277,8 @@ export default function DivergenciasML() {
         </select>
       </div>
 
-      <div className="table-container-tesla">
-        <table className="table-tesla">
+      <div className={styles.tableCard}>
+        <table className={styles.table}>
           <thead>
             <tr>
               <th>Tipo</th>
