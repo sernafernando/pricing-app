@@ -106,7 +106,13 @@ SKIP_NO_HISTORY = "no_dated_history_row"
 # would render the sale as 100% margin, and nothing downstream could tell
 # that apart from a genuinely cheap product. `obtener_costo_item` already
 # required `> 0` for exactly this reason; the same floor applies here.
-SKIP_ZERO_COST = "history_row_has_no_price"
+SKIP_ZERO_COST = "history_row_price_is_zero"
+# DISTINCT from SKIP_NO_HISTORY on purpose: there IS a dated history row,
+# it just came without a price. "no cost for that date" and "the row is
+# there but arrived empty" get fixed in DIFFERENT places in the ERP, and
+# this breakdown is the only observable output the script has -- collapsing
+# them into one counter makes it mute the first time it is not zero.
+SKIP_NO_PRICE_IN_HISTORY = "history_row_has_no_price"
 SKIP_NO_IVA = "no_iva"
 SKIP_NO_FX = "no_fx_rate"
 SKIP_NO_PRICE = "no_price"
@@ -236,7 +242,7 @@ def _resolve_backfill_cost(
         return None
 
     if history_row.iclh_price is None:
-        result.skipped[SKIP_NO_HISTORY] += 1
+        result.skipped[SKIP_NO_PRICE_IN_HISTORY] += 1
         return None
 
     try:

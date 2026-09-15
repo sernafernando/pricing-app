@@ -330,3 +330,24 @@ class TestZeroPricedHistoryRowIsNotACost:
 
         assert db.query(MlOrderItemCosto).filter_by(order_id=1012).count() == 0
         assert result.skipped[script.SKIP_ZERO_COST] == 1
+
+    def test_a_history_row_with_a_null_price_reports_its_own_reason(self, db):
+        """`no_dated_history_row` and `history_row_has_no_price` are
+        DIFFERENT problems -- the first means the ERP has no cost for that
+        date, the second that the row exists but came empty. They get
+        fixed in different places, and the skip breakdown is the only
+        observable output this script has: collapsing them into one
+        counter makes it mute the first time it is not zero.
+        """
+        _producto(db, item_id=500)
+        _publicacion(db)
+        _history(db, item_id=500, price=None, when=date(2026, 7, 1), iclh_id=1)
+        db.add(_order(1013, datetime(2026, 7, 15, tzinfo=timezone.utc)))
+        db.add(_item(1013))
+        db.commit()
+
+        result = script.run_backfill(limit=100, dry_run=False)
+
+        assert db.query(MlOrderItemCosto).filter_by(order_id=1013).count() == 0
+        assert result.skipped[script.SKIP_NO_PRICE_IN_HISTORY] == 1
+        assert result.skipped[script.SKIP_NO_HISTORY] == 0
