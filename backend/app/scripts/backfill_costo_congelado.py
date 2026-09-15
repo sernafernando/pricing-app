@@ -124,7 +124,13 @@ SKIP_UNPARSEABLE = "unparseable_value"
 @dataclass
 class BackfillResult:
     examined: int = 0
-    filled: int = 0
+    # TWO counters, not one, because they answer different questions and a
+    # single `filled` answered neither honestly: it was incremented when an
+    # item RESOLVED, before `ON CONFLICT DO NOTHING` had a say, and it moved
+    # under `--dry-run` too. `resolved` is what we could cost; `written` is
+    # what the database actually accepted.
+    resolved: int = 0
+    written: int = 0
     skipped: Counter = None  # type: ignore[assignment]
 
     def __post_init__(self) -> None:
@@ -369,17 +375,35 @@ def run_backfill(limit: int, dry_run: bool, batch_size: int = DEFAULT_BATCH_SIZE
                         "producto_item_id": resolved["producto_item_id"],
                     }
                 )
-                result.filled += 1
+                result.resolved += 1
 
             if dry_run or not values_to_insert:
                 continue
 
-            for values in values_to_insert:
-                stmt = _insert_stmt(db, MlOrderItemCosto.__table__).values(**values)
-                stmt = stmt.on_conflict_do_nothing(
-                    index_elements=["order_id", "item_id", "variation_id"],
-                )
-                db.execute(stmt)
+            # ONE round-trip for the whole batch, not one per row. This
+            # module preaches bulk discipline in its own docstring; a
+            # row-at-a-time loop under that docstring is 70k round-trips.
+            # `.values(<list>)` is ONE multi-VALUES statement, so the
+            # RETURNING rows below come straight from that statement rather
+            # than from SQLAlchemy's insertmanyvalues batching. The
+            # executemany form (`execute(stmt, <list>)`) also counts
+            # correctly under the conflict test here -- this is the plainer
+            # of two working shapes, not a fix for a measured defect.
+            stmt = _insert_stmt(db, MlOrderItemCosto.__table__).values(values_to_insert)
+            stmt = stmt.on_conflict_do_nothing(
+                index_elements=["order_id", "item_id", "variation_id"],
+            )
+            # `RETURNING` yields one row per row the INSERT actually
+            # accepted, so `ON CONFLICT DO NOTHING` dropping a row simply
+            # does not appear here. This statement's own result, never a
+            # table-wide COUNT(*) taken before and after: the ONLY scenario
+            # that can make this differ from `len(values_to_insert)` is a
+            # concurrent writer, and under a concurrent writer a global
+            # count attributes THAT session's rows to this run. The counter
+            # written to stop lying would have lied in exactly the case it
+            # existed for.
+            inserted = db.execute(stmt.returning(MlOrderItemCosto.id))
+            result.written += len(inserted.fetchall())
             db.commit()
 
         return result
@@ -418,11 +442,12 @@ def main(argv: Optional[List[str]] = None) -> None:
     skipped_total = sum(result.skipped.values())
     logger.info(
         "backfill_costo_congelado: complete (dry_run=%s, limit=%s) -- "
-        "examined=%s filled=%s skipped_total=%s skipped_breakdown=%s",
+        "examined=%s resolved=%s written=%s skipped_total=%s skipped_breakdown=%s",
         args.dry_run,
         args.limit,
         result.examined,
-        result.filled,
+        result.resolved,
+        result.written,
         skipped_total,
         dict(result.skipped),
     )

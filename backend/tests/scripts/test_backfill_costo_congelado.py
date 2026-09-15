@@ -53,11 +53,17 @@ def _order(order_id: int, order_date: datetime, seller_id: int = 1) -> MlOrdersO
     return MlOrdersOps(order_id=order_id, seller_id=seller_id, date_created=order_date, ml_last_updated=order_date)
 
 
-def _item(order_id: int, item_id: str = "MLA1", seller_sku: str = "SKU-1", unit_price: float = 1000.0):
+def _item(
+    order_id: int,
+    item_id: str = "MLA1",
+    seller_sku: str = "SKU-1",
+    unit_price: float = 1000.0,
+    variation_id=None,
+):
     return MlOrderItemOps(
         order_id=order_id,
         item_id=item_id,
-        variation_id=None,
+        variation_id=variation_id,
         seller_sku=seller_sku,
         title="Producto de prueba",
         quantity=1,
@@ -119,7 +125,8 @@ class TestOldSaleGetsOldCost:
         row = db.query(MlOrderItemCosto).filter_by(order_id=1001, item_id="MLA1").one()
         assert row.costo_origen == Decimal("100.0")
         assert row.costo_fecha == date(2026, 7, 1)
-        assert result.filled == 1
+        assert result.resolved == 1
+        assert result.written == 1
 
 
 class TestFutureOnlyHistoryIsSkipped:
@@ -170,7 +177,8 @@ class TestAlreadyFrozenRowUntouched:
         row = db.query(MlOrderItemCosto).filter_by(order_id=1003).one()
         assert row.costo_origen == Decimal("42.0")
         assert result.examined == 0
-        assert result.filled == 0
+        assert result.resolved == 0
+        assert result.written == 0
 
 
 class TestUsdConvertsAtSaleDateRate:
@@ -304,7 +312,11 @@ class TestDryRunWritesNothing:
 
         result = script.run_backfill(limit=100, dry_run=True)
 
-        assert result.filled == 1
+        # THE distinction `filled` used to blur: the item resolved to a
+        # complete snapshot, and NOTHING was written. One counter could not
+        # say both, so it said the reassuring one.
+        assert result.resolved == 1
+        assert result.written == 0
         assert db.query(MlOrderItemCosto).filter_by(order_id=1009).count() == 0
 
 
@@ -351,3 +363,69 @@ class TestZeroPricedHistoryRowIsNotACost:
         assert db.query(MlOrderItemCosto).filter_by(order_id=1013).count() == 0
         assert result.skipped[script.SKIP_NO_PRICE_IN_HISTORY] == 1
         assert result.skipped[script.SKIP_NO_HISTORY] == 0
+
+
+class TestWrittenCountsWhatTheDatabaseAccepted:
+    def test_written_counts_only_the_row_the_insert_accepted(self, db, monkeypatch):
+        """The race the `written` counter exists for, made reproducible --
+        and made to discriminate.
+
+        Normally the candidate query already excludes items that have a
+        frozen row, so `ON CONFLICT DO NOTHING` never drops anything. It
+        drops a row only when another writer freezes the same item between
+        our candidate read and our INSERT. That window is forced here by
+        pointing the candidate query at an item that IS already frozen.
+
+        THE BATCH IS DELIBERATELY MIXED: one row conflicts, one row is new,
+        so the only correct answer is `written == 1`. An all-or-nothing
+        batch proves nothing -- `written` could be a constant 0, or count
+        the rows DROPPED, and still pass. This is what the first version of
+        this test got wrong.
+
+        A NON-NULL `variation_id` is load-bearing: SQLite does not honour
+        `postgresql_nulls_not_distinct`, so with NULL variations its unique
+        index treats the two rows as distinct and the INSERT never
+        conflicts at all -- the same dialect gap `costeo_service.congelar`
+        documents. The conflict path is only reachable with a real
+        variation id.
+        """
+        _producto(db, item_id=500)
+        _publicacion(db)
+        _publicacion(db, mla="MLA2", item_id=500)
+        _history(db, item_id=500, price=100.0, when=date(2026, 6, 1), iclh_id=1)
+
+        db.add(_order(2001, datetime(2026, 7, 15, tzinfo=timezone.utc)))
+        db.add(_item(2001, item_id="MLA1", variation_id=9001))
+        db.commit()
+
+        # First run freezes ONLY 2001 -- it is the row "the concurrent
+        # writer got in first".
+        primera = script.run_backfill(limit=100, dry_run=False)
+        assert primera.written == 1
+        assert db.query(MlOrderItemCosto).count() == 1
+
+        # 2002 arrives afterwards and has NO frozen row.
+        db.add(_order(2002, datetime(2026, 7, 15, tzinfo=timezone.utc)))
+        db.add(_item(2002, item_id="MLA2", variation_id=9002))
+        db.commit()
+
+        # Candidate query without the hole filter: BOTH come back, so the
+        # batch carries one conflicting row and one new row.
+        real = script._candidate_query
+
+        def sin_filtro_de_hueco(session):
+            return (
+                session.query(script.MlOrderItemOps, script.MlOrdersOps.date_created)
+                .join(script.MlOrdersOps, script.MlOrdersOps.order_id == script.MlOrderItemOps.order_id)
+                .order_by(script.MlOrderItemOps.order_id, script.MlOrderItemOps.id)
+            )
+
+        monkeypatch.setattr(script, "_candidate_query", sin_filtro_de_hueco)
+        result = script.run_backfill(limit=100, dry_run=False)
+        monkeypatch.setattr(script, "_candidate_query", real)
+
+        # Two resolved, ONE accepted: 2001 conflicted, 2002 went in.
+        assert result.resolved == 2
+        assert result.written == 1
+        assert db.query(MlOrderItemCosto).count() == 2
+        assert db.query(MlOrderItemCosto).filter_by(order_id=2002).count() == 1
