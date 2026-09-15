@@ -788,6 +788,14 @@ def _sync_shipment_costs(
                 continue
             sender = _extract_sender_cost(payload)
             receiver = _extract_receiver_cost(payload)
+            # Stored BEFORE the usability check, and deliberately also on
+            # the branch that gives up below: "ML answered but the costs
+            # were not settled yet" and "we never asked" are different
+            # facts, and with only the two numeric columns they looked
+            # identical. The payload is what tells them apart -- and it
+            # carries `senders[0].compensation`, where money ML pays the
+            # seller for a Flex shipment would appear.
+            row.raw_costs = payload
             # Write only what actually arrived, and seal only when BOTH
             # arrived. `costs_synced_at IS NULL` is the ONLY retry gate, so
             # stamping it here on a partial payload loses the missing cost

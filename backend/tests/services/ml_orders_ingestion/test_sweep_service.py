@@ -946,6 +946,38 @@ class TestShipmentsInFlightAreRefreshedAnyway:
         assert calls["n"] == 0
 
 
+def _shipment_costs_bonificado(gross_amount: int) -> dict:
+    """A shipment ML SUBSIDISED 100%, in the shape production actually
+    returns (captured via the ml-webhook proxy for shipments 48013630567
+    and 47961482836, both `self_service`).
+
+    Nobody pays: not the seller, not the buyer. `receiver.save` and the
+    `loyal` discount at `rate: 1` are what say ML absorbed it -- and with
+    only `sender_cost`/`receiver_cost` stored, this is indistinguishable
+    from a shipment whose costs were never fetched. `senders[0]
+    .compensation` is the field where money ML PAYS the seller would show
+    up; it reads 0 across this account today."""
+    return {
+        "gross_amount": gross_amount,
+        "receiver": {
+            "cost": 0,
+            "save": gross_amount,
+            "compensation": 0,
+            "discounts": [{"promoted_amount": gross_amount, "rate": 1, "type": "loyal"}],
+        },
+        "senders": [
+            {
+                "cost": 0,
+                "compensation": 0,
+                "compensations": [],
+                "discounts": [],
+                "save": gross_amount,
+                "charges": {"charge_flex": 0},
+            }
+        ],
+    }
+
+
 class TestShipmentCostSync:
     """ml-ventas-desglose-costos corte 4: the sweep now also fetches and
     persists `sender_cost`/`receiver_cost`, guarded ONLY by
@@ -1393,3 +1425,55 @@ class SQLAlchemyErrorForTest(SQLAlchemyError):
     clause actually catches it -- a plain `Exception` would NOT be caught
     (deliberately: the fail-closed contract only covers write failures,
     never arbitrary bugs)."""
+
+
+class TestTheWholeCostsPayloadIsKept:
+    """Keeping only `sender_cost`/`receiver_cost` collapsed two different
+    facts into the same pair of zeroes: a shipment ML subsidised 100%, and
+    one whose costs were never fetched. Production holds 3.837 Flex
+    shipments with both at zero and no way to tell which is which."""
+
+    def _run(self, db, monkeypatch, costs_payload):
+        now = datetime.now(timezone.utc)
+        recent = now - timedelta(days=1)
+        monkeypatch.setattr(
+            ml_webhook_client,
+            "search_orders",
+            AsyncMock(return_value=_page([_order(1, 999, recent, recent, shipping_id=700)])),
+        )
+        monkeypatch.setattr(
+            ml_webhook_client, "get_shipment", AsyncMock(return_value=_shipment(700, 1, status="shipped"))
+        )
+        monkeypatch.setattr(ml_webhook_client, "get_shipment_costs", AsyncMock(return_value=costs_payload))
+        sweep_service.run_sweep(seller_id=999, window_days=90)
+        return db.query(MlShipmentOps).filter_by(shipment_id=700).one()
+
+    def test_a_subsidised_shipment_is_distinguishable_from_one_never_fetched(self, db, monkeypatch) -> None:
+        row = self._run(db, monkeypatch, _shipment_costs_bonificado(6990))
+
+        assert row.sender_cost == Decimal("0")
+        assert row.receiver_cost == Decimal("0")
+        # The two numbers alone say nothing. THIS is what says ML paid it.
+        assert row.raw_costs["gross_amount"] == 6990
+        assert row.raw_costs["receiver"]["save"] == 6990
+        assert row.raw_costs["receiver"]["discounts"][0]["rate"] == 1
+
+    def test_the_compensation_field_survives_even_when_it_is_zero(self, db, monkeypatch) -> None:
+        """The whole point of keeping it: the day ML starts paying the Flex
+        bonification, it shows up here without anyone remembering to look."""
+        row = self._run(db, monkeypatch, _shipment_costs_bonificado(6990))
+
+        assert row.raw_costs["senders"][0]["compensation"] == 0
+        assert row.raw_costs["senders"][0]["compensations"] == []
+
+    def test_a_payload_with_no_usable_costs_is_still_kept(self, db, monkeypatch) -> None:
+        """The give-up branch: ML answered but the costs are not settled
+        yet. Storing nothing there is exactly what made "ML said nothing
+        usable" look like "we never asked"."""
+        row = self._run(
+            db, monkeypatch, {"receiver": {"cost": None}, "senders": [{"cost": None}], "gross_amount": 8990}
+        )
+
+        assert row.costs_synced_at is None, "an unusable payload must NOT seal the retry gate"
+        assert row.raw_costs is not None, "we asked and ML answered -- that fact has to survive"
+        assert row.raw_costs["gross_amount"] == 8990
