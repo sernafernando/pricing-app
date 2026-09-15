@@ -30,6 +30,7 @@ import pytest
 from app.core.config import settings
 from app.models.promo_refresh_pending import PromoRefreshPending
 from app.scripts import drain_promo_refresh
+from app.services.ml_webhook_client import RefreshOutcome
 
 
 @pytest.fixture(autouse=True)
@@ -93,7 +94,7 @@ class TestConcurrencyGuard:
             patch.object(drain_promo_refresh, "_try_acquire_drain_lock", return_value=True),
             patch.object(drain_promo_refresh, "get_background_db", side_effect=lambda: _fake_ctx(db)),
             patch.object(
-                drain_promo_refresh.ml_webhook_client, "refresh_item_promotions", return_value=True
+                drain_promo_refresh.ml_webhook_client, "refresh_item_promotions", return_value=RefreshOutcome(ok=True)
             ) as mock_refresh,
         ):
             drain_promo_refresh.run_drain()
@@ -127,7 +128,7 @@ class TestDrainSuccess:
             patch.object(drain_promo_refresh, "_try_acquire_drain_lock", return_value=True),
             patch.object(drain_promo_refresh, "get_background_db", side_effect=lambda: _fake_ctx(db)),
             patch.object(
-                drain_promo_refresh.ml_webhook_client, "refresh_item_promotions", return_value=True
+                drain_promo_refresh.ml_webhook_client, "refresh_item_promotions", return_value=RefreshOutcome(ok=True)
             ) as mock_refresh,
         ):
             drain_promo_refresh.run_drain()
@@ -203,7 +204,7 @@ class TestDrainIsolation:
         def fake_refresh(mla):
             if mla == "MLA_POISON":
                 raise RuntimeError("boom")
-            return True
+            return RefreshOutcome(ok=True)
 
         with (
             patch.object(drain_promo_refresh, "_try_acquire_drain_lock", return_value=True),
@@ -217,3 +218,51 @@ class TestDrainIsolation:
         poison_row = db.query(PromoRefreshPending).filter_by(mla="MLA_POISON").first()
         assert poison_row is not None
         assert poison_row.attempts == 1
+
+
+class TestAnItemThatCannotBeRefreshedIsNotRetried:
+    """A CLOSED publication is closed forever: ML answers 400 on it and no
+    number of retries changes that. Spending the drain's attempt budget on
+    one is spending it on something that cannot move, and it delays every
+    row queued behind it.
+
+    Found the hard way on 2026-09-15: `MLA2063558261` and `MLA3915360650`
+    are closed, and the failure reached this side as a bare 502 because
+    Cloudflare replaces the body of any 5xx from the origin. ml-webhook now
+    answers 409 with the reason, which survives the trip."""
+
+    def test_a_non_retryable_failure_drops_the_row_instead_of_counting_attempts(self, db):
+        due = datetime.now(UTC) - timedelta(seconds=5)
+        db.add(PromoRefreshPending(mla="MLA_CERRADO", due_at=due, attempts=0))
+        db.commit()
+
+        cerrado = RefreshOutcome(ok=False, motivo="La publicación está cerrada", reintentable=False)
+        with (
+            patch.object(drain_promo_refresh, "_try_acquire_drain_lock", return_value=True),
+            patch.object(drain_promo_refresh, "get_background_db", side_effect=lambda: _fake_ctx(db)),
+            patch.object(drain_promo_refresh.ml_webhook_client, "refresh_item_promotions", return_value=cerrado),
+        ):
+            drain_promo_refresh.run_drain()
+
+        db.commit()
+        assert db.query(PromoRefreshPending).filter_by(mla="MLA_CERRADO").first() is None
+
+    def test_a_retryable_failure_still_counts_an_attempt(self, db):
+        """The contrast that gives the test above its meaning: a 502 is the
+        proxy or ML failing, not the item, and that IS worth retrying."""
+        due = datetime.now(UTC) - timedelta(seconds=5)
+        db.add(PromoRefreshPending(mla="MLA_CAIDO", due_at=due, attempts=0))
+        db.commit()
+
+        caido = RefreshOutcome(ok=False, motivo="MercadoLibre respondió 502", reintentable=True)
+        with (
+            patch.object(drain_promo_refresh, "_try_acquire_drain_lock", return_value=True),
+            patch.object(drain_promo_refresh, "get_background_db", side_effect=lambda: _fake_ctx(db)),
+            patch.object(drain_promo_refresh.ml_webhook_client, "refresh_item_promotions", return_value=caido),
+        ):
+            drain_promo_refresh.run_drain()
+
+        db.commit()
+        row = db.query(PromoRefreshPending).filter_by(mla="MLA_CAIDO").first()
+        assert row is not None
+        assert row.attempts == 1

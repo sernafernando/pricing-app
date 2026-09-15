@@ -194,6 +194,11 @@ class RefreshResult(BaseModel):
     el panel) sigue siendo la fuente de verdad."""
 
     ok: bool
+    # WHY it failed, in words the operator can act on. `None` on success.
+    # Without it the panel could only say "no se pudo", which is true and
+    # useless: a proxy 502, an expired token and a timeout all looked the
+    # same on screen while the real reason sat in a server log.
+    motivo: Optional[str] = None
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -511,8 +516,8 @@ def refrescar_promociones_item(
 
     Requiere permiso: promos.escribir (mismo permiso que enroll/remove).
     """
-    ok = resolve_maybe_async(ml_webhook_client.refresh_item_promotions(mla_id))
-    return RefreshResult(ok=ok)
+    outcome = resolve_maybe_async(ml_webhook_client.refresh_item_promotions(mla_id))
+    return RefreshResult(ok=outcome.ok, motivo=outcome.motivo)
 
 
 # ── Write endpoints (PR2) ────────────────────────────────────────
