@@ -213,6 +213,23 @@ class MlShipmentOps(Base):
     receiver_cost = Column(Numeric(14, 2), nullable=True)
     costs_synced_at = Column(DateTime(timezone=True), nullable=True)
 
+    # The WHOLE `/shipments/<id>/costs` response, verbatim -- same
+    # discipline as `raw_shipment` and `raw_order`.
+    #
+    # Keeping only `sender_cost`/`receiver_cost` made two completely
+    # different situations indistinguishable: a shipment ML SUBSIDISED
+    # 100% (both costs legitimately 0) and one whose costs were never
+    # fetched. Production holds 3.837 Flex shipments with both at zero and
+    # no way to tell which is which from our own tables.
+    #
+    # The payload carries what separates them -- `gross_amount`,
+    # `receiver.save`, `receiver.discounts[]` -- plus
+    # `senders[0].compensation`, which is where money ML PAYS the seller
+    # for a Flex shipment would appear. That field reads 0 across this
+    # account today; the point of storing it is that the day it stops
+    # being 0, nobody has to remember to go looking.
+    raw_costs = Column(JSONB, nullable=True)
+
 
 class MlOperationLink(Base):
     """Link from a claim/question/message to its ML order.
