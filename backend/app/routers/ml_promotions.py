@@ -509,10 +509,14 @@ def refrescar_promociones_item(
     quedó aplicada — el estado sigue derivándose del espejo (ya
     refrescado) en `GET /promociones/item/{mla_id}`.
 
-    FAIL-SOFT: `refresh_item_promotions` nunca lanza excepción (devuelve
-    False ante proxy caído, 404 de ruta ausente, timeout o cualquier otro
-    error) — ese caso se refleja como `{ok: false}` con HTTP 200, nunca
+    FAIL-SOFT: `refresh_item_promotions` nunca lanza excepción — un proxy
+    caído, un 4xx por la condición del ítem, un timeout o cualquier otro
+    error se reflejan como `{ok: false, motivo: "..."}` con HTTP 200, nunca
     un 500.
+
+    `motivo` es el POR QUÉ, en castellano y listo para mostrar. Sin él la
+    pantalla sólo podía decir "no se pudo actualizar", y una publicación
+    cerrada se leía igual que un proxy caído o un token vencido.
 
     Requiere permiso: promos.escribir (mismo permiso que enroll/remove).
     """

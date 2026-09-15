@@ -67,6 +67,9 @@ def _motivo_desde_el_cuerpo(exc: httpx.HTTPStatusError) -> Optional[str]:
 
 
 # ML's own wording for the conditions an operator can actually recognise.
+# ORDER MATTERS: the first needle found wins, and ML's real message --
+# "Item status is not allowed (closed)" -- contains BOTH `not_allowed` and
+# `closed`. `closed` is the actual cause and must be matched first.
 _MOTIVOS_CONOCIDOS = (
     ("closed", "La publicación está cerrada"),
     ("not_allowed", "MercadoLibre no permite promociones en esta publicación"),
@@ -94,11 +97,19 @@ def _motivo_para_operador(exc: BaseException) -> str:
                     return legible
             return razon
         return f"MercadoLibre respondió {exc.response.status_code}"
-    if isinstance(exc, (httpx.ConnectTimeout, httpx.ReadTimeout, httpx.PoolTimeout)):
+    # The PARENT class, not three of its four children: `WriteTimeout` is
+    # also a `TimeoutException`, and leaving it out sent a timeout to the
+    # screen as "no se pudo conectar". A list of siblings is a list that
+    # drifts out of sync.
+    if isinstance(exc, httpx.TimeoutException):
         return "Se agotó el tiempo de espera"
     if isinstance(exc, httpx.HTTPError):
         return "No se pudo conectar con MercadoLibre"
-    return type(exc).__name__
+    # NOT `type(exc).__name__`. A class name is gold in the log -- where
+    # `_describe_exc` already puts it -- and noise on screen: an operator
+    # reading "RuntimeError" cannot tell it from a bug in the page. Shipping
+    # that would have been this very PR committing the sin it exists to fix.
+    return "Error inesperado al consultar MercadoLibre"
 
 
 def _describe_exc(exc: BaseException) -> str:
@@ -979,10 +990,16 @@ class MLWebhookClient:
             mla_id: The item ID (e.g. MLA2361127120).
 
         Returns:
-            True on 2xx, False on any error (404 route-absent, other
-            4xx/5xx, timeout, or any other exception) — mirrors the read
-            methods' error-swallowing shape, NEVER raises. A route-absent
-            404 degrades gracefully back to the existing backfill cadence.
+            A `RefreshOutcome`, never a bool and never an exception:
+              - `ok`: True on 2xx.
+              - `motivo`: WHY it failed, in Spanish, ready to show. Taken
+                from the proxy's own `reason` when it reaches us, which is
+                only on a 4xx -- Cloudflare replaces the body of any 5xx
+                from the origin with its own page.
+              - `reintentable`: False for a 4xx, because that is the ITEM's
+                condition (a closed publication stays closed) and retrying
+                spends the caller's budget on something that cannot change.
+                True for everything else.
         """
         try:
             async with httpx.AsyncClient(timeout=10.0) as client:

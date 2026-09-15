@@ -22,7 +22,7 @@ import asyncio
 import httpx
 import pytest
 
-from app.services.ml_webhook_client import MLWebhookClient
+from app.services.ml_webhook_client import MLWebhookClient, _motivo_para_operador
 
 
 def _mock_transport(handler):
@@ -302,6 +302,23 @@ class TestRefreshItemPromotions:
         assert result.motivo == "Se agotó el tiempo de espera"
         assert result.reintentable is True
 
+    @pytest.mark.parametrize(
+        "flavour",
+        [httpx.ConnectTimeout, httpx.ReadTimeout, httpx.WriteTimeout, httpx.PoolTimeout],
+    )
+    def test_EVERY_timeout_flavour_says_timeout(self, flavour) -> None:
+        """Exercises the mapping DIRECTLY, not through the mock transport:
+        httpx converts a timeout raised inside a transport before our
+        handler ever sees it, so routing it through the client would have
+        proved nothing -- the first version of this test passed with the
+        bug still in place.
+
+        `WriteTimeout` is a `TimeoutException` too, and an earlier version
+        enumerated only three of the four siblings, so a write timeout
+        reached the operator as "no se pudo conectar". Matching the parent
+        class is what stops this drifting as httpx grows."""
+        assert _motivo_para_operador(flavour("boom")) == "Se agotó el tiempo de espera"
+
     def test_an_unexpected_error_never_raises(self, monkeypatch: pytest.MonkeyPatch) -> None:
         def handler(request: httpx.Request) -> httpx.Response:
             raise RuntimeError("unexpected")
@@ -311,7 +328,8 @@ class TestRefreshItemPromotions:
         result = asyncio.run(MLWebhookClient().refresh_item_promotions("MLA123456789"))
 
         assert result.ok is False
-        assert result.motivo == "RuntimeError"
+        # A class name belongs in the LOG, never on the operator's screen.
+        assert result.motivo == "Error inesperado al consultar MercadoLibre"
 
 
 class TestRemoveItemOfferId:
