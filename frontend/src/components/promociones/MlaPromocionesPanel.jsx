@@ -107,13 +107,15 @@ function MlaPromocionesPanel({ mla, promosCacheRef, pullOnOpen = true }) {
   const fetchFreshThenRead = useCallback(
     (id) =>
       Promise.resolve(promocionesAPI.refreshItemPromociones(id))
-        .then((r) => r?.data?.ok === true)
+        .then((r) => ({ ok: r?.data?.ok === true, motivo: r?.data?.motivo || null }))
         // A failed refresh degrades to the stored mirror rather than blanking
         // the panel: stale data on a working screen beats an error and
         // nothing. The mirror is still whatever the server last confirmed.
-        .catch(() => false)
-        .then((refreshed) =>
-          promocionesAPI.getPromocionesItem(id).then((r) => ({ ...r.data, refreshFailed: !refreshed })),
+        .catch(() => ({ ok: false, motivo: null }))
+        .then((refresh) =>
+          promocionesAPI
+            .getPromocionesItem(id)
+            .then((r) => ({ ...r.data, refreshFailed: !refresh.ok, refreshMotivo: refresh.motivo })),
         ),
     [],
   );
@@ -183,9 +185,15 @@ function MlaPromocionesPanel({ mla, promosCacheRef, pullOnOpen = true }) {
 
   // Only the pull path sets this, so a plain mirror read (read-only user, or a
   // parent that asked not to pull) never claims a failure it did not have.
+  // The REASON, when the backend could name one. "No se pudo actualizar"
+  // alone is true and useless: a closed publication, an expired token and a
+  // proxy outage all read the same, while the real cause sat in a server
+  // log. Finding one real case that way took about an hour.
   const staleNotice = data?.refreshFailed ? (
     <div className={styles.staleNotice}>
-      No se pudo actualizar desde MercadoLibre — mostrando el último estado conocido.
+      {data.refreshMotivo
+        ? `No se pudo actualizar desde MercadoLibre: ${data.refreshMotivo}. Mostrando el último estado conocido.`
+        : 'No se pudo actualizar desde MercadoLibre — mostrando el último estado conocido.'}
     </div>
   ) : null;
 

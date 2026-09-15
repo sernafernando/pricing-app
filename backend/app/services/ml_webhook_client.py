@@ -1,6 +1,7 @@
 import asyncio
 import re
 import httpx
+from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Dict, Optional, List, Union
 import logging
@@ -19,6 +20,109 @@ def _ml_datetime(value: datetime) -> str:
     the live API: the offset form is rejected, the `Z` form is accepted.
     """
     return value.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.") + f"{value.microsecond // 1000:03d}Z"
+
+
+@dataclass(frozen=True)
+class RefreshOutcome:
+    """The result of a promo refresh, WITH the reason when it failed.
+
+    It used to be a bare `bool`. The panel turned that into "No se pudo
+    actualizar desde MercadoLibre" and the reason stayed in the server log
+    -- so an operator seeing the notice had no way to tell a proxy 502 from
+    an expired token from a timeout, and neither did anyone helping them.
+    Finding one real 502 this way took about an hour of narrowing down
+    infrastructure that turned out to be healthy.
+
+    `motivo` is UI copy, in Spanish, because it is shown to the operator.
+    """
+
+    ok: bool
+    motivo: Optional[str] = None
+    # Whether retrying could ever help. A CLOSED item is closed forever, so
+    # a caller that retries it is burning calls on something that cannot
+    # change; a proxy 502 or a timeout is worth another go. Collapsing the
+    # two is how a drain ends up retrying dead items indefinitely.
+    reintentable: bool = True
+
+
+def _motivo_desde_el_cuerpo(exc: httpx.HTTPStatusError) -> Optional[str]:
+    """The proxy's own explanation, when it reaches us.
+
+    ml-webhook answers a per-item failure with `{"reason": "...",
+    "ml_status": 400}`. That body only ARRIVES on a 4xx: Cloudflare
+    replaces the body of any 5xx from the origin with its own error page,
+    so an explanation shipped inside a 502 is lost in transit. That is not
+    a detail -- it is why a 400 from ML reading a closed item reached this
+    side as a bare "502" and cost an hour of narrowing down healthy
+    infrastructure.
+    """
+    try:
+        cuerpo = exc.response.json()
+    except Exception:  # noqa: BLE001 -- a non-JSON body is simply no reason
+        return None
+    if not isinstance(cuerpo, dict):
+        return None
+    razon = cuerpo.get("reason")
+    return str(razon) if razon else None
+
+
+# The ONLY statuses that mean "this item, permanently". Everything else in
+# the 4xx range is transient in disguise and MUST be retried:
+#   429  the ML throttle, shared with sales-webhook processing -- the single
+#        most retryable thing there is
+#   401/403  an expired token: fixable, and the queue must survive it
+#   404  a route the proxy has not deployed yet -- the old contract said
+#        this "degrades gracefully back to the existing backfill cadence"
+#
+# Classifying the whole 4xx range as permanent looked reasonable and would
+# have emptied the pending queue on the first pass of a half-finished
+# deploy: a hundred rows deleted, nothing refreshed, one warning in a log.
+_ESTADOS_NO_REINTENTABLES = frozenset({400, 409, 422})
+
+# ML's own wording for the conditions an operator can actually recognise.
+# ORDER MATTERS: the first needle found wins, and ML's real message --
+# "Item status is not allowed (closed)" -- contains BOTH `not_allowed` and
+# `closed`. `closed` is the actual cause and must be matched first.
+_MOTIVOS_CONOCIDOS = (
+    ("closed", "La publicación está cerrada"),
+    ("not_allowed", "MercadoLibre no permite promociones en esta publicación"),
+    ("not_found", "MercadoLibre no encuentra esta publicación"),
+)
+
+
+def _motivo_para_operador(exc: BaseException) -> str:
+    """The failure, said in a way the person reading the screen can act on.
+
+    An HTTP status from the proxy is named as such: a 502 is the proxy
+    failing on ITS side, and telling the operator that is the difference
+    between "retry later" and "call someone". Anything else falls back to
+    the exception class, which at least distinguishes a timeout from a
+    refusal -- never a bare "no se pudo".
+    """
+    if isinstance(exc, httpx.HTTPStatusError):
+        razon = _motivo_desde_el_cuerpo(exc)
+        if razon:
+            # Translated when we recognise it, passed through verbatim when
+            # we do not -- a reason we cannot name is still worth more on
+            # screen than the status code alone.
+            for aguja, legible in _MOTIVOS_CONOCIDOS:
+                if aguja in razon.lower():
+                    return legible
+            return razon
+        return f"MercadoLibre respondió {exc.response.status_code}"
+    # The PARENT class, not three of its four children: `WriteTimeout` is
+    # also a `TimeoutException`, and leaving it out sent a timeout to the
+    # screen as "no se pudo conectar". A list of siblings is a list that
+    # drifts out of sync.
+    if isinstance(exc, httpx.TimeoutException):
+        return "Se agotó el tiempo de espera"
+    if isinstance(exc, httpx.HTTPError):
+        return "No se pudo conectar con MercadoLibre"
+    # NOT `type(exc).__name__`. A class name is gold in the log -- where
+    # `_describe_exc` already puts it -- and noise on screen: an operator
+    # reading "RuntimeError" cannot tell it from a bug in the page. Shipping
+    # that would have been this very PR committing the sin it exists to fix.
+    return "Error inesperado al consultar MercadoLibre"
 
 
 def _describe_exc(exc: BaseException) -> str:
@@ -889,7 +993,7 @@ class MLWebhookClient:
             logger.error(f"Error obteniendo promociones del item {mla_id}: {_describe_exc(e)}")
             return None
 
-    async def refresh_item_promotions(self, mla_id: str) -> bool:
+    async def refresh_item_promotions(self, mla_id: str) -> "RefreshOutcome":
         """Triggers a server-side point-refresh of the ml-webhook mirror
         for a single item, right after our own enroll/remove write, so
         dependent consumers (panel/L1 badges, list filters, price sync)
@@ -899,19 +1003,31 @@ class MLWebhookClient:
             mla_id: The item ID (e.g. MLA2361127120).
 
         Returns:
-            True on 2xx, False on any error (404 route-absent, other
-            4xx/5xx, timeout, or any other exception) — mirrors the read
-            methods' error-swallowing shape, NEVER raises. A route-absent
-            404 degrades gracefully back to the existing backfill cadence.
+            A `RefreshOutcome`, never a bool and never an exception:
+              - `ok`: True on 2xx.
+              - `motivo`: WHY it failed, in Spanish, ready to show. Taken
+                from the proxy's own `reason` when it reaches us, which is
+                only on a 4xx -- Cloudflare replaces the body of any 5xx
+                from the origin with its own page.
+              - `reintentable`: False ONLY for the statuses that mean "this
+                item, permanently" (see `_ESTADOS_NO_REINTENTABLES`). A 429,
+                a 401 or a route-absent 404 are all 4xx and all worth
+                retrying -- treating the whole range as permanent would
+                empty a pending queue on a half-finished deploy.
         """
         try:
             async with httpx.AsyncClient(timeout=10.0) as client:
                 response = await client.post(f"{self.base_url}/api/promociones/item/{mla_id}/refresh")
                 response.raise_for_status()
-                return True
+                return RefreshOutcome(ok=True)
         except Exception as e:
             logger.error(f"Error refrescando promociones del item {mla_id}: {_describe_exc(e)}")
-            return False
+            # By EXPLICIT status, never by range -- see
+            # `_ESTADOS_NO_REINTENTABLES` for why the range was wrong.
+            reintentable = not (
+                isinstance(e, httpx.HTTPStatusError) and e.response.status_code in _ESTADOS_NO_REINTENTABLES
+            )
+            return RefreshOutcome(ok=False, motivo=_motivo_para_operador(e), reintentable=reintentable)
 
     # ── PxQ (wholesale price-by-quantity, PR3) ───────────────────────
     # Mirrors the promotions read/write shapes above: reads collapse errors

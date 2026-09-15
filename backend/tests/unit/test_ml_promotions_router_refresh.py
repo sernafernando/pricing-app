@@ -24,6 +24,7 @@ from fastapi.testclient import TestClient
 from app.api.deps import get_current_user
 from app.core.database import get_db
 from app.main import app
+from app.services.ml_webhook_client import RefreshOutcome
 from app.models.usuario import Usuario
 
 
@@ -74,7 +75,7 @@ class TestRefreshEndpoint:
                 patch("app.routers.ml_promotions.PermisosService", return_value=fake_service),
                 patch(
                     "app.routers.ml_promotions.ml_webhook_client.refresh_item_promotions",
-                    return_value=True,
+                    return_value=RefreshOutcome(ok=True),
                 ),
             ):
                 response = client.post("/api/promociones/item/MLA123456789/refresh")
@@ -82,7 +83,7 @@ class TestRefreshEndpoint:
             _clear_overrides()
 
         assert response.status_code == 200
-        assert response.json() == {"ok": True}
+        assert response.json() == {"ok": True, "motivo": None}
 
     def test_proxy_failure_returns_200_ok_false(self, client: TestClient) -> None:
         """refresh_item_promotions never raises — it returns False on any
@@ -94,7 +95,7 @@ class TestRefreshEndpoint:
                 patch("app.routers.ml_promotions.PermisosService", return_value=fake_service),
                 patch(
                     "app.routers.ml_promotions.ml_webhook_client.refresh_item_promotions",
-                    return_value=False,
+                    return_value=RefreshOutcome(ok=False, motivo="La publicación está cerrada"),
                 ),
             ):
                 response = client.post("/api/promociones/item/MLA123456789/refresh")
@@ -102,7 +103,10 @@ class TestRefreshEndpoint:
             _clear_overrides()
 
         assert response.status_code == 200
-        assert response.json() == {"ok": False}
+        # The REASON travels with the failure. Without it the panel could
+        # only say "no se pudo", which is exactly how a closed publication
+        # looked identical to a proxy outage on screen.
+        assert response.json() == {"ok": False, "motivo": "La publicación está cerrada"}
 
     def test_missing_permission_returns_403(self, client: TestClient) -> None:
         fake_service = _override_auth(allowed_permiso=False)

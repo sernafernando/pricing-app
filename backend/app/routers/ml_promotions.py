@@ -194,6 +194,11 @@ class RefreshResult(BaseModel):
     el panel) sigue siendo la fuente de verdad."""
 
     ok: bool
+    # WHY it failed, in words the operator can act on. `None` on success.
+    # Without it the panel could only say "no se pudo", which is true and
+    # useless: a proxy 502, an expired token and a timeout all looked the
+    # same on screen while the real reason sat in a server log.
+    motivo: Optional[str] = None
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -504,15 +509,19 @@ def refrescar_promociones_item(
     quedó aplicada — el estado sigue derivándose del espejo (ya
     refrescado) en `GET /promociones/item/{mla_id}`.
 
-    FAIL-SOFT: `refresh_item_promotions` nunca lanza excepción (devuelve
-    False ante proxy caído, 404 de ruta ausente, timeout o cualquier otro
-    error) — ese caso se refleja como `{ok: false}` con HTTP 200, nunca
+    FAIL-SOFT: `refresh_item_promotions` nunca lanza excepción — un proxy
+    caído, un 4xx por la condición del ítem, un timeout o cualquier otro
+    error se reflejan como `{ok: false, motivo: "..."}` con HTTP 200, nunca
     un 500.
+
+    `motivo` es el POR QUÉ, en castellano y listo para mostrar. Sin él la
+    pantalla sólo podía decir "no se pudo actualizar", y una publicación
+    cerrada se leía igual que un proxy caído o un token vencido.
 
     Requiere permiso: promos.escribir (mismo permiso que enroll/remove).
     """
-    ok = resolve_maybe_async(ml_webhook_client.refresh_item_promotions(mla_id))
-    return RefreshResult(ok=ok)
+    outcome = resolve_maybe_async(ml_webhook_client.refresh_item_promotions(mla_id))
+    return RefreshResult(ok=outcome.ok, motivo=outcome.motivo)
 
 
 # ── Write endpoints (PR2) ────────────────────────────────────────

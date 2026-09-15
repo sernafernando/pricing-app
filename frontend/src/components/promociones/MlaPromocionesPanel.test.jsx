@@ -1078,3 +1078,46 @@ describe('MlaPromocionesPanel — says so when the pull did not succeed', () => 
     expect(screen.queryByText(/no se pudo actualizar desde mercadolibre/i)).not.toBeInTheDocument();
   });
 });
+
+describe('the stale notice says WHY, not just that it failed', () => {
+  // This notice had no test at all, which is how it spent months saying
+  // nothing useful. On 2026-09-15 a closed publication made the refresh
+  // fail; the screen said "no se pudo actualizar" and the real reason --
+  // ML answering 400 "Item status is not allowed (closed)" -- lived only in
+  // a server log. Narrowing it down took about an hour of eliminating
+  // infrastructure that was healthy all along.
+  beforeEach(() => {
+    vi.clearAllMocks();
+    usePromoFilterStore.setState({ selectedTypes: [], selectedNames: {} });
+    promocionesAPI.getPromocionesItem.mockResolvedValue({ data: { mla: 'MLA001', promotions: [] } });
+  });
+
+  it('shows the reason the backend named', async () => {
+    promocionesAPI.refreshItemPromociones.mockResolvedValue({
+      data: { ok: false, motivo: 'La publicación está cerrada' },
+    });
+
+    renderPanel();
+
+    expect(await screen.findByText(/La publicación está cerrada/)).toBeInTheDocument();
+  });
+
+  it('falls back to the generic message when there is no reason', async () => {
+    // A rejection never reaches the body, so there is nothing to name --
+    // the generic wording is honest there, and only there.
+    promocionesAPI.refreshItemPromociones.mockRejectedValue(new Error('network down'));
+
+    renderPanel();
+
+    expect(await screen.findByText(/No se pudo actualizar desde MercadoLibre/)).toBeInTheDocument();
+  });
+
+  it('says nothing at all when the refresh worked', async () => {
+    promocionesAPI.refreshItemPromociones.mockResolvedValue({ data: { ok: true, motivo: null } });
+
+    renderPanel();
+
+    await screen.findByText(/Sin promociones habilitadas/);
+    expect(screen.queryByText(/No se pudo actualizar/)).not.toBeInTheDocument();
+  });
+});

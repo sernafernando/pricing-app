@@ -101,8 +101,11 @@ def _drain_one(mla: str) -> None:
     """Refreshes a single mla in its own short-lived session, mirroring
     `sync_promo_prices._recompute_item_with_retries`'s per-item isolation.
     Never raises: any error here must not abort the batch."""
+    reintentable = True
+    motivo = None
     try:
-        ok = _resolve(ml_webhook_client.refresh_item_promotions(mla))
+        outcome = _resolve(ml_webhook_client.refresh_item_promotions(mla))
+        ok, reintentable, motivo = outcome.ok, outcome.reintentable, outcome.motivo
     except Exception:
         logger.warning("drain_promo_refresh: refresh_item_promotions raised for mla=%s", mla, exc_info=True)
         ok = False
@@ -113,6 +116,17 @@ def _drain_one(mla: str) -> None:
             return
 
         if ok:
+            db.delete(row)
+            db.commit()
+            return
+
+        if not reintentable:
+            # The ITEM's own condition -- closed, or one ML will not accept
+            # promotions for. Spending the retry budget on it is spending it
+            # on something that cannot change, and it delays every row
+            # behind it. Dropped with the reason named, not quarantined
+            # after N pointless attempts.
+            logger.warning("drain_promo_refresh: mla=%s dropped, not retryable — %s", mla, motivo)
             db.delete(row)
             db.commit()
             return

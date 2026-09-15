@@ -22,7 +22,7 @@ import asyncio
 import httpx
 import pytest
 
-from app.services.ml_webhook_client import MLWebhookClient
+from app.services.ml_webhook_client import MLWebhookClient, _motivo_para_operador
 
 
 def _mock_transport(handler):
@@ -228,57 +228,149 @@ class TestRefreshItemPromotions:
         client = MLWebhookClient()
 
         result = asyncio.run(client.refresh_item_promotions("MLA123456789"))
-        assert result is True
+        assert result.ok is True
+        assert result.motivo is None
 
-    def test_404_returns_false(self, monkeypatch: pytest.MonkeyPatch) -> None:
+    def test_a_4xx_carries_the_proxy_reason_and_is_NOT_retryable(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """The real case, captured from production: ML answers 400 on a
+        CLOSED item, ml-webhook relays it as 409 with the reason in the
+        body. That body only arrives on a 4xx -- Cloudflare replaces the
+        body of any 5xx from the origin with its own page, which is why
+        this exact failure reached us as a bare "502" and cost an hour of
+        eliminating healthy infrastructure.
+
+        Not retryable: a closed item stays closed, and spending the drain's
+        retry budget on it delays every row behind it."""
+
         def handler(request: httpx.Request) -> httpx.Response:
-            return httpx.Response(404, json={"message": "not found"})
+            return httpx.Response(
+                409,
+                json={
+                    "mla": "MLA123456789",
+                    "refreshed": False,
+                    "reason": "Item status is not allowed (closed)",
+                    "ml_status": 400,
+                },
+            )
 
         _patch_client(monkeypatch, _mock_transport(handler))
-        client = MLWebhookClient()
 
-        result = asyncio.run(client.refresh_item_promotions("MLA123456789"))
-        assert result is False
+        result = asyncio.run(MLWebhookClient().refresh_item_promotions("MLA123456789"))
 
-    def test_4xx_returns_false(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        assert result.ok is False
+        assert result.motivo == "La publicación está cerrada"
+        assert result.reintentable is False
+
+    @pytest.mark.parametrize(
+        "status,reintentable",
+        [
+            # Permanent: the ITEM's own condition.
+            (400, False),
+            (409, False),
+            (422, False),
+            # Transient in 4xx disguise. Each one of these was classified as
+            # permanent by an earlier version, which would have DELETED the
+            # pending row instead of retrying it.
+            (429, True),  # the ML throttle, shared with sales-webhook
+            (401, True),  # expired token: fixable
+            (403, True),
+            (404, True),  # a route the proxy has not deployed yet
+            # And the 5xx side, for contrast.
+            (500, True),
+            (502, True),
+        ],
+    )
+    def test_only_the_item_own_conditions_are_permanent(
+        self, monkeypatch: pytest.MonkeyPatch, status, reintentable
+    ) -> None:
+        """The 404 case is back on purpose: the test that covered it was
+        replaced by a 409 one while this very semantics was changing, so the
+        case whose meaning moved was the one that lost its coverage.
+
+        Classifying the whole 4xx range as permanent reads reasonable and
+        empties the pending queue on the first pass of a half-finished
+        deploy -- a hundred rows deleted, nothing refreshed, one warning in
+        a log."""
+
         def handler(request: httpx.Request) -> httpx.Response:
-            return httpx.Response(400, json={"message": "bad request"})
+            return httpx.Response(status, json={"message": "x"})
 
         _patch_client(monkeypatch, _mock_transport(handler))
-        client = MLWebhookClient()
 
-        result = asyncio.run(client.refresh_item_promotions("MLA123456789"))
-        assert result is False
+        result = asyncio.run(MLWebhookClient().refresh_item_promotions("MLA123456789"))
 
-    def test_5xx_returns_false(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        assert result.ok is False
+        assert result.reintentable is reintentable, f"status {status}"
+
+    def test_an_unrecognised_reason_is_shown_verbatim(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """A reason we cannot name is still worth more on screen than the
+        status code alone -- never swallowed into a generic message."""
+
         def handler(request: httpx.Request) -> httpx.Response:
-            return httpx.Response(500, json={"message": "boom"})
+            return httpx.Response(409, json={"reason": "algo que ML no dijo nunca antes"})
 
         _patch_client(monkeypatch, _mock_transport(handler))
-        client = MLWebhookClient()
 
-        result = asyncio.run(client.refresh_item_promotions("MLA123456789"))
-        assert result is False
+        result = asyncio.run(MLWebhookClient().refresh_item_promotions("MLA123456789"))
 
-    def test_timeout_returns_false_never_raises(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        assert result.motivo == "algo que ML no dijo nunca antes"
+
+    def test_a_5xx_is_retryable_and_names_the_status(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """A 5xx is the proxy or ML failing, not the item -- worth another
+        go. Its body is unreliable behind Cloudflare, so the status is what
+        we can honestly report."""
+
         def handler(request: httpx.Request) -> httpx.Response:
-            raise httpx.TimeoutException("boom", request=request)
+            return httpx.Response(502, json={"message": "boom"})
 
         _patch_client(monkeypatch, _mock_transport(handler))
-        client = MLWebhookClient()
 
-        result = asyncio.run(client.refresh_item_promotions("MLA123456789"))
-        assert result is False
+        result = asyncio.run(MLWebhookClient().refresh_item_promotions("MLA123456789"))
 
-    def test_generic_exception_returns_false_never_raises(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        assert result.ok is False
+        assert result.motivo == "MercadoLibre respondió 502"
+        assert result.reintentable is True
+
+    def test_a_timeout_says_so_and_is_retryable(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        def handler(request: httpx.Request) -> httpx.Response:
+            raise httpx.ReadTimeout("boom", request=request)
+
+        _patch_client(monkeypatch, _mock_transport(handler))
+
+        result = asyncio.run(MLWebhookClient().refresh_item_promotions("MLA123456789"))
+
+        assert result.ok is False
+        assert result.motivo == "Se agotó el tiempo de espera"
+        assert result.reintentable is True
+
+    @pytest.mark.parametrize(
+        "flavour",
+        [httpx.ConnectTimeout, httpx.ReadTimeout, httpx.WriteTimeout, httpx.PoolTimeout],
+    )
+    def test_EVERY_timeout_flavour_says_timeout(self, flavour) -> None:
+        """Exercises the mapping DIRECTLY, not through the mock transport:
+        httpx converts a timeout raised inside a transport before our
+        handler ever sees it, so routing it through the client would have
+        proved nothing -- the first version of this test passed with the
+        bug still in place.
+
+        `WriteTimeout` is a `TimeoutException` too, and an earlier version
+        enumerated only three of the four siblings, so a write timeout
+        reached the operator as "no se pudo conectar". Matching the parent
+        class is what stops this drifting as httpx grows."""
+        assert _motivo_para_operador(flavour("boom")) == "Se agotó el tiempo de espera"
+
+    def test_an_unexpected_error_never_raises(self, monkeypatch: pytest.MonkeyPatch) -> None:
         def handler(request: httpx.Request) -> httpx.Response:
             raise RuntimeError("unexpected")
 
         _patch_client(monkeypatch, _mock_transport(handler))
-        client = MLWebhookClient()
 
-        result = asyncio.run(client.refresh_item_promotions("MLA123456789"))
-        assert result is False
+        result = asyncio.run(MLWebhookClient().refresh_item_promotions("MLA123456789"))
+
+        assert result.ok is False
+        # A class name belongs in the LOG, never on the operator's screen.
+        assert result.motivo == "Error inesperado al consultar MercadoLibre"
 
 
 class TestRemoveItemOfferId:
