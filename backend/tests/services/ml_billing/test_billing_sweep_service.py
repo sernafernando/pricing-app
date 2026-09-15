@@ -208,6 +208,41 @@ class TestSpacing:
 
         billing_sweep_service.time.sleep.assert_called_with(billing_sweep_service.REQUEST_SPACING_SECONDS)
 
+    def test_it_also_waits_BEFORE_the_first_page(self, db) -> None:
+        """The wait belongs to the PROXY (1 call/15s), not to the loop, and
+        `_resolve_open_period_key` already spent a call on
+        `/monthly/periods` immediately before this loop starts.
+
+        Skipping the wait on the first iteration -- as if nothing had been
+        requested yet -- put those two calls back to back, and the proxy
+        answered 429 on the second one EVERY time. The sweep then did the
+        right thing with the wrong input: it stopped without retrying,
+        because a 429 means the access pattern is wrong. It was.
+
+        The consequence was total: this sweep could never complete a single
+        pass. `ml_billing_charges` stayed empty from the day it shipped and
+        every sale kept reporting "falta el barrido de facturación".
+
+        Two pages therefore mean THREE waits -- one before each of the two
+        detail requests, and the loop's own between them is one of those."""
+        page1 = _page([_detail("D1")], total=2, offset=0)
+        page2 = _page([_detail("D2")], total=2, offset=1)
+        get_details = mock.AsyncMock(side_effect=[page1, page2])
+        with (
+            mock.patch.object(ml_webhook_client, "get_billing_details", new=get_details),
+            mock.patch.object(
+                ml_webhook_client, "get_billing_documents", new=mock.AsyncMock(return_value=_documents(2))
+            ),
+        ):
+            billing_sweep_service.run_billing_sweep()
+
+        esperas = billing_sweep_service.time.sleep.call_count
+        pedidos = get_details.await_count
+        assert esperas >= pedidos, (
+            f"{pedidos} pedidos de detalle con sólo {esperas} esperas: el primero sale pegado "
+            "a la consulta de períodos y el proxy contesta 429"
+        )
+
 
 class Test429CleanCutoff:
     def test_failed_request_stops_pass_without_retry(self, db) -> None:
