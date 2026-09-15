@@ -310,6 +310,13 @@ def run_billing_sweep(group: str = BILLING_GROUP) -> BillingSweepResult:
 
             if not result.stopped_early:
                 documents_count_details: Optional[int] = None
+                # Spaced like every other proxy call, for the same reason:
+                # the last details page went out moments ago, and firing
+                # this one immediately after got a 429 every time. The
+                # completeness check then silently never ran -- the pass
+                # still reported "complete", which is the one thing this
+                # module is not allowed to do.
+                time.sleep(REQUEST_SPACING_SECONDS)
                 documents = resolve_maybe_async(ml_webhook_client.get_billing_documents(period_key, group))
                 if documents is not None:
                     documents_count_details = sum(

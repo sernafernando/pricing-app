@@ -607,3 +607,27 @@ class TestOverlappingPagesDoNotCutTheSweepShort:
         assert result.error is None
         assert result.stopped_early is False
         assert db.query(MlBillingCharge).filter_by(period_key=result.period_key).count() == 4
+
+
+class TestTheCompletenessCheckIsSpacedToo:
+    """The `documents` call is the pass's completeness check, and it fired
+    immediately after the last details page -- so the proxy answered 429
+    every time and the check never ran. The pass still logged "complete",
+    which is precisely the accounting-that-lies this module exists to
+    prevent."""
+
+    def test_documents_is_requested_after_a_wait(self, db) -> None:
+        page1 = _page([_detail("D1")], total=1, offset=0)
+        get_details = mock.AsyncMock(side_effect=[page1])
+        get_documents = mock.AsyncMock(return_value=_documents(1))
+        with (
+            mock.patch.object(ml_webhook_client, "get_billing_details", new=get_details),
+            mock.patch.object(ml_webhook_client, "get_billing_documents", new=get_documents),
+        ):
+            billing_sweep_service.run_billing_sweep()
+
+        assert get_documents.await_count == 1
+        # One wait before the single details page, one before documents.
+        assert billing_sweep_service.time.sleep.call_count >= 2, (
+            "documents went out pegged to the last details page -- the proxy answers 429"
+        )
