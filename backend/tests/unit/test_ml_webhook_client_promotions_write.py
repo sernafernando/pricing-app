@@ -261,6 +261,47 @@ class TestRefreshItemPromotions:
         assert result.motivo == "La publicación está cerrada"
         assert result.reintentable is False
 
+    @pytest.mark.parametrize(
+        "status,reintentable",
+        [
+            # Permanent: the ITEM's own condition.
+            (400, False),
+            (409, False),
+            (422, False),
+            # Transient in 4xx disguise. Each one of these was classified as
+            # permanent by an earlier version, which would have DELETED the
+            # pending row instead of retrying it.
+            (429, True),  # the ML throttle, shared with sales-webhook
+            (401, True),  # expired token: fixable
+            (403, True),
+            (404, True),  # a route the proxy has not deployed yet
+            # And the 5xx side, for contrast.
+            (500, True),
+            (502, True),
+        ],
+    )
+    def test_only_the_item_own_conditions_are_permanent(
+        self, monkeypatch: pytest.MonkeyPatch, status, reintentable
+    ) -> None:
+        """The 404 case is back on purpose: the test that covered it was
+        replaced by a 409 one while this very semantics was changing, so the
+        case whose meaning moved was the one that lost its coverage.
+
+        Classifying the whole 4xx range as permanent reads reasonable and
+        empties the pending queue on the first pass of a half-finished
+        deploy -- a hundred rows deleted, nothing refreshed, one warning in
+        a log."""
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            return httpx.Response(status, json={"message": "x"})
+
+        _patch_client(monkeypatch, _mock_transport(handler))
+
+        result = asyncio.run(MLWebhookClient().refresh_item_promotions("MLA123456789"))
+
+        assert result.ok is False
+        assert result.reintentable is reintentable, f"status {status}"
+
     def test_an_unrecognised_reason_is_shown_verbatim(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """A reason we cannot name is still worth more on screen than the
         status code alone -- never swallowed into a generic message."""

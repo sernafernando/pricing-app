@@ -66,6 +66,19 @@ def _motivo_desde_el_cuerpo(exc: httpx.HTTPStatusError) -> Optional[str]:
     return str(razon) if razon else None
 
 
+# The ONLY statuses that mean "this item, permanently". Everything else in
+# the 4xx range is transient in disguise and MUST be retried:
+#   429  the ML throttle, shared with sales-webhook processing -- the single
+#        most retryable thing there is
+#   401/403  an expired token: fixable, and the queue must survive it
+#   404  a route the proxy has not deployed yet -- the old contract said
+#        this "degrades gracefully back to the existing backfill cadence"
+#
+# Classifying the whole 4xx range as permanent looked reasonable and would
+# have emptied the pending queue on the first pass of a half-finished
+# deploy: a hundred rows deleted, nothing refreshed, one warning in a log.
+_ESTADOS_NO_REINTENTABLES = frozenset({400, 409, 422})
+
 # ML's own wording for the conditions an operator can actually recognise.
 # ORDER MATTERS: the first needle found wins, and ML's real message --
 # "Item status is not allowed (closed)" -- contains BOTH `not_allowed` and
@@ -996,10 +1009,11 @@ class MLWebhookClient:
                 from the proxy's own `reason` when it reaches us, which is
                 only on a 4xx -- Cloudflare replaces the body of any 5xx
                 from the origin with its own page.
-              - `reintentable`: False for a 4xx, because that is the ITEM's
-                condition (a closed publication stays closed) and retrying
-                spends the caller's budget on something that cannot change.
-                True for everything else.
+              - `reintentable`: False ONLY for the statuses that mean "this
+                item, permanently" (see `_ESTADOS_NO_REINTENTABLES`). A 429,
+                a 401 or a route-absent 404 are all 4xx and all worth
+                retrying -- treating the whole range as permanent would
+                empty a pending queue on a half-finished deploy.
         """
         try:
             async with httpx.AsyncClient(timeout=10.0) as client:
@@ -1008,9 +1022,11 @@ class MLWebhookClient:
                 return RefreshOutcome(ok=True)
         except Exception as e:
             logger.error(f"Error refrescando promociones del item {mla_id}: {_describe_exc(e)}")
-            # A 4xx is the ITEM's condition and will not change on a
-            # retry; anything else (5xx, timeout, network) might.
-            reintentable = not (isinstance(e, httpx.HTTPStatusError) and 400 <= e.response.status_code < 500)
+            # By EXPLICIT status, never by range -- see
+            # `_ESTADOS_NO_REINTENTABLES` for why the range was wrong.
+            reintentable = not (
+                isinstance(e, httpx.HTTPStatusError) and e.response.status_code in _ESTADOS_NO_REINTENTABLES
+            )
             return RefreshOutcome(ok=False, motivo=_motivo_para_operador(e), reintentable=reintentable)
 
     # ── PxQ (wholesale price-by-quantity, PR3) ───────────────────────
