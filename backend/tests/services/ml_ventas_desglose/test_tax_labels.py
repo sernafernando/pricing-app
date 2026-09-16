@@ -42,8 +42,8 @@ class TestTheFourShapesMlActuallyUses:
     @pytest.mark.parametrize(
         "name,expected",
         [
-            ("tax_withholding_sirtac-jujuy", "Retención SIRTAC (Jujuy)"),
-            ("tax_withholding_sirtac_sobretasa-la_rioja", "Sobretasa SIRTAC (La Rioja)"),
+            ("tax_withholding_sirtac-jujuy", "Retención IIBB (Jujuy) · SIRTAC"),
+            ("tax_withholding_sirtac_sobretasa-la_rioja", "Retención IIBB por falta de alta (La Rioja)"),
             ("tax_withholding-corrientes", "Retención (Corrientes)"),
             ("tax_withholding_collector-debitos_creditos", "Impuesto a los débitos y créditos"),
         ],
@@ -59,10 +59,10 @@ class TestTheFourShapesMlActuallyUses:
     @pytest.mark.parametrize(
         "name,expected",
         [
-            ("tax_withholding_sirtac-caba", "Retención SIRTAC (CABA)"),
-            ("tax_withholding_sirtac-entre_rios", "Retención SIRTAC (Entre Ríos)"),
-            ("tax_withholding_sirtac-santiago_del_estero", "Retención SIRTAC (Santiago del Estero)"),
-            ("tax_withholding_sirtac-cordoba", "Retención SIRTAC (Córdoba)"),
+            ("tax_withholding_sirtac-caba", "Retención IIBB (CABA) · SIRTAC"),
+            ("tax_withholding_sirtac-entre_rios", "Retención IIBB (Entre Ríos) · SIRTAC"),
+            ("tax_withholding_sirtac-santiago_del_estero", "Retención IIBB (Santiago del Estero) · SIRTAC"),
+            ("tax_withholding_sirtac-cordoba", "Retención IIBB (Córdoba) · SIRTAC"),
         ],
     )
     def test_province_names_are_spelled_properly_not_title_cased(self, name: str, expected: str):

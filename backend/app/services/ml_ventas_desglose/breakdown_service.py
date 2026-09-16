@@ -227,13 +227,41 @@ _SHIPPING_CHARGE_LABELS: Dict[str, str] = {
 # The bare `tax_withholding-<prov>` shape is deliberately labelled just
 # "Retención": ML does not say which provincial tax it is, and naming it
 # IIBB would be us guessing on a money line.
+#
+# The SIRTAC shapes ARE named IIBB, and that is not the same guess. SIRTAC
+# is the collection REGIME (the card-based regime run by the Comisión
+# Arbitral); the tax it collects is Ingresos Brutos. So a SIRTAC
+# withholding IS an IIBB withholding, and the label says both: the tax the
+# operator is looking for, and the regime that makes the figure findable
+# on the statement. Verified live against order 2000018490418984, whose
+# payment carries `tax_withholding_sirtac-jujuy` and
+# `tax_withholding_sirtac_sobretasa-jujuy` -- ML's own wording, which is
+# why the screen used to show the regime instead of the tax.
 _TAX_PREFIX = "tax_withholding"
 
 _TAX_KINDS: Dict[str, str] = {
     "": "Retención",
-    "sirtac": "Retención SIRTAC",
-    "sirtac_sobretasa": "Sobretasa SIRTAC",
+    "sirtac": "Retención IIBB",
+    # NOT a surcharge ON SIRTAC, which is what "sobretasa" reads as and
+    # what this label used to say. ML's own screen calls it "Retención
+    # Impuesto Ingresos Brutos POR FALTA DE ALTA <provincia>": it is the
+    # aggravated rate charged for not being registered in that province.
+    # On order 2000018490418984 it was $1.490 against $298 of ordinary
+    # SIRTAC withholding -- five times the normal figure, and avoidable by
+    # registering. A label that hides that hides money the seller could
+    # stop paying.
+    "sirtac_sobretasa": "Retención IIBB por falta de alta",
     "collector": "Impuesto a los débitos y créditos",
+}
+
+# The collection REGIME, appended after the province. Only the shapes
+# whose regime ML actually names get one -- the bare
+# `tax_withholding-<prov>` does not, because ML does not say.
+# Only `sirtac` carries it: ML's screen says "Régimen SIRTAC" for that one
+# and names no regime for the falta-de-alta charge, whose label already
+# says what it is.
+_TAX_REGIMENES: Dict[str, str] = {
+    "sirtac": "SIRTAC",
 }
 
 # Spelled out rather than title-cased from the slug: `entre_rios` is
@@ -304,6 +332,13 @@ def tax_label(charge_name: Optional[str]) -> str:
     place = _TAX_PLACES.get(place_slug)
     if place is None:
         return CONCEPTO_IMPUESTOS
+    # The regime goes AFTER the province, not inside the tax name: "IIBB
+    # (SIRTAC) (Jujuy)" is two parentheses fighting each other. What the
+    # operator reads first is the tax and the province; the regime is the
+    # detail that lets them find the figure on the statement.
+    regimen = _TAX_REGIMENES.get(kind_slug)
+    if regimen is not None:
+        return f"{kind} ({place}) · {regimen}"
     return f"{kind} ({place})"
 
 

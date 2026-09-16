@@ -264,8 +264,8 @@ class TestSellerVsBuyerPredicate:
         result = compute_breakdown(db, [order_id])
 
         labels = {line.concepto: line.monto for line in result.lines}
-        assert labels["Retención SIRTAC (Jujuy)"] == Decimal("10.00")
-        assert labels["Sobretasa SIRTAC (Jujuy)"] == Decimal("25.00")
+        assert labels["Retención IIBB (Jujuy) · SIRTAC"] == Decimal("10.00")
+        assert labels["Retención IIBB por falta de alta (Jujuy)"] == Decimal("25.00")
         assert labels["Impuesto a los débitos y créditos"] == Decimal("7.00")
         assert "Impuestos" not in labels
 
@@ -300,8 +300,8 @@ class TestSellerVsBuyerPredicate:
         result = compute_breakdown(db, [order_id])
 
         labels = {line.concepto: line.monto for line in result.lines}
-        assert labels["Retención SIRTAC (Salta)"] == Decimal("3.00")
-        assert labels["Retención SIRTAC (Jujuy)"] == Decimal("4.00")
+        assert labels["Retención IIBB (Salta) · SIRTAC"] == Decimal("3.00")
+        assert labels["Retención IIBB (Jujuy) · SIRTAC"] == Decimal("4.00")
 
 
 class TestFlatFeePerOrderInAPack:
