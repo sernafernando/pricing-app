@@ -231,14 +231,19 @@ class TestVariosDeduccion:
 
         assert result[order_id] == Decimal("3.00")
 
-    def test_no_version_configured_is_unknown(self, db) -> None:
+    def test_no_version_configured_is_zero_per_cent(self, db) -> None:
+        """A percentage nobody has loaded is a percentage that does not
+        apply -- zero, not unknown. Returning `None` here propagated through
+        the chain and made `total_gauss` NULL for EVERY sale until somebody
+        configured a percentage, on a setting that has no screen yet.
+        `Neto - costo - flete - 0%` is a number."""
         order_id = 11
         _order(db, order_id)
         db.commit()
 
         result = VariosDeduccion().resolve_bulk(db, [order_id])
 
-        assert result[order_id] is None
+        assert result[order_id] == Decimal("0")
 
     def test_percentage_applies_over_neto_sin_iva(self, db) -> None:
         order_id = 12
@@ -434,17 +439,18 @@ class TestADeductionThatStoppedApplyingLosesItsRow:
         assert db.query(MlVentaDeduccion).filter_by(order_id=order_id, code="envio_flex").count() == 0
 
 
-class TestAnAbsentOrderIsUnknownNotInapplicable:
-    """A missing key means "does not apply" to the orchestrator, which does
-    NOT block the chain. An order that is not in `ml_orders_ops` at all is
-    missing DATA, not an inapplicable deduction -- and this module's whole
-    rule is that those two never look alike."""
+class TestAnAbsentOrderStillGetsAnAnswer:
+    """`varios` is the one deduction where absence is a real answer, so an
+    order this resolver cannot date does not become a NULL that sinks the
+    whole sale -- it gets the same zero as an order with no version
+    configured. It still gets a KEY, though: a missing key reads as "does
+    not apply" and that is a different statement."""
 
-    def test_an_order_that_does_not_exist_resolves_unknown(self, db) -> None:
+    def test_an_order_that_does_not_exist_resolves_zero(self, db) -> None:
         db.add(VariosVentaPct(porcentaje=Decimal("5.00"), fecha_desde=date(2026, 1, 1)))
         db.commit()
 
         result = VariosDeduccion().resolve_bulk(db, [999999])
 
         assert 999999 in result, "an absent order must not silently read as 'does not apply'"
-        assert result[999999] is None
+        assert result[999999] == Decimal("0")

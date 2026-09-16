@@ -216,20 +216,25 @@ class VariosDeduccion:
         )
         versiones = db.query(VariosVentaPct).order_by(VariosVentaPct.fecha_desde.asc()).all()
 
-        # SEEDED as unknown for EVERY requested id, before the loop. An
-        # order the query does not return -- because it is not in
-        # `ml_orders_ops` at all -- would otherwise simply have no key, and
-        # the orchestrator reads a missing key as "does not apply", which
-        # does not block the chain. But this absence comes from MISSING
-        # DATA, not from inapplicability, and the whole module's rule is
-        # that those two never look alike. `CostoMercaderiaDeduccion`
-        # already iterates the requested ids for exactly this reason.
+        # NO VERSION CONFIGURED IS ZERO PER CENT, NOT UNKNOWN. This is the
+        # one deduction in the chain where absence is a real answer: a
+        # percentage nobody has loaded is a percentage that does not apply,
+        # and `Neto - costo - flete - 0%` is a number, not a mystery.
+        #
+        # It used to return `None`, which propagated through the chain and
+        # made `total_gauss` NULL for EVERY sale until somebody configured a
+        # percentage -- a screen that showed nothing while waiting for a
+        # setting that has no screen yet. Maintainer's call, verbatim: "si
+        # no hay varios se entiende que es 0 (punto)".
+        #
+        # The same goes for an order this query did not return, or one with
+        # no `date_created`: those are reasons we cannot pick a VERSION, and
+        # no version means zero, same as above.
         for order_id in order_ids:
-            result[order_id] = None
+            result[order_id] = Decimal("0")
 
         for order_id, date_created in orders:
             if date_created is None:
-                result[order_id] = None
                 continue
             fecha_venta = date_created.date() if hasattr(date_created, "date") else date_created
             vigente: Optional[VariosVentaPct] = None
@@ -238,7 +243,8 @@ class VariosDeduccion:
                     version.fecha_hasta is None or version.fecha_hasta >= fecha_venta
                 ):
                     vigente = version
-            result[order_id] = Decimal(str(vigente.porcentaje)) if vigente is not None else None
+            if vigente is not None:
+                result[order_id] = Decimal(str(vigente.porcentaje))
 
         return result
 
