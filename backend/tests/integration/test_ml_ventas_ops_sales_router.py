@@ -1112,6 +1112,10 @@ class TestDetailIvaDecompositionAndDeductionChain(TestTotalGaussInListing):
         lineas = body["cadena_total_gauss"]["lineas"]
         blocked = [linea for linea in lineas if linea["monto"] is None]
         assert blocked, "at least one deduction link must carry the unresolved monto=None"
+        # `markup = total_gauss / costo_mercaderia`: an unresolved
+        # total_gauss must make markup unknown too, never a fabricated
+        # number or a zero.
+        assert body["cadena_total_gauss"]["markup"] is None
 
     def test_fully_costed_order_exposes_componentes_and_full_chain(self, db, client, admin_auth_headers, rol_admin):
         """Happy path: payments synced AND frozen cost present -- every
@@ -1133,3 +1137,6 @@ class TestDetailIvaDecompositionAndDeductionChain(TestTotalGaussInListing):
         assert body["cadena_total_gauss"]["total_gauss"] is not None
         assert body["cadena_total_gauss"]["lineas"]
         assert all(linea["monto"] is not None for linea in body["cadena_total_gauss"]["lineas"])
+        # neto_sin_iva 100.00, costo_mercaderia 10.00 (1 x 10.00), varios 0%
+        # -> total_gauss 90.00 -> markup 90.00 / 10.00 * 100 = 900.00%.
+        assert body["cadena_total_gauss"]["markup"] == pytest.approx(900.00)
