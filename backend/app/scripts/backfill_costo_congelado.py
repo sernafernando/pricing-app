@@ -76,9 +76,11 @@ from app.models.item_cost_list_history import ItemCostListHistory  # noqa: E402
 from app.models.ml_order_item_costo import MlOrderItemCosto  # noqa: E402
 from app.models.ml_orders_ops import MlOrderItemOps, MlOrdersOps  # noqa: E402
 from app.models.producto import ProductoERP  # noqa: E402
+from app.models.tb_item_association import TbItemAssociation  # noqa: E402
 from app.models.tipo_cambio import TipoCambio  # noqa: E402
 from app.services.ml_orders_ingestion.costeo_service import (  # noqa: E402
     FUENTE_BACKFILL_PUBLICACION,
+    FUENTE_BACKFILL_COMBO,
     FUENTE_BACKFILL_SKU,
     FUENTE_PUBLICACION,
     FUENTE_SKU,
@@ -119,6 +121,12 @@ SKIP_NO_PRICE = "no_price"
 SKIP_BAD_CURRENCY = "unrecognized_currency"
 SKIP_NO_ORDER_DATE = "no_order_date"
 SKIP_UNPARSEABLE = "unparseable_value"
+# A pack/combo/kit whose composition IS known but at least one component
+# has no real cost dated at or before the sale. Kept apart from
+# `no_dated_history_row` because the fix is per COMPONENT -- loading a
+# cost onto the combo itself would be the wrong move, and a counter that
+# cannot tell them apart sends whoever reads it to the wrong place.
+SKIP_COMBO_COMPONENT_NO_COST = "combo_component_no_cost"
 
 
 @dataclass
@@ -232,6 +240,59 @@ def _hay_fila_fechada(rows: Sequence[ItemCostListHistory], as_of: date) -> bool:
     return any(_as_date(row.iclh_cd) is not None and _as_date(row.iclh_cd) <= as_of for row in rows)
 
 
+def _componentes_por_combo(db: Session, erp_ids: Sequence[int]) -> Dict[int, List[tuple[int, Decimal]]]:
+    """`{combo_item_id: [(component_item_id, qty), ...]}` for this batch, in
+    ONE query -- never one per item (same bulk rule `_productos_por_item`
+    documents).
+
+    `tb_item_association` is the ERP's bill of materials: `item_id` is the
+    parent, `item_id_1` the component, `iasso_qty` how many of it go in.
+    `iasso_qty > 0` is what `prearmado.buscar_combos` already uses to
+    decide "this is a combo", and this follows that definition rather than
+    inventing a second one."""
+    if not erp_ids:
+        return {}
+    rows = (
+        db.query(
+            TbItemAssociation.item_id,
+            TbItemAssociation.item_id_1,
+            TbItemAssociation.iasso_qty,
+            TbItemAssociation.comp_id,
+        )
+        .filter(
+            TbItemAssociation.item_id.in_(sorted(set(erp_ids))),
+            TbItemAssociation.iasso_qty > 0,
+        )
+        .all()
+    )
+    por_combo: Dict[int, List[tuple[int, Decimal]]] = {}
+    empresas_por_combo: Dict[int, set] = {}
+    for combo_id, componente_id, qty, comp_id in rows:
+        if componente_id is None:
+            continue
+        por_combo.setdefault(combo_id, []).append((componente_id, Decimal(str(qty))))
+        empresas_por_combo.setdefault(combo_id, set()).add(comp_id)
+
+    # `comp_id` is the ERP's COMPANY, and it is part of this table's key --
+    # `prearmado`'s own queries join on it. `ProductoERP` carries no
+    # company, so there is nothing here to correlate a combo to one; the
+    # only honest options are to sum across companies (silently wrong money)
+    # or to refuse. Measured today: production holds exactly ONE `comp_id`,
+    # so this never fires. It exists so that the day a second company
+    # appears the script SAYS SO instead of quietly summing both.
+    for combo_id, empresas in empresas_por_combo.items():
+        if len(empresas) > 1:
+            logger.warning(
+                "backfill_costo_congelado: combo item_id=%s has components in %s companies (comp_id=%s) -- "
+                "refusing to sum across companies",
+                combo_id,
+                len(empresas),
+                sorted(empresas),
+            )
+            por_combo.pop(combo_id, None)
+    return por_combo
+
+
 def _usd_rates_by_date(db: Session, dates: Sequence[date]) -> List[TipoCambio]:
     """Every USD `TipoCambio` row that could possibly be "the rate in
     effect" for any date in this batch, fetched ONCE. Covers from the
@@ -259,16 +320,147 @@ def _pick_fx_rate(rates: Sequence[TipoCambio], as_of: date) -> Optional[TipoCamb
     return max(eligible, key=lambda rate: (rate.fecha, rate.id))
 
 
+@dataclass(frozen=True)
+class _EnArs:
+    """One history row's cost expressed in ARS, with the rate that got it
+    there (`None`/`None` when the row was already in ARS)."""
+
+    valor: Decimal
+    moneda: str
+    tipo_cambio: Optional[Decimal]
+    tipo_cambio_fecha: Optional[date]
+
+
+def _a_ars(
+    history_row: ItemCostListHistory,
+    usd_rates: Sequence[TipoCambio],
+    order_date: date,
+) -> tuple[Optional[_EnArs], Optional[str]]:
+    """`(_EnArs, None)` or `(None, <skip reason>)`. Shared by the direct
+    path and the combo path so a component and a plain product are never
+    converted by two different rules."""
+    try:
+        valor = Decimal(str(history_row.iclh_price))
+    except InvalidOperation:
+        return None, SKIP_UNPARSEABLE
+
+    curr_id = history_row.curr_id
+    if curr_id == 1:
+        return _EnArs(valor, "ARS", None, None), None
+    if curr_id != 2:
+        return None, SKIP_BAD_CURRENCY
+
+    rate_row = _pick_fx_rate(usd_rates, order_date)
+    if rate_row is None:
+        return None, SKIP_NO_FX
+    try:
+        tipo_cambio = Decimal(str(rate_row.venta))
+    except InvalidOperation:
+        return None, SKIP_UNPARSEABLE
+    return _EnArs(valor * tipo_cambio, "USD", tipo_cambio, rate_row.fecha), None
+
+
+def _resolver_combo(
+    componentes: Sequence[tuple[int, Decimal]],
+    history_by_item: Dict[int, List[ItemCostListHistory]],
+    usd_rates: Sequence[TipoCambio],
+    order_date: date,
+) -> tuple[Optional[Dict[str, Any]], Optional[str]]:
+    """The cost of a pack/combo/kit: the sum of its components, each at ITS
+    own cost dated at or before the sale, times how many go in.
+
+    ALL OR NOTHING. One component without a dated real cost means the whole
+    combo is unknown -- a partial sum would read exactly like a complete
+    one and understate the cost, which on this path means overstating the
+    margin. Same rule the rest of this script follows: unknown is not zero.
+
+    `costo_fecha` is the MOST RECENT component date, because that is when
+    the combo's cost last changed. The earliest would claim the figure is
+    older -- and therefore more settled -- than it is.
+    """
+    total = Decimal("0")
+    fecha_mas_reciente: Optional[date] = None
+    tipo_cambio: Optional[Decimal] = None
+    tipo_cambio_fecha: Optional[date] = None
+
+    for componente_id, qty in componentes:
+        fila = _pick_history_row(history_by_item.get(componente_id, []), order_date)
+        if fila is None:
+            return None, SKIP_COMBO_COMPONENT_NO_COST
+        en_ars, motivo = _a_ars(fila, usd_rates, order_date)
+        if en_ars is None:
+            return None, motivo
+        total += en_ars.valor * qty
+        fecha = _as_date(fila.iclh_cd)
+        if fecha is not None and (fecha_mas_reciente is None or fecha > fecha_mas_reciente):
+            fecha_mas_reciente = fecha
+        if en_ars.tipo_cambio is not None:
+            tipo_cambio = en_ars.tipo_cambio
+            tipo_cambio_fecha = en_ars.tipo_cambio_fecha
+
+    if total <= 0:
+        return None, SKIP_COMBO_COMPONENT_NO_COST
+
+    return (
+        {
+            # Already summed IN ARS: a combo can mix an ARS component with
+            # a USD one, so there is no single source currency to report.
+            "costo_origen": total,
+            "moneda": "ARS",
+            "tipo_cambio": tipo_cambio,
+            "tipo_cambio_fecha": tipo_cambio_fecha,
+            "costo_unitario_ars": total,
+            "costo_fecha": fecha_mas_reciente,
+        },
+        None,
+    )
+
+
 def _resolve_backfill_cost(
     producto: ProductoERP,
     fuente_live: str,
     history_rows: Sequence[ItemCostListHistory],
+    componentes: Sequence[tuple[int, Decimal]],
+    history_by_item: Dict[int, List[ItemCostListHistory]],
     usd_rates: Sequence[TipoCambio],
     order_date: date,
     result: BackfillResult,
 ) -> Optional[Dict[str, Any]]:
+    """One item's frozen snapshot, by whichever of TWO paths applies.
+
+    The product's OWN dated cost comes first. Only when that is missing
+    does the combo path run, and only for a product the ERP knows the
+    composition of -- a pack has no purchase cost because nobody buys a
+    pack, so its zero-priced history is a consequence of what it is, not a
+    hole to be filled by hand.
+
+    Order matters and is deliberate: a product that has a real cost of its
+    own is costed with it, even if it also happens to have components.
+    Summing components for something the ERP actually prices would replace
+    a measured figure with a derived one.
+    """
+    if producto.iva is None:
+        result.skipped[SKIP_NO_IVA] += 1
+        return None
+    try:
+        iva_pct = Decimal(str(producto.iva))
+    except InvalidOperation:
+        result.skipped[SKIP_UNPARSEABLE] += 1
+        return None
+
     history_row = _pick_history_row(history_rows, order_date)
+
     if history_row is None:
+        if componentes:
+            resuelto, motivo = _resolver_combo(componentes, history_by_item, usd_rates, order_date)
+            if resuelto is None:
+                result.skipped[motivo or SKIP_COMBO_COMPONENT_NO_COST] += 1
+                return None
+            resuelto["iva_pct"] = iva_pct
+            resuelto["fuente"] = FUENTE_BACKFILL_COMBO
+            resuelto["producto_item_id"] = producto.item_id
+            return resuelto
+
         # Two different problems, kept apart because they get fixed in
         # different places: the ERP has NO row for that date at all, or it
         # has rows and every one of them came without a price. The second
@@ -279,13 +471,8 @@ def _resolve_backfill_cost(
             result.skipped[SKIP_NO_HISTORY] += 1
         return None
 
-    if producto.iva is None:
-        result.skipped[SKIP_NO_IVA] += 1
-        return None
-
     try:
         costo_origen = Decimal(str(history_row.iclh_price))
-        iva_pct = Decimal(str(producto.iva))
     except InvalidOperation:
         result.skipped[SKIP_UNPARSEABLE] += 1
         return None
@@ -298,39 +485,19 @@ def _resolve_backfill_cost(
         result.skipped[SKIP_ZERO_COST] += 1
         return None
 
-    curr_id = history_row.curr_id
-    if curr_id == 1:
-        moneda = "ARS"
-        tipo_cambio = None
-        tipo_cambio_fecha = None
-        costo_unitario_ars = costo_origen
-    elif curr_id == 2:
-        moneda = "USD"
-        rate_row = _pick_fx_rate(usd_rates, order_date)
-        if rate_row is None:
-            result.skipped[SKIP_NO_FX] += 1
-            return None
-        try:
-            tipo_cambio = Decimal(str(rate_row.venta))
-        except InvalidOperation:
-            result.skipped[SKIP_UNPARSEABLE] += 1
-            return None
-        tipo_cambio_fecha = rate_row.fecha
-        costo_unitario_ars = costo_origen * tipo_cambio
-    else:
-        result.skipped[SKIP_BAD_CURRENCY] += 1
+    en_ars, motivo = _a_ars(history_row, usd_rates, order_date)
+    if en_ars is None:
+        result.skipped[motivo or SKIP_UNPARSEABLE] += 1
         return None
-
-    costo_fecha = _as_date(history_row.iclh_cd)
 
     return {
         "costo_origen": costo_origen,
-        "moneda": moneda,
-        "tipo_cambio": tipo_cambio,
-        "tipo_cambio_fecha": tipo_cambio_fecha,
-        "costo_unitario_ars": costo_unitario_ars,
+        "moneda": en_ars.moneda,
+        "tipo_cambio": en_ars.tipo_cambio,
+        "tipo_cambio_fecha": en_ars.tipo_cambio_fecha,
+        "costo_unitario_ars": en_ars.valor,
         "iva_pct": iva_pct,
-        "costo_fecha": costo_fecha,
+        "costo_fecha": _as_date(history_row.iclh_cd),
         "fuente": _FUENTE_TRANSLATION[fuente_live],
         "producto_item_id": producto.item_id,
     }
@@ -360,6 +527,15 @@ def run_backfill(limit: Optional[int], dry_run: bool, batch_size: int = DEFAULT_
 
             # Bulk history + FX lookups for this batch only.
             item_ids_needed = [producto.item_id for producto, _ in productos_por_indice.values()]
+
+            # Composition for the whole batch in ONE query, and the
+            # components' ids folded into the SAME history fetch -- a
+            # second round-trip per combo would reintroduce exactly the
+            # N+1 this module spends a docstring forbidding.
+            componentes_por_combo = _componentes_por_combo(db, item_ids_needed)
+            for componentes in componentes_por_combo.values():
+                item_ids_needed.extend(componente_id for componente_id, _ in componentes)
+
             history_by_item = _dated_history_rows(db, item_ids_needed)
             dates_needed = [_as_date(d) for d in order_dates.values() if d is not None]
             usd_rates = _usd_rates_by_date(db, dates_needed)
@@ -384,7 +560,16 @@ def run_backfill(limit: Optional[int], dry_run: bool, batch_size: int = DEFAULT_
                 producto, fuente_live = resuelto
 
                 history_rows = history_by_item.get(producto.item_id, [])
-                resolved = _resolve_backfill_cost(producto, fuente_live, history_rows, usd_rates, order_date, result)
+                resolved = _resolve_backfill_cost(
+                    producto,
+                    fuente_live,
+                    history_rows,
+                    componentes_por_combo.get(producto.item_id, []),
+                    history_by_item,
+                    usd_rates,
+                    order_date,
+                    result,
+                )
                 if resolved is None:
                     continue
 
