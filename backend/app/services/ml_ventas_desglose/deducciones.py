@@ -125,7 +125,13 @@ class EnvioFlexDeduccion:
     (`breakdown_service.py`), never reimplements the resolution rule.
     A non-Flex order simply gets no key (not applicable); a Flex order
     whose cost cannot be resolved gets `None` (`flex_cost_unknown`,
-    same discipline as `compute_breakdown`'s line)."""
+    same discipline as `compute_breakdown`'s line).
+
+    `concepto` is a STATIC fallback label only, used when the per-order
+    label (company name) cannot be resolved. `calcular_total_gauss` fetches
+    the real per-order label straight from `resolve_flex_cost_by_order_ids`
+    (NOT stored on this instance -- module-level `DEDUCCIONES` singletons
+    must stay stateless, or concurrent requests would race on them)."""
 
     code = "envio_flex"
     concepto = "Envío Flex (costo propio)"
@@ -134,7 +140,8 @@ class EnvioFlexDeduccion:
     es_porcentaje = False
 
     def resolve_bulk(self, db: Session, order_ids: Sequence[int]) -> Dict[int, Optional[Decimal]]:
-        resuelto = resolve_flex_cost_by_order_ids(db, order_ids)
+        resuelto_con_concepto = resolve_flex_cost_by_order_ids(db, order_ids)
+        resuelto = {order_id: monto for order_id, (monto, _concepto) in resuelto_con_concepto.items()}
 
         # SPLIT across every order that shares the shipment, because the
         # freight is ONE cost, not one per order.
@@ -282,8 +289,25 @@ class TotalGaussResultado:
     here too."""
 
     total_gauss: Optional[Decimal]
-    lineas: List[Tuple[str, Optional[Decimal]]] = field(default_factory=list)
+    # `(code, monto, concepto)`: `concepto` is `None` unless the deduction
+    # has a per-order label to offer (today, only `envio_flex`, carrying the
+    # logistics company name -- `EnvioFlexDeduccion.concepto`'s docstring).
+    # A `None` concepto means "use the resolver's static `concepto`", never
+    # "no label at all".
+    lineas: List[Tuple[str, Optional[Decimal], Optional[str]]] = field(default_factory=list)
     markup: Optional[Decimal] = None
+    # total-gauss-provisorio: `True` exactly when `total_gauss` above was
+    # computed WITHOUT the Flex freight cost because it is not resolvable
+    # YET (the shipping label has not been loaded at the warehouse -- it is
+    # ingested AFTER the sale). A REAL computed number, distinct from a
+    # fabricated/zeroed one: every other deduction in the chain still
+    # resolved. `provisional_falta` names the missing concept for the UI
+    # (e.g. "Envío Flex"); both are `None`/`False` in every other case,
+    # INCLUDING when `total_gauss` is `None` for any other reason (e.g. an
+    # unresolved cost of goods -- see `calcular_total_gauss`'s docstring for
+    # why that boundary does NOT get this treatment).
+    provisional: bool = False
+    provisional_falta: Optional[str] = None
 
 
 def calcular_total_gauss(
@@ -310,6 +334,15 @@ def calcular_total_gauss(
         deduccion.code: deduccion.resolve_bulk(db, order_ids) for deduccion in DEDUCCIONES
     }
 
+    # Per-order Flex label (carries the logistics company name), resolved
+    # in bulk directly -- NOT read off `EnvioFlexDeduccion` (module-level
+    # singletons in `DEDUCCIONES` stay stateless, see its docstring). One
+    # extra bulk call, still O(1) queries for the whole page, never one per
+    # order.
+    flex_concepto_by_order: Dict[int, Optional[str]] = {
+        order_id: concepto for order_id, (_monto, concepto) in resolve_flex_cost_by_order_ids(db, order_ids).items()
+    }
+
     for order_id in order_ids:
         neto_sin_iva = neto_sin_iva_by_order.get(order_id)
         total: Optional[Decimal] = neto_sin_iva
@@ -319,6 +352,13 @@ def calcular_total_gauss(
         # below reads directly off the goods-cost deduction by its stable
         # `code`, never by position.
         costo_mercaderia: Optional[Decimal] = None
+        blocking_codes: List[str] = []
+
+        # `total_provisional` mirrors `total` exactly, EXCEPT it treats an
+        # unresolved Flex freight cost as a $0 contribution instead of a
+        # block -- see the DELIBERATE EXCEPTION note below. It is discarded
+        # unless `envio_flex` turns out to be the ONLY blocking link.
+        total_provisional: Optional[Decimal] = neto_sin_iva
 
         for deduccion in DEDUCCIONES:
             by_order = resolved_by_code[deduccion.code]
@@ -340,26 +380,60 @@ def calcular_total_gauss(
             else:
                 monto = raw
 
-            lineas.append((deduccion.code, monto))
+            linea_concepto = flex_concepto_by_order.get(order_id) if deduccion.code == EnvioFlexDeduccion.code else None
+            lineas.append((deduccion.code, monto, linea_concepto))
             if deduccion.code == CostoMercaderiaDeduccion.code:
                 costo_mercaderia = monto
 
             if monto is None or total is None:
                 total = None
+                if monto is None:
+                    blocking_codes.append(deduccion.code)
             else:
                 total = total - monto
+
+            # DELIBERATE EXCEPTION, Flex-only: total-gauss-provisorio. A
+            # `self_service` sale has no freight cost until the shipping
+            # label is loaded at the warehouse, which happens AFTER the
+            # sale is ingested -- so `envio_flex` resolving `None` here is
+            # routine, not a data gap. Every OTHER unresolved link (most of
+            # all, `costo_mercaderia`: no margin without a cost) must still
+            # block the whole chain -- this is NOT "skip any unknown link",
+            # it is this one link, named, on purpose. See
+            # `TotalGaussResultado.provisional`'s docstring.
+            if deduccion.code == EnvioFlexDeduccion.code and monto is None:
+                pass  # total_provisional does NOT subtract this line
+            elif total_provisional is not None:
+                total_provisional = total_provisional - monto if monto is not None else None
+
+        provisional = False
+        provisional_falta: Optional[str] = None
+        if total is None and blocking_codes == [EnvioFlexDeduccion.code] and total_provisional is not None:
+            total = total_provisional
+            provisional = True
+            # The GENERIC concept name, never the company name: the whole
+            # point is that the company's cost (and therefore which company
+            # actually carried it) has not resolved yet.
+            provisional_falta = EnvioFlexDeduccion.concepto
 
         # markup = total_gauss / costo_mercaderia, as a percentage -- see
         # `TotalGaussResultado.markup`'s docstring for why THIS numerator.
         # `None` propagates the same way every other value in this module
         # does: an unresolved cost, an unresolved chain, or a zero cost
         # (division by zero) all report "we do not know", never a 0% or an
-        # infinite markup.
+        # infinite markup. Computed off the PROVISIONAL total too -- it is a
+        # real number, just flagged.
         markup: Optional[Decimal] = None
         if total is not None and costo_mercaderia is not None and costo_mercaderia != 0:
             markup = (total / costo_mercaderia * Decimal("100")).quantize(_CENT, rounding=ROUND_HALF_UP)
 
-        result[order_id] = TotalGaussResultado(total_gauss=total, lineas=lineas, markup=markup)
+        result[order_id] = TotalGaussResultado(
+            total_gauss=total,
+            lineas=lineas,
+            markup=markup,
+            provisional=provisional,
+            provisional_falta=provisional_falta,
+        )
 
     return result
 
@@ -450,7 +524,8 @@ def persistir_total_gauss(db: Session, order_ids: Sequence[int]) -> Dict[int, To
             order.total_gauss = resultado.total_gauss
             order.total_gauss_at = datetime.now(timezone.utc)
             order.total_gauss_stale = False
-        for code, monto in resultado.lineas:
+            order.total_gauss_provisional = resultado.provisional
+        for code, monto, _concepto in resultado.lineas:
             key = (order_id, code)
             row = existing_by_key.get(key)
             if row is None:
@@ -470,7 +545,7 @@ def persistir_total_gauss(db: Session, order_ids: Sequence[int]) -> Dict[int, To
         # recomputed whole; it is this table that would keep lying, against
         # its own model docstring ("the last-resolved amount of one
         # deduction").
-        vigentes = {code for code, _ in resultado.lineas}
+        vigentes = {code for code, _monto, _concepto in resultado.lineas}
         for (row_order_id, code), row in list(existing_by_key.items()):
             if row_order_id == order_id and code not in vigentes:
                 db.delete(row)

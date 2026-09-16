@@ -5,7 +5,7 @@ from typing import List, Optional
 from pydantic import BaseModel, Field
 from datetime import date
 from app.core.database import get_db
-from app.api.deps import get_current_user, require_role
+from app.api.deps import get_current_user, require_permiso, require_role
 from app.models.usuario import Usuario, RolUsuario
 from app.models.pricing_constants import PricingConstants
 from app.models.varios_venta_pct import VariosVentaPct
@@ -277,14 +277,21 @@ class VariosVentaPctCreate(BaseModel):
 @router.get("/varios-venta-pct", response_model=List[VariosVentaPctResponse])
 def listar_varios_venta_pct(
     db: Session = Depends(get_db),
-    current_user: Usuario = Depends(require_role([RolUsuario.ADMIN, RolUsuario.SUPERADMIN])),
+    # Read-only: gated by the same `ml_ops.ver` that guards the ML sales
+    # view this modal lives in, NOT the new edit permission -- product
+    # decision was "se pueda ver pero no editar sin el permiso".
+    current_user: Usuario = Depends(require_permiso("ml_ops.ver")),
 ):
     """Lista todas las versiones del "% de varios" de ventas."""
     return db.query(VariosVentaPct).order_by(VariosVentaPct.fecha_desde.desc()).all()
 
 
 @router.get("/varios-venta-pct/actual", response_model=VariosVentaPctResponse)
-def obtener_varios_venta_pct_actual(db: Session = Depends(get_db), current_user: Usuario = Depends(get_current_user)):
+def obtener_varios_venta_pct_actual(
+    db: Session = Depends(get_db),
+    # Same read-only gate as the list endpoint -- see comment there.
+    current_user: Usuario = Depends(require_permiso("ml_ops.ver")),
+):
     """Obtiene la versión vigente HOY -- una venta histórica NO usa este
     endpoint: lee la versión vigente a SU fecha vía `VariosDeduccion`."""
     hoy = date.today()
@@ -308,7 +315,9 @@ def obtener_varios_venta_pct_actual(db: Session = Depends(get_db), current_user:
 def crear_varios_venta_pct(
     data: VariosVentaPctCreate,
     db: Session = Depends(get_db),
-    current_user: Usuario = Depends(require_role([RolUsuario.ADMIN, RolUsuario.SUPERADMIN])),
+    # Writing a new version needs the NEW, separate `ml_ops.varios_editar`
+    # permission -- `ml_ops.ver` (read) is deliberately NOT enough here.
+    current_user: Usuario = Depends(require_permiso("ml_ops.varios_editar")),
 ):
     """Crea una nueva versión del "% de varios", cerrando la vigente
     anterior -- mismo patrón que `crear_pricing_constants`."""

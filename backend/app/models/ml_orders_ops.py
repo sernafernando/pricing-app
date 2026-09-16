@@ -147,6 +147,15 @@ class MlOrdersOps(Base):
     # page, but the displayed number is recomputed fresh regardless, so it
     # can never SHOW a stale number -- only sort one.
     total_gauss_stale = Column(Boolean, nullable=False, server_default="false")
+    # total-gauss-provisorio: True when `total_gauss` above was computed
+    # WITHOUT the Flex freight cost because that cost is not resolvable yet
+    # (the shipping label has not been loaded at the warehouse) -- see
+    # `deducciones.calcular_total_gauss`'s "only Flex" exception. A REAL
+    # computed number with a flag, never a fabricated/zeroed one. `False`
+    # for every other order, including one whose `total_gauss` is `None`
+    # outright (e.g. an unresolved cost of goods -- that boundary does NOT
+    # get a provisional figure, see the deduction chain's docstring).
+    total_gauss_provisional = Column(Boolean, nullable=False, server_default="false")
 
 
 class MlOrderItemOps(Base):

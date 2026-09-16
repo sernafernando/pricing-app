@@ -281,32 +281,47 @@ class DeduccionLineaSummary(BaseModel):
 
     code: str
     monto: Optional[float] = None
+    # The per-order label (e.g. the logistics company name for
+    # `envio_flex`) when the deduction has one to offer -- `None` means
+    # "use the frontend's static label for this `code`", never "no label".
+    concepto: Optional[str] = None
 
 
 class CadenaTotalGaussSummary(BaseModel):
     """This order's deduction chain, in chain order (`neto_sin_iva` minus
     each applicable deduction). `total_gauss=None` whenever `neto_sin_iva`
-    itself is unknown OR any applicable deduction resolved unknown.
+    itself is unknown OR any applicable deduction resolved unknown (except
+    the Flex-only provisional case below).
 
     `markup` is the sale's REAL markup -- `total_gauss / costo_mercaderia`
     as a percentage, see `TotalGaussResultado.markup`'s docstring in
     `deducciones.py` for why this formula over the theoretical one.
     `None` (never `0`, never infinite) whenever `total_gauss` is unknown,
-    the goods cost is unknown, or the cost is exactly zero."""
+    the goods cost is unknown, or the cost is exactly zero.
+
+    `provisional` (total-gauss-provisorio) is `True` when `total_gauss` was
+    computed WITHOUT the Flex freight cost, because that cost is not
+    resolvable yet (shipping label not loaded at the warehouse) -- see
+    `TotalGaussResultado.provisional`'s docstring. `provisional_falta`
+    names the missing concept (e.g. "Envío Flex") for the UI badge."""
 
     total_gauss: Optional[float] = None
     lineas: List[DeduccionLineaSummary]
     markup: Optional[float] = None
+    provisional: bool = False
+    provisional_falta: Optional[str] = None
 
     @classmethod
     def from_domain(cls, resultado) -> "CadenaTotalGaussSummary":
         return cls(
             total_gauss=float(resultado.total_gauss) if resultado.total_gauss is not None else None,
             lineas=[
-                DeduccionLineaSummary(code=code, monto=float(monto) if monto is not None else None)
-                for code, monto in resultado.lineas
+                DeduccionLineaSummary(code=code, monto=float(monto) if monto is not None else None, concepto=concepto)
+                for code, monto, concepto in resultado.lineas
             ],
             markup=float(resultado.markup) if resultado.markup is not None else None,
+            provisional=resultado.provisional,
+            provisional_falta=resultado.provisional_falta,
         )
 
 
@@ -432,6 +447,11 @@ class SaleListItem(BaseModel):
     # itself did not reconcile (design D12) or a chain deduction did not
     # resolve (design D7), never a partial number.
     total_gauss: Optional[float] = None
+    # total-gauss-provisorio: same flag as `CadenaTotalGaussSummary`'s, so
+    # the list row can carry the same badge the detail drawer shows -- the
+    # product owner's decision was explicit that this is NOT drawer-only.
+    total_gauss_provisional: bool = False
+    total_gauss_provisional_falta: Optional[str] = None
 
 
 class SaleGroup(BaseModel):
@@ -479,6 +499,11 @@ class SaleGroup(BaseModel):
     # member's is unknown -- same all-or-nothing rule `neto` already
     # applies at group level (see `group_neto`).
     total_gauss: Optional[float] = None
+    # `True` when ANY member order's `total_gauss` is provisional -- the
+    # pack sum already includes that order's provisional figure, so the
+    # badge must say so too, even if every other member resolved fully.
+    total_gauss_provisional: bool = False
+    total_gauss_provisional_falta: Optional[str] = None
 
 
 class SaleFacetCounts(BaseModel):
@@ -865,6 +890,12 @@ def listar_ventas(
             order_total_gauss = (
                 order_total_gauss_resultado.total_gauss if order_total_gauss_resultado is not None else None
             )
+            order_total_gauss_provisional = (
+                order_total_gauss_resultado.provisional if order_total_gauss_resultado is not None else False
+            )
+            order_total_gauss_provisional_falta = (
+                order_total_gauss_resultado.provisional_falta if order_total_gauss_resultado is not None else None
+            )
             # The real shipment ALWAYS outranks the `no_shipping` tag (order
             # 2000016977234624: tagged `no_shipping` AND a delivered
             # `cross_docking` shipment -- the shipment wins). Recomputed
@@ -892,6 +923,8 @@ def listar_ventas(
                     neto=float(order_neto) if order_neto is not None else None,
                     modo_logistico=order_modo_logistico,
                     total_gauss=float(order_total_gauss) if order_total_gauss is not None else None,
+                    total_gauss_provisional=order_total_gauss_provisional,
+                    total_gauss_provisional_falta=order_total_gauss_provisional_falta,
                 )
             )
 
@@ -927,12 +960,18 @@ def listar_ventas(
         # still makes the pack's total unknown -- never a partial sum.
         member_total_gauss = [m.total_gauss for m in members]
         group_total_gauss = None if any(v is None for v in member_total_gauss) else sum(member_total_gauss)
+        group_total_gauss_provisional = any(m.total_gauss_provisional for m in members)
+        group_total_gauss_provisional_falta = next(
+            (m.total_gauss_provisional_falta for m in members if m.total_gauss_provisional_falta), None
+        )
         groups.append(
             SaleGroup(
                 group_key=key,
                 pack_id=pack_id,
                 neto=group_neto,
                 total_gauss=group_total_gauss,
+                total_gauss_provisional=group_total_gauss_provisional,
+                total_gauss_provisional_falta=group_total_gauss_provisional_falta,
                 # The earliest member. NOTE this is not always the value the
                 # row is sorted by: the sort uses `min` over the FILTERED
                 # orders, this uses `min` over all of them. For the pack that

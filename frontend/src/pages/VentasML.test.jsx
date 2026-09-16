@@ -564,7 +564,10 @@ describe('The Neto column', () => {
     await waitFor(() => expect(screen.getByText('comprador1')).toBeInTheDocument());
 
     const row = screen.getByText('comprador1').closest('tr');
-    expect(within(row).getByText('—')).toBeInTheDocument();
+    // Scoped to the Neto button specifically: with `total_gauss` also
+    // unset on this fixture, the Total Gauss cell renders its OWN dash
+    // now too, so a bare `getByText('—')` would find two and fail.
+    expect(within(row).getByRole('button', { name: 'Ver desglose de costos' })).toHaveTextContent('—');
   });
 
   it('shows a real zero when neto is 0 — a fully returned sale, never a dash', async () => {
