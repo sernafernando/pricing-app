@@ -341,7 +341,9 @@ class TestZeroPricedHistoryRowIsNotACost:
         result = script.run_backfill(limit=100, dry_run=False)
 
         assert db.query(MlOrderItemCosto).filter_by(order_id=1012).count() == 0
-        assert result.skipped[script.SKIP_ZERO_COST] == 1
+        # The zero is ALL this product has, so there is no earlier real
+        # cost to fall back to -- and the reason says which problem it is.
+        assert result.skipped[script.SKIP_NO_PRICE_IN_HISTORY] == 1
 
     def test_a_history_row_with_a_null_price_reports_its_own_reason(self, db):
         """`no_dated_history_row` and `history_row_has_no_price` are
@@ -429,3 +431,83 @@ class TestWrittenCountsWhatTheDatabaseAccepted:
         assert result.written == 1
         assert db.query(MlOrderItemCosto).count() == 2
         assert db.query(MlOrderItemCosto).filter_by(order_id=2002).count() == 1
+
+
+class TestAZeroDoesNotPoisonTheCostsBeforeIt:
+    """Measured in production: 4.360 zero-priced rows spread over 4.353
+    products blocked 3.462 sales, because taking "the most recent dated
+    row" and giving up on a zero discards every sale between that junk row
+    and the next real cost. A zero is a MISSING cost, not a cost change."""
+
+    def test_a_sale_after_a_zero_row_uses_the_last_real_cost_before_it(self, db):
+        """MUTATION-VERIFIED: dropping the price filter from
+        `_pick_history_row` turns this red -- it picks the zero row and the
+        sale is skipped instead of costed at 100."""
+        _producto(db, item_id=500)
+        _publicacion(db)
+        _history(db, item_id=500, price=100.0, when=date(2026, 5, 1), iclh_id=1)
+        _history(db, item_id=500, price=0.0, when=date(2026, 6, 1), iclh_id=2)
+        db.add(_order(3001, datetime(2026, 7, 15, tzinfo=timezone.utc)))
+        db.add(_item(3001))
+        db.commit()
+
+        result = script.run_backfill(limit=100, dry_run=False)
+
+        row = db.query(MlOrderItemCosto).filter_by(order_id=3001).one()
+        assert row.costo_origen == Decimal("100.0")
+        # The date of the REAL row used, not of the zero that came after.
+        assert row.costo_fecha == date(2026, 5, 1)
+        assert result.written == 1
+
+    def test_it_still_never_reaches_past_the_sale_for_a_real_cost(self, db):
+        """The loosening stops exactly here: skipping a zero must not become
+        an excuse to take a priced row dated AFTER the sale. This product's
+        only real cost arrives in September; a July sale stays uncosted."""
+        _producto(db, item_id=500)
+        _publicacion(db)
+        _history(db, item_id=500, price=0.0, when=date(2026, 6, 1), iclh_id=1)
+        _history(db, item_id=500, price=100.0, when=date(2026, 9, 1), iclh_id=2)
+        db.add(_order(3002, datetime(2026, 7, 15, tzinfo=timezone.utc)))
+        db.add(_item(3002))
+        db.commit()
+
+        result = script.run_backfill(limit=100, dry_run=False)
+
+        assert db.query(MlOrderItemCosto).filter_by(order_id=3002).count() == 0
+        assert result.skipped[script.SKIP_NO_PRICE_IN_HISTORY] == 1
+
+    def test_no_dated_row_at_all_is_a_different_reason_than_an_empty_one(self, db):
+        """`no_dated_history_row` must not absorb the zero case now that the
+        picker rejects zeros: one is "the ERP has nothing for that date",
+        the other "it has rows and they came empty"."""
+        _producto(db, item_id=500)
+        _publicacion(db)
+        _history(db, item_id=500, price=100.0, when=date(2026, 9, 1), iclh_id=1)
+        db.add(_order(3003, datetime(2026, 7, 15, tzinfo=timezone.utc)))
+        db.add(_item(3003))
+        db.commit()
+
+        result = script.run_backfill(limit=100, dry_run=False)
+
+        assert result.skipped[script.SKIP_NO_HISTORY] == 1
+        assert result.skipped[script.SKIP_NO_PRICE_IN_HISTORY] == 0
+
+
+class TestLimitIsOptional:
+    def test_without_a_limit_every_candidate_is_examined(self, db):
+        """A backfill with no arguments must do the whole job. The old
+        default of 5000 re-examined the same unresolvable items every run
+        and starved the tail -- in production `examined` stayed pinned at
+        the cap while `resolved` fell from 4.557 to 767."""
+        _producto(db, item_id=500)
+        _publicacion(db)
+        _history(db, item_id=500, price=100.0, when=date(2026, 5, 1), iclh_id=1)
+        for order_id in (3101, 3102, 3103):
+            db.add(_order(order_id, datetime(2026, 7, 15, tzinfo=timezone.utc)))
+            db.add(_item(order_id))
+        db.commit()
+
+        result = script.run_backfill(limit=None, dry_run=False)
+
+        assert result.examined == 3
+        assert result.written == 3

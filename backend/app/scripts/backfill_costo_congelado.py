@@ -191,16 +191,45 @@ def _as_date(value: Any) -> Optional[date]:
     return value
 
 
+def _tiene_precio(row: ItemCostListHistory) -> bool:
+    """A history row that carries a real cost. A NULL or <= 0 `iclh_price`
+    is a HOLE in the ERP, not a product that became free."""
+    if row.iclh_price is None:
+        return False
+    try:
+        return Decimal(str(row.iclh_price)) > 0
+    except InvalidOperation:
+        return False
+
+
 def _pick_history_row(rows: Sequence[ItemCostListHistory], as_of: date) -> Optional[ItemCostListHistory]:
-    """The most recent history row dated AT OR BEFORE `as_of`. No fallback
-    to a later row and no fallback to `ProductoERP.costo` -- a miss here
-    means the item is SKIPPED, never costed some other way. Compared by
-    DATE, not datetime: `iclh_cd` carries a time-of-day that "at the sale"
-    was never meant to discriminate against."""
-    eligible = [row for row in rows if _as_date(row.iclh_cd) is not None and _as_date(row.iclh_cd) <= as_of]
-    if not eligible:
+    """The most recent history row dated AT OR BEFORE `as_of` THAT CARRIES
+    A REAL PRICE.
+
+    Still no fallback to a later row and no fallback to `ProductoERP.costo`
+    -- the sale is never costed with a figure from after it happened. What
+    this DOES skip over is a priced-at-zero row, and that is not a loosening
+    of the rule, it is the rule applied correctly: measured in production,
+    4.360 zero rows spread over 4.353 products blocked 3.462 sales, because
+    one junk row poisons every sale between itself and the next real cost.
+    A zero is a MISSING cost, not a cost change, so the last real cost known
+    before the sale is still the honest answer.
+
+    Compared by DATE, not datetime: `iclh_cd` carries a time-of-day that "at
+    the sale" was never meant to discriminate against."""
+    fechadas = [row for row in rows if _as_date(row.iclh_cd) is not None and _as_date(row.iclh_cd) <= as_of]
+    con_precio = [row for row in fechadas if _tiene_precio(row)]
+    if not con_precio:
         return None
-    return max(eligible, key=lambda row: (_as_date(row.iclh_cd), row.iclh_id))
+    return max(con_precio, key=lambda row: (_as_date(row.iclh_cd), row.iclh_id))
+
+
+def _hay_fila_fechada(rows: Sequence[ItemCostListHistory], as_of: date) -> bool:
+    """Whether ANY row is dated at or before `as_of`, priced or not. Only
+    used to tell the two skip reasons apart: "the ERP has no cost for that
+    date" and "every row it has for that date came empty" get fixed in
+    different places."""
+    return any(_as_date(row.iclh_cd) is not None and _as_date(row.iclh_cd) <= as_of for row in rows)
 
 
 def _usd_rates_by_date(db: Session, dates: Sequence[date]) -> List[TipoCambio]:
@@ -240,15 +269,18 @@ def _resolve_backfill_cost(
 ) -> Optional[Dict[str, Any]]:
     history_row = _pick_history_row(history_rows, order_date)
     if history_row is None:
-        result.skipped[SKIP_NO_HISTORY] += 1
+        # Two different problems, kept apart because they get fixed in
+        # different places: the ERP has NO row for that date at all, or it
+        # has rows and every one of them came without a price. The second
+        # is the case the ERP can close by loading a cost.
+        if _hay_fila_fechada(history_rows, order_date):
+            result.skipped[SKIP_NO_PRICE_IN_HISTORY] += 1
+        else:
+            result.skipped[SKIP_NO_HISTORY] += 1
         return None
 
     if producto.iva is None:
         result.skipped[SKIP_NO_IVA] += 1
-        return None
-
-    if history_row.iclh_price is None:
-        result.skipped[SKIP_NO_PRICE_IN_HISTORY] += 1
         return None
 
     try:
@@ -259,9 +291,10 @@ def _resolve_backfill_cost(
         return None
 
     if costo_origen <= 0:
-        # See SKIP_ZERO_COST: a row with no price is an ERP hole, not a
-        # free product. Skipping leaves the sale visibly uncosted, which a
-        # reader can act on; freezing 0 would silently claim full margin.
+        # Unreachable by construction: `_pick_history_row` only ever
+        # returns a row `_tiene_precio` accepted. Kept as a backstop so a
+        # future change to the picker cannot silently freeze a zero and
+        # declare the sale 100% margin.
         result.skipped[SKIP_ZERO_COST] += 1
         return None
 
@@ -303,11 +336,14 @@ def _resolve_backfill_cost(
     }
 
 
-def run_backfill(limit: int, dry_run: bool, batch_size: int = DEFAULT_BATCH_SIZE) -> BackfillResult:
+def run_backfill(limit: Optional[int], dry_run: bool, batch_size: int = DEFAULT_BATCH_SIZE) -> BackfillResult:
     result = BackfillResult()
     db = SessionLocal()
     try:
-        rows = _candidate_query(db).limit(limit).all()
+        consulta = _candidate_query(db)
+        if limit is not None:
+            consulta = consulta.limit(limit)
+        rows = consulta.all()
         result.examined = len(rows)
         if not rows:
             return result
@@ -417,7 +453,16 @@ def _build_parser() -> argparse.ArgumentParser:
         "frozen-cost feature shipped, from dated ERP cost HISTORY only -- never "
         "from the current cost."
     )
-    parser.add_argument("--limit", type=int, default=5000, help="Max candidate items examined in this run.")
+    parser.add_argument(
+        "--limit",
+        type=int,
+        default=None,
+        help="Stop after examining this many candidate items. WITHOUT it the "
+        "run covers every candidate, which is what a backfill is for -- a "
+        "default cap re-examines the same unresolvable items every run and "
+        "starves the tail (observed in production: `examined` stayed pinned "
+        "at the cap while `resolved` fell to near zero).",
+    )
     parser.add_argument(
         "--batch-size",
         type=int,
