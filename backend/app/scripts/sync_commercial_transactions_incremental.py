@@ -45,6 +45,15 @@ async def sync_transacciones_incrementales(db: Session, batch_size: int = 1000):
     print(f"📊 Último ct_transaction en BD: {ultimo_ct}")
     print("🔄 Buscando transacciones nuevas...\n")
 
+    # Pool-safety: the `max(ct_transaction)` probe above opened a read transaction on
+    # `db`. Release it BEFORE the HTTP call below, which targets our own API
+    # (`/api/gbp-parser`) with a 120s timeout -- the very value of
+    # `idle_in_transaction_session_timeout`, so a slow ERP would have PostgreSQL kill
+    # this session right at the boundary. Holding it also pins a PgBouncer server
+    # connection while the request we issue consumes a second one from the API pool.
+    # Only the read above is pending, so committing here discards no work.
+    db.commit()
+
     try:
         # El endpoint necesita fechas, pero usaremos un rango amplio
         # y filtraremos por ct_transaction en el código
