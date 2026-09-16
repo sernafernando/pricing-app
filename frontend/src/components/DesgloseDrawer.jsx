@@ -16,9 +16,14 @@
  * only ever changes `drawerOrderId`.
  *
  * The lines render exactly as `GET /ml-ventas-ops/orders/{order_id}` sends
- * them, in order — no client-side reordering, renaming, or filtering. The
- * backend is the single source of truth for the breakdown (see
- * `breakdown_service.py`); duplicating that judgment here would let the
+ * them, in order, with one exception: `origen="propio"` lines are dropped
+ * from this list. Those are costs WE pay that ML never saw and do NOT sit
+ * inside `neto` (see `OperationBreakdown`'s docstring in
+ * `breakdown_service.py`) — showing them above "Neto" would read as
+ * subtracted from it, and the Flex one already appears, genuinely
+ * subtracted, in the Total Gauss chain below. No other reordering,
+ * renaming, or filtering happens here. The backend is the single source of
+ * truth for the breakdown; duplicating its judgment here would let the
  * two disagree.
  *
  * `incompleto` never renders a total that looks closed: the amount stays
@@ -211,7 +216,13 @@ export default function DesgloseDrawer({ orderId, open, onClose }) {
   // is the one the operator sees when something upstream is already
   // wrong -- the worst moment to lose the panel.
   const reasons = breakdown?.incomplete_reasons || [];
-  const lines = breakdown?.lines || [];
+  // `origen="propio"` lines (today: the real Flex freight cost) are NOT
+  // part of what ML subtracted to reach `neto` -- see
+  // `OperationBreakdownSummary`'s docstring. Rendering them in this list
+  // would read as "subtracted from Neto", which is false, AND double the
+  // Flex line: it already appears, genuinely subtracted, in the Total
+  // Gauss chain below (`cadena_total_gauss`'s `envio_flex` link).
+  const lines = (breakdown?.lines || []).filter((line) => line.origen !== 'propio');
 
   // Same defensive discipline: an absent/`null` `iva_decomposicion` (a
   // stale client, or an old-shaped test fixture) must not white-screen the
@@ -263,6 +274,15 @@ export default function DesgloseDrawer({ orderId, open, onClose }) {
 
           {!loading && !errorKind && breakdown && (
             <>
+              {/* The starting figure every line below is taken off. `null`
+                  (never `0`, see `formatAmount`) when some member order's
+                  `paid_amount` has not synced -- reads as "unknown", not
+                  as a sale worth nothing. */}
+              <div className={styles.total}>
+                <span className={styles.totalLabel}>Monto de la operación</span>
+                <span className={styles.totalMonto}>{formatAmount(breakdown.monto_operacion)}</span>
+              </div>
+
               {breakdown.incompleto && (
                 <div className={styles.incompleteBanner}>
                   <TriangleAlert size={16} aria-hidden="true" />
@@ -385,6 +405,23 @@ export default function DesgloseDrawer({ orderId, open, onClose }) {
                       <span className={styles.totalMonto}>{formatAmount(cadenaTotalGauss.total_gauss)}</span>
                     </div>
                   )}
+
+                  {/* The sale's REAL markup -- total_gauss / costo de
+                      mercadería, not the theoretical (neto sin IVA / costo)
+                      one -- because total_gauss already has Flex freight and
+                      % de varios subtracted too. `null` (never "0%": the
+                      same "unknown" dash `formatAmount` uses everywhere
+                      else) whenever total_gauss, the cost, or the division
+                      itself is undefined -- see `TotalGaussResultado.markup`
+                      in `deducciones.py`. */}
+                  <div className={styles.total}>
+                    <span className={styles.totalLabel}>Markup</span>
+                    <span className={styles.totalMonto}>
+                      {cadenaTotalGauss.markup === null || cadenaTotalGauss.markup === undefined
+                        ? '—'
+                        : `${formatAmount(cadenaTotalGauss.markup)}%`}
+                    </span>
+                  </div>
                 </section>
               )}
             </>

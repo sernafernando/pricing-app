@@ -454,3 +454,93 @@ class TestAnAbsentOrderStillGetsAnAnswer:
 
         assert 999999 in result, "an absent order must not silently read as 'does not apply'"
         assert result[999999] == Decimal("0")
+
+
+class TestMarkup:
+    """`TotalGaussResultado.markup` -- the sale's REAL markup, `total_gauss
+    / costo_mercaderia` as a percentage (product owner's explicit choice
+    over the theoretical `(neto_sin_iva - costo) / costo`, since
+    `total_gauss` already has Flex freight and "% de varios" subtracted
+    too). `None` -- never `0`, never infinite -- whenever `total_gauss` is
+    unknown, the goods cost is unknown, or the cost is exactly zero."""
+
+    def test_happy_path_matches_the_product_owners_real_example(self, db) -> None:
+        """Real screen values: neto sin IVA 67.686,47, costo de mercadería
+        58.874,40, Total Gauss 8.812,07 -> markup 14,97%."""
+        order_id = 900
+        _order(db, order_id)
+        _item_with_cost(db, order_id, "MLA1", 1, Decimal("58874.40"))
+        _varios(db)  # 0% -- isolates this test to the cost/gauss ratio alone
+        db.commit()
+
+        result = calcular_total_gauss(db, [order_id], {order_id: Decimal("67686.47")})[order_id]
+
+        assert result.total_gauss == Decimal("8812.07")
+        assert result.markup == Decimal("14.97")
+
+    def test_unresolved_total_gauss_makes_markup_none_not_a_number(self, db) -> None:
+        """MUTATION: computing markup off `neto_sin_iva` directly instead of
+        the chain's `total` would produce a number here where `total_gauss`
+        (and therefore markup) must be `None` -- the goods cost has no
+        frozen snapshot."""
+        order_id = 901
+        _order(db, order_id)
+        _item_no_cost(db, order_id, "MLA1")  # no frozen cost -> total_gauss None
+        _varios(db)
+        db.commit()
+
+        result = calcular_total_gauss(db, [order_id], {order_id: Decimal("1000.00")})[order_id]
+
+        assert result.total_gauss is None
+        assert result.markup is None
+
+    def test_unknown_cost_with_a_known_total_gauss_still_makes_markup_none(self, db) -> None:
+        """An order with no items at all has an unknown cost AND an unknown
+        total_gauss (see `TestNoDeductionsTotalGaussEqualsNetoSinIva`), so
+        this also exercises the "cost unknown" branch of the `None` rule
+        directly, not just via `total_gauss` already being `None`."""
+        order_id = 902
+        _order(db, order_id)
+        _varios(db)
+        db.commit()
+
+        result = calcular_total_gauss(db, [order_id], {order_id: Decimal("500.00")})[order_id]
+
+        assert result.markup is None
+
+    def test_known_cost_but_unresolved_total_gauss_still_makes_markup_none(self, db) -> None:
+        """The goods cost resolves fine here -- only the Flex freight
+        (`envio_flex`) is unknown, which blocks `total_gauss` alone. Proves
+        the `total is not None` guard is load-bearing on its own, not just
+        redundant with the cost check: a version that dropped it would
+        divide `costo_mercaderia` by a stale/blank `total` instead of
+        reporting `None`."""
+        order_id = 904
+        _order(db, order_id, shipping_id=9040)
+        db.add(MlShipmentOps(shipment_id=9040, logistic_type="self_service"))
+        # No EtiquetaEnvio at all -> EnvioFlexDeduccion resolves None,
+        # which must block the whole chain (design D1/D7).
+        _item_with_cost(db, order_id, "MLA1", 1, Decimal("100.00"))
+        _varios(db)
+        db.commit()
+
+        result = calcular_total_gauss(db, [order_id], {order_id: Decimal("1000.00")})[order_id]
+
+        assert result.total_gauss is None
+        assert result.markup is None
+
+    def test_zero_cost_makes_markup_none_never_infinite(self, db) -> None:
+        """MUTATION: dropping the `costo_mercaderia != 0` guard raises
+        `DivisionByZero` (or, with a naive float division, `inf`) instead
+        of the required `None` -- an "infinite" markup on screen is worse
+        than a dash."""
+        order_id = 903
+        _order(db, order_id)
+        _item_with_cost(db, order_id, "MLA1", 1, Decimal("0.00"))
+        _varios(db)
+        db.commit()
+
+        result = calcular_total_gauss(db, [order_id], {order_id: Decimal("1000.00")})[order_id]
+
+        assert result.total_gauss == Decimal("1000.00")
+        assert result.markup is None

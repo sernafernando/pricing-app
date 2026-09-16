@@ -48,7 +48,7 @@ from app.services.ml_ventas_desglose.breakdown_service import (
 )
 
 
-def _order(db, order_id: int, pack_id=None, shipping_id=None) -> None:
+def _order(db, order_id: int, pack_id=None, shipping_id=None, paid_amount=None) -> None:
     db.add(
         MlOrdersOps(
             order_id=order_id,
@@ -57,6 +57,7 @@ def _order(db, order_id: int, pack_id=None, shipping_id=None) -> None:
             ml_last_updated=datetime(2026, 8, 20, tzinfo=timezone.utc),
             seller_id=999,
             shipping_id=shipping_id,
+            paid_amount=paid_amount,
         )
     )
 
@@ -925,3 +926,57 @@ class TestFlexRealCost:
 
         assert not any(line.origen == "propio" for line in result.lines)
         assert REASON_FLEX_COST_UNKNOWN in result.incomplete_reasons
+
+
+class TestMontoOperacion:
+    """`monto_operacion` -- the gross the drawer opens on, `paid_amount`
+    summed across every member order. `None` (never a fabricated 0)
+    whenever any member order's `paid_amount` is not yet known -- see the
+    field's own docstring on `OperationBreakdown`."""
+
+    def test_single_order_reports_its_paid_amount(self, db) -> None:
+        order_id = 700
+        _order(db, order_id, paid_amount=Decimal("19900.00"))
+        _payment(db, 1, order_id, status="approved", net_received_amount=Decimal("19900.00"))
+        db.commit()
+
+        result = compute_breakdown(db, [order_id])
+
+        assert result.monto_operacion == Decimal("19900.00")
+
+    def test_pack_sums_paid_amount_across_every_member_order(self, db) -> None:
+        pack_id = 701
+        order_a, order_b = 7010, 7011
+        _order(db, order_a, pack_id=pack_id, paid_amount=Decimal("1000.00"))
+        _order(db, order_b, pack_id=pack_id, paid_amount=Decimal("2500.50"))
+        _payment(db, 1, order_a, status="approved", net_received_amount=Decimal("1000.00"))
+        _payment(db, 2, order_b, status="approved", net_received_amount=Decimal("2500.50"))
+        db.commit()
+
+        result = compute_breakdown(db, [order_a, order_b])
+
+        assert result.monto_operacion == Decimal("3500.50")
+
+    def test_unknown_paid_amount_reports_none_not_zero(self, db) -> None:
+        order_id = 702
+        _order(db, order_id, paid_amount=None)
+        _payment(db, 1, order_id, status="approved", net_received_amount=Decimal("100.00"))
+        db.commit()
+
+        result = compute_breakdown(db, [order_id])
+
+        assert result.monto_operacion is None
+
+    def test_one_unknown_member_order_makes_the_pack_sum_unknown(self, db) -> None:
+        """A partial sum would UNDERSTATE the real gross -- silently
+        dropping the unsynced order's money instead of saying so."""
+        pack_id = 703
+        order_a, order_b = 7030, 7031
+        _order(db, order_a, pack_id=pack_id, paid_amount=Decimal("1000.00"))
+        _order(db, order_b, pack_id=pack_id, paid_amount=None)
+        _payment(db, 1, order_a, status="approved", net_received_amount=Decimal("1000.00"))
+        db.commit()
+
+        result = compute_breakdown(db, [order_a, order_b])
+
+        assert result.monto_operacion is None

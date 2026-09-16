@@ -754,6 +754,13 @@ class OperationBreakdown:
     neto: Optional[Decimal]
     incompleto: bool
     incomplete_reasons: List[str] = field(default_factory=list)
+    # `paid_amount` summed across every member order -- what the sale was
+    # actually paid for, BEFORE any of the deductions in `lines` come off
+    # it. `None` (never a fabricated 0) whenever any member order carries
+    # no `paid_amount` yet: a partial sum would understate the real gross
+    # and read as "this operation was worth less", which is the same lie
+    # a silent zero tells everywhere else in this module.
+    monto_operacion: Optional[Decimal] = None
 
 
 def payment_effective_net(payment: MlPaymentOps, seller_charges: Sequence[MlPaymentCharge]) -> Decimal:
@@ -929,6 +936,17 @@ def compute_breakdown(db: Session, order_ids: Sequence[int]) -> OperationBreakdo
             line_amounts[CONCEPTO_ENVIOS] = line_amounts.get(CONCEPTO_ENVIOS, Decimal("0")) + amount
 
     orders = db.query(MlOrdersOps).filter(MlOrdersOps.order_id.in_(order_ids)).all()
+
+    # The gross the drawer opens on. Summed across every member order (a
+    # pack is several orders), off `paid_amount` -- not `total_amount` --
+    # because `paid_amount` is the figure this whole module already
+    # reconciles against (`net_received_amount == paid_amount - suma(cargos
+    # del vendedor)`). Any order missing it makes the SUM unknown, not
+    # partially right: see the field's own docstring on `OperationBreakdown`.
+    monto_operacion: Optional[Decimal] = None
+    if orders and all(order.paid_amount is not None for order in orders):
+        monto_operacion = sum((Decimal(str(order.paid_amount)) for order in orders), Decimal("0"))
+
     has_shipment_order = any(order.shipping_id is not None for order in orders)
     modes_by_order, shipments_by_id = _resolve_modes(db, orders)
 
@@ -988,4 +1006,5 @@ def compute_breakdown(db: Session, order_ids: Sequence[int]) -> OperationBreakdo
         neto=neto if relevant_payments else None,
         incompleto=any(reason not in _INFORMATIONAL_REASONS for reason in incomplete_reasons),
         incomplete_reasons=incomplete_reasons,
+        monto_operacion=monto_operacion,
     )

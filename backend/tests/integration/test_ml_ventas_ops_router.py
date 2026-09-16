@@ -252,6 +252,46 @@ class TestBreakdown:
         assert "payments_not_synced" in body["breakdown"]["incomplete_reasons"]
         assert body["breakdown"]["neto"] is None
 
+    def test_breakdown_exposes_paid_amount_as_monto_operacion(self, db, client, admin_auth_headers, rol_admin) -> None:
+        order_id = 657
+        db.add(
+            MlOrdersOps(
+                order_id=order_id,
+                status="paid",
+                ml_last_updated=datetime(2026, 8, 20, tzinfo=timezone.utc),
+                seller_id=999,
+                paid_amount=Decimal("19900.00"),
+            )
+        )
+        db.commit()
+        _grant_ml_ops_ver(db, rol_admin)
+
+        resp = client.get(f"/api/ml-ventas-ops/orders/{order_id}", headers=admin_auth_headers)
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["breakdown"]["monto_operacion"] == 19900.00
+
+    def test_breakdown_reports_null_monto_operacion_when_paid_amount_unknown(
+        self, db, client, admin_auth_headers, rol_admin
+    ) -> None:
+        """`paid_amount` unset -- MUST be `None`, never a fabricated `0`."""
+        order_id = 6590
+        db.add(
+            MlOrdersOps(
+                order_id=order_id,
+                status="paid",
+                ml_last_updated=datetime(2026, 8, 20, tzinfo=timezone.utc),
+                seller_id=999,
+            )
+        )
+        db.commit()
+        _grant_ml_ops_ver(db, rol_admin)
+
+        resp = client.get(f"/api/ml-ventas-ops/orders/{order_id}", headers=admin_auth_headers)
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["breakdown"]["monto_operacion"] is None
+
     def test_breakdown_covers_every_sibling_order_of_the_same_pack(
         self, db, client, admin_auth_headers, rol_admin
     ) -> None:

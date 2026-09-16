@@ -5,7 +5,13 @@
  *  - Renders nothing when closed.
  *  - Fetches GET /ml-ventas-ops/orders/{orderId} when open, and re-fetches
  *    when orderId changes while staying open (R2 — never closes on its own).
- *  - Renders lines exactly as sent, in order, with no filtering or renaming.
+ *  - Renders `lines` exactly as sent, in order, with no reordering or
+ *    renaming -- except `origen="propio"` lines, which are dropped from
+ *    this list (they are not part of what ML subtracted to reach `neto`,
+ *    and the Flex one already appears, genuinely subtracted, in the Total
+ *    Gauss chain).
+ *  - Renders `monto_operacion` ("Monto de la operación") above the line
+ *    list, `null` rendering as "—" like every other unknown amount.
  *  - `incompleto` shows the plain-language reason and never hides the total.
  *  - Escape closes the panel; clicking the actual backdrop (not the panel
  *    itself) closes it too, and clicking inside the panel does not.
@@ -499,5 +505,119 @@ describe('IVA decomposition and Total Gauss chain (ml-ventas-modo-logistico PR6)
 
       expect(await screen.findByText(/todavía no se sincronizaron/i)).toBeInTheDocument();
     });
+  });
+});
+
+describe('Flex own-cost line vs the Total Gauss chain', () => {
+  it('does not render a propio line above Neto, but keeps api lines', async () => {
+    mockBreakdown(1001, {
+      lines: [
+        { concepto: 'Cargo por vender', monto: 100, origen: 'api' },
+        { concepto: 'Envío Flex (costo propio)', monto: 50, origen: 'propio' },
+      ],
+      neto: 900,
+      incompleto: false,
+      incomplete_reasons: [],
+    });
+    render(<DesgloseDrawer orderId={1001} open onClose={vi.fn()} />);
+
+    await screen.findByRole('dialog', { name: /desglose de costos/i });
+
+    expect(screen.getByText('Cargo por vender')).toBeInTheDocument();
+    expect(screen.queryByText('Envío Flex (costo propio)')).not.toBeInTheDocument();
+  });
+});
+
+describe('Monto de la operación', () => {
+  it('renders paid_amount summed across the operation, above the line list', async () => {
+    mockBreakdown(1001, {
+      lines: [{ concepto: 'Cargo por vender', monto: 100, origen: 'api' }],
+      neto: 900,
+      incompleto: false,
+      incomplete_reasons: [],
+      monto_operacion: 1000,
+    });
+    render(<DesgloseDrawer orderId={1001} open onClose={vi.fn()} />);
+
+    expect(await screen.findByText('Monto de la operación')).toBeInTheDocument();
+    expect(screen.getByText('1.000,00')).toBeInTheDocument();
+  });
+
+  it('renders the unknown treatment, never a zero, when monto_operacion is null', async () => {
+    mockBreakdown(1001, {
+      lines: [],
+      neto: null,
+      incompleto: false,
+      incomplete_reasons: [],
+      monto_operacion: null,
+    });
+    render(<DesgloseDrawer orderId={1001} open onClose={vi.fn()} />);
+
+    // Scoped to THIS row on purpose. The drawer renders a dash for every
+    // unknown figure, so `getAllByText('—').length > 0` passes even when
+    // the amount beside "Monto de la operación" is something else
+    // entirely -- the assertion would be about the rest of the screen.
+    const label = await screen.findByText('Monto de la operación');
+    expect(label.nextSibling).toHaveTextContent('—');
+    expect(label.nextSibling).not.toHaveTextContent('0,00');
+  });
+});
+
+describe('Markup (total_gauss / costo de mercadería, as a percentage)', () => {
+  function mockDetail(orderId, { breakdown, iva_decomposicion, cadena_total_gauss } = {}) {
+    api.get.mockImplementation((url) => {
+      if (url === `/ml-ventas-ops/orders/${orderId}`) {
+        return Promise.resolve({ data: { breakdown, iva_decomposicion, cadena_total_gauss } });
+      }
+      return Promise.resolve({ data: {} });
+    });
+  }
+
+  const BASE_BREAKDOWN = { lines: [], neto: 100, incompleto: false, incomplete_reasons: [] };
+
+  it('renders the markup percentage below Total Gauss', async () => {
+    mockDetail(1001, {
+      breakdown: BASE_BREAKDOWN,
+      iva_decomposicion: {
+        componentes: [],
+        neto_sin_iva: 67686.47,
+        reconcilia: true,
+        diferencia: 0,
+        razones: [],
+      },
+      cadena_total_gauss: {
+        total_gauss: 8812.07,
+        lineas: [{ code: 'costo_mercaderia', monto: 58874.4 }],
+        markup: 14.97,
+      },
+    });
+    render(<DesgloseDrawer orderId={1001} open onClose={vi.fn()} />);
+
+    expect(await screen.findByText('Markup')).toBeInTheDocument();
+    expect(screen.getByText('14,97%')).toBeInTheDocument();
+  });
+
+  it('renders the unknown treatment, never 0%, when markup is null', async () => {
+    mockDetail(1001, {
+      breakdown: BASE_BREAKDOWN,
+      iva_decomposicion: {
+        componentes: [],
+        neto_sin_iva: 100,
+        reconcilia: true,
+        diferencia: 0,
+        razones: [],
+      },
+      cadena_total_gauss: {
+        total_gauss: null,
+        lineas: [{ code: 'costo_mercaderia', monto: null }],
+        markup: null,
+      },
+    });
+    render(<DesgloseDrawer orderId={1001} open onClose={vi.fn()} />);
+
+    await screen.findByText('Markup');
+    const markupRow = screen.getByText('Markup').closest('div');
+    expect(within(markupRow).getByText('—')).toBeInTheDocument();
+    expect(screen.queryByText('0%')).not.toBeInTheDocument();
   });
 });

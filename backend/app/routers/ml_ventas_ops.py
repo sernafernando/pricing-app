@@ -204,12 +204,19 @@ class OperationBreakdownSummary(BaseModel):
     already subtracted to arrive at `neto`; `origen="propio"` lines are
     costs WE pay that ML never saw, and they sit alongside `neto` rather
     than inside it. Anything rendering this must not present the two as a
-    single column that adds up."""
+    single column that adds up.
+
+    `monto_operacion` is the gross the sale was paid for -- `paid_amount`
+    summed across every order in the operation, BEFORE any line in `lines`
+    comes off it -- so a reader has a starting figure to read the charges
+    against. `None` (never `0`) whenever any member order's `paid_amount`
+    is not yet known; a `0` here would read as a real, measured amount."""
 
     lines: List[BreakdownLineSummary]
     neto: Optional[float] = None
     incompleto: bool
     incomplete_reasons: List[str]
+    monto_operacion: Optional[float] = None
 
     @classmethod
     def from_domain(cls, breakdown) -> "OperationBreakdownSummary":
@@ -221,6 +228,7 @@ class OperationBreakdownSummary(BaseModel):
             neto=float(breakdown.neto) if breakdown.neto is not None else None,
             incompleto=breakdown.incompleto,
             incomplete_reasons=list(breakdown.incomplete_reasons),
+            monto_operacion=(float(breakdown.monto_operacion) if breakdown.monto_operacion is not None else None),
         )
 
 
@@ -278,10 +286,17 @@ class DeduccionLineaSummary(BaseModel):
 class CadenaTotalGaussSummary(BaseModel):
     """This order's deduction chain, in chain order (`neto_sin_iva` minus
     each applicable deduction). `total_gauss=None` whenever `neto_sin_iva`
-    itself is unknown OR any applicable deduction resolved unknown."""
+    itself is unknown OR any applicable deduction resolved unknown.
+
+    `markup` is the sale's REAL markup -- `total_gauss / costo_mercaderia`
+    as a percentage, see `TotalGaussResultado.markup`'s docstring in
+    `deducciones.py` for why this formula over the theoretical one.
+    `None` (never `0`, never infinite) whenever `total_gauss` is unknown,
+    the goods cost is unknown, or the cost is exactly zero."""
 
     total_gauss: Optional[float] = None
     lineas: List[DeduccionLineaSummary]
+    markup: Optional[float] = None
 
     @classmethod
     def from_domain(cls, resultado) -> "CadenaTotalGaussSummary":
@@ -291,6 +306,7 @@ class CadenaTotalGaussSummary(BaseModel):
                 DeduccionLineaSummary(code=code, monto=float(monto) if monto is not None else None)
                 for code, monto in resultado.lineas
             ],
+            markup=float(resultado.markup) if resultado.markup is not None else None,
         )
 
 

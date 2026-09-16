@@ -265,10 +265,25 @@ class TotalGaussResultado:
     (design D12's reconciliation failure) OR any APPLICABLE deduction in
     the chain resolved unknown (design D7). `lineas` lists every deduction
     that DID apply, in chain order, `(code, monto)` -- `monto` is `None`
-    for the one that blocked the chain, so the UI can point at it."""
+    for the one that blocked the chain, so the UI can point at it.
+
+    `markup` is the SALE'S REAL markup, not the theoretical one:
+    `total_gauss / costo_mercaderia`, expressed as a percentage. The
+    product owner picked this over `pricing_calculator.calcular_markup`'s
+    `(limpio_sin_iva - costo) / costo` on purpose -- `total_gauss` IS that
+    same numerator but with the Flex freight and the "% de varios" ALSO
+    subtracted, so dividing it by cost reports what the sale actually
+    earned instead of what it earned before those extra costs. `None`
+    (never `0`, never infinite) whenever `total_gauss` is `None`, the
+    goods cost is `None` (missing from the chain, or `costo_mercaderia`
+    did not apply to this order), or the cost is exactly zero -- a
+    division by zero here would be worse than an unknown value, and this
+    module treats a fabricated zero as a lie everywhere else, so it must
+    here too."""
 
     total_gauss: Optional[Decimal]
     lineas: List[Tuple[str, Optional[Decimal]]] = field(default_factory=list)
+    markup: Optional[Decimal] = None
 
 
 def calcular_total_gauss(
@@ -299,6 +314,11 @@ def calcular_total_gauss(
         neto_sin_iva = neto_sin_iva_by_order.get(order_id)
         total: Optional[Decimal] = neto_sin_iva
         lineas: List[Tuple[str, Optional[Decimal]]] = []
+        # Tracked separately from `lineas` (which the chain can grow without
+        # touching this function -- module docstring) so the markup formula
+        # below reads directly off the goods-cost deduction by its stable
+        # `code`, never by position.
+        costo_mercaderia: Optional[Decimal] = None
 
         for deduccion in DEDUCCIONES:
             by_order = resolved_by_code[deduccion.code]
@@ -321,13 +341,25 @@ def calcular_total_gauss(
                 monto = raw
 
             lineas.append((deduccion.code, monto))
+            if deduccion.code == CostoMercaderiaDeduccion.code:
+                costo_mercaderia = monto
 
             if monto is None or total is None:
                 total = None
             else:
                 total = total - monto
 
-        result[order_id] = TotalGaussResultado(total_gauss=total, lineas=lineas)
+        # markup = total_gauss / costo_mercaderia, as a percentage -- see
+        # `TotalGaussResultado.markup`'s docstring for why THIS numerator.
+        # `None` propagates the same way every other value in this module
+        # does: an unresolved cost, an unresolved chain, or a zero cost
+        # (division by zero) all report "we do not know", never a 0% or an
+        # infinite markup.
+        markup: Optional[Decimal] = None
+        if total is not None and costo_mercaderia is not None and costo_mercaderia != 0:
+            markup = (total / costo_mercaderia * Decimal("100")).quantize(_CENT, rounding=ROUND_HALF_UP)
+
+        result[order_id] = TotalGaussResultado(total_gauss=total, lineas=lineas, markup=markup)
 
     return result
 
