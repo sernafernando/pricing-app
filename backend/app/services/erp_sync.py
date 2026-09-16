@@ -284,6 +284,12 @@ async def sincronizar_erp(db: Session) -> Dict:
         logger.info("🔄 Ejecutando query local de productos...")
         productos = fetch_productos_local(db)
 
+        # `fetch_productos_local` left a read transaction open on `db`. Close it before
+        # the HTTP round-trip below, otherwise the session stays `idle in transaction`
+        # for the whole fetch and holds its pool connection hostage. Only reads are
+        # pending at this point, so committing here never discards work.
+        db.commit()
+
         logger.info("🔄 Trayendo stock real-time del ERP (gbp-parser)...")
         stock_dict = await fetch_stock_erp()
 
