@@ -146,6 +146,13 @@
   color: var(--text-primary);
 }
 
+/* total-gauss-provisorio: spacing for the "Provisorio" badge beside the
+   Total Gauss label -- reuses the global `badge`/`badge-warning` classes,
+   never a new badge style. */
+.provisionalBadge {
+  margin-left: var(--space-2);
+}
+
 /* ml-ventas-modo-logistico PR6 — IVA breakdown / Total Gauss chain. */
 
 .section {

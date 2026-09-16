@@ -369,7 +369,13 @@ export default function DesgloseDrawer({ orderId, open, onClose }) {
                     </li>
                     {lineasGauss.map((linea) => (
                       <li key={linea.code} className={styles.line}>
-                        <span className={styles.lineConcepto}>{DEDUCCION_LABELS[linea.code] || linea.code}</span>
+                        {/* `concepto` carries the per-order label (today:
+                            the logistics company name on `envio_flex`) when
+                            the backend has one -- falls back to the static
+                            map only when it does not. */}
+                        <span className={styles.lineConcepto}>
+                          {linea.concepto || DEDUCCION_LABELS[linea.code] || linea.code}
+                        </span>
                         <span className={styles.lineMonto}>
                           {linea.monto === null ? '—' : formatAmount(linea.monto)}
                         </span>
@@ -400,9 +406,25 @@ export default function DesgloseDrawer({ orderId, open, onClose }) {
                       </p>
                     </div>
                   ) : (
-                    <div className={styles.total}>
-                      <span className={styles.totalLabel}>Total Gauss</span>
-                      <span className={styles.totalMonto}>{formatAmount(cadenaTotalGauss.total_gauss)}</span>
+                    <div>
+                      <div className={styles.total}>
+                        <span className={styles.totalLabel}>
+                          Total Gauss
+                          {/* total-gauss-provisorio: a REAL computed number,
+                              just flagged -- never rendered as if it were
+                              unknown (the `—` branch above). */}
+                          {cadenaTotalGauss.provisional && (
+                            <span className={`badge badge-warning ${styles.provisionalBadge}`}>Provisorio</span>
+                          )}
+                        </span>
+                        <span className={styles.totalMonto}>{formatAmount(cadenaTotalGauss.total_gauss)}</span>
+                      </div>
+                      {cadenaTotalGauss.provisional && (
+                        <p className={styles.stateText}>
+                          Calculado sin {(cadenaTotalGauss.provisional_falta || 'Envío Flex').toLowerCase()}: todavía
+                          no se cargó la etiqueta de envío. Se va a actualizar solo cuando se cargue.
+                        </p>
+                      )}
                     </div>
                   )}
 

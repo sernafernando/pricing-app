@@ -49,10 +49,11 @@
 
 import { Fragment, useState, useEffect, useCallback, useRef } from 'react';
 import { Link } from 'react-router-dom';
-import { ShoppingBag, ShieldAlert, ChevronRight, AlertTriangle } from 'lucide-react';
+import { ShoppingBag, ShieldAlert, ChevronRight, AlertTriangle, Percent } from 'lucide-react';
 import { usePermisos } from '../contexts/PermisosContext';
 import api from '../services/api';
 import DesgloseDrawer from '../components/DesgloseDrawer';
+import VariosVentaPctModal from '../components/VariosVentaPctModal';
 import styles from './VentasML.module.css';
 
 const PAGE_SIZE = 50;
@@ -220,6 +221,11 @@ export default function VentasML() {
   const [drawerOrderId, setDrawerOrderId] = useState(null);
   const isDrawerOpen = drawerOrderId !== null;
 
+  // Visible to everyone who can see this page — the modal itself decides
+  // read-only vs. read+write once open, per product decision (see
+  // VariosVentaPctModal for the actual `ml_ops.varios_editar` gating).
+  const [variosPctModalOpen, setVariosPctModalOpen] = useState(false);
+
   const openDrawer = useCallback((orderId) => {
     setDrawerOrderId(orderId);
   }, []);
@@ -355,6 +361,13 @@ export default function VentasML() {
           <h1>Ventas ML</h1>
         </div>
         <div className={styles.headerActions}>
+          <button
+            type="button"
+            className="btn-tesla outline sm"
+            onClick={() => setVariosPctModalOpen(true)}
+          >
+            <Percent size={14} /> % de varios
+          </button>
           <button type="button" className="btn-tesla outline sm" onClick={cargarVentas} disabled={loading}>
             {loading ? 'Actualizando...' : 'Actualizar'}
           </button>
@@ -485,18 +498,19 @@ export default function VentasML() {
               <th>Modo logístico</th>
               <th className={styles.numeric}>Importe</th>
               <th className={styles.numeric}>Neto</th>
+              <th className={styles.numeric}>Total Gauss</th>
             </tr>
           </thead>
           <tbody>
             {loading ? (
               <tr>
-                <td className={styles.stateCell} colSpan={8}>
+                <td className={styles.stateCell} colSpan={9}>
                   Cargando ventas…
                 </td>
               </tr>
             ) : sales.length === 0 ? (
               <tr>
-                <td className={styles.stateCell} colSpan={8}>
+                <td className={styles.stateCell} colSpan={9}>
                   No hay ventas que coincidan con los filtros
                 </td>
               </tr>
@@ -605,6 +619,21 @@ export default function VentasML() {
                           formatMoney(group.neto, group.currency_id)
                         )}
                       </td>
+                      <td className={styles.numeric}>
+                        {formatMoney(group.total_gauss, group.currency_id)}
+                        {/* total-gauss-provisorio: the pack sum already
+                            includes a member's provisional figure -- the
+                            badge says so at THIS level too, not only in the
+                            drawer (product owner's explicit decision). */}
+                        {group.total_gauss_provisional && (
+                          <span
+                            className={`badge badge-warning ${styles.provisionalBadge}`}
+                            title={`Calculado sin ${(group.total_gauss_provisional_falta || 'Envío Flex').toLowerCase()}: todavía no se cargó la etiqueta de envío.`}
+                          >
+                            Provisorio
+                          </span>
+                        )}
+                      </td>
                     </tr>
                     {/* The orders inside the parcel. Rendered only when
                         opened, and never for a lone order — there is
@@ -659,6 +688,17 @@ export default function VentasML() {
                               {formatMoney(order.neto, order.currency_id)}
                             </button>
                           </td>
+                          <td className={styles.numeric}>
+                            {formatMoney(order.total_gauss, order.currency_id)}
+                            {order.total_gauss_provisional && (
+                              <span
+                                className={`badge badge-warning ${styles.provisionalBadge}`}
+                                title={`Calculado sin ${(order.total_gauss_provisional_falta || 'Envío Flex').toLowerCase()}: todavía no se cargó la etiqueta de envío.`}
+                              >
+                                Provisorio
+                              </span>
+                            )}
+                          </td>
                         </tr>
                       ))}
                   </Fragment>
@@ -692,6 +732,7 @@ export default function VentasML() {
       </div>
 
       <DesgloseDrawer orderId={drawerOrderId} open={isDrawerOpen} onClose={closeDrawer} />
+      <VariosVentaPctModal isOpen={variosPctModalOpen} onClose={() => setVariosPctModalOpen(false)} />
     </div>
   );
 }

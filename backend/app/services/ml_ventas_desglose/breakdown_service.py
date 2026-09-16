@@ -96,7 +96,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal
-from typing import Dict, List, Optional, Sequence
+from typing import Dict, List, Optional, Sequence, Tuple
 
 from sqlalchemy.orm import Session, joinedload
 
@@ -583,6 +583,18 @@ def _resolve_flex_cost_by_shipping_id(
     return cost_by_shipping_id, logistica_name_by_shipping_id
 
 
+def _format_flex_concepto(logistica_names: Sequence[str]) -> str:
+    """The SINGLE formatter for the Flex freight label, `"Envío Flex (costo
+    propio) (<empresa>)"` -- used by `_resolve_flex_cost_line` (the
+    breakdown's own aggregate line) AND `EnvioFlexDeduccion` (the Total
+    Gauss chain's per-order line). Two places formatting the same label is
+    exactly the drift this codebase has been bitten by before; this is the
+    one place it happens now."""
+    if not logistica_names:
+        return CONCEPTO_ENVIO_PROPIO
+    return f"{CONCEPTO_ENVIO_PROPIO} ({', '.join(sorted(logistica_names))})"
+
+
 def _resolve_flex_cost_line(
     db: Session,
     orders: Sequence[MlOrdersOps],
@@ -627,14 +639,14 @@ def _resolve_flex_cost_line(
         if name and name not in logistica_names:
             logistica_names.append(name)
 
-    concepto = CONCEPTO_ENVIO_PROPIO
-    if logistica_names:
-        concepto = f"{CONCEPTO_ENVIO_PROPIO} ({', '.join(sorted(logistica_names))})"
+    concepto = _format_flex_concepto(logistica_names)
 
     return BreakdownLine(concepto=concepto, monto=total, origen="propio"), False
 
 
-def resolve_flex_cost_by_order_ids(db: Session, order_ids: Sequence[int]) -> Dict[int, Optional[Decimal]]:
+def resolve_flex_cost_by_order_ids(
+    db: Session, order_ids: Sequence[int]
+) -> Dict[int, Tuple[Optional[Decimal], Optional[str]]]:
     """The seller's OWN Flex shipping cost, PER ORDER -- the Total Gauss
     deduction chain's shape (`deducciones.EnvioFlexDeduccion`), reusing the
     exact same resolution `_resolve_flex_cost_line` applies as one
@@ -644,14 +656,21 @@ def resolve_flex_cost_by_order_ids(db: Session, order_ids: Sequence[int]) -> Dic
     non-Flex order is NOT APPLICABLE, which is different from unknown, and
     the caller (the deduction chain orchestrator) treats an absent key as
     "this deduction does not apply" rather than "unknown, block the whole
-    order". A present key with value `None` means the shipment's cost could
-    not be resolved (`flex_cost_unknown`).
+    order". A present key with value `(None, ...)` means the shipment's
+    cost could not be resolved (`flex_cost_unknown`).
+
+    Each value is `(cost, concepto)`: the cost AND the already-formatted
+    label carrying the logistics company name (`_format_flex_concepto`,
+    the SAME formatter `_resolve_flex_cost_line` uses), so the chain never
+    falls back to `EnvioFlexDeduccion.concepto`'s static string.
+    `concepto` is `None` exactly when `cost` is `None` -- there is no
+    company name to show for an unresolved cost.
 
     Bulk: one query for the orders, one shared set of bulk lookups for
     every shipment -- never one query per order.
     """
     order_ids = list(order_ids)
-    result: Dict[int, Optional[Decimal]] = {}
+    result: Dict[int, Tuple[Optional[Decimal], Optional[str]]] = {}
     if not order_ids:
         return result
 
@@ -662,13 +681,19 @@ def resolve_flex_cost_by_order_ids(db: Session, order_ids: Sequence[int]) -> Dic
         return result
 
     shipping_ids = [o.shipping_id for o in flex_orders if o.shipping_id is not None]
-    cost_by_shipping_id, _names = _resolve_flex_cost_by_shipping_id(db, shipping_ids, shipments_by_id)
+    cost_by_shipping_id, names_by_shipping_id = _resolve_flex_cost_by_shipping_id(db, shipping_ids, shipments_by_id)
 
     for order in flex_orders:
         if order.shipping_id is None:
-            result[order.order_id] = None
-        else:
-            result[order.order_id] = cost_by_shipping_id.get(order.shipping_id)
+            result[order.order_id] = (None, None)
+            continue
+        cost = cost_by_shipping_id.get(order.shipping_id)
+        if cost is None:
+            result[order.order_id] = (None, None)
+            continue
+        name = names_by_shipping_id.get(order.shipping_id)
+        concepto = _format_flex_concepto([name] if name else [])
+        result[order.order_id] = (cost, concepto)
 
     return result
 

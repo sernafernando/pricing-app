@@ -257,6 +257,12 @@
   cursor: pointer;
 }
 
+/* total-gauss-provisorio: spacing for the "Provisorio" badge beside the
+   Total Gauss cell -- reuses the global `badge`/`badge-warning` classes. */
+.provisionalBadge {
+  margin-left: var(--space-2);
+}
+
 .netoButton {
   padding: 0;
   font-family: inherit;

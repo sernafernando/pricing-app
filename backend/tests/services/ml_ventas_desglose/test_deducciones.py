@@ -81,7 +81,7 @@ class TestRegistryOrderRespected:
 
         result = calcular_total_gauss(db, [order_id], {order_id: Decimal("1000.00")})[order_id]
 
-        codes = [code for code, _ in result.lineas]
+        codes = [code for code, _monto, _concepto in result.lineas]
         # `costo_mercaderia` (orden=1) is applicable here; `envio_flex`
         # (orden=2) is not (order is not self_service, no key returned).
         # Registry order is preserved regardless of which entries apply.
@@ -102,7 +102,7 @@ class TestNonePropagatesNeverZero:
         result = calcular_total_gauss(db, [order_id], {order_id: Decimal("1000.00")})[order_id]
 
         assert result.total_gauss is None
-        assert ("costo_mercaderia", None) in result.lineas
+        assert ("costo_mercaderia", None, None) in result.lineas
 
 
 class TestOneUnresolvedItemBlocksOrderLevelCost:
@@ -132,7 +132,7 @@ class TestFullyCostedOrderComputesTotalGauss:
         result = calcular_total_gauss(db, [order_id], {order_id: Decimal("1000.00")})[order_id]
 
         assert result.total_gauss == Decimal("900.00")  # 1000 - (50*2)
-        assert ("costo_mercaderia", Decimal("100.00")) in result.lineas
+        assert ("costo_mercaderia", Decimal("100.00"), None) in result.lineas
 
 
 class TestNoDeductionsTotalGaussEqualsNetoSinIva:
@@ -176,7 +176,7 @@ class TestChainExtensibleNoHardcodedCount:
             deducciones_module.DEDUCCIONES = original
 
         assert result.total_gauss == Decimal("100.00") - Decimal("10.00") - Decimal("5.00")
-        assert ("extra_flat", Decimal("5.00")) in result.lineas
+        assert ("extra_flat", Decimal("5.00"), None) in result.lineas
 
 
 class TestEnvioFlexDeduccion:
@@ -254,7 +254,7 @@ class TestVariosDeduccion:
 
         result = calcular_total_gauss(db, [order_id], {order_id: Decimal("1000.00")})[order_id]
 
-        assert ("varios", Decimal("20.00")) in result.lineas
+        assert ("varios", Decimal("20.00"), None) in result.lineas
         assert result.total_gauss == Decimal("980.00")
 
 
@@ -509,25 +509,41 @@ class TestMarkup:
         assert result.markup is None
 
     def test_known_cost_but_unresolved_total_gauss_still_makes_markup_none(self, db) -> None:
-        """The goods cost resolves fine here -- only the Flex freight
-        (`envio_flex`) is unknown, which blocks `total_gauss` alone. Proves
-        the `total is not None` guard is load-bearing on its own, not just
-        redundant with the cost check: a version that dropped it would
-        divide `costo_mercaderia` by a stale/blank `total` instead of
-        reporting `None`."""
+        """The goods cost resolves fine here, but an UNRELATED chain link
+        (not `envio_flex`, which is now Flex-exempt -- see
+        `TestTotalGaussProvisorio`) resolves unknown, blocking the whole
+        chain. Proves the `total is not None` guard is load-bearing on its
+        own, not just redundant with the cost check: a version that dropped
+        it would divide `costo_mercaderia` by a stale/blank `total` instead
+        of reporting `None`."""
         order_id = 904
-        _order(db, order_id, shipping_id=9040)
-        db.add(MlShipmentOps(shipment_id=9040, logistic_type="self_service"))
-        # No EtiquetaEnvio at all -> EnvioFlexDeduccion resolves None,
-        # which must block the whole chain (design D1/D7).
+        _order(db, order_id)
         _item_with_cost(db, order_id, "MLA1", 1, Decimal("100.00"))
         _varios(db)
         db.commit()
 
-        result = calcular_total_gauss(db, [order_id], {order_id: Decimal("1000.00")})[order_id]
+        class _UnresolvedFlatDeduccion:
+            code = "extra_unresolved"
+            concepto = "Extra sin resolver"
+            orden = 99
+            base = "neto"
+            es_porcentaje = False
+
+            def resolve_bulk(self, db, order_ids):
+                return {oid: None for oid in order_ids}
+
+        import app.services.ml_ventas_desglose.deducciones as deducciones_module
+
+        original = deducciones_module.DEDUCCIONES
+        deducciones_module.DEDUCCIONES = original + (_UnresolvedFlatDeduccion(),)
+        try:
+            result = calcular_total_gauss(db, [order_id], {order_id: Decimal("1000.00")})[order_id]
+        finally:
+            deducciones_module.DEDUCCIONES = original
 
         assert result.total_gauss is None
         assert result.markup is None
+        assert result.provisional is False
 
     def test_zero_cost_makes_markup_none_never_infinite(self, db) -> None:
         """MUTATION: dropping the `costo_mercaderia != 0` guard raises
@@ -544,3 +560,149 @@ class TestMarkup:
 
         assert result.total_gauss == Decimal("1000.00")
         assert result.markup is None
+
+
+class TestTotalGaussProvisorio:
+    """total-gauss-provisorio: an unresolved Flex freight cost (the ONLY
+    unresolved link) still produces a REAL `total_gauss`, computed WITHOUT
+    it, flagged `provisional=True`. Every OTHER unresolved link (above all
+    `costo_mercaderia`) must still block the whole chain -- that boundary
+    is a DELIBERATE exception for `envio_flex` only, not "skip any unknown
+    link"."""
+
+    def test_unresolved_flex_yields_provisional_total_without_it(self, db) -> None:
+        """MUTATION: removing the `deduccion.code == EnvioFlexDeduccion.code`
+        guard in `calcular_total_gauss` (making the exception apply to any
+        unresolved link) must fail this test's sibling below
+        (`test_unresolved_cost_never_becomes_provisional`), and reverting
+        the provisional branch entirely (never substituting
+        `total_provisional`) must fail THIS test."""
+        order_id = 950
+        _order(db, order_id, shipping_id=9500)
+        db.add(MlShipmentOps(shipment_id=9500, logistic_type="self_service"))
+        # No EtiquetaEnvio at all -> envio_flex unresolved, the ONLY
+        # blocking link.
+        _item_with_cost(db, order_id, "MLA1", 1, Decimal("100.00"))
+        _varios(db)  # 0%, isolates this test to the Flex exception alone
+        db.commit()
+
+        result = calcular_total_gauss(db, [order_id], {order_id: Decimal("1000.00")})[order_id]
+
+        assert result.total_gauss == Decimal("900.00")  # 1000 - 100, envio_flex NOT subtracted
+        assert result.provisional is True
+        assert result.provisional_falta == "Envío Flex (costo propio)"
+        # The blocking line is still reported as unresolved, so the UI can
+        # point at exactly which link is missing.
+        assert ("envio_flex", None, None) in result.lineas
+
+    def test_unresolved_cost_never_becomes_provisional(self, db) -> None:
+        """MUTATION: this is the test that catches a broken "only Flex"
+        boundary. Verified live: removing the
+        `deduccion.code == EnvioFlexDeduccion.code` guard (so ANY single
+        unresolved link -- including `costo_mercaderia` -- gets the
+        provisional treatment) turns this order's `total_gauss` into a
+        real number instead of `None`, which fails the assertion below."""
+        order_id = 951
+        _order(db, order_id)
+        _item_no_cost(db, order_id, "MLA1")  # no frozen cost -> CostoMercaderiaDeduccion is None
+        _varios(db)
+        db.commit()
+
+        result = calcular_total_gauss(db, [order_id], {order_id: Decimal("1000.00")})[order_id]
+
+        assert result.total_gauss is None
+        assert result.provisional is False
+        assert result.provisional_falta is None
+
+    def test_provisional_flag_reaches_the_persisted_column(self, db) -> None:
+        """MUTATION: dropping
+        `order.total_gauss_provisional = resultado.provisional` in
+        `persistir_total_gauss` (leaving the column at its `False` server
+        default) must fail this test."""
+        from app.models.ml_payments import MlPaymentOps
+
+        order_id = 952
+        _order(db, order_id, shipping_id=9520)
+        db.add(MlShipmentOps(shipment_id=9520, logistic_type="self_service"))
+        _item_with_cost(db, order_id, "MLA1", 1, Decimal("10.00"))
+        db.add(
+            MlPaymentOps(payment_id=952, order_id=order_id, status="approved", net_received_amount=Decimal("100.00"))
+        )
+        _varios(db)
+        db.commit()
+        # SQLite's `server_default="false"` round-trips as the STRING
+        # "false" (never touched by an explicit write), which Python's
+        # `bool()` coerces to `True` -- a harmless quirk in Postgres
+        # (production) but one that would make a mutated, no-op
+        # `persistir_total_gauss` pass this test by ACCIDENT. Forcing a
+        # real, bound-parameter `False` here first closes that hole.
+        db.query(MlOrdersOps).filter_by(order_id=order_id).update({"total_gauss_provisional": False})
+        db.commit()
+
+        persistir_total_gauss(db, [order_id])
+        db.commit()
+
+        order = db.query(MlOrdersOps).filter_by(order_id=order_id).one()
+        assert order.total_gauss is not None
+        assert order.total_gauss_provisional is True
+
+    def test_a_fully_resolved_order_is_never_flagged_provisional(self, db) -> None:
+        from app.models.ml_payments import MlPaymentOps
+
+        order_id = 953
+        _order(db, order_id, shipping_id=9530)
+        db.add(MlShipmentOps(shipment_id=9530, logistic_type="self_service"))
+        db.add(Logistica(id=95, nombre="Andreani"))
+        db.add(
+            EtiquetaEnvio(
+                shipping_id="9530", fecha_envio=date(2026, 8, 1), logistica_id=95, costo_override=Decimal("50.00")
+            )
+        )
+        _item_with_cost(db, order_id, "MLA1", 1, Decimal("10.00"))
+        db.add(
+            MlPaymentOps(payment_id=953, order_id=order_id, status="approved", net_received_amount=Decimal("100.00"))
+        )
+        _varios(db)
+        db.commit()
+        # Same SQLite quirk as above, inverted: force a real `True` first so
+        # this assertion cannot pass by accident off the untouched default.
+        db.query(MlOrdersOps).filter_by(order_id=order_id).update({"total_gauss_provisional": True})
+        db.commit()
+
+        persistir_total_gauss(db, [order_id])
+        db.commit()
+
+        order = db.query(MlOrdersOps).filter_by(order_id=order_id).one()
+        assert order.total_gauss_provisional is False
+
+
+class TestEnvioFlexCompanyNameInTheChain:
+    """Regression: `EnvioFlexDeduccion.concepto` is a static string with no
+    company name -- the chain's `envio_flex` line must carry the per-order
+    label WITH the logistics company, same as `_resolve_flex_cost_line`'s
+    breakdown line, via the shared `_format_flex_concepto` formatter."""
+
+    def test_chain_line_carries_the_logistics_company_name(self, db) -> None:
+        """MUTATION: reverting `calcular_total_gauss` to append
+        `(deduccion.code, monto, None)` (dropping the resolved
+        `flex_concepto_by_order` lookup) must fail this test."""
+        order_id = 960
+        _order(db, order_id, shipping_id=9600)
+        db.add(MlShipmentOps(shipment_id=9600, logistic_type="self_service"))
+        db.add(Logistica(id=96, nombre="Andreani"))
+        db.add(
+            EtiquetaEnvio(
+                shipping_id="9600", fecha_envio=date(2026, 8, 1), logistica_id=96, costo_override=Decimal("50.00")
+            )
+        )
+        _item_with_cost(db, order_id, "MLA1", 1, Decimal("100.00"))
+        _varios(db)
+        db.commit()
+
+        result = calcular_total_gauss(db, [order_id], {order_id: Decimal("1000.00")})[order_id]
+
+        flex_lineas = [linea for linea in result.lineas if linea[0] == "envio_flex"]
+        assert len(flex_lineas) == 1
+        _code, monto, concepto = flex_lineas[0]
+        assert monto == Decimal("50.00")
+        assert concepto == "Envío Flex (costo propio) (Andreani)"
