@@ -61,6 +61,15 @@ FUENTE_SKU = "erp_sku"
 FUENTE_BACKFILL_PUBLICACION = "hist_publicacion"
 FUENTE_BACKFILL_SKU = "hist_sku"
 
+# A pack/combo/kit HAS NO COST OF ITS OWN. It is not something anyone
+# buys, so the ERP will never carry a purchase cost for it, and the zero
+# sitting in its cost history is a CONSEQUENCE of that, not a data-entry
+# oversight (measured: packs and combos account for 3.470 of the 4.249
+# sales the backfill could not cost). Its cost is the sum of its
+# components, resolved from `tb_item_association`. Stamped distinctly so a
+# reader can always tell a SUMMED cost from a READ one.
+FUENTE_BACKFILL_COMBO = "hist_combo"
+
 
 @dataclass(frozen=True)
 class _ResolvedCost:
