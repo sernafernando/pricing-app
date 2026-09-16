@@ -28,7 +28,7 @@ from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
-from app.core.database import SessionLocal
+from app.core.database import SessionLocal, get_background_db
 from app.models.tb_price_list_items import TbPriceListItems
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
@@ -210,6 +210,13 @@ def sync_price_list_items_all(db: Session, price_list_id: int | None = None) -> 
     Si se llama desde un endpoint async, usar `await asyncio.to_thread(sync_price_list_items_all, db, ...)`."""
     logger.info("🔄 === Iniciando sincronización de tb_price_list_items ===")
     try:
+        # Release any transaction the caller may have left open on `db` before the HTTP
+        # call: a session sitting `idle in transaction` holds a pool connection hostage
+        # for the full `requests` timeout. See `sync_price_list_items_incremental`.
+        # PRECONDITION: callers must not hand us a session carrying uncommitted writes,
+        # since this commit would persist them early.
+        db.commit()
+
         registros = fetch_price_list_items_from_erp(price_list_id=price_list_id)
         logger.info(f"✅ Recibidos {len(registros)} registros del ERP")
         if not registros:
@@ -240,16 +247,32 @@ def sync_price_list_items_incremental(
     logger.info("🔄 === Iniciando sincronización incremental de tb_price_list_items ===")
     try:
         if update_from is None:
-            efectiva = func.coalesce(TbPriceListItems.prli_updatedAt, TbPriceListItems.prli_cd)
-            q = db.query(func.max(efectiva))
-            if price_list_id is not None:
-                q = q.filter(TbPriceListItems.prli_id == price_list_id)
-            last = q.scalar()
+            # Pool-safety: this probe runs in its OWN short-lived session that is closed
+            # BEFORE the HTTP call below. Querying through the caller's `db` would open a
+            # transaction on it and leave it `idle in transaction` for the whole duration
+            # of `fetch_price_list_items_from_erp()` (a `requests.get` with timeout=300).
+            # That is exactly what exhausted the pool on 2026-09-16: every concurrent
+            # request then hit `QueuePool limit ... reached`, and PostgreSQL eventually
+            # killed the stalled connections via `idle_in_transaction_session_timeout`.
+            with get_background_db() as probe_db:
+                efectiva = func.coalesce(TbPriceListItems.prli_updatedAt, TbPriceListItems.prli_cd)
+                q = probe_db.query(func.max(efectiva))
+                if price_list_id is not None:
+                    q = q.filter(TbPriceListItems.prli_id == price_list_id)
+                last = q.scalar()
             # Truncar microsegundos: SQL Server DATETIME (no DATETIME2) no los soporta y
             # `COALESCE(...) >= @updateFromDate` falla con "Conversion failed when converting
             # date and/or time from character string" si llega un ISO con .ffffff.
             update_from = last.replace(microsecond=0).isoformat() if last else None
         logger.info(f"🔄 Sincronizando desde: {update_from}")
+
+        # Release any transaction the caller may have left open on `db` before going out
+        # to the ERP over HTTP. PRECONDITION: callers must not hand us a session carrying
+        # uncommitted writes, since this commit would persist them early. Both current
+        # callers satisfy it: `erp_sync.sincronizar_erp` has only read at this point, and
+        # `sync_all_incremental` builds a fresh `SessionLocal()` per sync inside its loop
+        # and closes it in `finally`, so no sibling sync can leave writes pending here.
+        db.commit()
 
         registros = fetch_price_list_items_from_erp(price_list_id=price_list_id, update_from=update_from)
         logger.info(f"✅ Recibidos {len(registros)} registros nuevos del ERP")

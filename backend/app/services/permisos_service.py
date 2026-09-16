@@ -261,10 +261,12 @@ class PermisosService:
         else:
             permisos_rol = set(self._obtener_permisos_rol_por_codigo(usuario.rol.value if usuario.rol else "VENTAS"))
 
+        # `joinedload` (not a bare `join`): reading `o.permiso.codigo` below would otherwise
+        # emit one extra SELECT per override. Same pattern as `obtener_permisos_usuario`.
         overrides = {
             o.permiso.codigo: o.concedido
             for o in self.db.query(UsuarioPermisoOverride)
-            .join(Permiso)
+            .options(joinedload(UsuarioPermisoOverride.permiso))
             .filter(UsuarioPermisoOverride.usuario_id == usuario.id)
             .all()
         }
