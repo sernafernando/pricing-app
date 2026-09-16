@@ -13,7 +13,7 @@ import json
 import logging
 import re
 from datetime import date, datetime
-from typing import Any, List, Optional
+from typing import Any, List, Optional, Tuple
 from uuid import UUID
 
 from fastapi import HTTPException
@@ -144,48 +144,76 @@ async def _geocode_envio_manual(
       2. Si tiene transporte con dirección pero sin lat/lng → geocodificar la
          dirección del transporte, guardar en AMBOS (transporte + etiqueta).
       3. Si no tiene transporte → geocodificar la dirección del cliente.
+
+    Pool-safety: same three-phase split as `geocodificar_etiquetas` (see
+    `app/api/endpoints/etiquetas_enrichment.py`). Even though this only
+    processes ONE etiqueta, it can chain up to two geocode attempts
+    (transporte + cliente fallback), each of which may itself fall back to
+    Nominatim with rate-limit sleeps — so a naive single `with
+    get_background_db()` wrapping both HTTP calls could still hold a
+    connection for longer than is needed. PHASE 1 reads plain data and
+    closes; PHASE 2 does the HTTP with NO session held; PHASE 3 opens a new
+    short session only to write the result.
     """
     from app.core.database import get_background_db
 
     try:
-        with get_background_db() as db:
-            etiqueta = db.query(EtiquetaEnvio).filter(EtiquetaEnvio.shipping_id == shipping_id).first()
+        # ── PHASE 1: short session — read into plain locals, close ──
+        with get_background_db() as read_db:
+            etiqueta = read_db.query(EtiquetaEnvio).filter(EtiquetaEnvio.shipping_id == shipping_id).first()
             if not etiqueta:
                 return
 
+            transporte_direccion: Optional[str] = None
+            transporte_ciudad = "Buenos Aires"
             lat, lng = None, None
 
-            # Caso 1 y 2: tiene transporte
             if transporte_id is not None:
-                transporte = db.query(Transporte).filter(Transporte.id == transporte_id).first()
+                transporte = read_db.query(Transporte).filter(Transporte.id == transporte_id).first()
                 if transporte:
                     if transporte.latitud and transporte.longitud:
                         # Caso 1: transporte ya geocodificado
                         lat, lng = transporte.latitud, transporte.longitud
                     elif transporte.direccion:
-                        # Caso 2: geocodificar dirección del transporte
-                        ciudad_transp = transporte.localidad or "Buenos Aires"
-                        coords = await geocode_address(transporte.direccion, ciudad=ciudad_transp, db=db)
-                        if coords:
-                            lat, lng = coords
-                            transporte.latitud = lat
-                            transporte.longitud = lng
+                        # Caso 2: pendiente de geocodificar en PHASE 2
+                        transporte_direccion = transporte.direccion
+                        transporte_ciudad = transporte.localidad or "Buenos Aires"
+        # PHASE 1 closes here — pool released, no session held during HTTP.
 
-            # Caso 3: sin transporte o transporte sin dirección → geocodificar cliente
-            if lat is None and street_name:
-                direccion_cliente = f"{street_name} {street_number}".strip()
-                ciudad = city_name or "Buenos Aires"
-                coords = await geocode_address(direccion_cliente, ciudad=ciudad, zip_code=zip_code, db=db)
-                if coords:
-                    lat, lng = coords
+        # ── PHASE 2: NO session — HTTP geocoding ──
+        transporte_coords_geocoded: Optional[Tuple[float, float]] = None
+        if lat is None and transporte_direccion is not None:
+            coords = await geocode_address(transporte_direccion, ciudad=transporte_ciudad, db=None)
+            if coords:
+                lat, lng = coords
+                transporte_coords_geocoded = coords
 
-            if lat is not None and lng is not None:
-                etiqueta.latitud = lat
-                etiqueta.longitud = lng
-                # commit is handled by get_background_db() on exit
-                logger.info("Geocoding OK para envío manual %s → (%.6f, %.6f)", shipping_id, lat, lng)
-            else:
-                logger.warning("Geocoding sin resultado para envío manual %s", shipping_id)
+        # Caso 3: sin transporte, o transporte sin coords/dirección, o el
+        # geocode del transporte falló → geocodificar dirección del cliente
+        if lat is None and street_name:
+            direccion_cliente = f"{street_name} {street_number}".strip()
+            ciudad = city_name or "Buenos Aires"
+            coords = await geocode_address(direccion_cliente, ciudad=ciudad, zip_code=zip_code, db=None)
+            if coords:
+                lat, lng = coords
+
+        if lat is None or lng is None:
+            logger.warning("Geocoding sin resultado para envío manual %s", shipping_id)
+            return
+
+        # ── PHASE 3: short session — write result, single commit ──
+        with get_background_db() as write_db:
+            if transporte_coords_geocoded is not None and transporte_id is not None:
+                write_db.query(Transporte).filter(Transporte.id == transporte_id).update(
+                    {"latitud": transporte_coords_geocoded[0], "longitud": transporte_coords_geocoded[1]},
+                    synchronize_session=False,
+                )
+            write_db.query(EtiquetaEnvio).filter(EtiquetaEnvio.shipping_id == shipping_id).update(
+                {"latitud": lat, "longitud": lng}, synchronize_session=False
+            )
+            # commit is handled by get_background_db() on exit
+
+        logger.info("Geocoding OK para envío manual %s → (%.6f, %.6f)", shipping_id, lat, lng)
     except Exception:
         logger.exception("Error geocodificando envío manual %s", shipping_id)
 
