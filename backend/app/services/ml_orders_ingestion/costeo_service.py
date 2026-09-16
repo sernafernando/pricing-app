@@ -52,6 +52,15 @@ logger = logging.getLogger(__name__)
 FUENTE_PUBLICACION = "erp_publicacion"
 FUENTE_SKU = "erp_sku"
 
+# Written ONLY by `app/scripts/backfill_costo_congelado.py`, NEVER by
+# `congelar()` below. A backfilled row must stay forever tellable from a
+# live-frozen one: it was costed from a DATED `ItemCostListHistory` row
+# (`costo_fecha` set), never from the current `ProductoERP.costo` these two
+# `congelar()`-side constants mean. Same linkage split as
+# `FUENTE_PUBLICACION`/`FUENTE_SKU` above, just for the history path.
+FUENTE_BACKFILL_PUBLICACION = "hist_publicacion"
+FUENTE_BACKFILL_SKU = "hist_sku"
+
 
 @dataclass(frozen=True)
 class _ResolvedCost:
