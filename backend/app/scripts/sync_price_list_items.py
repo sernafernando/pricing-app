@@ -213,6 +213,8 @@ def sync_price_list_items_all(db: Session, price_list_id: int | None = None) -> 
         # Release any transaction the caller may have left open on `db` before the HTTP
         # call: a session sitting `idle in transaction` holds a pool connection hostage
         # for the full `requests` timeout. See `sync_price_list_items_incremental`.
+        # PRECONDITION: callers must not hand us a session carrying uncommitted writes,
+        # since this commit would persist them early.
         db.commit()
 
         registros = fetch_price_list_items_from_erp(price_list_id=price_list_id)
@@ -265,7 +267,11 @@ def sync_price_list_items_incremental(
         logger.info(f"🔄 Sincronizando desde: {update_from}")
 
         # Release any transaction the caller may have left open on `db` before going out
-        # to the ERP over HTTP. Only reads can be pending here, so this never discards work.
+        # to the ERP over HTTP. PRECONDITION: callers must not hand us a session carrying
+        # uncommitted writes, since this commit would persist them early. Both current
+        # callers satisfy it: `erp_sync.sincronizar_erp` has only read at this point, and
+        # `sync_all_incremental` builds a fresh `SessionLocal()` per sync inside its loop
+        # and closes it in `finally`, so no sibling sync can leave writes pending here.
         db.commit()
 
         registros = fetch_price_list_items_from_erp(price_list_id=price_list_id, update_from=update_from)
