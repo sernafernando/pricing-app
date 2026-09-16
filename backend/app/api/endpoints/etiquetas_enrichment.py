@@ -11,16 +11,17 @@ Incluye:
 
 import json
 import logging
+from dataclasses import dataclass
 from datetime import date
 from pathlib import Path as FilePath
-from typing import Optional
+from typing import Dict, List, Optional, Tuple
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import Response
 from sqlalchemy import and_, func
 from sqlalchemy.orm import Session
 
-from app.core.database import get_db, get_async_db
+from app.core.database import get_db, get_async_db, get_background_db
 from app.core.sse import sse_publish_bg
 from app.api.deps import get_current_user
 from app.models.usuario import Usuario
@@ -404,6 +405,28 @@ def generar_etiqueta_manual_zpl(
 # ── Geocodificación masiva ───────────────────────────────────────────
 
 
+@dataclass
+class _GeocodePlanItem:
+    """Plain (non-ORM) data for one etiqueta that still needs an HTTP geocode
+    attempt after PHASE 1 (read) closed its session. Carries everything
+    needed to replay the original nested transporte→cliente fallback logic
+    in PHASE 2 without touching the DB again.
+    """
+
+    shipping_id: str
+    etiqueta_lat: Optional[float]
+    etiqueta_lng: Optional[float]
+    # Set only when there is a pending transporte-address geocode attempt.
+    transporte_id: Optional[int] = None
+    transporte_direccion: Optional[str] = None
+    transporte_ciudad: str = "Buenos Aires"
+    # Set only when a cliente address fallback was resolved (used either as
+    # the sole attempt, or as the fallback after a failed transporte attempt).
+    cliente_direccion: Optional[str] = None
+    cliente_ciudad: str = "Buenos Aires"
+    cliente_zip: Optional[str] = None
+
+
 @router.post(
     "/etiquetas-envio/geocodificar",
     response_model=GeocodificarResponse,
@@ -424,108 +447,199 @@ async def geocodificar_etiquetas(
          dirección del cliente cuando deberían apuntar al transporte.
       2. Si NO tiene transporte y ya tiene coords → skip (ya_tenian).
       3. Geocodificar dirección del cliente (manual, enriquecida, o ML).
+
+    Pool-safety: this runs in three phases so no DB connection is held during
+    the slow HTTP geocoding loop (up to 200 items × up to ~1s+ each, which
+    can exceed `idle_in_transaction_session_timeout`):
+
+      PHASE 1 (short session): read everything needed into plain in-memory
+      data (`_GeocodePlanItem`), resolving every case that needs no HTTP
+      call directly (ya_tenian / sin_resultado / transporte-ya-geocodificado).
+      Session closes before any HTTP call.
+
+      PHASE 2 (no session): the HTTP geocoding loop, operating purely on
+      in-memory data and accumulating results into plain dicts.
+
+      PHASE 3 (short session): one bulk write + one commit.
     """
     _check_permiso(db, current_user, "envios_flex.asignar_logistica")
 
     if len(body.shipping_ids) > 200:
         raise HTTPException(status_code=400, detail="Máximo 200 etiquetas por request")
 
-    etiquetas = db.query(EtiquetaEnvio).filter(EtiquetaEnvio.shipping_id.in_(body.shipping_ids)).all()
-
     geocodificados = 0
     ya_tenian = 0
     sin_resultado = 0
     errores = 0
+    etiqueta_updates: Dict[str, Tuple[float, float]] = {}
+    transporte_updates: Dict[int, Tuple[float, float]] = {}
+    plan: List[_GeocodePlanItem] = []
 
-    for etiqueta in etiquetas:
+    # ── PHASE 1: short session — read everything, resolve no-HTTP cases ──
+    with get_background_db() as read_db:
+        etiquetas = read_db.query(EtiquetaEnvio).filter(EtiquetaEnvio.shipping_id.in_(body.shipping_ids)).all()
+        total = len(etiquetas)
+
+        for etiqueta in etiquetas:
+            try:
+                transporte_direccion: Optional[str] = None
+                transporte_ciudad = "Buenos Aires"
+                transporte_id_for_plan: Optional[int] = None
+
+                # ── Con transporte: SIEMPRE usar coords del transporte ──
+                if etiqueta.transporte_id:
+                    transporte = read_db.query(Transporte).filter(Transporte.id == etiqueta.transporte_id).first()
+                    if transporte:
+                        if transporte.latitud and transporte.longitud:
+                            lat, lng = transporte.latitud, transporte.longitud
+                            # Actualizar aunque ya tuviera coords (pueden ser del cliente)
+                            if etiqueta.latitud == lat and etiqueta.longitud == lng:
+                                ya_tenian += 1
+                            else:
+                                etiqueta_updates[etiqueta.shipping_id] = (lat, lng)
+                                geocodificados += 1
+                                logger.info(
+                                    "Geocoding (transporte) %s → (%.6f, %.6f)",
+                                    etiqueta.shipping_id,
+                                    lat,
+                                    lng,
+                                )
+                            continue
+
+                        if transporte.direccion:
+                            transporte_direccion = transporte.direccion
+                            transporte_ciudad = transporte.localidad or "Buenos Aires"
+                            transporte_id_for_plan = transporte.id
+
+                        # Transporte sin coords ni dirección → caer al fallback del cliente
+                        # (no hacemos continue, dejamos que siga abajo)
+                    # transporte_id apunta a un transporte inexistente → también
+                    # cae al fallback del cliente, igual que el caso anterior.
+
+                # ── Sin transporte pendiente de geocodificar: skip si ya tiene coords ──
+                # (si hay un intento de transporte pendiente, este chequeo se
+                # difiere a PHASE 2 — solo aplica si ese intento falla)
+                if transporte_direccion is None:
+                    if etiqueta.latitud and etiqueta.longitud:
+                        ya_tenian += 1
+                        continue
+
+                # ── Resolver dirección del cliente (fallback, o respaldo si
+                # el intento de transporte de arriba falla en PHASE 2) ──
+                cliente_direccion: Optional[str] = None
+                cliente_ciudad = "Buenos Aires"
+                cliente_zip: Optional[str] = None
+
+                if etiqueta.es_manual and etiqueta.manual_street_name:
+                    cliente_direccion = f"{etiqueta.manual_street_name} {etiqueta.manual_street_number or ''}".strip()
+                    cliente_ciudad = etiqueta.manual_city_name or "Buenos Aires"
+                    cliente_zip = etiqueta.manual_zip_code
+                elif etiqueta.direccion_completa:
+                    cliente_direccion = etiqueta.direccion_completa
+                else:
+                    # Buscar en ML shipping como último recurso
+                    ml_ship = (
+                        read_db.query(MercadoLibreOrderShipping)
+                        .filter(MercadoLibreOrderShipping.mlshippingid == etiqueta.shipping_id)
+                        .first()
+                    )
+                    if ml_ship and ml_ship.mlstreet_name:
+                        cliente_direccion = f"{ml_ship.mlstreet_name} {ml_ship.mlstreet_number or ''}".strip()
+                        cliente_ciudad = ml_ship.mlcity_name or "Buenos Aires"
+                        cliente_zip = ml_ship.mlzip_code
+
+                if transporte_direccion is None and cliente_direccion is None:
+                    sin_resultado += 1
+                    logger.warning("Geocoding sin resultado para %s", etiqueta.shipping_id)
+                    continue
+
+                plan.append(
+                    _GeocodePlanItem(
+                        shipping_id=etiqueta.shipping_id,
+                        etiqueta_lat=etiqueta.latitud,
+                        etiqueta_lng=etiqueta.longitud,
+                        transporte_id=transporte_id_for_plan,
+                        transporte_direccion=transporte_direccion,
+                        transporte_ciudad=transporte_ciudad,
+                        cliente_direccion=cliente_direccion,
+                        cliente_ciudad=cliente_ciudad,
+                        cliente_zip=cliente_zip,
+                    )
+                )
+            except Exception:
+                logger.exception("Error preparando geocodificación para %s", etiqueta.shipping_id)
+                errores += 1
+    # PHASE 1 closes here — pool released, no session held during HTTP below.
+
+    # ── PHASE 2: NO session — the slow HTTP geocoding loop ──
+    for item in plan:
         try:
-            lat, lng = None, None
-
-            # ── Con transporte: SIEMPRE usar coords del transporte ──
-            if etiqueta.transporte_id:
-                transporte = db.query(Transporte).filter(Transporte.id == etiqueta.transporte_id).first()
-                if transporte:
-                    if transporte.latitud and transporte.longitud:
-                        lat, lng = transporte.latitud, transporte.longitud
-                    elif transporte.direccion:
-                        ciudad_transp = transporte.localidad or "Buenos Aires"
-                        coords = await geocode_address(transporte.direccion, ciudad=ciudad_transp, db=db)
-                        if coords:
-                            lat, lng = coords
-                            transporte.latitud = lat
-                            transporte.longitud = lng
-
-                if lat is not None and lng is not None:
-                    # Actualizar aunque ya tuviera coords (pueden ser del cliente)
-                    if etiqueta.latitud == lat and etiqueta.longitud == lng:
+            if item.transporte_direccion is not None:
+                coords = await geocode_address(item.transporte_direccion, ciudad=item.transporte_ciudad, db=None)
+                if coords:
+                    lat, lng = coords
+                    transporte_updates[item.transporte_id] = (lat, lng)
+                    if item.etiqueta_lat == lat and item.etiqueta_lng == lng:
                         ya_tenian += 1
                     else:
-                        etiqueta.latitud = lat
-                        etiqueta.longitud = lng
+                        etiqueta_updates[item.shipping_id] = (lat, lng)
                         geocodificados += 1
                         logger.info(
                             "Geocoding (transporte) %s → (%.6f, %.6f)",
-                            etiqueta.shipping_id,
+                            item.shipping_id,
                             lat,
                             lng,
                         )
                     continue
 
-                # Transporte sin coords ni dirección → caer al fallback del cliente
-                # (no hacemos continue, dejamos que siga abajo)
+                # Geocode de la dirección del transporte falló → mismo fallback
+                # que el caso "sin transporte": si la etiqueta ya tenía coords
+                # propias, no se intenta la dirección del cliente.
+                if item.etiqueta_lat and item.etiqueta_lng:
+                    ya_tenian += 1
+                    continue
 
-            # ── Sin transporte: skip si ya tiene coordenadas ──
-            if etiqueta.latitud and etiqueta.longitud:
-                ya_tenian += 1
-                continue
-
-            # ── Fallback: dirección del cliente (manual o enriquecida) ──
-            direccion = None
-            ciudad = "Buenos Aires"
-            zip_code = None
-
-            if etiqueta.es_manual and etiqueta.manual_street_name:
-                direccion = f"{etiqueta.manual_street_name} {etiqueta.manual_street_number or ''}".strip()
-                ciudad = etiqueta.manual_city_name or "Buenos Aires"
-                zip_code = etiqueta.manual_zip_code
-            elif etiqueta.direccion_completa:
-                direccion = etiqueta.direccion_completa
-            else:
-                # Buscar en ML shipping como último recurso
-                ml_ship = (
-                    db.query(MercadoLibreOrderShipping)
-                    .filter(MercadoLibreOrderShipping.mlshippingid == etiqueta.shipping_id)
-                    .first()
+            if item.cliente_direccion:
+                coords = await geocode_address(
+                    item.cliente_direccion,
+                    ciudad=item.cliente_ciudad,
+                    zip_code=item.cliente_zip,
+                    db=None,
                 )
-                if ml_ship and ml_ship.mlstreet_name:
-                    direccion = f"{ml_ship.mlstreet_name} {ml_ship.mlstreet_number or ''}".strip()
-                    ciudad = ml_ship.mlcity_name or "Buenos Aires"
-                    zip_code = ml_ship.mlzip_code
-
-            if direccion:
-                coords = await geocode_address(direccion, ciudad=ciudad, zip_code=zip_code, db=db)
                 if coords:
                     lat, lng = coords
-
-            if lat is not None and lng is not None:
-                etiqueta.latitud = lat
-                etiqueta.longitud = lng
-                geocodificados += 1
-                logger.info("Geocoding OK %s → (%.6f, %.6f)", etiqueta.shipping_id, lat, lng)
+                    etiqueta_updates[item.shipping_id] = (lat, lng)
+                    geocodificados += 1
+                    logger.info("Geocoding OK %s → (%.6f, %.6f)", item.shipping_id, lat, lng)
+                else:
+                    sin_resultado += 1
+                    logger.warning("Geocoding sin resultado para %s", item.shipping_id)
             else:
                 sin_resultado += 1
-                logger.warning("Geocoding sin resultado para %s", etiqueta.shipping_id)
+                logger.warning("Geocoding sin resultado para %s", item.shipping_id)
 
         except Exception:
-            logger.exception("Error geocodificando %s", etiqueta.shipping_id)
+            logger.exception("Error geocodificando %s", item.shipping_id)
             errores += 1
 
-    db.commit()
+    # ── PHASE 3: short session — one bulk write, one commit ──
+    if etiqueta_updates or transporte_updates:
+        with get_background_db() as write_db:
+            for shipping_id, (lat, lng) in etiqueta_updates.items():
+                write_db.query(EtiquetaEnvio).filter(EtiquetaEnvio.shipping_id == shipping_id).update(
+                    {"latitud": lat, "longitud": lng}, synchronize_session=False
+                )
+            for transporte_id, (lat, lng) in transporte_updates.items():
+                write_db.query(Transporte).filter(Transporte.id == transporte_id).update(
+                    {"latitud": lat, "longitud": lng}, synchronize_session=False
+                )
+            # commit handled by get_background_db() on exit
+
     if geocodificados > 0:
         sse_publish_bg("etiquetas:changed", {"hint": "reload"})
 
     return GeocodificarResponse(
-        total=len(etiquetas),
+        total=total,
         geocodificados=geocodificados,
         ya_tenian=ya_tenian,
         sin_resultado=sin_resultado,

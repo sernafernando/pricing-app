@@ -13,6 +13,7 @@ from urllib.parse import quote
 from sqlalchemy.orm import Session
 from sqlalchemy.exc import SQLAlchemyError
 
+from app.core.database import get_background_db
 from app.models.geocoding_cache import GeocodingCache
 from app.core.config import settings
 
@@ -157,12 +158,17 @@ async def geocode_address(
     else:
         query = f"{direccion}, {ciudad}, {pais}"
 
-    # Verificar cache si está disponible
-    if usar_cache and db:
-        cache_entry = get_from_cache(query, db)
-        if cache_entry:
+    # Verificar cache si está disponible.
+    # Cache lookup never depends on the caller holding a session: when `db`
+    # is None (or omitted) but `usar_cache=True`, we open our own short-lived
+    # session (get_background_db) around just the cache read, and close it
+    # BEFORE the httpx call below. This is the same pattern as PR #811
+    # (see app/routers/prearmado.py::_validar_serial_core).
+    if usar_cache:
+        cached_coords = _cache_lookup(query, db)
+        if cached_coords:
             logger.info(f"Geocoding cache HIT: {query[:50]}...")
-            return (cache_entry.latitud, cache_entry.longitud)
+            return cached_coords
 
     # Consultar Mapbox Geocoding API
     try:
@@ -197,8 +203,8 @@ async def geocode_address(
             if not data.get("features") or len(data["features"]) == 0:
                 logger.warning(f"Geocoding (Mapbox) sin resultados: {query[:50]}, trying Nominatim...")
                 fallback = await _nominatim_fallback(direccion, ciudad, pais, zip_code)
-                if fallback and usar_cache and db:
-                    save_to_cache(query, fallback[0], fallback[1], db)
+                if fallback and usar_cache:
+                    _cache_store(query, fallback[0], fallback[1], db)
                 return fallback
 
             # Obtener primera coincidencia
@@ -240,8 +246,8 @@ async def geocode_address(
                     feature.get("place_name", "?"),
                 )
                 fallback = await _nominatim_fallback(direccion, ciudad, pais, zip_code)
-                if fallback and usar_cache and db:
-                    save_to_cache(query, fallback[0], fallback[1], db)
+                if fallback and usar_cache:
+                    _cache_store(query, fallback[0], fallback[1], db)
                 return fallback
 
             # ── Resultado válido ─────────────────────────────────────
@@ -251,8 +257,8 @@ async def geocode_address(
             latitud = float(coordinates[1])
 
             # Guardar en cache si está disponible
-            if usar_cache and db:
-                save_to_cache(query, latitud, longitud, db)
+            if usar_cache:
+                _cache_store(query, latitud, longitud, db)
 
             logger.info(
                 "Geocoding SUCCESS (relevance=%.2f, type=%s): %s -> (%.6f, %.6f)",
@@ -442,6 +448,40 @@ def save_to_cache(direccion: str, latitud: float, longitud: float, db: Session) 
     except Exception as e:
         logger.error(f"Error inesperado guardando geocoding cache: {e}")
         db.rollback()
+
+
+def _cache_lookup(direccion: str, db: Optional[Session]) -> Optional[Tuple[float, float]]:
+    """
+    Cache lookup wrapper that does not depend on the caller holding a session.
+
+    If `db` is provided, uses it directly (existing callers keep their current
+    behavior). If `db` is None, opens its own short-lived session via
+    `get_background_db()` around ONLY this read — never held across the httpx
+    call that follows in `geocode_address`. Coordinates are extracted while
+    the session is still open to avoid a DetachedInstanceError once it closes.
+    """
+    if db is not None:
+        entry = get_from_cache(direccion, db)
+        return (entry.latitud, entry.longitud) if entry else None
+
+    with get_background_db() as cache_db:
+        entry = get_from_cache(direccion, cache_db)
+        return (entry.latitud, entry.longitud) if entry else None
+
+
+def _cache_store(direccion: str, latitud: float, longitud: float, db: Optional[Session]) -> None:
+    """
+    Cache write wrapper that does not depend on the caller holding a session.
+
+    Same pattern as `_cache_lookup`: with `db=None`, opens and closes its own
+    short-lived session around ONLY this write.
+    """
+    if db is not None:
+        save_to_cache(direccion, latitud, longitud, db)
+        return
+
+    with get_background_db() as cache_db:
+        save_to_cache(direccion, latitud, longitud, cache_db)
 
 
 async def geocode_batch(
