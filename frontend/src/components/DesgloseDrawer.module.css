@@ -192,3 +192,52 @@
 .reasonBox p + p {
   margin-top: var(--space-1);
 }
+
+/* ml-ventas-desglose-costos, "detalle de productos" -- per-item lines
+   under "Monto de la operación" and per-item cost arithmetic under "Costo
+   de mercadería". Deliberately compact/muted relative to `.line`: this is
+   supporting context that explains the figure above it, never a primary
+   number in its own right, so it stays smaller and lower-contrast than
+   `.lineList`/`.total` rather than competing with them visually. */
+.itemLineList {
+  list-style: none;
+  margin: var(--space-1) 0 0 0;
+  padding: var(--space-2);
+  background: var(--bg-secondary);
+  border-radius: var(--radius-md);
+}
+
+.itemLine {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-2);
+  padding: var(--space-1) 0;
+  font-size: var(--font-xs, var(--font-sm));
+  color: var(--text-tertiary);
+}
+
+.itemLine + .itemLine {
+  border-top: 1px solid var(--border-primary);
+}
+
+.itemLineTitle {
+  flex: 1;
+  min-width: 0;
+}
+
+.itemLineFuente {
+  color: var(--text-tertiary);
+}
+
+.itemLineMonto {
+  flex-shrink: 0;
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+
+.itemLineWarning {
+  margin: var(--space-1) 0 0 0;
+  font-size: var(--font-xs, var(--font-sm));
+  color: var(--warning-text, var(--text-tertiary));
+}

@@ -252,7 +252,15 @@ class TestBreakdown:
         assert "payments_not_synced" in body["breakdown"]["incomplete_reasons"]
         assert body["breakdown"]["neto"] is None
 
-    def test_breakdown_exposes_paid_amount_as_monto_operacion(self, db, client, admin_auth_headers, rol_admin) -> None:
+    def test_breakdown_exposes_the_products_total_as_monto_operacion(
+        self, db, client, admin_auth_headers, rol_admin
+    ) -> None:
+        """The heading is the SUM OF THE PRODUCTS, not `paid_amount`.
+
+        `paid_amount` here is deliberately a different figure: it is what
+        the BUYER paid, freight included when the buyer pays it, so the
+        product lines legitimately fall short of it. The endpoint must
+        follow the items."""
         order_id = 657
         db.add(
             MlOrdersOps(
@@ -260,7 +268,16 @@ class TestBreakdown:
                 status="paid",
                 ml_last_updated=datetime(2026, 8, 20, tzinfo=timezone.utc),
                 seller_id=999,
-                paid_amount=Decimal("19900.00"),
+                paid_amount=Decimal("23900.00"),
+            )
+        )
+        db.add(
+            MlOrderItemOps(
+                order_id=order_id,
+                item_id="MLA1",
+                quantity=2,
+                unit_price=Decimal("9950.00"),
+                title="Producto",
             )
         )
         db.commit()
@@ -274,7 +291,8 @@ class TestBreakdown:
     def test_breakdown_reports_null_monto_operacion_when_paid_amount_unknown(
         self, db, client, admin_auth_headers, rol_admin
     ) -> None:
-        """`paid_amount` unset -- MUST be `None`, never a fabricated `0`."""
+        """No items at all -- MUST be `None`, never a fabricated `0`. A
+        heading of `0` reads as a sale worth nothing."""
         order_id = 6590
         db.add(
             MlOrdersOps(
@@ -345,3 +363,55 @@ class TestBreakdown:
         lines = {line["concepto"]: line["monto"] for line in body["breakdown"]["lines"]}
         assert lines["Envios"] == 450.00
         assert body["breakdown"]["incompleto"] is False
+
+
+class TestDesgloseDetalleScopes:
+    """The panel carries TWO scopes on purpose and the endpoint must keep
+    them apart: the product lines break down `monto_operacion` (the PACK),
+    the cost detail explains `cadena_total_gauss` (THIS order).
+
+    An earlier pass widened the cost detail to the pack "so the lists
+    match", which put the pack's items under one order's cost figure --
+    tidier and wrong. Nothing tested the scope, so nothing objected."""
+
+    def test_item_lines_cover_the_pack_and_costo_items_only_this_order(
+        self, db, client, admin_auth_headers, rol_admin
+    ) -> None:
+        pack_id = 6600
+        order_a, order_b = 6601, 6602
+        for order_id, mla in ((order_a, "MLA-A"), (order_b, "MLA-B")):
+            db.add(
+                MlOrdersOps(
+                    order_id=order_id,
+                    pack_id=pack_id,
+                    status="paid",
+                    ml_last_updated=datetime(2026, 8, 20, tzinfo=timezone.utc),
+                    seller_id=999,
+                    paid_amount=Decimal("100.00"),
+                )
+            )
+            db.add(
+                MlOrderItemOps(
+                    order_id=order_id,
+                    item_id=mla,
+                    quantity=1,
+                    unit_price=Decimal("100.00"),
+                    title=f"Producto {mla}",
+                )
+            )
+        db.commit()
+        _grant_ml_ops_ver(db, rol_admin)
+
+        resp = client.get(f"/api/ml-ventas-ops/orders/{order_a}", headers=admin_auth_headers)
+        assert resp.status_code == 200
+        body = resp.json()
+
+        # The products list spans the whole pack -- it explains the pack's
+        # `monto_operacion`.
+        mlas = {line["item_id"] for line in body["breakdown"]["item_lines"]}
+        assert mlas == {"MLA-A", "MLA-B"}
+        assert body["breakdown"]["monto_operacion"] == 200.00
+
+        # The cost detail is THIS order's -- it explains this order's chain.
+        costo_mlas = {item["item_id"] for item in body["cadena_total_gauss"]["costo_mercaderia_items"]}
+        assert costo_mlas == {"MLA-A"}

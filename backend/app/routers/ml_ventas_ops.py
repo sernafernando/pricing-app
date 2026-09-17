@@ -63,7 +63,7 @@ from app.services.ml_orders_ingestion.operation_status import (
     SETTLED_CLAIM_STATUSES,
 )
 from app.services.ml_ventas_desglose.breakdown_service import compute_breakdown, compute_neto_by_order_ids
-from app.services.ml_ventas_desglose.deducciones import calcular_total_gauss
+from app.services.ml_ventas_desglose.deducciones import calcular_total_gauss, resolve_costo_mercaderia_detalle
 from app.services.ml_ventas_desglose.iva import descomponer_neto
 from app.services.permisos_service import PermisosService
 
@@ -194,6 +194,21 @@ class BreakdownLineSummary(BaseModel):
     origen: str = "api"
 
 
+class ItemDesgloseLineSummary(BaseModel):
+    """One product line under "Monto de la operación" -- ml-ventas-desglose-
+    costos, "detalle de productos". `monto=None` means THIS item has no
+    known `unit_price` (never a fabricated `$0`); when that happens
+    `item_lines_reconcilia` on the parent is `False` and the whole list
+    must be read as untrustworthy, not just this one row."""
+
+    item_id: str
+    variation_id: Optional[int] = None
+    seller_sku: Optional[str] = None
+    title: Optional[str] = None
+    quantity: Optional[int] = None
+    monto: Optional[float] = None
+
+
 class OperationBreakdownSummary(BaseModel):
     """The sale's cost breakdown. `incompleto=True` with a populated
     `incomplete_reasons` means data is missing -- `neto` is never a
@@ -217,6 +232,20 @@ class OperationBreakdownSummary(BaseModel):
     incompleto: bool
     incomplete_reasons: List[str]
     monto_operacion: Optional[float] = None
+    # Per-item breakdown of `monto_operacion` -- see `ItemDesgloseLineSummary`.
+    # `monto_operacion` IS these lines' own total, so they cannot disagree
+    # with it by construction. `item_lines_reconcilia=False` therefore means
+    # the total could not be formed at all -- no items, a missing price, or
+    # a missing quantity -- and `item_lines_razon` names which. The renderer
+    # must surface that instead of presenting a list that looks complete
+    # but is not.
+    #
+    # It once also meant "the lines do not add up to `monto_operacion`",
+    # back when that heading was `paid_amount`. That comparison is gone
+    # along with the mis-specification that made it necessary.
+    item_lines: List[ItemDesgloseLineSummary] = Field(default_factory=list)
+    item_lines_reconcilia: bool = True
+    item_lines_razon: Optional[str] = None
 
     @classmethod
     def from_domain(cls, breakdown) -> "OperationBreakdownSummary":
@@ -229,6 +258,19 @@ class OperationBreakdownSummary(BaseModel):
             incompleto=breakdown.incompleto,
             incomplete_reasons=list(breakdown.incomplete_reasons),
             monto_operacion=(float(breakdown.monto_operacion) if breakdown.monto_operacion is not None else None),
+            item_lines=[
+                ItemDesgloseLineSummary(
+                    item_id=item.item_id,
+                    variation_id=item.variation_id,
+                    seller_sku=item.seller_sku,
+                    title=item.title,
+                    quantity=item.quantity,
+                    monto=float(item.monto) if item.monto is not None else None,
+                )
+                for item in breakdown.item_lines
+            ],
+            item_lines_reconcilia=breakdown.item_lines_reconcilia,
+            item_lines_razon=breakdown.item_lines_razon,
         )
 
 
@@ -287,6 +329,54 @@ class DeduccionLineaSummary(BaseModel):
     concepto: Optional[str] = None
 
 
+class ItemCostoLineSummary(BaseModel):
+    """One item's frozen-cost arithmetic behind "Costo de mercadería"
+    (product-owner request: replicate the number). `conocido=False` means
+    this item has no frozen `MlOrderItemCosto` row at all -- every other
+    field is `None` in that case, and the renderer must read it as
+    "unknown", never as a `$0` cost.
+
+    `tipo_cambio`/`tipo_cambio_fecha` are `None` whenever `moneda != "USD"`:
+    an ARS-costed item never had a conversion applied, and the renderer
+    must not fabricate an empty conversion row for one.
+
+    `fuente` and `costo_fecha` are passed through verbatim from
+    `MlOrderItemCosto` -- see that model's own docstring for what each
+    `fuente` value means (`erp_publicacion`/`erp_sku`: current ERP cost;
+    `hist_publicacion`/`hist_sku`/`hist_combo`: a dated historical cost from
+    the backfill) and why `costo_fecha` is `None` for a live-frozen row."""
+
+    item_id: str
+    variation_id: Optional[int] = None
+    title: Optional[str] = None
+    quantity: Optional[int] = None
+    conocido: bool
+    moneda: Optional[str] = None
+    costo_origen: Optional[float] = None
+    tipo_cambio: Optional[float] = None
+    tipo_cambio_fecha: Optional[date] = None
+    costo_unitario_ars: Optional[float] = None
+    fuente: Optional[str] = None
+    costo_fecha: Optional[date] = None
+
+    @classmethod
+    def from_domain(cls, detalle) -> "ItemCostoLineSummary":
+        return cls(
+            item_id=detalle.item_id,
+            variation_id=detalle.variation_id,
+            title=detalle.title,
+            quantity=detalle.quantity,
+            conocido=detalle.conocido,
+            moneda=detalle.moneda,
+            costo_origen=float(detalle.costo_origen) if detalle.costo_origen is not None else None,
+            tipo_cambio=float(detalle.tipo_cambio) if detalle.tipo_cambio is not None else None,
+            tipo_cambio_fecha=detalle.tipo_cambio_fecha,
+            costo_unitario_ars=(float(detalle.costo_unitario_ars) if detalle.costo_unitario_ars is not None else None),
+            fuente=detalle.fuente,
+            costo_fecha=detalle.costo_fecha,
+        )
+
+
 class CadenaTotalGaussSummary(BaseModel):
     """This order's deduction chain, in chain order (`neto_sin_iva` minus
     each applicable deduction). `total_gauss=None` whenever `neto_sin_iva`
@@ -303,16 +393,23 @@ class CadenaTotalGaussSummary(BaseModel):
     computed WITHOUT the Flex freight cost, because that cost is not
     resolvable yet (shipping label not loaded at the warehouse) -- see
     `TotalGaussResultado.provisional`'s docstring. `provisional_falta`
-    names the missing concept (e.g. "Envío Flex") for the UI badge."""
+    names the missing concept (e.g. "Envío Flex") for the UI badge.
+
+    `costo_mercaderia_items` (product-owner request: replicate the goods
+    cost) is the per-item arithmetic behind the `costo_mercaderia` link
+    above -- see `ItemCostoLineSummary`. Always populated regardless of
+    whether `costo_mercaderia` itself resolved (an operator can still see
+    WHICH items have a known cost and which do not)."""
 
     total_gauss: Optional[float] = None
     lineas: List[DeduccionLineaSummary]
     markup: Optional[float] = None
     provisional: bool = False
     provisional_falta: Optional[str] = None
+    costo_mercaderia_items: List[ItemCostoLineSummary] = Field(default_factory=list)
 
     @classmethod
-    def from_domain(cls, resultado) -> "CadenaTotalGaussSummary":
+    def from_domain(cls, resultado, costo_items: Optional[List] = None) -> "CadenaTotalGaussSummary":
         return cls(
             total_gauss=float(resultado.total_gauss) if resultado.total_gauss is not None else None,
             lineas=[
@@ -322,6 +419,7 @@ class CadenaTotalGaussSummary(BaseModel):
             markup=float(resultado.markup) if resultado.markup is not None else None,
             provisional=resultado.provisional,
             provisional_falta=resultado.provisional_falta,
+            costo_mercaderia_items=[ItemCostoLineSummary.from_domain(item) for item in (costo_items or [])],
         )
 
 
@@ -1104,6 +1202,22 @@ def obtener_operacion(
     order_descomposicion = descomposicion_by_order[order.order_id]
     order_total_gauss = total_gauss_by_order[order.order_id]
 
+    # THIS order's items, deliberately NOT the whole pack's.
+    #
+    # The panel carries two scopes on purpose, and this list belongs to the
+    # narrow one: it explains `cadena_total_gauss`, which is this order's
+    # chain ("the pack sum answers how much, these answer why", above). The
+    # products list higher up breaks down `monto_operacion`, which IS the
+    # pack. So on a pack the two lists legitimately differ in length.
+    #
+    # An earlier pass widened this to the pack to make the lengths match.
+    # That looked tidier and was wrong: it put the pack's items under this
+    # order's cost figure, so the detail no longer explained the number it
+    # sat beneath. Matching lengths is not the goal -- each list matching
+    # the figure it explains is.
+    costo_detalle_by_order = resolve_costo_mercaderia_detalle(db, breakdown_order_ids)
+    order_costo_items = costo_detalle_by_order.get(order.order_id, [])
+
     return SaleCentricOperation(
         order=OrderOpsSummary.model_validate(order),
         items=[OrderItemOpsSummary.model_validate(item) for item in items],
@@ -1114,7 +1228,7 @@ def obtener_operacion(
         breakdown=OperationBreakdownSummary.from_domain(breakdown),
         total_gauss=float(pack_total_gauss) if pack_total_gauss is not None else None,
         iva_decomposicion=DescomposicionIvaSummary.from_domain(order_descomposicion),
-        cadena_total_gauss=CadenaTotalGaussSummary.from_domain(order_total_gauss),
+        cadena_total_gauss=CadenaTotalGaussSummary.from_domain(order_total_gauss, order_costo_items),
     )
 
 

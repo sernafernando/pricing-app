@@ -35,7 +35,7 @@ never a partial sum over just the items that happen to have one.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from decimal import ROUND_HALF_UP, Decimal
 from typing import Dict, List, Optional, Protocol, Sequence, Tuple, runtime_checkable
 
@@ -117,6 +117,117 @@ class CostoMercaderiaDeduccion:
             result[order_id] = total if resolved_all else None
 
         return result
+
+
+@dataclass(frozen=True)
+class CostoItemDetalle:
+    """Per-item arithmetic behind `CostoMercaderiaDeduccion`'s aggregate
+    sum -- product-owner request: "el costo del producto debería decir
+    después de costo (precio USD + TC) de cada operación para saber cómo
+    replicar ese valor".
+
+    `conocido=False` means this item has NO frozen `MlOrderItemCosto` row
+    at all (see that model's own docstring on `PR3 is write-only... nothing
+    reads it yet` becoming false as of this feature) -- every other field
+    stays `None` in that case, and the renderer MUST read this as "unknown",
+    never as a `$0` cost.
+
+    `moneda == "USD"` is the only case with real conversion arithmetic to
+    show (`costo_origen x tipo_cambio (tipo_cambio_fecha) = costo_unitario_ars`).
+    An ARS-costed item never had a rate applied -- `tipo_cambio` and
+    `tipo_cambio_fecha` are `None` for it, and the renderer must not
+    fabricate an empty conversion row for a conversion that never
+    happened.
+
+    `fuente`/`costo_fecha` are passed through UNCHANGED from
+    `MlOrderItemCosto` (see its module docstring for what each `fuente`
+    value means and why `costo_fecha` is `None` for a live-frozen row) --
+    this module does not reinterpret or flatten them."""
+
+    item_id: str
+    variation_id: Optional[int]
+    title: Optional[str]
+    quantity: Optional[int]
+    conocido: bool
+    moneda: Optional[str] = None
+    costo_origen: Optional[Decimal] = None
+    tipo_cambio: Optional[Decimal] = None
+    tipo_cambio_fecha: Optional[date] = None
+    costo_unitario_ars: Optional[Decimal] = None
+    fuente: Optional[str] = None
+    costo_fecha: Optional[date] = None
+
+
+def resolve_costo_mercaderia_detalle(db: Session, order_ids: Sequence[int]) -> Dict[int, List[CostoItemDetalle]]:
+    """Bulk, per-item breakdown of what `CostoMercaderiaDeduccion` sums --
+    one query for every member order's items, one for every frozen cost
+    row, TOTAL, never one query per item (same discipline as
+    `CostoMercaderiaDeduccion.resolve_bulk` and `_productos_por_item`
+    in `costeo_service.py`).
+
+    Every requested `order_id` gets a key, even one with no items (`[]`,
+    never a missing key the caller has to guard). Within an order, every
+    item of that order gets exactly one `CostoItemDetalle`, `conocido=False`
+    when it has no frozen row -- unlike the aggregate deduction, a single
+    unresolved item does NOT hide the others: an operator trying to
+    replicate the cost of the ITEMS THAT DO HAVE ONE should still see them.
+    """
+    order_ids = list(order_ids)
+    result: Dict[int, List[CostoItemDetalle]] = {order_id: [] for order_id in order_ids}
+    if not order_ids:
+        return result
+
+    # Same stable order as `breakdown_service`'s item lines, and for the
+    # same reason: the two lists sit in the SAME panel, so an operator
+    # checking the cost detail against the product detail has to find them
+    # in the same sequence. Left to the database, both come back in
+    # whatever order the plan produces and the pairing is coincidence.
+    items = (
+        db.query(MlOrderItemOps)
+        .filter(MlOrderItemOps.order_id.in_(order_ids))
+        .order_by(MlOrderItemOps.order_id, MlOrderItemOps.id)
+        .all()
+    )
+    costos = db.query(MlOrderItemCosto).filter(MlOrderItemCosto.order_id.in_(order_ids)).all()
+    costo_by_key: Dict[Tuple[int, str, Optional[int]], MlOrderItemCosto] = {
+        (c.order_id, c.item_id, c.variation_id): c for c in costos
+    }
+
+    for item in items:
+        costo = costo_by_key.get((item.order_id, item.item_id, item.variation_id))
+        if costo is None:
+            detalle = CostoItemDetalle(
+                item_id=item.item_id,
+                variation_id=item.variation_id,
+                title=item.title,
+                quantity=item.quantity,
+                conocido=False,
+            )
+        else:
+            detalle = CostoItemDetalle(
+                item_id=item.item_id,
+                variation_id=item.variation_id,
+                title=item.title,
+                quantity=item.quantity,
+                conocido=True,
+                moneda=costo.moneda,
+                # `costo_origen` and `costo_unitario_ars` are `nullable=False`
+                # on `MlOrderItemCosto` (checked in the model, not assumed),
+                # so `Decimal(str(...))` cannot be handed a `None` here and
+                # there is no guard to write. A row that could not resolve
+                # completely is never INSERTED in the first place -- see
+                # `costeo_service._ResolvedCost`: "there is no
+                # partially-resolved variant on purpose".
+                costo_origen=Decimal(str(costo.costo_origen)),
+                tipo_cambio=(Decimal(str(costo.tipo_cambio)) if costo.tipo_cambio is not None else None),
+                tipo_cambio_fecha=costo.tipo_cambio_fecha,
+                costo_unitario_ars=Decimal(str(costo.costo_unitario_ars)),
+                fuente=costo.fuente,
+                costo_fecha=costo.costo_fecha,
+            )
+        result.setdefault(item.order_id, []).append(detalle)
+
+    return result
 
 
 class EnvioFlexDeduccion:

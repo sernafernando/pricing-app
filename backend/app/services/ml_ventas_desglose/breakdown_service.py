@@ -104,7 +104,7 @@ from app.models.codigo_postal_cordon import CodigoPostalCordon
 from app.models.etiqueta_envio import EtiquetaEnvio
 from app.models.logistica_costo_cordon import LogisticaCostoCordon
 from app.models.ml_billing import MlBillingCharge, MlBillingChargeOrder
-from app.models.ml_orders_ops import MlOrdersOps, MlShipmentOps
+from app.models.ml_orders_ops import MlOrderItemOps, MlOrdersOps, MlShipmentOps
 from app.models.ml_payments import MlPaymentCharge, MlPaymentOps
 from app.services.logistica_costo_service import costo_efectivo, get_lluvia_config, normalizar_cordon
 from app.services.ml_orders_ingestion.mode_resolution import (
@@ -174,6 +174,11 @@ __all__ = [
     "OperationBreakdown",
     "compute_breakdown",
     "compute_neto_by_order_ids",
+    "ItemLine",
+    "REASON_ITEM_LINES_NO_ITEMS",
+    "REASON_ITEM_LINES_ORDEN_SIN_ITEMS",
+    "REASON_ITEM_LINES_ITEM_SIN_PRECIO",
+    "REASON_ITEM_LINES_ITEM_SIN_CANTIDAD",
     "is_seller_charge",
     "net_amount",
     "payment_effective_net",
@@ -727,6 +732,21 @@ REASON_BILLING_TOO_RECENT = "billing_too_recent"
 # incomplete.
 _INFORMATIONAL_REASONS = frozenset({REASON_BILLING_TOO_RECENT, REASON_FLEX_COST_UNKNOWN})
 
+# Product-owner request (ml-ventas-desglose-costos, "detalle de productos"):
+# per-item lines under "Monto de la operación". Named reasons for why the
+# lines could not be trusted to add up to that figure -- same discipline as
+# every other reconciliation gate in this module (`iva.py`'s `razones`,
+# `descomponer_neto`'s `reconcilia`): a list that LOOKS complete but is not
+# is worse than one that says so honestly. Never render a partial item list
+# under a total it does not actually sum to.
+REASON_ITEM_LINES_NO_ITEMS = "item_lines_no_items"
+# A PACK where some member order loaded no items at all. Distinct from
+# `no_items` (the whole operation has none): here there ARE lines, they
+# just do not cover the whole sale, and the fix is per missing order.
+REASON_ITEM_LINES_ORDEN_SIN_ITEMS = "item_lines_orden_sin_items"
+REASON_ITEM_LINES_ITEM_SIN_PRECIO = "item_lines_item_sin_precio"
+REASON_ITEM_LINES_ITEM_SIN_CANTIDAD = "item_lines_item_sin_cantidad"
+
 
 def is_seller_charge(charge_type: Optional[str], charge_name: Optional[str]) -> bool:
     """The single reusable seller-vs-buyer/coupon predicate. See module
@@ -757,6 +777,23 @@ class BreakdownLine:
 
 
 @dataclass(frozen=True)
+class ItemLine:
+    """One product line under "Monto de la operación" (product-owner
+    request: the gross must be broken down per item, matching ML's own
+    "Precio del producto" screen shape). `monto` is `unit_price * quantity`
+    for THIS item -- `None` (never `0`) when the item carries no
+    `unit_price`, which is exactly the case that can make the list not add
+    up to the total above it (see `REASON_ITEM_LINES_ITEM_SIN_PRECIO`)."""
+
+    item_id: str
+    variation_id: Optional[int]
+    seller_sku: Optional[str]
+    title: Optional[str]
+    quantity: Optional[int]
+    monto: Optional[Decimal]
+
+
+@dataclass(frozen=True)
 class OperationBreakdown:
     """The sale's cost breakdown.
 
@@ -779,13 +816,27 @@ class OperationBreakdown:
     neto: Optional[Decimal]
     incompleto: bool
     incomplete_reasons: List[str] = field(default_factory=list)
-    # `paid_amount` summed across every member order -- what the sale was
-    # actually paid for, BEFORE any of the deductions in `lines` come off
-    # it. `None` (never a fabricated 0) whenever any member order carries
-    # no `paid_amount` yet: a partial sum would understate the real gross
-    # and read as "this operation was worth less", which is the same lie
-    # a silent zero tells everywhere else in this module.
+    # THE SUM OF THE PRODUCTS -- the same figure ML's own screen heads its
+    # breakdown with. It is `item_lines`'s own total, so the heading and
+    # the list under it agree by construction rather than by comparison.
+    #
+    # `None` (never a fabricated 0) when any item's price is unknown: a
+    # partial sum would understate the gross and read as "this operation
+    # was worth less", the same lie a silent zero tells everywhere else in
+    # this module. It is NOT `paid_amount` -- that is what the BUYER paid,
+    # freight included when the buyer pays it, and measuring the products
+    # against it produced a false "no suman el total" on ordinary sales.
     monto_operacion: Optional[Decimal] = None
+    # Per-item breakdown of `monto_operacion` -- see `ItemLine`.
+    # `monto_operacion` IS these lines' own sum, so they cannot disagree
+    # with it. `item_lines_reconcilia=False` therefore means the total
+    # could not be formed at all: no items, a member order of the pack with
+    # none, a missing price, or a missing quantity. `item_lines_razon`
+    # names which, and the renderer must not present the list as if it were
+    # trustworthy in that case.
+    item_lines: List[ItemLine] = field(default_factory=list)
+    item_lines_reconcilia: bool = True
+    item_lines_razon: Optional[str] = None
 
 
 def payment_effective_net(payment: MlPaymentOps, seller_charges: Sequence[MlPaymentCharge]) -> Decimal:
@@ -874,7 +925,15 @@ def compute_breakdown(db: Session, order_ids: Sequence[int]) -> OperationBreakdo
     `listar_ventas`'s `_group_key_expr` grouping)."""
     order_ids = list(order_ids)
     if not order_ids:
-        return OperationBreakdown(lines=[], neto=None, incompleto=True, incomplete_reasons=[REASON_PAYMENTS_NOT_SYNCED])
+        return OperationBreakdown(
+            lines=[],
+            neto=None,
+            incompleto=True,
+            incomplete_reasons=[REASON_PAYMENTS_NOT_SYNCED],
+            item_lines=[],
+            item_lines_reconcilia=False,
+            item_lines_razon=REASON_ITEM_LINES_NO_ITEMS,
+        )
 
     incomplete_reasons: List[str] = []
 
@@ -962,15 +1021,106 @@ def compute_breakdown(db: Session, order_ids: Sequence[int]) -> OperationBreakdo
 
     orders = db.query(MlOrdersOps).filter(MlOrdersOps.order_id.in_(order_ids)).all()
 
-    # The gross the drawer opens on. Summed across every member order (a
-    # pack is several orders), off `paid_amount` -- not `total_amount` --
-    # because `paid_amount` is the figure this whole module already
+    # The gross the drawer opens on: THE SUM OF THE PRODUCTS, the same
+    # figure ML's own screen heads its breakdown with ("Precio del
+    # producto"). Computed below from the item lines, so the heading and
+    # the list under it cannot disagree by construction.
+    #
+    # It used to be `paid_amount` summed across the orders, and that was a
+    # mis-specification, not a second valid reading: `paid_amount` is what
+    # the BUYER paid, which includes the freight when the buyer pays it, so
+    # the item lines legitimately fell short of it and the panel warned
+    # "los ítems no suman el total" on ordinary sales. A warning that fires
+    # when nothing is wrong teaches people to ignore warnings.
+    #
+    # `paid_amount` remains the base of the money identity this module
     # reconciles against (`net_received_amount == paid_amount - suma(cargos
-    # del vendedor)`). Any order missing it makes the SUM unknown, not
-    # partially right: see the field's own docstring on `OperationBreakdown`.
+    # del vendedor)`); it is simply not what this heading shows.
     monto_operacion: Optional[Decimal] = None
-    if orders and all(order.paid_amount is not None for order in orders):
-        monto_operacion = sum((Decimal(str(order.paid_amount)) for order in orders), Decimal("0"))
+
+    # Per-item breakdown of `monto_operacion` (product-owner request: the
+    # drawer must show WHICH products the gross is made of). Bulk: one
+    # query for every item of every member order, never one per item.
+    # ORDERED, not left to the database. Without this the product list
+    # comes back in whatever order the plan happens to produce, so the same
+    # sale can render its items differently on two consecutive openings --
+    # and a reader checking a figure against the screen cannot tell whether
+    # the list changed or the data did.
+    order_items = (
+        db.query(MlOrderItemOps)
+        .filter(MlOrderItemOps.order_id.in_(order_ids))
+        .order_by(MlOrderItemOps.order_id, MlOrderItemOps.id)
+        .all()
+    )
+    item_lines: List[ItemLine] = []
+    item_lines_reconcilia = True
+    item_lines_razon: Optional[str] = None
+    # EVERY member order must have contributed at least one item, not just
+    # the operation as a whole. On a pack where one order has items and a
+    # sibling has none, `order_items` is non-empty, so a bare `if not
+    # order_items` walks straight past it and sums only the orders that DID
+    # load -- a partial total presented as the operation's own, which is
+    # the exact "looks complete but isn't" failure this module is built to
+    # refuse.
+    ordenes_con_items = {item.order_id for item in order_items}
+    ordenes_sin_items = [order_id for order_id in order_ids if order_id not in ordenes_con_items]
+    if not order_items:
+        item_lines_reconcilia = False
+        item_lines_razon = REASON_ITEM_LINES_NO_ITEMS
+    else:
+        # The lines are built even when the TOTAL cannot be formed. A pack
+        # with one order loaded and a sibling still empty has real items to
+        # show, and hiding them leaves the reader with a warning and a
+        # blank list -- strictly less than we know. What the flag withholds
+        # is the TOTAL, not the detail.
+        item_lines_total = Decimal("0")
+        any_sin_precio = False
+        any_sin_cantidad = False
+        for item in order_items:
+            monto: Optional[Decimal] = None
+            if item.unit_price is not None and item.quantity is not None:
+                monto = Decimal(str(item.unit_price)) * item.quantity
+                item_lines_total += monto
+            elif item.unit_price is None:
+                any_sin_precio = True
+            else:
+                # A price with no quantity is NOT "sin precio". They are
+                # fixed in different places and a reader sent to look for a
+                # missing price on an item that has one wastes the trip.
+                any_sin_cantidad = True
+            item_lines.append(
+                ItemLine(
+                    item_id=item.item_id,
+                    variation_id=item.variation_id,
+                    seller_sku=item.seller_sku,
+                    title=item.title,
+                    quantity=item.quantity,
+                    monto=monto,
+                )
+            )
+        if ordenes_sin_items:
+            # Checked FIRST: a member order that loaded nothing means the
+            # lines cannot cover the sale at all, which outranks a single
+            # item's missing field.
+            item_lines_reconcilia = False
+            item_lines_razon = REASON_ITEM_LINES_ORDEN_SIN_ITEMS
+        elif any_sin_cantidad and not any_sin_precio:
+            item_lines_reconcilia = False
+            item_lines_razon = REASON_ITEM_LINES_ITEM_SIN_CANTIDAD
+        elif any_sin_precio:
+            # At least one item's price is unknown -- the list CANNOT sum
+            # to `monto_operacion`, and rendering it under that total
+            # anyway would be exactly the "looks complete but isn't" failure
+            # this module refuses to build (see the reason constants' own
+            # docstring).
+            item_lines_reconcilia = False
+            item_lines_razon = REASON_ITEM_LINES_ITEM_SIN_PRECIO
+        else:
+            # Every item priced: the heading IS this sum. There is no
+            # comparison left to make, and that is the point of computing
+            # it here instead of against a figure that measures something
+            # else.
+            monto_operacion = item_lines_total
 
     has_shipment_order = any(order.shipping_id is not None for order in orders)
     modes_by_order, shipments_by_id = _resolve_modes(db, orders)
@@ -1032,4 +1182,7 @@ def compute_breakdown(db: Session, order_ids: Sequence[int]) -> OperationBreakdo
         incompleto=any(reason not in _INFORMATIONAL_REASONS for reason in incomplete_reasons),
         incomplete_reasons=incomplete_reasons,
         monto_operacion=monto_operacion,
+        item_lines=item_lines,
+        item_lines_reconcilia=item_lines_reconcilia,
+        item_lines_razon=item_lines_razon,
     )
