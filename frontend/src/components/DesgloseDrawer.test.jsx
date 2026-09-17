@@ -889,4 +889,42 @@ describe('Costo de mercadería per-item arithmetic (ml-ventas-desglose-costos)',
     expect(await screen.findByText(/costo desconocido/i)).toBeInTheDocument();
     expect(screen.queryByText('$ 0,00')).not.toBeInTheDocument();
   });
+
+  it('stacks the cost row instead of splitting it into two columns', async () => {
+    // An ML title runs to ~100 characters and the arithmetic beside it is
+    // long and cannot shrink, so a two-column split squeezes the title
+    // into a sliver and wraps it over dozens of lines. The row must carry
+    // the STACKED class, not the side-by-side one the products list uses.
+    mockDetail(1001, {
+      breakdown: BASE_BREAKDOWN,
+      iva_decomposicion: { componentes: [], neto_sin_iva: 100, reconcilia: true, diferencia: 0, razones: [] },
+      cadena_total_gauss: {
+        total_gauss: 900,
+        lineas: [{ code: 'costo_mercaderia', monto: 100 }],
+        markup: 900,
+        costo_mercaderia_items: [
+          {
+            item_id: 'MLA1',
+            title:
+              'Cámara Wi-fi Tp-link Tapo C201 Full Hd 360° Visión Nocturna Detección Por Ia Y Llanto De Bebé Color Negro',
+            quantity: 1,
+            conocido: true,
+            moneda: 'USD',
+            costo_origen: 14.3,
+            tipo_cambio: 1535,
+            tipo_cambio_fecha: '2026-09-17',
+            costo_unitario_ars: 21950.5,
+            fuente: 'erp_publicacion',
+            costo_fecha: null,
+          },
+        ],
+      },
+    });
+    render(<DesgloseDrawer orderId={1001} open onClose={vi.fn()} />);
+
+    const titulo = await screen.findByText(/cámara wi-fi tp-link tapo c201/i);
+    const fila = titulo.closest('li');
+    expect(fila.className).toMatch(/costoItemLine/);
+    expect(fila.className).not.toMatch(/(^|\s)itemLine(\s|$)/);
+  });
 });

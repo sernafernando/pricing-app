@@ -476,9 +476,18 @@ export default function DesgloseDrawer({ orderId, open, onClose }) {
                   {costoItems.length > 0 && (
                     <ul className={styles.itemLineList} aria-label="Detalle de costo de mercadería">
                       {costoItems.map((item, index) => (
+                        // STACKED, not side by side. An ML title runs to
+                        // ~100 characters ("Cámara Wi-fi Tp-link Tapo C201
+                        // Full Hd 360° Visión Nocturna Detección Por Ia Y
+                        // Llanto De Bebé Color Negro") and the arithmetic
+                        // beside it is long and cannot shrink, so a two
+                        // column split squeezes the title into a sliver
+                        // and wraps it over dozens of lines. The products
+                        // list above keeps the side-by-side layout: its
+                        // amount is short.
                         <li
                           key={`${index}-${item.item_id}-${item.variation_id ?? ''}`}
-                          className={styles.itemLine}
+                          className={styles.costoItemLine}
                         >
                           <span className={styles.itemLineTitle}>
                             {item.title || item.item_id}
