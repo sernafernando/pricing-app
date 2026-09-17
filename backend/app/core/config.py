@@ -91,7 +91,6 @@ class Settings(BaseSettings):
     ML_CLIENT_ID: Optional[str] = None
     ML_CLIENT_SECRET: Optional[str] = None
     ML_USER_ID: Optional[str] = None
-    ML_REFRESH_TOKEN: Optional[str] = None
 
     # ML Webhook Database (para consultar ml_previews directamente)
     ML_WEBHOOK_DB_URL: Optional[str] = None

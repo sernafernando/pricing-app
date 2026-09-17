@@ -9,11 +9,17 @@ Este script sincroniza las publicaciones de MercadoLibre y guarda snapshots en l
 Agregar al archivo `.env`:
 
 ```env
-ML_CLIENT_ID=tu_client_id
-ML_CLIENT_SECRET=tu_client_secret
 ML_USER_ID=413658225
-ML_REFRESH_TOKEN=TG-68a5e51de8410e0001398d68-413658225
 ```
+
+El access token de MercadoLibre NO se maneja acá: lo posee y refresca
+exclusivamente el microservicio `ml-webhook` (única fuente de OAuth), que
+persiste el token vigente en su propia tabla `ml_tokens`. Este script (y
+`sync_ml_publications_full.py` / `sync_ml_publications_incremental.py`) solo
+LEE ese access_token de la DB de ml-webhook vía
+`app.services.ml_api_client.MercadoLibreAPIClient` — nunca hace su propio
+intercambio de `refresh_token` con ML. Hacerlo rotaría el refresh token e
+invalidaría la sesión OAuth de ml-webhook.
 
 ### 2. Migración de base de datos
 
@@ -42,7 +48,7 @@ Agregar a crontab para ejecutar diariamente a las 2 AM:
 
 ## Qué hace el script
 
-1. **Refresca el access token** usando el refresh token de ML
+1. **Lee el access token** de la DB de ml-webhook (nunca lo refresca acá)
 2. **Obtiene todos los IDs** de publicaciones usando el método `scan` (sin límite de 1050)
 3. **Descarga detalles** en batches de 20 publicaciones
 4. **Extrae información clave**:
@@ -93,14 +99,15 @@ ORDER BY s.mla_id;
 
 ## Troubleshooting
 
-### Error: "Faltan credenciales"
-- Verificar que las variables estén en el `.env`
-- Verificar que el archivo `.env` esté en `backend/`
+### Error: "No se pudo obtener access_token de mlwebhook DB"
+- El microservicio ml-webhook no tiene un token vigente en su tabla `ml_tokens`
+- Re-autenticar en `{ML_WEBHOOK_BASE_URL}/auth` (el mensaje de error imprime la URL exacta)
+- Verificar que `ML_WEBHOOK_DB_URL` esté correctamente configurado en `.env`
 
-### Error: "Token expirado"
-- El script refresca automáticamente
-- Si falla, verificar que `ML_REFRESH_TOKEN` sea válido
-- Obtener nuevo refresh token desde ML
+### Error: "Token expirado" (HTTP 401 de ML)
+- El script invalida el token cacheado y relee una vez desde la DB de ml-webhook
+- Si el 401 persiste tras el reintento, el problema está en ml-webhook (su token
+  puede haber expirado o haber sido revocado) — no en este script
 
 ### Error: "Too many requests"
 - El script tiene delays de 0.5s entre batches

@@ -151,6 +151,17 @@ class MercadoLibreAPIClient:
         logger.debug("Access token leído de mlwebhook DB (expira epoch=%.0f)", self._cached_expires_epoch)
         return self._cached_token
 
+    def invalidate_cached_token(self) -> None:
+        """Invalida el token cacheado, forzando una relectura desde la DB
+        del ml-webhook en la próxima llamada a `get_access_token`.
+
+        Usado por callers (p.ej. los scripts de sync) que reciben un 401 de
+        ML y quieren forzar una relectura en lugar de asumir que el token
+        cacheado sigue siendo válido.
+        """
+        self._cached_token = None
+        self._cached_expires_epoch = 0.0
+
     async def get_item(self, item_id: str) -> Optional[Dict]:
         """Obtiene información de un item de ML
 

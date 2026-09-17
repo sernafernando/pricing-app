@@ -30,57 +30,27 @@ from datetime import datetime
 from sqlalchemy.orm import Session
 from sqlalchemy import func
 from app.core.database import SessionLocal
-from app.core.config import settings
 from app.models.ml_publication_snapshot import MLPublicationSnapshot
 from app.models.mercadolibre_item_publicado import MercadoLibreItemPublicado
+from app.services.ml_api_client import MercadoLibreAPIClient
 
-# Tokens globales
-ACCESS_TOKEN = None
-REFRESH_TOKEN = settings.ML_REFRESH_TOKEN
-
-
-async def refresh_access_token(http_client: httpx.AsyncClient):
-    """Refresca el access token usando el refresh token"""
-    global ACCESS_TOKEN, REFRESH_TOKEN
-
-    if not settings.ML_CLIENT_ID or not settings.ML_CLIENT_SECRET or not REFRESH_TOKEN:
-        raise ValueError("Faltan credenciales de MercadoLibre en el .env")
-
-    url = "https://api.mercadolibre.com/oauth/token"
-    data = {
-        "grant_type": "refresh_token",
-        "client_id": settings.ML_CLIENT_ID,
-        "client_secret": settings.ML_CLIENT_SECRET,
-        "refresh_token": REFRESH_TOKEN,
-    }
-
-    response = await http_client.post(url, data=data)
-    response.raise_for_status()
-    tokens = response.json()
-
-    ACCESS_TOKEN = tokens.get("access_token")
-    if tokens.get("refresh_token"):
-        REFRESH_TOKEN = tokens.get("refresh_token")
-
-    print("✓ Token refrescado exitosamente")
-    return ACCESS_TOKEN
+# El access token vive en la DB del ml-webhook (única fuente de OAuth para ML);
+# este cliente solo lo lee/cachea, nunca hace el intercambio de refresh_token.
+_ml_client = MercadoLibreAPIClient()
 
 
 async def call_meli(http_client: httpx.AsyncClient, endpoint: str, retry=True):
     """Llamada a la API de MercadoLibre con manejo automático de tokens"""
-    global ACCESS_TOKEN
-
-    if not ACCESS_TOKEN:
-        await refresh_access_token(http_client)
+    token = await _ml_client.get_access_token()
 
     url = f"https://api.mercadolibre.com{endpoint}"
-    headers = {"Authorization": f"Bearer {ACCESS_TOKEN}"}
+    headers = {"Authorization": f"Bearer {token}"}
 
     response = await http_client.get(url, headers=headers)
 
     if response.status_code == 401 and retry:
-        print("Token expirado, refrescando...")
-        await refresh_access_token(http_client)
+        print("Token expirado, releyendo desde la DB de ml-webhook...")
+        _ml_client.invalidate_cached_token()
         return await call_meli(http_client, endpoint, retry=False)
 
     response.raise_for_status()
@@ -369,6 +339,10 @@ async def sync_ml_publications_full(db: Session = None):
             print("⚠️  No hay publicaciones para sincronizar")
             return 0, 0, 0
 
+        # 1b. Preflight: fail loudly si no hay token válido, en vez de entrar
+        # al loop de batches y acumular miles de errores idénticos.
+        await _ml_client.get_access_token()
+
         # 2. Precargar snapshots existentes del día
         today = datetime.now().date()
         snapshots_cache = precargar_snapshots_hoy(db, today)
@@ -431,6 +405,13 @@ async def sync_ml_publications_full(db: Session = None):
         print()
         print(f"Fin: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
         print("=" * 70)
+
+        # Fail-closed: si TODO falló (nada guardado/actualizado y hubo
+        # errores), no reportar como si hubiera sido un éxito silencioso.
+        if total_errors > 0 and (total_saved + total_updated) == 0:
+            raise RuntimeError(
+                f"Sincronización completa fallida: 0 publicaciones procesadas de {len(all_ids)}, {total_errors} errores"
+            )
 
         return total_saved, total_updated, total_errors
 

@@ -80,6 +80,10 @@ async def sincronizar_publicaciones_full(
         writer = QueueWriter(queue)
         sys.stdout = writer
 
+        # Fail-closed: cada paso que falla se registra acá para que la línea
+        # final NO anuncie éxito cuando alguno (o los dos) reventó.
+        pasos_fallidos: list[str] = []
+
         try:
             # Paso 1: Sync items publicados desde GBP
             print(f"[{datetime.now(UTC).strftime('%H:%M:%S')}] === PASO 1/2: Sincronizar Items Publicados (GBP) ===")
@@ -87,6 +91,7 @@ async def sincronizar_publicaciones_full(
                 with get_background_db() as db:
                     await sync_items_publicados_full(db)
             except Exception as e:
+                pasos_fallidos.append("items publicados (GBP)")
                 print(f"ERROR en items publicados: {e}")
 
             # Paso 2: Sync publications incremental (API ML)
@@ -95,9 +100,14 @@ async def sincronizar_publicaciones_full(
                 with get_background_db() as db2:
                     await sync_ml_publications_incremental(db2)
             except Exception as e:
+                pasos_fallidos.append("publications (API ML)")
                 print(f"ERROR en publications: {e}")
 
-            print(f"\n[{datetime.now(UTC).strftime('%H:%M:%S')}] === SINCRONIZACIÓN COMPLETA ===")
+            timestamp = datetime.now(UTC).strftime("%H:%M:%S")
+            if pasos_fallidos:
+                print(f"\n[{timestamp}] === SINCRONIZACIÓN FALLIDA: {', '.join(pasos_fallidos)} ===")
+            else:
+                print(f"\n[{timestamp}] === SINCRONIZACIÓN COMPLETA ===")
         finally:
             sys.stdout = old_stdout
             # Señal de fin: None indica que no hay más output
