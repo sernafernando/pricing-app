@@ -11,6 +11,8 @@ from __future__ import annotations
 
 from datetime import date, datetime, timezone
 from decimal import Decimal
+from typing import List
+from sqlalchemy import event
 
 from app.models.etiqueta_envio import EtiquetaEnvio
 from app.models.logistica import Logistica
@@ -27,6 +29,7 @@ from app.services.ml_ventas_desglose.deducciones import (
     marcar_stale,
     persistir_total_gauss,
     refrescar_total_gauss_pendientes,
+    resolve_costo_mercaderia_detalle,
 )
 
 
@@ -62,6 +65,27 @@ def _item_with_cost(db, order_id, item_id, quantity, costo_unitario_ars) -> None
 
 def _item_no_cost(db, order_id, item_id, quantity=1) -> None:
     db.add(MlOrderItemOps(order_id=order_id, item_id=item_id, seller_sku="SKU-1", quantity=quantity))
+
+
+def _item_with_usd_cost(
+    db, order_id, item_id, quantity, costo_origen_usd, tipo_cambio, tipo_cambio_fecha, costo_unitario_ars
+) -> None:
+    db.add(MlOrderItemOps(order_id=order_id, item_id=item_id, seller_sku="SKU-USD", quantity=quantity))
+    db.add(
+        MlOrderItemCosto(
+            order_id=order_id,
+            item_id=item_id,
+            costo_origen=costo_origen_usd,
+            moneda="USD",
+            tipo_cambio=tipo_cambio,
+            tipo_cambio_fecha=tipo_cambio_fecha,
+            costo_unitario_ars=costo_unitario_ars,
+            iva_pct=Decimal("21.00"),
+            precio_unitario=Decimal("100.00"),
+            fuente="erp_sku",
+            producto_item_id=1,
+        )
+    )
 
 
 def _varios(db, porcentaje="0.00") -> None:
@@ -706,3 +730,116 @@ class TestEnvioFlexCompanyNameInTheChain:
         _code, monto, concepto = flex_lineas[0]
         assert monto == Decimal("50.00")
         assert concepto == "Envío Flex (costo propio) (Andreani)"
+
+
+class TestCostoMercaderiaDetalle:
+    """Per-item arithmetic behind `CostoMercaderiaDeduccion` -- product-owner
+    request: "el costo del producto debería decir después de costo (precio
+    USD + TC) de cada operación para saber cómo replicar ese valor"."""
+
+    def test_item_with_no_frozen_cost_reads_as_unknown(self, db) -> None:
+        order_id = 970
+        _order(db, order_id)
+        _item_no_cost(db, order_id, "MLA1", quantity=1)
+        db.commit()
+
+        result = resolve_costo_mercaderia_detalle(db, [order_id])[order_id]
+
+        assert len(result) == 1
+        detalle = result[0]
+        assert detalle.conocido is False
+        assert detalle.costo_unitario_ars is None
+        assert detalle.costo_origen is None
+        assert detalle.moneda is None
+
+    def test_ars_item_renders_no_exchange_rate_arithmetic(self, db) -> None:
+        order_id = 971
+        _order(db, order_id)
+        _item_with_cost(db, order_id, "MLA1", 1, Decimal("50.00"))
+        db.commit()
+
+        result = resolve_costo_mercaderia_detalle(db, [order_id])[order_id]
+
+        assert len(result) == 1
+        detalle = result[0]
+        assert detalle.conocido is True
+        assert detalle.moneda == "ARS"
+        assert detalle.tipo_cambio is None
+        assert detalle.tipo_cambio_fecha is None
+
+    def test_usd_item_renders_rate_and_its_date(self, db) -> None:
+        order_id = 972
+        _order(db, order_id)
+        _item_with_usd_cost(
+            db,
+            order_id,
+            "MLA1",
+            1,
+            costo_origen_usd=Decimal("45.00"),
+            tipo_cambio=Decimal("1183.50"),
+            tipo_cambio_fecha=date(2026, 7, 1),
+            costo_unitario_ars=Decimal("53257.50"),
+        )
+        db.commit()
+
+        result = resolve_costo_mercaderia_detalle(db, [order_id])[order_id]
+
+        assert len(result) == 1
+        detalle = result[0]
+        assert detalle.conocido is True
+        assert detalle.moneda == "USD"
+        assert detalle.costo_origen == Decimal("45.00")
+        assert detalle.tipo_cambio == Decimal("1183.50")
+        assert detalle.tipo_cambio_fecha == date(2026, 7, 1)
+        assert detalle.costo_unitario_ars == Decimal("53257.50")
+
+    def test_every_requested_order_gets_a_key_even_with_no_items(self, db) -> None:
+        order_id = 973
+        _order(db, order_id)
+        db.commit()
+
+        result = resolve_costo_mercaderia_detalle(db, [order_id])
+
+        assert result[order_id] == []
+
+    def test_bulk_resolves_multiple_items_in_a_handful_of_queries(self, db) -> None:
+        """Bulk shape check -- and it COUNTS the queries, because the claim
+        is about their number.
+
+        The previous version of this test asserted only that both items
+        came back, under a docstring promising "one query for items, one
+        for frozen costs, TOTAL, never one per item". It would have stayed
+        green against a per-item loop, which is the exact regression the
+        docstring says it guards. A test that names a bound and does not
+        measure it is a comment with a green tick next to it."""
+        order_id = 974
+        _order(db, order_id)
+        _item_with_cost(db, order_id, "MLA1", 1, Decimal("50.00"))
+        _item_no_cost(db, order_id, "MLA2", quantity=2)
+        _item_no_cost(db, order_id, "MLA3", quantity=1)
+        db.commit()
+
+        consultas: List[str] = []
+
+        def _contar(conn, cursor, statement, parameters, context, executemany):  # noqa: ANN001
+            # SELECTs only: the test fixture's own SAVEPOINT/RELEASE also
+            # come through this hook, and counting them would make the
+            # bound about the fixture instead of about the function.
+            if statement.lstrip().upper().startswith("SELECT"):
+                consultas.append(statement)
+
+        event.listen(db.bind, "before_cursor_execute", _contar)
+        try:
+            result = resolve_costo_mercaderia_detalle(db, [order_id])[order_id]
+        finally:
+            event.remove(db.bind, "before_cursor_execute", _contar)
+
+        assert len(result) == 3
+        # EXACTLY the two the docstring promises, not "a handful". A bound
+        # of `<= 4` does not discriminate here: an N+1 over three items is
+        # 1 + 3 = 4 and slips straight through it. The number is fixed by
+        # the implementation, so the test states the number.
+        assert len(consultas) == 2, consultas
+        known = {d.item_id: d for d in result}
+        assert known["MLA1"].conocido is True
+        assert known["MLA2"].conocido is False

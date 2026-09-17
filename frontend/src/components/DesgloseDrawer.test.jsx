@@ -621,3 +621,272 @@ describe('Markup (total_gauss / costo de mercadería, as a percentage)', () => {
     expect(screen.queryByText('0%')).not.toBeInTheDocument();
   });
 });
+
+describe('Product detail under "Monto de la operación" (ml-ventas-desglose-costos)', () => {
+  function mockDetail(orderId, { breakdown, iva_decomposicion, cadena_total_gauss } = {}) {
+    api.get.mockImplementation((url) => {
+      if (url === `/ml-ventas-ops/orders/${orderId}`) {
+        return Promise.resolve({ data: { breakdown, iva_decomposicion, cadena_total_gauss } });
+      }
+      return Promise.resolve({ data: {} });
+    });
+  }
+
+  it('renders one line per item, under the total, matching quantity and amount', async () => {
+    mockDetail(1001, {
+      breakdown: {
+        lines: [],
+        neto: 99333,
+        incompleto: false,
+        incomplete_reasons: [],
+        monto_operacion: 99333,
+        item_lines: [
+          {
+            item_id: 'MLA1',
+            title: 'Board Asus Prime A520m-k / Am4 / Ddr4',
+            quantity: 1,
+            monto: 99333,
+          },
+        ],
+        item_lines_reconcilia: true,
+        item_lines_razon: null,
+      },
+    });
+    render(<DesgloseDrawer orderId={1001} open onClose={vi.fn()} />);
+
+    // Scoped to the ITEM list. `getAllByText('99.333,00').length > 0`
+    // passes on the "Monto de la operación" heading alone, so it asserts
+    // nothing about the row it claims to be about.
+    const titulo = await screen.findByText(/board asus prime/i);
+    const lista = screen.getByLabelText('Detalle de productos');
+    expect(lista).toContainElement(titulo);
+    expect(titulo.closest('li')).toHaveTextContent('99.333,00');
+    // Reconciled: NO warning at all. Asserting the absence of the old
+    // "puede no sumar" wording is vacuous -- that string no longer exists
+    // anywhere in the component, so the assertion cannot fail and proves
+    // nothing. Assert against what the component would actually render.
+    expect(screen.queryByText(/no se puede calcular el monto/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/no tiene ítems cargados/i)).not.toBeInTheDocument();
+  });
+
+  it('shows quantity when greater than 1', async () => {
+    mockDetail(1001, {
+      breakdown: {
+        lines: [],
+        neto: 200,
+        incompleto: false,
+        incomplete_reasons: [],
+        monto_operacion: 200,
+        item_lines: [{ item_id: 'MLA1', title: 'Mouse', quantity: 2, monto: 200 }],
+        item_lines_reconcilia: true,
+        item_lines_razon: null,
+      },
+    });
+    render(<DesgloseDrawer orderId={1001} open onClose={vi.fn()} />);
+
+    expect(await screen.findByText(/mouse \(x2\)/i)).toBeInTheDocument();
+  });
+
+  it('surfaces the named reason instead of pretending the list is trustworthy when it cannot reconcile', async () => {
+    mockDetail(1001, {
+      breakdown: {
+        lines: [],
+        neto: 200,
+        incompleto: false,
+        incomplete_reasons: [],
+        monto_operacion: 200,
+        item_lines: [
+          { item_id: 'MLA1', title: 'Mouse', quantity: 1, monto: 100 },
+          { item_id: 'MLA2', title: 'Teclado', quantity: 1, monto: null },
+        ],
+        item_lines_reconcilia: false,
+        item_lines_razon: 'item_lines_item_sin_precio',
+      },
+    });
+    render(<DesgloseDrawer orderId={1001} open onClose={vi.fn()} />);
+
+    // The EXACT label for this reason, not a regex loose enough to match
+    // the generic fallback too: matching either would pass even when the
+    // named reason never reached the screen, which is the one thing this
+    // test exists to prove.
+    expect(
+      await screen.findByText(/no tienen precio unitario cargado.*no se puede calcular el monto/i),
+    ).toBeInTheDocument();
+    // The unpriced item is still listed, and its amount reads as unknown.
+    // Asserting only that the title is present says nothing about the
+    // figure beside it -- which is the whole point of the case.
+    const sinPrecio = screen.getByText(/teclado/i);
+    expect(sinPrecio.closest('li')).toHaveTextContent('—');
+    expect(sinPrecio.closest('li')).not.toHaveTextContent('0,00');
+  });
+});
+
+describe('Costo de mercadería per-item arithmetic (ml-ventas-desglose-costos)', () => {
+  function mockDetail(orderId, { breakdown, iva_decomposicion, cadena_total_gauss } = {}) {
+    api.get.mockImplementation((url) => {
+      if (url === `/ml-ventas-ops/orders/${orderId}`) {
+        return Promise.resolve({ data: { breakdown, iva_decomposicion, cadena_total_gauss } });
+      }
+      return Promise.resolve({ data: {} });
+    });
+  }
+
+  const BASE_BREAKDOWN = { lines: [], neto: 100, incompleto: false, incomplete_reasons: [] };
+
+  it('renders a USD-costed item WITH the exchange rate and its date', async () => {
+    mockDetail(1001, {
+      breakdown: BASE_BREAKDOWN,
+      iva_decomposicion: { componentes: [], neto_sin_iva: 100, reconcilia: true, diferencia: 0, razones: [] },
+      cadena_total_gauss: {
+        total_gauss: 900,
+        lineas: [{ code: 'costo_mercaderia', monto: 100 }],
+        markup: 900,
+        costo_mercaderia_items: [
+          {
+            item_id: 'MLA1',
+            title: 'Board Asus',
+            quantity: 1,
+            conocido: true,
+            moneda: 'USD',
+            costo_origen: 45,
+            tipo_cambio: 1183.5,
+            tipo_cambio_fecha: '2026-07-01',
+            costo_unitario_ars: 53257.5,
+            fuente: 'erp_sku',
+            costo_fecha: null,
+          },
+        ],
+      },
+    });
+    render(<DesgloseDrawer orderId={1001} open onClose={vi.fn()} />);
+
+    expect(await screen.findByText(/USD 45,00/)).toBeInTheDocument();
+    expect(screen.getByText(/1\.183,50/)).toBeInTheDocument();
+    expect(screen.getByText(/01\/07\/2026/)).toBeInTheDocument();
+    expect(screen.getByText(/53\.257,50/)).toBeInTheDocument();
+  });
+
+  it('spells out the quantity so the cost of the LINE can be replicated, not just the unit', async () => {
+    // `costo_unitario_ars` is the UNIT cost while the products list above
+    // shows the LINE total. Without the quantity a reader cannot tell
+    // whether the figure is per unit or for the line -- and the deduction
+    // that consumes it multiplies by the quantity.
+    mockDetail(1001, {
+      breakdown: BASE_BREAKDOWN,
+      iva_decomposicion: { componentes: [], neto_sin_iva: 100, reconcilia: true, diferencia: 0, razones: [] },
+      cadena_total_gauss: {
+        total_gauss: 900,
+        lineas: [{ code: 'costo_mercaderia', monto: 100 }],
+        markup: 900,
+        costo_mercaderia_items: [
+          {
+            item_id: 'MLA1',
+            title: 'Board Asus',
+            quantity: 3,
+            conocido: true,
+            moneda: 'ARS',
+            costo_origen: 5000,
+            tipo_cambio: null,
+            tipo_cambio_fecha: null,
+            costo_unitario_ars: 5000,
+            fuente: 'erp_sku',
+            costo_fecha: null,
+          },
+        ],
+      },
+    });
+    render(<DesgloseDrawer orderId={1001} open onClose={vi.fn()} />);
+
+    const titulo = await screen.findByText(/board asus/i);
+    const fila = titulo.closest('li');
+    expect(fila).toHaveTextContent('× 3');
+    expect(fila).toHaveTextContent('15.000,00');
+  });
+
+  it('does not clutter a single-unit line with a quantity multiplier', async () => {
+    mockDetail(1001, {
+      breakdown: BASE_BREAKDOWN,
+      iva_decomposicion: { componentes: [], neto_sin_iva: 100, reconcilia: true, diferencia: 0, razones: [] },
+      cadena_total_gauss: {
+        total_gauss: 900,
+        lineas: [{ code: 'costo_mercaderia', monto: 100 }],
+        markup: 900,
+        costo_mercaderia_items: [
+          {
+            item_id: 'MLA1',
+            title: 'Board Asus',
+            quantity: 1,
+            conocido: true,
+            moneda: 'ARS',
+            costo_origen: 5000,
+            tipo_cambio: null,
+            tipo_cambio_fecha: null,
+            costo_unitario_ars: 5000,
+            fuente: 'erp_sku',
+            costo_fecha: null,
+          },
+        ],
+      },
+    });
+    render(<DesgloseDrawer orderId={1001} open onClose={vi.fn()} />);
+
+    const titulo = await screen.findByText(/board asus/i);
+    expect(titulo.closest('li')).not.toHaveTextContent('c/u');
+  });
+
+  it('renders an ARS-costed item with NO exchange-rate arithmetic line', async () => {
+    mockDetail(1001, {
+      breakdown: BASE_BREAKDOWN,
+      iva_decomposicion: { componentes: [], neto_sin_iva: 100, reconcilia: true, diferencia: 0, razones: [] },
+      cadena_total_gauss: {
+        total_gauss: 900,
+        lineas: [{ code: 'costo_mercaderia', monto: 100 }],
+        markup: 900,
+        costo_mercaderia_items: [
+          {
+            item_id: 'MLA2',
+            title: 'Mouse Logitech',
+            quantity: 1,
+            conocido: true,
+            moneda: 'ARS',
+            costo_origen: 5000,
+            tipo_cambio: null,
+            tipo_cambio_fecha: null,
+            costo_unitario_ars: 5000,
+            fuente: 'erp_publicacion',
+            costo_fecha: null,
+          },
+        ],
+      },
+    });
+    render(<DesgloseDrawer orderId={1001} open onClose={vi.fn()} />);
+
+    expect(await screen.findByText(/mouse logitech/i)).toBeInTheDocument();
+    expect(screen.queryByText(/×/)).not.toBeInTheDocument();
+    expect(screen.getByText('$ 5.000,00')).toBeInTheDocument();
+  });
+
+  it('renders an item with no frozen cost row as unknown, never a $0', async () => {
+    mockDetail(1001, {
+      breakdown: BASE_BREAKDOWN,
+      iva_decomposicion: { componentes: [], neto_sin_iva: 100, reconcilia: true, diferencia: 0, razones: [] },
+      cadena_total_gauss: {
+        total_gauss: null,
+        lineas: [{ code: 'costo_mercaderia', monto: null }],
+        markup: null,
+        costo_mercaderia_items: [
+          {
+            item_id: 'MLA3',
+            title: 'Sin costo',
+            quantity: 1,
+            conocido: false,
+          },
+        ],
+      },
+    });
+    render(<DesgloseDrawer orderId={1001} open onClose={vi.fn()} />);
+
+    expect(await screen.findByText(/costo desconocido/i)).toBeInTheDocument();
+    expect(screen.queryByText('$ 0,00')).not.toBeInTheDocument();
+  });
+});

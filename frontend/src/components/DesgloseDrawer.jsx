@@ -98,6 +98,47 @@ function formatAmount(value) {
   }).format(Number(value));
 }
 
+function formatMoney(value) {
+  return `$ ${formatAmount(value)}`;
+}
+
+// Product-owner request: "no están desglosados, no sé de qué es cada cosa"
+// -- the reason the per-item list cannot be trusted to add up, spelled out
+// same discipline as `INCOMPLETE_REASON_LABELS` above: never a bare code.
+// The heading IS these lines' own sum, so "la lista no suma el total" is
+// no longer a thing that can happen -- these reasons all mean the TOTAL
+// could not be formed, and each names what the ERP is missing so the
+// reader knows where to go.
+const ITEM_LINES_RAZON_LABELS = {
+  item_lines_no_items: 'Esta venta no tiene ítems cargados.',
+  item_lines_orden_sin_items:
+    'Una de las órdenes de este pack no tiene ítems cargados, así que el monto de la operación estaría incompleto.',
+  item_lines_item_sin_cantidad:
+    'Uno o más ítems no tienen cantidad cargada, así que no se puede calcular el monto de la operación.',
+  item_lines_item_sin_precio:
+    'Uno o más ítems no tienen precio unitario cargado, así que no se puede calcular el monto de la operación.',
+};
+
+// `fuente` values are deliberately distinct (see `MlOrderItemCosto`'s
+// module docstring): `erp_*` is the CURRENT ERP cost, `hist_*` a DATED
+// historical cost from the backfill, `hist_combo` a combo/kit's cost
+// SUMMED from its components. Flattening these into one generic "ERP"
+// label would hide exactly the distinction an operator needs to trust
+// (or distrust) the figure.
+const FUENTE_LABELS = {
+  erp_publicacion: 'ERP (por publicación)',
+  erp_sku: 'ERP (por SKU)',
+  hist_publicacion: 'Histórico (por publicación)',
+  hist_sku: 'Histórico (por SKU)',
+  hist_combo: 'Histórico (combo)',
+};
+
+function formatCostoFecha(value) {
+  if (!value) return null;
+  const [year, month, day] = value.split('-');
+  return `${day}/${month}/${year}`;
+}
+
 export default function DesgloseDrawer({ orderId, open, onClose }) {
   const [breakdown, setBreakdown] = useState(null);
   // ml-ventas-modo-logistico PR6: the IVA split and the Total Gauss chain,
@@ -230,6 +271,8 @@ export default function DesgloseDrawer({ orderId, open, onClose }) {
   const componentesIva = ivaDecomposicion?.componentes || [];
   const razonesIva = ivaDecomposicion?.razones || [];
   const lineasGauss = cadenaTotalGauss?.lineas || [];
+  const itemLines = breakdown?.item_lines || [];
+  const costoItems = cadenaTotalGauss?.costo_mercaderia_items || [];
 
   if (!open) return null;
 
@@ -282,6 +325,44 @@ export default function DesgloseDrawer({ orderId, open, onClose }) {
                 <span className={styles.totalLabel}>Monto de la operación</span>
                 <span className={styles.totalMonto}>{formatAmount(breakdown.monto_operacion)}</span>
               </div>
+
+              {/* Per-item breakdown of the figure above -- product-owner
+                  request: "debería ser la suma de los productos y no están
+                  desglosados". Compact/muted on purpose: this is supporting
+                  context for the total above it, not a primary figure of
+                  its own -- see `.itemLineList` in the CSS module. Rendered
+                  only when the backend sent at least one line; a reconcile
+                  failure keeps the lines visible (a real partial list) but
+                  swaps the reassurance for the named reason instead of
+                  hiding the list outright. */}
+              {itemLines.length > 0 && (
+                <ul className={styles.itemLineList} aria-label="Detalle de productos">
+                  {itemLines.map((item, index) => (
+                    <li
+                      key={`${index}-${item.item_id}-${item.variation_id ?? ''}`}
+                      className={styles.itemLine}
+                    >
+                      <span className={styles.itemLineTitle}>
+                        {item.title || item.item_id}
+                        {item.quantity && item.quantity > 1 ? ` (x${item.quantity})` : ''}
+                      </span>
+                      <span className={styles.itemLineMonto}>{formatAmount(item.monto)}</span>
+                    </li>
+                  ))}
+                </ul>
+              )}
+              {breakdown.item_lines_reconcilia === false && (
+                <p className={styles.itemLineWarning}>
+                  {/* The fallback names the CONSEQUENCE without guessing
+                      the cause: a reason the backend adds tomorrow must
+                      still render as money the reader can act on, and
+                      "puede no sumar el monto" describes something that
+                      cannot happen any more -- the heading IS the lines'
+                      own sum. */}
+                  {ITEM_LINES_RAZON_LABELS[breakdown.item_lines_razon] ||
+                    'No se pudo calcular el monto de la operación a partir de los productos.'}
+                </p>
+              )}
 
               {breakdown.incompleto && (
                 <div className={styles.incompleteBanner}>
@@ -382,6 +463,66 @@ export default function DesgloseDrawer({ orderId, open, onClose }) {
                       </li>
                     ))}
                   </ul>
+
+                  {/* Per-item arithmetic behind "Costo de mercadería" --
+                      product-owner request: "debería decir después de costo
+                      (precio USD + TC) de cada operación para saber cómo
+                      replicar ese valor". Always shown when the backend sent
+                      items, regardless of whether the aggregate line above
+                      resolved -- an operator can still see which items DO
+                      have a known cost. Compact/muted, same discipline as
+                      the product list above: this explains the line above
+                      it, it is not a total of its own. */}
+                  {costoItems.length > 0 && (
+                    <ul className={styles.itemLineList} aria-label="Detalle de costo de mercadería">
+                      {costoItems.map((item, index) => (
+                        <li
+                          key={`${index}-${item.item_id}-${item.variation_id ?? ''}`}
+                          className={styles.itemLine}
+                        >
+                          <span className={styles.itemLineTitle}>
+                            {item.title || item.item_id}
+                            {item.quantity && item.quantity > 1 ? ` (x${item.quantity})` : ''}
+                            {item.fuente && (
+                              <span className={styles.itemLineFuente}>
+                                {' '}
+                                · {FUENTE_LABELS[item.fuente] || item.fuente}
+                                {item.costo_fecha ? ` (${formatCostoFecha(item.costo_fecha)})` : ''}
+                              </span>
+                            )}
+                          </span>
+                          <span className={styles.itemLineMonto}>
+                            {/* `costo_unitario_ars` is the UNIT cost, and
+                                the products list above shows the LINE
+                                total. Without the quantity spelled out
+                                here, a reader comparing "$200 (2 u.)"
+                                against "$50" cannot tell whether $50 is
+                                per unit or for the line -- and the
+                                deduction that uses this figure multiplies
+                                by the quantity. The arithmetic is shown
+                                whole so it can be replicated, which is why
+                                this panel exists. */}
+                            {!item.conocido ? (
+                              'Costo desconocido'
+                            ) : (
+                              <>
+                                {item.moneda === 'USD'
+                                  ? `USD ${formatAmount(item.costo_origen)} × ${formatAmount(item.tipo_cambio)}${
+                                      item.tipo_cambio_fecha ? ` (${formatCostoFecha(item.tipo_cambio_fecha)})` : ''
+                                    } = ${formatMoney(item.costo_unitario_ars)}`
+                                  : formatMoney(item.costo_unitario_ars)}
+                                {item.quantity > 1
+                                  ? ` c/u × ${item.quantity} = ${formatMoney(
+                                      Number(item.costo_unitario_ars) * item.quantity,
+                                    )}`
+                                  : ''}
+                              </>
+                            )}
+                          </span>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
 
                   {cadenaTotalGauss.total_gauss === null ? (
                     <div>

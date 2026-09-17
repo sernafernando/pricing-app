@@ -35,17 +35,34 @@ from app.models.logistica import Logistica
 from app.models.logistica_costo_cordon import LogisticaCostoCordon
 from app.models.transporte import Transporte
 from app.models.ml_billing import MlBillingCharge, MlBillingChargeOrder
-from app.models.ml_orders_ops import MlOrdersOps, MlShipmentOps
+from app.models.ml_orders_ops import MlOrderItemOps, MlOrdersOps, MlShipmentOps
 from app.models.ml_payments import MlPaymentCharge, MlPaymentOps
 from app.services.ml_ventas_desglose.breakdown_service import (
     CONCEPTO_ENVIOS,
     REASON_BILLING_NOT_SWEPT,
     REASON_FLEX_COST_UNKNOWN,
+    REASON_ITEM_LINES_ITEM_SIN_CANTIDAD,
+    REASON_ITEM_LINES_ITEM_SIN_PRECIO,
+    REASON_ITEM_LINES_NO_ITEMS,
+    REASON_ITEM_LINES_ORDEN_SIN_ITEMS,
     compute_neto_by_order_ids,
     REASON_PAYMENTS_NOT_COUNTABLE,
     REASON_PAYMENTS_NOT_SYNCED,
     compute_breakdown,
 )
+
+
+def _item(db, order_id, item_id, title="Board Asus", quantity=1, unit_price=None, seller_sku="SKU-1") -> None:
+    db.add(
+        MlOrderItemOps(
+            order_id=order_id,
+            item_id=item_id,
+            title=title,
+            quantity=quantity,
+            unit_price=unit_price,
+            seller_sku=seller_sku,
+        )
+    )
 
 
 def _order(db, order_id: int, pack_id=None, shipping_id=None, paid_amount=None) -> None:
@@ -929,37 +946,60 @@ class TestFlexRealCost:
 
 
 class TestMontoOperacion:
-    """`monto_operacion` -- the gross the drawer opens on, `paid_amount`
-    summed across every member order. `None` (never a fabricated 0)
-    whenever any member order's `paid_amount` is not yet known -- see the
-    field's own docstring on `OperationBreakdown`."""
+    """`monto_operacion` -- the gross the drawer opens on: THE SUM OF THE
+    PRODUCTS, the figure ML's own screen heads its breakdown with.
 
-    def test_single_order_reports_its_paid_amount(self, db) -> None:
+    It is NOT `paid_amount`. That was the first implementation and it was a
+    mis-specification: `paid_amount` is what the BUYER paid, freight
+    included when the buyer pays it, so the product lines legitimately fell
+    short of it and the panel warned "los ítems no suman el total" on
+    ordinary sales. `paid_amount` is still the base of the money identity
+    this module reconciles against; it is just not this heading.
+
+    `None`, never a fabricated 0, whenever any item's price is unknown."""
+
+    def test_single_order_reports_the_products_total(self, db) -> None:
         order_id = 700
         _order(db, order_id, paid_amount=Decimal("19900.00"))
         _payment(db, 1, order_id, status="approved", net_received_amount=Decimal("19900.00"))
+        _item(db, order_id, "MLA1", quantity=1, unit_price=Decimal("19900.00"))
         db.commit()
 
         result = compute_breakdown(db, [order_id])
 
         assert result.monto_operacion == Decimal("19900.00")
 
-    def test_pack_sums_paid_amount_across_every_member_order(self, db) -> None:
+    def test_quantity_counts(self, db) -> None:
+        """Two units of a $100 product is $200, not $100 -- the heading is a
+        sum of LINES, not of unit prices."""
+        order_id = 705
+        _order(db, order_id, paid_amount=Decimal("200.00"))
+        _payment(db, 1, order_id, status="approved", net_received_amount=Decimal("200.00"))
+        _item(db, order_id, "MLA1", quantity=2, unit_price=Decimal("100.00"))
+        db.commit()
+
+        result = compute_breakdown(db, [order_id])
+
+        assert result.monto_operacion == Decimal("200.00")
+
+    def test_pack_sums_the_products_of_every_member_order(self, db) -> None:
         pack_id = 701
         order_a, order_b = 7010, 7011
         _order(db, order_a, pack_id=pack_id, paid_amount=Decimal("1000.00"))
         _order(db, order_b, pack_id=pack_id, paid_amount=Decimal("2500.50"))
         _payment(db, 1, order_a, status="approved", net_received_amount=Decimal("1000.00"))
         _payment(db, 2, order_b, status="approved", net_received_amount=Decimal("2500.50"))
+        _item(db, order_a, "MLA1", quantity=1, unit_price=Decimal("1000.00"))
+        _item(db, order_b, "MLA2", quantity=1, unit_price=Decimal("2500.50"))
         db.commit()
 
         result = compute_breakdown(db, [order_a, order_b])
 
         assert result.monto_operacion == Decimal("3500.50")
 
-    def test_unknown_paid_amount_reports_none_not_zero(self, db) -> None:
+    def test_a_sale_with_no_items_reports_none_not_zero(self, db) -> None:
         order_id = 702
-        _order(db, order_id, paid_amount=None)
+        _order(db, order_id, paid_amount=Decimal("100.00"))
         _payment(db, 1, order_id, status="approved", net_received_amount=Decimal("100.00"))
         db.commit()
 
@@ -967,16 +1007,183 @@ class TestMontoOperacion:
 
         assert result.monto_operacion is None
 
-    def test_one_unknown_member_order_makes_the_pack_sum_unknown(self, db) -> None:
-        """A partial sum would UNDERSTATE the real gross -- silently
-        dropping the unsynced order's money instead of saying so."""
+    def test_one_unpriced_item_makes_the_pack_total_unknown(self, db) -> None:
+        """A partial sum would UNDERSTATE the gross -- silently dropping the
+        unpriced item's money instead of saying so."""
         pack_id = 703
         order_a, order_b = 7030, 7031
         _order(db, order_a, pack_id=pack_id, paid_amount=Decimal("1000.00"))
-        _order(db, order_b, pack_id=pack_id, paid_amount=None)
+        _order(db, order_b, pack_id=pack_id, paid_amount=Decimal("500.00"))
         _payment(db, 1, order_a, status="approved", net_received_amount=Decimal("1000.00"))
+        _item(db, order_a, "MLA1", quantity=1, unit_price=Decimal("1000.00"))
+        _item(db, order_b, "MLA2", quantity=1, unit_price=None)
         db.commit()
 
         result = compute_breakdown(db, [order_a, order_b])
 
+        assert result.monto_operacion is None
+
+
+class TestItemLines:
+    """Per-item breakdown of `monto_operacion` -- product-owner request:
+    "no están desglosados, no sé de qué es cada cosa". Mirrors this
+    module's own house rule (see REASON_ITEM_LINES_* docstring): a list
+    that LOOKS complete but does not sum to the total above it must say so,
+    never render silently."""
+
+    def test_lines_sum_to_monto_operacion(self, db) -> None:
+        order_id = 800
+        _order(db, order_id, paid_amount=Decimal("300.00"))
+        _payment(db, 1, order_id, status="approved", net_received_amount=Decimal("300.00"))
+        _item(db, order_id, "MLA1", quantity=2, unit_price=Decimal("100.00"))
+        _item(db, order_id, "MLA2", quantity=1, unit_price=Decimal("100.00"))
+        db.commit()
+
+        result = compute_breakdown(db, [order_id])
+
+        assert result.item_lines_reconcilia is True
+        assert result.item_lines_razon is None
+        total = sum((line.monto for line in result.item_lines), Decimal("0"))
+        assert total == result.monto_operacion == Decimal("300.00")
+
+    def test_item_without_unit_price_marks_lines_unreliable(self, db) -> None:
+        order_id = 801
+        _order(db, order_id, paid_amount=Decimal("300.00"))
+        _payment(db, 1, order_id, status="approved", net_received_amount=Decimal("300.00"))
+        _item(db, order_id, "MLA1", quantity=1, unit_price=Decimal("100.00"))
+        _item(db, order_id, "MLA2", quantity=1, unit_price=None)
+        db.commit()
+
+        result = compute_breakdown(db, [order_id])
+
+        assert result.item_lines_reconcilia is False
+        assert result.item_lines_razon == REASON_ITEM_LINES_ITEM_SIN_PRECIO
+        # The unpriced item is still LISTED (with monto=None), never dropped.
+        assert len(result.item_lines) == 2
+        assert any(line.monto is None for line in result.item_lines)
+
+    def test_no_items_marks_lines_unreliable(self, db) -> None:
+        order_id = 802
+        _order(db, order_id, paid_amount=Decimal("300.00"))
+        _payment(db, 1, order_id, status="approved", net_received_amount=Decimal("300.00"))
+        db.commit()
+
+        result = compute_breakdown(db, [order_id])
+
+        assert result.item_lines == []
+        assert result.item_lines_reconcilia is False
+        assert result.item_lines_razon == REASON_ITEM_LINES_NO_ITEMS
+
+    def test_monto_operacion_is_the_items_own_sum(self, db) -> None:
+        """The heading IS the products' sum, so it cannot disagree with the
+        list under it -- there is no comparison left to fail.
+
+        It used to be `paid_amount`, and that was a mis-specification, not a
+        second valid reading: `paid_amount` is what the BUYER paid, freight
+        included when the buyer pays it, so the item lines legitimately fell
+        short and the panel warned "los ítems no suman el total" on ordinary
+        sales. `paid_amount` here is deliberately a DIFFERENT number from
+        the items' total, and the heading must follow the items.
+        """
+        order_id = 803
+        _order(db, order_id, paid_amount=Decimal("999.00"))
+        _payment(db, 1, order_id, status="approved", net_received_amount=Decimal("999.00"))
+        _item(db, order_id, "MLA1", quantity=2, unit_price=Decimal("100.00"))
+        db.commit()
+
+        result = compute_breakdown(db, [order_id])
+
+        assert result.monto_operacion == Decimal("200.00")
+        assert result.item_lines_reconcilia is True
+        assert result.item_lines_razon is None
+
+    def test_an_unpriced_item_leaves_the_heading_unknown_not_partial(self, db) -> None:
+        """A partial sum under a heading that looks complete is the failure
+        this module refuses to build: with one price missing the heading is
+        `None`, not the total of the items that happen to have one."""
+        order_id = 804
+        _order(db, order_id, paid_amount=Decimal("999.00"))
+        _payment(db, 1, order_id, status="approved", net_received_amount=Decimal("999.00"))
+        _item(db, order_id, "MLA1", quantity=1, unit_price=Decimal("100.00"))
+        _item(db, order_id, "MLA2", quantity=1, unit_price=None)
+        db.commit()
+
+        result = compute_breakdown(db, [order_id])
+
+        assert result.monto_operacion is None
+        assert result.item_lines_reconcilia is False
+        assert result.item_lines_razon == REASON_ITEM_LINES_ITEM_SIN_PRECIO
+
+
+class TestItemWithoutQuantityIsItsOwnReason:
+    def test_a_priced_item_with_no_quantity_is_not_reported_as_unpriced(self, db) -> None:
+        """ "Sin precio" and "sin cantidad" get fixed in different places.
+        Sending a reader to look for a missing price on an item that HAS
+        one wastes the trip, and the skip breakdown is the only observable
+        output this panel gives them.
+
+        MUTATION-VERIFIED: collapsing both back into
+        `REASON_ITEM_LINES_ITEM_SIN_PRECIO` turns this red.
+        """
+        order_id = 810
+        _order(db, order_id, paid_amount=Decimal("100.00"))
+        _payment(db, 1, order_id, status="approved", net_received_amount=Decimal("100.00"))
+        _item(db, order_id, "MLA1", quantity=None, unit_price=Decimal("100.00"))
+        db.commit()
+
+        result = compute_breakdown(db, [order_id])
+
+        assert result.item_lines_reconcilia is False
+        assert result.item_lines_razon == REASON_ITEM_LINES_ITEM_SIN_CANTIDAD
+        assert result.monto_operacion is None
+
+
+class TestAPackMemberWithNoItems:
+    def test_a_sibling_order_without_items_is_not_summed_over_silently(self, db) -> None:
+        """On a pack where one order has items and a sibling has none,
+        `order_items` is NOT empty -- a bare `if not order_items` walks
+        straight past it and sums only the orders that loaded, presenting a
+        partial total as the operation's own.
+
+        MUTATION-VERIFIED: dropping the per-order coverage check turns this
+        red, and `monto_operacion` comes back as the partial 1000 instead
+        of unknown.
+        """
+        pack_id = 705
+        order_a, order_b = 7050, 7051
+        _order(db, order_a, pack_id=pack_id, paid_amount=Decimal("1000.00"))
+        _order(db, order_b, pack_id=pack_id, paid_amount=Decimal("500.00"))
+        _payment(db, 1, order_a, status="approved", net_received_amount=Decimal("1000.00"))
+        _item(db, order_a, "MLA1", quantity=1, unit_price=Decimal("1000.00"))
+        # order_b carries NO items at all.
+        db.commit()
+
+        result = compute_breakdown(db, [order_a, order_b])
+
+        assert result.item_lines_reconcilia is False
+        assert result.item_lines_razon == REASON_ITEM_LINES_ORDEN_SIN_ITEMS
+        assert result.monto_operacion is None
+
+
+class TestLinesSurviveAnUnformableTotal:
+    def test_a_pack_with_one_empty_order_still_lists_what_it_does_have(self, db) -> None:
+        """The flag withholds the TOTAL, not the detail.
+
+        Dropping the lines when the total cannot be formed leaves the
+        reader with a warning and a blank list -- strictly less than we
+        know. The items that DID load are still real.
+        """
+        pack_id = 706
+        order_a, order_b = 7060, 7061
+        _order(db, order_a, pack_id=pack_id, paid_amount=Decimal("1000.00"))
+        _order(db, order_b, pack_id=pack_id, paid_amount=Decimal("500.00"))
+        _payment(db, 1, order_a, status="approved", net_received_amount=Decimal("1000.00"))
+        _item(db, order_a, "MLA1", quantity=1, unit_price=Decimal("1000.00"))
+        db.commit()
+
+        result = compute_breakdown(db, [order_a, order_b])
+
+        assert [line.item_id for line in result.item_lines] == ["MLA1"]
+        assert result.item_lines_reconcilia is False
+        assert result.item_lines_razon == REASON_ITEM_LINES_ORDEN_SIN_ITEMS
         assert result.monto_operacion is None
