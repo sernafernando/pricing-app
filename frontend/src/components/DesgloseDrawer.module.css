@@ -230,6 +230,34 @@
   color: var(--text-tertiary);
 }
 
+/* The cost detail rows STACK: the title on its own line, the arithmetic
+   under it. Sharing `.itemLine`'s two-column layout put a ~100-character
+   ML title next to a long, non-shrinking arithmetic string, which wrapped
+   the title over dozens of lines. */
+.costoItemLine {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: var(--space-1) 0;
+  font-size: var(--font-xs, var(--font-sm));
+  color: var(--text-tertiary);
+}
+
+.costoItemLine + .costoItemLine {
+  border-top: 1px solid var(--border-primary);
+}
+
+.costoItemLine .itemLineTitle {
+  flex: none;
+  color: var(--text-secondary);
+}
+
+/* Left-aligned under the title it belongs to: right-aligning it would put
+   the figure at the far edge of the drawer, away from what it describes. */
+.costoItemLine .itemLineMonto {
+  text-align: left;
+}
+
 .itemLineMonto {
   flex-shrink: 0;
   font-variant-numeric: tabular-nums;

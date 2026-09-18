@@ -10,6 +10,7 @@ import { useQueryFilters } from '../hooks/useQueryFilters';
 import { useServerPagination } from '../hooks/useServerPagination';
 import { usePermisos } from '../contexts/PermisosContext';
 import SearchInput from '../components/SearchInput';
+import DateRangeFilter from '../components/DateRangeFilter';
 import { BarChart3, ClipboardList, DollarSign, TrendingUp, Sparkles, Calendar, Tag, Package, Truck, Store, X, Star, RefreshCw, Download } from 'lucide-react';
 
 // Helper para obtener fechas por defecto
@@ -29,8 +30,7 @@ export default function DashboardMetricasML() {
 
   const [loading, setLoading] = useState(true);
   const [filtroRapidoActivo, setFiltroRapidoActivo] = useState('mesActual');
-  const [mostrarDropdownFecha, setMostrarDropdownFecha] = useState(false);
-  
+
   // Usar query params para tab, fechas y filtros de resumen
   const { getFilter, updateFilters } = useQueryFilters({
     tab: 'resumen',
@@ -70,20 +70,6 @@ export default function DashboardMetricasML() {
     if (!pmsQuery) return [];
     return pmsQuery.split(',').filter(Boolean).map(id => parseInt(id.trim(), 10));
   }, [pmsQuery]);
-
-  // Fechas temporales para el dropdown (sincronizadas con las fechas actuales)
-  const [fechaTemporal, setFechaTemporal] = useState({
-    desde: fechaDesde,
-    hasta: fechaHasta
-  });
-
-  // Sincronizar fechas temporales cuando cambian las fechas del filtro
-  useEffect(() => {
-    setFechaTemporal({
-      desde: fechaDesde,
-      hasta: fechaHasta
-    });
-  }, [fechaDesde, fechaHasta]);
 
   // Datos
   const [metricasGenerales, setMetricasGenerales] = useState(null);
@@ -258,62 +244,11 @@ export default function DashboardMetricasML() {
     return tipos[tipo] || tipo;
   };
 
-  const aplicarFiltroRapido = (filtro) => {
-    const hoy = new Date();
-    const formatearFechaISO = (fecha) => toLocalDateString(fecha);
-
-    let desde, hasta = hoy;
-
-    switch (filtro) {
-      case 'hoy':
-        desde = new Date(hoy);
-        break;
-      case 'ayer':
-        desde = new Date(hoy);
-        desde.setDate(desde.getDate() - 1);
-        hasta = new Date(desde);
-        break;
-      case '3d':
-        desde = new Date(hoy);
-        desde.setDate(desde.getDate() - 2);
-        break;
-      case '7d':
-        desde = new Date(hoy);
-        desde.setDate(desde.getDate() - 6);
-        break;
-      case '14d':
-        desde = new Date(hoy);
-        desde.setDate(desde.getDate() - 13);
-        break;
-      case 'mesActual':
-        desde = new Date(hoy.getFullYear(), hoy.getMonth(), 1);
-        break;
-      case '30d':
-        desde = new Date(hoy);
-        desde.setDate(desde.getDate() - 29);
-        break;
-      case '3m':
-        desde = new Date(hoy);
-        desde.setMonth(desde.getMonth() - 3);
-        break;
-      default:
-        return;
-    }
-
+  const handleDateRangeChange = ({ desde, hasta, filtro }) => {
     setFiltroRapidoActivo(filtro);
-    setMostrarDropdownFecha(false);
     updateFilters({
-      fecha_desde: formatearFechaISO(desde),
-      fecha_hasta: formatearFechaISO(hasta)
-    });
-  };
-
-  const aplicarFechaPersonalizada = () => {
-    setFiltroRapidoActivo('custom');
-    setMostrarDropdownFecha(false);
-    updateFilters({
-      fecha_desde: fechaTemporal.desde,
-      fecha_hasta: fechaTemporal.hasta
+      fecha_desde: desde,
+      fecha_hasta: hasta
     });
   };
 
@@ -438,99 +373,12 @@ export default function DashboardMetricasML() {
         {/* Contenedor con filtros rápidos + botón reload */}
         <div className={styles.filtrosRapidosWrapper}>
           {/* Filtros Rápidos Compactos */}
-          <div className={styles.filtrosRapidos}>
-            <button 
-              onClick={() => setMostrarDropdownFecha(!mostrarDropdownFecha)} 
-              className={`${styles.btnFiltroRapido} ${styles.btnCalendar}`}
-              title="Seleccionar rango personalizado"
-            >
-              <Calendar size={16} />
-            </button>
-            
-            <button 
-              onClick={() => aplicarFiltroRapido('hoy')} 
-              className={`${styles.btnFiltroRapido} ${filtroRapidoActivo === 'hoy' ? styles.activo : ''}`}
-            >
-              Hoy
-            </button>
-            <button 
-              onClick={() => aplicarFiltroRapido('ayer')} 
-              className={`${styles.btnFiltroRapido} ${filtroRapidoActivo === 'ayer' ? styles.activo : ''}`}
-            >
-              Ayer
-            </button>
-            <button 
-              onClick={() => aplicarFiltroRapido('3d')} 
-              className={`${styles.btnFiltroRapido} ${filtroRapidoActivo === '3d' ? styles.activo : ''}`}
-            >
-              3d
-            </button>
-            <button 
-              onClick={() => aplicarFiltroRapido('7d')} 
-              className={`${styles.btnFiltroRapido} ${filtroRapidoActivo === '7d' ? styles.activo : ''}`}
-            >
-              7d
-            </button>
-            <button 
-              onClick={() => aplicarFiltroRapido('14d')} 
-              className={`${styles.btnFiltroRapido} ${filtroRapidoActivo === '14d' ? styles.activo : ''}`}
-            >
-              14d
-            </button>
-            <button
-              onClick={() => aplicarFiltroRapido('mesActual')}
-              className={`${styles.btnFiltroRapido} ${filtroRapidoActivo === 'mesActual' ? styles.activo : ''}`}
-            >
-              Mes actual
-            </button>
-            <button 
-              onClick={() => aplicarFiltroRapido('30d')} 
-              className={`${styles.btnFiltroRapido} ${filtroRapidoActivo === '30d' ? styles.activo : ''}`}
-            >
-              30d
-            </button>
-            <button 
-              onClick={() => aplicarFiltroRapido('3m')} 
-              className={`${styles.btnFiltroRapido} ${filtroRapidoActivo === '3m' ? styles.activo : ''}`}
-            >
-              3m
-            </button>
-
-            {/* Dropdown de fecha personalizada */}
-            {mostrarDropdownFecha && (
-              <>
-                <div 
-                  className={styles.dropdownOverlay} 
-                  onClick={() => setMostrarDropdownFecha(false)}
-                />
-                <div className={styles.dropdownFecha}>
-                  <div className={styles.dropdownFechaContent}>
-                    <div className={styles.dropdownFechaField}>
-                      <label>Desde</label>
-                      <input
-                        type="date"
-                        value={fechaTemporal.desde}
-                        onChange={(e) => setFechaTemporal({ ...fechaTemporal, desde: e.target.value })}
-                        className={styles.dropdownDateInput}
-                      />
-                    </div>
-                    <div className={styles.dropdownFechaField}>
-                      <label>Hasta</label>
-                      <input
-                        type="date"
-                        value={fechaTemporal.hasta}
-                        onChange={(e) => setFechaTemporal({ ...fechaTemporal, hasta: e.target.value })}
-                        className={styles.dropdownDateInput}
-                      />
-                    </div>
-                    <button onClick={aplicarFechaPersonalizada} className="btn-tesla outline-subtle-primary sm">
-                      Aplicar
-                    </button>
-                  </div>
-                </div>
-              </>
-            )}
-          </div>
+          <DateRangeFilter
+            fechaDesde={fechaDesde}
+            fechaHasta={fechaHasta}
+            filtroActivo={filtroRapidoActivo}
+            onChange={handleDateRangeChange}
+          />
 
           {/* Botón recargar - Separado */}
           {tabActivo !== 'rentabilidad' && (

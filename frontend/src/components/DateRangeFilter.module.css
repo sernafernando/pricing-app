@@ -1,0 +1,117 @@
+/* Extracted from `DashboardMetricasML.module.css` so BOTH the métricas
+   dashboard and the ML sales view share one date filter — see the
+   component's docblock for why a copy was not acceptable.
+
+   The COLOURS are not a copy. The original hard-coded a dark theme
+   (`#1a1a1a`, `rgba(255, 255, 255, 0.6)`, `#3b82f6`), which the repo's
+   css-guard tolerates there as grandfathered but refuses in a new file --
+   and rightly: literal colours ignore the `data-theme` toggle, so the
+   filter would stay dark on a light page. Every colour here is a token,
+   and the date inputs COMPOSE from `forms-tesla.css` instead of
+   hand-rolling their box. */
+
+.filtrosRapidos {
+  display: flex;
+  gap: 0;
+  flex-wrap: nowrap;
+  background: var(--bg-secondary);
+  padding: 4px;
+  border-radius: var(--radius-md);
+  width: fit-content;
+  position: relative;
+  border: 1px solid var(--border-primary);
+}
+
+.btnFiltroRapido {
+  padding: 6px 12px;
+  background: transparent;
+  color: var(--text-tertiary);
+  border: none;
+  border-radius: var(--radius-sm, 4px);
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: var(--font-medium);
+  transition: all 0.15s;
+  white-space: nowrap;
+  min-width: 40px;
+}
+
+.btnCalendar {
+  font-size: 14px;
+  padding: 6px 10px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.btnFiltroRapido:hover {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+}
+
+.btnFiltroRapido.activo {
+  background: var(--brand-primary-light, var(--bg-hover));
+  color: var(--brand-primary);
+  font-weight: var(--font-medium);
+}
+
+.btnFiltroRapido.activo:hover {
+  background: var(--brand-primary-light, var(--bg-hover));
+  color: var(--brand-primary);
+}
+
+/* Catches the click that closes the dropdown, without blocking the wheel. */
+.dropdownOverlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 999;
+}
+
+.dropdownFecha {
+  position: absolute;
+  top: calc(100% + 8px);
+  left: 0;
+  background: var(--bg-primary);
+  border: 1px solid var(--border-primary);
+  border-radius: var(--radius-lg);
+  padding: var(--spacing-md);
+  /* `--cf-shadow-modal` and not a literal: it is redefined per theme, so
+     a dropdown on a light page gets a light shadow. */
+  box-shadow: var(--cf-shadow-modal);
+  z-index: 1000;
+  min-width: 280px;
+}
+
+.dropdownFechaContent {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.dropdownFechaField {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.dropdownFechaField label {
+  font-size: 12px;
+  font-weight: var(--font-semibold);
+  color: var(--text-secondary);
+}
+
+/* COMPOSED, not re-implemented: the guard's rule 2 exists because a
+   hand-rolled box drifts from every other field on the screen. */
+.dropdownDateInput {
+  composes: input inputSm from '../styles/forms-tesla.css';
+  cursor: pointer;
+}
+
+.rangoInvertido {
+  margin: 0;
+  font-size: 12px;
+  color: var(--error);
+}

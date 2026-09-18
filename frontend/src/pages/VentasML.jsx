@@ -49,11 +49,12 @@
 
 import { Fragment, useState, useEffect, useCallback, useRef } from 'react';
 import { Link } from 'react-router-dom';
-import { ShoppingBag, ShieldAlert, ChevronRight, AlertTriangle, Percent } from 'lucide-react';
+import { ShoppingBag, ShieldAlert, ChevronRight, AlertTriangle } from 'lucide-react';
 import { usePermisos } from '../contexts/PermisosContext';
 import api from '../services/api';
 import DesgloseDrawer from '../components/DesgloseDrawer';
 import VariosVentaPctModal from '../components/VariosVentaPctModal';
+import DateRangeFilter from '../components/DateRangeFilter';
 import styles from './VentasML.module.css';
 
 const PAGE_SIZE = 50;
@@ -194,6 +195,12 @@ export default function VentasML() {
   const [operationStatusFilter, setOperationStatusFilter] = useState('');
   const [goodsStatusFilter, setGoodsStatusFilter] = useState('');
   const [soldMonthFilter, setSoldMonthFilter] = useState('');
+  // No default range: unlike the métricas dashboard this list starts
+  // unfiltered by date, so `dateRangeFiltro` stays `null` until the
+  // operator picks a preset or a custom range.
+  const [fechaDesde, setFechaDesde] = useState('');
+  const [fechaHasta, setFechaHasta] = useState('');
+  const [dateRangeFiltro, setDateRangeFiltro] = useState(null);
 
   const [facets, setFacets] = useState({
     operation_status: {},
@@ -244,8 +251,28 @@ export default function VentasML() {
     setOffset(0);
   }, []);
 
+  // THE MONTH AND THE RANGE ARE THE SAME AXIS, so picking one clears the
+  // other. Sent together, the endpoint silently prefers the range (see
+  // `_parse_date_range`/`sold_range` in `ml_ventas_ops.py`: the month is
+  // only consulted when no range parsed), which left the operator looking
+  // at a month field that said "Septiembre" over a list filtered to the
+  // last 7 days. Two controls for one axis with a hidden winner is worse
+  // than either alone.
   const handleSoldMonthChange = useCallback((value) => {
     setSoldMonthFilter(value);
+    if (value) {
+      setFechaDesde('');
+      setFechaHasta('');
+      setDateRangeFiltro(null);
+    }
+    setOffset(0);
+  }, []);
+
+  const handleDateRangeChange = useCallback(({ desde, hasta, filtro }) => {
+    setFechaDesde(desde);
+    setFechaHasta(hasta);
+    setDateRangeFiltro(filtro);
+    setSoldMonthFilter('');
     setOffset(0);
   }, []);
 
@@ -267,10 +294,15 @@ export default function VentasML() {
     setOperationStatusFilter('');
     setGoodsStatusFilter('');
     setSoldMonthFilter('');
+    setFechaDesde('');
+    setFechaHasta('');
+    setDateRangeFiltro(null);
     setOffset(0);
   }, []);
 
-  const hasActiveFilters = Boolean(operationStatusFilter || goodsStatusFilter || soldMonthFilter);
+  const hasActiveFilters = Boolean(
+    operationStatusFilter || goodsStatusFilter || soldMonthFilter || fechaDesde || fechaHasta
+  );
 
   // "Todas" is neither `total` (scoped by BOTH axes, so it under-counts
   // once the other axis is filtered) nor the sum of the buckets (a pack
@@ -291,6 +323,8 @@ export default function VentasML() {
       if (operationStatusFilter) params.operation_status = operationStatusFilter;
       if (goodsStatusFilter) params.goods_status = goodsStatusFilter;
       if (soldMonthFilter) params.sold_month = soldMonthFilter;
+      if (fechaDesde) params.date_from = fechaDesde;
+      if (fechaHasta) params.date_to = fechaHasta;
       const { data } = await api.get('/ml-ventas-ops/sales', { params });
       if (requestId !== latestRequestRef.current) return;
       setSales(data.sales || []);
@@ -314,7 +348,7 @@ export default function VentasML() {
     } finally {
       if (requestId === latestRequestRef.current) setLoading(false);
     }
-  }, [puedeVer, operationStatusFilter, goodsStatusFilter, soldMonthFilter, offset]);
+  }, [puedeVer, operationStatusFilter, goodsStatusFilter, soldMonthFilter, fechaDesde, fechaHasta, offset]);
 
   useEffect(() => {
     cargarVentas();
@@ -366,7 +400,7 @@ export default function VentasML() {
             className="btn-tesla outline sm"
             onClick={() => setVariosPctModalOpen(true)}
           >
-            <Percent size={14} /> % de varios
+            % de varios
           </button>
           <button type="button" className="btn-tesla outline sm" onClick={cargarVentas} disabled={loading}>
             {loading ? 'Actualizando...' : 'Actualizar'}
@@ -466,6 +500,12 @@ export default function VentasML() {
 
         <div className={styles.filterRow}>
           <span className={styles.fieldLabel}>Y además</span>
+          <DateRangeFilter
+            fechaDesde={fechaDesde}
+            fechaHasta={fechaHasta}
+            filtroActivo={dateRangeFiltro}
+            onChange={handleDateRangeChange}
+          />
           <input
             id="ventas-ml-sold-month"
             type="month"
