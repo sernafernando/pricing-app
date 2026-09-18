@@ -1,12 +1,11 @@
 """compras_040: OC-match jobs and renglones (foundations, hook unwired)
 
 Revision ID: compras_040_oc_match
-Revises: 20260909_activity_cursor
+Revises: 20260916_total_gauss_provisorio
 Create Date: 2026-09-09
 
 Additive tables for feat-compras-oc-match Phase 1. down_revision is the
-Alembic head at apply time (`20260909_activity_cursor`), not compras_039
-(later heads already exist on that lineage).
+Alembic head on upstream/main at rebase time (`20260916_total_gauss_provisorio`).
 """
 
 from typing import Sequence, Union
@@ -15,7 +14,7 @@ import sqlalchemy as sa
 from alembic import op
 
 revision: str = "compras_040_oc_match"
-down_revision: Union[str, None] = "20260909_activity_cursor"
+down_revision: Union[str, None] = "20260916_total_gauss_provisorio"
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
@@ -72,6 +71,11 @@ def upgrade() -> None:
     )
     op.create_index("ix_oc_match_jobs_status", "compras_oc_match_jobs", ["status"])
     op.create_index("ix_oc_match_jobs_pedido_id", "compras_oc_match_jobs", ["pedido_id"])
+    op.create_index(
+        "ix_oc_match_jobs_attachment_id",
+        "compras_oc_match_jobs",
+        ["attachment_id"],
+    )
     op.create_index(
         "ix_oc_match_jobs_started_at",
         "compras_oc_match_jobs",
@@ -130,6 +134,7 @@ def downgrade() -> None:
     op.drop_index("ix_oc_match_renglones_job_id", table_name="compras_oc_match_renglones")
     op.drop_table("compras_oc_match_renglones")
     op.drop_index("ix_oc_match_jobs_started_at", table_name="compras_oc_match_jobs")
+    op.drop_index("ix_oc_match_jobs_attachment_id", table_name="compras_oc_match_jobs")
     op.drop_index("ix_oc_match_jobs_pedido_id", table_name="compras_oc_match_jobs")
     op.drop_index("ix_oc_match_jobs_status", table_name="compras_oc_match_jobs")
     op.drop_table("compras_oc_match_jobs")

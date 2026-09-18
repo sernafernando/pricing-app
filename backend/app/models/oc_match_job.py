@@ -95,6 +95,7 @@ class OcMatchJob(Base):
         ),
         Index("ix_oc_match_jobs_status", "status"),
         Index("ix_oc_match_jobs_pedido_id", "pedido_id"),
+        Index("ix_oc_match_jobs_attachment_id", "attachment_id"),
         Index("ix_oc_match_jobs_started_at", "started_at"),
     )
 
