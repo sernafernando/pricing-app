@@ -388,3 +388,121 @@ class TestPassTimeBudgetCutsPaymentSync:
         mock_get_payment.assert_not_called()
         order_row = db.query(MlOrdersOps).filter_by(order_id=1).one()
         assert order_row.payments_synced_at is None
+
+
+class TestDeferredRecheckGate:
+    """ml-ventas-repreguntar-pagos-diferido: the THIRD payment-candidate
+    gate. Production incident: ML can finish reversing a charge (e.g. a
+    Flex shipping fee) AFTER an order's own `ml_last_updated` stops
+    moving, so the two existing gates (staleness, `payments_synced_at IS
+    NULL`) never fire again for that order. `payments_recheck_at` is an
+    EXPLICIT one-time re-ask, not a heuristic."""
+
+    def test_first_sync_schedules_a_recheck(self, db, monkeypatch) -> None:
+        now = datetime.now(timezone.utc)
+        recent = now - timedelta(days=1)
+        order = _order(1, 999, recent, recent, payment_ids=[500])
+        monkeypatch.setattr(ml_webhook_client, "search_orders", AsyncMock(return_value=_page([order])))
+        monkeypatch.setattr(ml_webhook_client, "get_payment", AsyncMock(return_value=_payment_payload(500, 1)))
+
+        sweep_service.run_sweep(seller_id=999, window_days=90)
+
+        order_row = db.query(MlOrdersOps).filter_by(order_id=1).one()
+        assert order_row.payments_synced_at is not None
+        assert order_row.payments_recheck_at is not None
+        expected = order_row.payments_synced_at + sweep_service.RECHECK_AFTER
+        assert abs((order_row.payments_recheck_at - expected).total_seconds()) < 5
+
+    def test_order_due_for_recheck_is_a_candidate_even_though_not_stale_and_already_synced(
+        self, db, monkeypatch
+    ) -> None:
+        """The exact bug this closes: an order that is NEITHER stale NOR
+        missing its `payments_synced_at` seal must still be refetched
+        once its recheck is due."""
+        now = datetime.now(timezone.utc)
+        earlier = now - timedelta(days=2)
+        db.add(
+            MlOrdersOps(
+                order_id=1,
+                seller_id=999,
+                ml_last_updated=earlier,
+                date_created=earlier,
+                payments_synced_at=earlier,
+                payments_recheck_at=now - timedelta(minutes=1),  # already due
+            )
+        )
+        db.add(MlPaymentOps(payment_id=500, order_id=1, status="approved", net_received_amount=Decimal("6800.50")))
+        db.commit()
+
+        # Same `ml_last_updated` as stored -- NOT stale by the first gate.
+        order = _order(1, 999, earlier, earlier, payment_ids=[500])
+        monkeypatch.setattr(ml_webhook_client, "search_orders", AsyncMock(return_value=_page([order])))
+        mock_get_payment = AsyncMock(return_value=_payment_payload(500, 1, status="refunded", net_received_amount=0))
+        monkeypatch.setattr(ml_webhook_client, "get_payment", mock_get_payment)
+
+        sweep_service.run_sweep(seller_id=999, window_days=90)
+
+        mock_get_payment.assert_called_once_with(500)
+        row = db.query(MlPaymentOps).filter_by(payment_id=500).one()
+        assert row.status == "refunded"
+
+    def test_recheck_is_cleared_once_it_runs_so_it_fires_exactly_once(self, db, monkeypatch) -> None:
+        now = datetime.now(timezone.utc)
+        earlier = now - timedelta(days=2)
+        db.add(
+            MlOrdersOps(
+                order_id=1,
+                seller_id=999,
+                ml_last_updated=earlier,
+                date_created=earlier,
+                payments_synced_at=earlier,
+                payments_recheck_at=now - timedelta(minutes=1),
+            )
+        )
+        db.add(MlPaymentOps(payment_id=500, order_id=1, status="approved", net_received_amount=Decimal("6800.50")))
+        db.commit()
+
+        order = _order(1, 999, earlier, earlier, payment_ids=[500])
+        monkeypatch.setattr(ml_webhook_client, "search_orders", AsyncMock(return_value=_page([order])))
+        monkeypatch.setattr(ml_webhook_client, "get_payment", AsyncMock(return_value=_payment_payload(500, 1)))
+
+        sweep_service.run_sweep(seller_id=999, window_days=90)
+
+        order_row = db.query(MlOrdersOps).filter_by(order_id=1).one()
+        assert order_row.payments_recheck_at is None
+
+        # A second pass over the SAME unchanged order must NOT refetch
+        # again -- the recheck fired once and cleared itself; the order
+        # is neither stale nor missing its seal any more.
+        mock_get_payment_2 = AsyncMock(return_value=_payment_payload(500, 1))
+        monkeypatch.setattr(ml_webhook_client, "get_payment", mock_get_payment_2)
+        monkeypatch.setattr(ml_webhook_client, "search_orders", AsyncMock(return_value=_page([order])))
+
+        sweep_service.run_sweep(seller_id=999, window_days=90)
+
+        mock_get_payment_2.assert_not_called()
+
+    def test_order_not_due_for_recheck_is_not_a_candidate(self, db, monkeypatch) -> None:
+        now = datetime.now(timezone.utc)
+        earlier = now - timedelta(days=2)
+        db.add(
+            MlOrdersOps(
+                order_id=1,
+                seller_id=999,
+                ml_last_updated=earlier,
+                date_created=earlier,
+                payments_synced_at=earlier,
+                payments_recheck_at=now + timedelta(minutes=59),  # not due yet
+            )
+        )
+        db.add(MlPaymentOps(payment_id=500, order_id=1, status="approved", net_received_amount=Decimal("6800.50")))
+        db.commit()
+
+        order = _order(1, 999, earlier, earlier, payment_ids=[500])
+        monkeypatch.setattr(ml_webhook_client, "search_orders", AsyncMock(return_value=_page([order])))
+        mock_get_payment = AsyncMock(return_value=_payment_payload(500, 1))
+        monkeypatch.setattr(ml_webhook_client, "get_payment", mock_get_payment)
+
+        sweep_service.run_sweep(seller_id=999, window_days=90)
+
+        mock_get_payment.assert_not_called()

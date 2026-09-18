@@ -127,6 +127,22 @@ class MlOrdersOps(Base):
     # the order silently ends up ingested with no net forever.
     payments_synced_at = Column(DateTime(timezone=True), nullable=True)
 
+    # ml-ventas-repreguntar-pagos-diferido: an EXPLICIT deferred re-ask,
+    # not a heuristic inferred from `ml_last_updated`. Production incident
+    # (order 2000018524489386): a Flex shipping charge was refunded on
+    # ML's side several seconds AFTER `ml_last_updated`'s own final bump
+    # for that order -- so by the time we fetched the payment, ML itself
+    # had not yet processed the reversal. `ml_last_updated` never moves
+    # again and `payments_synced_at` gets sealed, so the sweep's two
+    # existing payment gates (staleness, `payments_synced_at IS NULL`)
+    # are shut forever and that refund is never seen. Set to
+    # `now + RECHECK_AFTER` (see `sweep_service.RECHECK_AFTER`) the first
+    # time payments are synced for an order; the sweep's third gate picks
+    # up any order whose recheck is due regardless of staleness, and
+    # clears this column back to NULL once that recheck runs so it fires
+    # EXACTLY ONCE per order and can never loop.
+    payments_recheck_at = Column(DateTime(timezone=True), nullable=True, index=True)
+
     first_seen_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
     last_synced_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
 

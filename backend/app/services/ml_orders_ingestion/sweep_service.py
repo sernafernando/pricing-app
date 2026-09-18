@@ -103,6 +103,14 @@ BATCH_SIZE = 200
 # structural no-op for anything already stored.
 CURSOR_OVERLAP = timedelta(minutes=15)
 
+# ml-ventas-repreguntar-pagos-diferido: how long after a payment sync we
+# schedule an explicit ONE-TIME re-ask (see `MlOrdersOps.payments_recheck_at`
+# for the production incident this closes). A first estimate, deliberately
+# named rather than inlined at the call site so it can be found and tuned
+# once the repair script (`app/scripts/repair_deferred_refunds.py`) reports
+# how many charges its re-fetch actually changed.
+RECHECK_AFTER = timedelta(minutes=60)
+
 # Below this window width, further bisection is pointless (and would loop
 # forever against a window that genuinely never drops below the cap). A
 # leaf this narrow that still overflows is recorded as unenumerable
@@ -587,9 +595,18 @@ def sync_payments_for_order(
         upsert_payment(db, mapped_payment)
         synced += 1
     if all_synced:
-        db.query(MlOrdersOps).filter(MlOrdersOps.order_id == order_id).update(
-            {"payments_synced_at": datetime.now(timezone.utc)}
-        )
+        # `payments_recheck_at` is scheduled ONLY the first time this
+        # order's payments are sealed (its `payments_synced_at` was still
+        # NULL) -- a later reseal (triggered by the order's own
+        # `ml_last_updated` moving again, or by the recheck gate itself)
+        # must NOT push the recheck window out again, or an order could
+        # defer its one-time re-ask forever by staying "stale" on every
+        # pass.
+        was_synced_before = db.query(MlOrdersOps.payments_synced_at).filter(MlOrdersOps.order_id == order_id).scalar()
+        update_values: Dict[str, Any] = {"payments_synced_at": datetime.now(timezone.utc)}
+        if was_synced_before is None:
+            update_values["payments_recheck_at"] = datetime.now(timezone.utc) + RECHECK_AFTER
+        db.query(MlOrdersOps).filter(MlOrdersOps.order_id == order_id).update(update_values)
     return synced, all_synced
 
 
@@ -641,6 +658,32 @@ def _orders_with_payments_synced(order_ids: List[int]) -> set:
         rows = (
             db.query(MlOrdersOps.order_id)
             .filter(MlOrdersOps.order_id.in_(order_ids), MlOrdersOps.payments_synced_at.isnot(None))
+            .all()
+        )
+    return {order_id for (order_id,) in rows}
+
+
+def _orders_due_for_payments_recheck(order_ids: List[int]) -> set:
+    """Orders whose deferred payment re-ask is due (`payments_recheck_at
+    <= now()`), in one query -- the THIRD payment-candidate gate
+    (ml-ventas-repreguntar-pagos-diferido), independent of the other two:
+    an order becomes a candidate here even though it is NOT stale and its
+    payments already ARE synced, because ML itself may have finished
+    processing a reversal (e.g. a Flex shipping-fee refund) after our
+    last fetch without ever touching the order's own `ml_last_updated`
+    (see the module docstring's production incident). The caller clears
+    `payments_recheck_at` back to NULL once the recheck actually runs, so
+    this gate fires at most once per order."""
+    if not order_ids:
+        return set()
+    with get_background_db() as db:
+        rows = (
+            db.query(MlOrdersOps.order_id)
+            .filter(
+                MlOrdersOps.order_id.in_(order_ids),
+                MlOrdersOps.payments_recheck_at.isnot(None),
+                MlOrdersOps.payments_recheck_at <= datetime.now(timezone.utc),
+            )
             .all()
         )
     return {order_id for (order_id,) in rows}
@@ -910,10 +953,18 @@ def process_batch(
         if stored_versions.get(mapped.order_id) is None or mapped.ml_last_updated > stored_versions[mapped.order_id]
     }
     payments_already_synced = _orders_with_payments_synced(in_window_ids)
+    # Third gate (ml-ventas-repreguntar-pagos-diferido): an order whose
+    # deferred re-ask is due becomes a payment candidate REGARDLESS of the
+    # other two triggers -- it may be neither stale nor unsynced, and
+    # still need re-fetching because ML processed a reversal after our
+    # last look without moving `ml_last_updated` (see module docstring).
+    recheck_due_ids = _orders_due_for_payments_recheck(in_window_ids)
     payment_candidates = [
         (raw_order, mapped)
         for raw_order, mapped in in_window
-        if mapped.order_id in stale_trigger_ids or mapped.order_id not in payments_already_synced
+        if mapped.order_id in stale_trigger_ids
+        or mapped.order_id not in payments_already_synced
+        or mapped.order_id in recheck_due_ids
     ]
     payments_payload = _fetch_payments(
         [raw for raw, _ in payment_candidates], payment_budget, started_at=pass_started_at
@@ -996,6 +1047,18 @@ def process_batch(
                     db, mapped.order_id, raw_order, payments_payload, missing_key_is_empty=True
                 )
                 payments_synced += order_synced
+
+                # The recheck fires AT MOST ONCE per order: clear the
+                # mark as soon as the re-ask actually runs, regardless of
+                # whether it fully resolved -- a partial result already
+                # falls back onto the ordinary `payments_synced_at IS
+                # NULL` retry gate, so leaving `payments_recheck_at` set
+                # would only ever re-trigger the SAME one-shot re-ask,
+                # not a real recovery path.
+                if mapped.order_id in recheck_due_ids:
+                    db.query(MlOrdersOps).filter(MlOrdersOps.order_id == mapped.order_id).update(
+                        {"payments_recheck_at": None}
+                    )
 
             # Shipment upsert failures are NOT folded into the order
             # counters above -- a shipment mapping error/staleness says
