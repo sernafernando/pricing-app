@@ -91,14 +91,13 @@ class TestOfficeRemainsValidAdjunto:
         assert _validate_magic_compras(_ole2(), "viejo.xls") is True
 
 
-class TestZeroGeminiAndHookUnwired:
+class TestZeroGemini:
     def test_mime_source_has_no_gemini_client(self) -> None:
         source = _MIME.read_text(encoding="utf-8")
         assert "google.genai" not in source
         assert "GEMINI_API_KEY" not in source
 
-    def test_compras_router_does_not_import_oc_match(self) -> None:
+    def test_compras_router_has_no_gemini_client(self) -> None:
         source = _ROUTER.read_text(encoding="utf-8")
-        assert "oc_match" not in source
-        assert "run_oc_match" not in source
         assert "google.genai" not in source
+        assert "GEMINI_API_KEY" not in source

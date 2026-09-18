@@ -2,10 +2,11 @@
 
 **Change**: feat-compras-oc-match
 **Mode**: Standard
-**Slice**: Phase 1 / PR 1 Foundations (tasks 1.1–1.8)
-**Branch**: feat/compras-oc-match-01-foundations
-**Chain**: feature-branch-chain (PR 1 targets feature/admin-ocs tracker)
-**Hook**: UNWIRED — zero Gemini calls
+**Slice**: Phase 2 / PR 2 Trigger (tasks 2.1–2.5); Phase 1 already landed
+**Branch**: feat/compras-oc-match-02-trigger
+**Chain**: feature-branch-chain (PR 2 targets PR 1 `feat/compras-oc-match-01-foundations`)
+**Hook**: WIRED after `subir_adjunto_pedido` commit; Gemini still unwired (`process_oc_match_job` no-op, job stays `queued`)
+**Workload**: size:exception — authored add+del ~949 vs max_changed_lines=500; cannot split tests from hook/enqueue/list/retry without leaving the work unit unverified
 
 ## Completed Tasks
 
@@ -17,6 +18,11 @@
 - [x] 1.6 MIME in `backend/app/services/oc_match/mime.py`; keep Office valid in `backend/app/services/compras_adjuntos_service.py`.
 - [x] 1.7 Vendor GBP xlsx at `backend/app/services/oc_match/templates/`.
 - [x] 1.8 Tests `backend/tests/unit/test_oc_match_mime.py` + `backend/tests/unit/test_compras_empresa_oc_map.py`: PDF/image vs Office; map 1/2; zero Gemini; hook unwired.
+- [x] 2.1 Add `backend/app/schemas/oc_match.py` Pydantic v2 `from_attributes=True`.
+- [x] 2.2 Enqueue/claim/reuse in `backend/app/services/oc_match/enqueue.py`.
+- [x] 2.3 After `_commit_or_rollback` in `subir_adjunto_pedido` (`backend/app/routers/administracion_compras.py`): MIME gate; `add_task` only PDF/image.
+- [x] 2.4 GET list/detail + POST retry + 15-min reclaim in `backend/app/routers/administracion_compras.py` (`ver`/`gestionar`; no deposito ACL).
+- [x] 2.5 Tests `backend/tests/integration/test_oc_match_enqueue.py` + `backend/tests/unit/test_oc_match_reclaim.py`: create/OP/NC no job; PDF queued; XLSX skipped; reuse; stale running→error; 403; no mail.
 
 ## Work Unit Evidence (Phase 1)
 
@@ -24,27 +30,36 @@
 |---|---|
 | Focused test command and exact result | `pytest tests/unit/test_oc_match_mime.py tests/unit/test_compras_empresa_oc_map.py -q` → **22 passed** in 0.09s |
 | Runtime harness command/scenario and exact result | N/A — hook unwired; no enqueue/Gemini/runtime boundary in this slice |
-| Rollback boundary | models (`oc_match_job.py` + `__init__.py` export), Alembic `compras_040_oc_match` (`down_revision=20260909_activity_cursor`), MIME package, empresa map, settings/dep, vendored xlsx, Phase 1 unit tests. Revert does not remove Phase 2–4 work (none landed). |
+| Rollback boundary | models (`oc_match_job.py` + `__init__.py` export), Alembic `compras_040_oc_match` (`down_revision=20260909_activity_cursor`), MIME package, empresa map, settings/dep, vendored xlsx, Phase 1 unit tests. Revert does not remove Phase 2–4 work. |
+
+## Work Unit Evidence (Phase 2)
+
+| Evidence | Value |
+|---|---|
+| Focused test command and exact result | `pytest tests/unit/test_oc_match_mime.py tests/unit/test_compras_empresa_oc_map.py tests/unit/test_oc_match_reclaim.py tests/integration/test_oc_match_enqueue.py -q` → **39 passed** in 6.20s |
+| Runtime harness command/scenario and exact result | FastAPI TestClient: PDF adjunto → job `queued` + `BackgroundTasks.add_task(process_oc_match_job)`; XLSX → `skipped` and no task; create/OP/NC adjunto → zero jobs; list reclaim `running`>15m → retryable `error`; stub worker does not call Gemini |
+| Rollback boundary | `schemas/oc_match.py`, `services/oc_match/enqueue.py`, `services/oc_match/__init__.py` exports, hook + GET/POST in `administracion_compras.py`, Phase 2 tests. Revert does not remove Phase 1 foundations or Phase 3–4 work (none landed). |
 
 ## Implementation notes
 
-- Alembic graph at apply had a **single head**: `20260909_activity_cursor` (revises `20260909_seed_ml_bridge`). New revision `compras_040_oc_match` uses that head. Confirmed `compras_039` is **not** the head (`20260811_porcentaje_tarjeta_tn` already revises it).
-- Models: `OcMatchJob` + `OcMatchRenglon` in one file; unique `(pedido_id, attachment_id)`; status CHECK; indexes on status, pedido_id, started_at; renglones CASCADE + extract/match columns.
-- Settings added next to `COMPRAS_UPLOADS_DIR`. `google-genai>=1.0.0` added; **not imported** in Phase 1.
-- MIME: magic-first then suffix. OOXML/OLE2 → `office`. PDF/JPEG/PNG/WEBP → `gemini`. `compras_adjuntos_service` still accepts Office.
-- Template: copied bytes-identical from Automations `Orden de Compra - Carga Masiva de Artículos (1).xlsx` → `backend/app/services/oc_match/templates/carga_masiva_articulos.xlsx` (filename shortened; see templates/README.md).
+- Phase 1 notes unchanged (Alembic head `20260909_activity_cursor`, MIME magic-first, empresa map 1/2).
+- Phase 2 schemas: Pydantic v2 `ConfigDict(from_attributes=True)`; `retryable` computed on serialize (`status == error`).
+- Enqueue: unique `(pedido_id, attachment_id)` reuse without second `add_task`; Gemini MIME → `queued`+schedule; Office/unknown → `skipped`. `process_oc_match_job` is a no-op (job stays `queued`) until Phase 3.
+- Hook only on `subir_adjunto_pedido` after `_commit_or_rollback`; never fails the 201; `COMPRAS_OC_MATCH_ENABLED` kill switch. OP/NC upload paths unchanged.
+- List/detail reclaim 15 min then serialize. Retry `gestionar` only; 409 if not `error`. Excel GET deferred to Phase 3.
+- Mail OFF: enqueue/router hook do not call notificacion/mail.
 
 ## Deviations from Design
 
-None — implementation matches design.md for Phase 1.
+None — implementation matches design.md for Phase 2. Gemini pipeline remains Phase 3.
 
 ## Remaining Tasks
 
-Phase 2–4 (2.1–4.4) not assigned this batch.
+Phase 3–4 (3.1–4.4) not assigned this batch.
 
 ## Workload / PR Boundary
 
-- Mode: chained PR slice
-- Current work unit: PR 1 Foundations
-- Boundary: models + Alembic + settings + MIME + empresa map + vendored xlsx + unit tests; hook stays unwired
-- Estimated review budget impact: authored Python/docs likely near or over 400 lines; binary xlsx excluded from authored count. Report honestly if `git diff --stat` exceeds budget — do not golf.
+- Mode: chained PR slice with **size:exception**
+- Current work unit: PR 2 Trigger
+- Boundary: schemas + enqueue/claim/reclaim/retry + post-commit hook + list/detail/retry endpoints + unit/integration tests; Gemini stays unwired
+- Estimated review budget impact: authored add+del ≈ **949** (tracked 198 + new files 751) exceeds 500. Tests cannot be dropped; hook+API+tests are one cohesive unit. Do not golf.

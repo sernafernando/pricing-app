@@ -38,11 +38,11 @@ Chain strategy: feature-branch-chain
 
 ## Phase 2: Trigger (PR 2)
 
-- [ ] 2.1 Add `backend/app/schemas/oc_match.py` Pydantic v2 `from_attributes=True`.
-- [ ] 2.2 Enqueue/claim/reuse in `backend/app/services/oc_match/enqueue.py`.
-- [ ] 2.3 After `_commit_or_rollback` in `subir_adjunto_pedido` (`backend/app/routers/administracion_compras.py`): MIME gate; `add_task` only PDF/image.
-- [ ] 2.4 GET list/detail + POST retry + 15-min reclaim in `backend/app/routers/administracion_compras.py` (`ver`/`gestionar`; no deposito ACL).
-- [ ] 2.5 Tests `backend/tests/integration/test_oc_match_enqueue.py` + `backend/tests/unit/test_oc_match_reclaim.py`: create/OP/NC no job; PDF queued; XLSX skipped; reuse; stale running→error; 403; no mail.
+- [x] 2.1 Add `backend/app/schemas/oc_match.py` Pydantic v2 `from_attributes=True`.
+- [x] 2.2 Enqueue/claim/reuse in `backend/app/services/oc_match/enqueue.py`.
+- [x] 2.3 After `_commit_or_rollback` in `subir_adjunto_pedido` (`backend/app/routers/administracion_compras.py`): MIME gate; `add_task` only PDF/image.
+- [x] 2.4 GET list/detail + POST retry + 15-min reclaim in `backend/app/routers/administracion_compras.py` (`ver`/`gestionar`; no deposito ACL).
+- [x] 2.5 Tests `backend/tests/integration/test_oc_match_enqueue.py` + `backend/tests/unit/test_oc_match_reclaim.py`: create/OP/NC no job; PDF queued; XLSX skipped; reuse; stale running→error; 403; no mail.
 
 ## Phase 3: Pipeline (PR 3)
 
