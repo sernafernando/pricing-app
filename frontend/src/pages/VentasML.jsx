@@ -194,7 +194,6 @@ export default function VentasML() {
 
   const [operationStatusFilter, setOperationStatusFilter] = useState('');
   const [goodsStatusFilter, setGoodsStatusFilter] = useState('');
-  const [soldMonthFilter, setSoldMonthFilter] = useState('');
   // No default range: unlike the métricas dashboard this list starts
   // unfiltered by date, so `dateRangeFiltro` stays `null` until the
   // operator picks a preset or a custom range.
@@ -251,28 +250,17 @@ export default function VentasML() {
     setOffset(0);
   }, []);
 
-  // THE MONTH AND THE RANGE ARE THE SAME AXIS, so picking one clears the
-  // other. Sent together, the endpoint silently prefers the range (see
-  // `_parse_date_range`/`sold_range` in `ml_ventas_ops.py`: the month is
-  // only consulted when no range parsed), which left the operator looking
-  // at a month field that said "Septiembre" over a list filtered to the
-  // last 7 days. Two controls for one axis with a hidden winner is worse
-  // than either alone.
-  const handleSoldMonthChange = useCallback((value) => {
-    setSoldMonthFilter(value);
-    if (value) {
-      setFechaDesde('');
-      setFechaHasta('');
-      setDateRangeFiltro(null);
-    }
-    setOffset(0);
-  }, []);
-
+  // The month picker this page used to carry is GONE: the shared date
+  // filter replaces it. Two controls for one axis meant the endpoint
+  // silently preferred one of them (`_parse_date_range`/`sold_range` in
+  // `ml_ventas_ops.py` only consults the month when no range parsed), so
+  // the field could read "Septiembre" over a list filtered to 7 days.
+  // Making them exclusive papered over that; removing one settles it.
+  // `sold_month` stays supported by the endpoint for other callers.
   const handleDateRangeChange = useCallback(({ desde, hasta, filtro }) => {
     setFechaDesde(desde);
     setFechaHasta(hasta);
     setDateRangeFiltro(filtro);
-    setSoldMonthFilter('');
     setOffset(0);
   }, []);
 
@@ -293,7 +281,6 @@ export default function VentasML() {
   const clearFilters = useCallback(() => {
     setOperationStatusFilter('');
     setGoodsStatusFilter('');
-    setSoldMonthFilter('');
     setFechaDesde('');
     setFechaHasta('');
     setDateRangeFiltro(null);
@@ -301,7 +288,7 @@ export default function VentasML() {
   }, []);
 
   const hasActiveFilters = Boolean(
-    operationStatusFilter || goodsStatusFilter || soldMonthFilter || fechaDesde || fechaHasta
+    operationStatusFilter || goodsStatusFilter || fechaDesde || fechaHasta
   );
 
   // "Todas" is neither `total` (scoped by BOTH axes, so it under-counts
@@ -322,7 +309,6 @@ export default function VentasML() {
       const params = { limit: PAGE_SIZE, offset };
       if (operationStatusFilter) params.operation_status = operationStatusFilter;
       if (goodsStatusFilter) params.goods_status = goodsStatusFilter;
-      if (soldMonthFilter) params.sold_month = soldMonthFilter;
       if (fechaDesde) params.date_from = fechaDesde;
       if (fechaHasta) params.date_to = fechaHasta;
       const { data } = await api.get('/ml-ventas-ops/sales', { params });
@@ -348,7 +334,7 @@ export default function VentasML() {
     } finally {
       if (requestId === latestRequestRef.current) setLoading(false);
     }
-  }, [puedeVer, operationStatusFilter, goodsStatusFilter, soldMonthFilter, fechaDesde, fechaHasta, offset]);
+  }, [puedeVer, operationStatusFilter, goodsStatusFilter, fechaDesde, fechaHasta, offset]);
 
   useEffect(() => {
     cargarVentas();
@@ -505,14 +491,6 @@ export default function VentasML() {
             fechaHasta={fechaHasta}
             filtroActivo={dateRangeFiltro}
             onChange={handleDateRangeChange}
-          />
-          <input
-            id="ventas-ml-sold-month"
-            type="month"
-            className={styles.monthInput}
-            aria-label="Mes de la venta"
-            value={soldMonthFilter}
-            onChange={(e) => handleSoldMonthChange(e.target.value)}
           />
           {hasActiveFilters && (
             <button type="button" className={styles.clearFilters} onClick={clearFilters}>

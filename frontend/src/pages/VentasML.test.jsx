@@ -18,7 +18,7 @@
  */
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { screen, waitFor, within, fireEvent } from '@testing-library/react';
+import { screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { renderWithRouter } from '../test/renderWithRouter';
 import VentasML from './VentasML';
@@ -208,62 +208,29 @@ describe('Fetching the list', () => {
     }
   });
 
-  it('choosing a range clears the month filter, since they are the same axis', async () => {
-    // Sent together the endpoint silently prefers the range, which left
-    // the operator looking at a month field that said one thing over a
-    // list filtered by another. Two controls for one axis with a hidden
-    // winner is worse than either alone.
+  it('sends no sold_month at all: the month picker is gone from this page', async () => {
+    // The shared date range REPLACED the month picker here. Two controls
+    // for one axis meant the endpoint silently preferred one of them, so
+    // the field could read "Septiembre" over a list filtered to 7 days.
     mockSalesList([]);
     await renderWithRouter(<VentasML />);
     await waitFor(() => {
       expect(api.get).toHaveBeenCalledWith('/ml-ventas-ops/sales', expect.anything());
     });
 
-    const mes = document.querySelector('input[type="month"]');
-    fireEvent.change(mes, { target: { value: '2026-09' } });
-    await waitFor(() => {
-      const calls = api.get.mock.calls.filter((c) => c[0] === '/ml-ventas-ops/sales');
-      expect(calls[calls.length - 1][1].params.sold_month).toBe('2026-09');
-    });
+    expect(document.querySelector('input[type="month"]')).toBeNull();
 
     await userEvent.click(screen.getByRole('button', { name: '7d' }));
 
-    await waitFor(() => {
-      const calls = api.get.mock.calls.filter((c) => c[0] === '/ml-ventas-ops/sales');
-      const ultima = calls[calls.length - 1][1].params;
-      expect(ultima).toHaveProperty('date_from');
-      expect(ultima).not.toHaveProperty('sold_month');
-    });
-
-    // The FIELD has to empty too: leaving "2026-09" visible over a list
-    // filtered by the range is exactly the hidden-winner confusion this
-    // change removes, just moved from the request to the screen.
-    expect(document.querySelector('input[type="month"]').value).toBe('');
-  });
-
-  it('choosing a month clears the range, the other direction of the same axis', async () => {
-    // Only the range -> month direction was covered. The month -> range
-    // one is the same rule and equally able to break on its own.
-    mockSalesList([]);
-    await renderWithRouter(<VentasML />);
-    await waitFor(() => {
-      expect(api.get).toHaveBeenCalledWith('/ml-ventas-ops/sales', expect.anything());
-    });
-
-    await userEvent.click(screen.getByRole('button', { name: '7d' }));
     await waitFor(() => {
       const calls = api.get.mock.calls.filter((c) => c[0] === '/ml-ventas-ops/sales');
       expect(calls[calls.length - 1][1].params).toHaveProperty('date_from');
-    });
-
-    fireEvent.change(document.querySelector('input[type="month"]'), { target: { value: '2026-09' } });
-
-    await waitFor(() => {
-      const calls = api.get.mock.calls.filter((c) => c[0] === '/ml-ventas-ops/sales');
-      const ultima = calls[calls.length - 1][1].params;
-      expect(ultima.sold_month).toBe('2026-09');
-      expect(ultima).not.toHaveProperty('date_from');
-      expect(ultima).not.toHaveProperty('date_to');
+      // EVERY call, not just the last: a `sold_month` slipping into the
+      // first load would filter the list before the operator touched
+      // anything, and checking only the newest request would miss it.
+      for (const [, config] of calls) {
+        expect(config.params).not.toHaveProperty('sold_month');
+      }
     });
   });
 
@@ -479,8 +446,11 @@ describe('a stale response never overwrites the list', () => {
     await renderWithRouter(<VentasML />);
     await waitFor(() => expect(resolvers.length).toBe(1));
 
-    const monthInput = screen.getByLabelText(/mes de la venta/i);
-    await userEvent.type(monthInput, '2026-08');
+    // Any filter change triggers the second request; the month picker
+    // this used to type into was removed when the shared date range
+    // replaced it. The subject here is the sequence guard, not which
+    // control fired it.
+    await userEvent.click(screen.getByRole('button', { name: '7d' }));
     await waitFor(() => expect(resolvers.length).toBe(2));
 
     const page = (rows) => ({

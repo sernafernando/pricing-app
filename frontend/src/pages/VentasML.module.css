@@ -153,12 +153,6 @@
   border-color: var(--text-primary);
 }
 
-.monthInput {
-  composes: input inputSm from '../styles/forms-tesla.css';
-  width: auto;
-  cursor: pointer;
-}
-
 .clearFilters {
   composes: btn-tesla ghost sm from '../styles/buttons-tesla.css';
 }
