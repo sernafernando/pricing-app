@@ -21,6 +21,7 @@ from sqlalchemy import (
     Boolean,
     CheckConstraint,
     Column,
+    SmallInteger,
     DateTime,
     ForeignKey,
     Index,
@@ -138,10 +139,28 @@ class MlOrdersOps(Base):
     # are shut forever and that refund is never seen. Set to
     # `now + RECHECK_AFTER` (see `sweep_service.RECHECK_AFTER`) the first
     # time payments are synced for an order; the sweep's third gate picks
-    # up any order whose recheck is due regardless of staleness, and
-    # clears this column back to NULL once that recheck runs so it fires
-    # EXACTLY ONCE per order and can never loop.
+    # up any order whose recheck is due regardless of staleness. Cleared
+    # back to NULL once the re-ask SEALS -- not merely once it runs. An
+    # attempt that does not seal is pushed forward instead, so the retry
+    # survives without the order becoming due on every single pass, and
+    # `payments_recheck_attempts` below is what stops that from going on
+    # forever.
     payments_recheck_at = Column(DateTime(timezone=True), nullable=True, index=True)
+
+    # How many times the deferred re-ask has actually been ATTEMPTED for
+    # this order. It is the retry bound: nothing else on this row can
+    # play that part -- `date_created` is the order's age and would
+    # abandon an already-old order on its very first attempt,
+    # `payments_synced_at` is overwritten on every reseal, and
+    # `payments_recheck_at` is rewritten as `now + RECHECK_AFTER` each
+    # time and so carries no history. Counted whenever the order got its
+    # turn: the pass spent at least one request on it (a PARTIAL fetch
+    # included -- requiring a complete one would let an order with more
+    # ids than the pass can afford sit at the head of the queue forever),
+    # it had no payment ids to ask about at all, or its settlement
+    # crashed. NOT counted only when the pass ran out before reaching it.
+    # Reset to 0 when the mark is cleared, by a seal or by giving up.
+    payments_recheck_attempts = Column(SmallInteger, nullable=False, server_default="0")
 
     first_seen_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
     last_synced_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
