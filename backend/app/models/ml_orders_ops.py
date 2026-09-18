@@ -21,6 +21,7 @@ from sqlalchemy import (
     Boolean,
     CheckConstraint,
     Column,
+    SmallInteger,
     DateTime,
     ForeignKey,
     Index,
@@ -126,6 +127,40 @@ class MlOrdersOps(Base):
     # the order no longer stale and never asks for its payments again --
     # the order silently ends up ingested with no net forever.
     payments_synced_at = Column(DateTime(timezone=True), nullable=True)
+
+    # ml-ventas-repreguntar-pagos-diferido: an EXPLICIT deferred re-ask,
+    # not a heuristic inferred from `ml_last_updated`. Production incident
+    # (order 2000018524489386): a Flex shipping charge was refunded on
+    # ML's side several seconds AFTER `ml_last_updated`'s own final bump
+    # for that order -- so by the time we fetched the payment, ML itself
+    # had not yet processed the reversal. `ml_last_updated` never moves
+    # again and `payments_synced_at` gets sealed, so the sweep's two
+    # existing payment gates (staleness, `payments_synced_at IS NULL`)
+    # are shut forever and that refund is never seen. Set to
+    # `now + RECHECK_AFTER` (see `sweep_service.RECHECK_AFTER`) the first
+    # time payments are synced for an order; the sweep's third gate picks
+    # up any order whose recheck is due regardless of staleness. Cleared
+    # back to NULL once the re-ask SEALS -- not merely once it runs. An
+    # attempt that does not seal is pushed forward instead, so the retry
+    # survives without the order becoming due on every single pass, and
+    # `payments_recheck_attempts` below is what stops that from going on
+    # forever.
+    payments_recheck_at = Column(DateTime(timezone=True), nullable=True, index=True)
+
+    # How many times the deferred re-ask has actually been ATTEMPTED for
+    # this order. It is the retry bound: nothing else on this row can
+    # play that part -- `date_created` is the order's age and would
+    # abandon an already-old order on its very first attempt,
+    # `payments_synced_at` is overwritten on every reseal, and
+    # `payments_recheck_at` is rewritten as `now + RECHECK_AFTER` each
+    # time and so carries no history. Counted whenever the order got its
+    # turn: the pass spent at least one request on it (a PARTIAL fetch
+    # included -- requiring a complete one would let an order with more
+    # ids than the pass can afford sit at the head of the queue forever),
+    # it had no payment ids to ask about at all, or its settlement
+    # crashed. NOT counted only when the pass ran out before reaching it.
+    # Reset to 0 when the mark is cleared, by a seal or by giving up.
+    payments_recheck_attempts = Column(SmallInteger, nullable=False, server_default="0")
 
     first_seen_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
     last_synced_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
