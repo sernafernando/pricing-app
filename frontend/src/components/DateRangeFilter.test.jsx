@@ -10,7 +10,8 @@
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
-import DateRangeFilter, { calcularRangoPreset } from './DateRangeFilter';
+import DateRangeFilter from './DateRangeFilter';
+import { calcularRangoPreset } from '../utils/dateRangePresets';
 
 // Frozen "hoy": Thursday 2026-09-17 (a Thursday, so 'mesActual' and month
 // arithmetic aren't accidentally coincidental with day-of-month edge cases).
