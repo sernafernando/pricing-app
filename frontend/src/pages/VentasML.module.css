@@ -34,8 +34,15 @@
   letter-spacing: -0.01em;
 }
 
+/* FLEX, not inline-block siblings. Without this the buttons align on the
+   text baseline, so one carrying an icon sits off from one that does not,
+   and the space between them is whatever whitespace the JSX happens to
+   leave. */
 .headerActions {
   margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-sm, 8px);
 }
 
 .description {

@@ -18,7 +18,7 @@
  */
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { screen, waitFor, within } from '@testing-library/react';
+import { screen, waitFor, within, fireEvent } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { renderWithRouter } from '../test/renderWithRouter';
 import VentasML from './VentasML';
@@ -163,6 +163,133 @@ describe('Fetching the list', () => {
         '/ml-ventas-ops/sales',
         expect.objectContaining({ params: expect.objectContaining({ limit: 50, offset: 0 }) })
       );
+    });
+  });
+
+  it('sends NO date bounds until a range is chosen', async () => {
+    // The endpoint treats an absent range as "everything", so sending an
+    // empty or defaulted bound would silently narrow the list on first
+    // load without the operator asking for it.
+    mockSalesList([]);
+    await renderWithRouter(<VentasML />);
+
+    await waitFor(() => {
+      const calls = api.get.mock.calls.filter((c) => c[0] === '/ml-ventas-ops/sales');
+      expect(calls.length).toBeGreaterThan(0);
+      expect(calls[0][1].params).not.toHaveProperty('date_from');
+      expect(calls[0][1].params).not.toHaveProperty('date_to');
+    });
+  });
+
+  it('sends the chosen range as date_from/date_to', async () => {
+    // THE wiring this feature exists for. Without it the filter renders,
+    // the operator clicks, and the list does not change -- which reads as
+    // "the filter is broken" rather than "the request never carried it".
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    vi.setSystemTime(new Date(2026, 8, 17, 12, 0, 0)); // 2026-09-17, local
+    try {
+      mockSalesList([]);
+      await renderWithRouter(<VentasML />);
+      await waitFor(() => {
+        expect(api.get).toHaveBeenCalledWith('/ml-ventas-ops/sales', expect.anything());
+      });
+
+      await userEvent.click(screen.getByRole('button', { name: '7d' }));
+
+      await waitFor(() => {
+        const calls = api.get.mock.calls.filter((c) => c[0] === '/ml-ventas-ops/sales');
+        const ultima = calls[calls.length - 1][1].params;
+        // 7d is hoy - 6, the same window métricas produces.
+        expect(ultima.date_from).toBe('2026-09-11');
+        expect(ultima.date_to).toBe('2026-09-17');
+      });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('choosing a range clears the month filter, since they are the same axis', async () => {
+    // Sent together the endpoint silently prefers the range, which left
+    // the operator looking at a month field that said one thing over a
+    // list filtered by another. Two controls for one axis with a hidden
+    // winner is worse than either alone.
+    mockSalesList([]);
+    await renderWithRouter(<VentasML />);
+    await waitFor(() => {
+      expect(api.get).toHaveBeenCalledWith('/ml-ventas-ops/sales', expect.anything());
+    });
+
+    const mes = document.querySelector('input[type="month"]');
+    fireEvent.change(mes, { target: { value: '2026-09' } });
+    await waitFor(() => {
+      const calls = api.get.mock.calls.filter((c) => c[0] === '/ml-ventas-ops/sales');
+      expect(calls[calls.length - 1][1].params.sold_month).toBe('2026-09');
+    });
+
+    await userEvent.click(screen.getByRole('button', { name: '7d' }));
+
+    await waitFor(() => {
+      const calls = api.get.mock.calls.filter((c) => c[0] === '/ml-ventas-ops/sales');
+      const ultima = calls[calls.length - 1][1].params;
+      expect(ultima).toHaveProperty('date_from');
+      expect(ultima).not.toHaveProperty('sold_month');
+    });
+
+    // The FIELD has to empty too: leaving "2026-09" visible over a list
+    // filtered by the range is exactly the hidden-winner confusion this
+    // change removes, just moved from the request to the screen.
+    expect(document.querySelector('input[type="month"]').value).toBe('');
+  });
+
+  it('choosing a month clears the range, the other direction of the same axis', async () => {
+    // Only the range -> month direction was covered. The month -> range
+    // one is the same rule and equally able to break on its own.
+    mockSalesList([]);
+    await renderWithRouter(<VentasML />);
+    await waitFor(() => {
+      expect(api.get).toHaveBeenCalledWith('/ml-ventas-ops/sales', expect.anything());
+    });
+
+    await userEvent.click(screen.getByRole('button', { name: '7d' }));
+    await waitFor(() => {
+      const calls = api.get.mock.calls.filter((c) => c[0] === '/ml-ventas-ops/sales');
+      expect(calls[calls.length - 1][1].params).toHaveProperty('date_from');
+    });
+
+    fireEvent.change(document.querySelector('input[type="month"]'), { target: { value: '2026-09' } });
+
+    await waitFor(() => {
+      const calls = api.get.mock.calls.filter((c) => c[0] === '/ml-ventas-ops/sales');
+      const ultima = calls[calls.length - 1][1].params;
+      expect(ultima.sold_month).toBe('2026-09');
+      expect(ultima).not.toHaveProperty('date_from');
+      expect(ultima).not.toHaveProperty('date_to');
+    });
+  });
+
+  it('limpiar filtros drops the date range too, not just the chips', async () => {
+    // The range is a filter like any other: leaving it applied while the
+    // chips reset would show "sin filtros" over a list that is still
+    // filtered.
+    mockSalesList([]);
+    await renderWithRouter(<VentasML />);
+    await waitFor(() => {
+      expect(api.get).toHaveBeenCalledWith('/ml-ventas-ops/sales', expect.anything());
+    });
+
+    await userEvent.click(screen.getByRole('button', { name: '7d' }));
+    await waitFor(() => {
+      const calls = api.get.mock.calls.filter((c) => c[0] === '/ml-ventas-ops/sales');
+      expect(calls[calls.length - 1][1].params).toHaveProperty('date_from');
+    });
+
+    await userEvent.click(screen.getByRole('button', { name: /limpiar/i }));
+
+    await waitFor(() => {
+      const calls = api.get.mock.calls.filter((c) => c[0] === '/ml-ventas-ops/sales');
+      const ultima = calls[calls.length - 1][1].params;
+      expect(ultima).not.toHaveProperty('date_from');
+      expect(ultima).not.toHaveProperty('date_to');
     });
   });
 
