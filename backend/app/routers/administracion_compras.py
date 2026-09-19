@@ -3794,8 +3794,9 @@ def eliminar_adjunto(
 # GET  /oc-match/jobs
 # GET  /oc-match/jobs/{id}
 # POST /oc-match/jobs/{id}/retry
+# GET  /oc-match/jobs/{id}/excel
 # Permisos: ver=ver_ordenes_compra; retry=gestionar_ordenes_compra.
-# Sin rama deposito. Excel download is Phase 3.
+# Sin rama deposito.
 
 _OC_MATCH_STATUSES = frozenset({"queued", "running", "done", "error", "skipped"})
 _OC_MATCH_LIST_DEFAULT = ("queued", "running", "done", "error")
@@ -3937,6 +3938,44 @@ def reintentar_oc_match_job(
     _commit_or_rollback(db, operacion="reintentar_oc_match_job")
     background_tasks.add_task(process_oc_match_job, job.id)
     return _oc_match_job_response(job)
+
+
+@router.get(
+    "/oc-match/jobs/{job_id}/excel",
+    summary="Descargar Excel carga-masiva de un job OC-match",
+)
+def descargar_oc_match_excel(
+    job_id: int,
+    db: Session = Depends(get_db),
+    _user: Usuario = Depends(require_permiso("administracion.ver_ordenes_compra")),
+) -> FileResponse:
+    """FileResponse of the persisted GBP xlsx. Requires ver_ordenes_compra."""
+    import os as _os  # noqa: PLC0415
+
+    job = _obtener_oc_match_job_o_404(db, job_id)
+    rel = (job.excel_rel_path or "").strip()
+    if not rel:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="El job no tiene Excel generado.",
+        )
+    full_path = _os.path.join(settings.COMPRAS_OC_MATCH_DIR, rel)
+    if not _os.path.exists(full_path):
+        logger.warning(
+            "oc-match excel ausente job_id=%s path=%s",
+            job.id,
+            full_path,
+        )
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Archivo Excel no encontrado en disco.",
+        )
+    filename = _os.path.basename(rel)
+    return FileResponse(
+        path=full_path,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
 
 
 # ==========================================================================

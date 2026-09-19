@@ -19,7 +19,6 @@ from app.services.oc_match.enqueue import (
     claim_queued_job,
     delete_jobs_for_attachment,
     enqueue_oc_match,
-    process_oc_match_job,
     queue_retry,
     reclaim_stale_running,
 )
@@ -165,20 +164,7 @@ class TestReclaimStaleRunning:
         assert job.status == OcMatchJob.STATUS_RUNNING
 
 
-class TestStubWorkerAndNoMail:
-    def test_process_stub_leaves_queued_job(self, db, active_user) -> None:
-        pedido, adj = _pedido_y_adjunto(db, active_user)
-        result = enqueue_oc_match(
-            db,
-            pedido_id=pedido.id,
-            attachment_id=adj.id,
-            filename=adj.nombre_archivo,
-            content=_PDF,
-        )
-        process_oc_match_job(result.job.id)
-        db.refresh(result.job)
-        assert result.job.status == OcMatchJob.STATUS_QUEUED
-
+class TestEnqueueHasNoMail:
     def test_enqueue_source_has_no_gemini_or_mail(self) -> None:
         source = _ENQUEUE.read_text(encoding="utf-8")
         assert "google.genai" not in source

@@ -1,4 +1,4 @@
-"""OC-match package. Phase 2: MIME + enqueue/reclaim. Gemini stays unwired."""
+"""OC-match package: MIME, enqueue/reclaim, extract/match/excel worker."""
 
 from app.services.oc_match.enqueue import (
     EnqueueResult,

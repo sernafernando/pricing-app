@@ -1,9 +1,8 @@
 """
 Enqueue, claim, reuse, retry, and 15-minute reclaim for OC-match jobs.
 
-Phase 2 only: persist jobs + schedule `process_oc_match_job`. The stub
-does not claim, does not call Gemini, and leaves `queued` jobs queued.
-Phase 3 replaces the stub body.
+`process_oc_match_job` is the BackgroundTasks entry and delegates to the
+two-session worker (extract/match/excel/persist).
 """
 
 from __future__ import annotations
@@ -33,8 +32,10 @@ class EnqueueResult(NamedTuple):
 
 
 def process_oc_match_job(job_id: int) -> None:
-    """Background entry. Phase 3 fills extract/match/excel. Job stays queued."""
-    del job_id
+    """Background entry: claim, extract, match, excel, persist."""
+    from app.services.oc_match.worker import process_oc_match_job as _run
+
+    _run(job_id)
 
 
 def _utcnow() -> datetime:

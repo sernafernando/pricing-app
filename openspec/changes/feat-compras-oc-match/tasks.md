@@ -46,11 +46,11 @@ Chain strategy: feature-branch-chain
 
 ## Phase 3: Pipeline (PR 3)
 
-- [ ] 3.1 Port extract + 3-key pool to `backend/app/services/oc_match/` (no Session during Gemini).
-- [ ] 3.2 Maestro `tb_item` ⨝ brand/cat; skip fabricante exact; EAN=`item_code`; not `productos_erp`.
-- [ ] 3.3 Two-session worker via `get_background_db()`: claim `queued→running`; persist renglones+acta+xlsx.
-- [ ] 3.4 USD no TC → `error`+acta (never empty xlsx success); GET excel `FileResponse`.
-- [ ] 3.5 Tests `backend/tests/unit/test_oc_match_pipeline.py` + `backend/tests/integration/test_oc_match_worker.py`: mocked-pool golden SoT; skip-fab; unmatched packs in acta; USD-no-TC; no mail.
+- [x] 3.1 Port extract + 3-key pool to `backend/app/services/oc_match/` (no Session during Gemini).
+- [x] 3.2 Maestro `tb_item` ⨝ brand/cat; skip fabricante exact; EAN=`item_code`; not `productos_erp`.
+- [x] 3.3 Two-session worker via `get_background_db()`: claim `queued→running`; persist renglones+acta+xlsx.
+- [x] 3.4 USD no TC → `error`+acta (never empty xlsx success); GET excel `FileResponse`.
+- [x] 3.5 Tests `backend/tests/unit/test_oc_match_pipeline.py` + `backend/tests/integration/test_oc_match_worker.py`: mocked-pool golden SoT; skip-fab; unmatched packs in acta; USD-no-TC; no mail.
 
 ## Phase 4: UI (PR 4)
 
