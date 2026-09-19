@@ -30,7 +30,7 @@ from datetime import date, datetime, timedelta
 from decimal import Decimal
 from typing import Any, Optional
 
-from fastapi import APIRouter, Body, Depends, File, Form, HTTPException, Query, UploadFile, status
+from fastapi import APIRouter, BackgroundTasks, Body, Depends, File, Form, HTTPException, Query, UploadFile, status
 from fastapi.responses import FileResponse, Response
 from sqlalchemy import func as sa_func
 from sqlalchemy import select, text
@@ -43,6 +43,7 @@ from app.core.database import get_db
 from app.core.logging import get_logger
 from app.models.caja import CajaMovimiento
 from app.models.compra_adjunto import CompraAdjunto
+from app.models.oc_match_job import OcMatchJob
 from app.models.compra_evento import CompraEvento
 from app.models.etiqueta_envio import EtiquetaEnvio
 from app.models.imputacion import Imputacion
@@ -61,6 +62,7 @@ from app.schemas.cc_proveedor import (  # noqa: I001
     SaldoPorMoneda,
 )
 from app.schemas.compra_adjunto import CompraAdjuntoResponse
+from app.schemas.oc_match import OcMatchJobDetalle, OcMatchJobPaginated, OcMatchJobResponse
 from app.schemas.compra_evento import CompraEventoResponse
 from app.schemas.compras_papelera import (
     PapeleraHardDeleteRequest,
@@ -133,6 +135,12 @@ from app.services import (
     recepcion_service,
 )
 from app.models.nota_credito_local import NotaCreditoLocal
+from app.services.oc_match.enqueue import (
+    enqueue_oc_match,
+    process_oc_match_job,
+    queue_retry,
+    reclaim_stale_running,
+)
 from app.services.permisos_service import PermisosService
 from app.services.sale_document_classifier import clasificar_documento_compra
 from app.services.wipe_compras_service import wipe_compras as _wipe_compras
@@ -3588,6 +3596,7 @@ def _adjunto_response(adj: CompraAdjunto) -> CompraAdjuntoResponse:
 )
 async def subir_adjunto_pedido(
     pedido_id: int,
+    background_tasks: BackgroundTasks,
     file: UploadFile = File(...),
     tipo: Optional[str] = Form(
         default=None,
@@ -3622,6 +3631,11 @@ async def subir_adjunto_pedido(
 
     _commit_or_rollback(db, operacion="subir_adjunto_pedido")
     db.refresh(adj)
+    try:
+        _maybe_enqueue_oc_match(db, adj, background_tasks)
+    except Exception:
+        logger.exception("oc-match hook failed after subir_adjunto_pedido adj_id=%s", adj.id)
+        db.rollback()
     return _adjunto_response(adj)
 
 
@@ -3771,6 +3785,197 @@ def eliminar_adjunto(
 
     _commit_or_rollback(db, operacion="eliminar_adjunto")
     return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+# ==========================================================================
+# OC-match jobs (pedido adjunto trigger — Phase 2)
+# ==========================================================================
+#
+# GET  /oc-match/jobs
+# GET  /oc-match/jobs/{id}
+# POST /oc-match/jobs/{id}/retry
+# GET  /oc-match/jobs/{id}/excel
+# Permisos: ver=ver_ordenes_compra; retry=gestionar_ordenes_compra.
+# Sin rama deposito.
+
+_OC_MATCH_STATUSES = frozenset({"queued", "running", "done", "error", "skipped"})
+_OC_MATCH_LIST_DEFAULT = ("queued", "running", "done", "error")
+
+
+def _oc_match_job_response(job: OcMatchJob) -> OcMatchJobResponse:
+    base = OcMatchJobResponse.model_validate(job)
+    return base.model_copy(update={"retryable": job.status == OcMatchJob.STATUS_ERROR})
+
+
+def _oc_match_job_detalle(job: OcMatchJob) -> OcMatchJobDetalle:
+    base = OcMatchJobDetalle.model_validate(job)
+    return base.model_copy(update={"retryable": job.status == OcMatchJob.STATUS_ERROR})
+
+
+def _maybe_enqueue_oc_match(
+    db: Session,
+    adj: CompraAdjunto,
+    background_tasks: BackgroundTasks,
+) -> None:
+    """MIME-gate + persist job after adjunto commit. Never fails the 201."""
+    if not settings.COMPRAS_OC_MATCH_ENABLED:
+        return
+    import os as _os  # noqa: PLC0415
+
+    full_path = _os.path.join(settings.COMPRAS_UPLOADS_DIR, adj.path_archivo)
+    try:
+        with open(full_path, "rb") as fh:
+            content = fh.read()
+    except OSError:
+        logger.warning("oc-match hook: cannot read adjunto id=%s path=%s", adj.id, full_path)
+        return
+    result = enqueue_oc_match(
+        db,
+        pedido_id=int(adj.entidad_id),
+        attachment_id=int(adj.id),
+        filename=adj.nombre_archivo,
+        content=content,
+        content_type=adj.mime_type,
+    )
+    db.commit()
+    if result.scheduled:
+        background_tasks.add_task(process_oc_match_job, result.job.id)
+
+
+def _parse_oc_match_statuses(raw: Optional[str]) -> tuple[str, ...]:
+    if raw is None or not raw.strip():
+        return _OC_MATCH_LIST_DEFAULT
+    parts = [p.strip() for p in raw.split(",") if p.strip()]
+    invalid = [p for p in parts if p not in _OC_MATCH_STATUSES]
+    if invalid:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=f"status inválido: {', '.join(invalid)}",
+        )
+    return tuple(parts)
+
+
+def _obtener_oc_match_job_o_404(db: Session, job_id: int) -> OcMatchJob:
+    job = (
+        db.execute(select(OcMatchJob).options(joinedload(OcMatchJob.renglones)).where(OcMatchJob.id == job_id))
+        .unique()
+        .scalar_one_or_none()
+    )
+    if job is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"OC-match job id={job_id} no encontrado.",
+        )
+    return job
+
+
+@router.get(
+    "/oc-match/jobs",
+    response_model=OcMatchJobPaginated,
+    summary="Listar jobs de OC-match",
+)
+def listar_oc_match_jobs(
+    status: Optional[str] = Query(None, description="queued|running|done|error|skipped (coma)"),
+    page: int = Query(1, ge=1),
+    page_size: int = Query(50, ge=1, le=200),
+    db: Session = Depends(get_db),
+    _user: Usuario = Depends(require_permiso("administracion.ver_ordenes_compra")),
+) -> OcMatchJobPaginated:
+    """Jobs de pedidos accesibles. Sin ACL de depósito. Reclaim 15 min."""
+    reclaim_stale_running(db)
+    db.commit()
+    statuses = _parse_oc_match_statuses(status)
+    stmt = select(OcMatchJob).where(OcMatchJob.status.in_(statuses))
+    stmt = stmt.order_by(OcMatchJob.created_at.desc(), OcMatchJob.id.desc())
+    items, total = _paginate(db, stmt, page=page, page_size=page_size)
+    return OcMatchJobPaginated(
+        items=[_oc_match_job_response(job) for job in items],
+        total=total,
+        page=page,
+        page_size=page_size,
+    )
+
+
+@router.get(
+    "/oc-match/jobs/{job_id}",
+    response_model=OcMatchJobDetalle,
+    summary="Detalle de un job de OC-match",
+)
+def obtener_oc_match_job(
+    job_id: int,
+    db: Session = Depends(get_db),
+    _user: Usuario = Depends(require_permiso("administracion.ver_ordenes_compra")),
+) -> OcMatchJobDetalle:
+    """Detalle + renglones. Reclaim 15 min antes de serializar."""
+    reclaim_stale_running(db)
+    db.commit()
+    job = _obtener_oc_match_job_o_404(db, job_id)
+    return _oc_match_job_detalle(job)
+
+
+@router.post(
+    "/oc-match/jobs/{job_id}/retry",
+    response_model=OcMatchJobResponse,
+    summary="Reencolar un job OC-match en error",
+)
+def reintentar_oc_match_job(
+    job_id: int,
+    background_tasks: BackgroundTasks,
+    db: Session = Depends(get_db),
+    _user: Usuario = Depends(require_permiso("administracion.gestionar_ordenes_compra")),
+) -> OcMatchJobResponse:
+    """Solo status error (tras reclaim). 409 si no es reintentable."""
+    reclaim_stale_running(db)
+    db.commit()
+    job = _obtener_oc_match_job_o_404(db, job_id)
+    try:
+        job = queue_retry(db, job)
+    except ValueError:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="El job no es reintentable.",
+        ) from None
+    _commit_or_rollback(db, operacion="reintentar_oc_match_job")
+    background_tasks.add_task(process_oc_match_job, job.id)
+    return _oc_match_job_response(job)
+
+
+@router.get(
+    "/oc-match/jobs/{job_id}/excel",
+    summary="Descargar Excel carga-masiva de un job OC-match",
+)
+def descargar_oc_match_excel(
+    job_id: int,
+    db: Session = Depends(get_db),
+    _user: Usuario = Depends(require_permiso("administracion.ver_ordenes_compra")),
+) -> FileResponse:
+    """FileResponse of the persisted GBP xlsx. Requires ver_ordenes_compra."""
+    import os as _os  # noqa: PLC0415
+
+    job = _obtener_oc_match_job_o_404(db, job_id)
+    rel = (job.excel_rel_path or "").strip()
+    if not rel:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="El job no tiene Excel generado.",
+        )
+    full_path = _os.path.join(settings.COMPRAS_OC_MATCH_DIR, rel)
+    if not _os.path.exists(full_path):
+        logger.warning(
+            "oc-match excel ausente job_id=%s path=%s",
+            job.id,
+            full_path,
+        )
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Archivo Excel no encontrado en disco.",
+        )
+    filename = _os.path.basename(rel)
+    return FileResponse(
+        path=full_path,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
 
 
 # ==========================================================================
