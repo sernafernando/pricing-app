@@ -58,6 +58,9 @@ logger = get_logger("services.wipe_compras")
 #   etiquetas_envio para deshacer la FK RESTRICT entrante (ver wipe_compras).
 #   etiquetas_envio NO se borra (tabla compartida con RMA).
 TABLAS_COMPRAS_SIEMPRE = [
+    # OC-match children before parents (jobs RESTRICT → adjuntos + pedidos).
+    "compras_oc_match_renglones",
+    "compras_oc_match_jobs",
     "compras_papelera",
     "compras_adjuntos",
     "cc_reconciliacion_log",
