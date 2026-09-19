@@ -13,6 +13,9 @@ comparten magic OLE2 (D0CF11E0A1B11AE1). Aceptamos ambos headers — no
 discriminamos por extensión porque para el usuario son "archivos de Office"
 y el browser igualmente mandará su content_type específico.
 
+Office remains a valid compras adjunto. OC-match Gemini eligibility lives
+in `app.services.oc_match.mime.classify` and must not reject Office here.
+
 Los archivos se guardan en:
     {COMPRAS_UPLOADS_DIR}/{entidad_tipo}/{entidad_id}/{uuid}_{filename}
 
@@ -287,9 +290,15 @@ def eliminar_adjunto(session: Session, *, adjunto_id: int) -> None:
     parcial), NO falla: solo loggea WARNING y borra la fila. Objetivo:
     que la UI pueda limpiar huérfanos sin quedar tascada.
 
+    OC-match jobs point at ``compras_adjuntos`` with RESTRICT — clear them
+    first so PDF uploads that enqueued a job can still be deleted.
+
     NO commit — el caller orquesta.
     """
+    from app.services.oc_match.enqueue import delete_jobs_for_attachment
+
     adj = obtener_adjunto(session, adjunto_id)
+    delete_jobs_for_attachment(session, adjunto_id)
     full_path = _full_path(adj)
     if full_path.exists():
         try:
