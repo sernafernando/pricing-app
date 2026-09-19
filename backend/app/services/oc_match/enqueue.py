@@ -157,6 +157,27 @@ def reclaim_stale_running(db: Session, *, now: Optional[datetime] = None) -> int
     return marked
 
 
+def delete_jobs_for_attachment(db: Session, attachment_id: int) -> int:
+    """
+    Drop OC-match jobs for an adjunto before the row is deleted.
+
+    ``attachment_id`` is RESTRICT on ``compras_adjuntos``; callers that
+    remove the adjunto must clear jobs (renglones cascade via ORM) first.
+    """
+    jobs = db.execute(select(OcMatchJob).where(OcMatchJob.attachment_id == attachment_id)).scalars().all()
+    if not jobs:
+        return 0
+    for job in jobs:
+        db.delete(job)
+    db.flush()
+    logger.info(
+        "oc-match deleted %s job(s) for attachment_id=%s",
+        len(jobs),
+        attachment_id,
+    )
+    return len(jobs)
+
+
 def queue_retry(db: Session, job: OcMatchJob) -> OcMatchJob:
     """Move a retryable ``error`` job back to ``queued``."""
     if job.status != OcMatchJob.STATUS_ERROR:

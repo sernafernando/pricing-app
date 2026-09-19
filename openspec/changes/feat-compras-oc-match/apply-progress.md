@@ -48,10 +48,11 @@
 - Hook only on `subir_adjunto_pedido` after `_commit_or_rollback`; never fails the 201; `COMPRAS_OC_MATCH_ENABLED` kill switch. OP/NC upload paths unchanged.
 - List/detail reclaim 15 min then serialize. Retry `gestionar` only; 409 if not `error`. Excel GET deferred to Phase 3.
 - Mail OFF: enqueue/router hook do not call notificacion/mail.
+- **Adjunto delete:** `eliminar_adjunto` calls `delete_jobs_for_attachment` first so RESTRICT FK on `attachment_id` does not 500 after PDF enqueue (regression from wiring the hook).
 
 ## Deviations from Design
 
-None — implementation matches design.md for Phase 2. Gemini pipeline remains Phase 3.
+None — implementation matches design.md for Phase 2. Gemini pipeline remains Phase 3. RESTRICT on attachment stays; app clears jobs before delete.
 
 ## Remaining Tasks
 

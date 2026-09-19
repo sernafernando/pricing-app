@@ -17,6 +17,7 @@ from app.services.oc_match.enqueue import (
     SKIP_MESSAGE,
     STALE_MESSAGE,
     claim_queued_job,
+    delete_jobs_for_attachment,
     enqueue_oc_match,
     process_oc_match_job,
     queue_retry,
@@ -185,3 +186,19 @@ class TestStubWorkerAndNoMail:
         assert "smtp" not in source.lower()
         assert "enviar_mail" not in source
         assert "notificacion_service" not in source
+
+
+class TestDeleteJobsForAttachment:
+    def test_deletes_job_so_adjunto_fk_can_clear(self, db, active_user) -> None:
+        pedido, adj = _pedido_y_adjunto(db, active_user)
+        result = enqueue_oc_match(
+            db,
+            pedido_id=pedido.id,
+            attachment_id=adj.id,
+            filename=adj.nombre_archivo,
+            content=_PDF,
+        )
+        job_id = result.job.id
+        assert delete_jobs_for_attachment(db, adj.id) == 1
+        assert db.get(OcMatchJob, job_id) is None
+        assert delete_jobs_for_attachment(db, adj.id) == 0

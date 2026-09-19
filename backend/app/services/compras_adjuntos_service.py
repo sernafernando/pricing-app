@@ -290,9 +290,15 @@ def eliminar_adjunto(session: Session, *, adjunto_id: int) -> None:
     parcial), NO falla: solo loggea WARNING y borra la fila. Objetivo:
     que la UI pueda limpiar huérfanos sin quedar tascada.
 
+    OC-match jobs point at ``compras_adjuntos`` with RESTRICT — clear them
+    first so PDF uploads that enqueued a job can still be deleted.
+
     NO commit — el caller orquesta.
     """
+    from app.services.oc_match.enqueue import delete_jobs_for_attachment
+
     adj = obtener_adjunto(session, adjunto_id)
+    delete_jobs_for_attachment(session, adjunto_id)
     full_path = _full_path(adj)
     if full_path.exists():
         try:
