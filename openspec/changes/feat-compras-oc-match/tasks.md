@@ -54,7 +54,7 @@ Chain strategy: feature-branch-chain
 
 ## Phase 4: UI (PR 4)
 
-- [ ] 4.1 Add `frontend/src/hooks/useOcMatch.js`: list/detail/retry/excel; poll 3s while `queued|running`.
-- [ ] 4.2 Add `frontend/src/components/compras/TabOcMatch.jsx` + `frontend/src/components/compras/TabOcMatch.module.css`: renglones/acta/download; retry iff `gestionar`.
-- [ ] 4.3 Register `TABS` `id: oc-match` in `frontend/src/pages/AdministracionCompras.jsx` (`administracion.ver_ordenes_compra`).
-- [ ] 4.4 Tests `frontend/src/components/compras/TabOcMatch.test.jsx` + `frontend/src/hooks/useOcMatch.test.js`: tab hidden without view; retry hidden view-only; poll stops on `done|error|skipped`.
+- [x] 4.1 Add `frontend/src/hooks/useOcMatch.js`: list/detail/retry/excel; poll 3s while `queued|running`.
+- [x] 4.2 Add `frontend/src/components/compras/TabOcMatch.jsx` + `frontend/src/components/compras/TabOcMatch.module.css`: renglones/acta/download; retry iff `gestionar`.
+- [x] 4.3 Register `TABS` `id: oc-match` in `frontend/src/pages/AdministracionCompras.jsx` (`administracion.ver_ordenes_compra`).
+- [x] 4.4 Tests `frontend/src/components/compras/TabOcMatch.test.jsx` + `frontend/src/hooks/useOcMatch.test.js`: tab hidden without view; retry hidden view-only; poll stops on `done|error|skipped`.

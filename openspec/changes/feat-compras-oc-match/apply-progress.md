@@ -2,67 +2,50 @@
 
 **Change**: feat-compras-oc-match
 **Mode**: Standard
-**Slice**: Phase 3 / PR 3 Pipeline (tasks 3.1–3.5); Phase 1–2 already landed
-**Branch**: feat/compras-oc-match-03-pipeline
-**Chain**: feature-branch-chain (PR 3 targets PR 2 `feat/compras-oc-match-02-trigger` tip `a3718098`)
-**Hook**: WIRED; Gemini pipeline wired via `process_oc_match_job` → two-session worker
-**Workload**: size:exception — authored add+del ≈ **1918** (new files 1848 + tracked 70) vs max_changed_lines=1200; cannot drop tests or port modules without leaving the work unit unverified
+**Slice**: Phase 4 / PR 4 UI (tasks 4.1–4.4); Phase 1–3 already landed
+**Branch**: feat/compras-oc-match-04-ui
+**Chain**: feature-branch-chain (PR 4 targets PR 3 `feat/compras-oc-match-03-pipeline` tip `e78cc1b9`)
+**Hook**: WIRED (backend); UI polls GET list/detail every 3s while queued|running
+**Workload**: size:exception — authored add+del ≈ **1091** (new files 1006 + tracked ~85) vs typical 800; tests+CSS+tab are one cohesive UI unit
 
 ## Completed Tasks
 
 - [x] 1.1–1.8 Phase 1 Foundations (landed).
 - [x] 2.1–2.5 Phase 2 Trigger (landed).
-- [x] 3.1 Port extract + 3-key pool to `backend/app/services/oc_match/` (no Session during Gemini).
-- [x] 3.2 Maestro `tb_item` ⨝ brand/cat; skip fabricante exact; EAN=`item_code`; not `productos_erp`.
-- [x] 3.3 Two-session worker via `get_background_db()`: claim `queued→running`; persist renglones+acta+xlsx.
-- [x] 3.4 USD no TC → `error`+acta (never empty xlsx success); GET excel `FileResponse`.
-- [x] 3.5 Tests `backend/tests/unit/test_oc_match_pipeline.py` + `backend/tests/integration/test_oc_match_worker.py`: mocked-pool golden SoT; skip-fab; unmatched packs in acta; USD-no-TC; no mail.
+- [x] 3.1–3.5 Phase 3 Pipeline (landed).
+- [x] 4.1 Add `frontend/src/hooks/useOcMatch.js`: list/detail/retry/excel; poll 3s while `queued|running`.
+- [x] 4.2 Add `frontend/src/components/compras/TabOcMatch.jsx` + CSS Module: renglones/acta/download; retry iff `gestionar`.
+- [x] 4.3 Register `TABS` `id: oc-match` in `AdministracionCompras.jsx` (`administracion.ver_ordenes_compra`).
+- [x] 4.4 Tests `TabOcMatch.test.jsx` + `useOcMatch.test.js`: tab hidden without view; retry hidden view-only; poll stops on terminal.
 
-## Work Unit Evidence (Phase 1)
-
-| Evidence | Value |
-|---|---|
-| Focused test command and exact result | `pytest tests/unit/test_oc_match_mime.py tests/unit/test_compras_empresa_oc_map.py -q` → **22 passed** in 0.09s |
-| Runtime harness command/scenario and exact result | N/A — hook unwired in that slice |
-| Rollback boundary | models + Alembic `compras_040_oc_match` + MIME + empresa map + settings/dep + vendored xlsx |
-
-## Work Unit Evidence (Phase 2)
+## Work Unit Evidence (Phase 4)
 
 | Evidence | Value |
 |---|---|
-| Focused test command and exact result | `pytest tests/unit/test_oc_match_mime.py tests/unit/test_compras_empresa_oc_map.py tests/unit/test_oc_match_reclaim.py tests/integration/test_oc_match_enqueue.py -q` → **39 passed** in 6.20s |
-| Runtime harness command/scenario and exact result | FastAPI TestClient: PDF adjunto → job `queued` + `BackgroundTasks.add_task(process_oc_match_job)`; XLSX → `skipped` |
-| Rollback boundary | schemas + enqueue/claim/reclaim/retry + hook + list/detail/retry |
-
-## Work Unit Evidence (Phase 3)
-
-| Evidence | Value |
-|---|---|
-| Focused test command and exact result | `pytest tests/unit/test_oc_match_pipeline.py tests/integration/test_oc_match_worker.py tests/unit/test_oc_match_reclaim.py tests/unit/test_oc_match_mime.py tests/unit/test_compras_empresa_oc_map.py tests/integration/test_oc_match_enqueue.py -q` → **54 passed** in 7.49s. Full suite: `pytest tests/ -q` → **6596 passed**, 55 skipped in 609.60s |
-| Runtime harness command/scenario and exact result | Mocked `GeminiPool.generate_json` golden extract+match → job `done`, OcMatchRenglon rows, acta flags unmatched pack, xlsx on disk, GET excel 200 FileResponse. USD+null TC → `error`+acta, no xlsx success. Unmapped empresa / missing keys → `error`+acta, no Gemini. Spy: `match_fabricante_exacto` not called. |
-| Rollback boundary | `services/oc_match/{gemini_pool,extract,maestro,candidatos,match,excel,acta,worker}.py`, enqueue stub→worker, GET `/oc-match/jobs/{id}/excel`, Phase 3 tests. Revert does not remove Phase 1–2 or Phase 4 work (none landed). |
+| Focused test command and exact result | `pnpm exec vitest run --project=unit src/components/compras/TabOcMatch.test.jsx src/hooks/useOcMatch.test.js` → **14 passed** in 2.53s (2 files) |
+| Lint | `pnpm exec eslint` on touched JS/JSX → 0 errors; `stylelint TabOcMatch.module.css` → 0 errors |
+| Runtime harness command/scenario and exact result | N/A in this worktree (no browser/dev server). Poll stop covered by fake timers in `useOcMatch.test.js`; tab/retry gates covered by RTL + mocked permisos. Deep-link `?tab=oc-match` uses existing TABS query support. |
+| Rollback boundary | `useOcMatch.js`, `TabOcMatch.jsx` + module CSS + tests, TABS entry in `AdministracionCompras.jsx`, SDD tasks/apply-progress. Revert does not remove Phase 1–3 backend. |
 
 ## Implementation notes
 
-- Gemini 3-key pool from Settings (`GEMINI_API_KEY` / `_2` / `_3`); no dotenv `SystemExit`; never logs keys; `print()` from Automations → logger.
-- Maestro: `tb_item` outerjoin brand/cat/subcat; `ean=item_code`; `fabricante=""`; `sin_combos_internos` kept. `match_renglones` does not call `match_fabricante_exacto` (helper remains in `candidatos.py` unused by the match flow).
-- Worker: session 1 claim+load maestro+paths then close; extract/match/excel with no Session; session 2 persist renglones+acta+xlsx path. Unmapped empresa / missing keys / `RechazoExcel` → `error`+acta.
-- GET excel: `FileResponse` + `ver_ordenes_compra`. Mail OFF — no smtp/notificacion in pipeline modules.
-- Phase 2 stub test `test_process_stub_leaves_queued_job` removed (worker now runs). Enqueue still has no Gemini/mail source.
+- Hook owns list/detail/retry/blob excel + `setInterval(3000)` while selected or list has `queued|running`; cleanup on unmount and when `needsOcMatchPoll` is false.
+- Retry button only if `tienePermiso('administracion.gestionar_ordenes_compra')` AND `job.retryable` or `status === 'error'`.
+- Tab visibility via existing `TABS.filter(tienePermiso)` — no extra gate.
+- CSS: CF tokens + `composes` from forms-tesla/buttons-tesla; no hex; lucide icons only.
+- TABS not named-exported (react-refresh/only-export-components). Visibility tested by rendering `AdministracionCompras` with mocked permisos.
 
 ## Deviations from Design
 
-None material. `RechazoExcel` is an `Exception` (not Automations `SystemExit`) so the worker can persist error+acta. Mail-only acta fields (`Solicitante`, automations footer) dropped; `Sucursal` comes from `sucursal_oc_para_empresa`.
-
-**Commit hook:** GGA pre-commit failed with `Claude CLI not found` (infra, not a review finding). Manual gate before `--no-verify`: `ruff format --check` + `ruff check` on all changed Python files → 0 errors. Focused 54 + full 6596 green.
+None material. List+side detail panel instead of expand-row. Filter includes `skipped` (spec MAY).
 
 ## Remaining Tasks
 
-Phase 4 (4.1–4.4) UI tab + poll + retry — not assigned this batch.
+None in Phase 4. Verify / PR open is out of this apply unit.
 
 ## Workload / PR Boundary
 
 - Mode: chained PR slice with **size:exception**
-- Current work unit: PR 3 Pipeline
-- Boundary: port extract/match/excel/acta + two-session worker + GET excel + unit/integration tests
-- Estimated review budget impact: authored add+del ≈ **1918** exceeds 1200. Tests cannot be dropped; port+worker+tests are one cohesive unit. Do not golf.
+- Current work unit: PR 4 UI
+- Boundary: tab + hook + poll + TABS + focused FE tests
+- Estimated review budget impact: authored add+del ≈ **1091** exceeds 800. Tests cannot be dropped; tab+hook+CSS+tests are one cohesive unit. Do not golf.
