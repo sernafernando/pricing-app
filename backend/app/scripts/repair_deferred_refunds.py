@@ -28,9 +28,14 @@ The report counts CHARGES ACTUALLY CHANGED (refunded value before !=
 after), not payments sent -- that measured number is what tells us
 whether 60 minutes is the right `RECHECK_AFTER` window.
 
+No cap on candidates: a backfill has to cover the whole affected set. A
+cap would truncate silently, and re-running would not advance, because a
+payment ML still reports unrefunded stays a candidate and keeps taking the
+first slots of the payment_id ordering.
+
 Run:
-    python -m app.scripts.repair_deferred_refunds --limit 200
-    python -m app.scripts.repair_deferred_refunds --limit 200 --dry-run
+    python -m app.scripts.repair_deferred_refunds --dry-run
+    python -m app.scripts.repair_deferred_refunds
 """
 
 from __future__ import annotations
@@ -60,8 +65,6 @@ from app.utils.async_bridge import resolve_maybe_async  # noqa: E402
 
 logger = logging.getLogger(__name__)
 
-DEFAULT_LIMIT = 200
-
 
 @dataclass
 class RepairResult:
@@ -81,7 +84,7 @@ class RepairResult:
     changed_payment_ids: List[int] = field(default_factory=list)
 
 
-def _find_candidate_payment_ids(limit: int) -> List[int]:
+def _find_candidate_payment_ids() -> List[int]:
     """ONE query: every distinct `payment_id` whose payment is `refunded`
     and carries at least one charge with `refunded == 0` against a
     positive `amount` -- the exact shape of the production incident."""
@@ -96,7 +99,6 @@ def _find_candidate_payment_ids(limit: int) -> List[int]:
             )
             .distinct()
             .order_by(MlPaymentOps.payment_id)
-            .limit(limit)
             .all()
         )
     return [payment_id for (payment_id,) in rows]
@@ -123,10 +125,10 @@ def _charge_snapshot(payment_ids: List[int]) -> Dict[Tuple[int, str, str], objec
     return {(payment_id, name, charge_type): refunded for payment_id, name, charge_type, refunded in rows}
 
 
-def run_repair(limit: int = DEFAULT_LIMIT, dry_run: bool = False) -> RepairResult:
+def run_repair(dry_run: bool = False) -> RepairResult:
     result = RepairResult(dry_run=dry_run)
 
-    candidate_ids = _find_candidate_payment_ids(limit)
+    candidate_ids = _find_candidate_payment_ids()
     result.candidates_found = len(candidate_ids)
     if not candidate_ids:
         return result
@@ -196,12 +198,6 @@ def _build_parser() -> argparse.ArgumentParser:
         "look, and correct the stored charges that now report a refund."
     )
     parser.add_argument(
-        "--limit",
-        type=int,
-        default=DEFAULT_LIMIT,
-        help=f"Max candidate payments processed in this run. Default {DEFAULT_LIMIT}.",
-    )
-    parser.add_argument(
         "--dry-run",
         action="store_true",
         help="Count candidates and log them; make zero HTTP calls and zero writes.",
@@ -213,15 +209,14 @@ def main(argv: list[str] | None = None) -> None:
     logging.basicConfig(level=logging.INFO)
     args = _build_parser().parse_args(argv)
 
-    result = run_repair(limit=args.limit, dry_run=args.dry_run)
+    result = run_repair(dry_run=args.dry_run)
 
     logger.info(
-        "repair_deferred_refunds: complete (dry_run=%s, limit=%s) -- "
+        "repair_deferred_refunds: complete (dry_run=%s) -- "
         "candidates_found=%s payments_processed=%s payments_fetch_failed=%s "
         "payments_mapping_error=%s payments_write_failed=%s "
         "payments_changed=%s charges_changed=%s charges_unchanged=%s",
         result.dry_run,
-        args.limit,
         result.candidates_found,
         result.payments_processed,
         result.payments_fetch_failed,
