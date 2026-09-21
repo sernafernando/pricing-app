@@ -5,7 +5,7 @@
  * directly, independent of `import.meta.glob` and any real `.md` files.
  */
 import { describe, it, expect, vi } from 'vitest';
-import { screen } from '@testing-library/react';
+import { screen, within } from '@testing-library/react';
 import { renderWithRouter } from '../test/renderWithRouter';
 import Novedades from './Novedades';
 
@@ -66,5 +66,75 @@ describe('Novedades page', () => {
     const article = document.getElementById('xss-entry');
     expect(article.querySelector('script')).toBeNull();
     expect(article.innerHTML.toLowerCase()).not.toContain('onerror');
+  });
+
+  it('shows a "Nuevo" badge only on the first (newest) entry', () => {
+    mockLoadNovedades.mockReturnValue([
+      {
+        slug: 'oc-match',
+        date: new Date(2026, 8, 21),
+        title: 'OC Match',
+        bodyMarkdown: 'Body.',
+        area: 'Compras',
+      },
+      {
+        slug: 'otra-novedad',
+        date: new Date(2026, 7, 1),
+        title: 'Otra Novedad',
+        bodyMarkdown: 'More body.',
+        area: null,
+      },
+    ]);
+
+    renderWithRouter(<Novedades />);
+
+    const newest = document.getElementById('oc-match');
+    const older = document.getElementById('otra-novedad');
+    expect(newest.textContent).toMatch(/nuevo/i);
+    expect(older.textContent).not.toMatch(/nuevo/i);
+  });
+
+  it('renders an area tag when entry.area is set, and none when it is null', () => {
+    mockLoadNovedades.mockReturnValue([
+      {
+        slug: 'oc-match',
+        date: new Date(2026, 8, 21),
+        title: 'OC Match',
+        bodyMarkdown: 'Body.',
+        area: 'Compras',
+      },
+      {
+        slug: 'otra-novedad',
+        date: new Date(2026, 7, 1),
+        title: 'Otra Novedad',
+        bodyMarkdown: 'More body.',
+        area: null,
+      },
+    ]);
+
+    renderWithRouter(<Novedades />);
+
+    const withArea = document.getElementById('oc-match');
+    const withoutArea = document.getElementById('otra-novedad');
+    expect(withArea.textContent).toContain('Compras');
+    expect(within(withoutArea).queryByText('Compras')).toBeNull();
+  });
+
+  it('shows the day number and uppercase 3-letter Spanish month + year in the date column', () => {
+    mockLoadNovedades.mockReturnValue([
+      {
+        slug: 'oc-match',
+        date: new Date(2026, 8, 21),
+        title: 'OC Match',
+        bodyMarkdown: 'Body.',
+        area: null,
+      },
+    ]);
+
+    renderWithRouter(<Novedades />);
+
+    const article = document.getElementById('oc-match');
+    expect(article.textContent).toMatch(/21/);
+    expect(article.textContent).toMatch(/SEP\s*2026/);
   });
 });

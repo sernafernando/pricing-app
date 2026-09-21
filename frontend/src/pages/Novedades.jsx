@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef } from 'react';
+import { Sparkles } from 'lucide-react';
 import { marked } from 'marked';
 import { loadNovedades } from '../novedades/loadNovedades';
 import { sanitizeHtml } from '../utils/sanitizeHtml';
@@ -7,6 +8,21 @@ import styles from './Novedades.module.css';
 // Prose tags a changelog entry may reasonably need beyond the shared
 // sanitizeHtml default allowlist (strong/b/em/i/u/br/p/ul/ol/li/a).
 const MARKDOWN_EXTRA_TAGS = ['h1', 'h2', 'h3', 'h4', 'code', 'pre', 'blockquote', 'hr'];
+
+const MESES_CORTOS = [
+  'ENE',
+  'FEB',
+  'MAR',
+  'ABR',
+  'MAY',
+  'JUN',
+  'JUL',
+  'AGO',
+  'SEP',
+  'OCT',
+  'NOV',
+  'DIC',
+];
 
 function formatFechaEsAr(date) {
   // Built from the Y/M/D parts (not the ISO string) so there is no
@@ -18,6 +34,10 @@ function formatFechaEsAr(date) {
     month: 'long',
     year: 'numeric',
   });
+}
+
+function formatMesCorto(date) {
+  return `${MESES_CORTOS[date.getMonth()]} ${date.getFullYear()}`;
 }
 
 export default function Novedades() {
@@ -56,27 +76,63 @@ export default function Novedades() {
   return (
     <div className={styles.page}>
       <div className={styles.header}>
+        <p className={styles.eyebrow}>
+          <Sparkles size={14} aria-hidden="true" />
+          Qué hay de nuevo
+        </p>
         <h1 className={styles.title}>Novedades</h1>
-        <p className={styles.subtitle}>Nuevas funcionalidades y cómo usarlas.</p>
+        <p className={styles.subtitle}>
+          Las funciones nuevas de Pricing y cómo se usan. La más reciente arriba.
+        </p>
       </div>
 
       {entries.length === 0 ? (
         <div className={styles.empty}>No hay novedades todavía.</div>
       ) : (
-        entries.map((entry) => {
-          const html = sanitizeHtml(marked.parse(entry.bodyMarkdown), {
-            extraTags: MARKDOWN_EXTRA_TAGS,
-          });
-          return (
-            <article key={entry.slug} id={entry.slug} className={styles.entry}>
-              <div className={styles.entryHeader}>
-                <h2 className={styles.entryTitle}>{entry.title}</h2>
-                <p className={styles.entryDate}>{formatFechaEsAr(entry.date)}</p>
-              </div>
-              <div className={styles.entryBody} dangerouslySetInnerHTML={{ __html: html }} />
-            </article>
-          );
-        })
+        <div className={styles.timeline}>
+          {entries.map((entry, index) => {
+            const isNewest = index === 0;
+            const html = sanitizeHtml(marked.parse(entry.bodyMarkdown), {
+              extraTags: MARKDOWN_EXTRA_TAGS,
+            });
+            return (
+              <article
+                key={entry.slug}
+                id={entry.slug}
+                className={`${styles.entry} ${isNewest ? styles.entryNewest : ''}`}
+              >
+                <time
+                  className={styles.dateColumn}
+                  dateTime={entry.date.toISOString().slice(0, 10)}
+                >
+                  <span aria-hidden="true" className={styles.dateDay}>
+                    {entry.date.getDate()}
+                  </span>
+                  <span aria-hidden="true" className={styles.dateMonth}>
+                    {formatMesCorto(entry.date)}
+                  </span>
+                  <span className={styles.srOnly}>{formatFechaEsAr(entry.date)}</span>
+                </time>
+
+                <div className={styles.rail}>
+                  <span className={styles.dot} />
+                  <span className={styles.line} />
+                </div>
+
+                <div className={styles.card}>
+                  {(isNewest || entry.area) && (
+                    <div className={styles.metaRow}>
+                      {isNewest && <span className={styles.newBadge}>Nuevo</span>}
+                      {entry.area && <span className={styles.areaTag}>{entry.area}</span>}
+                    </div>
+                  )}
+                  <h2 className={styles.entryTitle}>{entry.title}</h2>
+                  <div className={styles.entryBody} dangerouslySetInnerHTML={{ __html: html }} />
+                </div>
+              </article>
+            );
+          })}
+        </div>
       )}
     </div>
   );

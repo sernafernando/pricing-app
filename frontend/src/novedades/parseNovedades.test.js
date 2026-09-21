@@ -60,6 +60,39 @@ describe('parseNovedades', () => {
     });
     expect(entries.map((e) => e.slug)).toEqual(['gamma', 'delta', 'beta', 'alpha']);
   });
+
+  it('parses an "Área:" line right after the H1 into entry.area and strips it from the body', () => {
+    const [entry] = parseNovedades({
+      '2026-01-01-example.md': '# My Title\n\nÁrea: Compras\n\nSome body content.',
+    });
+    expect(entry.area).toBe('Compras');
+    expect(entry.bodyMarkdown).not.toContain('Área:');
+    expect(entry.bodyMarkdown).toContain('Some body content.');
+  });
+
+  it('accepts unaccented, case-insensitive "area:" as well', () => {
+    const [entry] = parseNovedades({
+      '2026-01-01-example.md': '# My Title\n\narea: Compras\n\nBody.',
+    });
+    expect(entry.area).toBe('Compras');
+    expect(entry.bodyMarkdown).not.toContain('area:');
+  });
+
+  it('leaves area null when there is no such line', () => {
+    const [entry] = parseNovedades({
+      '2026-01-01-example.md': '# My Title\n\nJust body content.',
+    });
+    expect(entry.area).toBeNull();
+  });
+
+  it('does not treat an "Área:"-shaped line as the tag unless it is the first non-empty line after the H1', () => {
+    const [entry] = parseNovedades({
+      '2026-01-01-example.md':
+        '# My Title\n\nSome intro paragraph.\n\nÁrea: Compras\n\nMore body.',
+    });
+    expect(entry.area).toBeNull();
+    expect(entry.bodyMarkdown).toContain('Área: Compras');
+  });
 });
 
 describe('loadNovedades (real glob)', () => {
@@ -69,5 +102,13 @@ describe('loadNovedades (real glob)', () => {
     expect(entries.length).toBeGreaterThan(0);
     expect(entries.every((e) => /^[a-z0-9-]+$/.test(e.slug))).toBe(true);
     expect(entries.some((e) => e.slug.toLowerCase() === 'readme')).toBe(false);
+  });
+
+  it('parses the OC Match entry area as "Compras"', async () => {
+    const { loadNovedades } = await import('./loadNovedades');
+    const entries = loadNovedades();
+    const ocMatch = entries.find((e) => e.slug === 'oc-match');
+    expect(ocMatch).toBeDefined();
+    expect(ocMatch.area).toBe('Compras');
   });
 });

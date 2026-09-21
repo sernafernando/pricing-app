@@ -14,6 +14,8 @@
 
 const FILENAME_RE = /^(\d{4})-(\d{2})-(\d{2})-(.+)\.md$/;
 const H1_RE = /^#\s+(.+)$/m;
+// Matches an optional "Área: X" (or unaccented "Area: X") line, case-insensitive.
+const AREA_RE = /^[ÁA]rea:\s*(.+)$/i;
 
 /**
  * Parses and sorts entries from a raw `{ filename: markdownSource }` map.
@@ -21,7 +23,7 @@ const H1_RE = /^#\s+(.+)$/m;
  * sharing a date get a deterministic, repeatable order).
  *
  * @param {Record<string, string>} rawByFilename
- * @returns {Array<{ slug: string, date: Date, title: string, bodyMarkdown: string }>}
+ * @returns {Array<{ slug: string, date: Date, title: string, bodyMarkdown: string, area: string | null }>}
  */
 export function parseNovedades(rawByFilename) {
   const entries = [];
@@ -47,15 +49,37 @@ export function parseNovedades(rawByFilename) {
 
     const h1Match = raw.match(H1_RE);
     const title = h1Match ? h1Match[1].trim() : slug;
-    const bodyMarkdown = h1Match
+    let bodyMarkdown = h1Match
       ? raw.slice(0, h1Match.index) + raw.slice(h1Match.index + h1Match[0].length)
       : raw;
+    bodyMarkdown = bodyMarkdown.trim();
+
+    // Optional "Área: X" tag line: only recognized when it is literally the
+    // first non-empty line of the body (not skipped-to further down).
+    let area = null;
+    const bodyLines = bodyMarkdown.split('\n');
+    let firstNonEmptyIndex = -1;
+    for (let i = 0; i < bodyLines.length; i += 1) {
+      if (bodyLines[i].trim() !== '') {
+        firstNonEmptyIndex = i;
+        break;
+      }
+    }
+    if (firstNonEmptyIndex !== -1) {
+      const areaMatch = bodyLines[firstNonEmptyIndex].trim().match(AREA_RE);
+      if (areaMatch) {
+        area = areaMatch[1].trim();
+        bodyLines.splice(firstNonEmptyIndex, 1);
+        bodyMarkdown = bodyLines.join('\n').trim();
+      }
+    }
 
     entries.push({
       slug,
       date,
       title,
-      bodyMarkdown: bodyMarkdown.trim(),
+      bodyMarkdown,
+      area,
     });
   }
 

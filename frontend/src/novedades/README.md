@@ -38,3 +38,11 @@ The alert system already tracks who dismissed each alert, so nobody sees it twic
 ## Rendering
 
 Entries are rendered with `marked` and sanitized with DOMPurify, so raw HTML such as `<script>` or `onerror=` is stripped. Stick to plain Markdown.
+
+## Optional area tag
+
+Right after the `# ` title, you can add a line `Área: <name>` (accents optional, e.g. `Area: Compras`). It renders as a small tag pill on the entry card and is removed from the rendered body — it must be the very first non-empty line after the title, or it is treated as regular body text.
+
+## Tip boxes
+
+A `> ` blockquote renders as a highlighted tip box. Use it to call out something the reader should double-check or pay extra attention to.
