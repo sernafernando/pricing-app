@@ -613,6 +613,74 @@ class TestTheTwoPathsToTheNetAgree:
         db.commit()
         assert self._assert_agree(db, [4430760076]) == Decimal("0.00")
 
+    def test_a_sale_with_sirtac_add_back(self, db) -> None:
+        """ml-ventas-neto-iibb-varios R1: both paths must add back the
+        non-refunded SIRTAC withholding identically."""
+        _order(db, 24)
+        _payment(db, 24, 24, net_received_amount=Decimal("800.00"))
+        _charge(db, 24, "tax_withholding_sirtac-caba", "tax", Decimal("300.00"))
+        db.commit()
+        assert self._assert_agree(db, [24]) == Decimal("1100.00")
+
+    def test_a_sale_with_partially_refunded_sirtac(self, db) -> None:
+        _order(db, 25)
+        _payment(db, 25, 25, net_received_amount=Decimal("800.00"))
+        _charge(db, 25, "tax_withholding_sirtac-caba", "tax", Decimal("300.00"), refunded=Decimal("100.00"))
+        db.commit()
+        assert self._assert_agree(db, [25]) == Decimal("1000.00")  # 800 + (300-100)
+
+
+class TestRecoverableLineOrigen:
+    """ml-ventas-neto-iibb-varios D2: a SIRTAC line's `origen` is
+    `"recuperable"` (shown, not subtracted from `neto`); every other line
+    stays `"api"`. `neto_depositado`/`retenciones_recuperables` mirror the
+    worked example."""
+
+    def test_sirtac_line_is_recuperable_others_stay_api(self, db) -> None:
+        order_id = 2000018567320906
+        payment_id = 180131165380
+        _item(db, order_id, "MLA2060835678", unit_price=Decimal("597408.67"))
+        _order(db, order_id)
+        _payment(db, payment_id, order_id, net_received_amount=Decimal("502165.91"))
+        _charge(db, payment_id, "meli_percentage_fee", "fee", Decimal("74676.08"))
+        _charge(db, payment_id, "shp_cross_docking", "shipping", Decimal("15190.00"))
+        _charge(db, payment_id, "tax_withholding_collector-debitos_creditos", "tax", Decimal("3584.45"))
+        _charge(db, payment_id, "tax_withholding_sirtac-caba", "tax", Decimal("1792.23"))
+        db.commit()
+
+        panel = compute_breakdown(db, [order_id])
+
+        assert panel.neto == Decimal("503958.14")
+        assert panel.neto_depositado == Decimal("502165.91")
+        assert panel.retenciones_recuperables == Decimal("1792.23")
+
+        by_concepto = {line.concepto: line.origen for line in panel.lines}
+        recuperables = [c for c, origen in by_concepto.items() if origen == "recuperable"]
+        assert len(recuperables) == 1
+        assert "SIRTAC" in recuperables[0]
+        for concepto, origen in by_concepto.items():
+            if concepto not in recuperables:
+                assert origen == "api"
+
+    def test_no_sirtac_defaults_neto_depositado_to_neto(self, db) -> None:
+        _order(db, 26)
+        _payment(db, 26, 26, net_received_amount=Decimal("500.00"))
+        db.commit()
+
+        panel = compute_breakdown(db, [26])
+
+        assert panel.retenciones_recuperables == Decimal("0")
+        assert panel.neto_depositado == Decimal("500.00")
+
+    def test_no_relevant_payments_neto_depositado_is_none(self, db) -> None:
+        _order(db, 27)
+        db.commit()
+
+        panel = compute_breakdown(db, [27])
+
+        assert panel.neto is None
+        assert panel.neto_depositado is None
+
 
 class TestPerModeShippingSplit:
     """ml-ventas-modo-logistico PR2, task 2.2/2.6 -- the single `Envios`

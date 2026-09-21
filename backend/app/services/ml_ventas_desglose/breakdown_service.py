@@ -184,6 +184,11 @@ __all__ = [
     "payment_effective_net",
     "shipping_label",
     "tax_label",
+    "withholding_kind",
+    "is_recoverable_withholding",
+    "is_debitos_creditos",
+    "recoverable_withholding_total",
+    "debitos_creditos_total",
     # ml-ventas-modo-logistico PR5: the Flex deduction of the Total Gauss
     # chain reuses this EXACT resolution, per order rather than as one
     # group-aggregate line.
@@ -300,6 +305,74 @@ _TAX_PLACES: Dict[str, str] = {
 }
 
 
+def withholding_kind(charge_name: Optional[str]) -> Optional[str]:
+    """The `_TAX_KINDS` key for one `tax_withholding*` charge name, or
+    `None` when the name is not that shape at all (ml-ventas-neto-iibb-
+    varios D1).
+
+    This is the ONE parser both `tax_label` (readable text) and the
+    recoverable/débitos-créditos predicates below (money treatment) use --
+    never a second, parallel `startswith` check anywhere else. `"sirtac"`
+    and `"sirtac_sobretasa"` share the same prefix, so a naive
+    `startswith("tax_withholding_sirtac-")` would misclassify the
+    surcharge as the ordinary withholding; parsing `kind_slug` the same
+    way `tax_label` always has avoids that by construction.
+
+    Returns `""` for the bare `tax_withholding-<prov>` shape (generic
+    "Retención", no matched regime) -- a real, meaningful key, not an
+    absence. Returns `None` only when the name is not a recognised
+    `tax_withholding*` shape at all (including a name that merely happens
+    to be `type="tax"`, e.g. a fee mis-typed upstream): callers that need
+    "and it IS a withholding" must check `is not None`, not truthiness.
+    """
+    name = charge_name or ""
+    if not name.startswith(_TAX_PREFIX):
+        return None
+
+    rest = name[len(_TAX_PREFIX) :]
+    kind_slug, _, place_slug = rest.partition("-")
+    kind_slug = kind_slug.lstrip("_")
+    if not place_slug:
+        return None
+
+    if kind_slug not in _TAX_KINDS:
+        return None
+    return kind_slug
+
+
+def is_recoverable_withholding(charge_type: Optional[str], charge_name: Optional[str]) -> bool:
+    """A SIRTAC withholding -- IIBB collected at source, recovered by the
+    seller at month end, not a real cost (ml-ventas-neto-iibb-varios R1)."""
+    return charge_type == "tax" and withholding_kind(charge_name) == "sirtac"
+
+
+def is_debitos_creditos(charge_type: Optional[str], charge_name: Optional[str]) -> bool:
+    """The débitos y créditos tax WE (the seller/collector) pay -- paid a
+    second time when the money is withdrawn from Mercado Pago
+    (ml-ventas-neto-iibb-varios R2)."""
+    return charge_type == "tax" and withholding_kind(charge_name) == "collector"
+
+
+def recoverable_withholding_total(seller_charges: Sequence[MlPaymentCharge]) -> Decimal:
+    """Non-refunded total of every recoverable (SIRTAC) withholding among
+    `seller_charges` -- refund-aware via `net_amount`, so a partially or
+    fully refunded SIRTAC charge is added back only for what was not
+    already given back."""
+    return sum(
+        (net_amount(c) for c in seller_charges if is_recoverable_withholding(c.type, c.name)),
+        Decimal("0"),
+    )
+
+
+def debitos_creditos_total(seller_charges: Sequence[MlPaymentCharge]) -> Decimal:
+    """Non-refunded total of every débitos/créditos charge among
+    `seller_charges` -- the amount paid again on withdrawal."""
+    return sum(
+        (net_amount(c) for c in seller_charges if is_debitos_creditos(c.type, c.name)),
+        Decimal("0"),
+    )
+
+
 def tax_label(charge_name: Optional[str]) -> str:
     """A readable line for one `type='tax'` charge.
 
@@ -314,16 +387,17 @@ def tax_label(charge_name: Optional[str]) -> str:
     recognise, ON PURPOSE: a name ML adds tomorrow must still show up as
     money the seller paid. Losing an amount because its label was
     unfamiliar would be a breakdown that quietly stops adding up.
+
+    Reuses `withholding_kind` (D1) for the parsing -- one parser, so the
+    label and the money treatment can never disagree.
     """
     name = charge_name or ""
-    if not name.startswith(_TAX_PREFIX):
+    kind_slug = withholding_kind(name)
+    if kind_slug is None:
         return CONCEPTO_IMPUESTOS
 
     rest = name[len(_TAX_PREFIX) :]
-    kind_slug, _, place_slug = rest.partition("-")
-    kind_slug = kind_slug.lstrip("_")
-    if not place_slug:
-        return CONCEPTO_IMPUESTOS
+    _, _, place_slug = rest.partition("-")
 
     kind = _TAX_KINDS.get(kind_slug)
     if kind is None:
@@ -837,12 +911,26 @@ class OperationBreakdown:
     item_lines: List[ItemLine] = field(default_factory=list)
     item_lines_reconcilia: bool = True
     item_lines_razon: Optional[str] = None
+    # ml-ventas-neto-iibb-varios R1/R4: `neto` already carries the SIRTAC
+    # add-back; these two let the renderer explain WHY `neto` is higher
+    # than what ML actually deposited. `retenciones_recuperables` is the
+    # non-refunded SIRTAC total (0, never None, when there is none);
+    # `neto_depositado` is `neto` minus it -- `None` only when `neto`
+    # itself is `None` (no relevant payments at all).
+    retenciones_recuperables: Decimal = Decimal("0")
+    neto_depositado: Optional[Decimal] = None
 
 
 def payment_effective_net(payment: MlPaymentOps, seller_charges: Sequence[MlPaymentCharge]) -> Decimal:
     """`net_received_amount`, corrected for whatever was refunded -- see
-    module docstring. Zero for a payment refunded in full, unchanged for
-    one never refunded."""
+    module docstring -- PLUS the non-refunded amount of any IIBB SIRTAC
+    withholding charge, which is a recoverable tax credit the seller gets
+    back at month end, not a cost (ml-ventas-neto-iibb-varios R1). Both
+    branches add it back, so a fully-refunded payment still adds back
+    whatever SIRTAC survived the refund. Every caller of this function
+    (`compute_neto_by_order_ids`, `compute_breakdown`, `descomponer_neto`)
+    shares it, which is what keeps the three Neto paths agreeing by
+    construction rather than by a test alone."""
     net = Decimal(str(payment.net_received_amount)) if payment.net_received_amount is not None else Decimal("0")
     refunded_total = (
         Decimal(str(payment.transaction_amount_refunded))
@@ -850,11 +938,11 @@ def payment_effective_net(payment: MlPaymentOps, seller_charges: Sequence[MlPaym
         else Decimal("0")
     )
     if refunded_total == 0:
-        return net
+        return net + recoverable_withholding_total(seller_charges)
     seller_refunded = sum(
         (Decimal(str(c.refunded)) if c.refunded is not None else Decimal("0")) for c in seller_charges
     )
-    return net - refunded_total + seller_refunded
+    return net - refunded_total + seller_refunded + recoverable_withholding_total(seller_charges)
 
 
 def compute_neto_by_order_ids(db: Session, order_ids: Sequence[int]) -> Dict[int, Optional[Decimal]]:
@@ -962,14 +1050,22 @@ def compute_breakdown(db: Session, order_ids: Sequence[int]) -> OperationBreakdo
         charges_by_payment.setdefault(charge.payment_id, []).append(charge)
 
     neto = Decimal("0")
+    retenciones_recuperables_total = Decimal("0")
     for payment in relevant_payments:
         payment_charges = charges_by_payment.get(payment.payment_id, [])
         seller_charges = [c for c in payment_charges if is_seller_charge(c.type, c.name)]
         neto += payment_effective_net(payment, seller_charges)
+        retenciones_recuperables_total += recoverable_withholding_total(seller_charges)
 
     seller_charges_all = [c for c in charges if is_seller_charge(c.type, c.name)]
 
     line_amounts: Dict[str, Decimal] = {}
+    # Labels whose amount is a recoverable SIRTAC withholding -- shown but
+    # NOT part of what `neto` was reduced by (R1/R4). Tracked by LABEL, not
+    # by charge, because `line_amounts` itself is keyed by label -- several
+    # charges (e.g. two payments' SIRTAC in different provinces) can share
+    # one line, and the line is recoverable if any charge behind it is.
+    recuperable_labels: set = set()
 
     # `flat_fee` is charged once PER ORDER in a pack (measured: pack
     # 2000014907031737, 1330 on each of its two payments) -- summing every
@@ -982,6 +1078,8 @@ def compute_breakdown(db: Session, order_ids: Sequence[int]) -> OperationBreakdo
         elif charge.type == "tax":
             etiqueta_impuesto = tax_label(charge.name)
             line_amounts[etiqueta_impuesto] = line_amounts.get(etiqueta_impuesto, Decimal("0")) + net_amount(charge)
+            if is_recoverable_withholding(charge.type, charge.name):
+                recuperable_labels.add(etiqueta_impuesto)
 
     # Shipping: `shp_*` payment charges (never shared -- summed per order),
     # split by KNOWN mode into its own line (ml-ventas-modo-logistico PR2)
@@ -1165,10 +1263,12 @@ def compute_breakdown(db: Session, order_ids: Sequence[int]) -> OperationBreakdo
     # either way, which is why this is safe to do here and nowhere near the
     # arithmetic.
     lines = [
-        BreakdownLine(concepto=concepto, monto=monto, origen="api")
+        BreakdownLine(concepto=concepto, monto=monto, origen="recuperable" if concepto in recuperable_labels else "api")
         for concepto, monto in line_amounts.items()
         if monto != 0
     ] + lines_extra
+
+    neto_final = neto if relevant_payments else None
 
     return OperationBreakdown(
         lines=lines,
@@ -1178,11 +1278,13 @@ def compute_breakdown(db: Session, order_ids: Sequence[int]) -> OperationBreakdo
         # returned None for the same sale -- the two-numbers-for-one-sale
         # failure this module's own tests call the worst available here,
         # introduced by the guard that was meant to prevent it.
-        neto=neto if relevant_payments else None,
+        neto=neto_final,
         incompleto=any(reason not in _INFORMATIONAL_REASONS for reason in incomplete_reasons),
         incomplete_reasons=incomplete_reasons,
         monto_operacion=monto_operacion,
         item_lines=item_lines,
         item_lines_reconcilia=item_lines_reconcilia,
         item_lines_razon=item_lines_razon,
+        retenciones_recuperables=retenciones_recuperables_total,
+        neto_depositado=(neto_final - retenciones_recuperables_total) if neto_final is not None else None,
     )
