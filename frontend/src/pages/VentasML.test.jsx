@@ -92,6 +92,8 @@ function asGroup(order) {
     operation_status: order.operation_status,
     goods_status: order.goods_status,
     neto: order.neto,
+    neto_depositado: order.neto_depositado,
+    retenciones_recuperables: order.retenciones_recuperables,
     modo_logistico: order.modo_logistico,
     orders: [order],
   };
@@ -683,6 +685,33 @@ describe('The Neto column', () => {
 
     const row = screen.getByText('comprador1').closest('tr');
     expect(within(row).getByText('82,50 ARS')).toBeInTheDocument();
+  });
+
+  it('shows the "MP $X · SIRTAC $Y" tooltip when retenciones_recuperables > 0', async () => {
+    mockSalesList([
+      { ...PAID_SALE, neto: 503958.14, neto_depositado: 502165.91, retenciones_recuperables: 1792.23 },
+    ]);
+    await renderWithRouter(<VentasML />);
+    await waitFor(() => expect(screen.getByText('comprador1')).toBeInTheDocument());
+
+    const row = screen.getByText('comprador1').closest('tr');
+    const netoButton = within(row).getByRole('button', { name: 'Ver desglose de costos' });
+    expect(netoButton).toHaveAttribute('title', 'MP $ 502.165,91 · SIRTAC $ 1.792,23');
+  });
+
+  it.each([
+    ['0', 0],
+    // null is what the backend emits for rows without relevant payments
+    // and for mixed-currency packs.
+    ['null', null],
+  ])('carries no tooltip when retenciones_recuperables is %s', async (_label, retenciones) => {
+    mockSalesList([{ ...PAID_SALE, neto: 500, neto_depositado: 500, retenciones_recuperables: retenciones }]);
+    await renderWithRouter(<VentasML />);
+    await waitFor(() => expect(screen.getByText('comprador1')).toBeInTheDocument());
+
+    const row = screen.getByText('comprador1').closest('tr');
+    const netoButton = within(row).getByRole('button', { name: 'Ver desglose de costos' });
+    expect(netoButton).not.toHaveAttribute('title');
   });
 });
 

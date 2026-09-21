@@ -26,6 +26,7 @@ from app.services.ml_ventas_desglose.breakdown_service import (
     tax_label,
 )
 from app.services.ml_ventas_desglose.iva import (
+    CONCEPTO_DEBITOS_CREDITOS_RETIRO,
     CONCEPTO_ENVIO_COMPRADOR,
     CONCEPTO_IVA_NO_DETERMINADO,
     IVA_ML_DIVISOR,
@@ -212,6 +213,22 @@ class TestWithholdingTypeTaxNotSplit:
         assert withholding.alicuota is None
         assert withholding.base == withholding.bruto
         assert withholding.iva == Decimal("0")
+        # ml-ventas-neto-iibb-varios R1: SIRTAC is informational.
+        assert withholding.informativo is True
+
+    def test_sirtac_sobretasa_is_not_informativo(self, db) -> None:
+        order_id = 50
+        _order(db, order_id)
+        _payment(db, 50, order_id, net_received_amount=Decimal("-100.00"))
+        _charge(db, 50, "tax_withholding_sirtac_sobretasa-buenos_aires", "tax", Decimal("100.00"))
+        db.commit()
+
+        result = descomponer_neto(db, [order_id])[order_id]
+
+        sobretasa = next(
+            c for c in result.componentes if c.concepto == tax_label("tax_withholding_sirtac_sobretasa-buenos_aires")
+        )
+        assert sobretasa.informativo is False
 
 
 class TestWithholdingPredicateReusedNotDuplicated:
@@ -238,6 +255,17 @@ class TestWithholdingPredicateReusedNotDuplicated:
         assert result.reconcilia is True
         withholding_concepts = {c.concepto for c in result.componentes if c.alicuota is None}
         assert {tax_label(n) for n in seller_names} <= withholding_concepts
+
+        # `informativo` exactly on `sirtac-*` names (not `sirtac_sobretasa`,
+        # not `collector`, not the bare provincial "Retención").
+        from app.services.ml_ventas_desglose.breakdown_service import withholding_kind
+
+        sirtac_labels = {tax_label(n) for n in seller_names if withholding_kind(n) == "sirtac"}
+        for c in result.componentes:
+            if c.concepto in sirtac_labels:
+                assert c.informativo is True, c.concepto
+            elif c.alicuota is None:
+                assert c.informativo is False, c.concepto
 
     def test_unknown_tax_name_never_recorded_still_recognised(self, db) -> None:
         """The mutation-verification: replacing `charge.type == 'tax'` with a
@@ -455,7 +483,7 @@ class TestThePositiveSideIsNotOnlyTheItems:
         result = descomponer_neto(db, [order_id])[order_id]
 
         assert result.reconcilia is True, f"no cerró por {result.diferencia}"
-        assert result.neto_sin_iva is not None
+        assert result.neto_sin_iva == Decimal("412287.78")
 
     def test_a_rejected_payments_shipping_never_enters(self, db) -> None:
         """`neto` is built from the relevant payments only. Reading shipping
@@ -473,6 +501,176 @@ class TestThePositiveSideIsNotOnlyTheItems:
 
         assert not [c for c in result.componentes if c.concepto == CONCEPTO_ENVIO_COMPRADOR]
         assert result.reconcilia is True
+
+
+class TestTheWorkedExampleOrder:
+    """ml-ventas-neto-iibb-varios, order 2000018567320906 / payment
+    180131165380 -- exact stored values, per the design's worked example.
+    Neto add-back (R1) and the IVA split (R2) ship together: a change to
+    one without the other breaks reconciliation, so this is the ONE test
+    that pins both halves of the invariant at once."""
+
+    def _build(self, db) -> int:
+        order_id = 2000018567320906
+        payment_id = 180131165380
+        _item_with_frozen_cost(db, order_id, "MLA2060835678", Decimal("597408.67"), Decimal("21"))
+        _payment(
+            db,
+            payment_id,
+            order_id,
+            net_received_amount=Decimal("502165.91"),
+            shipping_amount=Decimal("0.00"),
+            coupon_amount=Decimal("41679.67"),
+        )
+        _charge(db, payment_id, "coupon_rebate", "coupon", Decimal("41679.67"), Decimal("0.00"))
+        _charge(db, payment_id, "meli_percentage_fee", "fee", Decimal("74676.08"), Decimal("0.00"))
+        _charge(db, payment_id, "shp_cross_docking", "shipping", Decimal("15190.00"), Decimal("0.00"))
+        _charge(
+            db, payment_id, "tax_withholding_collector-debitos_creditos", "tax", Decimal("3584.45"), Decimal("0.00")
+        )
+        _charge(db, payment_id, "tax_withholding_sirtac-caba", "tax", Decimal("1792.23"), Decimal("0.00"))
+        db.commit()
+        return order_id
+
+    def test_neto_and_neto_sin_iva(self, db) -> None:
+        from app.services.ml_ventas_desglose.breakdown_service import compute_breakdown
+
+        order_id = self._build(db)
+
+        panel = compute_breakdown(db, [order_id])
+        assert panel.neto == Decimal("503958.14")
+
+        result = descomponer_neto(db, [order_id])[order_id]
+        assert result.reconcilia is True, f"no cerró por {result.diferencia}"
+        assert result.neto_sin_iva == Decimal("412287.78")
+
+    def test_sirtac_is_informational_and_contributes_zero(self, db) -> None:
+        order_id = self._build(db)
+
+        result = descomponer_neto(db, [order_id])[order_id]
+
+        sirtac = next(c for c in result.componentes if c.concepto == tax_label("tax_withholding_sirtac-caba"))
+        assert sirtac.bruto == Decimal("-1792.23")
+        assert sirtac.informativo is True
+
+        no_informativos = [c for c in result.componentes if not c.informativo]
+        assert sum((c.bruto for c in no_informativos), Decimal("0")) == Decimal("500373.69")
+
+    def test_debitos_creditos_retiro_component(self, db) -> None:
+        order_id = self._build(db)
+
+        result = descomponer_neto(db, [order_id])[order_id]
+
+        retiro = [c for c in result.componentes if c.concepto == CONCEPTO_DEBITOS_CREDITOS_RETIRO]
+        assert len(retiro) == 1
+        assert retiro[0].bruto == Decimal("-3584.45")
+        assert retiro[0].informativo is False
+        assert result.debitos_creditos_retiro == Decimal("3584.45")
+
+
+class TestSirtacRefundOnlyNonRefundedPortion:
+    """ml-ventas-neto-iibb-varios: a partially-refunded SIRTAC add-back adds
+    back only the amount − refunded, on both `compute_breakdown` and
+    `descomponer_neto`; débitos/créditos doubles the same non-refunded
+    amount."""
+
+    def test_partial_refund_adds_back_only_the_remainder(self, db) -> None:
+        from app.services.ml_ventas_desglose.breakdown_service import compute_breakdown
+
+        order_id = 920
+        _item_with_frozen_cost(db, order_id, "MLA1", Decimal("1000.00"), Decimal("21"))
+        _payment(db, 9201, order_id, net_received_amount=Decimal("800.00"))
+        _charge(db, 9201, "tax_withholding_sirtac-caba", "tax", Decimal("300.00"), refunded=Decimal("100.00"))
+        db.commit()
+
+        panel = compute_breakdown(db, [order_id])
+        assert panel.neto == Decimal("1000.00")  # 800 + (300 - 100)
+        assert panel.retenciones_recuperables == Decimal("200.00")
+        assert panel.neto_depositado == Decimal("800.00")
+
+        result = descomponer_neto(db, [order_id])[order_id]
+        assert result.reconcilia is True
+        sirtac = next(c for c in result.componentes if c.informativo)
+        assert sirtac.bruto == Decimal("-200.00")
+
+    def test_full_refund_adds_back_nothing(self, db) -> None:
+        order_id = 921
+        _item_with_frozen_cost(db, order_id, "MLA1", Decimal("1000.00"), Decimal("21"))
+        _payment(db, 9211, order_id, net_received_amount=Decimal("1000.00"))
+        _charge(db, 9211, "tax_withholding_sirtac-caba", "tax", Decimal("300.00"), refunded=Decimal("300.00"))
+        db.commit()
+
+        result = descomponer_neto(db, [order_id])[order_id]
+        assert result.reconcilia is True
+        sirtac = next(c for c in result.componentes if c.informativo)
+        assert sirtac.bruto == Decimal("0.00")
+
+    def test_debitos_creditos_extra_uses_only_the_non_refunded_portion(self, db) -> None:
+        order_id = 922
+        _item_with_frozen_cost(db, order_id, "MLA1", Decimal("1000.00"), Decimal("21"))
+        _payment(db, 9221, order_id, net_received_amount=Decimal("800.00"))
+        _charge(
+            db,
+            9221,
+            "tax_withholding_collector-debitos_creditos",
+            "tax",
+            Decimal("300.00"),
+            refunded=Decimal("100.00"),
+        )
+        db.commit()
+
+        result = descomponer_neto(db, [order_id])[order_id]
+        assert result.debitos_creditos_retiro == Decimal("200.00")
+        retiro = next(c for c in result.componentes if c.concepto == CONCEPTO_DEBITOS_CREDITOS_RETIRO)
+        assert retiro.bruto == Decimal("-200.00")
+
+
+class TestSobretasaAndGenericRetencionStillSubtract:
+    """R1 pins the SIRTAC withholding only -- `sirtac_sobretasa` and a bare
+    provincial "Retención" must keep subtracting exactly as before, never
+    informational."""
+
+    def test_sobretasa_still_subtracts_and_is_not_informativo(self, db) -> None:
+        order_id = 923
+        _item_with_frozen_cost(db, order_id, "MLA1", Decimal("1000.00"), Decimal("21"))
+        _payment(db, 9231, order_id, net_received_amount=Decimal("700.00"))
+        _charge(db, 9231, "tax_withholding_sirtac_sobretasa-jujuy", "tax", Decimal("300.00"))
+        db.commit()
+
+        result = descomponer_neto(db, [order_id])[order_id]
+        assert result.reconcilia is True
+        sobretasa = next(
+            c for c in result.componentes if c.concepto == tax_label("tax_withholding_sirtac_sobretasa-jujuy")
+        )
+        assert sobretasa.informativo is False
+        assert sobretasa.bruto == Decimal("-300.00")
+
+    def test_generic_retencion_still_subtracts_and_is_not_informativo(self, db) -> None:
+        order_id = 924
+        _item_with_frozen_cost(db, order_id, "MLA1", Decimal("1000.00"), Decimal("21"))
+        _payment(db, 9241, order_id, net_received_amount=Decimal("700.00"))
+        _charge(db, 9241, "tax_withholding-santa_fe", "tax", Decimal("300.00"))
+        db.commit()
+
+        result = descomponer_neto(db, [order_id])[order_id]
+        assert result.reconcilia is True
+        retencion = next(c for c in result.componentes if c.concepto == tax_label("tax_withholding-santa_fe"))
+        assert retencion.informativo is False
+        assert retencion.bruto == Decimal("-300.00")
+
+
+class TestDebitosExtraWithoutSirtac:
+    def test_collector_only_order_still_gets_the_retiro_component_and_reconciles(self, db) -> None:
+        order_id = 925
+        _item_with_frozen_cost(db, order_id, "MLA1", Decimal("1000.00"), Decimal("21"))
+        _payment(db, 9251, order_id, net_received_amount=Decimal("700.00"))
+        _charge(db, 9251, "tax_withholding_collector-debitos_creditos", "tax", Decimal("300.00"))
+        db.commit()
+
+        result = descomponer_neto(db, [order_id])[order_id]
+        assert result.reconcilia is True
+        assert result.debitos_creditos_retiro == Decimal("300.00")
+        assert not any(c.informativo for c in result.componentes)
 
 
 class TestWhatCannotBeSplitSaysSo:
@@ -605,6 +803,26 @@ class TestTheThirdPathToTheNetAgrees:
 
         assert neto_listado == Decimal("1000.00")
         assert sum((c.bruto for c in descomposicion.componentes), Decimal("0")) == neto_listado
+
+    def test_a_sale_with_sirtac_agrees_too(self, db) -> None:
+        """ml-ventas-neto-iibb-varios: SIRTAC add-back moves `neto` on all
+        three paths identically -- `compute_neto_by_order_ids`,
+        `compute_breakdown`, and this module's own `neto` (used to build
+        `objetivo`). The non-informational components must sum to that same
+        `neto` minus the débitos/créditos extra."""
+        order_id = 912
+        _item_with_frozen_cost(db, order_id, "MLA1", Decimal("1000.00"), Decimal("21"))
+        _payment(db, 9121, order_id, net_received_amount=Decimal("700.00"))
+        _charge(db, 9121, "tax_withholding_sirtac-caba", "tax", Decimal("300.00"))
+        db.commit()
+
+        descomposicion = descomponer_neto(db, [order_id])[order_id]
+        neto_listado = compute_neto_by_order_ids(db, [order_id])[order_id]
+
+        assert neto_listado == Decimal("1000.00")  # 700 + 300 add-back
+        assert descomposicion.reconcilia is True
+        no_informativos_bruto = sum((c.bruto for c in descomposicion.componentes if not c.informativo), Decimal("0"))
+        assert no_informativos_bruto == neto_listado
 
 
 class TestBothModulesClassifyAChargeTheSameWay:

@@ -73,6 +73,8 @@ from app.models.ml_payments import MlPaymentCharge, MlPaymentOps
 from app.services.ml_ventas_desglose.breakdown_service import (
     CHARGE_LABELS,
     RELEVANT_PAYMENT_STATUSES,
+    debitos_creditos_total,
+    is_recoverable_withholding,
     is_seller_charge,
     net_amount,
     payment_effective_net,
@@ -104,6 +106,12 @@ CONCEPTO_IVA_NO_DETERMINADO = "IVA no determinado"
 # that amount (production order 2000018567320906).
 CONCEPTO_ENVIO_COMPRADOR = "Envío cobrado al comprador"
 
+# The débitos/créditos tax paid a SECOND time on withdrawal from Mercado
+# Pago (ml-ventas-neto-iibb-varios R2). Carries no IVA (it is a tax, not a
+# rate applied to goods); it lowers `neto_sin_iva` but never `neto` itself
+# -- see the module docstring's reconciliation invariant.
+CONCEPTO_DEBITOS_CREDITOS_RETIRO = "Impuesto a los débitos y créditos (retiro)"
+
 # Facts that make a per-rate decomposition IMPOSSIBLE, as opposed to merely
 # unbalanced. Reported by name for the same reason `breakdown_service` names
 # its own incomplete reasons: "it does not reconcile" sends the reader
@@ -127,6 +135,12 @@ class ComponenteIVA:
     bruto: Decimal
     base: Decimal
     iva: Decimal  # base + iva == bruto, EXACTLY
+    # ml-ventas-neto-iibb-varios R1: a SIRTAC withholding is displayed
+    # (bruto/base/iva keep their passthrough value) but contributes ZERO to
+    # `suma_bruto` / `neto_sin_iva` -- it was already added back into
+    # `neto` by `payment_effective_net`, so counting it here too would
+    # double it. Every other component stays `informativo=False`.
+    informativo: bool = False
 
 
 @dataclass(frozen=True)
@@ -146,6 +160,16 @@ class DescomposicionNeto:
     # Zero would read as a perfect balance.
     diferencia: Optional[Decimal]
     razones: List[str] = field(default_factory=list)
+    # ml-ventas-neto-iibb-varios R2: the non-refunded débitos/créditos
+    # charge amount, doubled as an extra IVA-free component. 0 (never
+    # None) when the order carries no such charge -- it is a known
+    # absence, not an unresolved one. The reconciliation target becomes
+    # `neto - debitos_creditos_retiro`.
+    debitos_creditos_retiro: Decimal = Decimal("0")
+    # ml-ventas-neto-iibb-varios R3 (PR2): Σ base of the `CONCEPTO_VENTA_ITEM`
+    # components -- the goods, without IVA, at each item's own rate. `None`
+    # here in PR1 (not yet computed); PR2 populates it.
+    base_venta_sin_iva: Optional[Decimal] = None
 
 
 def _split(bruto: Decimal, divisor: Decimal) -> Tuple[Decimal, Decimal]:
@@ -367,6 +391,10 @@ def descomponer_neto(db: Session, order_ids: Sequence[int]) -> Dict[int, Descomp
                         bruto=bruto,
                         base=base,
                         iva=iva,
+                        # R1: SIRTAC is displayed but excluded from
+                        # `suma_bruto`/`neto_sin_iva` below -- it was already
+                        # added back into `neto` by `payment_effective_net`.
+                        informativo=is_recoverable_withholding(charge.type, charge.name),
                     )
                 )
             else:
@@ -380,15 +408,41 @@ def descomponer_neto(db: Session, order_ids: Sequence[int]) -> Dict[int, Descomp
                     ComponenteIVA(concepto=CONCEPTO_IVA_NO_DETERMINADO, alicuota=None, bruto=bruto, base=base, iva=iva)
                 )
 
-        suma_bruto = sum((c.bruto for c in componentes), Decimal("0"))
-        diferencia = neto - suma_bruto
+        # R2: the débitos/créditos tax is paid a SECOND time on withdrawal
+        # from Mercado Pago -- unconditional on every order carrying a
+        # non-refunded `collector-debitos_creditos` charge, independent of
+        # whether SIRTAC is present. Computed ONCE, here, the only producer
+        # (D3) -- `compute_breakdown` never sees this, so displayed `neto`
+        # never moves for it.
+        extra_debitos_creditos = debitos_creditos_total(seller_charges)
+        if extra_debitos_creditos != 0:
+            bruto = -extra_debitos_creditos
+            componentes.append(
+                ComponenteIVA(
+                    concepto=CONCEPTO_DEBITOS_CREDITOS_RETIRO,
+                    alicuota=None,
+                    bruto=bruto,
+                    base=bruto,
+                    iva=Decimal("0"),
+                    informativo=False,
+                )
+            )
+
+        # Non-informational components only: the SIRTAC line is displayed
+        # but excluded (R1), so it can never move this sum. The extra
+        # débitos/créditos component IS included, which is exactly why the
+        # reconciliation target below subtracts it from `neto` too.
+        no_informativos = [c for c in componentes if not c.informativo]
+        suma_bruto = sum((c.bruto for c in no_informativos), Decimal("0"))
+        objetivo = neto - extra_debitos_creditos
+        diferencia = objetivo - suma_bruto
         reconcilia = diferencia == Decimal("0")
 
         # Both gates, not just the arithmetic one: a decomposition can add
         # up and still be untrustworthy (a refund whose items we cannot
         # identify), and one that does not add up is never trustworthy.
         confiable = reconcilia and not razones
-        neto_sin_iva = sum((c.base for c in componentes), Decimal("0")) if confiable else None
+        neto_sin_iva = sum((c.base for c in no_informativos), Decimal("0")) if confiable else None
 
         result[order_id] = DescomposicionNeto(
             componentes=componentes,
@@ -396,6 +450,7 @@ def descomponer_neto(db: Session, order_ids: Sequence[int]) -> Dict[int, Descomp
             reconcilia=reconcilia,
             diferencia=diferencia,
             razones=razones,
+            debitos_creditos_retiro=extra_debitos_creditos,
         )
 
     return result

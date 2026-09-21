@@ -62,7 +62,11 @@ from app.services.ml_orders_ingestion.operation_status import (
     PAID_ORDER_STATUSES,
     SETTLED_CLAIM_STATUSES,
 )
-from app.services.ml_ventas_desglose.breakdown_service import compute_breakdown, compute_neto_by_order_ids
+from app.services.ml_ventas_desglose.breakdown_service import (
+    compute_breakdown,
+    compute_neto_by_order_ids,
+    compute_neto_desglose_by_order_ids,
+)
 from app.services.ml_ventas_desglose.deducciones import calcular_total_gauss, resolve_costo_mercaderia_detalle
 from app.services.ml_ventas_desglose.iva import descomponer_neto
 from app.services.permisos_service import PermisosService
@@ -187,7 +191,13 @@ class BreakdownLineSummary(BaseModel):
     provider's cordon tariff, which ML never tells us.
 
     The distinction is the point: an operator reading a Flex sale has to
-    be able to tell the cost we pay from the charge ML bills."""
+    be able to tell the cost we pay from the charge ML bills.
+
+    `"recuperable"` (ml-ventas-neto-iibb-varios D2) is a third value: a
+    SIRTAC withholding, shown so the operator can see it, but NOT part of
+    what was subtracted to arrive at Neto -- it is a recoverable tax
+    credit ML already gave back inside Neto itself (see
+    `OperationBreakdownSummary.retenciones_recuperables`)."""
 
     concepto: str
     monto: float
@@ -246,6 +256,12 @@ class OperationBreakdownSummary(BaseModel):
     item_lines: List[ItemDesgloseLineSummary] = Field(default_factory=list)
     item_lines_reconcilia: bool = True
     item_lines_razon: Optional[str] = None
+    # ml-ventas-neto-iibb-varios R1/R4: `neto` already carries the SIRTAC
+    # add-back. `retenciones_recuperables` is the non-refunded SIRTAC total
+    # and `neto_depositado` is what ML actually deposited (`neto` minus
+    # it) -- both `None` only when `neto` itself is `None`.
+    neto_depositado: Optional[float] = None
+    retenciones_recuperables: Optional[float] = None
 
     @classmethod
     def from_domain(cls, breakdown) -> "OperationBreakdownSummary":
@@ -258,6 +274,10 @@ class OperationBreakdownSummary(BaseModel):
             incompleto=breakdown.incompleto,
             incomplete_reasons=list(breakdown.incomplete_reasons),
             monto_operacion=(float(breakdown.monto_operacion) if breakdown.monto_operacion is not None else None),
+            neto_depositado=(float(breakdown.neto_depositado) if breakdown.neto_depositado is not None else None),
+            retenciones_recuperables=(
+                float(breakdown.retenciones_recuperables) if breakdown.neto is not None else None
+            ),
             item_lines=[
                 ItemDesgloseLineSummary(
                     item_id=item.item_id,
@@ -283,6 +303,11 @@ class IvaComponenteSummary(BaseModel):
     bruto: float
     base: float
     iva: float
+    # ml-ventas-neto-iibb-varios D3: a SIRTAC component is displayed
+    # (bruto/base/iva keep their value) but contributes 0 to `suma_bruto`/
+    # `neto_sin_iva` -- it was already added back into `neto`. Every other
+    # component stays `informativo=False`.
+    informativo: bool = False
 
 
 class DescomposicionIvaSummary(BaseModel):
@@ -295,6 +320,14 @@ class DescomposicionIvaSummary(BaseModel):
     reconcilia: bool
     diferencia: Optional[float] = None
     razones: List[str]
+    # ml-ventas-neto-iibb-varios R2: the non-refunded débitos/créditos
+    # amount doubled as an extra IVA-free component -- 0 (never None) when
+    # the order carries no such charge.
+    debitos_creditos_retiro: float = 0
+    # ml-ventas-neto-iibb-varios R3 (PR2): Σ base of the "Venta" components
+    # -- the goods, without IVA. `None` when not yet computed (PR1) or when
+    # the split itself could not be formed.
+    base_venta_sin_iva: Optional[float] = None
 
     @classmethod
     def from_domain(cls, desc) -> "DescomposicionIvaSummary":
@@ -306,6 +339,7 @@ class DescomposicionIvaSummary(BaseModel):
                     bruto=float(componente.bruto),
                     base=float(componente.base),
                     iva=float(componente.iva),
+                    informativo=componente.informativo,
                 )
                 for componente in desc.componentes
             ],
@@ -313,6 +347,8 @@ class DescomposicionIvaSummary(BaseModel):
             reconcilia=desc.reconcilia,
             diferencia=float(desc.diferencia) if desc.diferencia is not None else None,
             razones=list(desc.razones),
+            debitos_creditos_retiro=float(desc.debitos_creditos_retiro),
+            base_venta_sin_iva=(float(desc.base_venta_sin_iva) if desc.base_venta_sin_iva is not None else None),
         )
 
 
@@ -550,6 +586,11 @@ class SaleListItem(BaseModel):
     # product owner's decision was explicit that this is NOT drawer-only.
     total_gauss_provisional: bool = False
     total_gauss_provisional_falta: Optional[str] = None
+    # ml-ventas-neto-iibb-varios PR1.T12 (decision b): what the listing's
+    # Neto tooltip needs, sourced from the same bulk fields the drawer
+    # uses -- `None` only when `neto` itself is `None`.
+    neto_depositado: Optional[float] = None
+    retenciones_recuperables: Optional[float] = None
 
 
 class SaleGroup(BaseModel):
@@ -602,6 +643,10 @@ class SaleGroup(BaseModel):
     # badge must say so too, even if every other member resolved fully.
     total_gauss_provisional: bool = False
     total_gauss_provisional_falta: Optional[str] = None
+    # ml-ventas-neto-iibb-varios PR1.T12: sums of the members', all-or-
+    # nothing like `group_neto` -- `None` if any member's is `None`.
+    neto_depositado: Optional[float] = None
+    retenciones_recuperables: Optional[float] = None
 
 
 class SaleFacetCounts(BaseModel):
@@ -974,6 +1019,9 @@ def listar_ventas(
         # reused (not reimplemented) here for the whole page at once.
         page_order_ids = [order.order_id for order, _shipment, _key, _op, _goods in member_rows]
         neto_by_order = compute_neto_by_order_ids(db, page_order_ids)
+        # ml-ventas-neto-iibb-varios PR1.T12: same bulk shape, for the
+        # listing's Neto tooltip -- zero new per-row queries.
+        neto_desglose_by_order = compute_neto_desglose_by_order_ids(db, page_order_ids)
         # `total_gauss` for the page, ALWAYS recomputed here -- design D2,
         # never served from `MlOrdersOps.total_gauss` (sort/filter key
         # only). `descomponer_neto` bulk-resolves `neto_sin_iva`, then the
@@ -984,6 +1032,9 @@ def listar_ventas(
         total_gauss_by_order = calcular_total_gauss(db, page_order_ids, neto_sin_iva_by_order)
         for order, shipment, key, operation_status_value, goods_status_value in member_rows:
             order_neto = neto_by_order.get(order.order_id)
+            order_neto_depositado, order_retenciones_recuperables = neto_desglose_by_order.get(
+                order.order_id, (None, None)
+            )
             order_total_gauss_resultado = total_gauss_by_order.get(order.order_id)
             order_total_gauss = (
                 order_total_gauss_resultado.total_gauss if order_total_gauss_resultado is not None else None
@@ -1023,6 +1074,10 @@ def listar_ventas(
                     total_gauss=float(order_total_gauss) if order_total_gauss is not None else None,
                     total_gauss_provisional=order_total_gauss_provisional,
                     total_gauss_provisional_falta=order_total_gauss_provisional_falta,
+                    neto_depositado=(float(order_neto_depositado) if order_neto_depositado is not None else None),
+                    retenciones_recuperables=(
+                        float(order_retenciones_recuperables) if order_retenciones_recuperables is not None else None
+                    ),
                 )
             )
 
@@ -1062,6 +1117,22 @@ def listar_ventas(
         group_total_gauss_provisional_falta = next(
             (m.total_gauss_provisional_falta for m in members if m.total_gauss_provisional_falta), None
         )
+        # ml-ventas-neto-iibb-varios PR1.T12: sum the members under the
+        # same two gates as `group_neto` -- all-or-nothing on unknown
+        # members AND `single_currency`. Without the currency gate a mixed
+        # pack would show a null Neto beside a tooltip adding ARS to USD.
+        member_neto_depositado = [m.neto_depositado for m in members]
+        group_neto_depositado = (
+            None
+            if (single_currency is None or any(v is None for v in member_neto_depositado))
+            else sum(member_neto_depositado)
+        )
+        member_retenciones_recuperables = [m.retenciones_recuperables for m in members]
+        group_retenciones_recuperables = (
+            None
+            if (single_currency is None or any(v is None for v in member_retenciones_recuperables))
+            else sum(member_retenciones_recuperables)
+        )
         groups.append(
             SaleGroup(
                 group_key=key,
@@ -1070,6 +1141,8 @@ def listar_ventas(
                 total_gauss=group_total_gauss,
                 total_gauss_provisional=group_total_gauss_provisional,
                 total_gauss_provisional_falta=group_total_gauss_provisional_falta,
+                neto_depositado=group_neto_depositado,
+                retenciones_recuperables=group_retenciones_recuperables,
                 # The earliest member. NOTE this is not always the value the
                 # row is sorted by: the sort uses `min` over the FILTERED
                 # orders, this uses `min` over all of them. For the pack that

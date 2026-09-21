@@ -29,6 +29,8 @@ from __future__ import annotations
 from datetime import date, datetime, timezone
 from decimal import Decimal
 
+import pytest
+
 from app.models.codigo_postal_cordon import CodigoPostalCordon
 from app.models.etiqueta_envio import EtiquetaEnvio
 from app.models.logistica import Logistica
@@ -46,6 +48,7 @@ from app.services.ml_ventas_desglose.breakdown_service import (
     REASON_ITEM_LINES_NO_ITEMS,
     REASON_ITEM_LINES_ORDEN_SIN_ITEMS,
     compute_neto_by_order_ids,
+    compute_neto_desglose_by_order_ids,
     REASON_PAYMENTS_NOT_COUNTABLE,
     REASON_PAYMENTS_NOT_SYNCED,
     compute_breakdown,
@@ -612,6 +615,112 @@ class TestTheTwoPathsToTheNetAgree:
         _charge(db, 23, "meli_fee", None, Decimal("475.70"), refunded=Decimal("475.70"))
         db.commit()
         assert self._assert_agree(db, [4430760076]) == Decimal("0.00")
+
+    def test_a_sale_with_sirtac_add_back(self, db) -> None:
+        """ml-ventas-neto-iibb-varios R1: both paths must add back the
+        non-refunded SIRTAC withholding identically."""
+        _order(db, 24)
+        _payment(db, 24, 24, net_received_amount=Decimal("800.00"))
+        _charge(db, 24, "tax_withholding_sirtac-caba", "tax", Decimal("300.00"))
+        db.commit()
+        assert self._assert_agree(db, [24]) == Decimal("1100.00")
+
+    def test_a_sale_with_partially_refunded_sirtac(self, db) -> None:
+        _order(db, 25)
+        _payment(db, 25, 25, net_received_amount=Decimal("800.00"))
+        _charge(db, 25, "tax_withholding_sirtac-caba", "tax", Decimal("300.00"), refunded=Decimal("100.00"))
+        db.commit()
+        assert self._assert_agree(db, [25]) == Decimal("1000.00")  # 800 + (300-100)
+
+
+class TestRecoverableLineOrigen:
+    """ml-ventas-neto-iibb-varios D2: a SIRTAC line's `origen` is
+    `"recuperable"` (shown, not subtracted from `neto`); every other line
+    stays `"api"`. `neto_depositado`/`retenciones_recuperables` mirror the
+    worked example."""
+
+    def test_sirtac_line_is_recuperable_others_stay_api(self, db) -> None:
+        order_id = 2000018567320906
+        payment_id = 180131165380
+        _item(db, order_id, "MLA2060835678", unit_price=Decimal("597408.67"))
+        _order(db, order_id)
+        _payment(db, payment_id, order_id, net_received_amount=Decimal("502165.91"))
+        _charge(db, payment_id, "meli_percentage_fee", "fee", Decimal("74676.08"))
+        _charge(db, payment_id, "shp_cross_docking", "shipping", Decimal("15190.00"))
+        _charge(db, payment_id, "tax_withholding_collector-debitos_creditos", "tax", Decimal("3584.45"))
+        _charge(db, payment_id, "tax_withholding_sirtac-caba", "tax", Decimal("1792.23"))
+        db.commit()
+
+        panel = compute_breakdown(db, [order_id])
+
+        assert panel.neto == Decimal("503958.14")
+        assert panel.neto_depositado == Decimal("502165.91")
+        assert panel.retenciones_recuperables == Decimal("1792.23")
+
+        by_concepto = {line.concepto: line.origen for line in panel.lines}
+        recuperables = [c for c, origen in by_concepto.items() if origen == "recuperable"]
+        assert len(recuperables) == 1
+        assert "SIRTAC" in recuperables[0]
+        for concepto, origen in by_concepto.items():
+            if concepto not in recuperables:
+                assert origen == "api"
+
+    def test_no_sirtac_defaults_neto_depositado_to_neto(self, db) -> None:
+        _order(db, 26)
+        _payment(db, 26, 26, net_received_amount=Decimal("500.00"))
+        db.commit()
+
+        panel = compute_breakdown(db, [26])
+
+        assert panel.retenciones_recuperables == Decimal("0")
+        assert panel.neto_depositado == Decimal("500.00")
+
+    def test_no_relevant_payments_neto_depositado_is_none(self, db) -> None:
+        _order(db, 27)
+        db.commit()
+
+        panel = compute_breakdown(db, [27])
+
+        assert panel.neto is None
+        assert panel.neto_depositado is None
+
+
+class TestBulkNetoDesglose:
+    """ml-ventas-neto-iibb-varios PR1.T12: the listing needs
+    `neto_depositado`/`retenciones_recuperables` per order in bulk (two
+    queries, same shape as `compute_neto_by_order_ids`), never one query
+    per row."""
+
+    def test_bulk_matches_compute_breakdown_worked_example(self, db) -> None:
+        order_id = 2000018567320906
+        payment_id = 180131165380
+        _item(db, order_id, "MLA2060835678", unit_price=Decimal("597408.67"))
+        _order(db, order_id)
+        _payment(db, payment_id, order_id, net_received_amount=Decimal("502165.91"))
+        _charge(db, payment_id, "meli_percentage_fee", "fee", Decimal("74676.08"))
+        _charge(db, payment_id, "tax_withholding_sirtac-caba", "tax", Decimal("1792.23"))
+        db.commit()
+
+        result = compute_neto_desglose_by_order_ids(db, [order_id])[order_id]
+
+        assert result == (Decimal("502165.91"), Decimal("1792.23"))
+
+    def test_no_sirtac_is_zero_not_none(self, db) -> None:
+        _order(db, 28)
+        _payment(db, 28, 28, net_received_amount=Decimal("500.00"))
+        db.commit()
+
+        result = compute_neto_desglose_by_order_ids(db, [28])[28]
+
+        assert result == (Decimal("500.00"), Decimal("0"))
+
+    def test_no_relevant_payments_is_none_none(self, db) -> None:
+        _order(db, 29)
+        db.commit()
+
+        result = compute_neto_desglose_by_order_ids(db, [29])[29]
+
+        assert result == (None, None)
 
 
 class TestPerModeShippingSplit:
@@ -1187,3 +1296,72 @@ class TestLinesSurviveAnUnformableTotal:
         assert result.item_lines_reconcilia is False
         assert result.item_lines_razon == REASON_ITEM_LINES_ORDEN_SIN_ITEMS
         assert result.monto_operacion is None
+
+
+# Production payments, values as stored (both fully refunded; no partial
+# refund carrying a SIRTAC charge was found in production on 2026-09-21).
+_REFUNDED_WITH_SIRTAC = {
+    # payment 180185789862 / order 2000018573170546
+    "neuquen": (
+        180185789862,
+        2000018573170546,
+        "84955.89",
+        "132510.00",
+        (
+            ("financing_add_on_fee", "fee", "17756.34"),
+            ("meli_percentage_fee", "fee", "19015.18"),
+            ("shp_cross_docking", "shipping", "9590.00"),
+            ("tax_withholding_collector-debitos_creditos", "tax", "795.06"),
+            ("tax_withholding_sirtac-neuquen", "tax", "397.53"),
+        ),
+    ),
+    # payment 180131208268 / order 2000018567271536: SIRTAC AND a generic
+    # "Retención" (no regime) on the same payment.
+    "santa_fe_generic": (
+        180131208268,
+        2000018567271536,
+        "10163.18",
+        "13999.00",
+        (
+            ("flat_fee", "fee", "1330.00"),
+            ("meli_percentage_fee", "fee", "2169.84"),
+            ("tax_withholding_collector-debitos_creditos", "tax", "83.99"),
+            ("tax_withholding-santa_fe", "tax", "209.99"),
+            ("tax_withholding_sirtac-santa_fe", "tax", "42.00"),
+        ),
+    ),
+}
+
+
+class TestRefundBranchWithSirtac:
+    """`payment_effective_net`'s refund branch: `seller_refunded` already
+    gives back the refunded share of SIRTAC, and the add-back returns only
+    `amount - refunded`. On a full refund the two compose to zero -- a sale
+    that was returned left nothing, SIRTAC included. Every earlier SIRTAC
+    refund test set `refunded` on the charge with the payment's
+    `transaction_amount_refunded` at 0, so none ran this branch."""
+
+    @pytest.mark.parametrize("case", sorted(_REFUNDED_WITH_SIRTAC))
+    def test_fully_refunded_payment_with_sirtac_nets_zero_on_every_path(self, db, case) -> None:
+        payment_id, order_id, net, refunded_total, charges = _REFUNDED_WITH_SIRTAC[case]
+        _order(db, order_id)
+        _payment(
+            db,
+            payment_id,
+            order_id,
+            status="refunded",
+            net_received_amount=Decimal(net),
+            transaction_amount_refunded=Decimal(refunded_total),
+        )
+        for name, type_, amount in charges:
+            _charge(db, payment_id, name, type_, Decimal(amount), refunded=Decimal(amount))
+        db.commit()
+
+        breakdown = compute_breakdown(db, [order_id])
+        assert breakdown.neto == Decimal("0.00")
+        assert breakdown.neto_depositado == Decimal("0.00")
+        assert breakdown.retenciones_recuperables == Decimal("0.00")
+
+        # The listing's two bulk paths must agree with the detail on this branch too.
+        assert compute_neto_by_order_ids(db, [order_id])[order_id] == Decimal("0.00")
+        assert compute_neto_desglose_by_order_ids(db, [order_id])[order_id] == (Decimal("0.00"), Decimal("0.00"))
