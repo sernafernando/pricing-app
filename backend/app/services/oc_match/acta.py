@@ -24,7 +24,8 @@ def nro_pedido_txt(matched: dict[str, Any]) -> str:
 
 
 def nombre_excel(matched: dict[str, Any], mid: str) -> str:
-    return f"{_slug(proveedor_txt(matched))}_{_slug(nro_pedido_txt(matched))}_{_slug(mid, 16)}.xlsx"
+    # mid carries claim fence id (job_id_timestamp); allow up to 48 chars so it is not truncated.
+    return f"{_slug(proveedor_txt(matched))}_{_slug(nro_pedido_txt(matched))}_{_slug(mid, 48)}.xlsx"
 
 
 def _fmt_cand(c: dict[str, Any]) -> str:

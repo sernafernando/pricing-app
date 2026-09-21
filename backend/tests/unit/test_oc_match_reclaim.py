@@ -1,4 +1,4 @@
-"""Unit tests for OC-match enqueue reuse, claim, retry, and 15-min reclaim."""
+"""Unit tests for OC-match enqueue reuse, claim, retry, and 45-min reclaim."""
 
 from __future__ import annotations
 
@@ -125,20 +125,23 @@ class TestClaimAndRetry:
         with pytest.raises(ValueError, match="not retryable"):
             queue_retry(db, result.job)
         result.job.status = OcMatchJob.STATUS_ERROR
+        result.job.progress_phase = "excel"
         retried = queue_retry(db, result.job)
         assert retried.status == OcMatchJob.STATUS_QUEUED
         assert retried.error_message is None
+        assert retried.progress_phase is None
 
 
 class TestReclaimStaleRunning:
-    def test_running_over_15_minutes_becomes_retryable_error(self, db, active_user) -> None:
+    def test_running_over_45_minutes_becomes_retryable_error(self, db, active_user) -> None:
         pedido, adj = _pedido_y_adjunto(db, active_user)
         now = datetime.now(UTC)
         job = OcMatchJob(
             pedido_id=pedido.id,
             attachment_id=adj.id,
             status=OcMatchJob.STATUS_RUNNING,
-            started_at=now - timedelta(minutes=16),
+            progress_phase="matching",
+            started_at=now - timedelta(minutes=46),
         )
         db.add(job)
         db.flush()
@@ -147,6 +150,25 @@ class TestReclaimStaleRunning:
         assert marked == 1
         assert job.status == OcMatchJob.STATUS_ERROR
         assert job.error_message == STALE_MESSAGE
+        assert "45" in STALE_MESSAGE
+        assert job.progress_phase is None
+
+    def test_running_15_minutes_stays_running(self, db, active_user) -> None:
+        pedido, adj = _pedido_y_adjunto(db, active_user)
+        now = datetime.now(UTC)
+        job = OcMatchJob(
+            pedido_id=pedido.id,
+            attachment_id=adj.id,
+            status=OcMatchJob.STATUS_RUNNING,
+            progress_phase="extracting",
+            started_at=now - timedelta(minutes=15),
+        )
+        db.add(job)
+        db.flush()
+        assert reclaim_stale_running(db, now=now) == 0
+        db.refresh(job)
+        assert job.status == OcMatchJob.STATUS_RUNNING
+        assert job.progress_phase == "extracting"
 
     def test_fresh_running_is_left_alone(self, db, active_user) -> None:
         pedido, adj = _pedido_y_adjunto(db, active_user)

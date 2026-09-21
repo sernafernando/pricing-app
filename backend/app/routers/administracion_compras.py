@@ -3802,14 +3802,28 @@ _OC_MATCH_STATUSES = frozenset({"queued", "running", "done", "error", "skipped"}
 _OC_MATCH_LIST_DEFAULT = ("queued", "running", "done", "error")
 
 
+def _oc_match_pedido_numero(job: OcMatchJob) -> Optional[str]:
+    return getattr(getattr(job, "pedido", None), "numero", None)
+
+
 def _oc_match_job_response(job: OcMatchJob) -> OcMatchJobResponse:
     base = OcMatchJobResponse.model_validate(job)
-    return base.model_copy(update={"retryable": job.status == OcMatchJob.STATUS_ERROR})
+    return base.model_copy(
+        update={
+            "retryable": job.status == OcMatchJob.STATUS_ERROR,
+            "pedido_numero": _oc_match_pedido_numero(job),
+        }
+    )
 
 
 def _oc_match_job_detalle(job: OcMatchJob) -> OcMatchJobDetalle:
     base = OcMatchJobDetalle.model_validate(job)
-    return base.model_copy(update={"retryable": job.status == OcMatchJob.STATUS_ERROR})
+    return base.model_copy(
+        update={
+            "retryable": job.status == OcMatchJob.STATUS_ERROR,
+            "pedido_numero": _oc_match_pedido_numero(job),
+        }
+    )
 
 
 def _maybe_enqueue_oc_match(
@@ -3861,7 +3875,11 @@ def _obtener_oc_match_job_o_404(
     *,
     empresa_id: Optional[int] = None,
 ) -> OcMatchJob:
-    stmt = select(OcMatchJob).options(joinedload(OcMatchJob.renglones)).where(OcMatchJob.id == job_id)
+    stmt = (
+        select(OcMatchJob)
+        .options(joinedload(OcMatchJob.renglones), joinedload(OcMatchJob.pedido))
+        .where(OcMatchJob.id == job_id)
+    )
     if empresa_id is not None:
         stmt = stmt.join(PedidoCompra, OcMatchJob.pedido_id == PedidoCompra.id).where(
             PedidoCompra.empresa_id == empresa_id
@@ -3892,12 +3910,13 @@ def listar_oc_match_jobs(
     Lista todos los jobs (mismo alcance que listar pedidos con el permiso).
 
     ``empresa_id`` es un filtro opcional (join a ``pedidos_compra``), no ACL
-    por usuario. Reclaim de jobs ``running`` > 15 min antes de serializar.
+    por usuario. Reclaim de jobs ``running`` > 45 min en ``started_at``
+    antes de serializar.
     """
     reclaim_stale_running(db)
     db.commit()
     statuses = _parse_oc_match_statuses(status)
-    stmt = select(OcMatchJob).where(OcMatchJob.status.in_(statuses))
+    stmt = select(OcMatchJob).options(joinedload(OcMatchJob.pedido)).where(OcMatchJob.status.in_(statuses))
     if empresa_id is not None:
         stmt = stmt.join(PedidoCompra, OcMatchJob.pedido_id == PedidoCompra.id).where(
             PedidoCompra.empresa_id == empresa_id
@@ -3923,7 +3942,7 @@ def obtener_oc_match_job(
     db: Session = Depends(get_db),
     _user: Usuario = Depends(require_permiso("administracion.ver_ordenes_compra")),
 ) -> OcMatchJobDetalle:
-    """Detalle + renglones. Reclaim 15 min antes de serializar."""
+    """Detalle + renglones. Reclaim 45 min en ``started_at`` antes de serializar."""
     reclaim_stale_running(db)
     db.commit()
     job = _obtener_oc_match_job_o_404(db, job_id, empresa_id=empresa_id)

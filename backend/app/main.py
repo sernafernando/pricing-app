@@ -654,7 +654,7 @@ async def free_shipping_auto_fix_task():
 
 async def oc_match_reclaim_task():
     """
-    Mark OC-match jobs stuck in ``running`` > 15 min as retryable ``error``.
+    Mark OC-match jobs stuck in ``running`` > 45 min as retryable ``error``.
 
     Upload still enqueues + runs the worker immediately via BackgroundTasks.
     This sweep only cleans zombies after crash/restart when nobody opens the

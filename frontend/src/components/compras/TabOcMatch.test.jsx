@@ -7,6 +7,7 @@ import AdministracionCompras from '../../pages/AdministracionCompras';
 const ERROR_JOB = {
   id: 7,
   pedido_id: 44,
+  pedido_numero: 'OC-44',
   attachment_id: 90,
   status: 'error',
   error_message: 'USD sin tipo de cambio',
@@ -37,6 +38,23 @@ const DONE_JOB = {
   error_message: null,
   retryable: false,
   excel_rel_path: '8/carga.xlsx',
+};
+
+const LONG_ERROR =
+  'linea 1 de error\nlinea 2 de error\nlinea 3 de error\nlinea 4 que no deberia verse completa';
+
+const RUNNING_JOB = {
+  ...ERROR_JOB,
+  id: 9,
+  pedido_id: 202,
+  pedido_numero: 'OC-100',
+  attachment_id: 91,
+  status: 'running',
+  progress_phase: 'matching',
+  error_message: LONG_ERROR,
+  retryable: false,
+  excel_rel_path: null,
+  acta: null,
 };
 
 const { hookValue, mockTienePermiso } = vi.hoisted(() => ({
@@ -139,5 +157,63 @@ describe('TabOcMatch retry gate', () => {
     expect(screen.getByText('media')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /Descargar Excel/i })).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /Reintentar/i })).toBeNull();
+  });
+});
+
+describe('TabOcMatch ops UX', () => {
+  beforeEach(() => {
+    mockTienePermiso.mockImplementation((p) => p === 'administracion.ver_ordenes_compra');
+  });
+
+  it('shows pedido numero OC-100 as the pedido identity', () => {
+    resetHook({
+      jobs: [RUNNING_JOB],
+      total: 1,
+      selected: RUNNING_JOB,
+      selectedId: RUNNING_JOB.id,
+    });
+    render(<TabOcMatch />);
+    expect(screen.getAllByText('OC-100').length).toBeGreaterThan(0);
+    expect(screen.queryByText('202')).toBeNull();
+  });
+
+  it('shows Procesando badge plus matching phase subtitle', () => {
+    resetHook({
+      jobs: [RUNNING_JOB],
+      total: 1,
+      selected: RUNNING_JOB,
+      selectedId: RUNNING_JOB.id,
+    });
+    render(<TabOcMatch />);
+    expect(screen.getAllByText('Procesando').length).toBeGreaterThan(0);
+    expect(screen.getAllByText('Matcheando').length).toBeGreaterThan(0);
+  });
+
+  it('expands detail below the list, not as aside or modal', () => {
+    resetHook({
+      jobs: [RUNNING_JOB],
+      total: 1,
+      selected: RUNNING_JOB,
+      selectedId: RUNNING_JOB.id,
+    });
+    const { container } = render(<TabOcMatch />);
+    expect(container.querySelector('aside')).toBeNull();
+    expect(container.querySelector('[role="dialog"]')).toBeNull();
+    expect(screen.getByRole('heading', { name: /Job #9/ })).toBeInTheDocument();
+    expect(screen.getByText('Notebook 14')).toBeInTheDocument();
+  });
+
+  it('keeps the full error text in title', () => {
+    resetHook({
+      jobs: [RUNNING_JOB],
+      total: 1,
+      selected: RUNNING_JOB,
+      selectedId: RUNNING_JOB.id,
+    });
+    const { container } = render(<TabOcMatch />);
+    const titled = container.querySelector('[title*="linea 4 que no deberia verse completa"]');
+    expect(titled).not.toBeNull();
+    expect(titled.getAttribute('title')).toBe(LONG_ERROR);
+    expect(screen.getAllByText(/linea 4 que no deberia verse completa/).length).toBeGreaterThan(1);
   });
 });

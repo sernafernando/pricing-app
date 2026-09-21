@@ -376,6 +376,246 @@ class TestWorkerErrorPaths:
         assert "ERROR" in job.acta
 
 
+class TestProgressPhase:
+    def test_phase_sequence_then_persist_null(
+        self,
+        db: Session,
+        active_user: Any,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        _seed_maestro(db)
+        job, _adj = _pedido_adjunto_job(db, active_user, tmp_path)
+        _mock_pool(monkeypatch, GOLDEN_EXTRACT, GOLDEN_MATCH)
+        _patch_bg_db(monkeypatch, db)
+        phases: list[str] = []
+        orig = worker_mod._write_progress_phase
+
+        def spy(job_id: int, phase: str, claimed_started_at: Any) -> None:
+            orig(job_id, phase, claimed_started_at)
+            db.refresh(job)
+            assert job.status == OcMatchJob.STATUS_RUNNING
+            phases.append(phase)
+
+        monkeypatch.setattr(worker_mod, "_write_progress_phase", spy)
+        process_oc_match_job(job.id)
+        db.refresh(job)
+        assert phases == ["extracting", "matching", "excel"]
+        assert job.progress_phase is None
+        assert job.status == OcMatchJob.STATUS_DONE
+
+    def test_phase_helper_fail_soft_does_not_raise(
+        self,
+        db: Session,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        from datetime import UTC, datetime
+
+        @contextmanager
+        def boom_db() -> Iterator[Any]:
+            raise RuntimeError("db down for phase write")
+            yield  # pragma: no cover
+
+        monkeypatch.setattr(worker_mod, "get_background_db", boom_db)
+        worker_mod._write_progress_phase(1, "extracting", datetime.now(UTC))
+
+
+class TestClaimFence:
+    def test_stale_claim_persist_does_not_overwrite(
+        self,
+        db: Session,
+        active_user: Any,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        from datetime import timedelta
+
+        from app.services.oc_match.enqueue import (
+            claim_queued_job,
+            queue_retry,
+            reclaim_stale_running,
+        )
+
+        _seed_maestro(db)
+        job, _adj = _pedido_adjunto_job(db, active_user, tmp_path)
+        _patch_bg_db(monkeypatch, db)
+
+        first = claim_queued_job(db, job.id)
+        assert first is not None and first.started_at is not None
+        stale_started = first.started_at
+        first.started_at = stale_started - timedelta(minutes=50)
+        db.flush()
+        assert reclaim_stale_running(db) == 1
+        db.refresh(job)
+        assert job.status == OcMatchJob.STATUS_ERROR
+
+        queue_retry(db, job)
+        db.flush()
+        second = claim_queued_job(db, job.id)
+        assert second is not None and second.started_at is not None
+        assert second.started_at != stale_started
+        db.refresh(job)
+        owner_started = job.started_at
+
+        worker_mod._persist(
+            job.id,
+            {"renglones": [{"descripcion": "stale", "match": {"estado": "ok"}}]},
+            "acta stale",
+            None,
+            None,
+            claimed_started_at=stale_started,
+        )
+        db.refresh(job)
+        assert job.status == OcMatchJob.STATUS_RUNNING
+        assert job.started_at == owner_started
+        assert job.acta is None
+        assert list(job.renglones) == []
+
+        worker_mod._write_progress_phase(job.id, "matching", stale_started)
+        db.refresh(job)
+        assert job.progress_phase is None
+
+        worker_mod._persist(
+            job.id,
+            {
+                "renglones": [
+                    {
+                        "descripcion": "owner",
+                        "match": {"estado": "ok", "item_id": "1", "confianza": "alta"},
+                    }
+                ]
+            },
+            "acta owner",
+            "owner.xlsx",
+            None,
+            claimed_started_at=owner_started,
+        )
+        db.refresh(job)
+        assert job.status == OcMatchJob.STATUS_DONE
+        assert job.acta == "acta owner"
+        assert len(job.renglones) == 1
+        assert job.renglones[0].descripcion == "owner"
+
+    def test_two_claims_get_distinct_excel_paths(
+        self,
+        db: Session,
+        active_user: Any,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        from datetime import timedelta
+
+        from app.services.oc_match.enqueue import claim_queued_job
+
+        _seed_maestro(db)
+        job, _adj = _pedido_adjunto_job(db, active_user, tmp_path)
+        monkeypatch.setenv("COMPRAS_OC_MATCH_DIR", str(tmp_path / "oc"))
+        monkeypatch.setattr(settings, "COMPRAS_OC_MATCH_DIR", str(tmp_path / "oc"))
+
+        first = claim_queued_job(db, job.id)
+        assert first is not None and first.started_at is not None
+        path_a = worker_mod._excel_dest(job.id, first.started_at, GOLDEN_MATCH)
+        path_b = worker_mod._excel_dest(
+            job.id,
+            first.started_at + timedelta(seconds=2),
+            GOLDEN_MATCH,
+        )
+        assert path_a != path_b
+        assert str(job.id) in path_a.name
+        assert str(job.id) in path_b.name
+
+    def test_stale_rechazo_unlink_does_not_delete_owner_excel(
+        self,
+        db: Session,
+        active_user: Any,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        from datetime import timedelta
+
+        from app.services.oc_match.enqueue import (
+            claim_queued_job,
+            queue_retry,
+            reclaim_stale_running,
+        )
+
+        oc_dir = tmp_path / "oc"
+        oc_dir.mkdir()
+        monkeypatch.setattr(settings, "COMPRAS_OC_MATCH_DIR", str(oc_dir))
+        _seed_maestro(db)
+        job, _adj = _pedido_adjunto_job(db, active_user, tmp_path)
+
+        first = claim_queued_job(db, job.id)
+        assert first is not None and first.started_at is not None
+        stale_started = first.started_at
+        owner_started = stale_started + timedelta(seconds=5)
+        owner_path = worker_mod._excel_dest(job.id, owner_started, GOLDEN_MATCH)
+        owner_path.write_bytes(b"PK owner")
+        stale_path = worker_mod._excel_dest(job.id, stale_started, GOLDEN_MATCH)
+        stale_path.write_bytes(b"PK stale")
+
+        worker_mod._unlink_xlsx(stale_path)
+        assert not stale_path.exists()
+        assert owner_path.exists()
+
+        first.started_at = stale_started - timedelta(minutes=50)
+        db.flush()
+        reclaim_stale_running(db)
+        queue_retry(db, job)
+        db.flush()
+        claim_queued_job(db, job.id)
+        db.refresh(job)
+        # Simulate stale RechazoExcel unlink — must not glob-wipe owner
+        worker_mod._unlink_xlsx(stale_path)
+        assert owner_path.exists()
+
+    def test_discarded_persist_removes_claim_xlsx(
+        self,
+        db: Session,
+        active_user: Any,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        from datetime import timedelta
+
+        from app.services.oc_match.enqueue import (
+            claim_queued_job,
+            queue_retry,
+            reclaim_stale_running,
+        )
+
+        oc_dir = tmp_path / "oc"
+        oc_dir.mkdir()
+        monkeypatch.setattr(settings, "COMPRAS_OC_MATCH_DIR", str(oc_dir))
+        _seed_maestro(db)
+        job, _adj = _pedido_adjunto_job(db, active_user, tmp_path)
+        _patch_bg_db(monkeypatch, db)
+
+        first = claim_queued_job(db, job.id)
+        assert first is not None and first.started_at is not None
+        stale_started = first.started_at
+        stale_path = worker_mod._excel_dest(job.id, stale_started, GOLDEN_MATCH)
+        stale_path.write_bytes(b"PK stale")
+
+        first.started_at = stale_started - timedelta(minutes=50)
+        db.flush()
+        reclaim_stale_running(db)
+        queue_retry(db, job)
+        db.flush()
+        second = claim_queued_job(db, job.id)
+        assert second is not None
+
+        worker_mod._persist(
+            job.id,
+            {"renglones": []},
+            "acta stale",
+            stale_path.name,
+            None,
+            claimed_started_at=stale_started,
+        )
+        assert not stale_path.exists()
+
+
 class TestWorkerNoMailAndSkipFab:
     def test_worker_source_has_no_mail_and_skips_fab(self) -> None:
         worker_src = (_SERVICES / "worker.py").read_text(encoding="utf-8")

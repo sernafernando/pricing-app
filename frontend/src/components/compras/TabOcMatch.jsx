@@ -5,12 +5,10 @@ import {
   Download,
   Inbox,
   RefreshCw,
-  ScanSearch,
 } from 'lucide-react';
 import { usePermisos } from '../../contexts/PermisosContext';
 import useOcMatch from '../../hooks/useOcMatch';
 import DataTable from './_shared/DataTable';
-import EmptyState from './_shared/EmptyState';
 import FiltersBar from './_shared/FiltersBar';
 import LoadingBlock from './_shared/LoadingBlock';
 import styles from './TabOcMatch.module.css';
@@ -42,9 +40,15 @@ const STATUS_CLASS = {
   skipped: 'badgeSkipped',
 };
 
+const PHASE_LABEL = {
+  extracting: 'Extrayendo',
+  matching: 'Matcheando',
+  excel: 'Excel',
+};
+
 const COLUMNS = [
   { key: 'id', label: 'Job', width: '72px' },
-  { key: 'pedido_id', label: 'Pedido', width: '80px' },
+  { key: 'pedido_numero', label: 'Pedido', width: '160px' },
   { key: 'attachment_id', label: 'Adjunto', width: '84px' },
   { key: 'status', label: 'Estado', width: '120px' },
   { key: 'created_at', label: 'Creado', width: '148px' },
@@ -82,11 +86,15 @@ function formatDateTime(iso) {
   }
 }
 
-function StatusBadge({ status }) {
+function StatusBadge({ status, progressPhase }) {
   const cls = STATUS_CLASS[status] || 'badgeSkipped';
+  const phaseLabel = status === 'running' ? PHASE_LABEL[progressPhase] : null;
   return (
-    <span className={`${styles.badge} ${styles[cls]}`}>
-      {STATUS_LABEL[status] || status}
+    <span className={styles.statusCell}>
+      <span className={`${styles.badge} ${styles[cls]}`}>
+        {STATUS_LABEL[status] || status}
+      </span>
+      {phaseLabel ? <span className={styles.phaseSubtitle}>{phaseLabel}</span> : null}
     </span>
   );
 }
@@ -221,12 +229,12 @@ export default function TabOcMatch() {
                           #{job.id}
                         </span>
                       );
-                    case 'pedido_id':
-                      return <span className={styles.tdMono}>{job.pedido_id}</span>;
+                    case 'pedido_numero':
+                      return <span className={styles.tdMono}>{job.pedido_numero || '—'}</span>;
                     case 'attachment_id':
                       return <span className={styles.tdMono}>{job.attachment_id}</span>;
                     case 'status':
-                      return <StatusBadge status={job.status} />;
+                      return <StatusBadge status={job.status} progressPhase={job.progress_phase} />;
                     case 'created_at':
                       return <span className={styles.tdSecondary}>{formatDateTime(job.created_at)}</span>;
                     case 'error_message':
@@ -271,80 +279,71 @@ export default function TabOcMatch() {
           )}
         </div>
 
-        <aside className={styles.detailPane} aria-label="Detalle del job">
-          {!selected ? (
-            <EmptyState
-              icon={<ScanSearch size={28} strokeWidth={1.5} />}
-              title="Elegí un job"
-              subtitle="Renglones, acta y Excel aparecen acá."
-              tone="inline"
-            />
-          ) : (
-            <div className={styles.detailBody}>
-              <div className={styles.detailHeader}>
-                <h2 className={styles.detailTitle}>Job #{selected.id}</h2>
-                <StatusBadge status={selected.status} />
-              </div>
-              <dl className={styles.meta}>
-                <div>
-                  <dt>Pedido</dt>
-                  <dd>{selected.pedido_id}</dd>
-                </div>
-                <div>
-                  <dt>Adjunto</dt>
-                  <dd>{selected.attachment_id}</dd>
-                </div>
-              </dl>
-              {selected.error_message && (
-                <p className={styles.detailError}>{selected.error_message}</p>
-              )}
-              <div className={styles.actions}>
-                {showExcel && (
-                  <button
-                    type="button"
-                    className={styles.btnSecondary}
-                    onClick={handleDownload}
-                    disabled={busy}
-                  >
-                    <Download size={14} />
-                    Descargar Excel
-                  </button>
-                )}
-                {showRetry && (
-                  <button
-                    type="button"
-                    className={styles.btnPrimary}
-                    onClick={handleRetry}
-                    disabled={busy}
-                  >
-                    <RefreshCw size={14} />
-                    Reintentar
-                  </button>
-                )}
-              </div>
-              <h3 className={styles.sectionTitle}>Renglones</h3>
-              <DataTable
-                columns={RENGLON_COLUMNS}
-                rows={(selected.renglones || []).map((r) => ({ ...r, id: r.id ?? r.indice }))}
-                minWidth="480px"
-                empty={{
-                  icon: <Inbox size={20} strokeWidth={1.5} />,
-                  title: 'Sin renglones todavía.',
-                }}
-                renderCell={(row, col) => {
-                  if (col.key === 'confianza') {
-                    return <ConfianzaBadge confianza={row.confianza} motivo={row.motivo} />;
-                  }
-                  const value = row[col.key];
-                  if (value == null || value === '') return '—';
-                  return String(value);
-                }}
-              />
-              <h3 className={styles.sectionTitle}>Acta</h3>
-              <pre className={styles.acta}>{selected.acta || '—'}</pre>
+        {selected && (
+          <div className={styles.detailBody}>
+            <div className={styles.detailHeader}>
+              <h2 className={styles.detailTitle}>Job #{selected.id}</h2>
+              <StatusBadge status={selected.status} progressPhase={selected.progress_phase} />
             </div>
-          )}
-        </aside>
+            <dl className={styles.meta}>
+              <div>
+                <dt>Pedido</dt>
+                <dd>{selected.pedido_numero || '—'}</dd>
+              </div>
+              <div>
+                <dt>Adjunto</dt>
+                <dd>{selected.attachment_id}</dd>
+              </div>
+            </dl>
+            {selected.error_message && (
+              <p className={styles.detailError}>{selected.error_message}</p>
+            )}
+            <div className={styles.actions}>
+              {showExcel && (
+                <button
+                  type="button"
+                  className={styles.btnSecondary}
+                  onClick={handleDownload}
+                  disabled={busy}
+                >
+                  <Download size={14} />
+                  Descargar Excel
+                </button>
+              )}
+              {showRetry && (
+                <button
+                  type="button"
+                  className={styles.btnPrimary}
+                  onClick={handleRetry}
+                  disabled={busy}
+                >
+                  <RefreshCw size={14} />
+                  Reintentar
+                </button>
+              )}
+            </div>
+            <h3 className={styles.sectionTitle}>Renglones</h3>
+            <DataTable
+              columns={RENGLON_COLUMNS}
+              rows={(selected.renglones || []).map((r) => ({ ...r, id: r.id ?? r.indice }))}
+              minWidth="480px"
+              empty={{
+                icon: <Inbox size={20} strokeWidth={1.5} />,
+                title: 'Sin renglones todavía.',
+              }}
+              renderCell={(row, col) => {
+                if (col.key === 'confianza') {
+                  return <ConfianzaBadge confianza={row.confianza} motivo={row.motivo} />;
+                }
+                const value = row[col.key];
+                if (value == null || value === '') return '—';
+                return String(value);
+              }}
+            />
+            <h3 className={styles.sectionTitle}>Acta</h3>
+            <pre className={styles.acta}>{selected.acta || '—'}</pre>
+          </div>
+        )}
       </div>
     </div>
   );
