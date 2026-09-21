@@ -1,0 +1,50 @@
+change: feat-compras-oc-match-ops-ux
+change_id: feat-compras-oc-match-ops-ux
+project: pricing-app
+phase: apply
+status: ready_for_verify
+artifact_store: openspec
+persistence_mode: openspec
+parent_change: feat-compras-oc-match
+parent_pr: 1304
+created_at: "2026-09-21"
+updated_at: "2026-09-21"
+branch: feat/compras-oc-match-ops-ux
+apply_note: >
+  Apply 1.1-5.4 complete. pytest 29 + vitest 9. size:exception reset after
+  settle counted 1306 lines (openspec artifacts). Code staged/unstaged on branch.
+artifacts:
+  exploration: openspec/changes/feat-compras-oc-match-ops-ux/exploration.md
+  proposal: openspec/changes/feat-compras-oc-match-ops-ux/proposal.md
+  specs:
+    - openspec/changes/feat-compras-oc-match-ops-ux/specs/compras-oc-match-jobs/spec.md
+    - openspec/changes/feat-compras-oc-match-ops-ux/specs/compras-oc-match-pipeline/spec.md
+    - openspec/changes/feat-compras-oc-match-ops-ux/specs/compras-oc-match-ui/spec.md
+  design: openspec/changes/feat-compras-oc-match-ops-ux/design.md
+  tasks: openspec/changes/feat-compras-oc-match-ops-ux/tasks.md
+next_phase: verify
+nextRecommended: verify
+notes: >
+  Apply 1.1-5.4 done on feat/compras-oc-match-ops-ux. Focused tests green.
+  size:exception after settle line budget (openspec inflated count). Ready for verify.
+locked_decisions:
+  parent_status_enum: [queued, running, done, error, skipped]
+  progress_mechanism: progress_phase_column
+  progress_values: [extracting, matching, excel]
+  reclaim_predicate: started_at_clock
+  reclaim_running_minutes: 45
+  reclaim_gemini_pool_heartbeat: false
+  pedido_numero_source: backend_joinedload
+  keep_pedido_id: true
+  error_column: multiline_line_clamp_3
+  detail_ux: expand_below_full_width
+  poll_active: [queued, running]
+  delivery: single_pr
+pending_decisions: {}
+review_forecast:
+  estimated_changed_lines: "250-450"
+  budget_risk: Low
+  chained_prs: No
+  delivery_strategy: single-pr
+  decision_needed_before_apply: No
+  chain_strategy: pending

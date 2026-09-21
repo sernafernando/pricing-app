@@ -56,6 +56,7 @@ class OcMatchJob(Base):
         nullable=False,
     )
     status = Column(String(20), nullable=False, server_default="queued")
+    progress_phase = Column(String(20), nullable=True)
     error_message = Column(Text, nullable=True)
     acta = Column(Text, nullable=True)
     excel_rel_path = Column(String(500), nullable=True)
@@ -87,6 +88,10 @@ class OcMatchJob(Base):
         CheckConstraint(
             "status IN ('queued','running','done','error','skipped')",
             name="ck_oc_match_jobs_status",
+        ),
+        CheckConstraint(
+            "progress_phase IS NULL OR progress_phase IN ('extracting','matching','excel')",
+            name="ck_oc_match_jobs_progress_phase",
         ),
         UniqueConstraint(
             "pedido_id",

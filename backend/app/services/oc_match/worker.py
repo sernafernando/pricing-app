@@ -52,8 +52,32 @@ def process_oc_match_job(job_id: int) -> None:
         if not claimed.adjunto_path.is_file():
             raise FileNotFoundError(f"adjunto ausente en disco: {claimed.adjunto_path}")
         pool = load_pool()
+        try:
+            _write_progress_phase(claimed.job_id, "extracting")
+        except Exception:
+            logger.warning(
+                "oc-match job_id=%s fail-soft progress_phase=extracting",
+                claimed.job_id,
+                exc_info=True,
+            )
         extracted = extract_one(pool, claimed.adjunto_path.read_bytes(), claimed.filename)
+        try:
+            _write_progress_phase(claimed.job_id, "matching")
+        except Exception:
+            logger.warning(
+                "oc-match job_id=%s fail-soft progress_phase=matching",
+                claimed.job_id,
+                exc_info=True,
+            )
         matched = match_renglones(extracted, claimed.articulos, pool)
+        try:
+            _write_progress_phase(claimed.job_id, "excel")
+        except Exception:
+            logger.warning(
+                "oc-match job_id=%s fail-soft progress_phase=excel",
+                claimed.job_id,
+                exc_info=True,
+            )
         dest = _excel_dest(claimed.job_id, matched)
         generar(matched, dest)
         excel_rel = dest.name
@@ -99,6 +123,26 @@ def _claim_and_load(job_id: int) -> Optional[_Claimed]:
         )
 
 
+def _write_progress_phase(job_id: int, phase: str) -> None:
+    """UX-only stage stamp in a short session. Never changes status. Fail-soft."""
+    stamp = datetime.now(UTC)
+    try:
+        with get_background_db() as db:
+            job = db.get(OcMatchJob, job_id)
+            if job is None:
+                logger.warning("oc-match progress_phase: job_id=%s desapareció", job_id)
+                return
+            job.progress_phase = phase
+            job.updated_at = stamp
+    except Exception:
+        logger.warning(
+            "oc-match job_id=%s no pudo persistir progress_phase=%s",
+            job_id,
+            phase,
+            exc_info=True,
+        )
+
+
 def _excel_dest(job_id: int, matched: dict[str, Any]) -> Path:
     root = Path(settings.COMPRAS_OC_MATCH_DIR)
     root.mkdir(parents=True, exist_ok=True)
@@ -132,6 +176,7 @@ def _persist(
             return
         job.acta = acta
         job.error_message = error
+        job.progress_phase = None
         job.finished_at = stamp
         job.updated_at = stamp
         if error:

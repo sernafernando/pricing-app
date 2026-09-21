@@ -212,9 +212,11 @@ class TestPedidoAdjuntoEnqueue:
         assert payload["total"] == 1
         job = payload["items"][0]
         assert job["pedido_id"] == pedido_borrador.id
+        assert job["pedido_numero"] == pedido_borrador.numero
         assert job["attachment_id"] == r.json()["id"]
         assert job["status"] == "queued"
         assert job["retryable"] is False
+        assert job["progress_phase"] is None
         assert add_task_espia == [(process_oc_match_job, (job["id"],), {})]
 
     def test_xlsx_skips_without_gemini_task(
@@ -308,7 +310,7 @@ class TestListRetryPermisos:
             pedido_id=pedido_borrador.id,
             attachment_id=adj.id,
             status=OcMatchJob.STATUS_RUNNING,
-            started_at=datetime.now(UTC) - timedelta(minutes=20),
+            started_at=datetime.now(UTC) - timedelta(minutes=46),
         )
         db.add(job)
         db.flush()
@@ -322,3 +324,106 @@ class TestListRetryPermisos:
         assert detail.status_code == 200
         assert detail.json()["status"] == "error"
         assert detail.json()["retryable"] is True
+        assert "pedido_numero" in detail.json()
+        assert detail.json()["pedido_id"] == pedido_borrador.id
+
+    def test_list_and_detail_include_pedido_numero_and_id(
+        self, client, auth_headers, pedido_borrador, con_todos_los_permisos, add_task_espia
+    ):
+        r = client.post(
+            f"{BASE}/pedidos/{pedido_borrador.id}/adjuntos",
+            headers=auth_headers,
+            files={"file": ("factura.pdf", PDF_HEADER, "application/pdf")},
+        )
+        assert r.status_code == 201, r.text
+        listed = _jobs(client, auth_headers)
+        assert listed.status_code == 200
+        item = listed.json()["items"][0]
+        assert item["pedido_id"] == pedido_borrador.id
+        assert item["pedido_numero"] == pedido_borrador.numero
+        detail = client.get(f"{BASE}/oc-match/jobs/{item['id']}", headers=auth_headers)
+        assert detail.status_code == 200
+        body = detail.json()
+        assert body["pedido_id"] == pedido_borrador.id
+        assert body["pedido_numero"] == pedido_borrador.numero
+
+    def test_missing_pedido_yields_null_numero_200(
+        self, client, auth_headers, db, pedido_borrador, con_todos_los_permisos
+    ):
+        from sqlalchemy.orm.attributes import set_committed_value
+
+        from app.models.compra_adjunto import CompraAdjunto
+        from app.routers import administracion_compras as ac
+
+        adj = CompraAdjunto(
+            entidad_tipo=CompraAdjunto.ENTIDAD_TIPO_PEDIDO,
+            entidad_id=pedido_borrador.id,
+            nombre_archivo="orphan.pdf",
+            path_archivo="pedido_compra/x/orphan.pdf",
+        )
+        db.add(adj)
+        db.flush()
+        job = OcMatchJob(
+            pedido_id=pedido_borrador.id,
+            attachment_id=adj.id,
+            status=OcMatchJob.STATUS_QUEUED,
+        )
+        db.add(job)
+        db.flush()
+
+        orig_resp = ac._oc_match_job_response
+        orig_det = ac._oc_match_job_detalle
+
+        def resp_none(row: OcMatchJob):
+            set_committed_value(row, "pedido", None)
+            return orig_resp(row)
+
+        def det_none(row: OcMatchJob):
+            set_committed_value(row, "pedido", None)
+            return orig_det(row)
+
+        with (
+            patch.object(ac, "_oc_match_job_response", resp_none),
+            patch.object(ac, "_oc_match_job_detalle", det_none),
+        ):
+            listed = _jobs(client, auth_headers)
+            assert listed.status_code == 200
+            item = listed.json()["items"][0]
+            assert item["pedido_numero"] is None
+            assert item["pedido_id"] == pedido_borrador.id
+            detail = client.get(f"{BASE}/oc-match/jobs/{job.id}", headers=auth_headers)
+            assert detail.status_code == 200
+            assert detail.json()["pedido_numero"] is None
+            assert detail.json()["pedido_id"] == pedido_borrador.id
+
+    def test_running_exposes_progress_phase_with_status_running(
+        self, client, auth_headers, db, pedido_borrador, con_todos_los_permisos
+    ):
+        from app.models.compra_adjunto import CompraAdjunto
+
+        adj = CompraAdjunto(
+            entidad_tipo=CompraAdjunto.ENTIDAD_TIPO_PEDIDO,
+            entidad_id=pedido_borrador.id,
+            nombre_archivo="running.pdf",
+            path_archivo="pedido_compra/x/running.pdf",
+        )
+        db.add(adj)
+        db.flush()
+        job = OcMatchJob(
+            pedido_id=pedido_borrador.id,
+            attachment_id=adj.id,
+            status=OcMatchJob.STATUS_RUNNING,
+            progress_phase="matching",
+            started_at=datetime.now(UTC) - timedelta(minutes=5),
+        )
+        db.add(job)
+        db.flush()
+        listed = _jobs(client, auth_headers)
+        assert listed.status_code == 200
+        item = listed.json()["items"][0]
+        assert item["status"] == "running"
+        assert item["progress_phase"] == "matching"
+        detail = client.get(f"{BASE}/oc-match/jobs/{job.id}", headers=auth_headers)
+        assert detail.status_code == 200
+        assert detail.json()["status"] == "running"
+        assert detail.json()["progress_phase"] == "matching"

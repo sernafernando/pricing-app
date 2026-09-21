@@ -376,6 +376,55 @@ class TestWorkerErrorPaths:
         assert "ERROR" in job.acta
 
 
+class TestProgressPhase:
+    def test_phase_sequence_then_persist_null(
+        self,
+        db: Session,
+        active_user: Any,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        _seed_maestro(db)
+        job, _adj = _pedido_adjunto_job(db, active_user, tmp_path)
+        _mock_pool(monkeypatch, GOLDEN_EXTRACT, GOLDEN_MATCH)
+        _patch_bg_db(monkeypatch, db)
+        phases: list[str] = []
+        orig = worker_mod._write_progress_phase
+
+        def spy(job_id: int, phase: str) -> None:
+            orig(job_id, phase)
+            db.refresh(job)
+            assert job.status == OcMatchJob.STATUS_RUNNING
+            phases.append(phase)
+
+        monkeypatch.setattr(worker_mod, "_write_progress_phase", spy)
+        process_oc_match_job(job.id)
+        db.refresh(job)
+        assert phases == ["extracting", "matching", "excel"]
+        assert job.progress_phase is None
+        assert job.status == OcMatchJob.STATUS_DONE
+
+    def test_phase_write_raise_still_runs_extract(
+        self,
+        db: Session,
+        active_user: Any,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        _seed_maestro(db)
+        job, _adj = _pedido_adjunto_job(db, active_user, tmp_path)
+        pool = _mock_pool(monkeypatch, GOLDEN_EXTRACT, GOLDEN_MATCH)
+        _patch_bg_db(monkeypatch, db)
+        boom = MagicMock(side_effect=RuntimeError("phase persist failed"))
+        monkeypatch.setattr(worker_mod, "_write_progress_phase", boom)
+        process_oc_match_job(job.id)
+        db.refresh(job)
+        assert boom.call_count == 3
+        assert pool.generate_json.call_count == 2
+        assert job.status == OcMatchJob.STATUS_DONE
+        assert job.progress_phase is None
+
+
 class TestWorkerNoMailAndSkipFab:
     def test_worker_source_has_no_mail_and_skips_fab(self) -> None:
         worker_src = (_SERVICES / "worker.py").read_text(encoding="utf-8")

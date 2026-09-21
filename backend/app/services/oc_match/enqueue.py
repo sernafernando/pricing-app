@@ -1,5 +1,5 @@
 """
-Enqueue, claim, reuse, retry, and 15-minute reclaim for OC-match jobs.
+Enqueue, claim, reuse, retry, and 45-minute reclaim for OC-match jobs.
 
 `process_oc_match_job` is the BackgroundTasks entry and delegates to the
 two-session worker (extract/match/excel/persist).
@@ -20,9 +20,9 @@ from app.services.oc_match.mime import KIND_GEMINI, classify
 
 logger = get_logger("services.oc_match.enqueue")
 
-RECLAIM_AFTER = timedelta(minutes=15)
+RECLAIM_AFTER = timedelta(minutes=45)
 SKIP_MESSAGE = "MIME not eligible for Gemini OC-match"
-STALE_MESSAGE = "Job marked error: running longer than 15 minutes"
+STALE_MESSAGE = "Job marked error: running longer than 45 minutes"
 
 
 class EnqueueResult(NamedTuple):
@@ -139,7 +139,7 @@ def claim_queued_job(db: Session, job_id: int, *, now: Optional[datetime] = None
 
 
 def reclaim_stale_running(db: Session, *, now: Optional[datetime] = None) -> int:
-    """Persist ``running`` longer than 15 minutes as retryable ``error``."""
+    """Persist ``running`` longer than 45 minutes on ``started_at`` as retryable ``error``."""
     stamp = now or _utcnow()
     cutoff = stamp - RECLAIM_AFTER
     jobs = db.execute(select(OcMatchJob).where(OcMatchJob.status == OcMatchJob.STATUS_RUNNING)).scalars().all()
@@ -150,6 +150,7 @@ def reclaim_stale_running(db: Session, *, now: Optional[datetime] = None) -> int
             continue
         job.status = OcMatchJob.STATUS_ERROR
         job.error_message = STALE_MESSAGE
+        job.progress_phase = None
         job.finished_at = stamp
         job.updated_at = stamp
         marked += 1
@@ -186,6 +187,7 @@ def queue_retry(db: Session, job: OcMatchJob) -> OcMatchJob:
     stamp = _utcnow()
     job.status = OcMatchJob.STATUS_QUEUED
     job.error_message = None
+    job.progress_phase = None
     job.started_at = None
     job.finished_at = None
     job.updated_at = stamp

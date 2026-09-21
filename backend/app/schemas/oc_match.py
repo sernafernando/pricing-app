@@ -38,8 +38,10 @@ class OcMatchJobResponse(BaseModel):
 
     id: int
     pedido_id: int
+    pedido_numero: str | None = None
     attachment_id: int
     status: str
+    progress_phase: str | None = None
     error_message: str | None = None
     acta: str | None = None
     excel_rel_path: str | None = None
