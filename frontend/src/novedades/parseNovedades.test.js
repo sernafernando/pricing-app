@@ -12,6 +12,15 @@ describe('parseNovedades', () => {
     expect(entry.date.getDate()).toBe(21);
   });
 
+  it('accepts the path-shaped keys import.meta.glob actually returns', () => {
+    // Vite keys the glob by relative path ("./file.md"), not by bare filename.
+    const entries = parseNovedades({
+      './2026-09-21-oc-match.md': '# OC Match\n\nBody.',
+      './README.md': '# Not an entry',
+    });
+    expect(entries.map((e) => e.slug)).toEqual(['oc-match']);
+  });
+
   it('skips README.md (no date prefix)', () => {
     const entries = parseNovedades({
       'README.md': '# Not an entry',
@@ -50,5 +59,15 @@ describe('parseNovedades', () => {
       '2026-02-01-delta.md': '# Delta',
     });
     expect(entries.map((e) => e.slug)).toEqual(['gamma', 'delta', 'beta', 'alpha']);
+  });
+});
+
+describe('loadNovedades (real glob)', () => {
+  it('loads the committed entries and skips README.md', async () => {
+    const { loadNovedades } = await import('./loadNovedades');
+    const entries = loadNovedades();
+    expect(entries.length).toBeGreaterThan(0);
+    expect(entries.every((e) => /^[a-z0-9-]+$/.test(e.slug))).toBe(true);
+    expect(entries.some((e) => e.slug.toLowerCase() === 'readme')).toBe(false);
   });
 });

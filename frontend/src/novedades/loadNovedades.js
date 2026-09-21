@@ -26,7 +26,9 @@ const H1_RE = /^#\s+(.+)$/m;
 export function parseNovedades(rawByFilename) {
   const entries = [];
 
-  for (const [filename, raw] of Object.entries(rawByFilename || {})) {
+  for (const [key, raw] of Object.entries(rawByFilename || {})) {
+    // import.meta.glob keys are relative paths ("./2026-09-21-x.md").
+    const filename = key.split('/').pop();
     const match = filename.match(FILENAME_RE);
     if (!match) continue;
 
