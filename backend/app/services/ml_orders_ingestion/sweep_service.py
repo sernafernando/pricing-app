@@ -49,6 +49,26 @@ cadence, see above) skips instead of racing the same cursor. A 'running'
 lock left behind by a process that died is reclaimed after
 STALE_LOCK_TIMEOUT rather than wedging the sweep permanently -- the same
 class of bug as the unenumerable-window stall, given the same treatment.
+
+Deferred payment recheck (ml-ventas-repreguntar-pagos-diferido):
+`payments_recheck_at` is a re-ask scheduled after a payment sync, for the
+order whose `date_last_updated` STOPS MOVING (ML can finish reversing a
+charge without ever touching it -- the production incident this closes).
+`_run_deferred_payments_rechecks` selects due orders straight from
+`MlOrdersOps`, once per pass, independent of whatever `search_orders`
+returned for this pass's window -- the window gate alone would never see
+an order that no longer falls inside it. The mark is cleared in exactly
+two cases: the re-ask SEALED every one of the order's payment ids, or it
+ran out of attempts and was given up on.
+`_settle_payments_recheck` is the single place that decides the mark's
+fate -- cleared on a seal, left untouched when the pass never reached
+the order, pushed forward on a real unsealed attempt, and given up on
+after `MAX_RECHECK_ATTEMPTS` -- and BOTH the deferred pass and the in-window
+gate route through it, so the DECISION cannot drift between them --
+the two still differ in what they feed it (the in-window gate seals on a
+missing `payments` key, the deferred pass does not). `payments_synced_at`
+is never reset to NULL by a reseal and so provides no fallback retry gate
+on its own.
 """
 
 from __future__ import annotations
@@ -102,6 +122,27 @@ BATCH_SIZE = 200
 # the upsert is idempotent (design D5) -- re-processing the overlap is a
 # structural no-op for anything already stored.
 CURSOR_OVERLAP = timedelta(minutes=15)
+
+# ml-ventas-repreguntar-pagos-diferido: how long after a payment sync we
+# schedule an explicit ONE-TIME re-ask (see `MlOrdersOps.payments_recheck_at`
+# for the production incident this closes). A first estimate, deliberately
+# named rather than inlined at the call site so it can be found and tuned
+# once the repair script (`app/scripts/repair_deferred_refunds.py`) reports
+# how many charges its re-fetch actually changed.
+RECHECK_AFTER = timedelta(minutes=60)
+
+# Upper bound on how many times an order may be re-asked. Without it a
+# payment that never seals -- an id ML deleted, a permanently malformed
+# payload -- is re-fetched every RECHECK_AFTER forever, spending real
+# budget on an answer that is never coming.
+#
+# Counted in ATTEMPTS, never in elapsed time. Any age-based cutoff is
+# measured from a date that predates the recheck (the order's own), so an
+# order already older than the cutoff when its FIRST recheck comes due
+# would be abandoned with zero retries -- a bound meant to stop an
+# endless retry granting none at all. Attempts are what is actually being
+# bounded, so attempts are what is counted.
+MAX_RECHECK_ATTEMPTS = 5
 
 # Below this window width, further bisection is pointless (and would loop
 # forever against a window that genuinely never drops below the cap). A
@@ -456,6 +497,8 @@ def _fetch_payments(
     raw_orders: List[Dict[str, Any]],
     budget: Optional[List[int]] = None,
     started_at: Optional[datetime] = None,
+    attempted_out: Optional[set] = None,
+    deadline: Optional[datetime] = None,
 ) -> Dict[int, Dict[str, Any]]:
     """Fetches every `order.payments[].id` on `raw_orders`, entirely
     BEFORE any DB session opens (same HTTP-before-write discipline as
@@ -465,6 +508,21 @@ def _fetch_payments(
     `_sync_shipment_costs`: one failed fetch is logged and skipped, never
     raised, so a single flaky payment lookup never turns into a
     `WindowFetchError` that discards an otherwise-good batch.
+
+    `attempted_out`, when given, collects every payment id this call
+    actually SPENT A REQUEST ON. An id absent from the returned dict is
+    ambiguous on its own -- it can mean the fetch failed, or it can mean
+    the budget/deadline ran out before the id was ever reached, and the
+    two deserve opposite treatment by a caller deciding whether an order
+    was given its chance. This set is the only thing that tells them
+    apart.
+
+    `deadline`, when given, is an EARLIER cutoff than the pass's own and
+    applies to these HTTP calls. A caller that only owns a slice of the
+    pass (the deferred recheck) needs the slice enforced HERE: this loop
+    is where the wall-clock actually goes, one slow `get_payment` at a
+    time. Bounding only the caller's later bookkeeping loop bounds
+    nothing, because that part is cheap.
     """
     if budget is None:
         budget = [MAX_PAYMENT_FETCHES_PER_PASS]
@@ -476,10 +534,15 @@ def _fetch_payments(
             if _pass_deadline_reached(started_at):
                 logger.warning("sweep: pass ran out of time before every payment was read; the next one resumes")
                 return payments
+            if deadline is not None and datetime.now(timezone.utc) >= deadline:
+                logger.warning("sweep: this caller's time slice ran out before every payment was read")
+                return payments
             if budget[0] <= 0:
                 logger.warning("sweep: payment-fetch budget spent before every payment was read; the next pass resumes")
                 return payments
             budget[0] -= 1
+            if attempted_out is not None:
+                attempted_out.add(payment_id)
             try:
                 payload = resolve_maybe_async(ml_webhook_client.get_payment(payment_id))
             except Exception:
@@ -587,9 +650,18 @@ def sync_payments_for_order(
         upsert_payment(db, mapped_payment)
         synced += 1
     if all_synced:
-        db.query(MlOrdersOps).filter(MlOrdersOps.order_id == order_id).update(
-            {"payments_synced_at": datetime.now(timezone.utc)}
-        )
+        # `payments_recheck_at` is scheduled ONLY the first time this
+        # order's payments are sealed (its `payments_synced_at` was still
+        # NULL) -- a later reseal (triggered by the order's own
+        # `ml_last_updated` moving again, or by the recheck gate itself)
+        # must NOT push the recheck window out again, or an order could
+        # defer its one-time re-ask forever by staying "stale" on every
+        # pass.
+        was_synced_before = db.query(MlOrdersOps.payments_synced_at).filter(MlOrdersOps.order_id == order_id).scalar()
+        update_values: Dict[str, Any] = {"payments_synced_at": datetime.now(timezone.utc)}
+        if was_synced_before is None:
+            update_values["payments_recheck_at"] = datetime.now(timezone.utc) + RECHECK_AFTER
+        db.query(MlOrdersOps).filter(MlOrdersOps.order_id == order_id).update(update_values)
     return synced, all_synced
 
 
@@ -644,6 +716,410 @@ def _orders_with_payments_synced(order_ids: List[int]) -> set:
             .all()
         )
     return {order_id for (order_id,) in rows}
+
+
+def _orders_due_for_payments_recheck(order_ids: List[int]) -> dict:
+    """Orders whose deferred payment re-ask is due (`payments_recheck_at
+    <= now()`), in one query -- the THIRD payment-candidate gate
+    (ml-ventas-repreguntar-pagos-diferido), independent of the other two:
+    an order becomes a candidate here even though it is NOT stale and its
+    payments already ARE synced, because ML itself may have finished
+    processing a reversal (e.g. a Flex shipping-fee refund) after our
+    last fetch without ever touching the order's own `ml_last_updated`
+    (see the module docstring's production incident). The caller clears
+    `payments_recheck_at` back to NULL once the recheck SEALS -- not
+    merely once it runs -- so this gate can fire again for the same order until it seals or
+    runs out of attempts.
+
+    Returns `{order_id: payments_recheck_attempts}` and not a bare set
+    of ids: the attempt count is what bounds the retry, and reading it
+    here saves the caller a second query."""
+    if not order_ids:
+        return {}
+    with get_background_db() as db:
+        rows = (
+            db.query(MlOrdersOps.order_id, MlOrdersOps.payments_recheck_attempts)
+            .filter(
+                MlOrdersOps.order_id.in_(order_ids),
+                MlOrdersOps.payments_recheck_at.isnot(None),
+                MlOrdersOps.payments_recheck_at <= datetime.now(timezone.utc),
+            )
+            .all()
+        )
+    return {order_id: attempts or 0 for order_id, attempts in rows}
+
+
+def _deferred_pass_deadline(pass_started_at: Optional[datetime]) -> Optional[datetime]:
+    """A cutoff for the deferred recheck alone: half of what the pass has
+    left when it starts.
+
+    The recheck runs BEFORE the page walk and shares the pass's deadline
+    with it. Capping only the request count does not bound wall-clock --
+    a handful of slow `get_payment` calls can consume the whole pass --
+    and the window's own orders would then never be ingested at all. A
+    late recheck is a smaller failure than an ingestion that never ran,
+    so the exceptional path gets a slice, not the lot.
+    """
+    if pass_started_at is None:
+        return None
+    full_deadline = pass_started_at + PASS_TIME_BUDGET
+    remaining = full_deadline - datetime.now(timezone.utc)
+    if remaining <= timedelta(0):
+        return datetime.now(timezone.utc)
+    return datetime.now(timezone.utc) + remaining / 2
+
+
+def _recheck_was_attempted(raw_order: Dict[str, Any], attempted_ids: set) -> bool:
+    """Whether this order got its turn at the payment fetch.
+
+    True when ANY of its payment ids was really requested, AND when it
+    has no payment ids at all: an order with nothing to ask was
+    not skipped, it was answered. Collapsing those two into the `any()`
+    alone makes an empty/malformed payload look like budget exhaustion,
+    and such a row then never clears, never reschedules and never counts
+    an attempt -- it sits at the head of the oldest-due-first queue
+    forever, costing no budget and crowding real orders out of the LIMIT.
+    """
+    order_payment_ids = _extract_payment_ids(raw_order)
+    if not order_payment_ids:
+        return True
+    # ANY id, not every: a partial fetch DOES spend an attempt, because
+    # the pass really spent requests on this order.
+    #
+    # Requiring every id looks fairer and is a trap. An order with more
+    # payment ids than the deferred share -- or one the deadline always
+    # cuts off midway -- can never be fetched in full. It is first in the
+    # oldest-due-first queue, so every pass spends the whole share
+    # re-fetching its same leading ids, judges it "not attempted", leaves
+    # its mark untouched, and starts over. It never reaches
+    # MAX_RECHECK_ATTEMPTS, never leaves the head of the queue, and every
+    # other due order behind it is starved for good: the exact endless
+    # retry and head-of-line blocking the attempt counter exists to stop.
+    #
+    # So the rule is progress over fairness. An order too big or too slow
+    # to complete burns its attempts and is retired, which is the right
+    # outcome: it is telling us it cannot be answered this way. The cost
+    # is that a few budget-starved passes can retire an order that a
+    # calmer pass would have sealed -- bounded, visible in the give-up
+    # warning, and far cheaper than a queue that never moves again.
+    return any(pid in attempted_ids for pid in order_payment_ids)
+
+
+def _settle_payments_recheck(
+    db,
+    order_id: int,
+    *,
+    sealed: bool,
+    attempted: bool,
+    attempts_so_far: int,
+    now: datetime,
+    source: str,
+) -> None:
+    """Decides what happens to one order's `payments_recheck_at` after a
+    re-ask, and is the SINGLE place that decision lives -- both the
+    standalone deferred pass and `process_batch`'s in-window gate call it,
+    so the two can never drift into treating the same situation
+    differently.
+
+    Four outcomes, and the distinction between the first two is the whole
+    point:
+
+    - NOT ATTEMPTED (`attempted` False): the payment budget or the pass
+      deadline ran out before this order's ids were ever requested. The
+      order did not fail, it never got its turn -- so the mark is left
+      exactly as it is, still due, and the next pass picks it up
+      immediately. Pushing it forward here would punish an order for the
+      sweep's own budgeting and, worse, would report a failure that never
+      happened.
+    - SEALED: every payment id resolved. The mark is cleared; the re-ask
+      is finished.
+    - OUT OF ATTEMPTS: still not sealed after `MAX_RECHECK_ATTEMPTS`
+      real attempts. The mark is cleared and the giving-up is logged. An
+      hourly retry with no end is not a retry policy, it is a leak.
+    - OTHERWISE: attempted, not sealed, not exhausted -- pushed forward
+      by `RECHECK_AFTER`. The retry is preserved, but the order stops
+      being due on every single pass, which would starve every other due
+      order of the shared payment budget and can double-fetch the same
+      order within one pass (the deferred pass and the in-window gate are
+      independent of each other).
+    """
+    if not attempted:
+        logger.info(
+            "sweep: %s payments recheck never reached order_id=%s (budget/deadline); mark left due",
+            source,
+            order_id,
+        )
+        return
+    if sealed:
+        # The counter resets with the mark: a FUTURE re-ask for this order
+        # is a new question, and must get its full allowance rather than
+        # inheriting the attempts an already-answered one happened to use.
+        db.query(MlOrdersOps).filter(MlOrdersOps.order_id == order_id).update(
+            {"payments_recheck_at": None, "payments_recheck_attempts": 0}
+        )
+        return
+    attempts = (attempts_so_far or 0) + 1
+    if attempts >= MAX_RECHECK_ATTEMPTS:
+        # The counter is RESET along with the mark, exactly as on a seal.
+        # Leaving it at its exhausted value would make the next re-ask
+        # scheduled for this order -- a new question, after a later
+        # payment sync -- start already out of attempts and be retired on
+        # its first pass. Giving up on one question must not disqualify
+        # the next.
+        db.query(MlOrdersOps).filter(MlOrdersOps.order_id == order_id).update(
+            {"payments_recheck_at": None, "payments_recheck_attempts": 0}
+        )
+        logger.warning(
+            "sweep: %s payments recheck giving up on order_id=%s after %s of %s allowed attempts without sealing",
+            source,
+            order_id,
+            attempts,
+            MAX_RECHECK_ATTEMPTS,
+        )
+        return
+    next_recheck_at = now + RECHECK_AFTER
+    db.query(MlOrdersOps).filter(MlOrdersOps.order_id == order_id).update(
+        {"payments_recheck_at": next_recheck_at, "payments_recheck_attempts": attempts}
+    )
+    logger.warning(
+        "sweep: %s payments recheck did not seal for order_id=%s, rescheduled to %s",
+        source,
+        order_id,
+        next_recheck_at.isoformat(),
+    )
+
+
+def _run_deferred_payments_rechecks(
+    result: SweepResult,
+    payment_budget: List[int],
+    pass_started_at: Optional[datetime],
+    seller_id: int,
+) -> None:
+    """Runs the deferred payment re-ask (ml-ventas-repreguntar-pagos-
+    diferido) ONCE per pass, straight from `MlOrdersOps` -- independent of
+    whatever this pass's `search_orders` window happens to return.
+
+    `_orders_due_for_payments_recheck` as used inside `process_batch` only
+    ever sees `in_window_ids`, the batch the page walk's search window
+    produced. `RECHECK_AFTER` is far longer than `CURSOR_OVERLAP` (see
+    both constants) -- by the time a recheck is due, the order this
+    feature exists for
+    (one whose `date_last_updated` STOPPED MOVING, see the module
+    docstring's production incident) has long fallen out of every later
+    window and `process_batch` never receives it again. The mark would
+    sit in the database forever. This function selects due orders
+    directly instead, so the re-ask fires regardless of what the search
+    returned.
+
+    The query is scoped to `seller_id`, ordered by `payments_recheck_at`
+    ascending (oldest-due first, FIFO), and excludes rows with no
+    `raw_order` payload at the SQL level -- all three matter together
+    with `LIMIT`: an unordered or unscoped query can keep returning the
+    same subset across passes and starve the rest, and a NULL-payload row
+    (nothing this recheck could ever act on) must not consume a slot of
+    the LIMIT that a real due order needed.
+
+    No `get_order` re-fetch is needed: `MlOrdersOps.raw_order` already
+    holds the payload from the order's last successful ingestion, and
+    that is where `order.payments[].id` -- the only thing this recheck
+    needs -- already lives. Only the payment fetch itself goes over HTTP,
+    which is what actually answers whether ML reversed something.
+
+    Bounded by SPEND, not by row count. This pass runs before the page
+    walk and shares one budget with it, so it takes a share (half) and
+    fetches against its OWN budget list, charging back only what it
+    actually spent. Capping rows instead would bound nothing: a single
+    order can carry any number of payment ids and each id costs one
+    request, so one row could still drain everything the window's own
+    orders need."""
+    if payment_budget[0] <= 0 or _pass_deadline_reached(pass_started_at):
+        return
+    # This pass runs BEFORE the page walk and shares one payment budget
+    # with it. Left unbounded, a backlog of due rechecks consumes the
+    # entire budget and the window's own freshly-arrived orders get no
+    # payment sync at all -- the ordinary path starved by the exceptional
+    # one. So it takes half, rounded DOWN (see the floor note below).
+    #
+    # The cap is on the SPEND, not on the row count: capping rows alone
+    # bounds nothing, because a single order can carry any number of
+    # payment ids and `_fetch_payments` charges one request per id. So
+    # the fetch below runs against its OWN budget list, and only what it
+    # actually spent is charged back to the shared one.
+    # Plain halving, with NO `max(1, ...)` floor. A floor of one defeats
+    # the sharing exactly where it matters most: with a single request
+    # left, it hands the whole remainder to the exceptional path and
+    # leaves the window's own freshly-arrived orders with nothing. A
+    # recheck can wait a pass; an order that never gets ingested cannot.
+    deferred_share = payment_budget[0] // 2
+    if deferred_share <= 0:
+        return
+    # A share of the pass's TIME as well as of its requests. Bounding
+    # only the request count leaves this pass free to burn the entire
+    # deadline before the page walk ever starts -- slow responses, not
+    # many of them, are enough. The window's own orders would then never
+    # be ingested at all, which is a worse outage than a late recheck.
+    deferred_deadline = _deferred_pass_deadline(pass_started_at)
+    now = datetime.now(timezone.utc)
+    with get_background_db() as db:
+        due_rows = (
+            db.query(
+                MlOrdersOps.order_id,
+                MlOrdersOps.raw_order,
+                MlOrdersOps.payments_recheck_attempts,
+            )
+            .filter(
+                MlOrdersOps.seller_id == seller_id,
+                MlOrdersOps.payments_recheck_at.isnot(None),
+                MlOrdersOps.payments_recheck_at <= now,
+                MlOrdersOps.raw_order.isnot(None),
+            )
+            .order_by(MlOrdersOps.payments_recheck_at.asc())
+            # The request share doubles as the ROW limit because an order
+            # normally costs at least one request, so selecting more rows
+            # than requests could be paid for is pointless. It is only a
+            # selection bound: the real cap on spend is `deferred_budget`
+            # below. (An order with no payment ids costs nothing and still
+            # takes a row -- it is settled without any request.)
+            .limit(deferred_share)
+            .all()
+        )
+    due_orders = list(due_rows)
+    if not due_orders:
+        return
+    attempted_ids: set = set()
+    # A SEPARATE budget list, seeded with this pass's share. Handing
+    # `payment_budget` straight through would let these fetches spend
+    # everything the window's own orders still need.
+    deferred_budget = [deferred_share]
+    payments_payload = _fetch_payments(
+        [raw_order for _, raw_order, _ in due_orders],
+        deferred_budget,
+        started_at=pass_started_at,
+        attempted_out=attempted_ids,
+        deadline=deferred_deadline,
+    )
+    # Charge back exactly what was spent, so the shared budget stays an
+    # honest count of the requests this pass has made.
+    payment_budget[0] -= deferred_share - deferred_budget[0]
+    synced = 0
+    with get_background_db() as db:
+        for order_id, raw_order, attempts_so_far in due_orders:
+            # ONLY the pass deadline here, never `deferred_deadline`: the
+            # slice bounds the FETCH, where the wall-clock goes. Checking
+            # it again in this cheap loop is a livelock -- time only moves
+            # forward, so whenever the fetch stopped on the slice this
+            # loop would break before settling anything, discarding every
+            # payment already paid for in requests and counting no
+            # attempt. The next pass would repeat it identically. Persist
+            # what was bought.
+            if _pass_deadline_reached(pass_started_at):
+                break
+            try:
+                # INSIDE the try: this reads the STORED payload, so a
+                # malformed one can make the check itself raise. Computed
+                # outside, that would abort the whole remaining loop and
+                # take every order behind this one down with it --
+                # discarding payments already paid for in requests. The
+                # per-order isolation has to cover everything that touches
+                # this order's data, not just the DB write.
+                #
+                # Did this order's payments actually get requested? An id
+                # missing from `payments_payload` alone cannot answer that
+                # (see `_fetch_payments`'s `attempted_out`), and the answer
+                # decides whether the mark moves at all.
+                attempted = _recheck_was_attempted(raw_order, attempted_ids)
+                # `raw_order` here is the STORED payload, not guaranteed
+                # fresh off ML (it may predate this exact sweep version)
+                # -- the same reasoning `sync_payments_for_order`'s own
+                # docstring gives for the backfill script, so
+                # `missing_key_is_empty` stays at its default False: an
+                # absent `payments` key leaves the seal unwritten rather
+                # than sealing on an unknown, and the unsealed result is
+                # then settled by `_settle_payments_recheck` like any
+                # other.
+                order_synced, sealed = sync_payments_for_order(db, order_id, raw_order, payments_payload)
+                _settle_payments_recheck(
+                    db,
+                    order_id,
+                    sealed=sealed,
+                    attempted=attempted,
+                    attempts_so_far=attempts_so_far,
+                    now=now,
+                    source="deferred",
+                )
+                # COMMIT PER ORDER, and roll back on failure. Both halves
+                # matter: `get_background_db` commits once, at block exit,
+                # so without this an error on the LAST order would discard
+                # every earlier order's work; and a failure that happened
+                # during a FLUSH leaves the Session in a state where every
+                # later statement raises PendingRollbackError, so catching
+                # the exception without rolling back isolates nothing --
+                # the very next order dies too, and so does the final
+                # commit. (A failed SELECT does not poison the Session; a
+                # failed flush does. The rollback covers both.)
+                db.commit()
+                # Counted only AFTER the commit that makes it true. Adding
+                # it before would credit work that a failed commit then
+                # rolled back, and `payments_synced` is reported as a
+                # count of rows actually written.
+                synced += order_synced
+            except Exception:  # noqa: BLE001
+                db.rollback()
+                logger.exception(
+                    "sweep: deferred payments recheck failed for order_id=%s; continuing with remaining orders",
+                    order_id,
+                )
+                # The mark MUST move even here. FIFO order means an order
+                # that reliably explodes would otherwise stay at the head
+                # of the queue forever, be selected first on every pass,
+                # and crash the same way -- blocking every order behind it
+                # (head-of-line). Rescheduling it is what keeps one
+                # poisoned row from becoming a permanent outage of the
+                # whole re-ask.
+                #
+                # Done on its OWN SESSION, not on `db`. `db` is the
+                # session the failure just happened on: a rollback clears
+                # the failed transaction but the connection can still be
+                # the thing that broke (a dropped connection, a statement
+                # timeout, a poisoned pool entry), in which case this
+                # rescue write fails too -- and then the mark never moves
+                # and the head-of-line blockage this whole branch exists
+                # to prevent comes right back. A fresh session is the
+                # only way for the rescue not to depend on whatever broke.
+                try:
+                    with get_background_db() as rescue_db:
+                        _settle_payments_recheck(
+                            rescue_db,
+                            order_id,
+                            sealed=False,
+                            # DELIBERATE, and not the same assumption that
+                            # `_recheck_was_attempted` exists to avoid: a
+                            # crash IS a spent attempt. The pass took this
+                            # order's turn and burned it. Passing the
+                            # measured value here would leave an order that
+                            # both crashes AND was never fetched sitting at
+                            # the head of the oldest-due-first queue,
+                            # exploding identically on every future pass --
+                            # the head-of-line outage this except branch
+                            # exists to prevent. Counting it is also what
+                            # eventually retires it via MAX_RECHECK_ATTEMPTS.
+                            attempted=True,
+                            attempts_so_far=attempts_so_far,
+                            now=now,
+                            source="deferred(failed)",
+                        )
+                except Exception:  # noqa: BLE001
+                    # Nothing left to try. Logged as an ERROR and not
+                    # swallowed quietly: this order WILL be picked first
+                    # again next pass and may block the queue, and that
+                    # has to be visible rather than inferred from a
+                    # recheck that mysteriously stops making progress.
+                    logger.exception(
+                        "sweep: could not reschedule the failed recheck for order_id=%s; "
+                        "it stays at the head of the due queue",
+                        order_id,
+                    )
+    result.payments_synced += synced
 
 
 def _orders_with_a_settled_shipment(order_ids: List[int]) -> set:
@@ -910,13 +1386,26 @@ def process_batch(
         if stored_versions.get(mapped.order_id) is None or mapped.ml_last_updated > stored_versions[mapped.order_id]
     }
     payments_already_synced = _orders_with_payments_synced(in_window_ids)
+    # Third gate (ml-ventas-repreguntar-pagos-diferido): an order whose
+    # deferred re-ask is due becomes a payment candidate REGARDLESS of the
+    # other two triggers -- it may be neither stale nor unsynced, and
+    # still need re-fetching because ML processed a reversal after our
+    # last look without moving `ml_last_updated` (see module docstring).
+    recheck_attempts_by_order = _orders_due_for_payments_recheck(in_window_ids)
+    recheck_due_ids = set(recheck_attempts_by_order)
     payment_candidates = [
         (raw_order, mapped)
         for raw_order, mapped in in_window
-        if mapped.order_id in stale_trigger_ids or mapped.order_id not in payments_already_synced
+        if mapped.order_id in stale_trigger_ids
+        or mapped.order_id not in payments_already_synced
+        or mapped.order_id in recheck_due_ids
     ]
+    in_window_attempted_ids: set = set()
     payments_payload = _fetch_payments(
-        [raw for raw, _ in payment_candidates], payment_budget, started_at=pass_started_at
+        [raw for raw, _ in payment_candidates],
+        payment_budget,
+        started_at=pass_started_at,
+        attempted_out=in_window_attempted_ids,
     )
     payment_candidate_ids = {mapped.order_id for _, mapped in payment_candidates}
 
@@ -989,13 +1478,37 @@ def process_batch(
                 # `payments` key is ML's own answer, not an unknown --
                 # `missing_key_is_empty=True` -- but it is recorded first
                 # so it stays visible instead of silently vanishing into a
-                # seal (post-review fix #1/#2).
+                # seal.
                 if raw_order.get("payments") is None:
                     _record_payments_key_missing(db, mapped.order_id)
-                order_synced, _sealed = sync_payments_for_order(
+                order_synced, sealed = sync_payments_for_order(
                     db, mapped.order_id, raw_order, payments_payload, missing_key_is_empty=True
                 )
                 payments_synced += order_synced
+
+                # The mark's fate goes through the SAME helper the
+                # standalone deferred pass uses, so this gate and that one
+                # can never disagree about what a seal, a partial result
+                # or an exhausted retry means.
+                #
+                # `attempted` is MEASURED here, never assumed. Being a
+                # payment candidate only means this order was handed to
+                # `_fetch_payments`; that call stops early when the budget
+                # or the deadline runs out, so the orders at the tail of a
+                # large batch can reach this line without a single request
+                # having been made for them. Hardcoding True would
+                # reschedule them as if they had failed -- the same lie
+                # the deferred pass already refuses to tell.
+                if mapped.order_id in recheck_due_ids:
+                    _settle_payments_recheck(
+                        db,
+                        mapped.order_id,
+                        sealed=sealed,
+                        attempted=_recheck_was_attempted(raw_order, in_window_attempted_ids),
+                        attempts_so_far=recheck_attempts_by_order.get(mapped.order_id, 0),
+                        now=datetime.now(timezone.utc),
+                        source="in-window",
+                    )
 
             # Shipment upsert failures are NOT folded into the order
             # counters above -- a shipment mapping error/staleness says
@@ -1277,6 +1790,17 @@ def run_sweep(seller_id: Optional[int] = None, window_days: Optional[int] = None
                 logger.info("sync_ml_orders_ops: total_gauss refreshed for %s order(s)", refrescados)
         except Exception:  # noqa: BLE001
             logger.exception("sync_ml_orders_ops: total_gauss refresh failed; continuing with the pass")
+
+        # Deferred payment recheck (ml-ventas-repreguntar-pagos-diferido):
+        # run ONCE per pass, straight from the database, BEFORE the page
+        # walk -- not gated on whatever `search_orders` returns for this
+        # pass's window. See `_run_deferred_payments_rechecks`'s own
+        # docstring for why the window-scoped gate inside `process_batch`
+        # alone can never catch the order this feature exists for.
+        try:
+            _run_deferred_payments_rechecks(result, payment_budget, pass_started_at, int(resolved_seller_id))
+        except Exception:  # noqa: BLE001
+            logger.exception("sync_ml_orders_ops: deferred payments recheck failed; continuing with the pass")
 
         for event in iter_window_events(
             int(resolved_seller_id), window_start, window_end, fetch_budget, pass_started_at
