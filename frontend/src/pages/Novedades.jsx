@@ -24,6 +24,13 @@ const MESES_CORTOS = [
   'DIC',
 ];
 
+// Build YYYY-MM-DD from local parts: toISOString() converts to UTC and
+// shifts a local-midnight date to the previous day in UTC+ zones.
+function toLocalIsoDate(date) {
+  const pad = (n) => String(n).padStart(2, '0');
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
+}
+
 function formatFechaEsAr(date) {
   // Built from the Y/M/D parts (not the ISO string) so there is no
   // timezone off-by-one: `date` is already a local Date built from the
@@ -103,7 +110,7 @@ export default function Novedades() {
               >
                 <time
                   className={styles.dateColumn}
-                  dateTime={entry.date.toISOString().slice(0, 10)}
+                  dateTime={toLocalIsoDate(entry.date)}
                 >
                   <span aria-hidden="true" className={styles.dateDay}>
                     {entry.date.getDate()}

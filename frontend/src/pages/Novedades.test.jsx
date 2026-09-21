@@ -137,4 +137,23 @@ describe('Novedades page', () => {
     expect(article.textContent).toMatch(/21/);
     expect(article.textContent).toMatch(/SEP\s*2026/);
   });
+
+  it('keeps the local calendar day in <time dateTime> regardless of timezone', () => {
+    // A local-midnight Date converted with toISOString() shifts to the
+    // previous day in UTC+ zones. Run with TZ=Pacific/Kiritimati to see it.
+    mockLoadNovedades.mockReturnValue([
+      {
+        slug: 'oc-match',
+        date: new Date(2026, 8, 21),
+        title: 'OC Match',
+        bodyMarkdown: 'Body.',
+        area: null,
+      },
+    ]);
+
+    renderWithRouter(<Novedades />);
+
+    const time = document.getElementById('oc-match').querySelector('time');
+    expect(time.getAttribute('dateTime')).toBe('2026-09-21');
+  });
 });

@@ -161,7 +161,7 @@
   padding: 2px 10px;
   border-radius: var(--radius-full);
   background: var(--brand-primary);
-  color: white;
+  color: var(--text-inverse);
   font-size: var(--font-xs);
   font-weight: var(--font-semibold);
 }
@@ -274,11 +274,21 @@
   margin: 0;
 }
 
+.entryBody {
+  --novedades-info-icon: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Ccircle cx='12' cy='12' r='10'/%3E%3Cpath d='M12 16v-4'/%3E%3Cpath d='M12 8h.01'/%3E%3C/svg%3E");
+}
+
 .entryBody :global(blockquote::before) {
-  content: '💡';
+  /* Lucide "info" icon as a mask, so it inherits the tip text color. */
+  content: '';
   position: absolute;
   left: 16px;
-  top: 12px;
+  top: 14px;
+  width: 16px;
+  height: 16px;
+  background-color: currentColor;
+  -webkit-mask: var(--novedades-info-icon) center / contain no-repeat;
+  mask: var(--novedades-info-icon) center / contain no-repeat;
 }
 
 .entryBody :global(blockquote p) {
