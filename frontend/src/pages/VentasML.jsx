@@ -170,6 +170,22 @@ function formatMoney(value, currencyId) {
   return currencyId ? `${amount} ${currencyId}` : amount;
 }
 
+// ml-ventas-neto-iibb-varios PR1.T12: the listing's own explanation for
+// why Neto reads higher than what ML deposited -- same text and fields as
+// the drawer's sub-line (decision c), rendered as a `title` tooltip on
+// the Neto button rather than a permanent row, since the listing has no
+// room for a second line per row.
+function netoTooltip(netoDepositado, retencionesRecuperables) {
+  if (!(retencionesRecuperables > 0)) return undefined;
+  return `MP $ ${new Intl.NumberFormat('es-AR', {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  }).format(Number(netoDepositado))} · SIRTAC $ ${new Intl.NumberFormat('es-AR', {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  }).format(Number(retencionesRecuperables))}`;
+}
+
 export default function VentasML() {
   const latestRequestRef = useRef(0);
   const { tienePermiso } = usePermisos();
@@ -626,6 +642,7 @@ export default function VentasML() {
                             // this a screen reader announces "button,
                             // 82,50 ARS" and never says what it does.
                             aria-label="Ver desglose de costos"
+                            title={netoTooltip(group.neto_depositado, group.retenciones_recuperables)}
                             onClick={(e) => {
                               e.stopPropagation();
                               openDrawer(representativeOrderId);
@@ -698,6 +715,7 @@ export default function VentasML() {
                               type="button"
                               className={styles.netoButton}
                               aria-label="Ver desglose de costos"
+                              title={netoTooltip(order.neto_depositado, order.retenciones_recuperables)}
                               onClick={(e) => {
                                 e.stopPropagation();
                                 openDrawer(order.order_id);

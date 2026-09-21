@@ -263,7 +263,14 @@ export default function DesgloseDrawer({ orderId, open, onClose }) {
   // would read as "subtracted from Neto", which is false, AND double the
   // Flex line: it already appears, genuinely subtracted, in the Total
   // Gauss chain below (`cadena_total_gauss`'s `envio_flex` link).
-  const lines = (breakdown?.lines || []).filter((line) => line.origen !== 'propio');
+  // ml-ventas-neto-iibb-varios D6: `origen="recuperable"` (today: a SIRTAC
+  // withholding) is neither `propio` nor a real subtraction from `neto` --
+  // it is shown, but separately, muted, and NOT part of the list the
+  // operator reads as "this is what came off Neto".
+  const lines = (breakdown?.lines || []).filter(
+    (line) => line.origen !== 'propio' && line.origen !== 'recuperable',
+  );
+  const recuperables = (breakdown?.lines || []).filter((line) => line.origen === 'recuperable');
 
   // Same defensive discipline: an absent/`null` `iva_decomposicion` (a
   // stale client, or an old-shaped test fixture) must not white-screen the
@@ -391,10 +398,38 @@ export default function DesgloseDrawer({ orderId, open, onClose }) {
                 ))}
               </ul>
 
+              {/* ml-ventas-neto-iibb-varios D6: recoverable lines (today:
+                  SIRTAC) render AFTER the subtraction list, visibly muted,
+                  never counted in it -- see the `lines`/`recuperables`
+                  split above. */}
+              {recuperables.length > 0 && (
+                <ul className={styles.lineList} aria-label="Recuperable">
+                  {recuperables.map((line, index) => (
+                    <li key={`${index}-${line.concepto}`} className={`${styles.line} ${styles.recuperableLine}`}>
+                      <span className={styles.lineConcepto}>
+                        {line.concepto}
+                        <span className={styles.mutedNote}> · se recupera a fin de mes (no se descuenta)</span>
+                      </span>
+                      <span className={styles.lineMonto}>{formatAmount(line.monto)}</span>
+                    </li>
+                  ))}
+                </ul>
+              )}
+
               <div className={`${styles.total} ${breakdown.incompleto ? styles.totalIncomplete : ''}`}>
                 <span className={styles.totalLabel}>Neto</span>
                 <span className={styles.totalMonto}>{formatAmount(breakdown.neto)}</span>
               </div>
+              {/* ml-ventas-neto-iibb-varios R4/PR1.T10.c: explains why
+                  Neto is higher than what ML actually deposited -- only
+                  when there is a non-refunded SIRTAC to explain. */}
+              {breakdown.retenciones_recuperables > 0 && (
+                <p className={styles.netoSubLine}>
+                  {`MP ${formatMoney(breakdown.neto_depositado)} · SIRTAC ${formatMoney(
+                    breakdown.retenciones_recuperables,
+                  )}`}
+                </p>
+              )}
 
               {/* ml-ventas-modo-logistico PR6 — IVA por alícuota. Absent
                   entirely when the backend did not send it (defensive: an
@@ -407,17 +442,30 @@ export default function DesgloseDrawer({ orderId, open, onClose }) {
                       {componentesIva.map((componente, index) => (
                         // Same index-keyed reasoning as `lines` above: the
                         // backend can legitimately repeat a `concepto`.
-                        <li key={`${index}-${componente.concepto}`} className={styles.line}>
+                        <li
+                          key={`${index}-${componente.concepto}`}
+                          className={`${styles.line} ${componente.informativo ? styles.recuperableLine : ''}`}
+                        >
                           <span className={styles.lineConcepto}>
                             {componente.concepto}
-                            <span className={styles.ivaAlicuota}>
-                              {' '}
-                              ({formatAlicuota(componente.alicuota)})
+                            {componente.informativo ? (
+                              <span className={styles.mutedNote}> (informativo)</span>
+                            ) : (
+                              <span className={styles.ivaAlicuota}>
+                                {' '}
+                                ({formatAlicuota(componente.alicuota)})
+                              </span>
+                            )}
+                          </span>
+                          {/* An informativo componente (SIRTAC) shows no
+                              base/IVA split -- it carries no rate and does
+                              not count in `neto_sin_iva`, so a figure here
+                              would read as part of it. */}
+                          {!componente.informativo && (
+                            <span className={styles.lineMonto}>
+                              base {formatAmount(componente.base)} · IVA {formatAmount(componente.iva)}
                             </span>
-                          </span>
-                          <span className={styles.lineMonto}>
-                            base {formatAmount(componente.base)} · IVA {formatAmount(componente.iva)}
-                          </span>
+                          )}
                         </li>
                       ))}
                     </ul>

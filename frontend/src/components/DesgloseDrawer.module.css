@@ -114,6 +114,28 @@
   text-align: right;
 }
 
+/* ml-ventas-neto-iibb-varios D6: a recoverable withholding line (today:
+   SIRTAC) or an informativo IVA componente -- shown, muted, never read as
+   a real subtraction. Same visual language as `.itemLine`: lower contrast
+   than `.line`, never competing with the real subtraction list above it. */
+.recuperableLine {
+  color: var(--text-tertiary);
+}
+
+.mutedNote {
+  color: var(--text-tertiary);
+  font-size: var(--font-xs, var(--font-sm));
+}
+
+/* ml-ventas-neto-iibb-varios R4: explains why Neto reads higher than what
+   ML actually deposited -- directly under the Neto total, never its own
+   competing figure. */
+.netoSubLine {
+  margin-top: var(--space-1);
+  font-size: var(--font-xs, var(--font-sm));
+  color: var(--text-tertiary);
+}
+
 .total {
   display: flex;
   align-items: center;

@@ -528,6 +528,111 @@ describe('Flex own-cost line vs the Total Gauss chain', () => {
   });
 });
 
+describe('SIRTAC recuperable, componentes informativos y sub-línea de Neto (ml-ventas-neto-iibb-varios)', () => {
+  function mockDetail(orderId, { breakdown, iva_decomposicion } = {}) {
+    api.get.mockImplementation((url) => {
+      if (url === `/ml-ventas-ops/orders/${orderId}`) {
+        return Promise.resolve({ data: { breakdown, iva_decomposicion } });
+      }
+      return Promise.resolve({ data: {} });
+    });
+  }
+
+  it('renders the SIRTAC line as a muted row after the subtraction list, excluded from it', async () => {
+    mockDetail(1001, {
+      breakdown: {
+        lines: [
+          { concepto: 'Cargo por vender', monto: 74676.08, origen: 'api' },
+          { concepto: 'Retención IIBB (CABA) · SIRTAC', monto: 1792.23, origen: 'recuperable' },
+        ],
+        neto: 503958.14,
+        neto_depositado: 502165.91,
+        retenciones_recuperables: 1792.23,
+        incompleto: false,
+        incomplete_reasons: [],
+      },
+    });
+    render(<DesgloseDrawer orderId={1001} open onClose={vi.fn()} />);
+
+    await screen.findByRole('dialog', { name: /desglose de costos/i });
+
+    const subtractionList = screen.getByRole('list', { name: '' }) || screen.getAllByRole('list')[0];
+    // The subtraction list must hold ONLY the api line -- SIRTAC renders
+    // elsewhere, muted, never counted against Neto.
+    expect(within(subtractionList).queryByText('Retención IIBB (CABA) · SIRTAC')).not.toBeInTheDocument();
+    expect(within(subtractionList).getByText('Cargo por vender')).toBeInTheDocument();
+
+    const recuperableRow = screen.getByText('Retención IIBB (CABA) · SIRTAC').closest('li');
+    expect(recuperableRow).toBeInTheDocument();
+  });
+
+  it('renders an informativo IVA componente muted, with no base/IVA figures', async () => {
+    mockDetail(1001, {
+      breakdown: { lines: [], neto: 100, incompleto: false, incomplete_reasons: [] },
+      iva_decomposicion: {
+        componentes: [
+          { concepto: 'Venta', alicuota: 21, bruto: 100, base: 82.64, iva: 17.36, informativo: false },
+          {
+            concepto: 'Retención IIBB (CABA) · SIRTAC',
+            alicuota: null,
+            bruto: -20,
+            base: -20,
+            iva: 0,
+            informativo: true,
+          },
+        ],
+        neto_sin_iva: 82.64,
+        reconcilia: true,
+        diferencia: 0,
+        razones: [],
+      },
+    });
+    render(<DesgloseDrawer orderId={1001} open onClose={vi.fn()} />);
+
+    await screen.findByRole('dialog', { name: /desglose de costos/i });
+
+    expect(screen.getByText(/informativo/i)).toBeInTheDocument();
+    // The informativo row must not show a base/IVA breakdown figure.
+    expect(screen.queryByText(/base -20,00 · IVA 0,00/i)).not.toBeInTheDocument();
+  });
+
+  it('shows the Neto sub-line "MP $X · SIRTAC $Y" when retenciones_recuperables > 0', async () => {
+    mockDetail(1001, {
+      breakdown: {
+        lines: [],
+        neto: 503958.14,
+        neto_depositado: 502165.91,
+        retenciones_recuperables: 1792.23,
+        incompleto: false,
+        incomplete_reasons: [],
+      },
+    });
+    render(<DesgloseDrawer orderId={1001} open onClose={vi.fn()} />);
+
+    await screen.findByRole('dialog', { name: /desglose de costos/i });
+
+    expect(screen.getByText('MP $ 502.165,91 · SIRTAC $ 1.792,23')).toBeInTheDocument();
+  });
+
+  it('does not show the sub-line when retenciones_recuperables is 0 or null', async () => {
+    mockDetail(1001, {
+      breakdown: {
+        lines: [],
+        neto: 500,
+        neto_depositado: 500,
+        retenciones_recuperables: 0,
+        incompleto: false,
+        incomplete_reasons: [],
+      },
+    });
+    render(<DesgloseDrawer orderId={1001} open onClose={vi.fn()} />);
+
+    await screen.findByRole('dialog', { name: /desglose de costos/i });
+
+    expect(screen.queryByText(/^MP \$/)).not.toBeInTheDocument();
+  });
+});
+
 describe('Monto de la operación', () => {
   it('renders paid_amount summed across the operation, above the line list', async () => {
     mockBreakdown(1001, {
