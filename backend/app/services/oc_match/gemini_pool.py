@@ -86,7 +86,10 @@ class GeminiPool:
                 text = response.text
                 if not text:
                     raise RuntimeError("Gemini no devolvió texto")
-                parsed = json.loads(text)
+                try:
+                    parsed = json.loads(text)
+                except json.JSONDecodeError as exc:
+                    raise RuntimeError("Gemini devolvió JSON malformado") from exc
                 if not isinstance(parsed, dict):
                     raise RuntimeError("Gemini no devolvió un objeto JSON")
                 return parsed

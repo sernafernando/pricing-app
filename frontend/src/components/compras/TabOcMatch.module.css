@@ -213,3 +213,18 @@
   background: color-mix(in srgb, var(--cf-text-tertiary) 12%, transparent);
   color: var(--cf-text-tertiary);
 }
+
+.confianzaAlta {
+  background: color-mix(in srgb, var(--cf-accent-green) 12%, transparent);
+  color: var(--cf-accent-green);
+}
+
+.confianzaMedia {
+  background: color-mix(in srgb, var(--cf-accent-orange) 12%, transparent);
+  color: var(--cf-accent-orange);
+}
+
+.confianzaBaja {
+  background: color-mix(in srgb, var(--cf-accent-red) 12%, transparent);
+  color: var(--cf-accent-red);
+}

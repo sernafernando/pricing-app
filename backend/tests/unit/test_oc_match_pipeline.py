@@ -172,6 +172,7 @@ class TestUnmatchedPacksInActa:
                     "cantidad": 1,
                     "match": {
                         "estado": "no_hallado",
+                        "confianza": "baja",
                         "motivo": "pack 3 no coincide con 1-pack del maestro",
                         "candidatos": [],
                     },
@@ -183,8 +184,47 @@ class TestUnmatchedPacksInActa:
         assert "NO HALLADOS" in text
         assert "Cable HDMI 3 pack especial" in text
         assert "pack 3 no coincide" in text
+        assert "confianza=baja" in text
         assert "Sucursal: PASTORIZA" in text
         assert "Solicitante" not in text
+
+    def test_acta_prints_confianza_for_ok_media_and_alta(self) -> None:
+        matched = {
+            "proveedor_razon_social": "Prov",
+            "moneda": "ARS",
+            "renglones": [
+                {
+                    "descripcion": "Mouse Alta",
+                    "cantidad": 1,
+                    "match": {
+                        "estado": "ok",
+                        "via": "gemini",
+                        "ean": "111",
+                        "descripcion_gbp": "Mouse Alta GBP",
+                        "confianza": "alta",
+                        "motivo": "match claro",
+                    },
+                },
+                {
+                    "descripcion": "Mouse Media",
+                    "cantidad": 1,
+                    "match": {
+                        "estado": "ok",
+                        "via": "gemini",
+                        "ean": "222",
+                        "descripcion_gbp": "Mouse Media GBP",
+                        "confianza": "media",
+                        "motivo": "color ambiguo",
+                    },
+                },
+            ],
+            "resumen": {"ok": 2, "no_hallado": 0, "omitido": 0},
+        }
+        text = acta_cierre(matched, {"Sucursal": "PASTORIZA"})
+        assert "confianza=alta" in text
+        assert "confianza=media" in text
+        assert "color ambiguo" in text
+        assert "match claro" in text
 
 
 class TestUsdSinTc:

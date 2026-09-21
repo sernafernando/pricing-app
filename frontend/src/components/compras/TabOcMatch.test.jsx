@@ -22,7 +22,9 @@ const ERROR_JOB = {
       cantidad: '2',
       precio_unitario: '100',
       moneda: 'USD',
-      match_estado: 'unmatched',
+      match_estado: 'ok',
+      confianza: 'media',
+      motivo: 'color ambiguo',
       item_id: null,
     },
   ],
@@ -134,6 +136,7 @@ describe('TabOcMatch retry gate', () => {
     render(<TabOcMatch />);
     expect(screen.getByText('Notebook 14')).toBeInTheDocument();
     expect(screen.getByText(/Acta de matching/)).toBeInTheDocument();
+    expect(screen.getByText('media')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /Descargar Excel/i })).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /Reintentar/i })).toBeNull();
   });

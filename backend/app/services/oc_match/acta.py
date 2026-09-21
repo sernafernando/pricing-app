@@ -72,7 +72,12 @@ def acta_cierre(
     for r in oks:
         m = r.get("match") or {}
         lineas.append(f"  - {r.get('cantidad') or '?'} x {r.get('descripcion') or '-'}")
-        lineas.append(f"      GBP: {m.get('ean')} | {m.get('descripcion_gbp') or ''} | via {m.get('via') or '-'}")
+        lineas.append(
+            f"      GBP: {m.get('ean')} | {m.get('descripcion_gbp') or ''} | "
+            f"via {m.get('via') or '-'} | confianza={m.get('confianza') or '-'}"
+        )
+        if m.get("motivo"):
+            lineas.append(f"      motivo: {m.get('motivo')}")
 
     lineas += ["", f"NO HALLADOS — no van al Excel; revisar a mano ({len(noh)})"]
     if not noh:
@@ -80,6 +85,7 @@ def acta_cierre(
     for r in noh:
         m = r.get("match") or {}
         lineas.append(f"  - {r.get('cantidad') or '?'} x {r.get('descripcion') or '-'}")
+        lineas.append(f"      confianza={m.get('confianza') or '-'}")
         if m.get("motivo"):
             lineas.append(f"      motivo: {m.get('motivo')}")
         cands = m.get("candidatos") or []
@@ -94,6 +100,7 @@ def acta_cierre(
     for r in omi:
         m = r.get("match") or {}
         mot = m.get("motivo") or r.get("motivo_omitir") or "omitido"
-        lineas.append(f"  - {r.get('descripcion') or '-'} ({mot})")
+        conf = m.get("confianza") or "-"
+        lineas.append(f"  - {r.get('descripcion') or '-'} (confianza={conf}; {mot})")
 
     return "\n".join(lineas)

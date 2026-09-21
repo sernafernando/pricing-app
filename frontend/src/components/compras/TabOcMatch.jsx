@@ -58,6 +58,7 @@ const RENGLON_COLUMNS = [
   { key: 'precio_unitario', label: 'P. unit.', width: '80px', align: 'right' },
   { key: 'moneda', label: 'Mon.', width: '52px' },
   { key: 'match_estado', label: 'Match', width: '88px' },
+  { key: 'confianza', label: 'Confianza', width: '88px' },
   { key: 'item_id', label: 'Item', width: '72px' },
 ];
 
@@ -86,6 +87,23 @@ function StatusBadge({ status }) {
   return (
     <span className={`${styles.badge} ${styles[cls]}`}>
       {STATUS_LABEL[status] || status}
+    </span>
+  );
+}
+
+const CONFIANZA_CLASS = {
+  alta: 'confianzaAlta',
+  media: 'confianzaMedia',
+  baja: 'confianzaBaja',
+};
+
+function ConfianzaBadge({ confianza, motivo }) {
+  if (!confianza) return '—';
+  const key = String(confianza).toLowerCase();
+  const cls = CONFIANZA_CLASS[key] || 'confianzaBaja';
+  return (
+    <span className={`${styles.badge} ${styles[cls]}`} title={motivo || undefined}>
+      {key}
     </span>
   );
 }
@@ -314,6 +332,9 @@ export default function TabOcMatch() {
                   title: 'Sin renglones todavía.',
                 }}
                 renderCell={(row, col) => {
+                  if (col.key === 'confianza') {
+                    return <ConfianzaBadge confianza={row.confianza} motivo={row.motivo} />;
+                  }
                   const value = row[col.key];
                   if (value == null || value === '') return '—';
                   return String(value);

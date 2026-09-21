@@ -1,11 +1,12 @@
 """compras_040: OC-match jobs and renglones (foundations, hook unwired)
 
 Revision ID: compras_040_oc_match
-Revises: 20260916_total_gauss_provisorio
+Revises: 20260918_payments_recheck_attempts
 Create Date: 2026-09-09
 
-Additive tables for feat-compras-oc-match Phase 1. down_revision is the
-Alembic head on upstream/main at rebase time (`20260916_total_gauss_provisorio`).
+Additive tables for feat-compras-oc-match Phase 1. down_revision must be the
+Alembic head on upstream/main at *merge* time (not branch-cut time). Current
+tip: `20260918_payments_recheck_attempts` (after payments_recheck_at).
 """
 
 from typing import Sequence, Union
@@ -14,7 +15,7 @@ import sqlalchemy as sa
 from alembic import op
 
 revision: str = "compras_040_oc_match"
-down_revision: Union[str, None] = "20260916_total_gauss_provisorio"
+down_revision: Union[str, None] = "20260918_payments_recheck_attempts"
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 

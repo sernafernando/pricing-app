@@ -219,6 +219,7 @@ async def lifespan(app: FastAPI):
             # leave the loop silently absent even though the hooks — which
             # check the flag live on every request — are already active).
             asyncio.create_task(vikunja_reconcile_task()),
+            asyncio.create_task(oc_match_reclaim_task()),
         ]
     else:
         import os
@@ -649,3 +650,28 @@ async def free_shipping_auto_fix_task():
 
         # Esperar 5 minutos
         await asyncio.sleep(300)
+
+
+async def oc_match_reclaim_task():
+    """
+    Mark OC-match jobs stuck in ``running`` > 15 min as retryable ``error``.
+
+    Upload still enqueues + runs the worker immediately via BackgroundTasks.
+    This sweep only cleans zombies after crash/restart when nobody opens the
+    OC Match tab (list/detail/retry also reclaim on demand). Interval: 10 min.
+    """
+    from app.core.database import get_background_db
+    from app.services.oc_match.enqueue import reclaim_stale_running
+
+    await asyncio.sleep(45)
+    logger.info("Background task started: oc-match reclaim stale running (interval=600s)")
+
+    while True:
+        try:
+            with get_background_db() as db:
+                marked = reclaim_stale_running(db)
+            if marked:
+                logger.info("oc-match reclaim marked %s stale running job(s)", marked)
+        except Exception as e:
+            logger.error("oc-match reclaim failed: %s", e, exc_info=True)
+        await asyncio.sleep(600)

@@ -3855,12 +3855,18 @@ def _parse_oc_match_statuses(raw: Optional[str]) -> tuple[str, ...]:
     return tuple(parts)
 
 
-def _obtener_oc_match_job_o_404(db: Session, job_id: int) -> OcMatchJob:
-    job = (
-        db.execute(select(OcMatchJob).options(joinedload(OcMatchJob.renglones)).where(OcMatchJob.id == job_id))
-        .unique()
-        .scalar_one_or_none()
-    )
+def _obtener_oc_match_job_o_404(
+    db: Session,
+    job_id: int,
+    *,
+    empresa_id: Optional[int] = None,
+) -> OcMatchJob:
+    stmt = select(OcMatchJob).options(joinedload(OcMatchJob.renglones)).where(OcMatchJob.id == job_id)
+    if empresa_id is not None:
+        stmt = stmt.join(PedidoCompra, OcMatchJob.pedido_id == PedidoCompra.id).where(
+            PedidoCompra.empresa_id == empresa_id
+        )
+    job = db.execute(stmt).unique().scalar_one_or_none()
     if job is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -3876,16 +3882,26 @@ def _obtener_oc_match_job_o_404(db: Session, job_id: int) -> OcMatchJob:
 )
 def listar_oc_match_jobs(
     status: Optional[str] = Query(None, description="queued|running|done|error|skipped (coma)"),
+    empresa_id: Optional[int] = Query(None, ge=1, description="Filtro opcional por empresa del pedido"),
     page: int = Query(1, ge=1),
     page_size: int = Query(50, ge=1, le=200),
     db: Session = Depends(get_db),
     _user: Usuario = Depends(require_permiso("administracion.ver_ordenes_compra")),
 ) -> OcMatchJobPaginated:
-    """Jobs de pedidos accesibles. Sin ACL de depósito. Reclaim 15 min."""
+    """
+    Lista todos los jobs (mismo alcance que listar pedidos con el permiso).
+
+    ``empresa_id`` es un filtro opcional (join a ``pedidos_compra``), no ACL
+    por usuario. Reclaim de jobs ``running`` > 15 min antes de serializar.
+    """
     reclaim_stale_running(db)
     db.commit()
     statuses = _parse_oc_match_statuses(status)
     stmt = select(OcMatchJob).where(OcMatchJob.status.in_(statuses))
+    if empresa_id is not None:
+        stmt = stmt.join(PedidoCompra, OcMatchJob.pedido_id == PedidoCompra.id).where(
+            PedidoCompra.empresa_id == empresa_id
+        )
     stmt = stmt.order_by(OcMatchJob.created_at.desc(), OcMatchJob.id.desc())
     items, total = _paginate(db, stmt, page=page, page_size=page_size)
     return OcMatchJobPaginated(
@@ -3903,13 +3919,14 @@ def listar_oc_match_jobs(
 )
 def obtener_oc_match_job(
     job_id: int,
+    empresa_id: Optional[int] = Query(None, ge=1, description="Si se pasa, 404 si el pedido no es de esa empresa"),
     db: Session = Depends(get_db),
     _user: Usuario = Depends(require_permiso("administracion.ver_ordenes_compra")),
 ) -> OcMatchJobDetalle:
     """Detalle + renglones. Reclaim 15 min antes de serializar."""
     reclaim_stale_running(db)
     db.commit()
-    job = _obtener_oc_match_job_o_404(db, job_id)
+    job = _obtener_oc_match_job_o_404(db, job_id, empresa_id=empresa_id)
     return _oc_match_job_detalle(job)
 
 
@@ -3921,13 +3938,14 @@ def obtener_oc_match_job(
 def reintentar_oc_match_job(
     job_id: int,
     background_tasks: BackgroundTasks,
+    empresa_id: Optional[int] = Query(None, ge=1, description="Si se pasa, 404 si el pedido no es de esa empresa"),
     db: Session = Depends(get_db),
     _user: Usuario = Depends(require_permiso("administracion.gestionar_ordenes_compra")),
 ) -> OcMatchJobResponse:
     """Solo status error (tras reclaim). 409 si no es reintentable."""
     reclaim_stale_running(db)
     db.commit()
-    job = _obtener_oc_match_job_o_404(db, job_id)
+    job = _obtener_oc_match_job_o_404(db, job_id, empresa_id=empresa_id)
     try:
         job = queue_retry(db, job)
     except ValueError:
@@ -3946,13 +3964,14 @@ def reintentar_oc_match_job(
 )
 def descargar_oc_match_excel(
     job_id: int,
+    empresa_id: Optional[int] = Query(None, ge=1, description="Si se pasa, 404 si el pedido no es de esa empresa"),
     db: Session = Depends(get_db),
     _user: Usuario = Depends(require_permiso("administracion.ver_ordenes_compra")),
 ) -> FileResponse:
     """FileResponse of the persisted GBP xlsx. Requires ver_ordenes_compra."""
     import os as _os  # noqa: PLC0415
 
-    job = _obtener_oc_match_job_o_404(db, job_id)
+    job = _obtener_oc_match_job_o_404(db, job_id, empresa_id=empresa_id)
     rel = (job.excel_rel_path or "").strip()
     if not rel:
         raise HTTPException(
