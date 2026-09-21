@@ -47,6 +47,7 @@ def process_oc_match_job(job_id: int) -> None:
     matched: dict[str, Any] = {}
     excel_rel: Optional[str] = None
     excel_name: Optional[str] = None
+    excel_path: Optional[Path] = None
     error: Optional[str] = None
     try:
         if claimed.sucursal is None:
@@ -59,20 +60,21 @@ def process_oc_match_job(job_id: int) -> None:
         _write_progress_phase(claimed.job_id, "matching", claimed.started_at)
         matched = match_renglones(extracted, claimed.articulos, pool)
         _write_progress_phase(claimed.job_id, "excel", claimed.started_at)
-        dest = _excel_dest(claimed.job_id, matched)
-        generar(matched, dest)
-        excel_rel = dest.name
-        excel_name = dest.name
+        excel_path = _excel_dest(claimed.job_id, claimed.started_at, matched)
+        generar(matched, excel_path)
+        excel_rel = excel_path.name
+        excel_name = excel_path.name
     except RechazoExcel as exc:
         error = str(exc)
         logger.info("oc-match job_id=%s rechazo excel: %s", job_id, error)
-        _unlink_if_empty_xlsx(job_id)
+        _unlink_xlsx(excel_path)
     except MissingGeminiKeysError as exc:
         error = str(exc)
         logger.warning("oc-match job_id=%s sin keys Gemini", job_id)
     except Exception as exc:  # noqa: BLE001 — persist any pipeline failure as job error
         error = str(exc)
         logger.exception("oc-match job_id=%s falló: %s", job_id, exc)
+        _unlink_xlsx(excel_path)
 
     acta = acta_cierre(
         matched,
@@ -144,22 +146,32 @@ def _write_progress_phase(job_id: int, phase: str, claimed_started_at: datetime)
         )
 
 
-def _excel_dest(job_id: int, matched: dict[str, Any]) -> Path:
+def _claim_mid(job_id: int, started_at: datetime) -> str:
+    """Stable unique token per claim for Excel filenames (not truncated by nombre_excel)."""
+    ts = started_at if started_at.tzinfo is not None else started_at.replace(tzinfo=UTC)
+    return f"{job_id}_{int(ts.timestamp())}"
+
+
+def _excel_dest(job_id: int, started_at: datetime, matched: dict[str, Any]) -> Path:
     root = Path(settings.COMPRAS_OC_MATCH_DIR)
     root.mkdir(parents=True, exist_ok=True)
-    return root / nombre_excel(matched, str(job_id))
+    return root / nombre_excel(matched, _claim_mid(job_id, started_at))
 
 
-def _unlink_if_empty_xlsx(job_id: int) -> None:
-    """Never leave a failed/empty xlsx as a success artifact."""
-    root = Path(settings.COMPRAS_OC_MATCH_DIR)
-    if not root.is_dir():
+def _unlink_xlsx(path: Optional[Path]) -> None:
+    """Remove only this claim's workbook path (never glob by job_id)."""
+    if path is None:
         return
-    for path in root.glob(f"*_{job_id}.xlsx"):
-        try:
-            path.unlink(missing_ok=True)
-        except OSError:
-            logger.warning("oc-match no pudo borrar xlsx residual %s", path)
+    try:
+        path.unlink(missing_ok=True)
+    except OSError:
+        logger.warning("oc-match no pudo borrar xlsx residual %s", path)
+
+
+def _unlink_xlsx_rel(excel_rel: Optional[str]) -> None:
+    if not excel_rel:
+        return
+    _unlink_xlsx(Path(settings.COMPRAS_OC_MATCH_DIR) / excel_rel)
 
 
 def _persist(
@@ -202,7 +214,10 @@ def _persist(
                 "oc-match persist discarded job_id=%s (lost claim fence)",
                 job_id,
             )
+            _unlink_xlsx_rel(excel_rel)
             return
+        if error:
+            _unlink_xlsx_rel(excel_rel)
         job = db.get(OcMatchJob, job_id)
         if job is None:
             logger.warning("oc-match persist: job_id=%s desapareció tras fence", job_id)
