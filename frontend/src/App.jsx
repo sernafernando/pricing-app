@@ -24,6 +24,7 @@ const Productos = lazy(() => import('./pages/Productos'));
 const Tienda = lazy(() => import('./pages/Tienda'));
 const Admin = lazy(() => import('./pages/Admin'));
 const UltimosCambios = lazy(() => import('./pages/UltimosCambios'));
+const Novedades = lazy(() => import('./pages/Novedades'));
 const PreciosListas = lazy(() => import('./pages/PreciosListas'));
 const GestionPM = lazy(() => import('./pages/GestionPM'));
 const MisSubPMs = lazy(() => import('./pages/MisSubPMs'));
@@ -113,6 +114,9 @@ const protectedRoutes = [
   { path: '/tienda', component: Tienda, permiso: 'productos.ver_tienda' },
   { path: '/precios-listas', component: PreciosListas, permiso: 'productos.ver' },
   { path: '/ultimos-cambios', component: UltimosCambios, permiso: 'productos.ver_auditoria' },
+  // No permiso: visible to any logged-in user (see AppLayout's outer auth
+  // guard) — feature announcements are not a permission-gated concept.
+  { path: '/novedades', component: Novedades },
   { path: '/admin', component: Admin, permiso: 'admin.ver_panel' },
   { path: '/gestion-pm', component: GestionPM, permiso: 'admin.gestionar_pms' },
   // No permiso: visibility is data-scoped (titular of ≥1 marca/categoria pair),
