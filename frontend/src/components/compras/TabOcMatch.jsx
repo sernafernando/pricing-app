@@ -57,10 +57,11 @@ const COLUMNS = [
 
 const RENGLON_COLUMNS = [
   { key: 'indice', label: '#', width: '40px' },
-  { key: 'descripcion', label: 'Descripción' },
-  { key: 'cantidad', label: 'Cant.', width: '64px', align: 'right' },
-  { key: 'precio_unitario', label: 'P. unit.', width: '80px', align: 'right' },
-  { key: 'moneda', label: 'Mon.', width: '52px' },
+  { key: 'ean', label: 'EAN', width: '128px' },
+  { key: 'descripcion', label: 'Descripción', width: '180px' },
+  { key: 'cantidad', label: 'Cantidad', width: '72px', align: 'right' },
+  { key: 'precio_unitario', label: 'P Unit', width: '80px', align: 'right' },
+  { key: 'moneda', label: 'Moneda', width: '64px' },
   { key: 'match_estado', label: 'Match', width: '88px' },
   { key: 'confianza', label: 'Confianza', width: '88px' },
   { key: 'item_id', label: 'Item', width: '72px' },
@@ -85,6 +86,23 @@ function formatDateTime(iso) {
     return iso;
   }
 }
+
+const formatCantidad = (v) => {
+  if (v == null || v === '') return '—';
+  const n = Number(v);
+  return Number.isNaN(n) ? String(v) : n.toLocaleString('es-AR', { maximumFractionDigits: 2 });
+};
+
+const formatPrecioUnitario = (v) => {
+  if (v == null || v === '') return '—';
+  const n = Number(v);
+  return Number.isNaN(n)
+    ? String(v)
+    : n.toLocaleString('es-AR', {
+        minimumFractionDigits: 4,
+        maximumFractionDigits: 4,
+      });
+};
 
 function StatusBadge({ status, progressPhase }) {
   const cls = STATUS_CLASS[status] || 'badgeSkipped';
@@ -326,7 +344,7 @@ export default function TabOcMatch() {
             <DataTable
               columns={RENGLON_COLUMNS}
               rows={(selected.renglones || []).map((r) => ({ ...r, id: r.id ?? r.indice }))}
-              minWidth="480px"
+              minWidth="820px"
               empty={{
                 icon: <Inbox size={20} strokeWidth={1.5} />,
                 title: 'Sin renglones todavía.',
@@ -334,6 +352,26 @@ export default function TabOcMatch() {
               renderCell={(row, col) => {
                 if (col.key === 'confianza') {
                   return <ConfianzaBadge confianza={row.confianza} motivo={row.motivo} />;
+                }
+                if (col.key === 'ean') {
+                  const value = row.ean;
+                  return (
+                    <span className={styles.tdMono}>{value == null || value === '' ? '—' : value}</span>
+                  );
+                }
+                if (col.key === 'descripcion') {
+                  const full = row.descripcion == null || row.descripcion === '' ? '' : String(row.descripcion);
+                  return (
+                    <span className={styles.tdTruncate} title={full}>
+                      {full || '—'}
+                    </span>
+                  );
+                }
+                if (col.key === 'cantidad') {
+                  return formatCantidad(row.cantidad);
+                }
+                if (col.key === 'precio_unitario') {
+                  return formatPrecioUnitario(row.precio_unitario);
                 }
                 const value = row[col.key];
                 if (value == null || value === '') return '—';

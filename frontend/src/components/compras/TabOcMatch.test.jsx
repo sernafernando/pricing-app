@@ -19,13 +19,29 @@ const ERROR_JOB = {
     {
       id: 1,
       indice: 1,
+      ean: '7791234567890',
+      ean_extract: '7790000000000',
       descripcion: 'Notebook 14',
-      cantidad: '2',
-      precio_unitario: '100',
+      cantidad: '2.0000',
+      precio_unitario: '12.3456',
       moneda: 'USD',
       match_estado: 'ok',
       confianza: 'media',
       motivo: 'color ambiguo',
+      item_id: null,
+    },
+    {
+      id: 2,
+      indice: 2,
+      ean: null,
+      ean_extract: '7791111111111',
+      descripcion: 'Mouse USB',
+      cantidad: '0.5000',
+      precio_unitario: '12.3456',
+      moneda: 'USD',
+      match_estado: 'ok',
+      confianza: 'baja',
+      motivo: null,
       item_id: null,
     },
   ],
@@ -215,5 +231,55 @@ describe('TabOcMatch ops UX', () => {
     expect(titled).not.toBeNull();
     expect(titled.getAttribute('title')).toBe(LONG_ERROR);
     expect(screen.getAllByText(/linea 4 que no deberia verse completa/).length).toBeGreaterThan(1);
+  });
+});
+
+describe('TabOcMatch renglones EAN', () => {
+  beforeEach(() => {
+    mockTienePermiso.mockImplementation((p) => p === 'administracion.ver_ordenes_compra');
+    resetHook({
+      jobs: [ERROR_JOB],
+      total: 1,
+      selected: ERROR_JOB,
+      selectedId: ERROR_JOB.id,
+    });
+  });
+
+  it('locks renglones headers, EAN, unidades qty and 4dp precio', () => {
+    const { container } = render(<TabOcMatch />);
+    const tables = container.querySelectorAll('table');
+    const renglonesTable = tables[1];
+    const headers = [...renglonesTable.querySelectorAll('th')].map((th) => th.textContent);
+    expect(headers).toEqual([
+      '#',
+      'EAN',
+      'Descripción',
+      'Cantidad',
+      'P Unit',
+      'Moneda',
+      'Match',
+      'Confianza',
+      'Item',
+    ]);
+    expect(headers).not.toContain('ean_extract');
+
+    const rows = renglonesTable.querySelectorAll('tbody tr');
+    const firstCells = [...rows[0].querySelectorAll('td')].map((td) => td.textContent);
+    const secondCells = [...rows[1].querySelectorAll('td')].map((td) => td.textContent);
+
+    expect(firstCells[1]).toBe('7791234567890');
+    expect(secondCells[1]).toBe('—');
+    expect(firstCells[3]).toBe('2');
+    expect(firstCells[3]).not.toContain('.0000');
+    expect(secondCells[3]).toBe('0,5');
+    expect(secondCells[3]).not.toBe('1');
+    expect(firstCells[4]).toBe('12,3456');
+    expect(screen.getByText(/Acta de matching/)).toBeInTheDocument();
+    expect(container.querySelector('pre').textContent).toBe('Acta de matching\n- pack sin match');
+  });
+
+  it('does not add an ean_extract column header', () => {
+    render(<TabOcMatch />);
+    expect(screen.queryByRole('columnheader', { name: /ean_extract/i })).toBeNull();
   });
 });
