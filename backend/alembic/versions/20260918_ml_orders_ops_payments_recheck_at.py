@@ -12,8 +12,12 @@ shipping-fee charge) AFTER an order's own `ml_last_updated` stops moving,
 so the sweep's two existing payment gates (staleness,
 `payments_synced_at IS NULL`) never fire again for that order. This
 column is set to `now + RECHECK_AFTER` the first time payments are
-sealed, is a THIRD independent sweep gate, and is cleared back to NULL
-once the recheck runs so it fires exactly once per order.
+sealed and is a THIRD independent sweep gate. It is cleared back to NULL
+when the re-ask SEALS; an attempt that does not seal is pushed forward
+instead of being dropped, so the re-ask retries rather than firing
+exactly once. How many times it may retry is bounded by the service, not
+by this schema -- see `sweep_service._settle_payments_recheck` for the
+current rule.
 """
 
 from typing import Sequence, Union

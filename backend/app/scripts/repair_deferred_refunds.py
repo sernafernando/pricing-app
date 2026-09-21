@@ -40,7 +40,7 @@ import logging
 import sys
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Dict, List, Tuple
+from typing import Dict, List, Set, Tuple
 
 # Agregar path del backend
 backend_path = Path(__file__).resolve().parent.parent.parent
@@ -70,8 +70,14 @@ class RepairResult:
     payments_processed: int = 0
     payments_fetch_failed: int = 0
     payments_mapping_error: int = 0
+    payments_write_failed: int = 0
     charges_changed: int = 0
     charges_unchanged: int = 0
+    # PAYMENTS, not charges. One payment whose six charges all reversed is
+    # ONE late reversal, and this is the number `RECHECK_AFTER` has to be
+    # judged against -- counting charges would make a handful of
+    # multi-charge payments look like a wave.
+    payments_changed: int = 0
     changed_payment_ids: List[int] = field(default_factory=list)
 
 
@@ -150,8 +156,18 @@ def run_repair(limit: int = DEFAULT_LIMIT, dry_run: bool = False) -> RepairResul
             result.payments_mapping_error += 1
             continue
 
-        with get_background_db() as db:
-            upsert_payment(db, mapped)
+        # Guarded like the fetch above. Without this, one payment that
+        # fails to persist ends the whole run and every candidate after it
+        # is never repaired -- and the summary still reads like a clean
+        # finish, just with a smaller number. Each payment already writes
+        # in its own session, so a failure here costs only that payment.
+        try:
+            with get_background_db() as db:
+                upsert_payment(db, mapped)
+        except Exception:
+            logger.exception("repair_deferred_refunds: write failed for payment_id=%s", payment_id)
+            result.payments_write_failed += 1
+            continue
         result.payments_processed += 1
 
     after = _charge_snapshot(candidate_ids)
@@ -161,12 +177,15 @@ def run_repair(limit: int = DEFAULT_LIMIT, dry_run: bool = False) -> RepairResul
     # `RECHECK_AFTER` window, and it must reflect what was actually
     # persisted, never what was merely sent.
     all_keys = set(before) | set(after)
+    changed_payments: Set[int] = set()
     for key in all_keys:
         if before.get(key) != after.get(key):
             result.charges_changed += 1
-            result.changed_payment_ids.append(key[0])
+            changed_payments.add(key[0])
         else:
             result.charges_unchanged += 1
+    result.payments_changed = len(changed_payments)
+    result.changed_payment_ids = sorted(changed_payments)
 
     return result
 
@@ -199,20 +218,49 @@ def main(argv: list[str] | None = None) -> None:
     logger.info(
         "repair_deferred_refunds: complete (dry_run=%s, limit=%s) -- "
         "candidates_found=%s payments_processed=%s payments_fetch_failed=%s "
-        "payments_mapping_error=%s charges_changed=%s charges_unchanged=%s",
+        "payments_mapping_error=%s payments_write_failed=%s "
+        "payments_changed=%s charges_changed=%s charges_unchanged=%s",
         result.dry_run,
         args.limit,
         result.candidates_found,
         result.payments_processed,
         result.payments_fetch_failed,
         result.payments_mapping_error,
+        result.payments_write_failed,
+        result.payments_changed,
         result.charges_changed,
         result.charges_unchanged,
     )
     if result.changed_payment_ids:
-        logger.info(
-            "repair_deferred_refunds: payment_ids with a changed charge: %s", sorted(set(result.changed_payment_ids))
+        logger.info("repair_deferred_refunds: payment_ids with a changed charge: %s", result.changed_payment_ids)
+
+    # A run that could not process every candidate must NOT look clean
+    # from the outside. The per-payment guards are there so one bad
+    # payment does not end the run -- not so the run can report success
+    # while leaving candidates unrepaired. `$?` is the only signal a
+    # cron, a chained command or a person reading the shell ever sees.
+    # Both kinds exit non-zero -- unfinished work is unfinished either way
+    # -- but they need DIFFERENT things from whoever reads this, so the
+    # message must not tell one to do the other's remedy. A fetch or write
+    # failure is transient and a re-run picks it up; a mapping error is
+    # deterministic, so re-running produces the identical failure and what
+    # it actually needs is somebody looking at the payload.
+    retryable = result.payments_fetch_failed + result.payments_write_failed
+    if retryable:
+        logger.error(
+            "repair_deferred_refunds: %s candidate(s) failed transiently (fetch=%s write=%s); re-run to pick them up",
+            retryable,
+            result.payments_fetch_failed,
+            result.payments_write_failed,
         )
+    if result.payments_mapping_error:
+        logger.error(
+            "repair_deferred_refunds: %s candidate(s) could not be mapped; re-running will fail the same way, "
+            "these payloads need a look",
+            result.payments_mapping_error,
+        )
+    if retryable or result.payments_mapping_error:
+        raise SystemExit(1)
 
 
 if __name__ == "__main__":
