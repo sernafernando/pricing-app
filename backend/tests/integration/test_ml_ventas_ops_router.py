@@ -417,6 +417,70 @@ class TestDesgloseDetalleScopes:
         assert costo_mlas == {"MLA-A"}
 
 
+def _seed_worked_example_order(db) -> int:
+    """Production order 2000018567320906, values as stored."""
+    from app.models.ml_order_item_costo import MlOrderItemCosto
+
+    order_id = 2000018567320906
+    payment_id = 180131165380
+    db.add(
+        MlOrdersOps(
+            order_id=order_id,
+            status="paid",
+            ml_last_updated=datetime(2026, 9, 21, tzinfo=timezone.utc),
+            seller_id=999,
+            total_amount=Decimal("597408.67"),
+            currency_id="ARS",
+        )
+    )
+    db.add(
+        MlOrderItemOps(
+            order_id=order_id, item_id="MLA2060835678", quantity=1, unit_price=Decimal("597408.67"), title="Epson"
+        )
+    )
+    db.add(
+        MlOrderItemCosto(
+            order_id=order_id,
+            item_id="MLA2060835678",
+            variation_id=None,
+            costo_origen=Decimal("234.78"),
+            moneda="USD",
+            tipo_cambio=Decimal("1535.00"),
+            tipo_cambio_fecha=None,
+            costo_unitario_ars=Decimal("360391.09"),
+            iva_pct=Decimal("21"),
+            precio_unitario=Decimal("597408.67"),
+            fuente="sku",
+            producto_item_id=1,
+        )
+    )
+    db.add(
+        MlPaymentOps(
+            payment_id=payment_id,
+            order_id=order_id,
+            status="approved",
+            net_received_amount=Decimal("502165.91"),
+            shipping_amount=Decimal("0.00"),
+            coupon_amount=Decimal("41679.67"),
+            transaction_amount_refunded=Decimal("0.00"),
+        )
+    )
+    for name, type_, amount in (
+        ("coupon_rebate", "coupon", "41679.67"),
+        ("meli_percentage_fee", "fee", "74676.08"),
+        ("shp_cross_docking", "shipping", "15190.00"),
+        ("tax_withholding_collector-debitos_creditos", "tax", "3584.45"),
+        ("tax_withholding_sirtac-caba", "tax", "1792.23"),
+    ):
+        db.add(
+            MlPaymentCharge(
+                payment_id=payment_id, name=name, type=type_, amount=Decimal(amount), refunded=Decimal("0.00")
+            )
+        )
+    db.commit()
+    return order_id
+
+
 class TestSirtacFieldsOverHttp:
     """ml-ventas-neto-iibb-varios PR1: the drawer relies on these fields to
     keep SIRTAC out of the subtraction list and to render "MP $X · SIRTAC
@@ -426,65 +490,7 @@ class TestSirtacFieldsOverHttp:
     Values are production order 2000018567320906 as stored."""
 
     def test_order_detail_exposes_sirtac_and_withdrawal_fields(self, db, client, admin_auth_headers, rol_admin) -> None:
-        from app.models.ml_order_item_costo import MlOrderItemCosto
-
-        order_id = 2000018567320906
-        payment_id = 180131165380
-        db.add(
-            MlOrdersOps(
-                order_id=order_id,
-                status="paid",
-                ml_last_updated=datetime(2026, 9, 21, tzinfo=timezone.utc),
-                seller_id=999,
-                total_amount=Decimal("597408.67"),
-                currency_id="ARS",
-            )
-        )
-        db.add(
-            MlOrderItemOps(
-                order_id=order_id, item_id="MLA2060835678", quantity=1, unit_price=Decimal("597408.67"), title="Epson"
-            )
-        )
-        db.add(
-            MlOrderItemCosto(
-                order_id=order_id,
-                item_id="MLA2060835678",
-                variation_id=None,
-                costo_origen=Decimal("234.78"),
-                moneda="USD",
-                tipo_cambio=Decimal("1535.00"),
-                tipo_cambio_fecha=None,
-                costo_unitario_ars=Decimal("360391.09"),
-                iva_pct=Decimal("21"),
-                precio_unitario=Decimal("597408.67"),
-                fuente="sku",
-                producto_item_id=1,
-            )
-        )
-        db.add(
-            MlPaymentOps(
-                payment_id=payment_id,
-                order_id=order_id,
-                status="approved",
-                net_received_amount=Decimal("502165.91"),
-                shipping_amount=Decimal("0.00"),
-                coupon_amount=Decimal("41679.67"),
-                transaction_amount_refunded=Decimal("0.00"),
-            )
-        )
-        for name, type_, amount in (
-            ("coupon_rebate", "coupon", "41679.67"),
-            ("meli_percentage_fee", "fee", "74676.08"),
-            ("shp_cross_docking", "shipping", "15190.00"),
-            ("tax_withholding_collector-debitos_creditos", "tax", "3584.45"),
-            ("tax_withholding_sirtac-caba", "tax", "1792.23"),
-        ):
-            db.add(
-                MlPaymentCharge(
-                    payment_id=payment_id, name=name, type=type_, amount=Decimal(amount), refunded=Decimal("0.00")
-                )
-            )
-        db.commit()
+        order_id = _seed_worked_example_order(db)
         _grant_ml_ops_ver(db, rol_admin)
 
         resp = client.get(f"/api/ml-ventas-ops/orders/{order_id}", headers=admin_auth_headers)
@@ -504,3 +510,28 @@ class TestSirtacFieldsOverHttp:
         assert iva["neto_sin_iva"] == pytest.approx(412287.78)
         informativos = [c["concepto"] for c in iva["componentes"] if c["informativo"]]
         assert informativos == ["Retención IIBB (CABA) · SIRTAC"]
+
+    def test_order_detail_subtracts_varios_over_the_sale_without_iva(
+        self, db, client, admin_auth_headers, rol_admin
+    ) -> None:
+        """PR2: with 5% configured, the router must hand the chain the sale's
+        base without IVA (493726.17), not an empty map. A wrong or empty map
+        would leave varios unresolved and Total Gauss null."""
+        from datetime import date
+
+        from app.models.varios_venta_pct import VariosVentaPct
+
+        order_id = _seed_worked_example_order(db)
+        db.query(MlOrdersOps).filter(MlOrdersOps.order_id == order_id).update(
+            {"date_created": datetime(2026, 9, 21, 12, 0, tzinfo=timezone.utc)}
+        )
+        db.add(VariosVentaPct(porcentaje=Decimal("5.00"), fecha_desde=date(2020, 1, 1), fecha_hasta=None))
+        db.commit()
+        _grant_ml_ops_ver(db, rol_admin)
+
+        body = client.get(f"/api/ml-ventas-ops/orders/{order_id}", headers=admin_auth_headers).json()
+
+        assert body["iva_decomposicion"]["base_venta_sin_iva"] == pytest.approx(493726.17)
+        varios = [linea for linea in body["cadena_total_gauss"]["lineas"] if linea["code"] == "varios"]
+        assert len(varios) == 1
+        assert varios[0]["monto"] == pytest.approx(24686.31)
