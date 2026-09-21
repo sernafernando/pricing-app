@@ -1029,7 +1029,13 @@ def listar_ventas(
         # total for the whole page, never one per row.
         descomposicion_by_order = descomponer_neto(db, page_order_ids)
         neto_sin_iva_by_order = {oid: desc.neto_sin_iva for oid, desc in descomposicion_by_order.items()}
-        total_gauss_by_order = calcular_total_gauss(db, page_order_ids, neto_sin_iva_by_order)
+        # ml-ventas-neto-iibb-varios PR2 (D4): the "% de varios" base,
+        # already in hand from `descomposicion_by_order` above -- zero new
+        # queries.
+        venta_sin_iva_by_order = {oid: desc.base_venta_sin_iva for oid, desc in descomposicion_by_order.items()}
+        total_gauss_by_order = calcular_total_gauss(
+            db, page_order_ids, neto_sin_iva_by_order, venta_sin_iva_by_order=venta_sin_iva_by_order
+        )
         for order, shipment, key, operation_status_value, goods_status_value in member_rows:
             order_neto = neto_by_order.get(order.order_id)
             order_neto_depositado, order_retenciones_recuperables = neto_desglose_by_order.get(
@@ -1265,7 +1271,11 @@ def obtener_operacion(
     # PACK, not just this order" -- same grouping the listing uses).
     descomposicion_by_order = descomponer_neto(db, breakdown_order_ids)
     neto_sin_iva_by_order = {oid: desc.neto_sin_iva for oid, desc in descomposicion_by_order.items()}
-    total_gauss_by_order = calcular_total_gauss(db, breakdown_order_ids, neto_sin_iva_by_order)
+    # ml-ventas-neto-iibb-varios PR2 (D4): same bulk shape, no new queries.
+    venta_sin_iva_by_order = {oid: desc.base_venta_sin_iva for oid, desc in descomposicion_by_order.items()}
+    total_gauss_by_order = calcular_total_gauss(
+        db, breakdown_order_ids, neto_sin_iva_by_order, venta_sin_iva_by_order=venta_sin_iva_by_order
+    )
     member_total_gauss = [r.total_gauss for r in total_gauss_by_order.values()]
     pack_total_gauss = None if any(v is None for v in member_total_gauss) else sum(member_total_gauss)
 

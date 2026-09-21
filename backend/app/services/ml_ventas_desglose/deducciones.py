@@ -57,12 +57,15 @@ class DeduccionResolver(Protocol):
     orchestrator what a PERCENTAGE resolver's returned value multiplies:
     `"neto"` is `neto_sin_iva` (the chain's starting point, never touched by
     earlier deductions), `"corriente"` is the running total AFTER every
-    earlier deduction in `orden`. Non-percentage resolvers ignore `base`."""
+    earlier deduction in `orden`, `"venta_sin_iva"` (ml-ventas-neto-iibb-varios
+    R3, design D4) is `venta_sin_iva_by_order` -- the goods without IVA,
+    independent of both `neto_sin_iva` and the running total. Non-percentage
+    resolvers ignore `base`."""
 
     code: str
     concepto: str
     orden: int
-    base: str  # "neto" | "corriente"
+    base: str  # "neto" | "corriente" | "venta_sin_iva"
     es_porcentaje: bool
 
     def resolve_bulk(self, db: Session, order_ids: Sequence[int]) -> Dict[int, Optional[Decimal]]: ...
@@ -305,22 +308,27 @@ class VariosDeduccion:
     `es_porcentaje=True` tells the orchestrator to multiply it against
     `base`.
 
-    `base = "neto"` means the percentage applies to `neto_sin_iva`, the
-    STARTING value, NOT to what is left after the cost of goods and the
-    Flex freight have been subtracted. The formula reads
-    `Neto - envio flex - % = Total Gauss`, which admits both readings, and
-    the maintainer chose this one explicitly when asked. It also matches
-    `calcular_comision_ml_total`, which applies `varios_porcentaje` to the
-    price without IVA (obs #2064).
+    `base = "venta_sin_iva"` (ml-ventas-neto-iibb-varios R3, design D4):
+    the percentage applies to the GOODS WITHOUT IVA -- Σ, at each item's
+    own frozen rate (mixed-rate packs never use one rate on the aggregate),
+    of the same per-item bases `iva.descomponer_neto`'s `CONCEPTO_VENTA_ITEM`
+    components already show on the drawer. NOT `neto_sin_iva` (which also
+    carries ML's fees/freight/withholdings, net of IVA) and NOT the running
+    total after earlier deductions in the chain -- subtracted at the END of
+    the chain (`orden = 3`, last), against a base that earlier deductions
+    never touch.
 
-    The difference is not academic: on a $100.000 sale with $60.000 of
-    goods and $5.000 of freight, 5% is $5.000 here and would be $1.750 the
-    other way. Do not "fix" this into the running total."""
+    `pricing_calculator.calcular_comision_ml_total`/`varios_porcentaje` is a
+    SEPARATE, forward-pricing estimate (obs #2064) -- it projects a price
+    BEFORE a sale exists; this deduction reads the FROZEN, POST-SALE goods
+    base of a sale that already happened. The two apply the same rate to
+    different, independently-computed bases and are NOT required to match;
+    this module does not touch that other function."""
 
     code = "varios"
     concepto = "Varios (ventas)"
     orden = 3
-    base = "neto"
+    base = "venta_sin_iva"
     es_porcentaje = True
 
     def resolve_bulk(self, db: Session, order_ids: Sequence[int]) -> Dict[int, Optional[Decimal]]:
@@ -425,6 +433,8 @@ def calcular_total_gauss(
     db: Session,
     order_ids: Sequence[int],
     neto_sin_iva_by_order: Dict[int, Optional[Decimal]],
+    *,
+    venta_sin_iva_by_order: Dict[int, Optional[Decimal]],
 ) -> Dict[int, TotalGaussResultado]:
     """Applies `DEDUCCIONES` in order, per order_id, over the bulk-resolved
     result of EVERY registered deduction -- one `resolve_bulk` call per
@@ -435,6 +445,14 @@ def calcular_total_gauss(
     function is the ONE producer of the number, called both for live
     display (never served from the stored column) and by whatever
     persists the stored column for sorting.
+
+    `venta_sin_iva_by_order` (ml-ventas-neto-iibb-varios R3, design D4) is
+    REQUIRED and keyword-only, EXPLICIT at every caller -- a caller that
+    silently forgets it must fail loudly (`TypeError`), never fall back to
+    an empty map that quietly blocks every "% de varios" line with base
+    `"venta_sin_iva"`. It carries `iva.DescomposicionNeto.base_venta_sin_iva`
+    per order, which every caller already has in hand from `descomponer_neto`
+    -- zero new queries here.
     """
     order_ids = list(order_ids)
     result: Dict[int, TotalGaussResultado] = {}
@@ -482,12 +500,26 @@ def calcular_total_gauss(
             if raw is None:
                 monto: Optional[Decimal] = None
             elif deduccion.es_porcentaje:
-                objetivo = neto_sin_iva if deduccion.base == "neto" else total
-                monto = (
-                    None
-                    if objetivo is None
-                    else (objetivo * raw / Decimal("100")).quantize(_CENT, rounding=ROUND_HALF_UP)
-                )
+                # D5: the RATE is checked FIRST. Zero percent of anything is
+                # zero -- known without even looking at the base -- so an
+                # unconfigured "% de varios" (raw == 0) never newly blocks
+                # an order whose base happens to be unresolved too. Only
+                # when the rate is non-zero does an unresolved base become
+                # a real, named block (never a silent 0 base).
+                if raw == 0:
+                    monto = Decimal("0")
+                else:
+                    objetivo_by_base = {
+                        "neto": neto_sin_iva,
+                        "corriente": total,
+                        "venta_sin_iva": venta_sin_iva_by_order.get(order_id),
+                    }
+                    objetivo = objetivo_by_base[deduccion.base]
+                    monto = (
+                        None
+                        if objetivo is None
+                        else (objetivo * raw / Decimal("100")).quantize(_CENT, rounding=ROUND_HALF_UP)
+                    )
             else:
                 monto = raw
 
@@ -619,7 +651,10 @@ def persistir_total_gauss(db: Session, order_ids: Sequence[int]) -> Dict[int, To
 
     descomposiciones = descomponer_neto(db, order_ids)
     neto_sin_iva_by_order = {oid: desc.neto_sin_iva for oid, desc in descomposiciones.items()}
-    resultados = calcular_total_gauss(db, order_ids, neto_sin_iva_by_order)
+    venta_sin_iva_by_order = {oid: desc.base_venta_sin_iva for oid, desc in descomposiciones.items()}
+    resultados = calcular_total_gauss(
+        db, order_ids, neto_sin_iva_by_order, venta_sin_iva_by_order=venta_sin_iva_by_order
+    )
 
     orders = db.query(MlOrdersOps).filter(MlOrdersOps.order_id.in_(order_ids)).all()
     orders_by_id = {o.order_id: o for o in orders}

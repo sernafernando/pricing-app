@@ -12,6 +12,8 @@ from __future__ import annotations
 from datetime import date, datetime, timezone
 from decimal import Decimal
 from typing import List
+
+import pytest
 from sqlalchemy import event
 
 from app.models.etiqueta_envio import EtiquetaEnvio
@@ -103,7 +105,9 @@ class TestRegistryOrderRespected:
         _item_with_cost(db, order_id, "MLA1", 1, Decimal("50.00"))
         db.commit()
 
-        result = calcular_total_gauss(db, [order_id], {order_id: Decimal("1000.00")})[order_id]
+        result = calcular_total_gauss(db, [order_id], {order_id: Decimal("1000.00")}, venta_sin_iva_by_order={})[
+            order_id
+        ]
 
         codes = [code for code, _monto, _concepto in result.lineas]
         # `costo_mercaderia` (orden=1) is applicable here; `envio_flex`
@@ -123,7 +127,9 @@ class TestNonePropagatesNeverZero:
         _item_no_cost(db, order_id, "MLA1")  # no frozen cost -> CostoMercaderiaDeduccion returns None
         db.commit()
 
-        result = calcular_total_gauss(db, [order_id], {order_id: Decimal("1000.00")})[order_id]
+        result = calcular_total_gauss(db, [order_id], {order_id: Decimal("1000.00")}, venta_sin_iva_by_order={})[
+            order_id
+        ]
 
         assert result.total_gauss is None
         assert ("costo_mercaderia", None, None) in result.lineas
@@ -153,7 +159,9 @@ class TestFullyCostedOrderComputesTotalGauss:
         _varios(db)
         db.commit()
 
-        result = calcular_total_gauss(db, [order_id], {order_id: Decimal("1000.00")})[order_id]
+        result = calcular_total_gauss(db, [order_id], {order_id: Decimal("1000.00")}, venta_sin_iva_by_order={})[
+            order_id
+        ]
 
         assert result.total_gauss == Decimal("900.00")  # 1000 - (50*2)
         assert ("costo_mercaderia", Decimal("100.00"), None) in result.lineas
@@ -168,7 +176,9 @@ class TestNoDeductionsTotalGaussEqualsNetoSinIva:
         # No items at all: CostoMercaderiaDeduccion returns None (unknown),
         # so total_gauss is None too -- an order with nothing to cost is
         # not "zero deductions", it is unresolved.
-        result = calcular_total_gauss(db, [order_id], {order_id: Decimal("500.00")})[order_id]
+        result = calcular_total_gauss(db, [order_id], {order_id: Decimal("500.00")}, venta_sin_iva_by_order={})[
+            order_id
+        ]
         assert result.total_gauss is None
 
 
@@ -195,7 +205,9 @@ class TestChainExtensibleNoHardcodedCount:
         original = deducciones_module.DEDUCCIONES
         deducciones_module.DEDUCCIONES = original + (_ExtraFlatDeduccion(),)
         try:
-            result = calcular_total_gauss(db, [order_id], {order_id: Decimal("100.00")})[order_id]
+            result = calcular_total_gauss(db, [order_id], {order_id: Decimal("100.00")}, venta_sin_iva_by_order={})[
+                order_id
+            ]
         finally:
             deducciones_module.DEDUCCIONES = original
 
@@ -269,17 +281,28 @@ class TestVariosDeduccion:
 
         assert result[order_id] == Decimal("0")
 
-    def test_percentage_applies_over_neto_sin_iva(self, db) -> None:
+    def test_percentage_applies_over_goods_without_iva(self, db) -> None:
+        """ml-ventas-neto-iibb-varios PR2 (R3): "% de varios" applies over
+        the GOODS without IVA (`venta_sin_iva_by_order`), never over
+        `neto_sin_iva` itself -- the two differ whenever fees/freight/
+        withholdings are non-zero, and this test deliberately makes them
+        differ (1000 vs 800) so a resolver that reads the wrong base fails
+        it."""
         order_id = 12
         _order(db, order_id)
         _item_with_cost(db, order_id, "MLA1", 0, Decimal("0.00"))  # no cost impact, isolates the % math
         db.add(VariosVentaPct(porcentaje=Decimal("2.00"), fecha_desde=date(2026, 1, 1), fecha_hasta=None))
         db.commit()
 
-        result = calcular_total_gauss(db, [order_id], {order_id: Decimal("1000.00")})[order_id]
+        result = calcular_total_gauss(
+            db,
+            [order_id],
+            {order_id: Decimal("1000.00")},
+            venta_sin_iva_by_order={order_id: Decimal("800.00")},
+        )[order_id]
 
-        assert ("varios", Decimal("20.00"), None) in result.lineas
-        assert result.total_gauss == Decimal("980.00")
+        assert ("varios", Decimal("16.00"), None) in result.lineas
+        assert result.total_gauss == Decimal("984.00")  # 1000 - 0 (costo) - 16 (varios)
 
 
 class TestPersistirTotalGauss:
@@ -497,7 +520,9 @@ class TestMarkup:
         _varios(db)  # 0% -- isolates this test to the cost/gauss ratio alone
         db.commit()
 
-        result = calcular_total_gauss(db, [order_id], {order_id: Decimal("67686.47")})[order_id]
+        result = calcular_total_gauss(db, [order_id], {order_id: Decimal("67686.47")}, venta_sin_iva_by_order={})[
+            order_id
+        ]
 
         assert result.total_gauss == Decimal("8812.07")
         assert result.markup == Decimal("14.97")
@@ -513,7 +538,9 @@ class TestMarkup:
         _varios(db)
         db.commit()
 
-        result = calcular_total_gauss(db, [order_id], {order_id: Decimal("1000.00")})[order_id]
+        result = calcular_total_gauss(db, [order_id], {order_id: Decimal("1000.00")}, venta_sin_iva_by_order={})[
+            order_id
+        ]
 
         assert result.total_gauss is None
         assert result.markup is None
@@ -528,7 +555,9 @@ class TestMarkup:
         _varios(db)
         db.commit()
 
-        result = calcular_total_gauss(db, [order_id], {order_id: Decimal("500.00")})[order_id]
+        result = calcular_total_gauss(db, [order_id], {order_id: Decimal("500.00")}, venta_sin_iva_by_order={})[
+            order_id
+        ]
 
         assert result.markup is None
 
@@ -561,7 +590,9 @@ class TestMarkup:
         original = deducciones_module.DEDUCCIONES
         deducciones_module.DEDUCCIONES = original + (_UnresolvedFlatDeduccion(),)
         try:
-            result = calcular_total_gauss(db, [order_id], {order_id: Decimal("1000.00")})[order_id]
+            result = calcular_total_gauss(db, [order_id], {order_id: Decimal("1000.00")}, venta_sin_iva_by_order={})[
+                order_id
+            ]
         finally:
             deducciones_module.DEDUCCIONES = original
 
@@ -580,7 +611,9 @@ class TestMarkup:
         _varios(db)
         db.commit()
 
-        result = calcular_total_gauss(db, [order_id], {order_id: Decimal("1000.00")})[order_id]
+        result = calcular_total_gauss(db, [order_id], {order_id: Decimal("1000.00")}, venta_sin_iva_by_order={})[
+            order_id
+        ]
 
         assert result.total_gauss == Decimal("1000.00")
         assert result.markup is None
@@ -610,7 +643,9 @@ class TestTotalGaussProvisorio:
         _varios(db)  # 0%, isolates this test to the Flex exception alone
         db.commit()
 
-        result = calcular_total_gauss(db, [order_id], {order_id: Decimal("1000.00")})[order_id]
+        result = calcular_total_gauss(db, [order_id], {order_id: Decimal("1000.00")}, venta_sin_iva_by_order={})[
+            order_id
+        ]
 
         assert result.total_gauss == Decimal("900.00")  # 1000 - 100, envio_flex NOT subtracted
         assert result.provisional is True
@@ -632,7 +667,9 @@ class TestTotalGaussProvisorio:
         _varios(db)
         db.commit()
 
-        result = calcular_total_gauss(db, [order_id], {order_id: Decimal("1000.00")})[order_id]
+        result = calcular_total_gauss(db, [order_id], {order_id: Decimal("1000.00")}, venta_sin_iva_by_order={})[
+            order_id
+        ]
 
         assert result.total_gauss is None
         assert result.provisional is False
@@ -723,7 +760,9 @@ class TestEnvioFlexCompanyNameInTheChain:
         _varios(db)
         db.commit()
 
-        result = calcular_total_gauss(db, [order_id], {order_id: Decimal("1000.00")})[order_id]
+        result = calcular_total_gauss(db, [order_id], {order_id: Decimal("1000.00")}, venta_sin_iva_by_order={})[
+            order_id
+        ]
 
         flex_lineas = [linea for linea in result.lineas if linea[0] == "envio_flex"]
         assert len(flex_lineas) == 1
@@ -843,3 +882,173 @@ class TestCostoMercaderiaDetalle:
         known = {d.item_id: d for d in result}
         assert known["MLA1"].conocido is True
         assert known["MLA2"].conocido is False
+
+
+class TestCalcularTotalGaussRequiresVentaSinIvaKwarg:
+    """ml-ventas-neto-iibb-varios PR2.T4 (design D4): `venta_sin_iva_by_order`
+    is a REQUIRED keyword-only argument -- a caller that forgets it fails
+    loudly at call time, never silently defaults to an empty/None base."""
+
+    def test_call_without_kwarg_raises_type_error(self, db) -> None:
+        order_id = 960
+        _order(db, order_id)
+        db.commit()
+
+        with pytest.raises(TypeError):
+            calcular_total_gauss(db, [order_id], {order_id: Decimal("100.00")})
+
+
+class TestVariosRateZeroShortCircuitsEvenWithUnknownBase:
+    """ml-ventas-neto-iibb-varios PR2.T5 (design D5): a `0` rate answers
+    `monto = 0` on its own -- an order without frozen costs (unknown
+    `venta_sin_iva`) must not become newly blocked just because nobody has
+    configured a "% de varios" version."""
+
+    def test_zero_rate_with_unknown_base_still_resolves_zero(self, db) -> None:
+        order_id = 961
+        _order(db, order_id)
+        _item_no_cost(db, order_id, "MLA1")  # unknown costo_mercaderia AND unknown venta_sin_iva
+        _varios(db, porcentaje="0.00")
+        db.commit()
+
+        result = calcular_total_gauss(
+            db,
+            [order_id],
+            {order_id: Decimal("1000.00")},
+            venta_sin_iva_by_order={},  # order_id absent -> None, base unknown
+        )[order_id]
+
+        assert ("varios", Decimal("0.00"), None) in result.lineas
+        # costo_mercaderia is unresolved too (no frozen cost) -- THAT blocks
+        # the chain, but the varios line itself must read 0, not None: the
+        # short-circuit is unconditional on the rate, independent of what
+        # else in the chain is unresolved.
+        assert result.total_gauss is None
+        assert ("costo_mercaderia", None, None) in result.lineas
+
+
+class TestVariosUnknownBaseWithNonZeroRateBlocks:
+    """ml-ventas-neto-iibb-varios PR2.T6 (design D5): a CONFIGURED rate over
+    an unknown base blocks the chain -- never a silent 0 base."""
+
+    def test_unknown_base_blocks_the_chain(self, db) -> None:
+        order_id = 962
+        _order(db, order_id)
+        _item_with_cost(db, order_id, "MLA1", 1, Decimal("50.00"))  # costo resolves fine
+        db.add(VariosVentaPct(porcentaje=Decimal("5.00"), fecha_desde=date(2020, 1, 1), fecha_hasta=None))
+        db.commit()
+
+        result = calcular_total_gauss(
+            db,
+            [order_id],
+            {order_id: Decimal("1000.00")},
+            venta_sin_iva_by_order={},  # order_id absent -> None, base unresolved
+        )[order_id]
+
+        assert ("varios", None, None) in result.lineas
+        assert result.total_gauss is None
+        assert result.provisional is False
+
+
+class TestVariosWorkedExampleEndToEnd:
+    """ml-ventas-neto-iibb-varios PR2.T7: order 2000018567320906, via
+    `persistir_total_gauss` -- the worked example's full chain, regression
+    confirmation for PR2.T1-T6 together."""
+
+    def test_worked_example_via_persistir_total_gauss(self, db) -> None:
+        from app.models.ml_orders_ops import MlOrderItemOps
+        from app.models.ml_payments import MlPaymentCharge, MlPaymentOps
+
+        order_id = 2000018567320906
+        payment_id = 180131165380
+        _order(db, order_id)
+        db.add(
+            MlOrderItemOps(
+                order_id=order_id,
+                item_id="MLA2060835678",
+                variation_id=None,
+                seller_sku="SKU-1",
+                quantity=1,
+                unit_price=Decimal("597408.67"),
+            )
+        )
+        db.add(
+            MlOrderItemCosto(
+                order_id=order_id,
+                item_id="MLA2060835678",
+                variation_id=None,
+                costo_origen=Decimal("50.00"),
+                moneda="ARS",
+                costo_unitario_ars=Decimal("50.00"),
+                iva_pct=Decimal("21"),
+                precio_unitario=Decimal("597408.67"),
+                fuente="sku",
+                producto_item_id=1,
+            )
+        )
+        db.add(
+            MlPaymentOps(
+                payment_id=payment_id,
+                order_id=order_id,
+                status="approved",
+                net_received_amount=Decimal("502165.91"),
+                shipping_amount=Decimal("0.00"),
+                coupon_amount=Decimal("41679.67"),
+            )
+        )
+        db.add(
+            MlPaymentCharge(
+                payment_id=payment_id,
+                name="coupon_rebate",
+                type="coupon",
+                amount=Decimal("41679.67"),
+                refunded=Decimal("0.00"),
+            )
+        )
+        db.add(
+            MlPaymentCharge(
+                payment_id=payment_id,
+                name="meli_percentage_fee",
+                type="fee",
+                amount=Decimal("74676.08"),
+                refunded=Decimal("0.00"),
+            )
+        )
+        db.add(
+            MlPaymentCharge(
+                payment_id=payment_id,
+                name="shp_cross_docking",
+                type="shipping",
+                amount=Decimal("15190.00"),
+                refunded=Decimal("0.00"),
+            )
+        )
+        db.add(
+            MlPaymentCharge(
+                payment_id=payment_id,
+                name="tax_withholding_collector-debitos_creditos",
+                type="tax",
+                amount=Decimal("3584.45"),
+                refunded=Decimal("0.00"),
+            )
+        )
+        db.add(
+            MlPaymentCharge(
+                payment_id=payment_id,
+                name="tax_withholding_sirtac-caba",
+                type="tax",
+                amount=Decimal("1792.23"),
+                refunded=Decimal("0.00"),
+            )
+        )
+        db.add(VariosVentaPct(porcentaje=Decimal("5.00"), fecha_desde=date(2020, 1, 1), fecha_hasta=None))
+        db.commit()
+
+        resultados = persistir_total_gauss(db, [order_id])
+        db.commit()
+
+        resultado = resultados[order_id]
+        assert ("varios", Decimal("24686.31"), None) in resultado.lineas
+        # total_gauss = neto_sin_iva (412287.78) - costo_mercaderia (50.00)
+        # - varios (24686.31); flex is N/A here (order is not self_service).
+        assert resultado.total_gauss == Decimal("412287.78") - Decimal("50.00") - Decimal("24686.31")

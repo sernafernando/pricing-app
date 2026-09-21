@@ -51,22 +51,22 @@ Satisfies spec requirement: `ml-ventas-total-gauss` ("% de varios" deduction bas
 
 Depends on PR1 (reuses `descomponer_neto`/classifier). Sequential.
 
-- [ ] **PR2.T1** [seq] RED: `test_iva.py` — `base_venta_sin_iva` computed as Σ base of `CONCEPTO_VENTA_ITEM` components in the worked example (493726.17); `None` when no relevant payments / no items / `RAZON_ITEM_SIN_COSTO_CONGELADO` / `RAZON_ITEM_SIN_CANTIDAD` / `RAZON_COSTO_SIN_ITEM` fires; independent of `reconcilia`.
+- [x] **PR2.T1** [seq] RED: `test_iva.py` — `base_venta_sin_iva` computed as Σ base of `CONCEPTO_VENTA_ITEM` components in the worked example (493726.17); `None` when no relevant payments / no items / `RAZON_ITEM_SIN_COSTO_CONGELADO` / `RAZON_ITEM_SIN_CANTIDAD` / `RAZON_COSTO_SIN_ITEM` fires; independent of `reconcilia`.
   → GREEN: add `base_venta_sin_iva` field + computation to `DescomposicionNeto`/`descomponer_neto` per D4.
-- [ ] **PR2.T2** [seq, depends T1] RED: mixed-rate pack test — items at 21% and 10.5% each divided by their own `(1 + rate)` before summing (no cross-item rate use).
+- [x] **PR2.T2** [seq, depends T1] RED: mixed-rate pack test — items at 21% and 10.5% each divided by their own `(1 + rate)` before summing (no cross-item rate use).
   → GREEN: confirm per-item loop already does this (D4); fix if it aggregates before dividing.
-- [ ] **PR2.T3** [seq] RED: `test_deducciones.py` — rewrite `TestVariosDeduccion.test_percentage_applies_over_neto_sin_iva` → `..._over_goods_without_iva`; `DeduccionResolver.base` accepts `"venta_sin_iva"`; `VariosDeduccion.base = "venta_sin_iva"`.
+- [x] **PR2.T3** [seq] RED: `test_deducciones.py` — rewrite `TestVariosDeduccion.test_percentage_applies_over_neto_sin_iva` → `..._over_goods_without_iva`; `DeduccionResolver.base` accepts `"venta_sin_iva"`; `VariosDeduccion.base = "venta_sin_iva"`.
   → GREEN: implement per D4 (resolver base literal, objective-selection mapping).
-- [ ] **PR2.T4** [seq, depends T3] RED: `calcular_total_gauss` signature test — new required keyword-only `venta_sin_iva_by_order: Dict[int, Optional[Decimal]]`; call without it fails (TypeError/explicit).
+- [x] **PR2.T4** [seq, depends T3] RED: `calcular_total_gauss` signature test — new required keyword-only `venta_sin_iva_by_order: Dict[int, Optional[Decimal]]`; call without it fails (TypeError/explicit).
   → GREEN: update signature per D4; update the 14 existing test call sites + 3 prod call sites (`persistir_total_gauss` deducciones.py:620-622, `listar_ventas` ml_ventas_ops.py:982-984, `obtener_operacion` :1193-1195) to build and pass `venta_sin_iva_by_order` from the descomposiciones already in hand (zero new queries).
-- [ ] **PR2.T5** [seq] RED: rate-0 short-circuit — `raw == 0` on percentage resolver → `monto = Decimal("0")` even when base is `None` (unconfigured % stays non-blocking).
+- [x] **PR2.T5** [seq] RED: rate-0 short-circuit — `raw == 0` on percentage resolver → `monto = Decimal("0")` even when base is `None` (unconfigured % stays non-blocking).
   → GREEN: implement short-circuit ordering per D5 (check rate first, then base).
-- [ ] **PR2.T6** [seq, depends T5] RED: unknown base with `rate > 0` → blocks: `("varios", None, None)` in `lineas`, `blocking_codes == ["varios"]`, `total_gauss=None`, `provisional=False` (never a silent 0).
+- [x] **PR2.T6** [seq, depends T5] RED: unknown base with `rate > 0` → blocks: `("varios", None, None)` in `lineas`, `blocking_codes == ["varios"]`, `total_gauss=None`, `provisional=False` (never a silent 0).
   → GREEN: implement per D5.
-- [ ] **PR2.T7** [seq] RED: worked-example end-to-end via `persistir_total_gauss` — Varios 5% × 493726.17 = 24686.31 (`ROUND_HALF_UP`), subtracted at the end of the deduction chain, from `neto_sin_iva` 412287.78.
+- [x] **PR2.T7** [seq] RED: worked-example end-to-end via `persistir_total_gauss` — Varios 5% × 493726.17 = 24686.31 (`ROUND_HALF_UP`), subtracted at the end of the deduction chain, from `neto_sin_iva` 412287.78.
   → GREEN: regression confirmation (should pass from T1–T6); fix ordering if the varios line isn't last in the chain.
 - **PR2.T8** (NOT in scope, not confirmed) [optional, not spec-mandated] Only if the "do not open PR3" recommendation above is confirmed: add an optional "% de varios" base hint (`base_venta_sin_iva`) to the drawer as a small addendum here, with its own RED test. Skip if not confirmed — no spec scenario requires it.
-- [ ] **PR2.T9** [seq] Verification: `ruff format app/ tests/`, `ruff check app/ tests/`, `pytest backend/tests/services/ml_ventas_desglose` (uv venv); if T8 included, `pnpm lint` + `pnpm vitest run`.
+- [x] **PR2.T9** [seq] Verification: `ruff format app/ tests/`, `ruff check app/ tests/`, `pytest backend/tests/services/ml_ventas_desglose` (uv venv); if T8 included, `pnpm lint` + `pnpm vitest run`.
 
 ## PR3 — DISSOLVED (pending confirmation)
 
