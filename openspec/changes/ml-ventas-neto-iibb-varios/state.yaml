@@ -1,0 +1,23 @@
+schema: spec-driven
+change: ml-ventas-neto-iibb-varios
+status: active
+phases:
+  explore: done
+  proposal: done
+  spec: done
+  design: done
+  tasks: done
+  apply: pending
+  verify: pending
+  archive: pending
+recovery_hint: >
+  Materialized from Engram (session afbb7dc6-20b0-4149-af5d-259aa6a20fbd, 2026-09-21).
+  Phases explore/proposal/spec/design/tasks are done; apply is pending.
+  See tasks.md "Decisions after tasks (2026-09-21)" section for binding decisions
+  made after the tasks phase (PR3 not opened, PR1.T12 listing tooltip added,
+  sub-line/tooltip text changed to "MP $X · SIRTAC $Y", sequential PR1->PR2 chain
+  strategy branching fresh from origin/main after PR1 merges).
+dependsOn: []
+notes: >
+  Must merge and deploy BEFORE ventas-ml-rediseno resumes (see that change's
+  state.yaml dependsOn and pending-from-neto-iibb-varios note in its design.md).
