@@ -699,8 +699,13 @@ describe('The Neto column', () => {
     expect(netoButton).toHaveAttribute('title', 'MP $ 502.165,91 · SIRTAC $ 1.792,23');
   });
 
-  it('carries no tooltip when retenciones_recuperables is 0 or null', async () => {
-    mockSalesList([{ ...PAID_SALE, neto: 500, neto_depositado: 500, retenciones_recuperables: 0 }]);
+  it.each([
+    ['0', 0],
+    // null is what the backend emits for rows without relevant payments
+    // and for mixed-currency packs.
+    ['null', null],
+  ])('carries no tooltip when retenciones_recuperables is %s', async (_label, retenciones) => {
+    mockSalesList([{ ...PAID_SALE, neto: 500, neto_depositado: 500, retenciones_recuperables: retenciones }]);
     await renderWithRouter(<VentasML />);
     await waitFor(() => expect(screen.getByText('comprador1')).toBeInTheDocument());
 

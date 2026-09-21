@@ -616,13 +616,16 @@ describe('SIRTAC recuperable, componentes informativos y sub-línea de Neto (ml-
     expect(screen.getByText('MP $ 502.165,91 · SIRTAC $ 1.792,23')).toBeInTheDocument();
   });
 
-  it('does not show the sub-line when retenciones_recuperables is 0 or null', async () => {
+  it.each([
+    ['0', 0],
+    ['null', null],
+  ])('does not show the sub-line when retenciones_recuperables is %s', async (_label, retenciones) => {
     mockDetail(1001, {
       breakdown: {
         lines: [],
         neto: 500,
         neto_depositado: 500,
-        retenciones_recuperables: 0,
+        retenciones_recuperables: retenciones,
         incompleto: false,
         incomplete_reasons: [],
       },
