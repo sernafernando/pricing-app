@@ -8,6 +8,7 @@ from decimal import Decimal
 from pathlib import Path
 from typing import Any, Optional
 
+from sqlalchemy import update
 from sqlalchemy.orm import Session
 
 from app.core.compras_empresa_oc_map import sucursal_oc_para_empresa
@@ -31,6 +32,7 @@ logger = get_logger("services.oc_match.worker")
 @dataclass(frozen=True)
 class _Claimed:
     job_id: int
+    started_at: datetime
     sucursal: Optional[str]
     adjunto_path: Path
     filename: str
@@ -52,32 +54,11 @@ def process_oc_match_job(job_id: int) -> None:
         if not claimed.adjunto_path.is_file():
             raise FileNotFoundError(f"adjunto ausente en disco: {claimed.adjunto_path}")
         pool = load_pool()
-        try:
-            _write_progress_phase(claimed.job_id, "extracting")
-        except Exception:
-            logger.warning(
-                "oc-match job_id=%s fail-soft progress_phase=extracting",
-                claimed.job_id,
-                exc_info=True,
-            )
+        _write_progress_phase(claimed.job_id, "extracting", claimed.started_at)
         extracted = extract_one(pool, claimed.adjunto_path.read_bytes(), claimed.filename)
-        try:
-            _write_progress_phase(claimed.job_id, "matching")
-        except Exception:
-            logger.warning(
-                "oc-match job_id=%s fail-soft progress_phase=matching",
-                claimed.job_id,
-                exc_info=True,
-            )
+        _write_progress_phase(claimed.job_id, "matching", claimed.started_at)
         matched = match_renglones(extracted, claimed.articulos, pool)
-        try:
-            _write_progress_phase(claimed.job_id, "excel")
-        except Exception:
-            logger.warning(
-                "oc-match job_id=%s fail-soft progress_phase=excel",
-                claimed.job_id,
-                exc_info=True,
-            )
+        _write_progress_phase(claimed.job_id, "excel", claimed.started_at)
         dest = _excel_dest(claimed.job_id, matched)
         generar(matched, dest)
         excel_rel = dest.name
@@ -99,13 +80,23 @@ def process_oc_match_job(job_id: int) -> None:
         error=error,
         excel_nombre=excel_name,
     )
-    _persist(job_id, matched, acta, excel_rel, error)
+    _persist(
+        claimed.job_id,
+        matched,
+        acta,
+        excel_rel,
+        error,
+        claimed_started_at=claimed.started_at,
+    )
 
 
 def _claim_and_load(job_id: int) -> Optional[_Claimed]:
     with get_background_db() as db:
         job = claim_queued_job(db, job_id)
         if job is None:
+            return None
+        if job.started_at is None:
+            logger.warning("oc-match claim job_id=%s sin started_at; abort", job_id)
             return None
         pedido = db.get(PedidoCompra, job.pedido_id)
         adjunto = db.get(CompraAdjunto, job.attachment_id)
@@ -116,6 +107,7 @@ def _claim_and_load(job_id: int) -> Optional[_Claimed]:
         articulos = sin_combos_internos(cargar_maestro(db))
         return _Claimed(
             job_id=job.id,
+            started_at=job.started_at,
             sucursal=sucursal,
             adjunto_path=uploads / rel,
             filename=filename,
@@ -123,17 +115,26 @@ def _claim_and_load(job_id: int) -> Optional[_Claimed]:
         )
 
 
-def _write_progress_phase(job_id: int, phase: str) -> None:
-    """UX-only stage stamp in a short session. Never changes status. Fail-soft."""
+def _write_progress_phase(job_id: int, phase: str, claimed_started_at: datetime) -> None:
+    """UX-only stage stamp in a short session. Never changes status. Fail-soft + claim fence."""
     stamp = datetime.now(UTC)
     try:
         with get_background_db() as db:
-            job = db.get(OcMatchJob, job_id)
-            if job is None:
-                logger.warning("oc-match progress_phase: job_id=%s desapareció", job_id)
-                return
-            job.progress_phase = phase
-            job.updated_at = stamp
+            result = db.execute(
+                update(OcMatchJob)
+                .where(
+                    OcMatchJob.id == job_id,
+                    OcMatchJob.status == OcMatchJob.STATUS_RUNNING,
+                    OcMatchJob.started_at == claimed_started_at,
+                )
+                .values(progress_phase=phase, updated_at=stamp)
+            )
+            if int(result.rowcount or 0) == 0:
+                logger.info(
+                    "oc-match progress_phase discarded job_id=%s phase=%s (lost claim fence)",
+                    job_id,
+                    phase,
+                )
     except Exception:
         logger.warning(
             "oc-match job_id=%s no pudo persistir progress_phase=%s",
@@ -167,24 +168,45 @@ def _persist(
     acta: str,
     excel_rel: Optional[str],
     error: Optional[str],
+    *,
+    claimed_started_at: datetime,
 ) -> None:
+    """Persist done|error only if this claim still owns the job (status+started_at fence)."""
     stamp = datetime.now(UTC)
+    if error:
+        status = OcMatchJob.STATUS_ERROR
+        excel_value: Optional[str] = None
+    else:
+        status = OcMatchJob.STATUS_DONE
+        excel_value = excel_rel
     with get_background_db() as db:
+        result = db.execute(
+            update(OcMatchJob)
+            .where(
+                OcMatchJob.id == job_id,
+                OcMatchJob.status == OcMatchJob.STATUS_RUNNING,
+                OcMatchJob.started_at == claimed_started_at,
+            )
+            .values(
+                acta=acta,
+                error_message=error,
+                progress_phase=None,
+                finished_at=stamp,
+                updated_at=stamp,
+                status=status,
+                excel_rel_path=excel_value,
+            )
+        )
+        if int(result.rowcount or 0) == 0:
+            logger.info(
+                "oc-match persist discarded job_id=%s (lost claim fence)",
+                job_id,
+            )
+            return
         job = db.get(OcMatchJob, job_id)
         if job is None:
-            logger.warning("oc-match persist: job_id=%s desapareció", job_id)
+            logger.warning("oc-match persist: job_id=%s desapareció tras fence", job_id)
             return
-        job.acta = acta
-        job.error_message = error
-        job.progress_phase = None
-        job.finished_at = stamp
-        job.updated_at = stamp
-        if error:
-            job.status = OcMatchJob.STATUS_ERROR
-            job.excel_rel_path = None
-        else:
-            job.status = OcMatchJob.STATUS_DONE
-            job.excel_rel_path = excel_rel
         _replace_renglones(db, job, matched)
 
 

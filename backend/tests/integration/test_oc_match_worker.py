@@ -391,8 +391,8 @@ class TestProgressPhase:
         phases: list[str] = []
         orig = worker_mod._write_progress_phase
 
-        def spy(job_id: int, phase: str) -> None:
-            orig(job_id, phase)
+        def spy(job_id: int, phase: str, claimed_started_at: Any) -> None:
+            orig(job_id, phase, claimed_started_at)
             db.refresh(job)
             assert job.status == OcMatchJob.STATUS_RUNNING
             phases.append(phase)
@@ -404,25 +404,97 @@ class TestProgressPhase:
         assert job.progress_phase is None
         assert job.status == OcMatchJob.STATUS_DONE
 
-    def test_phase_write_raise_still_runs_extract(
+    def test_phase_helper_fail_soft_does_not_raise(
+        self,
+        db: Session,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        from datetime import UTC, datetime
+
+        @contextmanager
+        def boom_db() -> Iterator[Any]:
+            raise RuntimeError("db down for phase write")
+            yield  # pragma: no cover
+
+        monkeypatch.setattr(worker_mod, "get_background_db", boom_db)
+        worker_mod._write_progress_phase(1, "extracting", datetime.now(UTC))
+
+
+class TestClaimFence:
+    def test_stale_claim_persist_does_not_overwrite(
         self,
         db: Session,
         active_user: Any,
         tmp_path: Path,
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
+        from datetime import timedelta
+
+        from app.services.oc_match.enqueue import (
+            claim_queued_job,
+            queue_retry,
+            reclaim_stale_running,
+        )
+
         _seed_maestro(db)
         job, _adj = _pedido_adjunto_job(db, active_user, tmp_path)
-        pool = _mock_pool(monkeypatch, GOLDEN_EXTRACT, GOLDEN_MATCH)
         _patch_bg_db(monkeypatch, db)
-        boom = MagicMock(side_effect=RuntimeError("phase persist failed"))
-        monkeypatch.setattr(worker_mod, "_write_progress_phase", boom)
-        process_oc_match_job(job.id)
+
+        first = claim_queued_job(db, job.id)
+        assert first is not None and first.started_at is not None
+        stale_started = first.started_at
+        first.started_at = stale_started - timedelta(minutes=50)
+        db.flush()
+        assert reclaim_stale_running(db) == 1
         db.refresh(job)
-        assert boom.call_count == 3
-        assert pool.generate_json.call_count == 2
-        assert job.status == OcMatchJob.STATUS_DONE
+        assert job.status == OcMatchJob.STATUS_ERROR
+
+        queue_retry(db, job)
+        db.flush()
+        second = claim_queued_job(db, job.id)
+        assert second is not None and second.started_at is not None
+        assert second.started_at != stale_started
+        db.refresh(job)
+        owner_started = job.started_at
+
+        worker_mod._persist(
+            job.id,
+            {"renglones": [{"descripcion": "stale", "match": {"estado": "ok"}}]},
+            "acta stale",
+            None,
+            None,
+            claimed_started_at=stale_started,
+        )
+        db.refresh(job)
+        assert job.status == OcMatchJob.STATUS_RUNNING
+        assert job.started_at == owner_started
+        assert job.acta is None
+        assert list(job.renglones) == []
+
+        worker_mod._write_progress_phase(job.id, "matching", stale_started)
+        db.refresh(job)
         assert job.progress_phase is None
+
+        worker_mod._persist(
+            job.id,
+            {
+                "renglones": [
+                    {
+                        "descripcion": "owner",
+                        "match": {"estado": "ok", "item_id": "1", "confianza": "alta"},
+                    }
+                ]
+            },
+            "acta owner",
+            "owner.xlsx",
+            None,
+            claimed_started_at=owner_started,
+        )
+        db.refresh(job)
+        assert job.status == OcMatchJob.STATUS_DONE
+        assert job.acta == "acta owner"
+        assert len(job.renglones) == 1
+        assert job.renglones[0].descripcion == "owner"
 
 
 class TestWorkerNoMailAndSkipFab:
