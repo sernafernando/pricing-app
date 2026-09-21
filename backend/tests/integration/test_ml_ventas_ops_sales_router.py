@@ -713,14 +713,50 @@ class TestNetoInListing:
         sale = _group_holding(body, order_id)
         assert sale["neto"] == pytest.approx(60.00)
 
+    def test_sirtac_add_back_carries_neto_depositado_and_retenciones(self, db, client, admin_auth_headers, rol_admin):
+        """ml-ventas-neto-iibb-varios PR1.T12: the listing tooltip needs
+        `neto_depositado`/`retenciones_recuperables` at both row and group
+        level, sourced from the same bulk fields the drawer uses."""
+        _grant_ml_ops_ver(db, rol_admin)
+        order_id = 81100
+        _seed_order(db, order_id, date_created=datetime(2026, 9, 1, tzinfo=timezone.utc))
+        _payment(db, 81100, order_id, status="approved", net_received_amount=Decimal("800.00"))
+        _charge(db, 81100, "tax_withholding_sirtac-caba", "tax", Decimal("300.00"))
+        db.commit()
+
+        body = client.get("/api/ml-ventas-ops/sales", headers=admin_auth_headers).json()
+
+        sale = _group_holding(body, order_id)
+        assert sale["neto"] == pytest.approx(1100.00)
+        assert sale["neto_depositado"] == pytest.approx(800.00)
+        assert sale["retenciones_recuperables"] == pytest.approx(300.00)
+        assert sale["orders"][0]["neto_depositado"] == pytest.approx(800.00)
+        assert sale["orders"][0]["retenciones_recuperables"] == pytest.approx(300.00)
+
+    def test_no_sirtac_reports_zero_retenciones_not_none(self, db, client, admin_auth_headers, rol_admin):
+        _grant_ml_ops_ver(db, rol_admin)
+        order_id = 81101
+        _seed_order(db, order_id, date_created=datetime(2026, 9, 1, tzinfo=timezone.utc))
+        _payment(db, 81101, order_id, status="approved", net_received_amount=Decimal("500.00"))
+        db.commit()
+
+        body = client.get("/api/ml-ventas-ops/sales", headers=admin_auth_headers).json()
+
+        sale = _group_holding(body, order_id)
+        assert sale["retenciones_recuperables"] == pytest.approx(0.0)
+        assert sale["neto_depositado"] == pytest.approx(500.00)
+
     def test_listing_does_not_query_payments_per_row(self, db, client, admin_auth_headers, rol_admin, query_counter):
         """The whole point of the design: BATCHED, not N+1. Regardless of
         how many rows the page holds, `ml_payments_ops`/`ml_payment_charges`
-        are each queried AT MOST TWICE -- once by `compute_neto_by_order_ids`
-        (`neto`), once more by `iva.descomponer_neto` (`neto_sin_iva`, feeding
-        `total_gauss`, ml-ventas-modo-logistico PR5). Both are bulk, page-wide
-        calls -- never one query per row -- so the ceiling moved from 1 to 2,
-        it did not become unbounded."""
+        are each queried AT MOST THREE times -- once by
+        `compute_neto_by_order_ids` (`neto`), once by `iva.descomponer_neto`
+        (`neto_sin_iva`, feeding `total_gauss`, ml-ventas-modo-logistico
+        PR5), and once more by `compute_neto_desglose_by_order_ids`
+        (`neto_depositado`/`retenciones_recuperables`, ml-ventas-neto-iibb-
+        varios PR1.T12). All three are bulk, page-wide calls -- never one
+        query per row -- so the ceiling moved from 2 to 3, it did not
+        become unbounded."""
         _grant_ml_ops_ver(db, rol_admin)
         when = datetime(2026, 9, 1, tzinfo=timezone.utc)
         for i in range(5):
@@ -734,8 +770,8 @@ class TestNetoInListing:
             resp = client.get("/api/ml-ventas-ops/sales", headers=admin_auth_headers)
         assert resp.status_code == 200
 
-        assert counter.matching("ml_payments_ops") <= 2
-        assert counter.matching("ml_payment_charges") <= 2
+        assert counter.matching("ml_payments_ops") <= 3
+        assert counter.matching("ml_payment_charges") <= 3
 
 
 class TestMixedCurrencyPack:

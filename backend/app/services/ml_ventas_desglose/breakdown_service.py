@@ -174,6 +174,7 @@ __all__ = [
     "OperationBreakdown",
     "compute_breakdown",
     "compute_neto_by_order_ids",
+    "compute_neto_desglose_by_order_ids",
     "ItemLine",
     "REASON_ITEM_LINES_NO_ITEMS",
     "REASON_ITEM_LINES_ORDEN_SIN_ITEMS",
@@ -1003,6 +1004,58 @@ def compute_neto_by_order_ids(db: Session, order_ids: Sequence[int]) -> Dict[int
             seller_charges = [c for c in payment_charges if is_seller_charge(c.type, c.name)]
             neto += payment_effective_net(payment, seller_charges)
         result[order_id] = neto
+
+    return result
+
+
+def compute_neto_desglose_by_order_ids(
+    db: Session, order_ids: Sequence[int]
+) -> Dict[int, Tuple[Optional[Decimal], Optional[Decimal]]]:
+    """Bulk `(neto_depositado, retenciones_recuperables)` per order, in the
+    same two-query shape as `compute_neto_by_order_ids` -- ml-ventas-neto-
+    iibb-varios PR1.T12, for the listing's Neto tooltip (decision b),
+    never one query per row.
+
+    `retenciones_recuperables` is `0` (never `None`) when the order has no
+    SIRTAC withholding -- a known absence. Both are `None` only when the
+    order has no relevant payments at all, mirroring
+    `compute_neto_by_order_ids`'s own `None` rule."""
+    order_ids = list(order_ids)
+    result: Dict[int, Tuple[Optional[Decimal], Optional[Decimal]]] = {oid: (None, None) for oid in order_ids}
+    if not order_ids:
+        return result
+
+    payments = db.query(MlPaymentOps).filter(MlPaymentOps.order_id.in_(order_ids)).all()
+    payments_by_order: Dict[int, List[MlPaymentOps]] = {}
+    for payment in payments:
+        payments_by_order.setdefault(payment.order_id, []).append(payment)
+
+    relevant_payments = [p for p in payments if p.status in RELEVANT_PAYMENT_STATUSES]
+    payment_ids = [p.payment_id for p in relevant_payments]
+
+    charges: List[MlPaymentCharge] = []
+    if payment_ids:
+        charges = db.query(MlPaymentCharge).filter(MlPaymentCharge.payment_id.in_(payment_ids)).all()
+    charges_by_payment: Dict[int, List[MlPaymentCharge]] = {}
+    for charge in charges:
+        charges_by_payment.setdefault(charge.payment_id, []).append(charge)
+
+    for order_id, order_payments in payments_by_order.items():
+        order_relevant = [p for p in order_payments if p.status in RELEVANT_PAYMENT_STATUSES]
+        if not order_relevant:
+            result[order_id] = (None, None)
+            continue
+        depositado = Decimal("0")
+        recuperable = Decimal("0")
+        for payment in order_relevant:
+            payment_charges = charges_by_payment.get(payment.payment_id, [])
+            seller_charges = [c for c in payment_charges if is_seller_charge(c.type, c.name)]
+            # `payment_effective_net` already carries the SIRTAC add-back
+            # (D2); subtracting it back off gives exactly what ML deposited.
+            recuperable_here = recoverable_withholding_total(seller_charges)
+            depositado += payment_effective_net(payment, seller_charges) - recuperable_here
+            recuperable += recuperable_here
+        result[order_id] = (depositado, recuperable)
 
     return result
 

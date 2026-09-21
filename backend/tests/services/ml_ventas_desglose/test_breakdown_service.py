@@ -46,6 +46,7 @@ from app.services.ml_ventas_desglose.breakdown_service import (
     REASON_ITEM_LINES_NO_ITEMS,
     REASON_ITEM_LINES_ORDEN_SIN_ITEMS,
     compute_neto_by_order_ids,
+    compute_neto_desglose_by_order_ids,
     REASON_PAYMENTS_NOT_COUNTABLE,
     REASON_PAYMENTS_NOT_SYNCED,
     compute_breakdown,
@@ -680,6 +681,44 @@ class TestRecoverableLineOrigen:
 
         assert panel.neto is None
         assert panel.neto_depositado is None
+
+
+class TestBulkNetoDesglose:
+    """ml-ventas-neto-iibb-varios PR1.T12: the listing needs
+    `neto_depositado`/`retenciones_recuperables` per order in bulk (two
+    queries, same shape as `compute_neto_by_order_ids`), never one query
+    per row."""
+
+    def test_bulk_matches_compute_breakdown_worked_example(self, db) -> None:
+        order_id = 2000018567320906
+        payment_id = 180131165380
+        _item(db, order_id, "MLA2060835678", unit_price=Decimal("597408.67"))
+        _order(db, order_id)
+        _payment(db, payment_id, order_id, net_received_amount=Decimal("502165.91"))
+        _charge(db, payment_id, "meli_percentage_fee", "fee", Decimal("74676.08"))
+        _charge(db, payment_id, "tax_withholding_sirtac-caba", "tax", Decimal("1792.23"))
+        db.commit()
+
+        result = compute_neto_desglose_by_order_ids(db, [order_id])[order_id]
+
+        assert result == (Decimal("502165.91"), Decimal("1792.23"))
+
+    def test_no_sirtac_is_zero_not_none(self, db) -> None:
+        _order(db, 28)
+        _payment(db, 28, 28, net_received_amount=Decimal("500.00"))
+        db.commit()
+
+        result = compute_neto_desglose_by_order_ids(db, [28])[28]
+
+        assert result == (Decimal("500.00"), Decimal("0"))
+
+    def test_no_relevant_payments_is_none_none(self, db) -> None:
+        _order(db, 29)
+        db.commit()
+
+        result = compute_neto_desglose_by_order_ids(db, [29])[29]
+
+        assert result == (None, None)
 
 
 class TestPerModeShippingSplit:
