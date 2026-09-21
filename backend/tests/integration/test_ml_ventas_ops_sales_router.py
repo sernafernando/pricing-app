@@ -816,6 +816,44 @@ class TestMixedCurrencyPack:
         assert group["total_amount"] is None
         assert group["neto"] is None, "no fabricated 120 across two currencies"
 
+    def test_a_mixed_currency_pack_reports_no_tooltip_amounts_either(self, db, client, admin_auth_headers, rol_admin):
+        """The Neto cell's tooltip ("MP $X · SIRTAC $Y") must not add ARS to
+        USD either. Under the same gate `neto` obeys, a pack showing a
+        null Neto next to a summed tooltip would contradict itself."""
+        _grant_ml_ops_ver(db, rol_admin)
+        when = datetime(2026, 9, 1, tzinfo=timezone.utc)
+        _seed_order(db, 1121, pack_id=888, total_amount=100, date_created=when)
+        _seed_order(db, 1122, pack_id=888, total_amount=50, date_created=when)
+        db.query(MlOrdersOps).filter(MlOrdersOps.order_id == 1122).update({"currency_id": "USD"})
+        _payment(db, 91121, 1121, status="approved", net_received_amount=Decimal("80"))
+        _payment(db, 91122, 1122, status="approved", net_received_amount=Decimal("40"))
+        db.commit()
+
+        body = client.get("/api/ml-ventas-ops/sales", headers=admin_auth_headers).json()
+        group = _group_holding(body, 1121)
+
+        assert group["neto_depositado"] is None, "no fabricated 120 across two currencies"
+        assert group["retenciones_recuperables"] is None
+
+
+class TestMultiMemberPackTooltipAmounts:
+    def test_a_single_currency_pack_sums_its_members(self, db, client, admin_auth_headers, rol_admin):
+        """Two ARS orders in one pack: the tooltip amounts are the members'
+        sum, the same all-or-nothing rule `neto` follows."""
+        _grant_ml_ops_ver(db, rol_admin)
+        when = datetime(2026, 9, 1, tzinfo=timezone.utc)
+        _seed_order(db, 1131, pack_id=999, total_amount=100, date_created=when)
+        _seed_order(db, 1132, pack_id=999, total_amount=50, date_created=when)
+        _payment(db, 91131, 1131, status="approved", net_received_amount=Decimal("80"))
+        _payment(db, 91132, 1132, status="approved", net_received_amount=Decimal("40"))
+        db.commit()
+
+        body = client.get("/api/ml-ventas-ops/sales", headers=admin_auth_headers).json()
+        group = _group_holding(body, 1131)
+
+        assert group["neto_depositado"] == pytest.approx(120)
+        assert group["retenciones_recuperables"] == pytest.approx(0)
+
 
 class TestDateRangeFilter:
     """`date_from`/`date_to` replace the month picker. Both bounds are

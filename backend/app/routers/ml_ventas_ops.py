@@ -1117,14 +1117,21 @@ def listar_ventas(
         group_total_gauss_provisional_falta = next(
             (m.total_gauss_provisional_falta for m in members if m.total_gauss_provisional_falta), None
         )
-        # ml-ventas-neto-iibb-varios PR1.T12: sum the members, all-or-
-        # nothing exactly like `group_neto` -- a pack where one member is
-        # unknown reads as unknown, never a partial sum.
+        # ml-ventas-neto-iibb-varios PR1.T12: sum the members under the
+        # same two gates as `group_neto` -- all-or-nothing on unknown
+        # members AND `single_currency`. Without the currency gate a mixed
+        # pack would show a null Neto beside a tooltip adding ARS to USD.
         member_neto_depositado = [m.neto_depositado for m in members]
-        group_neto_depositado = None if any(v is None for v in member_neto_depositado) else sum(member_neto_depositado)
+        group_neto_depositado = (
+            None
+            if (single_currency is None or any(v is None for v in member_neto_depositado))
+            else sum(member_neto_depositado)
+        )
         member_retenciones_recuperables = [m.retenciones_recuperables for m in members]
         group_retenciones_recuperables = (
-            None if any(v is None for v in member_retenciones_recuperables) else sum(member_retenciones_recuperables)
+            None
+            if (single_currency is None or any(v is None for v in member_retenciones_recuperables))
+            else sum(member_retenciones_recuperables)
         )
         groups.append(
             SaleGroup(

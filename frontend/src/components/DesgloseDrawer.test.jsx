@@ -556,14 +556,16 @@ describe('SIRTAC recuperable, componentes informativos y sub-línea de Neto (ml-
 
     await screen.findByRole('dialog', { name: /desglose de costos/i });
 
-    const subtractionList = screen.getByRole('list', { name: '' }) || screen.getAllByRole('list')[0];
-    // The subtraction list must hold ONLY the api line -- SIRTAC renders
-    // elsewhere, muted, never counted against Neto.
+    // Located through the api line it must contain, not by position or an
+    // empty accessible name: the subtraction list holds ONLY api lines --
+    // SIRTAC renders elsewhere, muted, never counted against Neto.
+    const subtractionList = screen.getByText('Cargo por vender').closest('ul');
+    expect(subtractionList).not.toBeNull();
     expect(within(subtractionList).queryByText('Retención IIBB (CABA) · SIRTAC')).not.toBeInTheDocument();
-    expect(within(subtractionList).getByText('Cargo por vender')).toBeInTheDocument();
 
     const recuperableRow = screen.getByText('Retención IIBB (CABA) · SIRTAC').closest('li');
     expect(recuperableRow).toBeInTheDocument();
+    expect(subtractionList.contains(recuperableRow)).toBe(false);
   });
 
   it('renders an informativo IVA componente muted, with no base/IVA figures', async () => {
