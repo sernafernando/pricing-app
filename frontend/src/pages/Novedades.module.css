@@ -1,0 +1,65 @@
+/*
+ * Minimal structural styles only — visual design comes from an OpenPencil
+ * mockup applied separately. Keep class names semantic and stable so that
+ * restyle can happen without touching Novedades.jsx.
+ */
+
+.page {
+  padding: var(--spacing-lg);
+  max-width: 720px;
+  margin: 0 auto;
+  color: var(--text-primary);
+}
+
+.header {
+  margin-bottom: var(--spacing-lg);
+}
+
+.title {
+  color: var(--text-primary);
+  margin: 0 0 var(--spacing-xs) 0;
+}
+
+.subtitle {
+  color: var(--text-secondary);
+  margin: 0;
+}
+
+.empty {
+  color: var(--text-secondary);
+  padding: var(--spacing-lg);
+}
+
+.entry {
+  padding: var(--spacing-md) 0;
+}
+
+.entryHeader {
+  margin-bottom: var(--spacing-sm);
+}
+
+.entryTitle {
+  color: var(--text-primary);
+  margin: 0;
+  scroll-margin-top: var(--spacing-lg);
+}
+
+.entryDate {
+  color: var(--text-tertiary);
+  margin: 0;
+}
+
+/* Readable prose defaults for the rendered markdown body */
+.entryBody {
+  color: var(--text-primary);
+  line-height: 1.6;
+}
+
+.entryBody :global(a) {
+  color: var(--brand-primary);
+}
+
+.entryBody :global(code),
+.entryBody :global(pre) {
+  background: var(--bg-secondary);
+}
