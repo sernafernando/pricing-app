@@ -26,7 +26,6 @@ from app.services.ml_ventas_desglose.breakdown_service import (
     tax_label,
 )
 from app.services.ml_ventas_desglose.iva import (
-    CONCEPTO_CUPON_ML,
     CONCEPTO_ENVIO_COMPRADOR,
     CONCEPTO_IVA_NO_DETERMINADO,
     IVA_ML_DIVISOR,
@@ -425,18 +424,38 @@ class TestThePositiveSideIsNotOnlyTheItems:
         assert result.reconcilia is True, f"no cerró por {result.diferencia}"
         assert result.neto_sin_iva is not None
 
-    def test_ml_funded_coupon_is_a_component(self, db) -> None:
-        order_id = 901
-        _item_with_frozen_cost(db, order_id, "MLA1", Decimal("1000.00"), Decimal("21"))
-        _payment(db, 9011, order_id, net_received_amount=Decimal("1200.00"), coupon_amount=Decimal("200.00"))
+    def test_ml_funded_coupon_is_already_inside_the_item_price(self, db) -> None:
+        """Production order 2000018567320906, payment 180131165380, values
+        as stored. The frozen `unit_price` is the FULL price and equals
+        `transaction_amount`; ML's coupon share is already inside it, and
+        `net_received_amount` is that price minus the seller charges. Adding
+        `coupon_amount` on top counted it twice, the split missed by exactly
+        the coupon, and `neto_sin_iva` went None. The fixture this replaces
+        had a net LARGER than the price, which no real sale produces."""
+        order_id = 2000018567320906
+        payment_id = 180131165380
+        _item_with_frozen_cost(db, order_id, "MLA2060835678", Decimal("597408.67"), Decimal("21"))
+        _payment(
+            db,
+            payment_id,
+            order_id,
+            net_received_amount=Decimal("502165.91"),
+            shipping_amount=Decimal("0.00"),
+            coupon_amount=Decimal("41679.67"),
+        )
+        _charge(db, payment_id, "coupon_rebate", "coupon", Decimal("41679.67"), Decimal("0.00"))
+        _charge(db, payment_id, "meli_percentage_fee", "fee", Decimal("74676.08"), Decimal("0.00"))
+        _charge(db, payment_id, "shp_cross_docking", "shipping", Decimal("15190.00"), Decimal("0.00"))
+        _charge(
+            db, payment_id, "tax_withholding_collector-debitos_creditos", "tax", Decimal("3584.45"), Decimal("0.00")
+        )
+        _charge(db, payment_id, "tax_withholding_sirtac-caba", "tax", Decimal("1792.23"), Decimal("0.00"))
         db.commit()
 
         result = descomponer_neto(db, [order_id])[order_id]
 
-        cupones = [c for c in result.componentes if c.concepto == CONCEPTO_CUPON_ML]
-        assert len(cupones) == 1
-        assert cupones[0].bruto == Decimal("200.00")
         assert result.reconcilia is True, f"no cerró por {result.diferencia}"
+        assert result.neto_sin_iva is not None
 
     def test_a_rejected_payments_shipping_never_enters(self, db) -> None:
         """`neto` is built from the relevant payments only. Reading shipping

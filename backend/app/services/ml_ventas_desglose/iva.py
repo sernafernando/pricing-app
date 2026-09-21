@@ -92,15 +92,17 @@ CONCEPTO_VENTA_ITEM = "Venta"
 # discipline of never discarding an unrecognised name.
 CONCEPTO_IVA_NO_DETERMINADO = "IVA no determinado"
 
-# Positive terms that are INSIDE `net_received_amount` but are not the
-# goods. Leaving them out was not a missing feature, it was a broken
-# premise: `neto` derives from what the buyer PAID, and the buyer pays the
-# shipping the seller charges plus, on a coupon, only part of the price --
-# ML funds the rest and settles it to us. Decomposing only the items made
+# Positive term that is INSIDE `net_received_amount` but is not the goods:
+# the shipping the seller charges the buyer. Decomposing only the items made
 # every such order fail to reconcile, and `neto_sin_iva` went silently
-# None. Both carry ML's 21%, same as every other ML-side figure.
+# None. It carries ML's 21%, same as every other ML-side figure.
+#
+# An ML-funded coupon is deliberately NOT a component. The frozen
+# `unit_price` is the full price, equal to `transaction_amount`, so ML's
+# share of the coupon is already inside the goods line. Adding
+# `coupon_amount` on top counted it twice and the split missed by exactly
+# that amount (production order 2000018567320906).
 CONCEPTO_ENVIO_COMPRADOR = "Envío cobrado al comprador"
-CONCEPTO_CUPON_ML = "Cupón financiado por ML"
 
 # Facts that make a per-rate decomposition IMPOSSIBLE, as opposed to merely
 # unbalanced. Reported by name for the same reason `breakdown_service` names
@@ -296,26 +298,23 @@ def descomponer_neto(db: Session, order_ids: Sequence[int]) -> Dict[int, Descomp
                 )
             )
 
-        # Shipping the BUYER paid and the coupon share ML funded are both
-        # inside `net_received_amount`, so they have to appear on the
-        # positive side too or the sum can never reach it.
+        # Shipping the BUYER paid is inside `net_received_amount`, so it has
+        # to appear on the positive side too or the sum can never reach it.
+        # The ML-funded coupon does not: it is already inside the item price
+        # (see `CONCEPTO_ENVIO_COMPRADOR`).
         # `order_relevant`, NOT every payment: `neto` was built from the
         # relevant ones only, so adding a rejected payment's shipping here
         # would inflate the positive side against a net that never saw it.
         for payment in order_relevant:
-            for valor, concepto in (
-                (payment.shipping_amount, CONCEPTO_ENVIO_COMPRADOR),
-                (payment.coupon_amount, CONCEPTO_CUPON_ML),
-            ):
-                if valor is None:
-                    continue
-                bruto = Decimal(str(valor))
-                if bruto == 0:
-                    continue
-                base, iva = _split(bruto, IVA_ML_DIVISOR)
-                componentes.append(
-                    ComponenteIVA(concepto=concepto, alicuota=IVA_ML_PCT, bruto=bruto, base=base, iva=iva)
-                )
+            if payment.shipping_amount is not None:
+                bruto = Decimal(str(payment.shipping_amount))
+                if bruto != 0:
+                    base, iva = _split(bruto, IVA_ML_DIVISOR)
+                    componentes.append(
+                        ComponenteIVA(
+                            concepto=CONCEPTO_ENVIO_COMPRADOR, alicuota=IVA_ML_PCT, bruto=bruto, base=base, iva=iva
+                        )
+                    )
             if payment.transaction_amount_refunded:
                 # A refund scales `neto` down, but nothing tells us WHICH
                 # items came back -- so the per-rate split of the goods is
