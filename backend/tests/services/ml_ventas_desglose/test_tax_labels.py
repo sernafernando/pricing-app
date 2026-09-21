@@ -223,3 +223,14 @@ class TestAnUnknownNameKeepsItsMoney:
         label = tax_label("tax_withholding_nuevo-marte")
 
         assert isinstance(label, str) and label.strip()
+
+
+def test_an_unknown_but_well_formed_withholding_keeps_the_generic_label() -> None:
+    """Pins pre-refactor behavior: before `withholding_kind` existed,
+    `tax_label` already answered the generic bucket for a kind not in
+    `_TAX_KINDS` (`if kind is None: return CONCEPTO_IMPUESTOS`). The
+    refactor must not change that, and must not start claiming a kind."""
+    from app.services.ml_ventas_desglose.breakdown_service import CONCEPTO_IMPUESTOS, tax_label, withholding_kind
+
+    assert tax_label("tax_withholding_regimen_nuevo-caba") == CONCEPTO_IMPUESTOS
+    assert withholding_kind("tax_withholding_regimen_nuevo-caba") is None

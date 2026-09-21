@@ -29,6 +29,8 @@ from __future__ import annotations
 from datetime import date, datetime, timezone
 from decimal import Decimal
 
+import pytest
+
 from app.models.codigo_postal_cordon import CodigoPostalCordon
 from app.models.etiqueta_envio import EtiquetaEnvio
 from app.models.logistica import Logistica
@@ -1294,3 +1296,72 @@ class TestLinesSurviveAnUnformableTotal:
         assert result.item_lines_reconcilia is False
         assert result.item_lines_razon == REASON_ITEM_LINES_ORDEN_SIN_ITEMS
         assert result.monto_operacion is None
+
+
+# Production payments, values as stored (both fully refunded; no partial
+# refund carrying a SIRTAC charge was found in production on 2026-09-21).
+_REFUNDED_WITH_SIRTAC = {
+    # payment 180185789862 / order 2000018573170546
+    "neuquen": (
+        180185789862,
+        2000018573170546,
+        "84955.89",
+        "132510.00",
+        (
+            ("financing_add_on_fee", "fee", "17756.34"),
+            ("meli_percentage_fee", "fee", "19015.18"),
+            ("shp_cross_docking", "shipping", "9590.00"),
+            ("tax_withholding_collector-debitos_creditos", "tax", "795.06"),
+            ("tax_withholding_sirtac-neuquen", "tax", "397.53"),
+        ),
+    ),
+    # payment 180131208268 / order 2000018567271536: SIRTAC AND a generic
+    # "Retención" (no regime) on the same payment.
+    "santa_fe_generic": (
+        180131208268,
+        2000018567271536,
+        "10163.18",
+        "13999.00",
+        (
+            ("flat_fee", "fee", "1330.00"),
+            ("meli_percentage_fee", "fee", "2169.84"),
+            ("tax_withholding_collector-debitos_creditos", "tax", "83.99"),
+            ("tax_withholding-santa_fe", "tax", "209.99"),
+            ("tax_withholding_sirtac-santa_fe", "tax", "42.00"),
+        ),
+    ),
+}
+
+
+class TestRefundBranchWithSirtac:
+    """`payment_effective_net`'s refund branch: `seller_refunded` already
+    gives back the refunded share of SIRTAC, and the add-back returns only
+    `amount - refunded`. On a full refund the two compose to zero -- a sale
+    that was returned left nothing, SIRTAC included. Every earlier SIRTAC
+    refund test set `refunded` on the charge with the payment's
+    `transaction_amount_refunded` at 0, so none ran this branch."""
+
+    @pytest.mark.parametrize("case", sorted(_REFUNDED_WITH_SIRTAC))
+    def test_fully_refunded_payment_with_sirtac_nets_zero_on_every_path(self, db, case) -> None:
+        payment_id, order_id, net, refunded_total, charges = _REFUNDED_WITH_SIRTAC[case]
+        _order(db, order_id)
+        _payment(
+            db,
+            payment_id,
+            order_id,
+            status="refunded",
+            net_received_amount=Decimal(net),
+            transaction_amount_refunded=Decimal(refunded_total),
+        )
+        for name, type_, amount in charges:
+            _charge(db, payment_id, name, type_, Decimal(amount), refunded=Decimal(amount))
+        db.commit()
+
+        breakdown = compute_breakdown(db, [order_id])
+        assert breakdown.neto == Decimal("0.00")
+        assert breakdown.neto_depositado == Decimal("0.00")
+        assert breakdown.retenciones_recuperables == Decimal("0.00")
+
+        # The listing's two bulk paths must agree with the detail on this branch too.
+        assert compute_neto_by_order_ids(db, [order_id])[order_id] == Decimal("0.00")
+        assert compute_neto_desglose_by_order_ids(db, [order_id])[order_id] == (Decimal("0.00"), Decimal("0.00"))
