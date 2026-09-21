@@ -1,0 +1,54 @@
+change: feat-compras-oc-match-gemini-fallback
+change_id: feat-compras-oc-match-gemini-fallback
+project: pricing-app
+phase: tasks
+status: ready_for_apply
+artifact_store: openspec
+persistence_mode: openspec
+parent_change: feat-compras-oc-match
+parent_pr: 1304
+sibling_change: feat-compras-oc-match-ops-ux
+created_at: "2026-09-21"
+updated_at: "2026-09-21"
+artifacts:
+  exploration: openspec/changes/feat-compras-oc-match-gemini-fallback/exploration.md
+  proposal: openspec/changes/feat-compras-oc-match-gemini-fallback/proposal.md
+  specs:
+    - openspec/changes/feat-compras-oc-match-gemini-fallback/specs/compras-oc-match-pipeline/spec.md
+  design: openspec/changes/feat-compras-oc-match-gemini-fallback/design.md
+  tasks: openspec/changes/feat-compras-oc-match-gemini-fallback/tasks.md
+next_phase: apply
+nextRecommended: apply
+notes: >
+  Planning complete. In-place GeminiPool: 3.5-flash-lite primary, 3.1-flash-lite
+  fallback, 429 key-then-model, 503 5s/10s then rotate. 11 unchecked tasks,
+  single PR, 80-180 lines. Ready for apply. No production code in planning.
+locked_decisions:
+  primary_model_env: GEMINI_MODEL
+  primary_model_default: gemini-3.5-flash-lite
+  fallback_model_env: GEMINI_MODEL_FALLBACK
+  fallback_model_default: gemini-3.1-flash-lite
+  fallback_disabled_when: empty_or_same_as_primary
+  keys: 3
+  keys_shared_across_models: true
+  cuota_policy: rotate_keys_then_fallback_once
+  demanda_policy: max_2_short_sleeps_then_rotate_then_fallback_once
+  demanda_sleeps_seconds: [5, 10]
+  attempts_cap: 12
+  attempts_scope: per_generate_json
+  model_switch_persists_on_pool: true
+  log_keys: never
+  log_labels: model_plus_key_n_of_m
+  seam: in_place_gemini_pool
+  reclaim_unchanged: 45m
+  ui_unchanged: true
+  worker_extract_match_unchanged: true
+pending_decisions: {}
+review_forecast:
+  estimated_changed_lines: "80-180"
+  budget_risk: Low
+  chained_prs: No
+  delivery_strategy: single-pr
+  decision_needed_before_apply: No
+  chain_strategy: pending
+task_count: 11
