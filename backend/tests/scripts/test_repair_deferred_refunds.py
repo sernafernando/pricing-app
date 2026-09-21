@@ -67,7 +67,7 @@ def _seed_affected_payment(db, payment_id: int = 500, order_id: int = 1) -> None
 class TestCandidateSelection:
     def test_refunded_payment_with_unrefunded_charge_is_a_candidate(self, db):
         _seed_affected_payment(db)
-        ids = repair_deferred_refunds._find_candidate_payment_ids(limit=100)
+        ids = repair_deferred_refunds._find_candidate_payment_ids()
         assert ids == [500]
 
     def test_fully_refunded_payment_is_not_a_candidate(self, db):
@@ -78,7 +78,7 @@ class TestCandidateSelection:
             )
         )
         db.commit()
-        assert repair_deferred_refunds._find_candidate_payment_ids(limit=100) == []
+        assert repair_deferred_refunds._find_candidate_payment_ids() == []
 
     def test_non_refunded_payment_is_not_a_candidate(self, db):
         db.add(MlPaymentOps(payment_id=502, order_id=3, status="approved"))
@@ -88,7 +88,17 @@ class TestCandidateSelection:
             )
         )
         db.commit()
-        assert repair_deferred_refunds._find_candidate_payment_ids(limit=100) == []
+        assert repair_deferred_refunds._find_candidate_payment_ids() == []
+
+    def test_every_candidate_is_selected_with_no_cap(self, db):
+        # A backfill must cover the whole affected set. A cap here would
+        # truncate silently, and re-running would not advance: a payment ML
+        # still reports unrefunded stays a candidate forever and keeps
+        # re-occupying the first slots of the payment_id ordering.
+        for offset in range(201):
+            _seed_affected_payment(db, payment_id=1000 + offset, order_id=1000 + offset)
+        ids = repair_deferred_refunds._find_candidate_payment_ids()
+        assert len(ids) == 201
 
 
 class TestExitStatus:
@@ -105,7 +115,7 @@ class TestExitStatus:
             "run_repair",
             lambda **kwargs: repair_deferred_refunds.RepairResult(dry_run=False, payments_processed=3),
         )
-        repair_deferred_refunds.main(["--limit", "10"])
+        repair_deferred_refunds.main([])
 
     def test_a_run_with_write_failures_exits_non_zero(self, db, monkeypatch):
         monkeypatch.setattr(
@@ -116,7 +126,7 @@ class TestExitStatus:
             ),
         )
         with pytest.raises(SystemExit) as exc:
-            repair_deferred_refunds.main(["--limit", "10"])
+            repair_deferred_refunds.main([])
         assert exc.value.code != 0, "una corrida con fallos de escritura salio como exitosa"
 
     def test_a_run_with_mapping_errors_exits_non_zero(self, db, monkeypatch):
@@ -133,7 +143,7 @@ class TestExitStatus:
             ),
         )
         with pytest.raises(SystemExit) as exc:
-            repair_deferred_refunds.main(["--limit", "10"])
+            repair_deferred_refunds.main([])
         assert exc.value.code != 0, "un error de mapeo salio como corrida exitosa"
 
     def test_a_run_with_fetch_failures_exits_non_zero(self, db, monkeypatch):
@@ -145,7 +155,7 @@ class TestExitStatus:
             ),
         )
         with pytest.raises(SystemExit) as exc:
-            repair_deferred_refunds.main(["--limit", "10"])
+            repair_deferred_refunds.main([])
         assert exc.value.code != 0
 
 
@@ -155,7 +165,7 @@ class TestRepairRun:
         mock_get_payment = AsyncMock()
         monkeypatch.setattr(ml_webhook_client, "get_payment", mock_get_payment)
 
-        result = repair_deferred_refunds.run_repair(limit=100, dry_run=True)
+        result = repair_deferred_refunds.run_repair(dry_run=True)
 
         mock_get_payment.assert_not_called()
         assert result.candidates_found == 1
@@ -172,7 +182,7 @@ class TestRepairRun:
         )
         monkeypatch.setattr(ml_webhook_client, "get_payment", AsyncMock(return_value=payload))
 
-        result = repair_deferred_refunds.run_repair(limit=100, dry_run=False)
+        result = repair_deferred_refunds.run_repair(dry_run=False)
 
         assert result.payments_processed == 1
         assert result.charges_changed == 1
@@ -189,7 +199,7 @@ class TestRepairRun:
         )
         monkeypatch.setattr(ml_webhook_client, "get_payment", AsyncMock(return_value=payload))
 
-        result = repair_deferred_refunds.run_repair(limit=100, dry_run=False)
+        result = repair_deferred_refunds.run_repair(dry_run=False)
 
         assert result.charges_changed == 0
         assert result.charges_unchanged == 1
@@ -226,7 +236,7 @@ class TestRepairRun:
             ml_webhook_client, "get_payment", AsyncMock(side_effect=lambda pid: _payment_payload(pid, 1, charges))
         )
 
-        result = repair_deferred_refunds.run_repair(limit=100, dry_run=False)
+        result = repair_deferred_refunds.run_repair(dry_run=False)
 
         assert result.charges_changed == 3, "los cargos siguen contandose uno por uno"
         assert result.payments_changed == 1, f"un pago con 3 cargos conto como {result.payments_changed} pagos"
@@ -258,7 +268,7 @@ class TestRepairRun:
 
         monkeypatch.setattr(repair_deferred_refunds, "upsert_payment", _fails_for_the_first)
 
-        result = repair_deferred_refunds.run_repair(limit=100, dry_run=False)
+        result = repair_deferred_refunds.run_repair(dry_run=False)
 
         assert result.payments_processed == 1, "el fallo de escritura corto la corrida"
         assert result.payments_write_failed == 1, "no se conto el fallo de escritura"
@@ -280,7 +290,7 @@ class TestRepairRun:
 
         monkeypatch.setattr(ml_webhook_client, "get_payment", raises)
 
-        result = repair_deferred_refunds.run_repair(limit=100, dry_run=False)
+        result = repair_deferred_refunds.run_repair(dry_run=False)
 
         assert result.payments_fetch_failed == 1
         assert result.payments_processed == 0
