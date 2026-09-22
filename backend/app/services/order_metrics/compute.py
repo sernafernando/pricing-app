@@ -24,6 +24,55 @@ from app.services.order_metrics.types import GaussStatus, OrderMetrics
 logger = logging.getLogger(__name__)
 
 
+# `ml_order_metrics.markup_pct` is NUMERIC(9, 2): anything whose absolute
+# value exceeds this cannot be stored, and on Postgres the INSERT would raise
+# and abort the caller's whole transaction (the sweep batch, through
+# `persistir_total_gauss`).
+MARKUP_PCT_MAX = Decimal("9999999.99")
+
+
+def normalize_markup_pct(
+    markup_pct: Optional[Decimal],
+    costo_mercaderia: Optional[Decimal],
+    gauss_status: GaussStatus,
+    *,
+    order_id: int,
+) -> Optional[Decimal]:
+    """The markup to STORE, or None when it is unknown.
+
+    The producer must never raise on the write path, so every value the
+    stored row cannot hold, or that contradicts the order's own state,
+    becomes NULL (unknown) with a warning -- never clamped, never
+    fabricated:
+
+    - no cost, or a zero cost: division by zero, same rule as
+      `deducciones.py` (~562-571);
+    - an unresolved order: its Total Gauss is NULL, so no markup can exist;
+    - a value beyond `MARKUP_PCT_MAX`: e.g. a 0.01 frozen unit cost on a
+      normal-priced order. A markup of millions of percent is a data
+      problem in the cost, not a number worth showing.
+    """
+    if markup_pct is None:
+        return None
+    reason = None
+    if costo_mercaderia is None or costo_mercaderia == 0:
+        reason = "cost is missing or zero"
+    elif gauss_status == GaussStatus.UNRESOLVED:
+        reason = "order is unresolved"
+    elif abs(markup_pct) > MARKUP_PCT_MAX:
+        reason = "value exceeds the stored column"
+    if reason is None:
+        return markup_pct
+    logger.warning(
+        "order_metrics: markup_pct=%s normalized to None for order_id=%s (%s; costo_mercaderia=%s)",
+        markup_pct,
+        order_id,
+        reason,
+        costo_mercaderia,
+    )
+    return None
+
+
 def compute_order_metrics(db: Session, order_ids: Sequence[int]) -> Dict[int, OrderMetrics]:
     """One `OrderMetrics` per `order_id`, resolved with the SAME bulk calls
     (and therefore the SAME query count) `persistir_total_gauss` used to
@@ -81,22 +130,7 @@ def compute_order_metrics(db: Session, order_ids: Sequence[int]) -> Dict[int, Or
             gauss_status = GaussStatus.PROVISIONAL if resultado.provisional else GaussStatus.OK
             unresolved_reason = None
 
-        # `costo_mercaderia` (read off `resultado.lineas` by code, above) and
-        # `resultado.markup` (computed by `calcular_total_gauss` from its
-        # OWN local copy of the same cost) are two independent reads of the
-        # same chain run -- they agree today, but `OrderMetrics.__post_init__`
-        # would crash the whole write path if a future formula change ever
-        # made them drift. Normalize here instead of letting the producer
-        # raise (deducciones.py's own None-if-zero-or-unknown rule, ~562-571).
-        markup_pct = resultado.markup
-        if markup_pct is not None and (costo_mercaderia is None or costo_mercaderia == 0):
-            logger.warning(
-                "order_metrics: markup_pct=%s disagreed with costo_mercaderia=%s for order_id=%s -- normalized to None",
-                markup_pct,
-                costo_mercaderia,
-                order_id,
-            )
-            markup_pct = None
+        markup_pct = normalize_markup_pct(resultado.markup, costo_mercaderia, gauss_status, order_id=order_id)
 
         result[order_id] = OrderMetrics(
             order_id=order_id,

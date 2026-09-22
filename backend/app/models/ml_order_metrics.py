@@ -30,7 +30,7 @@ from sqlalchemy import (
     Text,
 )
 from sqlalchemy.dialects.postgresql import UUID
-from sqlalchemy.sql import func
+from sqlalchemy.sql import func, literal_column
 
 from app.core.database import Base
 
@@ -44,7 +44,10 @@ class MlOrderMetrics(Base):
     __table_args__ = (
         CheckConstraint("gauss_status IN ('ok', 'provisional', 'unresolved')", name="ck_ml_order_metrics_status"),
         Index("ix_ml_order_metrics_status", "gauss_status"),
-        Index("ix_ml_order_metrics_total_gauss", "total_gauss"),
+        # DESC, like the migration. The migration also adds NULLS LAST on
+        # Postgres; SQLite rejects NULLS LAST in an index, so the ORM (used by
+        # the SQLite test create_all) declares the portable part only.
+        Index("ix_ml_order_metrics_total_gauss", literal_column("total_gauss").desc()),
     )
 
     order_id = Column(BigInteger, ForeignKey("ml_orders_ops.order_id", ondelete="CASCADE"), primary_key=True)

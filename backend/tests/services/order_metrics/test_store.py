@@ -117,7 +117,7 @@ class TestRecomputeOrderMetricsUpserts:
         db.commit()
 
         result = recompute_order_metrics(db, [unknown_id, order_id])
-        db.flush()  # would raise IntegrityError on the FK if not skipped
+        db.flush()  # SQLite does not enforce the FK here; the assertions below prove the skip
 
         assert unknown_id not in result
         assert order_id in result
