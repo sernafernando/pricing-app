@@ -1,0 +1,37 @@
+schema: spec-driven
+change: ventas-ml-rediseno
+status: active
+phases:
+  explore: done
+  proposal: done
+  spec: done
+  design: done
+  tasks: done
+  apply: pending
+  verify: pending
+  archive: pending
+dependsOn:
+  - ml-ventas-neto-iibb-varios
+recovery_hint: >
+  Materialized from Engram (session afbb7dc6-20b0-4149-af5d-259aa6a20fbd, 2026-09-21).
+  Phases explore/proposal/design are done; spec was revised in a follow-up session
+  (2026-09-22) to match design.md revision 2 (binding user decision: no cron, no
+  global before_commit hook; column-scoped triggers enqueue into a versioned dirty
+  queue + pg_notify; dedicated pricing-worker LISTENs and recomputes async).
+  specs/ml-order-stored-metrics/spec.md now states the "recomputed within ~1s,
+  explicitly 'recalculating' and excluded from KPI until then" contract directly
+  (R3, R6-R8, scenarios 1/2/5/8/10-15); no more pending-revision note. tasks.md
+  was written 2026-09-22 (17 sequential auto-chain PRs, stable task IDs
+  PRn.Tm); tasks phase is done. Next phase: apply.
+  See design.md's appended "Pending requirement from ml-ventas-neto-iibb-varios"
+  section: this change's worker must recompute EVERY stored Total Gauss on resume
+  (formula_version bump, now spec R8/scenario 14) because ml-ventas-neto-iibb-varios
+  changes the formula without backfilling stored values.
+notes: >
+  RESUMED 2026-09-22. Dependency ml-ventas-neto-iibb-varios is merged (#1311, #1313)
+  and archived (openspec/changes/archive/2026-09-22-ml-ventas-neto-iibb-varios/).
+  Production answers recorded in design.md: DATABASE_URL_DIRECT is the existing
+  non-PgBouncer setting; Postgres 17.11. tasks.md written 2026-09-22: 17 sequential
+  auto-chain PRs (RED/GREEN/refactor tasks with stable IDs PRn.Tm), PR6 is a PROD
+  GATE (OWNER: user, divergence=0 confirmation) blocking PR7/PR11/PR13/PR16/PR17.
+  Next phase: apply (blocked on PR6 gate mid-way).

@@ -1,0 +1,962 @@
+<!DOCTYPE html>
+
+<html class="h-full bg-surface" lang="es"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>Ventas ML - Control Operativo y Conciliación</title>
+<link href="https://fonts.googleapis.com" rel="preconnect"/>
+<link crossorigin="" href="https://fonts.gstatic.com" rel="preconnect"/>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&amp;family=JetBrains+Mono:wght@400;500;600&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<script id="tailwind-config">
+    tailwind.config = {
+      darkMode: "class",
+      theme: {
+        extend: {
+          "colors": {
+            "on-primary-container": "#dfe8ff",
+            "secondary-fixed": "#dce2f7",
+            "surface-container-high": "#e8e8e8",
+            "surface-variant": "#e2e2e2",
+            "error-container": "#ffdad6",
+            "inverse-on-surface": "#f0f1f1",
+            "on-primary-fixed": "#001b3e",
+            "on-error": "#ffffff",
+            "tertiary": "#49505d",
+            "on-tertiary-fixed-variant": "#404754",
+            "tertiary-fixed-dim": "#c0c7d6",
+            "on-tertiary-container": "#e1e8f8",
+            "tertiary-fixed": "#dce2f3",
+            "surface": "#f9f9f9",
+            "surface-container-lowest": "#ffffff",
+            "inverse-surface": "#2f3131",
+            "on-surface-variant": "#414753",
+            "outline-variant": "#c1c6d5",
+            "surface-container": "#eeeeee",
+            "background": "#f9f9f9",
+            "on-primary-fixed-variant": "#00458e",
+            "surface-container-highest": "#e2e2e2",
+            "on-tertiary-fixed": "#151c27",
+            "surface-tint": "#005cba",
+            "on-secondary": "#ffffff",
+            "secondary-fixed-dim": "#c0c6db",
+            "primary-fixed-dim": "#aac7ff",
+            "surface-bright": "#f9f9f9",
+            "surface-dim": "#dadada",
+            "primary": "#004e9f",
+            "secondary-container": "#d9dff5",
+            "secondary": "#575e70",
+            "on-background": "#1a1c1c",
+            "primary-fixed": "#d7e3ff",
+            "inverse-primary": "#aac7ff",
+            "on-primary": "#ffffff",
+            "on-secondary-container": "#5c6274",
+            "outline": "#727784",
+            "error": "#ba1a1a",
+            "on-secondary-fixed-variant": "#404758",
+            "on-surface": "#1a1c1c",
+            "tertiary-container": "#616876",
+            "on-tertiary": "#ffffff",
+            "on-error-container": "#93000a",
+            "on-secondary-fixed": "#141b2b",
+            "primary-container": "#0066cc",
+            "surface-container-low": "#f3f3f4"
+          },
+          "borderRadius": {
+            "DEFAULT": "0.25rem",
+            "lg": "0.5rem",
+            "xl": "0.75rem",
+            "full": "9999px"
+          },
+          "spacing": {
+            "margin-mobile": "1rem",
+            "space-lg": "1.25rem",
+            "space-md": "0.75rem",
+            "space-sm": "0.5rem",
+            "space-xs": "0.25rem",
+            "gutter-compact": "0.5rem",
+            "margin": "1.5rem",
+            "space-xl": "2rem",
+            "gutter": "1rem"
+          },
+          "fontFamily": {
+            "headline-md": ["Inter", "sans-serif"],
+            "label-code": ["JetBrains Mono", "monospace"],
+            "data-mono": ["JetBrains Mono", "monospace"],
+            "body-md": ["Inter", "sans-serif"],
+            "label-md": ["Inter", "sans-serif"],
+            "headline-xl-mobile": ["Inter", "sans-serif"],
+            "headline-lg": ["Inter", "sans-serif"],
+            "headline-xl": ["Inter", "sans-serif"],
+            "body-sm": ["Inter", "sans-serif"],
+            "body-lg": ["Inter", "sans-serif"],
+            "headline-sm": ["Inter", "sans-serif"]
+          },
+          "fontSize": {
+            "headline-md": ["16px", { "lineHeight": "22px", "letterSpacing": "-0.01em", "fontWeight": "600" }],
+            "label-code": ["12px", { "lineHeight": "16px", "fontWeight": "500" }],
+            "data-mono": ["13px", { "lineHeight": "18px", "fontWeight": "400" }],
+            "body-md": ["13px", { "lineHeight": "18px", "fontWeight": "400" }],
+            "label-md": ["11px", { "lineHeight": "14px", "letterSpacing": "0.04em", "fontWeight": "500" }],
+            "headline-xl-mobile": ["24px", { "lineHeight": "30px", "letterSpacing": "-0.015em", "fontWeight": "600" }],
+            "headline-lg": ["22px", { "lineHeight": "28px", "letterSpacing": "-0.015em", "fontWeight": "600" }],
+            "headline-xl": ["32px", { "lineHeight": "38px", "letterSpacing": "-0.02em", "fontWeight": "600" }],
+            "body-sm": ["12px", { "lineHeight": "16px", "fontWeight": "400" }],
+            "body-lg": ["15px", { "lineHeight": "22px", "fontWeight": "400" }],
+            "headline-sm": ["14px", { "lineHeight": "20px", "letterSpacing": "-0.005em", "fontWeight": "600" }]
+          }
+        },
+      },
+    }
+  </script>
+<style>
+    .material-symbols-outlined {
+      font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 20;
+      vertical-align: middle;
+    }
+    .custom-scrollbar::-webkit-scrollbar {
+      width: 6px;
+      height: 6px;
+    }
+    .custom-scrollbar::-webkit-scrollbar-track {
+      background: #f9f9f9;
+    }
+    .custom-scrollbar::-webkit-scrollbar-thumb {
+      background: #d1d5db;
+      border-radius: 3px;
+    }
+    .custom-scrollbar::-webkit-scrollbar-thumb:hover {
+      background: #9ca3af;
+    }
+  </style>
+</head>
+<body class="h-full bg-background text-on-surface flex flex-col font-body-md antialiased overflow-x-hidden">
+<!-- TopNavBar (Shared Component Anchor) -->
+<header class="bg-surface-container-lowest dark:bg-inverse-surface docked full-width top-0 border-b border-outline-variant dark:border-outline shadow-sm z-30 sticky">
+<div class="flex justify-between items-center w-full px-margin h-14">
+<!-- Brand & Search / Account -->
+<div class="flex items-center gap-space-lg">
+<div class="flex items-center gap-space-sm">
+<span class="text-headline-md font-headline-md text-primary dark:text-inverse-primary tracking-tight font-bold">Ventas ML</span>
+<span class="text-label-md font-label-md bg-surface-container-low text-secondary px-2 py-0.5 rounded border border-outline-variant font-medium">CONSOLE v4.2</span>
+</div>
+<div class="h-5 w-px bg-outline-variant"></div>
+<!-- Account Switcher Pill -->
+<button class="flex items-center gap-2 px-2.5 py-1.5 rounded-lg bg-surface-container-low hover:bg-surface-container-high transition-colors duration-150 border border-outline-variant text-on-surface">
+<span class="w-2 h-2 rounded-full bg-primary"></span>
+<span class="font-headline-sm text-headline-sm">ElectroHogar Oficial (MLA)</span>
+<span class="material-symbols-outlined text-[16px] text-secondary">expand_more</span>
+</button>
+<!-- Sync Status -->
+<div class="hidden lg:flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-surface-container border border-outline-variant/60">
+<span class="w-2 h-2 rounded-full bg-[#00c851] animate-pulse"></span>
+<span class="font-body-sm text-body-sm text-secondary">Sincronizado hace 2 min</span>
+</div>
+</div>
+<!-- Navigation Links -->
+<nav class="hidden md:flex items-center gap-space-lg h-full">
+<a class="text-primary dark:text-inverse-primary border-b-2 border-primary dark:border-inverse-primary font-headline-sm pb-1 flex items-center h-full pt-1" href="#">Órdenes</a>
+<a class="text-secondary dark:text-outline-variant hover:text-on-surface dark:hover:text-inverse-on-surface font-headline-sm transition-colors flex items-center h-full pt-1" href="#">Envíos</a>
+<a class="text-secondary dark:text-outline-variant hover:text-on-surface dark:hover:text-inverse-on-surface font-headline-sm transition-colors flex items-center h-full pt-1" href="#">Publicaciones</a>
+<a class="text-secondary dark:text-outline-variant hover:text-on-surface dark:hover:text-inverse-on-surface font-headline-sm transition-colors flex items-center h-full pt-1" href="#">Métricas</a>
+<a class="text-secondary dark:text-outline-variant hover:text-on-surface dark:hover:text-inverse-on-surface font-headline-sm transition-colors flex items-center h-full pt-1" href="#">Finanzas</a>
+</nav>
+<!-- Trailing Action Cluster -->
+<div class="flex items-center gap-space-sm">
+<button class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-primary text-on-primary hover:bg-primary-container transition-colors duration-150 font-headline-sm text-headline-sm shadow-sm">
+<span class="material-symbols-outlined text-[18px]">sync</span>
+<span>Sincronizar</span>
+</button>
+<div class="h-5 w-px bg-outline-variant mx-1"></div>
+<button class="p-1.5 text-secondary hover:text-on-surface rounded-lg hover:bg-surface-container transition-colors duration-150 relative" title="Notificaciones">
+<span class="material-symbols-outlined text-[20px]">notifications</span>
+<span class="absolute top-1 right-1 w-2 h-2 rounded-full bg-error"></span>
+</button>
+<button class="p-1.5 text-secondary hover:text-on-surface rounded-lg hover:bg-surface-container transition-colors duration-150" title="Configuraciones">
+<span class="material-symbols-outlined text-[20px]">tune</span>
+</button>
+<div class="flex items-center gap-2 pl-1 cursor-pointer">
+<div class="w-8 h-8 rounded-full bg-surface-container-high border border-outline-variant flex items-center justify-center overflow-hidden">
+<span class="material-symbols-outlined text-secondary text-[20px]">account_circle</span>
+</div>
+</div>
+</div>
+</div>
+</header>
+<!-- Main Canvas Container -->
+<main class="flex-1 max-w-[1720px] w-full mx-auto px-margin py-5 flex flex-col gap-5">
+<!-- Title and Top Filter Controls -->
+<div class="flex flex-col gap-4">
+<div class="flex flex-col md:flex-row md:items-center md:justify-between gap-2">
+<div>
+<h1 class="text-headline-xl font-headline-xl text-on-surface tracking-tight">Ventas ML</h1>
+<p class="text-body-md font-body-md text-secondary">Gestión operativa y conciliación financiera de órdenes de MercadoLibre</p>
+</div>
+<!-- Action Buttons -->
+<div class="flex items-center gap-space-sm self-start md:self-auto">
+<button class="flex items-center gap-2 px-3 py-2 rounded-lg bg-surface-container-lowest border border-outline-variant hover:bg-surface-container-low transition-colors duration-150 text-on-surface font-headline-sm text-headline-sm">
+<span class="material-symbols-outlined text-[18px] text-secondary">file_download</span>
+<span>Exportar CSV</span>
+</button>
+<button class="flex items-center gap-2 px-3 py-2 rounded-lg bg-surface-container-lowest border border-outline-variant hover:bg-surface-container-low transition-colors duration-150 text-on-surface font-headline-sm text-headline-sm">
+<span class="material-symbols-outlined text-[18px] text-secondary">view_column</span>
+<span>Columnas</span>
+</button>
+</div>
+</div>
+<!-- Filter Controls Strip -->
+<div class="bg-surface-container-lowest rounded-lg border border-outline-variant p-3 shadow-sm flex flex-col gap-3">
+<!-- Top Filter Row -->
+<div class="flex flex-col lg:flex-row lg:items-center justify-between gap-3">
+<div class="flex flex-wrap items-center gap-3 flex-1">
+<!-- Date Range Selector -->
+<button class="flex items-center gap-2 px-3 py-2 bg-surface rounded-lg border border-outline-variant hover:border-primary text-on-surface font-body-md text-body-md transition-all duration-150">
+<span class="material-symbols-outlined text-[18px] text-secondary">calendar_today</span>
+<span class="font-medium">01/09/2026 – 21/09/2026</span>
+<span class="text-secondary font-normal">(Últimos 21 días)</span>
+<span class="material-symbols-outlined text-[16px] text-secondary">arrow_drop_down</span>
+</button>
+<!-- Search Bar -->
+<div class="relative flex-1 min-w-[320px]">
+<div class="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-secondary">
+<span class="material-symbols-outlined text-[18px]">search</span>
+</div>
+<input class="w-full h-10 pl-9 pr-14 py-2 bg-surface-container-lowest border border-outline-variant rounded-lg text-on-surface placeholder:text-[#9ca3af] font-body-md text-body-md focus:ring-2 focus:ring-primary focus:border-primary focus:outline-none transition-all duration-150" placeholder="Buscar por orden, producto, SKU o comprador" type="text"/>
+<div class="absolute inset-y-0 right-0 pr-2.5 flex items-center pointer-events-none">
+<kbd class="px-1.5 py-0.5 text-[10px] font-label-code font-medium bg-surface-container text-secondary border border-outline-variant rounded shadow-sm">⌘K</kbd>
+</div>
+</div>
+</div>
+<!-- Solo con Alertas Toggle -->
+<div class="flex items-center justify-end gap-2.5 border-t lg:border-t-0 pt-2 lg:pt-0">
+<label class="flex items-center gap-2 cursor-pointer select-none" for="toggle-alertas">
+<span class="font-headline-sm text-headline-sm text-on-surface">Solo con alertas</span>
+<span class="inline-flex items-center justify-center px-1.5 py-0.5 rounded text-[11px] font-data-mono font-medium bg-[#fff3cd] text-[#b7791f] border border-[#ffeeba]">
+                19
+              </span>
+<div class="relative inline-block w-9 h-5 ml-1 align-middle select-none transition duration-200 ease-in">
+<input class="toggle-checkbox absolute block w-4 h-4 rounded-full bg-surface-container-lowest border-2 border-outline-variant appearance-none cursor-pointer top-0.5 left-0.5 transition-transform duration-200 checked:right-0.5 checked:left-auto checked:border-primary checked:bg-primary" id="toggle-alertas" name="toggle-alertas" type="checkbox"/>
+<label class="toggle-label block overflow-hidden h-5 rounded-full bg-surface-container cursor-pointer border border-outline-variant" for="toggle-alertas"></label>
+</div>
+</label>
+</div>
+</div>
+<!-- Second Filter Row (Chips) -->
+<div class="flex flex-wrap items-center gap-x-4 gap-y-2 pt-2 border-t border-surface-container">
+<!-- Operación Filters -->
+<div class="flex items-center gap-1.5 flex-wrap">
+<span class="text-label-md font-label-md text-secondary uppercase mr-1">Operación:</span>
+<button class="px-2.5 py-1 rounded text-body-sm font-medium bg-primary text-on-primary">Todas (1.284)</button>
+<button class="px-2.5 py-1 rounded text-body-sm font-medium bg-surface-container hover:bg-surface-container-high text-on-surface transition-colors">Pagada (1.142)</button>
+<button class="px-2.5 py-1 rounded text-body-sm font-medium bg-surface-container hover:bg-surface-container-high text-on-surface transition-colors">Cancelada (68)</button>
+<button class="px-2.5 py-1 rounded text-body-sm font-medium bg-surface-container hover:bg-surface-container-high text-on-surface transition-colors">Devuelta (42)</button>
+<button class="px-2.5 py-1 rounded text-body-sm font-medium bg-surface-container hover:bg-surface-container-high text-on-surface transition-colors">En mediación (32)</button>
+</div>
+<div class="hidden sm:block h-4 w-px bg-outline-variant"></div>
+<!-- Mercadería Filters -->
+<div class="flex items-center gap-1.5 flex-wrap">
+<span class="text-label-md font-label-md text-secondary uppercase mr-1">Mercadería:</span>
+<button class="px-2.5 py-1 rounded text-body-sm font-medium bg-surface-container hover:bg-surface-container-high text-on-surface transition-colors">Pendiente (89)</button>
+<button class="px-2.5 py-1 rounded text-body-sm font-medium bg-surface-container hover:bg-surface-container-high text-on-surface transition-colors">Enviada (412)</button>
+<button class="px-2.5 py-1 rounded text-body-sm font-medium bg-surface-container hover:bg-surface-container-high text-on-surface transition-colors">Entregada (739)</button>
+<button class="px-2.5 py-1 rounded text-body-sm font-medium bg-surface-container hover:bg-surface-container-high text-on-surface transition-colors">Devuelta (44)</button>
+</div>
+</div>
+</div>
+</div>
+<!-- KPI Metric Strip (6 Cards) -->
+<section aria-label="Métricas Principales" class="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-6 gap-3">
+<!-- Card 1: Ventas -->
+<div class="bg-surface-container-lowest rounded-lg border border-outline-variant p-3.5 shadow-sm flex flex-col justify-between">
+<span class="text-label-md font-label-md uppercase text-secondary font-semibold">Ventas</span>
+<div class="mt-1">
+<div class="text-headline-lg font-headline-lg text-on-surface font-bold">1.284</div>
+<div class="text-body-sm font-body-sm text-[#00c851] font-medium flex items-center gap-0.5 mt-0.5">
+<span class="material-symbols-outlined text-[14px]">arrow_upward</span>
+<span>+12,4% vs mes anterior</span>
+</div>
+</div>
+</div>
+<!-- Card 2: Facturado Bruto -->
+<div class="bg-surface-container-lowest rounded-lg border border-outline-variant p-3.5 shadow-sm flex flex-col justify-between">
+<span class="text-label-md font-label-md uppercase text-secondary font-semibold">Facturado bruto</span>
+<div class="mt-1">
+<div class="text-headline-lg font-headline-lg text-on-surface font-bold font-data-mono tracking-tight">$ 84.920.450,00</div>
+<div class="text-body-sm font-body-sm text-secondary mt-0.5">Total transaccionado</div>
+</div>
+</div>
+<!-- Card 3: Neto ML -->
+<div class="bg-surface-container-lowest rounded-lg border border-outline-variant p-3.5 shadow-sm flex flex-col justify-between">
+<span class="text-label-md font-label-md uppercase text-secondary font-semibold">Neto ML</span>
+<div class="mt-1">
+<div class="text-headline-lg font-headline-lg text-on-surface font-bold font-data-mono tracking-tight">$ 68.345.120,50</div>
+<div class="text-body-sm font-body-sm text-secondary mt-0.5">Comisión promedio 13,8%</div>
+</div>
+</div>
+<!-- Card 4: Total Gauss -->
+<div class="bg-surface-container-lowest rounded-lg border border-outline-variant p-3.5 shadow-sm flex flex-col justify-between">
+<span class="text-label-md font-label-md uppercase text-secondary font-semibold">Total Gauss</span>
+<div class="mt-1">
+<div class="text-headline-lg font-headline-lg text-on-surface font-bold font-data-mono tracking-tight">$ 54.120.900,10</div>
+<div class="text-body-sm font-body-sm text-secondary mt-0.5">Costos + comisiones aplicadas</div>
+</div>
+</div>
+<!-- Card 5: Markup promedio -->
+<div class="bg-surface-container-lowest rounded-lg border border-outline-variant p-3.5 shadow-sm flex flex-col justify-between">
+<span class="text-label-md font-label-md uppercase text-secondary font-semibold">Markup promedio</span>
+<div class="mt-1 flex items-center justify-between">
+<span class="px-2 py-0.5 rounded-lg bg-[#e6f9ed] text-[#008f39] font-data-mono font-bold text-headline-md border border-[#c3f0d3]">
+            +26,3%
+          </span>
+<span class="text-body-sm font-body-sm text-secondary">Objetivo: 25%</span>
+</div>
+</div>
+<!-- Card 6: Con desglose incompleto -->
+<div class="bg-[#fff9eb] rounded-lg border border-[#ffe082] p-3.5 shadow-sm flex flex-col justify-between">
+<div class="flex items-center justify-between">
+<span class="text-label-md font-label-md uppercase text-[#855e00] font-semibold">Desglose incompleto</span>
+<span class="material-symbols-outlined text-[#b7791f] text-[18px]">warning</span>
+</div>
+<div class="mt-1">
+<div class="text-headline-lg font-headline-lg text-[#855e00] font-bold">19 órdenes</div>
+<div class="text-body-sm font-body-sm text-[#855e00] mt-0.5">Requiere revisión de costos</div>
+</div>
+</div>
+</section>
+<!-- Content Workspace: Main Data Table & Side Drawer Overlay -->
+<div class="relative flex-1 flex flex-col xl:flex-row gap-4 items-start">
+<!-- Main Table Card -->
+<div class="w-full bg-surface-container-lowest border border-outline-variant rounded-lg shadow-sm overflow-hidden flex flex-col">
+<div class="overflow-x-auto custom-scrollbar">
+<table class="w-full text-left border-collapse">
+<thead>
+<tr class="bg-[#f5f5f5] border-b border-outline-variant text-[#4b5563]">
+<th class="py-2.5 px-3 font-label-md text-label-md uppercase font-semibold text-secondary w-[280px]">Producto</th>
+<th class="py-2.5 px-3 font-label-md text-label-md uppercase font-semibold text-secondary w-[160px]">Orden</th>
+<th class="py-2.5 px-3 font-label-md text-label-md uppercase font-semibold text-secondary w-[140px]">Comprador</th>
+<th class="py-2.5 px-3 font-label-md text-label-md uppercase font-semibold text-secondary w-[140px]">Estado</th>
+<th class="py-2.5 px-3 font-label-md text-label-md uppercase font-semibold text-secondary w-[130px]">Envío</th>
+<th class="py-2.5 px-3 font-label-md text-label-md uppercase font-semibold text-secondary text-right w-[150px]">Importe</th>
+<th class="py-2.5 px-3 font-label-md text-label-md uppercase font-semibold text-secondary text-right w-[140px]">Neto</th>
+<th class="py-2.5 px-3 font-label-md text-label-md uppercase font-semibold text-secondary text-right w-[160px]">Total Gauss</th>
+<th class="py-2.5 px-3 font-label-md text-label-md uppercase font-semibold text-secondary text-right w-[100px]">Markup</th>
+<th class="py-2.5 px-3 font-label-md text-label-md uppercase font-semibold text-secondary text-center w-[50px]">Alerta</th>
+</tr>
+</thead>
+<tbody class="divide-y divide-surface-container text-body-md font-body-md">
+<!-- Row 1: Normal -->
+<tr class="hover:bg-[#f9fafb] transition-colors cursor-pointer group">
+<td class="py-2 px-3">
+<div class="flex items-start gap-2.5">
+<div class="w-8 h-8 rounded bg-surface-container flex items-center justify-center text-secondary border border-outline-variant/60 flex-shrink-0">
+<span class="material-symbols-outlined text-[18px]">print</span>
+</div>
+<div class="min-w-0">
+<div class="font-medium text-on-surface line-clamp-1 group-hover:text-primary">Impresora Multifunción Epson EcoTank L3250</div>
+<div class="font-data-mono text-[11px] text-secondary truncate">SKU EPS-L3250 · MLA2060835678 · x1</div>
+</div>
+</div>
+</td>
+<td class="py-2 px-3">
+<div class="font-data-mono text-[12px] font-medium text-on-surface">#20000084920184</div>
+<div class="text-[11px] text-secondary">21/09/2026 09:12</div>
+</td>
+<td class="py-2 px-3">
+<div class="font-medium text-on-surface text-[12px]">tech_zone_arg</div>
+<div class="text-[11px] text-secondary">CABA</div>
+</td>
+<td class="py-2 px-3">
+<div class="flex flex-col gap-1 items-start">
+<span class="px-1.5 py-0.5 rounded text-[10px] font-medium uppercase bg-[#e6f9ed] text-[#008f39] border border-[#c3f0d3]">Pagada</span>
+<span class="px-1.5 py-0.5 rounded text-[10px] font-medium uppercase bg-[#e8f2ff] text-[#0066cc] border border-[#bcd7ff]">Enviada</span>
+</div>
+</td>
+<td class="py-2 px-3">
+<div class="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium bg-surface-container text-on-surface border border-outline-variant">Colecta</div>
+<div class="text-[11px] text-secondary mt-0.5">En tránsito</div>
+</td>
+<td class="py-2 px-3 text-right">
+<div class="font-data-mono font-semibold text-on-surface">$ 459.999,00</div>
+<div class="text-[10px] font-data-mono text-secondary">cupón ML $ 30.000,00</div>
+</td>
+<td class="py-2 px-3 text-right font-data-mono font-semibold text-on-surface">$ 382.450,00</td>
+<td class="py-2 px-3 text-right font-data-mono font-medium text-on-surface">$ 312.000,00</td>
+<td class="py-2 px-3 text-right">
+<span class="text-[#008f39] font-data-mono font-semibold text-[12px]">+22,5%</span>
+</td>
+<td class="py-2 px-3 text-center text-secondary/40">
+<span class="material-symbols-outlined text-[16px]">check_circle</span>
+</td>
+</tr>
+<!-- Row 2: Selected & Expanded Pack Bundle -->
+<tr class="bg-[#eff6ff] border-l-4 border-l-primary hover:bg-[#e7f0ff] transition-colors cursor-pointer group">
+<td class="py-2 px-3">
+<div class="flex items-start gap-2.5">
+<div class="w-8 h-8 rounded bg-primary-fixed flex items-center justify-center text-primary border border-primary/20 flex-shrink-0">
+<span class="material-symbols-outlined text-[18px]">inventory_2</span>
+</div>
+<div class="min-w-0">
+<div class="font-semibold text-on-surface flex items-center gap-1.5">
+<span class="truncate">Pack Oficina Pro: Lenovo V15 + Monitor Samsung 24"</span>
+<span class="px-1.5 py-0.2 bg-surface-container-lowest text-primary text-[10px] font-label-code font-bold rounded border border-primary/30 flex-shrink-0">+2 productos</span>
+</div>
+<div class="font-data-mono text-[11px] text-secondary truncate">BUNDLE-PRO-2026 · MLA1429582101</div>
+</div>
+</div>
+</td>
+<td class="py-2 px-3">
+<div class="font-data-mono text-[12px] font-bold text-primary">#20000084920199</div>
+<div class="text-[11px] text-secondary">21/09/2026 08:45</div>
+</td>
+<td class="py-2 px-3">
+<div class="font-semibold text-on-surface text-[12px]">pyme_soluciones</div>
+<div class="text-[11px] text-secondary">Córdoba</div>
+</td>
+<td class="py-2 px-3">
+<div class="flex flex-col gap-1 items-start">
+<span class="px-1.5 py-0.5 rounded text-[10px] font-medium uppercase bg-[#e6f9ed] text-[#008f39] border border-[#c3f0d3]">Pagada</span>
+<span class="px-1.5 py-0.5 rounded text-[10px] font-medium uppercase bg-[#f3e8ff] text-[#7e22ce] border border-[#e9d5ff]">En preparación</span>
+</div>
+</td>
+<td class="py-2 px-3">
+<div class="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium bg-[#f59e0b]/10 text-[#b45309] border border-[#f59e0b]/30">Full</div>
+<div class="text-[11px] text-secondary mt-0.5">Colecta asignada</div>
+</td>
+<td class="py-2 px-3 text-right">
+<div class="font-data-mono font-bold text-on-surface">$ 1.480.000,00</div>
+</td>
+<td class="py-2 px-3 text-right font-data-mono font-bold text-on-surface">$ 1.228.400,00</td>
+<td class="py-2 px-3 text-right">
+<div class="font-data-mono font-semibold text-on-surface">$ 1.010.500,00</div>
+<span class="inline-block px-1 py-0.2 rounded text-[9px] font-label-code bg-[#fff3cd] text-[#b7791f] border border-[#ffeeba]">Provisorio</span>
+</td>
+<td class="py-2 px-3 text-right">
+<span class="text-[#008f39] font-data-mono font-bold text-[12px]">+21,6%</span>
+</td>
+<td class="py-2 px-3 text-center">
+<span class="material-symbols-outlined text-[18px] text-[#ffaa00]" title="Desglose incompleto">warning</span>
+</td>
+</tr>
+<!-- Pack Sub-row 1 (Indented) -->
+<tr class="bg-[#fcfdfe] text-secondary text-[12px]">
+<td class="py-1.5 pl-9 pr-3" colspan="5">
+<div class="flex items-center gap-2">
+<span class="text-outline-variant font-data-mono">↳</span>
+<span class="font-medium text-on-surface">Lenovo V15 G4 AMN Ryzen 5 8GB 256GB SSD</span>
+<span class="font-data-mono text-[10px] text-secondary">SKU LEN-82YU000PAR · MLA1429582101 · x1</span>
+</div>
+</td>
+<td class="py-1.5 px-3 text-right font-data-mono text-secondary">$ 1.120.000,00</td>
+<td class="py-1.5 px-3 text-right font-data-mono text-secondary">$ 930.000,00</td>
+<td class="py-1.5 px-3 text-right font-data-mono text-secondary">Costo $ 790.000,00</td>
+<td class="py-1.5 px-3 text-right font-data-mono text-secondary text-[11px]">+17,7%</td>
+<td class="py-1.5 px-3 text-center text-outline-variant">—</td>
+</tr>
+<!-- Pack Sub-row 2 (Indented) -->
+<tr class="bg-[#fcfdfe] text-secondary text-[12px] border-b border-outline-variant/50">
+<td class="py-1.5 pl-9 pr-3" colspan="5">
+<div class="flex items-center gap-2">
+<span class="text-outline-variant font-data-mono">↳</span>
+<span class="font-medium text-on-surface">Monitor Samsung Essential 24" FHD 75Hz</span>
+<span class="font-data-mono text-[10px] text-secondary">SKU SAM-LS24C310 · MLA1198421099 · x1</span>
+</div>
+</td>
+<td class="py-1.5 px-3 text-right font-data-mono text-secondary">$ 360.000,00</td>
+<td class="py-1.5 px-3 text-right font-data-mono text-secondary">$ 298.400,00</td>
+<td class="py-1.5 px-3 text-right font-data-mono text-secondary">Costo $ 220.500,00</td>
+<td class="py-1.5 px-3 text-right font-data-mono text-secondary text-[11px]">+35,3%</td>
+<td class="py-1.5 px-3 text-center text-outline-variant">—</td>
+</tr>
+<!-- Row 3: Normal Flex Delivery -->
+<tr class="hover:bg-[#f9fafb] transition-colors cursor-pointer group">
+<td class="py-2 px-3">
+<div class="flex items-start gap-2.5">
+<div class="w-8 h-8 rounded bg-surface-container flex items-center justify-center text-secondary border border-outline-variant/60 flex-shrink-0">
+<span class="material-symbols-outlined text-[18px]">tv</span>
+</div>
+<div class="min-w-0">
+<div class="font-medium text-on-surface line-clamp-1 group-hover:text-primary">Smart TV Samsung 50" Crystal UHD 4K</div>
+<div class="font-data-mono text-[11px] text-secondary truncate">SKU SAM-UN50CU7000 · MLA1384910283 · x1</div>
+</div>
+</div>
+</td>
+<td class="py-2 px-3">
+<div class="font-data-mono text-[12px] font-medium text-on-surface">#20000084920042</div>
+<div class="text-[11px] text-secondary">21/09/2026 07:30</div>
+</td>
+<td class="py-2 px-3">
+<div class="font-medium text-on-surface text-[12px]">marisa_gomez</div>
+<div class="text-[11px] text-secondary">Santa Fe</div>
+</td>
+<td class="py-2 px-3">
+<div class="flex flex-col gap-1 items-start">
+<span class="px-1.5 py-0.5 rounded text-[10px] font-medium uppercase bg-[#e6f9ed] text-[#008f39] border border-[#c3f0d3]">Pagada</span>
+<span class="px-1.5 py-0.5 rounded text-[10px] font-medium uppercase bg-[#ecfdf5] text-[#059669] border border-[#a7f3d0]">Entregada</span>
+</div>
+</td>
+<td class="py-2 px-3">
+<div class="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium bg-[#10b981]/10 text-[#047857] border border-[#10b981]/30">Flex</div>
+<div class="text-[11px] text-secondary mt-0.5">Entregado hoy</div>
+</td>
+<td class="py-2 px-3 text-right font-data-mono font-semibold text-on-surface">$ 789.999,00</td>
+<td class="py-2 px-3 text-right font-data-mono font-semibold text-on-surface">$ 655.699,17</td>
+<td class="py-2 px-3 text-right font-data-mono font-medium text-on-surface">$ 520.400,00</td>
+<td class="py-2 px-3 text-right">
+<span class="text-[#008f39] font-data-mono font-semibold text-[12px]">+25,9%</span>
+</td>
+<td class="py-2 px-3 text-center text-secondary/40">
+<span class="material-symbols-outlined text-[16px]">check_circle</span>
+</td>
+</tr>
+<!-- Row 4: Unknown Total Gauss (Dash with info icon) -->
+<tr class="hover:bg-[#f9fafb] transition-colors cursor-pointer group">
+<td class="py-2 px-3">
+<div class="flex items-start gap-2.5">
+<div class="w-8 h-8 rounded bg-surface-container flex items-center justify-center text-secondary border border-outline-variant/60 flex-shrink-0">
+<span class="material-symbols-outlined text-[18px]">coffee_maker</span>
+</div>
+<div class="min-w-0">
+<div class="font-medium text-on-surface line-clamp-1 group-hover:text-primary">Cafetera Espresso Oster Prima Latte II Roja</div>
+<div class="font-data-mono text-[11px] text-secondary truncate">SKU OST-BVSTEM6603R · MLA9023418290 · x1</div>
+</div>
+</div>
+</td>
+<td class="py-2 px-3">
+<div class="font-data-mono text-[12px] font-medium text-on-surface">#20000084919830</div>
+<div class="text-[11px] text-secondary">20/09/2026 23:14</div>
+</td>
+<td class="py-2 px-3">
+<div class="font-medium text-on-surface text-[12px]">lucas_cordoba</div>
+<div class="text-[11px] text-secondary">Mendoza</div>
+</td>
+<td class="py-2 px-3">
+<div class="flex flex-col gap-1 items-start">
+<span class="px-1.5 py-0.5 rounded text-[10px] font-medium uppercase bg-[#e6f9ed] text-[#008f39] border border-[#c3f0d3]">Pagada</span>
+<span class="px-1.5 py-0.5 rounded text-[10px] font-medium uppercase bg-[#e8f2ff] text-[#0066cc] border border-[#bcd7ff]">Enviada</span>
+</div>
+</td>
+<td class="py-2 px-3">
+<div class="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium bg-[#f59e0b]/10 text-[#b45309] border border-[#f59e0b]/30">Full</div>
+<div class="text-[11px] text-secondary mt-0.5">En centro dist.</div>
+</td>
+<td class="py-2 px-3 text-right font-data-mono font-semibold text-on-surface">$ 349.900,00</td>
+<td class="py-2 px-3 text-right font-data-mono font-semibold text-on-surface">$ 289.417,00</td>
+<td class="py-2 px-3 text-right">
+<span class="font-data-mono font-medium text-secondary inline-flex items-center gap-1">
+                    —
+                    <span class="material-symbols-outlined text-[14px] text-secondary/80 hover:text-primary cursor-help" title="Sin costo Gauss asociado">info</span>
+</span>
+</td>
+<td class="py-2 px-3 text-right font-data-mono text-secondary">—</td>
+<td class="py-2 px-3 text-center">
+<span class="material-symbols-outlined text-[18px] text-[#ffaa00]" title="Falta asociar costo en Gauss">warning</span>
+</td>
+</tr>
+<!-- Row 5: Negative Markup in Red -->
+<tr class="hover:bg-[#f9fafb] transition-colors cursor-pointer group bg-[#fff5f5]/30">
+<td class="py-2 px-3">
+<div class="flex items-start gap-2.5">
+<div class="w-8 h-8 rounded bg-surface-container flex items-center justify-center text-secondary border border-outline-variant/60 flex-shrink-0">
+<span class="material-symbols-outlined text-[18px]">ac_unit</span>
+</div>
+<div class="min-w-0">
+<div class="font-medium text-on-surface line-clamp-1 group-hover:text-primary">Aire Acondicionado Split BGH Silent Air 3500W Frío/Calor</div>
+<div class="font-data-mono text-[11px] text-secondary truncate">SKU BGH-BS35WCCR · MLA1029384756 · x1</div>
+</div>
+</div>
+</td>
+<td class="py-2 px-3">
+<div class="font-data-mono text-[12px] font-medium text-on-surface">#20000084919502</div>
+<div class="text-[11px] text-secondary">20/09/2026 21:05</div>
+</td>
+<td class="py-2 px-3">
+<div class="font-medium text-on-surface text-[12px]">distribuidora_norte</div>
+<div class="text-[11px] text-secondary">Tucumán</div>
+</td>
+<td class="py-2 px-3">
+<div class="flex flex-col gap-1 items-start">
+<span class="px-1.5 py-0.5 rounded text-[10px] font-medium uppercase bg-[#e6f9ed] text-[#008f39] border border-[#c3f0d3]">Pagada</span>
+<span class="px-1.5 py-0.5 rounded text-[10px] font-medium uppercase bg-[#fff7ed] text-[#c2410c] border border-[#ffedd5]">En tránsito</span>
+</div>
+</td>
+<td class="py-2 px-3">
+<div class="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium bg-surface-container text-on-surface border border-outline-variant">Colecta</div>
+<div class="text-[11px] text-error mt-0.5 font-medium">Demorado por transp.</div>
+</td>
+<td class="py-2 px-3 text-right">
+<div class="font-data-mono font-semibold text-on-surface">$ 680.000,00</div>
+<div class="text-[10px] font-data-mono text-secondary">cupón ML $ 41.679,67</div>
+</td>
+<td class="py-2 px-3 text-right font-data-mono font-semibold text-on-surface">$ 540.000,00</td>
+<td class="py-2 px-3 text-right font-data-mono font-semibold text-error">$ 566.200,00</td>
+<td class="py-2 px-3 text-right">
+<span class="inline-block px-1.5 py-0.5 rounded text-[11px] font-data-mono font-bold bg-[#feecee] text-[#ff3547] border border-[#fcc2c7]">
+                    -4,8%
+                  </span>
+</td>
+<td class="py-2 px-3 text-center">
+<span class="material-symbols-outlined text-[18px] text-[#ff3547]" title="Margen negativo detectado">error</span>
+</td>
+</tr>
+<!-- Row 6: Sony Headphones -->
+<tr class="hover:bg-[#f9fafb] transition-colors cursor-pointer group">
+<td class="py-2 px-3">
+<div class="flex items-start gap-2.5">
+<div class="w-8 h-8 rounded bg-surface-container flex items-center justify-center text-secondary border border-outline-variant/60 flex-shrink-0">
+<span class="material-symbols-outlined text-[18px]">headphones</span>
+</div>
+<div class="min-w-0">
+<div class="font-medium text-on-surface line-clamp-1 group-hover:text-primary">Auriculares Inalámbricos Sony WH-1000XM5 Negro</div>
+<div class="font-data-mono text-[11px] text-secondary truncate">SKU SONY-WH1000XM5 · MLA1309284192 · x1</div>
+</div>
+</div>
+</td>
+<td class="py-2 px-3">
+<div class="font-data-mono text-[12px] font-medium text-on-surface">#20000084919210</div>
+<div class="text-[11px] text-secondary">20/09/2026 18:40</div>
+</td>
+<td class="py-2 px-3">
+<div class="font-medium text-on-surface text-[12px]">diego_audio</div>
+<div class="text-[11px] text-secondary">CABA</div>
+</td>
+<td class="py-2 px-3">
+<div class="flex flex-col gap-1 items-start">
+<span class="px-1.5 py-0.5 rounded text-[10px] font-medium uppercase bg-[#e6f9ed] text-[#008f39] border border-[#c3f0d3]">Pagada</span>
+<span class="px-1.5 py-0.5 rounded text-[10px] font-medium uppercase bg-[#ecfdf5] text-[#059669] border border-[#a7f3d0]">Entregada</span>
+</div>
+</td>
+<td class="py-2 px-3">
+<div class="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium bg-[#10b981]/10 text-[#047857] border border-[#10b981]/30">Flex</div>
+<div class="text-[11px] text-secondary mt-0.5">Entregado ayer</div>
+</td>
+<td class="py-2 px-3 text-right font-data-mono font-semibold text-on-surface">$ 597.408,67</td>
+<td class="py-2 px-3 text-right font-data-mono font-semibold text-on-surface">$ 495.849,19</td>
+<td class="py-2 px-3 text-right font-data-mono font-medium text-on-surface">$ 380.120,00</td>
+<td class="py-2 px-3 text-right">
+<span class="text-[#008f39] font-data-mono font-semibold text-[12px]">+30,4%</span>
+</td>
+<td class="py-2 px-3 text-center text-secondary/40">
+<span class="material-symbols-outlined text-[16px]">check_circle</span>
+</td>
+</tr>
+<!-- Row 7: Lavarropas En mediación -->
+<tr class="hover:bg-[#f9fafb] transition-colors cursor-pointer group">
+<td class="py-2 px-3">
+<div class="flex items-start gap-2.5">
+<div class="w-8 h-8 rounded bg-surface-container flex items-center justify-center text-secondary border border-outline-variant/60 flex-shrink-0">
+<span class="material-symbols-outlined text-[18px]">local_laundry_service</span>
+</div>
+<div class="min-w-0">
+<div class="font-medium text-on-surface line-clamp-1 group-hover:text-primary">Lavarropas Automático Drean Next 8kg 1200rpm Eco</div>
+<div class="font-data-mono text-[11px] text-secondary truncate">SKU DRN-NEXT812 · MLA8723910482 · x1</div>
+</div>
+</div>
+</td>
+<td class="py-2 px-3">
+<div class="font-data-mono text-[12px] font-medium text-on-surface">#20000084918901</div>
+<div class="text-[11px] text-secondary">20/09/2026 16:15</div>
+</td>
+<td class="py-2 px-3">
+<div class="font-medium text-on-surface text-[12px]">valeria_s</div>
+<div class="text-[11px] text-secondary">Buenos Aires</div>
+</td>
+<td class="py-2 px-3">
+<div class="flex flex-col gap-1 items-start">
+<span class="px-1.5 py-0.5 rounded text-[10px] font-medium uppercase bg-[#fef2f2] text-[#dc2626] border border-[#fecaca]">En mediación</span>
+<span class="px-1.5 py-0.5 rounded text-[10px] font-medium uppercase bg-[#fff1f2] text-[#be123c] border border-[#ffe4e6]">Reclamada</span>
+</div>
+</td>
+<td class="py-2 px-3">
+<div class="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium bg-surface-container text-on-surface border border-outline-variant">Acordar</div>
+<div class="text-[11px] text-error mt-0.5">Reclamo por golpe</div>
+</td>
+<td class="py-2 px-3 text-right font-data-mono font-semibold text-on-surface">$ 920.000,00</td>
+<td class="py-2 px-3 text-right font-data-mono font-semibold text-on-surface">$ 760.000,00</td>
+<td class="py-2 px-3 text-right">
+<div class="font-data-mono font-medium text-on-surface">$ 710.000,00</div>
+<span class="inline-block px-1 py-0.2 rounded text-[9px] font-label-code bg-[#fff3cd] text-[#b7791f] border border-[#ffeeba]">Provisorio</span>
+</td>
+<td class="py-2 px-3 text-right">
+<span class="text-secondary font-data-mono font-semibold text-[12px]">+7,0%</span>
+</td>
+<td class="py-2 px-3 text-center">
+<span class="material-symbols-outlined text-[18px] text-[#ffaa00]" title="En mediación con fondos retenidos">warning</span>
+</td>
+</tr>
+<!-- Row 8: Microondas BGH -->
+<tr class="hover:bg-[#f9fafb] transition-colors cursor-pointer group">
+<td class="py-2 px-3">
+<div class="flex items-start gap-2.5">
+<div class="w-8 h-8 rounded bg-surface-container flex items-center justify-center text-secondary border border-outline-variant/60 flex-shrink-0">
+<span class="material-symbols-outlined text-[18px]">microwave</span>
+</div>
+<div class="min-w-0">
+<div class="font-medium text-on-surface line-clamp-1 group-hover:text-primary">Microondas BGH Quick Chef 20L Digital Blanco</div>
+<div class="font-data-mono text-[11px] text-secondary truncate">SKU BGH-B220D · MLA9482710394 · x1</div>
+</div>
+</div>
+</td>
+<td class="py-2 px-3">
+<div class="font-data-mono text-[12px] font-medium text-on-surface">#20000084918234</div>
+<div class="text-[11px] text-secondary">20/09/2026 14:02</div>
+</td>
+<td class="py-2 px-3">
+<div class="font-medium text-on-surface text-[12px]">gonzalo_m</div>
+<div class="text-[11px] text-secondary">Entre Ríos</div>
+</td>
+<td class="py-2 px-3">
+<div class="flex flex-col gap-1 items-start">
+<span class="px-1.5 py-0.5 rounded text-[10px] font-medium uppercase bg-[#e6f9ed] text-[#008f39] border border-[#c3f0d3]">Pagada</span>
+<span class="px-1.5 py-0.5 rounded text-[10px] font-medium uppercase bg-[#ecfdf5] text-[#059669] border border-[#a7f3d0]">Entregada</span>
+</div>
+</td>
+<td class="py-2 px-3">
+<div class="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium bg-surface-container text-on-surface border border-outline-variant">Colecta</div>
+<div class="text-[11px] text-secondary mt-0.5">Entregado</div>
+</td>
+<td class="py-2 px-3 text-right font-data-mono font-semibold text-on-surface">$ 189.999,00</td>
+<td class="py-2 px-3 text-right font-data-mono font-semibold text-on-surface">$ 157.699,00</td>
+<td class="py-2 px-3 text-right font-data-mono font-medium text-on-surface">$ 122.000,00</td>
+<td class="py-2 px-3 text-right">
+<span class="text-[#008f39] font-data-mono font-semibold text-[12px]">+29,2%</span>
+</td>
+<td class="py-2 px-3 text-center text-secondary/40">
+<span class="material-symbols-outlined text-[16px]">check_circle</span>
+</td>
+</tr>
+<!-- Row 9: Cancelada Xiaomi Robot -->
+<tr class="hover:bg-[#f9fafb] transition-colors cursor-pointer group opacity-75">
+<td class="py-2 px-3">
+<div class="flex items-start gap-2.5">
+<div class="w-8 h-8 rounded bg-surface-container flex items-center justify-center text-secondary border border-outline-variant/60 flex-shrink-0">
+<span class="material-symbols-outlined text-[18px]">smart_toy</span>
+</div>
+<div class="min-w-0">
+<div class="font-medium text-on-surface line-clamp-1 group-hover:text-primary">Aspiradora Robot Xiaomi Robot Vacuum E10</div>
+<div class="font-data-mono text-[11px] text-secondary truncate">SKU XIA-E10W · MLA1402938471 · x1</div>
+</div>
+</div>
+</td>
+<td class="py-2 px-3">
+<div class="font-data-mono text-[12px] font-medium text-on-surface">#20000084917992</div>
+<div class="text-[11px] text-secondary">20/09/2026 11:20</div>
+</td>
+<td class="py-2 px-3">
+<div class="font-medium text-on-surface text-[12px]">martin_tech</div>
+<div class="text-[11px] text-secondary">CABA</div>
+</td>
+<td class="py-2 px-3">
+<div class="flex flex-col gap-1 items-start">
+<span class="px-1.5 py-0.5 rounded text-[10px] font-medium uppercase bg-[#f3f4f6] text-secondary border border-outline-variant">Cancelada</span>
+<span class="px-1.5 py-0.5 rounded text-[10px] font-medium uppercase bg-[#f3f4f6] text-secondary border border-outline-variant">Devuelta</span>
+</div>
+</td>
+<td class="py-2 px-3">
+<div class="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium bg-surface-container text-on-surface border border-outline-variant">Colecta</div>
+<div class="text-[11px] text-secondary mt-0.5">Cancelado x comprador</div>
+</td>
+<td class="py-2 px-3 text-right font-data-mono font-medium text-secondary line-through">$ 319.999,00</td>
+<td class="py-2 px-3 text-right font-data-mono font-medium text-secondary">$ 0,00</td>
+<td class="py-2 px-3 text-right font-data-mono font-medium text-secondary">$ 0,00</td>
+<td class="py-2 px-3 text-right font-data-mono text-secondary text-[12px]">0,0%</td>
+<td class="py-2 px-3 text-center text-secondary/40">
+<span class="material-symbols-outlined text-[16px]">remove</span>
+</td>
+</tr>
+<!-- Row 10: Termotanque Full -->
+<tr class="hover:bg-[#f9fafb] transition-colors cursor-pointer group">
+<td class="py-2 px-3">
+<div class="flex items-start gap-2.5">
+<div class="w-8 h-8 rounded bg-surface-container flex items-center justify-center text-secondary border border-outline-variant/60 flex-shrink-0">
+<span class="material-symbols-outlined text-[18px]">water_heater</span>
+</div>
+<div class="min-w-0">
+<div class="font-medium text-on-surface line-clamp-1 group-hover:text-primary">Termotanque Eléctrico Señorial Family 65L</div>
+<div class="font-data-mono text-[11px] text-secondary truncate">SKU SEN-TES65 · MLA7392019482 · x1</div>
+</div>
+</div>
+</td>
+<td class="py-2 px-3">
+<div class="font-data-mono text-[12px] font-medium text-on-surface">#20000084917401</div>
+<div class="text-[11px] text-secondary">20/09/2026 09:50</div>
+</td>
+<td class="py-2 px-3">
+<div class="font-medium text-on-surface text-[12px]">alicia_quilmes</div>
+<div class="text-[11px] text-secondary">Buenos Aires</div>
+</td>
+<td class="py-2 px-3">
+<div class="flex flex-col gap-1 items-start">
+<span class="px-1.5 py-0.5 rounded text-[10px] font-medium uppercase bg-[#e6f9ed] text-[#008f39] border border-[#c3f0d3]">Pagada</span>
+<span class="px-1.5 py-0.5 rounded text-[10px] font-medium uppercase bg-[#e8f2ff] text-[#0066cc] border border-[#bcd7ff]">Enviada</span>
+</div>
+</td>
+<td class="py-2 px-3">
+<div class="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium bg-[#f59e0b]/10 text-[#b45309] border border-[#f59e0b]/30">Full</div>
+<div class="text-[11px] text-secondary mt-0.5">En camino</div>
+</td>
+<td class="py-2 px-3 text-right font-data-mono font-semibold text-on-surface">$ 285.000,00</td>
+<td class="py-2 px-3 text-right font-data-mono font-semibold text-on-surface">$ 236.550,00</td>
+<td class="py-2 px-3 text-right font-data-mono font-medium text-on-surface">$ 188.000,00</td>
+<td class="py-2 px-3 text-right">
+<span class="text-[#008f39] font-data-mono font-semibold text-[12px]">+25,8%</span>
+</td>
+<td class="py-2 px-3 text-center text-secondary/40">
+<span class="material-symbols-outlined text-[16px]">check_circle</span>
+</td>
+</tr>
+</tbody>
+</table>
+</div>
+<!-- Dense Pagination Footer -->
+<div class="px-4 py-3 bg-surface-container-low border-t border-outline-variant flex flex-col sm:flex-row items-center justify-between gap-3 text-body-sm font-body-sm">
+<div class="text-secondary font-medium">
+            Mostrando <span class="text-on-surface font-semibold">1–50</span> de <span class="text-on-surface font-semibold">1.284</span> órdenes
+          </div>
+<!-- Page Navigation -->
+<div class="flex items-center gap-1">
+<button class="px-2.5 py-1 rounded border border-outline-variant bg-surface-container-lowest text-secondary hover:text-on-surface hover:bg-surface-container disabled:opacity-40" disabled="">
+              Anterior
+            </button>
+<button class="px-2.5 py-1 rounded border border-primary bg-primary text-on-primary font-medium">1</button>
+<button class="px-2.5 py-1 rounded border border-outline-variant bg-surface-container-lowest text-on-surface hover:bg-surface-container">2</button>
+<button class="px-2.5 py-1 rounded border border-outline-variant bg-surface-container-lowest text-on-surface hover:bg-surface-container">3</button>
+<span class="px-1 text-secondary">...</span>
+<button class="px-2.5 py-1 rounded border border-outline-variant bg-surface-container-lowest text-on-surface hover:bg-surface-container">26</button>
+<button class="px-2.5 py-1 rounded border border-outline-variant bg-surface-container-lowest text-on-surface hover:bg-surface-container">
+              Siguiente
+            </button>
+</div>
+<!-- Rows per page selector -->
+<div class="flex items-center gap-2 text-secondary">
+<span>Filas por página:</span>
+<button class="flex items-center gap-1 px-2 py-1 rounded border border-outline-variant bg-surface-container-lowest text-on-surface font-medium hover:bg-surface-container">
+<span>50</span>
+<span class="material-symbols-outlined text-[14px]">arrow_drop_down</span>
+</button>
+</div>
+</div>
+</div>
+<!-- Detail Drawer (Slide-over panel anchored to current inspected row #20000084920199) -->
+<aside class="w-full xl:w-[420px] flex-shrink-0 bg-surface-container-lowest border border-outline-variant rounded-lg shadow-sm flex flex-col">
+<!-- Drawer Header -->
+<div class="p-4 border-b border-outline-variant flex items-center justify-between bg-[#fafafa]">
+<div class="flex flex-col">
+<div class="flex items-center gap-2">
+<span class="font-data-mono font-bold text-headline-sm text-on-surface">#20000084920199</span>
+<span class="px-2 py-0.5 rounded text-[10px] font-label-code font-bold uppercase bg-[#e6f9ed] text-[#008f39] border border-[#c3f0d3]">Pagada</span>
+<span class="px-2 py-0.5 rounded text-[10px] font-label-code font-bold uppercase bg-[#f59e0b]/10 text-[#b45309] border border-[#f59e0b]/30">Full</span>
+</div>
+<span class="text-label-md font-label-md text-secondary mt-0.5 uppercase tracking-wider">Detalle de Inspección Financiera</span>
+</div>
+<button class="w-7 h-7 rounded-lg border border-outline-variant flex items-center justify-center text-secondary hover:text-on-surface hover:bg-surface-container transition-colors" title="Cerrar panel">
+            ✕
+          </button>
+</div>
+<!-- Drawer Content Body -->
+<div class="p-4 flex flex-col gap-4 text-body-md overflow-y-auto max-h-[720px] custom-scrollbar">
+<!-- Section 1: Resumen de Venta -->
+<div class="flex flex-col gap-2 p-3 bg-surface rounded-lg border border-outline-variant">
+<div class="text-label-md font-label-md uppercase text-secondary font-bold">Resumen de Venta</div>
+<div class="grid grid-cols-2 gap-2 text-[12px]">
+<div>
+<span class="text-secondary block">Comprador:</span>
+<span class="font-semibold text-on-surface">pyme_soluciones</span>
+</div>
+<div>
+<span class="text-secondary block">Fecha y Hora:</span>
+<span class="font-data-mono text-on-surface">21/09/2026 08:45</span>
+</div>
+<div>
+<span class="text-secondary block">Publicación:</span>
+<span class="font-data-mono text-primary hover:underline cursor-pointer">MLA1429582101</span>
+</div>
+<div>
+<span class="text-secondary block">Tipo de Factura:</span>
+<span class="font-medium text-on-surface">Factura A emitida</span>
+</div>
+</div>
+</div>
+<!-- Section 2: Desglose Financiero ML -->
+<div class="flex flex-col gap-2 p-3 bg-surface rounded-lg border border-outline-variant">
+<div class="flex items-center justify-between">
+<span class="text-label-md font-label-md uppercase text-secondary font-bold">Desglose Financiero ML</span>
+<span class="font-data-mono text-[11px] text-primary">Mercado Pago</span>
+</div>
+<div class="space-y-1.5 text-[12px] pt-1 border-t border-outline-variant/60">
+<div class="flex justify-between items-center">
+<span class="text-secondary">Bruto publicado:</span>
+<span class="font-data-mono font-semibold text-on-surface">$ 1.480.000,00</span>
+</div>
+<div class="flex justify-between items-center text-error">
+<span class="text-secondary flex items-center gap-1">
+                  Comisión ML (13%):
+                  <span class="material-symbols-outlined text-[13px] text-secondary/70">info</span>
+</span>
+<span class="font-data-mono font-medium">-$ 192.400,00</span>
+</div>
+<div class="flex justify-between items-center text-error">
+<span class="text-secondary">Cargo fijo por unidad:</span>
+<span class="font-data-mono font-medium">-$ 1.600,00</span>
+</div>
+<div class="flex justify-between items-center text-error">
+<span class="text-secondary">Costo de envío bonificado ML:</span>
+<span class="font-data-mono font-medium">-$ 57.600,00</span>
+</div>
+<div class="pt-2 mt-1 border-t border-outline-variant flex justify-between items-center text-headline-sm">
+<span class="font-semibold text-on-surface">Neto a acreditar en MP:</span>
+<span class="font-data-mono font-bold text-primary">$ 1.228.400,00</span>
+</div>
+</div>
+</div>
+<!-- Section 3: Conciliación Gauss (ERP) -->
+<div class="flex flex-col gap-2 p-3 bg-surface rounded-lg border border-outline-variant">
+<div class="flex items-center justify-between">
+<span class="text-label-md font-label-md uppercase text-secondary font-bold">Conciliación Gauss (ERP)</span>
+<span class="px-1.5 py-0.2 rounded text-[9px] font-label-code bg-[#fff3cd] text-[#b7791f] border border-[#ffeeba]">Provisorio</span>
+</div>
+<div class="space-y-1.5 text-[12px] pt-1 border-t border-outline-variant/60">
+<div class="flex justify-between items-center">
+<span class="text-secondary">Costo mercadería (CMV):</span>
+<span class="font-data-mono font-semibold text-on-surface">$ 1.010.500,00</span>
+</div>
+<div class="flex justify-between items-center">
+<span class="text-secondary">Margen bruto estimado:</span>
+<span class="font-data-mono font-semibold text-[#008f39]">$ 217.900,00</span>
+</div>
+<div class="flex justify-between items-center">
+<span class="text-secondary">Markup resultante:</span>
+<span class="font-data-mono font-bold text-[#008f39]">+21,6%</span>
+</div>
+</div>
+<!-- Alerta Incompleta Banner -->
+<div class="mt-2 p-2.5 rounded bg-[#fff9eb] border border-[#ffe082] flex items-start gap-2 text-[11px] text-[#855e00]">
+<span class="material-symbols-outlined text-[16px] text-[#b7791f] flex-shrink-0 mt-0.5">warning</span>
+<p class="leading-tight font-medium">
+                2 ítems del pack requieren comprobante de compra para cerrar costo definitivo.
+              </p>
+</div>
+</div>
+<!-- Drawer Action Cluster -->
+<div class="flex flex-col gap-2 pt-2">
+<button class="w-full flex items-center justify-center gap-2 py-2 px-3 rounded-lg bg-primary text-on-primary font-headline-sm text-headline-sm hover:bg-primary-container transition-colors shadow-sm">
+<span class="material-symbols-outlined text-[16px]">calculate</span>
+<span>Recalcular Costo Gauss</span>
+</button>
+<div class="grid grid-cols-2 gap-2">
+<button class="flex items-center justify-center gap-1.5 py-2 px-2 rounded-lg bg-surface-container-lowest border border-outline-variant hover:bg-surface-container text-on-surface text-[12px] font-medium transition-colors">
+<span class="truncate">Ver en ML</span>
+<span class="material-symbols-outlined text-[14px]">open_in_new</span>
+</button>
+<button class="flex items-center justify-center gap-1.5 py-2 px-2 rounded-lg bg-surface-container-lowest border border-outline-variant hover:bg-surface-container text-on-surface text-[12px] font-medium transition-colors">
+<span class="truncate">Descargar Factura A</span>
+<span class="material-symbols-outlined text-[14px]">receipt_long</span>
+</button>
+</div>
+</div>
+</div>
+</aside>
+</div>
+</main>
+</body></html>
