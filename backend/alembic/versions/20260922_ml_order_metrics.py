@@ -98,11 +98,18 @@ def upgrade() -> None:
     # migration's runner nor the round-trip test can provide without special
     # casing, and the only writer affected is the background sweep, which
     # retries.
-    op.create_index("ix_ml_orders_ops_seller_date", "ml_orders_ops", ["seller_id", "date_created"])
+    # `if_not_exists`: the ORM model declares this index too, so a schema
+    # built by `create_all` (the test fixtures) already has it.
+    op.create_index(
+        "ix_ml_orders_ops_seller_date",
+        "ml_orders_ops",
+        ["seller_id", "date_created"],
+        if_not_exists=True,
+    )
 
 
 def downgrade() -> None:
-    op.drop_index("ix_ml_orders_ops_seller_date", table_name="ml_orders_ops")
+    op.drop_index("ix_ml_orders_ops_seller_date", table_name="ml_orders_ops", if_exists=True)
     op.drop_table("worker_job_state")
     op.drop_index("ix_ml_order_metrics_dirty_enqueued_at", table_name="ml_order_metrics_dirty")
     op.drop_table("ml_order_metrics_dirty")

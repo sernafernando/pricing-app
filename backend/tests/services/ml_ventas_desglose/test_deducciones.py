@@ -1076,3 +1076,34 @@ class TestVariosWorkedExampleEndToEnd:
         # total_gauss = neto_sin_iva (412287.78) - costo_mercaderia (50.00)
         # - varios (24686.31); flex is N/A here (order is not self_service).
         assert resultado.total_gauss == Decimal("412287.78") - Decimal("50.00") - Decimal("24686.31")
+
+
+class TestPersistirTotalGaussParity:
+    """The alias must keep returning what the chain produced for ordinary
+    orders. It only departs from `calcular_total_gauss` where the stored
+    row cannot hold the value (see `normalize_markup_pct`)."""
+
+    def test_returns_the_same_markup_as_the_chain_for_a_normal_order(self, db) -> None:
+        from app.models.ml_payments import MlPaymentOps
+        from app.services.ml_ventas_desglose.iva import descomponer_neto
+
+        order_id = 16
+        _order(db, order_id)
+        _item_with_cost(db, order_id, "MLA1", 1, Decimal("40.00"))
+        db.add(MlPaymentOps(payment_id=16, order_id=order_id, status="approved", net_received_amount=Decimal("100.00")))
+        db.commit()
+
+        descomposiciones = descomponer_neto(db, [order_id])
+        esperado = calcular_total_gauss(
+            db,
+            [order_id],
+            {oid: d.neto_sin_iva for oid, d in descomposiciones.items()},
+            venta_sin_iva_by_order={oid: d.base_venta_sin_iva for oid, d in descomposiciones.items()},
+        )[order_id]
+
+        obtenido = persistir_total_gauss(db, [order_id])[order_id]
+        db.commit()
+
+        assert obtenido.total_gauss == esperado.total_gauss
+        assert obtenido.markup == esperado.markup
+        assert esperado.markup is not None, "el caso normal debe traer markup, si no el test no prueba nada"
