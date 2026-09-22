@@ -75,6 +75,27 @@
   font-weight: 600;
 }
 
+.chipRow {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-top: 4px;
+}
+
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  font-size: var(--font-xs);
+  font-weight: 500;
+  padding: 2px 6px;
+  border-radius: var(--radius-sm);
+  color: var(--cf-text-secondary);
+  background: var(--cf-bg-card);
+  border: 1px solid var(--cf-border-default);
+  white-space: nowrap;
+}
+
 .infoSubvalue {
   font-size: 11px;
   color: var(--cf-text-tertiary);

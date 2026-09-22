@@ -1,0 +1,68 @@
+change: compras-ops-pipeline-ux
+change_id: compras-ops-pipeline-ux
+project: pricing-app
+phase: tasks
+status: ready_for_apply
+artifact_store: openspec
+persistence_mode: hybrid
+created_at: "2026-09-22"
+updated_at: "2026-09-22"
+artifacts:
+  exploration: openspec/changes/compras-ops-pipeline-ux/exploration.md
+  preproposal: openspec/changes/compras-ops-pipeline-ux/preproposal.json
+  proposal: openspec/changes/compras-ops-pipeline-ux/proposal.md
+  specs:
+    - openspec/changes/compras-ops-pipeline-ux/specs/compras-factura-documentos/spec.md
+    - openspec/changes/compras-ops-pipeline-ux/specs/compras-pipeline-alerts/spec.md
+    - openspec/changes/compras-ops-pipeline-ux/specs/pedidos-compra/spec.md
+    - openspec/changes/compras-ops-pipeline-ux/specs/ordenes-pago/spec.md
+    - openspec/changes/compras-ops-pipeline-ux/specs/recepcion-deposito/spec.md
+    - openspec/changes/compras-ops-pipeline-ux/specs/recepcion-estados/spec.md
+    - openspec/changes/compras-ops-pipeline-ux/specs/vincular-oc/spec.md
+  design: openspec/changes/compras-ops-pipeline-ux/design.md
+  tasks: openspec/changes/compras-ops-pipeline-ux/tasks.md
+next_phase: apply
+nextRecommended: apply
+notes: >
+  Tasks complete. Phase 0 rebase upstream/main (1314/1316/1317) then four
+  chained PRs (model+visibility, alerts, Depósito, multi-OC); 22 unchecked
+  work units. High 400-line risk; feature-branch-chain; ask-on-risk decision
+  before apply. Ready for apply.
+locked_decisions:
+  invoice_cargada_model: normalized_rows_option_A
+  invoice_erp_multi_link: deprecated_untouched
+  pr_order: [model_visibility_pedidos_ops, alerts, deposito_ux, multi_oc]
+  alert_factura_recipients: titular_sub_pm_admin_gerente
+  alert_factura_ack: per_user_ok
+  alert_factura_undo_window_minutes: 5
+  alert_ui: stackable_banner_plus_campanita
+  alert_message_ids: pricing_pedido_numero_plus_proveedor_plus_factura_numero
+  alert_faltantes_recipient: pedido_responsable_id
+  alert_faltantes_snooze_hours_from_mark: 1
+  tipo_pedido: mercaderia_servicio
+  servicio_implies_no_oc: true
+  procesal_axis: n_a_servicio|por_recibir|recibido|faltantes_sin_res|faltantes_con_res|controlado
+  oc_as_chip_not_procesal_state: true
+  deposito_por_recibir_default: pagado_only
+  deposito_undo_recibido: true
+  multi_oc_ui: single_pedido_n_blocks
+  multi_oc_controlado: all_ocs_controlled
+  multi_oc_link_mode: add_without_replace
+  channel: in_app_only
+  docs_update: compras-guia-usuario.md
+  deploy: production_chicho_disposes
+  rebase_before_apply: upstream/main_includes_1314_1316_1317
+engram:
+  explore_topic: compras-ux-boost
+  preproposal: sdd/compras-ops-pipeline-ux/preproposal
+  proposal: sdd/compras-ops-pipeline-ux/proposal
+  spec: sdd/compras-ops-pipeline-ux/spec
+  design: sdd/compras-ops-pipeline-ux/design
+  tasks: sdd/compras-ops-pipeline-ux/tasks
+review_forecast:
+  estimated_changed_lines: "900-1400"
+  budget_risk: High
+  chained_prs: Yes
+  delivery_strategy: ask-on-risk
+  decision_needed_before_apply: Yes
+  chain_strategy: feature-branch-chain

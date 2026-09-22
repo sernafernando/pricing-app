@@ -25,6 +25,7 @@ from sqlalchemy import (
     String,
     Text,
     UniqueConstraint,
+    event,
 )
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func, text
@@ -88,6 +89,21 @@ class PedidoCompra(Base):
         default="borrador",
         server_default="borrador",
     )
+    # Pipeline UX — tipo mercadería/servicio (D-PERMS). Default mercaderia.
+    tipo = Column(
+        String(16),
+        nullable=False,
+        default="mercaderia",
+        server_default="mercaderia",
+    )
+    # Pipeline UX — owner of the pedido. Backfilled from creado_por_id.
+    responsable_id = Column(
+        Integer,
+        ForeignKey("usuarios.id", ondelete="RESTRICT"),
+        nullable=False,
+    )
+    # Pipeline UX — set when depósito marks faltantes as resolved (eje_procesal).
+    faltantes_resuelto_en = Column(DateTime(timezone=True), nullable=True)
     creado_por_id = Column(
         Integer,
         ForeignKey("usuarios.id", ondelete="RESTRICT"),
@@ -135,6 +151,12 @@ class PedidoCompra(Base):
     proveedor = relationship("Proveedor")
     creado_por = relationship("Usuario", foreign_keys=[creado_por_id])
     aprobado_por = relationship("Usuario", foreign_keys=[aprobado_por_id])
+    responsable = relationship("Usuario", foreign_keys=[responsable_id])
+    factura_documentos = relationship(
+        "PedidoFacturaDocumento",
+        back_populates="pedido",
+        cascade="all, delete-orphan",
+    )
     # Self-ref relationships para el círculo de correcciones (Feature D).
     # `post_update=True` evita ciclos en la transacción cuando se setean
     # ambos FKs (clon.corregido_desde_id y original.corregido_a_id) a la
@@ -155,7 +177,9 @@ class PedidoCompra(Base):
     __table_args__ = (
         UniqueConstraint("numero", name="uq_pedidos_compra_numero"),
         CheckConstraint("moneda IN ('ARS','USD')", name="ck_pedidos_compra_moneda"),
+        CheckConstraint("tipo IN ('mercaderia','servicio')", name="ck_pedidos_compra_tipo"),
         CheckConstraint("monto > 0", name="ck_pedidos_compra_monto_positivo"),
+        Index("ix_pedidos_compra_responsable_id", "responsable_id"),
         CheckConstraint(
             "estado IN ('borrador','pendiente_aprobacion','aprobado','rechazado',"
             "'cancelado','pagado_parcial','pagado','recibido','con_faltantes',"
@@ -194,3 +218,10 @@ class PedidoCompra(Base):
             f"<PedidoCompra(id={self.id}, numero='{self.numero}', "
             f"estado='{self.estado}', monto={self.monto} {self.moneda})>"
         )
+
+
+@event.listens_for(PedidoCompra, "before_insert")
+def _backfill_responsable_id(mapper, connection, target: PedidoCompra) -> None:
+    """Default responsable_id to creado_por_id when the caller omitted it."""
+    if getattr(target, "responsable_id", None) is None and target.creado_por_id is not None:
+        target.responsable_id = target.creado_por_id

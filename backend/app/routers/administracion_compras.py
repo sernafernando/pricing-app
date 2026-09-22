@@ -117,6 +117,8 @@ from app.schemas.pedido_compra import (
     PedidoCompraPaginated,
     PedidoCompraResponse,
     PedidoCompraUpdate,
+    PedidoFacturaDocumentoCreate,
+    PedidoFacturaDocumentoResponse,
     PedidoTipoCambioUpdate,
     VincularFacturaRequest,
 )
@@ -247,6 +249,8 @@ def _pedido_response(
     # `pedidos_service.calcular_oc_totales_batch` (1 query agregada sin importar
     # N). None → el pedido no tiene OC vinculada; ambos campos quedan None.
     oc_totales: Optional[tuple[int, Decimal]] = None,
+    factura_cargada: Optional[bool] = None,
+    oc_match_status: Optional[str] = None,
 ) -> PedidoCompraResponse:
     """Serializa PedidoCompra incluyendo empresa_nombre / proveedor_nombre.
 
@@ -271,6 +275,7 @@ def _pedido_response(
     emp = getattr(p, "empresa", None)
     prov = getattr(p, "proveedor", None)
     base = PedidoCompraResponse.model_validate(p)
+    factura_flag = factura_cargada if factura_cargada is not None else bool(getattr(p, "factura_cargada", False))
     return base.model_copy(
         update={
             "empresa_nombre": emp.nombre if emp is not None else None,
@@ -280,6 +285,14 @@ def _pedido_response(
             "tipo_cambio_ponderado": tipo_cambio_ponderado,
             "oc_lineas_total": oc_totales[0] if oc_totales else None,
             "oc_unidades_total": oc_totales[1] if oc_totales else None,
+            "eje_procesal": pedidos_service.calcular_eje_procesal(
+                getattr(p, "tipo", None),
+                getattr(p, "estado", None),
+                getattr(p, "faltantes_resuelto_en", None),
+            ),
+            "oc_vinculada": getattr(p, "oc_poh_id", None) is not None,
+            "factura_cargada": factura_flag,
+            "oc_match_status": oc_match_status,
             # F2 — varianza_tc_neta = None → fields stay at schema defaults (False/0).
             # Detail endpoint populates; list endpoints leave as defaults to avoid N+1.
             **(
@@ -294,7 +307,12 @@ def _pedido_response(
     )
 
 
-def _op_response(op: OrdenPago, *, puede_eliminar: bool = False) -> OrdenPagoResponse:
+def _op_response(
+    op: OrdenPago,
+    *,
+    puede_eliminar: bool = False,
+    pedidos_numeros: Optional[list[str]] = None,
+) -> OrdenPagoResponse:
     """Serializa OrdenPago incluyendo empresa_nombre / proveedor_nombre."""
     emp = getattr(op, "empresa", None)
     prov = getattr(op, "proveedor", None)
@@ -304,6 +322,7 @@ def _op_response(op: OrdenPago, *, puede_eliminar: bool = False) -> OrdenPagoRes
             "empresa_nombre": emp.nombre if emp is not None else None,
             "proveedor_nombre": prov.nombre if prov is not None else None,
             "puede_eliminar": puede_eliminar,
+            "pedidos_numeros": list(pedidos_numeros or []),
         }
     )
 
@@ -446,6 +465,7 @@ def listar_pedidos(
             db,
             {p.id: (p.oc_comp_id, p.oc_bra_id, p.oc_poh_id) for p in items_page if p.oc_poh_id is not None},
         )
+        chips_map = pedidos_service.chips_visibilidad_batch(db, page_ids)
 
         return PedidoCompraPaginated(
             items=[
@@ -456,6 +476,8 @@ def listar_pedidos(
                     tipo_cambio_ponderado=tc_pond_map.get(p.id),
                     varianza_tc_neta=varianza_map.get(p.id),
                     oc_totales=oc_totales_map.get(p.id),
+                    factura_cargada=chips_map.get(p.id, {}).get("factura_cargada"),
+                    oc_match_status=chips_map.get(p.id, {}).get("oc_match_status"),
                 )
                 for p in items_page
             ],
@@ -503,6 +525,7 @@ def listar_pedidos(
         db,
         {p.id: (p.oc_comp_id, p.oc_bra_id, p.oc_poh_id) for p in items if p.oc_poh_id is not None},
     )
+    chips_map = pedidos_service.chips_visibilidad_batch(db, pedido_ids)
     # These three aggregates feed the accounting fields only, so a warehouse-only
     # listing skips them entirely instead of computing and discarding them.
     if solo_deposito:
@@ -528,6 +551,8 @@ def listar_pedidos(
                 tipo_cambio_ponderado=None if solo_deposito else tc_pond_map.get(p.id),
                 varianza_tc_neta=None if solo_deposito else varianza_map.get(p.id),
                 oc_totales=oc_totales_map.get(p.id),
+                factura_cargada=chips_map.get(p.id, {}).get("factura_cargada"),
+                oc_match_status=chips_map.get(p.id, {}).get("oc_match_status"),
             )
             for p in items
         ],
@@ -662,6 +687,7 @@ def obtener_pedido(
     tc_ponderado = pedidos_service.calcular_tc_ponderado_pedido(db, pedido.id)
     # F2 — compute TC variance for the detail view only (no N+1 in listings).
     varianza_tc = pedidos_service.calcular_varianza_tc(db, pedido)
+    chips = pedidos_service.chips_visibilidad_batch(db, [pedido.id]).get(pedido.id, {})
     detalle = PedidoCompraDetalle.model_validate(pedido)
     detalle = detalle.model_copy(
         update={
@@ -671,6 +697,14 @@ def obtener_pedido(
             "tipo_cambio_ponderado": tc_ponderado,
             "varianza_tc_neta": varianza_tc,
             "varianza_tc_pendiente": abs(varianza_tc) > VARIANZA_TC_THRESHOLD_ARS,
+            "eje_procesal": pedidos_service.calcular_eje_procesal(
+                getattr(pedido, "tipo", None),
+                getattr(pedido, "estado", None),
+                getattr(pedido, "faltantes_resuelto_en", None),
+            ),
+            "oc_vinculada": getattr(pedido, "oc_poh_id", None) is not None,
+            "factura_cargada": bool(chips.get("factura_cargada")),
+            "oc_match_status": chips.get("oc_match_status"),
         }
     )
     detalle.eventos = [CompraEventoResponse.model_validate(e) for e in eventos]
@@ -705,6 +739,8 @@ def crear_pedido(
             numero_factura=data.numero_factura,
             facturas_documento=data.facturas_documento,
             pedidos_documento=data.pedidos_documento,
+            tipo=data.tipo,
+            responsable_id=data.responsable_id,
         )
     except HTTPException:
         db.rollback()
@@ -719,6 +755,11 @@ def crear_pedido(
     return _pedido_response(pedido)
 
 
+@router.patch(
+    "/pedidos/{pedido_id}",
+    response_model=PedidoCompraResponse,
+    summary="Editar pedido (PATCH — mismas reglas que PUT; tipo post-create solo admin)",
+)
 @router.put(
     "/pedidos/{pedido_id}",
     response_model=PedidoCompraResponse,
@@ -730,13 +771,18 @@ def editar_pedido(
     db: Session = Depends(get_db),
     user: Usuario = Depends(require_permiso("administracion.gestionar_ordenes_compra")),
 ) -> PedidoCompraResponse:
-    """Edita un pedido aplicando reglas por estado. REQ-PED-006."""
+    """Edita un pedido aplicando reglas por estado. REQ-PED-006.
+
+    After create, `tipo` is admin-only (D-PERMS). `responsable_id` is
+    editable by the creator or an admin.
+    """
     campos = data.model_dump(exclude_unset=True, exclude_none=True)
     try:
         pedido = pedidos_service.editar_pedido(
             db,
             pedido_id=pedido_id,
             user_id=user.id,
+            actor=user,
             **campos,
         )
     except HTTPException:
@@ -750,6 +796,68 @@ def editar_pedido(
     _commit_or_rollback(db, operacion="editar_pedido")
     db.refresh(pedido)
     return _pedido_response(pedido)
+
+
+@router.post(
+    "/pedidos/{pedido_id}/factura-documentos",
+    response_model=PedidoFacturaDocumentoResponse,
+    status_code=status.HTTP_201_CREATED,
+    summary="Cargar una factura documental (fila normalizada, option A)",
+)
+def agregar_factura_documento(
+    pedido_id: int,
+    data: PedidoFacturaDocumentoCreate,
+    db: Session = Depends(get_db),
+    user: Usuario = Depends(require_permiso("administracion.gestionar_ordenes_compra")),
+) -> PedidoFacturaDocumentoResponse:
+    """Add a nonempty invoice number row. Does not fire alerts (PR2)."""
+    try:
+        row = pedidos_service.agregar_factura_documento(
+            db,
+            pedido_id=pedido_id,
+            numero=data.numero,
+            user_id=user.id,
+        )
+    except HTTPException:
+        db.rollback()
+        raise
+    except Exception as exc:
+        db.rollback()
+        logger.exception("agregar_factura_documento falló: %s", exc)
+        raise HTTPException(status_code=500, detail="Error al cargar la factura.") from exc
+
+    _commit_or_rollback(db, operacion="agregar_factura_documento")
+    db.refresh(row)
+    return PedidoFacturaDocumentoResponse.model_validate(row)
+
+
+@router.delete(
+    "/pedidos/{pedido_id}/factura-documentos/{row_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    summary="Deshacer carga de factura (ventana de 5 minutos)",
+)
+def deshacer_factura_documento(
+    pedido_id: int,
+    row_id: int,
+    db: Session = Depends(get_db),
+    user: Usuario = Depends(require_permiso("administracion.gestionar_ordenes_compra")),
+) -> None:
+    """Undo a just-added factura row. After 5 minutes → 409. Alert retract is PR2."""
+    try:
+        pedidos_service.deshacer_factura_documento(
+            db,
+            pedido_id=pedido_id,
+            row_id=row_id,
+        )
+    except HTTPException:
+        db.rollback()
+        raise
+    except Exception as exc:
+        db.rollback()
+        logger.exception("deshacer_factura_documento falló: %s", exc)
+        raise HTTPException(status_code=500, detail="Error al deshacer la factura.") from exc
+
+    _commit_or_rollback(db, operacion="deshacer_factura_documento")
 
 
 # ──────────────────────────────────────────────────────────────────────────
@@ -1447,8 +1555,16 @@ def listar_ordenes_pago(
 
     items, total = _paginate(db, stmt, page=page, page_size=page_size)
     puede_map = compras_papelera_service._calcular_puede_eliminar_ops_batch(db, items)
+    numeros_map = pedidos_service.pedidos_numeros_por_op_batch(db, [op.id for op in items])
     return OrdenPagoPaginated(
-        items=[_op_response(op, puede_eliminar=puede_map.get(op.id, False)) for op in items],
+        items=[
+            _op_response(
+                op,
+                puede_eliminar=puede_map.get(op.id, False),
+                pedidos_numeros=numeros_map.get(op.id, []),
+            )
+            for op in items
+        ],
         total=total,
         page=page,
         page_size=page_size,
@@ -1524,6 +1640,7 @@ def obtener_orden_pago(
             "empresa_nombre": emp.nombre if emp is not None else None,
             "proveedor_nombre": prov.nombre if prov is not None else None,
             "banco_nombre": banco.banco if banco is not None else None,
+            "pedidos_numeros": pedidos_service.pedidos_numeros_por_op_batch(db, [op.id]).get(op.id, []),
         }
     )
     detalle.imputaciones = _enriquecer_imputaciones(db, list(imputaciones))

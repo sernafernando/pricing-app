@@ -74,6 +74,12 @@ permisos. Los tabs se ocultan dinámicamente según los permisos del usuario.
 > Los pedidos en borrador se pueden editar libremente. No impactan CC
 > hasta que se aprueben.
 
+En el listado, la columna **Estado** es financiera (el badge de **aprobado**
+no se renombra). La columna **Proceso** muestra el eje logístico
+(`N/A servicio`, `Por recibir`, `Recibido`, `Faltantes`, `Faltantes resueltos`,
+`Controlado`) y chips de visibilidad: OC vinculada, factura cargada y
+estado del último job de OC Match. Esos chips no son estados del pedido.
+
 ### 3.2 El PM envía el pedido a aprobación
 
 Desde el detalle del pedido → botón **Enviar a aprobación**. El pedido
@@ -107,6 +113,10 @@ una **Orden de Pago (OP)**:
        más antiguas.
      - **Mixta:** combinar items específicos + remanente como saldo.
 3. La OP queda en estado **CREADA** (no pagada todavía).
+
+En el listado de OPs, la columna **Pedidos** muestra todos los números
+Pricing (`P-…`) imputados a esa OP. Una OP `a_cuenta` sin imputaciones a
+pedido deja esa columna vacía.
 
 > **⚠ Anti-doble-contabilización:** un banner rojo arriba del form recuerda
 > que **NO se debe cargar la OP en la app si ya se registró directamente

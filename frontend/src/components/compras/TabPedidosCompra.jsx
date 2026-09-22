@@ -18,6 +18,9 @@ import {
   TrendingUp,
   RotateCcw,
   Landmark,
+  Link2,
+  FileText,
+  ScanSearch,
 } from 'lucide-react';
 import api from '../../services/api';
 import { usePermisos } from '../../contexts/PermisosContext';
@@ -57,8 +60,49 @@ const COLUMNS = [
   { key: 'plazo', label: 'Plazo', width: '120px' },
   { key: 'fecha_pago', label: 'Fecha pago', width: '160px' },
   { key: 'estado', label: 'Estado', width: '110px' },
+  { key: 'proceso', label: 'Proceso', width: '220px' },
   { key: 'acciones', label: '', align: 'right', width: '180px' },
 ];
+
+const EJES_PROCESAL_LABEL = {
+  n_a_servicio: 'N/A servicio',
+  por_recibir: 'Por recibir',
+  recibido: 'Recibido',
+  faltantes_sin_res: 'Faltantes',
+  faltantes_con_res: 'Faltantes resueltos',
+  controlado: 'Controlado',
+};
+
+const MATCH_STATUS_LABEL = {
+  queued: 'Match en cola',
+  running: 'Match en curso',
+  done: 'Match listo',
+  error: 'Match error',
+  skipped: 'Match omitido',
+};
+
+const renderPedidoChips = (p) => (
+  <div className={styles.chipRow}>
+    {p.oc_vinculada && (
+      <span className={styles.chip}>
+        <Link2 size={11} aria-hidden="true" />
+        OC
+      </span>
+    )}
+    {p.factura_cargada && (
+      <span className={styles.chip}>
+        <FileText size={11} aria-hidden="true" />
+        Factura
+      </span>
+    )}
+    {p.oc_match_status && (
+      <span className={styles.chip}>
+        <ScanSearch size={11} aria-hidden="true" />
+        {MATCH_STATUS_LABEL[p.oc_match_status] || p.oc_match_status}
+      </span>
+    )}
+  </div>
+);
 
 const formatCurrency = (value, moneda = 'ARS') => {
   const num = Number(value) || 0;
@@ -668,6 +712,19 @@ export default function TabPedidosCompra() {
       }
       case 'estado':
         return <EstadoBadge variant="pedido" estado={p.estado} />;
+      case 'proceso':
+        return (
+          <div className={styles.procesoCell}>
+            {p.eje_procesal ? (
+              <span className={styles.procesalBadge}>
+                {EJES_PROCESAL_LABEL[p.eje_procesal] || p.eje_procesal}
+              </span>
+            ) : (
+              <span className={styles.tdSecondary}>—</span>
+            )}
+            {renderPedidoChips(p)}
+          </div>
+        );
       case 'acciones':
         return renderAcciones(p);
       default:

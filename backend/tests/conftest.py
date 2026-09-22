@@ -72,6 +72,7 @@ from app.models.ml_billing import (  # noqa: F401 — registers tables for creat
 from app.models.ml_order_item_costo import MlOrderItemCosto  # noqa: F401 — registers table for create_all
 from app.models.ml_order_metrics import MlOrderMetrics, MlOrderMetricsDirty  # noqa: F401 — registers tables for create_all
 from app.models.worker_job_state import WorkerJobState  # noqa: F401 — registers table for create_all
+from app.models.pedido_factura_documento import PedidoFacturaDocumento  # noqa: F401 — registers table for create_all
 
 # ---------------------------------------------------------------------------
 # Token revocation test seam

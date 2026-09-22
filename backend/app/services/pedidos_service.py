@@ -26,16 +26,21 @@ Referencias:
 
 from __future__ import annotations
 
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 from decimal import ROUND_HALF_UP, Decimal
 from typing import Any, Final, Literal, Optional
 
 from fastapi import HTTPException, status
+from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from app.core.logging import get_logger
 from app.models.compra_evento import CompraEvento
+from app.models.imputacion import Imputacion
+from app.models.oc_match_job import OcMatchJob
 from app.models.pedido_compra import PedidoCompra
+from app.models.pedido_factura_documento import PedidoFacturaDocumento
+from app.models.usuario import RolUsuario, Usuario
 from app.services import (
     cc_proveedor_service,
     erp_matching_service,
@@ -95,6 +100,23 @@ CAMPOS_EDITABLES_BORRADOR: Final[frozenset[str]] = frozenset(
         "pedidos_documento",
     }
 )
+TIPOS_PEDIDO: Final[frozenset[str]] = frozenset({"mercaderia", "servicio"})
+TIPO_PEDIDO_DEFAULT: Final[str] = "mercaderia"
+ROLES_ADMIN_TIPO: Final[frozenset[str]] = frozenset(
+    {RolUsuario.ADMIN.value, RolUsuario.SUPERADMIN.value}
+)
+FACTURA_UNDO_WINDOW: Final[timedelta] = timedelta(minutes=5)
+EJES_PROCESAL: Final[frozenset[str]] = frozenset(
+    {
+        "n_a_servicio",
+        "por_recibir",
+        "recibido",
+        "faltantes_sin_res",
+        "faltantes_con_res",
+        "controlado",
+    }
+)
+
 CAMPOS_EDITABLES_APROBADO: Final[frozenset[str]] = frozenset(
     {
         "numero_factura",
@@ -187,6 +209,42 @@ def _registrar_evento(
     session.add(evento)
     session.flush()
     return evento
+
+
+def _actor_es_admin(actor: Optional[Usuario]) -> bool:
+    """True when the actor may edit tipo after create (D-PERMS)."""
+    if actor is None:
+        return False
+    return actor.rol_codigo in ROLES_ADMIN_TIPO
+
+
+def _puede_editar_responsable(actor: Optional[Usuario], pedido: PedidoCompra) -> bool:
+    """Admin or the pedido creator may change responsable_id."""
+    if actor is None:
+        return False
+    if _actor_es_admin(actor):
+        return True
+    return actor.id == pedido.creado_por_id
+
+
+def split_facturas_documento_tokens(raw: Optional[str]) -> list[str]:
+    """Split `facturas_documento` on `;`, trim, drop empties."""
+    if not raw:
+        return []
+    return [part.strip() for part in raw.split(";") if part.strip()]
+
+
+def _ahora_utc(ahora: Optional[datetime] = None) -> datetime:
+    value = ahora if ahora is not None else datetime.now(timezone.utc)
+    if value.tzinfo is None:
+        return value.replace(tzinfo=timezone.utc)
+    return value
+
+
+def _as_aware_utc(value: datetime) -> datetime:
+    if value.tzinfo is None:
+        return value.replace(tzinfo=timezone.utc)
+    return value
 
 
 def _obtener_pedido_o_404(session: Session, pedido_id: int) -> PedidoCompra:
@@ -282,6 +340,8 @@ def crear_pedido(
     numero_factura: Optional[str] = None,
     facturas_documento: Optional[str] = None,
     pedidos_documento: Optional[str] = None,
+    tipo: Optional[str] = None,
+    responsable_id: Optional[int] = None,
 ) -> PedidoCompra:
     """
     Crea un pedido en estado `borrador` con número correlativo.
@@ -318,6 +378,14 @@ def crear_pedido(
             detail=f"monto debe ser > 0 (recibido: {monto}).",
         )
 
+    tipo_resuelto = (tipo or TIPO_PEDIDO_DEFAULT).strip()
+    if tipo_resuelto not in TIPOS_PEDIDO:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail=f"tipo debe ser uno de {sorted(TIPOS_PEDIDO)}.",
+        )
+    responsable_resuelto = responsable_id if responsable_id is not None else creado_por_id
+
     tipo_cambio_resuelto = _resolver_tipo_cambio_para_pedido(
         session,
         moneda=moneda,
@@ -344,6 +412,8 @@ def crear_pedido(
         facturas_documento=facturas_documento,
         pedidos_documento=pedidos_documento,
         estado="borrador",
+        tipo=tipo_resuelto,
+        responsable_id=responsable_resuelto,
         creado_por_id=creado_por_id,
     )
     session.add(pedido)
@@ -377,6 +447,200 @@ def crear_pedido(
 
 
 # ──────────────────────────────────────────────────────────────────────────
+# Factura documentos (option A — PR1, no alert fan-out)
+# ──────────────────────────────────────────────────────────────────────────
+
+
+def calcular_eje_procesal(
+    tipo: str | None,
+    estado: str | None,
+    faltantes_resuelto_en: datetime | None = None,
+) -> str | None:
+    """Derive logistic/procesal axis. Financial `estado` is never rewritten.
+
+    Mapping (design): servicio→n_a_servicio; pagado/en_cuenta_corriente→
+    por_recibir; recibido→recibido; con_faltantes + null stamp→faltantes_sin_res;
+    stamp set→faltantes_con_res; controlado→controlado. Other financial states
+    (incl. aprobado) return None so the aprobado badge is not renamed.
+    """
+    if (tipo or "").strip() == "servicio":
+        return "n_a_servicio"
+    if estado in ("pagado", "en_cuenta_corriente"):
+        return "por_recibir"
+    if estado == "recibido":
+        return "recibido"
+    if estado == "con_faltantes":
+        if faltantes_resuelto_en is None:
+            return "faltantes_sin_res"
+        return "faltantes_con_res"
+    if estado == "controlado":
+        return "controlado"
+    return None
+
+
+def es_factura_cargada(session: Session, pedido_id: int) -> bool:
+    """Cargada ⇔ ≥1 normalized row. ERP `ct_transaction` is never identity."""
+    count = (
+        session.query(PedidoFacturaDocumento)
+        .filter(PedidoFacturaDocumento.pedido_id == pedido_id)
+        .count()
+    )
+    return count > 0
+
+
+def chips_visibilidad_batch(
+    session: Session, pedido_ids: list[int]
+) -> dict[int, dict[str, Any]]:
+    """Batch factura-cargada + latest OC-match status for list/detail chips.
+
+    Returns `{pedido_id: {factura_cargada, oc_match_status}}`. Missing ids
+    default to factura False / match None (null-safe stub).
+    """
+    out: dict[int, dict[str, Any]] = {
+        int(pid): {"factura_cargada": False, "oc_match_status": None} for pid in pedido_ids
+    }
+    if not pedido_ids:
+        return out
+
+    factura_rows = (
+        session.query(PedidoFacturaDocumento.pedido_id, func.count(PedidoFacturaDocumento.id))
+        .filter(PedidoFacturaDocumento.pedido_id.in_(pedido_ids))
+        .group_by(PedidoFacturaDocumento.pedido_id)
+        .all()
+    )
+    for pid, cnt in factura_rows:
+        if int(cnt) >= 1:
+            out[int(pid)]["factura_cargada"] = True
+
+    latest_ids = (
+        session.query(OcMatchJob.pedido_id, func.max(OcMatchJob.id).label("max_id"))
+        .filter(OcMatchJob.pedido_id.in_(pedido_ids))
+        .group_by(OcMatchJob.pedido_id)
+        .all()
+    )
+    max_by_pedido = {int(pid): int(max_id) for pid, max_id in latest_ids if max_id is not None}
+    if max_by_pedido:
+        job_rows = (
+            session.query(OcMatchJob.id, OcMatchJob.pedido_id, OcMatchJob.status)
+            .filter(OcMatchJob.id.in_(list(max_by_pedido.values())))
+            .all()
+        )
+        for _jid, pid, status in job_rows:
+            out[int(pid)]["oc_match_status"] = status
+    return out
+
+
+def pedidos_numeros_por_op_batch(session: Session, op_ids: list[int]) -> dict[int, list[str]]:
+    """Pricing `P-…` numbers linked to each OP via pedido imputations.
+
+    Reversals are ignored so anulado/reimputado links do not leak stale numbers.
+    `a_cuenta` with no pedido destinos yields an empty list (no placeholder).
+    """
+    out: dict[int, list[str]] = {int(oid): [] for oid in op_ids}
+    if not op_ids:
+        return out
+    rows = (
+        session.query(Imputacion.origen_id, PedidoCompra.numero)
+        .join(PedidoCompra, PedidoCompra.id == Imputacion.destino_id)
+        .filter(
+            Imputacion.origen_tipo == "orden_pago",
+            Imputacion.origen_id.in_(op_ids),
+            Imputacion.destino_tipo == "pedido_compra",
+            Imputacion.es_reversal.is_(False),
+        )
+        .order_by(PedidoCompra.numero.asc())
+        .all()
+    )
+    seen: dict[int, set[str]] = {int(oid): set() for oid in op_ids}
+    for origen_id, numero in rows:
+        oid = int(origen_id)
+        num = str(numero) if numero is not None else ""
+        if not num or num in seen[oid]:
+            continue
+        seen[oid].add(num)
+        out[oid].append(num)
+    return out
+
+
+def seed_factura_documentos(session: Session, pedido: PedidoCompra) -> list[PedidoFacturaDocumento]:
+    """Seed rows from `facturas_documento` `;` tokens. Leaves the raw field unchanged."""
+    existing = (
+        session.query(PedidoFacturaDocumento)
+        .filter(PedidoFacturaDocumento.pedido_id == pedido.id)
+        .order_by(PedidoFacturaDocumento.id)
+        .all()
+    )
+    if existing:
+        return existing
+
+    rows: list[PedidoFacturaDocumento] = []
+    for numero in split_facturas_documento_tokens(pedido.facturas_documento):
+        row = PedidoFacturaDocumento(
+            pedido_id=pedido.id,
+            numero=numero,
+            created_by_id=pedido.creado_por_id,
+        )
+        session.add(row)
+        rows.append(row)
+    if rows:
+        session.flush()
+    return rows
+
+
+def agregar_factura_documento(
+    session: Session,
+    *,
+    pedido_id: int,
+    numero: str,
+    user_id: int,
+) -> PedidoFacturaDocumento:
+    """Persist a factura row. Empty number → 422. Does not fire alerts (PR2)."""
+    pedido = _obtener_pedido_o_404(session, pedido_id)
+    numero_norm = (numero or "").strip()
+    if not numero_norm:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail="numero de factura no puede estar vacío.",
+        )
+    row = PedidoFacturaDocumento(
+        pedido_id=pedido.id,
+        numero=numero_norm,
+        created_by_id=user_id,
+    )
+    session.add(row)
+    session.flush()
+    return row
+
+
+def deshacer_factura_documento(
+    session: Session,
+    *,
+    pedido_id: int,
+    row_id: int,
+    ahora: Optional[datetime] = None,
+) -> None:
+    """Remove a just-added row within the 5-minute undo window. After that → 409.
+
+    Alert retract is PR2 — this path only deletes the row.
+    """
+    _obtener_pedido_o_404(session, pedido_id)
+    row = session.get(PedidoFacturaDocumento, row_id)
+    if row is None or row.pedido_id != pedido_id:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Factura documento id={row_id} no encontrado en pedido {pedido_id}.",
+        )
+    created_at = _as_aware_utc(row.created_at)
+    if _ahora_utc(ahora) - created_at > FACTURA_UNDO_WINDOW:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="La ventana de 5 minutos para deshacer la carga de factura ya expiró.",
+        )
+    session.delete(row)
+    session.flush()
+
+
+# ──────────────────────────────────────────────────────────────────────────
 # Edición
 # ──────────────────────────────────────────────────────────────────────────
 
@@ -386,6 +650,7 @@ def editar_pedido(
     *,
     pedido_id: int,
     user_id: int,
+    actor: Optional[Usuario] = None,
     **campos: Any,
 ) -> PedidoCompra:
     """
@@ -420,6 +685,33 @@ def editar_pedido(
         HTTPException 400: si un campo es inválido (moneda/monto).
     """
     pedido = _obtener_pedido_o_404(session, pedido_id)
+
+    tipo_en_payload = "tipo" in campos
+    responsable_en_payload = "responsable_id" in campos
+    tipo_solicitado = campos.pop("tipo", None)
+    responsable_solicitado = campos.pop("responsable_id", None)
+
+    if tipo_en_payload and tipo_solicitado is not None and tipo_solicitado != pedido.tipo:
+        if not _actor_es_admin(actor):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Solo un admin puede cambiar el tipo del pedido luego de crearlo.",
+            )
+        tipo_norm = str(tipo_solicitado).strip()
+        if tipo_norm not in TIPOS_PEDIDO:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+                detail=f"tipo debe ser uno de {sorted(TIPOS_PEDIDO)}.",
+            )
+        pedido.tipo = tipo_norm
+
+    if responsable_en_payload and responsable_solicitado is not None:
+        if not _puede_editar_responsable(actor, pedido):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Solo el creador o un admin pueden cambiar el responsable.",
+            )
+        pedido.responsable_id = int(responsable_solicitado)
 
     if pedido.estado == "borrador":
         editables = CAMPOS_EDITABLES_BORRADOR
