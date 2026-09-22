@@ -40,3 +40,38 @@ def test_the_limit_itself_is_kept() -> None:
 def test_zero_or_missing_cost_is_unknown() -> None:
     assert normalize_markup_pct(Decimal("25.00"), Decimal("0"), GaussStatus.OK, order_id=1) is None
     assert normalize_markup_pct(Decimal("25.00"), None, GaussStatus.OK, order_id=1) is None
+
+
+def test_an_order_missing_from_the_chain_result_is_skipped(db, monkeypatch) -> None:
+    """If `calcular_total_gauss` ever leaves out an existing order, the batch
+    must skip it (legacy `persistir_total_gauss` iterated the result dict and
+    never indexed a required key), never raise and abort the sweep batch."""
+    from datetime import datetime, timezone
+
+    from app.models.ml_orders_ops import MlOrdersOps
+    from app.services.order_metrics import compute as compute_module
+
+    for order_id in (71, 72):
+        db.add(
+            MlOrdersOps(
+                order_id=order_id,
+                status="paid",
+                ml_last_updated=datetime(2026, 9, 22, tzinfo=timezone.utc),
+                seller_id=999,
+            )
+        )
+    db.commit()
+
+    real = compute_module.calcular_total_gauss
+
+    def _drops_72(db_, order_ids, neto_sin_iva_by_order, *, venta_sin_iva_by_order):
+        result = real(db_, order_ids, neto_sin_iva_by_order, venta_sin_iva_by_order=venta_sin_iva_by_order)
+        result.pop(72, None)
+        return result
+
+    monkeypatch.setattr(compute_module, "calcular_total_gauss", _drops_72)
+
+    metrics = compute_module.compute_order_metrics(db, [71, 72])
+
+    assert 71 in metrics
+    assert 72 not in metrics

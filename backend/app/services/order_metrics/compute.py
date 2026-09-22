@@ -109,7 +109,13 @@ def compute_order_metrics(db: Session, order_ids: Sequence[int]) -> Dict[int, Or
     computed_at = datetime.now(timezone.utc)
 
     for order_id in order_ids:
-        resultado = resultados[order_id]
+        resultado = resultados.get(order_id)
+        if resultado is None:
+            # Legacy tolerance: `persistir_total_gauss` iterated the result
+            # dict and never indexed a required key. An order the chain did
+            # not return is skipped, never allowed to abort the batch.
+            logger.warning("order_metrics: no chain result for order_id=%s -- skipped", order_id)
+            continue
         descomposicion = descomposiciones.get(order_id)
 
         costo_mercaderia: Optional[Decimal] = next(
