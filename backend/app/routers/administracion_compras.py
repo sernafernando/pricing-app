@@ -62,7 +62,7 @@ from app.schemas.cc_proveedor import (  # noqa: I001
     SaldoPorMoneda,
 )
 from app.schemas.compra_adjunto import CompraAdjuntoResponse
-from app.schemas.oc_match import OcMatchJobDetalle, OcMatchJobPaginated, OcMatchJobResponse
+from app.schemas.oc_match import OcMatchJobDetalle, OcMatchJobPaginated, OcMatchJobResponse, OcMatchRetryRequest
 from app.schemas.compra_evento import CompraEventoResponse
 from app.schemas.compras_papelera import (
     PapeleraHardDeleteRequest,
@@ -3959,16 +3959,17 @@ def obtener_oc_match_job(
 def reintentar_oc_match_job(
     job_id: int,
     background_tasks: BackgroundTasks,
+    payload: OcMatchRetryRequest = Body(default_factory=OcMatchRetryRequest),
     empresa_id: Optional[int] = Query(None, ge=1, description="Si se pasa, 404 si el pedido no es de esa empresa"),
     db: Session = Depends(get_db),
     _user: Usuario = Depends(require_permiso("administracion.gestionar_ordenes_compra")),
 ) -> OcMatchJobResponse:
-    """Solo status error (tras reclaim). 409 si no es reintentable."""
+    """Solo status error (tras reclaim). 409 si no es reintentable. Empty POST = no refresh."""
     reclaim_stale_running(db)
     db.commit()
     job = _obtener_oc_match_job_o_404(db, job_id, empresa_id=empresa_id)
     try:
-        job = queue_retry(db, job)
+        job = queue_retry(db, job, refrescar_doc_refs=payload.refrescar_doc_refs)
     except ValueError:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,

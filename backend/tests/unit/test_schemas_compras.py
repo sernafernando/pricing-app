@@ -24,7 +24,12 @@ from app.schemas.orden_pago import (
     OrdenPagoEjecutarPago,
     PosibleDuplicadoResponse,
 )
-from app.schemas.pedido_compra import PedidoCompraCreate, PedidoCompraResponse, PedidoCompraUpdate
+from app.schemas.pedido_compra import (
+    CorreccionPedidoRequest,
+    PedidoCompraCreate,
+    PedidoCompraResponse,
+    PedidoCompraUpdate,
+)
 from app.schemas.sale_document import SaleDocumentResponse
 
 
@@ -69,6 +74,21 @@ class TestPedidoCompraCreate:
         pu = PedidoCompraUpdate()
         dumped = pu.model_dump(exclude_unset=True)
         assert dumped == {}
+
+    def test_doc_refs_over_500_raises(self) -> None:
+        over = "x" * 501
+        with pytest.raises(ValidationError):
+            PedidoCompraCreate(
+                empresa_id=1,
+                proveedor_id=10,
+                moneda="ARS",
+                monto=Decimal("1500.00"),
+                facturas_documento=over,
+            )
+        with pytest.raises(ValidationError):
+            PedidoCompraUpdate(pedidos_documento=over)
+        with pytest.raises(ValidationError):
+            CorreccionPedidoRequest(motivo_correccion="motivo valido", facturas_documento=over)
 
 
 class TestPedidoCompraResponseOcTotalesFields:

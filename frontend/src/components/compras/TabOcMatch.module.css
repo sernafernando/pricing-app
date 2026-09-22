@@ -111,6 +111,15 @@
   gap: var(--spacing-sm);
 }
 
+.checkboxLabel {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--spacing-sm);
+  cursor: pointer;
+  color: var(--cf-text-primary);
+  font-size: var(--font-sm);
+}
+
 .sectionTitle {
   margin: var(--spacing-sm) 0 0;
   font-size: var(--font-sm);

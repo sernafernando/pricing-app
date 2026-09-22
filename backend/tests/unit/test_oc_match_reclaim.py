@@ -131,6 +131,35 @@ class TestClaimAndRetry:
         assert retried.error_message is None
         assert retried.progress_phase is None
 
+    def test_queue_retry_default_keeps_stamp(self, db, active_user) -> None:
+        pedido, adj = _pedido_y_adjunto(db, active_user)
+        result = enqueue_oc_match(
+            db,
+            pedido_id=pedido.id,
+            attachment_id=adj.id,
+            filename=adj.nombre_archivo,
+            content=_PDF,
+        )
+        stamped = datetime.now(UTC)
+        result.job.status = OcMatchJob.STATUS_ERROR
+        result.job.doc_refs_aplicado_at = stamped
+        retried = queue_retry(db, result.job)
+        assert retried.doc_refs_aplicado_at == stamped
+
+    def test_queue_retry_refresh_clears_stamp(self, db, active_user) -> None:
+        pedido, adj = _pedido_y_adjunto(db, active_user)
+        result = enqueue_oc_match(
+            db,
+            pedido_id=pedido.id,
+            attachment_id=adj.id,
+            filename=adj.nombre_archivo,
+            content=_PDF,
+        )
+        result.job.status = OcMatchJob.STATUS_ERROR
+        result.job.doc_refs_aplicado_at = datetime.now(UTC)
+        retried = queue_retry(db, result.job, refrescar_doc_refs=True)
+        assert retried.doc_refs_aplicado_at is None
+
 
 class TestReclaimStaleRunning:
     def test_running_over_45_minutes_becomes_retryable_error(self, db, active_user) -> None:

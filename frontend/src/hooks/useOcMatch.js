@@ -106,10 +106,10 @@ export default function useOcMatch({ status = '', page = 1, pageSize = 50 } = {}
     return () => clearInterval(timer);
   }, [shouldPoll, selectedId, status, page, pageSize]);
 
-  const retry = async (id) => {
+  const retry = async (id, { refrescar_doc_refs = false } = {}) => {
     setError(null);
     try {
-      const { data } = await api.post(`${OC_MATCH_BASE}/${id}/retry`);
+      const { data } = await api.post(`${OC_MATCH_BASE}/${id}/retry`, { refrescar_doc_refs });
       setJobs((prev) => prev.map((job) => (job.id === id ? { ...job, ...data } : job)));
       if (selectedId === id) {
         setSelected((prev) => ({ ...(prev || {}), ...data }));

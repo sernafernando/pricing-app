@@ -180,8 +180,12 @@ def delete_jobs_for_attachment(db: Session, attachment_id: int) -> int:
     return len(jobs)
 
 
-def queue_retry(db: Session, job: OcMatchJob) -> OcMatchJob:
-    """Move a retryable ``error`` job back to ``queued``."""
+def queue_retry(db: Session, job: OcMatchJob, refrescar_doc_refs: bool = False) -> OcMatchJob:
+    """Move a retryable ``error`` job back to ``queued``.
+
+    Clears ``doc_refs_aplicado_at`` only when ``refrescar_doc_refs`` is True
+    so the next persist can append_unique again.
+    """
     if job.status != OcMatchJob.STATUS_ERROR:
         raise ValueError("job is not retryable")
     stamp = _utcnow()
@@ -191,5 +195,7 @@ def queue_retry(db: Session, job: OcMatchJob) -> OcMatchJob:
     job.started_at = None
     job.finished_at = None
     job.updated_at = stamp
+    if refrescar_doc_refs:
+        job.doc_refs_aplicado_at = None
     db.flush()
     return job

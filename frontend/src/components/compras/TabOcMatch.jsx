@@ -160,13 +160,18 @@ export default function TabOcMatch() {
 
   const [actionError, setActionError] = useState(null);
   const [busy, setBusy] = useState(false);
+  const [refrescarDocRefs, setRefrescarDocRefs] = useState(false);
+
+  useEffect(() => {
+    setRefrescarDocRefs(false);
+  }, [selected?.id]);
 
   const handleRetry = async () => {
     if (!selected) return;
     setActionError(null);
     setBusy(true);
     try {
-      await retry(selected.id);
+      await retry(selected.id, { refrescar_doc_refs: refrescarDocRefs });
     } catch (err) {
       const msg = err.response?.data?.detail;
       setActionError(typeof msg === 'string' ? msg : 'No se pudo reintentar el job.');
@@ -329,15 +334,25 @@ export default function TabOcMatch() {
                 </button>
               )}
               {showRetry && (
-                <button
-                  type="button"
-                  className={styles.btnPrimary}
-                  onClick={handleRetry}
-                  disabled={busy}
-                >
-                  <RefreshCw size={14} />
-                  Reintentar
-                </button>
+                <>
+                  <label className={styles.checkboxLabel}>
+                    <input
+                      type="checkbox"
+                      checked={refrescarDocRefs}
+                      onChange={(e) => setRefrescarDocRefs(e.target.checked)}
+                    />
+                    <span>También actualizar Factura/s y Pedido/s</span>
+                  </label>
+                  <button
+                    type="button"
+                    className={styles.btnPrimary}
+                    onClick={handleRetry}
+                    disabled={busy}
+                  >
+                    <RefreshCw size={14} />
+                    Reintentar
+                  </button>
+                </>
               )}
             </div>
             <h3 className={styles.sectionTitle}>Renglones</h3>

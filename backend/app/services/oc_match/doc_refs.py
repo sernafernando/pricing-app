@@ -74,27 +74,30 @@ def append_unique(stored: Optional[str], token: Optional[str]) -> Optional[str]:
     return "; ".join(existing)
 
 
-def apply_writeback(pedido: PedidoCompra, extracted: dict[str, Any]) -> None:
+def apply_writeback(pedido: PedidoCompra, extracted: dict[str, Any]) -> bool:
     """Mutate only facturas_documento / pedidos_documento from a routeable extract.
 
-    No-op when tipo is comprobante_pago/otro/unknown or both numbers are empty.
-    Never touches numero_factura.
+    Returns True iff tipo is routeable and at least one token is present,
+    even when append_unique is a no-op. False for comprobante_pago/otro/
+    unknown or empty numbers. Never touches numero_factura.
     """
     tipo = normalize_tipo(extracted.get("tipo_documento"))
     if tipo not in TIPOS_ROUTEABLE:
-        return
+        return False
     nro_documento = token_or_none(extracted.get("nro_documento"))
     nro_pedido = token_or_none(extracted.get("nro_pedido"))
     if nro_documento is None and nro_pedido is None:
-        return
+        return False
     if tipo == "factura":
         if nro_documento is not None:
             pedido.facturas_documento = append_unique(pedido.facturas_documento, nro_documento)
         if nro_pedido is not None:
             pedido.pedidos_documento = append_unique(pedido.pedidos_documento, nro_pedido)
-        return
+        return True
     if tipo in TIPOS_PEDIDO:
         if nro_documento is not None:
             pedido.pedidos_documento = append_unique(pedido.pedidos_documento, nro_documento)
         if nro_pedido is not None:
             pedido.pedidos_documento = append_unique(pedido.pedidos_documento, nro_pedido)
+        return True
+    return False

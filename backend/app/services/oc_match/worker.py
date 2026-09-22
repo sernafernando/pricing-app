@@ -229,6 +229,8 @@ def _persist(
         _replace_renglones(db, job, matched)
         if extracted is None:
             return
+        if job.doc_refs_aplicado_at is not None:
+            return
         locked = (
             db.execute(select(PedidoCompra).where(PedidoCompra.id == job.pedido_id).with_for_update())
             .scalars()
@@ -236,7 +238,9 @@ def _persist(
         )
         if locked is None:
             return
-        apply_writeback(locked, extracted)
+        if apply_writeback(locked, extracted):
+            job.doc_refs_aplicado_at = datetime.now(UTC)
+            db.flush()
 
 
 def _replace_renglones(db: Session, job: OcMatchJob, matched: dict[str, Any]) -> None:

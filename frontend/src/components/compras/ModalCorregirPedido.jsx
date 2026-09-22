@@ -219,6 +219,7 @@ export default function ModalCorregirPedido({ pedido, onClose }) {
               value={form.facturas_documento}
               onChange={(e) => handleChange('facturas_documento', e.target.value)}
               placeholder="0001-99"
+              maxLength={500}
             />
           </div>
 
@@ -230,6 +231,7 @@ export default function ModalCorregirPedido({ pedido, onClose }) {
               value={form.pedidos_documento}
               onChange={(e) => handleChange('pedidos_documento', e.target.value)}
               placeholder="PED-184465"
+              maxLength={500}
             />
           </div>
 
