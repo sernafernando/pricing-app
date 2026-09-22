@@ -75,8 +75,15 @@ class TestMigrationPostgresRoundTrip:
         migration = _load_migration()
 
         with pg_engine.begin() as conn:
-            # Never drop a table this test did not create -- only create
-            # (and later drop) it when it is not already there.
+            # Never drop a table -- or an index -- this test did not
+            # create -- only create (and later drop) either when it is not
+            # already there. `ix_ml_orders_ops_seller_date` is ALSO
+            # declared on the ORM model (`MlOrdersOps`), so a `ml_orders_
+            # ops` table built by `Base.metadata.create_all` elsewhere in
+            # this same shared Postgres test DB can already carry the
+            # index BEFORE this test runs -- recorded here so the `finally`
+            # block below restores that exact pre-existing state instead of
+            # unconditionally dropping an index this test never created.
             ml_orders_ops_preexisted = sa.inspect(conn).has_table("ml_orders_ops")
             if not ml_orders_ops_preexisted:
                 conn.execute(
@@ -86,6 +93,11 @@ class TestMigrationPostgresRoundTrip:
                         ")"
                     )
                 )
+                seller_date_index_preexisted = False
+            else:
+                seller_date_index_preexisted = "ix_ml_orders_ops_seller_date" in {
+                    i["name"] for i in sa.inspect(conn).get_indexes("ml_orders_ops")
+                }
 
         with pg_engine.connect() as conn:
             ctx = MigrationContext.configure(conn)
@@ -174,6 +186,23 @@ class TestMigrationPostgresRoundTrip:
                         conn2.execute(sa.text("DROP TABLE IF EXISTS worker_job_state CASCADE"))
                         if not ml_orders_ops_preexisted:
                             conn2.execute(sa.text("DROP TABLE IF EXISTS ml_orders_ops CASCADE"))
+                        elif seller_date_index_preexisted:
+                            # This test's `downgrade()` unconditionally
+                            # drops the index (the migration itself does
+                            # not check ownership) -- restore the exact
+                            # pre-existing state rather than leaving a
+                            # shared table permanently missing an index it
+                            # had before this test ever ran. `IF NOT
+                            # EXISTS`: the assertion path above may not
+                            # have reached `downgrade()` at all (early
+                            # failure), in which case the index is still
+                            # there and this is a no-op.
+                            conn2.execute(
+                                sa.text(
+                                    "CREATE INDEX IF NOT EXISTS ix_ml_orders_ops_seller_date "
+                                    "ON ml_orders_ops (seller_id, date_created)"
+                                )
+                            )
                         else:
                             # A failed run (assertion error between upgrade
                             # and downgrade) can leave the index the
@@ -181,7 +210,57 @@ class TestMigrationPostgresRoundTrip:
                             # behind -- drop it too, or the next run's
                             # `create index` half of `upgrade()` collides
                             # with a leftover from THIS run instead of
-                            # starting clean.
+                            # starting clean. Only reachable here when the
+                            # index did NOT preexist, so this never drops
+                            # something the test did not create.
                             conn2.execute(sa.text("DROP INDEX IF EXISTS ix_ml_orders_ops_seller_date"))
                 except Exception:  # noqa: BLE001 -- cleanup must never mask the real failure
                     pass
+
+    def test_downgrade_never_drops_a_seller_date_index_this_test_did_not_create(self, pg_engine) -> None:
+        """Review fix, post-PR1: `ml_orders_ops` pre-existing in the shared
+        `POSTGRES_TEST_URL` database WITH `ix_ml_orders_ops_seller_date`
+        already on it (the ORM model declares the same index -- a
+        `Base.metadata.create_all` elsewhere in this session can build it
+        first) used to make `upgrade()`'s `if_not_exists=True` skip
+        creating it, and then `downgrade()` unconditionally dropped it --
+        the ROUND TRIP TEST ITSELF destroying an index it never created and
+        never restoring it, mutating shared schema. Runs the REAL fixed
+        test method above against a seeded pre-existing index, then proves
+        the index survived the round trip -- not a reimplementation of its
+        cleanup logic."""
+        with pg_engine.begin() as conn:
+            table_preexisted = sa.inspect(conn).has_table("ml_orders_ops")
+            if not table_preexisted:
+                conn.execute(
+                    sa.text(
+                        "CREATE TABLE ml_orders_ops ("
+                        "order_id BIGINT PRIMARY KEY, seller_id BIGINT, date_created TIMESTAMPTZ"
+                        ")"
+                    )
+                )
+            # Simulate the shared-DB drift this fix is about: the index
+            # already exists BEFORE the round trip below runs.
+            conn.execute(
+                sa.text(
+                    "CREATE INDEX IF NOT EXISTS ix_ml_orders_ops_seller_date ON ml_orders_ops (seller_id, date_created)"
+                )
+            )
+
+        try:
+            # The REAL test method, exercised directly against the seeded
+            # state above -- if its `finally` block ever regresses back to
+            # an unconditional `DROP INDEX`, this fails.
+            TestMigrationPostgresRoundTrip().test_upgrade_creates_every_column_and_index_then_downgrade_removes_all(
+                pg_engine
+            )
+
+            with pg_engine.connect() as conn:
+                index_names_after = {i["name"] for i in sa.inspect(conn).get_indexes("ml_orders_ops")}
+            assert "ix_ml_orders_ops_seller_date" in index_names_after, (
+                "the round trip dropped an index this test never created and never restored it"
+            )
+        finally:
+            with pg_engine.begin() as conn:
+                if not table_preexisted:
+                    conn.execute(sa.text("DROP TABLE IF EXISTS ml_orders_ops CASCADE"))
