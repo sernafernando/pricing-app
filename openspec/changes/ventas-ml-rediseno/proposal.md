@@ -12,7 +12,7 @@ Rebuild the Ventas ML screen (frontend/src/pages/VentasML.jsx + DesgloseDrawer.j
 2. Detail = FIXED side panel next to the table (wide monitors), non-modal; closes when no row is selected; rows stay selectable/copyable.
 3. KPI strip aggregates the FULL FILTERED SET via a backend aggregation.
 4. APIs may ship ahead of the UI as long as nothing breaks (BE-first slicing stands).
-5. Stored per-order Total Gauss is authoritative. Every input-changing event enqueues the order in the writer's transaction and the worker recomputes it within ~1 s (explicitly `recalculating` until then; revised 2026-09-22); no on-the-fly or frontend computation of metrics. Live-recompute readers switch to reading stored values.
+5. Stored per-order Total Gauss is authoritative. Every input-changing event enqueues the order in the writer's transaction and the worker recomputes it (target ~1 s for a single order on an idle queue; tests assert the state transition, not wall-clock time) (explicitly `recalculating` until then; revised 2026-09-22); no on-the-fly or frontend computation of metrics. Live-recompute readers switch to reading stored values.
 6. Doubtful cases: ONE on/off TOGGLE SWITCH each (switch UI, not checkboxes) deciding whether they count in the KPI strip: status `unknown` ("A revisar", VentasML.jsx:78,99), pack `mixed` ("Mixta"), `in_dispute` ("En disputa"), Total Gauss `provisional` ("Provisorio"). KPI endpoint receives them as explicit params; the shared filter builder applies them identically to listing and KPI.
 7. Search bar IN scope.
 8. No invented data; lucide icons; design tokens only; light + dark.

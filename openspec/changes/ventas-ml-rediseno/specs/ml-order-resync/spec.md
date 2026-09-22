@@ -6,7 +6,7 @@ Source: proposal #2104 (rev 2) + explore #2103, with binding decisions Q1-Q3 res
 
 ### Requirements
 - R22 A per-order resync action re-fetches the order (and dependent payment/shipment data) via the existing ingestion path and is gated by permission.
-- R23 A successful resync triggers a recompute of the order's stored metrics record (ties to ml-order-stored-metrics R3).
+- R23 A successful resync triggers a recompute of the order's stored metrics record EVEN WHEN the re-fetched data is identical to what was stored (the resync enqueues the order explicitly; it does not rely on the capture triggers, which ignore no-op writes) (ties to ml-order-stored-metrics R3).
 - R24 Resync failures are surfaced to the user with an explicit error state; no partial/silent success.
 
 ### Scenarios
