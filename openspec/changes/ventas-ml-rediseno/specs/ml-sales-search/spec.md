@@ -6,7 +6,7 @@ Source: proposal #2104 (rev 2) + explore #2103, with binding decisions Q1-Q3 res
 
 ### Requirements
 - R25 A search bar filters the listing server-side, through the shared filter builder (so search combines correctly with facets and toggles), matching at least: order id, pack id, MLA (item id), SKU, title, buyer nickname.
-- R25a The title and SKU matches (R25) are text searches over the sale's own item title and `producto_item_id`-resolved `seller_sku` (i.e. the frozen item actually sold), not a live catalog lookup — extended per the user's 2026-09-22 binding decision to add product-oriented filters to this screen. This extension is scoped to free-text matching only; brand/subcategory/PM/official-store/MLA-status facet filters are specified separately in capability `ml-sales-product-filters`.
+- R25a The title and SKU matches (R25) are text searches over the sale's own item title and `producto_item_id`-resolved `seller_sku` (i.e. the frozen item actually sold), not a live catalog lookup — extended per the user's 2026-09-22 binding decision to add product-oriented filters to this screen.
 - R26 Search results respect all currently active filters and toggles (intersection, not replacement) — including the product-level facet filters of `ml-sales-product-filters`.
 - R27 An empty/no-match search state is explicit (no orders shown, not an error).
 
