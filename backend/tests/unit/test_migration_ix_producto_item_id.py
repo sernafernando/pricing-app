@@ -52,8 +52,42 @@ def test_the_model_declares_the_index() -> None:
     assert _INDEX in indexes, "the ORM schema (create_all in tests) must match the migration"
 
 
+@pytest.fixture
+def pg_costos_engine():
+    """A Postgres engine with ONLY `ml_order_item_costos`.
+
+    Deliberately not one of the shared session-scoped engines: those
+    create/drop whole groups of tables (and their enum types), so reusing one
+    here made teardown fail in CI with `cannot drop type ... because other
+    objects depend on it`. This fixture owns exactly the one table the
+    migration touches, and drops it only if it created it.
+    """
+    from sqlalchemy import create_engine
+
+    from app.models.ml_order_item_costo import MlOrderItemCosto
+
+    url = os.environ.get("POSTGRES_TEST_URL", "postgresql+psycopg2://postgres@localhost:5432/pricing_test")
+    try:
+        engine = create_engine(url)
+        with engine.connect():
+            pass
+    except Exception:  # noqa: BLE001 -- no Postgres here, the marker gates the run
+        pytest.skip("Postgres not reachable")
+
+    table = MlOrderItemCosto.__table__
+    created_here = not sa.inspect(engine).has_table(table.name)
+    if created_here:
+        table.create(bind=engine)
+    try:
+        yield engine
+    finally:
+        if created_here:
+            table.drop(bind=engine, checkfirst=True)
+        engine.dispose()
+
+
 @pytest.mark.postgres
-def test_upgrade_creates_the_index_and_downgrade_removes_it(pg_order_metrics_engine) -> None:
+def test_upgrade_creates_the_index_and_downgrade_removes_it(pg_costos_engine) -> None:
     from alembic.operations import Operations
     from alembic.runtime.migration import MigrationContext
 
@@ -62,7 +96,7 @@ def test_upgrade_creates_the_index_and_downgrade_removes_it(pg_order_metrics_eng
     migration = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(migration)
 
-    with pg_order_metrics_engine.connect() as conn:
+    with pg_costos_engine.connect() as conn:
 
         def _indexes() -> set:
             return {ix["name"] for ix in sa.inspect(conn).get_indexes("ml_order_item_costos")}
