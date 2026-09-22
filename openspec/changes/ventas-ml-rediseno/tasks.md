@@ -276,7 +276,11 @@ PR13 -> PR14 (after PR10 for stored/additive fields)
 PR17 (after PR7; resync needs stored-metrics recompute pipeline live)
 ```
 
-Sequential auto-chain order actually merged (one branch at a time off `origin/main`): **PR1, PR2, PR3, PR4, PR5, PR6, PR7, PR8, PR9, PR10, PR11, PR12, PR13, PR14, PR15, PR16, PR17.** PR12 could move earlier (independent) but stays in chain order for auto-chain simplicity; note in PR12's description that it has no BE dependency beyond PR1.
+**Delivery order (REVISED 2026-09-22, user decision: move forward everything that does not need stored metrics).** Still sequential: one PR open at a time, each off `origin/main` after the previous is merged. Order: **PR1** (tables + producer, inert) → **PR9** (shared query layer + search; needs only PR1) → **PR12** (additive detail fields) → **PR13** (panel layout shell; renders today's live values) → **PR15** (new panel sections, live values) → **PR10** (additive listing fields: product, category, city, substatus, coupon) → **PR14** (listing restyle + search bar + chips) → **PR2** → **PR3** → **PR4** → **PR5** → **PR6** [PROD GATE, OWNER: user] → **PR7** (readers switch to stored values) → **PR7b** (stored-state UI, see below) → **PR8** → **PR11** → **PR16** → **PR17**.
+
+**PR7b — stored-state UI (moved out of PR10, PR14 and PR15 because they need stored metrics):** PR10.T5 (the `recalculating`/`failed`/`pending` inputs of `alert_level`; the rest of alert_level ships in PR10 from live values), PR10.T7, PR10.T8, PR14.T9, and the stored-total part of PR15.T5 (the recalculating indicator). These tasks keep their IDs; they are implemented in PR7b, right after PR7. Until then the screen shows today's live values and has no recalculating badge (nothing is stored yet, so there is nothing stale to hide).
+
+Previous strict order (superseded): Sequential auto-chain order actually merged (one branch at a time off `origin/main`): **PR1, PR2, PR3, PR4, PR5, PR6, PR7, PR8, PR9, PR10, PR11, PR12, PR13, PR14, PR15, PR16, PR17.** PR12 could move earlier (independent) but stays in chain order for auto-chain simplicity; note in PR12's description that it has no BE dependency beyond PR1.
 
 ## Review Workload Forecast
 
