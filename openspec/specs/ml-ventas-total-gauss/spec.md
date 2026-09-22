@@ -30,8 +30,8 @@ The system MUST compute the base for the "% de varios" (`VariosDeduccion`) perce
 
 - GIVEN an order item with no corresponding `MlOrderItemCosto` row (frozen cost snapshot missing)
 - WHEN the system computes the varios base for that order
-- THEN the varios amount for that order MUST be treated as unresolved/unknown, consistent with how the rest of the Total Gauss chain treats missing frozen-cost inputs (it MUST NOT silently default to 0 unless that is the documented existing behavior for other missing-input cases in the chain)
-- AND the order's Total Gauss / varios result surfaces this unresolved state the same way existing missing-cost-snapshot cases do elsewhere in the chain
+- THEN, when the configured "% de varios" rate is greater than 0, the varios base is unknown, the varios line is unresolved (amount NULL), and the order's Total Gauss is NULL (unresolved), never computed with a 0 base
+- AND when the configured rate is 0, the varios amount is 0 and the missing base does not block the chain (an unconfigured percentage never blocks)
 
 #### Scenario: Displayed values use current rules; stored values are backfilled separately
 
