@@ -100,3 +100,28 @@ class TestRecomputeOrderMetricsUpserts:
 
     def test_empty_order_ids_returns_empty_dict(self, db) -> None:
         assert recompute_order_metrics(db, []) == {}
+
+    def test_unknown_order_id_is_skipped_never_inserted(self, db) -> None:
+        # `ml_order_metrics.order_id` has a hard FK to `ml_orders_ops` --
+        # an id with no `ml_orders_ops` row must never reach `db.add`, or
+        # the flush aborts the WHOLE batch, including the real order.
+        order_id = 6003
+        unknown_id = 999998
+        _order(db, order_id)
+        _item_with_cost(db, order_id, "MLA1", 1, Decimal("10.00"))
+        db.add(
+            MlPaymentOps(
+                payment_id=order_id, order_id=order_id, status="approved", net_received_amount=Decimal("100.00")
+            )
+        )
+        db.commit()
+
+        result = recompute_order_metrics(db, [unknown_id, order_id])
+        db.flush()  # would raise IntegrityError on the FK if not skipped
+
+        assert unknown_id not in result
+        assert order_id in result
+        assert db.query(MlOrderMetrics).filter(MlOrderMetrics.order_id == unknown_id).one_or_none() is None
+        assert db.query(MlOrderMetrics).filter(MlOrderMetrics.order_id == order_id).one_or_none() is not None
+
+        db.rollback()

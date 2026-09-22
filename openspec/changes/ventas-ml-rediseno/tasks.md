@@ -20,6 +20,12 @@ Design refs: D1, D2, D7. Satisfies: SM R1, R2.
 - [x] PR1.T9 RED→GREEN: `persistir_total_gauss` (deducciones.py) becomes a thin delegating alias to `recompute_order_metrics`; existing deducciones tests stay green unmodified (regression guard).
 - [x] PR1.T10 Run backend suite + `ruff format app/ tests/ alembic/`; confirm no readers changed (inert deploy).
 
+**Review fixes (post-PR1, before merge):**
+- `compute_order_metrics` now skips (never raises, never stores) an `order_id` with no `ml_orders_ops` row — the exact tolerance `persistir_total_gauss` had pre-PR1 — instead of risking a `KeyError` upstream and an FK-violating `ml_order_metrics` insert downstream.
+- `markup_pct` is normalized to `None` (with a warning log) whenever it would disagree with `costo_mercaderia` being `None`/zero, so the producer can never crash on `OrderMetrics.__post_init__`'s own invariant.
+- `test_compute.py`'s provisional/OK tests now assert unconditionally (with a real provisional fixture and a reconciling OK fixture), instead of asserting only inside `if expected_resultado.provisional:`.
+- `test_migration_ml_order_metrics.py` cleanup now drops only the tables the test itself created (CASCADE, dependency order), never masks the original assertion error, and `test_is_single_head` asserts single-head + ancestry instead of pinning the head to this exact revision.
+
 ## PR2 — Generic worker runtime (idle, empty registry)
 Design refs: D4, D6. No spec requirement yet satisfied directly (infra); enables SM R7.
 

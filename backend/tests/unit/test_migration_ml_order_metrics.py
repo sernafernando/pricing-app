@@ -49,10 +49,16 @@ class TestMigrationGraph:
         assert revision.down_revision == _DOWN_REVISION
 
     def test_is_single_head(self) -> None:
+        # Asserting the head IS this exact revision breaks the moment a
+        # later migration continues the chain -- what must hold FOREVER is
+        # that the graph never forks, and that this revision stays reachable
+        # from whatever the head becomes.
         script = _script_directory()
         heads = script.get_heads()
         assert len(heads) == 1
-        assert heads[0] == _REVISION
+        head = heads[0]
+        chain_revisions = {r.revision for r in script.walk_revisions(base="base", head=head)}
+        assert _REVISION in chain_revisions, f"{_REVISION!r} is not an ancestor of the single head {head!r}"
 
 
 @pytest.mark.postgres
@@ -64,13 +70,17 @@ class TestMigrationPostgresRoundTrip:
         migration = _load_migration()
 
         with pg_engine.begin() as conn:
-            conn.execute(
-                sa.text(
-                    "CREATE TABLE IF NOT EXISTS ml_orders_ops ("
-                    "order_id BIGINT PRIMARY KEY, seller_id BIGINT, date_created TIMESTAMPTZ"
-                    ")"
+            # Never drop a table this test did not create -- only create
+            # (and later drop) it when it is not already there.
+            ml_orders_ops_preexisted = sa.inspect(conn).has_table("ml_orders_ops")
+            if not ml_orders_ops_preexisted:
+                conn.execute(
+                    sa.text(
+                        "CREATE TABLE ml_orders_ops ("
+                        "order_id BIGINT PRIMARY KEY, seller_id BIGINT, date_created TIMESTAMPTZ"
+                        ")"
+                    )
                 )
-            )
 
         with pg_engine.connect() as conn:
             ctx = MigrationContext.configure(conn)
@@ -147,5 +157,17 @@ class TestMigrationPostgresRoundTrip:
                 assert "ix_ml_orders_ops_seller_date" not in index_names_orders_after
             finally:
                 op_obj._remove_proxy()
-                with pg_engine.begin() as conn2:
-                    conn2.execute(sa.text("DROP TABLE IF EXISTS ml_orders_ops"))
+                # Best-effort cleanup: drop only what THIS test created (in
+                # dependency order, CASCADE for anything an earlier
+                # assertion failure may have left half-upgraded), and never
+                # let a cleanup failure mask the original assertion error
+                # that sent us here.
+                try:
+                    with pg_engine.begin() as conn2:
+                        conn2.execute(sa.text("DROP TABLE IF EXISTS ml_order_metrics_dirty CASCADE"))
+                        conn2.execute(sa.text("DROP TABLE IF EXISTS ml_order_metrics CASCADE"))
+                        conn2.execute(sa.text("DROP TABLE IF EXISTS worker_job_state CASCADE"))
+                        if not ml_orders_ops_preexisted:
+                            conn2.execute(sa.text("DROP TABLE IF EXISTS ml_orders_ops CASCADE"))
+                except Exception:  # noqa: BLE001 -- cleanup must never mask the real failure
+                    pass

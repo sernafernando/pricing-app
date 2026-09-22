@@ -325,6 +325,30 @@ class TestPersistirTotalGauss:
         rows = db.query(MlVentaDeduccion).filter(MlVentaDeduccion.order_id == order_id).all()
         assert any(r.code == "costo_mercaderia" for r in rows)
 
+    def test_unknown_order_id_in_the_batch_never_aborts_the_real_one(self, db) -> None:
+        # `persistir_total_gauss` is called by `refrescar_total_gauss_pendientes`
+        # (the sweep) with whatever ids the queue holds -- one with no
+        # `ml_orders_ops` row (e.g. deleted, or never ingested) must be
+        # tolerated exactly like the pre-PR1 implementation did, never
+        # crash the whole batch.
+        from app.models.ml_payments import MlPaymentOps
+
+        order_id = 15
+        unknown_id = 999997
+        _order(db, order_id)
+        _item_with_cost(db, order_id, "MLA1", 1, Decimal("10.00"))
+        db.add(MlPaymentOps(payment_id=15, order_id=order_id, status="approved", net_received_amount=Decimal("100.00")))
+        db.commit()
+
+        resultados = persistir_total_gauss(db, [unknown_id, order_id])
+        db.commit()
+
+        assert unknown_id not in resultados
+        assert order_id in resultados
+
+        order = db.query(MlOrdersOps).filter(MlOrdersOps.order_id == order_id).first()
+        assert order.total_gauss_stale is False
+
 
 class TestMarcarStale:
     def test_sets_stale_true_for_matching_shipping_id(self, db) -> None:
