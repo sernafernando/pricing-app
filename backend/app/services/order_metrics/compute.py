@@ -74,9 +74,17 @@ def normalize_markup_pct(
 
 
 def compute_order_metrics(db: Session, order_ids: Sequence[int]) -> Dict[int, OrderMetrics]:
-    """One `OrderMetrics` per `order_id`, resolved with the SAME bulk calls
-    (and therefore the SAME query count) `persistir_total_gauss` used to
-    make directly -- never a second formula, never one query per order.
+    """One `OrderMetrics` per `order_id`, resolved with the SAME formula
+    functions `persistir_total_gauss` used to call directly
+    (`descomponer_neto`, `calcular_total_gauss`) -- never a second formula.
+    The query COUNT is NOT identical to the legacy path: this function
+    issues two BULK queries the legacy caller did not need -- one existence
+    check against `ml_orders_ops` (the `existing_order_ids` filter above,
+    the legacy-tolerance skip this class's own docstring describes) and one
+    `compute_neto_by_order_ids` call (this dataclass's own `neto` field,
+    which `TotalGaussResultado` never carried). Both are bulk, ONE query
+    each for the whole batch -- still O(1) per batch, never one per order,
+    the same discipline every formula function here already follows.
 
     An `order_id` with no `ml_orders_ops` row is silently SKIPPED, never
     raised and never present in the returned dict -- the exact tolerance
