@@ -24,6 +24,7 @@ const ERROR_JOB = {
       indice: 1,
       ean: '7791234567890',
       ean_extract: '7790000000000',
+      ean_ultimos4: '0000',
       descripcion: 'Notebook 14',
       cantidad: '2.0000',
       precio_unitario: '12.3456',
@@ -38,11 +39,42 @@ const ERROR_JOB = {
       indice: 2,
       ean: null,
       ean_extract: '7791111111111',
+      ean_ultimos4: null,
       descripcion: 'Mouse USB',
       cantidad: '0.5000',
       precio_unitario: '12.3456',
       moneda: 'USD',
       match_estado: 'ok',
+      confianza: 'baja',
+      motivo: null,
+      item_id: null,
+    },
+    {
+      id: 3,
+      indice: 3,
+      ean: null,
+      ean_extract: null,
+      ean_ultimos4: '9862',
+      descripcion: 'Cable HDMI',
+      cantidad: '1',
+      precio_unitario: '1.0000',
+      moneda: 'USD',
+      match_estado: 'no_hallado',
+      confianza: 'baja',
+      motivo: null,
+      item_id: null,
+    },
+    {
+      id: 4,
+      indice: 4,
+      ean: null,
+      ean_extract: null,
+      ean_ultimos4: null,
+      descripcion: 'Sin codigo',
+      cantidad: '1',
+      precio_unitario: '1.0000',
+      moneda: 'USD',
+      match_estado: 'no_hallado',
       confianza: 'baja',
       motivo: null,
       item_id: null,
@@ -302,13 +334,35 @@ describe('TabOcMatch renglones EAN', () => {
     const secondCells = [...rows[1].querySelectorAll('td')].map((td) => td.textContent);
 
     expect(firstCells[1]).toBe('7791234567890');
-    expect(secondCells[1]).toBe('—');
+    expect(secondCells[1]).toBe('7791111111111');
     expect(firstCells[3]).toBe('2');
     expect(firstCells[3]).not.toContain('.0000');
     expect(secondCells[3]).toBe('0,5');
     expect(secondCells[3]).not.toBe('1');
     expect(firstCells[4]).toBe('12,3456');
     expect(screen.getByText(/Acta de matching/)).toBeInTheDocument();
+    expect(container.querySelector('pre').textContent).toBe('Acta de matching\n- pack sin match');
+  });
+
+  it('falls back to ean_extract then ultimos4 with secondary style', () => {
+    const { container } = render(<TabOcMatch />);
+    const tables = container.querySelectorAll('table');
+    const renglonesTable = tables[1];
+    const rows = renglonesTable.querySelectorAll('tbody tr');
+    const extractCell = rows[1].querySelectorAll('td')[1].querySelector('span');
+    const last4Cell = rows[2].querySelectorAll('td')[1].querySelector('span');
+    const emptyCell = rows[3].querySelectorAll('td')[1].querySelector('span');
+
+    expect(extractCell.textContent).toBe('7791111111111');
+    expect(extractCell.getAttribute('title')).toBe('EAN del documento, sin match en GBP');
+    expect(extractCell.className).toMatch(/tdSecondary/);
+
+    expect(last4Cell.textContent).toBe('…9862');
+    expect(last4Cell.getAttribute('title')).toBe('Últimos 4 del documento, sin match en GBP');
+    expect(last4Cell.className).toMatch(/tdSecondary/);
+
+    expect(emptyCell.textContent).toBe('—');
+    expect(emptyCell.getAttribute('title')).toBeNull();
     expect(container.querySelector('pre').textContent).toBe('Acta de matching\n- pack sin match');
   });
 

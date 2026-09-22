@@ -104,6 +104,28 @@ const formatPrecioUnitario = (v) => {
       });
 };
 
+function resolveRenglonEan(row) {
+  const empty = (v) => v == null || v === '';
+  if (!empty(row.ean)) {
+    return { text: String(row.ean), title: undefined, className: styles.tdMono };
+  }
+  if (!empty(row.ean_extract)) {
+    return {
+      text: String(row.ean_extract),
+      title: 'EAN del documento, sin match en GBP',
+      className: `${styles.tdMono} ${styles.tdSecondary}`,
+    };
+  }
+  if (!empty(row.ean_ultimos4)) {
+    return {
+      text: `…${row.ean_ultimos4}`,
+      title: 'Últimos 4 del documento, sin match en GBP',
+      className: `${styles.tdMono} ${styles.tdSecondary}`,
+    };
+  }
+  return { text: '—', title: undefined, className: styles.tdMono };
+}
+
 function StatusBadge({ status, progressPhase }) {
   const cls = STATUS_CLASS[status] || 'badgeSkipped';
   const phaseLabel = status === 'running' ? PHASE_LABEL[progressPhase] : null;
@@ -369,9 +391,11 @@ export default function TabOcMatch() {
                   return <ConfianzaBadge confianza={row.confianza} motivo={row.motivo} />;
                 }
                 if (col.key === 'ean') {
-                  const value = row.ean;
+                  const resolved = resolveRenglonEan(row);
                   return (
-                    <span className={styles.tdMono}>{value == null || value === '' ? '—' : value}</span>
+                    <span className={resolved.className} title={resolved.title}>
+                      {resolved.text}
+                    </span>
                   );
                 }
                 if (col.key === 'descripcion') {
