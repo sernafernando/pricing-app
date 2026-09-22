@@ -165,7 +165,7 @@ Depends on: PR6 (populated metrics), ideally PR7 (stored readers) merged first.
 - [ ] PR11.T5 GREEN: `backend/app/services/ml_sales_query/aggregate.py`.
 - [ ] PR11.T6 RED: `GET /sales/kpis` — per-toggle excluded counts (KPI R13); `recalculating_count`, `pending_count` (orders with no metrics row: excluded from every sum, counted, never summed as NULL — SM R2, R3) and `worker_alive` fields (derived from worker health).
 - [ ] PR11.T7 GREEN: `ml_ventas_ops.py::sales_kpis` endpoint.
-- [ ] PR11.T8 RED: parity test — for every switch combination (16 combos) + search + facets, route /sales/kpis aggregate equals summing exactly the rows route /sales would return for that same combination (KPI R14, R7).
+- [ ] PR11.T8 RED: parity test — for every switch combination (16 combos) + search + facets, route /sales/kpis aggregate equals summing exactly the rows route /sales would return for that same combination, excluding recalculating and pending rows, and listed rows = summed rows + `recalculating_count` + `pending_count` (KPI R14, R7). Include a case with a non-empty queue.
 - [ ] PR11.T9 RED: toggle state round-trips through URL query params (KPI R12) — backend param parsing test; full FE round-trip covered in PR16.
 
 ## PR12 — Additive detail (breakdown) fields

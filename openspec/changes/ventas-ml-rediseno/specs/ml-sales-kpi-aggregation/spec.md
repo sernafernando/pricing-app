@@ -12,7 +12,7 @@ Source: proposal #2104 (rev 2) + explore #2103, with binding decisions Q1-Q3 res
 - R11 Default toggle states on first load / no URL params: "A revisar" OFF, "En disputa" OFF, "Mixta" ON, "Provisorio" ON (per Q2).
 - R12 Toggle state is persisted in URL query params, consistent with other filters on the screen (per Q3), so a shared/reloaded URL reproduces the same view.
 - R13 The KPI strip reports how many orders were excluded by each currently-OFF toggle, so the user can see what is not being counted.
-- R14 KPI results for a given filter+toggle combination equal the sum/aggregate of exactly the rows the listing would show for that same combination (parity, no drift).
+- R14 KPI results for a given filter+toggle combination equal the sum/aggregate of exactly the rows the listing would show for that same combination, EXCLUDING rows in the `recalculating` or `pending` state (parity, no drift). Those excluded rows are still listed (with their badge) and are reconciled through `recalculating_count` and `pending_count`: listed rows = rows summed + recalculating_count + pending_count.
 - R15 The KPI/filter contract (shared filter builder, stored per-order metrics, toggle semantics) must be reusable by future metric consumers (e.g. a future sell-in/sell-out per-product-promotion metrics feature) — it must not be hardwired to only this screen's response shape.
 
 ### Scenarios
