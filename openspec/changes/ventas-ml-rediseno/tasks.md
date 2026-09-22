@@ -115,13 +115,14 @@ Design refs: D9, D10. Satisfies: SM R4, R8; enables Success Criterion "divergenc
 - [ ] PR6.T12 OWNER: user (PROD GATE) — after deploy stabilizes, poll `GET /api/ml-ops/order-metrics/health` until `queue_depth=0`, `oldest_dirty_age_s` low, and trigger `POST /order-metrics/divergence/run`; confirm `last_divergence.divergent_count=0` and `missing_count=0` (which EXCLUDES parked orders) on a run, re-check after a monitoring window, and REVIEW the parked list (`poisoned_count` with order_ids and `last_error` from the health endpoint), explicitly accepting it (design D10 gate) before authorizing PR7.
 
 ## PR7 — Readers switch to stored values (recalculating state; invariant test)
-Design refs: D9 metrics_state, D13 (`, `orders/{id} invariant). Satisfies: SM R5, R6, R9(scenario), BREAKDOWN R33.
+Design refs: D9 metrics_state, D13 (route /orders/{id} invariant). Satisfies: SM R5, R6, R9(scenario), BREAKDOWN R33.
 Depends on: PR6.T12 gate passing (user confirmation required before merge).
 
 - [ ] PR7.T1 RED: `GET /orders/{id}` — `total_gauss`, `neto`, `markup` sourced from `ml_order_metrics`, NOT live `calcular_total_gauss`; chain final total equals stored `total_gauss` exactly when `metrics_state != 'recalculating'` (invariant test, BREAKDOWN R33 / SM R6).
 - [ ] PR7.T2 GREEN: switch `breakdown_service.py` reader path to stored values; keep chain-line rendering from `ml_venta_deducciones`.
 - [ ] PR7.T3 RED: when order is dirty (`recalculating`), detail response signals it explicitly and does NOT assert/claim the invariant (SM R6 second half).
-- [ ] PR7.T4 GREEN: `metrics_state` derivation — `'recalculating'` if dirty row exists (wins), else stored `gauss_status`, else `'pending'`.
+- [ ] PR7.T3a RED: a parked order (dirty row with attempts >= 5) has `metrics_state='failed'`, never `'recalculating'`; it is excluded from KPI sums and counted in `failed_count`, not in `recalculating_count`.
+- [ ] PR7.T4 GREEN: `metrics_state` derivation — `'failed'` if the dirty row is parked (attempts >= 5; wins), else `'recalculating'` if a dirty row exists, else stored `gauss_status`, else `'pending'`.
 - [ ] PR7.T5 RED: listing/sort reads switch to stored `total_gauss` for the existing sort-by-total-gauss behavior (no live recompute, no per-row query loop).
 - [ ] PR7.T6 GREEN: update `ml_ventas_ops.py` listing query.
 - [ ] PR7.T7 Regression: existing listing/detail tests updated to stored-value fixtures (assertion mapping noted in PR description, per design D14/testing strategy).
@@ -154,7 +155,7 @@ Design refs: D13 route /sales. Satisfies: LISTING R28, R29, R31.
 - [ ] PR10.T5 RED: server-derived unified `alert_level` (`ok`, `warning`, `error`) per D13 rule (error = unresolved/neto null; warning = provisional/recalculating/iva-not-reconciling/op-or-goods-unknown; ok) — replaces ad-hoc per-field FE flags (LISTING R29).
 - [ ] PR10.T6 GREEN: implement `alert_level` derivation server-side.
 - [ ] PR10.T7 RED: listing `neto`, `total_gauss`, `markup` values equal `ml_order_metrics` stored fields, not a live recompute (LISTING R31 — regression guard alongside PR7).
-- [ ] PR10.T8 RED: `metrics_state` field present per row (`ok`, `provisional`, `unresolved`, `recalculating`, `pending`).
+- [ ] PR10.T8 RED: `metrics_state` field present per row (`ok`, `provisional`, `unresolved`, `recalculating`, `failed`, `pending`).
 
 ## PR11 — Doubtful switches + route /sales/kpis + aggregation
 Design refs: D12 aggregate.py, D13 route /sales/kpis, D9 KPI exclusion. Satisfies: KPI R8-R14; SM R3 scenario 11 (worker_alive surfacing).
@@ -233,7 +234,7 @@ Design refs: D14, D9. Satisfies: KPI R9, R10, R11, R12, R13.
 - [ ] PR16.T8 GREEN: implement.
 - [ ] PR16.T9 RED: worker-down banner — shown when `worker_alive=false` and `queue_depth>0` ("Recálculo detenido"), sourced from route /sales/kpis (or health) response (SM R3 scenario 11 FE side).
 - [ ] PR16.T10 GREEN: implement.
-- [ ] PR16.T11 Light+dark visual pass against `docs/design/ventas-ml/{listado,detalle}.{html,jpg}` refs (pricing-app-design skill).
+- [ ] PR16.T11 Light+dark visual pass against `docs/design/ventas-ml/{listado,detalle}.{html,jpg}` refs (pricing-app-design skill). The mockups are a VISUAL reference only (layout, hierarchy, icons, typography); every number and money rule comes from the specs (e.g. Neto includes SIRTAC and shows the "MP $X · SIRTAC $Y" sub-line, per openspec/specs/ml-ventas-desglose-ui).
 
 ## PR17 — Resync endpoint + button
 Design refs: D13 route /orders/{id}/resync. Satisfies: RESYNC R22, R23, R24.
