@@ -271,7 +271,7 @@ Resolved from code (rev 2):
 - [x] INLINE_MAX cap — moot (no inline recompute).
 - [x] CI Postgres — already present (postgres:16, serial `-m postgres` step); no CI change.
 Need production info (for the user):
-- [x] Production PostgreSQL major version: 17.11 per the user (2026-09-22, `psql --version` output; this is the client version and is assumed to match the server on the same Debian host). Satisfies ≥ 10; CI runs 16.
+- [x] Production PostgreSQL major version: 17.11, server version confirmed by the user with `SELECT version()` on 2026-09-22. Satisfies ≥ 10; CI runs 16.
 - [x] Direct Postgres URL: the existing `DATABASE_URL_DIRECT` setting (already used by `alembic/env.py`) is the non-PgBouncer connection in production, confirmed by the user 2026-09-22. No new setting needed.
 - [ ] `pg_trgm` availability (only if search EXPLAIN demands it).
 - [ ] Who installs/enables the new systemd unit on the server (the pricing-api unit itself is not versioned in the repo today).

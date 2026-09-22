@@ -6,7 +6,7 @@ phases:
   proposal: done
   spec: done
   design: done
-  tasks: pending
+  tasks: done
   apply: pending
   verify: pending
   archive: pending
@@ -30,4 +30,7 @@ notes: >
   RESUMED 2026-09-22. Dependency ml-ventas-neto-iibb-varios is merged (#1311, #1313)
   and archived (openspec/changes/archive/2026-09-22-ml-ventas-neto-iibb-varios/).
   Production answers recorded in design.md: DATABASE_URL_DIRECT is the existing
-  non-PgBouncer setting; Postgres 17.11. Next phase: tasks.
+  non-PgBouncer setting; Postgres 17.11. tasks.md written 2026-09-22: 17 sequential
+  auto-chain PRs (RED/GREEN/refactor tasks with stable IDs PRn.Tm), PR6 is a PROD
+  GATE (OWNER: user, divergence=0 confirmation) blocking PR7/PR11/PR13/PR16/PR17.
+  Next phase: apply (blocked on PR6 gate mid-way).
