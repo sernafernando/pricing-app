@@ -1,7 +1,7 @@
 """ml_order_metrics + ml_order_metrics_dirty + worker_job_state (ventas-ml-rediseno PR1)
 
 Revision ID: 20260922_ml_order_metrics
-Revises: compras_041_oc_match_progress_phase
+Revises: compras_043_oc_match_doc_refs_aplicado
 Create Date: 2026-09-22
 
 PR1 is INERT: these three tables alone, no triggers, no worker (design D1,

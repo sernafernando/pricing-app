@@ -108,6 +108,12 @@ def recompute_order_metrics(db: Session, order_ids: Sequence[int]) -> Dict[int, 
             if row_order_id == order_id and code not in vigentes:
                 delete_ids.append(deduccion_row.id)
 
+    # Sorted by key before the upsert: two workers recomputing overlapping
+    # batches (PR2+) then take row locks in the same order, so they queue
+    # instead of deadlocking.
+    metrics_rows.sort(key=lambda row: row["order_id"])
+    deduccion_rows.sort(key=lambda row: (row["order_id"], row["code"]))
+
     metrics_stmt = _insert(db, MlOrderMetrics.__table__).values(metrics_rows)
     metrics_update_cols = {col: metrics_stmt.excluded[col] for col in metrics_rows[0] if col != "order_id"}
     db.execute(metrics_stmt.on_conflict_do_update(index_elements=["order_id"], set_=metrics_update_cols))
