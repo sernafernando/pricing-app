@@ -10,10 +10,10 @@ Requirement legend: `SM`=ml-order-stored-metrics (R1-R8), `KPI`=ml-sales-kpi-agg
 Design refs: D1, D2, D7. Satisfies: SM R1, R2.
 
 - [ ] PR1.T1 RED: unit tests for `OrderMetrics` dataclass + `GaussStatus` enum — `unresolved` forces `total_gauss=NULL` and dependent fields NULL; any other status with NULL total_gauss is rejected (SM R2).
-- [ ] PR1.T2 GREEN: create `backend/app/models/ml_order_metrics.py` (`MlOrderMetrics` 1:1 `ml_orders_ops`, FK ON DELETE CASCADE; `MlOrderMetricsDirty` with `versionroute /claimed_atroute /claimed_byroute /attemptsroute /last_error`) and `backend/app/models/worker_job_state.py`.
+- [ ] PR1.T2 GREEN: create `backend/app/models/ml_order_metrics.py` (`MlOrderMetrics` 1:1 `ml_orders_ops`, FK ON DELETE CASCADE; `MlOrderMetricsDirty` with `version`, `claimed_at`, `claimed_by`, `attempts`, `last_error`) and `backend/app/models/worker_job_state.py`.
 - [ ] PR1.T3 RED: Alembic migration test (upgrade/downgrade round-trip) for `ml_order_metrics`, `ml_order_metrics_dirty`, `worker_job_state`, `ix_ml_order_metrics_status`, `ix_ml_order_metrics_total_gauss` (DESC NULLS LAST), `ix_ml_orders_ops_seller_date`.
 - [ ] PR1.T4 GREEN: write `backend/alembic/versions/2026MMDD_ml_order_metrics.py` with full downgrade.
-- [ ] PR1.T5 RED: unit tests — `compute_order_metrics(db, order_ids)` wraps existing `compute_neto_by_order_idsroute /descomponer_netoroute /calcular_total_gauss` and returns identical values to calling those functions directly (no second formula), for `okroute /provisionalroute /unresolved` fixtures (captured payloads).
+- [ ] PR1.T5 RED: unit tests — `compute_order_metrics(db, order_ids)` wraps existing `compute_neto_by_order_ids`, `descomponer_neto`, `calcular_total_gauss` and returns identical values to calling those functions directly (no second formula), for `ok`, `provisional`, `unresolved` fixtures (captured payloads).
 - [ ] PR1.T6 GREEN: implement `backend/app/services/order_metrics/compute.py::compute_order_metrics`.
 - [ ] PR1.T7 RED: unit test — `recompute_order_metrics(db, order_ids)` upserts `ml_order_metrics` + `ml_venta_deducciones` + legacy `ml_orders_ops.total_gauss*` columns, no commit (caller controls transaction).
 - [ ] PR1.T8 GREEN: implement `backend/app/services/order_metrics/store.py::recompute_order_metrics`.
@@ -40,6 +40,9 @@ Design refs: D3 (queue table only, no triggers yet), D5. Satisfies: SM R7 (no-cr
 - [ ] PR3.T2 RED: lease expiry (default 120s) reclaims rows of a crashed worker.
 - [ ] PR3.T3 RED: `release_dirty` — version-checked delete; a write that bumps `version` during recompute leaves the row dirty (no lost update).
 - [ ] PR3.T4 RED: `mark_failed` — after 5 attempts, order is `poisoned`, excluded from claim, reported in health; failure isolated per-order via savepoint (batch of 199 succeeds despite 1 bad order).
+- [ ] PR3.T4a RED: 5 lost races (version-mismatch release, dirty row re-upserted by a new input write during each recompute) on the same order never increments `attempts` and never parks it — `claim_dirty` still returns it after a 6th genuine input write, no failure recorded, no entry in `poisoned_count`.
+- [ ] PR3.T4b RED: a parked order (attempts == 5, excluded from claim) that then receives a new input write is un-parked by the enqueue upsert (`attempts` resets to 0, `last_error` cleared) and is claimed and recomputed on the next drain, same as any other dirty order.
+- [ ] PR3.T4c RED: 5 genuine recompute failures (exception raised inside step 2 for the same order, not a version mismatch) increment `attempts` each time, park the order at `attempts == 5`, and `poisoned_count` in health reflects exactly that one order; a concurrently failing OR succeeding unrelated order's `attempts`/status is unaffected.
 - [ ] PR3.T5 GREEN: implement `backend/app/services/order_metrics/queue.py` (`claim_dirty`, `release_dirty`, `mark_failed`) satisfying T1-T4.
 - [ ] PR3.T6 RED: `order_metrics.drain` handler — claims batch(200) → recompute → version-checked release, in three short `get_background_db()` blocks.
 - [ ] PR3.T7 GREEN: `backend/app/workers/handlers/order_metrics.py::drain`; register in `registry.py` (channels=`("order_metrics_dirty",)`).
@@ -50,7 +53,8 @@ Design refs: D3 (queue table only, no triggers yet), D5. Satisfies: SM R7 (no-cr
 ## PR4 — Enqueue function + per-order triggers (producers start; consumer already live)
 Design refs: D3 read-set scope for per-order tables, D8. Satisfies: SM R1, R3 (per-order path), R7.
 
-- [ ] PR4.T1 RED (`@pytest.mark.postgres`): PL/pgSQL `order_metrics_enqueue(ids, reason)` — upserts dirty rows with `version+1` on conflict, resets `claimed_atroute /claimed_by`, fires ONE `pg_notify('order_metrics_dirty','')` per transaction even for 10k-row fan-out (folded notify).
+- [ ] PR4.T1 RED (`@pytest.mark.postgres`): PL/pgSQL `order_metrics_enqueue(ids, reason)` — upserts dirty rows with `version+1` on conflict, resets `claimed_at`, `claimed_by`, `attempts` (to 0), `last_error` (to NULL), fires ONE `pg_notify('order_metrics_dirty','')` per transaction even for 10k-row fan-out (folded notify).
+- [ ] PR4.T1a RED (`@pytest.mark.postgres`): `order_metrics_enqueue` called against an existing row with `attempts = 5, last_error IS NOT NULL` (a parked order) resets `attempts = 0` and `last_error = NULL` on that row — a new input write is a new chance, un-parking a poisoned order at the enqueue/trigger layer, not just in `queue.py`.
 - [ ] PR4.T2 GREEN: implement enqueue function DDL in `backend/app/services/order_metrics/triggers.py`.
 - [ ] PR4.T3 RED: one test per table×write-kind for `ml_orders_ops` (INSERT; UPDATE OF `shipping_id`,`date_created`,`has_no_shipping_tag`,`pack_id`; DELETE; `shipping_id` change also enqueues OLD+NEW shipping siblings) — committed write ⇒ dirty row+version bump; rolled-back write ⇒ no row, no notify.
 - [ ] PR4.T4 RED: same pattern for `ml_order_items_ops`, `ml_order_item_costos`.
@@ -93,10 +97,10 @@ Design refs: D9, D10. Satisfies: SM R4, R8; enables Success Criterion "divergenc
 - [ ] PR6.T12 OWNER: user (PROD GATE) — after deploy stabilizes, poll `GET /api/ml-ops/order-metrics/health` until `queue_depth=0`, `oldest_dirty_age_s` low, and trigger `POST /order-metrics/divergence/run`; confirm `last_divergence.divergent_count=0` and `missing_count=0` on a run, re-check after a monitoring window (design D10 gate) before authorizing PR7.
 
 ## PR7 — Readers switch to stored values (recalculating state; invariant test)
-Design refs: D9 metrics_state, D13 (route /orders/{id} invariant). Satisfies: SM R5, R6, R9(scenario), BREAKDOWN R33.
+Design refs: D9 metrics_state, D13 (`, `orders/{id} invariant). Satisfies: SM R5, R6, R9(scenario), BREAKDOWN R33.
 Depends on: PR6.T12 gate passing (user confirmation required before merge).
 
-- [ ] PR7.T1 RED: `GET /orders/{id}` — `total_gaussroute /netoroute /markup` sourced from `ml_order_metrics`, NOT live `calcular_total_gauss`; chain final total equals stored `total_gauss` exactly when `metrics_state != 'recalculating'` (invariant test, BREAKDOWN R33 / SM R6).
+- [ ] PR7.T1 RED: `GET /orders/{id}` — `total_gauss`, `neto`, `markup` sourced from `ml_order_metrics`, NOT live `calcular_total_gauss`; chain final total equals stored `total_gauss` exactly when `metrics_state != 'recalculating'` (invariant test, BREAKDOWN R33 / SM R6).
 - [ ] PR7.T2 GREEN: switch `breakdown_service.py` reader path to stored values; keep chain-line rendering from `ml_venta_deducciones`.
 - [ ] PR7.T3 RED: when order is dirty (`recalculating`), detail response signals it explicitly and does NOT assert/claim the invariant (SM R6 second half).
 - [ ] PR7.T4 GREEN: `metrics_state` derivation — `'recalculating'` if dirty row exists (wins), else stored `gauss_status`, else `'pending'`.
@@ -116,7 +120,7 @@ Design refs: D12. Satisfies: KPI R7, R15; SEARCH R25, R26, R27.
 
 - [ ] PR9.T1 RED: `build_scope(db, SalesFilter)` — order-level base query and group-level CTE reproduce the EXACT SAME rows/statuses as the current inline logic (`ml_ventas_ops.py:637-699` status exprs, `:566` group_key, `:702` `_collapse`), parity test against current behavior before/after extraction.
 - [ ] PR9.T2 GREEN: `backend/app/services/ml_sales_query/filters.py` (`SalesFilter` dataclass, `build_scope`); `ml_ventas_ops.py` delegates to it.
-- [ ] PR9.T3 RED: `q` search — digits → `order_idroute /pack_id`; `^MLA\d+$` → `item_id`; else ≥3 chars ILIKE on `buyer_nickname`, `seller_sku`, `title`; always bounded by seller+date (SEARCH R25).
+- [ ] PR9.T3 RED: `q` search — digits → `order_id`, `pack_id`; `^MLA\d+$` → `item_id`; else ≥3 chars ILIKE on `buyer_nickname`, `seller_sku`, `title`; always bounded by seller+date (SEARCH R25).
 - [ ] PR9.T4 GREEN: `backend/app/services/ml_sales_query/search.py`; wire `q` param into the listing router.
 - [ ] PR9.T5 RED: search combines as intersection with active facets/toggles, not replacement (SEARCH R26); empty/no-match search returns explicit empty result, not an error (SEARCH R27).
 - [ ] PR9.T6 GREEN: confirm via router-level test.
@@ -129,10 +133,10 @@ Design refs: D13 route /sales. Satisfies: LISTING R28, R29, R31.
 - [ ] PR10.T2 GREEN: implement the join; add `utils/categoryIcon.js` fallback mapping is FE (PR14), backend only returns the raw category string here.
 - [ ] PR10.T3 RED: `city`, `province` (from `MlShipmentOps.receiver_address`), `shipping_substatus`, `coupon_amount` additive fields — captured-fixture based, null-safe on missing/varying JSONB shape.
 - [ ] PR10.T4 GREEN: implement.
-- [ ] PR10.T5 RED: server-derived unified `alert_level` (`okroute /warningroute /error`) per D13 rule (error = unresolved/neto null; warning = provisional/recalculating/iva-not-reconciling/op-or-goods-unknown; ok) — replaces ad-hoc per-field FE flags (LISTING R29).
+- [ ] PR10.T5 RED: server-derived unified `alert_level` (`ok`, `warning`, `error`) per D13 rule (error = unresolved/neto null; warning = provisional/recalculating/iva-not-reconciling/op-or-goods-unknown; ok) — replaces ad-hoc per-field FE flags (LISTING R29).
 - [ ] PR10.T6 GREEN: implement `alert_level` derivation server-side.
-- [ ] PR10.T7 RED: listing `netoroute /total_gaussroute /markup` values equal `ml_order_metrics` stored fields, not a live recompute (LISTING R31 — regression guard alongside PR7).
-- [ ] PR10.T8 RED: `metrics_state` field present per row (`okroute /provisionalroute /unresolvedroute /recalculatingroute /pending`).
+- [ ] PR10.T7 RED: listing `neto`, `total_gauss`, `markup` values equal `ml_order_metrics` stored fields, not a live recompute (LISTING R31 — regression guard alongside PR7).
+- [ ] PR10.T8 RED: `metrics_state` field present per row (`ok`, `provisional`, `unresolved`, `recalculating`, `pending`).
 
 ## PR11 — Doubtful switches + route /sales/kpis + aggregation
 Design refs: D12 aggregate.py, D13 route /sales/kpis, D9 KPI exclusion. Satisfies: KPI R8-R14; SM R3 scenario 11 (worker_alive surfacing).
@@ -152,7 +156,7 @@ Depends on: PR6 (populated metrics), ideally PR7 (stored readers) merged first.
 Design refs: D13 route /orders/{id}. Satisfies: BREAKDOWN R32, R34.
 Independent of PR9-PR11 (per design dependency graph); may run in parallel chain position but ships sequentially per auto-chain constraint.
 
-- [ ] PR12.T1 RED: route /orders/{id} response adds buyer real name (if present in `raw_order.buyer`), payment method, installments, shipment substatus — additive, existing `linesroute /item_linesroute /iva_decomposicionroute /cadena_total_gauss` unchanged (BREAKDOWN R32).
+- [ ] PR12.T1 RED: route /orders/{id} response adds buyer real name (if present in `raw_order.buyer`), payment method, installments, shipment substatus — additive, existing `lines`, `item_lines`, `iva_decomposicion`, `cadena_total_gauss` unchanged (BREAKDOWN R32).
 - [ ] PR12.T2 GREEN: implement in `breakdown_service.py` / router, captured-fixture based.
 - [ ] PR12.T3 RED: IVA non-reconcile display includes specific `razones` sourced from existing persisted data (BREAKDOWN R34, design D5).
 - [ ] PR12.T4 GREEN: implement.
@@ -160,7 +164,7 @@ Independent of PR9-PR11 (per design dependency graph); may run in parallel chain
 ## PR13 — FE layout shell: grid + SaleDetailPanel skeleton (modal removed, tests migrated)
 Design refs: D14. Satisfies: PANEL R16, R18, R19, R20.
 
-- [ ] PR13.T1 RED (Vitest+RTL): `VentasMLLayout` — CSS grid `minmax(0,1fr) var(--ventas-panel-width)` when a row is selected, single column otherwise; panel is a sticky `<aside aria-label="Detalle de venta">`, no overlay/`aria-modalroute /focus trap (PANEL R16, R20).
+- [ ] PR13.T1 RED (Vitest+RTL): `VentasMLLayout` — CSS grid `minmax(0,1fr) var(--ventas-panel-width)` when a row is selected, single column otherwise; panel is a sticky `<aside aria-label="Detalle de venta">`, no overlay/`aria-modal`, `focus trap (PANEL R16, R20).
 - [ ] PR13.T2 GREEN: implement frontend/src/components/ventasMl/VentasMLLayout.jsx` + CSS module (tokens only, light+dark).
 - [ ] PR13.T3 RED: selection state driven by URL param (`orden`); Escape clears it and closes the panel without trapping focus; screen-reader live-region announces panel content changes (PANEL R19, R20).
 - [ ] PR13.T4 GREEN: `useVentasMLFilters` / selection hook wiring.
@@ -179,7 +183,7 @@ Design refs: D14. Satisfies: LISTING (visual), SEARCH R25-R27 (FE), SM R3/R9 (re
 - [ ] PR14.T2 GREEN: implement `SalesToolbar` + `useSales` hook.
 - [ ] PR14.T3 RED: empty/no-match search shows explicit "sin resultados" state, not an error (SEARCH R27).
 - [ ] PR14.T4 GREEN: implement.
-- [ ] PR14.T5 RED: `SalesTableroute /SaleGroupRowroute /SaleOrderSubRow` restyle — `ProductCell` (placeholder thumbnail + title + SKU + MLA + qty, `CategoryIcon` from `utils/categoryIcon.js` keyed by `productos_erp.categoria`, fallback `Package`), stacked operation/goods badges, `EnvioCell` (mode + substatus), `MoneyCell` (importe+coupon, neto/Total Gauss/markup in `--font-mono`), `AlertIcon` from server `alert_level`.
+- [ ] PR14.T5 RED: `SalesTable`, `SaleGroupRow`, `SaleOrderSubRow` restyle — `ProductCell` (placeholder thumbnail + title + SKU + MLA + qty, `CategoryIcon` from `utils/categoryIcon.js` keyed by `productos_erp.categoria`, fallback `Package`), stacked operation/goods badges, `EnvioCell` (mode + substatus), `MoneyCell` (importe+coupon, neto/Total Gauss/markup in `--font-mono`), `AlertIcon` from server `alert_level`.
 - [ ] PR14.T6 GREEN: implement components + CSS modules (tokens only, light+dark, lucide icons).
 - [ ] PR14.T7 RED: `FacetChips` show live counts consistent with the active filter set (LISTING R30).
 - [ ] PR14.T8 GREEN: implement.
@@ -201,9 +205,9 @@ Design refs: D14. Satisfies: PANEL R21, BREAKDOWN R32/R34 (FE rendering), SM R6 
 ## PR16 — FE KPI strip + toggle switches + worker-down banner
 Design refs: D14, D9. Satisfies: KPI R9, R10, R11, R12, R13.
 
-- [ ] PR16.T1 RED: `KpiStriproute /KpiCard` render count, gross billed, neto ML, SUM Total Gauss, average markup from route /sales/kpis response only (no client-side computation).
+- [ ] PR16.T1 RED: `KpiStrip`, `KpiCard` render count, gross billed, neto ML, SUM Total Gauss, average markup from route /sales/kpis response only (no client-side computation).
 - [ ] PR16.T2 GREEN: implement + `useSalesKpis` hook.
-- [ ] PR16.T3 RED: `DoubtfulSwitchesroute /Switch` — four `role="switch"` controls ("A revisar", "Mixta", "En disputa", "Provisorio"), default states OFF/ON/OFF/ON on first load with no URL params (KPI R9, R11).
+- [ ] PR16.T3 RED: `DoubtfulSwitches`, `Switch` — four `role="switch"` controls ("A revisar", "Mixta", "En disputa", "Provisorio"), default states OFF/ON/OFF/ON on first load with no URL params (KPI R9, R11).
 - [ ] PR16.T4 GREEN: implement.
 - [ ] PR16.T5 RED: toggling updates BOTH table and KPI strip identically (shared params sent to route /sales and route /sales/kpis); state round-trips through URL query params (KPI R10, R12).
 - [ ] PR16.T6 GREEN: implement.

@@ -1,6 +1,9 @@
 # Proposal: Ventas ML redesign (listing + fixed detail panel + KPI strip + authoritative stored Total Gauss)
 Revision 2 (supersedes rev 1). Skills read: pricing-app-backend, -frontend, -design, -pricing-logic.
 
+## Revision 2026-09-22
+Resumed: dependency `ml-ventas-neto-iibb-varios` merged (#1311, #1313) and archived; the change is no longer PAUSED (see "Status" below). Success criteria below are updated to the async contract from design.md revision 2 (binding user decision): triggers enqueue the order for recompute in the writer's own transaction (not "the same transaction" performing the recompute itself), a dedicated `pricing-worker` recomputes asynchronously within ~1 s, and the pending/in-flight state is the explicit `recalculating` (and `pending`, for orders with no metrics row yet) state — excluded from KPI, never a same-transaction synchronous recompute.
+
 ## Intent
 Rebuild the Ventas ML screen (frontend/src/pages/VentasML.jsx + DesgloseDrawer.jsx) following docs/design/ventas-ml/{listado,detalle}.{html,jpg}: denser data, lucide icons per concept, monospace figures, card sections. Problems: (1) detail is a modal that blocks selecting/copying row data; (2) persisted data (city, shipment substatus, ML coupon, buyer real name, payment method/installments, IVA non-reconcile reasons) is never shown; (3) no aggregate view of the filtered set, which is the base for future metrics; (4) no search; (5) per-order Total Gauss/neto/markup are recomputed live on every read (deducciones.calcular_total_gauss) while the stored total_gauss column is only a sort key that can be stale -- aggregates cannot be trusted. The user's rule: the STORED value is the source of truth and must always be up to date, because we know every event that changes its inputs.
 
@@ -58,7 +61,7 @@ Real thumbnails; CUIT, card digits, invoices; trends/targets; account switcher/t
 - `ml-order-breakdown`: additive buyer/shipment/payment fields; IVA razones; total sourced from stored value.
 
 ## Approach
-Recommended: stored-metrics-first, then additive incremental UI. Rejected: (a) SUM of a possibly-stale column + staleness counter, and (b) live batch recompute with a cap -- both violate decision 5. Recompute uses the existing single producer (calcular_total_gauss) so there is one formula; persistence is in the caller's transaction (memory rule: any price/amount write must recompute dependent stored columns in the same transaction). "% de varios" changes fan out as a batched background recompute with a divergence re-check; design to decide whether that is in-transaction or a tracked job with explicit "recomputing" status (flag). Readers switch only after backfill + zero divergence. Frontend never computes metrics. Detail panel: CSS grid listing|panel, selection in URL param, non-modal (no focus trap), Escape clears selection, collapses below a breakpoint.
+Recommended: stored-metrics-first, then additive incremental UI. Rejected: (a) SUM of a possibly-stale column + staleness counter, and (b) live batch recompute with a cap -- both violate decision 5. Recompute uses the existing single producer (calcular_total_gauss) so there is one formula; per design.md revision 2 (binding user decision), the writer's transaction only enqueues the order (versioned dirty queue + pg_notify) and a dedicated `pricing-worker` performs the recompute asynchronously (~1 s), not synchronously in the caller's transaction. "% de varios" changes fan out as a single set-based enqueue covering all affected orders, each shown as `recalculating` until its recompute lands; no order is left indefinitely stale or silently unrecomputed. Readers switch only after backfill + zero divergence. Frontend never computes metrics. Detail panel: CSS grid listing|panel, selection in URL param, non-modal (no focus trap), Escape clears selection, collapses below a breakpoint.
 
 ## Rough PR slicing (~400 changed lines each, each safe alone; auto-chain)
 1. BE: stored-metrics schema (Alembic YYYYMMDD migration with downgrade; columns nullable + status) + single recompute service + tests. No readers changed.
@@ -112,8 +115,8 @@ UI/additive PRs revert independently. Stored-metrics: migration ships downgrade;
 
 ## Success Criteria
 - [ ] Stored Total Gauss/markup (+status) match a fresh recompute for 100% of orders after backfill (divergence check = 0) and stay at 0 across a monitoring window.
-- [ ] Every enumerated trigger has a test proving recompute in the same transaction.
-- [ ] Listing, detail, KPI read stored values; no live recompute on read; detail chain total == stored total (tested).
+- [ ] Every enumerated trigger has a test proving the order is enqueued for recompute in the same transaction as the input write, and that the worker recomputes it asynchronously (within approximately 1 s of commit).
+- [ ] Listing, detail, KPI read stored values; no live recompute on read; detail chain total == stored total for orders not in `recalculating`/`pending` (tested); orders in `recalculating`/`pending` show an explicit indicator and are excluded from KPI sums, never a stale or fabricated value.
 - [ ] Provisional/unresolved are explicit stored states, never a fabricated number.
 - [ ] KPI equals aggregate of the full filtered set incl. toggle combinations (parity tests); excluded counts shown.
 - [ ] Four doubtful toggles are switch controls, passed as explicit params, applied identically by the shared filter builder.
@@ -130,5 +133,5 @@ UI/additive PRs revert independently. Stored-metrics: migration ships downgrade;
 - Remaining self-deferred items relabeled "deferred by agent, pending user OK".
 - Re-sliced from 7 to 12 PRs; rollback, risks, success criteria updated.
 
-## Status: PAUSED
-This change is paused. It depends on `ml-ventas-neto-iibb-varios` merging and deploying first (that change corrects the underlying Total Gauss/neto formula; freezing the OLD formula into this change's stored-metrics table would be far costlier to fix later). See design.md's appended "Pending requirement from ml-ventas-neto-iibb-varios" section.
+## Status: ACTIVE
+Resumed 2026-09-22. `ml-ventas-neto-iibb-varios` merged (#1311, #1313) and is archived (`openspec/changes/archive/2026-09-22-ml-ventas-neto-iibb-varios/`), so it is safe to build stored metrics on the corrected Total Gauss/neto formula instead of freezing the old one. Per design.md's appended "Pending requirement from ml-ventas-neto-iibb-varios" section, this change's worker must also recompute every existing stored `total_gauss` on resume (formula_version bump; spec `ml-order-stored-metrics` R8 / scenario 14), since that dependency changed the formula without backfilling stored values.
