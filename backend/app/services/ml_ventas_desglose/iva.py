@@ -168,7 +168,14 @@ class DescomposicionNeto:
     debitos_creditos_retiro: Decimal = Decimal("0")
     # ml-ventas-neto-iibb-varios R3 (PR2): Σ base of the `CONCEPTO_VENTA_ITEM`
     # components -- the goods, without IVA, at each item's own rate. `None`
-    # here in PR1 (not yet computed); PR2 populates it.
+    # whenever the goods side itself cannot be trusted: no relevant
+    # payments, no items at all, or any of `RAZON_ITEM_SIN_COSTO_CONGELADO`,
+    # `RAZON_ITEM_SIN_CANTIDAD`, `RAZON_COSTO_SIN_ITEM` fired. Independent
+    # of `reconcilia` (design D4): the goods split does not depend on ML's
+    # charges matching the net -- `RAZON_VENTA_CON_DEVOLUCION` withholds
+    # `neto_sin_iva` but does NOT, by itself, withhold this base, since the
+    # per-item goods split remains exactly known regardless of what the
+    # charges side did.
     base_venta_sin_iva: Optional[Decimal] = None
 
 
@@ -444,6 +451,24 @@ def descomponer_neto(db: Session, order_ids: Sequence[int]) -> Dict[int, Descomp
         confiable = reconcilia and not razones
         neto_sin_iva = sum((c.base for c in no_informativos), Decimal("0")) if confiable else None
 
+        # ml-ventas-neto-iibb-varios R3 (PR2, design D4): the "% de varios"
+        # base -- Σ base of the goods components ONLY, at each item's own
+        # frozen rate. Independent of `reconcilia`/`confiable` above (those
+        # gate the CHARGES side matching the net; this is the goods side
+        # alone). Blocked only by the three item-level razones, which mean
+        # the goods themselves are not fully accounted for -- never by
+        # `RAZON_VENTA_CON_DEVOLUCION` alone.
+        item_razones_bloqueantes = {
+            RAZON_ITEM_SIN_COSTO_CONGELADO,
+            RAZON_ITEM_SIN_CANTIDAD,
+            RAZON_COSTO_SIN_ITEM,
+        }
+        base_venta_sin_iva = (
+            sum((c.base for c in componentes if c.concepto == CONCEPTO_VENTA_ITEM), Decimal("0"))
+            if items_esperados and not (item_razones_bloqueantes & set(razones))
+            else None
+        )
+
         result[order_id] = DescomposicionNeto(
             componentes=componentes,
             neto_sin_iva=neto_sin_iva,
@@ -451,6 +476,7 @@ def descomponer_neto(db: Session, order_ids: Sequence[int]) -> Dict[int, Descomp
             diferencia=diferencia,
             razones=razones,
             debitos_creditos_retiro=extra_debitos_creditos,
+            base_venta_sin_iva=base_venta_sin_iva,
         )
 
     return result

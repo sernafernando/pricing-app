@@ -567,6 +567,120 @@ class TestTheWorkedExampleOrder:
         assert retiro[0].informativo is False
         assert result.debitos_creditos_retiro == Decimal("3584.45")
 
+    def test_base_venta_sin_iva(self, db) -> None:
+        """ml-ventas-neto-iibb-varios PR2 (R3): the base the "% de varios"
+        deduction applies to -- sum of the SAME `CONCEPTO_VENTA_ITEM`
+        component bases already shown above, not a fresh computation."""
+        order_id = self._build(db)
+
+        result = descomponer_neto(db, [order_id])[order_id]
+
+        assert result.base_venta_sin_iva == Decimal("493726.17")
+
+
+class TestBaseVentaSinIva:
+    """ml-ventas-neto-iibb-varios PR2 (R3, design D4): `base_venta_sin_iva`
+    is `None` whenever the goods side cannot be trusted -- no relevant
+    payments, no items, or any of the three item-level razones -- and is
+    computed INDEPENDENTLY of `reconcilia` (a charges-side mismatch does
+    not touch the goods base)."""
+
+    def test_none_when_no_relevant_payments(self, db) -> None:
+        order_id = 940
+        _item_with_frozen_cost(db, order_id, "MLA1", Decimal("1000.00"), Decimal("21"))
+        db.commit()
+
+        result = descomponer_neto(db, [order_id])[order_id]
+
+        assert result.base_venta_sin_iva is None
+
+    def test_none_when_no_items(self, db) -> None:
+        order_id = 941
+        _payment(db, 9411, order_id, net_received_amount=Decimal("1000.00"))
+        db.commit()
+
+        result = descomponer_neto(db, [order_id])[order_id]
+
+        assert result.base_venta_sin_iva is None
+
+    def test_none_on_item_sin_costo_congelado(self, db) -> None:
+        order_id = 942
+        _item_with_frozen_cost(db, order_id, "MLA1", Decimal("1000.00"), Decimal("21"))
+        db.add(
+            MlOrderItemOps(
+                order_id=order_id,
+                item_id="MLA2",
+                variation_id=None,
+                seller_sku="SKU-2",
+                quantity=1,
+                unit_price=Decimal("500.00"),
+            )
+        )
+        _payment(db, 9421, order_id, net_received_amount=Decimal("1500.00"))
+        db.commit()
+
+        result = descomponer_neto(db, [order_id])[order_id]
+
+        assert RAZON_ITEM_SIN_COSTO_CONGELADO in result.razones
+        assert result.base_venta_sin_iva is None
+
+    def test_none_on_item_sin_cantidad(self, db) -> None:
+        order_id = 943
+        _item_with_frozen_cost(db, order_id, "MLA1", Decimal("1000.00"), Decimal("21"))
+        db.query(MlOrderItemOps).filter_by(order_id=order_id).update({"quantity": None})
+        _payment(db, 9431, order_id, net_received_amount=Decimal("1000.00"))
+        db.commit()
+
+        result = descomponer_neto(db, [order_id])[order_id]
+
+        assert RAZON_ITEM_SIN_CANTIDAD in result.razones
+        assert result.base_venta_sin_iva is None
+
+    def test_none_on_costo_sin_item(self, db) -> None:
+        order_id = 944
+        _item_with_frozen_cost(db, order_id, "MLA1", Decimal("1000.00"), Decimal("21"))
+        db.query(MlOrderItemOps).filter_by(order_id=order_id).delete()
+        _payment(db, 9441, order_id, net_received_amount=Decimal("1000.00"))
+        db.commit()
+
+        result = descomponer_neto(db, [order_id])[order_id]
+
+        assert RAZON_COSTO_SIN_ITEM in result.razones
+        assert result.base_venta_sin_iva is None
+
+    def test_independent_of_reconcilia(self, db) -> None:
+        """The one-cent mismatch case (`TestReconciliationIsExact`'s
+        sibling): the goods side itself is fully frozen and accounted for,
+        it is ML's side of the net that fails to close. `base_venta_sin_iva`
+        must still populate -- it does not depend on `reconcilia`."""
+        order_id = 946
+        _item_with_frozen_cost(db, order_id, "MLA1", Decimal("100.00"), Decimal("21.0"))
+        _payment(db, 9461, order_id, net_received_amount=Decimal("100.01"))
+        db.commit()
+
+        result = descomponer_neto(db, [order_id])[order_id]
+
+        assert result.reconcilia is False
+        assert result.base_venta_sin_iva == Decimal("82.64")
+
+
+class TestBaseVentaSinIvaMixedRates:
+    def test_two_rates_summed_independently(self, db) -> None:
+        """ml-ventas-neto-iibb-varios PR2.T2: a mixed-rate pack -- each
+        item's base is computed at its OWN frozen rate before summing,
+        never one rate applied to the aggregate."""
+        order_id = 950
+        _item_with_frozen_cost(db, order_id, "MLA1", Decimal("1050.00"), Decimal("10.5"))
+        _item_with_frozen_cost(db, order_id, "MLA2", Decimal("1210.00"), Decimal("21"))
+        _payment(db, 9501, order_id, net_received_amount=Decimal("2260.00"))
+        db.commit()
+
+        result = descomponer_neto(db, [order_id])[order_id]
+
+        assert result.reconcilia is True, f"no cerró por {result.diferencia}"
+        # 1050.00 / 1.105 = 950.2262... -> 950.23; 1210.00 / 1.21 = 1000.00
+        assert result.base_venta_sin_iva == Decimal("1950.23")
+
 
 class TestSirtacRefundOnlyNonRefundedPortion:
     """ml-ventas-neto-iibb-varios: a partially-refunded SIRTAC add-back adds
