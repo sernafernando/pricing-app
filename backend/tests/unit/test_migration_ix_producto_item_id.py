@@ -63,22 +63,41 @@ def test_upgrade_creates_the_index_and_downgrade_removes_it(pg_order_metrics_eng
     spec.loader.exec_module(migration)
 
     with pg_order_metrics_engine.connect() as conn:
-        pre_existing = _INDEX in {ix["name"] for ix in sa.inspect(conn).get_indexes("ml_order_item_costos")}
+
+        def _indexes() -> set:
+            return {ix["name"] for ix in sa.inspect(conn).get_indexes("ml_order_item_costos")}
+
+        pre_existing = _INDEX in _indexes()
         ctx = MigrationContext.configure(conn)
         op_obj = Operations(ctx)
         op_obj._install_proxy()
         try:
+            # From a CLEAN state: the ORM model declares the index too, so a
+            # create_all fixture already has it and `if_not_exists` would make
+            # a plain upgrade-then-downgrade pass trivially.
+            conn.execute(sa.text(f"DROP INDEX IF EXISTS {_INDEX}"))
+            conn.commit()
+            assert _INDEX not in _indexes(), "precondition: the index must be absent before upgrade"
+
             migration.upgrade()
             conn.commit()
-            assert _INDEX in {ix["name"] for ix in sa.inspect(conn).get_indexes("ml_order_item_costos")}
+            assert _INDEX in _indexes()
 
             migration.downgrade()
             conn.commit()
-            assert _INDEX not in {ix["name"] for ix in sa.inspect(conn).get_indexes("ml_order_item_costos")}
+            assert _INDEX not in _indexes()
         finally:
             op_obj._remove_proxy()
-            if pre_existing:
-                # Restore exactly the state found: never leave a shared test
-                # schema worse than it was.
-                conn.execute(sa.text(f"CREATE INDEX IF NOT EXISTS {_INDEX} ON ml_order_item_costos (producto_item_id)"))
+            # Restore EXACTLY the state found, whichever it was, even if an
+            # assertion above failed: a shared test schema must not depend on
+            # the order tests run in.
+            try:
+                if pre_existing:
+                    conn.execute(
+                        sa.text(f"CREATE INDEX IF NOT EXISTS {_INDEX} ON ml_order_item_costos (producto_item_id)")
+                    )
+                else:
+                    conn.execute(sa.text(f"DROP INDEX IF EXISTS {_INDEX}"))
                 conn.commit()
+            except Exception:  # noqa: BLE001 -- cleanup must never mask the real failure
+                conn.rollback()

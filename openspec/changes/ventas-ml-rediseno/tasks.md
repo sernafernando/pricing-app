@@ -145,7 +145,7 @@ Design refs: D12a. Satisfies: PFILT R43.
 Migration only, no readers: it must be merged and DEPLOYED before PR9 adds any join that crosses this column (spec R43 requires a separate, earlier PR).
 
 - [ ] PR8b.T1 RED: Alembic migration round-trip test (upgrade/downgrade) for a new index `ix_ml_order_item_costos_producto_item_id` on `ml_order_item_costos.producto_item_id` (PFILT R43) — asserted absent today (no existing index on that column, verified: only `id`, `order_id`, `item_id` are indexed).
-- [ ] PR8b.T2 GREEN: write and apply `backend/alembic/versions/2026MMDD_ix_ml_order_item_costos_producto_item_id.py`, index-only, single head, full downgrade. Merge and deploy this migration before PR9 ships any join against the column.
+- [ ] PR8b.T2 GREEN: write and apply `backend/alembic/versions/20260922_ix_producto_item_id.py`, index-only, single head, full downgrade. Merge and deploy this migration before PR9 ships any join against the column.
 
 ## PR9 — Shared query layer extraction (pure refactor + search `q` + product-level filters)
 Design refs: D12, D12a. Satisfies: KPI R7, R15; SEARCH R25, R25a, R26, R27; PFILT R35-R43.
