@@ -140,6 +140,20 @@ def compute_order_metrics(db: Session, order_ids: Sequence[int]) -> Dict[int, Or
                 (code for code, monto, _concepto in resultado.lineas if monto is None),
                 None,
             )
+            if unresolved_reason is None:
+                # No chain line is unknown, so the gap is upstream of the
+                # chain: the starting value itself. Name it rather than
+                # storing a reasonless unresolved row.
+                if (
+                    descomposicion is not None
+                    and descomposicion.neto_sin_iva is None
+                    and descomposicion.reconcilia is False
+                ):
+                    unresolved_reason = "iva_no_reconcilia"
+                elif neto_by_order.get(order_id) is None:
+                    unresolved_reason = "sin_pagos"
+                else:
+                    unresolved_reason = "neto_sin_iva_desconocido"
         else:
             gauss_status = GaussStatus.PROVISIONAL if resultado.provisional else GaussStatus.OK
             unresolved_reason = None

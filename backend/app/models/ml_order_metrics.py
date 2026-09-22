@@ -28,6 +28,8 @@ from sqlalchemy import (
     SmallInteger,
     String,
     Text,
+    false,
+    text,
 )
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.sql import func, literal_column
@@ -79,15 +81,15 @@ class MlOrderMetricsDirty(Base):
     __table_args__ = (Index("ix_ml_order_metrics_dirty_enqueued_at", "enqueued_at"),)
 
     order_id = Column(BigInteger, primary_key=True)
-    version = Column(BigInteger, nullable=False, server_default="1")
+    version = Column(BigInteger, nullable=False, server_default=text("1"))
     reason = Column(String(32), nullable=False)
     enqueued_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
     claimed_at = Column(DateTime(timezone=True), nullable=True)
     claimed_by = Column(String(64), nullable=True)
     claim_token = Column(UUID(as_uuid=True), nullable=True)
-    attempts = Column(SmallInteger, nullable=False, server_default="0")
+    attempts = Column(SmallInteger, nullable=False, server_default=text("0"))
     last_error = Column(Text, nullable=True)
     # `True` when a batch-timeout release put this order back in the queue
     # without charging an attempt (design D5) -- retried alone, never
     # re-enters a full batch, durable across worker restarts.
-    suspect = Column(Boolean, nullable=False, server_default="false")
+    suspect = Column(Boolean, nullable=False, server_default=false())

@@ -151,6 +151,27 @@ class TestComputeOrderMetricsWrapsExistingFormula:
         assert metrics.markup_pct is None
         assert metrics.unresolved_reason is not None
 
+    def test_unresolved_because_the_iva_split_does_not_reconcile_still_names_a_reason(self, db) -> None:
+        # Every chain link resolves (cost is known), but the net does not
+        # reconcile to the cent with the IVA split, so `neto_sin_iva` is None
+        # and Total Gauss is unknown WITHOUT any chain line being None. The
+        # stored row must still say why (design D2: never a generic unknown).
+        order_id = 5010
+        _order(db, order_id)
+        _item_with_cost(db, order_id, "MLA1", 1, Decimal("50.00"))
+        db.add(
+            MlPaymentOps(
+                payment_id=order_id, order_id=order_id, status="approved", net_received_amount=Decimal("100.01")
+            )
+        )
+        db.commit()
+
+        metrics = compute_order_metrics(db, [order_id])[order_id]
+
+        assert metrics.gauss_status == GaussStatus.UNRESOLVED
+        assert metrics.neto_sin_iva is None
+        assert metrics.unresolved_reason == "iva_no_reconcilia"
+
     def test_empty_order_ids_returns_empty_dict(self, db) -> None:
         assert compute_order_metrics(db, []) == {}
 

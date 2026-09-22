@@ -92,6 +92,12 @@ def upgrade() -> None:
         sa.PrimaryKeyConstraint("name"),
     )
 
+    # Plain CREATE INDEX on the ingestion table ml_orders_ops: it takes
+    # seconds and briefly blocks that table's writes. CONCURRENTLY was tried
+    # and reverted -- it must run outside a transaction, which neither this
+    # migration's runner nor the round-trip test can provide without special
+    # casing, and the only writer affected is the background sweep, which
+    # retries.
     op.create_index("ix_ml_orders_ops_seller_date", "ml_orders_ops", ["seller_id", "date_created"])
 
 
