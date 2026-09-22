@@ -126,6 +126,11 @@ def test_upgrade_creates_the_index_and_downgrade_removes_it(pg_costos_engine) ->
             # assertion above failed: a shared test schema must not depend on
             # the order tests run in.
             try:
+                # A failed upgrade/downgrade leaves the connection in an
+                # aborted transaction: without this rollback every restore
+                # statement below would fail too, and the DROP INDEX from the
+                # clean-state step is already committed.
+                conn.rollback()
                 if pre_existing:
                     conn.execute(
                         sa.text(f"CREATE INDEX IF NOT EXISTS {_INDEX} ON ml_order_item_costos (producto_item_id)")
