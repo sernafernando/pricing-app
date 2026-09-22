@@ -1,8 +1,11 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router-dom';
 import TabOcMatch from './TabOcMatch';
 import AdministracionCompras from '../../pages/AdministracionCompras';
+
+const REFRESH_LABEL = 'También actualizar Factura/s y Pedido/s';
 
 const ERROR_JOB = {
   id: 7,
@@ -106,6 +109,7 @@ function resetHook(overrides = {}) {
   hookValue.selectedId = null;
   hookValue.loading = false;
   hookValue.error = null;
+  hookValue.retry.mockReset();
   Object.assign(hookValue, overrides);
 }
 
@@ -148,6 +152,7 @@ describe('TabOcMatch retry gate', () => {
     expect(screen.getByText('Notebook 14')).toBeInTheDocument();
     expect(screen.getAllByText('USD sin tipo de cambio').length).toBeGreaterThan(0);
     expect(screen.queryByRole('button', { name: /Reintentar/i })).toBeNull();
+    expect(screen.queryByRole('checkbox', { name: REFRESH_LABEL })).toBeNull();
   });
 
   it('shows retry when the user can gestionar and the job is retryable', () => {
@@ -158,6 +163,9 @@ describe('TabOcMatch retry gate', () => {
     );
     render(<TabOcMatch />);
     expect(screen.getByRole('button', { name: /Reintentar/i })).toBeInTheDocument();
+    const checkbox = screen.getByRole('checkbox', { name: REFRESH_LABEL });
+    expect(checkbox).toBeInTheDocument();
+    expect(checkbox).not.toBeChecked();
   });
 
   it('shows renglones, acta and excel download on a done job', () => {
@@ -173,6 +181,32 @@ describe('TabOcMatch retry gate', () => {
     expect(screen.getByText('media')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /Descargar Excel/i })).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /Reintentar/i })).toBeNull();
+    expect(screen.queryByRole('checkbox', { name: REFRESH_LABEL })).toBeNull();
+  });
+
+  it('unchecked retry sends refrescar_doc_refs false', async () => {
+    const user = userEvent.setup();
+    mockTienePermiso.mockImplementation(
+      (p) =>
+        p === 'administracion.ver_ordenes_compra' ||
+        p === 'administracion.gestionar_ordenes_compra',
+    );
+    render(<TabOcMatch />);
+    await user.click(screen.getByRole('button', { name: /Reintentar/i }));
+    expect(hookValue.retry).toHaveBeenCalledWith(ERROR_JOB.id, { refrescar_doc_refs: false });
+  });
+
+  it('checked retry sends refrescar_doc_refs true', async () => {
+    const user = userEvent.setup();
+    mockTienePermiso.mockImplementation(
+      (p) =>
+        p === 'administracion.ver_ordenes_compra' ||
+        p === 'administracion.gestionar_ordenes_compra',
+    );
+    render(<TabOcMatch />);
+    await user.click(screen.getByRole('checkbox', { name: REFRESH_LABEL }));
+    await user.click(screen.getByRole('button', { name: /Reintentar/i }));
+    expect(hookValue.retry).toHaveBeenCalledWith(ERROR_JOB.id, { refrescar_doc_refs: true });
   });
 });
 

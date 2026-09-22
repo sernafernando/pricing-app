@@ -292,6 +292,79 @@ class TestListRetryPermisos:
         db.flush()
         r = client.post(f"{BASE}/oc-match/jobs/{job.id}/retry", headers=auth_headers)
         assert r.status_code == 403, r.text
+        r_flag = client.post(
+            f"{BASE}/oc-match/jobs/{job.id}/retry",
+            headers=auth_headers,
+            json={"refrescar_doc_refs": True},
+        )
+        assert r_flag.status_code == 403, r_flag.text
+
+    def test_empty_post_retry_keeps_stamp(
+        self, client, auth_headers, db, pedido_borrador, con_todos_los_permisos, add_task_espia
+    ):
+        from app.models.compra_adjunto import CompraAdjunto
+
+        adj = CompraAdjunto(
+            entidad_tipo=CompraAdjunto.ENTIDAD_TIPO_PEDIDO,
+            entidad_id=pedido_borrador.id,
+            nombre_archivo="retry.pdf",
+            path_archivo="pedido_compra/x/retry.pdf",
+        )
+        db.add(adj)
+        db.flush()
+        stamped = datetime.now(UTC)
+        job = OcMatchJob(
+            pedido_id=pedido_borrador.id,
+            attachment_id=adj.id,
+            status=OcMatchJob.STATUS_ERROR,
+            error_message="boom",
+            doc_refs_aplicado_at=stamped,
+        )
+        db.add(job)
+        db.flush()
+        r = client.post(f"{BASE}/oc-match/jobs/{job.id}/retry", headers=auth_headers)
+        assert r.status_code == 200, r.text
+        db.refresh(job)
+        assert job.status == OcMatchJob.STATUS_QUEUED
+        kept = job.doc_refs_aplicado_at
+        assert kept is not None
+        if kept.tzinfo is None:
+            kept = kept.replace(tzinfo=UTC)
+        assert kept == stamped
+        assert add_task_espia == [(process_oc_match_job, (job.id,), {})]
+
+    def test_retry_body_true_clears_stamp(
+        self, client, auth_headers, db, pedido_borrador, con_todos_los_permisos, add_task_espia
+    ):
+        from app.models.compra_adjunto import CompraAdjunto
+
+        adj = CompraAdjunto(
+            entidad_tipo=CompraAdjunto.ENTIDAD_TIPO_PEDIDO,
+            entidad_id=pedido_borrador.id,
+            nombre_archivo="retry.pdf",
+            path_archivo="pedido_compra/x/retry.pdf",
+        )
+        db.add(adj)
+        db.flush()
+        job = OcMatchJob(
+            pedido_id=pedido_borrador.id,
+            attachment_id=adj.id,
+            status=OcMatchJob.STATUS_ERROR,
+            error_message="boom",
+            doc_refs_aplicado_at=datetime.now(UTC),
+        )
+        db.add(job)
+        db.flush()
+        r = client.post(
+            f"{BASE}/oc-match/jobs/{job.id}/retry",
+            headers=auth_headers,
+            json={"refrescar_doc_refs": True},
+        )
+        assert r.status_code == 200, r.text
+        db.refresh(job)
+        assert job.status == OcMatchJob.STATUS_QUEUED
+        assert job.doc_refs_aplicado_at is None
+        assert add_task_espia == [(process_oc_match_job, (job.id,), {})]
 
     def test_stale_running_list_is_retryable_error(
         self, client, auth_headers, db, pedido_borrador, con_todos_los_permisos

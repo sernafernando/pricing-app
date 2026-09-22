@@ -50,8 +50,8 @@ class PedidoCompraBase(BaseModel):
     # Notas libres del pedido. Editable en borrador y como metadata en
     # aprobado/pagado_parcial/pagado (feature B — no impacta CC).
     observaciones: str | None = None
-    facturas_documento: str | None = None
-    pedidos_documento: str | None = None
+    facturas_documento: str | None = Field(None, max_length=500)
+    pedidos_documento: str | None = Field(None, max_length=500)
 
 
 class PedidoCompraCreate(PedidoCompraBase):
@@ -73,8 +73,8 @@ class PedidoCompraUpdate(BaseModel):
     requiere_envio: bool | None = None
     numero_factura: str | None = Field(None, max_length=50)
     observaciones: str | None = None
-    facturas_documento: str | None = None
-    pedidos_documento: str | None = None
+    facturas_documento: str | None = Field(None, max_length=500)
+    pedidos_documento: str | None = Field(None, max_length=500)
     estado: str | None = None
 
 
@@ -276,8 +276,8 @@ class CorreccionPedidoRequest(BaseModel):
     fecha_pago_estimada: date | None = None
     requiere_envio: bool | None = None
     observaciones: str | None = None
-    facturas_documento: str | None = None
-    pedidos_documento: str | None = None
+    facturas_documento: str | None = Field(None, max_length=500)
+    pedidos_documento: str | None = Field(None, max_length=500)
     motivo_correccion: str = Field(..., min_length=5, max_length=500)
 
     @field_validator("motivo_correccion")

@@ -62,6 +62,7 @@ class OcMatchJob(Base):
     excel_rel_path = Column(String(500), nullable=True)
     started_at = Column(DateTime(timezone=True), nullable=True)
     finished_at = Column(DateTime(timezone=True), nullable=True)
+    doc_refs_aplicado_at = Column(DateTime(timezone=True), nullable=True)
     created_at = Column(
         DateTime(timezone=True),
         nullable=False,

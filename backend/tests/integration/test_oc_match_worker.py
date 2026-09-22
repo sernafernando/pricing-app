@@ -24,7 +24,7 @@ from app.models.tb_subcategory import TBSubCategory
 from app.services import pedidos_service
 from app.services.oc_match import worker as worker_mod
 from app.services.oc_match.doc_refs import apply_writeback
-from app.services.oc_match.enqueue import enqueue_oc_match
+from app.services.oc_match.enqueue import enqueue_oc_match, queue_retry
 from app.services.oc_match.worker import process_oc_match_job
 
 BASE = "/api/administracion/compras"
@@ -284,6 +284,7 @@ class TestGoldenWorkerSoT:
         assert pedido.facturas_documento == "0001-99"
         assert pedido.pedidos_documento == "PED-184465"
         assert pedido.numero_factura is None
+        assert job.doc_refs_aplicado_at is not None
         apply_writeback(pedido, GOLDEN_EXTRACT)
         assert pedido.facturas_documento == "0001-99"
         assert pedido.pedidos_documento == "PED-184465"
@@ -341,6 +342,7 @@ class TestWorkerErrorPaths:
         assert pedido is not None
         assert pedido.facturas_documento == "0001-99"
         assert pedido.pedidos_documento == "PED-184465"
+        assert job.doc_refs_aplicado_at is not None
 
     def test_unmapped_empresa_errors_without_gemini(
         self,
@@ -372,6 +374,7 @@ class TestWorkerErrorPaths:
         assert pedido is not None
         assert pedido.facturas_documento is None
         assert pedido.pedidos_documento is None
+        assert job.doc_refs_aplicado_at is None
 
     def test_missing_gemini_keys_error_plus_acta(
         self,
@@ -634,6 +637,92 @@ class TestClaimFence:
             claimed_started_at=stale_started,
         )
         assert not stale_path.exists()
+
+
+class TestDocRefsWriteOnce:
+    def test_stamped_persist_skips_writeback(
+        self,
+        db: Session,
+        active_user: Any,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        _seed_maestro(db)
+        job, _adj = _pedido_adjunto_job(db, active_user, tmp_path)
+        _mock_pool(monkeypatch, GOLDEN_EXTRACT, GOLDEN_MATCH)
+        _patch_bg_db(monkeypatch, db)
+        process_oc_match_job(job.id)
+        db.refresh(job)
+        pedido = db.get(PedidoCompra, job.pedido_id)
+        assert pedido is not None
+        assert job.doc_refs_aplicado_at is not None
+        stamped = job.doc_refs_aplicado_at
+        pedido.facturas_documento = "KEEP-FA"
+        pedido.pedidos_documento = "KEEP-PED"
+        job.status = OcMatchJob.STATUS_ERROR
+        job.error_message = "retry"
+        db.flush()
+        queue_retry(db, job)
+        assert job.doc_refs_aplicado_at == stamped
+        _mock_pool(monkeypatch, GOLDEN_EXTRACT, GOLDEN_MATCH)
+        process_oc_match_job(job.id)
+        db.refresh(job)
+        db.refresh(pedido)
+        assert pedido.facturas_documento == "KEEP-FA"
+        assert pedido.pedidos_documento == "KEEP-PED"
+        assert job.doc_refs_aplicado_at == stamped
+        assert job.renglones
+
+    def test_refresh_append_does_not_wipe(
+        self,
+        db: Session,
+        active_user: Any,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        _seed_maestro(db)
+        job, _adj = _pedido_adjunto_job(db, active_user, tmp_path)
+        _mock_pool(monkeypatch, GOLDEN_EXTRACT, GOLDEN_MATCH)
+        _patch_bg_db(monkeypatch, db)
+        process_oc_match_job(job.id)
+        db.refresh(job)
+        pedido = db.get(PedidoCompra, job.pedido_id)
+        assert pedido is not None
+        pedido.facturas_documento = "KEEP-FA"
+        pedido.pedidos_documento = "KEEP-PED"
+        job.status = OcMatchJob.STATUS_ERROR
+        job.error_message = "retry"
+        db.flush()
+        queue_retry(db, job, refrescar_doc_refs=True)
+        assert job.doc_refs_aplicado_at is None
+        _mock_pool(monkeypatch, GOLDEN_EXTRACT, GOLDEN_MATCH)
+        process_oc_match_job(job.id)
+        db.refresh(job)
+        db.refresh(pedido)
+        assert pedido.facturas_documento == "KEEP-FA; 0001-99"
+        assert pedido.pedidos_documento == "KEEP-PED; PED-184465"
+        assert job.doc_refs_aplicado_at is not None
+
+    def test_skip_tipo_does_not_stamp(
+        self,
+        db: Session,
+        active_user: Any,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        extract = {**GOLDEN_EXTRACT, "tipo_documento": "comprobante_pago"}
+        _seed_maestro(db)
+        job, _adj = _pedido_adjunto_job(db, active_user, tmp_path)
+        _mock_pool(monkeypatch, extract, GOLDEN_MATCH)
+        _patch_bg_db(monkeypatch, db)
+        process_oc_match_job(job.id)
+        db.refresh(job)
+        pedido = db.get(PedidoCompra, job.pedido_id)
+        assert pedido is not None
+        assert pedido.facturas_documento is None
+        assert pedido.pedidos_documento is None
+        assert job.doc_refs_aplicado_at is None
+        assert job.status == OcMatchJob.STATUS_DONE
 
 
 class TestWorkerNoMailAndSkipFab:

@@ -69,3 +69,9 @@ class OcMatchJobPaginated(BaseModel):
     total: int = Field(..., ge=0)
     page: int = Field(..., ge=1)
     page_size: int = Field(..., ge=1, le=200)
+
+
+class OcMatchRetryRequest(BaseModel):
+    """Optional body for POST /oc-match/jobs/{id}/retry."""
+
+    refrescar_doc_refs: bool = False

@@ -4,6 +4,10 @@ from __future__ import annotations
 
 from types import SimpleNamespace
 
+import pytest
+from pydantic import ValidationError
+
+from app.schemas.pedido_compra import CorreccionPedidoRequest, PedidoCompraUpdate
 from app.services.oc_match.doc_refs import apply_writeback, normalize_tipo
 
 
@@ -32,7 +36,7 @@ class TestNormalizeTipo:
 class TestRouteWriteback:
     def test_factura_routes_both_columns(self) -> None:
         pedido = _pedido()
-        apply_writeback(
+        wrote = apply_writeback(
             pedido,  # type: ignore[arg-type]
             {
                 "tipo_documento": "factura",
@@ -40,13 +44,14 @@ class TestRouteWriteback:
                 "nro_pedido": "PED-184465",
             },
         )
+        assert wrote is True
         assert pedido.facturas_documento == "0001-99"
         assert pedido.pedidos_documento == "PED-184465"
         assert pedido.numero_factura == "ERP-KEEP"
 
     def test_proforma_writes_only_pedidos(self) -> None:
         pedido = _pedido(facturas="KEEP-FA")
-        apply_writeback(
+        wrote = apply_writeback(
             pedido,  # type: ignore[arg-type]
             {
                 "tipo_documento": "proforma",
@@ -54,30 +59,48 @@ class TestRouteWriteback:
                 "nro_pedido": "PED-184465",
             },
         )
+        assert wrote is True
         assert pedido.pedidos_documento == "0001-99; PED-184465"
         assert pedido.facturas_documento == "KEEP-FA"
         assert pedido.numero_factura == "ERP-KEEP"
 
     def test_skip_comprobante_pago_and_otro(self) -> None:
         pedido = _pedido(facturas="A", pedidos="B")
-        apply_writeback(
-            pedido,  # type: ignore[arg-type]
-            {
-                "tipo_documento": "comprobante_pago",
-                "nro_documento": "REC-1",
-                "nro_pedido": "PED-9",
-            },
+        assert (
+            apply_writeback(
+                pedido,  # type: ignore[arg-type]
+                {
+                    "tipo_documento": "comprobante_pago",
+                    "nro_documento": "REC-1",
+                    "nro_pedido": "PED-9",
+                },
+            )
+            is False
         )
-        apply_writeback(
-            pedido,  # type: ignore[arg-type]
-            {
-                "tipo_documento": "otro",
-                "nro_documento": "X",
-                "nro_pedido": "Y",
-            },
+        assert (
+            apply_writeback(
+                pedido,  # type: ignore[arg-type]
+                {
+                    "tipo_documento": "otro",
+                    "nro_documento": "X",
+                    "nro_pedido": "Y",
+                },
+            )
+            is False
         )
         assert pedido.facturas_documento == "A"
         assert pedido.pedidos_documento == "B"
+
+    def test_empty_numbers_are_false(self) -> None:
+        pedido = _pedido(facturas="A")
+        assert (
+            apply_writeback(
+                pedido,  # type: ignore[arg-type]
+                {"tipo_documento": "factura", "nro_documento": "  ", "nro_pedido": None},
+            )
+            is False
+        )
+        assert pedido.facturas_documento == "A"
 
     def test_append_unique_casefold_then_c(self) -> None:
         pedido = _pedido(facturas="A; B")
@@ -103,3 +126,19 @@ class TestRouteWriteback:
             },
         )
         assert pedido.numero_factura == "FA-ERP"
+
+
+class TestDocRefsMaxLength:
+    def test_update_over_500_is_validation_error(self) -> None:
+        over = "x" * 501
+        with pytest.raises(ValidationError):
+            PedidoCompraUpdate(facturas_documento=over)
+        with pytest.raises(ValidationError):
+            PedidoCompraUpdate(pedidos_documento=over)
+
+    def test_correccion_over_500_is_validation_error(self) -> None:
+        over = "x" * 501
+        with pytest.raises(ValidationError):
+            CorreccionPedidoRequest(motivo_correccion="motivo valido", facturas_documento=over)
+        with pytest.raises(ValidationError):
+            CorreccionPedidoRequest(motivo_correccion="motivo valido", pedidos_documento=over)

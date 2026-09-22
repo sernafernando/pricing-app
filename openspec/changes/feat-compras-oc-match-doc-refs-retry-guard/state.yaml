@@ -1,0 +1,103 @@
+change: feat-compras-oc-match-doc-refs-retry-guard
+change_id: feat-compras-oc-match-doc-refs-retry-guard
+project: pricing-app
+phase: apply
+status: ready_for_verify
+artifact_store: openspec
+persistence_mode: openspec
+parent_change: feat-compras-oc-match-pedido-doc-refs
+parent_pr: 1314
+parent_pr_state: open
+sibling_changes:
+  - feat-compras-oc-match-ean-extract-fallback
+  - feat-compras-oc-match-renglones-ean
+  - feat-compras-oc-match-ops-ux
+  - feat-compras-oc-match-gemini-fallback
+amends_capability:
+  - compras-oc-match-pipeline
+  - compras-oc-match-jobs
+  - compras-oc-match-ui
+  - pedidos-compra
+created_at: "2026-09-22"
+updated_at: "2026-09-22"
+branch_plan: feat/compras-oc-match-doc-refs-retry-guard
+base_branch: origin/feat/compras-oc-match-pedido-doc-refs
+base_branch_note: >
+  PR #1314 still OPEN (MERGEABLE, CI green, targets main). Stack on
+  origin/feat/compras-oc-match-pedido-doc-refs until it merges; then
+  rebase onto upstream/main. Do not base on the current workspace tip
+  feat/compras-oc-match-ean-extract-fallback (missing doc_refs.py,
+  facturas_documento columns, compras_042).
+delivery_target: main
+artifacts:
+  exploration: openspec/changes/feat-compras-oc-match-doc-refs-retry-guard/exploration.md
+  proposal: openspec/changes/feat-compras-oc-match-doc-refs-retry-guard/proposal.md
+  specs:
+    - openspec/changes/feat-compras-oc-match-doc-refs-retry-guard/specs/compras-oc-match-pipeline/spec.md
+    - openspec/changes/feat-compras-oc-match-doc-refs-retry-guard/specs/compras-oc-match-jobs/spec.md
+    - openspec/changes/feat-compras-oc-match-doc-refs-retry-guard/specs/pedidos-compra/spec.md
+    - openspec/changes/feat-compras-oc-match-doc-refs-retry-guard/specs/compras-oc-match-ui/spec.md
+  design: openspec/changes/feat-compras-oc-match-doc-refs-retry-guard/design.md
+  tasks: openspec/changes/feat-compras-oc-match-doc-refs-retry-guard/tasks.md
+  apply_progress: openspec/changes/feat-compras-oc-match-doc-refs-retry-guard/apply-progress.md
+next_phase: verify
+nextRecommended: verify
+notes: >
+  Apply complete. 19/19 tasks. compras_043 + write-once stamp + retry
+  checkbox + max_length 500. Focused pytest 69 passed; vitest 13 passed.
+  nextRecommended=verify.
+locked_decisions:
+  parent_pr: 1314
+  parent_branch: feat/compras-oc-match-pedido-doc-refs
+  stack_until_merge: origin/feat/compras-oc-match-pedido-doc-refs
+  stack_after_merge: upstream/main
+  do_not_base_on: feat/compras-oc-match-ean-extract-fallback
+  part_a:
+    fields:
+      - facturas_documento
+      - pedidos_documento
+    pydantic_max_length: 500
+    schemas:
+      - PedidoCompraBase
+      - PedidoCompraUpdate
+      - CorreccionPedidoRequest
+    column_type: text_null_unchanged
+    alembic_length_change: false
+    fe: html_maxLength_500_no_silent_slice
+  part_b:
+    problem: append_only_rewrites_deleted_tokens_on_retry
+    product_option: 3_retry_checkbox
+    checkbox_default: off
+    checkbox_label: "También actualizar Factura/s y Pedido/s"
+    write_once_after: first_routeable_writeback
+    refresh_policy: append_unique_no_wipe
+    stamp_column: doc_refs_aplicado_at
+    stamp_type: DateTime_timezone_true_nullable
+    refresh_handoff: queue_retry_clears_stamp
+    api_flag: refrescar_doc_refs
+    api_shape: OcMatchRetryRequest_body_default_false
+    process_signature: job_id_only_unchanged
+    apply_writeback_returns: bool_routeable_and_token
+    do_not_write_numero_factura: true
+    out_of_scope:
+      - token_snapshot_per_job
+      - wipe_fields
+      - touch_numero_factura
+  alembic: compras_043_hangs_off_compras_042
+  delivery: single_pr
+  pr_target: main
+  branch: feat/compras-oc-match-doc-refs-retry-guard
+pending_decisions: {}
+review_forecast:
+  estimated_changed_lines: "200-350"
+  budget_risk: Low
+  chained_prs: No
+  delivery_strategy: single-pr
+  decision_needed_before_apply: No
+  chain_strategy: pending
+  note: >
+    Small follow-up: one Alembic column, persist guard, retry body,
+    TabOcMatch checkbox, two modal maxLength attrs, focused tests.
+    OpenSpec artifacts excluded from authored risk. Sibling TabOcMatch
+    EAN-fallback PR may conflict on the same file but not the same hunks.
+task_count: 19
