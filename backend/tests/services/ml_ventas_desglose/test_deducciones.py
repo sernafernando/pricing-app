@@ -325,6 +325,30 @@ class TestPersistirTotalGauss:
         rows = db.query(MlVentaDeduccion).filter(MlVentaDeduccion.order_id == order_id).all()
         assert any(r.code == "costo_mercaderia" for r in rows)
 
+    def test_unknown_order_id_in_the_batch_never_aborts_the_real_one(self, db) -> None:
+        # `persistir_total_gauss` is called by `refrescar_total_gauss_pendientes`
+        # (the sweep) with whatever ids the queue holds -- one with no
+        # `ml_orders_ops` row (e.g. deleted, or never ingested) must be
+        # tolerated exactly like the pre-PR1 implementation did, never
+        # crash the whole batch.
+        from app.models.ml_payments import MlPaymentOps
+
+        order_id = 15
+        unknown_id = 999997
+        _order(db, order_id)
+        _item_with_cost(db, order_id, "MLA1", 1, Decimal("10.00"))
+        db.add(MlPaymentOps(payment_id=15, order_id=order_id, status="approved", net_received_amount=Decimal("100.00")))
+        db.commit()
+
+        resultados = persistir_total_gauss(db, [unknown_id, order_id])
+        db.commit()
+
+        assert unknown_id not in resultados
+        assert order_id in resultados
+
+        order = db.query(MlOrdersOps).filter(MlOrdersOps.order_id == order_id).first()
+        assert order.total_gauss_stale is False
+
 
 class TestMarcarStale:
     def test_sets_stale_true_for_matching_shipping_id(self, db) -> None:
@@ -1052,3 +1076,89 @@ class TestVariosWorkedExampleEndToEnd:
         # total_gauss = neto_sin_iva (412287.78) - costo_mercaderia (50.00)
         # - varios (24686.31); flex is N/A here (order is not self_service).
         assert resultado.total_gauss == Decimal("412287.78") - Decimal("50.00") - Decimal("24686.31")
+
+
+class TestPersistirTotalGaussParity:
+    """The alias must keep returning what the chain produced for ordinary
+    orders. It only departs from `calcular_total_gauss` where the stored
+    row cannot hold the value (see `normalize_markup_pct`)."""
+
+    def test_returns_the_same_markup_as_the_chain_for_a_normal_order(self, db) -> None:
+        from app.models.ml_payments import MlPaymentOps
+        from app.services.ml_ventas_desglose.iva import descomponer_neto
+
+        order_id = 16
+        _order(db, order_id)
+        _item_with_cost(db, order_id, "MLA1", 1, Decimal("40.00"))
+        db.add(MlPaymentOps(payment_id=16, order_id=order_id, status="approved", net_received_amount=Decimal("100.00")))
+        db.commit()
+
+        descomposiciones = descomponer_neto(db, [order_id])
+        esperado = calcular_total_gauss(
+            db,
+            [order_id],
+            {oid: d.neto_sin_iva for oid, d in descomposiciones.items()},
+            venta_sin_iva_by_order={oid: d.base_venta_sin_iva for oid, d in descomposiciones.items()},
+        )[order_id]
+
+        obtenido = persistir_total_gauss(db, [order_id])[order_id]
+        db.commit()
+
+        assert obtenido.total_gauss == esperado.total_gauss
+        assert obtenido.markup == esperado.markup
+        assert esperado.markup is not None, "el caso normal debe traer markup, si no el test no prueba nada"
+
+    def test_a_markup_overflowing_the_stored_column_is_none_from_the_alias_but_raw_from_the_chain(self, db) -> None:
+        """ventas-ml-rediseno PR1 review fix: `persistir_total_gauss` now
+        goes through `order_metrics.store.recompute_order_metrics`, whose
+        `markup_pct` column is `NUMERIC(9, 2)` -- a value beyond
+        `MARKUP_PCT_MAX` (e.g. a near-zero frozen unit cost on a
+        normal-priced order) would abort the whole write. The alias must
+        keep reporting `markup=None` for that order (never raise, never a
+        stale/clamped number) while `calcular_total_gauss`, called
+        directly, still reports the real -- if absurd -- raw value: a
+        caller that needs the number to SHOW (never the stored column,
+        per this alias's own docstring) is not silently downgraded."""
+        from app.models.ml_payments import MlPaymentOps
+        from app.services.ml_ventas_desglose.iva import descomponer_neto
+        from app.services.order_metrics.compute import MARKUP_PCT_MAX
+
+        order_id = 18
+        _order(db, order_id)
+        db.add(MlOrderItemOps(order_id=order_id, item_id="MLA1", seller_sku="SKU-1", quantity=1))
+        db.add(
+            MlOrderItemCosto(
+                order_id=order_id,
+                item_id="MLA1",
+                costo_origen=Decimal("0.01"),
+                moneda="ARS",
+                costo_unitario_ars=Decimal("0.01"),
+                iva_pct=Decimal("21.00"),
+                precio_unitario=Decimal("10000.00"),
+                fuente="sku",
+                producto_item_id=1,
+            )
+        )
+        db.add(
+            MlPaymentOps(
+                payment_id=order_id, order_id=order_id, status="approved", net_received_amount=Decimal("10000.00")
+            )
+        )
+        db.add(VariosVentaPct(porcentaje=Decimal("0.00"), fecha_desde=date(2020, 1, 1), fecha_hasta=None))
+        db.commit()
+
+        descomposiciones = descomponer_neto(db, [order_id])
+        esperado = calcular_total_gauss(
+            db,
+            [order_id],
+            {oid: d.neto_sin_iva for oid, d in descomposiciones.items()},
+            venta_sin_iva_by_order={oid: d.base_venta_sin_iva for oid, d in descomposiciones.items()},
+        )[order_id]
+        assert esperado.markup is not None, "el fixture debe reconciliar, si no el test no prueba nada"
+        assert abs(esperado.markup) > MARKUP_PCT_MAX, "el fixture debe realmente desbordar la columna"
+
+        obtenido = persistir_total_gauss(db, [order_id])[order_id]
+        db.commit()
+
+        assert obtenido.total_gauss == esperado.total_gauss
+        assert obtenido.markup is None

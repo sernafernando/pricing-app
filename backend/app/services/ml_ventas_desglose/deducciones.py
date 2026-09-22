@@ -35,7 +35,7 @@ never a partial sum over just the items that happen to have one.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from datetime import date, datetime, timezone
+from datetime import date
 from decimal import ROUND_HALF_UP, Decimal
 from typing import Dict, List, Optional, Protocol, Sequence, Tuple, runtime_checkable
 
@@ -44,7 +44,6 @@ from sqlalchemy.orm import Session
 
 from app.models.ml_order_item_costo import MlOrderItemCosto
 from app.models.ml_orders_ops import MlOrderItemOps, MlOrdersOps
-from app.models.ml_venta_deduccion import MlVentaDeduccion
 from app.models.varios_venta_pct import VariosVentaPct
 from app.services.ml_ventas_desglose.breakdown_service import resolve_flex_cost_by_order_ids
 
@@ -642,59 +641,41 @@ def persistir_total_gauss(db: Session, order_ids: Sequence[int]) -> Dict[int, To
     of a displayed number; callers that need a value to SHOW must call
     `calcular_total_gauss` directly (or read this function's return),
     never the stored column.
+
+    THIN DELEGATING ALIAS (ventas-ml-rediseno PR1.T9, design D1/D7): the
+    write side now lives in `order_metrics.store.recompute_order_metrics`,
+    which ALSO upserts the new `ml_order_metrics` table -- one writer, no
+    second formula, no duplicated upsert logic. This function only
+    translates `OrderMetrics` back into the legacy `TotalGaussResultado`
+    shape every existing caller (and its tests) already expects.
+
+    NOT byte-identical to `calcular_total_gauss` anymore: `.markup` here is
+    `order_metrics.compute.normalize_markup_pct`'s NORMALIZED value, not the
+    chain's raw one -- an order whose real markup cannot fit
+    `ml_order_metrics.markup_pct` (`NUMERIC(9, 2)`, e.g. a near-zero frozen
+    unit cost on a normal-priced order) reports `markup=None` here even
+    though `calcular_total_gauss`, called directly, still returns the real
+    -- if absurd -- raw value. A caller that needs the number to SHOW must
+    call `calcular_total_gauss` directly, per this function's own module
+    docstring; this alias's `.markup` reflects what got STORED.
     """
-    from app.services.ml_ventas_desglose.iva import descomponer_neto  # local import: avoids a cycle with iva.py
+    # Local import: avoids a cycle (order_metrics.compute imports THIS
+    # module for `calcular_total_gauss`/`CostoMercaderiaDeduccion`).
+    from app.services.order_metrics.store import recompute_order_metrics
+    from app.services.order_metrics.types import GaussStatus
 
     order_ids = list(order_ids)
     if not order_ids:
         return {}
 
-    descomposiciones = descomponer_neto(db, order_ids)
-    neto_sin_iva_by_order = {oid: desc.neto_sin_iva for oid, desc in descomposiciones.items()}
-    venta_sin_iva_by_order = {oid: desc.base_venta_sin_iva for oid, desc in descomposiciones.items()}
-    resultados = calcular_total_gauss(
-        db, order_ids, neto_sin_iva_by_order, venta_sin_iva_by_order=venta_sin_iva_by_order
-    )
-
-    orders = db.query(MlOrdersOps).filter(MlOrdersOps.order_id.in_(order_ids)).all()
-    orders_by_id = {o.order_id: o for o in orders}
-
-    existing = db.query(MlVentaDeduccion).filter(MlVentaDeduccion.order_id.in_(order_ids)).all()
-    existing_by_key = {(row.order_id, row.code): row for row in existing}
-
-    orden_by_code = {d.code: d.orden for d in DEDUCCIONES}
-
-    for order_id, resultado in resultados.items():
-        order = orders_by_id.get(order_id)
-        if order is not None:
-            order.total_gauss = resultado.total_gauss
-            order.total_gauss_at = datetime.now(timezone.utc)
-            order.total_gauss_stale = False
-            order.total_gauss_provisional = resultado.provisional
-        for code, monto, _concepto in resultado.lineas:
-            key = (order_id, code)
-            row = existing_by_key.get(key)
-            if row is None:
-                row = MlVentaDeduccion(order_id=order_id, code=code, orden=orden_by_code[code], monto=monto)
-                db.add(row)
-                existing_by_key[key] = row
-            else:
-                row.orden = orden_by_code[code]
-                row.monto = monto
-
-        # A deduction that STOPPED applying must lose its row, not keep it.
-        # Concrete and unremarkable: a `self_service` order switched to
-        # `cross_docking`, or its label deleted -- `EnvioFlexDeduccion`
-        # returns no key, so no `envio_flex` line comes back, and the old
-        # row would sit there forever carrying a freight amount that is no
-        # longer owed. `total_gauss` itself stays right because it is
-        # recomputed whole; it is this table that would keep lying, against
-        # its own model docstring ("the last-resolved amount of one
-        # deduction").
-        vigentes = {code for code, _monto, _concepto in resultado.lineas}
-        for (row_order_id, code), row in list(existing_by_key.items()):
-            if row_order_id == order_id and code not in vigentes:
-                db.delete(row)
-                del existing_by_key[(row_order_id, code)]
-
-    return resultados
+    metrics_by_order = recompute_order_metrics(db, order_ids)
+    return {
+        order_id: TotalGaussResultado(
+            total_gauss=metrics.total_gauss,
+            lineas=metrics.lineas,
+            markup=metrics.markup_pct,
+            provisional=metrics.gauss_status == GaussStatus.PROVISIONAL,
+            provisional_falta=metrics.provisional_falta,
+        )
+        for order_id, metrics in metrics_by_order.items()
+    }

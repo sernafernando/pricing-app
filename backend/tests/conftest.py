@@ -70,6 +70,8 @@ from app.models.ml_billing import (  # noqa: F401 — registers tables for creat
     MlBillingPeriodStat,
 )
 from app.models.ml_order_item_costo import MlOrderItemCosto  # noqa: F401 — registers table for create_all
+from app.models.ml_order_metrics import MlOrderMetrics, MlOrderMetricsDirty  # noqa: F401 — registers tables for create_all
+from app.models.worker_job_state import WorkerJobState  # noqa: F401 — registers table for create_all
 
 # ---------------------------------------------------------------------------
 # Token revocation test seam
@@ -590,6 +592,111 @@ def pg_orders_ops_engine():
 def pg_orders_ops_db(pg_orders_ops_engine):
     """Transactional PostgreSQL session (ml_orders_ops + cuarentena + divergence), rolled back after each test."""
     connection = pg_orders_ops_engine.connect()
+    transaction = connection.begin()
+    Session = sessionmaker(bind=connection)
+    session = Session()
+    yield session
+    session.close()
+    transaction.rollback()
+    connection.close()
+
+
+@pytest.fixture(scope="module")
+def pg_order_metrics_engine():
+    """Module-scoped (not session-scoped) PostgreSQL engine for
+    `order_metrics.store`'s upsert race test (ventas-ml-rediseno PR1 review
+    fix): `ml_orders_ops`, `ml_order_item_costos`, `ml_payments_ops`,
+    `ml_payment_charges`, `ml_venta_varios_pct` (FK to `usuarios` dropped,
+    same rationale as `pg_orders_ops_engine`'s `ml_ops_divergence` mirror --
+    nothing here needs `creado_por`), `ml_order_metrics`,
+    `ml_venta_deducciones`.
+
+    Postgres-only: two concurrent sessions racing an INSERT on the same PK
+    is exactly the scenario SQLite's single-writer model cannot reproduce
+    -- the whole reason this fixture (and not the SQLite `db` fixture) is
+    needed.
+
+    MODULE scope, deliberately narrower than the other `pg_*_engine`
+    fixtures above: `ml_order_metrics`/`ml_order_metrics_dirty`/
+    `worker_job_state` are the SAME three tables
+    `test_migration_ml_order_metrics.py`'s round trip creates with a bare
+    `op.create_table` (no `checkfirst`) -- a session-scoped copy of this
+    fixture would leave them behind for the rest of the run and collide
+    with `DuplicateTable` the moment that migration test executes in the
+    same session. Module scope tears them down right after this file's own
+    tests finish, before any other file gets a chance to collide.
+    """
+    if not _postgres_reachable():
+        pytest.skip(
+            f"PostgreSQL not reachable at {POSTGRES_TEST_URL} — set POSTGRES_TEST_URL "
+            "or start a local PostgreSQL to run @pytest.mark.postgres tests. "
+            "CI provides this via the `postgres` service in .github/workflows/ci.yml."
+        )
+
+    from app.models.ml_order_item_costo import MlOrderItemCosto as _MlOrderItemCosto
+    from app.models.ml_order_metrics import MlOrderMetrics as _MlOrderMetrics
+    from app.models.ml_orders_ops import MlOrderItemOps as _MlOrderItemOps
+    from app.models.ml_orders_ops import MlOrdersOps as _MlOrdersOps
+    from app.models.ml_payments import MlPaymentCharge as _MlPaymentCharge
+    from app.models.ml_payments import MlPaymentOps as _MlPaymentOps
+    from app.models.ml_venta_deduccion import MlVentaDeduccion as _MlVentaDeduccion
+    from app.models.varios_venta_pct import VariosVentaPct as _VariosVentaPct
+
+    own_tables = [
+        _MlOrdersOps.__table__,
+        _MlOrderItemOps.__table__,
+        _MlOrderItemCosto.__table__,
+        _MlPaymentOps.__table__,
+        _MlPaymentCharge.__table__,
+        _MlOrderMetrics.__table__,
+        _MlVentaDeduccion.__table__,
+    ]
+    _restore_pristine_pg_types(own_tables)
+
+    # `VariosVentaPct.creado_por` FKs `usuarios`, which this fixture does
+    # not create -- same "drop the unused FK, keep the plain column" move
+    # as `pg_orders_ops_engine`'s `ml_ops_divergence` mirror above.
+    local_metadata = MetaData()
+    varios_table = Table(
+        "ml_venta_varios_pct",
+        local_metadata,
+        *(c._copy() for c in _VariosVentaPct.__table__.columns if c.name != "creado_por"),
+        Column("creado_por", Integer, nullable=True),
+    )
+    for constraint in _VariosVentaPct.__table__.constraints:
+        if isinstance(constraint, CheckConstraint):
+            varios_table.append_constraint(CheckConstraint(constraint.sqltext, name=constraint.name))
+
+    eng = create_engine(POSTGRES_TEST_URL)
+    # Drop first: some of these tables (e.g. `ml_order_item_costos`) can
+    # already exist in the shared local `POSTGRES_TEST_URL` database with
+    # an OLDER schema from a real Alembic run against it -- `create_all`'s
+    # default `checkfirst=True` would then silently skip creating the
+    # current shape and every query against a column the old table lacks
+    # (e.g. `costo_fecha`) fails with `UndefinedColumn`. Safe here: this
+    # fixture owns and drops these tables again on teardown.
+    Base.metadata.drop_all(bind=eng, tables=own_tables)
+    Base.metadata.create_all(bind=eng, tables=own_tables)
+    local_metadata.drop_all(bind=eng, checkfirst=True)
+    local_metadata.create_all(bind=eng)
+    # Leave the shared Column objects patched for SQLite again, same as
+    # `pg_tickets_engine`, in case the `db` fixture runs later this session.
+    _patch_pg_types_for_sqlite()
+    yield eng
+    local_metadata.drop_all(bind=eng)
+    Base.metadata.drop_all(bind=eng, tables=own_tables)
+    eng.dispose()
+
+
+@pytest.fixture()
+def pg_order_metrics_db(pg_order_metrics_engine):
+    """Transactional PostgreSQL session for the shared order_metrics
+    tables, rolled back after each test. Tests that need TWO independent,
+    concurrently-committing sessions (the upsert race) open their own
+    `pg_order_metrics_engine.connect()` pairs directly instead of using
+    this fixture, exactly like `pg_db`'s own docstring intends for a
+    single-session test."""
+    connection = pg_order_metrics_engine.connect()
     transaction = connection.begin()
     Session = sessionmaker(bind=connection)
     session = Session()

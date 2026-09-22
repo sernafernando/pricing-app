@@ -60,6 +60,10 @@ class MlOrdersOps(Base):
     __table_args__ = (
         Index("ix_ml_orders_ops_seller_id_ml_last_updated", "seller_id", "ml_last_updated"),
         Index("ix_ml_orders_ops_status_date_created", "status", "date_created"),
+        # Created by migration 20260922_ml_order_metrics (a plain CREATE
+        # INDEX: it briefly blocks writes to this table while it builds) for
+        # the seller + date scope of the sales queries.
+        Index("ix_ml_orders_ops_seller_date", "seller_id", "date_created"),
         CheckConstraint(
             "payment_status IN (" + ", ".join(f"'{v}'" for v in PAYMENT_STATUSES) + ")",
             name="ck_ml_orders_ops_payment_status",
