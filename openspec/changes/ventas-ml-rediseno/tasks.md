@@ -73,6 +73,7 @@ Design refs: D3 read-set scope for per-order tables, D8. Satisfies: SM R1, R3 (p
 - [ ] PR4.T4 RED: same pattern for `ml_order_items_ops`, `ml_order_item_costos`.
 - [ ] PR4.T5 RED: same pattern for `ml_payments_ops` (OLD/NEW `order_id`; UPDATE OF `status`,`net_received_amount`,`transaction_amount_refunded`,`shipping_amount`,`order_id`) and `ml_payment_charges` (payment_id→order_id).
 - [ ] PR4.T6 RED: same pattern for `ml_shipments_ops` (UPDATE OF `logistic_type`,`receiver_address` only; confirm sender/receiver cost and `raw_costs` columns do NOT fire — negative scenario).
+- [ ] PR4.T6a RED (`@pytest.mark.postgres`, design D3 rev 5): for every row-trigger table, an idempotent re-upsert that sets a read column to the SAME value (e.g. the sweep rewriting `status`, `net_received_amount` unchanged) enqueues NOTHING and fires no notify; changing the value does enqueue. A parked order stays parked across repeated no-op sweep writes.
 - [ ] PR4.T7 GREEN: row-level triggers for all six tables in `triggers.py`, applied via Alembic + an `after_create` listener firing only for `postgresql` dialect.
 - [ ] PR4.T8 RED: write `backend/alembic/versions/2026MMDD_ml_order_metrics_triggers_orders.py` round-trip test (upgrade creates triggers, downgrade drops them + function).
 - [ ] PR4.T9 GREEN: implement the migration.
@@ -84,6 +85,7 @@ Design refs: D3 read-set scope for per-order tables, D8. Satisfies: SM R1, R3 (p
 Design refs: D3 (statement-level scope), D11. Satisfies: SM R3 (config fan-out path), R3 scenario 5.
 
 - [ ] PR5.T1 RED (`@pytest.mark.postgres`): `etiquetas_envio` row triggers — INSERT, DELETE, UPDATE OF `shipping_id`,`logistica_id`,`costo_override`,`fecha_envio`,`es_turbo`,`es_lluvia`,`transporte_id` enqueue; lat/lng-only writes do NOT (negative scenario, previously-missed writers listed in design D "Why triggers" section: toggle turbo, lluvia, lluvia masivo, pistoleado, manual edit, enrichment, reprogram, colecta/pistoleado delete).
+- [ ] PR5.T1a RED (`@pytest.mark.postgres`, design D3 rev 5): statement-level triggers enqueue only the rows whose read columns changed (OLD TABLE vs NEW TABLE, IS DISTINCT FROM); a bulk UPDATE that rewrites identical values enqueues nothing.
 - [ ] PR5.T2 GREEN: `etiquetas_envio` triggers in `triggers.py`.
 - [ ] PR5.T3 RED: statement-level trigger with transition tables for `varios_venta_pct` — orders with `date_created` in `OLD∪NEW [fecha_desde, fecha_hasta]` enqueued via ONE set-based insert (not N).
 - [ ] PR5.T4 RED: same pattern for `logistica_costo_cordon` (self_service orders whose label has that logistica_id), `codigos_postales` cordon, `configuracion` WHEN `clave IN ('lluvia_offset_tipo','lluvia_offset_valor')`, `transportes UPDATE OF cp` (orders whose label has that `transporte_id`; `transportes` INSERT needs no fan-out — no labels reference a brand-new row yet).
@@ -161,7 +163,7 @@ Depends on: PR6 (populated metrics), ideally PR7 (stored readers) merged first.
 - [ ] PR11.T3 RED: Mixta resolution — collapsed `operation_status='mixed' OR goods_status='mixed'`; `modo_logistico='mixed'` explicitly does NOT count (parity test vs `_collapse`, per design D12 resolution).
 - [ ] PR11.T4 RED: `aggregate_order_metrics` — `groups_count`, `orders_count`, `gross_billed` (ARS; other currencies counted separately), `neto_sum`+`unknown_count`, `total_gauss_sum`+ok/provisional/unresolved counts, `markup_weighted_pct = SUM(tg)/SUM(costo)*100` (never average of %), `recalculating_count`, excluding recalculating orders from all sums (KPI R8, SM R3).
 - [ ] PR11.T5 GREEN: `backend/app/services/ml_sales_query/aggregate.py`.
-- [ ] PR11.T6 RED: `GET /sales/kpis` — per-toggle excluded counts (KPI R13); `recalculating_count` and `worker_alive` fields (derived from worker health).
+- [ ] PR11.T6 RED: `GET /sales/kpis` — per-toggle excluded counts (KPI R13); `recalculating_count`, `pending_count` (orders with no metrics row: excluded from every sum, counted, never summed as NULL — SM R2, R3) and `worker_alive` fields (derived from worker health).
 - [ ] PR11.T7 GREEN: `ml_ventas_ops.py::sales_kpis` endpoint.
 - [ ] PR11.T8 RED: parity test — for every switch combination (16 combos) + search + facets, route /sales/kpis aggregate equals summing exactly the rows route /sales would return for that same combination (KPI R14, R7).
 - [ ] PR11.T9 RED: toggle state round-trips through URL query params (KPI R12) — backend param parsing test; full FE round-trip covered in PR16.
