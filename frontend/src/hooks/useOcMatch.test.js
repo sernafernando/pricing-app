@@ -100,8 +100,26 @@ describe('useOcMatch', () => {
       await result.current.retry(1);
     });
 
-    expect(api.post).toHaveBeenCalledWith(`${OC_MATCH_BASE}/1/retry`);
+    expect(api.post).toHaveBeenCalledWith(`${OC_MATCH_BASE}/1/retry`, {
+      refrescar_doc_refs: false,
+    });
     expect(result.current.jobs[0].status).toBe('queued');
+  });
+
+  it('retries a job with refrescar_doc_refs', async () => {
+    api.get.mockResolvedValue({ data: listPayload([job({ status: 'error', retryable: true })]) });
+    api.post.mockResolvedValue({ data: job({ status: 'queued' }) });
+
+    const { result } = renderHook(() => useOcMatch());
+    await waitFor(() => expect(result.current.jobs).toHaveLength(1));
+
+    await act(async () => {
+      await result.current.retry(1, { refrescar_doc_refs: true });
+    });
+
+    expect(api.post).toHaveBeenCalledWith(`${OC_MATCH_BASE}/1/retry`, {
+      refrescar_doc_refs: true,
+    });
   });
 
   it('downloads excel as a blob', async () => {

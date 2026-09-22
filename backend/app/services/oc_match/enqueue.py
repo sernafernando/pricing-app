@@ -180,9 +180,7 @@ def delete_jobs_for_attachment(db: Session, attachment_id: int) -> int:
     return len(jobs)
 
 
-def queue_retry(
-    db: Session, job: OcMatchJob, refrescar_doc_refs: bool = False
-) -> OcMatchJob:
+def queue_retry(db: Session, job: OcMatchJob, refrescar_doc_refs: bool = False) -> OcMatchJob:
     """Move a retryable ``error`` job back to ``queued``.
 
     Clears ``doc_refs_aplicado_at`` only when ``refrescar_doc_refs`` is True
