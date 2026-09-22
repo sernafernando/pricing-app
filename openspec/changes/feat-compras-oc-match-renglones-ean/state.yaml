@@ -1,0 +1,74 @@
+change: feat-compras-oc-match-renglones-ean
+change_id: feat-compras-oc-match-renglones-ean
+project: pricing-app
+phase: apply
+status: ready_for_verify
+artifact_store: openspec
+persistence_mode: openspec
+parent_change: feat-compras-oc-match
+parent_pr: 1304
+sibling_change: feat-compras-oc-match-ops-ux
+amends_capability: compras-oc-match-ui
+amends_note: >
+  Delta against parent compras-oc-match-ui; densify expand-below renglones
+  table (EAN + column order + qty format). Acta <pre> unchanged.
+created_at: "2026-09-21"
+updated_at: "2026-09-21"
+branch_plan: feat/compras-oc-match-renglones-ean
+base_branch: upstream/main
+delivery_target: main
+artifacts:
+  exploration: openspec/changes/feat-compras-oc-match-renglones-ean/exploration.md
+  proposal: openspec/changes/feat-compras-oc-match-renglones-ean/proposal.md
+  specs:
+    - openspec/changes/feat-compras-oc-match-renglones-ean/specs/compras-oc-match-ui/spec.md
+  design: openspec/changes/feat-compras-oc-match-renglones-ean/design.md
+  tasks: openspec/changes/feat-compras-oc-match-renglones-ean/tasks.md
+next_phase: verify
+nextRecommended: verify
+notes: >
+  Apply complete (10/10). Branch feat/compras-oc-match-renglones-ean from
+  upstream/main; RENGLON_COLUMNS + local formatters + Vitest 11/11. Ready for verify.
+locked_decisions:
+  backend_already_returns:
+    - ean
+    - ean_extract
+  api_gap: none
+  scope: fe_renglones_density_and_ean
+  approach: A_densify_renglones_only
+  acta_block: unchanged
+  ean_column_field: ean
+  ean_column_label: EAN
+  ean_column_placement: after_indice_before_descripcion
+  ean_extract_column: out_of_scope
+  column_order:
+    - indice
+    - ean
+    - descripcion
+    - cantidad
+    - precio_unitario
+    - moneda
+    - match_estado
+    - confianza
+    - item_id
+  cantidad_format: unidades_trim_trailing_zeros_max_2
+  precio_unitario_decimals: 4
+  densify_descripcion: true
+  excel_writer: unchanged
+  schema_migration: unchanged
+  parent_capability: compras-oc-match-ui
+  delivery: single_pr
+  pr_target: main
+  cantidad_formatter: local_formatCantidad_es_AR_max_2
+  precio_formatter: local_formatPrecioUnitario_es_AR_4dp
+  descripcion_truncate: local_tdTruncate_span_plus_title
+  datatable_shared: unchanged
+  renglones_min_width: ~820px
+pending_decisions: {}
+review_forecast:
+  estimated_changed_lines: "40-120"
+  budget_risk: Low
+  chained_prs: No
+  delivery_strategy: single-pr
+  decision_needed_before_apply: No
+  chain_strategy: pending

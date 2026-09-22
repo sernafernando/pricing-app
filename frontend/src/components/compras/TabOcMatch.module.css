@@ -136,6 +136,13 @@
   font-size: var(--font-xs);
 }
 
+.tdTruncate {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .selectedId {
   font-family: var(--font-mono, monospace);
   font-size: var(--font-xs);
