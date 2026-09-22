@@ -54,6 +54,7 @@ def acta_cierre(
         f"CUIT: {matched.get('proveedor_cuit') or '-'}",
         f"Nro. pedido: {matched.get('nro_pedido') or '-'}",
         f"Nro. documento: {matched.get('nro_documento') or '-'}",
+        f"Tipo documento: {matched.get('tipo_documento') or '-'}",
         f"Fecha papel: {matched.get('fecha') or '-'}",
         f"Moneda: {matched.get('moneda') or '-'}  |  TC: {matched.get('tipo_cambio') or '-'}",
         f"Resumen: ok={res.get('ok', 0)}  no_hallado={res.get('no_hallado', 0)}  omitido={res.get('omitido', 0)}",

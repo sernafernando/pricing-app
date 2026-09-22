@@ -661,6 +661,34 @@ class TestEditarPedido:
             kwargs = mock_mf.call_args.kwargs
             assert kwargs["pedido_compra_id"] == p.id
 
+    def test_editar_doc_refs_aprobado_reemplaza_sin_match_forward(self, db, empresa, proveedor, active_user) -> None:
+        """PUT of documentary columns is a full-string replace; no match_forward."""
+        p = pedidos_service.crear_pedido(
+            db,
+            empresa_id=empresa.id,
+            proveedor_id=proveedor.id,
+            moneda="ARS",
+            monto=Decimal("100"),
+            creado_por_id=active_user.id,
+        )
+        p.estado = "aprobado"
+        p.facturas_documento = "A; B"
+        p.pedidos_documento = "PED-OLD"
+        db.flush()
+
+        with patch("app.services.pedidos_service.erp_matching_service.match_forward") as mock_mf:
+            pedidos_service.editar_pedido(
+                db,
+                pedido_id=p.id,
+                user_id=active_user.id,
+                facturas_documento="C",
+                pedidos_documento="PED-184465",
+            )
+            mock_mf.assert_not_called()
+        db.refresh(p)
+        assert p.facturas_documento == "C"
+        assert p.pedidos_documento == "PED-184465"
+
 
 # ──────────────────────────────────────────────────────────────────────────
 # transicionar — matriz

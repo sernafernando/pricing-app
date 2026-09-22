@@ -79,6 +79,9 @@ class PedidoCompra(Base):
     # Notas libres del pedido. Editable en borrador y en aprobado/pagado_parcial/pagado
     # como metadata (no impacta CC ni imputaciones). Ver compras_026_pedido_observaciones.
     observaciones = Column(Text, nullable=True)
+    # Documentary supplier invoice/PO tokens from OC-match (not ERP numero_factura).
+    facturas_documento = Column(Text, nullable=True)
+    pedidos_documento = Column(Text, nullable=True)
     estado = Column(
         String(24),
         nullable=False,

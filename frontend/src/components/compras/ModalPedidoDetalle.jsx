@@ -582,6 +582,14 @@ export default function ModalPedidoDetalle({ pedidoId, onClose }) {
                 <span className={styles.infoLabel}>N° Factura</span>
                 <strong className={styles.infoValue}>{pedido.numero_factura || '—'}</strong>
               </div>
+              <div>
+                <span className={styles.infoLabel}>Factura/s</span>
+                <strong className={styles.infoValue}>{pedido.facturas_documento || '—'}</strong>
+              </div>
+              <div>
+                <span className={styles.infoLabel}>Pedido/s</span>
+                <strong className={styles.infoValue}>{pedido.pedidos_documento || '—'}</strong>
+              </div>
               {pedido.ct_transaction_id && (
                 <div>
                   <span className={styles.infoLabel}>ERP ct_transaction</span>

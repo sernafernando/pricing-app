@@ -15,6 +15,7 @@ from app.core.config import settings
 from app.models.compra_adjunto import CompraAdjunto
 from app.models.empresa import Empresa
 from app.models.oc_match_job import OcMatchJob, OcMatchRenglon
+from app.models.pedido_compra import PedidoCompra
 from app.models.proveedor import Proveedor
 from app.models.tb_brand import TBBrand
 from app.models.tb_category import TBCategory
@@ -22,6 +23,7 @@ from app.models.tb_item import TBItem
 from app.models.tb_subcategory import TBSubCategory
 from app.services import pedidos_service
 from app.services.oc_match import worker as worker_mod
+from app.services.oc_match.doc_refs import apply_writeback
 from app.services.oc_match.enqueue import enqueue_oc_match
 from app.services.oc_match.worker import process_oc_match_job
 
@@ -34,6 +36,7 @@ GOLDEN_EXTRACT: dict[str, Any] = {
     "proveedor_cuit": "30714636827",
     "nro_documento": "0001-99",
     "nro_pedido": "PED-184465",
+    "tipo_documento": "factura",
     "fecha": "2026-09-01",
     "moneda": "ARS",
     "tipo_cambio": None,
@@ -276,6 +279,15 @@ class TestGoldenWorkerSoT:
         assert renglones[1].match_estado == OcMatchRenglon.MATCH_NO_HALLADO
         assert pool.generate_json.call_count == 2
 
+        pedido = db.get(PedidoCompra, job.pedido_id)
+        assert pedido is not None
+        assert pedido.facturas_documento == "0001-99"
+        assert pedido.pedidos_documento == "PED-184465"
+        assert pedido.numero_factura is None
+        apply_writeback(pedido, GOLDEN_EXTRACT)
+        assert pedido.facturas_documento == "0001-99"
+        assert pedido.pedidos_documento == "PED-184465"
+
     def test_excel_get_returns_file(
         self,
         client: Any,
@@ -325,6 +337,10 @@ class TestWorkerErrorPaths:
         renglones = db.query(OcMatchRenglon).filter(OcMatchRenglon.job_id == job.id).all()
         assert renglones
         assert renglones[0].match_estado == OcMatchRenglon.MATCH_OK
+        pedido = db.get(PedidoCompra, job.pedido_id)
+        assert pedido is not None
+        assert pedido.facturas_documento == "0001-99"
+        assert pedido.pedidos_documento == "PED-184465"
 
     def test_unmapped_empresa_errors_without_gemini(
         self,
@@ -352,6 +368,10 @@ class TestWorkerErrorPaths:
         assert job.acta is not None
         assert "ERROR" in job.acta
         pool.generate_json.assert_not_called()
+        pedido = db.get(PedidoCompra, job.pedido_id)
+        assert pedido is not None
+        assert pedido.facturas_documento is None
+        assert pedido.pedidos_documento is None
 
     def test_missing_gemini_keys_error_plus_acta(
         self,
@@ -623,5 +643,6 @@ class TestWorkerNoMailAndSkipFab:
         assert "smtp" not in worker_src.lower()
         assert "notificacion" not in worker_src.lower()
         assert "match_fabricante_exacto" not in worker_src
+        assert "editar_pedido" not in worker_src
         assert "match_fabricante_exacto(" not in match_src
         assert "from app.models.producto" not in (_SERVICES / "maestro.py").read_text(encoding="utf-8")
