@@ -23,11 +23,14 @@ from dataclasses import dataclass
 from datetime import datetime
 from typing import Any, Optional, Tuple
 
-from sqlalchemy import String, case, cast, literal
-from sqlalchemy.orm import Query, Session
+from sqlalchemy import String, and_, case, cast, false, func, literal, or_
+from sqlalchemy.orm import Query, Session, aliased
 
 from app.core.config import settings
+from app.models.marca_pm import MarcaPM
+from app.models.ml_order_item_costo import MlOrderItemCosto
 from app.models.ml_orders_ops import MlOperationLink, MlOrdersOps, MlShipmentOps
+from app.models.producto import ProductoERP
 from app.models.rma_claim_ml import RmaClaimML
 from app.services.ml_orders_ingestion.operation_status import (
     GOODS_STATUS_BY_SHIPPING_STATUS,
@@ -128,6 +131,75 @@ def _group_key_expr():
     )
 
 
+def _resolve_pm_pairs(db: Session, pms: Tuple[int, ...]) -> "list[tuple[str, str]]":
+    """Same pair-resolution `productos_listing.py`'s `pms` branch uses
+    (marca+categoria pairs assigned to the selected PM users), reused
+    verbatim -- no second implementation (design D12a)."""
+    pares_pm = db.query(MarcaPM.marca, MarcaPM.categoria).filter(MarcaPM.usuario_id.in_(pms)).all()
+    return [(m.upper(), c.upper()) for m, c in pares_pm]
+
+
+def _product_facet_exists(db: Session, f: SalesFilter, group_key: Any) -> Optional[Any]:
+    """Design D12a / spec PFILT R35-R39: a SINGLE correlated `EXISTS` over
+    every order-item belonging to the SAME GROUP (pack or lone order) as
+    the outer row, carrying EVERY active facet condition AND-ed together
+    (R38 conjunction -- never one EXISTS per facet OR'd, which would let
+    different items satisfy different facets).
+
+    Correlates by `group_key` (not `order_id`) so a pack matches when ANY
+    ONE of its member orders' items satisfies every facet, and the whole
+    group comes back (pack semantics). An order-item with no frozen cost
+    row (`ml_order_item_costos`) is excluded by the INNER joins below and
+    can never contribute a match on its own (R39).
+
+    Returns `None` when no product-level facet is active (caller must not
+    apply a no-op filter).
+    """
+    if not (f.marcas or f.subcategorias or f.pms):
+        return None
+
+    order_alias = aliased(MlOrdersOps)
+    alias_group_key = case(
+        (order_alias.pack_id.isnot(None), literal("p:") + cast(order_alias.pack_id, String)),
+        else_=literal("o:") + cast(order_alias.order_id, String),
+    )
+
+    conditions = [alias_group_key == group_key]
+    if settings.ML_USER_ID:
+        conditions.append(order_alias.seller_id == int(settings.ML_USER_ID))
+
+    if f.marcas:
+        marcas_upper = [m.upper() for m in f.marcas]
+        conditions.append(func.upper(ProductoERP.marca).in_(marcas_upper))
+
+    if f.subcategorias:
+        conditions.append(ProductoERP.subcategoria_id.in_(f.subcategorias))
+
+    if f.pms:
+        pares_pm = _resolve_pm_pairs(db, f.pms)
+        if not pares_pm:
+            # PFILT binding decision: a PM with NO assigned pairs matches
+            # NOTHING -- never every sale.
+            conditions.append(false())
+        else:
+            conditions.append(
+                or_(
+                    *(
+                        and_(func.upper(ProductoERP.marca) == marca, func.upper(ProductoERP.categoria) == categoria)
+                        for marca, categoria in pares_pm
+                    )
+                )
+            )
+
+    return (
+        db.query(MlOrderItemCosto.id)
+        .join(order_alias, order_alias.order_id == MlOrderItemCosto.order_id)
+        .join(ProductoERP, ProductoERP.item_id == MlOrderItemCosto.producto_item_id)
+        .filter(*conditions)
+        .exists()
+    )
+
+
 def collapse(values: "list[Optional[str]]") -> str:
     """Moved verbatim from `ml_ventas_ops.py::_collapse` (renamed, no
     leading underscore, now a shared function)."""
@@ -175,6 +247,10 @@ def build_scope(db: Session, f: SalesFilter) -> SalesScope:
     if f.goods_status is not None:
         listing_query = listing_query.filter(goods_status_expr == f.goods_status)
     listing_query = apply_search(listing_query, db, f.q)
+
+    facet_exists = _product_facet_exists(db, f, group_key)
+    if facet_exists is not None:
+        listing_query = listing_query.filter(facet_exists)
 
     return SalesScope(
         base=base,

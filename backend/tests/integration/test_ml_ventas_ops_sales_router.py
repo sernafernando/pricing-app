@@ -1395,3 +1395,146 @@ class TestSearchStaysInsideTheScope:
         assert {o["order_id"] for g in propia["sales"] for o in g["orders"]} == {6103}
         assert ajena["total"] == 0, "la búsqueda no puede cruzar de vendedor"
         assert ajena["sales"] == []
+
+
+class TestProductFacets:
+    """`GET /sales?marcas=...&subcategorias=...&pms=...` (spec
+    `ml-sales-product-filters` PFILT R35-R43, PR9.T16a/T17). Router-level
+    wiring confirmation -- unit coverage of the facet EXISTS/conjunction
+    logic itself lives in
+    `tests/services/ml_sales_query/test_filters_product_facets.py`.
+    """
+
+    def _seed_product(self, db, item_id: int, *, marca: str, categoria: str, subcategoria_id: int) -> None:
+        from app.models.producto import ProductoERP
+
+        db.add(
+            ProductoERP(
+                item_id=item_id,
+                codigo=f"COD{item_id}",
+                descripcion=f"Producto {item_id}",
+                marca=marca,
+                categoria=categoria,
+                subcategoria_id=subcategoria_id,
+            )
+        )
+
+    def _seed_costo(self, db, order_id: int, item_id: str, producto_item_id: int) -> None:
+        from app.models.ml_order_item_costo import MlOrderItemCosto
+
+        db.add(
+            MlOrderItemCosto(
+                order_id=order_id,
+                item_id=item_id,
+                variation_id=None,
+                costo_origen=100,
+                moneda="ARS",
+                costo_unitario_ars=100,
+                iva_pct=21,
+                precio_unitario=150,
+                fuente="test",
+                producto_item_id=producto_item_id,
+            )
+        )
+
+    def test_marcas_param_filters_the_listing(self, db, client, admin_auth_headers, rol_admin):
+        _grant_ml_ops_ver(db, rol_admin)
+        _seed_order(db, 96001, date_created=datetime(2026, 9, 1, tzinfo=timezone.utc))
+        _seed_order(db, 96002, date_created=datetime(2026, 9, 1, tzinfo=timezone.utc))
+        self._seed_product(db, 96100, marca="Epson", categoria="Impresoras", subcategoria_id=1)
+        self._seed_product(db, 96200, marca="Lexmark", categoria="Impresoras", subcategoria_id=1)
+        self._seed_costo(db, 96001, "MLA96001", 96100)
+        self._seed_costo(db, 96002, "MLA96002", 96200)
+        db.commit()
+
+        body = client.get("/api/ml-ventas-ops/sales", params={"marcas": "epson"}, headers=admin_auth_headers).json()
+
+        assert _order_ids(body) == [96001]
+
+    def test_subcategorias_and_marcas_combine_as_conjunction(self, db, client, admin_auth_headers, rol_admin):
+        _grant_ml_ops_ver(db, rol_admin)
+        _seed_order(db, 96010, pack_id=96500, date_created=datetime(2026, 9, 1, tzinfo=timezone.utc))
+        _seed_order(db, 96011, pack_id=96500, date_created=datetime(2026, 9, 1, tzinfo=timezone.utc))
+        # Different items, each satisfies ONE facet -- must NOT match (R38).
+        self._seed_product(db, 96110, marca="Epson", categoria="Consumibles", subcategoria_id=2)
+        self._seed_product(db, 96210, marca="Lexmark", categoria="Impresoras", subcategoria_id=1)
+        self._seed_costo(db, 96010, "MLA96010", 96110)
+        self._seed_costo(db, 96011, "MLA96011", 96210)
+        db.commit()
+
+        body = client.get(
+            "/api/ml-ventas-ops/sales",
+            params={"marcas": "epson", "subcategorias": "1"},
+            headers=admin_auth_headers,
+        ).json()
+
+        assert _order_ids(body) == []
+
+    def test_a_pm_with_no_assigned_pairs_returns_empty_not_every_sale(self, db, client, admin_auth_headers, rol_admin):
+        _grant_ml_ops_ver(db, rol_admin)
+        _seed_order(db, 96020, date_created=datetime(2026, 9, 1, tzinfo=timezone.utc))
+        self._seed_product(db, 96120, marca="Epson", categoria="Impresoras", subcategoria_id=1)
+        self._seed_costo(db, 96020, "MLA96020", 96120)
+        db.commit()
+
+        body = client.get("/api/ml-ventas-ops/sales", params={"pms": "99999999"}, headers=admin_auth_headers).json()
+
+        assert _order_ids(body) == []
+
+    def test_non_numeric_subcategoria_id_is_422(self, db, client, admin_auth_headers, rol_admin):
+        _grant_ml_ops_ver(db, rol_admin)
+        db.commit()
+
+        resp = client.get("/api/ml-ventas-ops/sales", params={"subcategorias": "abc"}, headers=admin_auth_headers)
+
+        assert resp.status_code == 422
+
+    def test_empty_csv_entry_is_422(self, db, client, admin_auth_headers, rol_admin):
+        _grant_ml_ops_ver(db, rol_admin)
+        db.commit()
+
+        resp = client.get("/api/ml-ventas-ops/sales", params={"marcas": "epson,,lexmark"}, headers=admin_auth_headers)
+
+        assert resp.status_code == 422
+
+    def test_a_brand_or_id_matching_no_product_is_an_empty_result_not_an_error(
+        self, db, client, admin_auth_headers, rol_admin
+    ):
+        _grant_ml_ops_ver(db, rol_admin)
+        _seed_order(db, 96030, date_created=datetime(2026, 9, 1, tzinfo=timezone.utc))
+        db.commit()
+
+        resp = client.get(
+            "/api/ml-ventas-ops/sales", params={"marcas": "marca_inexistente"}, headers=admin_auth_headers
+        )
+
+        assert resp.status_code == 200
+        assert _order_ids(resp.json()) == []
+
+    def test_no_publication_status_or_official_store_param_exists(self, db, client, admin_auth_headers, rol_admin):
+        """PFILT R37/R36a + R40 (T15): none of these params exist on the
+        endpoint at all -- FastAPI drops any unknown query param, so the
+        SAME request with or without one returns identical rows, proving
+        nothing in today's catalog state silently filters a sale."""
+        _grant_ml_ops_ver(db, rol_admin)
+        _seed_order(db, 96040, date_created=datetime(2026, 9, 1, tzinfo=timezone.utc))
+        db.commit()
+
+        without_param = client.get("/api/ml-ventas-ops/sales", headers=admin_auth_headers).json()
+        with_unknown_params = client.get(
+            "/api/ml-ventas-ops/sales",
+            params={
+                "estado_mla": "activa",
+                "tienda_oficial": "true",
+                "con_stock": "true",
+                "con_precio": "true",
+                "web_transferencia": "true",
+                "colores": "rojo",
+                "con_mla": "true",
+                "nuevos_ultimos_7_dias": "true",
+                "auditoria": "true",
+            },
+            headers=admin_auth_headers,
+        ).json()
+
+        assert _order_ids(without_param) == _order_ids(with_unknown_params) == [96040]

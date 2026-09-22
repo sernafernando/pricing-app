@@ -777,6 +777,55 @@ def _parse_date_range(date_from: Optional[str], date_to: Optional[str]) -> Optio
     return start, end
 
 
+def _parse_csv_strings(raw: Optional[str], field: str) -> Tuple[str, ...]:
+    """PFILT R35/T16a: CSV of brand names, deduplicated (order preserved).
+    An empty entry (e.g. `"epson,,lexmark"` or a lone `","`) is HTTP 422,
+    never silently dropped."""
+    if not raw:
+        return ()
+    values: "list[str]" = []
+    seen: set = set()
+    for part in raw.split(","):
+        value = part.strip()
+        if not value:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail=f"{field} contiene un valor vacío: {raw!r}",
+            )
+        key = value.upper()
+        if key not in seen:
+            seen.add(key)
+            values.append(value)
+    return tuple(values)
+
+
+def _parse_csv_ids(raw: Optional[str], field: str) -> Tuple[int, ...]:
+    """PFILT R35/T16a: CSV of integer ids, deduplicated. A non-numeric id
+    or an empty CSV entry is HTTP 422 (never treated as 'no filter')."""
+    if not raw:
+        return ()
+    values: "list[int]" = []
+    seen: set = set()
+    for part in raw.split(","):
+        value = part.strip()
+        if not value:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail=f"{field} contiene un valor vacío: {raw!r}",
+            )
+        try:
+            parsed = int(value)
+        except ValueError as e:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail=f"{field} inválido (esperado un entero): {value!r}",
+            ) from e
+        if parsed not in seen:
+            seen.add(parsed)
+            values.append(parsed)
+    return tuple(values)
+
+
 @router.get("/sales", response_model=SaleListResponse)
 def listar_ventas(
     operation_status_filter: Optional[str] = Query(default=None, alias="operation_status"),
@@ -788,6 +837,9 @@ def listar_ventas(
     q: Optional[str] = Query(
         default=None, description="Búsqueda libre: order id, pack id, MLA, SKU, título o comprador (SEARCH R25)"
     ),
+    marcas: Optional[str] = Query(default=None, description="CSV de marcas (PFILT R35, D12a)"),
+    subcategorias: Optional[str] = Query(default=None, description="CSV de ids de subcategoría (PFILT R35, D12a)"),
+    pms: Optional[str] = Query(default=None, description="CSV de ids de usuario PM (PFILT R35, D12a)"),
     limit: int = Query(default=50, ge=1, le=200),
     offset: int = Query(default=0, ge=0),
     current_user: Usuario = Depends(require_permission("ml_ops.ver")),
@@ -853,6 +905,13 @@ def listar_ventas(
     if sold_range is None and sold_month:
         sold_range = _parse_sold_month(sold_month)
 
+    # PFILT R35/T16a (design D12a): same value contract as
+    # `productos_listing.py` -- `marcas` are brand NAMES (case-insensitive
+    # compare done in `build_scope`), `subcategorias`/`pms` are integer ids.
+    marcas_list = _parse_csv_strings(marcas, "marcas")
+    subcategorias_list = _parse_csv_ids(subcategorias, "subcategorias")
+    pms_list = _parse_csv_ids(pms, "pms")
+
     # PR9.T1/T2 (design D12): the seller/date scoping, status derivation,
     # status filters and free-text search all live in `build_scope` now.
     # `scope.members_base` is scoped to the SELLER only (never the date), so
@@ -868,6 +927,9 @@ def listar_ventas(
             operation_status=operation_status_filter,
             goods_status=goods_status_filter,
             q=q,
+            marcas=marcas_list,
+            subcategorias=subcategorias_list,
+            pms=pms_list,
         ),
     )
     op_status_expr = scope.op_status_expr
