@@ -9,7 +9,9 @@ Covers the two structural guarantees this slice must prove:
 
 from __future__ import annotations
 
+import json
 from datetime import datetime, timezone
+from pathlib import Path
 
 import pytest
 
@@ -23,6 +25,9 @@ from app.models.ml_payments import MlPaymentCharge, MlPaymentOps
 from app.models.permiso import Permiso, RolPermisoBase
 from app.models.rma_claim_ml import RmaClaimML
 from app.services.ml_orders_ingestion.link_resolver_service import resolve_links
+from app.services.ml_ventas_desglose.iva import RAZON_SIN_PAGOS_SINCRONIZADOS
+
+FIXTURES_DIR = Path(__file__).resolve().parents[1] / "fixtures" / "ml_payloads"
 
 
 @pytest.fixture(autouse=True)
@@ -535,3 +540,119 @@ class TestSirtacFieldsOverHttp:
         varios = [linea for linea in body["cadena_total_gauss"]["lineas"] if linea["code"] == "varios"]
         assert len(varios) == 1
         assert varios[0]["monto"] == pytest.approx(24686.31)
+
+
+class TestOrderDetailAdditiveDetailFields:
+    """PR12.T1/T2: additive buyer real name, payment method and
+    installments on `GET /orders/{id}` (BREAKDOWN R32). Sourced from
+    `MlOrdersOps.raw_order["buyer"]` and `MlPaymentOps.raw_payload`
+    (captured-shape, orders_single.json fixture) -- never invented.
+    Shipment substatus was already serialized by `ShipmentOpsSummary`;
+    this locks it in alongside the new fields."""
+
+    def test_order_detail_exposes_buyer_name_payment_and_shipment_substatus(
+        self, db, client, admin_auth_headers, rol_admin
+    ) -> None:
+        captured = json.loads((FIXTURES_DIR / "orders_single.json").read_text())["payload"]
+        buyer = captured["buyer"]
+        captured_payment = captured["payments"][0]
+
+        order_id = 9100001
+        shipment_id = 9100002
+        payment_id = 9100003
+
+        db.add(
+            MlOrdersOps(
+                order_id=order_id,
+                status="paid",
+                ml_last_updated=datetime(2026, 9, 21, tzinfo=timezone.utc),
+                seller_id=999,
+                shipping_id=shipment_id,
+                raw_order={"buyer": buyer},
+            )
+        )
+        db.add(MlShipmentOps(shipment_id=shipment_id, status="delivered", substatus="delivered"))
+        db.add(
+            MlPaymentOps(
+                payment_id=payment_id,
+                order_id=order_id,
+                status="approved",
+                raw_payload=captured_payment,
+            )
+        )
+        db.commit()
+        _grant_ml_ops_ver(db, rol_admin)
+
+        resp = client.get(f"/api/ml-ventas-ops/orders/{order_id}", headers=admin_auth_headers)
+        assert resp.status_code == 200
+        body = resp.json()
+
+        assert body["order"]["buyer_first_name"] == buyer["first_name"]
+        assert body["order"]["buyer_last_name"] == buyer["last_name"]
+        assert body["order"]["payment_method_id"] == captured_payment["payment_method_id"]
+        assert body["order"]["installments"] == captured_payment["installments"]
+        assert body["shipment"]["substatus"] == "delivered"
+
+        # R32: existing fields keep their exact prior shape.
+        assert set(body["breakdown"].keys()) >= {
+            "lines",
+            "item_lines",
+            "neto",
+            "incompleto",
+            "incomplete_reasons",
+            "monto_operacion",
+        }
+        assert "componentes" in body["iva_decomposicion"]
+        assert "lineas" in body["cadena_total_gauss"]
+
+    def test_order_detail_nulls_buyer_name_and_payment_fields_when_absent(
+        self, db, client, admin_auth_headers, rol_admin
+    ) -> None:
+        """No `raw_order`, no synced payment -- additive fields are null,
+        never fabricated."""
+        order_id = 9100010
+        db.add(
+            MlOrdersOps(
+                order_id=order_id,
+                status="paid",
+                ml_last_updated=datetime(2026, 9, 21, tzinfo=timezone.utc),
+                seller_id=999,
+            )
+        )
+        db.commit()
+        _grant_ml_ops_ver(db, rol_admin)
+
+        resp = client.get(f"/api/ml-ventas-ops/orders/{order_id}", headers=admin_auth_headers)
+        assert resp.status_code == 200
+        body = resp.json()
+
+        assert body["order"]["buyer_first_name"] is None
+        assert body["order"]["buyer_last_name"] is None
+        assert body["order"]["payment_method_id"] is None
+        assert body["order"]["installments"] is None
+
+
+class TestOrderDetailIvaRazones:
+    """PR12.T3/T4: the IVA non-reconcile display carries the specific,
+    already-persisted `razones` (BREAKDOWN R34) -- not a bare "no
+    reconcilia"."""
+
+    def test_iva_non_reconcile_includes_named_razones(self, db, client, admin_auth_headers, rol_admin) -> None:
+        order_id = 9100020
+        db.add(
+            MlOrdersOps(
+                order_id=order_id,
+                status="paid",
+                ml_last_updated=datetime(2026, 9, 21, tzinfo=timezone.utc),
+                seller_id=999,
+            )
+        )
+        db.commit()
+        _grant_ml_ops_ver(db, rol_admin)
+
+        resp = client.get(f"/api/ml-ventas-ops/orders/{order_id}", headers=admin_auth_headers)
+        assert resp.status_code == 200
+        iva = resp.json()["iva_decomposicion"]
+
+        assert iva["reconcilia"] is False
+        assert iva["razones"] == [RAZON_SIN_PAGOS_SINCRONIZADOS]
