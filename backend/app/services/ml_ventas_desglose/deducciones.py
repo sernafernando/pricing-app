@@ -648,6 +648,16 @@ def persistir_total_gauss(db: Session, order_ids: Sequence[int]) -> Dict[int, To
     second formula, no duplicated upsert logic. This function only
     translates `OrderMetrics` back into the legacy `TotalGaussResultado`
     shape every existing caller (and its tests) already expects.
+
+    NOT byte-identical to `calcular_total_gauss` anymore: `.markup` here is
+    `order_metrics.compute.normalize_markup_pct`'s NORMALIZED value, not the
+    chain's raw one -- an order whose real markup cannot fit
+    `ml_order_metrics.markup_pct` (`NUMERIC(9, 2)`, e.g. a near-zero frozen
+    unit cost on a normal-priced order) reports `markup=None` here even
+    though `calcular_total_gauss`, called directly, still returns the real
+    -- if absurd -- raw value. A caller that needs the number to SHOW must
+    call `calcular_total_gauss` directly, per this function's own module
+    docstring; this alias's `.markup` reflects what got STORED.
     """
     # Local import: avoids a cycle (order_metrics.compute imports THIS
     # module for `calcular_total_gauss`/`CostoMercaderiaDeduccion`).
