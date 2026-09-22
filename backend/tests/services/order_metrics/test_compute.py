@@ -8,6 +8,8 @@ from __future__ import annotations
 from datetime import date, datetime, timezone
 from decimal import Decimal
 
+from sqlalchemy import event
+
 from app.models.ml_order_item_costo import MlOrderItemCosto
 from app.models.ml_orders_ops import MlOrderItemOps, MlOrdersOps, MlShipmentOps
 from app.models.ml_payments import MlPaymentOps
@@ -175,9 +177,17 @@ class TestComputeOrderMetricsWrapsExistingFormula:
     def test_zero_cost_order_never_raises_markup_pct_is_none(self, db) -> None:
         # `OrderMetrics.__post_init__` rejects a non-None `markup_pct` when
         # `costo_mercaderia` is `None`/zero -- the producer must never
-        # disagree with itself and crash the write path over it.
+        # disagree with itself and crash the write path over it. The order
+        # itself must reach OK (a REAL resolved chain with a zero cost), not
+        # `UNRESOLVED` -- `UNRESOLVED` already forces `markup_pct=None` for
+        # an unrelated reason (no chain result at all) and would let this
+        # test pass without ever exercising the zero-cost division guard.
         order_id = 5005
         _order(db, order_id)
+        # `costo_unitario_ars=0.00` resolves (a KNOWN cost of zero, not a
+        # missing one) -- `precio_unitario=100.00` (fixed in
+        # `_item_with_cost`) still matches the payment below, so the chain
+        # reconciles and reaches OK with a real, zero, denominator.
         _item_with_cost(db, order_id, "MLA1", 1, Decimal("0.00"))
         db.add(
             MlPaymentOps(
@@ -188,6 +198,11 @@ class TestComputeOrderMetricsWrapsExistingFormula:
 
         metrics = compute_order_metrics(db, [order_id])[order_id]
 
+        # The fixture itself must land on a REAL status (OK here) -- an
+        # assertion on `markup_pct` alone could pass vacuously if the chain
+        # were actually UNRESOLVED for an unrelated reason.
+        assert metrics.gauss_status == GaussStatus.OK
+        assert metrics.total_gauss is not None
         assert metrics.costo_mercaderia == Decimal("0.00")
         assert metrics.markup_pct is None
 
@@ -208,3 +223,64 @@ class TestComputeOrderMetricsWrapsExistingFormula:
 
         assert metrics.costo_mercaderia is None
         assert metrics.markup_pct is None
+
+
+class TestComputeOrderMetricsQueryCount:
+    """`compute_order_metrics`'s docstring claims every added query is bulk
+    -- O(1) per BATCH, never one per order. Proven here by counting actual
+    SQL statements for a batch of 1 vs a batch of 20: a per-order query
+    would show up as a 20x jump, a bulk-only implementation stays flat."""
+
+    def _order_ids_batch(self, db, count: int, *, offset: int) -> list:
+        order_ids = []
+        for i in range(count):
+            order_id = 5100 + offset + i
+            _order(db, order_id)
+            _item_with_cost(db, order_id, "MLA1", 1, Decimal("10.00"))
+            db.add(
+                MlPaymentOps(
+                    payment_id=order_id, order_id=order_id, status="approved", net_received_amount=Decimal("100.00")
+                )
+            )
+            order_ids.append(order_id)
+        return order_ids
+
+    def _count_statements(self, db, order_ids: list) -> int:
+        count = 0
+
+        def _on_execute(conn, cursor, statement, parameters, context, executemany):
+            nonlocal count
+            # `SAVEPOINT`/`RELEASE` are the `db` fixture's own transaction
+            # bookkeeping (see conftest.py's SAVEPOINT-per-test recipe), not
+            # a query `compute_order_metrics` issued -- counting them would
+            # make this assertion depend on session lifecycle noise instead
+            # of the function's own query count.
+            if statement.strip().upper().startswith(("SAVEPOINT", "RELEASE")):
+                return
+            count += 1
+
+        engine = db.get_bind()
+        event.listen(engine, "before_cursor_execute", _on_execute)
+        try:
+            compute_order_metrics(db, order_ids)
+        finally:
+            event.remove(engine, "before_cursor_execute", _on_execute)
+        return count
+
+    def test_query_count_is_constant_regardless_of_batch_size(self, db) -> None:
+        _varios(db)
+        db.commit()
+
+        one_order_ids = self._order_ids_batch(db, 1, offset=0)
+        db.commit()
+        twenty_order_ids = self._order_ids_batch(db, 20, offset=100)
+        db.commit()
+
+        queries_for_one = self._count_statements(db, one_order_ids)
+        queries_for_twenty = self._count_statements(db, twenty_order_ids)
+
+        # Bulk discipline (module docstring): the SAME number of statements
+        # for 1 order and for 20 -- a per-order query anywhere in the chain
+        # would make `queries_for_twenty` roughly 20x `queries_for_one`
+        # instead of equal to it.
+        assert queries_for_one == queries_for_twenty
