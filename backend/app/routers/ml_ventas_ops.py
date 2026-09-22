@@ -30,7 +30,7 @@ from typing import Dict, List, Optional, Tuple
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, status
 from pydantic import BaseModel, ConfigDict, Field
-from sqlalchemy import String, case, cast, func, literal
+from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_current_user
@@ -56,17 +56,15 @@ from app.models.usuario import Usuario
 from app.services.ml_orders_ingestion.activity_receiver_service import drain_activity
 from app.services.ml_orders_ingestion.mode_resolution import resolve_modo_logistico
 from app.services.ml_orders_ingestion.operation_status import (
-    GOODS_STATUS_BY_SHIPPING_STATUS,
     GOODS_STATUSES,
     OPERATION_STATUSES,
-    PAID_ORDER_STATUSES,
-    SETTLED_CLAIM_STATUSES,
 )
 from app.services.ml_ventas_desglose.breakdown_service import (
     compute_breakdown,
     compute_neto_by_order_ids,
     compute_neto_desglose_by_order_ids,
 )
+from app.services.ml_sales_query.filters import SalesFilter, build_scope, collapse
 from app.services.ml_ventas_desglose.deducciones import calcular_total_gauss, resolve_costo_mercaderia_detalle
 from app.services.ml_ventas_desglose.iva import descomponer_neto
 from app.services.permisos_service import PermisosService
@@ -678,84 +676,15 @@ class SaleListResponse(BaseModel):
 
 # ── Endpoints ────────────────────────────────────────────────────
 
-
-def _open_claim_exists_subquery(db: Session):
-    """Correlated EXISTS: does this order have a linked claim whose status
-    is present and NOT settled (`SETTLED_CLAIM_STATUSES`)? Mirrors
-    `operation_status.operation_status_of`'s `claim_status` row -- see that
-    module for the shared source of truth."""
-    return (
-        db.query(MlOperationLink.id)
-        .join(RmaClaimML, RmaClaimML.id == MlOperationLink.entity_id)
-        .filter(
-            MlOperationLink.entity_type == "claim",
-            MlOperationLink.order_id == MlOrdersOps.order_id,
-            RmaClaimML.status.isnot(None),
-            ~RmaClaimML.status.in_(tuple(SETTLED_CLAIM_STATUSES)),
-        )
-        .exists()
-    )
-
-
-def _operation_status_expr(open_claim_exists):
-    """SQL `CASE` mirroring `operation_status.operation_status_of` row for
-    row -- built from that module's exact `PAID_ORDER_STATUSES`/
-    `SETTLED_CLAIM_STATUSES` sets so the two never drift independently."""
-    return case(
-        (
-            MlOrdersOps.status == "cancelled",
-            case(
-                (MlOrdersOps.covered_by_marketplace.is_(True), "cancelled_ml_covered"),
-                else_="cancelled",
-            ),
-        ),
-        (MlOrdersOps.payment_status == "in_mediation", "in_dispute"),
-        (open_claim_exists, "in_dispute"),
-        (MlShipmentOps.status == "delivered", "delivered"),
-        (MlOrdersOps.status.in_(tuple(PAID_ORDER_STATUSES)), "paid"),
-        else_="unknown",
-    )
-
-
-def _goods_status_expr():
-    """SQL `CASE` mirroring `operation_status.goods_status_of`, built from
-    that module's exact `GOODS_STATUS_BY_SHIPPING_STATUS` map."""
-    whens = [
-        (MlShipmentOps.status == shipping_status, goods_status)
-        for shipping_status, goods_status in GOODS_STATUS_BY_SHIPPING_STATUS.items()
-    ]
-    return case(*whens, else_="unknown")
-
-
-def _group_key_expr():
-    """The listing's grouping key, as TEXT.
-
-    A pack's orders share `pack_id`; a lone order is its own group. The
-    prefix is not decoration: ML draws pack ids and order ids from the
-    same numeric range, so an unprefixed `COALESCE(pack_id, order_id)`
-    can collide and merge a pack with an unrelated order.
-    """
-    # `||`, not `func.concat`: SQLite only grew a `concat()` function in
-    # 3.44, and the integration tests run on SQLite. Passing locally on a
-    # newer sqlite would have hidden this until CI.
-    return case(
-        (MlOrdersOps.pack_id.isnot(None), literal("p:") + cast(MlOrdersOps.pack_id, String)),
-        else_=literal("o:") + cast(MlOrdersOps.order_id, String),
-    )
-
-
-def _collapse(values: "list[Optional[str]]") -> str:
-    """The members' shared value, or `"mixed"` when they disagree.
-
-    Never silently picks a winner: a pack holding one cancelled order and
-    one delivered order is precisely what the operator needs to notice.
-    """
-    distinct = {v for v in values if v is not None}
-    if not distinct:
-        return "unknown"
-    if len(distinct) == 1:
-        return distinct.pop()
-    return "mixed"
+# PR9.T1/T2 (design D12): the order-level status derivation
+# (`_operation_status_expr`/`_goods_status_expr`/`_open_claim_exists_subquery`),
+# the group key expression (`_group_key_expr`) and the group-level collapse
+# rule used to live here inline. They now live in
+# `app.services.ml_sales_query.filters` (moved verbatim, see that module's
+# docstring) as `build_scope`/`collapse`, shared with the future KPI
+# aggregation endpoint (PR11) -- imported here under their old local names
+# so every call site below is unchanged.
+_collapse = collapse
 
 
 def _parse_sold_month(sold_month: str) -> Tuple[datetime, datetime]:
@@ -858,6 +787,9 @@ def listar_ventas(
     date_from: Optional[str] = Query(default=None, description="YYYY-MM-DD, inclusive"),
     date_to: Optional[str] = Query(default=None, description="YYYY-MM-DD, inclusive"),
     sort: str = Query(default=SORT_BY_SALE_DATE, description=" | ".join(SALE_SORTS)),
+    q: Optional[str] = Query(
+        default=None, description="Búsqueda libre: order id, pack id, MLA, SKU, título o comprador (SEARCH R25)"
+    ),
     limit: int = Query(default=50, ge=1, le=200),
     offset: int = Query(default=0, ge=0),
     current_user: Usuario = Depends(require_permission("ml_ops.ver")),
@@ -923,42 +855,31 @@ def listar_ventas(
     if sold_range is None and sold_month:
         sold_range = _parse_sold_month(sold_month)
 
-    open_claim_exists = _open_claim_exists_subquery(db)
-    op_status_expr = _operation_status_expr(open_claim_exists)
-    goods_status_expr = _goods_status_expr()
-
-    base = db.query(MlOrdersOps, MlShipmentOps).outerjoin(
-        MlShipmentOps, MlShipmentOps.shipment_id == MlOrdersOps.shipping_id
+    # PR9.T1/T2 (design D12): the seller/date scoping, status derivation,
+    # status filters and free-text search all live in `build_scope` now --
+    # `scope.base` is the unfiltered-by-status query (used below for the
+    # member/facet queries, exactly like the old `members_base`),
+    # `scope.listing_query` is `base` PLUS the status filters AND `q`
+    # (SEARCH R26: search intersects with active filters, never replaces
+    # them).
+    scope = build_scope(
+        db,
+        SalesFilter(
+            date_range=sold_range,
+            operation_status=operation_status_filter,
+            goods_status=goods_status_filter,
+            q=q,
+        ),
     )
-    # Always scoped to the configured seller, as the sweep is. Without it
-    # every query in this endpoint scans the whole table, and an order
-    # belonging to another account would show up in the listing.
-    if settings.ML_USER_ID:
-        base = base.filter(MlOrdersOps.seller_id == int(settings.ML_USER_ID))
-    if sold_range is not None:
-        # Filters the SALE date, never the last-update date: "the sales of
-        # this week" has to keep meaning the ones sold this week, even when
-        # an old one was touched today. Sorting by update is a separate
-        # axis -- see `sort`.
-        base = base.filter(MlOrdersOps.date_created >= sold_range[0], MlOrdersOps.date_created < sold_range[1])
-
-    # Every order of a group on the page, regardless of the filters that
-    # selected that group. Scoped to the seller like everything else.
-    members_base = db.query(MlOrdersOps, MlShipmentOps).outerjoin(
-        MlShipmentOps, MlShipmentOps.shipment_id == MlOrdersOps.shipping_id
-    )
-    if settings.ML_USER_ID:
-        members_base = members_base.filter(MlOrdersOps.seller_id == int(settings.ML_USER_ID))
-
-    listing_query = base
-    if operation_status_filter is not None:
-        listing_query = listing_query.filter(op_status_expr == operation_status_filter)
-    if goods_status_filter is not None:
-        listing_query = listing_query.filter(goods_status_expr == goods_status_filter)
+    op_status_expr = scope.op_status_expr
+    goods_status_expr = scope.goods_status_expr
+    base = scope.base
+    members_base = scope.members_base
+    listing_query = scope.listing_query
 
     # Pagination happens over GROUPS, so a pack can never be split across
     # two pages: page the keys first, then fetch every member of those keys.
-    group_key = _group_key_expr()
+    group_key = scope.group_key
     key_page = (
         listing_query.with_entities(
             group_key.label("group_key"),
