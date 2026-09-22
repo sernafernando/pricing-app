@@ -29,6 +29,7 @@ from sqlalchemy import (
     Column,
     Date,
     DateTime,
+    Index,
     Integer,
     Numeric,
     String,
@@ -52,6 +53,10 @@ class MlOrderItemCosto(Base):
             name="uq_ml_order_item_costos_order_item_variation",
             postgresql_nulls_not_distinct=True,
         ),
+        # Every product facet on the Ventas ML screen (marca, subcategoría,
+        # PM) reaches the product THROUGH this column -- see migration
+        # 20260922_ix_producto_item_id.
+        Index("ix_ml_order_item_costos_producto_item_id", "producto_item_id"),
     )
 
     id = Column(Integer, primary_key=True, index=True)
