@@ -102,9 +102,7 @@ CAMPOS_EDITABLES_BORRADOR: Final[frozenset[str]] = frozenset(
 )
 TIPOS_PEDIDO: Final[frozenset[str]] = frozenset({"mercaderia", "servicio"})
 TIPO_PEDIDO_DEFAULT: Final[str] = "mercaderia"
-ROLES_ADMIN_TIPO: Final[frozenset[str]] = frozenset(
-    {RolUsuario.ADMIN.value, RolUsuario.SUPERADMIN.value}
-)
+ROLES_ADMIN_TIPO: Final[frozenset[str]] = frozenset({RolUsuario.ADMIN.value, RolUsuario.SUPERADMIN.value})
 FACTURA_UNDO_WINDOW: Final[timedelta] = timedelta(minutes=5)
 EJES_PROCESAL: Final[frozenset[str]] = frozenset(
     {
@@ -480,17 +478,11 @@ def calcular_eje_procesal(
 
 def es_factura_cargada(session: Session, pedido_id: int) -> bool:
     """Cargada ⇔ ≥1 normalized row. ERP `ct_transaction` is never identity."""
-    count = (
-        session.query(PedidoFacturaDocumento)
-        .filter(PedidoFacturaDocumento.pedido_id == pedido_id)
-        .count()
-    )
+    count = session.query(PedidoFacturaDocumento).filter(PedidoFacturaDocumento.pedido_id == pedido_id).count()
     return count > 0
 
 
-def chips_visibilidad_batch(
-    session: Session, pedido_ids: list[int]
-) -> dict[int, dict[str, Any]]:
+def chips_visibilidad_batch(session: Session, pedido_ids: list[int]) -> dict[int, dict[str, Any]]:
     """Batch factura-cargada + latest OC-match status for list/detail chips.
 
     Returns `{pedido_id: {factura_cargada, oc_match_status}}`. Missing ids
@@ -525,8 +517,8 @@ def chips_visibilidad_batch(
             .filter(OcMatchJob.id.in_(list(max_by_pedido.values())))
             .all()
         )
-        for _jid, pid, status in job_rows:
-            out[int(pid)]["oc_match_status"] = status
+        for _jid, pid, match_status in job_rows:
+            out[int(pid)]["oc_match_status"] = match_status
     return out
 
 
@@ -691,6 +683,10 @@ def editar_pedido(
     tipo_solicitado = campos.pop("tipo", None)
     responsable_solicitado = campos.pop("responsable_id", None)
 
+    # Track tipo/responsable in the same `diff` + `editado` event as other fields
+    # (GGA: must not mutate silently outside the audit payload).
+    meta_diff: dict[str, dict[str, Any]] = {}
+
     if tipo_en_payload and tipo_solicitado is not None and tipo_solicitado != pedido.tipo:
         if not _actor_es_admin(actor):
             raise HTTPException(
@@ -703,15 +699,25 @@ def editar_pedido(
                 status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
                 detail=f"tipo debe ser uno de {sorted(TIPOS_PEDIDO)}.",
             )
+        meta_diff["tipo"] = {
+            "antes": _serializar_valor(pedido.tipo),
+            "despues": _serializar_valor(tipo_norm),
+        }
         pedido.tipo = tipo_norm
 
     if responsable_en_payload and responsable_solicitado is not None:
-        if not _puede_editar_responsable(actor, pedido):
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail="Solo el creador o un admin pueden cambiar el responsable.",
-            )
-        pedido.responsable_id = int(responsable_solicitado)
+        nuevo_responsable = int(responsable_solicitado)
+        if nuevo_responsable != pedido.responsable_id:
+            if not _puede_editar_responsable(actor, pedido):
+                raise HTTPException(
+                    status_code=status.HTTP_403_FORBIDDEN,
+                    detail="Solo el creador o un admin pueden cambiar el responsable.",
+                )
+            meta_diff["responsable_id"] = {
+                "antes": _serializar_valor(pedido.responsable_id),
+                "despues": _serializar_valor(nuevo_responsable),
+            }
+            pedido.responsable_id = nuevo_responsable
 
     if pedido.estado == "borrador":
         editables = CAMPOS_EDITABLES_BORRADOR
@@ -816,7 +822,7 @@ def editar_pedido(
         )
         campos_aplicables["numero"] = nuevo_numero
 
-    diff: dict[str, dict[str, Any]] = {}
+    diff: dict[str, dict[str, Any]] = dict(meta_diff)
     numero_factura_cambio = False
     for campo, nuevo_valor in campos_aplicables.items():
         valor_anterior = getattr(pedido, campo)
@@ -3211,6 +3217,8 @@ def corregir_pedido(
         observaciones=cambios.get("observaciones", original.observaciones),
         facturas_documento=cambios.get("facturas_documento", original.facturas_documento),
         pedidos_documento=cambios.get("pedidos_documento", original.pedidos_documento),
+        tipo=original.tipo,
+        responsable_id=original.responsable_id,
         ct_transaction_id=ct_transaction_heredado,
         corregido_desde_id=original.id,
         estado=estado_clon,

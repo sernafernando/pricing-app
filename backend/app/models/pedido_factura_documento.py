@@ -43,7 +43,4 @@ class PedidoFacturaDocumento(Base):
     __table_args__ = (Index("ix_pedido_factura_documentos_pedido_id", "pedido_id"),)
 
     def __repr__(self) -> str:
-        return (
-            f"<PedidoFacturaDocumento(id={self.id}, pedido_id={self.pedido_id}, "
-            f"numero='{self.numero}')>"
-        )
+        return f"<PedidoFacturaDocumento(id={self.id}, pedido_id={self.pedido_id}, numero='{self.numero}')>"

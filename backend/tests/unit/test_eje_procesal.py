@@ -35,9 +35,7 @@ from app.services import pedidos_service
     ],
 )
 def test_calcular_eje_procesal_mapping(tipo, estado, faltantes_resuelto_en, expected) -> None:
-    assert (
-        pedidos_service.calcular_eje_procesal(tipo, estado, faltantes_resuelto_en) == expected
-    )
+    assert pedidos_service.calcular_eje_procesal(tipo, estado, faltantes_resuelto_en) == expected
 
 
 def test_aprobado_is_not_procesal_pendiente() -> None:
@@ -92,9 +90,7 @@ def _pedido(
 
 
 class TestChipsVisibilidadBatch:
-    def test_factura_and_latest_match(
-        self, db, empresa, proveedor, active_user
-    ) -> None:
+    def test_factura_and_latest_match(self, db, empresa, proveedor, active_user) -> None:
         p1 = _pedido(db, empresa, proveedor, active_user, numero="P-01-2026-00001", oc_poh_id=11)
         p2 = _pedido(db, empresa, proveedor, active_user, numero="P-01-2026-00002")
         db.add(
@@ -145,9 +141,7 @@ class TestChipsVisibilidadBatch:
 
 
 class TestPedidosNumerosPorOp:
-    def test_two_p_numbers_and_a_cuenta_empty(
-        self, db, empresa, proveedor, active_user
-    ) -> None:
+    def test_two_p_numbers_and_a_cuenta_empty(self, db, empresa, proveedor, active_user) -> None:
         p1 = _pedido(db, empresa, proveedor, active_user, numero="P-01-2026-00001")
         p2 = _pedido(db, empresa, proveedor, active_user, numero="P-01-2026-00002")
         op_linked = OrdenPago(

@@ -135,12 +135,7 @@ class TestSeedFacturasDocumento:
         rows = pedidos_service.seed_factura_documentos(db, pedido)
         db.flush()
         assert rows == []
-        assert (
-            db.query(PedidoFacturaDocumento)
-            .filter(PedidoFacturaDocumento.pedido_id == pedido.id)
-            .count()
-            == 0
-        )
+        assert db.query(PedidoFacturaDocumento).filter(PedidoFacturaDocumento.pedido_id == pedido.id).count() == 0
 
 
 class TestFacturaCargadaVsErp:
@@ -185,12 +180,7 @@ class TestEmptyNumeroRejected:
                 user_id=active_user.id,
             )
         assert exc_info.value.status_code == 422
-        assert (
-            db.query(PedidoFacturaDocumento)
-            .filter(PedidoFacturaDocumento.pedido_id == pedido.id)
-            .count()
-            == 0
-        )
+        assert db.query(PedidoFacturaDocumento).filter(PedidoFacturaDocumento.pedido_id == pedido.id).count() == 0
         assert db.query(func.count(Notificacion.id)).scalar() == 0
 
 
@@ -200,9 +190,7 @@ class TestEmptyNumeroRejected:
 
 
 class TestTipoYResponsable:
-    def test_crear_pedido_defaults_tipo_mercaderia_and_responsable(
-        self, db, empresa, proveedor, active_user
-    ) -> None:
+    def test_crear_pedido_defaults_tipo_mercaderia_and_responsable(self, db, empresa, proveedor, active_user) -> None:
         pedido = pedidos_service.crear_pedido(
             db,
             empresa_id=empresa.id,
@@ -214,9 +202,7 @@ class TestTipoYResponsable:
         assert pedido.tipo == "mercaderia"
         assert pedido.responsable_id == active_user.id
 
-    def test_pm_cannot_patch_tipo_after_create(
-        self, db, empresa, proveedor, active_user
-    ) -> None:
+    def test_pm_cannot_patch_tipo_after_create(self, db, empresa, proveedor, active_user) -> None:
         pedido = pedidos_service.crear_pedido(
             db,
             empresa_id=empresa.id,
@@ -237,9 +223,7 @@ class TestTipoYResponsable:
         db.refresh(pedido)
         assert pedido.tipo == "mercaderia"
 
-    def test_admin_can_patch_tipo_after_create(
-        self, db, empresa, proveedor, active_user, admin_user
-    ) -> None:
+    def test_admin_can_patch_tipo_after_create(self, db, empresa, proveedor, active_user, admin_user) -> None:
         pedido = pedidos_service.crear_pedido(
             db,
             empresa_id=empresa.id,
@@ -257,9 +241,7 @@ class TestTipoYResponsable:
         )
         assert updated.tipo == "servicio"
 
-    def test_non_editor_cannot_change_responsable(
-        self, db, empresa, proveedor, active_user, admin_user
-    ) -> None:
+    def test_non_editor_cannot_change_responsable(self, db, empresa, proveedor, active_user, admin_user) -> None:
         pedido = pedidos_service.crear_pedido(
             db,
             empresa_id=empresa.id,

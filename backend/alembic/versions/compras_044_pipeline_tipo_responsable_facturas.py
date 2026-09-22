@@ -108,23 +108,26 @@ def upgrade() -> None:
     )
 
     bind = op.get_bind()
-    source_rows = bind.execute(
-        sa.text("SELECT id, facturas_documento, creado_por_id FROM pedidos_compra")
-    ).fetchall()
+    source_rows = bind.execute(sa.text("SELECT id, facturas_documento, creado_por_id FROM pedidos_compra")).fetchall()
+    seed_params: list[dict[str, object]] = []
     for pedido_id, raw, creado_por_id in source_rows:
         for numero in _split_facturas_documento_tokens(raw):
-            bind.execute(
-                sa.text(
-                    "INSERT INTO pedido_factura_documentos "
-                    "(pedido_id, numero, created_by_id) "
-                    "VALUES (:pedido_id, :numero, :created_by_id)"
-                ),
+            seed_params.append(
                 {
                     "pedido_id": pedido_id,
                     "numero": numero,
                     "created_by_id": creado_por_id,
-                },
+                }
             )
+    if seed_params:
+        bind.execute(
+            sa.text(
+                "INSERT INTO pedido_factura_documentos "
+                "(pedido_id, numero, created_by_id) "
+                "VALUES (:pedido_id, :numero, :created_by_id)"
+            ),
+            seed_params,
+        )
 
 
 def downgrade() -> None:
