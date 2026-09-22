@@ -115,7 +115,7 @@ UI/additive PRs revert independently. Stored-metrics: migration ships downgrade;
 
 ## Success Criteria
 - [ ] Stored Total Gauss/markup (+status) match a fresh recompute for 100% of orders after backfill (divergence check = 0) and stay at 0 across a monitoring window.
-- [ ] Every enumerated trigger has a test proving the order is enqueued for recompute in the same transaction as the input write, and that the worker recomputes it asynchronously (within approximately 1 s of commit).
+- [ ] Every enumerated trigger has a test proving the order is enqueued for recompute in the same transaction as the input write, and that the worker recomputes it asynchronously (asserted as a state transition from recalculating to stored; ~1 s is a latency target, not a test bound).
 - [ ] Listing, detail, KPI read stored values; no live recompute on read; detail chain total == stored total for orders not in `recalculating`/`pending` (tested); orders in `recalculating`/`pending` show an explicit indicator and are excluded from KPI sums, never a stale or fabricated value.
 - [ ] Provisional/unresolved are explicit stored states, never a fabricated number.
 - [ ] KPI equals aggregate of the full filtered set incl. toggle combinations (parity tests); excluded counts shown.
