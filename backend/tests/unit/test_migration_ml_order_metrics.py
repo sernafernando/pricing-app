@@ -24,7 +24,6 @@ from alembic.script import ScriptDirectory
 
 _BACKEND_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 _REVISION = "20260922_ml_order_metrics"
-_DOWN_REVISION = "compras_041_oc_match_progress_phase"
 
 
 def _script_directory() -> ScriptDirectory:
@@ -43,10 +42,16 @@ def _load_migration():
 
 class TestMigrationGraph:
     def test_revision_is_registered_and_linked(self) -> None:
+        # The PARENT is not pinned by name: a rebase onto a main that added
+        # migrations legitimately moves it, and pinning it turns every such
+        # rebase into a false failure. What must hold is that the parent
+        # exists in the graph and that this revision hangs off a single
+        # linear parent (never a fork).
         script = _script_directory()
         revision = script.get_revision(_REVISION)
         assert revision is not None
-        assert revision.down_revision == _DOWN_REVISION
+        assert isinstance(revision.down_revision, str), "exactly one parent, never a branch point"
+        assert script.get_revision(revision.down_revision) is not None
 
     def test_is_single_head(self) -> None:
         # Asserting the head IS this exact revision breaks the moment a
