@@ -181,6 +181,7 @@ def match_renglones(
         "proveedor_cuit": extraido.get("proveedor_cuit"),
         "nro_documento": extraido.get("nro_documento"),
         "nro_pedido": extraido.get("nro_pedido"),
+        "tipo_documento": extraido.get("tipo_documento"),
         "fecha": extraido.get("fecha"),
         "moneda": extraido.get("moneda"),
         "tipo_cambio": extraido.get("tipo_cambio"),

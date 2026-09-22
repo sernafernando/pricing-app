@@ -27,6 +27,7 @@ Devolvé SOLO JSON válido con esta forma:
   "fecha": string o null,
   "nro_documento": string o null,
   "nro_pedido": string o null,
+  "tipo_documento": "factura" | "pedido" | "proforma" | "nota_venta" | "comprobante_pago" | "otro",
   "moneda": "USD" | "ARS" | null,
   "tipo_cambio": number o null,
   "descuento_pct": number o null,
@@ -59,6 +60,7 @@ Reglas:
 - tipo_cambio: pesos argentinos por 1 USD (o por 1 unidad de la moneda extranjera) SOLO si está escrito (Tipo de cambio, Cotización, U$S =, 1 USD = …). Número JSON con punto decimal. No inventes ni uses internet. Si el papel está en USD y no hay TC, null.
 - nro_documento: factura, proforma, nota de venta (NV-…, 00099-…, 0004-00235724). No lo inventes.
 - nro_pedido: número de pedido del proveedor si está escrito (Pedido, N° pedido, DATOS DE PEDIDO, Cod. Pedido, PED-…). Ej.: Solution Box `1379491/01`, Distecna `PED-184465-…`. Distinto de nro_documento. Si el papel es solo un pedido y no hay factura, nro_pedido es ese número. Playwright lo va a cargar en un campo de la OC GBP. Si no está, null.
+- tipo_documento: clasificá el papel. factura = factura/invoice. pedido = orden/pedido del proveedor. proforma = proforma. nota_venta = NV / nota de venta. comprobante_pago = recibo, constancia, transferencia, comprobante de pago. otro = no encaja. Un valor del enum, no lo inventes fuera de esa lista.
 - descuento_pct: descuento financiero en porcentaje si está escrito (p. ej. Distecna “3% off”, “Mas descuento financiero 3%”). 3 significa 3 %. Si no hay, null. No inventes.
 """
 

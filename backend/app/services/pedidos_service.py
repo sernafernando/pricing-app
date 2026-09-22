@@ -91,6 +91,8 @@ CAMPOS_EDITABLES_BORRADOR: Final[frozenset[str]] = frozenset(
         # A draft has no CC movements or imputations yet, so free-text notes
         # (and even empresa/proveedor) can still be corrected here.
         "observaciones",
+        "facturas_documento",
+        "pedidos_documento",
     }
 )
 CAMPOS_EDITABLES_APROBADO: Final[frozenset[str]] = frozenset(
@@ -101,6 +103,8 @@ CAMPOS_EDITABLES_APROBADO: Final[frozenset[str]] = frozenset(
         # Attempting to pass tipo_cambio here returns HTTP 422.
         # Comentarios editables post-aprobación sin afectar CC/imputaciones
         "observaciones",
+        "facturas_documento",
+        "pedidos_documento",
     }
 )
 
@@ -276,6 +280,8 @@ def crear_pedido(
     fecha_pago_estimada: Optional[date] = None,
     requiere_envio: bool = False,
     numero_factura: Optional[str] = None,
+    facturas_documento: Optional[str] = None,
+    pedidos_documento: Optional[str] = None,
 ) -> PedidoCompra:
     """
     Crea un pedido en estado `borrador` con número correlativo.
@@ -335,6 +341,8 @@ def crear_pedido(
         fecha_pago_estimada=fecha_pago_estimada,
         requiere_envio=requiere_envio,
         numero_factura=numero_factura,
+        facturas_documento=facturas_documento,
+        pedidos_documento=pedidos_documento,
         estado="borrador",
         creado_por_id=creado_por_id,
     )
@@ -2909,6 +2917,8 @@ def corregir_pedido(
         else original.requiere_envio,
         numero_factura=cambios.get("numero_factura", original.numero_factura),
         observaciones=cambios.get("observaciones", original.observaciones),
+        facturas_documento=cambios.get("facturas_documento", original.facturas_documento),
+        pedidos_documento=cambios.get("pedidos_documento", original.pedidos_documento),
         ct_transaction_id=ct_transaction_heredado,
         corregido_desde_id=original.id,
         estado=estado_clon,
@@ -2946,6 +2956,8 @@ def corregir_pedido(
             "requiere_envio",
             "numero_factura",
             "observaciones",
+            "facturas_documento",
+            "pedidos_documento",
         }
         and v is not None
     }

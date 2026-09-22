@@ -187,6 +187,20 @@ class TestUnmatchedPacksInActa:
         assert "confianza=baja" in text
         assert "Sucursal: PASTORIZA" in text
         assert "Solicitante" not in text
+        assert "Tipo documento:" in text
+
+    def test_acta_includes_tipo_documento_line(self) -> None:
+        matched = {
+            "proveedor_razon_social": "Prov",
+            "tipo_documento": "factura",
+            "nro_documento": "0001-99",
+            "nro_pedido": "PED-184465",
+            "renglones": [],
+            "resumen": {"ok": 0, "no_hallado": 0, "omitido": 0},
+        }
+        text = acta_cierre(matched, {"Sucursal": "PASTORIZA"})
+        assert "Tipo documento: factura" in text
+        assert text.count("Tipo documento:") == 1
 
     def test_acta_prints_confianza_for_ok_media_and_alta(self) -> None:
         matched = {
@@ -249,6 +263,7 @@ class TestNoMailInPipeline:
             _SERVICES / "match.py",
             _SERVICES / "excel.py",
             _SERVICES / "acta.py",
+            _SERVICES / "doc_refs.py",
             _SERVICES / "gemini_pool.py",
             _SERVICES / "maestro.py",
             _SERVICES / "candidatos.py",

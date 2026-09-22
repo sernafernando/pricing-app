@@ -23,6 +23,8 @@ export default function ModalCorregirPedido({ pedido, onClose }) {
 
   const [form, setForm] = useState({
     numero_factura: pedido?.numero_factura || '',
+    facturas_documento: pedido?.facturas_documento || '',
+    pedidos_documento: pedido?.pedidos_documento || '',
     monto: pedido?.monto ? String(pedido.monto) : '',
     fecha_pago_texto: pedido?.fecha_pago_texto || '',
     fecha_pago_estimada: pedido?.fecha_pago_estimada || '',
@@ -85,6 +87,12 @@ export default function ModalCorregirPedido({ pedido, onClose }) {
       // para monto/TC y string-compare para el resto.
       if (form.numero_factura !== (pedido.numero_factura || '')) {
         payload.numero_factura = form.numero_factura || null;
+      }
+      if (form.facturas_documento !== (pedido.facturas_documento || '')) {
+        payload.facturas_documento = form.facturas_documento || null;
+      }
+      if (form.pedidos_documento !== (pedido.pedidos_documento || '')) {
+        payload.pedidos_documento = form.pedidos_documento || null;
       }
       if (form.monto !== '' && Number(form.monto) !== Number(pedido.monto)) {
         payload.monto = parseFloat(form.monto);
@@ -200,6 +208,28 @@ export default function ModalCorregirPedido({ pedido, onClose }) {
               onChange={(e) => handleChange('numero_factura', e.target.value)}
               placeholder="FA-00012345"
               maxLength={50}
+            />
+          </div>
+
+          <div className={styles.formGroup}>
+            <label className={styles.formLabel}>Factura/s</label>
+            <input
+              type="text"
+              className={styles.input}
+              value={form.facturas_documento}
+              onChange={(e) => handleChange('facturas_documento', e.target.value)}
+              placeholder="0001-99"
+            />
+          </div>
+
+          <div className={styles.formGroup}>
+            <label className={styles.formLabel}>Pedido/s</label>
+            <input
+              type="text"
+              className={styles.input}
+              value={form.pedidos_documento}
+              onChange={(e) => handleChange('pedidos_documento', e.target.value)}
+              placeholder="PED-184465"
             />
           </div>
 

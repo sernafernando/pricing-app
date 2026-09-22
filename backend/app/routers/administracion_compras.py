@@ -703,6 +703,8 @@ def crear_pedido(
             fecha_pago_estimada=data.fecha_pago_estimada,
             requiere_envio=data.requiere_envio,
             numero_factura=data.numero_factura,
+            facturas_documento=data.facturas_documento,
+            pedidos_documento=data.pedidos_documento,
         )
     except HTTPException:
         db.rollback()

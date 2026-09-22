@@ -8,7 +8,7 @@ from decimal import Decimal
 from pathlib import Path
 from typing import Any, Optional
 
-from sqlalchemy import update
+from sqlalchemy import select, update
 from sqlalchemy.orm import Session
 
 from app.core.compras_empresa_oc_map import sucursal_oc_para_empresa
@@ -19,6 +19,7 @@ from app.models.compra_adjunto import CompraAdjunto
 from app.models.oc_match_job import OcMatchJob, OcMatchRenglon
 from app.models.pedido_compra import PedidoCompra
 from app.services.oc_match.acta import acta_cierre, nombre_excel
+from app.services.oc_match.doc_refs import apply_writeback
 from app.services.oc_match.enqueue import claim_queued_job
 from app.services.oc_match.excel import RechazoExcel, generar
 from app.services.oc_match.extract import extract_one
@@ -44,6 +45,7 @@ def process_oc_match_job(job_id: int) -> None:
     claimed = _claim_and_load(job_id)
     if claimed is None:
         return
+    extracted: Optional[dict[str, Any]] = None
     matched: dict[str, Any] = {}
     excel_rel: Optional[str] = None
     excel_name: Optional[str] = None
@@ -89,6 +91,7 @@ def process_oc_match_job(job_id: int) -> None:
         excel_rel,
         error,
         claimed_started_at=claimed.started_at,
+        extracted=extracted,
     )
 
 
@@ -182,6 +185,7 @@ def _persist(
     error: Optional[str],
     *,
     claimed_started_at: datetime,
+    extracted: Optional[dict[str, Any]] = None,
 ) -> None:
     """Persist done|error only if this claim still owns the job (status+started_at fence)."""
     stamp = datetime.now(UTC)
@@ -223,6 +227,16 @@ def _persist(
             logger.warning("oc-match persist: job_id=%s desapareció tras fence", job_id)
             return
         _replace_renglones(db, job, matched)
+        if extracted is None:
+            return
+        locked = (
+            db.execute(select(PedidoCompra).where(PedidoCompra.id == job.pedido_id).with_for_update())
+            .scalars()
+            .one_or_none()
+        )
+        if locked is None:
+            return
+        apply_writeback(locked, extracted)
 
 
 def _replace_renglones(db: Session, job: OcMatchJob, matched: dict[str, Any]) -> None:

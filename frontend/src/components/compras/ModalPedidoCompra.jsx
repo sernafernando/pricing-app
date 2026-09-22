@@ -44,6 +44,8 @@ export default function ModalPedidoCompra({
     fecha_pago_estimada: pedido?.fecha_pago_estimada || '',
     requiere_envio: pedido?.requiere_envio || false,
     numero_factura: pedido?.numero_factura || '',
+    facturas_documento: pedido?.facturas_documento || '',
+    pedidos_documento: pedido?.pedidos_documento || '',
     observaciones: pedido?.observaciones || '',
   });
 
@@ -99,6 +101,8 @@ export default function ModalPedidoCompra({
         // para no disparar validaciones innecesarias en el backend.
         payload = {
           numero_factura: form.numero_factura || null,
+          facturas_documento: form.facturas_documento || null,
+          pedidos_documento: form.pedidos_documento || null,
           observaciones: form.observaciones || null,
         };
         if (form.moneda === 'USD') {
@@ -115,6 +119,8 @@ export default function ModalPedidoCompra({
           fecha_pago_estimada: form.fecha_pago_estimada || null,
           requiere_envio: form.requiere_envio,
           numero_factura: form.numero_factura || null,
+          facturas_documento: form.facturas_documento || null,
+          pedidos_documento: form.pedidos_documento || null,
           observaciones: form.observaciones || null,
         };
       }
@@ -285,6 +291,28 @@ export default function ModalPedidoCompra({
               onChange={(e) => handleChange('numero_factura', e.target.value)}
               placeholder="FA-00012345"
               maxLength={50}
+            />
+          </div>
+
+          <div className={styles.formGroup}>
+            <label className={styles.formLabel}>Factura/s</label>
+            <input
+              type="text"
+              className={styles.input}
+              value={form.facturas_documento}
+              onChange={(e) => handleChange('facturas_documento', e.target.value)}
+              placeholder="0001-99"
+            />
+          </div>
+
+          <div className={styles.formGroup}>
+            <label className={styles.formLabel}>Pedido/s</label>
+            <input
+              type="text"
+              className={styles.input}
+              value={form.pedidos_documento}
+              onChange={(e) => handleChange('pedidos_documento', e.target.value)}
+              placeholder="PED-184465"
             />
           </div>
 

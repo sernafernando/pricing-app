@@ -168,6 +168,26 @@ class TestCorregirPedido:
         assert clon.observaciones == "nueva nota actualizada"
         assert p.estado == "cancelado"
 
+    def test_corregir_hereda_doc_refs_y_sigue_cosmetico(self, db, empresa, proveedor, active_user) -> None:
+        """Clone inherits documentary columns; they are not financial."""
+        p = _crear_pedido_aprobado(db, empresa, proveedor, active_user, observaciones="vieja")
+        p.facturas_documento = "0001-99"
+        p.pedidos_documento = "PED-184465"
+        db.flush()
+        clon = pedidos_service.corregir_pedido(
+            db,
+            pedido_original_id=p.id,
+            cambios={"observaciones": "nueva nota actualizada"},
+            motivo_correccion="aclarar observación del contador",
+            user_id=active_user.id,
+        )
+        db.refresh(p)
+        db.refresh(clon)
+        assert clon.estado == "aprobado"
+        assert clon.facturas_documento == "0001-99"
+        assert clon.pedidos_documento == "PED-184465"
+        assert p.estado == "cancelado"
+
     def test_corregir_cambia_monto_clon_queda_pendiente_aprobacion(self, db, empresa, proveedor, active_user) -> None:
         p = _crear_pedido_aprobado(db, empresa, proveedor, active_user, monto=Decimal("1000"))
         clon = pedidos_service.corregir_pedido(
