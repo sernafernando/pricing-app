@@ -128,6 +128,17 @@ def recompute_order_metrics(db: Session, order_ids: Sequence[int]) -> Dict[int, 
         )
 
     if delete_ids:
-        db.query(MlVentaDeduccion).filter(MlVentaDeduccion.id.in_(delete_ids)).delete(synchronize_session=False)
+        db.query(MlVentaDeduccion).filter(MlVentaDeduccion.id.in_(delete_ids)).delete(synchronize_session="fetch")
+
+    # Core INSERT/DELETE bypass the identity map: rows this session already
+    # loaded (the `existing_deducciones` above, or an `MlOrderMetrics` read
+    # earlier by the caller) would keep their pre-write values until a commit.
+    # `persistir_total_gauss` is an alias of this function, so a caller
+    # reading those rows in the SAME transaction must not see stale data.
+    for deduccion_row in existing_deducciones:
+        if deduccion_row in db:
+            db.expire(deduccion_row)
+    for metrics_row in db.query(MlOrderMetrics).filter(MlOrderMetrics.order_id.in_(order_ids)).all():
+        db.expire(metrics_row)
 
     return metrics_by_order

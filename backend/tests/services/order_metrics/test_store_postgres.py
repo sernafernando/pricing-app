@@ -74,6 +74,12 @@ class TestRecomputeOrderMetricsConcurrentUpsert:
         for t in threads:
             t.join(timeout=15)
 
+        # A thread still alive means it is blocked (a lock it never gets, or
+        # a deadlock the key ordering is supposed to prevent). Without this
+        # check an empty `errors` would read as success while one worker
+        # never finished.
+        alive = [t.name for t in threads if t.is_alive()]
+        assert not alive, f"worker(s) still blocked after 15s: {alive}"
         assert not errors, f"concurrent recompute raised: {errors!r}"
 
         verify_conn = pg_order_metrics_engine.connect()

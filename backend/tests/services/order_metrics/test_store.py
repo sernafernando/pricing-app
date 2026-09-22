@@ -138,6 +138,79 @@ class TestRecomputeOrderMetricsUpserts:
         assert db.query(MlOrderMetrics).filter(MlOrderMetrics.order_id == order_id).one_or_none() is not None
 
 
+class TestRecomputeOrderMetricsRefreshesTheSession:
+    """Core INSERT/DELETE bypass the identity map. `persistir_total_gauss`
+    is an alias of this writer, so a caller that already read these rows in
+    the SAME transaction must not keep seeing the values from before."""
+
+    def test_a_row_read_before_the_recompute_is_not_stale_afterwards(self, db) -> None:
+        order_id = 6010
+        _order(db, order_id)
+        _item_with_cost(db, order_id, "MLA1", 1, Decimal("10.00"))
+        db.add(
+            MlPaymentOps(
+                payment_id=order_id, order_id=order_id, status="approved", net_received_amount=Decimal("100.00")
+            )
+        )
+        db.commit()
+        recompute_order_metrics(db, [order_id])
+        db.commit()
+
+        # Read BEFORE the second recompute, and keep the object around.
+        fila = db.query(MlOrderMetrics).filter(MlOrderMetrics.order_id == order_id).one()
+        deduccion = db.query(MlVentaDeduccion).filter(MlVentaDeduccion.order_id == order_id).first()
+        assert deduccion is not None
+
+        # The cost changes, so the stored numbers must change with it.
+        db.query(MlOrderItemCosto).filter(MlOrderItemCosto.order_id == order_id).update(
+            {"costo_unitario_ars": Decimal("80.00"), "costo_origen": Decimal("80.00")}
+        )
+        db.commit()
+
+        recompute_order_metrics(db, [order_id])
+
+        # No commit in between: the objects read above must already reflect
+        # the new values, not the ones they were loaded with.
+        assert fila.costo_mercaderia == Decimal("80.00")
+        assert deduccion.monto == Decimal("80.00")
+
+
+class TestRecomputeOrderMetricsUpdatesValues:
+    def test_a_changed_input_overwrites_the_stored_numbers(self, db) -> None:
+        # Guards the ON CONFLICT *DO UPDATE*: with DO NOTHING (or an empty
+        # `set_`) the row would silently keep its first-computed values and
+        # a "one row only" assertion would still pass.
+        order_id = 6011
+        _order(db, order_id)
+        _item_with_cost(db, order_id, "MLA1", 1, Decimal("10.00"))
+        db.add(
+            MlPaymentOps(
+                payment_id=order_id, order_id=order_id, status="approved", net_received_amount=Decimal("100.00")
+            )
+        )
+        db.commit()
+        recompute_order_metrics(db, [order_id])
+        db.commit()
+        primero = db.query(MlOrderMetrics).filter(MlOrderMetrics.order_id == order_id).one().costo_mercaderia
+
+        db.query(MlOrderItemCosto).filter(MlOrderItemCosto.order_id == order_id).update(
+            {"costo_unitario_ars": Decimal("80.00"), "costo_origen": Decimal("80.00")}
+        )
+        db.commit()
+        recompute_order_metrics(db, [order_id])
+        db.commit()
+
+        fila = db.query(MlOrderMetrics).filter(MlOrderMetrics.order_id == order_id).one()
+        assert primero == Decimal("10.00")
+        assert fila.costo_mercaderia == Decimal("80.00")
+        deduccion = (
+            db.query(MlVentaDeduccion)
+            .filter(MlVentaDeduccion.order_id == order_id, MlVentaDeduccion.code == "costo_mercaderia")
+            .one()
+        )
+        assert deduccion.monto == Decimal("80.00")
+
+
 class TestRecomputeOrderMetricsStoresRealFormulaOutput:
     """`recompute_order_metrics` must store what `compute_order_metrics`
     actually computed for a GENUINELY resolved order -- not just an
