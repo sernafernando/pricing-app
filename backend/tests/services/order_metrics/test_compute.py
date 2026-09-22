@@ -172,6 +172,75 @@ class TestComputeOrderMetricsWrapsExistingFormula:
         assert metrics.neto_sin_iva is None
         assert metrics.unresolved_reason == "iva_no_reconcilia"
 
+    def test_unresolved_with_no_relevant_payment_names_sin_pagos(self, db) -> None:
+        # Cost resolves cleanly (an item with a frozen cost), but there is
+        # NO relevant (approved) payment at all -- `compute_neto_by_order_
+        # ids` and `descomponer_neto` agree on "no relevant payments", so
+        # the named reason must be the specific `sin_pagos`, not the
+        # generic `iva_no_reconcilia` (reserved for a payment that IS
+        # relevant but whose split does not add up -- see the next test).
+        order_id = 5011
+        _order(db, order_id)
+        _item_with_cost(db, order_id, "MLA1", 1, Decimal("10.00"))
+        _varios(db)
+        db.commit()
+
+        metrics = compute_order_metrics(db, [order_id])[order_id]
+
+        assert metrics.gauss_status == GaussStatus.UNRESOLVED
+        assert metrics.total_gauss is None
+        assert metrics.unresolved_reason == "sin_pagos"
+
+    def test_unresolved_because_neto_sin_iva_is_untrustworthy_despite_reconciling(self, db) -> None:
+        # An orphan frozen cost row (an item_id no `MlOrderItemOps` row
+        # matches) makes `descomponer_neto` distrust the split
+        # (`RAZON_COSTO_SIN_ITEM`, `confiable=False`) even though the real
+        # item's numbers reconcile to the cent (`reconcilia=True`) -- so
+        # neither `iva_no_reconcilia` (requires `reconcilia is False`) nor
+        # `sin_pagos` (a real relevant payment exists) applies. The costo
+        # itself resolves cleanly off the ONE real item, so no chain line
+        # is unknown either -- the gap is purely `neto_sin_iva` itself,
+        # which must be named `neto_sin_iva_desconocido`.
+        order_id = 5012
+        _order(db, order_id)
+        _item_with_cost(db, order_id, "MLA1", 1, Decimal("10.00"))
+        db.add(
+            MlOrderItemCosto(
+                order_id=order_id,
+                item_id="MLA-ORPHAN-NO-ITEM-ROW",
+                costo_origen=Decimal("5.00"),
+                moneda="ARS",
+                costo_unitario_ars=Decimal("5.00"),
+                iva_pct=Decimal("21.00"),
+                precio_unitario=Decimal("50.00"),
+                fuente="sku",
+                producto_item_id=2,
+            )
+        )
+        # `_item_with_cost(db, order_id, "MLA1", 1, Decimal("10.00"))` fixes
+        # `precio_unitario=100.00` -- matches the payment below exactly, so
+        # the REAL item reconciles to the cent; the orphan row above never
+        # contributes a componente (no matching item), so it cannot move
+        # `suma_bruto` off that reconciliation.
+        db.add(
+            MlPaymentOps(
+                payment_id=order_id, order_id=order_id, status="approved", net_received_amount=Decimal("100.00")
+            )
+        )
+        _varios(db)
+        db.commit()
+
+        descomposicion = descomponer_neto(db, [order_id])[order_id]
+        assert descomposicion.reconcilia is True, "el fixture debe reconciliar numericamente"
+        assert descomposicion.neto_sin_iva is None, "confiable debe ser False por la fila huerfana"
+
+        metrics = compute_order_metrics(db, [order_id])[order_id]
+
+        assert metrics.gauss_status == GaussStatus.UNRESOLVED
+        assert metrics.total_gauss is None
+        assert metrics.costo_mercaderia is not None, "el costo debe resolver limpio, off del item real"
+        assert metrics.unresolved_reason == "neto_sin_iva_desconocido"
+
     def test_empty_order_ids_returns_empty_dict(self, db) -> None:
         assert compute_order_metrics(db, []) == {}
 

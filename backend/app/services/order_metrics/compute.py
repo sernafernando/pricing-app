@@ -144,14 +144,26 @@ def compute_order_metrics(db: Session, order_ids: Sequence[int]) -> Dict[int, Or
                 # No chain line is unknown, so the gap is upstream of the
                 # chain: the starting value itself. Name it rather than
                 # storing a reasonless unresolved row.
-                if (
+                #
+                # `sin_pagos` is checked FIRST, not last: `descomponer_neto`
+                # and `compute_neto_by_order_ids` share the exact same "no
+                # relevant (approved) payment" gate, so whenever there is no
+                # relevant payment `descomposicion.reconcilia` is ALSO
+                # hard-`False` by construction (`iva.py`'s own early
+                # return) -- checking `iva_no_reconcilia` first would win
+                # every time and `sin_pagos` could never fire. "No payment
+                # to reconcile at all" is the more specific, more useful
+                # reason for that shared case; `iva_no_reconcilia` is
+                # reserved for a payment that DOES count but whose split
+                # still does not add up (a real reconciliation failure).
+                if neto_by_order.get(order_id) is None:
+                    unresolved_reason = "sin_pagos"
+                elif (
                     descomposicion is not None
                     and descomposicion.neto_sin_iva is None
                     and descomposicion.reconcilia is False
                 ):
                     unresolved_reason = "iva_no_reconcilia"
-                elif neto_by_order.get(order_id) is None:
-                    unresolved_reason = "sin_pagos"
                 else:
                     unresolved_reason = "neto_sin_iva_desconocido"
         else:
