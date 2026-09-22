@@ -169,5 +169,14 @@ class TestMigrationPostgresRoundTrip:
                         conn2.execute(sa.text("DROP TABLE IF EXISTS worker_job_state CASCADE"))
                         if not ml_orders_ops_preexisted:
                             conn2.execute(sa.text("DROP TABLE IF EXISTS ml_orders_ops CASCADE"))
+                        else:
+                            # A failed run (assertion error between upgrade
+                            # and downgrade) can leave the index the
+                            # migration adds to the PRE-EXISTING table
+                            # behind -- drop it too, or the next run's
+                            # `create index` half of `upgrade()` collides
+                            # with a leftover from THIS run instead of
+                            # starting clean.
+                            conn2.execute(sa.text("DROP INDEX IF EXISTS ix_ml_orders_ops_seller_date"))
                 except Exception:  # noqa: BLE001 -- cleanup must never mask the real failure
                     pass
