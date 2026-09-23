@@ -380,6 +380,16 @@ if [ "$SKIP_BACKEND" = false ]; then
   fi
 fi
 
+# 6b) Restart del worker genérico (ventas-ml-rediseno, design D4) -- warn,
+# no fail: el worker todavía no existe en todos los entornos (systemd unit
+# instalada manualmente por el owner, PR2.T9/PR3.T10 en tasks.md), y su
+# ausencia nunca debe tumbar un deploy que sólo toca el backend/frontend.
+CURRENT_STEP="restart del worker"
+if [ "$SKIP_BACKEND" = false ]; then
+  log "Reiniciando pricing-worker (si existe)..."
+  sudo systemctl restart pricing-worker 2>/dev/null || warn "No se pudo reiniciar pricing-worker (¿existe pricing-worker.service? ver deploy/systemd/pricing-worker.service)"
+fi
+
 # 7) Aviso de cierre
 CURRENT_STEP="aviso final"
 DURATION=$(fmt_duration "$SECONDS")
