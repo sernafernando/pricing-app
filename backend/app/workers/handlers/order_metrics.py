@@ -168,7 +168,18 @@ class OrderMetricsDrainHandler:
             if not claims:
                 break
             _register_held_tokens(ctx, claims)
-            total_processed += _process_batch(claims, ctx)
+            try:
+                total_processed += _process_batch(claims, ctx)
+            finally:
+                # Unconditional: a token left behind is renewed by the
+                # heartbeat for the life of the process, so its row never
+                # ages into the lease-expiry charge and never becomes
+                # claimable again (`claim_dirty` only takes rows with
+                # `claimed_at IS NULL`) -- that order would be stuck for
+                # good. The paths inside the batch already unregister what
+                # they handle; this only sweeps what an exception skipped,
+                # and unregistering twice is a no-op (discard on a set).
+                _unregister_held_tokens(ctx, claims)
             batches_run += 1
         return JobResult(success=True, detail={"processed": total_processed, "batches": batches_run})
 

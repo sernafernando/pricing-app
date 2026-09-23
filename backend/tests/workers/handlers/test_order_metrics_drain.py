@@ -445,3 +445,38 @@ class TestOrderWithoutComputableMetricsDoesNotLivelock:
         assert row is not None, "the order must stay queued, not vanish"
         assert row.attempts >= 1, "an order that cannot be computed must be charged, or it is re-claimed forever"
         assert ctx.held_tokens == set()
+
+
+@pytest.mark.postgres
+class TestHeldTokensAreAlwaysReleased:
+    """Review finding R4-001: `run()` registered the batch's claim tokens
+    with the heartbeat and relied on every path inside the batch to
+    unregister them. If a RECOVERY call itself raised -- `mark_failed` or
+    `release_uncharged` hitting a connection reset, a failover or a
+    PgBouncer restart -- the exception escaped and the tokens stayed in the
+    shared set. The heartbeat then renewed those leases for the life of the
+    process, so the rows never aged into the lease-expiry charge and never
+    became claimable again (`claim_dirty` only takes rows with
+    `claimed_at IS NULL`): those orders were stuck for good. The tokens must
+    be released whatever happens."""
+
+    def test_tokens_are_released_even_when_the_recovery_call_raises(
+        self, _order_metrics_db_session, pg_order_metrics_engine, monkeypatch
+    ) -> None:
+        order_id = 500910
+        with pg_order_metrics_engine.connect() as conn:
+            _insert_dirty(conn, order_id)  # no ml_orders_ops row -> no_metrics path
+            conn.commit()
+
+        def _exploding_mark_failed(*args, **kwargs):
+            raise RuntimeError("connection reset by peer")
+
+        monkeypatch.setattr("app.workers.handlers.order_metrics.mark_failed", _exploding_mark_failed)
+
+        ctx = WorkerContext(deadline=_far_deadline(), worker_name="w", held_tokens=set())
+        with pytest.raises(RuntimeError):
+            drain.run(ctx)
+
+        assert ctx.held_tokens == set(), (
+            "a claim token left in the set is renewed forever by the heartbeat: that order is unrecoverable"
+        )
