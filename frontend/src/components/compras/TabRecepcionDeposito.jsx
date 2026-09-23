@@ -17,7 +17,7 @@ import {
 } from 'lucide-react';
 import api from '../../services/api';
 import { useDebounce } from '../../hooks/useDebounce';
-import useRecepcionDeposito, { readFocusQuery, readPedidoQuery } from '../../hooks/useRecepcionDeposito';
+import useRecepcionDeposito, { readFocusQuery, readPedidoQuery, readEjeQuery } from '../../hooks/useRecepcionDeposito';
 import { usePermisos } from '../../contexts/PermisosContext';
 import AdjuntosPanel from './AdjuntosPanel';
 import ModalCargarRetiro from './ModalCargarRetiro';
@@ -70,10 +70,12 @@ const ESTADO_BADGE_CLASS = {
 const FILTER_TABS = [
   { id: 'pagado', label: 'Por recibir' },
   { id: 'recibido', label: 'Recibidos sin controlar' },
-  { id: 'controlado', label: 'Controlados' },
   { id: 'con_faltantes', label: 'Con faltantes' },
+  { id: 'faltantes_con_res', label: 'Faltantes con resolución' },
+  { id: 'controlado', label: 'Controlados' },
 ];
 const POR_RECIBIR_ID = 'pagado';
+const FALTANTES_CON_RES_ID = 'faltantes_con_res';
 
 // Outcome text announced by the SINGLE list-level copy live region, keyed by
 // copyStatus. 'idle' is deliberately absent: it maps to an empty string, because
@@ -1222,9 +1224,12 @@ export default function TabRecepcionDeposito() {
   // `filtro` holds a FILTER_TABS id, i.e. the raw `estado` query param — which
   // may be a comma-separated list of estados, not a single one.
   const focusPedidoId = readPedidoQuery();
-  const [filtro, setFiltro] = useState(
-    focusPedidoId ? 'recibido' : FILTER_TABS[0].id
-  );
+  const [filtro, setFiltro] = useState(() => {
+    const eje = readEjeQuery();
+    if (eje && FILTER_TABS.some((t) => t.id === eje)) return eje;
+    if (focusPedidoId) return 'recibido';
+    return FILTER_TABS[0].id;
+  });
   const [incluirCC, setIncluirCC] = useState(false);
   const [qProveedor, setQProveedor] = useState('');
   const [qNumero, setQNumero] = useState('');
@@ -1266,9 +1271,11 @@ export default function TabRecepcionDeposito() {
       // still sends financial `estado` (pagado ± CC).
       const params = { page_size: 200 };
       if (filtro === 'recibido') {
-        params.eje_procesal = 'recibido,faltantes_con_res';
+        params.eje_procesal = 'recibido';
       } else if (filtro === 'con_faltantes') {
         params.eje_procesal = 'faltantes_sin_res';
+      } else if (filtro === FALTANTES_CON_RES_ID) {
+        params.eje_procesal = 'faltantes_con_res';
       } else if (filtro === 'controlado') {
         params.eje_procesal = 'controlado';
       } else {

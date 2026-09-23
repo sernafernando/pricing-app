@@ -52,20 +52,19 @@
 
 ## MODIFIED Requirements
 
-### Requirement: REQ-EC-005 — Filter tabs: 4 tabs mapping to correct states
+### Requirement: REQ-EC-005 — Filter tabs: 5 tabs mapping to correct states
 
-The deposit reception UI MUST display exactly four filter tabs. Tab queries MUST use `eje_procesal` (not financial `estado` alone) for faltantes/recibidos:
+The deposit reception UI MUST display five filter tabs. Tab queries MUST use `eje_procesal` (not financial `estado` alone) for faltantes/recibidos/controlados:
 
 | Tab label | Filter |
 |---|---|
 | Por recibir | `por_recibir` (`pagado` default; optional CC toggle) |
-| Recibidos | `recibido` AND `faltantes_con_res` |
-| Controlados | `controlado` |
+| Recibidos | `recibido` only |
 | Con faltantes | `faltantes_sin_res` only |
+| Faltantes con resolución | `faltantes_con_res` only |
+| Controlados | `controlado` |
 
-The previous two-tab layout (or any layout that groups `recibido` and `controlado` together) MUST NOT appear after this change.
-
-(Previously: Recibidos=`recibido` only; Con faltantes=`estado=con_faltantes` so sin_res and con_res shared one tab.)
+(Previously: Recibidos mixed `recibido` + `faltantes_con_res`; no dedicated resolved tab.)
 
 #### Scenario: "Por recibir" tab shows only pagado pedidos
 
@@ -73,11 +72,17 @@ The previous two-tab layout (or any layout that groups `recibido` and `controlad
 - WHEN the user activates the "Por recibir" tab with CC toggle off
 - THEN only P1 MUST appear in the list
 
-#### Scenario: "Recibidos" tab includes recibido and faltantes_con_res
+#### Scenario: "Recibidos" tab shows only recibido
 
 - GIVEN P-rec (`recibido`) and P-con (`faltantes_con_res`)
 - WHEN the user activates the "Recibidos" tab
-- THEN P-rec AND P-con MUST appear
+- THEN only P-rec MUST appear
+
+#### Scenario: "Faltantes con resolución" tab shows only faltantes_con_res
+
+- GIVEN P-sin (`faltantes_sin_res`) and P-con (`faltantes_con_res`)
+- WHEN the user activates the "Faltantes con resolución" tab
+- THEN only P-con MUST appear
 
 #### Scenario: "Controlados" tab shows only controlado pedidos
 

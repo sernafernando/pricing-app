@@ -189,9 +189,9 @@ Tab **Recepción / Depósito** (permiso `deposito.recibir_mercaderia`):
   **mercadería**. Un toggle incluye cuenta corriente (CC). Pedidos
   **servicio** no aparecen (no hay llegada física). Se ocultan líneas
   con saldo 0.
-- **Recibidos** incluye lo recibido **y** lo que el PM ya resolvió
-  (“Faltantes con resolución”). **Con faltantes** son solo los sin
-  resolver.
+- **Recibidos** lista solo lo recibido (sin controlar). **Con faltantes**
+  son solo los **sin** resolución. **Faltantes con resolución** es la cola
+  donde Depósito ve lo que el PM ya instructó, hasta pasar a controlado.
 - **Docs** abre los **adjuntos del pedido** (no un dump de documentos ERP).
 - Se puede **deshacer recibido** (vuelve a pagado o a CC). **Controlado**
   no se deshace.
@@ -215,12 +215,13 @@ Tab **Recepción / Depósito** (permiso `deposito.recibir_mercaderia`):
    resolución** y el pedido deja de listarse en **Con faltantes**.
 3. El banner de faltantes se cierra. Depósito recibe un aviso in-app
    (G31) con ese texto.
-4. **Ver** en el aviso abre **Recepción / Depósito → Recibidos** y
-   expande ese pedido (`?tab=deposito&pedido=…`). Desde ahí se controla
+4. **Ver** en el aviso abre **Recepción / Depósito → Faltantes con
+   resolución** y expande ese pedido
+   (`?tab=deposito&pedido=…&eje=faltantes_con_res`). Desde ahí se controla
    (obs/foto opcionales).
-5. El aviso G31 **no** se descarta con OK; hay que ir a Depósito. Se
-   puede posponer 1 hora. No se puede resolver dos veces el mismo
-   pedido.
+5. El aviso G31 se puede confirmar con OK como otras alertas in-app. El de
+   **faltantes** al PM, en cambio, solo se cierra al resolver. No se puede
+   resolver dos veces el mismo pedido.
 
 ---
 
