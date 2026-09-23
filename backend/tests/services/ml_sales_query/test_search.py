@@ -123,3 +123,42 @@ class TestSearchIntersectsWithActiveFilters:
         scope = build_scope(db, SalesFilter(operation_status="cancelled", q="mismo_comprador"))
         ids = {row.order_id for row in scope.listing_query.with_entities(MlOrdersOps.order_id).all()}
         assert ids == {1000}
+
+
+class TestSearchNeverErrors:
+    """SEARCH R27: a search that matches nothing returns an explicit empty
+    result. It must never reach the user as a 500."""
+
+    def test_a_number_too_big_for_the_column_matches_nothing(self, db) -> None:
+        _seed_order(db, 7001, buyer_nickname="comprador")
+        db.commit()
+
+        # 25 digits: `isdigit()` is True, but the value does not fit the
+        # BIGINT order_id/pack_id columns.
+        assert _matched_ids(db, "9" * 25) == set()
+
+    def test_unicode_digits_match_nothing(self, db) -> None:
+        _seed_order(db, 7002, buyer_nickname="comprador")
+        db.commit()
+
+        # `"²³".isdigit()` is True but `int("²³")` raises ValueError.
+        assert _matched_ids(db, "²³") == set()
+
+
+class TestSearchEscapesWildcards:
+    """The free text is data, not a pattern: `%` and `_` must not turn a
+    search into "everything"."""
+
+    def test_percent_signs_do_not_match_every_sale(self, db) -> None:
+        _seed_order(db, 7003, buyer_nickname="comprador")
+        _seed_order(db, 7004, buyer_nickname="otro")
+        db.commit()
+
+        assert _matched_ids(db, "%%%") == set()
+
+    def test_underscore_is_matched_literally(self, db) -> None:
+        _seed_order(db, 7005, buyer_nickname="juan_perez")
+        _seed_order(db, 7006, buyer_nickname="juanXperez")
+        db.commit()
+
+        assert _matched_ids(db, "juan_perez") == {7005}
