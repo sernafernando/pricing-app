@@ -130,8 +130,9 @@ export default function TabPedidosCompra() {
   const canPay = tienePermiso('administracion.ejecutar_pagos');
   const canDeleteBasura = tienePermiso('administracion.eliminar_compras_basura');
 
-  // Deep-link para "Pagar" (abre tab ordenes-pago con pedido pre-cargado).
-  const [, setSearchParams] = useSearchParams();
+  // Deep-link para "Pagar" (abre tab ordenes-pago con pedido pre-cargado)
+  // and `?pedido=&focus=observaciones` from faltantes alerts.
+  const [searchParams, setSearchParams] = useSearchParams();
 
   // Días hasta fecha para badges "vence en N días".
   const diasHasta = (isoDate) => {
@@ -260,6 +261,15 @@ export default function TabPedidosCompra() {
   useEffect(() => {
     fetchPedidos();
   }, [fetchPedidos]);
+
+  useEffect(() => {
+    const raw = searchParams.get('pedido');
+    if (!raw) return;
+    const id = Number(raw);
+    if (!Number.isFinite(id) || id <= 0) return;
+    setPedidoDetalleId(id);
+    setShowModalDetalle(true);
+  }, [searchParams]);
 
   // Reset page on filters
   useEffect(() => {
