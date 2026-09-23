@@ -16,6 +16,9 @@ according to the facet contract:
 
 from __future__ import annotations
 
+import dataclasses
+
+
 from datetime import datetime, timezone
 
 import pytest
@@ -229,8 +232,17 @@ class TestFacetConjunction:
         _seed_order(db, 17, pack_id=999)
         _seed_producto(db, 1600, marca="Epson", categoria="Impresoras", subcategoria_id=1)
         _seed_costo(db, 16, "MLA16", 1600)
+        # Order 17 is the Lexmark half of the pack: it must be summed too.
+        _seed_producto(db, 1700, marca="Lexmark", categoria="Consumibles", subcategoria_id=2)
+        _seed_costo(db, 17, "MLA17", 1700)
+
         scope = build_scope(db, SalesFilter(marcas=("epson",)))
+
         assert _ids(db, scope) == {16, 17}
+        # The AMOUNT, not just the ids: an aggregate over the filtered scope
+        # is the WHOLE pack's (2 x 100), never the matching item's alone.
+        total = sum(fila.total_amount for fila in scope.listing_query.with_entities(MlOrdersOps.total_amount).all())
+        assert total == 200
 
 
 class TestOutOfScopeFilters:
@@ -242,8 +254,11 @@ class TestOutOfScopeFilters:
         _seed_order(db, 18)
         _seed_producto(db, 1800, marca="Epson", categoria="Impresoras", subcategoria_id=1)
         _seed_costo(db, 18, "MLA18", 1800)
-        scope_a = build_scope(db, SalesFilter(marcas=("epson",)))
-        scope_b = build_scope(db, SalesFilter(marcas=("epson",)))
-        assert _ids(db, scope_a) == _ids(db, scope_b) == {18}
-        assert not hasattr(SalesFilter(), "estado_mla")
-        assert not hasattr(SalesFilter(), "tienda_oficial")
+        # `SalesFilter` has no such field, so nothing can filter by it. The
+        # real end-to-end proof (same rows with and without the query param)
+        # lives in the router test; here we pin the dataclass surface.
+        campos = {f.name for f in dataclasses.fields(SalesFilter)}
+        assert "estado_mla" not in campos
+        assert "estado_mla_actual" not in campos
+        assert "tienda_oficial" not in campos
+        assert _ids(db, build_scope(db, SalesFilter(marcas=("epson",)))) == {18}

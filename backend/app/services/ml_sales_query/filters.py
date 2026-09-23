@@ -11,10 +11,10 @@ test, PR9.T1) and by the full existing
 `tests/integration/test_ml_ventas_ops_sales_router.py` suite staying green
 after the router was switched to delegate here.
 
-`SalesFilter` carries only what this slice reads. The doubtful-case
-toggles and the product-level facets (`marcas`, `subcategorias`, `pms`)
-are added by the PRs that apply them, so nothing here is a field no code
-uses.
+`SalesFilter` also carries the D12a product-level facet fields
+(`marcas`, `subcategorias`, `pms`), applied by `build_scope` through
+`_product_facet_exists`: ONE item of the sale must satisfy EVERY active
+facet, and a match returns the whole group (spec PFILT R38).
 """
 
 from __future__ import annotations
