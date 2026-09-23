@@ -59,7 +59,7 @@ class Imputacion(Base):
     __tablename__ = "imputaciones"
 
     id = Column(BigInteger, primary_key=True, index=True)
-    origen_tipo = Column(String(32), nullable=False)
+    origen_tipo = Column(String(64), nullable=False)
     origen_id = Column(BigInteger, nullable=False)
     destino_tipo = Column(String(32), nullable=False)
     destino_id = Column(BigInteger, nullable=True)
