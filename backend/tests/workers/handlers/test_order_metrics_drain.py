@@ -402,3 +402,46 @@ class TestStorePhaseDoesNotBlockConcurrentWriterOrHeartbeat:
         with pg_order_metrics_engine.connect() as conn:
             conn.execute(text("DELETE FROM worker_job_state WHERE name = 't6f-worker'"))
             conn.commit()
+
+
+@pytest.mark.postgres
+class TestOrderWithoutComputableMetricsDoesNotLivelock:
+    """Review finding R3-001: when the bulk COMPUTE returns nothing for a
+    claimed order (an order with no `ml_orders_ops` row is the reachable
+    case), releasing it uncharged put it back at `attempts = 0`, not
+    suspect -- so the very next `claim_dirty` of the SAME `run()` loop
+    claimed it again at once. Nothing ever failed, nothing ever parked, and
+    the pass spun claim/compute/release against the database until its
+    deadline, on every drain. The order must be CHARGED instead, so it
+    parks like any other order that cannot make progress."""
+
+    def test_uncomputable_order_is_charged_and_the_pass_terminates(
+        self, _order_metrics_db_session, pg_order_metrics_engine
+    ) -> None:
+        order_id = 500900
+        with pg_order_metrics_engine.connect() as conn:
+            # Dirty row with NO matching ml_orders_ops row: compute returns
+            # no metrics for it.
+            _insert_dirty(conn, order_id)
+            conn.commit()
+
+        ctx = WorkerContext(
+            deadline=datetime.now(timezone.utc) + timedelta(seconds=10),
+            worker_name="w",
+            held_tokens=set(),
+        )
+        started = datetime.now(timezone.utc)
+        result = drain.run(ctx)
+        elapsed = (datetime.now(timezone.utc) - started).total_seconds()
+
+        assert result.success is True
+        # Terminates on its own instead of spinning until the deadline.
+        assert elapsed < 8, f"the pass spun until its deadline ({elapsed:.1f}s)"
+        with pg_order_metrics_engine.connect() as conn:
+            row = conn.execute(
+                text("SELECT attempts, last_error FROM ml_order_metrics_dirty WHERE order_id = :oid"),
+                {"oid": order_id},
+            ).fetchone()
+        assert row is not None, "the order must stay queued, not vanish"
+        assert row.attempts >= 1, "an order that cannot be computed must be charged, or it is re-claimed forever"
+        assert ctx.held_tokens == set()

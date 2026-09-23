@@ -87,10 +87,23 @@ def _store_batch(claims: List[Claim], metrics, ctx: WorkerContext) -> int:
             continue
         order_metrics = metrics.get(claim.order_id)
         if order_metrics is None:
-            # The bulk compute did not return this order (e.g. no
-            # ml_orders_ops row, design D7's own tolerance) -- leave it
-            # dirty for the next pass, no charge.
-            unstored.append(claim)
+            # The bulk compute returned nothing for this order (no
+            # `ml_orders_ops` row is the reachable case, design D7's own
+            # tolerance). This is CHARGED, not released uncharged: an
+            # uncharged release puts the row back at `attempts = 0` and
+            # not suspect, so the next `claim_dirty` of this same pass
+            # claims it again immediately -- it never fails, never parks,
+            # and the pass spins claim/compute/release against the
+            # database until its deadline. Charging it lets the normal
+            # attempts rule park it like any other order that cannot make
+            # progress. A lost race is different and stays uncharged:
+            # there, the recompute DID happen and another write simply won.
+            logger.warning(
+                "order_metrics.drain: compute returned no metrics for order_id=%s -- charging the attempt",
+                claim.order_id,
+            )
+            mark_failed(claim, "no_metrics")
+            _unregister_held_tokens(ctx, [claim])
             continue
         try:
             result = fenced_store([claim], {claim.order_id: order_metrics})
