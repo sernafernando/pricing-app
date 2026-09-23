@@ -10,7 +10,7 @@ En **Compras** ahora se ve de un vistazo si hay OC vinculada, si la factura est�
 
 **Importante:** tener el número de factura en el pedido **no** es lo mismo que “cargada en ERP”. La alerta sale solo cuando Administración tilda el check y pasan 5 minutos sin que se arrepienta.
 
-Si Depósito marca **faltantes**, avisa al responsable. Ese aviso **no se apaga con OK**: hay que escribir **qué hacer** para resolverlo (quien recibe la notificación será responsable de indicar qué debe hacer Depósito con el problema). Cuando se escribe la resolución, el pedido pasa a **Faltantes con resolución**, Depósito recibe esas instrucciones y puede terminar el control. También hay multi-OC, deshacer recibido, tipo mercadería/servicio, y en control se puede dejar observación y foto.
+Si Depósito marca **faltantes**, avisa al responsable. Ese aviso **no se apaga con OK**: hay que escribir **qué hacer** para resolverlo (quien recibe la notificación será responsable de indicar qué debe hacer Depósito con el problema). Cuando se escribe la resolución, el pedido pasa a **Faltantes con resolución**, Depósito recibe esas instrucciones y puede terminar el control. Ojo: el tab **Con faltantes** ahora muestra **solo los sin resolución** (los resueltos viven en **Faltantes con resolución**). También hay multi-OC, deshacer recibido, tipo mercadería/servicio, y en control se puede dejar observación y foto.
 
 ## Cómo se usa
 
@@ -61,10 +61,12 @@ Borrar la fila de constancia es **otro** timer de 5 minutos, desde que se **cre�
 
 ### Varias OCs en el mismo pedido
 
+> Al vincular, fijate bien: **Desvincular OC saca todas** de una vez (hoy no hay desvínculo de una sola).
+
 1. Vincular una OC **agrega**, no reemplaza. En Depósito hay **un bloque por cada OC**.
 2. Si la OC está vinculada pero el ERP no trae líneas, el bloque **sigue visible** (“OC no encontrada en ERP”).
 3. El pedido pasa a **Controlado** cuando están **todas** las OCs controladas.
-4. **Desvincular OC** saca **todas** las OCs de una vez (hoy no hay desvínculo de una sola, así que conviene no equivocarse al vincular; se está planificando un fix).
+4. **Desvincular OC** saca **todas** las OCs de una vez (se está planificando desvínculo por OC).
 
 ### Tipo mercadería o servicio
 
