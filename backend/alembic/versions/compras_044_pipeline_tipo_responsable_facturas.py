@@ -1,11 +1,12 @@
 """compras_044: pipeline tipo, responsable, factura rows
 
 Revision ID: compras_044_pipeline_tipo_responsable_facturas
-Revises: compras_043_oc_match_doc_refs_aplicado
+Revises: 20260922_ix_producto_item_id
 Create Date: 2026-09-22
 
 PR1 of compras-ops-pipeline-ux. Main already consumed compras_042 / compras_043
 for doc-refs; this revision is the pipeline schema (was design.md compras_042).
+Rehang onto unique main head after 20260922_ix_producto_item_id (PR #1319).
 
   * pedidos_compra.tipo IN (mercaderia, servicio), default mercaderia
   * pedidos_compra.responsable_id FK usuarios, backfill creado_por_id, NOT NULL
@@ -20,7 +21,7 @@ import sqlalchemy as sa
 from alembic import op
 
 revision: str = "compras_044_pipeline_tipo_responsable_facturas"
-down_revision: Union[str, None] = "compras_043_oc_match_doc_refs_aplicado"
+down_revision: Union[str, None] = "20260922_ix_producto_item_id"
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
