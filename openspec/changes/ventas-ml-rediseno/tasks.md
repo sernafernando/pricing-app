@@ -79,23 +79,23 @@ PR3.T4e, PR3.T6b, PR3.T6d and PR3.T6e are NOT implemented. They cover the statem
 ## PR4 — Enqueue function + per-order triggers (producers start; consumer already live)
 Design refs: D3 read-set scope for per-order tables, D8. Satisfies: SM R1, R3 (per-order path), R7.
 
-- [ ] PR4.T1 RED (`@pytest.mark.postgres`): PL/pgSQL `order_metrics_enqueue(ids, reason)` — upserts dirty rows with `version+1` on conflict, resets `attempts` (to 0), `last_error` (to NULL), `suspect` (to false), and leaves `claimed_at`, `claimed_by`, `claim_token` UNCHANGED (design D3 rev 3), fires ONE `pg_notify('order_metrics_dirty','')` per transaction even for 10k-row fan-out (folded notify).
-- [ ] PR4.T1a RED (`@pytest.mark.postgres`): `order_metrics_enqueue` called against an existing row with `attempts = 5, last_error IS NOT NULL` (a parked order) resets `attempts = 0` and `last_error = NULL` on that row — a new input write is a new chance, un-parking a poisoned order at the enqueue/trigger layer, not just in `queue.py`.
-- [ ] PR4.T1c RED (`@pytest.mark.postgres`, moved from PR3 because it needs the PR4 enqueue function): a parked order (attempts == 5, excluded from `claim_dirty`) that then receives `order_metrics_enqueue` (input write) is un-parked (`attempts` 0, `last_error` NULL) and is claimed and recomputed on the next drain, same as any other dirty order.
-- [ ] PR4.T1d RED (`@pytest.mark.postgres`): a `suspect = true` row that receives `order_metrics_enqueue` (input write, through the real PL/pgSQL function) ends with `suspect = false` and goes back to normal batch claiming; the system enqueue (`order_metrics_enqueue_system`) leaves `suspect` unchanged.
-- [ ] PR4.T1b RED (`@pytest.mark.postgres`): `order_metrics_enqueue_system(ids, reason)` inserts missing rows and fires the notify, but on an existing row (pending, claimed, or parked with `attempts = 5`) changes nothing — `version`, `attempts`, `last_error`, claim columns all identical before and after.
-- [ ] PR4.T2 GREEN: implement both enqueue functions' DDL in `backend/app/services/order_metrics/triggers.py`.
-- [ ] PR4.T3 RED: one test per table×write-kind for `ml_orders_ops` (INSERT; UPDATE OF `shipping_id`,`date_created`,`has_no_shipping_tag`,`pack_id`; DELETE; `shipping_id` change also enqueues OLD+NEW shipping siblings) — committed write ⇒ dirty row+version bump; rolled-back write ⇒ no row, no notify.
-- [ ] PR4.T4 RED: same pattern for `ml_order_items_ops`, `ml_order_item_costos`.
-- [ ] PR4.T5 RED: same pattern for `ml_payments_ops` (OLD/NEW `order_id`; UPDATE OF `status`,`net_received_amount`,`transaction_amount_refunded`,`shipping_amount`,`order_id`) and `ml_payment_charges` (payment_id→order_id).
-- [ ] PR4.T6 RED: same pattern for `ml_shipments_ops` (UPDATE OF `logistic_type`,`receiver_address` only; confirm sender/receiver cost and `raw_costs` columns do NOT fire — negative scenario).
-- [ ] PR4.T6a RED (`@pytest.mark.postgres`, design D3 rev 5): for every row-trigger table, an idempotent re-upsert that sets a read column to the SAME value (e.g. the sweep rewriting `status`, `net_received_amount` unchanged) enqueues NOTHING and fires no notify; changing the value does enqueue. A parked order stays parked across repeated no-op sweep writes.
-- [ ] PR4.T7 GREEN: row-level triggers for all six tables in `triggers.py`, applied via Alembic + an `after_create` listener firing only for `postgresql` dialect.
-- [ ] PR4.T8 RED: write `backend/alembic/versions/2026MMDD_ml_order_metrics_triggers_orders.py` round-trip test (upgrade creates triggers, downgrade drops them + function).
-- [ ] PR4.T9 GREEN: implement the migration.
-- [ ] PR4.T10 RED: read-set guard test — `before_cursor_execute` instrumentation of `compute_order_metrics` fails if any table it reads is missing from `TRIGGERED_TABLES` (SQLite-safe, runs in normal CI).
-- [ ] PR4.T11 GREEN: define `TRIGGERED_TABLES: FrozenSet[str]` and wire the guard.
-- [ ] PR4.T12 RED: NOTIFY-only-on-commit test — second raw connection LISTENs, confirms zero notifications on rollback, exactly one on commit regardless of row count.
+- [x] PR4.T1 RED (`@pytest.mark.postgres`): PL/pgSQL `order_metrics_enqueue(ids, reason)` — upserts dirty rows with `version+1` on conflict, resets `attempts` (to 0), `last_error` (to NULL), `suspect` (to false), and leaves `claimed_at`, `claimed_by`, `claim_token` UNCHANGED (design D3 rev 3), fires ONE `pg_notify('order_metrics_dirty','')` per transaction even for 10k-row fan-out (folded notify).
+- [x] PR4.T1a RED (`@pytest.mark.postgres`): `order_metrics_enqueue` called against an existing row with `attempts = 5, last_error IS NOT NULL` (a parked order) resets `attempts = 0` and `last_error = NULL` on that row — a new input write is a new chance, un-parking a poisoned order at the enqueue/trigger layer, not just in `queue.py`.
+- [x] PR4.T1c RED (`@pytest.mark.postgres`, moved from PR3 because it needs the PR4 enqueue function): a parked order (attempts == 5, excluded from `claim_dirty`) that then receives `order_metrics_enqueue` (input write) is un-parked (`attempts` 0, `last_error` NULL) and is claimed and recomputed on the next drain, same as any other dirty order.
+- [x] PR4.T1d RED (`@pytest.mark.postgres`): a `suspect = true` row that receives `order_metrics_enqueue` (input write, through the real PL/pgSQL function) ends with `suspect = false` and goes back to normal batch claiming; the system enqueue (`order_metrics_enqueue_system`) leaves `suspect` unchanged.
+- [x] PR4.T1b RED (`@pytest.mark.postgres`): `order_metrics_enqueue_system(ids, reason)` inserts missing rows and fires the notify, but on an existing row (pending, claimed, or parked with `attempts = 5`) changes nothing — `version`, `attempts`, `last_error`, claim columns all identical before and after.
+- [x] PR4.T2 GREEN: implement both enqueue functions' DDL in `backend/app/services/order_metrics/triggers.py`.
+- [x] PR4.T3 RED: one test per table×write-kind for `ml_orders_ops` (INSERT; UPDATE OF `shipping_id`,`date_created`,`has_no_shipping_tag`,`pack_id`; DELETE; `shipping_id` change also enqueues OLD+NEW shipping siblings) — committed write ⇒ dirty row+version bump; rolled-back write ⇒ no row, no notify.
+- [x] PR4.T4 RED: same pattern for `ml_order_items_ops`, `ml_order_item_costos`.
+- [x] PR4.T5 RED: same pattern for `ml_payments_ops` (OLD/NEW `order_id`; UPDATE OF `status`,`net_received_amount`,`transaction_amount_refunded`,`shipping_amount`,`order_id`) and `ml_payment_charges` (payment_id→order_id).
+- [x] PR4.T6 RED: same pattern for `ml_shipments_ops` (UPDATE OF `logistic_type`,`receiver_address` only; confirm sender/receiver cost and `raw_costs` columns do NOT fire — negative scenario).
+- [x] PR4.T6a RED (`@pytest.mark.postgres`, design D3 rev 5): for every row-trigger table, an idempotent re-upsert that sets a read column to the SAME value (e.g. the sweep rewriting `status`, `net_received_amount` unchanged) enqueues NOTHING and fires no notify; changing the value does enqueue. A parked order stays parked across repeated no-op sweep writes.
+- [x] PR4.T7 GREEN: row-level triggers for all six tables in `triggers.py`, applied via Alembic + an `after_create` listener firing only for `postgresql` dialect.
+- [x] PR4.T8 RED: write `backend/alembic/versions/2026MMDD_ml_order_metrics_triggers_orders.py` round-trip test (upgrade creates triggers, downgrade drops them + function).
+- [x] PR4.T9 GREEN: implement the migration.
+- [x] PR4.T10 RED: read-set guard test — `before_cursor_execute` instrumentation of `compute_order_metrics` fails if any table it reads is missing from `TRIGGERED_TABLES` (SQLite-safe, runs in normal CI).
+- [x] PR4.T11 GREEN: define `TRIGGERED_TABLES: FrozenSet[str]` and wire the guard.
+- [x] PR4.T12 RED: NOTIFY-only-on-commit test — second raw connection LISTENs, confirms zero notifications on rollback, exactly one on commit regardless of row count.
 
 ## PR5 — Etiquetas + config + transportes statement triggers; varios fan-out response
 Design refs: D3 (statement-level scope), D11. Satisfies: SM R3 (config fan-out path), R3 scenario 5.

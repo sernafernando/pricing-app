@@ -790,6 +790,91 @@ def pg_worker_db(pg_worker_engine):
     connection.close()
 
 
+@pytest.fixture(scope="module")
+def pg_order_metrics_triggers_engine():
+    """Module-scoped PostgreSQL engine for the PR4 per-order enqueue
+    triggers (ventas-ml-rediseno PR4, design D3, D7, D8): the six INPUT
+    tables the row-level triggers are declared on, plus
+    `ml_order_metrics_dirty`. The trigger DDL
+    (`app/services/order_metrics/triggers.py::create_triggers`/
+    `drop_triggers`) is applied EXPLICITLY here, never via a global
+    SQLAlchemy metadata event -- `MlOrderMetricsDirty.__table__` is shared
+    with the pre-existing PR1/PR3 fixtures below (`pg_order_metrics_engine`,
+    `pg_worker_engine`), which do NOT create the six sibling tables this
+    DDL references; a global `after_create` listener on that table fired
+    for those too and broke with `UndefinedTable`.
+
+    A separate fixture from `pg_order_metrics_engine` (PR1/PR3): that one
+    does not include `MlOrderItemOps`/`MlShipmentOps`, and mixing a fixture
+    NEW triggers attach to with one PR1/PR3 tests already depend on risks
+    a trigger firing (and enqueuing) under an unrelated test's nose.
+    """
+    if not _postgres_reachable():
+        pytest.skip(
+            f"PostgreSQL not reachable at {POSTGRES_TEST_URL} — set POSTGRES_TEST_URL "
+            "or start a local PostgreSQL to run @pytest.mark.postgres tests. "
+            "CI provides this via the `postgres` service in .github/workflows/ci.yml."
+        )
+
+    from app.models.ml_order_item_costo import MlOrderItemCosto as _MlOrderItemCosto
+    from app.models.ml_order_metrics import MlOrderMetricsDirty as _MlOrderMetricsDirty
+    from app.models.ml_orders_ops import MlOrderItemOps as _MlOrderItemOps
+    from app.models.ml_orders_ops import MlOrdersOps as _MlOrdersOps
+    from app.models.ml_orders_ops import MlShipmentOps as _MlShipmentOps
+    from app.models.ml_payments import MlPaymentCharge as _MlPaymentCharge
+    from app.models.ml_payments import MlPaymentOps as _MlPaymentOps
+    from app.services.order_metrics.triggers import create_triggers, drop_triggers
+
+    # `ml_order_metrics_dirty` LAST -- the trigger DDL applied right after
+    # this list is created references the six tables above.
+    own_tables = [
+        _MlOrdersOps.__table__,
+        _MlOrderItemOps.__table__,
+        _MlOrderItemCosto.__table__,
+        _MlPaymentOps.__table__,
+        _MlPaymentCharge.__table__,
+        _MlShipmentOps.__table__,
+        _MlOrderMetricsDirty.__table__,
+    ]
+    _restore_pristine_pg_types(own_tables)
+
+    eng = create_engine(POSTGRES_TEST_URL)
+    # Drop in reverse dependency order first (same rationale as
+    # `pg_order_metrics_engine`: a stale shared-DB schema from a real
+    # Alembic run must never silently survive `checkfirst=True`) -- drop the
+    # trigger DDL before the tables, `IF EXISTS`-safe even on a fresh DB.
+    with eng.begin() as conn:
+        drop_triggers(conn)
+    for table in reversed(own_tables):
+        table.drop(bind=eng, checkfirst=True)
+    for table in own_tables:
+        table.create(bind=eng, checkfirst=True)
+    with eng.begin() as conn:
+        create_triggers(conn)
+    _patch_pg_types_for_sqlite()
+    yield eng
+    with eng.begin() as conn:
+        drop_triggers(conn)
+    for table in reversed(own_tables):
+        table.drop(bind=eng, checkfirst=True)
+    eng.dispose()
+
+
+@pytest.fixture()
+def pg_order_metrics_triggers_db(pg_order_metrics_triggers_engine):
+    """Single-connection, AUTOCOMMITTING session against
+    `pg_order_metrics_triggers_engine` -- triggers only enqueue on COMMIT
+    (design D3), so a transactional-rollback fixture (like `db`/
+    `pg_order_metrics_db`) would never observe a single dirty row. Tests
+    clean up their own inserted rows explicitly."""
+    connection = pg_order_metrics_triggers_engine.connect()
+    Session = sessionmaker(bind=connection)
+    session = Session()
+    yield session
+    session.close()
+    connection.close()
+
+
 @pytest.fixture()
 def query_counter(db):
     """
