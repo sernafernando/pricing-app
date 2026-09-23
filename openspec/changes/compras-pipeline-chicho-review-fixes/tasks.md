@@ -50,8 +50,8 @@ Locks: persist after `apply_writeback` same txn; `created_by_id=pedido.creado_po
 
 ## Phase 4: PR4 #1324 — ERP UI + 1-of-3 + novedad GATE
 
-- [ ] 4.1 Always render one OC block in `frontend/src/components/compras/TabRecepcionDeposito.jsx`; copy `OC no encontrada en ERP` if ERP empty.
-- [ ] 4.2 Tests in `frontend/src/components/compras/TabRecepcionDeposito.test.jsx`: empty-ERP block + sibling with lines.
-- [ ] 4.3 In `backend/tests/integration/test_vincular_oc_multi.py`: 1-of-3 stays `recibido` or `faltantes_*`.
-- [ ] 4.4 Document unlink-all in `docs/modulos/compras-guia-usuario.md`.
+- [x] 4.1 Always render one OC block in `frontend/src/components/compras/TabRecepcionDeposito.jsx`; copy `OC no encontrada en ERP` if ERP empty.
+- [x] 4.2 Tests in `frontend/src/components/compras/TabRecepcionDeposito.test.jsx`: empty-ERP block + sibling with lines.
+- [x] 4.3 In `backend/tests/integration/test_vincular_oc_multi.py`: 1-of-3 stays `recibido` or `faltantes_*`.
+- [x] 4.4 Document unlink-all in `docs/modulos/compras-guia-usuario.md`.
 - [ ] 4.5 **GATE:** write `frontend/src/novedades/2026-09-23-compras-pipeline-chicho-review-fixes.md`. Stop. Show Gabe. Do not commit until he reviews.

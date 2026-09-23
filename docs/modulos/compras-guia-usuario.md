@@ -170,6 +170,11 @@ Tab **Recepción / Depósito** (permiso `deposito.recibir_mercaderia`):
 - Varias OCs en el mismo pedido: un bloque por OC. Vincular **agrega**, no
   reemplaza. **Controlado** recién cuando están todas las OCs. Pedido
   **servicio**: no hay candidatas OC (no se vincula).
+- **Desvincular OC** es todo-o-nada: quita **todas** las OCs vinculadas del
+  pedido y limpia el cache de OC del encabezado. Hoy no hay desvínculo
+  por una sola OC. Si una OC no aparece en el ERP, el bloque sigue
+  visible con el texto **OC no encontrada en ERP** (el vínculo no se
+  borra solo).
 
 ---
 

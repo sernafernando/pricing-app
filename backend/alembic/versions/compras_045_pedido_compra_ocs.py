@@ -1,7 +1,7 @@
 """compras_045: pedido_compra_ocs multi-OC relation (D-MULTI)
 
 Revision ID: compras_045_pedido_compra_ocs
-Revises: compras_044_pipeline_tipo_responsable_facturas
+Revises: compras_046_seed_ver_alertas_factura
 Create Date: 2026-09-23
 
 PR4 of compras-ops-pipeline-ux. Relation table is SoT for N OC triples.
@@ -10,6 +10,9 @@ Unique (pedido_id, oc_comp_id, oc_bra_id, oc_poh_id); index on oc_poh_id.
 
 Design.md previously listed this as compras_043; main/PR1 already consumed
 compras_042 / compras_043 / compras_044.
+
+Rehang (D-046): 046 landed on PR2 parenting 044. Single-head chain is
+044 → 046 → 045.
 """
 
 from typing import Sequence, Union
@@ -18,7 +21,7 @@ import sqlalchemy as sa
 from alembic import op
 
 revision: str = "compras_045_pedido_compra_ocs"
-down_revision: Union[str, None] = "compras_044_pipeline_tipo_responsable_facturas"
+down_revision: Union[str, None] = "compras_046_seed_ver_alertas_factura"
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 

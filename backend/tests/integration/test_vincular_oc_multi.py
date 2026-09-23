@@ -292,6 +292,41 @@ class TestControladoIffAllOcs:
         assert result.estado_nuevo != "controlado"
         assert p.estado == "recibido"
 
+    def test_one_of_three_open_stays_recibido_or_faltantes(self, db, empresa, proveedor, active_user):
+        p = PedidoCompra(
+            numero="P-MOC-CTRL-3",
+            empresa_id=empresa.id,
+            proveedor_id=proveedor.id,
+            moneda="ARS",
+            monto=Decimal("12000"),
+            estado="recibido",
+            tipo="mercaderia",
+            creado_por_id=active_user.id,
+        )
+        db.add(p)
+        db.flush()
+        _mk_oc(db, poh_id=100, supp_id=proveedor.supp_id, pod_id=1, qty=10.0)
+        _mk_oc(db, poh_id=200, supp_id=proveedor.supp_id, pod_id=2, qty=5.0)
+        _mk_oc(db, poh_id=300, supp_id=proveedor.supp_id, pod_id=3, qty=8.0)
+        db.add(PedidoCompraOc(pedido_id=p.id, oc_comp_id=1, oc_bra_id=1, oc_poh_id=100))
+        db.add(PedidoCompraOc(pedido_id=p.id, oc_comp_id=1, oc_bra_id=1, oc_poh_id=200))
+        db.add(PedidoCompraOc(pedido_id=p.id, oc_comp_id=1, oc_bra_id=1, oc_poh_id=300))
+        p.oc_comp_id = 1
+        p.oc_bra_id = 1
+        p.oc_poh_id = 100
+        db.flush()
+
+        result = recepcion_service.registrar_ingresos(
+            db,
+            p,
+            active_user,
+            RegistrarIngresosRequest(
+                lineas=[IngresoLinea(pod_id=1, cantidad_recibida=Decimal("10"))],
+            ),
+        )
+        assert result.estado_nuevo != "controlado"
+        assert p.estado == "recibido" or p.estado.startswith("faltantes")
+
     def test_last_oc_completes_controlado(self, db, empresa, proveedor, active_user):
         p = PedidoCompra(
             numero="P-MOC-CTRL-2",

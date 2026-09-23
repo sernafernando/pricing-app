@@ -178,6 +178,10 @@ const truncarObservaciones = (t) =>
 const ARRIBO_BANNER_TEXT =
   'El pedido aún no fue recibido en depósito. Confirme el arribo para habilitar el control de cantidades.';
 
+// Linked OC whose ERP header/lines are missing must still occupy one block.
+// Hiding it made the vínculo look gone. Same Spanish copy in arribo + control.
+const OC_ERP_MISSING_COPY = 'OC no encontrada en ERP';
+
 function estadoBadge(estado, stylesMap) {
   const badgeClass = ESTADO_BADGE_CLASS[estado];
   if (!badgeClass) return <span className={stylesMap.badge}>{estado}</span>;
@@ -379,12 +383,15 @@ function AccordionBodyConOcArribo({ pedido, onRefreshList }) {
       </div>
       {(ocs.length > 0 ? ocs : [null]).map((oc) => {
         const blockLineas = oc ? lineasDeOc(lineas, oc) : lineas;
-        if (blockLineas.length === 0 && oc && ocs.length > 1) return null;
-        if (blockLineas.length === 0) return null;
         const ocKey = oc ? `${oc.oc_comp_id}-${oc.oc_bra_id}-${oc.oc_poh_id}` : 'header';
+        const erpMissing = Boolean(oc) && blockLineas.length === 0;
+        if (!oc && blockLineas.length === 0) return null;
         return (
           <section key={ocKey} className={styles.ocBlock}>
             {oc && <h3 className={styles.ocBlockTitle}>OC #{oc.oc_poh_id}</h3>}
+            {erpMissing ? (
+              <p className={styles.ocErpMissing}>{OC_ERP_MISSING_COPY}</p>
+            ) : (
             <div className={styles.tableWrapper}>
               <table className={styles.itemTable}>
                 <caption className="sr-only">
@@ -414,6 +421,7 @@ function AccordionBodyConOcArribo({ pedido, onRefreshList }) {
                 </tbody>
               </table>
             </div>
+            )}
           </section>
         );
       })}
@@ -480,8 +488,9 @@ function AccordionBodyConOc({ pedido, onRefreshList }) {
 
   if (!saldos) return null;
 
-  const lineas = (saldos.lineas || []).filter((l) => Number(l.saldo_pendiente) !== 0);
-  const ocs = linkedOcs(pedido, saldos.lineas || []);
+  const lineasErp = saldos.lineas || [];
+  const lineas = lineasErp.filter((l) => Number(l.saldo_pendiente) !== 0);
+  const ocs = linkedOcs(pedido, lineasErp);
 
   // ── Per-line input validation ──
   const hasInputError = (podId) => {
@@ -591,11 +600,16 @@ function AccordionBodyConOc({ pedido, onRefreshList }) {
 
       {(ocs.length > 0 ? ocs : [null]).map((oc) => {
         const blockLineas = oc ? lineasDeOc(lineas, oc) : lineas;
-        if (blockLineas.length === 0) return null;
+        const erpLineas = oc ? lineasDeOc(lineasErp, oc) : lineasErp;
         const ocKey = oc ? `${oc.oc_comp_id}-${oc.oc_bra_id}-${oc.oc_poh_id}` : 'header';
+        const erpMissing = Boolean(oc) && erpLineas.length === 0;
+        if (!oc && blockLineas.length === 0) return null;
         return (
       <section key={ocKey} className={styles.ocBlock}>
         {oc && <h3 className={styles.ocBlockTitle}>OC #{oc.oc_poh_id}</h3>}
+        {erpMissing ? (
+          <p className={styles.ocErpMissing}>{OC_ERP_MISSING_COPY}</p>
+        ) : (
       <div className={styles.tableWrapper}>
         <table className={styles.itemTable}>
           <thead>
@@ -685,6 +699,7 @@ function AccordionBodyConOc({ pedido, onRefreshList }) {
           </tbody>
         </table>
       </div>
+        )}
       </section>
         );
       })}
