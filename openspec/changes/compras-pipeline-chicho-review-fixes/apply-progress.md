@@ -28,7 +28,11 @@
 
 ## Remaining Tasks
 
-- [ ] 4.5 Novedad GATE — draft written at `frontend/src/novedades/2026-09-23-compras-pipeline-chicho-review-fixes.md` (untracked). Orchestrator must show Gabe. Do **not** commit until he reviews.
+- [ ] 4.5 **SUPERSEDED** — original draft said Match = cargada. Rewrite is task 6.3. Do not commit the old copy.
+- [ ] 5.1–5.7 PR5 — stop notify-on-persist; `cargada` columns + `compras_047`; PATCH; 5-min pending-alert sweep; rewrite BE tests (row ≠ chip; timer fire/cancel).
+- [ ] 6.1–6.3 PR6 — detalle checkbox; chip from `cargada`; rewrite novedad + guía; Gabe gate.
+
+**Planning amend (2026-09-23):** Gabe correction applied to proposal/design/specs/tasks. No product code in this amend turn. Next = apply Phase 5.
 
 ## Work Unit Evidence
 
