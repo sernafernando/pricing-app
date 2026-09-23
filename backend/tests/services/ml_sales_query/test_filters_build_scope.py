@@ -1,19 +1,21 @@
-"""Characterization tests for `app.services.ml_sales_query.filters.build_scope`
-(PR9.T1).
+"""Tests for `app.services.ml_sales_query.filters.build_scope` (PR9.T1).
 
-`build_scope` is a PURE REFACTOR of the inline query-building logic that
-used to live directly in `ml_ventas_ops.py::listar_ventas` (status
-derivation the status-derivation helpers, `_group_key_expr` `_group_key_expr`, `_collapse` `_collapse`). These
-tests exercise `build_scope` directly against seeded data and assert the
-exact same rows, ordering, grouping and statuses the OLD inline logic
-produced -- proven independently of the router, so the refactor cannot
-silently change behavior even if the router's own request/response
-plumbing masked it.
+`build_scope` is a PURE REFACTOR of the query-building logic that used to
+live inline in `ml_ventas_ops.py::listar_ventas` (the status derivation,
+the group key expression and the group-level collapse rule). These tests
+pin its behavior directly against seeded data, independently of the
+router.
+
+They pin expected values; they do NOT run the old inline code side by
+side, because this same change deletes it. The before/after proof is the
+untouched `tests/integration/test_ml_ventas_ops_sales_router.py` suite
+staying green after the router was switched to delegate here -- that suite
+also covers the status branches this file does not (`in_mediation`,
+`cancelled_ml_covered`, a settled claim).
 
 Covers: date range scoping, operation/goods status derivation, pack
 grouping (`group_key`), and pagination-shaped ordering (`date_created`
-DESC, `order_id` DESC tiebreak) -- the same combinations the orchestrator
-scope calls out.
+DESC, `order_id` DESC tiebreak).
 """
 
 from __future__ import annotations
@@ -121,9 +123,10 @@ class TestStatusDerivationParity:
         db.commit()
 
         # Asserted, not assumed. This test failed once in CI (parallel run)
-        # reading `paid`, and could not be reproduced locally: the assertions
-        # below name WHICH link was missing instead of just reporting the
-        # collapsed status, so a repeat failure is diagnosable.
+        # reading `paid`, and could NOT be reproduced locally -- not even
+        # running the whole suite with the same `-n 4`. The cause is still
+        # unknown, so instead of guessing, the assertions below name WHICH
+        # link was missing rather than only reporting the collapsed status.
         enlaces = (
             db.query(MlOperationLink)
             .filter(MlOperationLink.order_id == order_id, MlOperationLink.entity_type == "claim")
@@ -156,7 +159,9 @@ class TestDateRangeScoping:
                 )
             ),
         )
-        ids = {r.order_id for r in _rows(db, scope)}
+        # Scoped to the ids this test seeds: another test's committed row
+        # must not be able to turn this into a false failure.
+        ids = {r.order_id for r in _rows(db, scope)} & {10, 11}
         assert ids == {10}
 
 
@@ -182,7 +187,7 @@ class TestOperationAndGoodsStatusFilters:
         _seed_order(db, 24, status="cancelled", date_created=datetime(2026, 1, 1, tzinfo=timezone.utc))
         _seed_order(db, 25, status="paid", date_created=datetime(2026, 1, 1, tzinfo=timezone.utc))
         scope = build_scope(db, SalesFilter(operation_status="cancelled"))
-        base_ids = {row.MlOrdersOps.order_id for row in scope.base.all()}
+        base_ids = {row.MlOrdersOps.order_id for row in scope.base.all()} & {24, 25}
         assert base_ids == {24, 25}
 
 
