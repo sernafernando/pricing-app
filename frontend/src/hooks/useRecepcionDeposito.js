@@ -13,6 +13,12 @@ export function readPedidoQuery() {
   return new URLSearchParams(window.location.search).get('pedido');
 }
 
+/** Optional `?eje=` to open a Depósito filter tab (e.g. faltantes_con_res). */
+export function readEjeQuery() {
+  if (typeof window === 'undefined') return null;
+  return new URLSearchParams(window.location.search).get('eje');
+}
+
 /**
  * useRecepcionDeposito — Slice B reception endpoints for Batch K.
  *
