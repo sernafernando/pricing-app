@@ -49,9 +49,9 @@ Chain strategy: feature-branch-chain
 
 ## Phase 3: Depósito ID
 
-- [ ] 3.1 `frontend/src/components/compras/TabRecepcionDeposito.jsx`: Cargada badge iff `factura_cargada`; `identChips` (factura + `pedidos_documento`, 60ch+title) all rows incl CON-OC.
-- [ ] 3.2 `docs/modulos/compras-guia-usuario.md`: OC chip = vinculación (not GBP).
-- [ ] 3.3 Tests badge + chips in `frontend/src/components/compras/TabRecepcionDeposito.test.jsx`.
+- [x] 3.1 `frontend/src/components/compras/TabRecepcionDeposito.jsx`: Cargada badge iff `factura_cargada`; `identChips` (factura + `pedidos_documento`, 60ch+title) all rows incl CON-OC.
+- [x] 3.2 `docs/modulos/compras-guia-usuario.md`: OC chip = vinculación (not GBP).
+- [x] 3.3 Tests badge + chips in `frontend/src/components/compras/TabRecepcionDeposito.test.jsx`.
 
 ## Phase 4: Control photo (#16)
 
