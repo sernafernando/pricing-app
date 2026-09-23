@@ -80,7 +80,8 @@ AFTER INSERT ON etiquetas_envio
 FOR EACH ROW EXECUTE FUNCTION order_metrics_enqueue_etiquetas_envio();
 
 CREATE TRIGGER trg_order_metrics_etiquetas_envio_update
-AFTER UPDATE OF shipping_id, logistica_id, costo_override, fecha_envio, es_turbo, es_lluvia, transporte_id
+AFTER UPDATE OF shipping_id, logistica_id, costo_override, fecha_envio, es_turbo, es_lluvia,
+    transporte_id, manual_zip_code
 ON etiquetas_envio
 FOR EACH ROW WHEN (
     OLD.shipping_id IS DISTINCT FROM NEW.shipping_id
@@ -90,6 +91,10 @@ FOR EACH ROW WHEN (
     OR OLD.es_turbo IS DISTINCT FROM NEW.es_turbo
     OR OLD.es_lluvia IS DISTINCT FROM NEW.es_lluvia
     OR OLD.transporte_id IS DISTINCT FROM NEW.transporte_id
+    -- A hand-corrected postal code changes which cordon the order falls
+    -- into, and with it the shipping cost: the formula resolves the cordon
+    -- as COALESCE(transporte.cp, etiqueta.manual_zip_code, shipment zip).
+    OR OLD.manual_zip_code IS DISTINCT FROM NEW.manual_zip_code
 )
 EXECUTE FUNCTION order_metrics_enqueue_etiquetas_envio();
 

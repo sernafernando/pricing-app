@@ -107,6 +107,37 @@ class TestEtiquetasEnvioTrigger:
             session.execute(text("DELETE FROM ml_orders_ops WHERE order_id = :oid"), {"oid": order_id})
             session.commit()
 
+    def test_manual_zip_code_edit_enqueues(self, clean_slate) -> None:
+        """Review finding R3-001: `manual_zip_code` IS a metrics input --
+        the cordon a Flex order falls into resolves as
+        `COALESCE(transporte.cp, etiqueta.manual_zip_code, shipment zip)`
+        (`breakdown_service.py:508-509`, and the `cp_cordones` trigger
+        functions in this very PR join on that same expression). Correcting
+        a label's postal code by hand can therefore change the shipping
+        cost -- and it was absent from the trigger's column list, so nothing
+        was enqueued and the stored number silently kept the old cordon."""
+        session = clean_slate
+        order_id, shipping_id = 500012, 900012
+        try:
+            _insert_order(session, order_id, shipping_id=shipping_id)
+            _insert_etiqueta(session, shipping_id, manual_zip_code=None)
+            session.commit()
+            _clear_dirty(session)
+
+            session.execute(
+                text("UPDATE etiquetas_envio SET manual_zip_code = :cp WHERE shipping_id = :sid"),
+                {"cp": "1704", "sid": str(shipping_id)},
+            )
+            session.commit()
+
+            assert _dirty_row(session, order_id) is not None, (
+                "a hand-corrected postal code changes the cordon and must enqueue"
+            )
+        finally:
+            session.execute(text("DELETE FROM etiquetas_envio WHERE shipping_id = :sid"), {"sid": str(shipping_id)})
+            session.execute(text("DELETE FROM ml_orders_ops WHERE order_id = :oid"), {"oid": order_id})
+            session.commit()
+
     def test_update_of_read_column_enqueues(self, clean_slate) -> None:
         session = clean_slate
         order_id, shipping_id = 500002, 900002
