@@ -73,6 +73,7 @@ def crear_notificaciones_para_permisos(
     severidad: SeveridadNotificacion = SeveridadNotificacion.WARNING,
     estado: EstadoNotificacion = EstadoNotificacion.PENDIENTE,
     item_id: Optional[int] = None,
+    codigo_producto: Optional[str] = None,
 ) -> list[Notificacion]:
     """
     Crea una notificación por cada usuario activo que tenga al menos uno
@@ -97,6 +98,7 @@ def crear_notificaciones_para_permisos(
         severidad: enum `SeveridadNotificacion` (default WARNING).
         estado: enum `EstadoNotificacion` (default PENDIENTE).
         item_id: id de referencia opcional (pedido, NC, etc.) para agrupación.
+        codigo_producto: deep-link o código opcional para la UI.
 
     Returns:
         Lista de `Notificacion` agregadas a la sesión (aún sin flush/commit).
@@ -120,6 +122,7 @@ def crear_notificaciones_para_permisos(
             user_id=user.id,
             tipo=tipo,
             item_id=item_id,
+            codigo_producto=codigo_producto,
             mensaje=mensaje,
             severidad=severidad,
             estado=estado,

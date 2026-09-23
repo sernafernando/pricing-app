@@ -14,6 +14,7 @@ Pattern mirrors test_oc_vincular_s1_endpoints.py.
 
 from __future__ import annotations
 
+from datetime import datetime, timezone
 from decimal import Decimal
 from unittest.mock import patch
 
@@ -2539,3 +2540,138 @@ class TestRecepcionServicio409:
             recepcion_service.registrar_ingresos(db, p, active_user, req)
         assert exc.value.status_code == 409
         assert "n_a_servicio" in exc.value.detail
+
+
+class TestResolverFaltantesHttp:
+    def test_empty_texto_422(self, client, auth_headers, db, empresa, proveedor, active_user) -> None:
+        p = PedidoCompra(
+            numero="P-RES-422",
+            empresa_id=empresa.id,
+            proveedor_id=proveedor.id,
+            moneda="ARS",
+            monto=Decimal("100"),
+            estado="con_faltantes",
+            creado_por_id=active_user.id,
+            responsable_id=active_user.id,
+        )
+        db.add(p)
+        db.commit()
+        r = client.post(
+            f"{BASE}/pedidos/{p.id}/faltantes/resolver",
+            json={"texto": "   "},
+            headers=auth_headers,
+        )
+        assert r.status_code == 422
+        db.refresh(p)
+        assert p.faltantes_resuelto_en is None
+
+    def test_deposito_only_403(
+        self,
+        client,
+        auth_headers,
+        db,
+        empresa,
+        proveedor,
+        active_user,
+        admin_user,
+        con_permiso_solo_recibir_mercaderia,
+    ) -> None:
+        p = PedidoCompra(
+            numero="P-RES-403",
+            empresa_id=empresa.id,
+            proveedor_id=proveedor.id,
+            moneda="ARS",
+            monto=Decimal("100"),
+            estado="con_faltantes",
+            creado_por_id=admin_user.id,
+            responsable_id=admin_user.id,
+        )
+        db.add(p)
+        db.commit()
+        r = client.post(
+            f"{BASE}/pedidos/{p.id}/faltantes/resolver",
+            json={"texto": "Comprar 2 cajas"},
+            headers=auth_headers,
+        )
+        assert r.status_code == 403
+        db.refresh(p)
+        assert p.faltantes_resuelto_en is None
+
+    def test_reresolve_409(self, client, auth_headers, db, empresa, proveedor, active_user) -> None:
+        stamp = datetime(2026, 3, 10, 12, 0, tzinfo=timezone.utc)
+        p = PedidoCompra(
+            numero="P-RES-409",
+            empresa_id=empresa.id,
+            proveedor_id=proveedor.id,
+            moneda="ARS",
+            monto=Decimal("100"),
+            estado="con_faltantes",
+            creado_por_id=active_user.id,
+            responsable_id=active_user.id,
+            faltantes_resuelto_en=stamp,
+        )
+        db.add(p)
+        db.commit()
+        r = client.post(
+            f"{BASE}/pedidos/{p.id}/faltantes/resolver",
+            json={"texto": "Otro intento"},
+            headers=auth_headers,
+        )
+        assert r.status_code == 409
+
+
+class TestListarPedidosEjeTipo:
+    def test_eje_recibidos_excludes_servicio_and_sin_res(
+        self, client, auth_headers, db, empresa, proveedor, active_user, con_permiso_deposito
+    ) -> None:
+        rec = PedidoCompra(
+            numero="P-LIST-REC",
+            empresa_id=empresa.id,
+            proveedor_id=proveedor.id,
+            moneda="ARS",
+            monto=Decimal("100"),
+            estado="recibido",
+            creado_por_id=active_user.id,
+        )
+        con = PedidoCompra(
+            numero="P-LIST-CON",
+            empresa_id=empresa.id,
+            proveedor_id=proveedor.id,
+            moneda="ARS",
+            monto=Decimal("100"),
+            estado="con_faltantes",
+            faltantes_resuelto_en=datetime(2026, 1, 1, tzinfo=timezone.utc),
+            creado_por_id=active_user.id,
+        )
+        sin = PedidoCompra(
+            numero="P-LIST-SIN",
+            empresa_id=empresa.id,
+            proveedor_id=proveedor.id,
+            moneda="ARS",
+            monto=Decimal("100"),
+            estado="con_faltantes",
+            creado_por_id=active_user.id,
+        )
+        srv = PedidoCompra(
+            numero="P-LIST-SRV",
+            empresa_id=empresa.id,
+            proveedor_id=proveedor.id,
+            moneda="ARS",
+            monto=Decimal("100"),
+            estado="recibido",
+            tipo="servicio",
+            creado_por_id=active_user.id,
+        )
+        db.add_all([rec, con, sin, srv])
+        db.commit()
+        r = client.get(
+            f"{BASE}/pedidos",
+            params={"eje_procesal": "recibido,faltantes_con_res"},
+            headers=auth_headers,
+        )
+        assert r.status_code == 200
+        numeros = {item["numero"] for item in r.json()["items"]}
+        assert "P-LIST-REC" in numeros
+        assert "P-LIST-CON" in numeros
+        assert "P-LIST-SIN" not in numeros
+        assert "P-LIST-SRV" not in numeros

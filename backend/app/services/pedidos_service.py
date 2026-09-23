@@ -31,7 +31,7 @@ from decimal import ROUND_HALF_UP, Decimal
 from typing import Any, Final, Literal, Optional
 
 from fastapi import HTTPException, status
-from sqlalchemy import func
+from sqlalchemy import and_, false, func, or_
 from sqlalchemy.orm import Session
 
 from app.core.logging import get_logger
@@ -477,6 +477,57 @@ def calcular_eje_procesal(
     if estado == "controlado":
         return "controlado"
     return None
+
+
+_EJE_FILTROS: Final[dict[str, Any]] = {
+    "faltantes_sin_res": and_(
+        PedidoCompra.tipo != "servicio",
+        PedidoCompra.estado == "con_faltantes",
+        PedidoCompra.faltantes_resuelto_en.is_(None),
+    ),
+    "faltantes_con_res": and_(
+        PedidoCompra.tipo != "servicio",
+        PedidoCompra.estado == "con_faltantes",
+        PedidoCompra.faltantes_resuelto_en.isnot(None),
+    ),
+    "recibido": and_(PedidoCompra.tipo != "servicio", PedidoCompra.estado == "recibido"),
+    "controlado": and_(PedidoCompra.tipo != "servicio", PedidoCompra.estado == "controlado"),
+    "por_recibir": and_(
+        PedidoCompra.tipo != "servicio",
+        PedidoCompra.estado.in_(("pagado", "en_cuenta_corriente")),
+    ),
+    "n_a_servicio": PedidoCompra.tipo == "servicio",
+}
+
+
+def aplicar_filtro_tipo(condiciones: list[Any], tipo: str | None) -> None:
+    """Append comma-OR tipo filter to a listar_pedidos condition list."""
+    if tipo is None:
+        return
+    tipos = [t.strip() for t in tipo.split(",") if t.strip()]
+    if not tipos:
+        return
+    if len(tipos) == 1:
+        condiciones.append(PedidoCompra.tipo == tipos[0])
+    else:
+        condiciones.append(PedidoCompra.tipo.in_(tipos))
+
+
+def aplicar_filtro_eje_procesal(condiciones: list[Any], eje_procesal: str | None) -> None:
+    """Append comma-OR eje_procesal filter matching calcular_eje_procesal."""
+    if eje_procesal is None:
+        return
+    ejes = [e.strip() for e in eje_procesal.split(",") if e.strip()]
+    if not ejes:
+        return
+    clauses = [_EJE_FILTROS[eje] for eje in ejes if eje in _EJE_FILTROS]
+    if not clauses:
+        condiciones.append(false())
+        return
+    if len(clauses) == 1:
+        condiciones.append(clauses[0])
+        return
+    condiciones.append(or_(*clauses))
 
 
 def es_factura_cargada(session: Session, pedido_id: int) -> bool:

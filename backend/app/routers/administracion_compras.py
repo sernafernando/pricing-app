@@ -429,6 +429,11 @@ _ESTADOS_VISIBLES_DEPOSITO: tuple[str, ...] = (
 )
 def listar_pedidos(
     estado: Optional[str] = Query(None, description="Estado del pedido"),
+    tipo: Optional[str] = Query(None, description="tipo mercaderia|servicio (comma-OR)"),
+    eje_procesal: Optional[str] = Query(
+        None,
+        description="Eje procesal comma-OR (recibido,faltantes_con_res,faltantes_sin_res,controlado,por_recibir)",
+    ),
     proveedor_id: Optional[int] = Query(None, ge=1),
     empresa_id: Optional[int] = Query(None, ge=1),
     q_proveedor: Optional[str] = Query(None, description="Contains filter on proveedor name"),
@@ -472,6 +477,8 @@ def listar_pedidos(
         if not permitidos:
             return PedidoCompraPaginated(items=[], total=0, page=page, page_size=page_size)
         estado = ",".join(permitidos)
+        # Depósito listing never includes servicio (Por recibir / eje tabs).
+        tipo = "mercaderia"
         # The FX-variance query is a financial report, not reception data.
         diferencial_cambio_pendiente = None
 
@@ -580,6 +587,8 @@ def listar_pedidos(
             condiciones.append(PedidoCompra.estado == estados[0])
         elif estados:
             condiciones.append(PedidoCompra.estado.in_(estados))
+    pedidos_service.aplicar_filtro_tipo(condiciones, tipo)
+    pedidos_service.aplicar_filtro_eje_procesal(condiciones, eje_procesal)
     if proveedor_id is not None:
         condiciones.append(PedidoCompra.proveedor_id == proveedor_id)
     if empresa_id is not None:
@@ -5846,20 +5855,18 @@ def post_deshacer_recibido(
 )
 def post_resolver_faltantes(
     pedido_id: int,
-    request: ResolverFaltantesRequest | None = None,
+    request: ResolverFaltantesRequest,
     db: Session = Depends(get_db),
-    user: Usuario = Depends(
-        require_algun_permiso(["administracion.gestionar_ordenes_compra", recepcion_service.PERMISO_RECEPCION])
-    ),
+    user: Usuario = Depends(get_current_user),
 ) -> ResolverFaltantesResponse:
-    """Set faltantes_resuelto_en and notify users with deposito.recibir_mercaderia."""
+    """Stamp faltantes resolved. Writer = responsable or gestionar_ordenes_compra."""
     pedido = _obtener_pedido_recepcion_o_404(db, pedido_id)
     try:
         result = recepcion_service.resolver_faltantes(
             db,
             pedido,
             user,
-            texto=request.texto if request is not None else None,
+            texto=request.texto,
         )
     except HTTPException:
         db.rollback()

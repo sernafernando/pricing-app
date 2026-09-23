@@ -49,6 +49,7 @@ logger = get_logger("services.recepcion_service")
 
 # Permission constant — used by the router to avoid hardcoded strings.
 PERMISO_RECEPCION: str = "deposito.recibir_mercaderia"
+PERMISO_GESTIONAR_OC: str = "administracion.gestionar_ordenes_compra"
 
 # States from which the ARRIVAL step is valid — the entry gate of both reception
 # paths. 'pagado' and 'en_cuenta_corriente' are logistically equivalent here: the
@@ -814,6 +815,15 @@ def deshacer_recibido(
     return DeshacerRecibidoResponse(pedido_id=pedido.id, estado_nuevo=nuevo_estado)
 
 
+def _puede_resolver_faltantes(session: Session, user: Usuario, pedido: PedidoCompra) -> bool:
+    """Writer = pedido responsable OR administracion.gestionar_ordenes_compra."""
+    if pedido.responsable_id is not None and int(user.id) == int(pedido.responsable_id):
+        return True
+    from app.services.permisos_service import PermisosService
+
+    return PermisosService(session).tiene_permiso(user, PERMISO_GESTIONAR_OC)
+
+
 def resolver_faltantes(
     session: Session,
     pedido: PedidoCompra,
@@ -822,11 +832,30 @@ def resolver_faltantes(
     *,
     ahora: datetime | None = None,
 ) -> ResolverFaltantesResponse:
-    """Mark faltantes resolved and fan-out G31 to deposito.recibir_mercaderia."""
+    """Stamp faltantes_resuelto_en, retract compras.faltantes, fan-out G31.
+
+    Financial estado stays con_faltantes. Depósito-only actors are not writers.
+    """
+    texto_norm = (texto or "").strip()
+    if not texto_norm:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail="texto no puede estar vacío.",
+        )
+    if not _puede_resolver_faltantes(session, user, pedido):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="No tenés permiso para resolver faltantes.",
+        )
     if pedido.estado != "con_faltantes":
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail=f"Solo se resuelven faltantes en estado con_faltantes (estado='{pedido.estado}').",
+        )
+    if pedido.faltantes_resuelto_en is not None:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Los faltantes ya fueron resueltos.",
         )
     stamp = ahora if ahora is not None else datetime.now(UTC)
     if stamp.tzinfo is None:
@@ -837,12 +866,13 @@ def resolver_faltantes(
         pedido=pedido,
         user=user,
         tipo="faltantes_resuelto",
-        payload={"texto": texto, "faltantes_resuelto_en": stamp.isoformat()},
+        payload={"texto": texto_norm, "faltantes_resuelto_en": stamp.isoformat()},
     )
     from app.services import compras_alertas_service
 
     if pedido.proveedor is None:
         session.refresh(pedido, attribute_names=["proveedor"])
-    compras_alertas_service.notificar_faltantes_resuelto(session, pedido=pedido)
+    compras_alertas_service.retractar_faltantes(session, pedido_id=int(pedido.id), ahora=stamp)
+    compras_alertas_service.notificar_faltantes_resuelto(session, pedido=pedido, texto=texto_norm)
     session.flush()
     return ResolverFaltantesResponse(pedido_id=pedido.id, faltantes_resuelto_en=stamp)

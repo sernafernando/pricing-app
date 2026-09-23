@@ -32,6 +32,7 @@ SNOOZE_WINDOW: Final[timedelta] = timedelta(hours=1)
 PERMISO_VER_ALERTAS_FACTURA: Final[str] = "administracion.ver_alertas_factura"
 PERMISO_DEPOSITO_RECEPCION: Final[str] = "deposito.recibir_mercaderia"
 DEEP_LINK_OBSERVACIONES: Final[str] = "/administracion/compras?tab=pedidos&pedido={pedido_id}&focus=observaciones"
+DEEP_LINK_DEPOSITO: Final[str] = "/administracion/compras?tab=deposito&pedido={pedido_id}"
 
 
 def _ahora_utc(ahora: datetime | None) -> datetime:
@@ -65,8 +66,10 @@ def copy_faltantes(*, pedido_numero: str, proveedor_nombre: str, texto: str, ped
     return f"Faltantes en {pedido_numero} ({proveedor_nombre}): {texto} — {link}"
 
 
-def copy_faltantes_resuelto(*, pedido_numero: str, proveedor_nombre: str) -> str:
-    return f"Faltantes resueltos en {pedido_numero} ({proveedor_nombre})."
+def copy_faltantes_resuelto(*, pedido_numero: str, proveedor_nombre: str, texto: str, pedido_id: int) -> str:
+    texto_norm = (texto or "").strip()
+    link = DEEP_LINK_DEPOSITO.format(pedido_id=pedido_id)
+    return f"Faltantes resueltos en {pedido_numero} ({proveedor_nombre}): {texto_norm} — {link}"
 
 
 def destinatarios_factura(session: Session) -> list[Usuario]:
@@ -213,15 +216,42 @@ def notificar_faltantes(
     return [notif]
 
 
+def retractar_faltantes(
+    session: Session,
+    *,
+    pedido_id: int,
+    ahora: datetime | None = None,
+) -> int:
+    """Mark open compras.faltantes for this pedido DESCARTADA (resolve only)."""
+    stamp = _ahora_utc(ahora)
+    notifs = (
+        session.query(Notificacion)
+        .filter(
+            Notificacion.tipo == TIPO_FALTANTES,
+            Notificacion.item_id == int(pedido_id),
+            Notificacion.estado != EstadoNotificacion.DESCARTADA,
+        )
+        .all()
+    )
+    for notif in notifs:
+        notif.estado = EstadoNotificacion.DESCARTADA
+        notif.fecha_descarte = stamp
+        notif.leida = True
+    return len(notifs)
+
+
 def notificar_faltantes_resuelto(
     session: Session,
     *,
     pedido: PedidoCompra,
+    texto: str,
 ) -> list[Notificacion]:
-    """G31: every user with deposito.recibir_mercaderia."""
+    """G31: every user with deposito.recibir_mercaderia. Copy includes PM texto + Depósito link."""
     mensaje = copy_faltantes_resuelto(
         pedido_numero=pedido.numero,
         proveedor_nombre=_proveedor_nombre(pedido),
+        texto=texto,
+        pedido_id=int(pedido.id),
     )
     return crear_notificaciones_para_permisos(
         session,
@@ -230,11 +260,22 @@ def notificar_faltantes_resuelto(
         mensaje=mensaje,
         severidad=SeveridadNotificacion.INFO,
         item_id=int(pedido.id),
+        codigo_producto=DEEP_LINK_DEPOSITO.format(pedido_id=int(pedido.id)),
     )
 
 
+def rechazar_cierre_faltantes(notificacion: Notificacion) -> None:
+    """OK/dismiss of compras.faltantes is rejected; only resolve retracts it."""
+    if notificacion.tipo == TIPO_FALTANTES:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="La alerta de faltantes solo se cierra al resolver.",
+        )
+
+
 def marcar_ok(_session: Session, notificacion: Notificacion, *, ahora: datetime | None = None) -> Notificacion:
-    """Per-user OK → DESCARTADA."""
+    """Per-user OK → DESCARTADA. compras.faltantes → 409."""
+    rechazar_cierre_faltantes(notificacion)
     stamp = _ahora_utc(ahora)
     notificacion.estado = EstadoNotificacion.DESCARTADA
     notificacion.fecha_descarte = stamp
