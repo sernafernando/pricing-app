@@ -60,13 +60,13 @@ Locks: persist after `apply_writeback` same txn; **no notify on persist/Match**;
 
 ## Phase 5: PR5 — Constancia vs cargada (backend)
 
-- [ ] 5.1 Add `cargada` (bool default false), `cargada_marked_at`, `cargada_marked_by_id`, `alerta_pendiente_hasta`, `alerta_disparada_at` on `backend/app/models/pedido_factura_documento.py`. No silent backfill.
-- [ ] 5.2 Create `backend/alembic/versions/compras_047_factura_cargada_erp.py` parent `compras_045_pedido_compra_ocs`. Index pending `alerta_pendiente_hasta`.
-- [ ] 5.3 In `backend/app/services/pedidos_service.py`: remove `_notificar_factura_cargada` from `persist_factura_documento`. Add `FACTURA_CARGADA_ALERT_DELAY` **separate** from `FACTURA_UNDO_WINDOW`. `es_factura_cargada` / `chips_visibilidad_batch` = ≥1 `cargada=true`. Expose `tiene_numero_factura`. Implement `marcar_factura_cargada` (check/uncheck, idempotent re-check does not reset timer; re-check after uncheck starts a new window).
-- [ ] 5.4 In `backend/app/services/compras_alertas_service.py` add `disparar_alertas_factura_pendientes(session, *, ahora=None)`. Persist/alta/Match MUST NOT call notify. Uncheck before fire cancels pending. DELETE undo still retracts fired notifs.
-- [ ] 5.5 Create `backend/app/scripts/dispatch_factura_cargada_alerts.py` cron entry that calls the sweep. No `BackgroundTasks.sleep`.
-- [ ] 5.6 Add PATCH `pedidos/{id}/factura-documentos/{row_id}` in `backend/app/routers/administracion_compras.py` + Pydantic v2 body/response in `backend/app/schemas/pedido_compra.py`. Permiso `administracion.gestionar_ordenes_compra`. Include factura rows + flags on pedido detalle response.
-- [ ] 5.7 Rewrite tests: `test_pedido_factura_documentos.py` (row ≠ cargada; Match chip-off; DELETE undo still `created_at`; PATCH check/uncheck); `test_compras_alertas_service.py` (no notify on alta; fire at T+5; cancel on uncheck; sweep at T+4:59 no-op; holders only); `test_oc_match_worker.py` (row exists, chip off, zero notifs).
+- [x] 5.1 Add `cargada` (bool default false), `cargada_marked_at`, `cargada_marked_by_id`, `alerta_pendiente_hasta`, `alerta_disparada_at` on `backend/app/models/pedido_factura_documento.py`. No silent backfill.
+- [x] 5.2 Create `backend/alembic/versions/compras_047_factura_cargada_erp.py` parent `compras_045_pedido_compra_ocs`. Index pending `alerta_pendiente_hasta`.
+- [x] 5.3 In `backend/app/services/pedidos_service.py`: remove `_notificar_factura_cargada` from `persist_factura_documento`. Add `FACTURA_CARGADA_ALERT_DELAY` **separate** from `FACTURA_UNDO_WINDOW`. `es_factura_cargada` / `chips_visibilidad_batch` = ≥1 `cargada=true`. Expose `tiene_numero_factura`. Implement `marcar_factura_cargada` (check/uncheck, idempotent re-check does not reset timer; re-check after uncheck starts a new window).
+- [x] 5.4 In `backend/app/services/compras_alertas_service.py` add `disparar_alertas_factura_pendientes(session, *, ahora=None)`. Persist/alta/Match MUST NOT call notify. Uncheck before fire cancels pending. DELETE undo still retracts fired notifs.
+- [x] 5.5 Create `backend/app/scripts/dispatch_factura_cargada_alerts.py` cron entry that calls the sweep. No `BackgroundTasks.sleep`.
+- [x] 5.6 Add PATCH `pedidos/{id}/factura-documentos/{row_id}` in `backend/app/routers/administracion_compras.py` + Pydantic v2 body/response in `backend/app/schemas/pedido_compra.py`. Permiso `administracion.gestionar_ordenes_compra`. Include factura rows + flags on pedido detalle response.
+- [x] 5.7 Rewrite tests: `test_pedido_factura_documentos.py` (row ≠ cargada; Match chip-off; DELETE undo still `created_at`; PATCH check/uncheck); `test_compras_alertas_service.py` (no notify on alta; fire at T+5; cancel on uncheck; sweep at T+4:59 no-op; holders only); `test_oc_match_worker.py` (row exists, chip off, zero notifs).
 
 ## Phase 6: PR6 — FE checkbox/chip + novedad rewrite
 

@@ -185,6 +185,7 @@ class PedidoCompraResponse(PedidoCompraBase):
     op_cuenta_corriente_id: int | None = None
     responsable_id: int | None = None
     factura_cargada: bool = False
+    tiene_numero_factura: bool = False
     faltantes_resuelto_en: datetime | None = None
     # Pipeline UX — derived logistic axis (never stored). None for financial-only
     # states such as aprobado so the financial badge is not renamed Pendiente.
@@ -215,6 +216,7 @@ class PedidoCompraDetalle(PedidoCompraResponse):
 
     eventos: list["CompraEventoResponse"] = Field(default_factory=list)
     imputaciones: list["ImputacionResponse"] = Field(default_factory=list)
+    factura_documentos: list["PedidoFacturaDocumentoResponse"] = Field(default_factory=list)
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -242,14 +244,23 @@ class PedidoFacturaDocumentoCreate(BaseModel):
         return s
 
 
+class PedidoFacturaDocumentoCargadaUpdate(BaseModel):
+    """Body de PATCH /pedidos/{id}/factura-documentos/{row_id}."""
+
+    cargada: bool
+
+
 class PedidoFacturaDocumentoResponse(BaseModel):
-    """Fila normalizada de factura cargada (option A)."""
+    """Fila de constancia de factura; `cargada` is the Administración ERP check."""
 
     id: int
     pedido_id: int
     numero: str
     created_at: datetime
     created_by_id: int
+    cargada: bool = False
+    cargada_marked_at: datetime | None = None
+    cargada_marked_by_id: int | None = None
 
     model_config = ConfigDict(from_attributes=True)
 

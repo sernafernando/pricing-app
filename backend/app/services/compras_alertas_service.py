@@ -12,7 +12,7 @@ from datetime import UTC, datetime, timedelta
 from typing import Final
 
 from fastapi import HTTPException, status
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, joinedload
 
 from app.models.notificacion import EstadoNotificacion, Notificacion, SeveridadNotificacion
 from app.models.pedido_compra import PedidoCompra
@@ -54,7 +54,10 @@ def _proveedor_nombre(pedido: PedidoCompra) -> str:
 
 def copy_factura_cargada(*, pedido_numero: str, proveedor_nombre: str, factura_numero: str) -> str:
     """Pricing P-number + proveedor + factura nº. Never pedidos_documento."""
-    return f"Factura {factura_numero} cargada en {pedido_numero} ({proveedor_nombre}). Revisá el pedido en Compras."
+    return (
+        f"Factura {factura_numero} marcada cargada en ERP en {pedido_numero} "
+        f"({proveedor_nombre}). Revisá el pedido en Compras."
+    )
 
 
 def copy_faltantes(*, pedido_numero: str, proveedor_nombre: str, texto: str, pedido_id: int) -> str:
@@ -110,6 +113,38 @@ def notificar_factura_cargada(
     if creadas:
         session.flush()
     return creadas
+
+
+def disparar_alertas_factura_pendientes(session: Session, *, ahora: datetime | None = None) -> int:
+    """Fire pending ERP-check alerts whose window has been reached. Idempotent.
+
+    Selects `cargada AND alerta_pendiente_hasta <= ahora AND alerta_disparada_at IS NULL`.
+    Persist / Match / manual alta never call this. Uncheck before fire cancels
+    by nulling `alerta_pendiente_hasta`.
+    """
+    stamp = _ahora_utc(ahora)
+    rows = (
+        session.query(PedidoFacturaDocumento)
+        .options(joinedload(PedidoFacturaDocumento.pedido).joinedload(PedidoCompra.proveedor))
+        .filter(
+            PedidoFacturaDocumento.cargada.is_(True),
+            PedidoFacturaDocumento.alerta_pendiente_hasta.isnot(None),
+            PedidoFacturaDocumento.alerta_pendiente_hasta <= stamp,
+            PedidoFacturaDocumento.alerta_disparada_at.is_(None),
+        )
+        .all()
+    )
+    fired = 0
+    for row in rows:
+        pedido = row.pedido
+        if pedido is None:
+            continue
+        notificar_factura_cargada(session, pedido=pedido, factura=row, ahora=stamp)
+        row.alerta_disparada_at = stamp
+        fired += 1
+    if rows:
+        session.flush()
+    return fired
 
 
 def retractar_factura_cargada(

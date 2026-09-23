@@ -15,6 +15,7 @@ from app.core.config import settings
 from app.models.compra_adjunto import CompraAdjunto
 from app.models.empresa import Empresa
 from app.models.oc_match_job import OcMatchJob, OcMatchRenglon
+from app.models.notificacion import Notificacion
 from app.models.pedido_compra import PedidoCompra
 from app.models.pedido_factura_documento import PedidoFacturaDocumento
 from app.models.proveedor import Proveedor
@@ -290,7 +291,7 @@ class TestGoldenWorkerSoT:
         assert pedido.facturas_documento == "0001-99"
         assert pedido.pedidos_documento == "PED-184465"
 
-    def test_factura_fa10_persists_row_chip_on_no_falta(
+    def test_factura_fa10_persists_row_chip_off_no_notif(
         self,
         db: Session,
         active_user: Any,
@@ -315,9 +316,13 @@ class TestGoldenWorkerSoT:
         )
         assert [row.numero for row in rows] == ["FA-10"]
         assert rows[0].created_by_id == pedido.creado_por_id == active_user.id
-        assert pedidos_service.es_factura_cargada(db, pedido.id) is True
+        assert rows[0].cargada is False
+        assert pedidos_service.es_factura_cargada(db, pedido.id) is False
+        assert pedidos_service.tiene_numero_factura(db, pedido.id) is True
         chips = pedidos_service.chips_visibilidad_batch(db, [pedido.id])
-        assert chips[pedido.id]["factura_cargada"] is True
+        assert chips[pedido.id]["factura_cargada"] is False
+        assert chips[pedido.id]["tiene_numero_factura"] is True
+        assert db.query(Notificacion).filter(Notificacion.tipo == "compras.factura_cargada").count() == 0
         apply_writeback(pedido, extract)
         assert pedido.facturas_documento == "FA-10"
         assert db.query(PedidoFacturaDocumento).filter(PedidoFacturaDocumento.pedido_id == pedido.id).count() == 1

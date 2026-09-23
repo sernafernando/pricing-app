@@ -105,6 +105,7 @@ TIPOS_PEDIDO: Final[frozenset[str]] = frozenset({"mercaderia", "servicio"})
 TIPO_PEDIDO_DEFAULT: Final[str] = "mercaderia"
 ROLES_ADMIN_TIPO: Final[frozenset[str]] = frozenset({RolUsuario.ADMIN.value, RolUsuario.SUPERADMIN.value})
 FACTURA_UNDO_WINDOW: Final[timedelta] = timedelta(minutes=5)
+FACTURA_CARGADA_ALERT_DELAY: Final[timedelta] = timedelta(minutes=5)
 FACTURA_NUMERO_MAX_LEN: Final[int] = 100
 EJES_PROCESAL: Final[frozenset[str]] = frozenset(
     {
@@ -479,19 +480,33 @@ def calcular_eje_procesal(
 
 
 def es_factura_cargada(session: Session, pedido_id: int) -> bool:
-    """Cargada ⇔ ≥1 normalized row. ERP `ct_transaction` is never identity."""
+    """Cargada ⇔ ≥1 row with ERP check. Row presence is constancia only."""
+    count = (
+        session.query(PedidoFacturaDocumento)
+        .filter(
+            PedidoFacturaDocumento.pedido_id == pedido_id,
+            PedidoFacturaDocumento.cargada.is_(True),
+        )
+        .count()
+    )
+    return count > 0
+
+
+def tiene_numero_factura(session: Session, pedido_id: int) -> bool:
+    """Constancia ⇔ ≥1 normalized factura row, whether or not cargada."""
     count = session.query(PedidoFacturaDocumento).filter(PedidoFacturaDocumento.pedido_id == pedido_id).count()
     return count > 0
 
 
 def chips_visibilidad_batch(session: Session, pedido_ids: list[int]) -> dict[int, dict[str, Any]]:
-    """Batch factura-cargada + latest OC-match status for list/detail chips.
+    """Batch factura flags + latest OC-match status for list/detail chips.
 
-    Returns `{pedido_id: {factura_cargada, oc_match_status}}`. Missing ids
-    default to factura False / match None (null-safe stub).
+    Returns `{pedido_id: {factura_cargada, tiene_numero_factura, oc_match_status}}`.
+    `factura_cargada` follows ERP checks, not mere row presence.
     """
     out: dict[int, dict[str, Any]] = {
-        int(pid): {"factura_cargada": False, "oc_match_status": None} for pid in pedido_ids
+        int(pid): {"factura_cargada": False, "tiene_numero_factura": False, "oc_match_status": None}
+        for pid in pedido_ids
     }
     if not pedido_ids:
         return out
@@ -503,6 +518,19 @@ def chips_visibilidad_batch(session: Session, pedido_ids: list[int]) -> dict[int
         .all()
     )
     for pid, cnt in factura_rows:
+        if int(cnt) >= 1:
+            out[int(pid)]["tiene_numero_factura"] = True
+
+    cargada_rows = (
+        session.query(PedidoFacturaDocumento.pedido_id, func.count(PedidoFacturaDocumento.id))
+        .filter(
+            PedidoFacturaDocumento.pedido_id.in_(pedido_ids),
+            PedidoFacturaDocumento.cargada.is_(True),
+        )
+        .group_by(PedidoFacturaDocumento.pedido_id)
+        .all()
+    )
+    for pid, cnt in cargada_rows:
         if int(cnt) >= 1:
             out[int(pid)]["factura_cargada"] = True
 
@@ -556,25 +584,6 @@ def pedidos_numeros_por_op_batch(session: Session, op_ids: list[int]) -> dict[in
     return out
 
 
-def _notificar_factura_cargada(
-    session: Session,
-    *,
-    pedido: PedidoCompra,
-    factura: PedidoFacturaDocumento,
-) -> None:
-    """Fire in-app factura alerts when the PR2 service is present; no-op on PR1."""
-    try:
-        from app.services import compras_alertas_service
-    except ImportError:
-        return
-    notificar = getattr(compras_alertas_service, "notificar_factura_cargada", None)
-    if notificar is None:
-        return
-    if pedido.proveedor is None:
-        session.refresh(pedido, attribute_names=["proveedor"])
-    notificar(session, pedido=pedido, factura=factura)
-
-
 def persist_factura_documento(
     session: Session,
     *,
@@ -582,11 +591,12 @@ def persist_factura_documento(
     numero: str,
     created_by_id: int,
 ) -> Optional[PedidoFacturaDocumento]:
-    """Insert a factura row or skip overflow / casefold-duplicate. Notify on insert.
+    """Insert a constancia factura row or skip overflow / casefold-duplicate.
 
     Shared alta path for manual POST and OC Match writeback. Tokens longer than
     100 characters are logged and skipped. Casefold duplicates keep first-seen
-    casing. Returns the existing row on skip-dupe, None on overflow/empty.
+    casing and do not change `cargada`. Does not notify. Returns the existing
+    row on skip-dupe, None on overflow/empty.
     """
     numero_norm = (numero or "").strip()
     if not numero_norm:
@@ -611,10 +621,10 @@ def persist_factura_documento(
         pedido_id=pedido.id,
         numero=numero_norm,
         created_by_id=created_by_id,
+        cargada=False,
     )
     session.add(row)
     session.flush()
-    _notificar_factura_cargada(session, pedido=pedido, factura=row)
     return row
 
 
@@ -652,6 +662,7 @@ def seed_factura_documentos(session: Session, pedido: PedidoCompra) -> list[Pedi
             pedido_id=pedido.id,
             numero=numero,
             created_by_id=pedido.creado_por_id,
+            cargada=False,
         )
         session.add(row)
         rows.append(row)
@@ -667,7 +678,7 @@ def agregar_factura_documento(
     numero: str,
     user_id: int,
 ) -> PedidoFacturaDocumento:
-    """Persist a factura row via the shared alta path. Empty number → 422. Fires in-app factura alerts."""
+    """Persist a constancia factura row via the shared alta path. Empty number → 422. Does not notify."""
     pedido = _obtener_pedido_o_404(session, pedido_id)
     numero_norm = (numero or "").strip()
     if not numero_norm:
@@ -723,6 +734,59 @@ def deshacer_factura_documento(
     )
     session.delete(row)
     session.flush()
+
+
+def marcar_factura_cargada(
+    session: Session,
+    *,
+    pedido_id: int,
+    row_id: int,
+    cargada: bool,
+    user_id: int,
+    ahora: Optional[datetime] = None,
+) -> PedidoFacturaDocumento:
+    """Toggle the Administración ERP check on one factura row.
+
+    Check starts `FACTURA_CARGADA_ALERT_DELAY` from `cargada_marked_at`.
+    Re-check while already cargada is a no-op (timer stays). Uncheck
+    cancels a pending alert without deleting the row. Re-check after
+    uncheck starts a new window and clears `alerta_disparada_at`.
+    """
+    _obtener_pedido_o_404(session, pedido_id)
+    row = session.get(PedidoFacturaDocumento, row_id)
+    if row is None or row.pedido_id != pedido_id:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Factura documento id={row_id} no encontrado en pedido {pedido_id}.",
+        )
+    stamp = _ahora_utc(ahora)
+    if cargada:
+        if row.cargada:
+            return row
+        row.cargada = True
+        row.cargada_marked_at = stamp
+        row.cargada_marked_by_id = user_id
+        row.alerta_pendiente_hasta = stamp + FACTURA_CARGADA_ALERT_DELAY
+        row.alerta_disparada_at = None
+    else:
+        if not row.cargada:
+            return row
+        row.cargada = False
+        row.cargada_marked_at = None
+        row.cargada_marked_by_id = None
+        row.alerta_pendiente_hasta = None
+    session.flush()
+    return row
+
+
+def listar_factura_documentos(session: Session, pedido_id: int) -> list[PedidoFacturaDocumento]:
+    """Constancia rows for detalle, ordered by insert."""
+    return (
+        session.query(PedidoFacturaDocumento)
+        .filter(PedidoFacturaDocumento.pedido_id == pedido_id)
+        .order_by(PedidoFacturaDocumento.id)
+        .all()
+    )
 
 
 # ──────────────────────────────────────────────────────────────────────────

@@ -123,6 +123,7 @@ class TestSeedFacturasDocumento:
             .all()
         )
         assert [row.numero for row in persisted] == ["A-1", "A-2", "A-3"]
+        assert all(row.cargada is False for row in persisted)
         assert pedido.facturas_documento == raw
 
     def test_empty_or_separator_only_seeds_nothing(self, db, empresa, proveedor, active_user) -> None:
@@ -201,6 +202,7 @@ class TestSeedFacturasDocumento:
         )
         chips = pedidos_service.chips_visibilidad_batch(db, [pedido.id])
         assert chips[pedido.id]["factura_cargada"] is False
+        assert chips[pedido.id]["tiene_numero_factura"] is False
         assert db.query(PedidoFacturaDocumento).filter(PedidoFacturaDocumento.pedido_id == pedido.id).count() == 0
 
 
@@ -236,6 +238,8 @@ class TestPersistFacturaDocumento:
         assert second is not None
         assert second.id == first.id
         assert first.numero == "FA-10"
+        assert first.cargada is False
+        assert second.cargada is False
         assert db.query(PedidoFacturaDocumento).filter(PedidoFacturaDocumento.pedido_id == pedido.id).count() == 1
 
 
@@ -293,16 +297,21 @@ class TestFacturaCargadaVsErp:
         )
         assert pedidos_service.es_factura_cargada(db, pedido.id) is False
 
-    def test_row_makes_factura_cargada(self, db, empresa, proveedor, active_user) -> None:
+    def test_row_is_constancia_not_cargada(self, db, empresa, proveedor, active_user) -> None:
         pedido = _pedido(db, empresa, proveedor, active_user, ct_transaction_id=None)
-        pedidos_service.agregar_factura_documento(
+        row = pedidos_service.agregar_factura_documento(
             db,
             pedido_id=pedido.id,
             numero="FA-100",
             user_id=active_user.id,
         )
         db.flush()
-        assert pedidos_service.es_factura_cargada(db, pedido.id) is True
+        assert row.cargada is False
+        assert pedidos_service.tiene_numero_factura(db, pedido.id) is True
+        assert pedidos_service.es_factura_cargada(db, pedido.id) is False
+        chips = pedidos_service.chips_visibilidad_batch(db, [pedido.id])
+        assert chips[pedido.id]["tiene_numero_factura"] is True
+        assert chips[pedido.id]["factura_cargada"] is False
 
 
 class TestEmptyNumeroRejected:
@@ -432,7 +441,9 @@ class TestFacturaDocumentoRoutes:
         body = response.json()
         assert body["numero"] == "FA-201"
         assert body["pedido_id"] == pedido.id
-        assert pedidos_service.es_factura_cargada(db, pedido.id) is True
+        assert body["cargada"] is False
+        assert pedidos_service.tiene_numero_factura(db, pedido.id) is True
+        assert pedidos_service.es_factura_cargada(db, pedido.id) is False
 
     def test_undo_inside_five_minutes_204(
         self,
@@ -488,4 +499,242 @@ class TestFacturaDocumentoRoutes:
         )
         assert response.status_code == 409
         assert db.get(PedidoFacturaDocumento, row.id) is not None
+        assert pedidos_service.tiene_numero_factura(db, pedido.id) is True
+        assert pedidos_service.es_factura_cargada(db, pedido.id) is False
+
+    def test_undo_uses_created_at_even_if_check_clock_differs(
+        self,
+        client,
+        db,
+        empresa,
+        proveedor,
+        admin_user,
+        admin_auth_headers,
+        con_permiso_gestionar_oc,
+    ) -> None:
+        t0 = datetime.now(timezone.utc)
+        pedido = _pedido(db, empresa, proveedor, admin_user, numero="P-01-2026-00014")
+        row = pedidos_service.agregar_factura_documento(
+            db,
+            pedido_id=pedido.id,
+            numero="FA-CLOCK",
+            user_id=admin_user.id,
+        )
+        row.created_at = t0 - timedelta(minutes=6)
+        db.flush()
+        pedidos_service.marcar_factura_cargada(
+            db,
+            pedido_id=pedido.id,
+            row_id=row.id,
+            cargada=True,
+            user_id=admin_user.id,
+            ahora=t0,
+        )
+        db.commit()
+        db.refresh(row)
+        assert row.cargada is True
+        response = client.delete(
+            f"{BASE}/pedidos/{pedido.id}/factura-documentos/{row.id}",
+            headers=admin_auth_headers,
+        )
+        assert response.status_code == 409
+        assert db.get(PedidoFacturaDocumento, row.id) is not None
+
+    def test_uncheck_is_not_delete(
+        self,
+        db,
+        empresa,
+        proveedor,
+        admin_user,
+    ) -> None:
+        t0 = datetime.now(timezone.utc)
+        pedido = _pedido(db, empresa, proveedor, admin_user, numero="P-01-2026-00015")
+        row = pedidos_service.agregar_factura_documento(
+            db,
+            pedido_id=pedido.id,
+            numero="FA-KEEP",
+            user_id=admin_user.id,
+        )
+        row.created_at = t0 - timedelta(minutes=2)
+        db.flush()
+        pedidos_service.marcar_factura_cargada(
+            db,
+            pedido_id=pedido.id,
+            row_id=row.id,
+            cargada=True,
+            user_id=admin_user.id,
+            ahora=t0,
+        )
+        db.flush()
+        pedidos_service.marcar_factura_cargada(
+            db,
+            pedido_id=pedido.id,
+            row_id=row.id,
+            cargada=False,
+            user_id=admin_user.id,
+            ahora=t0 + timedelta(minutes=1),
+        )
+        db.flush()
+        db.refresh(row)
+        assert db.get(PedidoFacturaDocumento, row.id) is not None
+        assert row.cargada is False
+        pedidos_service.deshacer_factura_documento(
+            db,
+            pedido_id=pedido.id,
+            row_id=row.id,
+            ahora=t0 + timedelta(minutes=2),
+        )
+        db.flush()
+        assert db.get(PedidoFacturaDocumento, row.id) is None
+
+
+class TestMarcarFacturaCargada:
+    def test_patch_check_starts_pending_window(
+        self,
+        client,
+        db,
+        empresa,
+        proveedor,
+        admin_user,
+        admin_auth_headers,
+        con_permiso_gestionar_oc,
+    ) -> None:
+        pedido = _pedido(db, empresa, proveedor, admin_user, numero="P-01-2026-00021")
+        other = pedidos_service.agregar_factura_documento(
+            db, pedido_id=pedido.id, numero="FA-11", user_id=admin_user.id
+        )
+        row = pedidos_service.agregar_factura_documento(db, pedido_id=pedido.id, numero="FA-10", user_id=admin_user.id)
+        db.commit()
+        response = client.patch(
+            f"{BASE}/pedidos/{pedido.id}/factura-documentos/{row.id}",
+            json={"cargada": True},
+            headers=admin_auth_headers,
+        )
+        assert response.status_code == 200
+        body = response.json()
+        assert body["cargada"] is True
+        assert body["cargada_marked_at"] is not None
+        assert body["cargada_marked_by_id"] == admin_user.id
+        db.refresh(row)
+        db.refresh(other)
+        assert row.cargada is True
+        assert row.alerta_pendiente_hasta is not None
+        assert row.alerta_pendiente_hasta == row.cargada_marked_at + pedidos_service.FACTURA_CARGADA_ALERT_DELAY
+        assert other.cargada is False
         assert pedidos_service.es_factura_cargada(db, pedido.id) is True
+
+    def test_patch_uncheck_clears_cargada_keeps_row(
+        self,
+        client,
+        db,
+        empresa,
+        proveedor,
+        admin_user,
+        admin_auth_headers,
+        con_permiso_gestionar_oc,
+    ) -> None:
+        pedido = _pedido(db, empresa, proveedor, admin_user, numero="P-01-2026-00022")
+        row = pedidos_service.agregar_factura_documento(db, pedido_id=pedido.id, numero="FA-10", user_id=admin_user.id)
+        db.commit()
+        client.patch(
+            f"{BASE}/pedidos/{pedido.id}/factura-documentos/{row.id}",
+            json={"cargada": True},
+            headers=admin_auth_headers,
+        )
+        response = client.patch(
+            f"{BASE}/pedidos/{pedido.id}/factura-documentos/{row.id}",
+            json={"cargada": False},
+            headers=admin_auth_headers,
+        )
+        assert response.status_code == 200
+        db.refresh(row)
+        assert row.cargada is False
+        assert row.alerta_pendiente_hasta is None
+        assert db.get(PedidoFacturaDocumento, row.id) is not None
+        assert pedidos_service.es_factura_cargada(db, pedido.id) is False
+        assert pedidos_service.tiene_numero_factura(db, pedido.id) is True
+
+    def test_idempotent_recheck_does_not_reset_timer(self, db, empresa, proveedor, admin_user) -> None:
+        t0 = datetime(2026, 3, 10, 10, 0, tzinfo=timezone.utc)
+        pedido = _pedido(db, empresa, proveedor, admin_user, numero="P-01-2026-00023")
+        row = pedidos_service.agregar_factura_documento(db, pedido_id=pedido.id, numero="FA-10", user_id=admin_user.id)
+        db.flush()
+        first = pedidos_service.marcar_factura_cargada(
+            db, pedido_id=pedido.id, row_id=row.id, cargada=True, user_id=admin_user.id, ahora=t0
+        )
+        marked_at = first.cargada_marked_at
+        pending = first.alerta_pendiente_hasta
+        second = pedidos_service.marcar_factura_cargada(
+            db,
+            pedido_id=pedido.id,
+            row_id=row.id,
+            cargada=True,
+            user_id=admin_user.id,
+            ahora=t0 + timedelta(minutes=1),
+        )
+        assert second.cargada_marked_at == marked_at
+        assert second.alerta_pendiente_hasta == pending
+
+    def test_recheck_after_uncheck_starts_new_window(self, db, empresa, proveedor, admin_user) -> None:
+        t0 = datetime(2026, 3, 10, 10, 0, tzinfo=timezone.utc)
+        t1 = t0 + timedelta(minutes=10)
+        pedido = _pedido(db, empresa, proveedor, admin_user, numero="P-01-2026-00024")
+        row = pedidos_service.agregar_factura_documento(db, pedido_id=pedido.id, numero="FA-10", user_id=admin_user.id)
+        db.flush()
+        pedidos_service.marcar_factura_cargada(
+            db, pedido_id=pedido.id, row_id=row.id, cargada=True, user_id=admin_user.id, ahora=t0
+        )
+        pedidos_service.marcar_factura_cargada(
+            db,
+            pedido_id=pedido.id,
+            row_id=row.id,
+            cargada=False,
+            user_id=admin_user.id,
+            ahora=t0 + timedelta(minutes=2),
+        )
+        again = pedidos_service.marcar_factura_cargada(
+            db, pedido_id=pedido.id, row_id=row.id, cargada=True, user_id=admin_user.id, ahora=t1
+        )
+        assert again.cargada_marked_at == t1
+        assert again.alerta_pendiente_hasta == t1 + pedidos_service.FACTURA_CARGADA_ALERT_DELAY
+        assert again.alerta_disparada_at is None
+
+    def test_patch_without_permission_403(
+        self,
+        client,
+        db,
+        empresa,
+        proveedor,
+        admin_user,
+        auth_headers,
+    ) -> None:
+        pedido = _pedido(db, empresa, proveedor, admin_user, numero="P-01-2026-00025")
+        row = pedidos_service.agregar_factura_documento(db, pedido_id=pedido.id, numero="FA-10", user_id=admin_user.id)
+        db.commit()
+        response = client.patch(
+            f"{BASE}/pedidos/{pedido.id}/factura-documentos/{row.id}",
+            json={"cargada": True},
+            headers=auth_headers,
+        )
+        assert response.status_code == 403
+        db.refresh(row)
+        assert row.cargada is False
+
+    def test_patch_missing_row_404(
+        self,
+        client,
+        db,
+        empresa,
+        proveedor,
+        admin_user,
+        admin_auth_headers,
+        con_permiso_gestionar_oc,
+    ) -> None:
+        pedido = _pedido(db, empresa, proveedor, admin_user, numero="P-01-2026-00026")
+        db.commit()
+        response = client.patch(
+            f"{BASE}/pedidos/{pedido.id}/factura-documentos/999001",
+            json={"cargada": True},
+            headers=admin_auth_headers,
+        )
+        assert response.status_code == 404
