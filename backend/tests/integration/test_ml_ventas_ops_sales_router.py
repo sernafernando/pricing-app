@@ -1451,6 +1451,27 @@ class TestProductFacets:
 
         assert _order_ids(body) == [96001]
 
+    def test_facet_counts_obey_the_product_filter(self, db, client, admin_auth_headers, rol_admin):
+        """PFILT + SEARCH R26: the chips count the rows the table renders.
+        A chip reporting the whole period while `marcas` shows one row
+        contradicts the table under it -- same defect R26 already fixed
+        for the free-text search."""
+        _grant_ml_ops_ver(db, rol_admin)
+        _seed_order(db, 96031, date_created=datetime(2026, 9, 1, tzinfo=timezone.utc))
+        _seed_order(db, 96032, date_created=datetime(2026, 9, 1, tzinfo=timezone.utc))
+        self._seed_product(db, 96131, marca="Epson", categoria="Impresoras", subcategoria_id=1)
+        self._seed_product(db, 96231, marca="Lexmark", categoria="Impresoras", subcategoria_id=1)
+        self._seed_costo(db, 96031, "MLA96031", 96131)
+        self._seed_costo(db, 96032, "MLA96032", 96231)
+        db.commit()
+
+        body = client.get("/api/ml-ventas-ops/sales", params={"marcas": "epson"}, headers=admin_auth_headers).json()
+
+        assert body["total"] == 1
+        assert body["facets"]["operation_status_total"] == 1
+        assert body["facets"]["goods_status_total"] == 1
+        assert sum(body["facets"]["operation_status"].values()) == 1
+
     def test_subcategorias_and_marcas_combine_as_conjunction(self, db, client, admin_auth_headers, rol_admin):
         _grant_ml_ops_ver(db, rol_admin)
         _seed_order(db, 96010, pack_id=96500, date_created=datetime(2026, 9, 1, tzinfo=timezone.utc))

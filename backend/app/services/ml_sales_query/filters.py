@@ -137,9 +137,11 @@ def _group_key_expr():
 
 
 def _resolve_pm_pairs(db: Session, pms: Tuple[int, ...]) -> "list[tuple[str, str]]":
-    """Same pair-resolution `productos_listing.py`'s `pms` branch uses
-    (marca+categoria pairs assigned to the selected PM users), reused
-    verbatim -- no second implementation (design D12a)."""
+    """Resolves the marca+categoria pairs assigned to the selected PM
+    users, the same rule `productos_listing.py` applies in its own `pms`
+    branch. This is a THIRD copy of that query, not a reuse: extracting a
+    shared helper touches the products listing, which this slice does not
+    open. If the PM pair rule changes, this must change with it."""
     pares_pm = db.query(MarcaPM.marca, MarcaPM.categoria).filter(MarcaPM.usuario_id.in_(pms)).all()
     return [(m.upper(), c.upper()) for m, c in pares_pm]
 
@@ -253,13 +255,18 @@ def build_scope(db: Session, f: SalesFilter) -> SalesScope:
         listing_query = listing_query.filter(goods_status_expr == f.goods_status)
     listing_query = apply_search(listing_query, db, f.q)
 
+    # The product facets narrow BOTH the page and the chip counts: a chip
+    # reporting the whole period while the table shows one row contradicts
+    # the table under it (same contract as the search, SEARCH R26).
+    facet_base = apply_search(base, db, f.q)
     facet_exists = _product_facet_exists(db, f, group_key)
     if facet_exists is not None:
         listing_query = listing_query.filter(facet_exists)
+        facet_base = facet_base.filter(facet_exists)
 
     return SalesScope(
         base=base,
-        facet_base=apply_search(base, db, f.q),
+        facet_base=facet_base,
         members_base=members_base,
         listing_query=listing_query,
         op_status_expr=op_status_expr,
