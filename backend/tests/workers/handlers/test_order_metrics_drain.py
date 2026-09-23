@@ -17,6 +17,7 @@ from sqlalchemy.orm import sessionmaker
 
 from app.workers.context import WorkerContext
 from app.workers.handlers.order_metrics import drain
+from app.workers.heartbeat import HeartbeatThread
 from app.workers.registry import REGISTRY
 
 
@@ -273,3 +274,131 @@ class TestDrainHeldTokenRegistration:
         assert len(observed_tokens_during_store) == 1
         assert len(observed_tokens_during_store[0]) == 1  # the one held token, present during the store call
         assert ctx.held_tokens == set()  # released once the pass finishes
+
+
+@pytest.mark.postgres
+class TestStorePhaseDoesNotBlockConcurrentWriterOrHeartbeat:
+    """PR3.T6f (design D5 rev 6): while a batch's STORE phase is holding
+    ONE order's short transaction open, (a) a concurrent input writer
+    upserting a DIFFERENT order's dirty row (not yet stored) completes
+    without waiting for the rest of the batch, and (b) every heartbeat
+    lease-renewal tick during that window succeeds. Real Postgres, two real
+    sessions, threading -- the whole reason the STORE phase is one short
+    transaction PER order instead of one batch-wide transaction is exactly
+    this; an assertion that never actually contends proves nothing."""
+
+    def test_writer_and_heartbeat_stay_unblocked_during_store_phase(
+        self, monkeypatch, _order_metrics_db_session, pg_order_metrics_engine
+    ) -> None:
+        import threading
+        import time
+
+        import app.services.order_metrics.queue as queue_module
+        from app.models.worker_job_state import WorkerJobState
+
+        # `HeartbeatThread` also upserts `worker_job_state` on every tick
+        # (design D4 step 5); `pg_order_metrics_engine` does not create it
+        # (order_metrics's own tables never needed it before this test).
+        # `checkfirst=True` on both ends -- deliberately per-Table, never
+        # `Base.metadata.create_all`/`drop_all` (PR2 known footgun: it walks
+        # the whole shared metadata for enum-drop ordering and collides with
+        # another module-scoped fixture's own types).
+        WorkerJobState.__table__.create(bind=pg_order_metrics_engine, checkfirst=True)
+
+        order_ids = [800001, 800002, 800003, 800004, 800005]
+        blocked_order_id = order_ids[0]
+        writer_order_id = order_ids[-1]  # last in claim order -- not yet stored while the first is blocked
+
+        with pg_order_metrics_engine.connect() as conn:
+            for order_id in order_ids:
+                _insert_order(conn, order_id)
+                _insert_dirty(conn, order_id)
+            conn.commit()
+
+        store_phase_entered = threading.Event()
+        release_store_phase = threading.Event()
+        real_store_order_metrics = queue_module.store_order_metrics
+
+        def _blocking_store_order_metrics(session, metrics_by_order):
+            (order_id,) = metrics_by_order.keys()
+            if order_id == blocked_order_id:
+                store_phase_entered.set()
+                # Bounded wait -- never hangs the test suite even if the
+                # release signal is somehow never sent.
+                released = release_store_phase.wait(timeout=10)
+                if not released:
+                    raise AssertionError("release_store_phase was never signalled -- test harness bug")
+            return real_store_order_metrics(session, metrics_by_order)
+
+        monkeypatch.setattr(queue_module, "store_order_metrics", _blocking_store_order_metrics)
+
+        ctx = WorkerContext(deadline=_far_deadline(), worker_name="t6f-worker", held_tokens=set())
+
+        heartbeat = HeartbeatThread(
+            worker_name="t6f-worker",
+            interval=0.15,
+            token_provider=lambda: set(ctx.held_tokens or set()),
+        )
+        heartbeat.start()
+
+        drain_thread = threading.Thread(target=drain.run, args=(ctx,))
+        drain_thread.start()
+
+        try:
+            entered_in_time = store_phase_entered.wait(timeout=10)
+            assert entered_in_time, "STORE phase for the blocked order never started"
+
+            # (a) the concurrent input writer -- upserting the dirty row of
+            # an order NOT YET stored -- must complete fast, NOT waiting
+            # behind the blocked order's still-open per-order transaction.
+            writer_started_at = time.monotonic()
+            with pg_order_metrics_engine.connect() as writer_conn:
+                writer_conn.execute(
+                    text(
+                        "UPDATE ml_order_metrics_dirty SET version = version + 1, reason = 'input_write' "
+                        "WHERE order_id = :order_id"
+                    ),
+                    {"order_id": writer_order_id},
+                )
+                writer_conn.commit()
+            writer_elapsed = time.monotonic() - writer_started_at
+
+            # (b) let a few heartbeat ticks land while the STORE phase is
+            # still blocked, then confirm every one of them succeeded (lease
+            # renewal is part of that same tick -- design D4 step 5).
+            time.sleep(0.6)
+            assert heartbeat.last_tick_error is None
+            assert heartbeat.is_healthy()
+
+            release_store_phase.set()
+        finally:
+            drain_thread.join(timeout=15)
+            heartbeat.stop()
+            heartbeat.join(timeout=5)
+
+        assert not drain_thread.is_alive()
+        # The writer's own upsert never contended with the blocked order's
+        # open transaction -- it is a DIFFERENT row (Postgres row-level
+        # locking), so it must finish in a small fraction of the ~10s the
+        # blocked store COULD have held the lock for.
+        assert writer_elapsed < 2.0, f"writer waited {writer_elapsed:.2f}s -- STORE phase blocked an unrelated row"
+        assert heartbeat.last_tick_error is None
+
+        with pg_order_metrics_engine.connect() as conn:
+            blocked_row = conn.execute(
+                text("SELECT 1 FROM ml_order_metrics_dirty WHERE order_id = :oid"), {"oid": blocked_order_id}
+            ).fetchone()
+            other_rows = conn.execute(
+                text("SELECT count(*) FROM ml_order_metrics_dirty WHERE order_id = ANY(:ids)"),
+                {"ids": [oid for oid in order_ids if oid not in (blocked_order_id, writer_order_id)]},
+            ).scalar()
+        # The blocked order was eventually stored and removed from the queue.
+        assert blocked_row is None
+        # Every order untouched by the concurrent writer was stored and
+        # removed too -- the writer's row-level write never widened its
+        # blast radius to the rest of the batch.
+        assert other_rows == 0
+
+        with pg_order_metrics_engine.connect() as conn:
+            conn.execute(text("DELETE FROM worker_job_state WHERE name = 't6f-worker'"))
+            conn.commit()

@@ -125,11 +125,30 @@ class HeartbeatThread(threading.Thread):
         fenced by `claim_token` so a renewal can never resurrect a claim
         another worker already took (design D4 step 5). PR2 never calls this
         with a non-empty token set -- PR3's drain handler is the first
-        holder of live tokens."""
+        holder of live tokens.
+
+        `FOR UPDATE SKIP LOCKED` (not a plain `UPDATE`): a row can already be
+        held by THIS SAME PROCESS's own in-flight `fenced_store` per-order
+        transaction (PR3.T6f) -- its lock is only ever released by that
+        transaction's own commit, so blocking on it here would starve the
+        tick until that store finishes and, with `lock_timeout` above,
+        eventually raise and fail the WHOLE tick (including the
+        `worker_job_state` write, same transaction) even though this worker
+        is very much alive. Skipping a locked row for one tick is harmless
+        -- it is renewed again next tick, long before the lease's own
+        multi-minute expiry window."""
         db.execute(
             text(
-                "UPDATE ml_order_metrics_dirty SET claimed_at = now() "
-                "WHERE claimed_by = :worker_name AND claim_token = ANY(CAST(:tokens AS uuid[]))"
+                """
+                UPDATE ml_order_metrics_dirty d
+                SET claimed_at = now()
+                FROM (
+                    SELECT order_id FROM ml_order_metrics_dirty
+                    WHERE claimed_by = :worker_name AND claim_token = ANY(CAST(:tokens AS uuid[]))
+                    FOR UPDATE SKIP LOCKED
+                ) renewable
+                WHERE d.order_id = renewable.order_id
+                """
             ),
             {"worker_name": self.worker_name, "tokens": list(tokens)},
         )

@@ -242,15 +242,29 @@ def renew_leases(*, worker_id: str, tokens: Sequence[str]) -> int:
     fenced by `claim_token` -- the same statement `HeartbeatThread._tick`
     already runs each tick (design D4 step 5); exposed here as the
     `order_metrics.queue` public primitive the design interface names, so
-    a caller other than the heartbeat thread can also invoke it."""
+    a caller other than the heartbeat thread can also invoke it.
+
+    `FOR UPDATE SKIP LOCKED`, same rationale as `HeartbeatThread._renew_leases`
+    (PR3.T6f): a row can already be held by this same process's own
+    in-flight `fenced_store` per-order transaction -- skip it this call
+    rather than blocking on a lock only that transaction's own commit will
+    release."""
     tokens = list(tokens)
     if not tokens:
         return 0
     with get_background_db() as session:
         result = session.execute(
             text(
-                "UPDATE ml_order_metrics_dirty SET claimed_at = now() "
-                "WHERE claimed_by = :worker_id AND claim_token = ANY(CAST(:tokens AS uuid[]))"
+                """
+                UPDATE ml_order_metrics_dirty d
+                SET claimed_at = now()
+                FROM (
+                    SELECT order_id FROM ml_order_metrics_dirty
+                    WHERE claimed_by = :worker_id AND claim_token = ANY(CAST(:tokens AS uuid[]))
+                    FOR UPDATE SKIP LOCKED
+                ) renewable
+                WHERE d.order_id = renewable.order_id
+                """
             ),
             {"worker_id": worker_id, "tokens": tokens},
         )
