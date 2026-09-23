@@ -26,7 +26,7 @@ from __future__ import annotations
 import calendar
 from datetime import date, datetime, time, timedelta, timezone
 from zoneinfo import ZoneInfo
-from typing import Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, status
 from pydantic import BaseModel, ConfigDict, Field
@@ -51,6 +51,7 @@ from app.models.ml_orders_ops import (
     MlOrdersOps,
     MlShipmentOps,
 )
+from app.models.ml_payments import MlPaymentOps
 from app.models.rma_claim_ml import RmaClaimML
 from app.models.usuario import Usuario
 from app.services.ml_orders_ingestion.activity_receiver_service import drain_activity
@@ -117,6 +118,20 @@ def _require_flag_enabled() -> None:
 # ── Schemas ──────────────────────────────────────────────────────
 
 
+def _as_str(value: Any) -> Optional[str]:
+    """A raw-JSON value we declare as a string, or None. ML has changed a
+    scalar into an object before now, and a response model that raises on it
+    would take the whole order detail down (BREAKDOWN R32: the new fields are
+    ADDITIVE, so their absence is never an error)."""
+    return value if isinstance(value, str) else None
+
+
+def _as_int(value: Any) -> Optional[int]:
+    """Same rule for an integer field. `bool` is excluded on purpose: it is
+    an `int` subclass, and `True` is not one installment."""
+    return value if isinstance(value, int) and not isinstance(value, bool) else None
+
+
 class OrderOpsSummary(BaseModel):
     order_id: int
     pack_id: Optional[int] = None
@@ -128,8 +143,47 @@ class OrderOpsSummary(BaseModel):
     total_amount: Optional[float] = None
     paid_amount: Optional[float] = None
     currency_id: Optional[str] = None
+    # PR12 (BREAKDOWN R32): additive, buyer's real name from
+    # `raw_order["buyer"]` -- `None` when `raw_order` was never captured or
+    # carries no `buyer` block, never invented.
+    buyer_first_name: Optional[str] = None
+    buyer_last_name: Optional[str] = None
+    # PR12: additive, THIS order's first synced payment's own
+    # `payment_method_id`/`installments`, read from `MlPaymentOps.raw_payload`
+    # -- no typed column carries them (explore finding). `None` when no
+    # payment has synced yet. Card brand/last-4 stay out of scope: ML does
+    # not send them.
+    payment_method_id: Optional[str] = None
+    installments: Optional[int] = None
 
     model_config = ConfigDict(from_attributes=True)
+
+    @classmethod
+    def from_order(
+        cls, order: "MlOrdersOps", payment_method_id: Optional[str], installments: Optional[int]
+    ) -> "OrderOpsSummary":
+        # Raw ML JSON: a shape we did not expect must degrade to nulls, never
+        # take the whole endpoint down with it.
+        raw_order = order.raw_order if isinstance(order.raw_order, dict) else {}
+        buyer = raw_order.get("buyer")
+        if not isinstance(buyer, dict):
+            buyer = {}
+        return cls(
+            order_id=order.order_id,
+            pack_id=order.pack_id,
+            status=order.status,
+            status_detail=order.status_detail,
+            buyer_id=order.buyer_id,
+            buyer_nickname=order.buyer_nickname,
+            seller_id=order.seller_id,
+            total_amount=float(order.total_amount) if order.total_amount is not None else None,
+            paid_amount=float(order.paid_amount) if order.paid_amount is not None else None,
+            currency_id=order.currency_id,
+            buyer_first_name=_as_str(buyer.get("first_name")),
+            buyer_last_name=_as_str(buyer.get("last_name")),
+            payment_method_id=payment_method_id,
+            installments=installments,
+        )
 
 
 class OrderItemOpsSummary(BaseModel):
@@ -1232,6 +1286,17 @@ def obtener_operacion(
 
     items = db.query(MlOrderItemOps).filter(MlOrderItemOps.order_id == order_id).all()
 
+    # PR12: THIS order's own payment method/installments -- same
+    # "payments[0]" convention as `MlOrdersOps.payment_status` (first
+    # synced payment, ordered by `payment_id` for determinism), read out
+    # of the raw payload since no typed column carries them.
+    first_payment = (
+        db.query(MlPaymentOps).filter(MlPaymentOps.order_id == order_id).order_by(MlPaymentOps.payment_id).first()
+    )
+    payment_raw = first_payment.raw_payload if first_payment and isinstance(first_payment.raw_payload, dict) else {}
+    payment_method_id = _as_str(payment_raw.get("payment_method_id"))
+    installments = _as_int(payment_raw.get("installments"))
+
     shipment = None
     if order.shipping_id is not None:
         shipment = db.query(MlShipmentOps).filter(MlShipmentOps.shipment_id == order.shipping_id).first()
@@ -1295,7 +1360,7 @@ def obtener_operacion(
     order_costo_items = costo_detalle_by_order.get(order.order_id, [])
 
     return SaleCentricOperation(
-        order=OrderOpsSummary.model_validate(order),
+        order=OrderOpsSummary.from_order(order, payment_method_id, installments),
         items=[OrderItemOpsSummary.model_validate(item) for item in items],
         shipment=ShipmentOpsSummary.model_validate(shipment) if shipment else None,
         claim=ClaimSummary.model_validate(claim) if claim else None,

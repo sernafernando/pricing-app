@@ -206,10 +206,10 @@ Depends on: PR6 (populated metrics), ideally PR7 (stored readers) merged first.
 Design refs: D13 route /orders/{id}. Satisfies: BREAKDOWN R32, R34.
 Independent of PR9-PR11 (per design dependency graph); may run in parallel chain position but ships sequentially per auto-chain constraint.
 
-- [ ] PR12.T1 RED: route /orders/{id} response adds buyer real name (if present in `raw_order.buyer`), payment method, installments, shipment substatus — additive, existing `lines`, `item_lines`, `iva_decomposicion`, `cadena_total_gauss` unchanged (BREAKDOWN R32).
-- [ ] PR12.T2 GREEN: implement in `breakdown_service.py` / router, captured-fixture based.
-- [ ] PR12.T3 RED: IVA non-reconcile display includes specific `razones` sourced from existing persisted data (BREAKDOWN R34, design D5).
-- [ ] PR12.T4 GREEN: implement.
+- [x] PR12.T1 RED: route /orders/{id} response adds buyer real name (if present in `raw_order.buyer`), payment method, installments, shipment substatus — additive, existing `lines`, `item_lines`, `iva_decomposicion`, `cadena_total_gauss` unchanged (BREAKDOWN R32).
+- [x] PR12.T2 GREEN: implement in `breakdown_service.py` / router, captured-fixture based.
+- [x] PR12.T3 RED: IVA non-reconcile display includes specific `razones` sourced from existing persisted data (BREAKDOWN R34, design D5).
+- [x] PR12.T4 GREEN: implement.
 
 ## PR13 — FE layout shell: grid + SaleDetailPanel skeleton (modal removed, tests migrated)
 Design refs: D14. Satisfies: PANEL R16, R18, R19, R20.
