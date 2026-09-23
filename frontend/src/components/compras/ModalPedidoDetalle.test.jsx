@@ -113,3 +113,49 @@ describe('ModalPedidoDetalle — constancia vs cargada ERP', () => {
     expect(screen.queryByTestId('chip-numero-factura')).not.toBeInTheDocument();
   });
 });
+
+describe('ModalPedidoDetalle — resolver faltantes', () => {
+  it('shows required textarea and POSTs {texto} when eje is faltantes_sin_res', async () => {
+    const user = userEvent.setup();
+    api.post.mockResolvedValue({
+      data: { pedido_id: 1, faltantes_resuelto_en: '2026-09-23T15:00:00Z' },
+    });
+    await renderDetalle({
+      ...PEDIDO_BASE,
+      estado: 'con_faltantes',
+      eje_procesal: 'faltantes_sin_res',
+    });
+
+    expect(screen.getByText('Faltantes')).toBeInTheDocument();
+    const textarea = screen.getByLabelText(/resoluci[oó]n de faltantes/i);
+    expect(textarea).toBeRequired();
+    expect(screen.getByRole('button', { name: 'Resolver faltantes' })).toBeDisabled();
+
+    await user.type(textarea, 'Comprar 2 cajas y entregar en dock');
+    await user.click(screen.getByRole('button', { name: 'Resolver faltantes' }));
+
+    await waitFor(() => {
+      expect(api.post).toHaveBeenCalledWith(
+        '/administracion/compras/pedidos/1/faltantes/resolver',
+        { texto: 'Comprar 2 cajas y entregar en dock' }
+      );
+    });
+    await waitFor(() => {
+      expect(screen.getByText('Faltantes con resolución')).toBeInTheDocument();
+    });
+    expect(screen.queryByLabelText(/resoluci[oó]n de faltantes/i)).not.toBeInTheDocument();
+  });
+
+  it('hides the resolver form after stamp and labels faltantes_con_res', async () => {
+    await renderDetalle({
+      ...PEDIDO_BASE,
+      estado: 'con_faltantes',
+      eje_procesal: 'faltantes_con_res',
+      faltantes_resuelto_en: '2026-09-23T15:00:00Z',
+    });
+
+    expect(screen.getByText('Faltantes con resolución')).toBeInTheDocument();
+    expect(screen.queryByLabelText(/resoluci[oó]n de faltantes/i)).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Resolver faltantes' })).not.toBeInTheDocument();
+  });
+});

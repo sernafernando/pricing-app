@@ -241,6 +241,55 @@ describe('TabRecepcionDeposito — "Por recibir" merged filter', () => {
   });
 });
 
+describe('TabRecepcionDeposito — eje_procesal tabs and ?pedido=', () => {
+  it('Recibidos queries eje_procesal=recibido,faltantes_con_res', async () => {
+    const user = userEvent.setup();
+    await renderTab();
+
+    await user.click(screen.getByRole('tab', { name: 'Recibidos sin controlar' }));
+
+    expect(api.get).toHaveBeenCalledWith(LISTADO_ENDPOINT, {
+      params: { eje_procesal: 'recibido,faltantes_con_res', page_size: 200 },
+    });
+  });
+
+  it('Con faltantes queries eje_procesal=faltantes_sin_res', async () => {
+    const user = userEvent.setup();
+    await renderTab();
+
+    await user.click(screen.getByRole('tab', { name: 'Con faltantes' }));
+
+    expect(api.get).toHaveBeenCalledWith(LISTADO_ENDPOINT, {
+      params: { eje_procesal: 'faltantes_sin_res', page_size: 200 },
+    });
+  });
+
+  it('lands on Recibidos and expands ?pedido=', async () => {
+    window.history.pushState({}, '', '?pedido=7');
+    const target = {
+      ...PEDIDO_PAGADO,
+      id: 7,
+      numero: 'PC-0007',
+      estado: 'recibido',
+    };
+    mockListado([target]);
+    render(<TabRecepcionDeposito />);
+    await screen.findByText('#PC-0007');
+
+    expect(api.get).toHaveBeenCalledWith(LISTADO_ENDPOINT, {
+      params: { eje_procesal: 'recibido,faltantes_con_res', page_size: 200 },
+    });
+    expect(screen.getByRole('tab', { name: 'Recibidos sin controlar' })).toHaveAttribute(
+      'aria-selected',
+      'true'
+    );
+    expect(screen.getByRole('button', { expanded: true })).toHaveAccessibleName(
+      /#PC-0007/
+    );
+    window.history.pushState({}, '', '/');
+  });
+});
+
 describe('TabRecepcionDeposito — copy header data', () => {
   it('copies numero, proveedor, estado label, factura and observaciones', async () => {
     const copiado = await copiarPedido(PEDIDO_PAGADO);

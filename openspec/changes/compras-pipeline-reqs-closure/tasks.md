@@ -40,12 +40,12 @@ Chain strategy: feature-branch-chain
 
 ## Phase 2: FE 15+17
 
-- [ ] 2.1 `frontend/src/hooks/useRecepcionDeposito.js`: add `resolverFaltantes` POST.
-- [ ] 2.2 `frontend/src/components/compras/ModalPedidoDetalle.jsx`: required textarea if `faltantes_sin_res`; hide after stamp; label “Faltantes con resolución”.
-- [ ] 2.3 `frontend/src/components/AppLayout.jsx`: `compras.faltantes` not dismissible.
-- [ ] 2.4 `frontend/src/components/compras/TabRecepcionDeposito.jsx`: Recibidos eje_procesal=recibido,faltantes_con_res; Con faltantes=faltantes_sin_res; expand deep-link pedido query.
-- [ ] 2.5 `frontend/src/components/compras/TabPedidosCompra.jsx`: same eje label.
-- [ ] 2.6 Tests in `frontend/src/components/compras/ModalPedidoDetalle.test.jsx`, `frontend/src/components/AppLayout.comprasBanners.test.jsx`, `frontend/src/components/compras/TabRecepcionDeposito.test.jsx`, `frontend/src/components/compras/TabPedidosCompra.test.jsx`.
+- [x] 2.1 `frontend/src/hooks/useRecepcionDeposito.js`: add `resolverFaltantes` POST.
+- [x] 2.2 `frontend/src/components/compras/ModalPedidoDetalle.jsx`: required textarea if `faltantes_sin_res`; hide after stamp; label “Faltantes con resolución”.
+- [x] 2.3 `frontend/src/components/AppLayout.jsx`: `compras.faltantes` not dismissible.
+- [x] 2.4 `frontend/src/components/compras/TabRecepcionDeposito.jsx`: Recibidos eje_procesal=recibido,faltantes_con_res; Con faltantes=faltantes_sin_res; expand deep-link pedido query.
+- [x] 2.5 `frontend/src/components/compras/TabPedidosCompra.jsx`: same eje label.
+- [x] 2.6 Tests in `frontend/src/components/compras/ModalPedidoDetalle.test.jsx`, `frontend/src/components/AppLayout.comprasBanners.test.jsx`, `frontend/src/components/compras/TabRecepcionDeposito.test.jsx`, `frontend/src/components/compras/TabPedidosCompra.test.jsx`.
 
 ## Phase 3: Depósito ID
 

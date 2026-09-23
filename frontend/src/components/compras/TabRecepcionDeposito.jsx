@@ -17,7 +17,7 @@ import {
 } from 'lucide-react';
 import api from '../../services/api';
 import { useDebounce } from '../../hooks/useDebounce';
-import useRecepcionDeposito, { readFocusQuery } from '../../hooks/useRecepcionDeposito';
+import useRecepcionDeposito, { readFocusQuery, readPedidoQuery } from '../../hooks/useRecepcionDeposito';
 import { usePermisos } from '../../contexts/PermisosContext';
 import AdjuntosPanel from './AdjuntosPanel';
 import ModalCargarRetiro from './ModalCargarRetiro';
@@ -1153,7 +1153,10 @@ function PedidoAccordion({ pedido, onRefreshList, onCopyOutcome, defaultOpen = f
 export default function TabRecepcionDeposito() {
   // `filtro` holds a FILTER_TABS id, i.e. the raw `estado` query param — which
   // may be a comma-separated list of estados, not a single one.
-  const [filtro, setFiltro] = useState(FILTER_TABS[0].id);
+  const focusPedidoId = readPedidoQuery();
+  const [filtro, setFiltro] = useState(
+    focusPedidoId ? 'recibido' : FILTER_TABS[0].id
+  );
   const [incluirCC, setIncluirCC] = useState(false);
   const [qProveedor, setQProveedor] = useState('');
   const [qNumero, setQNumero] = useState('');
@@ -1191,12 +1194,17 @@ export default function TabRecepcionDeposito() {
     setLoading(true);
     setError(null);
     try {
-      // Sent verbatim as the `estado` param. The backend splits it on comma and
-      // filters with IN(...). Por recibir defaults to pagado; CC is opt-in.
-      const estados =
-        filtro === POR_RECIBIR_ID && incluirCC ? 'pagado,en_cuenta_corriente' : filtro;
-
-      const params = { estado: estados, page_size: 200 };
+      // Recibidos / Con faltantes use eje_procesal (comma-OR). Other tabs still
+      // send `estado` verbatim; Por recibir defaults to pagado, CC is opt-in.
+      const params = { page_size: 200 };
+      if (filtro === 'recibido') {
+        params.eje_procesal = 'recibido,faltantes_con_res';
+      } else if (filtro === 'con_faltantes') {
+        params.eje_procesal = 'faltantes_sin_res';
+      } else {
+        params.estado =
+          filtro === POR_RECIBIR_ID && incluirCC ? 'pagado,en_cuenta_corriente' : filtro;
+      }
       if (dqProveedor.trim()) params.q_proveedor = dqProveedor.trim();
       if (dqNumero.trim()) params.q_numero = dqNumero.trim();
       if (dqFactura.trim()) params.q_factura = dqFactura.trim();
@@ -1351,7 +1359,10 @@ export default function TabRecepcionDeposito() {
               pedido={p}
               onRefreshList={handleRefreshList}
               onCopyOutcome={handleCopyOutcome}
-              defaultOpen={focusObservaciones && p.id === pedidos[0]?.id}
+              defaultOpen={
+                (focusPedidoId != null && String(p.id) === String(focusPedidoId))
+                || (Boolean(focusObservaciones) && !focusPedidoId && p.id === pedidos[0]?.id)
+              }
             />
           ))}
         </div>
