@@ -3,7 +3,7 @@
 
 `build_scope` is a PURE REFACTOR of the inline query-building logic that
 used to live directly in `ml_ventas_ops.py::listar_ventas` (status
-derivation ~lines 637-699, `_group_key_expr` ~730, `_collapse` ~745). These
+derivation the status-derivation helpers, `_group_key_expr` `_group_key_expr`, `_collapse` `_collapse`). These
 tests exercise `build_scope` directly against seeded data and assert the
 exact same rows, ordering, grouping and statuses the OLD inline logic
 produced -- proven independently of the router, so the refactor cannot
@@ -17,6 +17,8 @@ scope calls out.
 """
 
 from __future__ import annotations
+
+from sqlalchemy import func
 
 from datetime import datetime, timezone
 
@@ -191,7 +193,6 @@ class TestPaginationOrderingParity:
         _seed_order(db, 51, date_created=datetime(2026, 1, 1, tzinfo=timezone.utc))
         _seed_order(db, 52, date_created=datetime(2026, 1, 2, tzinfo=timezone.utc))
         scope = build_scope(db, SalesFilter())
-        from sqlalchemy import func
 
         key_rows = (
             scope.listing_query.with_entities(

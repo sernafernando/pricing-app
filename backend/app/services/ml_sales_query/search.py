@@ -44,6 +44,12 @@ def _escape_like(text: str) -> str:
     )
 
 
+# PERFORMANCE NOTE: the item subquery is an unanchored ILIKE over
+# `ml_order_items_ops.title`/`seller_sku`, not bounded by seller or date, and
+# a listing request runs it several times (rows, total and the facet
+# counts). It is fine at today's volume; if it stops being fine, the fixes
+# are a `pg_trgm` index (already an open question in the design) or bounding
+# the subquery to the same scope as the outer query.
 def apply_search(query: Query, db: Session, q: Optional[str]) -> Query:
     """Applies `q` to an order-level query.
 

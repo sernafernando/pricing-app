@@ -1,21 +1,20 @@
-"""Shared query layer: `SalesFilter` + `build_scope` (design D12, D12a).
+"""Shared query layer: `SalesFilter` + `build_scope` (design D12).
 
-PR9.T1/T2: PURE REFACTOR of the inline query-building logic that used to
-live directly in `ml_ventas_ops.py::listar_ventas` -- the order-level
-status derivation (`_operation_status_expr`/`_goods_status_expr`, moved
-verbatim from around lines 637-699), the group key expression
-(`_group_key_expr`, ~730) and the group-level collapse rule (`collapse`,
-~745, formerly `_collapse`). `build_scope` must reproduce the EXACT SAME
-rows, statuses and grouping the old inline logic produced -- proven by
+PR9.T1/T2: PURE REFACTOR of the query-building logic that used to live
+inline in `ml_ventas_ops.py::listar_ventas` -- the order-level status
+derivation (`_operation_status_expr`/`_goods_status_expr`), the group key
+expression (`_group_key_expr`) and the group-level collapse rule
+(`_collapse`), all moved verbatim. `build_scope` must reproduce the EXACT
+SAME rows, statuses and grouping the old inline logic produced -- proven by
 `tests/services/ml_sales_query/test_filters_build_scope.py` (characterization
 test, PR9.T1) and by the full existing
 `tests/integration/test_ml_ventas_ops_sales_router.py` suite staying green
 after the router was switched to delegate here.
 
-`SalesFilter` also carries the D12a product-level facet fields
-(`marcas`, `subcategorias`, `pms`) as empty-by-default placeholders so the
-dataclass stays open for the follow-up PR that implements those joins --
-PR9 (this slice) does not read them in `build_scope`.
+`SalesFilter` carries only what this slice reads. The doubtful-case
+toggles and the product-level facets (`marcas`, `subcategorias`, `pms`)
+are added by the PRs that apply them, so nothing here is a field no code
+uses.
 """
 
 from __future__ import annotations
@@ -40,31 +39,14 @@ from app.services.ml_sales_query.search import apply_search
 
 @dataclass(frozen=True)
 class SalesFilter:
-    """Design D12/D12a interface. Defaults match the spec's default
-    toggle states (KPI R11) even though PR9 does not yet apply the four
-    doubtful-case switches (that ships in PR11) -- `build_scope` ignores
-    them for now, they are here so the dataclass shape does not change
-    again when PR11 wires them.
-    """
+    """Design D12 interface: every filter this slice applies, and nothing
+    else. A later PR that adds a filter adds its field here together with
+    the code that reads it."""
 
     date_range: Optional[Tuple[datetime, datetime]] = None
     operation_status: Optional[str] = None
     goods_status: Optional[str] = None
     q: Optional[str] = None
-
-
-@dataclass(frozen=True)
-class Dimension:
-    """Design D12 pluggable-dimension contract (PR9.T7 stub). PR9 ships no
-    dimension consumer; `aggregate.py` (PR11) is the first real one."""
-
-    name: str
-    join: Optional[Any] = None
-    key_expr: Optional[Any] = None
-
-
-DIMENSION_NONE = Dimension(name="none")
-DIMENSION_DAY = Dimension(name="day", key_expr=None)
 
 
 @dataclass

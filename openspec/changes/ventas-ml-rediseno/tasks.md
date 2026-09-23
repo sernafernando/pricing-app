@@ -156,7 +156,7 @@ Design refs: D12, D12a. Satisfies: KPI R7, R15; SEARCH R25, R25a, R26, R27; PFIL
 - [x] PR9.T4 GREEN: `backend/app/services/ml_sales_query/search.py`; wire `q` param into the listing router.
 - [x] PR9.T5 RED: search combines as intersection with active facets/toggles, not replacement (SEARCH R26); empty/no-match search returns explicit empty result, not an error (SEARCH R27).
 - [x] PR9.T6 GREEN: confirm via router-level test.
-- [x] PR9.T7 Confirm the extraction is dimension-pluggable per D12's `Dimension(name, join, key_expr)` contract (ships `NONE` + `DAY`) so KPI R15 (reusable by future metric consumers) holds — stub the contract even though PR9 ships no new dimension consumer yet.
+- [ ] PR9.T7 Confirm the extraction is dimension-pluggable per D12's `Dimension(name, join, key_expr)` contract (ships `NONE` + `DAY`) so KPI R15 (reusable by future metric consumers) holds — stub the contract even though PR9 ships no new dimension consumer yet. — NOT shipped in PR9a: the `Dimension` stub had no consumer, so it was removed on review (code minimalism). It lands with `aggregate.py` in PR11, which is its first real user.
 
 **Product-level filters (design D12a, spec PFILT R35-R43, user binding decision 2026-09-22) — land the index BEFORE the joins below:**
 

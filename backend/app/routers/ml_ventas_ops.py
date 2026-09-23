@@ -676,14 +676,12 @@ class SaleListResponse(BaseModel):
 
 # ── Endpoints ────────────────────────────────────────────────────
 
-# PR9.T1/T2 (design D12): the order-level status derivation
-# (`op_status_expr`/`goods_status_expr` from `ml_sales_query.filters`/`_open_claim_exists_subquery`),
-# the group key expression (`_group_key_expr`) and the group-level collapse
-# rule used to live here inline. They now live in
-# `app.services.ml_sales_query.filters` (moved verbatim, see that module's
-# docstring) as `build_scope`/`collapse`, shared with the future KPI
-# aggregation endpoint (PR11) -- imported here under their old local names
-# so every call site below is unchanged.
+# PR9.T1/T2 (design D12): the order-level status derivation, the group key
+# expression and the group-level collapse rule used to live here inline.
+# They now live in `app.services.ml_sales_query.filters` (moved verbatim,
+# see that module's docstring): the expressions come back on `scope`, and
+# `collapse` is aliased below so the call sites that used `_collapse` stay
+# unchanged.
 _collapse = collapse
 
 
