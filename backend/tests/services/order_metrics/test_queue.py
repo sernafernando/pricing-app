@@ -7,9 +7,15 @@ reproduce any of this).
 
 from __future__ import annotations
 
+import os
+import signal
+import subprocess
+import sys
+import time
 import uuid
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal
+from pathlib import Path
 
 import pytest
 from sqlalchemy import text
@@ -24,6 +30,15 @@ from app.services.order_metrics.queue import (
     release_uncharged,
 )
 from app.services.order_metrics.types import GaussStatus, OrderMetrics
+
+# Same default `tests/conftest.py::POSTGRES_TEST_URL` uses -- the subprocess
+# in TestSigkillMidBatchChargesLeaseExpiry below is a SEPARATE process, so it
+# cannot see the parent's `monkeypatch.setattr("app.core.database.SessionLocal", ...)`
+# fixture; it must be pointed at the real test database via `DATABASE_URL`.
+_POSTGRES_TEST_URL_FOR_SUBPROCESS = os.environ.get(
+    "POSTGRES_TEST_URL", "postgresql+psycopg2://postgres@localhost:5432/pricing_test"
+)
+_T6C_SUBPROCESS_SCRIPT = Path(__file__).resolve().parents[2] / "workers" / "handlers" / "_t6c_subprocess_worker.py"
 
 
 def _metrics(order_id: int) -> OrderMetrics:
@@ -488,3 +503,96 @@ class TestFenceAcrossTwoRealSessions:
         with pg_order_metrics_engine.connect() as conn:
             metrics_row = conn.execute(text("SELECT total_gauss FROM ml_order_metrics WHERE order_id = 31")).fetchone()
         assert metrics_row.total_gauss == Decimal("99.00")
+
+
+@pytest.mark.postgres
+class TestSigkillMidBatchChargesLeaseExpiry:
+    """PR3.T6c: a REAL subprocess claims a batch and is SIGKILLed mid-batch
+    (not mocked -- a mocked death proves nothing about lease expiry). Its
+    heartbeat thread, which would otherwise renew the lease, dies with it.
+    Once the lease window elapses, `claim_dirty` charges `attempts + 1` with
+    `last_error='lease_expired'` to exactly the killed batch's orders, and
+    to no others."""
+
+    def test_sigkilled_worker_lease_expires_and_charges_only_its_own_batch(
+        self, _order_metrics_db_session, pg_order_metrics_engine
+    ) -> None:
+        killed_order_ids = [700001, 700002, 700003]
+        unrelated_order_id = 700099
+        lease_seconds = 2.0
+
+        with pg_order_metrics_engine.connect() as conn:
+            for order_id in killed_order_ids + [unrelated_order_id]:
+                _insert_order(conn, order_id)
+                _insert_dirty(conn, order_id)
+            conn.commit()
+
+        backend_root = str(_T6C_SUBPROCESS_SCRIPT.parents[3])
+        env = dict(os.environ)
+        env["DATABASE_URL"] = _POSTGRES_TEST_URL_FOR_SUBPROCESS
+        env["PYTHONPATH"] = backend_root + os.pathsep + env.get("PYTHONPATH", "")
+
+        proc = subprocess.Popen(
+            [
+                sys.executable,
+                "-u",
+                str(_T6C_SUBPROCESS_SCRIPT),
+                *[str(oid) for oid in killed_order_ids],
+                str(lease_seconds),
+            ],
+            cwd=str(_T6C_SUBPROCESS_SCRIPT.parents[3]),  # backend/ -- so `app` imports resolve
+            env=env,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+        )
+        try:
+            ready_line = proc.stdout.readline()
+            assert ready_line.startswith("READY"), (
+                f"subprocess did not claim as expected: stdout={ready_line!r} "
+                f"stderr={proc.stderr.read() if proc.stderr else ''}"
+            )
+            claimed_in_subprocess = {int(v) for v in ready_line.strip().split()[1:]}
+            assert claimed_in_subprocess == set(killed_order_ids)
+
+            # The subprocess is alive and its heartbeat is renewing the
+            # lease right now -- kill it mid-batch, exactly like a crashed
+            # worker, no graceful shutdown, no final release.
+            os.kill(proc.pid, signal.SIGKILL)
+            assert proc.wait(timeout=5) != 0
+        finally:
+            if proc.poll() is None:
+                proc.kill()
+                proc.wait(timeout=5)
+
+        # Wait past the lease window (renewals have stopped -- the process
+        # holding the heartbeat thread is dead) before reclaiming.
+        time.sleep(lease_seconds + 1.0)
+
+        # `claim_dirty`'s charge phase expires and charges ALL of them in one
+        # statement; its claim phase then isolates `attempts > 0` rows into
+        # the singleton pass (design D5 "Attempts rule" -- a row that just
+        # lost a worker is claimed ALONE, not lumped back into a fresh
+        # batch), so one call returns exactly one of the three.
+        first_reclaim = claim_dirty(limit=10, lease=timedelta(seconds=lease_seconds), worker_id="reclaimer")
+        assert len(first_reclaim) == 1
+        assert first_reclaim[0].order_id in killed_order_ids
+
+        with pg_order_metrics_engine.connect() as conn:
+            killed_rows = conn.execute(
+                text("SELECT order_id, attempts, last_error FROM ml_order_metrics_dirty WHERE order_id = ANY(:ids)"),
+                {"ids": killed_order_ids},
+            ).fetchall()
+            unrelated_row = conn.execute(
+                text("SELECT attempts, last_error FROM ml_order_metrics_dirty WHERE order_id = :oid"),
+                {"oid": unrelated_order_id},
+            ).fetchone()
+
+        assert len(killed_rows) == 3
+        for row in killed_rows:
+            assert row.attempts == 1
+            assert row.last_error == "lease_expired"
+
+        # Exactly the killed batch's orders are charged -- no others.
+        assert unrelated_row.attempts == 0
+        assert unrelated_row.last_error is None
