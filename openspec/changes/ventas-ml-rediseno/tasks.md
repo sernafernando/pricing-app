@@ -67,6 +67,15 @@ Design refs: D3 (queue table only, no triggers yet), D5. Satisfies: SM R7 (no-cr
 - [x] PR3.T9 GREEN: `drain_once` wired to run `order_metrics.drain` on every pass (channel-driven, no schedule) — confirmed via the T7 registry test and T8's handler-level pass; queue stays empty in prod until PR4 ships the enqueue triggers (no producers yet).
 - [ ] PR3.T10 OWNER: user — install and enable the systemd unit now: `sudo cp deploy/systemd/pricing-worker.service /etc/systemd/system/`, `sudo systemctl daemon-reload`, `sudo systemctl enable --now pricing-worker`, set `DATABASE_URL_DIRECT` in backend `.env` (direct Postgres, not PgBouncer), verify `systemctl status pricing-worker` and `GET /api/ml-ops/order-metrics/health` (added in PR6) once available.
 
+### PR3 defects found by review (both fixed in this slice)
+
+- **Heartbeat blocked by its own store.** `HeartbeatThread._renew_leases` (and `queue.py::renew_leases`) renewed with a blanket `UPDATE`, which waited on the very row lock this same process's `fenced_store` legitimately held. With `lock_timeout = '2s'` in the same tick, the WHOLE tick failed -- including the `worker_job_state` liveness write -- so a healthy worker read as dead and, by the PR2 rule, exited(70). Fixed with `FOR UPDATE SKIP LOCKED`: a row locked by our own in-flight store is skipped for one tick and renewed the next, far inside the lease window. Covered by PR3.T6f.
+- **Drain livelock on an order with no computable metrics.** When the bulk COMPUTE returned nothing for a claimed order (no `ml_orders_ops` row is the reachable case), `drain` released it uncharged, so it went back to `attempts = 0`, not suspect, and the next `claim_dirty` of the SAME `run()` loop claimed it again at once: never failed, never parked, and the pass spun claim/compute/release against the database until its deadline, on every drain. Fixed by charging it through `mark_failed` so the normal attempts rule parks it. A LOST RACE stays uncharged and must not be confused with this: there the recompute did happen and another write simply won.
+
+### PR3 open debt (declared, not silently skipped)
+
+PR3.T4e, PR3.T6b and PR3.T6e are NOT implemented. They cover the statement-timeout path, lease renewal isolated above the batch timeout, and durable `suspect` surviving a worker restart. Each needs its own subprocess or restart harness. They are open, not covered by a lighter equivalent.
+
 ## PR4 — Enqueue function + per-order triggers (producers start; consumer already live)
 Design refs: D3 read-set scope for per-order tables, D8. Satisfies: SM R1, R3 (per-order path), R7.
 
