@@ -762,4 +762,36 @@ describe('TabRecepcionDeposito — Phase 3 depósito', () => {
     expect(document.getElementById('pedido-observaciones')).toHaveFocus();
     window.history.pushState({}, '', '/');
   });
+
+  it('renders one block per linked OC on the same pedido', async () => {
+    const user = userEvent.setup();
+    const pedidoDosOcs = {
+      ...PEDIDO_CON_OC_PAGADO,
+      id: 12,
+      numero: 'PC-0012',
+      oc_poh_id: 100,
+      ocs: [
+        { oc_comp_id: 1, oc_bra_id: 1, oc_poh_id: 100 },
+        { oc_comp_id: 1, oc_bra_id: 1, oc_poh_id: 200 },
+      ],
+    };
+    mockListadoAndSaldos([pedidoDosOcs], {
+      [pedidoDosOcs.id]: {
+        ...SALDOS_ARRIBO,
+        pedido_id: pedidoDosOcs.id,
+        lineas: [
+          { ...SALDOS_ARRIBO.lineas[0], oc_poh_id: 100, oc_comp_id: 1, oc_bra_id: 1, item_nombre: 'Linea A' },
+          { ...SALDOS_ARRIBO.lineas[1], oc_poh_id: 200, oc_comp_id: 1, oc_bra_id: 1, item_nombre: 'Linea B' },
+        ],
+      },
+    });
+    render(<TabRecepcionDeposito />);
+    await screen.findByText(`#${pedidoDosOcs.numero}`);
+    await user.click(screen.getByRole('button', { name: /Proveedor Tres/ }));
+
+    expect(await screen.findByRole('heading', { name: 'OC #100' })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'OC #200' })).toBeInTheDocument();
+    expect(screen.getByText('Linea A')).toBeInTheDocument();
+    expect(screen.getByText('Linea B')).toBeInTheDocument();
+  });
 });

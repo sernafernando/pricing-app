@@ -39,6 +39,7 @@ from app.models.compra_evento import CompraEvento
 from app.models.imputacion import Imputacion
 from app.models.oc_match_job import OcMatchJob
 from app.models.pedido_compra import PedidoCompra
+from app.models.pedido_compra_oc import PedidoCompraOc
 from app.models.pedido_factura_documento import PedidoFacturaDocumento
 from app.models.usuario import RolUsuario, Usuario
 from app.services import (
@@ -2618,25 +2619,58 @@ def vincular_oc(
 
     Preconditions:
       - Pedido exists (404 otherwise).
-      - Pedido has no linked OC (409 otherwise — unlink first).
+      - Pedido tipo is mercaderia (409 for servicio).
+      - Triple is complete (422 if any of the three ids is missing).
+      - Duplicate of an already-linked triple is 409 (add-not-replace).
       - (comp_id, bra_id, poh_id) exists in tb_purchase_order_header (404 otherwise).
       - The OC's supp_id matches the pedido's proveedor supp_id (409 otherwise).
       - The OC satisfies CRITERION-PENDIENTE: at least one unprocessed line
         (bool_and(COALESCE(pod_isprocessed, FALSE)) = FALSE) — 409 otherwise.
 
+    Writers persist BOTH the relation row (`pedido_compra_ocs`) and the header
+    first-link cache (`pedidos_compra.oc_*` on the first link only).
+
     Registers event OC_VINCULADA. Does NOT commit (router commits).
 
     Raises:
         HTTPException 404 — pedido or OC not found.
-        HTTPException 409 — already linked, supplier mismatch, or OC not pending.
+        HTTPException 409 — servicio, duplicate, supplier mismatch, or OC not pending.
+        HTTPException 422 — partial triple.
     """
     from sqlalchemy import text  # noqa: PLC0415
+    from sqlalchemy.exc import IntegrityError  # noqa: PLC0415
+
+    if oc_comp_id is None or oc_bra_id is None or oc_poh_id is None:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail="oc_comp_id, oc_bra_id, and oc_poh_id must all be provided",
+        )
 
     pedido = _obtener_pedido_o_404(session, pedido_id)
-    if pedido.oc_poh_id is not None:
+    if getattr(pedido, "tipo", None) == "servicio":
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
-            detail=(f"Pedido id={pedido.id} already has a linked OC (poh_id={pedido.oc_poh_id}). Unlink first."),
+            detail="Pedido de servicio no admite vinculación de OC.",
+        )
+
+    already = (
+        session.query(PedidoCompraOc)
+        .filter(
+            PedidoCompraOc.pedido_id == pedido.id,
+            PedidoCompraOc.oc_comp_id == oc_comp_id,
+            PedidoCompraOc.oc_bra_id == oc_bra_id,
+            PedidoCompraOc.oc_poh_id == oc_poh_id,
+        )
+        .first()
+    )
+    if already is None and (
+        pedido.oc_comp_id == oc_comp_id and pedido.oc_bra_id == oc_bra_id and pedido.oc_poh_id == oc_poh_id
+    ):
+        already = True
+    if already:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=(f"Pedido id={pedido.id} already linked to OC (poh_id={oc_poh_id})."),
         )
 
     # Verify OC exists in ERP
@@ -2681,10 +2715,47 @@ def vincular_oc(
             detail=(f"OC poh_id={oc_poh_id} does not satisfy CRITERION-PENDIENTE: no unprocessed lines found."),
         )
 
-    pedido.oc_comp_id = oc_comp_id
-    pedido.oc_bra_id = oc_bra_id
-    pedido.oc_poh_id = oc_poh_id
-    session.flush()
+    if pedido.oc_poh_id is not None and not (
+        pedido.oc_comp_id == oc_comp_id and pedido.oc_bra_id == oc_bra_id and pedido.oc_poh_id == oc_poh_id
+    ):
+        header_row = (
+            session.query(PedidoCompraOc)
+            .filter(
+                PedidoCompraOc.pedido_id == pedido.id,
+                PedidoCompraOc.oc_comp_id == pedido.oc_comp_id,
+                PedidoCompraOc.oc_bra_id == pedido.oc_bra_id,
+                PedidoCompraOc.oc_poh_id == pedido.oc_poh_id,
+            )
+            .first()
+        )
+        if header_row is None:
+            session.add(
+                PedidoCompraOc(
+                    pedido_id=pedido.id,
+                    oc_comp_id=pedido.oc_comp_id,
+                    oc_bra_id=pedido.oc_bra_id,
+                    oc_poh_id=pedido.oc_poh_id,
+                )
+            )
+
+    link = PedidoCompraOc(
+        pedido_id=pedido.id,
+        oc_comp_id=oc_comp_id,
+        oc_bra_id=oc_bra_id,
+        oc_poh_id=oc_poh_id,
+    )
+    session.add(link)
+    if pedido.oc_poh_id is None:
+        pedido.oc_comp_id = oc_comp_id
+        pedido.oc_bra_id = oc_bra_id
+        pedido.oc_poh_id = oc_poh_id
+    try:
+        session.flush()
+    except IntegrityError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=(f"Pedido id={pedido.id} already linked to OC (poh_id={oc_poh_id})."),
+        ) from exc
 
     _registrar_evento(
         session,
@@ -2759,6 +2830,7 @@ def desvincular_oc(
         "oc_bra_id": pedido.oc_bra_id,
         "oc_poh_id": pedido.oc_poh_id,
     }
+    session.query(PedidoCompraOc).filter(PedidoCompraOc.pedido_id == pedido.id).delete(synchronize_session=False)
     pedido.oc_comp_id = None
     pedido.oc_bra_id = None
     pedido.oc_poh_id = None

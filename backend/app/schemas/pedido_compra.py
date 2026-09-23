@@ -101,16 +101,27 @@ class PedidoCompraUpdate(BaseModel):
         return tipo
 
 
+class PedidoCompraOcLink(BaseModel):
+    """One linked ERP OC triple (relation SoT; header is first-link cache)."""
+
+    oc_comp_id: int
+    oc_bra_id: int
+    oc_poh_id: int
+
+    model_config = ConfigDict(from_attributes=True)
+
+
 class PedidoCompraResponse(PedidoCompraBase):
     """Representación plana del pedido de compra (listados)."""
 
     id: int
     numero: str
     ct_transaction_id: int | None = None
-    # Batch J — OC link columns (nullable when not linked)
+    # Batch J — OC link columns (nullable when not linked). Header = first-link cache.
     oc_comp_id: int | None = None
     oc_bra_id: int | None = None
     oc_poh_id: int | None = None
+    ocs: list[PedidoCompraOcLink] = Field(default_factory=list)
     estado: str
     creado_por_id: int
     aprobado_por_id: int | None = None

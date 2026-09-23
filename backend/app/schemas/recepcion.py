@@ -34,6 +34,9 @@ class SaldoLineaResponse(BaseModel):
     pod_qty: Decimal
     cantidad_recibida_total: Decimal
     saldo_pendiente: Decimal
+    oc_comp_id: int | None = None
+    oc_bra_id: int | None = None
+    oc_poh_id: int | None = None
 
     model_config = ConfigDict(from_attributes=True)
 

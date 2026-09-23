@@ -158,6 +158,7 @@ from app.models.caja import (
 from app.models.numeracion_contador import NumeracionContador
 from app.models.tb_sale_document import SaleDocument
 from app.models.pedido_compra import PedidoCompra
+from app.models.pedido_compra_oc import PedidoCompraOc
 from app.models.pedido_factura_documento import PedidoFacturaDocumento
 from app.models.compra_evento import CompraEvento
 from app.models.orden_pago import OrdenPago
@@ -372,6 +373,7 @@ __all__ = [
     "NumeracionContador",
     "SaleDocument",
     "PedidoCompra",
+    "PedidoCompraOc",
     "PedidoFacturaDocumento",
     "CompraEvento",
     "OrdenPago",

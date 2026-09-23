@@ -34,7 +34,7 @@ from fastapi import APIRouter, BackgroundTasks, Body, Depends, File, Form, HTTPE
 from fastapi.responses import FileResponse, Response
 from sqlalchemy import exists, func as sa_func, or_
 from sqlalchemy import select, text
-from sqlalchemy.orm import Session, joinedload
+from sqlalchemy.orm import Session, joinedload, selectinload
 
 from app.api.deps import get_current_user, require_algun_permiso, require_permiso
 from app.core.config import settings
@@ -117,6 +117,7 @@ from app.schemas.pedido_compra import (
     FacturaCandidataResponse,
     PedidoCompraCreate,
     PedidoCompraDetalle,
+    PedidoCompraOcLink,
     PedidoCompraPaginated,
     PedidoCompraResponse,
     PedidoCompraUpdate,
@@ -282,6 +283,29 @@ def _apply_q_contains_filters(
         )
 
 
+def _ocs_payload(p: PedidoCompra) -> list[PedidoCompraOcLink]:
+    """Serialize linked OC triples (relation SoT, else header first-link cache)."""
+    rel = list(getattr(p, "ocs", None) or [])
+    if rel:
+        return [
+            PedidoCompraOcLink(
+                oc_comp_id=int(row.oc_comp_id),
+                oc_bra_id=int(row.oc_bra_id),
+                oc_poh_id=int(row.oc_poh_id),
+            )
+            for row in rel
+        ]
+    if getattr(p, "oc_poh_id", None) is not None:
+        return [
+            PedidoCompraOcLink(
+                oc_comp_id=int(p.oc_comp_id),
+                oc_bra_id=int(p.oc_bra_id),
+                oc_poh_id=int(p.oc_poh_id),
+            )
+        ]
+    return []
+
+
 def _pedido_response(
     p: PedidoCompra,
     *,
@@ -336,7 +360,8 @@ def _pedido_response(
                 getattr(p, "estado", None),
                 getattr(p, "faltantes_resuelto_en", None),
             ),
-            "oc_vinculada": getattr(p, "oc_poh_id", None) is not None,
+            "oc_vinculada": getattr(p, "oc_poh_id", None) is not None or bool(getattr(p, "ocs", None)),
+            "ocs": _ocs_payload(p),
             "factura_cargada": factura_flag,
             "oc_match_status": oc_match_status,
             # F2 — varianza_tc_neta = None → fields stay at schema defaults (False/0).
@@ -493,6 +518,7 @@ def listar_pedidos(
                 .options(
                     joinedload(PedidoCompra.empresa),
                     joinedload(PedidoCompra.proveedor),
+                    selectinload(PedidoCompra.ocs),
                 )
                 .where(PedidoCompra.id.in_(page_ids))
             )
@@ -566,6 +592,7 @@ def listar_pedidos(
     stmt = select(PedidoCompra).options(
         joinedload(PedidoCompra.empresa),
         joinedload(PedidoCompra.proveedor),
+        selectinload(PedidoCompra.ocs),
     )
     if condiciones:
         stmt = stmt.where(*condiciones)
@@ -658,6 +685,7 @@ def listar_pedidos_pendientes_pago(
         .options(
             joinedload(PedidoCompra.empresa),
             joinedload(PedidoCompra.proveedor),
+            selectinload(PedidoCompra.ocs),
         )
         .where(PedidoCompra.estado.in_(["aprobado", "pagado_parcial"]))
     )
@@ -703,6 +731,7 @@ def obtener_pedido(
         .options(
             joinedload(PedidoCompra.empresa),
             joinedload(PedidoCompra.proveedor),
+            selectinload(PedidoCompra.ocs),
         )
         .where(PedidoCompra.id == pedido_id)
     ).scalar_one_or_none()
@@ -759,7 +788,7 @@ def obtener_pedido(
                 getattr(pedido, "estado", None),
                 getattr(pedido, "faltantes_resuelto_en", None),
             ),
-            "oc_vinculada": getattr(pedido, "oc_poh_id", None) is not None,
+            "oc_vinculada": getattr(pedido, "oc_poh_id", None) is not None or bool(getattr(pedido, "ocs", None)),
             "factura_cargada": bool(chips.get("factura_cargada")),
             "oc_match_status": chips.get("oc_match_status"),
         }
@@ -4385,8 +4414,8 @@ def desvincular_factura_pedido(
 #
 # Flujo Slice 1:
 #   GET    /pedidos/{id}/oc-candidatas       → lista OCs pendientes del proveedor
-#   POST   /pedidos/{id}/vincular-oc         → setea las 3 cols oc_*
-#   DELETE /pedidos/{id}/desvincular-oc      → limpia las 3 cols oc_*
+#   POST   /pedidos/{id}/vincular-oc         → INSERT relation + first-link cache
+#   DELETE /pedidos/{id}/desvincular-oc      → limpia relation + las 3 cols oc_*
 #   GET    /pedidos/{id}/orden-compra/detalle → desglose por depósito (read-only)
 #
 # Todos requieren `administracion.gestionar_ordenes_compra`.
@@ -4433,7 +4462,7 @@ def vincular_oc_pedido(
 
     Validates:
       - Pedido exists (404).
-      - Pedido has no OC yet (409 — unlink first).
+      - Pedido tipo=servicio (409). Duplicate triple (409).
       - OC exists in tb_purchase_order_header (404).
       - OC supp_id matches pedido proveedor supp_id (409 supplier mismatch).
       - OC satisfies CRITERION-PENDIENTE (409 if all lines processed).

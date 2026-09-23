@@ -44,8 +44,15 @@ export default function ModalVincularOC({ pedido, onClose, onVinculada }) {
   const [seleccionada, setSeleccionada] = useState(null);
   const [submitting, setSubmitting] = useState(false);
 
+  const esServicio = pedido?.tipo === 'servicio';
+
   const fetchCandidatas = useCallback(async () => {
     if (!pedido?.id) return;
+    if (pedido.tipo === 'servicio') {
+      setCandidatas([]);
+      setLoading(false);
+      return;
+    }
     setLoading(true);
     setError(null);
     try {
@@ -62,7 +69,7 @@ export default function ModalVincularOC({ pedido, onClose, onVinculada }) {
     } finally {
       setLoading(false);
     }
-  }, [pedido?.id]);
+  }, [pedido?.id, pedido?.tipo]);
 
   useEffect(() => {
     fetchCandidatas();
@@ -124,8 +131,9 @@ export default function ModalVincularOC({ pedido, onClose, onVinculada }) {
           </div>
         ) : candidatas.length === 0 ? (
           <div className={styles.empty}>
-            No hay órdenes de compra pendientes en el ERP para el proveedor de este
-            pedido. Si la OC fue cargada recientemente, esperá a que el sync la tome.
+            {esServicio
+              ? 'Los pedidos de servicio no admiten órdenes de compra.'
+              : 'No hay órdenes de compra pendientes en el ERP para el proveedor de este pedido. Si la OC fue cargada recientemente, esperá a que el sync la tome.'}
           </div>
         ) : (
           <>

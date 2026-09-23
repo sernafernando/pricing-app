@@ -96,6 +96,44 @@ const ITEMS_BADGE_LABEL = (lineas, unidades) =>
   `${lineas} ${lineas === 1 ? 'línea' : 'líneas'} · ${formatUnidades(unidades)} u`;
 
 // Versión hablada del badge: "5 líneas · 120 u" leído en voz alta es críptico.
+const linkedOcs = (pedido, lineas = []) => {
+  if (Array.isArray(pedido.ocs) && pedido.ocs.length > 0) return pedido.ocs;
+  const seen = new Map();
+  lineas.forEach((l) => {
+    if (l.oc_poh_id == null) return;
+    const key = `${l.oc_comp_id}-${l.oc_bra_id}-${l.oc_poh_id}`;
+    if (!seen.has(key)) {
+      seen.set(key, {
+        oc_comp_id: l.oc_comp_id,
+        oc_bra_id: l.oc_bra_id,
+        oc_poh_id: l.oc_poh_id,
+      });
+    }
+  });
+  if (seen.size > 0) return [...seen.values()];
+  if (pedido.oc_poh_id != null) {
+    return [
+      {
+        oc_comp_id: pedido.oc_comp_id,
+        oc_bra_id: pedido.oc_bra_id,
+        oc_poh_id: pedido.oc_poh_id,
+      },
+    ];
+  }
+  return [];
+};
+
+const lineasDeOc = (lineas, oc) => {
+  const tagged = lineas.filter((l) => l.oc_poh_id != null);
+  if (tagged.length === 0) return lineas;
+  return lineas.filter(
+    (l) =>
+      l.oc_poh_id === oc.oc_poh_id &&
+      (l.oc_comp_id == null || l.oc_comp_id === oc.oc_comp_id) &&
+      (l.oc_bra_id == null || l.oc_bra_id === oc.oc_bra_id)
+  );
+};
+
 const ITEMS_BADGE_A11Y = (lineas, unidades) =>
   `${lineas} ${lineas === 1 ? 'línea' : 'líneas'} de orden de compra, ` +
   `${formatUnidades(unidades)} ${Number(unidades) === 1 ? 'unidad' : 'unidades'} en total`;
@@ -300,6 +338,7 @@ function AccordionBodyConOcArribo({ pedido, onRefreshList }) {
   };
 
   const lineas = saldos?.lineas ?? [];
+  const ocs = linkedOcs(pedido, lineas);
 
   return (
     <>
@@ -338,35 +377,46 @@ function AccordionBodyConOcArribo({ pedido, onRefreshList }) {
           Marcar como recibido
         </button>
       </div>
-      {lineas.length > 0 && (
-        <div className={styles.tableWrapper}>
-          <table className={styles.itemTable}>
-            <caption className="sr-only">Ítems de la orden de compra (solo lectura)</caption>
-            <thead>
-              <tr>
-                <th>Ítem</th>
-                <th>Depósito</th>
-                <th className={styles.thRight}>Cant. pedida</th>
-              </tr>
-            </thead>
-            <tbody>
-              {lineas.map((linea) => {
-                const nombre = linea.item_nombre || `Ítem #${linea.item_id}`;
-                return (
-                  <tr key={linea.pod_id}>
-                    <td>
-                      <div className={styles.itemNombre}>{nombre}</div>
-                      <div className={styles.itemCodigo}>#{linea.item_code ?? linea.item_id}</div>
-                    </td>
-                    <td>{linea.deposito_nombre || '—'}</td>
-                    <td className={styles.tdRight}>{formatUnidades(linea.pod_qty)}</td>
+      {(ocs.length > 0 ? ocs : [null]).map((oc) => {
+        const blockLineas = oc ? lineasDeOc(lineas, oc) : lineas;
+        if (blockLineas.length === 0 && oc && ocs.length > 1) return null;
+        if (blockLineas.length === 0) return null;
+        const ocKey = oc ? `${oc.oc_comp_id}-${oc.oc_bra_id}-${oc.oc_poh_id}` : 'header';
+        return (
+          <section key={ocKey} className={styles.ocBlock}>
+            {oc && <h3 className={styles.ocBlockTitle}>OC #{oc.oc_poh_id}</h3>}
+            <div className={styles.tableWrapper}>
+              <table className={styles.itemTable}>
+                <caption className="sr-only">
+                  Ítems de la orden de compra{oc ? ` #${oc.oc_poh_id}` : ''} (solo lectura)
+                </caption>
+                <thead>
+                  <tr>
+                    <th>Ítem</th>
+                    <th>Depósito</th>
+                    <th className={styles.thRight}>Cant. pedida</th>
                   </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        </div>
-      )}
+                </thead>
+                <tbody>
+                  {blockLineas.map((linea) => {
+                    const nombre = linea.item_nombre || `Ítem #${linea.item_id}`;
+                    return (
+                      <tr key={`${ocKey}-${linea.pod_id}`}>
+                        <td>
+                          <div className={styles.itemNombre}>{nombre}</div>
+                          <div className={styles.itemCodigo}>#{linea.item_code ?? linea.item_id}</div>
+                        </td>
+                        <td>{linea.deposito_nombre || '—'}</td>
+                        <td className={styles.tdRight}>{formatUnidades(linea.pod_qty)}</td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          </section>
+        );
+      })}
     </>
   );
 }
@@ -431,6 +481,7 @@ function AccordionBodyConOc({ pedido, onRefreshList }) {
   if (!saldos) return null;
 
   const lineas = (saldos.lineas || []).filter((l) => Number(l.saldo_pendiente) !== 0);
+  const ocs = linkedOcs(pedido, saldos.lineas || []);
 
   // ── Per-line input validation ──
   const hasInputError = (podId) => {
@@ -538,6 +589,13 @@ function AccordionBodyConOc({ pedido, onRefreshList }) {
         </div>
       )}
 
+      {(ocs.length > 0 ? ocs : [null]).map((oc) => {
+        const blockLineas = oc ? lineasDeOc(lineas, oc) : lineas;
+        if (blockLineas.length === 0) return null;
+        const ocKey = oc ? `${oc.oc_comp_id}-${oc.oc_bra_id}-${oc.oc_poh_id}` : 'header';
+        return (
+      <section key={ocKey} className={styles.ocBlock}>
+        {oc && <h3 className={styles.ocBlockTitle}>OC #{oc.oc_poh_id}</h3>}
       <div className={styles.tableWrapper}>
         <table className={styles.itemTable}>
           <thead>
@@ -545,13 +603,16 @@ function AccordionBodyConOc({ pedido, onRefreshList }) {
               <th className={styles.thCenter}>
                 <input
                   type="checkbox"
-                  aria-label="Marcar todo"
-                  checked={lineas.length > 0 && lineas.every((l) => isChecked(l.pod_id))}
+                  aria-label={oc ? `Marcar todo OC #${oc.oc_poh_id}` : 'Marcar todo'}
+                  checked={blockLineas.length > 0 && blockLineas.every((l) => isChecked(l.pod_id))}
                   onChange={(e) => {
-                    if (e.target.checked) handleMarcarTodo();
-                    else {
-                      const reset = {};
-                      lineas.forEach((l) => { reset[l.pod_id] = '0'; });
+                    if (e.target.checked) {
+                      const next = { ...tanda };
+                      blockLineas.forEach((l) => { next[l.pod_id] = String(l.saldo_pendiente); });
+                      setTanda(next);
+                    } else {
+                      const reset = { ...tanda };
+                      blockLineas.forEach((l) => { reset[l.pod_id] = '0'; });
                       setTanda(reset);
                     }
                   }}
@@ -566,12 +627,12 @@ function AccordionBodyConOc({ pedido, onRefreshList }) {
             </tr>
           </thead>
           <tbody>
-            {lineas.map((linea) => {
+            {blockLineas.map((linea) => {
               const inputErr = hasInputError(linea.pod_id);
               const checked = isChecked(linea.pod_id);
               const nombre = linea.item_nombre || `Ítem #${linea.item_id}`;
               return (
-                <tr key={linea.pod_id}>
+                <tr key={`${ocKey}-${linea.pod_id}`}>
                   <td className={styles.tdCenter}>
                     <input
                       type="checkbox"
@@ -624,6 +685,9 @@ function AccordionBodyConOc({ pedido, onRefreshList }) {
           </tbody>
         </table>
       </div>
+      </section>
+        );
+      })}
 
       <div className={styles.observacionesInline}>
         <label htmlFor={`faltantes-conoc-${pedido.id}`} className={styles.observacionesLabel}>

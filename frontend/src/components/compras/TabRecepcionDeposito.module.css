@@ -401,6 +401,19 @@
 }
 
 /* ── Item table (CON OC mode) ────────────────────────────────── */
+.ocBlock {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-sm);
+}
+
+.ocBlockTitle {
+  margin: 0;
+  font-size: var(--font-sm);
+  font-weight: var(--font-semibold);
+  color: var(--cf-text-primary);
+}
+
 .tableWrapper {
   overflow-x: auto;
   border: 1px solid var(--cf-border-default);
