@@ -199,6 +199,75 @@ class TestEtiquetasEnvioTrigger:
             session.execute(text("DELETE FROM ml_orders_ops WHERE order_id = :oid"), {"oid": order_id})
             session.commit()
 
+    def test_matching_numeric_shipping_id_lookup_uses_the_index_not_a_sequential_scan(self, clean_slate) -> None:
+        """PR5 review G2: `WHERE shipping_id::text = NEW.shipping_id` casts
+        the INDEXED `ml_orders_ops.shipping_id` BIGINT column, which defeats
+        its index and forces a sequential scan of the whole table on every
+        touched label. The trigger function's lookup must instead cast the
+        LABEL side (`NEW.shipping_id::bigint`) and leave the column
+        untouched, so Postgres can use the index. `ANALYZE` first so the
+        planner's row-count estimates are fresh -- without it a tiny test
+        table can flip the plan either way regardless of the cast."""
+        session = clean_slate
+        order_id, shipping_id = 500020, 900020
+        try:
+            _insert_order(session, order_id, shipping_id=shipping_id)
+            session.commit()
+            session.execute(text("ANALYZE ml_orders_ops"))
+            # A tiny test table always costs a sequential scan as CHEAPEST
+            # regardless of the cast -- `enable_seqscan = off` forces the
+            # planner to reveal whether an index plan is even FEASIBLE for
+            # each pattern, independent of row-count-driven cost, which is
+            # exactly what this finding is about (an expression on the
+            # indexed column makes the index unusable, no matter the table
+            # size).
+            session.execute(text("SET LOCAL enable_seqscan = off"))
+
+            def _plan(sql: str) -> str:
+                rows = session.execute(text(sql), {"sid": str(shipping_id)}).fetchall()
+                return "\n".join(row[0] for row in rows)
+
+            # The BUGGY pattern this finding replaces (casts the COLUMN):
+            # documents the defect this test exists to catch -- no index can
+            # satisfy `shipping_id::text = $1`, so even with sequential
+            # scans disabled the planner has no choice but a Seq Scan.
+            buggy_plan = _plan("EXPLAIN SELECT order_id FROM ml_orders_ops WHERE shipping_id::text = :sid")
+            assert "Seq Scan on ml_orders_ops" in buggy_plan, (
+                f"expected the OLD (buggy) column-cast pattern to force a sequential scan, got:\n{buggy_plan}"
+            )
+
+            # The FIXED pattern (casts the LABEL side, guarded): the index
+            # on the untouched `shipping_id` column is usable.
+            fixed_plan = _plan(
+                "EXPLAIN SELECT order_id FROM ml_orders_ops "
+                "WHERE shipping_id = CASE WHEN :sid ~ '^[0-9]+$' THEN (:sid)::bigint END"
+            )
+            assert "Seq Scan on ml_orders_ops" not in fixed_plan, (
+                f"expected the fixed shipping_id lookup to use its index, got:\n{fixed_plan}"
+            )
+        finally:
+            session.execute(text("DELETE FROM ml_orders_ops WHERE order_id = :oid"), {"oid": order_id})
+            session.commit()
+
+    def test_manual_non_numeric_shipping_id_does_not_raise_and_matches_nothing(self, clean_slate) -> None:
+        """PR5 review G2 negative case: manual labels carry a non-numeric
+        `MAN_...` `shipping_id`, which the numeric guard (`~ '^[0-9]+$'`)
+        must turn into a safe no-match instead of an attempted (and
+        failing) cast to `bigint`."""
+        session = clean_slate
+        manual_shipping_id = "MAN_ABC123"
+        try:
+            session.execute(
+                text("INSERT INTO etiquetas_envio (shipping_id, fecha_envio) VALUES (:sid, :fecha) RETURNING id"),
+                {"sid": manual_shipping_id, "fecha": date(2026, 8, 20)},
+            )
+            session.commit()
+
+            assert session.execute(text("SELECT COUNT(*) FROM ml_order_metrics_dirty")).scalar() == 0
+        finally:
+            session.execute(text("DELETE FROM etiquetas_envio WHERE shipping_id = :sid"), {"sid": manual_shipping_id})
+            session.commit()
+
     def test_same_value_rewrite_is_a_no_op(self, clean_slate) -> None:
         """PR5.T1a: a row-level no-op guard on the etiquetas_envio ROW
         trigger — mirrors PR4.T6a."""
@@ -393,6 +462,47 @@ class TestCodigosPostalesStatementTrigger:
             assert _dirty_row(session, order_id) is not None
         finally:
             session.execute(text("DELETE FROM cp_cordones WHERE codigo_postal = :cp"), {"cp": cp})
+            session.execute(text("DELETE FROM etiquetas_envio WHERE shipping_id = :sid"), {"sid": str(shipping_id)})
+            session.execute(text("DELETE FROM ml_shipments_ops WHERE shipment_id = :sid"), {"sid": shipping_id})
+            session.execute(text("DELETE FROM ml_orders_ops WHERE order_id = :oid"), {"oid": order_id})
+            session.commit()
+
+    def test_renaming_codigo_postal_enqueues_orders_under_the_old_code(self, clean_slate) -> None:
+        """PR5 review G3: the trigger joined `old_table` to `new_table` on
+        `codigo_postal`, but `cp_cordones`'s PK is `id` and `codigo_postal`
+        is editable. Renaming "1900" -> "1901" makes the OLD and NEW rows
+        not match on that key, so nothing gets enqueued and an order still
+        resolving to the OLD code ("1900", via its Flex label/shipment)
+        keeps a stale cordon. The fix joins by `id` and treats both the old
+        and the new `codigo_postal` as affected."""
+        session = clean_slate
+        order_id, shipping_id, old_cp, new_cp = 530003, 900203, "1900", "1901"
+        try:
+            _insert_order(session, order_id, shipping_id=shipping_id)
+            _insert_shipment(
+                session, shipping_id, logistic_type="self_service", receiver_address='{"zip_code": "1900"}'
+            )
+            _insert_etiqueta(session, shipping_id)
+            session.execute(
+                text("INSERT INTO cp_cordones (codigo_postal, cordon) VALUES (:cp, 'Cordon 1')"), {"cp": old_cp}
+            )
+            session.commit()
+            _clear_dirty(session)
+
+            session.execute(
+                text("UPDATE cp_cordones SET codigo_postal = :new_cp WHERE codigo_postal = :old_cp"),
+                {"new_cp": new_cp, "old_cp": old_cp},
+            )
+            session.commit()
+
+            assert _dirty_row(session, order_id) is not None, (
+                "renaming a postal code must recompute orders still resolving to it"
+            )
+        finally:
+            session.execute(
+                text("DELETE FROM cp_cordones WHERE codigo_postal IN (:old_cp, :new_cp)"),
+                {"old_cp": old_cp, "new_cp": new_cp},
+            )
             session.execute(text("DELETE FROM etiquetas_envio WHERE shipping_id = :sid"), {"sid": str(shipping_id)})
             session.execute(text("DELETE FROM ml_shipments_ops WHERE shipment_id = :sid"), {"sid": shipping_id})
             session.execute(text("DELETE FROM ml_orders_ops WHERE order_id = :oid"), {"oid": order_id})

@@ -51,19 +51,29 @@ DECLARE
     ids BIGINT[];
     old_ids BIGINT[];
 BEGIN
+    -- Cast the LABEL side (`::bigint`), never `ml_orders_ops.shipping_id`
+    -- itself: casting the indexed BIGINT COLUMN to text defeats its index
+    -- and forces a sequential scan of the whole table for every touched
+    -- label (PR5 review G2). Manual labels carry a non-numeric `MAN_...`
+    -- `shipping_id`, which can never match a real order anyway, so the
+    -- `~ '^[0-9]+$'` guard just turns that case into a safe, index-friendly
+    -- "no match" instead of casting garbage into `bigint`.
     IF TG_OP = 'DELETE' THEN
         SELECT COALESCE(array_agg(order_id), ARRAY[]::BIGINT[]) INTO ids
-        FROM ml_orders_ops WHERE shipping_id::text = OLD.shipping_id;
+        FROM ml_orders_ops
+        WHERE shipping_id = CASE WHEN OLD.shipping_id ~ '^[0-9]+$' THEN OLD.shipping_id::bigint END;
         PERFORM order_metrics_enqueue(ids, 'etiquetas_envio_delete');
         RETURN OLD;
     END IF;
 
     SELECT COALESCE(array_agg(order_id), ARRAY[]::BIGINT[]) INTO ids
-    FROM ml_orders_ops WHERE shipping_id::text = NEW.shipping_id;
+    FROM ml_orders_ops
+    WHERE shipping_id = CASE WHEN NEW.shipping_id ~ '^[0-9]+$' THEN NEW.shipping_id::bigint END;
 
     IF TG_OP = 'UPDATE' AND OLD.shipping_id IS DISTINCT FROM NEW.shipping_id THEN
         SELECT COALESCE(array_agg(order_id), ARRAY[]::BIGINT[]) INTO old_ids
-        FROM ml_orders_ops WHERE shipping_id::text = OLD.shipping_id;
+        FROM ml_orders_ops
+        WHERE shipping_id = CASE WHEN OLD.shipping_id ~ '^[0-9]+$' THEN OLD.shipping_id::bigint END;
         ids := ids || old_ids;
     END IF;
 
@@ -106,9 +116,11 @@ FOR EACH ROW EXECUTE FUNCTION order_metrics_enqueue_etiquetas_envio();
 _VARIOS_VENTA_PCT_TRIGGER_SQL = """
 -- `VariosDeduccion.resolve_bulk` (deducciones.py) picks the version VIGENTE
 -- at `date_created` -- the affected orders are those whose date falls in
--- the UNION of the OLD and NEW [fecha_desde, fecha_hasta) window of every
+-- the UNION of the OLD and NEW [fecha_desde, fecha_hasta] window of every
 -- touched row (both sides: narrowing a window must recompute the orders
--- that just left it, design D3 statement-level scope).
+-- that just left it, design D3 statement-level scope). Inclusive on both
+-- ends, matching the SQL below (`<= fecha_hasta`) -- over-enqueueing at the
+-- boundary is harmless, silently missing it is not.
 CREATE OR REPLACE FUNCTION order_metrics_enqueue_varios_venta_pct() RETURNS TRIGGER AS $trg$
 DECLARE
     ids BIGINT[];
@@ -288,16 +300,29 @@ BEGIN
         RETURN NULL;
     END IF;
 
-    -- UPDATE: only rows whose `cordon` actually changed.
+    -- UPDATE: joined by `id` (the real PK), never by `codigo_postal` --
+    -- that column is EDITABLE, so joining on it misses a rename entirely
+    -- (PR5 review G3: correcting "1900" to "1901" made old/new rows not
+    -- match on that key, so nothing was enqueued and orders under EITHER
+    -- postal code kept a stale cordon). Same shape `logistica_costo_cordon`
+    -- and `transportes` already use, and affects BOTH the OLD and NEW
+    -- `codigo_postal` -- a rename (or a plain `cordon` change) must
+    -- recompute orders resolving to either one.
     SELECT COALESCE(array_agg(DISTINCT o.order_id), ARRAY[]::BIGINT[]) INTO ids
     FROM ml_orders_ops o
     JOIN etiquetas_envio e ON e.shipping_id::text = o.shipping_id::text
     JOIN ml_shipments_ops s ON s.shipment_id = o.shipping_id
     LEFT JOIN transportes t ON t.id = e.transporte_id
     JOIN (
+        SELECT od.codigo_postal FROM old_table od
+        JOIN new_table n ON n.id = od.id
+        WHERE od.codigo_postal IS DISTINCT FROM n.codigo_postal
+           OR od.cordon IS DISTINCT FROM n.cordon
+        UNION
         SELECT n.codigo_postal FROM new_table n
-        JOIN old_table od ON od.codigo_postal = n.codigo_postal
-        WHERE od.cordon IS DISTINCT FROM n.cordon
+        JOIN old_table od ON od.id = n.id
+        WHERE od.codigo_postal IS DISTINCT FROM n.codigo_postal
+           OR od.cordon IS DISTINCT FROM n.cordon
     ) cp ON cp.codigo_postal = COALESCE(t.cp, e.manual_zip_code, s.receiver_address ->> 'zip_code')
     WHERE s.logistic_type = 'self_service';
 

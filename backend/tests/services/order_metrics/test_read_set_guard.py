@@ -7,6 +7,9 @@ from __future__ import annotations
 from datetime import date, datetime, timezone
 from decimal import Decimal
 
+import pytest
+from sqlalchemy import text
+
 from app.models.ml_order_item_costo import MlOrderItemCosto
 from app.models.ml_orders_ops import MlOrderItemOps, MlOrdersOps
 from app.models.varios_venta_pct import VariosVentaPct
@@ -87,3 +90,27 @@ class TestReadSetGuardCatchesAWideningReadSet:
             assert "ml_order_item_costos" in str(exc)
         else:
             raise AssertionError("expected UntriggeredReadError for a read-set table missing from TRIGGERED_TABLES")
+
+
+class TestReadSetGuardCannotBeANoOp:
+    """PR5 review G1: `KNOWN_INPUT_TABLES` was once assigned `TRIGGERED_TABLES`
+    directly (the SAME object), which makes `seen & KNOWN_INPUT_TABLES` blind
+    to any table absent from BOTH sets -- exactly what a brand-new,
+    completely unlisted table looks like. Unlike
+    `TestReadSetGuardCatchesAWideningReadSet` above (which narrows
+    `TRIGGERED_TABLES` but leaves `KNOWN_INPUT_TABLES` referencing the
+    original, unnarrowed frozenset -- a divergence that can never happen in
+    production, where the two names are always assigned together), this test
+    uses the REAL, UNPATCHED production `TRIGGERED_TABLES` /
+    `KNOWN_INPUT_TABLES` and simply reads a table neither one lists. That is
+    the actual production configuration; a guard that cannot fail here is
+    the guard PR5 review G1 found."""
+
+    def test_a_genuinely_unlisted_table_read_raises(self, db) -> None:
+        assert "ml_order_metrics" not in KNOWN_INPUT_TABLES
+        assert "ml_order_metrics" not in TRIGGERED_TABLES
+
+        engine = db.get_bind()
+        with pytest.raises(UntriggeredReadError, match="ml_order_metrics"):
+            with assert_read_set_is_triggered(engine):
+                db.execute(text("SELECT * FROM ml_order_metrics"))
