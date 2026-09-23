@@ -1214,3 +1214,184 @@ class TestDetailIvaDecompositionAndDeductionChain(TestTotalGaussInListing):
         # neto_sin_iva 100.00, costo_mercaderia 10.00 (1 x 10.00), varios 0%
         # -> total_gauss 90.00 -> markup 90.00 / 10.00 * 100 = 900.00%.
         assert body["cadena_total_gauss"]["markup"] == pytest.approx(900.00)
+
+
+class TestSearch:
+    """`GET /sales?q=...` (spec `ml-sales-search` R25, R25a, R26, R27;
+    PR9.T3-T6). Router-level confirmation that `q` is wired through
+    `build_scope`/`apply_search` end to end -- unit coverage of
+    `apply_search` itself lives in
+    `tests/services/ml_sales_query/test_search.py`.
+    """
+
+    def test_search_by_order_id_returns_only_that_order(self, db, client, admin_auth_headers, rol_admin):
+        _grant_ml_ops_ver(db, rol_admin)
+        _seed_order(db, 95001, date_created=datetime(2026, 9, 1, tzinfo=timezone.utc))
+        _seed_order(db, 95002, date_created=datetime(2026, 9, 1, tzinfo=timezone.utc))
+        db.commit()
+
+        body = client.get("/api/ml-ventas-ops/sales", params={"q": "95001"}, headers=admin_auth_headers).json()
+
+        assert _order_ids(body) == [95001]
+
+    def test_search_by_order_id_returns_its_pack_siblings_too(self, db, client, admin_auth_headers, rol_admin):
+        _grant_ml_ops_ver(db, rol_admin)
+        _seed_order(db, 95010, pack_id=95000, date_created=datetime(2026, 9, 1, tzinfo=timezone.utc))
+        _seed_order(db, 95011, pack_id=95000, date_created=datetime(2026, 9, 1, tzinfo=timezone.utc))
+        db.commit()
+
+        body = client.get("/api/ml-ventas-ops/sales", params={"q": "95010"}, headers=admin_auth_headers).json()
+
+        assert sorted(_order_ids(body)) == [95010, 95011]
+
+    def test_search_by_buyer_nickname(self, db, client, admin_auth_headers, rol_admin):
+        _grant_ml_ops_ver(db, rol_admin)
+        _seed_order(
+            db,
+            95020,
+            date_created=datetime(2026, 9, 1, tzinfo=timezone.utc),
+        )
+        db.query(MlOrdersOps).filter_by(order_id=95020).update({"buyer_nickname": "COMPRADOR_UNO"})
+        _seed_order(db, 95021, date_created=datetime(2026, 9, 1, tzinfo=timezone.utc))
+        db.query(MlOrdersOps).filter_by(order_id=95021).update({"buyer_nickname": "OTRO"})
+        db.commit()
+
+        body = client.get("/api/ml-ventas-ops/sales", params={"q": "comprador_uno"}, headers=admin_auth_headers).json()
+
+        assert _order_ids(body) == [95020]
+
+    def test_search_by_partial_item_title(self, db, client, admin_auth_headers, rol_admin):
+        """SEARCH R25a: matches the sale's OWN `ml_order_items_ops.title`,
+        never through `producto_item_id` -- no `ml_order_item_costos` row
+        is seeded for this order at all, and it is still found."""
+        from app.models.ml_orders_ops import MlOrderItemOps
+
+        _grant_ml_ops_ver(db, rol_admin)
+        _seed_order(db, 95030, date_created=datetime(2026, 9, 1, tzinfo=timezone.utc))
+        db.add(MlOrderItemOps(order_id=95030, item_id="MLA9999", title="Zapatilla deportiva talle 42", quantity=1))
+        _seed_order(db, 95031, date_created=datetime(2026, 9, 1, tzinfo=timezone.utc))
+        db.commit()
+
+        body = client.get("/api/ml-ventas-ops/sales", params={"q": "deportiva"}, headers=admin_auth_headers).json()
+
+        assert _order_ids(body) == [95030]
+
+    def test_search_by_seller_sku(self, db, client, admin_auth_headers, rol_admin):
+        from app.models.ml_orders_ops import MlOrderItemOps
+
+        _grant_ml_ops_ver(db, rol_admin)
+        _seed_order(db, 95040, date_created=datetime(2026, 9, 1, tzinfo=timezone.utc))
+        db.add(MlOrderItemOps(order_id=95040, item_id="MLA1", seller_sku="SKU-ABC-77", quantity=1))
+        db.commit()
+
+        body = client.get("/api/ml-ventas-ops/sales", params={"q": "ABC-77"}, headers=admin_auth_headers).json()
+
+        assert _order_ids(body) == [95040]
+
+    def test_search_by_mla_item_id(self, db, client, admin_auth_headers, rol_admin):
+        from app.models.ml_orders_ops import MlOrderItemOps
+
+        _grant_ml_ops_ver(db, rol_admin)
+        _seed_order(db, 95050, date_created=datetime(2026, 9, 1, tzinfo=timezone.utc))
+        db.add(MlOrderItemOps(order_id=95050, item_id="MLA555666", quantity=1))
+        _seed_order(db, 95051, date_created=datetime(2026, 9, 1, tzinfo=timezone.utc))
+        db.commit()
+
+        body = client.get("/api/ml-ventas-ops/sales", params={"q": "MLA555666"}, headers=admin_auth_headers).json()
+
+        assert _order_ids(body) == [95050]
+
+    def test_no_match_returns_an_explicit_empty_result_not_an_error(self, db, client, admin_auth_headers, rol_admin):
+        _grant_ml_ops_ver(db, rol_admin)
+        _seed_order(db, 95060, date_created=datetime(2026, 9, 1, tzinfo=timezone.utc))
+        db.commit()
+
+        resp = client.get("/api/ml-ventas-ops/sales", params={"q": "no_coincide_con_nada"}, headers=admin_auth_headers)
+
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["total"] == 0
+        assert body["sales"] == []
+
+    def test_search_intersects_with_active_toggle_filter_not_replaces_it(
+        self, db, client, admin_auth_headers, rol_admin
+    ):
+        """SEARCH R26: a search term matching orders EXCLUDED by an active
+        filter never appears -- intersection, not replacement."""
+        _grant_ml_ops_ver(db, rol_admin)
+        _seed_order(db, 95070, status="cancelled", date_created=datetime(2026, 9, 1, tzinfo=timezone.utc))
+        db.query(MlOrdersOps).filter_by(order_id=95070).update({"buyer_nickname": "mismo_comprador"})
+        _seed_order(db, 95071, status="paid", date_created=datetime(2026, 9, 1, tzinfo=timezone.utc))
+        db.query(MlOrdersOps).filter_by(order_id=95071).update({"buyer_nickname": "mismo_comprador"})
+        db.commit()
+
+        body = client.get(
+            "/api/ml-ventas-ops/sales",
+            params={"q": "mismo_comprador", "operation_status": "cancelled"},
+            headers=admin_auth_headers,
+        ).json()
+
+        assert _order_ids(body) == [95070]
+
+
+class TestFacetCountsObeyTheSearch:
+    """SEARCH R26: the chips count the rows the table actually renders. A
+    chip reporting the whole period while the table shows one row
+    contradicts the table under it."""
+
+    def test_facet_totals_match_the_listing_total_when_searching(
+        self, db, client, admin_auth_headers, rol_admin
+    ) -> None:
+        _grant_ml_ops_ver(db, rol_admin)
+        when = datetime(2026, 9, 1, tzinfo=timezone.utc)
+        _seed_order(db, 6001, total_amount=100, date_created=when)
+        _seed_order(db, 6002, total_amount=100, date_created=when)
+        _seed_order(db, 6003, total_amount=100, date_created=when)
+        db.commit()
+
+        body = client.get("/api/ml-ventas-ops/sales?q=6001", headers=admin_auth_headers).json()
+
+        assert body["total"] == 1
+        assert body["facets"]["operation_status_total"] == 1
+        assert body["facets"]["goods_status_total"] == 1
+        assert sum(body["facets"]["operation_status"].values()) == 1
+
+
+class TestSearchStaysInsideTheScope:
+    """SEARCH R25/R26 (PR9.T3): the search narrows what the scope already
+    allows. It can never reach a sale of ANOTHER seller, nor one outside
+    the requested date range."""
+
+    def test_a_match_outside_the_date_range_is_not_returned(self, db, client, admin_auth_headers, rol_admin) -> None:
+        _grant_ml_ops_ver(db, rol_admin)
+        _seed_order(db, 6101, date_created=datetime(2026, 9, 10, tzinfo=timezone.utc))
+        _seed_order(db, 6102, date_created=datetime(2026, 8, 10, tzinfo=timezone.utc))
+        db.commit()
+
+        dentro = client.get(
+            "/api/ml-ventas-ops/sales?date_from=2026-09-01&date_to=2026-09-30&q=6101",
+            headers=admin_auth_headers,
+        ).json()
+        fuera = client.get(
+            "/api/ml-ventas-ops/sales?date_from=2026-09-01&date_to=2026-09-30&q=6102",
+            headers=admin_auth_headers,
+        ).json()
+
+        assert {o["order_id"] for g in dentro["sales"] for o in g["orders"]} == {6101}
+        assert fuera["total"] == 0, "la búsqueda no puede traer una venta fuera del rango"
+        assert fuera["sales"] == []
+
+    def test_a_match_of_another_seller_is_not_returned(self, db, client, admin_auth_headers, rol_admin) -> None:
+        _grant_ml_ops_ver(db, rol_admin)
+        when = datetime(2026, 9, 10, tzinfo=timezone.utc)
+        _seed_order(db, 6103, date_created=when)
+        _seed_order(db, 6104, date_created=when)
+        db.query(MlOrdersOps).filter(MlOrdersOps.order_id == 6104).update({"seller_id": 12345})
+        db.commit()
+
+        propia = client.get("/api/ml-ventas-ops/sales?q=6103", headers=admin_auth_headers).json()
+        ajena = client.get("/api/ml-ventas-ops/sales?q=6104", headers=admin_auth_headers).json()
+
+        assert {o["order_id"] for g in propia["sales"] for o in g["orders"]} == {6103}
+        assert ajena["total"] == 0, "la búsqueda no puede cruzar de vendedor"
+        assert ajena["sales"] == []

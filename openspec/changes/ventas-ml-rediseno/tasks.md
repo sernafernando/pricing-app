@@ -150,13 +150,13 @@ Migration only, no readers: it must be merged and DEPLOYED before PR9 adds any j
 ## PR9 — Shared query layer extraction (pure refactor + search `q` + product-level filters)
 Design refs: D12, D12a. Satisfies: KPI R7, R15; SEARCH R25, R25a, R26, R27; PFILT R35-R43.
 
-- [ ] PR9.T1 RED: `build_scope(db, SalesFilter)` — order-level base query and group-level CTE reproduce the EXACT SAME rows/statuses as the current inline logic (`ml_ventas_ops.py:637-699` status exprs, `:566` group_key, `:702` `_collapse`), parity test against current behavior before/after extraction.
-- [ ] PR9.T2 GREEN: `backend/app/services/ml_sales_query/filters.py` (`SalesFilter` dataclass, `build_scope`); `ml_ventas_ops.py` delegates to it.
-- [ ] PR9.T3 RED: `q` search — digits → `order_id`, `pack_id`; `^MLA\d+$` → `item_id`; else ≥3 chars ILIKE on `buyer_nickname`, `seller_sku`, `title`; always bounded by seller+date (SEARCH R25).
-- [ ] PR9.T4 GREEN: `backend/app/services/ml_sales_query/search.py`; wire `q` param into the listing router.
-- [ ] PR9.T5 RED: search combines as intersection with active facets/toggles, not replacement (SEARCH R26); empty/no-match search returns explicit empty result, not an error (SEARCH R27).
-- [ ] PR9.T6 GREEN: confirm via router-level test.
-- [ ] PR9.T7 Confirm the extraction is dimension-pluggable per D12's `Dimension(name, join, key_expr)` contract (ships `NONE` + `DAY`) so KPI R15 (reusable by future metric consumers) holds — stub the contract even though PR9 ships no new dimension consumer yet.
+- [x] PR9.T1 RED: `build_scope(db, SalesFilter)` — order-level base query and group-level CTE reproduce the EXACT SAME rows/statuses as the current inline logic (`ml_ventas_ops.py:637-699` status exprs, `:566` group_key, `:702` `_collapse`), parity test against current behavior before/after extraction.
+- [x] PR9.T2 GREEN: `backend/app/services/ml_sales_query/filters.py` (`SalesFilter` dataclass, `build_scope`); `ml_ventas_ops.py` delegates to it.
+- [x] PR9.T3 RED: `q` search — digits → `order_id`, `pack_id`; `^MLA\d+$` → `item_id`; else ≥3 chars ILIKE on `buyer_nickname`, `seller_sku`, `title`; always bounded by seller+date (SEARCH R25).
+- [x] PR9.T4 GREEN: `backend/app/services/ml_sales_query/search.py`; wire `q` param into the listing router.
+- [x] PR9.T5 RED: search combines as intersection with active facets/toggles, not replacement (SEARCH R26); empty/no-match search returns explicit empty result, not an error (SEARCH R27).
+- [x] PR9.T6 GREEN: confirm via router-level test.
+- [ ] PR9.T7 Confirm the extraction is dimension-pluggable per D12's `Dimension(name, join, key_expr)` contract (ships `NONE` + `DAY`) so KPI R15 (reusable by future metric consumers) holds — stub the contract even though PR9 ships no new dimension consumer yet. — NOT shipped in PR9a: the `Dimension` stub had no consumer, so it was removed on review (code minimalism). It lands with `aggregate.py` in PR11, which is its first real user.
 
 **Product-level filters (design D12a, spec PFILT R35-R43, user binding decision 2026-09-22) — land the index BEFORE the joins below:**
 
