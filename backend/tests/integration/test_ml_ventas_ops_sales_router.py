@@ -1574,21 +1574,31 @@ class TestProductFacetValueLimits:
         assert resp.status_code == 422
 
     def test_duplicated_values_are_deduplicated(self, db, client, admin_auth_headers, rol_admin):
+        """Seeded on purpose: comparing two empty results would pass even
+        with the de-duplication broken."""
         _grant_ml_ops_ver(db, rol_admin)
+        _seed_order(db, 96040, date_created=datetime(2026, 9, 1, tzinfo=timezone.utc))
+        TestProductFacets()._seed_product(db, 96140, marca="Epson", categoria="Impresoras", subcategoria_id=1)
+        TestProductFacets()._seed_costo(db, 96040, "MLA96040", 96140)
         db.commit()
 
         una = client.get("/api/ml-ventas-ops/sales?subcategorias=1", headers=admin_auth_headers)
         repetida = client.get("/api/ml-ventas-ops/sales?subcategorias=1,1,1", headers=admin_auth_headers)
 
         assert una.status_code == repetida.status_code == 200
-        assert una.json()["total"] == repetida.json()["total"]
+        assert _order_ids(una.json()) == [96040], "el filtro tiene que traer la venta sembrada"
+        assert _order_ids(repetida.json()) == _order_ids(una.json())
 
     def test_duplicated_brand_names_differ_only_in_case(self, db, client, admin_auth_headers, rol_admin):
         _grant_ml_ops_ver(db, rol_admin)
+        _seed_order(db, 96041, date_created=datetime(2026, 9, 1, tzinfo=timezone.utc))
+        TestProductFacets()._seed_product(db, 96141, marca="Epson", categoria="Impresoras", subcategoria_id=1)
+        TestProductFacets()._seed_costo(db, 96041, "MLA96041", 96141)
         db.commit()
 
         una = client.get("/api/ml-ventas-ops/sales?marcas=Epson", headers=admin_auth_headers)
         repetida = client.get("/api/ml-ventas-ops/sales?marcas=Epson,EPSON,epson", headers=admin_auth_headers)
 
         assert una.status_code == repetida.status_code == 200
-        assert una.json()["total"] == repetida.json()["total"]
+        assert _order_ids(una.json()) == [96041], "el filtro tiene que traer la venta sembrada"
+        assert _order_ids(repetida.json()) == _order_ids(una.json())
