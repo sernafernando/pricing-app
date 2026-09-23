@@ -170,6 +170,21 @@ export default function useRecepcionDeposito() {
     [wrap]
   );
 
+  /**
+   * GET /administracion/compras/usuarios-responsable-faltantes
+   * @returns {Promise<Array<{id: number, nombre: string}>>}
+   */
+  const getUsuariosResponsableFaltantes = useCallback(
+    () =>
+      wrap(async () => {
+        const { data } = await api.get(
+          '/administracion/compras/usuarios-responsable-faltantes'
+        );
+        return data;
+      }),
+    [wrap]
+  );
+
   const generarRetiro = useCallback(
     (pedidoId, payload) =>
       wrap(async () => {
@@ -193,5 +208,6 @@ export default function useRecepcionDeposito() {
     getDireccionesProveedor,
     generarRetiro,
     resolverFaltantes,
+    getUsuariosResponsableFaltantes,
   };
 }

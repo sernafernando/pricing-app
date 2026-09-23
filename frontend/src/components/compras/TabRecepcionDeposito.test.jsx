@@ -98,13 +98,22 @@ const SALDOS_ARRIBO = {
 };
 
 const LISTADO_ENDPOINT = '/administracion/compras/pedidos';
+const POOL_ENDPOINT = '/administracion/compras/usuarios-responsable-faltantes';
 const saldosUrlFor = (pedidoId) =>
   `/administracion/compras/pedidos/${pedidoId}/recepcion/saldos`;
+
+const POOL_DEFAULT = [
+  { id: 7, nombre: 'PM Pool' },
+  { id: 8, nombre: 'PM Dos' },
+];
 
 function mockListado(items) {
   api.get.mockImplementation((url) => {
     if (typeof url === 'string' && url.includes('/adjuntos')) {
       return Promise.resolve({ data: [] });
+    }
+    if (url === POOL_ENDPOINT) {
+      return Promise.resolve({ data: POOL_DEFAULT });
     }
     return Promise.resolve({
       data: { items, total: items.length, page: 1, page_size: 200 },
@@ -124,6 +133,9 @@ function mockListadoAndSaldos(items, saldosByPedidoId = {}) {
     }
     if (typeof url === 'string' && url.includes('/adjuntos')) {
       return Promise.resolve({ data: [] });
+    }
+    if (url === POOL_ENDPOINT) {
+      return Promise.resolve({ data: POOL_DEFAULT });
     }
     const match = url.match(/\/pedidos\/(\d+)\/recepcion\/saldos$/);
     if (match) {
@@ -1072,5 +1084,123 @@ describe('TabRecepcionDeposito — control OK obs+photo (Phase 4)', () => {
     });
     const postUrls = api.post.mock.calls.map(([url]) => url);
     expect(postUrls.indexOf(adjuntosUrl)).toBeLessThan(postUrls.indexOf(confirmarUrl));
+  });
+});
+
+describe('TabRecepcionDeposito — responsable picker on mark faltantes', () => {
+  const PEDIDO_RECIBIDO_SIN_OC = {
+    ...PEDIDO_PAGADO,
+    estado: 'recibido',
+    responsable_id: 42,
+    responsable_nombre: 'PM Fuera del pool',
+  };
+
+  const PEDIDO_RECIBIDO_CON_OC = {
+    ...PEDIDO_CON_OC_PAGADO,
+    id: 21,
+    numero: 'PC-0021',
+    estado: 'recibido',
+    responsable_id: 42,
+    responsable_nombre: 'PM Fuera del pool',
+  };
+
+  it('defaults to current responsable and keeps it even outside the pool', async () => {
+    const user = userEvent.setup();
+    mockListado([PEDIDO_RECIBIDO_SIN_OC]);
+    render(<TabRecepcionDeposito />);
+    await screen.findByText('#PC-0001');
+    await user.click(screen.getByRole('button', { name: /Proveedor Uno/ }));
+    await user.click(screen.getByRole('button', { name: 'Con faltantes' }));
+
+    const picker = await screen.findByLabelText('Responsable de faltantes');
+    expect(picker).toHaveValue('42');
+    expect(screen.getByRole('option', { name: 'PM Fuera del pool' })).toBeInTheDocument();
+    expect(screen.getByRole('option', { name: 'PM Pool' })).toBeInTheDocument();
+  });
+
+  it('sends responsable_id on mark faltantes only', async () => {
+    const user = userEvent.setup();
+    api.post.mockResolvedValue({
+      data: { pedido_id: PEDIDO_RECIBIDO_SIN_OC.id, estado_nuevo: 'con_faltantes' },
+    });
+    mockListado([PEDIDO_RECIBIDO_SIN_OC]);
+    render(<TabRecepcionDeposito />);
+    await screen.findByText('#PC-0001');
+    await user.click(screen.getByRole('button', { name: /Proveedor Uno/ }));
+    await user.click(screen.getByRole('button', { name: 'Con faltantes' }));
+    await screen.findByLabelText('Responsable de faltantes');
+    await user.type(screen.getByLabelText('Texto de faltantes (requerido)'), 'Faltan 2 cajas');
+    await user.selectOptions(screen.getByLabelText('Responsable de faltantes'), '7');
+    await user.click(screen.getByRole('button', { name: 'Confirmar con faltantes' }));
+
+    await screen.findByText('Pedido marcado con faltantes.');
+    expect(api.post).toHaveBeenCalledWith(
+      `/administracion/compras/pedidos/${PEDIDO_RECIBIDO_SIN_OC.id}/recepcion/confirmar-pedido`,
+      {
+        completo: false,
+        faltantes_texto: 'Faltan 2 cajas',
+        responsable_id: 7,
+      },
+    );
+  });
+
+  it('does not send responsable_id on control complete', async () => {
+    const user = userEvent.setup();
+    api.post.mockResolvedValue({
+      data: { pedido_id: PEDIDO_RECIBIDO_SIN_OC.id, estado_nuevo: 'controlado' },
+    });
+    mockListado([PEDIDO_RECIBIDO_SIN_OC]);
+    render(<TabRecepcionDeposito />);
+    await screen.findByText('#PC-0001');
+    await user.click(screen.getByRole('button', { name: /Proveedor Uno/ }));
+    await user.click(screen.getByRole('button', { name: 'Marcar como controlado' }));
+
+    await screen.findByText('Pedido marcado como controlado.');
+    expect(api.post).toHaveBeenCalledWith(
+      `/administracion/compras/pedidos/${PEDIDO_RECIBIDO_SIN_OC.id}/recepcion/confirmar-pedido`,
+      { completo: true },
+    );
+    expect(api.get).not.toHaveBeenCalledWith(POOL_ENDPOINT);
+  });
+
+  it('CON-OC mark faltantes sends responsable_id', async () => {
+    const user = userEvent.setup();
+    api.post.mockResolvedValue({
+      data: { pedido_id: PEDIDO_RECIBIDO_CON_OC.id, estado_nuevo: 'con_faltantes' },
+    });
+    mockListadoAndSaldos([PEDIDO_RECIBIDO_CON_OC], {
+      [PEDIDO_RECIBIDO_CON_OC.id]: {
+        ...SALDOS_ARRIBO,
+        estado: 'recibido',
+        lineas: [
+          { ...SALDOS_ARRIBO.lineas[0], saldo_pendiente: '10.000000' },
+          { ...SALDOS_ARRIBO.lineas[1], saldo_pendiente: '5.000000' },
+        ],
+      },
+    });
+    render(<TabRecepcionDeposito />);
+    await screen.findByText(`#${PEDIDO_RECIBIDO_CON_OC.numero}`);
+    await user.click(screen.getByRole('button', { name: /Proveedor Tres/ }));
+
+    const qty = await screen.findByLabelText('Cantidad recibida para Memoria RAM 16GB');
+    await user.clear(qty);
+    await user.type(qty, '4');
+    await user.type(
+      screen.getByLabelText('Texto de faltantes (requerido al marcar faltantes)'),
+      'Falta SSD',
+    );
+    const picker = await screen.findByLabelText('Responsable de faltantes');
+    expect(picker).toHaveValue('42');
+    await user.selectOptions(picker, '8');
+    await user.click(screen.getByRole('button', { name: 'Marcar con faltantes' }));
+
+    await screen.findByText('Control registrado correctamente.');
+    expect(api.post).toHaveBeenCalledWith(
+      `/administracion/compras/pedidos/${PEDIDO_RECIBIDO_CON_OC.id}/recepcion/ingresos`,
+      expect.objectContaining({
+        faltantes_texto: 'Falta SSD',
+        responsable_id: 8,
+      }),
+    );
   });
 });

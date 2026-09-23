@@ -81,6 +81,7 @@ class RegistrarIngresosRequest(BaseModel):
     lineas: list[IngresoLinea]
     observaciones: str | None = None
     faltantes_texto: str | None = None
+    responsable_id: int | None = None
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -130,6 +131,7 @@ class ConfirmarPedidoRequest(BaseModel):
     completo: bool
     observaciones: str | None = None
     faltantes_texto: str | None = None
+    responsable_id: int | None = None
 
     @model_validator(mode="after")
     def _faltantes_texto_requerido_si_incompleto(self) -> "ConfirmarPedidoRequest":
@@ -205,6 +207,15 @@ class EventosRecepcionResponse(BaseModel):
 
     pedido_id: int
     eventos: list[EventoRecepcionItem]
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class UsuarioResponsableFaltantesItem(BaseModel):
+    """One holder of administracion.gestionar_ordenes_compra for the picker."""
+
+    id: int
+    nombre: str
 
     model_config = ConfigDict(from_attributes=True)
 

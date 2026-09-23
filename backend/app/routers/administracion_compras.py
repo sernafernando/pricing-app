@@ -5701,6 +5701,7 @@ from app.schemas.recepcion import (  # noqa: E402
     ResolverFaltantesRequest,
     ResolverFaltantesResponse,
     SaldosResponse,
+    UsuarioResponsableFaltantesItem,
 )
 
 
@@ -5713,6 +5714,34 @@ def _obtener_pedido_recepcion_o_404(db: Session, pedido_id: int) -> PedidoCompra
             detail="Pedido not found",
         )
     return pedido
+
+
+@router.get(
+    "/usuarios-responsable-faltantes",
+    response_model=list[UsuarioResponsableFaltantesItem],
+    summary="Usuarios elegibles como responsable al marcar faltantes",
+)
+def get_usuarios_responsable_faltantes(
+    db: Session = Depends(get_db),
+    _user: Usuario = Depends(require_permiso(recepcion_service.PERMISO_RECEPCION)),
+) -> list[UsuarioResponsableFaltantesItem]:
+    """Pool = active holders of administracion.gestionar_ordenes_compra.
+
+    Permission required: deposito.recibir_mercaderia.
+    """
+    from app.services.notificacion_service import resolver_usuarios_con_algun_permiso
+
+    usuarios = resolver_usuarios_con_algun_permiso(
+        db,
+        permisos_requeridos=[recepcion_service.PERMISO_GESTIONAR_OC],
+    )
+    return [
+        UsuarioResponsableFaltantesItem(
+            id=int(u.id),
+            nombre=u.nombre or getattr(u, "email", None) or str(u.id),
+        )
+        for u in usuarios
+    ]
 
 
 @router.get(

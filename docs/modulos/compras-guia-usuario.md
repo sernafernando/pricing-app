@@ -209,6 +209,10 @@ Tab **Recepción / Depósito** (permiso `deposito.recibir_mercaderia`):
 
 ### 3.7 Resolver faltantes y aviso a Depósito (G31)
 
+Cuando Depósito marca **con faltantes**, elige el **responsable** del aviso
+(por defecto el actual del pedido). El pool son quienes pueden gestionar OC;
+el responsable actual sigue listado aunque no esté en ese pool.
+
 1. El PM abre el **detalle** del pedido con faltantes sin resolución.
 2. Completa el texto obligatorio (“Faltantes con resolución”) y guarda.
    El estado financiero **no cambia**; el eje pasa a **Faltantes con

@@ -9,6 +9,8 @@ from unittest.mock import patch
 import pytest
 from fastapi import HTTPException
 from pydantic import ValidationError
+from sqlalchemy import update
+from sqlalchemy.orm.attributes import set_committed_value
 
 from app.models.empresa import Empresa
 from app.models.notificacion import EstadoNotificacion, Notificacion
@@ -139,6 +141,28 @@ class TestResolverFaltantesService:
         with pytest.raises(HTTPException) as exc:
             recepcion_service.resolver_faltantes(db, pedido, active_user, texto="Otro intento", ahora=STAMP)
         assert exc.value.status_code == 409
+
+    def test_cas_lost_race_409_no_second_g31(self, db, empresa, proveedor, active_user) -> None:
+        pedido = _pedido(db, empresa, proveedor, active_user, responsable_id=active_user.id)
+        db.execute(update(PedidoCompra).where(PedidoCompra.id == pedido.id).values(faltantes_resuelto_en=STAMP))
+        db.flush()
+        set_committed_value(pedido, "faltantes_resuelto_en", None)
+
+        with (
+            patch("app.services.compras_alertas_service.notificar_faltantes_resuelto") as mock_g31,
+            patch("app.services.compras_alertas_service.retractar_faltantes") as mock_retract,
+        ):
+            with pytest.raises(HTTPException) as exc:
+                recepcion_service.resolver_faltantes(db, pedido, active_user, texto="Segundo intento", ahora=STAMP)
+        assert exc.value.status_code == 409
+        mock_g31.assert_not_called()
+        mock_retract.assert_not_called()
+        db.refresh(pedido)
+        got = pedido.faltantes_resuelto_en
+        if got is not None and got.tzinfo is None:
+            got = got.replace(tzinfo=timezone.utc)
+        assert got == STAMP
+        assert pedido.estado == "con_faltantes"
 
     def test_wrong_estado_409(self, db, empresa, proveedor, active_user) -> None:
         pedido = _pedido(db, empresa, proveedor, active_user, estado="recibido")

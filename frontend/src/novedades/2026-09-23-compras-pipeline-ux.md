@@ -43,7 +43,7 @@ Borrar la fila de constancia es **otro** timer de 5 minutos, desde que se **cre�
 
 ### Faltantes: del Depósito al PM y vuelta
 
-1. En **Recepción / Depósito**, al marcar **con faltantes**, el texto de qué falta es **obligatorio**. Llega alerta al **responsable** del pedido.
+1. En **Recepción / Depósito**, al marcar **con faltantes**, el texto de qué falta es **obligatorio**. Depósito elige el **responsable** (por defecto el actual). Llega alerta a esa persona.
 2. Esa alerta **no** se cierra con OK ni con Posponer de forma definitiva: **Ver** abre el pedido; **Posponer** la oculta 1 hora desde la marca y después vuelve. En la campanita no hay acción de borrar para este aviso.
 3. El responsable escribe en el detalle **qué hay que hacer** para resolver (texto obligatorio) y guarda. El pedido pasa a **Faltantes con resolución** (el estado financiero sigue en con faltantes).
 4. Depósito recibe el aviso **faltantes resueltos** con esas instrucciones. En Depósito, **Con faltantes** solo muestra los **sin** resolución; los ya resueltos aparecen en **Faltantes con resolución** para poder terminar el control.
