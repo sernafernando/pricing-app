@@ -272,6 +272,17 @@ describe('TabRecepcionDeposito — eje_procesal tabs and ?pedido=', () => {
     });
   });
 
+  it('Controlados queries eje_procesal=controlado', async () => {
+    const user = userEvent.setup();
+    await renderTab();
+
+    await user.click(screen.getByRole('tab', { name: 'Controlados' }));
+
+    expect(api.get).toHaveBeenCalledWith(LISTADO_ENDPOINT, {
+      params: { eje_procesal: 'controlado', page_size: 200, tipo: 'mercaderia' },
+    });
+  });
+
   it('lands on Recibidos and expands ?pedido=', async () => {
     window.history.pushState({}, '', '?pedido=7');
     const target = {

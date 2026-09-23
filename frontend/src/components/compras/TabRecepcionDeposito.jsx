@@ -1262,13 +1262,15 @@ export default function TabRecepcionDeposito() {
     setLoading(true);
     setError(null);
     try {
-      // Recibidos / Con faltantes use eje_procesal (comma-OR). Other tabs still
-      // send `estado` verbatim; Por recibir defaults to pagado, CC is opt-in.
+      // Recibidos / Con faltantes / Controlados use eje_procesal. Por recibir
+      // still sends financial `estado` (pagado ± CC).
       const params = { page_size: 200 };
       if (filtro === 'recibido') {
         params.eje_procesal = 'recibido,faltantes_con_res';
       } else if (filtro === 'con_faltantes') {
         params.eje_procesal = 'faltantes_sin_res';
+      } else if (filtro === 'controlado') {
+        params.eje_procesal = 'controlado';
       } else {
         params.estado =
           filtro === POR_RECIBIR_ID && incluirCC ? 'pagado,en_cuenta_corriente' : filtro;

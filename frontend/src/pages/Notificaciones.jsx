@@ -139,7 +139,21 @@ export default function Notificaciones() {
 
   // ===== NUEVAS FUNCIONES DE GESTIÓN =====
   
+  const tipoNotificacionById = (notifId) => {
+    for (const row of notificaciones) {
+      if (row?.id === notifId) return row.tipo;
+      if (row?.notificaciones_ids?.includes(notifId)) {
+        return row.tipo || row.notificacion_reciente?.tipo;
+      }
+    }
+    return null;
+  };
+
   const descartarNotificacion = async (notifId) => {
+    // compras.faltantes only clears when the PM resolves faltantes (not dismiss).
+    if (tipoNotificacionById(notifId) === 'compras.faltantes') {
+      return;
+    }
     try {
       await api.patch(`/notificaciones/${notifId}/descartar`);
       
@@ -655,6 +669,7 @@ export default function Notificaciones() {
                         >
                           Revisada ({grupo.count})
                         </button>
+                        {grupo.tipo !== 'compras.faltantes' && (
                         <button
                           onClick={() => {
                             if (confirm(`¿Ignorar ${grupo.count} notificación${grupo.count > 1 ? 'es' : ''}?\n\nSe creará una regla para NO notificar futuras ventas del mismo producto con el mismo markup.`)) {
@@ -667,6 +682,7 @@ export default function Notificaciones() {
                         >
                           Ignorar ({grupo.count})
                         </button>
+                        )}
                         <button
                           onClick={() => {
                             Promise.all(grupo.notificaciones_ids.map(id => resolverNotificacion(id)));
