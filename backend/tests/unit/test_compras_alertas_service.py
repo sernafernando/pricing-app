@@ -1,19 +1,21 @@
-"""PR2 — in-app factura / faltantes alerts (D-FANOUT, D-BANNER, D-SNOOZE).
+"""PR2 — in-app factura / faltantes alerts (D-PERM, D-BANNER, D-SNOOZE).
 
 Covers:
   - copy is Pricing P-number + proveedor + factura nº (never pedidos_documento)
-  - fan-out titular ∪ sub-PM ∪ Admin ∪ Gerente ∪ Superadmin; dedup; outsider excluded
+  - fan-out holders of administracion.ver_alertas_factura; ADMIN without code out
+  - SUPERADMIN matches via PermisosService resolver, not hardcoded roles
   - empty factura nº creates no alert
   - per-user OK (DESCARTADA) does not clear others
   - undo ≤5m retracts those notifs to DESCARTADA
   - faltantes → responsable_id; empty texto 422; snooze hide until mark+1h
+  - factura permiso does not change faltantes recipients
   - resolve → G31 deposito.recibir_mercaderia (D3 excluded)
   - no email / Slack
 """
 
 from __future__ import annotations
 
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone
 from decimal import Decimal
 from unittest.mock import patch
 
@@ -26,7 +28,7 @@ from app.models.marca_pm import MarcaPM
 from app.models.marca_sub_pm import MarcaSubPM
 from app.models.notificacion import EstadoNotificacion, Notificacion
 from app.models.pedido_compra import PedidoCompra
-from app.models.permiso import Permiso, RolPermisoBase
+from app.models.permiso import Permiso, RolPermisoBase, UsuarioPermisoOverride
 from app.models.proveedor import OrigenProveedor, Proveedor
 from app.models.rol import Rol
 from app.models.usuario import AuthProvider, RolUsuario, Usuario
@@ -39,6 +41,7 @@ BEFORE_REOPEN = datetime(2026, 3, 10, 10, 59, tzinfo=timezone.utc)
 AT_REOPEN = datetime(2026, 3, 10, 11, 0, tzinfo=timezone.utc)
 
 PERMISO_DEPOSITO = "deposito.recibir_mercaderia"
+PERMISO_FACTURA = "administracion.ver_alertas_factura"
 
 
 @pytest.fixture
@@ -107,9 +110,25 @@ def roles_pipeline(db) -> dict[str, Rol]:
 
 
 @pytest.fixture
-def fanout_users(db, roles_pipeline) -> dict[str, Usuario]:
+def permiso_factura(db) -> Permiso:
+    permiso = Permiso(
+        codigo=PERMISO_FACTURA,
+        nombre="Ver alertas de factura cargada",
+        categoria="administracion_sector",
+        orden=176,
+        es_critico=False,
+    )
+    db.add(permiso)
+    db.flush()
+    return permiso
+
+
+@pytest.fixture
+def fanout_users(db, roles_pipeline, permiso_factura) -> dict[str, Usuario]:
     titular = _usuario(db, username="titular_t", rol=roles_pipeline["VENTAS"], rol_enum=RolUsuario.VENTAS)
     sub_pm = _usuario(db, username="subpm_s", rol=roles_pipeline["VENTAS"], rol_enum=RolUsuario.VENTAS)
+    holder_h1 = _usuario(db, username="holder_h1", rol=roles_pipeline["VENTAS"], rol_enum=RolUsuario.VENTAS)
+    holder_h2 = _usuario(db, username="holder_h2", rol=roles_pipeline["VENTAS"], rol_enum=RolUsuario.VENTAS)
     admin = _usuario(db, username="admin_a", rol=roles_pipeline["ADMIN"], rol_enum=RolUsuario.ADMIN)
     gerente = _usuario(db, username="gerente_g", rol=roles_pipeline["GERENTE"], rol_enum=RolUsuario.GERENTE)
     superadmin = _usuario(db, username="super_sa", rol=roles_pipeline["SUPERADMIN"], rol_enum=RolUsuario.SUPERADMIN)
@@ -120,10 +139,14 @@ def fanout_users(db, roles_pipeline) -> dict[str, Usuario]:
     db.add(MarcaPM(marca="AcmeBrand", categoria="General", usuario_id=titular.id))
     db.add(MarcaPM(marca="OldBrand", categoria="General", usuario_id=inactive.id))
     db.add(MarcaSubPM(marca="AcmeBrand", categoria="General", usuario_id=sub_pm.id, creado_por=titular.id))
+    db.add(UsuarioPermisoOverride(usuario_id=holder_h1.id, permiso_id=permiso_factura.id, concedido=True))
+    db.add(UsuarioPermisoOverride(usuario_id=holder_h2.id, permiso_id=permiso_factura.id, concedido=True))
     db.flush()
     return {
         "titular": titular,
         "sub_pm": sub_pm,
+        "holder_h1": holder_h1,
+        "holder_h2": holder_h2,
         "admin": admin,
         "gerente": gerente,
         "superadmin": superadmin,
@@ -189,21 +212,33 @@ class TestCopyFactura:
 
 
 class TestFanoutFactura:
-    def test_fanout_union_and_outsider_excluded(self, db, empresa, proveedor, fanout_users) -> None:
+    def test_fanout_holders_only_and_admin_without_code_excluded(self, db, empresa, proveedor, fanout_users) -> None:
         pedido = _pedido(db, empresa, proveedor, fanout_users["titular"])
         pedidos_service.agregar_factura_documento(
             db, pedido_id=pedido.id, numero="FA-99", user_id=fanout_users["titular"].id
         )
         db.flush()
         ids = _notif_ids(db, tipo="compras.factura_cargada")
-        assert fanout_users["titular"].id in ids
-        assert fanout_users["sub_pm"].id in ids
-        assert fanout_users["admin"].id in ids
-        assert fanout_users["gerente"].id in ids
+        assert fanout_users["holder_h1"].id in ids
+        assert fanout_users["holder_h2"].id in ids
         assert fanout_users["superadmin"].id in ids
+        assert fanout_users["titular"].id not in ids
+        assert fanout_users["sub_pm"].id not in ids
+        assert fanout_users["admin"].id not in ids
+        assert fanout_users["gerente"].id not in ids
         assert fanout_users["outsider"].id not in ids
         assert fanout_users["inactive"].id not in ids
-        assert len(ids) == 5
+        assert ids == {
+            fanout_users["holder_h1"].id,
+            fanout_users["holder_h2"].id,
+            fanout_users["superadmin"].id,
+        }
+
+    def test_superadmin_matches_via_resolver(self, db, empresa, proveedor, fanout_users) -> None:
+        recipients = compras_alertas_service.destinatarios_factura(db)
+        ids = {u.id for u in recipients}
+        assert fanout_users["superadmin"].id in ids
+        assert fanout_users["admin"].id not in ids
 
     def test_empty_numero_creates_no_alert(self, db, empresa, proveedor, fanout_users) -> None:
         pedido = _pedido(db, empresa, proveedor, fanout_users["titular"])
@@ -225,7 +260,7 @@ class TestPerUserOkAndUndo:
         t_notif = (
             db.query(Notificacion)
             .filter(
-                Notificacion.user_id == fanout_users["titular"].id,
+                Notificacion.user_id == fanout_users["holder_h1"].id,
                 Notificacion.tipo == "compras.factura_cargada",
             )
             .one()
@@ -233,7 +268,7 @@ class TestPerUserOkAndUndo:
         s_notif = (
             db.query(Notificacion)
             .filter(
-                Notificacion.user_id == fanout_users["sub_pm"].id,
+                Notificacion.user_id == fanout_users["holder_h2"].id,
                 Notificacion.tipo == "compras.factura_cargada",
             )
             .one()
@@ -251,7 +286,7 @@ class TestPerUserOkAndUndo:
             db, pedido_id=pedido.id, numero="FA-99", user_id=fanout_users["titular"].id
         )
         db.flush()
-        assert db.query(Notificacion).filter(Notificacion.tipo == "compras.factura_cargada").count() == 5
+        assert db.query(Notificacion).filter(Notificacion.tipo == "compras.factura_cargada").count() == 3
         pedidos_service.deshacer_factura_documento(db, pedido_id=pedido.id, row_id=row.id)
         db.flush()
         leftovers = db.query(Notificacion).filter(Notificacion.tipo == "compras.factura_cargada").all()
@@ -280,6 +315,16 @@ class TestFaltantes:
             compras_alertas_service.notificar_faltantes(db, pedido=pedido, texto="   ")
         assert exc_info.value.status_code == 422
         assert db.query(Notificacion).filter(Notificacion.tipo == "compras.faltantes").count() == 0
+
+    def test_factura_permiso_does_not_change_faltantes_recipients(self, db, empresa, proveedor, fanout_users) -> None:
+        responsable = fanout_users["titular"]
+        holder = fanout_users["holder_h1"]
+        pedido = _pedido(db, empresa, proveedor, fanout_users["admin"], responsable_id=responsable.id)
+        creadas = compras_alertas_service.notificar_faltantes(db, pedido=pedido, texto="Faltan 2 cajas", ahora=MARK)
+        db.flush()
+        ids = {n.user_id for n in creadas}
+        assert ids == {responsable.id}
+        assert holder.id not in ids
 
 
 class TestSnoozeClock:
@@ -349,7 +394,7 @@ class TestResolucionG31:
             db.flush()
             smtp.assert_not_called()
             smtp_ssl.assert_not_called()
-        assert db.query(Notificacion).filter(Notificacion.tipo == "compras.factura_cargada").count() == 5
+        assert db.query(Notificacion).filter(Notificacion.tipo == "compras.factura_cargada").count() == 3
 
 
 class TestOkSnoozeRoutes:

@@ -27,6 +27,17 @@
   background: var(--cf-bg-app);
 }
 
+.comprasOverflow {
+  margin: 0;
+  padding: 8px 32px;
+  background: var(--cf-bg-card);
+  color: var(--cf-text-secondary);
+  font-size: 13px;
+  font-weight: var(--font-medium);
+  text-align: center;
+  border-bottom: 1px solid var(--cf-border-default);
+}
+
 /* Responsive - Mobile */
 @media (max-width: 768px) {
   .mainWrapper {

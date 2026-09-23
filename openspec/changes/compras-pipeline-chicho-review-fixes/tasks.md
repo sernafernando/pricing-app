@@ -38,11 +38,11 @@ Locks: persist after `apply_writeback` same txn; `created_by_id=pedido.creado_po
 
 ## Phase 2: PR2 #1322 — Permiso + banners
 
-- [ ] 2.1 Create `backend/alembic/versions/compras_046_seed_ver_alertas_factura.py` like compras_020: catalog `administracion.ver_alertas_factura`, no roles, `orden=176`, parent `compras_045`.
-- [ ] 2.2 In `backend/app/services/compras_alertas_service.py` set `destinatarios_factura` via `resolver_usuarios_con_algun_permiso(["administracion.ver_alertas_factura"])`. Drop `ROLES_FACTURA`/MarcaPM. Faltantes=`responsable_id`.
-- [ ] 2.3 Tests in `backend/tests/unit/test_compras_alertas_service.py`: holders only; ADMIN without code out; SUPERADMIN via resolver; faltantes unchanged.
-- [ ] 2.4 Cap `comprasAlertas` to `max_alertas_visibles` in `frontend/src/components/AppLayout.jsx`; `+N más` in `frontend/src/components/AppLayout.module.css`. No compras timed-rotate.
-- [ ] 2.5 In `frontend/src/components/AppLayout.comprasBanners.test.jsx`: 7/cap 3 → 3 banners + `+4 más`; unread stays until OK.
+- [x] 2.1 Create `backend/alembic/versions/compras_046_seed_ver_alertas_factura.py` like compras_020: catalog `administracion.ver_alertas_factura`, no roles, `orden=176`, parent `compras_045`.
+- [x] 2.2 In `backend/app/services/compras_alertas_service.py` set `destinatarios_factura` via `resolver_usuarios_con_algun_permiso(["administracion.ver_alertas_factura"])`. Drop `ROLES_FACTURA`/MarcaPM. Faltantes=`responsable_id`.
+- [x] 2.3 Tests in `backend/tests/unit/test_compras_alertas_service.py`: holders only; ADMIN without code out; SUPERADMIN via resolver; faltantes unchanged.
+- [x] 2.4 Cap `comprasAlertas` to `max_alertas_visibles` in `frontend/src/components/AppLayout.jsx`; `+N más` in `frontend/src/components/AppLayout.module.css`. No compras timed-rotate.
+- [x] 2.5 In `frontend/src/components/AppLayout.comprasBanners.test.jsx`: 7/cap 3 → 3 banners + `+4 más`; unread stays until OK.
 
 ## Phase 3: PR3 #1323 — Undo tests (D-UNDO-R)
 
