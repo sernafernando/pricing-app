@@ -29,24 +29,24 @@ Locks: persist after `apply_writeback` same txn; `created_by_id=pedido.creado_po
 
 ## Phase 1: PR1 #1320 — Match alta + amend 044
 
-- [ ] 1.1 Extract persist from `agregar_factura_documento` in `backend/app/services/pedidos_service.py`: skip `len>100` (log) or casefold-dupe; insert + notify.
-- [ ] 1.2 Harden `seed_factura_documentos` in `backend/app/services/pedidos_service.py` (100/casefold/no re-seed). Never call from chips/GET/list.
-- [ ] 1.3 After `apply_writeback` in `backend/app/services/oc_match/worker.py` same txn, persist with `created_by_id=pedido.creado_por_id`.
-- [ ] 1.4 Add `UniqueConstraint(pedido_id, numero)` on `backend/app/models/pedido_factura_documento.py`.
-- [ ] 1.5 Amend `backend/alembic/versions/compras_044_pipeline_tipo_responsable_facturas.py`: skip `len>100` (log), casefold-dedupe, UNIQUE, first-seen casing.
-- [ ] 1.6 Tests in `backend/tests/unit/test_pedido_factura_documentos.py` + `backend/tests/integration/test_oc_match_worker.py`: overflow/casefold/UNIQUE; Match `FA-10` chip-on; no falta-factura.
+- [x] 1.1 Extract persist from `agregar_factura_documento` in `backend/app/services/pedidos_service.py`: skip `len>100` (log) or casefold-dupe; insert + notify.
+- [x] 1.2 Harden `seed_factura_documentos` in `backend/app/services/pedidos_service.py` (100/casefold/no re-seed). Never call from chips/GET/list.
+- [x] 1.3 After `apply_writeback` in `backend/app/services/oc_match/worker.py` same txn, persist with `created_by_id=pedido.creado_por_id`.
+- [x] 1.4 Add `UniqueConstraint(pedido_id, numero)` on `backend/app/models/pedido_factura_documento.py`.
+- [x] 1.5 Amend `backend/alembic/versions/compras_044_pipeline_tipo_responsable_facturas.py`: skip `len>100` (log), casefold-dedupe, UNIQUE, first-seen casing.
+- [x] 1.6 Tests in `backend/tests/unit/test_pedido_factura_documentos.py` + `backend/tests/integration/test_oc_match_worker.py`: overflow/casefold/UNIQUE; Match `FA-10` chip-on; no falta-factura.
 
 ## Phase 2: PR2 #1322 — Permiso + banners
 
-- [ ] 2.1 Create `backend/alembic/versions/compras_046_seed_ver_alertas_factura.py` like compras_020: catalog `administracion.ver_alertas_factura`, no roles, `orden=176`, parent `compras_045`.
-- [ ] 2.2 In `backend/app/services/compras_alertas_service.py` set `destinatarios_factura` via `resolver_usuarios_con_algun_permiso(["administracion.ver_alertas_factura"])`. Drop `ROLES_FACTURA`/MarcaPM. Faltantes=`responsable_id`.
-- [ ] 2.3 Tests in `backend/tests/unit/test_compras_alertas_service.py`: holders only; ADMIN without code out; SUPERADMIN via resolver; faltantes unchanged.
-- [ ] 2.4 Cap `comprasAlertas` to `max_alertas_visibles` in `frontend/src/components/AppLayout.jsx`; `+N más` in `frontend/src/components/AppLayout.module.css`. No compras timed-rotate.
-- [ ] 2.5 In `frontend/src/components/AppLayout.comprasBanners.test.jsx`: 7/cap 3 → 3 banners + `+4 más`; unread stays until OK.
+- [x] 2.1 Create `backend/alembic/versions/compras_046_seed_ver_alertas_factura.py` like compras_020: catalog `administracion.ver_alertas_factura`, no roles, `orden=176`, parent `compras_045`.
+- [x] 2.2 In `backend/app/services/compras_alertas_service.py` set `destinatarios_factura` via `resolver_usuarios_con_algun_permiso(["administracion.ver_alertas_factura"])`. Drop `ROLES_FACTURA`/MarcaPM. Faltantes=`responsable_id`.
+- [x] 2.3 Tests in `backend/tests/unit/test_compras_alertas_service.py`: holders only; ADMIN without code out; SUPERADMIN via resolver; faltantes unchanged.
+- [x] 2.4 Cap `comprasAlertas` to `max_alertas_visibles` in `frontend/src/components/AppLayout.jsx`; `+N más` in `frontend/src/components/AppLayout.module.css`. No compras timed-rotate.
+- [x] 2.5 In `frontend/src/components/AppLayout.comprasBanners.test.jsx`: 7/cap 3 → 3 banners + `+4 más`; unread stays until OK.
 
 ## Phase 3: PR3 #1323 — Undo tests (D-UNDO-R)
 
-- [ ] 3.1 Tests only in `backend/tests/integration/test_recepcion_deposito_endpoints.py`: second undo 409; CC+`pagado_en` → `pagado`; HTTP 403 via `require_permiso("deposito.recibir_mercaderia")`.
+- [x] 3.1 Tests only in `backend/tests/integration/test_recepcion_deposito_endpoints.py`: second undo 409; CC+`pagado_en` → `pagado`; HTTP 403 via `require_permiso("deposito.recibir_mercaderia")`.
 
 ## Phase 4: PR4 #1324 — ERP UI + 1-of-3 + novedad GATE
 

@@ -1,7 +1,7 @@
 """In-app factura / faltantes alerts for the Compras pipeline (PR2).
 
-D-FANOUT: broadcast to active marcas_pm ∪ marca_sub_pm ∪ ADMIN/GERENTE/SUPERADMIN.
-D-BANNER: one Notificacion per recipient; AppLayout stacks unread compras.*.
+D-PERM: factura recipients via resolver(administracion.ver_alertas_factura).
+D-BANNER: one Notificacion per recipient; AppLayout caps unread compras.*.
 D-SNOOZE: REVISADA + snooze marker; hide while now < fecha_creacion + 1h (mark time).
 Channel is in-app only — this module never sends email or Slack.
 """
@@ -12,17 +12,16 @@ from datetime import UTC, datetime, timedelta
 from typing import Final
 
 from fastapi import HTTPException, status
-from sqlalchemy import or_
-from sqlalchemy.orm import Session, joinedload
+from sqlalchemy.orm import Session
 
-from app.models.marca_pm import MarcaPM
-from app.models.marca_sub_pm import MarcaSubPM
 from app.models.notificacion import EstadoNotificacion, Notificacion, SeveridadNotificacion
 from app.models.pedido_compra import PedidoCompra
 from app.models.pedido_factura_documento import PedidoFacturaDocumento
-from app.models.rol import Rol
-from app.models.usuario import RolUsuario, Usuario
-from app.services.notificacion_service import crear_notificaciones_para_permisos
+from app.models.usuario import Usuario
+from app.services.notificacion_service import (
+    crear_notificaciones_para_permisos,
+    resolver_usuarios_con_algun_permiso,
+)
 
 TIPO_FACTURA_CARGADA: Final[str] = "compras.factura_cargada"
 TIPO_FALTANTES: Final[str] = "compras.faltantes"
@@ -30,7 +29,7 @@ TIPO_FALTANTES_RESUELTO: Final[str] = "compras.faltantes_resuelto"
 
 SNOOZE_MARKER: Final[str] = "compras.faltantes.snooze"
 SNOOZE_WINDOW: Final[timedelta] = timedelta(hours=1)
-ROLES_FACTURA: Final[frozenset[str]] = frozenset({"ADMIN", "GERENTE", "SUPERADMIN"})
+PERMISO_VER_ALERTAS_FACTURA: Final[str] = "administracion.ver_alertas_factura"
 PERMISO_DEPOSITO_RECEPCION: Final[str] = "deposito.recibir_mercaderia"
 DEEP_LINK_OBSERVACIONES: Final[str] = "/administracion/compras?tab=pedidos&pedido={pedido_id}&focus=observaciones"
 
@@ -68,38 +67,11 @@ def copy_faltantes_resuelto(*, pedido_numero: str, proveedor_nombre: str) -> str
 
 
 def destinatarios_factura(session: Session) -> list[Usuario]:
-    """Active titular ∪ sub-PM ∪ Admin ∪ Gerente ∪ Superadmin. Dedup by user id."""
-    titular_ids = {
-        row[0]
-        for row in session.query(MarcaPM.usuario_id).filter(MarcaPM.usuario_id.isnot(None)).all()
-        if row[0] is not None
-    }
-    sub_pm_ids = {row[0] for row in session.query(MarcaSubPM.usuario_id).all() if row[0] is not None}
-
-    role_enums = [RolUsuario[codigo] for codigo in ROLES_FACTURA if hasattr(RolUsuario, codigo)]
-    role_filter = or_(
-        Usuario.rol.in_(role_enums) if role_enums else False,
-        Rol.codigo.in_(tuple(ROLES_FACTURA)),
+    """Active users who hold administracion.ver_alertas_factura (hybrid resolver)."""
+    return resolver_usuarios_con_algun_permiso(
+        session,
+        permisos_requeridos=[PERMISO_VER_ALERTAS_FACTURA],
     )
-    role_users = (
-        session.query(Usuario)
-        .outerjoin(Rol, Usuario.rol_id == Rol.id)
-        .filter(Usuario.activo.is_(True), role_filter)
-        .all()
-    )
-
-    wanted = titular_ids | sub_pm_ids | {u.id for u in role_users}
-    if not wanted:
-        return []
-
-    users = (
-        session.query(Usuario)
-        .options(joinedload(Usuario.rol_obj))
-        .filter(Usuario.id.in_(wanted), Usuario.activo.is_(True))
-        .all()
-    )
-    by_id = {u.id: u for u in users}
-    return list(by_id.values())
 
 
 def notificar_factura_cargada(

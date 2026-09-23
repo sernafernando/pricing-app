@@ -105,6 +105,7 @@ TIPOS_PEDIDO: Final[frozenset[str]] = frozenset({"mercaderia", "servicio"})
 TIPO_PEDIDO_DEFAULT: Final[str] = "mercaderia"
 ROLES_ADMIN_TIPO: Final[frozenset[str]] = frozenset({RolUsuario.ADMIN.value, RolUsuario.SUPERADMIN.value})
 FACTURA_UNDO_WINDOW: Final[timedelta] = timedelta(minutes=5)
+FACTURA_NUMERO_MAX_LEN: Final[int] = 100
 EJES_PROCESAL: Final[frozenset[str]] = frozenset(
     {
         "n_a_servicio",
@@ -555,8 +556,75 @@ def pedidos_numeros_por_op_batch(session: Session, op_ids: list[int]) -> dict[in
     return out
 
 
+def _notificar_factura_cargada(
+    session: Session,
+    *,
+    pedido: PedidoCompra,
+    factura: PedidoFacturaDocumento,
+) -> None:
+    """Fire in-app factura alerts when the PR2 service is present; no-op on PR1."""
+    try:
+        from app.services import compras_alertas_service
+    except ImportError:
+        return
+    notificar = getattr(compras_alertas_service, "notificar_factura_cargada", None)
+    if notificar is None:
+        return
+    if pedido.proveedor is None:
+        session.refresh(pedido, attribute_names=["proveedor"])
+    notificar(session, pedido=pedido, factura=factura)
+
+
+def persist_factura_documento(
+    session: Session,
+    *,
+    pedido: PedidoCompra,
+    numero: str,
+    created_by_id: int,
+) -> Optional[PedidoFacturaDocumento]:
+    """Insert a factura row or skip overflow / casefold-duplicate. Notify on insert.
+
+    Shared alta path for manual POST and OC Match writeback. Tokens longer than
+    100 characters are logged and skipped. Casefold duplicates keep first-seen
+    casing. Returns the existing row on skip-dupe, None on overflow/empty.
+    """
+    numero_norm = (numero or "").strip()
+    if not numero_norm:
+        return None
+    if len(numero_norm) > FACTURA_NUMERO_MAX_LEN:
+        logger.warning(
+            "skip factura numero overflow pedido_id=%s len=%s",
+            pedido.id,
+            len(numero_norm),
+        )
+        return None
+    existing = (
+        session.query(PedidoFacturaDocumento)
+        .filter(PedidoFacturaDocumento.pedido_id == pedido.id)
+        .order_by(PedidoFacturaDocumento.id)
+        .all()
+    )
+    for row in existing:
+        if row.numero.casefold() == numero_norm.casefold():
+            return row
+    row = PedidoFacturaDocumento(
+        pedido_id=pedido.id,
+        numero=numero_norm,
+        created_by_id=created_by_id,
+    )
+    session.add(row)
+    session.flush()
+    _notificar_factura_cargada(session, pedido=pedido, factura=row)
+    return row
+
+
 def seed_factura_documentos(session: Session, pedido: PedidoCompra) -> list[PedidoFacturaDocumento]:
-    """Seed rows from `facturas_documento` `;` tokens. Leaves the raw field unchanged."""
+    """Backfill rows from `facturas_documento` tokens. Explicit only — never chips/GET.
+
+    Skips tokens longer than 100 characters (logged). Casefold-dedupes per
+    pedido and keeps first-seen casing. Does not re-seed when rows exist.
+    Leaves the raw `facturas_documento` field unchanged.
+    """
     existing = (
         session.query(PedidoFacturaDocumento)
         .filter(PedidoFacturaDocumento.pedido_id == pedido.id)
@@ -567,7 +635,19 @@ def seed_factura_documentos(session: Session, pedido: PedidoCompra) -> list[Pedi
         return existing
 
     rows: list[PedidoFacturaDocumento] = []
+    seen: set[str] = set()
     for numero in split_facturas_documento_tokens(pedido.facturas_documento):
+        if len(numero) > FACTURA_NUMERO_MAX_LEN:
+            logger.warning(
+                "skip factura seed overflow pedido_id=%s len=%s",
+                pedido.id,
+                len(numero),
+            )
+            continue
+        key = numero.casefold()
+        if key in seen:
+            continue
+        seen.add(key)
         row = PedidoFacturaDocumento(
             pedido_id=pedido.id,
             numero=numero,
@@ -587,7 +667,7 @@ def agregar_factura_documento(
     numero: str,
     user_id: int,
 ) -> PedidoFacturaDocumento:
-    """Persist a factura row. Empty number → 422. Fires in-app factura alerts."""
+    """Persist a factura row via the shared alta path. Empty number → 422. Fires in-app factura alerts."""
     pedido = _obtener_pedido_o_404(session, pedido_id)
     numero_norm = (numero or "").strip()
     if not numero_norm:
@@ -595,18 +675,17 @@ def agregar_factura_documento(
             status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail="numero de factura no puede estar vacío.",
         )
-    row = PedidoFacturaDocumento(
-        pedido_id=pedido.id,
+    row = persist_factura_documento(
+        session,
+        pedido=pedido,
         numero=numero_norm,
         created_by_id=user_id,
     )
-    session.add(row)
-    session.flush()
-    from app.services import compras_alertas_service
-
-    if pedido.proveedor is None:
-        session.refresh(pedido, attribute_names=["proveedor"])
-    compras_alertas_service.notificar_factura_cargada(session, pedido=pedido, factura=row)
+    if row is None:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail="numero de factura no puede superar 100 caracteres.",
+        )
     return row
 
 
