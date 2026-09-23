@@ -4,7 +4,7 @@ Delivery: auto-chain, SEQUENTIAL (each PR branches fresh off `origin/main` after
 
 Skills: `pricing-app-testing-ci`, `pricing-app-backend`, `pricing-app-frontend`, `pricing-app-design`. Resolve `work-unit-commits` and `chained-pr` skills by registry name and follow them for branch/commit/PR mechanics.
 
-Requirement legend: `SM`=ml-order-stored-metrics (R1-R8), `KPI`=ml-sales-kpi-aggregation (R7-R15), `PANEL`=ml-sales-detail-panel (R16-R21), `RESYNC`=ml-order-resync (R22-R24), `SEARCH`=ml-sales-search (R25-R27), `LISTING`=ml-sales-listing (R28-R31), `BREAKDOWN`=ml-order-breakdown (R32-R34), `NEG`=negative-scenarios.
+Requirement legend: `SM`=ml-order-stored-metrics (R1-R8), `KPI`=ml-sales-kpi-aggregation (R7-R15), `PANEL`=ml-sales-detail-panel (R16-R21), `RESYNC`=ml-order-resync (R22-R24), `SEARCH`=ml-sales-search (R25-R27, R25a), `LISTING`=ml-sales-listing (R28-R31), `BREAKDOWN`=ml-order-breakdown (R32-R34), `PFILT`=ml-sales-product-filters (R35-R43), `NEG`=negative-scenarios.
 
 ## PR1 — Stored metrics tables + compute/recompute producer (inert)
 Design refs: D1, D2, D7. Satisfies: SM R1, R2.
@@ -140,8 +140,15 @@ Design refs: Migration/Rollout "legacy columns kept until cleanup". Satisfies: k
 - [ ] PR8.T2 RED→GREEN: remove `refrescar_total_gauss_pendientes` slot (`sweep_service.py:1787`) and `ml_orders_ops.total_gauss_stale` usages.
 - [ ] PR8.T3 Confirm `ml_orders_ops.total_gauss*` legacy columns are still WRITTEN by `recompute_order_metrics` (sort-key compatibility) but no longer read anywhere outside it; document in PR description that a later migration drops them (explicitly out of this change's scope).
 
-## PR9 — Shared query layer extraction (pure refactor + search `q`)
-Design refs: D12. Satisfies: KPI R7, R15; SEARCH R25, R26, R27.
+## PR8b — Index on ml_order_item_costos.producto_item_id (own PR, before the joins)
+Design refs: D12a. Satisfies: PFILT R43.
+Migration only, no readers: it must be merged and DEPLOYED before PR9 adds any join that crosses this column (spec R43 requires a separate, earlier PR).
+
+- [ ] PR8b.T1 RED: Alembic migration round-trip test (upgrade/downgrade) for a new index `ix_ml_order_item_costos_producto_item_id` on `ml_order_item_costos.producto_item_id` (PFILT R43) — asserted absent today (no existing index on that column, verified: only `id`, `order_id`, `item_id` are indexed).
+- [ ] PR8b.T2 GREEN: write and apply `backend/alembic/versions/20260922_ix_producto_item_id.py`, index-only, single head, full downgrade. Merge and deploy this migration before PR9 ships any join against the column.
+
+## PR9 — Shared query layer extraction (pure refactor + search `q` + product-level filters)
+Design refs: D12, D12a. Satisfies: KPI R7, R15; SEARCH R25, R25a, R26, R27; PFILT R35-R43.
 
 - [ ] PR9.T1 RED: `build_scope(db, SalesFilter)` — order-level base query and group-level CTE reproduce the EXACT SAME rows/statuses as the current inline logic (`ml_ventas_ops.py:637-699` status exprs, `:566` group_key, `:702` `_collapse`), parity test against current behavior before/after extraction.
 - [ ] PR9.T2 GREEN: `backend/app/services/ml_sales_query/filters.py` (`SalesFilter` dataclass, `build_scope`); `ml_ventas_ops.py` delegates to it.
@@ -150,6 +157,24 @@ Design refs: D12. Satisfies: KPI R7, R15; SEARCH R25, R26, R27.
 - [ ] PR9.T5 RED: search combines as intersection with active facets/toggles, not replacement (SEARCH R26); empty/no-match search returns explicit empty result, not an error (SEARCH R27).
 - [ ] PR9.T6 GREEN: confirm via router-level test.
 - [ ] PR9.T7 Confirm the extraction is dimension-pluggable per D12's `Dimension(name, join, key_expr)` contract (ships `NONE` + `DAY`) so KPI R15 (reusable by future metric consumers) holds — stub the contract even though PR9 ships no new dimension consumer yet.
+
+**Product-level filters (design D12a, spec PFILT R35-R43, user binding decision 2026-09-22) — land the index BEFORE the joins below:**
+
+- [ ] PR9.T10 RED: `SalesFilter` gains `marcas`, `subcategorias`, `pms` (PFILT R35); `build_scope` joins via `ml_order_item_costos.producto_item_id` to `productos_erp` for marcas/subcategorias/pms (reusing the exact pair-resolution `productos_listing.py::listar_productos`'s `pms` branch uses, no second implementation) (PFILT R36).
+- [ ] PR9.T10a RED: a request carrying a publication-status or official-store filter returns EXACTLY the same rows and KPI figures as the same request without it (comparison test, not just a 200): unknown params are dropped by FastAPI anyway, so only this comparison proves nothing is filtered by today's catalog state (PFILT R36a, R37).
+- [ ] PR9.T11 GREEN: implement the joins in `filters.py` (guarded by the PR8b index already being live).
+- [ ] PR9.T12 RED: pack/group ANY-item-matches semantics for every product-level filter (PFILT R38) — a pack with items from two different brands matches a single-brand filter; a filter matching none of a sale's items excludes that sale/pack (both listing and KPI, parity with KPI R14).
+- [ ] PR9.T13 RED: an order-item with no `ml_order_item_costos` row (LEFT JOIN, `producto_item_id IS NULL`) never matches a product-level filter on its own (PFILT R39 direct case) AND does not cause its sale/pack to be silently dropped from an UNRELATED filter's results when a sibling item in the same pack matches (PFILT R39 pack case).
+- [ ] PR9.T15a RED: facet CONJUNCTION (PFILT R38) — with `marcas` and `subcategorias` both active, a pack whose items match one facet EACH is NOT returned; a pack with one item matching BOTH is returned whole. Implemented as a single EXISTS carrying every active condition, never one EXISTS per facet.
+- [ ] PR9.T14 GREEN: implement T12/T13/T15a via a SINGLE correlated `EXISTS` over the group's member order-items carrying EVERY active facet condition (AND-ed inside the EXISTS, never one EXISTS per facet), matching the existing promo group semantics for returning the whole group.
+- [ ] PR9.T15 RED: confirm NONE of stock, con_precio, web_transferencia, Tienda Nube, colores, con/sin MLA presence, nuevos_ultimos_7_dias, auditoría are exposed as sales-screen filter params (PFILT R40, negative/absence test on the router's accepted query params).
+- [ ] PR9.T16 EXPLAIN capture (review artifact, not a test): `EXPLAIN ANALYZE` for `GET /sales` (LIMIT-bounded, ≤200 rows) and `GET /sales/kpis` (whole filtered set, no LIMIT) with a representative combination (brand + subcategoría + date range), attached to the PR description, confirming `ix_ml_order_item_costos_producto_item_id` is used (Index/Bitmap Index Scan, not Seq Scan) for both shapes.
+- [ ] PR9.T16a RED: facet value contract (design D12a) — `marcas` are brand NAMES matched case-insensitively; `subcategorias` and `pms` are integer ids. A non-numeric id or an empty CSV entry fails with HTTP 422 (spec scenario 12); duplicates are de-duplicated; an id or name that matches no product yields an empty result, never an error and never "no filter". The listing and the KPI validate identically.
+- [ ] PR9.T16b RED: `pms` resolution — a PM with assigned marca+categoría pairs filters by exactly those pairs; a PM with NO assigned pairs returns an EMPTY result (never every sale), asserted against the pair table.
+- [ ] PR9.T16c RED: with NO product filter active, an order whose only item has no `producto_item_id` is still returned by the listing and still counted by the KPI (PFILT R39 — an unresolved item must not drop the sale from unrelated results).
+- [ ] PR9.T16d RED: a pack matched through ONE item's brand returns the WHOLE group, and its KPI amounts are the group's, not that item's — pinned so nobody reads the KPI total as brand-specific revenue (PFILT R38).
+- [ ] PR9.T17 GREEN: wire `marcas`, `subcategorias`, `pms` query params into the `GET /sales` and `GET /sales/kpis` routers (CSV parsing mirroring `productos_listing.py`'s equivalent params).
+- [ ] PR9.T18 Document in the PR description: no promo/PxQ param is added (PFILT R42, deferred — historical-state gap out of scope); any future markup/rebate/oferta filter on this screen MUST read `ml_order_item_costos` frozen fields only, never `ProductoPricing` (PFILT R41) — noted as a constraint for a later PR, since none ships in PR9.
 
 ## PR10 — Additive listing fields
 Design refs: D13 route /sales. Satisfies: LISTING R28, R29, R31.
@@ -300,7 +325,7 @@ Previous strict order (superseded): Sequential auto-chain order actually merged 
 | PR6 | Reconcile + divergence + health/divergence endpoints | ~350 | PR5 | High (PROD GATE, formula_version bump correctness) |
 | PR7 | Readers switch to stored values + invariant | ~300 | PR6 gate passed | High (money-path regression surface) |
 | PR8 | Cleanup: remove legacy hooks | ~150 | PR7 | Low |
-| PR9 | Shared query layer extraction + search | ~380 | PR8 (chain order; logically only needs PR1) | Med (parity refactor) |
+| PR9 | Shared query layer extraction + search + product-level filters (flagged: exceeds ~400, includes its own index migration + 3 new facet params) | ~620 | PR8 (chain order; logically only needs PR1) | Med (parity refactor + new join surface, mitigated by dedicated index + EXPLAIN artifact) |
 | PR10 | Additive listing fields | ~300 | PR9 | Low-Med (JSONB shape variance) |
 | PR11 | Doubtful switches + KPI endpoint + aggregation | ~400 | PR10, PR6 (data), PR7 (ideally) | Med (parity tests, weighted markup math) |
 | PR12 | Additive detail fields | ~200 | PR1 (chain: after PR11) | Low |

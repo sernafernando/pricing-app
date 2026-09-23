@@ -6,7 +6,8 @@ Source: proposal #2104 (rev 2) + explore #2103, with binding decisions Q1-Q3 res
 
 ### Requirements
 - R25 A search bar filters the listing server-side, through the shared filter builder (so search combines correctly with facets and toggles), matching at least: order id, pack id, MLA (item id), SKU, title, buyer nickname.
-- R26 Search results respect all currently active filters and toggles (intersection, not replacement).
+- R25a Free-text search matches the sale's OWN item fields — `ml_order_items_ops.title` and `ml_order_items_ops.seller_sku` — never through `producto_item_id`: a sale whose item has no frozen cost row (R39) MUST still be findable by its SKU or title.
+- R26 Search results respect all currently active filters and toggles (intersection, not replacement) — including the product-level facet filters of `ml-sales-product-filters`.
 - R27 An empty/no-match search state is explicit (no orders shown, not an error).
 
 ### Scenarios
