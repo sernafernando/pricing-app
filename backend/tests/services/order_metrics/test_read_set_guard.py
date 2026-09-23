@@ -15,7 +15,7 @@ from app.models.ml_orders_ops import MlOrderItemOps, MlOrdersOps
 from app.models.varios_venta_pct import VariosVentaPct
 from app.services.order_metrics.compute import compute_order_metrics
 from app.services.order_metrics.read_set_guard import (
-    KNOWN_INPUT_TABLES,
+    NON_INPUT_READ_TABLES,
     UntriggeredReadError,
     assert_read_set_is_triggered,
 )
@@ -63,10 +63,10 @@ class TestReadSetGuardCoversCurrentTables:
         with assert_read_set_is_triggered(engine) as seen:
             compute_order_metrics(db, [order_id])
 
-        # The guard only asserts about KNOWN_INPUT_TABLES; sanity-check it
+        # Sanity-check that the statement really did read an input table,
         # actually observed at least one real input table, or the test
         # would pass vacuously.
-        assert seen & KNOWN_INPUT_TABLES
+        assert seen & TRIGGERED_TABLES
 
 
 class TestReadSetGuardCatchesAWideningReadSet:
@@ -93,21 +93,22 @@ class TestReadSetGuardCatchesAWideningReadSet:
 
 
 class TestReadSetGuardCannotBeANoOp:
-    """PR5 review G1: `KNOWN_INPUT_TABLES` was once assigned `TRIGGERED_TABLES`
-    directly (the SAME object), which makes `seen & KNOWN_INPUT_TABLES` blind
-    to any table absent from BOTH sets -- exactly what a brand-new,
-    completely unlisted table looks like. Unlike
-    `TestReadSetGuardCatchesAWideningReadSet` above (which narrows
-    `TRIGGERED_TABLES` but leaves `KNOWN_INPUT_TABLES` referencing the
-    original, unnarrowed frozenset -- a divergence that can never happen in
-    production, where the two names are always assigned together), this test
-    uses the REAL, UNPATCHED production `TRIGGERED_TABLES` /
-    `KNOWN_INPUT_TABLES` and simply reads a table neither one lists. That is
-    the actual production configuration; a guard that cannot fail here is
-    the guard PR5 review G1 found."""
+    """PR5 review G1: the check was once written as
+    `(seen & KNOWN_INPUT_TABLES) - TRIGGERED_TABLES`, with a separate
+    "known inputs" set that was later assigned `TRIGGERED_TABLES` itself.
+    With both names bound to the same set that difference is empty for
+    EVERY read, so the guard silently reported nothing in production.
+
+    `TestReadSetGuardCatchesAWideningReadSet` above cannot detect that: it
+    narrows `TRIGGERED_TABLES` while the other set keeps referencing the
+    original frozenset, a divergence that never happens in production. This
+    test uses the REAL, UNPATCHED constants and simply reads a table that
+    neither `TRIGGERED_TABLES` nor `NON_INPUT_READ_TABLES` lists -- the
+    actual production configuration. A guard that cannot fail here is
+    exactly the no-op the review found."""
 
     def test_a_genuinely_unlisted_table_read_raises(self, db) -> None:
-        assert "ml_order_metrics" not in KNOWN_INPUT_TABLES
+        assert "ml_order_metrics" not in (TRIGGERED_TABLES | NON_INPUT_READ_TABLES)
         assert "ml_order_metrics" not in TRIGGERED_TABLES
 
         engine = db.get_bind()

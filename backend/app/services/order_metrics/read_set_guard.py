@@ -33,13 +33,6 @@ from app.services.order_metrics.triggers import TRIGGERED_TABLES
 #   -- renaming a logistics company changes no stored metric.
 NON_INPUT_READ_TABLES = frozenset({"logisticas"})
 
-# Every table `compute_order_metrics` may read without the guard raising:
-# real trigger inputs, plus the justified non-input reads above. This is
-# DELIBERATELY NOT the same object as `TRIGGERED_TABLES` -- see
-# `assert_read_set_is_triggered`'s docstring for why aliasing the two here
-# once made this guard a silent no-op (a real regression, PR5 review G1).
-KNOWN_INPUT_TABLES = TRIGGERED_TABLES | NON_INPUT_READ_TABLES
-
 _TABLE_REF_RE = re.compile(r"\b(?:FROM|JOIN)\s+\"?(\w+)\"?", re.IGNORECASE)
 
 
@@ -60,11 +53,15 @@ def assert_read_set_is_triggered(engine: Engine) -> Iterator[Set[str]]:
     always a bug report, never a silent pass -- either it is a new metrics
     input that needs a trigger (extend `TRIGGERED_TABLES`, and ship the
     trigger), or a new non-input read that needs its justification written
-    down (extend `NON_INPUT_READ_TABLES`). `KNOWN_INPUT_TABLES` must never
-    be made identical to `TRIGGERED_TABLES` again: that aliasing is exactly
-    what made this guard a no-op in production (PR5 review G1) -- an
-    untriggered table would also be absent from `KNOWN_INPUT_TABLES`, so
-    `seen & KNOWN_INPUT_TABLES` could never see it."""
+    down (extend `NON_INPUT_READ_TABLES`).
+
+    Keep the check SUBTRACTIVE (`seen - (...)`). An earlier version
+    intersected the read set with a separate "known inputs" set before
+    subtracting the triggered ones; when that set was later defined as the
+    triggered ones, the difference became empty for every input and the
+    guard silently stopped reporting anything in production (PR5 review
+    G1). An intersection can only ever narrow what the guard is able to
+    see, which is the opposite of failing closed."""
     seen: Set[str] = set()
 
     def _before_cursor_execute(conn, cursor, statement, parameters, context, executemany) -> None:
