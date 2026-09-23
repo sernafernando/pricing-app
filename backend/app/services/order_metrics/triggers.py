@@ -62,13 +62,16 @@ from typing import List
 
 from sqlalchemy.engine import Connection
 
-# Tables `compute_order_metrics` (PR1.T6/D7) actually reads THAT HAVE A
-# PER-ORDER ROW TRIGGER as of this PR. PR4.T10/T11's read-set guard fails
-# the moment `compute_order_metrics` starts reading a table missing here --
-# see `app/services/order_metrics/read_set_guard.py`. PR5 extends this set
-# with the config/statement-level tables (varios_venta_pct,
-# logistica_costo_cordon, codigos_postales, configuracion, transportes,
-# etiquetas_envio); they are NOT triggered yet, on purpose, in this PR.
+# Tables `compute_order_metrics` (PR1.T6/D7) actually reads THAT HAVE AN
+# ENQUEUE TRIGGER. PR4.T10/T11's read-set guard fails the moment
+# `compute_order_metrics` starts reading a table missing here -- see
+# `app/services/order_metrics/read_set_guard.py`. PR4 shipped the first six
+# (per-order ROW triggers); PR5 (design D3 statement-level scope, D11) adds
+# the five config tables plus `etiquetas_envio`, all via
+# `app/services/order_metrics/triggers_config.py`. Table NAMES are the real
+# DB table names (`Model.__tablename__`), not the model class names --
+# `ml_venta_varios_pct` (model `VariosVentaPct`) and `cp_cordones` (model
+# `CodigoPostalCordon`) are the two that differ.
 TRIGGERED_TABLES = frozenset(
     {
         "ml_orders_ops",
@@ -77,6 +80,12 @@ TRIGGERED_TABLES = frozenset(
         "ml_payments_ops",
         "ml_payment_charges",
         "ml_shipments_ops",
+        "etiquetas_envio",
+        "ml_venta_varios_pct",
+        "logistica_costo_cordon",
+        "cp_cordones",
+        "configuracion",
+        "transportes",
     }
 )
 

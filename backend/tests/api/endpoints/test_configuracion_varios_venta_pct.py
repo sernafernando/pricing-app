@@ -9,12 +9,13 @@ this codebase's auth test suite.
 
 from __future__ import annotations
 
-from datetime import date
+from datetime import date, datetime, timezone
 
 import pytest
 from fastapi import HTTPException
 
 from app.api.endpoints import configuracion
+from app.models.ml_orders_ops import MlOrdersOps
 from app.models.usuario import Usuario
 from app.models.varios_venta_pct import VariosVentaPct
 
@@ -27,6 +28,18 @@ def admin(db) -> Usuario:
     return user
 
 
+def _order(db, order_id: int, date_created: datetime) -> None:
+    db.add(
+        MlOrdersOps(
+            order_id=order_id,
+            status="paid",
+            ml_last_updated=datetime(2026, 8, 20, tzinfo=timezone.utc),
+            date_created=date_created,
+            seller_id=999,
+        )
+    )
+
+
 class TestCrearVariosVentaPct:
     def test_first_version_created(self, db, admin) -> None:
         payload = configuracion.VariosVentaPctCreate(porcentaje=2.5, fecha_desde=date(2026, 1, 1))
@@ -37,6 +50,42 @@ class TestCrearVariosVentaPct:
         row = db.query(VariosVentaPct).filter(VariosVentaPct.id == result["id"]).first()
         assert row.porcentaje == 2.5
         assert row.fecha_hasta is None
+
+    def test_response_includes_recalculando_count_of_affected_orders(self, db, admin) -> None:
+        """PR5.T7/T8 (design D11): the endpoint returns `recalculando: N`,
+        the count of dirty rows the statement's affected-range query would
+        produce -- orders whose `date_created` falls in the new version's
+        (open-ended) window. No `BackgroundTask`."""
+        _order(db, 700001, datetime(2026, 3, 1, tzinfo=timezone.utc))  # inside the new range
+        _order(db, 700002, datetime(2025, 1, 1, tzinfo=timezone.utc))  # outside
+        db.commit()
+
+        payload = configuracion.VariosVentaPctCreate(porcentaje=2.5, fecha_desde=date(2026, 1, 1))
+        result = configuracion.crear_varios_venta_pct(payload, db=db, current_user=admin)
+
+        assert result["recalculando"] == 1
+
+    def test_recalculando_includes_orders_leaving_a_narrowed_previous_version(self, db, admin) -> None:
+        """Closing a previously open-ended version narrows it to
+        [old.fecha_desde, new.fecha_desde) -- but the UNION of its OLD and
+        NEW windows is unchanged (still open from old.fecha_desde), so the
+        count must still cover every order from the EARLIEST touched
+        boundary forward, not just the brand-new version's own range."""
+        _order(db, 700003, datetime(2026, 2, 1, tzinfo=timezone.utc))  # only in the OLD open version's range
+        db.commit()
+
+        configuracion.crear_varios_venta_pct(
+            configuracion.VariosVentaPctCreate(porcentaje=2.0, fecha_desde=date(2026, 1, 1)),
+            db=db,
+            current_user=admin,
+        )
+        result = configuracion.crear_varios_venta_pct(
+            configuracion.VariosVentaPctCreate(porcentaje=3.0, fecha_desde=date(2026, 6, 1)),
+            db=db,
+            current_user=admin,
+        )
+
+        assert result["recalculando"] == 1
 
     def test_new_version_closes_the_previous_one(self, db, admin) -> None:
         """Same rule `pricing_constants` already applies (task: the

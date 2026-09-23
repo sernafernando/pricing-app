@@ -9,6 +9,7 @@ from app.api.deps import get_current_user, require_permiso, require_role
 from app.models.usuario import Usuario, RolUsuario
 from app.models.pricing_constants import PricingConstants
 from app.models.varios_venta_pct import VariosVentaPct
+from app.models.ml_orders_ops import MlOrdersOps
 
 router = APIRouter()
 
@@ -335,6 +336,18 @@ def crear_varios_venta_pct(
     for version in versiones_vigentes:
         version.fecha_hasta = data.fecha_desde
 
+    # Affected-order count (design D11, PR5.T7/T8): the same union of OLD
+    # and NEW windows the `ml_venta_varios_pct` statement trigger enqueues
+    # (design D3 statement-level scope) -- every closed version's window
+    # stays a SUPERSET of its own narrowed replacement (old.fecha_desde is
+    # always <= data.fecha_desde), so the union collapses to "every order
+    # from the EARLIEST touched fecha_desde forward". No BackgroundTask: the
+    # worker (PR2/PR3) drains the queue at batch speed on its own; this is
+    # only the count reported back to the caller, computed independently of
+    # whether the trigger actually fired (Postgres-only DDL, but this
+    # endpoint must return a correct count on every environment).
+    affected_from = min([data.fecha_desde] + [version.fecha_desde for version in versiones_vigentes])
+
     nueva_version = VariosVentaPct(
         porcentaje=data.porcentaje,
         fecha_desde=data.fecha_desde,
@@ -344,4 +357,6 @@ def crear_varios_venta_pct(
     db.commit()
     db.refresh(nueva_version)
 
-    return {"mensaje": "% de varios creado correctamente", "id": nueva_version.id}
+    recalculando = db.query(MlOrdersOps).filter(MlOrdersOps.date_created >= affected_from).count()
+
+    return {"mensaje": "% de varios creado correctamente", "id": nueva_version.id, "recalculando": recalculando}

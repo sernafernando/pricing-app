@@ -21,22 +21,13 @@ from sqlalchemy.engine import Engine
 from app.services.order_metrics.triggers import TRIGGERED_TABLES
 
 # Every table that could plausibly feed the metrics formula, across every
-# PR of this change -- PR4 ships per-order triggers on the first six (see
-# `TRIGGERED_TABLES`); PR5 adds the statement-level config ones. A table
-# entering `compute_order_metrics`'s read set with no matching entry here
-# is a typo in THIS set, not a real gap -- extend it alongside the new
-# trigger, never silently.
-KNOWN_INPUT_TABLES = frozenset(
-    TRIGGERED_TABLES
-    | {
-        "etiquetas_envio",
-        "varios_venta_pct",
-        "logistica_costo_cordon",
-        "codigos_postales",
-        "configuracion",
-        "transportes",
-    }
-)
+# PR of this change. PR4 shipped per-order triggers on the first six; PR5
+# (design D3 statement-level scope) added the config tables + etiquetas_envio
+# -- `TRIGGERED_TABLES` now covers every known input table, so there is no
+# "not yet triggered" exception left. A table entering `compute_order_
+# metrics`'s read set with no matching entry here is a typo in THIS set, not
+# a real gap -- extend it alongside the new trigger, never silently.
+KNOWN_INPUT_TABLES = TRIGGERED_TABLES
 
 _TABLE_REF_RE = re.compile(r"\b(?:FROM|JOIN)\s+\"?(\w+)\"?", re.IGNORECASE)
 
