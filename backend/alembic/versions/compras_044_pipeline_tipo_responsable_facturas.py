@@ -15,10 +15,14 @@ Rehang onto unique main head after 20260922_ix_producto_item_id (PR #1319).
   * raw facturas_documento is kept; pedidos_documento is not used as identity
 """
 
+import logging
 from typing import Optional, Sequence, Union
 
 import sqlalchemy as sa
 from alembic import op
+
+_log = logging.getLogger("alembic")
+_FACTURA_NUMERO_MAX_LEN = 100
 
 revision: str = "compras_044_pipeline_tipo_responsable_facturas"
 down_revision: Union[str, None] = "20260922_ix_producto_item_id"
@@ -96,6 +100,11 @@ def upgrade() -> None:
             ["usuarios.id"],
             ondelete="RESTRICT",
         ),
+        sa.UniqueConstraint(
+            "pedido_id",
+            "numero",
+            name="uq_pedido_factura_documentos_pedido_id_numero",
+        ),
     )
     op.create_index(
         "ix_pedido_factura_documentos_pedido_id",
@@ -112,7 +121,19 @@ def upgrade() -> None:
     source_rows = bind.execute(sa.text("SELECT id, facturas_documento, creado_por_id FROM pedidos_compra")).fetchall()
     seed_params: list[dict[str, object]] = []
     for pedido_id, raw, creado_por_id in source_rows:
+        seen: set[str] = set()
         for numero in _split_facturas_documento_tokens(raw):
+            if len(numero) > _FACTURA_NUMERO_MAX_LEN:
+                _log.warning(
+                    "compras_044 skip overflow factura token pedido_id=%s len=%s",
+                    pedido_id,
+                    len(numero),
+                )
+                continue
+            key = numero.casefold()
+            if key in seen:
+                continue
+            seen.add(key)
             seed_params.append(
                 {
                     "pedido_id": pedido_id,

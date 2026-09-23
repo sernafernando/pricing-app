@@ -7,7 +7,7 @@ Raw `pedidos_compra.facturas_documento` is kept; `pedidos_documento` is
 write-once and must not be used as factura identity.
 """
 
-from sqlalchemy import BigInteger, Column, DateTime, ForeignKey, Index, Integer, String
+from sqlalchemy import BigInteger, Column, DateTime, ForeignKey, Index, Integer, String, UniqueConstraint
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
 
@@ -40,7 +40,10 @@ class PedidoFacturaDocumento(Base):
     pedido = relationship("PedidoCompra", foreign_keys=[pedido_id], back_populates="factura_documentos")
     created_by = relationship("Usuario", foreign_keys=[created_by_id], lazy="select")
 
-    __table_args__ = (Index("ix_pedido_factura_documentos_pedido_id", "pedido_id"),)
+    __table_args__ = (
+        Index("ix_pedido_factura_documentos_pedido_id", "pedido_id"),
+        UniqueConstraint("pedido_id", "numero", name="uq_pedido_factura_documentos_pedido_id_numero"),
+    )
 
     def __repr__(self) -> str:
         return f"<PedidoFacturaDocumento(id={self.id}, pedido_id={self.pedido_id}, numero='{self.numero}')>"
