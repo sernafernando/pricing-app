@@ -36,6 +36,11 @@ from app.services.ml_sales_query.filters import SalesFilter, build_scope
 @pytest.fixture(autouse=True)
 def _seller(monkeypatch):
     monkeypatch.setattr(settings, "ML_USER_ID", 999)
+    # `ML_ORDERS_OPS_ENABLED` defaults to False (config.py): `resolve_links`
+    # returns `ran=False` without it, so the claim never gets linked and the
+    # status reads `paid`. A local `.env` can have it on, which is exactly
+    # how this passed here and failed in CI.
+    monkeypatch.setattr(settings, "ML_ORDERS_OPS_ENABLED", True)
 
 
 def _seed_order(
@@ -122,11 +127,11 @@ class TestStatusDerivationParity:
         resultado = resolve_links(db)
         db.commit()
 
-        # Asserted, not assumed. This test failed once in CI (parallel run)
-        # reading `paid`, and could NOT be reproduced locally -- not even
-        # running the whole suite with the same `-n 4`. The cause is still
-        # unknown, so instead of guessing, the assertions below name WHICH
-        # link was missing rather than only reporting the collapsed status.
+        # Asserted, not assumed: this test read `paid` in CI while passing
+        # locally, because `resolve_links` silently no-ops when
+        # `ML_ORDERS_OPS_ENABLED` is off (the `_seller` fixture now pins it
+        # on). Checking the link itself is what turned "expected in_dispute,
+        # got paid" into a message naming the real cause.
         enlaces = (
             db.query(MlOperationLink)
             .filter(MlOperationLink.order_id == order_id, MlOperationLink.entity_type == "claim")
