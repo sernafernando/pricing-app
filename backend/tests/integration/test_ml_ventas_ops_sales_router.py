@@ -1538,3 +1538,36 @@ class TestProductFacets:
         ).json()
 
         assert _order_ids(without_param) == _order_ids(with_unknown_params) == [96040]
+
+
+class TestProductFacetValueLimits:
+    """PFILT R35/T16a: an out-of-range or duplicated facet value must read
+    as 422 or as a de-duplicated filter, never as a 500 from the driver."""
+
+    def test_an_out_of_range_id_is_422_not_a_500(self, db, client, admin_auth_headers, rol_admin):
+        _grant_ml_ops_ver(db, rol_admin)
+        db.commit()
+
+        resp = client.get("/api/ml-ventas-ops/sales?subcategorias=99999999999999999999", headers=admin_auth_headers)
+
+        assert resp.status_code == 422
+
+    def test_duplicated_values_are_deduplicated(self, db, client, admin_auth_headers, rol_admin):
+        _grant_ml_ops_ver(db, rol_admin)
+        db.commit()
+
+        una = client.get("/api/ml-ventas-ops/sales?subcategorias=1", headers=admin_auth_headers)
+        repetida = client.get("/api/ml-ventas-ops/sales?subcategorias=1,1,1", headers=admin_auth_headers)
+
+        assert una.status_code == repetida.status_code == 200
+        assert una.json()["total"] == repetida.json()["total"]
+
+    def test_duplicated_brand_names_differ_only_in_case(self, db, client, admin_auth_headers, rol_admin):
+        _grant_ml_ops_ver(db, rol_admin)
+        db.commit()
+
+        una = client.get("/api/ml-ventas-ops/sales?marcas=Epson", headers=admin_auth_headers)
+        repetida = client.get("/api/ml-ventas-ops/sales?marcas=Epson,EPSON,epson", headers=admin_auth_headers)
+
+        assert una.status_code == repetida.status_code == 200
+        assert una.json()["total"] == repetida.json()["total"]

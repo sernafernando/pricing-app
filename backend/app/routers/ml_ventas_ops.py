@@ -799,6 +799,10 @@ def _parse_csv_strings(raw: Optional[str], field: str) -> Tuple[str, ...]:
     return tuple(values)
 
 
+_INT32_MIN = -(2**31)
+_INT32_MAX = 2**31 - 1
+
+
 def _parse_csv_ids(raw: Optional[str], field: str) -> Tuple[int, ...]:
     """PFILT R35/T16a: CSV of integer ids, deduplicated. A non-numeric id
     or an empty CSV entry is HTTP 422 (never treated as 'no filter')."""
@@ -820,6 +824,13 @@ def _parse_csv_ids(raw: Optional[str], field: str) -> Tuple[int, ...]:
                 status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
                 detail=f"{field} inválido (esperado un entero): {value!r}",
             ) from e
+        # An INT column raises a DataError on an out-of-range value, which
+        # would surface as a 500 instead of the 422 the contract promises.
+        if not (_INT32_MIN <= parsed <= _INT32_MAX):
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail=f"{field} contiene un id fuera de rango: {value!r}",
+            )
         if parsed not in seen:
             seen.add(parsed)
             values.append(parsed)

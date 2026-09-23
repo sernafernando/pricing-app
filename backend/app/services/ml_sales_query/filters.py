@@ -19,7 +19,7 @@ facet, and a match returns the whole group (spec PFILT R38).
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any, Optional, Tuple
 
@@ -50,6 +50,11 @@ class SalesFilter:
     operation_status: Optional[str] = None
     goods_status: Optional[str] = None
     q: Optional[str] = None
+    # D12a product-level facets (spec PFILT R35), applied by `build_scope`
+    # through `_product_facet_exists`.
+    marcas: Tuple[str, ...] = field(default_factory=tuple)
+    subcategorias: Tuple[int, ...] = field(default_factory=tuple)
+    pms: Tuple[int, ...] = field(default_factory=tuple)
 
 
 @dataclass
