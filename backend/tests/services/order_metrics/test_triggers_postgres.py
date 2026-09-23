@@ -511,15 +511,171 @@ class TestPaymentsOpsAndChargesTriggers:
             session.commit()
             _clear_orders(session, order_id)
 
+    def test_payment_charges_payment_id_change_enqueues_both_old_and_new_order(self, clean_slate) -> None:
+        """F6 (review): `compute_breakdown`/`compute_neto_by_order_ids`
+        (`app/services/ml_ventas_desglose/breakdown_service.py`) join charges
+        to a payment via `MlPaymentCharge.payment_id`, and a payment belongs
+        to exactly one order (`ml_payments_ops.order_id`) -- so moving a
+        charge from one payment to another moves it from one order's read
+        set to another's. Both the losing (OLD) and gaining (NEW) order must
+        be enqueued, mirroring the sibling-fanout shape the orders_ops
+        trigger already uses for `shipping_id`."""
+        session = clean_slate
+        order_old, order_new = 320003, 320004
+        payment_old, payment_new = 900000004, 900000005
+        charge_id = None
+        try:
+            _insert_order(session, order_old)
+            _insert_order(session, order_new)
+            session.execute(
+                text(
+                    "INSERT INTO ml_payments_ops (payment_id, order_id, status) VALUES (:payment_id, :order_id, 'approved')"
+                ),
+                {"payment_id": payment_old, "order_id": order_old},
+            )
+            session.execute(
+                text(
+                    "INSERT INTO ml_payments_ops (payment_id, order_id, status) VALUES (:payment_id, :order_id, 'approved')"
+                ),
+                {"payment_id": payment_new, "order_id": order_new},
+            )
+            charge_id = session.execute(
+                text(
+                    "INSERT INTO ml_payment_charges (payment_id, name, amount) VALUES (:payment_id, 'meli_fee', 5.0) "
+                    "RETURNING id"
+                ),
+                {"payment_id": payment_old},
+            ).scalar()
+            session.commit()
+            _clear_dirty(session)
+
+            session.execute(
+                text("UPDATE ml_payment_charges SET payment_id = :payment_new WHERE id = :charge_id"),
+                {"payment_new": payment_new, "charge_id": charge_id},
+            )
+            session.commit()
+
+            assert _dirty_row(session, order_old) is not None, "losing order must be re-enqueued"
+            assert _dirty_row(session, order_new) is not None, "gaining order must be re-enqueued"
+        finally:
+            if charge_id is not None:
+                session.execute(text("DELETE FROM ml_payment_charges WHERE id = :charge_id"), {"charge_id": charge_id})
+            session.execute(
+                text("DELETE FROM ml_payments_ops WHERE payment_id IN (:p1, :p2)"),
+                {"p1": payment_old, "p2": payment_new},
+            )
+            session.commit()
+            _clear_orders(session, order_old, order_new)
+
 
 @pytest.mark.postgres
 class TestShipmentsOpsTrigger:
+    def test_insert_enqueues(self, clean_slate) -> None:
+        """F1 (review): `_upsert_shipment_row`
+        (`app/services/ml_orders_ingestion/ingestion_service.py`) is an
+        `INSERT ... ON CONFLICT`, so a shipment's FIRST appearance is a pure
+        INSERT. Before this fix, only `AFTER UPDATE OF logistic_type,
+        receiver_address` existed, so an order computed before its shipment
+        ever arrived (fetch budget exhausted / a failed fetch) stayed stale
+        forever the moment the shipment finally landed."""
+        session = clean_slate
+        order_id = 330003
+        shipment_id = 800000003
+        try:
+            _insert_order(session, order_id, shipping_id=shipment_id)
+            session.commit()
+            _clear_dirty(session)
+
+            session.execute(
+                text(
+                    "INSERT INTO ml_shipments_ops (shipment_id, order_id, logistic_type) "
+                    "VALUES (:shipment_id, :order_id, 'drop_off')"
+                ),
+                {"shipment_id": shipment_id, "order_id": order_id},
+            )
+            session.commit()
+
+            assert _dirty_row(session, order_id) is not None
+        finally:
+            session.execute(
+                text("DELETE FROM ml_shipments_ops WHERE shipment_id = :shipment_id"), {"shipment_id": shipment_id}
+            )
+            session.commit()
+            _clear_orders(session, order_id)
+
+    def test_delete_enqueues(self, clean_slate) -> None:
+        """F1 (review): a DELETE must use OLD, and was entirely uncovered."""
+        session = clean_slate
+        order_id = 330004
+        shipment_id = 800000004
+        try:
+            _insert_order(session, order_id, shipping_id=shipment_id)
+            session.execute(
+                text(
+                    "INSERT INTO ml_shipments_ops (shipment_id, order_id, logistic_type) "
+                    "VALUES (:shipment_id, :order_id, 'drop_off')"
+                ),
+                {"shipment_id": shipment_id, "order_id": order_id},
+            )
+            session.commit()
+            _clear_dirty(session)
+
+            session.execute(
+                text("DELETE FROM ml_shipments_ops WHERE shipment_id = :shipment_id"), {"shipment_id": shipment_id}
+            )
+            session.commit()
+
+            assert _dirty_row(session, order_id) is not None
+        finally:
+            _clear_orders(session, order_id)
+
+    def test_logistic_type_change_enqueues_pack_siblings_sharing_the_shipment(self, clean_slate) -> None:
+        """F2 (review): the formula resolves shipments by
+        `MlShipmentOps.shipment_id IN (<orders' shipping_id>)`
+        (`breakdown_service.py`), never by `ml_shipments_ops.order_id`. A
+        pack (or shared Flex) has several orders sharing one `shipping_id`;
+        before this fix the trigger only enqueued `NEW.order_id`, so sibling
+        orders sharing that shipment were never recomputed when
+        `logistic_type`/`receiver_address` changed."""
+        session = clean_slate
+        order_owner, order_sibling = 330005, 330006
+        shipment_id = 800000005
+        try:
+            _insert_order(session, order_owner, shipping_id=shipment_id)
+            _insert_order(session, order_sibling, shipping_id=shipment_id)
+            session.execute(
+                text(
+                    "INSERT INTO ml_shipments_ops (shipment_id, order_id, logistic_type) "
+                    "VALUES (:shipment_id, :order_id, 'drop_off')"
+                ),
+                {"shipment_id": shipment_id, "order_id": order_owner},
+            )
+            session.commit()
+            _clear_dirty(session)
+
+            session.execute(
+                text("UPDATE ml_shipments_ops SET logistic_type = 'self_service' WHERE shipment_id = :shipment_id"),
+                {"shipment_id": shipment_id},
+            )
+            session.commit()
+
+            assert _dirty_row(session, order_owner) is not None
+            assert _dirty_row(session, order_sibling) is not None, (
+                "sibling sharing the shipment must be re-enqueued too"
+            )
+        finally:
+            session.execute(
+                text("DELETE FROM ml_shipments_ops WHERE shipment_id = :shipment_id"), {"shipment_id": shipment_id}
+            )
+            session.commit()
+            _clear_orders(session, order_owner, order_sibling)
+
     def test_logistic_type_change_enqueues(self, clean_slate) -> None:
         session = clean_slate
         order_id = 330001
         shipment_id = 800000001
         try:
-            _insert_order(session, order_id)
+            _insert_order(session, order_id, shipping_id=shipment_id)
             session.execute(
                 text(
                     "INSERT INTO ml_shipments_ops (shipment_id, order_id, logistic_type) "

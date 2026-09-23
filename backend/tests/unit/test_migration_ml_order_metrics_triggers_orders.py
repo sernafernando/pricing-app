@@ -102,7 +102,11 @@ _TRIGGERS_BY_TABLE = {
         "trg_order_metrics_payment_charges_update",
         "trg_order_metrics_payment_charges_delete",
     ],
-    "ml_shipments_ops": ["trg_order_metrics_shipments_ops_update"],
+    "ml_shipments_ops": [
+        "trg_order_metrics_shipments_ops_insert",
+        "trg_order_metrics_shipments_ops_update",
+        "trg_order_metrics_shipments_ops_delete",
+    ],
 }
 
 
@@ -113,10 +117,11 @@ class TestMigrationPostgresRoundTrip:
     ) -> None:
         migration = _load_migration()
 
-        # The fixture's own `after_create` listener (triggers.py) already
-        # applied this DDL when it built the tables -- drop it first so this
-        # test observes the MIGRATION's own create/drop, not a pre-existing
-        # copy silently masking a real migration bug.
+        # The fixture already applied this DDL via its own explicit
+        # `create_triggers(conn)` call (triggers.py) when it built the
+        # tables -- drop it first so this test observes the MIGRATION's own
+        # create/drop, not a pre-existing copy silently masking a real
+        # migration bug.
         with pg_order_metrics_triggers_engine.begin() as conn:
             from app.services.order_metrics.triggers import drop_triggers
 

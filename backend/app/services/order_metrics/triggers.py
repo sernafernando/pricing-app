@@ -1,8 +1,11 @@
 """Enqueue functions + per-order row-level triggers (ventas-ml-rediseno PR4,
-design D3, D7, D8). Postgres-only DDL, applied EXPLICITLY by the Alembic
-migration and by the dedicated `pg_order_metrics_triggers_engine` test
-fixture (`tests/conftest.py`) -- never by a global SQLAlchemy metadata
-event.
+design D3, D7, D8). Postgres-only DDL, applied EXPLICITLY by the
+`create_triggers`/`drop_triggers` calls below -- invoked directly by the
+dedicated `pg_order_metrics_triggers_engine` test fixture
+(`tests/conftest.py`) for tests, and, as a FROZEN point-in-time copy inlined
+at authoring time, by the PR4 Alembic migration
+(`alembic/versions/20260923_ml_order_metrics_triggers_orders.py`). Never by
+a global SQLAlchemy metadata event.
 
 Deviation from the design's literal "applied ... by an after_create
 listener" (D3/D7/D8): `MlOrderMetricsDirty.__table__` is SHARED by several
@@ -10,11 +13,24 @@ PRE-EXISTING PR1/PR3 fixtures (`pg_order_metrics_engine`, `pg_worker_engine`)
 that create it WITHOUT the six sibling input tables this DDL references --
 a global `after_create` listener on that table fired for every one of them
 too and broke with `UndefinedTable: ml_shipments_ops` the moment this PR's
-fixture and the pre-existing ones coexisted in the same test session. Direct
-calls from the exact fixture (and the migration) that own the six input
-tables are the only thing safe to fire unconditionally; SQLite
-`create_all` never calls either of these (design D8's own guarantee still
-holds).
+fixture and the pre-existing ones coexisted in the same test session.
+Explicit `create_triggers`/`drop_triggers` calls from the exact fixture (and
+the migration's own frozen copy) that own the six input tables are the only
+thing safe to fire unconditionally; SQLite `create_all` never calls either
+of these (design D8's own guarantee still holds).
+
+Migration immutability contract: this module is the LIVE definition,
+consumed by test fixtures and by any FUTURE migration that has not been
+authored yet. Once a migration has inlined a copy of these statements
+(frozen at that point in time -- see the PR4 migration above), that copy is
+never re-synced when this module changes. A later PR that needs to add or
+change trigger DDL adds a NEW list (or a new module) and a NEW migration
+that inlines its own frozen copy; it never edits `_CREATE_STATEMENTS` /
+`_DROP_STATEMENTS` in a way that changes what an already-shipped migration
+would produce on replay. `CREATE TRIGGER` is not idempotent, so a shipped
+migration that silently started creating a different trigger set would
+either collide with a later migration's own `CREATE TRIGGER` or leave a
+fresh database with a different trigger set than production has.
 
 Two enqueue helpers, DIFFERENT conflict semantics (design D3 rev 3):
 - `order_metrics_enqueue(ids, reason)` -- the ONLY one called by triggers
@@ -73,7 +89,7 @@ BEGIN
         RETURN;
     END IF;
     INSERT INTO ml_order_metrics_dirty (order_id, version, reason, enqueued_at, attempts, last_error, suspect)
-    SELECT DISTINCT x, 1, reason, now(), 0, NULL, false FROM unnest(ids) AS x
+    SELECT DISTINCT x, 1, reason, now(), 0, NULL, false FROM unnest(ids) AS x ORDER BY x
     ON CONFLICT (order_id) DO UPDATE SET
         version = ml_order_metrics_dirty.version + 1,
         enqueued_at = now(),
@@ -266,9 +282,18 @@ FOR EACH ROW EXECUTE FUNCTION order_metrics_enqueue_payments_ops();
 """
 
 _PAYMENT_CHARGES_TRIGGER_SQL = """
+-- `payment_id` itself is part of the read set: `compute_breakdown` /
+-- `compute_neto_by_order_ids` (breakdown_service.py) join a charge to its
+-- order THROUGH `payment_id` -- it is not just a foreign key, it decides
+-- WHICH order's net this charge counts toward. Moving a charge to a
+-- different payment moves it out of one order's read set and into
+-- another's, so both the losing (OLD) and gaining (NEW) order must be
+-- enqueued -- an UPDATE that only enqueued NEW.payment_id's order would
+-- leave the OLD order silently stale.
 CREATE OR REPLACE FUNCTION order_metrics_enqueue_payment_charges() RETURNS TRIGGER AS $trg$
 DECLARE
     resolved_order_id BIGINT;
+    old_order_id BIGINT;
 BEGIN
     IF TG_OP = 'DELETE' THEN
         SELECT order_id INTO resolved_order_id FROM ml_payments_ops WHERE payment_id = OLD.payment_id;
@@ -277,7 +302,16 @@ BEGIN
         END IF;
         RETURN OLD;
     END IF;
+
     SELECT order_id INTO resolved_order_id FROM ml_payments_ops WHERE payment_id = NEW.payment_id;
+
+    IF TG_OP = 'UPDATE' AND OLD.payment_id IS DISTINCT FROM NEW.payment_id THEN
+        SELECT order_id INTO old_order_id FROM ml_payments_ops WHERE payment_id = OLD.payment_id;
+        IF old_order_id IS NOT NULL AND old_order_id IS DISTINCT FROM resolved_order_id THEN
+            PERFORM order_metrics_enqueue(ARRAY[old_order_id], 'ml_payment_charges_update');
+        END IF;
+    END IF;
+
     IF resolved_order_id IS NOT NULL THEN
         PERFORM order_metrics_enqueue(
             ARRAY[resolved_order_id],
@@ -293,12 +327,13 @@ AFTER INSERT ON ml_payment_charges
 FOR EACH ROW EXECUTE FUNCTION order_metrics_enqueue_payment_charges();
 
 CREATE TRIGGER trg_order_metrics_payment_charges_update
-AFTER UPDATE OF amount, refunded, type, name ON ml_payment_charges
+AFTER UPDATE OF amount, refunded, type, name, payment_id ON ml_payment_charges
 FOR EACH ROW WHEN (
     OLD.amount IS DISTINCT FROM NEW.amount
     OR OLD.refunded IS DISTINCT FROM NEW.refunded
     OR OLD.type IS DISTINCT FROM NEW.type
     OR OLD.name IS DISTINCT FROM NEW.name
+    OR OLD.payment_id IS DISTINCT FROM NEW.payment_id
 )
 EXECUTE FUNCTION order_metrics_enqueue_payment_charges();
 
@@ -308,14 +343,38 @@ FOR EACH ROW EXECUTE FUNCTION order_metrics_enqueue_payment_charges();
 """
 
 _SHIPMENTS_OPS_TRIGGER_SQL = """
+-- `compute_breakdown`/`_resolve_modes` (breakdown_service.py) resolve
+-- shipments by `MlShipmentOps.shipment_id IN (<orders' shipping_id>)`,
+-- NEVER by `ml_shipments_ops.order_id` -- that column can be NULL or can
+-- name only ONE of several orders sharing the shipment (a pack, or a
+-- shared Flex label). The real read-set owners are every
+-- `ml_orders_ops` row whose `shipping_id` equals this shipment's id, the
+-- same shape `order_metrics_enqueue_orders_ops` already uses for its own
+-- sibling fanout.
 CREATE OR REPLACE FUNCTION order_metrics_enqueue_shipments_ops() RETURNS TRIGGER AS $trg$
+DECLARE
+    ids BIGINT[];
 BEGIN
-    IF NEW.order_id IS NOT NULL THEN
-        PERFORM order_metrics_enqueue(ARRAY[NEW.order_id], 'ml_shipments_ops_update');
+    SELECT COALESCE(array_agg(order_id), ARRAY[]::BIGINT[]) INTO ids
+    FROM ml_orders_ops
+    WHERE shipping_id = COALESCE(NEW.shipment_id, OLD.shipment_id);
+
+    IF TG_OP = 'DELETE' THEN
+        PERFORM order_metrics_enqueue(ids, 'ml_shipments_ops_delete');
+        RETURN OLD;
     END IF;
+
+    PERFORM order_metrics_enqueue(
+        ids,
+        CASE WHEN TG_OP = 'INSERT' THEN 'ml_shipments_ops_insert' ELSE 'ml_shipments_ops_update' END
+    );
     RETURN NEW;
 END;
 $trg$ LANGUAGE plpgsql;
+
+CREATE TRIGGER trg_order_metrics_shipments_ops_insert
+AFTER INSERT ON ml_shipments_ops
+FOR EACH ROW EXECUTE FUNCTION order_metrics_enqueue_shipments_ops();
 
 -- Only logistic_type/receiver_address are in the metrics read set;
 -- sender_cost/receiver_cost/raw_costs stay trigger-free (`_sync_shipment_costs`
@@ -327,6 +386,10 @@ FOR EACH ROW WHEN (
     OR OLD.receiver_address IS DISTINCT FROM NEW.receiver_address
 )
 EXECUTE FUNCTION order_metrics_enqueue_shipments_ops();
+
+CREATE TRIGGER trg_order_metrics_shipments_ops_delete
+AFTER DELETE ON ml_shipments_ops
+FOR EACH ROW EXECUTE FUNCTION order_metrics_enqueue_shipments_ops();
 """
 
 # Order matters: functions before the triggers that call them; each table's
@@ -343,7 +406,9 @@ _CREATE_STATEMENTS: List[str] = [
 ]
 
 _DROP_STATEMENTS: List[str] = [
+    "DROP TRIGGER IF EXISTS trg_order_metrics_shipments_ops_delete ON ml_shipments_ops",
     "DROP TRIGGER IF EXISTS trg_order_metrics_shipments_ops_update ON ml_shipments_ops",
+    "DROP TRIGGER IF EXISTS trg_order_metrics_shipments_ops_insert ON ml_shipments_ops",
     "DROP FUNCTION IF EXISTS order_metrics_enqueue_shipments_ops()",
     "DROP TRIGGER IF EXISTS trg_order_metrics_payment_charges_delete ON ml_payment_charges",
     "DROP TRIGGER IF EXISTS trg_order_metrics_payment_charges_update ON ml_payment_charges",
@@ -372,8 +437,9 @@ _DROP_STATEMENTS: List[str] = [
 
 def create_triggers(bind: Connection) -> None:
     """Applies every enqueue function + row trigger, in dependency order.
-    Postgres-only -- callers (the Alembic migration, and the
-    `after_create` listener below) never call this under SQLite."""
+    Postgres-only -- callers (the `pg_order_metrics_triggers_engine` test
+    fixture, and any FUTURE migration that has not frozen its own copy of
+    this DDL yet) never call this under SQLite."""
     for statement in _CREATE_STATEMENTS:
         bind.exec_driver_sql(statement)
 
