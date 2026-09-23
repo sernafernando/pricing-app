@@ -53,7 +53,7 @@ class CCProveedorMovimiento(Base):
     monto = Column(Numeric(18, 2), nullable=False)
     moneda = Column(String(3), nullable=False)
     tipo_cambio_a_ars = Column(Numeric(18, 6), nullable=True)
-    origen_tipo = Column(String(32), nullable=False)
+    origen_tipo = Column(String(64), nullable=False)
     origen_id = Column(BigInteger, nullable=True)
     descripcion = Column(String(500), nullable=True)
     creado_por_id = Column(
