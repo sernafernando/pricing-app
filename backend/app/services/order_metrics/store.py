@@ -55,6 +55,24 @@ def recompute_order_metrics(db: Session, order_ids: Sequence[int]) -> Dict[int, 
     if not metrics_by_order:
         return metrics_by_order
 
+    store_order_metrics(db, metrics_by_order)
+    return metrics_by_order
+
+
+def store_order_metrics(db: Session, metrics_by_order: Dict[int, OrderMetrics]) -> None:
+    """Store-only half of `recompute_order_metrics`, split out for
+    `order_metrics.queue.fenced_store` (ventas-ml-rediseno PR3, design D5
+    rev 6): the worker's COMPUTE phase calls `compute_order_metrics` once in
+    bulk with no row locks, then the STORE phase calls this function inside
+    ONE SHORT TRANSACTION PER ORDER (never a batch-wide transaction), after
+    its own claim-token fence check. Upserts `ml_order_metrics` +
+    `ml_venta_deducciones` + legacy `ml_orders_ops.total_gauss*` columns.
+    NEVER commits -- the caller controls the transaction, same contract as
+    `recompute_order_metrics`."""
+    order_ids = list(metrics_by_order.keys())
+    if not order_ids:
+        return
+
     orders = db.query(MlOrdersOps).filter(MlOrdersOps.order_id.in_(order_ids)).all()
     orders_by_id = {o.order_id: o for o in orders}
 
@@ -140,5 +158,3 @@ def recompute_order_metrics(db: Session, order_ids: Sequence[int]) -> Dict[int, 
             db.expire(deduccion_row)
     for metrics_row in db.query(MlOrderMetrics).filter(MlOrderMetrics.order_id.in_(order_ids)).all():
         db.expire(metrics_row)
-
-    return metrics_by_order

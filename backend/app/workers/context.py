@@ -11,7 +11,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from datetime import datetime
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Optional, Set
 
 
 @dataclass(frozen=True)
@@ -23,10 +23,20 @@ class WorkerContext:
     drain stays responsive). A handler that owns its own DB work always uses
     short `get_background_db()` blocks (design D4 "DB sessions" rule);
     `WorkerContext` never carries a `Session`.
+
+    `held_tokens`: the SAME mutable set object `WorkerRuntime` feeds its
+    `HeartbeatThread.token_provider` (design D4 step 5 / PR3.T6a). A handler
+    that claims dirty rows (currently only `order_metrics.drain`) adds each
+    claim's token string here right after claiming and removes it right
+    after that claim is released/stored/failed, so the heartbeat renews
+    every lease this process actually still holds. `None` when the runtime
+    was built without heartbeat wiring (e.g. a bare unit test) -- handlers
+    must tolerate that.
     """
 
     deadline: datetime
     worker_name: str = "worker"
+    held_tokens: Optional[Set[str]] = None
 
 
 @dataclass(frozen=True)

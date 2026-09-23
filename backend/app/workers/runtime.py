@@ -116,13 +116,18 @@ class WorkerRuntime:
 
     def _run_handler(self, handler: JobHandler, now: datetime) -> None:
         deadline = now + timedelta(seconds=DEFAULT_HANDLER_DEADLINE_SECONDS)
-        ctx = WorkerContext(deadline=deadline, worker_name=self.worker_name)
+        ctx = WorkerContext(deadline=deadline, worker_name=self.worker_name, held_tokens=self._held_tokens)
+        # PR3.T6a: `worker_job_state.detail.draining` and the heartbeat's
+        # lease renewal both key off this flag while a claiming handler runs.
+        self._draining = True
         try:
             result = handler.run(ctx)
             success = result.success
         except Exception:  # noqa: BLE001 -- one handler's bug must not kill the loop
             logger.exception("job handler %s raised", handler.name)
             success = False
+        finally:
+            self._draining = False
         self._record_job_run(handler.name, success)
 
     def _record_job_run(self, handler_name: str, success: bool) -> None:
@@ -154,13 +159,22 @@ class WorkerRuntime:
 
     # -- one drain pass ----------------------------------------------------
     def drain_once(self, now: Optional[datetime] = None) -> None:
-        """Runs every due scheduled handler. PR2's registry is empty, so
-        this is a no-op idle pass -- PR3 adds `order_metrics.drain` as a
-        channel-notified (not schedule-only) handler; its notify dispatch
-        is wired in `run_forever` below via the listener's channel wake,
-        which currently has no registered channel handler to call either."""
+        """Runs every due scheduled handler, PLUS every channel-driven
+        handler (design D4 step 2: on wake OR on the safety-poll timeout,
+        the notify-driven `order_metrics.drain` runs unconditionally, not
+        on a schedule). PR2's registry is empty, so this stayed a no-op
+        idle pass until PR3 registers `order_metrics.drain`
+        (`channels=("order_metrics_dirty",)`, no `interval`/`run_at_local`)."""
         now = now or datetime.now(timezone.utc)
-        for handler in self._due_handlers(now):
+        due = self._due_handlers(now)
+        channel_driven = [h for h in self.registry if h.channels and h.interval is None and h.run_at_local is None]
+        to_run: List[JobHandler] = []
+        seen = set()
+        for handler in due + channel_driven:
+            if handler.name not in seen:
+                seen.add(handler.name)
+                to_run.append(handler)
+        for handler in to_run:
             self._run_handler(handler, now)
 
     # -- heartbeat health check ---------------------------------------------

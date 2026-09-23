@@ -635,6 +635,7 @@ def pg_order_metrics_engine():
 
     from app.models.ml_order_item_costo import MlOrderItemCosto as _MlOrderItemCosto
     from app.models.ml_order_metrics import MlOrderMetrics as _MlOrderMetrics
+    from app.models.ml_order_metrics import MlOrderMetricsDirty as _MlOrderMetricsDirty
     from app.models.ml_orders_ops import MlOrderItemOps as _MlOrderItemOps
     from app.models.ml_orders_ops import MlOrdersOps as _MlOrdersOps
     from app.models.ml_payments import MlPaymentCharge as _MlPaymentCharge
@@ -650,6 +651,11 @@ def pg_order_metrics_engine():
         _MlPaymentCharge.__table__,
         _MlOrderMetrics.__table__,
         _MlVentaDeduccion.__table__,
+        # ventas-ml-rediseno PR3: `order_metrics.queue`'s claim/release/
+        # fenced-store tests need the dirty queue alongside the metrics
+        # table in the SAME fixture (fenced_store writes both, fenced by a
+        # claim_token that lives only on this table).
+        _MlOrderMetricsDirty.__table__,
     ]
     _restore_pristine_pg_types(own_tables)
 
@@ -675,8 +681,20 @@ def pg_order_metrics_engine():
     # current shape and every query against a column the old table lacks
     # (e.g. `costo_fecha`) fails with `UndefinedColumn`. Safe here: this
     # fixture owns and drops these tables again on teardown.
-    Base.metadata.drop_all(bind=eng, tables=own_tables)
-    Base.metadata.create_all(bind=eng, tables=own_tables)
+    #
+    # Deliberately per-`Table.drop()`/`.create()`, NOT `Base.metadata.
+    # drop_all`/`create_all(tables=...)` (ventas-ml-rediseno PR2 known
+    # footgun, `project_precommit_hook_local` memory): `MetaData.drop_all`
+    # still walks the WHOLE shared `Base.metadata` to order native-ENUM
+    # drops regardless of the `tables=` filter, which collides with an
+    # unrelated enum-backed type another module-scoped fixture (e.g.
+    # `pg_tickets_engine`'s `rolusuario`) still owns live in the same
+    # pytest session -- hit exactly this when PR3 added
+    # `MlOrderMetricsDirty` to `own_tables` above.
+    for table in reversed(own_tables):
+        table.drop(bind=eng, checkfirst=True)
+    for table in own_tables:
+        table.create(bind=eng, checkfirst=True)
     local_metadata.drop_all(bind=eng, checkfirst=True)
     local_metadata.create_all(bind=eng)
     # Leave the shared Column objects patched for SQLite again, same as
@@ -684,7 +702,10 @@ def pg_order_metrics_engine():
     _patch_pg_types_for_sqlite()
     yield eng
     local_metadata.drop_all(bind=eng)
-    Base.metadata.drop_all(bind=eng, tables=own_tables)
+    # Reverse order on teardown: dependents (e.g. `ml_order_metrics` FKs
+    # `ml_orders_ops`) must drop before what they reference.
+    for table in reversed(own_tables):
+        table.drop(bind=eng, checkfirst=True)
     eng.dispose()
 
 
