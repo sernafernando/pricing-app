@@ -17,7 +17,8 @@ from unittest.mock import patch
 
 import pytest
 from fastapi import HTTPException
-from sqlalchemy import func
+from sqlalchemy import UniqueConstraint, func
+from sqlalchemy.exc import IntegrityError
 
 from app.models.empresa import Empresa
 from app.models.notificacion import Notificacion
@@ -136,6 +137,149 @@ class TestSeedFacturasDocumento:
         db.flush()
         assert rows == []
         assert db.query(PedidoFacturaDocumento).filter(PedidoFacturaDocumento.pedido_id == pedido.id).count() == 0
+
+    def test_overflow_token_is_skipped_and_logged(self, db, empresa, proveedor, active_user, caplog) -> None:
+        overflow = "X" * 101
+        raw = f"A-1; {overflow}; A-2"
+        pedido = _pedido(
+            db,
+            empresa,
+            proveedor,
+            active_user,
+            facturas_documento=raw,
+        )
+        with caplog.at_level("WARNING"):
+            rows = pedidos_service.seed_factura_documentos(db, pedido)
+        db.flush()
+        assert [row.numero for row in rows] == ["A-1", "A-2"]
+        assert overflow not in {row.numero for row in rows}
+        assert pedido.facturas_documento == raw
+        assert any("overflow" in rec.message for rec in caplog.records)
+
+    def test_casefold_duplicates_seed_one_row_first_seen_casing(self, db, empresa, proveedor, active_user) -> None:
+        raw = "A-1; a-1; A-1"
+        pedido = _pedido(
+            db,
+            empresa,
+            proveedor,
+            active_user,
+            facturas_documento=raw,
+        )
+        rows = pedidos_service.seed_factura_documentos(db, pedido)
+        db.flush()
+        assert [row.numero for row in rows] == ["A-1"]
+        assert db.query(PedidoFacturaDocumento).filter(PedidoFacturaDocumento.pedido_id == pedido.id).count() == 1
+        assert pedido.facturas_documento == raw
+
+    def test_existing_rows_are_not_reseeded(self, db, empresa, proveedor, active_user) -> None:
+        pedido = _pedido(
+            db,
+            empresa,
+            proveedor,
+            active_user,
+            facturas_documento="NEW-1; NEW-2",
+        )
+        first = PedidoFacturaDocumento(
+            pedido_id=pedido.id,
+            numero="KEEP-1",
+            created_by_id=active_user.id,
+        )
+        db.add(first)
+        db.flush()
+        rows = pedidos_service.seed_factura_documentos(db, pedido)
+        db.flush()
+        assert [row.numero for row in rows] == ["KEEP-1"]
+        assert db.query(PedidoFacturaDocumento).filter(PedidoFacturaDocumento.pedido_id == pedido.id).count() == 1
+
+    def test_chips_batch_does_not_seed_text_only(self, db, empresa, proveedor, active_user) -> None:
+        pedido = _pedido(
+            db,
+            empresa,
+            proveedor,
+            active_user,
+            facturas_documento="FA-10",
+        )
+        chips = pedidos_service.chips_visibilidad_batch(db, [pedido.id])
+        assert chips[pedido.id]["factura_cargada"] is False
+        assert db.query(PedidoFacturaDocumento).filter(PedidoFacturaDocumento.pedido_id == pedido.id).count() == 0
+
+
+class TestPersistFacturaDocumento:
+    def test_overflow_skip_logs_and_returns_none(self, db, empresa, proveedor, active_user, caplog) -> None:
+        pedido = _pedido(db, empresa, proveedor, active_user)
+        with caplog.at_level("WARNING"):
+            row = pedidos_service.persist_factura_documento(
+                db,
+                pedido=pedido,
+                numero="Y" * 101,
+                created_by_id=active_user.id,
+            )
+        assert row is None
+        assert db.query(PedidoFacturaDocumento).filter(PedidoFacturaDocumento.pedido_id == pedido.id).count() == 0
+        assert any("overflow" in rec.message for rec in caplog.records)
+
+    def test_casefold_duplicate_returns_existing(self, db, empresa, proveedor, active_user) -> None:
+        pedido = _pedido(db, empresa, proveedor, active_user)
+        first = pedidos_service.persist_factura_documento(
+            db,
+            pedido=pedido,
+            numero="FA-10",
+            created_by_id=active_user.id,
+        )
+        assert first is not None
+        second = pedidos_service.persist_factura_documento(
+            db,
+            pedido=pedido,
+            numero="fa-10",
+            created_by_id=active_user.id,
+        )
+        assert second is not None
+        assert second.id == first.id
+        assert first.numero == "FA-10"
+        assert db.query(PedidoFacturaDocumento).filter(PedidoFacturaDocumento.pedido_id == pedido.id).count() == 1
+
+
+class TestPedidoFacturaUniqueConstraint:
+    def test_model_declares_unique_pedido_id_numero(self) -> None:
+        uniques = [c for c in PedidoFacturaDocumento.__table__.constraints if isinstance(c, UniqueConstraint)]
+        cols = {tuple(col.name for col in c.columns) for c in uniques}
+        assert ("pedido_id", "numero") in cols
+
+    def test_exact_duplicate_raises_integrity_error(self, db, empresa, proveedor, active_user) -> None:
+        pedido = _pedido(db, empresa, proveedor, active_user)
+        db.add(
+            PedidoFacturaDocumento(
+                pedido_id=pedido.id,
+                numero="FA-10",
+                created_by_id=active_user.id,
+            )
+        )
+        db.flush()
+        db.add(
+            PedidoFacturaDocumento(
+                pedido_id=pedido.id,
+                numero="FA-10",
+                created_by_id=active_user.id,
+            )
+        )
+        with pytest.raises(IntegrityError):
+            db.flush()
+
+
+class TestCompras044SeedRules:
+    def test_migration_skips_overflow_casefold_and_unique(self) -> None:
+        from pathlib import Path
+
+        src = (
+            Path(__file__).resolve().parents[2]
+            / "alembic"
+            / "versions"
+            / "compras_044_pipeline_tipo_responsable_facturas.py"
+        ).read_text(encoding="utf-8")
+        assert "len(numero) > _FACTURA_NUMERO_MAX_LEN" in src
+        assert "casefold()" in src
+        assert "uq_pedido_factura_documentos_pedido_id_numero" in src
+        assert "skip overflow" in src
 
 
 class TestFacturaCargadaVsErp:

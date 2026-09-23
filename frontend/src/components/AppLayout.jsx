@@ -191,6 +191,10 @@ function AppLayoutInner() {
     }
   };
 
+  const comprasCap = Number(maxAlertasVisibles) > 0 ? Number(maxAlertasVisibles) : 1;
+  const comprasVisibles = comprasAlertas.slice(0, comprasCap);
+  const comprasOcultas = Math.max(0, comprasAlertas.length - comprasVisibles.length);
+
   const handleOkComprasAlerta = async (notifId) => {
     try {
       await api.patch(`/notificaciones/${notifId}/ok`);
@@ -247,7 +251,7 @@ function AppLayoutInner() {
         
         {/* Alert Banners - Sistema de rotación */}
         <AlertBannerContainer sidebarExpanded={sidebarExpanded} sidebarHidden={isBrandOnly}>
-          {comprasAlertas.map((notif) => (
+          {comprasVisibles.map((notif) => (
             <AlertBanner
               key={`compras-${notif.id}`}
               id={`compras-${notif.id}`}
@@ -262,6 +266,9 @@ function AppLayoutInner() {
               onDismiss={() => handleOkComprasAlerta(notif.id)}
             />
           ))}
+          {comprasOcultas > 0 && (
+            <p className={styles.comprasOverflow}>+{comprasOcultas} más</p>
+          )}
           {alertasVisibles.map((alerta) => (
             <AlertBanner
               key={alerta.id}

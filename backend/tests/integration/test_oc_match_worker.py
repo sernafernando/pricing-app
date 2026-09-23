@@ -16,6 +16,7 @@ from app.models.compra_adjunto import CompraAdjunto
 from app.models.empresa import Empresa
 from app.models.oc_match_job import OcMatchJob, OcMatchRenglon
 from app.models.pedido_compra import PedidoCompra
+from app.models.pedido_factura_documento import PedidoFacturaDocumento
 from app.models.proveedor import Proveedor
 from app.models.tb_brand import TBBrand
 from app.models.tb_category import TBCategory
@@ -288,6 +289,86 @@ class TestGoldenWorkerSoT:
         apply_writeback(pedido, GOLDEN_EXTRACT)
         assert pedido.facturas_documento == "0001-99"
         assert pedido.pedidos_documento == "PED-184465"
+
+    def test_factura_fa10_persists_row_chip_on_no_falta(
+        self,
+        db: Session,
+        active_user: Any,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        extract = {**GOLDEN_EXTRACT, "nro_documento": "FA-10"}
+        _seed_maestro(db)
+        job, _adj = _pedido_adjunto_job(db, active_user, tmp_path)
+        _mock_pool(monkeypatch, extract, GOLDEN_MATCH)
+        _patch_bg_db(monkeypatch, db)
+
+        process_oc_match_job(job.id)
+        db.refresh(job)
+        pedido = db.get(PedidoCompra, job.pedido_id)
+        assert pedido is not None
+        rows = (
+            db.query(PedidoFacturaDocumento)
+            .filter(PedidoFacturaDocumento.pedido_id == pedido.id)
+            .order_by(PedidoFacturaDocumento.id)
+            .all()
+        )
+        assert [row.numero for row in rows] == ["FA-10"]
+        assert rows[0].created_by_id == pedido.creado_por_id == active_user.id
+        assert pedidos_service.es_factura_cargada(db, pedido.id) is True
+        chips = pedidos_service.chips_visibilidad_batch(db, [pedido.id])
+        assert chips[pedido.id]["factura_cargada"] is True
+        apply_writeback(pedido, extract)
+        assert pedido.facturas_documento == "FA-10"
+        assert db.query(PedidoFacturaDocumento).filter(PedidoFacturaDocumento.pedido_id == pedido.id).count() == 1
+
+    def test_factura_casefold_duplicate_skips_second_row(
+        self,
+        db: Session,
+        active_user: Any,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        extract = {**GOLDEN_EXTRACT, "nro_documento": "fa-10"}
+        _seed_maestro(db)
+        job, _adj = _pedido_adjunto_job(db, active_user, tmp_path)
+        pedido = db.get(PedidoCompra, job.pedido_id)
+        assert pedido is not None
+        pedidos_service.persist_factura_documento(
+            db,
+            pedido=pedido,
+            numero="FA-10",
+            created_by_id=active_user.id,
+        )
+        db.flush()
+        _mock_pool(monkeypatch, extract, GOLDEN_MATCH)
+        _patch_bg_db(monkeypatch, db)
+
+        process_oc_match_job(job.id)
+        db.refresh(pedido)
+        rows = db.query(PedidoFacturaDocumento).filter(PedidoFacturaDocumento.pedido_id == pedido.id).all()
+        assert [row.numero for row in rows] == ["FA-10"]
+
+    def test_factura_overflow_token_skips_row(
+        self,
+        db: Session,
+        active_user: Any,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        overflow = "Z" * 101
+        extract = {**GOLDEN_EXTRACT, "nro_documento": overflow}
+        _seed_maestro(db)
+        job, _adj = _pedido_adjunto_job(db, active_user, tmp_path)
+        _mock_pool(monkeypatch, extract, GOLDEN_MATCH)
+        _patch_bg_db(monkeypatch, db)
+
+        process_oc_match_job(job.id)
+        pedido = db.get(PedidoCompra, job.pedido_id)
+        assert pedido is not None
+        assert pedido.facturas_documento == overflow
+        assert db.query(PedidoFacturaDocumento).filter(PedidoFacturaDocumento.pedido_id == pedido.id).count() == 0
+        assert pedidos_service.es_factura_cargada(db, pedido.id) is False
 
     def test_excel_get_returns_file(
         self,
