@@ -20,7 +20,7 @@ PR9 (this slice) does not read them in `build_scope`.
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from datetime import datetime
 from typing import Any, Optional, Tuple
 
@@ -51,14 +51,6 @@ class SalesFilter:
     operation_status: Optional[str] = None
     goods_status: Optional[str] = None
     q: Optional[str] = None
-    include_unknown: bool = False
-    include_mixed: bool = True
-    include_in_dispute: bool = False
-    include_provisional: bool = True
-    # D12a product-level facets (PFILT R35) -- follow-up PR, not read here.
-    marcas: Tuple[str, ...] = field(default_factory=tuple)
-    subcategorias: Tuple[int, ...] = field(default_factory=tuple)
-    pms: Tuple[int, ...] = field(default_factory=tuple)
 
 
 @dataclass(frozen=True)
@@ -82,9 +74,10 @@ class SalesScope:
     status/grouping logic itself.
 
     `base` is the seller+date-scoped query with NO status/search filter
-    applied -- used for the facet queries, which must be narrowed by the
-    OTHER active status axis but never by the date range's own sibling
-    filters. `members_base` is scoped ONLY to the seller -- NOT the date
+    applied. `facet_base` is `base` PLUS the search: the facet counts must
+    be narrowed by the OTHER active status axis, but they must ALSO obey
+    the search, or the "Todas" chip reports rows the table does not show
+    (SEARCH R26). `members_base` is scoped ONLY to the seller -- NOT the date
     range either -- because a filter (status OR month) selects which
     GROUPS to show, never which of their orders to hide: a pack that
     straddles a month boundary must still come back with every member,
@@ -95,6 +88,7 @@ class SalesScope:
     """
 
     base: Query
+    facet_base: Query
     members_base: Query
     listing_query: Query
     op_status_expr: Any
@@ -202,6 +196,7 @@ def build_scope(db: Session, f: SalesFilter) -> SalesScope:
 
     return SalesScope(
         base=base,
+        facet_base=apply_search(base, db, f.q),
         members_base=members_base,
         listing_query=listing_query,
         op_status_expr=op_status_expr,

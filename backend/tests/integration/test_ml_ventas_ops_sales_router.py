@@ -1332,3 +1332,26 @@ class TestSearch:
         ).json()
 
         assert _order_ids(body) == [95070]
+
+
+class TestFacetCountsObeyTheSearch:
+    """SEARCH R26: the chips count the rows the table actually renders. A
+    chip reporting the whole period while the table shows one row
+    contradicts the table under it."""
+
+    def test_facet_totals_match_the_listing_total_when_searching(
+        self, db, client, admin_auth_headers, rol_admin
+    ) -> None:
+        _grant_ml_ops_ver(db, rol_admin)
+        when = datetime(2026, 9, 1, tzinfo=timezone.utc)
+        _seed_order(db, 6001, total_amount=100, date_created=when)
+        _seed_order(db, 6002, total_amount=100, date_created=when)
+        _seed_order(db, 6003, total_amount=100, date_created=when)
+        db.commit()
+
+        body = client.get("/api/ml-ventas-ops/sales?q=6001", headers=admin_auth_headers).json()
+
+        assert body["total"] == 1
+        assert body["facets"]["operation_status_total"] == 1
+        assert body["facets"]["goods_status_total"] == 1
+        assert sum(body["facets"]["operation_status"].values()) == 1

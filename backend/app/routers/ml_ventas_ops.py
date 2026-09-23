@@ -677,7 +677,7 @@ class SaleListResponse(BaseModel):
 # ── Endpoints ────────────────────────────────────────────────────
 
 # PR9.T1/T2 (design D12): the order-level status derivation
-# (`_operation_status_expr`/`_goods_status_expr`/`_open_claim_exists_subquery`),
+# (`op_status_expr`/`goods_status_expr` from `ml_sales_query.filters`/`_open_claim_exists_subquery`),
 # the group key expression (`_group_key_expr`) and the group-level collapse
 # rule used to live here inline. They now live in
 # `app.services.ml_sales_query.filters` (moved verbatim, see that module's
@@ -797,7 +797,7 @@ def listar_ventas(
 ) -> SaleListResponse:
     """The sales list (design: no read-model table -- `ml_orders_ops` is
     already one row per order, `operation_status`/`goods_status` are
-    derived query-time via `_operation_status_expr`/`_goods_status_expr`,
+    derived query-time via `op_status_expr`/`goods_status_expr` from `ml_sales_query.filters`,
     the single source of truth those mirror lives in `operation_status.py`).
 
     Paginated with a deterministic tiebreaker (`date_created` DESC, then
@@ -856,12 +856,13 @@ def listar_ventas(
         sold_range = _parse_sold_month(sold_month)
 
     # PR9.T1/T2 (design D12): the seller/date scoping, status derivation,
-    # status filters and free-text search all live in `build_scope` now --
-    # `scope.base` is the unfiltered-by-status query (used below for the
-    # member/facet queries, exactly like the old `members_base`),
-    # `scope.listing_query` is `base` PLUS the status filters AND `q`
-    # (SEARCH R26: search intersects with active filters, never replaces
-    # them).
+    # status filters and free-text search all live in `build_scope` now.
+    # `scope.members_base` is scoped to the SELLER only (never the date), so
+    # a pack straddling a month boundary still returns every member.
+    # `scope.facet_base` is the seller+date query PLUS the search, which is
+    # what the facet counts must use. `scope.listing_query` is that plus the
+    # status filters (SEARCH R26: search intersects with the active filters,
+    # never replaces them).
     scope = build_scope(
         db,
         SalesFilter(
@@ -873,7 +874,7 @@ def listar_ventas(
     )
     op_status_expr = scope.op_status_expr
     goods_status_expr = scope.goods_status_expr
-    base = scope.base
+    facet_base = scope.facet_base
     members_base = scope.members_base
     listing_query = scope.listing_query
 
@@ -1101,7 +1102,7 @@ def listar_ventas(
 
     # Facets: each axis scoped by the OTHER active filter(s), never by its
     # own -- see docstring above.
-    op_facet_query = base
+    op_facet_query = facet_base
     if goods_status_filter is not None:
         op_facet_query = op_facet_query.filter(goods_status_expr == goods_status_filter)
     op_facet_rows = (
@@ -1113,7 +1114,7 @@ def listar_ventas(
     for bucket, count in op_facet_rows:
         op_facet[bucket] = count
 
-    goods_facet_query = base
+    goods_facet_query = facet_base
     if operation_status_filter is not None:
         goods_facet_query = goods_facet_query.filter(op_status_expr == operation_status_filter)
     op_facet_total = op_facet_query.with_entities(func.count(func.distinct(group_key))).scalar() or 0
