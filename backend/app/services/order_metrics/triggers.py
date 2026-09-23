@@ -124,14 +124,33 @@ DECLARE
     sibling_ids BIGINT[];
 BEGIN
     IF TG_OP = 'DELETE' THEN
-        PERFORM order_metrics_enqueue(ARRAY[OLD.order_id], 'ml_orders_ops_delete');
+        -- Flex split divisor: a DELETE changes it for every SURVIVING
+        -- sibling sharing OLD.shipping_id (F7 fix -- the divisor is
+        -- `COUNT(order_id) GROUP BY shipping_id`, computed at read time).
+        IF OLD.shipping_id IS NOT NULL THEN
+            SELECT COALESCE(array_agg(order_id), ARRAY[]::BIGINT[]) INTO sibling_ids
+            FROM ml_orders_ops
+            WHERE shipping_id = OLD.shipping_id AND order_id <> OLD.order_id;
+        ELSE
+            sibling_ids := ARRAY[]::BIGINT[];
+        END IF;
+        PERFORM order_metrics_enqueue(ARRAY[OLD.order_id] || sibling_ids, 'ml_orders_ops_delete');
         RETURN OLD;
     END IF;
 
     ids := ARRAY[NEW.order_id];
-    -- Flex split divisor: a shipping_id change also enqueues every OTHER
-    -- order that shares OLD or NEW shipping_id (design D3 scope).
-    IF TG_OP = 'UPDATE' AND OLD.shipping_id IS DISTINCT FROM NEW.shipping_id THEN
+    IF TG_OP = 'INSERT' THEN
+        -- Flex split divisor: an INSERT changes it for every OTHER order
+        -- already sharing NEW.shipping_id (F7 fix, same reasoning as DELETE).
+        IF NEW.shipping_id IS NOT NULL THEN
+            SELECT COALESCE(array_agg(order_id), ARRAY[]::BIGINT[]) INTO sibling_ids
+            FROM ml_orders_ops
+            WHERE shipping_id = NEW.shipping_id AND order_id <> NEW.order_id;
+            ids := ids || sibling_ids;
+        END IF;
+    ELSIF TG_OP = 'UPDATE' AND OLD.shipping_id IS DISTINCT FROM NEW.shipping_id THEN
+        -- Flex split divisor: a shipping_id change also enqueues every OTHER
+        -- order that shares OLD or NEW shipping_id (design D3 scope).
         SELECT COALESCE(array_agg(order_id), ARRAY[]::BIGINT[]) INTO sibling_ids
         FROM ml_orders_ops
         WHERE shipping_id IN (OLD.shipping_id, NEW.shipping_id) AND order_id <> NEW.order_id;

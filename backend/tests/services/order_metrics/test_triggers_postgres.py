@@ -312,7 +312,13 @@ class TestOrdersOpsTrigger:
         try:
             _insert_order(session, order_id, pack_id=None)
             session.commit()
-            _clear_dirty(session)  # the INSERT above already enqueued it -- isolate the UPDATE.
+            # Keep the dirty row from the INSERT above (do NOT clear it) so this
+            # test actually exercises the version-bump fence PR3 depends on --
+            # deleting it before the UPDATE would make ANY version == 1 pass
+            # without ever hitting `order_metrics_enqueue`'s ON CONFLICT branch.
+            row_before = _dirty_row(session, order_id)
+            assert row_before is not None
+            assert row_before.version == 1
 
             session.execute(
                 text("UPDATE ml_orders_ops SET pack_id = 777 WHERE order_id = :order_id"), {"order_id": order_id}
@@ -321,9 +327,49 @@ class TestOrdersOpsTrigger:
 
             row = _dirty_row(session, order_id)
             assert row is not None
-            assert row.version == 1
+            assert row.version == 2
         finally:
             _clear_orders(session, order_id)
+
+    def test_insert_enqueues_existing_sibling_sharing_shipping_id(self, clean_slate) -> None:
+        """F7: the Flex split divisor (`COUNT(order_id) GROUP BY shipping_id`
+        in `deducciones.py`) changes the moment a SECOND order lands on the
+        same `shipping_id` -- the already-stored sibling must be re-enqueued
+        too, not just the newly inserted row."""
+        session = clean_slate
+        order_a, order_b = 300008, 300009
+        try:
+            _insert_order(session, order_a, shipping_id=3003)
+            session.commit()
+            _clear_dirty(session)  # isolate the second INSERT below.
+
+            _insert_order(session, order_b, shipping_id=3003)
+            session.commit()
+
+            assert _dirty_row(session, order_b) is not None  # the row that was just inserted
+            assert _dirty_row(session, order_a) is not None  # the pre-existing sibling, divisor changed
+        finally:
+            _clear_orders(session, order_a, order_b)
+
+    def test_delete_enqueues_surviving_siblings(self, clean_slate) -> None:
+        """F7: deleting one order sharing a `shipping_id` changes the Flex
+        split divisor for every SURVIVING sibling, so they must be
+        re-enqueued -- not just the deleted order itself."""
+        session = clean_slate
+        order_a, order_b = 300010, 300011
+        try:
+            _insert_order(session, order_a, shipping_id=4004)
+            _insert_order(session, order_b, shipping_id=4004)
+            session.commit()
+            _clear_dirty(session)
+
+            session.execute(text("DELETE FROM ml_orders_ops WHERE order_id = :order_id"), {"order_id": order_a})
+            session.commit()
+
+            assert _dirty_row(session, order_a) is not None  # the deleted row itself
+            assert _dirty_row(session, order_b) is not None  # surviving sibling, divisor changed
+        finally:
+            _clear_orders(session, order_b)
 
     def test_shipping_id_change_also_enqueues_old_and_new_shipping_siblings(self, clean_slate) -> None:
         session = clean_slate
