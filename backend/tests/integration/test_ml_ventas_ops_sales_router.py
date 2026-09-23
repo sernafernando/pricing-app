@@ -1355,3 +1355,43 @@ class TestFacetCountsObeyTheSearch:
         assert body["facets"]["operation_status_total"] == 1
         assert body["facets"]["goods_status_total"] == 1
         assert sum(body["facets"]["operation_status"].values()) == 1
+
+
+class TestSearchStaysInsideTheScope:
+    """SEARCH R25/R26 (PR9.T3): the search narrows what the scope already
+    allows. It can never reach a sale of ANOTHER seller, nor one outside
+    the requested date range."""
+
+    def test_a_match_outside_the_date_range_is_not_returned(self, db, client, admin_auth_headers, rol_admin) -> None:
+        _grant_ml_ops_ver(db, rol_admin)
+        _seed_order(db, 6101, date_created=datetime(2026, 9, 10, tzinfo=timezone.utc))
+        _seed_order(db, 6102, date_created=datetime(2026, 8, 10, tzinfo=timezone.utc))
+        db.commit()
+
+        dentro = client.get(
+            "/api/ml-ventas-ops/sales?date_from=2026-09-01&date_to=2026-09-30&q=6101",
+            headers=admin_auth_headers,
+        ).json()
+        fuera = client.get(
+            "/api/ml-ventas-ops/sales?date_from=2026-09-01&date_to=2026-09-30&q=6102",
+            headers=admin_auth_headers,
+        ).json()
+
+        assert {o["order_id"] for g in dentro["sales"] for o in g["orders"]} == {6101}
+        assert fuera["total"] == 0, "la búsqueda no puede traer una venta fuera del rango"
+        assert fuera["sales"] == []
+
+    def test_a_match_of_another_seller_is_not_returned(self, db, client, admin_auth_headers, rol_admin) -> None:
+        _grant_ml_ops_ver(db, rol_admin)
+        when = datetime(2026, 9, 10, tzinfo=timezone.utc)
+        _seed_order(db, 6103, date_created=when)
+        _seed_order(db, 6104, date_created=when)
+        db.query(MlOrdersOps).filter(MlOrdersOps.order_id == 6104).update({"seller_id": 12345})
+        db.commit()
+
+        propia = client.get("/api/ml-ventas-ops/sales?q=6103", headers=admin_auth_headers).json()
+        ajena = client.get("/api/ml-ventas-ops/sales?q=6104", headers=admin_auth_headers).json()
+
+        assert {o["order_id"] for g in propia["sales"] for o in g["orders"]} == {6103}
+        assert ajena["total"] == 0, "la búsqueda no puede cruzar de vendedor"
+        assert ajena["sales"] == []
