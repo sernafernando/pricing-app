@@ -2,10 +2,10 @@
 
 **Change**: compras-pipeline-chicho-review-fixes
 **Mode**: Standard
-**Batch**: Phase 5 / tasks 5.1–5.7 — PR5 backend (constancia vs cargada)
+**Batch**: Phase 6 / tasks 6.1–6.2 — PR6 FE checkbox + chip (6.3 novedad draft pending Gabe)
 **Branch**: `feat/compras-ops-pipeline-04-multi-oc`
 **Delivery**: auto-chain / feature-branch-chain
-**Attempt token**: `sha256:08dd83e946e5063d1613574e61cf39ed0340b722200f4aa6ea814877b9a7922e`
+**Attempt token**: `sha256:f591a64fa57a2ee810eb48e0b4847f0f03be1b2ef5275e499c830623cb217596`
 
 ## Completed Tasks
 
@@ -32,11 +32,13 @@
 - [x] 5.5 Cron `dispatch_factura_cargada_alerts.py` (no BackgroundTasks.sleep)
 - [x] 5.6 PATCH `pedidos/{id}/factura-documentos/{row_id}`; detalle rows + flags
 - [x] 5.7 BE tests rewritten: row ≠ cargada; timer fire/cancel; Match chip-off
+- [x] 6.1 Detalle lists `factura_documentos` as constancia + ERP checkbox; PATCH `{cargada}`; blob is not cargada; NV/`pedidos_documento` text-only
+- [x] 6.2 List + detalle “Factura” chip from `factura_cargada`; muted “Número” when `tiene_numero_factura` and not cargada; chip-off-with-numbers + chip-on-after-check
 
 ## Remaining Tasks
 
 - [ ] 4.5 **SUPERSEDED** — original draft said Match = cargada. Rewrite is task 6.3. Do not commit the old copy.
-- [ ] 6.1–6.3 PR6 — detalle checkbox; chip from `cargada`; rewrite novedad + guía; Gabe gate.
+- [ ] 6.3 **GATE** — novedad rewritten on disk (untracked). Guía updated and committed with 6.1–6.2. **Do not mark complete until Gabe OKs the novedad.** Show Gabe the draft at `frontend/src/novedades/2026-09-23-compras-pipeline-chicho-review-fixes.md`.
 
 ## Work Unit Evidence
 
@@ -70,9 +72,9 @@
 |---|---|
 | Focused test command and exact result | `pytest tests/integration/test_vincular_oc_multi.py -q` → **11 passed** in 4.58s (CRLF-stripped env); `pnpm exec vitest run src/components/compras/TabRecepcionDeposito.test.jsx` → **45 passed** in 2.64s |
 | Runtime harness command/scenario and exact result | N/A — no new HTTP route; empty-ERP is RTL; 1-of-3 is service-level on existing `registrar_ingresos`. Gabe gate is the novedad commit, not a runtime harness. |
-| Rollback boundary | Revert TabRecepcionDeposito empty-block + CSS + two RTL cases; revert 1-of-3 test; revert guía unlink-all paragraph; revert `compras_045.down_revision` to 044. Merge of Phase 3 tip is a separate rollback. Drop untracked novedad draft if unused. |
+| Rollback boundary | Revert TabRecepcionDeposito empty-block + CSS + two RTL cases; revert 1-of-3 test; revert guía unlink-all paragraph; revert `compras_045.down_revision` to 044. Merge of Phase 3 tip is a separate rollback (revert merge commit). Drop untracked novedad draft if unused. |
 
-### Phase 5 (this batch — 5.1–5.7)
+### Phase 5 (prior batch — 5.1–5.7)
 
 | Evidence | Value |
 |---|---|
@@ -80,10 +82,18 @@
 | Runtime harness command/scenario and exact result | N/A — PATCH/DELETE covered by FastAPI TestClient on the same SQLite session; sweep uses injectable `ahora`. No BackgroundTasks.sleep. Cron script is a thin `SessionLocal` wrapper around the sweep. |
 | Rollback boundary | Revert `compras_047` + model cols + persist notify removal + chip query + `marcar_factura_cargada` + sweep + cron + PATCH/schemas + the three rewritten test files + `test_eje_procesal` cargada flag. Leave novedad untracked. |
 
+### Phase 6 (this batch — 6.1–6.2; 6.3 draft only)
+
+| Evidence | Value |
+|---|---|
+| Focused test command and exact result | `pnpm exec vitest run src/components/compras/ModalPedidoDetalle.test.jsx src/components/compras/TabPedidosCompra.test.jsx` → **5 passed** in 2.57s |
+| Runtime harness command/scenario and exact result | N/A — RTL + mocked axios; PATCH path is `api.patch(/administracion/compras/pedidos/{id}/factura-documentos/{row_id}, {cargada})`. 6.3 is a Gabe copy gate, not a runtime harness. |
+| Rollback boundary | Revert ModalPedidoDetalle checkbox/PATCH + TabPedidosCompra muted Número + the two new test files + guía constancia/cargada paragraphs + SDD 6.1–6.2 checkboxes. Leave novedad untracked. |
+
 ## Deviations from Design
 
-None — implementation matches design. Alembic head is `compras_047_factura_cargada_erp` (045 → 047). Authored ~680 lines in one PR5 work unit (forecast High; auto-chain already sliced PR5 vs PR6). `size:exception` recommended if this slice is reviewed as a single PR above 400.
+None — implementation matches design. Guía shipped with 6.1–6.2 (same semantics) so operators are not left on the old “row = cargada” copy; novedad stays untracked until Gabe reviews (task 6.3).
 
 ## Issues Found
 
-None for this slice. GGA may still fail on missing Claude CLI / pre-existing debt (Gabe authorized `--no-verify` for that class). Novedad draft remains untracked (task 6.3 / superseded 4.5).
+None for 6.1–6.2. Task 6.3 is **draft ready pending Gabe** — do not settle 6.3 complete and do not commit the novedad until he OKs.

@@ -70,6 +70,6 @@ Locks: persist after `apply_writeback` same txn; **no notify on persist/Match**;
 
 ## Phase 6: PR6 — FE checkbox/chip + novedad rewrite
 
-- [ ] 6.1 In `frontend/src/components/compras/ModalPedidoDetalle.jsx`: list each factura row as constancia + ERP checkbox; PATCH on toggle; do not treat `facturas_documento` text as cargada. NV/`pedidos_documento` stay text-only.
-- [ ] 6.2 In `frontend/src/components/compras/TabPedidosCompra.jsx` (and detalle chips): “Factura” chip from `factura_cargada` (ERP). Optional muted “has number” only if it does not reuse the cargada label. Tests for chip-off-with-numbers and chip-on-after-check.
-- [ ] 6.3 **GATE:** rewrite `frontend/src/novedades/2026-09-23-compras-pipeline-chicho-review-fixes.md` and `docs/modulos/compras-guia-usuario.md`: constancia vs cargada; 5-min pending alert + uncheck-cancel; DELETE undo is a **different** 5-min window. Stop. Show Gabe. Do not commit until he reviews.
+- [x] 6.1 In `frontend/src/components/compras/ModalPedidoDetalle.jsx`: list each factura row as constancia + ERP checkbox; PATCH on toggle; do not treat `facturas_documento` text as cargada. NV/`pedidos_documento` stay text-only.
+- [x] 6.2 In `frontend/src/components/compras/TabPedidosCompra.jsx` (and detalle chips): “Factura” chip from `factura_cargada` (ERP). Optional muted “has number” only if it does not reuse the cargada label. Tests for chip-off-with-numbers and chip-on-after-check.
+- [ ] 6.3 **GATE:** rewrite `frontend/src/novedades/2026-09-23-compras-pipeline-chicho-review-fixes.md` and `docs/modulos/compras-guia-usuario.md`: constancia vs cargada; 5-min pending alert + uncheck-cancel; DELETE undo is a **different** 5-min window. Stop. Show Gabe. Do not commit until he reviews. Draft ready (novedad untracked; guía committed with 6.1–6.2). Pending Gabe OK.

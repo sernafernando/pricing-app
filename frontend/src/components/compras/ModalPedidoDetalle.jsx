@@ -104,6 +104,8 @@ export default function ModalPedidoDetalle({ pedidoId, onClose }) {
   const [pedido, setPedido] = useState(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
+  const [togglingFacturaRowId, setTogglingFacturaRowId] = useState(null);
+  const [errorFacturaDoc, setErrorFacturaDoc] = useState(null);
   const [showVincularModal, setShowVincularModal] = useState(false);
   const [desvinculando, setDesvinculando] = useState(false);
   const [showCorregirModal, setShowCorregirModal] = useState(false);
@@ -349,6 +351,39 @@ export default function ModalPedidoDetalle({ pedidoId, onClose }) {
     [onClose]
   );
 
+  const handleToggleFacturaCargada = useCallback(
+    async (row, cargada) => {
+      if (!pedido?.id || !row?.id) return;
+      setTogglingFacturaRowId(row.id);
+      setErrorFacturaDoc(null);
+      try {
+        const { data } = await api.patch(
+          `/administracion/compras/pedidos/${pedido.id}/factura-documentos/${row.id}`,
+          { cargada }
+        );
+        setPedido((prev) => {
+          if (!prev) return prev;
+          const rows = (prev.factura_documentos || []).map((r) =>
+            r.id === row.id ? { ...r, ...data } : r
+          );
+          return {
+            ...prev,
+            factura_documentos: rows,
+            factura_cargada: rows.some((r) => r.cargada),
+            tiene_numero_factura: rows.length > 0,
+          };
+        });
+      } catch (err) {
+        setErrorFacturaDoc(
+          err.response?.data?.detail || 'Error al marcar la factura en ERP.'
+        );
+      } finally {
+        setTogglingFacturaRowId(null);
+      }
+    },
+    [pedido?.id]
+  );
+
   return (
     <div className={styles.modalOverlay}>
       <div className={styles.modalContent}>
@@ -397,8 +432,14 @@ export default function ModalPedidoDetalle({ pedidoId, onClose }) {
                       OC
                     </span>
                   )}
+                  {pedido.tiene_numero_factura && !pedido.factura_cargada && (
+                    <span className={styles.chipMuted} data-testid="chip-numero-factura">
+                      <FileText size={11} aria-hidden="true" />
+                      Número
+                    </span>
+                  )}
                   {pedido.factura_cargada && (
-                    <span className={styles.chip}>
+                    <span className={styles.chip} data-testid="chip-factura-cargada">
                       <FileText size={11} aria-hidden="true" />
                       Factura
                     </span>
@@ -642,7 +683,34 @@ export default function ModalPedidoDetalle({ pedidoId, onClose }) {
               </div>
               <div>
                 <span className={styles.infoLabel}>Factura/s</span>
-                <strong className={styles.infoValue}>{pedido.facturas_documento || '—'}</strong>
+                {(pedido.factura_documentos || []).length > 0 ? (
+                  <ul className={styles.facturaDocList}>
+                    {(pedido.factura_documentos || []).map((row) => (
+                      <li key={row.id} className={styles.facturaDocRow}>
+                        <strong className={styles.facturaDocNumero}>{row.numero}</strong>
+                        <label className={styles.checkboxLabel}>
+                          <input
+                            type="checkbox"
+                            checked={Boolean(row.cargada)}
+                            disabled={!canGestionar || togglingFacturaRowId === row.id}
+                            onChange={(e) =>
+                              handleToggleFacturaCargada(row, e.target.checked)
+                            }
+                            aria-label={`Cargada en ERP ${row.numero}`}
+                          />
+                          Cargada en ERP
+                        </label>
+                      </li>
+                    ))}
+                  </ul>
+                ) : (
+                  <strong className={styles.infoValue}>
+                    {pedido.facturas_documento || '—'}
+                  </strong>
+                )}
+                {errorFacturaDoc && (
+                  <div className={styles.facturaDocError}>{errorFacturaDoc}</div>
+                )}
               </div>
               <div>
                 <span className={styles.infoLabel}>Pedido/s</span>
