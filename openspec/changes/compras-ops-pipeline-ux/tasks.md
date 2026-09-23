@@ -64,4 +64,4 @@ Chain strategy: feature-branch-chain
 
 ## Phase 5: Verify
 
-- [ ] 5.1 Confirm `docs/modulos/compras-guia-usuario.md` in-app only; no ERP multi-factura; `aprobado` kept; diffs clean.
+- [x] 5.1 Confirm `docs/modulos/compras-guia-usuario.md` in-app only; no ERP multi-factura; `aprobado` kept; diffs clean.
