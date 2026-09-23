@@ -100,5 +100,36 @@ Authored lines this slice: 137 insertions + 15 deletions (152) code + SDD marks 
 ### Deviations
 None — implementation matches design. Photo uses existing adjuntos `tipo=otro`; no `tipo=foto` / multipart control.
 
-## Phase 5
-- [ ] pending
+## Phase 5 — Tipo + multi-OC + guia
+- [x] complete (tasks 5.1–5.5)
+Branch: feat/compras-pipeline-reqs-closure-05-tipo-oc-guia (from Phase4 tip 0158b7f2)
+Work unit: phase5-tipo-oc-guia / evidence-goal phase5-tipo-multioc-guia
+Authored lines this slice: ~251 insertions + 23 deletions (274) including new ModalPedidoCompra.test.jsx — under 450 acquire cap.
+All phases 1–5 complete after this slice. Verify can start.
+
+### Work Unit Evidence (WU5 / PR5 ← PR4)
+
+| Evidence | Value |
+|---|---|
+| Focused test command and exact result | `pnpm exec vitest run src/components/compras/ModalPedidoCompra.test.jsx src/components/compras/TabPedidosCompra.test.jsx src/components/compras/TabRecepcionDeposito.test.jsx` → **63 passed** (3 files; +3 Modal tipo, +2 multi-OC) |
+| Runtime harness command/scenario and exact result | N/A — design threat matrix is N/A; no new routing/shell/process boundary. UI coverage is jsdom vitest (create tipo default/servicio, edit hides tipo, multi-OC `#poh` labels, N=1 chip only, deposito lists send `tipo=mercaderia`). |
+| Rollback boundary | Phase 5 only: revert this slice’s FE + tests + guia + SDD marks on `feat/compras-pipeline-reqs-closure-05-tipo-oc-guia`. Restores create form without tipo selector, deposito list without FE `tipo=mercaderia`, single OC chip without `#poh` labels, guia without resolve/G31 §3.7. Does not revert Phase 1–4. |
+
+### Completed
+- 5.1 Create form tipo selector `mercaderia`\|`servicio` (default mercaderia); sent on create only
+- 5.2 Depósito `GET /pedidos` always sends `tipo=mercaderia` (Por recibir + Recibidos/Controlados/Con faltantes)
+- 5.3 Pedidos: `ocs.length>1` → OC chip + compact `#poh`; N=1 chip only; no GBP chip
+- 5.4 Guía: tipo, multi-OC labels, Depósito tabs, control obs/foto, §3.7 resolve/G31
+- 5.5 vitest ModalPedidoCompra + TabPedidosCompra (TabRecepcionDeposito param assertions updated)
+
+### Deviations
+None — implementation matches design. FE still sends `tipo=mercaderia` even though Phase 1 BE already forces it on depósito list (belt-and-suspenders).
+
+## All phases
+- [x] Phase 1 BE 15+17
+- [x] Phase 2 FE 15+17
+- [x] Phase 3 Depósito ID
+- [x] Phase 4 Control photo
+- [x] Phase 5 Tipo + multi-OC + guia
+
+Ready for independent SDD verify. Novedad MD remains deferred (Gabe fresh review). Do not amend chicho.

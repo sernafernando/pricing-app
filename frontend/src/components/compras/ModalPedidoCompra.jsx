@@ -47,6 +47,7 @@ export default function ModalPedidoCompra({
     facturas_documento: pedido?.facturas_documento || '',
     pedidos_documento: pedido?.pedidos_documento || '',
     observaciones: pedido?.observaciones || '',
+    tipo: pedido?.tipo || 'mercaderia',
   });
 
   const [saving, setSaving] = useState(false);
@@ -123,6 +124,9 @@ export default function ModalPedidoCompra({
           pedidos_documento: form.pedidos_documento || null,
           observaciones: form.observaciones || null,
         };
+        if (!esEdicion) {
+          payload.tipo = form.tipo === 'servicio' ? 'servicio' : 'mercaderia';
+        }
       }
 
       if (esEdicion) {
@@ -195,6 +199,26 @@ export default function ModalPedidoCompra({
               disabled={saving || esMetadataOnly}
             />
           </div>
+
+          {!esEdicion && (
+            <div className={styles.formGroup}>
+              <label className={styles.formLabel} htmlFor="pedido-tipo">
+                Tipo *
+              </label>
+              <select
+                id="pedido-tipo"
+                className={styles.select}
+                value={form.tipo}
+                onChange={(e) => handleChange('tipo', e.target.value)}
+              >
+                <option value="mercaderia">Mercadería</option>
+                <option value="servicio">Servicio</option>
+              </select>
+              <div className={styles.labelHint}>
+                Servicio no usa OC ni recepción en Depósito.
+              </div>
+            </div>
+          )}
 
           <div className={styles.formRow}>
             <div className={styles.formGroup}>

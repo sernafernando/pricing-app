@@ -204,7 +204,7 @@ describe('TabRecepcionDeposito — "Por recibir" merged filter', () => {
     await renderTab();
 
     expect(api.get).toHaveBeenCalledWith(LISTADO_ENDPOINT, {
-      params: { estado: 'pagado', page_size: 200 },
+      params: { estado: 'pagado', page_size: 200, tipo: 'mercaderia' },
     });
   });
 
@@ -215,7 +215,7 @@ describe('TabRecepcionDeposito — "Por recibir" merged filter', () => {
     await user.click(screen.getByLabelText('Incluir cuenta corriente'));
 
     expect(api.get).toHaveBeenCalledWith(LISTADO_ENDPOINT, {
-      params: { estado: 'pagado,en_cuenta_corriente', page_size: 200 },
+      params: { estado: 'pagado,en_cuenta_corriente', page_size: 200, tipo: 'mercaderia' },
     });
   });
 
@@ -257,7 +257,7 @@ describe('TabRecepcionDeposito — eje_procesal tabs and ?pedido=', () => {
     await user.click(screen.getByRole('tab', { name: 'Recibidos sin controlar' }));
 
     expect(api.get).toHaveBeenCalledWith(LISTADO_ENDPOINT, {
-      params: { eje_procesal: 'recibido,faltantes_con_res', page_size: 200 },
+      params: { eje_procesal: 'recibido,faltantes_con_res', page_size: 200, tipo: 'mercaderia' },
     });
   });
 
@@ -268,7 +268,7 @@ describe('TabRecepcionDeposito — eje_procesal tabs and ?pedido=', () => {
     await user.click(screen.getByRole('tab', { name: 'Con faltantes' }));
 
     expect(api.get).toHaveBeenCalledWith(LISTADO_ENDPOINT, {
-      params: { eje_procesal: 'faltantes_sin_res', page_size: 200 },
+      params: { eje_procesal: 'faltantes_sin_res', page_size: 200, tipo: 'mercaderia' },
     });
   });
 
@@ -285,7 +285,7 @@ describe('TabRecepcionDeposito — eje_procesal tabs and ?pedido=', () => {
     await screen.findByText('#PC-0007');
 
     expect(api.get).toHaveBeenCalledWith(LISTADO_ENDPOINT, {
-      params: { eje_procesal: 'recibido,faltantes_con_res', page_size: 200 },
+      params: { eje_procesal: 'recibido,faltantes_con_res', page_size: 200, tipo: 'mercaderia' },
     });
     expect(screen.getByRole('tab', { name: 'Recibidos sin controlar' })).toHaveAttribute(
       'aria-selected',

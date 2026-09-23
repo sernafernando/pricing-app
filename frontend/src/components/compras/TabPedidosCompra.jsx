@@ -81,14 +81,27 @@ const MATCH_STATUS_LABEL = {
   skipped: 'Match omitido',
 };
 
-const renderPedidoChips = (p) => (
+const renderPedidoChips = (p) => {
+  const ocs = Array.isArray(p.ocs) ? p.ocs : [];
+  const showOcChip = Boolean(p.oc_vinculada) || ocs.length > 0;
+  return (
   <div className={styles.chipRow}>
-    {p.oc_vinculada && (
-      <span className={styles.chip}>
+    {showOcChip && (
+      <span className={styles.chip} data-testid="chip-oc">
         <Link2 size={11} aria-hidden="true" />
         OC
       </span>
     )}
+    {ocs.length > 1 &&
+      ocs.map((oc) => (
+        <span
+          key={`${oc.oc_comp_id}-${oc.oc_bra_id}-${oc.oc_poh_id}`}
+          className={styles.chipMuted}
+          data-testid="oc-poh-label"
+        >
+          #{oc.oc_poh_id}
+        </span>
+      ))}
     {p.tiene_numero_factura && !p.factura_cargada && (
       <span className={styles.chipMuted} data-testid="chip-numero-factura">
         <FileText size={11} aria-hidden="true" />
@@ -108,7 +121,8 @@ const renderPedidoChips = (p) => (
       </span>
     )}
   </div>
-);
+  );
+};
 
 const formatCurrency = (value, moneda = 'ARS') => {
   const num = Number(value) || 0;

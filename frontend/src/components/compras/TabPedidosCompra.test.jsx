@@ -80,3 +80,36 @@ describe('TabPedidosCompra — eje procesal label', () => {
     expect(screen.queryByText('Faltantes resueltos')).not.toBeInTheDocument();
   });
 });
+
+describe('TabPedidosCompra — OC chip is vinculación', () => {
+  it('shows compact #poh labels when ocs.length > 1 and no GBP chip', async () => {
+    renderTab({
+      ...PEDIDO_CON_NUMERO,
+      oc_vinculada: true,
+      ocs: [
+        { oc_comp_id: 1, oc_bra_id: 1, oc_poh_id: 100 },
+        { oc_comp_id: 1, oc_bra_id: 1, oc_poh_id: 200 },
+      ],
+    });
+
+    expect(await screen.findByText('P-01-2026-00001')).toBeInTheDocument();
+    expect(screen.getByTestId('chip-oc')).toHaveTextContent('OC');
+    const labels = screen.getAllByTestId('oc-poh-label');
+    expect(labels.map((el) => el.textContent)).toEqual(['#100', '#200']);
+    expect(screen.queryByText(/existe en GBP/i)).not.toBeInTheDocument();
+    expect(screen.queryByTestId('chip-gbp')).not.toBeInTheDocument();
+  });
+
+  it('keeps a single OC chip when ocs.length is 1', async () => {
+    renderTab({
+      ...PEDIDO_CON_NUMERO,
+      oc_vinculada: true,
+      ocs: [{ oc_comp_id: 1, oc_bra_id: 1, oc_poh_id: 100 }],
+    });
+
+    expect(await screen.findByText('P-01-2026-00001')).toBeInTheDocument();
+    expect(screen.getByTestId('chip-oc')).toHaveTextContent('OC');
+    expect(screen.queryByTestId('oc-poh-label')).not.toBeInTheDocument();
+    expect(screen.queryByText('#100')).not.toBeInTheDocument();
+  });
+});

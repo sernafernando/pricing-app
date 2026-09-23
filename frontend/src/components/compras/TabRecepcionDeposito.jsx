@@ -1273,6 +1273,7 @@ export default function TabRecepcionDeposito() {
         params.estado =
           filtro === POR_RECIBIR_ID && incluirCC ? 'pagado,en_cuenta_corriente' : filtro;
       }
+      params.tipo = 'mercaderia';
       if (dqProveedor.trim()) params.q_proveedor = dqProveedor.trim();
       if (dqNumero.trim()) params.q_numero = dqNumero.trim();
       if (dqFactura.trim()) params.q_factura = dqFactura.trim();

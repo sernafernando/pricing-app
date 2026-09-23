@@ -60,8 +60,8 @@ Chain strategy: feature-branch-chain
 
 ## Phase 5: Tipo + multi-OC + guia
 
-- [ ] 5.1 `frontend/src/components/compras/ModalPedidoCompra.jsx`: create tipo selector (default `mercaderia`).
-- [ ] 5.2 `frontend/src/components/compras/TabRecepcionDeposito.jsx`: Por recibir `tipo=mercaderia`.
-- [ ] 5.3 `frontend/src/components/compras/TabPedidosCompra.jsx`: if ocs.length>1 show per-OC poh labels; N=1 chip only; no GBP chip.
-- [ ] 5.4 `docs/modulos/compras-guia-usuario.md`: resolve/G31/Depósito/tipo/control flows.
-- [ ] 5.5 Tests tipo + multi-OC in `frontend/src/components/compras/ModalPedidoCompra.test.jsx`, `frontend/src/components/compras/TabPedidosCompra.test.jsx`.
+- [x] 5.1 `frontend/src/components/compras/ModalPedidoCompra.jsx`: create tipo selector (default `mercaderia`).
+- [x] 5.2 `frontend/src/components/compras/TabRecepcionDeposito.jsx`: Por recibir `tipo=mercaderia`.
+- [x] 5.3 `frontend/src/components/compras/TabPedidosCompra.jsx`: if ocs.length>1 show per-OC poh labels; N=1 chip only; no GBP chip.
+- [x] 5.4 `docs/modulos/compras-guia-usuario.md`: resolve/G31/Depósito/tipo/control flows.
+- [x] 5.5 Tests tipo + multi-OC in `frontend/src/components/compras/ModalPedidoCompra.test.jsx`, `frontend/src/components/compras/TabPedidosCompra.test.jsx`.
