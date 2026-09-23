@@ -2389,6 +2389,94 @@ class TestDeshacerRecibido:
         assert exc.value.status_code == 409
         assert p.estado == "controlado"
 
+    def test_undo_second_undo_409(
+        self, client, auth_headers, db, empresa, proveedor, active_user, con_permiso_deposito
+    ):
+        """Second undo after recibido was already undone → HTTP 409."""
+        p = PedidoCompra(
+            numero="P-UNDO-2ND",
+            empresa_id=empresa.id,
+            proveedor_id=proveedor.id,
+            moneda="ARS",
+            monto=Decimal("100"),
+            estado="recibido",
+            creado_por_id=active_user.id,
+        )
+        db.add(p)
+        db.flush()
+        first = client.post(
+            f"{BASE}/pedidos/{p.id}/recepcion/deshacer-recibido",
+            headers=auth_headers,
+        )
+        assert first.status_code == 200
+        assert first.json()["estado_nuevo"] == "pagado"
+
+        second = client.post(
+            f"{BASE}/pedidos/{p.id}/recepcion/deshacer-recibido",
+            headers=auth_headers,
+        )
+        assert second.status_code == 409
+        db.refresh(p)
+        assert p.estado == "pagado"
+
+    def test_undo_cc_with_pagado_en_reconstructs_pagado(self, db, empresa, proveedor, active_user):
+        """D-UNDO-R: CC OP present but pagado_en set → pagado, not en_cuenta_corriente."""
+        from datetime import UTC, datetime
+
+        from app.models.orden_pago import OrdenPago
+
+        op = OrdenPago(
+            numero="OP-UNDO-CC-PAG",
+            empresa_id=empresa.id,
+            proveedor_id=proveedor.id,
+            moneda="ARS",
+            monto_total=Decimal("100.00"),
+            modo_imputacion="especifica",
+            estado="pendiente",
+            creado_por_id=active_user.id,
+        )
+        db.add(op)
+        db.flush()
+        p = PedidoCompra(
+            numero="P-UNDO-CC-PAG",
+            empresa_id=empresa.id,
+            proveedor_id=proveedor.id,
+            moneda="ARS",
+            monto=Decimal("100"),
+            estado="recibido",
+            op_cuenta_corriente_id=op.id,
+            pagado_en=datetime.now(UTC),
+            creado_por_id=active_user.id,
+        )
+        db.add(p)
+        db.flush()
+        result = recepcion_service.deshacer_recibido(db, p, active_user)
+        assert result.estado_nuevo == "pagado"
+        assert p.estado == "pagado"
+
+    def test_undo_403_sin_permiso_recibir_mercaderia(
+        self, client, auth_headers, db, empresa, proveedor, active_user, sin_permiso
+    ):
+        """HTTP 403 when actor lacks deposito.recibir_mercaderia (router require_permiso)."""
+        p = PedidoCompra(
+            numero="P-UNDO-403",
+            empresa_id=empresa.id,
+            proveedor_id=proveedor.id,
+            moneda="ARS",
+            monto=Decimal("100"),
+            estado="recibido",
+            creado_por_id=active_user.id,
+        )
+        db.add(p)
+        db.flush()
+        r = client.post(
+            f"{BASE}/pedidos/{p.id}/recepcion/deshacer-recibido",
+            headers=auth_headers,
+        )
+        assert r.status_code == 403
+        db.refresh(p)
+        assert p.estado == "recibido"
+
     def test_control_complete_without_obs_succeeds(self, db, empresa, proveedor, active_user):
         p = PedidoCompra(
             numero="P-CTRL-NO-OBS",

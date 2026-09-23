@@ -46,7 +46,7 @@ Locks: persist after `apply_writeback` same txn; `created_by_id=pedido.creado_po
 
 ## Phase 3: PR3 #1323 — Undo tests (D-UNDO-R)
 
-- [ ] 3.1 Tests only in `backend/tests/integration/test_recepcion_deposito_endpoints.py`: second undo 409; CC+`pagado_en` → `pagado`; HTTP 403 via `require_permiso("deposito.recibir_mercaderia")`.
+- [x] 3.1 Tests only in `backend/tests/integration/test_recepcion_deposito_endpoints.py`: second undo 409; CC+`pagado_en` → `pagado`; HTTP 403 via `require_permiso("deposito.recibir_mercaderia")`.
 
 ## Phase 4: PR4 #1324 — ERP UI + 1-of-3 + novedad GATE
 

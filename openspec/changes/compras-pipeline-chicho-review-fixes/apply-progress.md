@@ -2,10 +2,10 @@
 
 **Change**: compras-pipeline-chicho-review-fixes
 **Mode**: Standard
-**Batch**: Phase 2 / tasks 2.1–2.5 — PR2 #1322
-**Branch**: `feat/compras-ops-pipeline-02-alerts`
+**Batch**: Phase 3 / task 3.1 — PR3 #1323
+**Branch**: `feat/compras-ops-pipeline-03-deposito`
 **Delivery**: auto-chain / feature-branch-chain
-**Attempt token**: `sha256:de3cbf2a5ff72b1b295351743805ac6eee89a9532e0c13d639c142d3fc306b32`
+**Attempt token**: `sha256:fcec47addcd660d8e2a7048832477cc9fec93a1572b9dbc1d62ca41fa0b8f907`
 
 ## Completed Tasks
 
@@ -20,10 +20,10 @@
 - [x] 2.3 Alertas unit tests: holders only; ADMIN without code out; SUPERADMIN via resolver; faltantes unchanged
 - [x] 2.4 Cap `comprasAlertas` to `max_alertas_visibles`; overflow `+N más`; no compras timed-rotate
 - [x] 2.5 AppLayout banners: 7/cap 3 → 3 + `+4 más`; unread stays until OK
+- [x] 3.1 Undo tests only: second undo HTTP 409; CC+`pagado_en` → `pagado`; HTTP 403 via `require_permiso("deposito.recibir_mercaderia")`
 
 ## Remaining Tasks
 
-- [ ] 3.1 PR3 #1323 undo tests
 - [ ] 4.1–4.5 PR4 #1324 ERP UI + 1-of-3 + novedad GATE
 
 ## Work Unit Evidence
@@ -36,7 +36,7 @@
 | Runtime harness command/scenario and exact result | N/A — no HTTP/runtime boundary beyond pytest txn; worker path covered by integration tests on the same SQLite session as `_persist` |
 | Rollback boundary | Revert persist helper + worker call + `UniqueConstraint` + `compras_044` seed/UNIQUE amend + the two test files’ new cases |
 
-### Phase 2 (this batch)
+### Phase 2 (prior batch)
 
 | Evidence | Value |
 |---|---|
@@ -44,10 +44,18 @@
 | Runtime harness command/scenario and exact result | N/A — unit/RTL only; no new HTTP route; fan-out is resolver + persist hook already covered by pytest |
 | Rollback boundary | Revert `compras_046` + `destinatarios_factura` resolver + AppLayout cap/`+N más` + the two test files’ new cases. Merge of `ff83f305` into this branch is a separate rollback (revert merge commit). |
 
+### Phase 3 (this batch)
+
+| Evidence | Value |
+|---|---|
+| Focused test command and exact result | `pytest tests/integration/test_recepcion_deposito_endpoints.py -k undo -q` → **6 passed**, 96 deselected in 3.60s (CRLF-stripped env) |
+| Runtime harness command/scenario and exact result | N/A — D-UNDO-R already live; HTTP 409/403 covered by TestClient against `POST /pedidos/{id}/recepcion/deshacer-recibido`. No new production path. |
+| Rollback boundary | Revert the three new methods on `TestDeshacerRecibido` plus this SDD checkbox/progress. Merge of `aa319c04` into this branch is a separate rollback (revert merge commit). |
+
 ## Deviations from Design
 
-046 parents `compras_044_pipeline_tipo_responsable_facturas` (D-046 / apply-time). `compras_045` is not on this PR2 branch; PR4 must rehang 045 → 046. Persist notify stays the lazy ImportError hook from Phase 1 (PR2 service is present, so it fires).
+046 parents `compras_044_pipeline_tipo_responsable_facturas` (D-046 / apply-time). `compras_045` is not on this PR3 branch; PR4 must rehang 045 → 046. Persist notify stays the lazy ImportError hook from Phase 1. Service `deshacer_recibido` unchanged (D-UNDO-R).
 
 ## Issues Found
 
-GGA pre-commit reviewed the full `pedidos_service.py` on the Phase 1 merge and flagged pre-existing N+1 in `corregir_pedido` / `_aplicar_transferencia_correccion_al_aprobar` (out of this slice). New factura persist path was accepted.
+None for this slice. GGA may still flag pre-existing N+1 / soft god-component on merged Phase 1 `pedidos_service.py` (Gabe authorized `--no-verify` for that class of FAIL only).
