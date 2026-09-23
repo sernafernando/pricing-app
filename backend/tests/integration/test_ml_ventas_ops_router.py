@@ -656,3 +656,59 @@ class TestOrderDetailIvaRazones:
 
         assert iva["reconcilia"] is False
         assert iva["razones"] == [RAZON_SIN_PAGOS_SINCRONIZADOS]
+
+
+class TestOrderDetailSurvivesUnexpectedPayloadShapes:
+    """The buyer/payment fields are read out of raw ML JSON. A payload that
+    does not look like the captured shape must degrade to nulls, never turn
+    the whole order-detail endpoint into a 500 (before PR12 it never read
+    these fields at all)."""
+
+    def test_a_buyer_that_is_not_an_object_yields_null_names(self, db, client, admin_auth_headers, rol_admin) -> None:
+        order_id = 9200001
+        db.add(
+            MlOrdersOps(
+                order_id=order_id,
+                status="paid",
+                ml_last_updated=datetime(2026, 9, 21, tzinfo=timezone.utc),
+                seller_id=999,
+                raw_order={"buyer": "sin datos"},
+            )
+        )
+        db.commit()
+        _grant_ml_ops_ver(db, rol_admin)
+
+        resp = client.get(f"/api/ml-ventas-ops/orders/{order_id}", headers=admin_auth_headers)
+
+        assert resp.status_code == 200
+        assert resp.json()["order"]["buyer_first_name"] is None
+        assert resp.json()["order"]["buyer_last_name"] is None
+
+    def test_odd_payment_values_yield_nulls(self, db, client, admin_auth_headers, rol_admin) -> None:
+        order_id = 9200002
+        db.add(
+            MlOrdersOps(
+                order_id=order_id,
+                status="paid",
+                ml_last_updated=datetime(2026, 9, 21, tzinfo=timezone.utc),
+                seller_id=999,
+            )
+        )
+        db.add(
+            MlPaymentOps(
+                payment_id=9200003,
+                order_id=order_id,
+                status="approved",
+                # `installments` as a string and a structured payment method:
+                # neither matches the declared response types.
+                raw_payload={"payment_method_id": {"id": "visa"}, "installments": "tres"},
+            )
+        )
+        db.commit()
+        _grant_ml_ops_ver(db, rol_admin)
+
+        resp = client.get(f"/api/ml-ventas-ops/orders/{order_id}", headers=admin_auth_headers)
+
+        assert resp.status_code == 200
+        assert resp.json()["order"]["payment_method_id"] is None
+        assert resp.json()["order"]["installments"] is None
