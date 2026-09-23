@@ -89,6 +89,7 @@ const preValidarArchivo = (file) => {
  *   - entidadTipo: 'pedido_compra' | 'orden_pago'
  *   - entidadId: number
  *   - canManage: boolean — si true, permite subir y eliminar
+ *   - tipo: optional adjunto hint sent as Form `tipo` (factura|presupuesto|comprobante|otro)
  *
  * Upload behavior:
  *   - Hasta 10 archivos por batch (MAX_FILES_PER_BATCH).
@@ -96,7 +97,7 @@ const preValidarArchivo = (file) => {
  *   - Si UN archivo falla, los otros siguen subiendo. El usuario ve el estado
  *     individual de cada uno en una lista inline.
  */
-export default function AdjuntosPanel({ entidadTipo, entidadId, canManage = false }) {
+export default function AdjuntosPanel({ entidadTipo, entidadId, canManage = false, tipo = null }) {
   const [adjuntos, setAdjuntos] = useState([]);
   const [loading, setLoading] = useState(false);
   // uploads: array de { id, name, size, status: 'pending'|'uploading'|'ok'|'error', error?: string }
@@ -120,7 +121,7 @@ export default function AdjuntosPanel({ entidadTipo, entidadId, canManage = fals
       const { data } = await api.get(
         `/administracion/compras/${basePath}/${entidadId}/adjuntos`,
       );
-      setAdjuntos(data || []);
+      setAdjuntos(Array.isArray(data) ? data : []);
     } catch (err) {
       setError(err.response?.data?.detail || 'Error al cargar adjuntos.');
     } finally {
@@ -136,6 +137,7 @@ export default function AdjuntosPanel({ entidadTipo, entidadId, canManage = fals
     async (uploadId, file) => {
       const formData = new FormData();
       formData.append('file', file);
+      if (tipo) formData.append('tipo', tipo);
       try {
         setUploads((prev) =>
           prev.map((u) => (u.id === uploadId ? { ...u, status: 'uploading' } : u)),
@@ -159,7 +161,7 @@ export default function AdjuntosPanel({ entidadTipo, entidadId, canManage = fals
         return { ok: false };
       }
     },
-    [basePath, entidadId],
+    [basePath, entidadId, tipo],
   );
 
   const handleFiles = useCallback(

@@ -55,8 +55,8 @@ Chain strategy: feature-branch-chain
 
 ## Phase 4: Control photo (#16)
 
-- [ ] 4.1 `frontend/src/components/compras/TabRecepcionDeposito.jsx`: optional obs + `AdjuntosPanel` `tipo=otro` on control incl OK (upload-then-control).
-- [ ] 4.2 Tests OK empty / OK with obs+photo in `frontend/src/components/compras/TabRecepcionDeposito.test.jsx`.
+- [x] 4.1 `frontend/src/components/compras/TabRecepcionDeposito.jsx`: optional obs + `AdjuntosPanel` `tipo=otro` on control incl OK (upload-then-control).
+- [x] 4.2 Tests OK empty / OK with obs+photo in `frontend/src/components/compras/TabRecepcionDeposito.test.jsx`.
 
 ## Phase 5: Tipo + multi-OC + guia
 
