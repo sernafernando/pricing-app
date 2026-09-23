@@ -17,9 +17,10 @@ vi.mock('./TopBar', () => ({
   default: () => <div data-testid="topbar" />,
 }));
 
+const sseStub = { isDegraded: () => false, subscribe: () => () => {} };
 vi.mock('../contexts/SSEContext', () => ({
   SSEProvider: ({ children }) => children,
-  useSSE: () => ({ isDegraded: () => false, subscribe: () => () => {} }),
+  useSSE: () => sseStub,
 }));
 
 vi.mock('../hooks/useSSEChannel', () => ({

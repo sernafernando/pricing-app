@@ -113,12 +113,12 @@ function AppLayoutInner() {
     cargarComprasAlertas();
   }, [cargarAlertasActivas, cargarConfiguracion, cargarComprasAlertas]);
 
-  // Initial load
+  // Initial load (depend on user.id — identity, not object identity)
   useEffect(() => {
     if (user) {
       reloadAlertas();
     }
-  }, [user, reloadAlertas]);
+  }, [user?.id, reloadAlertas]);
 
   // SSE-driven reload: instant alert updates
   useSSEChannel('alertas:updated', reloadAlertas);
@@ -130,12 +130,12 @@ function AppLayoutInner() {
 
     const interval = setInterval(reloadAlertas, 300000);
     return () => clearInterval(interval);
-  }, [user, isDegraded, reloadAlertas]);
+  }, [user?.id, isDegraded, reloadAlertas]);
 
   // Sistema de rotación de alertas
   useEffect(() => {
     if (todasLasAlertas.length === 0) {
-      setAlertasVisibles([]);
+      setAlertasVisibles((prev) => (prev.length === 0 ? prev : []));
       return;
     }
 
