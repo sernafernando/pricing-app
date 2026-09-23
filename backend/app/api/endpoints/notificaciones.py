@@ -10,8 +10,17 @@ from app.core.sse import sse_publish
 from app.models.usuario import Usuario
 from app.models.notificacion import Notificacion, SeveridadNotificacion, EstadoNotificacion
 from app.services.notificacion_service import NotificacionService
+from app.services.compras_alertas_service import (
+    filtrar_visibles,
+    marcar_ok,
+    snooze_faltantes,
+)
 
 router = APIRouter()
+
+
+def _ahora_listado() -> datetime:
+    return datetime.now(UTC)
 
 
 class NotificacionResponse(BaseModel):
@@ -144,7 +153,7 @@ def listar_notificaciones(
         .all()
     )
 
-    return notificaciones
+    return filtrar_visibles(notificaciones, ahora=_ahora_listado())
 
 
 @router.get("/notificaciones/agrupadas", response_model=List[NotificacionAgrupada])
@@ -169,7 +178,10 @@ def listar_notificaciones_agrupadas(
         query = query.filter(Notificacion.tipo == tipo)
 
     # Obtener todas las notificaciones que cumplen el filtro
-    notificaciones = query.order_by(desc(Notificacion.fecha_creacion)).all()
+    notificaciones = filtrar_visibles(
+        query.order_by(desc(Notificacion.fecha_creacion)).all(),
+        ahora=_ahora_listado(),
+    )
 
     # Agrupar en memoria por (item_id, tipo, markup_real_redondeado)
     grupos = {}
@@ -375,6 +387,59 @@ async def eliminar_notificacion(
     await sse_publish("notificaciones:updated", {"hint": "reload"})
 
     return {"mensaje": "Notificación eliminada"}
+
+
+# ========== COMPRAS PIPELINE (PR2) ==========
+
+
+@router.patch(
+    "/notificaciones/{notificacion_id}/ok",
+    response_model=NotificacionResponse,
+)
+async def ok_notificacion_compras(
+    notificacion_id: int,
+    db: Session = Depends(get_async_db),
+    current_user: Usuario = Depends(get_current_user),
+) -> NotificacionResponse:
+    """Per-user OK: mark a compras (or any) notification DESCARTADA."""
+    notificacion = (
+        db.query(Notificacion)
+        .filter(Notificacion.id == notificacion_id, Notificacion.user_id == current_user.id)
+        .first()
+    )
+    if not notificacion:
+        raise HTTPException(404, "Notificación no encontrada")
+
+    marcar_ok(db, notificacion)
+    db.commit()
+    db.refresh(notificacion)
+    await sse_publish("notificaciones:updated", {"hint": "reload"})
+    return NotificacionResponse.model_validate(notificacion)
+
+
+@router.patch(
+    "/notificaciones/{notificacion_id}/snooze",
+    response_model=NotificacionResponse,
+)
+async def snooze_notificacion_compras(
+    notificacion_id: int,
+    db: Session = Depends(get_async_db),
+    current_user: Usuario = Depends(get_current_user),
+) -> NotificacionResponse:
+    """Snooze a faltantes alert until fecha_creacion + 1h (mark time, not click)."""
+    notificacion = (
+        db.query(Notificacion)
+        .filter(Notificacion.id == notificacion_id, Notificacion.user_id == current_user.id)
+        .first()
+    )
+    if not notificacion:
+        raise HTTPException(404, "Notificación no encontrada")
+
+    snooze_faltantes(db, notificacion)
+    db.commit()
+    db.refresh(notificacion)
+    await sse_publish("notificaciones:updated", {"hint": "reload"})
+    return NotificacionResponse.model_validate(notificacion)
 
 
 # ========== NUEVOS ENDPOINTS DE GESTIÓN ==========

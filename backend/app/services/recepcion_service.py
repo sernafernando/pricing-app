@@ -15,6 +15,7 @@ compras_eventos (INSERT).
 
 from __future__ import annotations
 
+from datetime import UTC, datetime
 from decimal import Decimal
 from typing import Any
 
@@ -36,6 +37,7 @@ from app.schemas.recepcion import (
     IngresoLinea,
     RegistrarIngresosRequest,
     RegistrarIngresosResponse,
+    ResolverFaltantesResponse,
     SaldoLineaResponse,
     SaldoPostIngreso,
     SaldosResponse,
@@ -75,6 +77,22 @@ ESTADOS_CONSULTA_SALDOS: frozenset[str] = _ESTADOS_RECEPTIVOS | {"controlado"}
 # ──────────────────────────────────────────────────────────────────────────
 # Private helpers
 # ──────────────────────────────────────────────────────────────────────────
+
+
+def _texto_faltantes(faltantes_texto: str | None, observaciones: str | None) -> str:
+    """Prefer explicit faltantes_texto; observaciones is a backward-compat fallback."""
+    for candidate in (faltantes_texto, observaciones):
+        if candidate is not None and candidate.strip():
+            return candidate.strip()
+    return ""
+
+
+def _alertar_faltantes_si_corresponde(session: Session, pedido: PedidoCompra, texto: str) -> None:
+    from app.services import compras_alertas_service
+
+    if pedido.proveedor is None:
+        session.refresh(pedido, attribute_names=["proveedor"])
+    compras_alertas_service.notificar_faltantes(session, pedido=pedido, texto=texto)
 
 
 def _validar_estado_receptivo(pedido: PedidoCompra) -> None:
@@ -397,8 +415,14 @@ def registrar_ingresos(
             "lineas": lineas_payload,
             "requiere_envio": bool(pedido.requiere_envio),
             "retiro_generado": False,
+            "faltantes_texto": request.faltantes_texto,
         },
     )
+
+    if nuevo_estado == "con_faltantes":
+        texto = _texto_faltantes(request.faltantes_texto, request.observaciones)
+        if texto:
+            _alertar_faltantes_si_corresponde(session, pedido, texto)
 
     return RegistrarIngresosResponse(
         pedido_id=pedido.id,
@@ -498,12 +522,22 @@ def confirmar_pedido_sin_oc(
             "modo": "sin_oc",
             "completo": request.completo,
             "observaciones": request.observaciones,
+            "faltantes_texto": request.faltantes_texto,
             "requiere_envio": bool(pedido.requiere_envio),
             "retiro_generado": False,
         },
     )
 
     session.flush()
+
+    if nuevo_estado == "con_faltantes":
+        texto = _texto_faltantes(request.faltantes_texto, request.observaciones)
+        if not texto:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+                detail="faltantes_texto is required when marking faltantes.",
+            )
+        _alertar_faltantes_si_corresponde(session, pedido, texto)
 
     return ConfirmarPedidoResponse(
         pedido_id=pedido.id,
@@ -630,3 +664,37 @@ def get_eventos_recepcion(
         )
 
     return EventosRecepcionResponse(pedido_id=pedido_id, eventos=items)
+
+
+def resolver_faltantes(
+    session: Session,
+    pedido: PedidoCompra,
+    user: Usuario,
+    texto: str | None = None,
+    *,
+    ahora: datetime | None = None,
+) -> ResolverFaltantesResponse:
+    """Mark faltantes resolved and fan-out G31 to deposito.recibir_mercaderia."""
+    if pedido.estado != "con_faltantes":
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=f"Solo se resuelven faltantes en estado con_faltantes (estado='{pedido.estado}').",
+        )
+    stamp = ahora if ahora is not None else datetime.now(UTC)
+    if stamp.tzinfo is None:
+        stamp = stamp.replace(tzinfo=UTC)
+    pedido.faltantes_resuelto_en = stamp
+    _emit_evento(
+        session,
+        pedido=pedido,
+        user=user,
+        tipo="faltantes_resuelto",
+        payload={"texto": texto, "faltantes_resuelto_en": stamp.isoformat()},
+    )
+    from app.services import compras_alertas_service
+
+    if pedido.proveedor is None:
+        session.refresh(pedido, attribute_names=["proveedor"])
+    compras_alertas_service.notificar_faltantes_resuelto(session, pedido=pedido)
+    session.flush()
+    return ResolverFaltantesResponse(pedido_id=pedido.id, faltantes_resuelto_en=stamp)

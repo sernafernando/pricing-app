@@ -41,11 +41,11 @@ Chain strategy: feature-branch-chain
 
 ## Phase 2: PR2 alerts
 
-- [ ] 2.1 RED `backend/tests/unit/test_compras_alertas_service.py`: copy `P-…`+proveedor+nº not `pedidos_documento`; fan-out titular∪sub-PM∪Admin∪Gerente.
-- [ ] 2.2 GREEN `backend/app/services/compras_alertas_service.py`. Test: per-user OK; empty nº no alert.
-- [ ] 2.3 `backend/app/api/endpoints/notificaciones.py` PATCH ok + snooze routes; hide mark+1h. Test: 10:00/10:20 until 11:00.
-- [ ] 2.4 Faltantes → `responsable_id` + `faltantes_texto`; G31 `deposito.recibir_mercaderia`. Test: empty 422; D3 no alert.
-- [ ] 2.5 `frontend/src/components/AppLayout.jsx` stack `compras.*`; OK→DESCARTADA. Test: banner+bell; undo retracts; no email.
+- [x] 2.1 RED `backend/tests/unit/test_compras_alertas_service.py`: copy `P-…`+proveedor+nº not `pedidos_documento`; fan-out titular∪sub-PM∪Admin∪Gerente.
+- [x] 2.2 GREEN `backend/app/services/compras_alertas_service.py`. Test: per-user OK; empty nº no alert.
+- [x] 2.3 `backend/app/api/endpoints/notificaciones.py` PATCH ok + snooze routes; hide mark+1h. Test: 10:00/10:20 until 11:00.
+- [x] 2.4 Faltantes → `responsable_id` + `faltantes_texto`; G31 `deposito.recibir_mercaderia`. Test: empty 422; D3 no alert.
+- [x] 2.5 `frontend/src/components/AppLayout.jsx` stack `compras.*`; OK→DESCARTADA. Test: banner+bell; undo retracts; no email.
 
 ## Phase 3: PR3 Depósito
 

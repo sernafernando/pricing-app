@@ -77,6 +77,7 @@ class RegistrarIngresosRequest(BaseModel):
 
     lineas: list[IngresoLinea]
     observaciones: str | None = None
+    faltantes_texto: str | None = None
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -125,6 +126,7 @@ class ConfirmarPedidoRequest(BaseModel):
 
     completo: bool
     observaciones: str | None = None
+    faltantes_texto: str | None = None
 
     @model_validator(mode="after")
     def _observaciones_requeridas_si_incompleto(self) -> "ConfirmarPedidoRequest":
@@ -140,6 +142,23 @@ class ConfirmarPedidoResponse(BaseModel):
 
     pedido_id: int
     estado_nuevo: str
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class ResolverFaltantesRequest(BaseModel):
+    """Optional note when marking faltantes as resolved (G31)."""
+
+    texto: str | None = None
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class ResolverFaltantesResponse(BaseModel):
+    """Response for POST /pedidos/{id}/faltantes/resolver."""
+
+    pedido_id: int
+    faltantes_resuelto_en: datetime
 
     model_config = ConfigDict(from_attributes=True)
 
