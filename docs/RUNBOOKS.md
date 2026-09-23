@@ -820,6 +820,15 @@ sudo systemctl enable --now pricing-worker
 sudo systemctl status pricing-worker
 ```
 
+The unit's `User`, `Group`, `WorkingDirectory`, `EnvironmentFile` and the
+venv path in `ExecStart` mirror the live `pricing-api.service`
+(`www-data`, `/var/www/html/pricing-app/backend`). Check them against
+`systemctl cat pricing-api` before installing on a host laid out
+differently: systemd reports a wrong path or a missing user as the
+unhelpful `Job for pricing-worker.service failed because of unavailable
+resources or another system error`, with nothing in the journal about the
+real cause.
+
 **Do not install/enable before PR3 merges and deploys.** PR2 alone has an
 empty registry and nothing enqueues into `ml_order_metrics_dirty` yet, so
 enabling it earlier is harmless but pointless; PR3.T10 is the actual

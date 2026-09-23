@@ -4,14 +4,17 @@ Documentation=https://github.com/sernafernando/pricing-app
 After=postgresql.service pricing-api.service
 Wants=postgresql.service
 
+# Paths, user and group are COPIED from the live pricing-api unit, not
+# guessed: an invented path makes systemd refuse the unit with the
+# unhelpful "unavailable resources or another system error".
 [Service]
 Type=simple
-User=pricing
-Group=pricing
-WorkingDirectory=/opt/pricing-app/backend
+User=www-data
+Group=www-data
+WorkingDirectory=/var/www/html/pricing-app/backend
 Environment=PYTHONUNBUFFERED=1
-EnvironmentFile=/opt/pricing-app/backend/.env
-ExecStart=/opt/pricing-app/backend/venv/bin/python -m app.workers.run
+EnvironmentFile=/var/www/html/pricing-app/backend/.env
+ExecStart=/var/www/html/pricing-app/backend/venv/bin/python -m app.workers.run
 Restart=always
 RestartSec=5
 # HeartbeatThread death detection (design D4 step 5) exits(70) precisely so
