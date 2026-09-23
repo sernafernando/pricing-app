@@ -414,6 +414,37 @@ class TestTipoYResponsable:
             )
         assert exc_info.value.status_code == 403
 
+    def test_deposito_actor_cannot_patch_responsable(
+        self, db, empresa, proveedor, active_user, admin_user
+    ) -> None:
+        """Depósito may assign on mark-faltantes only; PATCH/editar stays admin|creator."""
+        pedido = pedidos_service.crear_pedido(
+            db,
+            empresa_id=empresa.id,
+            proveedor_id=proveedor.id,
+            moneda="ARS",
+            monto=Decimal("2500.00"),
+            creado_por_id=admin_user.id,
+        )
+        assert active_user.id != admin_user.id
+
+        def _solo_deposito(_self, _user, codigo: str) -> bool:
+            return codigo == "deposito.recibir_mercaderia"
+
+        with patch(
+            "app.services.permisos_service.PermisosService.tiene_permiso",
+            new=_solo_deposito,
+        ):
+            with pytest.raises(HTTPException) as exc_info:
+                pedidos_service.editar_pedido(
+                    db,
+                    pedido_id=pedido.id,
+                    user_id=active_user.id,
+                    actor=active_user,
+                    responsable_id=active_user.id,
+                )
+        assert exc_info.value.status_code == 403
+
 
 # ──────────────────────────────────────────────────────────────────────────
 # 1.4 POST / DELETE routes

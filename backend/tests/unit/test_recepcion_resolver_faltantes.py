@@ -116,6 +116,25 @@ class TestResolverFaltantesService:
         assert pedido.faltantes_resuelto_en == STAMP
         assert pedido.estado == "con_faltantes"
 
+    def test_responsable_without_any_permiso_can_resolve(
+        self, db, empresa, proveedor, active_user
+    ) -> None:
+        """Locked product: being responsable is enough — no compras permiso required."""
+        pedido = _pedido(db, empresa, proveedor, active_user, responsable_id=active_user.id)
+
+        def _deny_all(_self, _user, _codigo: str) -> bool:
+            return False
+
+        with patch(
+            "app.services.permisos_service.PermisosService.tiene_permiso",
+            new=_deny_all,
+        ):
+            result = recepcion_service.resolver_faltantes(
+                db, pedido, active_user, texto="Comprar 2 cajas", ahora=STAMP
+            )
+        assert result.faltantes_resuelto_en == STAMP
+        assert pedido.estado == "con_faltantes"
+
     def test_gestionar_oc_not_responsable_ok(self, db, empresa, proveedor, active_user, admin_user) -> None:
         pedido = _pedido(db, empresa, proveedor, admin_user, responsable_id=admin_user.id)
 
