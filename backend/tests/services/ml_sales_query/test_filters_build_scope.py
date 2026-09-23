@@ -25,7 +25,7 @@ from datetime import datetime, timezone
 import pytest
 
 from app.core.config import settings
-from app.models.ml_orders_ops import MlOrdersOps, MlShipmentOps
+from app.models.ml_orders_ops import MlOperationLink, MlOrdersOps, MlShipmentOps
 from app.models.rma_claim_ml import RmaClaimML
 from app.services.ml_orders_ingestion.link_resolver_service import resolve_links
 from app.services.ml_sales_query.filters import SalesFilter, build_scope
@@ -105,18 +105,36 @@ class TestStatusDerivationParity:
         assert rows[2].operation_status == "delivered"
 
     def test_open_claim_forces_in_dispute(self, db):
+        # Distinctive ids: this order/claim pair must not collide with one
+        # another test in the same worker already linked (the link is keyed
+        # on the claim's own id), or the claim would silently not be linked
+        # and the status would read `paid`.
+        order_id = 930003
         _seed_order(
             db,
-            3,
+            order_id,
             status="paid",
             claim_status="opened",
             date_created=datetime(2026, 1, 1, tzinfo=timezone.utc),
         )
-        resolve_links(db)
+        resultado = resolve_links(db)
         db.commit()
+
+        # Asserted, not assumed. This test failed once in CI (parallel run)
+        # reading `paid`, and could not be reproduced locally: the assertions
+        # below name WHICH link was missing instead of just reporting the
+        # collapsed status, so a repeat failure is diagnosable.
+        enlaces = (
+            db.query(MlOperationLink)
+            .filter(MlOperationLink.order_id == order_id, MlOperationLink.entity_type == "claim")
+            .all()
+        )
+        assert resultado.claims_linked >= 1, f"el reclamo no se vinculó: {resultado}"
+        assert enlaces, "no hay fila en ml_operation_links para el reclamo de esta orden"
+
         scope = build_scope(db, SalesFilter())
         rows = {r.order_id: r for r in _rows(db, scope)}
-        assert rows[3].operation_status == "in_dispute"
+        assert rows[order_id].operation_status == "in_dispute"
 
     def test_unrecognised_status_is_unknown(self, db):
         _seed_order(db, 4, status="weird_status", date_created=datetime(2026, 1, 1, tzinfo=timezone.utc))
