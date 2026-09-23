@@ -596,3 +596,36 @@ class TestSigkillMidBatchChargesLeaseExpiry:
         # Exactly the killed batch's orders are charged -- no others.
         assert unrelated_row.attempts == 0
         assert unrelated_row.last_error is None
+
+
+@pytest.mark.postgres
+class TestReleaseUnchargedNeverClearsSuspect:
+    """Review finding (GGA): `release_uncharged` wrote `suspect = :suspect`,
+    overwriting whatever the row already carried. A row already marked
+    suspect gets claimed ALONE on the singleton pass; if the handler
+    deadline lands in its STORE phase, `_store_batch` releases it with
+    `suspect=False` -- and the row goes back to a plain queued order that
+    re-enters a full 200-row batch. That is exactly the isolation the
+    suspect flag exists to guarantee across passes and restarts. The flag
+    must only ever be raised here, never cleared."""
+
+    def test_an_already_suspect_row_stays_suspect_after_a_plain_release(
+        self, _order_metrics_db_session, pg_order_metrics_engine
+    ) -> None:
+        order_id = 510001
+        with pg_order_metrics_engine.connect() as conn:
+            _insert_dirty(conn, order_id, suspect=True)
+            conn.commit()
+
+        claims = claim_dirty(limit=10, lease=timedelta(seconds=120), worker_id="w")
+        assert [c.order_id for c in claims] == [order_id]
+
+        release_uncharged(claims, suspect=False)
+
+        with pg_order_metrics_engine.connect() as conn:
+            row = conn.execute(
+                text("SELECT suspect, attempts FROM ml_order_metrics_dirty WHERE order_id = :oid"),
+                {"oid": order_id},
+            ).fetchone()
+        assert row.suspect is True, "a plain release must never clear an existing suspect mark"
+        assert row.attempts == 0, "an uncharged release must not charge an attempt either"

@@ -16,7 +16,10 @@ import logging
 from datetime import datetime, time, timedelta, timezone
 from typing import List, Optional, Tuple
 
+from sqlalchemy import text
+
 from app.core.config import settings
+from app.core.database import get_background_db
 from app.services.order_metrics.compute import compute_order_metrics
 from app.services.order_metrics.queue import Claim, claim_dirty, fenced_store, mark_failed, release_uncharged
 from app.workers.context import JobResult, WorkerContext
@@ -53,17 +56,18 @@ def _unregister_held_tokens(ctx: WorkerContext, claims: List[Claim]) -> None:
 
 def _compute_batch(claims: List[Claim], batch_deadline: datetime):
     """COMPUTE phase (design D5 rev 6): read-only, bulk, no row locks.
-    Runs `compute_order_metrics` for the whole batch in one call; the
-    wall-clock budget is enforced by the caller checking `batch_deadline`
-    immediately before starting this call -- a batch already past its
-    budget never starts computing (nothing to charge, nothing was
-    started)."""
+    Runs `compute_order_metrics` for the whole batch in one call.
+
+    LIMITATION, stated plainly: `batch_deadline` is only checked BEFORE
+    the call. Once the bulk compute starts, nothing interrupts it -- its
+    only bound is the 30s `statement_timeout` PER STATEMENT, and the
+    heartbeat keeps renewing the lease throughout. So design D5's batch
+    WALL-TIME bound is NOT enforced during the compute; PR3.T6d is open,
+    not done. What this guard does cover is a batch that is already past
+    its budget when it gets here: it never starts (nothing was started,
+    so there is nothing to charge)."""
     if datetime.now(timezone.utc) >= batch_deadline:
         raise BatchTimeout("batch_timeout exceeded before compute started")
-    from app.core.database import get_background_db
-
-    from sqlalchemy import text
-
     order_ids = [claim.order_id for claim in claims]
     with get_background_db() as db:
         db.execute(text("SET LOCAL statement_timeout = '30s'"))
@@ -130,7 +134,21 @@ def _process_batch(claims: List[Claim], ctx: WorkerContext) -> int:
     try:
         metrics = _compute_batch(claims, batch_deadline)
     except BatchTimeout:
-        if _is_singleton_retry(claims):
+        # WHOSE clock ran out decides what this costs. The handler's own
+        # `ctx.deadline` expiring between the claim and the compute says
+        # nothing about these orders: the compute never started, so they
+        # are released uncharged and NOT suspect -- marking them would
+        # condemn healthy orders to the singleton pass, and charging a
+        # lone one `timeout` would blame it for a deadline that was not
+        # its fault. Only the batch's own wall-clock budget running out
+        # is evidence about the batch itself.
+        if datetime.now(timezone.utc) >= ctx.deadline:
+            logger.info(
+                "order_metrics.drain: handler deadline reached before compute -- releasing %d claim(s) uncharged",
+                len(claims),
+            )
+            release_uncharged(claims, suspect=False)
+        elif _is_singleton_retry(claims):
             mark_failed(claims[0], "timeout")
         else:
             release_uncharged(claims, suspect=True)

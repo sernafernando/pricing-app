@@ -220,7 +220,14 @@ def release_uncharged(claims: Sequence[Claim], *, suspect: bool = False) -> None
     survives a worker restart) -- used by a `BatchTimeout` in the COMPUTE
     phase. A deadline reached mid-STORE releases only the unstored orders,
     NOT suspect (their compute already succeeded, nothing is wrong with
-    them -- design D5 rev 6)."""
+    them -- design D5 rev 6).
+
+    The flag is only ever RAISED here (`suspect OR :suspect`), never
+    cleared: a row already marked suspect is claimed ALONE, and if the
+    handler deadline lands in its STORE phase this same function releases
+    it with `suspect=False`. Writing that value through would drop the row
+    back into a full 200-row batch and lose exactly the isolation the flag
+    guarantees across passes and restarts."""
     if not claims:
         return
     tokens = [str(claim.claim_token) for claim in claims]
@@ -229,7 +236,7 @@ def release_uncharged(claims: Sequence[Claim], *, suspect: bool = False) -> None
             text(
                 """
                 UPDATE ml_order_metrics_dirty
-                SET claimed_at = NULL, claimed_by = NULL, claim_token = NULL, suspect = :suspect
+                SET claimed_at = NULL, claimed_by = NULL, claim_token = NULL, suspect = suspect OR :suspect
                 WHERE claim_token = ANY(CAST(:tokens AS uuid[]))
                 """
             ),
