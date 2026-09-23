@@ -706,6 +706,69 @@ def pg_order_metrics_db(pg_order_metrics_engine):
     connection.close()
 
 
+@pytest.fixture(scope="module")
+def pg_worker_engine():
+    """Module-scoped PostgreSQL engine with `worker_job_state` and
+    `ml_order_metrics_dirty` (ventas-ml-rediseno PR2: generic worker
+    runtime tests -- LISTEN/NOTIFY, heartbeat, lease renewal). Neither
+    table has an FK to `ml_orders_ops`, so this fixture stays independent
+    of `pg_order_metrics_engine` above.
+
+    Module scope for the same reason as `pg_order_metrics_engine`:
+    `worker_job_state` is one of the three tables
+    `test_migration_ml_order_metrics.py`'s round trip creates bare (no
+    `checkfirst`) -- a session-scoped copy left behind would collide.
+    """
+    if not _postgres_reachable():
+        pytest.skip(
+            f"PostgreSQL not reachable at {POSTGRES_TEST_URL} — set POSTGRES_TEST_URL "
+            "or start a local PostgreSQL to run @pytest.mark.postgres tests. "
+            "CI provides this via the `postgres` service in .github/workflows/ci.yml."
+        )
+
+    from app.models.ml_order_metrics import MlOrderMetricsDirty as _MlOrderMetricsDirty
+    from app.models.worker_job_state import WorkerJobState as _WorkerJobState
+
+    own_tables = [_WorkerJobState.__table__, _MlOrderMetricsDirty.__table__]
+    _restore_pristine_pg_types(own_tables)
+
+    eng = create_engine(POSTGRES_TEST_URL)
+    # Deliberately per-Table `drop`/`create`, NOT `Base.metadata.drop_all`/
+    # `create_all(tables=...)`: neither of these two tables owns a native
+    # PG ENUM, but `MetaData.drop_all` still walks the WHOLE shared
+    # `Base.metadata` to decide enum-type drop order regardless of the
+    # `tables=` filter -- when another module-scoped fixture (e.g.
+    # `pg_tickets_engine`) is still live in the same pytest session with
+    # its own enum-backed tables, that unrelated `DROP TYPE` collides with
+    # their still-referenced type (`DependentObjectsStillExist`). Per-table
+    # DDL never touches metadata-level enum bookkeeping.
+    for table in own_tables:
+        table.drop(bind=eng, checkfirst=True)
+        table.create(bind=eng, checkfirst=True)
+    _patch_pg_types_for_sqlite()
+    yield eng
+    for table in own_tables:
+        table.drop(bind=eng, checkfirst=True)
+    eng.dispose()
+
+
+@pytest.fixture()
+def pg_worker_db(pg_worker_engine):
+    """Transactional PostgreSQL session for `worker_job_state`/
+    `ml_order_metrics_dirty`, rolled back after each test. Tests needing
+    the worker's OWN commits (heartbeat ticks run in their own
+    `get_background_db()` block) point `DATABASE_URL_DIRECT`/patch
+    `SessionLocal` at `pg_worker_engine.connect()` pairs directly instead."""
+    connection = pg_worker_engine.connect()
+    transaction = connection.begin()
+    Session = sessionmaker(bind=connection)
+    session = Session()
+    yield session
+    session.close()
+    transaction.rollback()
+    connection.close()
+
+
 @pytest.fixture()
 def query_counter(db):
     """

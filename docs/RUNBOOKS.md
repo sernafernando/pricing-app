@@ -801,3 +801,59 @@ based on its contents alone — always check owner liveness first
 - Escalate upstream to `Gentleman-Programming/gentle-ai` when a failure is
   reproducible and the consumer workflow stays blocked. Scrub absolute
   paths, hostnames, usernames and tokens before filing.
+
+## 6) Pricing Worker (generic LISTEN/NOTIFY worker)
+
+`pricing-worker.service` is a generic, systemd-managed worker (`python -m
+app.workers.run`, ventas-ml-rediseno design D4) — a dedicated process that
+drains a Postgres-backed job queue via `LISTEN`/`NOTIFY` plus a safety poll.
+No cron. PR2 ships the runtime with an EMPTY handler registry (idle,
+correctness-neutral); PR3 registers the first real handler
+(`order_metrics.drain`).
+
+### Install / enable (owner task — see `openspec/changes/ventas-ml-rediseno/tasks.md` PR2.T9 / PR3.T10)
+
+```bash
+sudo cp deploy/systemd/pricing-worker.service /etc/systemd/system/
+sudo systemctl daemon-reload
+sudo systemctl enable --now pricing-worker
+sudo systemctl status pricing-worker
+```
+
+**Do not install/enable before PR3 merges and deploys.** PR2 alone has an
+empty registry and nothing enqueues into `ml_order_metrics_dirty` yet, so
+enabling it earlier is harmless but pointless; PR3.T10 is the actual
+install gate once the queue has real producers/consumers.
+
+### `DATABASE_URL_DIRECT`
+
+The worker's `LISTEN` connection MUST bypass PgBouncer (transaction mode
+does not support `LISTEN` — the session is not pinned to one backend). Set
+`DATABASE_URL_DIRECT` in the backend `.env` to a direct PostgreSQL DSN (not
+through PgBouncer). If unset, the worker logs a WARNING and runs in
+`poll_only` mode: correctness is unaffected (the safety poll still drains
+the queue), but wake latency degrades from sub-second to the poll interval
+(default 5s).
+
+### Health
+
+Once PR6 ships `GET /api/ml-ops/order-metrics/health`, use it to check
+`worker_alive`, `queue_depth`, `listener_mode` (`'notify'` vs `'poll_only'`)
+and `worker_heartbeat_at`. Until then, `systemctl status pricing-worker` and
+the process logs are the only signal.
+
+### Restart
+
+`deploy.sh` warn-not-fails a `systemctl restart pricing-worker` after the
+backend restart step, same pattern as `pricing-api` — a missing unit (e.g.
+before PR3.T10 installs it) never fails the deploy.
+
+### Heartbeat death / unexpected restarts
+
+The worker's `HeartbeatThread` (design D4 step 5) independently proves
+liveness every ~5s. If it dies or stalls for 3 consecutive intervals, the
+main loop logs `CRITICAL` and the process exits with code 70 — `Restart=
+always` (`RestartSec=5`) brings it back up. Frequent restarts with exit
+code 70 in the journal (`journalctl -u pricing-worker | grep 'code=exited'`)
+mean the heartbeat thread itself is failing (DB connectivity, lock
+contention) — investigate the DB, not the systemd unit.

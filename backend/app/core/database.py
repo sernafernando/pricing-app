@@ -21,8 +21,10 @@ def _is_script_context() -> bool:
     if main_module is None:
         return False
     main_file = getattr(main_module, "__file__", "") or ""
-    # Scripts corren desde app/scripts/ o scripts/
-    return "/scripts/" in main_file or main_file.endswith("alembic/env.py")
+    # Scripts corren desde app/scripts/ o scripts/; el worker genérico
+    # (app/workers/, ventas-ml-rediseno PR2 design D4) corre standalone bajo
+    # systemd -- misma razón: NullPool, nunca retiene un pool persistente.
+    return "/scripts/" in main_file or main_file.endswith("alembic/env.py") or "/workers/" in main_file
 
 
 # ──────────────────────────────────────────────

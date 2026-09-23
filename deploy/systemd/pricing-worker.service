@@ -1,0 +1,21 @@
+[Unit]
+Description=Pricing App - generic worker (ventas-ml-rediseno, design D4)
+Documentation=https://github.com/sernafernando/pricing-app
+After=postgresql.service pricing-api.service
+Wants=postgresql.service
+
+[Service]
+Type=simple
+User=pricing
+Group=pricing
+WorkingDirectory=/opt/pricing-app/backend
+Environment=PYTHONUNBUFFERED=1
+EnvironmentFile=/opt/pricing-app/backend/.env
+ExecStart=/opt/pricing-app/backend/venv/bin/python -m app.workers.run
+Restart=always
+RestartSec=5
+# HeartbeatThread death detection (design D4 step 5) exits(70) precisely so
+# this Restart=always policy picks the process back up -- never disable it.
+
+[Install]
+WantedBy=multi-user.target

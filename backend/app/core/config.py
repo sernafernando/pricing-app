@@ -35,6 +35,15 @@ class Settings(BaseSettings):
     ERP_PRODUCTOS_ENDPOINT: str = "/consulta?intExpgr_id=64"
     ERP_STOCK_ENDPOINT: str = "/consulta?opName=ItemStock&intStor_id=1&intItem_id=-1"
 
+    # Worker (ventas-ml-rediseno, design D4/D5) -- `app/workers/run.py`
+    # tunables. `DATABASE_URL_DIRECT` above is reused for its LISTEN
+    # connection (must bypass PgBouncer); unset means poll_only mode.
+    WORKER_LEASE_SECONDS: int = 120
+    WORKER_BATCH_SIZE: int = 200
+    WORKER_SAFETY_POLL_INTERVAL_SECONDS: float = 5.0
+    WORKER_BATCH_TIMEOUT_SECONDS: float = 60.0
+    WORKER_HEARTBEAT_INTERVAL_SECONDS: float = 5.0
+
     # Environment
     ENVIRONMENT: str = "production"
 
