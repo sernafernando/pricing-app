@@ -43,7 +43,7 @@ from alembic import op
 
 # revision identifiers, used by Alembic.
 revision: str = "20260923_ml_order_metrics_triggers_orders"
-down_revision: Union[str, None] = "20260922_ix_producto_item_id"
+down_revision: Union[str, None] = "20260923_cc_origen_tipo_64"
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
