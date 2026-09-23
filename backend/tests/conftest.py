@@ -875,6 +875,155 @@ def pg_order_metrics_triggers_db(pg_order_metrics_triggers_engine):
     connection.close()
 
 
+@pytest.fixture(scope="module")
+def pg_order_metrics_config_triggers_engine():
+    """Module-scoped PostgreSQL engine for the PR5 config/statement-level
+    enqueue triggers (ventas-ml-rediseno PR5, design D3 statement-level
+    scope, D11). Same six PR4 input tables as
+    `pg_order_metrics_triggers_engine` (`etiquetas_envio`'s row triggers and
+    every config table's statement trigger join through `ml_orders_ops`/
+    `ml_shipments_ops`), plus the six PR5 tables: `etiquetas_envio`,
+    `ml_venta_varios_pct`, `logistica_costo_cordon`, `cp_cordones`,
+    `configuracion`, `transportes`.
+
+    FK columns pointing at tables this fixture does not create (`logisticas`,
+    `usuarios`, `operadores`, `proveedores`, `proveedor_direcciones`,
+    `pedidos_compra`) are stripped to plain columns -- same "drop the unused
+    FK, keep the plain column" move `pg_order_metrics_engine` already uses
+    for `VariosVentaPct.creado_por`. `etiquetas_envio.transporte_id` keeps
+    its FK: this fixture creates `transportes` itself.
+
+    A separate fixture from `pg_order_metrics_triggers_engine` (PR4): mixing
+    a fixture the PR5 triggers attach to with one PR4 tests already depend
+    on risks a trigger firing under an unrelated test's nose, same reasoning
+    that fixture's own docstring gives for staying separate from PR1/PR3's.
+    """
+    if not _postgres_reachable():
+        pytest.skip(
+            f"PostgreSQL not reachable at {POSTGRES_TEST_URL} — set POSTGRES_TEST_URL "
+            "or start a local PostgreSQL to run @pytest.mark.postgres tests. "
+            "CI provides this via the `postgres` service in .github/workflows/ci.yml."
+        )
+
+    from app.models.codigo_postal_cordon import CodigoPostalCordon as _CodigoPostalCordon
+    from app.models.configuracion import Configuracion as _Configuracion
+    from app.models.etiqueta_envio import EtiquetaEnvio as _EtiquetaEnvio
+    from app.models.logistica_costo_cordon import LogisticaCostoCordon as _LogisticaCostoCordon
+    from app.models.ml_order_item_costo import MlOrderItemCosto as _MlOrderItemCosto
+    from app.models.ml_order_metrics import MlOrderMetricsDirty as _MlOrderMetricsDirty
+    from app.models.ml_orders_ops import MlOrderItemOps as _MlOrderItemOps
+    from app.models.ml_orders_ops import MlOrdersOps as _MlOrdersOps
+    from app.models.ml_orders_ops import MlShipmentOps as _MlShipmentOps
+    from app.models.ml_payments import MlPaymentCharge as _MlPaymentCharge
+    from app.models.ml_payments import MlPaymentOps as _MlPaymentOps
+    from app.models.transporte import Transporte as _Transporte
+    from app.models.varios_venta_pct import VariosVentaPct as _VariosVentaPct
+    from app.services.order_metrics.triggers import create_triggers, drop_triggers
+    from app.services.order_metrics.triggers_config import create_config_triggers, drop_config_triggers
+
+    own_tables = [
+        _MlOrdersOps.__table__,
+        _MlOrderItemOps.__table__,
+        _MlOrderItemCosto.__table__,
+        _MlPaymentOps.__table__,
+        _MlPaymentCharge.__table__,
+        _MlShipmentOps.__table__,
+        _MlOrderMetricsDirty.__table__,
+    ]
+    _restore_pristine_pg_types(own_tables)
+
+    def _plain(col):
+        return Column(col.name, col.type, nullable=col.nullable)
+
+    local_metadata = MetaData()
+
+    transportes_table = Table(  # noqa: F841 — registers into local_metadata for create_all/drop_all
+        "transportes",
+        local_metadata,
+        *(c._copy() for c in _Transporte.__table__.columns),
+    )
+
+    varios_table = Table(  # noqa: F841
+        "ml_venta_varios_pct",
+        local_metadata,
+        *(c._copy() if c.name != "creado_por" else _plain(c) for c in _VariosVentaPct.__table__.columns),
+    )
+
+    logistica_costo_cordon_table = Table(  # noqa: F841
+        "logistica_costo_cordon",
+        local_metadata,
+        *(c._copy() if c.name != "logistica_id" else _plain(c) for c in _LogisticaCostoCordon.__table__.columns),
+    )
+
+    cp_cordones_table = Table(  # noqa: F841
+        "cp_cordones",
+        local_metadata,
+        *(c._copy() for c in _CodigoPostalCordon.__table__.columns),
+    )
+
+    configuracion_table = Table(  # noqa: F841
+        "configuracion",
+        local_metadata,
+        *(c._copy() for c in _Configuracion.__table__.columns),
+    )
+
+    _stripped_etiqueta_fks = {
+        "logistica_id",
+        "creado_por_usuario_id",
+        "flag_envio_usuario_id",
+        "retornado_usuario_id",
+        "pistoleado_operador_id",
+        "proveedor_id",
+        "proveedor_direccion_id",
+        "pedido_compra_id",
+    }
+    etiquetas_envio_table = Table(
+        "etiquetas_envio",
+        local_metadata,
+        *(_plain(c) if c.name in _stripped_etiqueta_fks else c._copy() for c in _EtiquetaEnvio.__table__.columns),
+    )
+    for constraint in _EtiquetaEnvio.__table__.constraints:
+        if isinstance(constraint, CheckConstraint):
+            etiquetas_envio_table.append_constraint(CheckConstraint(constraint.sqltext, name=constraint.name))
+
+    eng = create_engine(POSTGRES_TEST_URL)
+    with eng.begin() as conn:
+        drop_config_triggers(conn)
+        drop_triggers(conn)
+    local_metadata.drop_all(bind=eng, checkfirst=True)
+    for table in reversed(own_tables):
+        table.drop(bind=eng, checkfirst=True)
+    for table in own_tables:
+        table.create(bind=eng, checkfirst=True)
+    local_metadata.create_all(bind=eng)
+    with eng.begin() as conn:
+        create_triggers(conn)
+        create_config_triggers(conn)
+    _patch_pg_types_for_sqlite()
+    yield eng
+    with eng.begin() as conn:
+        drop_config_triggers(conn)
+        drop_triggers(conn)
+    local_metadata.drop_all(bind=eng, checkfirst=True)
+    for table in reversed(own_tables):
+        table.drop(bind=eng, checkfirst=True)
+    eng.dispose()
+
+
+@pytest.fixture()
+def pg_order_metrics_config_triggers_db(pg_order_metrics_config_triggers_engine):
+    """Single-connection, AUTOCOMMITTING session against
+    `pg_order_metrics_config_triggers_engine` -- same reasoning as
+    `pg_order_metrics_triggers_db`: triggers only enqueue on COMMIT (design
+    D3)."""
+    connection = pg_order_metrics_config_triggers_engine.connect()
+    Session = sessionmaker(bind=connection)
+    session = Session()
+    yield session
+    session.close()
+    connection.close()
+
+
 @pytest.fixture()
 def query_counter(db):
     """

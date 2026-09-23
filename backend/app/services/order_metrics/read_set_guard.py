@@ -20,23 +20,18 @@ from sqlalchemy.engine import Engine
 
 from app.services.order_metrics.triggers import TRIGGERED_TABLES
 
-# Every table that could plausibly feed the metrics formula, across every
-# PR of this change -- PR4 ships per-order triggers on the first six (see
-# `TRIGGERED_TABLES`); PR5 adds the statement-level config ones. A table
-# entering `compute_order_metrics`'s read set with no matching entry here
-# is a typo in THIS set, not a real gap -- extend it alongside the new
-# trigger, never silently.
-KNOWN_INPUT_TABLES = frozenset(
-    TRIGGERED_TABLES
-    | {
-        "etiquetas_envio",
-        "varios_venta_pct",
-        "logistica_costo_cordon",
-        "codigos_postales",
-        "configuracion",
-        "transportes",
-    }
-)
+# Tables `compute_order_metrics` legitimately reads that are NOT metrics
+# inputs -- reading them cannot change any stored metric, so they need no
+# enqueue trigger. Every entry here must be justified by pointing at the
+# actual query and why it cannot affect the formula; this is NOT a place to
+# silence the guard.
+#
+# - "logisticas" (`Logistica.nombre`): read via `EtiquetaEnvio.logistica`
+#   (`lazy="joined"`, `breakdown_service._resolve_flex_cost_by_shipping_id`)
+#   ONLY to format the Flex `concepto` label shown alongside the cost. The
+#   cost itself resolves off `logistica_id` against `logistica_costo_cordon`
+#   -- renaming a logistics company changes no stored metric.
+NON_INPUT_READ_TABLES = frozenset({"logisticas"})
 
 _TABLE_REF_RE = re.compile(r"\b(?:FROM|JOIN)\s+\"?(\w+)\"?", re.IGNORECASE)
 
@@ -50,8 +45,23 @@ class UntriggeredReadError(AssertionError):
 def assert_read_set_is_triggered(engine: Engine) -> Iterator[Set[str]]:
     """Wrap the `compute_order_metrics` call under test in this context
     manager. Raises `UntriggeredReadError` on exit if any captured table
-    read is a known metrics input (`KNOWN_INPUT_TABLES`) but missing from
-    `TRIGGERED_TABLES`."""
+    read is NOT explained by either `TRIGGERED_TABLES` (a real metrics
+    input, covered by an enqueue trigger) or `NON_INPUT_READ_TABLES` (a
+    justified read that cannot affect the formula).
+
+    This FAILS CLOSED on purpose: a table read that is in NEITHER set is
+    always a bug report, never a silent pass -- either it is a new metrics
+    input that needs a trigger (extend `TRIGGERED_TABLES`, and ship the
+    trigger), or a new non-input read that needs its justification written
+    down (extend `NON_INPUT_READ_TABLES`).
+
+    Keep the check SUBTRACTIVE (`seen - (...)`). An earlier version
+    intersected the read set with a separate "known inputs" set before
+    subtracting the triggered ones; when that set was later defined as the
+    triggered ones, the difference became empty for every input and the
+    guard silently stopped reporting anything in production (PR5 review
+    G1). An intersection can only ever narrow what the guard is able to
+    see, which is the opposite of failing closed."""
     seen: Set[str] = set()
 
     def _before_cursor_execute(conn, cursor, statement, parameters, context, executemany) -> None:
@@ -63,11 +73,17 @@ def assert_read_set_is_triggered(engine: Engine) -> Iterator[Set[str]]:
         yield seen
     finally:
         event.remove(engine, "before_cursor_execute", _before_cursor_execute)
-        untriggered = (seen & KNOWN_INPUT_TABLES) - TRIGGERED_TABLES
-        if untriggered:
+        # FAIL on any read table that is in NEITHER set -- an unrecognised
+        # table can be a widened read set (a real gap) OR a typo/missing
+        # entry in `NON_INPUT_READ_TABLES`; either way it must be looked at
+        # and explicitly classified, never silently allowed through.
+        unexplained = seen - (TRIGGERED_TABLES | NON_INPUT_READ_TABLES)
+        if unexplained:
             raise UntriggeredReadError(
-                f"compute_order_metrics read {sorted(untriggered)} but no enqueue trigger "
-                "covers it yet -- add it to TRIGGERED_TABLES (and ship its trigger) before "
+                f"compute_order_metrics read {sorted(unexplained)} but no enqueue trigger "
+                "covers it and it is not in NON_INPUT_READ_TABLES -- add it to TRIGGERED_TABLES "
+                "(and ship its trigger) if it is a real metrics input, or to "
+                "NON_INPUT_READ_TABLES with a written justification if it is not, before "
                 "widening the read set, or stored metrics for orders depending on it can go "
                 "stale with nothing to detect it (design D3)."
             )
