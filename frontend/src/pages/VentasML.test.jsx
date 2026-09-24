@@ -624,7 +624,7 @@ describe('A pack is one row', () => {
     expect(await screen.findByText('2000018230951686')).toBeInTheDocument();
     // ...and no breakdown was ever requested.
     expect(api.get).not.toHaveBeenCalledWith(expect.stringContaining('/ml-ventas-ops/orders/'));
-    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+    expect(screen.queryByLabelText('Detalle de venta')).not.toBeInTheDocument();
   });
 });
 
@@ -715,8 +715,8 @@ describe('The Neto column', () => {
   });
 });
 
-describe('Opening the cost breakdown drawer', () => {
-  it('opens the drawer when a lone-order row is clicked, fetching its breakdown', async () => {
+describe('Opening the cost breakdown panel (ventas-ml-rediseno PR13, non-modal)', () => {
+  it('opens the panel when a lone-order row is clicked, fetching its breakdown', async () => {
     mockSalesList([{ ...PAID_SALE, neto: 100 }]);
     api.get.mockImplementation((url) => {
       if (url === '/ml-ventas-ops/sales') {
@@ -750,9 +750,54 @@ describe('Opening the cost breakdown drawer', () => {
 
     await user.click(screen.getByText('comprador1').closest('tr'));
 
-    expect(await screen.findByRole('dialog', { name: /desglose de costos/i })).toBeInTheDocument();
+    expect(await screen.findByLabelText('Detalle de venta')).toBeInTheDocument();
     expect(await screen.findByText('Cargo por vender')).toBeInTheDocument();
     expect(api.get).toHaveBeenCalledWith('/ml-ventas-ops/orders/1001');
+  });
+
+  it('lets the row that opened the panel stay independently selectable/copyable (PANEL R17)', async () => {
+    mockSalesList([{ ...PAID_SALE, neto: 100 }]);
+    api.get.mockImplementation((url) => {
+      if (url === '/ml-ventas-ops/sales') {
+        return Promise.resolve({
+          data: {
+            sales: [asGroup({ ...PAID_SALE, neto: 100 })],
+            total: 1,
+            limit: 50,
+            offset: 0,
+            facets: { operation_status: {}, goods_status: {} },
+          },
+        });
+      }
+      if (url === '/ml-ventas-ops/orders/1001') {
+        return Promise.resolve({
+          data: {
+            breakdown: {
+              lines: [{ concepto: 'Cargo por vender', monto: 12.5, origen: 'api' }],
+              neto: 87.5,
+              incompleto: false,
+              incomplete_reasons: [],
+            },
+          },
+        });
+      }
+      return Promise.resolve({ data: {} });
+    });
+    const user = userEvent.setup();
+    await renderWithRouter(<VentasML />);
+    await waitFor(() => expect(screen.getByText('comprador1')).toBeInTheDocument());
+
+    await user.click(screen.getByText('comprador1').closest('tr'));
+    await screen.findByLabelText('Detalle de venta');
+
+    // No overlay/backdrop element must sit between the table and the
+    // document — the whole reason this PR exists is that a row must stay
+    // clickable/selectable while the panel is open.
+    expect(document.querySelector('[data-testid="drawer-overlay"]')).toBeNull();
+
+    const netoButton = screen.getByRole('button', { name: 'Ver desglose de costos' });
+    netoButton.focus();
+    expect(netoButton).toHaveFocus();
   });
 });
 

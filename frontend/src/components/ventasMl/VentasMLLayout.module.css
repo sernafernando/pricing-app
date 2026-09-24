@@ -1,0 +1,79 @@
+/* VentasMLLayout — the CSS grid that hosts the sales table beside the
+   NON-modal SaleDetailPanel (ventas-ml-rediseno PANEL R16-R20).
+
+   The panel is a `position: sticky` column next to the table, not an
+   overlay: nothing here covers the table or blocks its pointer/selection
+   events, so a row stays clickable and its text stays copyable while the
+   panel is open (R17). Below `--breakpoint-panel-sheet` the panel switches
+   to a fixed right sheet WITHOUT a backdrop — still non-modal, the table
+   keeps scrolling and receiving input behind it. */
+
+.grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  align-items: start;
+  gap: var(--spacing-lg);
+}
+
+.gridWithPanel {
+  grid-template-columns: minmax(0, 1fr) var(--ventas-panel-width);
+}
+
+.main {
+  min-width: 0;
+}
+
+.panel {
+  position: sticky;
+  top: var(--spacing-lg);
+  max-height: calc(100vh - var(--spacing-lg) * 2);
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg-primary);
+  border: 1px solid var(--border-primary);
+  border-radius: var(--radius-md);
+  box-shadow: var(--cf-shadow-modal);
+  z-index: var(--z-sticky);
+}
+
+/* Screen-reader-only live region announcing panel content changes
+   (PANEL R19/R20) — visually hidden, never removed from the accessibility
+   tree. Same discipline as the rest of the design system's sr-only rows:
+   1px, clipped, not `display: none`, so assistive tech still reads it. */
+.srOnly {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+/* <1280px: fixed right sheet, no backdrop, still non-modal — the table
+   stays scrollable/selectable behind it, unlike the deleted overlay
+   modal this replaces. */
+@media (max-width: 1279px) {
+  .gridWithPanel {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .panel {
+    position: fixed;
+    top: 0;
+    right: 0;
+    bottom: 0;
+    width: var(--ventas-panel-width);
+    max-width: 100vw;
+    max-height: 100vh;
+    border-radius: 0;
+    border-left: 1px solid var(--border-primary);
+    border-top: none;
+    border-right: none;
+    border-bottom: none;
+    z-index: var(--z-fixed);
+  }
+}

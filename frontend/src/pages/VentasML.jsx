@@ -52,7 +52,9 @@ import { Link } from 'react-router-dom';
 import { ShoppingBag, ShieldAlert, ChevronRight, AlertTriangle } from 'lucide-react';
 import { usePermisos } from '../contexts/PermisosContext';
 import api from '../services/api';
-import DesgloseDrawer from '../components/DesgloseDrawer';
+import VentasMLLayout from '../components/ventasMl/VentasMLLayout';
+import SaleDetailPanel from '../components/ventasMl/SaleDetailPanel';
+import { useVentasMLFilters } from '../hooks/useVentasMLFilters';
 import VariosVentaPctModal from '../components/VariosVentaPctModal';
 import DateRangeFilter from '../components/DateRangeFilter';
 import styles from './VentasML.module.css';
@@ -236,25 +238,25 @@ export default function VentasML() {
     });
   }, []);
 
-  // The drawer opens for a GROUP (pack or lone order) and stays open while
-  // the operator picks another row -- it only carries the order_id the
+  // Panel selection lives in the `orden` URL param, consistent with this
+  // screen's other URL-driven filters (PANEL R19 — see design D14). The
+  // panel opens for a GROUP (pack or lone order) and stays open while the
+  // operator picks another row -- it only carries the order_id the
   // per-order endpoint needs, since the backend resolves the whole pack's
   // breakdown from any order inside it.
-  const [drawerOrderId, setDrawerOrderId] = useState(null);
-  const isDrawerOpen = drawerOrderId !== null;
+  const { selectedOrderId, selectOrder, clearSelection } = useVentasMLFilters();
 
   // Visible to everyone who can see this page — the modal itself decides
   // read-only vs. read+write once open, per product decision (see
   // VariosVentaPctModal for the actual `ml_ops.varios_editar` gating).
   const [variosPctModalOpen, setVariosPctModalOpen] = useState(false);
 
-  const openDrawer = useCallback((orderId) => {
-    setDrawerOrderId(orderId);
-  }, []);
-
-  const closeDrawer = useCallback(() => {
-    setDrawerOrderId(null);
-  }, []);
+  const openDrawer = useCallback(
+    (orderId) => {
+      selectOrder(orderId);
+    },
+    [selectOrder],
+  );
 
   const handleOperationStatusChange = useCallback((value) => {
     setOperationStatusFilter(value);
@@ -520,6 +522,11 @@ export default function VentasML() {
         </div>
       </div>
 
+      <VentasMLLayout
+        selectedOrderId={selectedOrderId}
+        onClear={clearSelection}
+        panel={<SaleDetailPanel orderId={selectedOrderId} onClose={clearSelection} />}
+      >
       <div className={styles.tableCard}>
         <table className={styles.table}>
           <thead>
@@ -766,8 +773,8 @@ export default function VentasML() {
           Siguiente
         </button>
       </div>
+      </VentasMLLayout>
 
-      <DesgloseDrawer orderId={drawerOrderId} open={isDrawerOpen} onClose={closeDrawer} />
       <VariosVentaPctModal isOpen={variosPctModalOpen} onClose={() => setVariosPctModalOpen(false)} />
     </div>
   );
