@@ -6,6 +6,7 @@ import TabOcMatch from './TabOcMatch';
 import AdministracionCompras from '../../pages/AdministracionCompras';
 
 const REFRESH_LABEL = 'También actualizar Factura/s y Pedido/s';
+const DEDICATED_REFRESH = 'Actualizar Factura/s y Pedido/s';
 
 const ERROR_JOB = {
   id: 7,
@@ -119,6 +120,7 @@ const { hookValue, mockTienePermiso } = vi.hoisted(() => ({
     error: null,
     refresh: vi.fn(),
     retry: vi.fn(),
+    refreshDocRefs: vi.fn(),
     downloadExcel: vi.fn(),
   },
   mockTienePermiso: vi.fn(() => true),
@@ -134,6 +136,13 @@ vi.mock('../../contexts/PermisosContext', () => ({
   }),
 }));
 
+function renglonesTable(container) {
+  const tables = [...container.querySelectorAll('table')];
+  return tables.find((table) =>
+    [...table.querySelectorAll(':scope > thead th')].some((th) => th.textContent === 'EAN'),
+  );
+}
+
 function resetHook(overrides = {}) {
   hookValue.jobs = [];
   hookValue.total = 0;
@@ -142,6 +151,8 @@ function resetHook(overrides = {}) {
   hookValue.loading = false;
   hookValue.error = null;
   hookValue.retry.mockReset();
+  hookValue.refreshDocRefs.mockReset();
+  hookValue.setSelectedId.mockReset();
   Object.assign(hookValue, overrides);
 }
 
@@ -271,7 +282,7 @@ describe('TabOcMatch ops UX', () => {
     expect(screen.getAllByText('Matcheando').length).toBeGreaterThan(0);
   });
 
-  it('expands detail below the list, not as aside or modal', () => {
+  it('expands detail under the selected row, not as aside or modal', () => {
     resetHook({
       jobs: [RUNNING_JOB],
       total: 1,
@@ -281,8 +292,41 @@ describe('TabOcMatch ops UX', () => {
     const { container } = render(<TabOcMatch />);
     expect(container.querySelector('aside')).toBeNull();
     expect(container.querySelector('[role="dialog"]')).toBeNull();
-    expect(screen.getByRole('heading', { name: /Job #9/ })).toBeInTheDocument();
+    const heading = screen.getByRole('heading', { name: /Job #9/ });
+    expect(heading).toBeInTheDocument();
     expect(screen.getByText('Notebook 14')).toBeInTheDocument();
+    const listTable = container.querySelectorAll('table')[0];
+    expect(listTable.contains(heading)).toBe(true);
+    const listRows = listTable.querySelectorAll(':scope > tbody > tr');
+    expect(listRows).toHaveLength(2);
+    expect(listRows[1].contains(heading)).toBe(true);
+  });
+
+  it('same-row click toggles collapse', async () => {
+    const user = userEvent.setup();
+    resetHook({
+      jobs: [DONE_JOB],
+      total: 1,
+      selected: DONE_JOB,
+      selectedId: DONE_JOB.id,
+    });
+    render(<TabOcMatch />);
+    expect(screen.getByRole('heading', { name: /Job #8/ })).toBeInTheDocument();
+    await user.click(screen.getByText('#8'));
+    expect(hookValue.setSelectedId).toHaveBeenCalledWith(null);
+  });
+
+  it('other row moves the expand', async () => {
+    const user = userEvent.setup();
+    resetHook({
+      jobs: [DONE_JOB, ERROR_JOB],
+      total: 2,
+      selected: DONE_JOB,
+      selectedId: DONE_JOB.id,
+    });
+    render(<TabOcMatch />);
+    await user.click(screen.getByText('#7'));
+    expect(hookValue.setSelectedId).toHaveBeenCalledWith(ERROR_JOB.id);
   });
 
   it('keeps the full error text in title', () => {
@@ -300,6 +344,83 @@ describe('TabOcMatch ops UX', () => {
   });
 });
 
+describe('TabOcMatch dedicated doc-refs refresh', () => {
+  const gestionar = (p) =>
+    p === 'administracion.ver_ordenes_compra' ||
+    p === 'administracion.gestionar_ordenes_compra';
+
+  it('shows dedicated button for done plus gestionar', () => {
+    mockTienePermiso.mockImplementation(gestionar);
+    resetHook({
+      jobs: [DONE_JOB],
+      total: 1,
+      selected: DONE_JOB,
+      selectedId: DONE_JOB.id,
+    });
+    render(<TabOcMatch />);
+    expect(screen.getByRole('button', { name: DEDICATED_REFRESH })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /Reintentar/i })).toBeNull();
+    expect(screen.queryByText(/doc_refs_aplicado_at/i)).toBeNull();
+  });
+
+  it('error keeps Retry plus checkbox and shows dedicated button', () => {
+    mockTienePermiso.mockImplementation(gestionar);
+    resetHook({
+      jobs: [ERROR_JOB],
+      total: 1,
+      selected: ERROR_JOB,
+      selectedId: ERROR_JOB.id,
+    });
+    render(<TabOcMatch />);
+    expect(screen.getByRole('button', { name: DEDICATED_REFRESH })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /Reintentar/i })).toBeInTheDocument();
+    expect(screen.getByRole('checkbox', { name: REFRESH_LABEL })).toBeInTheDocument();
+  });
+
+  it('hides dedicated button for view-only', () => {
+    mockTienePermiso.mockImplementation((p) => p === 'administracion.ver_ordenes_compra');
+    resetHook({
+      jobs: [DONE_JOB],
+      total: 1,
+      selected: DONE_JOB,
+      selectedId: DONE_JOB.id,
+    });
+    render(<TabOcMatch />);
+    expect(screen.queryByRole('button', { name: DEDICATED_REFRESH })).toBeNull();
+  });
+
+  it.each(['queued', 'running', 'skipped'])('hides dedicated button on %s', (status) => {
+    mockTienePermiso.mockImplementation(gestionar);
+    const job = { ...RUNNING_JOB, id: 11, status, retryable: false };
+    resetHook({
+      jobs: [job],
+      total: 1,
+      selected: job,
+      selectedId: job.id,
+    });
+    render(<TabOcMatch />);
+    expect(screen.queryByRole('button', { name: DEDICATED_REFRESH })).toBeNull();
+  });
+
+  it('click enqueues and shows non-blocking banner', async () => {
+    const user = userEvent.setup();
+    mockTienePermiso.mockImplementation(gestionar);
+    resetHook({
+      jobs: [DONE_JOB],
+      total: 1,
+      selected: DONE_JOB,
+      selectedId: DONE_JOB.id,
+    });
+    hookValue.refreshDocRefs.mockResolvedValue({ ...DONE_JOB });
+    render(<TabOcMatch />);
+    await user.click(screen.getByRole('button', { name: DEDICATED_REFRESH }));
+    expect(hookValue.refreshDocRefs).toHaveBeenCalledWith(DONE_JOB.id);
+    expect(hookValue.retry).not.toHaveBeenCalled();
+    expect(screen.getByRole('status')).toHaveTextContent('Actualización encolada');
+    expect(screen.getByRole('button', { name: DEDICATED_REFRESH })).toBeDisabled();
+  });
+});
+
 describe('TabOcMatch renglones EAN', () => {
   beforeEach(() => {
     mockTienePermiso.mockImplementation((p) => p === 'administracion.ver_ordenes_compra');
@@ -313,9 +434,8 @@ describe('TabOcMatch renglones EAN', () => {
 
   it('locks renglones headers, EAN, unidades qty and 4dp precio', () => {
     const { container } = render(<TabOcMatch />);
-    const tables = container.querySelectorAll('table');
-    const renglonesTable = tables[1];
-    const headers = [...renglonesTable.querySelectorAll('th')].map((th) => th.textContent);
+    const table = renglonesTable(container);
+    const headers = [...table.querySelectorAll(':scope > thead th')].map((th) => th.textContent);
     expect(headers).toEqual([
       '#',
       'EAN',
@@ -329,9 +449,9 @@ describe('TabOcMatch renglones EAN', () => {
     ]);
     expect(headers).not.toContain('ean_extract');
 
-    const rows = renglonesTable.querySelectorAll('tbody tr');
-    const firstCells = [...rows[0].querySelectorAll('td')].map((td) => td.textContent);
-    const secondCells = [...rows[1].querySelectorAll('td')].map((td) => td.textContent);
+    const rows = table.querySelectorAll(':scope > tbody > tr');
+    const firstCells = [...rows[0].querySelectorAll(':scope > td')].map((td) => td.textContent);
+    const secondCells = [...rows[1].querySelectorAll(':scope > td')].map((td) => td.textContent);
 
     expect(firstCells[1]).toBe('7791234567890');
     expect(secondCells[1]).toBe('7791111111111');
@@ -346,12 +466,11 @@ describe('TabOcMatch renglones EAN', () => {
 
   it('falls back to ean_extract then ultimos4 with secondary style', () => {
     const { container } = render(<TabOcMatch />);
-    const tables = container.querySelectorAll('table');
-    const renglonesTable = tables[1];
-    const rows = renglonesTable.querySelectorAll('tbody tr');
-    const extractCell = rows[1].querySelectorAll('td')[1].querySelector('span');
-    const last4Cell = rows[2].querySelectorAll('td')[1].querySelector('span');
-    const emptyCell = rows[3].querySelectorAll('td')[1].querySelector('span');
+    const table = renglonesTable(container);
+    const rows = table.querySelectorAll(':scope > tbody > tr');
+    const extractCell = rows[1].querySelectorAll(':scope > td')[1].querySelector('span');
+    const last4Cell = rows[2].querySelectorAll(':scope > td')[1].querySelector('span');
+    const emptyCell = rows[3].querySelectorAll(':scope > td')[1].querySelector('span');
 
     expect(extractCell.textContent).toBe('7791111111111');
     expect(extractCell.getAttribute('title')).toBe('EAN del documento, sin match en GBP');

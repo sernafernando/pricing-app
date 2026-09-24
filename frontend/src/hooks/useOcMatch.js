@@ -23,7 +23,7 @@ function listParams(status, page, pageSize) {
 }
 
 /**
- * useOcMatch — list/detail/retry/excel + poll 3s while queued|running.
+ * useOcMatch — list/detail/retry/refresh-doc-refs/excel + poll 3s while queued|running.
  * Stops when selected and list jobs are done|error|skipped, and on unmount.
  */
 export default function useOcMatch({ status = '', page = 1, pageSize = 50 } = {}) {
@@ -106,6 +106,21 @@ export default function useOcMatch({ status = '', page = 1, pageSize = 50 } = {}
     return () => clearInterval(timer);
   }, [shouldPoll, selectedId, status, page, pageSize]);
 
+  const refreshDocRefs = async (id) => {
+    setError(null);
+    try {
+      const { data } = await api.post(`${OC_MATCH_BASE}/${id}/refresh-doc-refs`);
+      setJobs((prev) => prev.map((job) => (job.id === id ? { ...job, ...data } : job)));
+      if (selectedId === id) {
+        setSelected((prev) => ({ ...(prev || {}), ...data }));
+      }
+      return data;
+    } catch (err) {
+      setError(errorMessage(err, 'Error al actualizar Factura/s y Pedido/s'));
+      throw err;
+    }
+  };
+
   const retry = async (id, { refrescar_doc_refs = false } = {}) => {
     setError(null);
     try {
@@ -152,6 +167,7 @@ export default function useOcMatch({ status = '', page = 1, pageSize = 50 } = {}
     error,
     refresh,
     retry,
+    refreshDocRefs,
     downloadExcel,
   };
 }

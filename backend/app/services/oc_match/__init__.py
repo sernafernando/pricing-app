@@ -10,6 +10,7 @@ from app.services.oc_match.enqueue import (
     reclaim_stale_running,
 )
 from app.services.oc_match.mime import KIND_GEMINI, KIND_OFFICE, KIND_UNKNOWN, classify
+from app.services.oc_match.refresh_doc_refs import refresh_doc_refs_job
 
 __all__ = [
     "KIND_GEMINI",
@@ -23,4 +24,5 @@ __all__ = [
     "process_oc_match_job",
     "queue_retry",
     "reclaim_stale_running",
+    "refresh_doc_refs_job",
 ]

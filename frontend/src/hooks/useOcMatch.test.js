@@ -122,6 +122,44 @@ describe('useOcMatch', () => {
     });
   });
 
+  it('refreshDocRefs posts empty body to refresh-doc-refs', async () => {
+    api.get.mockResolvedValue({ data: listPayload([job({ status: 'done' })]) });
+    api.post.mockResolvedValue({ data: job({ status: 'done' }) });
+
+    const { result } = renderHook(() => useOcMatch());
+    await waitFor(() => expect(result.current.jobs).toHaveLength(1));
+
+    await act(async () => {
+      await result.current.refreshDocRefs(1);
+    });
+
+    expect(api.post).toHaveBeenCalledWith(`${OC_MATCH_BASE}/1/refresh-doc-refs`);
+    expect(result.current.jobs[0].status).toBe('done');
+    expect(needsOcMatchPoll(result.current.jobs, result.current.selected)).toBe(false);
+  });
+
+  it('does not poll done or error after refreshDocRefs', async () => {
+    api.get.mockResolvedValue({ data: listPayload([job({ status: 'error', retryable: true })]) });
+    api.post.mockResolvedValue({ data: job({ status: 'error', retryable: true }) });
+
+    const { result } = renderHook(() => useOcMatch());
+    await waitFor(() => expect(result.current.jobs).toHaveLength(1));
+
+    await act(async () => {
+      result.current.setSelectedId(1);
+    });
+    await act(async () => {
+      await result.current.refreshDocRefs(1);
+    });
+
+    expect(needsOcMatchPoll(result.current.jobs, result.current.selected)).toBe(false);
+    const callsAfter = api.get.mock.calls.length;
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(OC_MATCH_POLL_MS * 2);
+    });
+    expect(api.get.mock.calls.length).toBe(callsAfter);
+  });
+
   it('downloads excel as a blob', async () => {
     const blob = new Blob(['xlsx'], { type: 'application/vnd.ms-excel' });
     api.get.mockImplementation((url, config) => {

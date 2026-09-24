@@ -12,11 +12,12 @@ from fastapi import BackgroundTasks
 
 from app.core.config import settings
 from app.models.empresa import Empresa
-from app.models.oc_match_job import OcMatchJob
+from app.models.oc_match_job import OcMatchJob, OcMatchRenglon
 from app.models.orden_pago import OrdenPago
 from app.models.proveedor import Proveedor
 from app.services import ncs_locales_service, pedidos_service
 from app.services.oc_match.enqueue import process_oc_match_job
+from app.services.oc_match.refresh_doc_refs import refresh_doc_refs_job
 
 BASE = "/api/administracion/compras"
 PDF_HEADER = b"%PDF-1.4\n" + b"0" * 200
@@ -500,3 +501,90 @@ class TestListRetryPermisos:
         assert detail.status_code == 200
         assert detail.json()["status"] == "running"
         assert detail.json()["progress_phase"] == "matching"
+
+
+def _seed_refresh_job(db, pedido, status: str, **kwargs) -> OcMatchJob:
+    from app.models.compra_adjunto import CompraAdjunto
+
+    adj = CompraAdjunto(
+        entidad_tipo=CompraAdjunto.ENTIDAD_TIPO_PEDIDO,
+        entidad_id=pedido.id,
+        nombre_archivo="refresh.pdf",
+        path_archivo="pedido_compra/x/refresh.pdf",
+    )
+    db.add(adj)
+    db.flush()
+    job = OcMatchJob(
+        pedido_id=pedido.id,
+        attachment_id=adj.id,
+        status=status,
+        acta="KEEP-ACTA",
+        excel_rel_path="keep.xlsx",
+        **kwargs,
+    )
+    db.add(job)
+    db.flush()
+    db.add(OcMatchRenglon(job_id=job.id, indice=0, descripcion="KEEP-RENGLON"))
+    db.flush()
+    return job
+
+
+class TestRefreshDocRefsEndpoint:
+    def test_done_accepted_status_unchanged(
+        self, client, auth_headers, db, pedido_borrador, con_todos_los_permisos, add_task_espia
+    ):
+        job = _seed_refresh_job(db, pedido_borrador, OcMatchJob.STATUS_DONE)
+        r = client.post(f"{BASE}/oc-match/jobs/{job.id}/refresh-doc-refs", headers=auth_headers)
+        assert r.status_code == 200, r.text
+        assert r.json()["status"] == "done"
+        db.refresh(job)
+        assert job.status == OcMatchJob.STATUS_DONE
+        assert job.acta == "KEEP-ACTA"
+        assert job.excel_rel_path == "keep.xlsx"
+        assert [row.descripcion for row in job.renglones] == ["KEEP-RENGLON"]
+        assert add_task_espia == [(refresh_doc_refs_job, (job.id,), {})]
+
+    def test_error_accepted_stays_error(
+        self, client, auth_headers, db, pedido_borrador, con_todos_los_permisos, add_task_espia
+    ):
+        job = _seed_refresh_job(db, pedido_borrador, OcMatchJob.STATUS_ERROR, error_message="tc")
+        r = client.post(f"{BASE}/oc-match/jobs/{job.id}/refresh-doc-refs", headers=auth_headers)
+        assert r.status_code == 200, r.text
+        assert r.json()["status"] == "error"
+        db.refresh(job)
+        assert job.status == OcMatchJob.STATUS_ERROR
+        assert job.acta == "KEEP-ACTA"
+        assert job.excel_rel_path == "keep.xlsx"
+        assert add_task_espia == [(refresh_doc_refs_job, (job.id,), {})]
+
+    @pytest.mark.parametrize(
+        "status",
+        [OcMatchJob.STATUS_QUEUED, OcMatchJob.STATUS_RUNNING, OcMatchJob.STATUS_SKIPPED],
+    )
+    def test_409_when_queued_running_or_skipped(
+        self,
+        client,
+        auth_headers,
+        db,
+        pedido_borrador,
+        con_todos_los_permisos,
+        add_task_espia,
+        status,
+    ):
+        extra = {}
+        if status == OcMatchJob.STATUS_RUNNING:
+            extra["started_at"] = datetime.now(UTC) - timedelta(minutes=5)
+        job = _seed_refresh_job(db, pedido_borrador, status, **extra)
+        r = client.post(f"{BASE}/oc-match/jobs/{job.id}/refresh-doc-refs", headers=auth_headers)
+        assert r.status_code == 409, r.text
+        db.refresh(job)
+        assert job.status == status
+        assert job.acta == "KEEP-ACTA"
+        assert job.excel_rel_path == "keep.xlsx"
+        assert add_task_espia == []
+
+    def test_view_only_403(self, client, auth_headers, db, pedido_borrador, solo_ver, add_task_espia):
+        job = _seed_refresh_job(db, pedido_borrador, OcMatchJob.STATUS_DONE)
+        r = client.post(f"{BASE}/oc-match/jobs/{job.id}/refresh-doc-refs", headers=auth_headers)
+        assert r.status_code == 403, r.text
+        assert add_task_espia == []
