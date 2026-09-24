@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from contextlib import contextmanager
 from datetime import UTC, datetime
+from decimal import Decimal
 from types import SimpleNamespace
 from typing import Iterator
 from unittest.mock import MagicMock, patch
@@ -11,6 +12,12 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from app.core.config import settings
+from app.models.compra_adjunto import CompraAdjunto
+from app.models.empresa import Empresa
+from app.models.oc_match_job import OcMatchJob
+from app.models.pedido_compra import PedidoCompra
+from app.models.pedido_factura_documento import PedidoFacturaDocumento
+from app.models.proveedor import Proveedor
 from app.services.oc_match import refresh_doc_refs as mod
 from app.services.oc_match.refresh_doc_refs import refresh_doc_refs_job
 
@@ -44,9 +51,11 @@ def _adjunto() -> SimpleNamespace:
 
 def _pedido() -> SimpleNamespace:
     return SimpleNamespace(
+        id=3,
         facturas_documento="KEEP-FA",
         pedidos_documento=None,
         numero_factura="ERP-KEEP",
+        creado_por_id=7,
     )
 
 
@@ -161,6 +170,7 @@ class TestRefreshDocRefsPersist:
         monkeypatch.setattr(mod, "load_pool", lambda: object())
         monkeypatch.setattr(mod, "extract_one", MagicMock(return_value=EXTRACTED))
         monkeypatch.setattr(mod, "apply_writeback", _writeback)
+        monkeypatch.setattr(mod.pedidos_service, "persist_factura_documento", MagicMock())
 
         with _assert_no_rematch_side_effects() as (match, excel, retry, mail):
             refresh_doc_refs_job(1)
@@ -188,9 +198,152 @@ class TestRefreshDocRefsPersist:
         monkeypatch.setattr(mod, "load_pool", lambda: object())
         monkeypatch.setattr(mod, "extract_one", MagicMock(return_value=EXTRACTED))
         monkeypatch.setattr(mod, "apply_writeback", lambda *_a, **_k: True)
+        monkeypatch.setattr(mod.pedidos_service, "persist_factura_documento", MagicMock())
 
         refresh_doc_refs_job(1)
 
         assert job.status == "error"
         assert job.doc_refs_aplicado_at is not None
         assert pedido.numero_factura == "ERP-KEEP"
+
+
+def _seed_refresh_pedido(
+    db,
+    active_user,
+    *,
+    numero: str = "P-RF-2026-00001",
+    facturas_documento: str | None = None,
+    numero_factura: str | None = "ERP-KEEP",
+) -> tuple[OcMatchJob, PedidoCompra]:
+    empresa = Empresa(nombre="EmpRefreshFactura", activo=True, orden=1)
+    db.add(empresa)
+    db.flush()
+    proveedor = Proveedor(nombre="ProvRefreshFactura", activo=True, origen="manual")
+    db.add(proveedor)
+    db.flush()
+    pedido = PedidoCompra(
+        numero=numero,
+        empresa_id=empresa.id,
+        proveedor_id=proveedor.id,
+        moneda="ARS",
+        monto=Decimal("1000.00"),
+        estado="borrador",
+        creado_por_id=active_user.id,
+        facturas_documento=facturas_documento,
+        numero_factura=numero_factura,
+    )
+    db.add(pedido)
+    db.flush()
+    adj = CompraAdjunto(
+        entidad_tipo=CompraAdjunto.ENTIDAD_TIPO_PEDIDO,
+        entidad_id=pedido.id,
+        nombre_archivo="a.pdf",
+        path_archivo="a.pdf",
+    )
+    db.add(adj)
+    db.flush()
+    job = OcMatchJob(
+        pedido_id=pedido.id,
+        attachment_id=adj.id,
+        status=OcMatchJob.STATUS_DONE,
+        acta="KEEP-ACTA",
+        excel_rel_path="keep.xlsx",
+        doc_refs_aplicado_at=STAMP,
+    )
+    db.add(job)
+    db.flush()
+    return job, pedido
+
+
+def _factura_rows(db, pedido_id: int) -> list[PedidoFacturaDocumento]:
+    return (
+        db.query(PedidoFacturaDocumento)
+        .filter(PedidoFacturaDocumento.pedido_id == pedido_id)
+        .order_by(PedidoFacturaDocumento.id)
+        .all()
+    )
+
+
+class TestRefreshDocRefsFacturaRow:
+    """Real apply_writeback → pedido_factura_documentos. Do not mock writeback."""
+
+    def test_factura_inserts_normalized_row(self, pdf_dir, db, active_user, monkeypatch: pytest.MonkeyPatch) -> None:
+        job, pedido = _seed_refresh_pedido(db, active_user)
+        _patch_bg(monkeypatch, [db, db])
+        monkeypatch.setattr(mod, "load_pool", lambda: object())
+        monkeypatch.setattr(mod, "extract_one", MagicMock(return_value=EXTRACTED))
+
+        refresh_doc_refs_job(job.id)
+
+        db.refresh(pedido)
+        db.refresh(job)
+        rows = _factura_rows(db, pedido.id)
+        assert [row.numero for row in rows] == ["0001-99"]
+        assert rows[0].created_by_id == pedido.creado_por_id == active_user.id
+        assert rows[0].cargada is False
+        assert pedido.facturas_documento == "0001-99"
+        assert pedido.numero_factura == "ERP-KEEP"
+        assert job.doc_refs_aplicado_at is not None
+        assert job.doc_refs_aplicado_at != STAMP
+
+    def test_reextract_restores_deleted_row(self, pdf_dir, db, active_user, monkeypatch: pytest.MonkeyPatch) -> None:
+        job, pedido = _seed_refresh_pedido(db, active_user, facturas_documento="0001-99")
+        _patch_bg(monkeypatch, [db, db])
+        monkeypatch.setattr(mod, "load_pool", lambda: object())
+        monkeypatch.setattr(mod, "extract_one", MagicMock(return_value=EXTRACTED))
+
+        refresh_doc_refs_job(job.id)
+
+        db.refresh(pedido)
+        rows = _factura_rows(db, pedido.id)
+        assert [row.numero for row in rows] == ["0001-99"]
+        assert rows[0].created_by_id == pedido.creado_por_id
+        assert pedido.facturas_documento == "0001-99"
+
+    def test_non_factura_skips_row(self, pdf_dir, db, active_user, monkeypatch: pytest.MonkeyPatch) -> None:
+        job, pedido = _seed_refresh_pedido(db, active_user)
+        extracted = {**EXTRACTED, "tipo_documento": "pedido"}
+        _patch_bg(monkeypatch, [db, db])
+        monkeypatch.setattr(mod, "load_pool", lambda: object())
+        monkeypatch.setattr(mod, "extract_one", MagicMock(return_value=extracted))
+
+        refresh_doc_refs_job(job.id)
+
+        db.refresh(pedido)
+        db.refresh(job)
+        assert _factura_rows(db, pedido.id) == []
+        assert pedido.numero_factura == "ERP-KEEP"
+        assert job.doc_refs_aplicado_at is not None
+
+    def test_empty_nro_documento_skips_row(self, pdf_dir, db, active_user, monkeypatch: pytest.MonkeyPatch) -> None:
+        job, pedido = _seed_refresh_pedido(db, active_user)
+        extracted = {**EXTRACTED, "nro_documento": "  "}
+        _patch_bg(monkeypatch, [db, db])
+        monkeypatch.setattr(mod, "load_pool", lambda: object())
+        monkeypatch.setattr(mod, "extract_one", MagicMock(return_value=extracted))
+
+        refresh_doc_refs_job(job.id)
+
+        db.refresh(pedido)
+        db.refresh(job)
+        assert _factura_rows(db, pedido.id) == []
+        assert pedido.numero_factura == "ERP-KEEP"
+        assert job.doc_refs_aplicado_at is not None
+
+    def test_writeback_false_skips_row_and_does_not_restamp(
+        self, pdf_dir, db, active_user, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        job, pedido = _seed_refresh_pedido(db, active_user)
+        extracted = {**EXTRACTED, "tipo_documento": "comprobante_pago"}
+        _patch_bg(monkeypatch, [db, db])
+        monkeypatch.setattr(mod, "load_pool", lambda: object())
+        monkeypatch.setattr(mod, "extract_one", MagicMock(return_value=extracted))
+
+        refresh_doc_refs_job(job.id)
+
+        db.refresh(pedido)
+        db.refresh(job)
+        assert _factura_rows(db, pedido.id) == []
+        assert pedido.facturas_documento is None
+        assert pedido.numero_factura == "ERP-KEEP"
+        assert job.doc_refs_aplicado_at is None

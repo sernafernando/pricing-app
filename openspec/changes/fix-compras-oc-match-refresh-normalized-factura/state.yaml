@@ -1,0 +1,57 @@
+change: fix-compras-oc-match-refresh-normalized-factura
+change_id: fix-compras-oc-match-refresh-normalized-factura
+project: pricing-app
+phase: apply
+status: ready_for_verify
+artifact_store: openspec
+persistence_mode: openspec
+parent_change: feat-compras-oc-match-inline-expand-doc-refresh
+parent_pr: 1343
+amends_capability:
+  - compras-oc-match-pipeline
+  - compras-oc-match-ui
+created_at: "2026-09-24"
+updated_at: "2026-09-24"
+branch_plan: feat/compras-oc-match-inline-expand-doc-refresh
+base_branch: same_open_pr_1343
+delivery_target: main
+artifacts:
+  proposal: openspec/changes/fix-compras-oc-match-refresh-normalized-factura/proposal.md
+  specs:
+    - openspec/changes/fix-compras-oc-match-refresh-normalized-factura/specs/compras-oc-match-pipeline/spec.md
+    - openspec/changes/fix-compras-oc-match-refresh-normalized-factura/specs/compras-oc-match-ui/spec.md
+  design: openspec/changes/fix-compras-oc-match-refresh-normalized-factura/design.md
+  tasks: openspec/changes/fix-compras-oc-match-refresh-normalized-factura/tasks.md
+  apply_progress: openspec/changes/fix-compras-oc-match-refresh-normalized-factura/apply-progress.md
+next_phase: verify
+nextRecommended: verify
+task_count: 7
+notes: >
+  Apply complete. 7/7 tasks. Refresh persist mirrors worker
+  persist_factura_documento after apply_writeback True. UI title+helper.
+  pytest 9 + vitest 23. Same PR #1343. nextRecommended=verify.
+locked_decisions:
+  red_fix:
+    mirror_worker_after_apply_writeback: true
+    call_persist_factura_documento_when: tipo_factura_and_nro_documento
+    created_by_id: pedido.creado_por_id
+    real_test_no_mock_apply_writeback: true
+  yellow_product:
+    re_extract_wins_on_manual_refresh: true
+    ui_warning_required: true
+    warning_intent: button_or_title_clarifies_may_restore_deleted_numbers
+    warning_title: "Relee el PDF. Puede restaurar números borrados a mano."
+    warning_helper: "Vuelve a leer el PDF y puede restaurar números de factura o pedido que se hayan borrado a mano."
+  out_of_scope:
+    - tombstone_deleted_tokens
+    - automatic_reextract
+    - change_expand_ux
+  delivery: push_same_pr_1343
+pending_decisions: {}
+review_forecast:
+  estimated_changed_lines: "80-160"
+  budget_risk: Low
+  chained_prs: No
+  delivery_strategy: single-pr
+  decision_needed_before_apply: No
+  chain_strategy: pending

@@ -15,7 +15,8 @@ from app.core.logging import get_logger
 from app.models.compra_adjunto import CompraAdjunto
 from app.models.oc_match_job import OcMatchJob
 from app.models.pedido_compra import PedidoCompra
-from app.services.oc_match.doc_refs import apply_writeback
+from app.services import pedidos_service
+from app.services.oc_match.doc_refs import apply_writeback, normalize_tipo, token_or_none
 from app.services.oc_match.extract import extract_one
 from app.services.oc_match.gemini_pool import load_pool
 
@@ -82,3 +83,12 @@ def _persist_writeback(job_id: int, extracted: dict[str, Any]) -> None:
             return
         if apply_writeback(pedido, extracted):
             job.doc_refs_aplicado_at = datetime.now(UTC)
+            nro_documento = token_or_none(extracted.get("nro_documento"))
+            if normalize_tipo(extracted.get("tipo_documento")) == "factura" and nro_documento is not None:
+                pedidos_service.persist_factura_documento(
+                    db,
+                    pedido=pedido,
+                    numero=nro_documento,
+                    created_by_id=int(pedido.creado_por_id),
+                )
+            db.flush()

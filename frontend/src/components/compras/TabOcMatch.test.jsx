@@ -7,6 +7,9 @@ import AdministracionCompras from '../../pages/AdministracionCompras';
 
 const REFRESH_LABEL = 'También actualizar Factura/s y Pedido/s';
 const DEDICATED_REFRESH = 'Actualizar Factura/s y Pedido/s';
+const REFRESH_TITLE = 'Relee el PDF. Puede restaurar números borrados a mano.';
+const REFRESH_HELPER =
+  'Vuelve a leer el PDF y puede restaurar números de factura o pedido que se hayan borrado a mano.';
 
 const ERROR_JOB = {
   id: 7,
@@ -358,7 +361,10 @@ describe('TabOcMatch dedicated doc-refs refresh', () => {
       selectedId: DONE_JOB.id,
     });
     render(<TabOcMatch />);
-    expect(screen.getByRole('button', { name: DEDICATED_REFRESH })).toBeInTheDocument();
+    const button = screen.getByRole('button', { name: DEDICATED_REFRESH });
+    expect(button).toBeInTheDocument();
+    expect(button).toHaveAttribute('title', REFRESH_TITLE);
+    expect(screen.getByText(REFRESH_HELPER)).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /Reintentar/i })).toBeNull();
     expect(screen.queryByText(/doc_refs_aplicado_at/i)).toBeNull();
   });
@@ -372,7 +378,10 @@ describe('TabOcMatch dedicated doc-refs refresh', () => {
       selectedId: ERROR_JOB.id,
     });
     render(<TabOcMatch />);
-    expect(screen.getByRole('button', { name: DEDICATED_REFRESH })).toBeInTheDocument();
+    const button = screen.getByRole('button', { name: DEDICATED_REFRESH });
+    expect(button).toBeInTheDocument();
+    expect(button).toHaveAttribute('title', REFRESH_TITLE);
+    expect(screen.getByText(REFRESH_HELPER)).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /Reintentar/i })).toBeInTheDocument();
     expect(screen.getByRole('checkbox', { name: REFRESH_LABEL })).toBeInTheDocument();
   });
@@ -387,6 +396,7 @@ describe('TabOcMatch dedicated doc-refs refresh', () => {
     });
     render(<TabOcMatch />);
     expect(screen.queryByRole('button', { name: DEDICATED_REFRESH })).toBeNull();
+    expect(screen.queryByText(REFRESH_HELPER)).toBeNull();
   });
 
   it.each(['queued', 'running', 'skipped'])('hides dedicated button on %s', (status) => {

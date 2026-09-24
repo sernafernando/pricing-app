@@ -289,14 +289,20 @@ export default function TabOcMatch() {
           </button>
         )}
         {showRefreshDocRefs && (
-          <button
-            type="button"
-            className={styles.btnSecondary}
-            onClick={handleRefreshDocRefs}
-            disabled={refreshBusy || refreshEnqueued}
-          >
-            Actualizar Factura/s y Pedido/s
-          </button>
+          <>
+            <button
+              type="button"
+              className={styles.btnSecondary}
+              onClick={handleRefreshDocRefs}
+              disabled={refreshBusy || refreshEnqueued}
+              title="Relee el PDF. Puede restaurar números borrados a mano."
+            >
+              Actualizar Factura/s y Pedido/s
+            </button>
+            <p className={styles.refreshHint}>
+              Vuelve a leer el PDF y puede restaurar números de factura o pedido que se hayan borrado a mano.
+            </p>
+          </>
         )}
         {showRetry && (
           <>

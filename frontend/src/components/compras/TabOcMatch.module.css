@@ -124,6 +124,12 @@
   gap: var(--spacing-sm);
 }
 
+.refreshHint {
+  margin: 0;
+  color: var(--cf-text-tertiary);
+  font-size: var(--font-xs);
+}
+
 .checkboxLabel {
   display: inline-flex;
   align-items: center;
