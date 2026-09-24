@@ -14,6 +14,7 @@ from typing import List, Optional
 from sqlalchemy import text
 
 from app.services.order_metrics.queue import POISON_THRESHOLD
+from app.services.order_metrics.queue import poisoned_count as _queue_poisoned_count
 
 
 @dataclass(frozen=True)
@@ -84,11 +85,23 @@ def missing_metrics_count(db) -> int:
     return int(row[0]) if row else 0
 
 
+def poisoned_count(db) -> int:
+    """TRUE total of parked orders (`attempts >= POISON_THRESHOLD`), the
+    figure the health endpoint reports as `poisoned_count` (design D9/D10
+    production gate). Delegates to `queue.poisoned_count` (PR3), which is
+    unlimited -- NEVER derive this from `len(poisoned_orders(...))`, whose
+    `limit` caps the sample list at 50 regardless of how many orders are
+    actually parked (PR6 review fix J1: a 300-order backlog silently read
+    as 50)."""
+    return _queue_poisoned_count(db)
+
+
 def poisoned_orders(db, *, limit: int = 50) -> List[PoisonedOrder]:
-    """Parked orders (`attempts >= POISON_THRESHOLD`), oldest first, with
-    their `last_error` -- the health endpoint's `poisoned_count` figure AND
-    the list the D10 gate requires the user to explicitly review before
-    accepting it."""
+    """A SAMPLE of parked orders (`attempts >= POISON_THRESHOLD`), oldest
+    first, with their `last_error`, capped at `limit` -- the list the D10
+    gate requires the user to explicitly review before accepting it. This
+    is NEVER exhaustive and must NEVER be used to derive `poisoned_count`
+    (PR6 review fix J1): use `poisoned_count` for the count."""
     rows = db.execute(
         text(
             "SELECT order_id, last_error FROM ml_order_metrics_dirty "

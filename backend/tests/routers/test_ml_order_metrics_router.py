@@ -39,6 +39,7 @@ def _patch_health_aggregates(monkeypatch):
         "poisoned_orders",
         lambda db, limit=50: [order_metrics_health.PoisonedOrder(order_id=99, last_error="boom")],
     )
+    monkeypatch.setattr(order_metrics_health, "poisoned_count", lambda db: 1)
 
 
 class TestHealthPermission:
@@ -130,10 +131,30 @@ class TestHealthGateAccounting:
                 order_metrics_health.PoisonedOrder(order_id=2, last_error="timeout"),
             ],
         )
+        monkeypatch.setattr(order_metrics_health, "poisoned_count", lambda db: 2)
         resp = client.get("/api/ml-ops/order-metrics/health", headers=admin_auth_headers)
         body = resp.json()
         assert body["poisoned_count"] == 2
         assert {row["order_id"] for row in body["poisoned_orders"]} == {1, 2}
+
+    def test_poisoned_count_is_never_capped_by_the_sample_list(
+        self, db, client, admin_auth_headers, rol_admin, monkeypatch
+    ) -> None:
+        """PR6 review fix J1: `poisoned_orders`'s default `limit=50` must
+        never leak into `poisoned_count` -- a 300-order backlog reads as
+        300, not silently as 50."""
+        _grant(db, rol_admin, "ml_ops.ver")
+        monkeypatch.setattr(
+            order_metrics_health,
+            "poisoned_orders",
+            lambda db, limit=50: [order_metrics_health.PoisonedOrder(order_id=i, last_error="boom") for i in range(50)],
+        )
+        monkeypatch.setattr(order_metrics_health, "poisoned_count", lambda db: 300)
+
+        resp = client.get("/api/ml-ops/order-metrics/health", headers=admin_auth_headers)
+        body = resp.json()
+        assert body["poisoned_count"] == 300
+        assert len(body["poisoned_orders"]) == 50
 
 
 class TestDivergenceRunPermission:

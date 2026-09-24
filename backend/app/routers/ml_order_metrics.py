@@ -94,7 +94,12 @@ class OrderMetricsHealthResponse(BaseModel):
     # ALREADY have a row and whose fresh compute came back empty -- that
     # one reads 0 on a completely un-backfilled database.
     missing_metrics_count: int
+    # TRUE total of parked orders (`health.poisoned_count`, unlimited) --
+    # NEVER `len(poisoned_orders)` (PR6 review fix J1: `poisoned_orders` is
+    # capped at its own `limit` and silently undercounts a large backlog).
     poisoned_count: int
+    # A SAMPLE only, capped at `poisoned_orders`'s own `limit` (currently
+    # 50) -- NOT exhaustive. Read `poisoned_count` for the true total.
     poisoned_orders: List[PoisonedOrderSummary]
     worker_heartbeat_at: Optional[str]
     worker_alive: bool
@@ -124,7 +129,11 @@ def get_order_metrics_health(
     """Read-only observability endpoint (design D9). Requires `ml_ops.ver`.
     Never mutates anything -- safe to poll continuously while the D10
     production gate is being watched."""
+    # `poisoned` is a capped SAMPLE for the UI list; the count comes from
+    # the unlimited `poisoned_count` helper, never from `len(poisoned)`
+    # (PR6 review fix J1).
     poisoned = order_metrics_health.poisoned_orders(db)
+    poisoned_total = order_metrics_health.poisoned_count(db)
 
     worker_row = _worker_state_row(db)
     heartbeat_at = worker_row.heartbeat_at if worker_row is not None else None
@@ -152,7 +161,7 @@ def get_order_metrics_health(
         oldest_dirty_age_s=order_metrics_health.oldest_dirty_age_seconds(db),
         claimed_count=order_metrics_health.claimed_count(db),
         missing_metrics_count=order_metrics_health.missing_metrics_count(db),
-        poisoned_count=len(poisoned),
+        poisoned_count=poisoned_total,
         poisoned_orders=[PoisonedOrderSummary(order_id=row.order_id, last_error=row.last_error) for row in poisoned],
         worker_heartbeat_at=heartbeat_at.isoformat() if heartbeat_at is not None else None,
         worker_alive=worker_alive,

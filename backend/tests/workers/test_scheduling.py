@@ -20,6 +20,7 @@ class _StubHandler:
     channels: Tuple[str, ...] = ()
     interval: Optional[timedelta] = None
     run_at_local: Optional[time] = None
+    catch_up_interval: Optional[timedelta] = None
 
 
 class TestIntervalScheduling:
@@ -86,3 +87,56 @@ class TestNoSchedule:
         handler = _StubHandler(name="order_metrics.drain", channels=("order_metrics_dirty",))
         now = datetime(2026, 9, 23, 12, 0, tzinfo=timezone.utc)
         assert is_due(handler, now=now, last_success_at=None) is False
+
+
+class TestCatchUpIntervalWhileLapIncomplete:
+    """PR6 review fix J4: `order_metrics.divergence`'s single daily 04:00
+    slot needs many runs to traverse ~77k orders -- without an operator
+    clicking `POST /divergence/run` over and over, an incomplete lap would
+    otherwise sit idle for 23+ hours between progress. A handler carrying
+    `catch_up_interval` becomes due on that short cadence too, but ONLY
+    while the caller reports the last lap `incomplete=True`; once a lap
+    completes it falls back to the plain daily slot, exactly like a
+    handler with no `catch_up_interval` at all."""
+
+    def test_due_on_catch_up_cadence_while_incomplete_even_off_the_daily_slot(self) -> None:
+        handler = _StubHandler(
+            name="order_metrics.divergence", run_at_local=time(4, 0), catch_up_interval=timedelta(minutes=2)
+        )
+        # 14:00 AR -- nowhere near the 04:00 daily slot.
+        now = datetime(2026, 9, 23, 17, 0, tzinfo=timezone.utc)
+        last_success = now - timedelta(minutes=5)
+        assert is_due(handler, now=now, last_success_at=last_success, incomplete=True) is True
+
+    def test_not_due_before_catch_up_interval_elapsed(self) -> None:
+        handler = _StubHandler(
+            name="order_metrics.divergence", run_at_local=time(4, 0), catch_up_interval=timedelta(minutes=2)
+        )
+        now = datetime(2026, 9, 23, 17, 0, tzinfo=timezone.utc)
+        last_success = now - timedelta(minutes=1)
+        assert is_due(handler, now=now, last_success_at=last_success, incomplete=True) is False
+
+    def test_never_run_before_is_due_even_while_incomplete(self) -> None:
+        handler = _StubHandler(
+            name="order_metrics.divergence", run_at_local=time(4, 0), catch_up_interval=timedelta(minutes=2)
+        )
+        now = datetime(2026, 9, 23, 17, 0, tzinfo=timezone.utc)
+        assert is_due(handler, now=now, last_success_at=None, incomplete=True) is True
+
+    def test_falls_back_to_the_daily_slot_once_complete(self) -> None:
+        """`incomplete=False` (a full lap just finished, or no summary yet)
+        must behave exactly like a handler with no `catch_up_interval`."""
+        handler = _StubHandler(
+            name="order_metrics.divergence", run_at_local=time(4, 0), catch_up_interval=timedelta(minutes=2)
+        )
+        now = datetime(2026, 9, 23, 17, 0, tzinfo=timezone.utc)  # off the daily slot
+        last_success = now - timedelta(minutes=5)
+        assert is_due(handler, now=now, last_success_at=last_success, incomplete=False) is False
+
+    def test_a_handler_without_catch_up_interval_ignores_incomplete(self) -> None:
+        """`incomplete=True` alone is not enough -- only a handler that
+        actually declares `catch_up_interval` gets the short cadence."""
+        handler = _StubHandler(name="order_metrics.divergence", run_at_local=time(4, 0))
+        now = datetime(2026, 9, 23, 17, 0, tzinfo=timezone.utc)
+        last_success = now - timedelta(minutes=5)
+        assert is_due(handler, now=now, last_success_at=last_success, incomplete=True) is False

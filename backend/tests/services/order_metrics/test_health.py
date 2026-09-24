@@ -14,6 +14,7 @@ from app.services.order_metrics.health import (
     claimed_count,
     missing_metrics_count,
     oldest_dirty_age_seconds,
+    poisoned_count,
     poisoned_orders,
     queue_depth,
 )
@@ -177,5 +178,34 @@ class TestMissingMetricsCountExcludesParked:
         try:
             assert missing_metrics_count(db) == 0
             assert len(poisoned_orders(db)) == 1
+        finally:
+            db.close()
+
+
+@pytest.mark.postgres
+class TestPoisonedCountIsNotCappedBySampleLimit:
+    """PR6 review fix J1: `poisoned_orders` defaults to `limit=50` -- it is
+    only ever a SAMPLE list for the health endpoint's UI, never the source
+    of the `poisoned_count` gate figure. `poisoned_count` must report the
+    TRUE total of parked orders even when it is far larger than the sample
+    list's cap, or an operator reviewing the D10 gate silently undercounts
+    unprocessed sales."""
+
+    def test_count_exceeds_the_sample_list_cap(self, _order_metrics_db_session, pg_order_metrics_engine) -> None:
+        total_parked = 63
+        with pg_order_metrics_engine.connect() as conn:
+            for order_id in range(1, total_parked + 1):
+                _insert_order(conn, order_id)
+                _insert_dirty(conn, order_id, attempts=POISON_THRESHOLD, last_error="boom")
+            conn.commit()
+
+        db_session_factory = sessionmaker(bind=pg_order_metrics_engine)
+        db = db_session_factory()
+        try:
+            assert poisoned_count(db) == total_parked
+            # The sample list stays capped at its own default -- it is
+            # never the source `poisoned_count` reads from.
+            assert len(poisoned_orders(db)) == 50
+            assert poisoned_count(db) != len(poisoned_orders(db))
         finally:
             db.close()

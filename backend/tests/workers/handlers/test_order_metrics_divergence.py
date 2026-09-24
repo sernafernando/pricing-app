@@ -79,6 +79,15 @@ class TestDivergenceRegisteredInRegistry:
         assert handler.interval is None
         assert handler.channels == ()
 
+    def test_carries_a_catch_up_interval_for_continuous_lap_progress(self) -> None:
+        """PR6 review fix J4: without a `catch_up_interval`,
+        `scheduling.is_due` never unlocks the short cadence and the
+        handler stays a plain once-a-day job -- 23+ hours idle per click
+        of `POST /divergence/run` over a ~77k-order table."""
+        names = {h.name: h for h in REGISTRY}
+        handler = names["order_metrics.divergence"]
+        assert handler.catch_up_interval == timedelta(minutes=2)
+
 
 @pytest.mark.postgres
 class TestDivergenceDetectsInjectedMismatch:
@@ -275,6 +284,62 @@ class TestDivergenceCompletionCursor:
         assert second.detail["complete"] is True
         # Cumulative across both runs of the same lap, not just this run's slice.
         assert second.detail["checked_count"] == len(order_ids)
+
+
+@pytest.mark.postgres
+class TestDivergenceReopensAClosedRecord:
+    """PR6 review fix J2: `_open_divergence_record`'s
+    `on_conflict_do_nothing` silently no-ops once an operator has marked a
+    row `resolved`/`ignored` -- the SAME order diverging again re-enqueues
+    it but leaves the dashboard's divergence row invisible-closed, breaking
+    the handler's own docstring promise "open (or keep open)". Reopening
+    must match the convention already used by
+    `ml_orders_ingestion.divergence_service._apply_divergence`: flip a
+    closed row back to `state='open'` and refresh `detected_at`."""
+
+    def test_a_resolved_divergence_reopens_on_recurrence(
+        self, _order_metrics_db_session, pg_order_metrics_divergence_engine
+    ) -> None:
+        order_id = 600301
+        with pg_order_metrics_divergence_engine.connect() as conn:
+            _insert_order(conn, order_id)
+            _insert_metrics(conn, order_id, total_gauss="999999.00")
+            conn.execute(
+                text(
+                    "INSERT INTO ml_ops_divergence (order_id, kind, field, state, detected_at) "
+                    "VALUES (:order_id, 'stored_metrics_mismatch', NULL, 'resolved', now() - interval '10 days')"
+                ),
+                {"order_id": order_id},
+            )
+            conn.commit()
+
+        with pg_order_metrics_divergence_engine.connect() as conn:
+            before = conn.execute(
+                text(
+                    "SELECT id, detected_at FROM ml_ops_divergence WHERE order_id = :order_id "
+                    "AND kind = 'stored_metrics_mismatch'"
+                ),
+                {"order_id": order_id},
+            ).fetchone()
+
+        result = divergence.run(WorkerContext(deadline=_far_deadline(), worker_name="w"))
+        assert result.success is True
+
+        with pg_order_metrics_divergence_engine.connect() as conn:
+            after = conn.execute(
+                text(
+                    "SELECT id, state, detected_at FROM ml_ops_divergence WHERE order_id = :order_id "
+                    "AND kind = 'stored_metrics_mismatch'"
+                ),
+                {"order_id": order_id},
+            ).fetchone()
+
+        assert after is not None
+        # Same row reopened, never a second insert (the unique constraint
+        # would have raised on a plain second INSERT anyway).
+        assert after.id == before.id
+        assert after.state == "open"
+        assert after.detected_at > before.detected_at
 
 
 @pytest.mark.postgres

@@ -80,3 +80,63 @@ class TestRequestedHandlerPickup:
         runtime.drain_once()
 
         handler.run.assert_not_called()
+
+
+@pytest.mark.postgres
+class TestRequestedFlagSurvivesACrashedRun:
+    """PR6 review fix J3: `_requested_handlers` used to clear
+    `worker_job_state.state` BEFORE the handler ran, so a handler that
+    raises (or a process that dies mid-run) silently loses the request --
+    the API already answered `202`, and nobody ever runs the divergence
+    pass the operator asked for. The marker must survive a failed run
+    (stay `'requested'`, retried on the next drain) and only clear once the
+    handler actually succeeds -- never permanently stuck either way."""
+
+    def test_a_raising_handler_leaves_the_flag_requested_for_retry(self, monkeypatch, pg_worker_engine) -> None:
+        session_factory = sessionmaker(bind=pg_worker_engine, autocommit=False, autoflush=False)
+        monkeypatch.setattr("app.core.database.SessionLocal", session_factory)
+
+        handler = _FakeHandler("order_metrics.divergence")
+        handler.run = MagicMock(side_effect=RuntimeError("boom"))
+        runtime = WorkerRuntime(registry=[handler], direct_url=None)
+
+        with pg_worker_engine.connect() as conn:
+            conn.execute(text("DELETE FROM worker_job_state WHERE name = 'order_metrics.divergence'"))
+            conn.execute(
+                text("INSERT INTO worker_job_state (name, state) VALUES ('order_metrics.divergence', 'requested')")
+            )
+            conn.commit()
+
+        runtime.drain_once()
+
+        handler.run.assert_called_once()
+        with pg_worker_engine.connect() as conn:
+            row = conn.execute(
+                text("SELECT state FROM worker_job_state WHERE name = 'order_metrics.divergence'")
+            ).fetchone()
+        # The handler raised -- the request must survive for the next
+        # drain pass to retry, never silently vanish.
+        assert row.state == "requested"
+
+    def test_a_failed_job_result_also_leaves_the_flag_requested(self, monkeypatch, pg_worker_engine) -> None:
+        session_factory = sessionmaker(bind=pg_worker_engine, autocommit=False, autoflush=False)
+        monkeypatch.setattr("app.core.database.SessionLocal", session_factory)
+
+        handler = _FakeHandler("order_metrics.divergence")
+        handler.run = MagicMock(return_value=JobResult(success=False))
+        runtime = WorkerRuntime(registry=[handler], direct_url=None)
+
+        with pg_worker_engine.connect() as conn:
+            conn.execute(text("DELETE FROM worker_job_state WHERE name = 'order_metrics.divergence'"))
+            conn.execute(
+                text("INSERT INTO worker_job_state (name, state) VALUES ('order_metrics.divergence', 'requested')")
+            )
+            conn.commit()
+
+        runtime.drain_once()
+
+        with pg_worker_engine.connect() as conn:
+            row = conn.execute(
+                text("SELECT state FROM worker_job_state WHERE name = 'order_metrics.divergence'")
+            ).fetchone()
+        assert row.state == "requested"

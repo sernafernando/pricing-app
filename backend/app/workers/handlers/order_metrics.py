@@ -271,6 +271,13 @@ reconcile = OrderMetricsReconcileHandler()
 DIVERGENCE_BATCH_SIZE = 500
 DIVERGENCE_MAX_RECORDED_PER_RUN = 100
 
+# PR6 review fix J4: while the last lap is `complete=False`, the handler
+# also becomes due on this short cadence (via `scheduling.is_due`'s
+# `catch_up_interval` branch, wired through `WorkerRuntime._due_handlers`),
+# on top of its plain daily `run_at_local` slot -- continuous, cron-free
+# progress toward finishing a lap over the whole table.
+CATCH_UP_INTERVAL = timedelta(minutes=2)
+
 _DIVERGENCE_CANDIDATES_SQL = """
 SELECT m.order_id, m.neto, m.neto_sin_iva, m.iva_reconcilia, m.costo_mercaderia,
        m.total_gauss, m.markup_pct, m.gauss_status, m.provisional_falta,
@@ -317,7 +324,19 @@ def _open_divergence_record(db, order_id: int) -> None:
     design D10, reusing `ml_orders_ops.py:463`'s model) -- idempotent across
     runs via the table's own `uq_ml_ops_divergence_order_kind_field`
     (`order_id`, `kind`, `field`, `field IS NULL`) unique constraint, so a
-    still-open divergence found again tomorrow does not duplicate."""
+    still-open divergence found again tomorrow does not duplicate.
+
+    A row an operator already marked `resolved`/`ignored` must NOT be left
+    behind on recurrence -- `on_conflict_do_nothing` used to do exactly
+    that: the order re-enqueues (self-heal still fires) but the dashboard
+    keeps showing the divergence as closed, breaking this function's own
+    "open (or keep open)" contract (PR6 review fix J2). `on_conflict_do_
+    update` flips the row back to `state='open'` and refreshes `detected_
+    at`, matching the reopening convention already used by
+    `ml_orders_ingestion.divergence_service._apply_divergence`. The `where`
+    clause restricts the update to currently-closed rows so an
+    already-open row is not needlessly rewritten (no-op `UPDATE`, same
+    `detected_at`, same row)."""
     from sqlalchemy.dialects.postgresql import insert as pg_insert
 
     from app.models.ml_orders_ops import MlOpsDivergence
@@ -328,7 +347,19 @@ def _open_divergence_record(db, order_id: int) -> None:
         field=None,
         state="open",
     )
-    db.execute(stmt.on_conflict_do_nothing(index_elements=["order_id", "kind", "field"]))
+    # `stmt.excluded.detected_at` reflects the column's own `server_default
+    # =func.now()` (design D10's own `MlOpsDivergence.detected_at`
+    # default) for the row proposed for insertion -- never a Python-side
+    # `datetime.now()` call here, which would consume an extra value from
+    # the `_ScriptedNow` stand-in the deadline tests monkeypatch onto this
+    # module's `datetime` import (`TestDivergenceCompletionCursor`).
+    db.execute(
+        stmt.on_conflict_do_update(
+            index_elements=["order_id", "kind", "field"],
+            set_={"state": "open", "detected_at": stmt.excluded.detected_at},
+            where=MlOpsDivergence.state.in_(("resolved", "ignored")),
+        )
+    )
 
 
 def _write_divergence_summary(detail: dict) -> None:
@@ -379,12 +410,26 @@ class OrderMetricsDivergenceHandler:
     means a full lap -- possibly spread across many runs, whether daily or
     via repeated `POST /divergence/run` -- has now traversed the whole
     table since it last wrapped around; `complete=False` means exactly what
-    it says, and `divergent_count=0` on an incomplete run proves nothing."""
+    it says, and `divergent_count=0` on an incomplete run proves nothing.
+
+    PR6 review fix J4: the single daily 04:00 slot alone would need MANY
+    calendar days to traverse ~77k orders in 30s-bounded slices, one per
+    day -- an operator clicking `POST /divergence/run` over and over is
+    the only alternative, and NO CRON is allowed. `catch_up_interval`
+    (read by `scheduling.is_due` together with the `incomplete` flag
+    `WorkerRuntime._due_handlers` derives from this handler's own last
+    persisted `complete`) makes this handler due every `CATCH_UP_INTERVAL`
+    WHILE the last lap is unfinished, entirely off its `run_at_local` slot
+    -- no new scheduling primitive, no cron, and once a lap finishes
+    (`complete=True`) it falls straight back to the plain daily slot, same
+    as before this fix. See `docs/RUNBOOKS.md` for the operator-facing
+    note."""
 
     name = "order_metrics.divergence"
     channels: Tuple[str, ...] = ()
     interval: Optional[timedelta] = None
     run_at_local: Optional[time] = time(4, 0)
+    catch_up_interval: Optional[timedelta] = CATCH_UP_INTERVAL
 
     def run(self, ctx: WorkerContext) -> JobResult:
         previous = _read_divergence_detail()

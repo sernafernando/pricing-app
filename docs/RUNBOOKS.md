@@ -871,11 +871,25 @@ traversed the whole table since it last wrapped around. `complete=false`
 means the run only checked a slice — trigger it again and re-check before
 trusting the number.
 
+**The divergence handler now advances on its own, no clicking required.**
+While the last lap is `complete=false`, `order_metrics.divergence` also
+becomes due every 2 minutes (`CATCH_UP_INTERVAL` in
+`app/workers/handlers/order_metrics.py`), on top of its plain daily 04:00
+America/Argentina/Buenos_Aires slot — still no cron, driven by the same
+worker safety poll/`LISTEN` loop as everything else. Once a lap finishes
+(`complete=true`), it falls back to the plain once-a-day slot. `POST
+/order-metrics/divergence/run` still exists for an immediate nudge (e.g. to
+kick off the very first lap without waiting for 04:00), but repeatedly
+clicking it to make progress on a big backlog is no longer necessary.
+
 Parked orders (`attempts >= 5`) are never in either figure: they are
-reported separately as `poisoned_count` / `poisoned_orders`, with each
-`order_id` and its `last_error`. A gate review must look at that list
-explicitly — those orders failed five times and nothing will retry them
-until a real input write arrives.
+reported separately as `poisoned_count` / `poisoned_orders`. `poisoned_
+count` is always the TRUE total; `poisoned_orders` is a SAMPLE capped at
+50 entries for the UI list, so `poisoned_count` can read well above 50
+while the list only shows the first 50 — read the count, not the list
+length, to size the backlog. A gate review must still look at the sample
+list explicitly for the `last_error` detail: those orders failed five
+times and nothing will retry them until a real input write arrives.
 
 ### Restart
 
