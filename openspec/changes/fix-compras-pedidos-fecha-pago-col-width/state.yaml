@@ -1,0 +1,43 @@
+change: fix-compras-pedidos-fecha-pago-col-width
+change_id: fix-compras-pedidos-fecha-pago-col-width
+project: pricing-app
+phase: tasks
+status: ready_for_apply
+artifact_store: openspec
+persistence_mode: openspec
+created_at: "2026-09-24"
+updated_at: "2026-09-24"
+branch_plan: feat/compras-pedidos-fecha-pago-col-width
+base_branch: upstream/main
+delivery_target: main
+parent_pr: 1344
+amends_capability:
+  - pedidos-compra
+artifacts:
+  exploration: openspec/changes/fix-compras-pedidos-fecha-pago-col-width/exploration.md
+  proposal: openspec/changes/fix-compras-pedidos-fecha-pago-col-width/proposal.md
+  specs:
+    - openspec/changes/fix-compras-pedidos-fecha-pago-col-width/specs/pedidos-compra/spec.md
+  design: openspec/changes/fix-compras-pedidos-fecha-pago-col-width/design.md
+  tasks: openspec/changes/fix-compras-pedidos-fecha-pago-col-width/tasks.md
+next_phase: apply
+nextRecommended: apply
+task_count: 3
+locked_decisions:
+  column: fecha_pago
+  width_px: 110
+  width_range: 100-110
+  reason: date_dd_mm_yyyy_plus_header_padding
+  badge_wrap: allowed
+  do_not_expand:
+    - estado
+    - proceso
+  out_of_scope:
+    - backend
+    - chip_colors
+    - other_tabs
+    - datatable_shared_padding
+notes: >
+  Planning complete. Shrink Pedidos Fecha pago from 160px to 110px so
+  Proveedor/Mon. stop colliding after #1344. Badge may wrap. PRs target main.
+  Do NOT apply in this planning run.
