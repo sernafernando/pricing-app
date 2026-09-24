@@ -120,7 +120,12 @@ class TestSearchIntersectsWithActiveFilters:
         db.query(MlOrdersOps).filter(MlOrdersOps.order_id == 1000).update({"status": "cancelled"})
         _seed_order(db, 1001, buyer_nickname="mismo_comprador")
         db.flush()
-        scope = build_scope(db, SalesFilter(operation_status="cancelled", q="mismo_comprador"))
+        scope = build_scope(
+            db,
+            SalesFilter(
+                operation_status="cancelled", q="mismo_comprador", include_unknown=True, include_in_dispute=True
+            ),
+        )
         ids = {row.order_id for row in scope.listing_query.with_entities(MlOrdersOps.order_id).all()}
         assert ids == {1000}
 
