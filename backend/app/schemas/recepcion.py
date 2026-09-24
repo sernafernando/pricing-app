@@ -159,11 +159,19 @@ class DeshacerRecibidoResponse(BaseModel):
 
 
 class ResolverFaltantesRequest(BaseModel):
-    """Optional note when marking faltantes as resolved (G31)."""
+    """Required note when marking faltantes as resolved (G31)."""
 
-    texto: str | None = None
+    texto: str
 
     model_config = ConfigDict(from_attributes=True)
+
+    @field_validator("texto")
+    @classmethod
+    def _texto_nonempty(cls, v: str) -> str:
+        texto = (v or "").strip()
+        if not texto:
+            raise ValueError("texto no puede estar vacío.")
+        return texto
 
 
 class ResolverFaltantesResponse(BaseModel):

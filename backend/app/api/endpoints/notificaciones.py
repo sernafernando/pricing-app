@@ -13,6 +13,7 @@ from app.services.notificacion_service import NotificacionService
 from app.services.compras_alertas_service import (
     filtrar_visibles,
     marcar_ok,
+    rechazar_cierre_faltantes,
     snooze_faltantes,
 )
 
@@ -532,6 +533,8 @@ async def descartar_notificacion(
     if not notificacion:
         raise HTTPException(404, "Notificación no encontrada")
 
+    rechazar_cierre_faltantes(notificacion)
+
     # Crear regla de ignorar si se solicitó y tenemos los datos necesarios
     if crear_regla_ignorar and notificacion.item_id and notificacion.markup_real is not None:
         servicio = NotificacionService(db)
@@ -580,6 +583,14 @@ async def descartar_notificaciones_bulk(
         notas: Notas opcionales sobre el descarte
         crear_reglas_ignorar: Si True, crea reglas de ignorar para cada notificación (default: True)
     """
+    candidatas = (
+        db.query(Notificacion)
+        .filter(Notificacion.id.in_(notificaciones_ids), Notificacion.user_id == current_user.id)
+        .all()
+    )
+    for notif in candidatas:
+        rechazar_cierre_faltantes(notif)
+
     # Si se solicitan reglas de ignorar, obtener las notificaciones primero
     if crear_reglas_ignorar:
         notificaciones = (

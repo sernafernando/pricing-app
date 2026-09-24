@@ -468,7 +468,8 @@ class TestResolucionG31:
         db.flush()
 
         pedido = _pedido(db, empresa, proveedor, fanout_users["titular"])
-        creadas = compras_alertas_service.notificar_faltantes_resuelto(db, pedido=pedido)
+        texto = "Comprar 2 cajas y entregar en dock"
+        creadas = compras_alertas_service.notificar_faltantes_resuelto(db, pedido=pedido, texto=texto)
         db.flush()
         ids = {n.user_id for n in creadas}
         assert d1.id in ids
@@ -476,6 +477,10 @@ class TestResolucionG31:
         assert d3.id not in ids
         assert all(n.tipo == "compras.faltantes_resuelto" for n in creadas)
         assert all("P-01-2026-00012" in n.mensaje for n in creadas)
+        assert all(texto in n.mensaje for n in creadas)
+        expected_link = f"/administracion/compras?tab=deposito&pedido={pedido.id}"
+        assert all(expected_link in n.mensaje for n in creadas)
+        assert all(n.codigo_producto == expected_link for n in creadas)
 
     def test_no_email_or_slack_on_factura(self, db, empresa, proveedor, fanout_users) -> None:
         pedido = _pedido(db, empresa, proveedor, fanout_users["titular"])
@@ -494,7 +499,7 @@ class TestResolucionG31:
 
 
 class TestOkSnoozeRoutes:
-    def test_patch_ok_and_snooze(self, db, empresa, proveedor, fanout_users, client) -> None:
+    def test_snooze_allowed_ok_and_dismiss_409(self, db, empresa, proveedor, fanout_users, client) -> None:
         responsable = fanout_users["titular"]
         pedido = _pedido(db, empresa, proveedor, responsable, responsable_id=responsable.id)
         [notif] = compras_alertas_service.notificar_faltantes(db, pedido=pedido, texto="Faltan 2 cajas", ahora=MARK)
@@ -508,6 +513,31 @@ class TestOkSnoozeRoutes:
         assert compras_alertas_service.SNOOZE_MARKER in (notif.notas_revision or "")
 
         ok = client.patch(f"/api/notificaciones/{notif.id}/ok", headers=headers)
-        assert ok.status_code == 200
+        assert ok.status_code == 409
         db.refresh(notif)
+        assert notif.estado == EstadoNotificacion.REVISADA
+
+        descartar = client.patch(f"/api/notificaciones/{notif.id}/descartar", headers=headers)
+        assert descartar.status_code == 409
+        db.refresh(notif)
+        assert notif.estado == EstadoNotificacion.REVISADA
+
+        bulk = client.post(
+            "/api/notificaciones/bulk-descartar",
+            json=[notif.id],
+            headers=headers,
+        )
+        assert bulk.status_code == 409
+        db.refresh(notif)
+        assert notif.estado == EstadoNotificacion.REVISADA
+
+    def test_retractar_faltantes_clears_alert(self, db, empresa, proveedor, fanout_users) -> None:
+        responsable = fanout_users["titular"]
+        pedido = _pedido(db, empresa, proveedor, responsable, responsable_id=responsable.id)
+        [notif] = compras_alertas_service.notificar_faltantes(db, pedido=pedido, texto="Faltan 2 cajas", ahora=MARK)
+        db.flush()
+        closed = compras_alertas_service.retractar_faltantes(db, pedido_id=pedido.id, ahora=AT_REOPEN)
+        db.flush()
+        db.refresh(notif)
+        assert closed == 1
         assert notif.estado == EstadoNotificacion.DESCARTADA
