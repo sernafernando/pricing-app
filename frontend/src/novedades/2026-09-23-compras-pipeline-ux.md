@@ -27,6 +27,8 @@ Entrá a **Administración → Compras**. En **Proceso** ves chips (no son el es
 
 Si hay **varias OCs**, además del chip OC pueden verse etiquetas `#…` con cada OC vinculada. El eje logístico (Por recibir / Recibido / Faltantes / Faltantes con resolución / Controlado) va aparte del estado de pago.
 
+El listado de **Pedidos** arranca **sin cancelados**. **Cancelado** sigue en el filtro si lo necesitás. También podés filtrar **recibido**, **con faltantes** y **controlado**.
+
 ### Constancia de número ≠ cargada en ERP
 
 Subir el PDF/imagen, que OC Match termine bien, o cargar el número a mano, **solo deja constancia**. Eso **no** prende el chip Factura y **no** dispara alerta.
@@ -49,7 +51,7 @@ Borrar la fila de constancia es **otro** timer de 5 minutos, desde que se **cre�
 ### Faltantes: del Depósito al PM y vuelta
 
 1. En **Recepción / Depósito**, al marcar **con faltantes**, el texto de qué falta es **obligatorio**. Depósito elige el **responsable** (por defecto el actual). Llega alerta a esa persona.
-2. Esa alerta **no** se cierra con OK: **Ver** abre el pedido; **Posponer** la oculta 1 hora y después vuelve. En la campanita no hay acción de borrar para este aviso.
+2. Esa alerta **no** se cierra para siempre con Ver ni con la X: **Ver** abre el pedido (sin descartarla); **X** y **Posponer** la ocultan 1 hora y después vuelve si sigue sin resolución. En la campanita no hay acción de borrar para este aviso.
 3. El responsable escribe en el detalle **qué hay que hacer** (texto obligatorio) y guarda. El pedido pasa a **Faltantes con resolución**.
 4. Depósito recibe el aviso **faltantes resueltos** con esas instrucciones. **Con faltantes** solo muestra los **sin** resolución; los ya resueltos están en **Faltantes con resolución**.
 5. En control (también si está todo OK) se puede dejar **observación** y **foto**.
@@ -60,7 +62,7 @@ Borrar la fila de constancia es **otro** timer de 5 minutos, desde que se **cre�
 
 Tab **Recepción / Depósito** (permiso `deposito.recibir_mercaderia`). Los **servicios** no aparecen ahí.
 
-- **Por recibir** lista lo **pagado**. El toggle **Incluir cuenta corriente** suma CC.
+- **Por recibir** lista lo **pagado** y, por defecto, también **cuenta corriente**. El toggle **Incluir cuenta corriente** viene **prendido**; lo podés apagar si no querés ver CC.
 - **Docs** abre los **adjuntos del pedido**.
 - Si marcaste **recibido** por error: **deshacer recibido** (vuelve a pagado o CC). **Controlado** no se deshace.
 - Si la factura está cargada en ERP, ves un badge **Factura cargada**. En la fila también ves número de factura y pedido del proveedor cuando hay datos.
@@ -79,7 +81,7 @@ Al **crear** el pedido podés elegir **mercadería** (pasa por OC/Depósito) o *
 
 ### Alertas in-app
 
-Factura cargada, faltantes y faltantes resueltos son solo in-app (banner + campanita). Si hay muchas, ves las primeras y **+N más**. Cada uno descarta las suyas (salvo faltantes al PM, que exige resolución).
+Factura cargada, faltantes y faltantes resueltos son solo in-app (banner + campanita). Si hay muchas, ves las primeras y **+N más**. En factura cargada, **Ver** y la **X** descartan el aviso. En faltantes, **Ver** solo abre el pedido; la **X** pospone 1 hora. El aviso de faltantes se apaga de verdad cuando el responsable escribe la resolución.
 
 > Si una OC no aparece en el ERP, no la desvinculés “para limpiar” sin hablarlo: el bloque vacío es a propósito.
 

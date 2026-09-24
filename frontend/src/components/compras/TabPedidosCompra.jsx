@@ -23,9 +23,16 @@ import {
   ScanSearch,
 } from 'lucide-react';
 import api from '../../services/api';
+
+// ponytail: this file is 1100+ lines and already violates the ~200-line
+// component-size convention (list, filters, actions, cells, several modals).
+// The genuine fix is a move-only split — bolting that onto this post-merge
+// filter/query-lifecycle patch would bury the diff. Revisit next time this
+// file is touched for an unrelated reason. Tracked in docs/tech-debt-ledger.md.
 import { usePermisos } from '../../contexts/PermisosContext';
 import { useDebounce } from '../../hooks/useDebounce';
 import useComprasPedidos from '../../hooks/useComprasPedidos';
+import { consumePedidoQuery, nextPedidoOpenNonce } from '../../hooks/useRecepcionDeposito';
 import ModalPedidoCompra from './ModalPedidoCompra';
 import ModalPedidoDetalle from './ModalPedidoDetalle';
 import ModalConfirmarEliminacion from './ModalConfirmarEliminacion';
@@ -49,6 +56,9 @@ const ESTADOS = [
   'pagado_parcial',
   'pagado',
   'en_cuenta_corriente',
+  'recibido',
+  'con_faltantes',
+  'controlado',
 ];
 
 const COLUMNS = [
@@ -233,6 +243,7 @@ export default function TabPedidosCompra() {
   const fetchPedidos = useCallback(async () => {
     const params = { page, page_size: PAGE_SIZE };
     if (filtroEstado) params.estado = filtroEstado;
+    else params.excluir_estado = 'cancelado';
     if (filtroEmpresa) params.empresa_id = filtroEmpresa;
     if (filtroProveedorId) params.proveedor_id = filtroProveedorId;
     if (filtroDesde) params.desde = filtroDesde;
@@ -289,7 +300,8 @@ export default function TabPedidosCompra() {
     if (!Number.isFinite(id) || id <= 0) return;
     setPedidoDetalleId(id);
     setShowModalDetalle(true);
-  }, [searchParams]);
+    consumePedidoQuery(setSearchParams);
+  }, [searchParams, setSearchParams]);
 
   // Reset page on filters
   useEffect(() => {
@@ -316,6 +328,15 @@ export default function TabPedidosCompra() {
   const handleOpenDetalle = (pedido) => {
     setPedidoDetalleId(pedido.id);
     setShowModalDetalle(true);
+    setSearchParams(
+      (prev) => {
+        const next = new URLSearchParams(prev);
+        next.set('pedido', String(pedido.id));
+        next.set('open', nextPedidoOpenNonce());
+        return next;
+      },
+      { replace: true }
+    );
   };
 
   const handleCloseDetalle = (result) => {
@@ -337,10 +358,12 @@ export default function TabPedidosCompra() {
         return;
       }
       setPedidoDetalleId(null);
+      consumePedidoQuery(setSearchParams);
       if (reload) fetchPedidos();
       return;
     }
     setPedidoDetalleId(null);
+    consumePedidoQuery(setSearchParams);
     if (result) fetchPedidos();
   };
 
