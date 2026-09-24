@@ -1,45 +1,46 @@
 ```yaml
 schema: gentle-ai.verify-result/v1
-evidence_revision: sha256:7b18b628e8a2e3f4d1934e00312fc066a357e32b3788ac479ca12db66582ae2b
-verdict: pass_with_warnings
+evidence_revision: sha256:88ec1da95b76e288096306350d17a64ff96a46b7bb0c82ae1805e2fbc294f861
+verdict: pass
 blockers: 0
 critical_findings: 0
 requirements: 12/12
 scenarios: 35/35
-test_command: ENVIRONMENT=testing PYTHONPATH=/home/user/.herdr/worktrees/pricing-app/feature-compras-ux/backend /home/user/.herdr/worktrees/pricing-app/feature-admin-ocs/backend/venv/bin/python -m pytest tests/unit/test_oc_match_doc_refs.py tests/unit/test_oc_match_pipeline.py tests/integration/test_oc_match_worker.py tests/unit/test_compras_alertas_service.py::TestFaltantes tests/unit/test_compras_alertas_service.py::TestSnoozeClock tests/unit/test_compras_alertas_service.py::TestOkSnoozeRoutes tests/unit/test_compras_alertas_service.py::TestResolucionG31 tests/integration/test_compras_endpoints.py::TestPedidosCRUD::test_listar_pedidos_excluir_estado_cancelado tests/integration/test_compras_endpoints.py::TestPedidosCRUD::test_listar_pedidos_estado_explicito_gana_sobre_excluir tests/integration/test_compras_endpoints.py::TestPedidosCRUD::test_listar_pedidos_estados_logisticos tests/integration/test_compras_endpoints.py::TestPedidosCRUD::test_listar_pedidos_estado_multivalor -q --tb=short && pnpm --dir frontend exec vitest run src/components/compras/TabPedidosCompra.test.jsx src/components/compras/TabRecepcionDeposito.test.jsx src/components/compras/ModalPedidoDetalle.test.jsx src/components/AppLayout.comprasBanners.test.jsx
+test_command: ENVIRONMENT=testing PYTHONPATH=/home/user/.herdr/worktrees/pricing-app/feature-compras-ux/backend /home/user/.herdr/worktrees/pricing-app/feature-admin-ocs/backend/venv/bin/python -m pytest tests/unit/test_oc_match_doc_refs.py tests/unit/test_oc_match_pipeline.py tests/integration/test_oc_match_worker.py tests/unit/test_compras_alertas_service.py::TestFaltantes tests/unit/test_compras_alertas_service.py::TestSnoozeClock tests/unit/test_compras_alertas_service.py::TestOkSnoozeRoutes tests/unit/test_compras_alertas_service.py::TestResolucionG31 tests/integration/test_compras_endpoints.py::TestPedidosCRUD::test_listar_pedidos_excluir_estado_cancelado tests/integration/test_compras_endpoints.py::TestPedidosCRUD::test_listar_pedidos_estado_explicito_gana_sobre_excluir tests/integration/test_compras_endpoints.py::TestPedidosCRUD::test_listar_pedidos_estados_logisticos tests/integration/test_compras_endpoints.py::TestPedidosCRUD::test_listar_pedidos_estado_multivalor -q --tb=short && pnpm --dir frontend exec vitest run src/components/compras/TabPedidosCompra.test.jsx src/components/compras/TabRecepcionDeposito.test.jsx src/components/compras/ModalPedidoDetalle.test.jsx src/components/AppLayout.comprasBanners.test.jsx && pnpm --dir frontend exec vitest run --project=visual src/test/visual/tabPedidosCompraChips.visual.test.jsx
 test_exit_code: 0
-test_output_hash: sha256:202bac637dd95520acea308befd1502982bd01672aec20cba661e1b8201c1a30
-build_command: /home/user/.herdr/worktrees/pricing-app/feature-admin-ocs/backend/venv/bin/ruff format --check app/services/oc_match/doc_refs.py app/services/oc_match/extract.py app/services/oc_match/gemini_pool.py app/services/oc_match/match.py app/services/oc_match/worker.py app/routers/administracion_compras.py tests/unit/test_oc_match_doc_refs.py tests/unit/test_oc_match_pipeline.py tests/integration/test_oc_match_worker.py tests/integration/test_compras_endpoints.py && pnpm --dir frontend exec eslint src/components/compras/TabPedidosCompra.jsx src/components/compras/TabPedidosCompra.test.jsx src/components/compras/TabRecepcionDeposito.jsx src/components/compras/TabRecepcionDeposito.test.jsx src/components/compras/ModalPedidoDetalle.test.jsx src/components/AppLayout.jsx src/components/AppLayout.comprasBanners.test.jsx src/pages/AdministracionCompras.jsx src/hooks/useRecepcionDeposito.js
+test_output_hash: sha256:741c085002f17b93be125f350c7a5f9d601ffaa6e1d09c67cc5a8f176457707f
+build_command: /home/user/.herdr/worktrees/pricing-app/feature-admin-ocs/backend/venv/bin/ruff format --check app/services/oc_match/doc_refs.py app/services/oc_match/extract.py app/services/oc_match/gemini_pool.py app/services/oc_match/match.py app/services/oc_match/worker.py app/routers/administracion_compras.py tests/unit/test_oc_match_doc_refs.py tests/unit/test_oc_match_pipeline.py tests/integration/test_oc_match_worker.py tests/integration/test_compras_endpoints.py && pnpm --dir frontend exec eslint src/components/compras/TabPedidosCompra.jsx src/components/compras/TabPedidosCompra.test.jsx src/components/compras/TabRecepcionDeposito.jsx src/components/compras/TabRecepcionDeposito.test.jsx src/components/compras/ModalPedidoDetalle.test.jsx src/components/AppLayout.jsx src/components/AppLayout.comprasBanners.test.jsx src/pages/AdministracionCompras.jsx src/hooks/useRecepcionDeposito.js src/test/visual/tabPedidosCompraChips.visual.test.jsx
 build_exit_code: 0
-build_output_hash: sha256:f9f1d0c902c8d7bf9e17701e68fc12abdce593c01d60d45a470da331a54f30ed
+build_output_hash: sha256:d97117a86662914327e7ce63f3c470ce9027daf9f14b7c2e50578f7f7de346d2
 ```
 
 ## Verification Report
 
 **Change**: compras-pipeline-post-merge-patches
-**Version**: N/A (delta specs; tip `feat/compras-pipeline-post-merge-patches` @ `ae7252e8`)
+**Version**: N/A (delta specs; tip `feat/compras-pipeline-post-merge-patches` @ `56070c07`)
 **Mode**: Standard
 
 ### Completeness
 | Metric | Value |
 |--------|-------|
-| Tasks total | 20 |
-| Tasks complete | 20 |
+| Tasks total | 21 |
+| Tasks complete | 21 |
 | Tasks incomplete | 0 |
 
-Native heading counts across `openspec/changes/compras-pipeline-post-merge-patches/specs/`: **12** `### Requirement:` / **35** `#### Scenario:`. Tasks 1.1–5.3 checked (3.6 REMOVED). Phase 5 chips + Con faltantes overlap landed at `ae7252e8`.
+Native heading counts across `openspec/changes/compras-pipeline-post-merge-patches/specs/`: **12** `### Requirement:` / **35** `#### Scenario:`. Tasks 1.1–6.1 checked (3.6 REMOVED). Phase 6 visual chips landed at `56070c07` on upstream/main base.
 
 ### Build & Tests Execution
 **Build**: ✅ Passed
 ```text
 ruff format --check (10 Python files) → 10 files already formatted; EXIT:0
-pnpm exec eslint (9 FE files) → 0 errors, 2 pre-existing react-hooks/exhaustive-deps warnings in AppLayout.jsx; EXIT:0
+pnpm exec eslint (10 FE files including visual chips test) → 0 errors, 2 pre-existing react-hooks/exhaustive-deps warnings in AppLayout.jsx; EXIT:0
 ```
 
-**Tests**: ✅ 146 passed / ❌ 0 failed / ⚠️ 0 skipped (59 pytest + 87 vitest)
+**Tests**: ✅ 148 passed / ❌ 0 failed / ⚠️ 0 skipped (59 pytest + 87 unit vitest + 2 visual vitest)
 ```text
-pytest (feature-admin-ocs 3.11 venv; ENVIRONMENT=testing): 59 passed, 24 warnings in 24.34s; EXIT:0
-vitest: 4 files / 87 tests passed in 5.47s; EXIT:0
+pytest (feature-admin-ocs 3.11 venv; ENVIRONMENT=testing): 59 passed, 24 warnings in 24.49s; EXIT:0
+vitest unit: 4 files / 87 tests passed in 4.22s; EXIT:0
+vitest visual --project=visual tabPedidosCompraChips.visual.test.jsx: 1 file / 2 tests passed in 2.58s; EXIT:0
 ```
 
 **Coverage**: ➖ Not available / threshold: N/A → ➖ Not available
@@ -53,9 +54,9 @@ vitest: 4 files / 87 tests passed in 5.47s; EXIT:0
 | Pedido query is consumed then cleared | Close clears query so remount does not reopen | `TabPedidosCompra.test.jsx` close clears leftover query | ✅ COMPLIANT |
 | Pedido query is consumed then cleared | Tab change does not sticky-reopen | `TabPedidosCompra.test.jsx` user tab click strips pedido | ✅ COMPLIANT |
 | Pedido query is consumed then cleared | Ver force-opens the same URL | `TabPedidosCompra.test.jsx` Ver `open=` nonce then consume | ✅ COMPLIANT |
-| Proceso chips use semantic colors | Factura and Match error are not gray twins | `TabPedidosCompra.test.jsx` `data-tone=success` vs `danger` | ⚠️ PARTIAL |
-| Proceso chips use semantic colors | OC chip is distinctly colored | same test `chip-oc` `data-tone=info` vs Número muted | ⚠️ PARTIAL |
-| Con faltantes estado is not clipped by Proceso | Con faltantes badge stays readable beside Proceso | `estado-cell`/`proceso-cell` `data-layout=no-clip` + CSS overflow/z-index | ⚠️ PARTIAL |
+| Proceso chips use semantic colors | Factura and Match error are not gray twins | `tabPedidosCompraChips.visual.test.jsx` `getComputedStyle` Factura `--cf-accent-green` vs Match `--cf-danger` (light+dark) + unit `data-tone=success`/`danger` | ✅ COMPLIANT |
+| Proceso chips use semantic colors | OC chip is distinctly colored | same visual `chip-oc` `--cf-accent-blue` ≠ muted Número + unit `data-tone=info` | ✅ COMPLIANT |
+| Con faltantes estado is not clipped by Proceso | Con faltantes badge stays readable beside Proceso | visual overflow/z-index + `overlapArea(badge, proceso)===0` + unit `data-layout=no-clip` | ✅ COMPLIANT |
 | Pedido chips keep stored leading zeros | Leading zeros stay on the chip | `TabRecepcionDeposito.test.jsx` chip `00184465` | ✅ COMPLIANT |
 | Pedido chips keep stored leading zeros | Multiple tokens keep each string | `TabRecepcionDeposito.test.jsx` `0012` + `PED-08` | ✅ COMPLIANT |
 | Incluir cuenta corriente defaults on | Default includes cuenta corriente | `TabRecepcionDeposito.test.jsx` toggle checked + `pagado,en_cuenta_corriente` | ✅ COMPLIANT |
@@ -83,15 +84,15 @@ vitest: 4 files / 87 tests passed in 5.47s; EXIT:0
 | OC-match MUST NOT create factura rows from NC/ND | ND does not create a factura row | same parametrize (`nota_debito`) | ✅ COMPLIANT |
 | OC-match MUST NOT create factura rows from NC/ND | Factura persist still creates constancia | `test_factura_fa10_persists_row_chip_off_no_notif` `cargada is False` | ✅ COMPLIANT |
 
-**Compliance summary**: 32/35 COMPLIANT, 3/35 PARTIAL, 0 UNTESTED, 0 FAILING
+**Compliance summary**: 35/35 COMPLIANT, 0/35 PARTIAL, 0 UNTESTED, 0 FAILING
 
 ### Correctness (Static Evidence)
 | Requirement | Status | Notes |
 |------------|--------|-------|
 | Pedidos default excludes only cancelado | ✅ Implemented | FE empty select → `excluir_estado=cancelado`; BE `~estado.in_()` only when `estado` is None |
 | Pedido query is consumed then cleared | ✅ Implemented | `stripPedidoQueryParams` / consume / `open` nonce on Ver |
-| Proceso chips use semantic colors | ✅ Implemented | OC info, Factura success, Match error danger, other Match warning, ejes stronger, Número muted; CF tokens |
-| Con faltantes estado is not clipped by Proceso | ✅ Implemented | `.estadoCell` z-index 1 + overflow visible; `.procesoCell` z-index 0 |
+| Proceso chips use semantic colors | ✅ Implemented | OC info, Factura success, Match error danger, other Match warning, ejes stronger, Número muted; CF tokens; Chromium computed colors match tokens |
+| Con faltantes estado is not clipped by Proceso | ✅ Implemented | `.estadoCell` z-index 1 + overflow visible; `.procesoCell` z-index 0; visual rects do not overlap |
 | Pedido chips keep stored leading zeros | ✅ Implemented | split `;`, render stored string, no `Number()` |
 | Incluir cuenta corriente defaults on | ✅ Implemented | `useState(true)`; Por recibir requests `pagado,en_cuenta_corriente` |
 | Banner and Ver force-open | ✅ Implemented | `deepLinkForCompras` appends `open=` nonce |
@@ -110,16 +111,18 @@ vitest: 4 files / 87 tests passed in 5.47s; EXIT:0
 | Factura Ver+X `/ok`; faltantes X snooze; Ver navigate only | ✅ Yes | |
 | Consume-or-clear + `open=` nonce | ✅ Yes | |
 | Incluir CC `useState(true)` | ✅ Yes | |
-| Chip CSS variants + tokens | ✅ Yes | no hardcoded hex in chip classes |
-| Estado vs Proceso overflow/stack | ✅ Yes | |
+| Chip CSS variants + tokens | ✅ Yes | no hardcoded hex in chip classes; visual asserts token colors |
+| Estado vs Proceso overflow/stack | ✅ Yes | visual geometry + z-index |
+| Visual suite closes jsdom PARTIAL | ✅ Yes | Playwright Chromium `getComputedStyle` + non-covering rects |
+| Visual mocks `useSearchParams` (not MemoryRouter) | ✅ Yes | documented apply-progress deviation; avoids Vite/react-router reload |
 | No `TabOcMatch.*` / expand-below / Alembic / 5m sweep / CAS | ✅ Yes | locks held |
 | Task 3.6 checkbox rebind dropped | ✅ Yes | `ModalPedidoDetalle` cargada binding unchanged |
 
 ### Issues Found
 **CRITICAL**: None
-**WARNING**: (1) Phase 5 chip-color and Con faltantes overlap scenarios are proven via `data-tone` / `data-layout` (vitest `css:false`), not computed styles or pixel overlap. (2) AppLayout eslint `react-hooks/exhaustive-deps` warnings on `user` are pre-existing. (3) Residual design risk: Gemini may still emit `tipo_documento=factura` for an NC; persist cannot see the paper. (4) TabPedidosCompra / AppLayout remain god-components with `ponytail:` + ledger (out of scope).
-**SUGGESTION**: Optional visual snapshot or computed-style assertion if css-enabled vitest is added later.
+**WARNING**: (1) AppLayout eslint `react-hooks/exhaustive-deps` warnings on `user` are pre-existing. (2) Residual design risk: Gemini may still emit `tipo_documento=factura` for an NC; persist cannot see the paper.
+**SUGGESTION**: TabPedidosCompra / AppLayout remain god-components with `ponytail:` + ledger (out of scope).
 
 ### Verdict
-PASS WITH WARNINGS
-All 20 tasks done at tip `ae7252e8`; 12/12 requirements implemented; 32/35 scenarios fully covered at runtime and 3 partial (jsdom chip/overlap); focused pytest 59 + vitest 87 passed; locks held. Do not archive unless asked.
+PASS
+All 21 tasks done at tip `56070c07`; 12/12 requirements implemented; 35/35 scenarios covered at runtime including Chromium computed chip colors and Con faltantes vs Proceso geometry; focused pytest 59 + unit vitest 87 + visual vitest 2 passed; Phase 5 jsdom PARTIAL closed; locks held. Do not archive unless asked.
