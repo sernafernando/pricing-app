@@ -89,6 +89,26 @@
   color: var(--cf-text-secondary);
 }
 
+.empresaCell {
+  display: block;
+  text-align: center;
+  white-space: normal;
+  overflow: hidden;
+  text-overflow: clip;
+  overflow-wrap: break-word;
+  word-break: break-word;
+  line-height: 1.25;
+  max-height: 2.5em;
+}
+
+.rowActions {
+  display: grid;
+  grid-template-columns: repeat(2, min-content);
+  gap: 4px;
+  justify-content: end;
+  align-items: center;
+}
+
 .fechaPagoCell {
   display: inline-flex;
   align-items: center;
@@ -118,13 +138,6 @@
   color: var(--cf-text-tertiary);
   font-family: var(--font-mono);
   letter-spacing: 0.01em;
-}
-
-.rowActions {
-  display: flex;
-  gap: 4px;
-  align-items: center;
-  justify-content: flex-end;
 }
 
 /* Badges de estado migraron a _shared/EstadoBadge */

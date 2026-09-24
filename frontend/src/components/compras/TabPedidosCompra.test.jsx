@@ -309,6 +309,7 @@ describe('TabPedidosCompra — Fecha pago col width', () => {
     expect(colWidthByHeader('Fecha pago')).toBe('110px');
     expect(colWidthByHeader('Estado')).toBe('152px');
     expect(colWidthByHeader('Proceso')).toBe('220px');
+    expect(Number.parseInt(colWidthByHeader(''), 10)).toBeLessThan(180);
   });
 
   it.each([
