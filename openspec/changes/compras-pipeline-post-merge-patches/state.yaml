@@ -24,9 +24,16 @@ locked_decisions:
   4_pedidos_filter_default: |
     Default = all estados except cancelado. Cancelado remains selectable.
     Add recibido, con_faltantes, controlado to dropdown.
-  5_alert_checkbox: |
-    Fix stuck-checked UI if real FE bug. Do not regress 5m cargada timer / PM
-    notify. May be improved by (1).
+  5_alert_checkbox: REMOVED_wrong_interpretation
+  5_banner_ver_dismiss: |
+    CORRECTED 2026-09-24 (Gabe lock):
+    - compras.factura_cargada (and other non-faltantes dismissibles):
+      X → PATCH /ok (permanent). Ver → PATCH /ok then navigate (permanent).
+    - compras.faltantes: MUST show X (today dismissible=false).
+      X → same as Posponer: PATCH /snooze (hide ~1h, returns if unresolved).
+      Ver → navigate only; MUST NOT /ok and MUST NOT snooze.
+      Permanent clear remains: PM resolution texto → resuelto (unchanged).
+    NOT the Cargada checkbox.
   6_deeplink_noop: |
     Closing modal or changing Compras tabs must clear or remount-safe ?pedido= /
     focus. Ver must force-open even if URL unchanged.
@@ -36,10 +43,10 @@ locked_decisions:
   8_incluir_cc_default_true: |
     Depósito toggle Incluir cuenta corriente defaults to true (was false).
 notes: |
-  Gabe post-merge patches. Tasks written. Item 3 expand-below is out of scope
-  (no TabOcMatch tasks). Item 8: incluirCC default true. No Alembic.
-  origin/develop lags upstream; base branch from #1340 tip. Single PR.
-  updated: 2026-09-24 (added incluir-cc default).
+  STOP/CORRECT 2026-09-24: item 4 reinterpreted as banner-Ver-dismiss, not
+  checkbox. Apply may have mid-flight uncommitted work — strip checkbox-only
+  tasks; implement Ver+/ok for dismissible banners. No new novedad file;
+  amend 2026-09-23 entry for CC default + pedidos filter.
 artifacts:
   exploration: exploration.md
   proposal: proposal.md

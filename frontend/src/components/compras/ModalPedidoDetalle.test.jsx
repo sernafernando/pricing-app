@@ -112,6 +112,17 @@ describe('ModalPedidoDetalle — constancia vs cargada ERP', () => {
     });
     expect(screen.queryByTestId('chip-numero-factura')).not.toBeInTheDocument();
   });
+
+  it('checkbox follows persisted cargada on first render', async () => {
+    await renderDetalle({
+      ...PEDIDO_BASE,
+      factura_cargada: true,
+      factura_documentos: [{ ...FACTURA_ROW, cargada: true }],
+    });
+
+    expect(screen.getByRole('checkbox', { name: 'Cargada en ERP FA-10' })).toBeChecked();
+    expect(screen.getByTestId('chip-factura-cargada')).toHaveTextContent('Factura');
+  });
 });
 
 describe('ModalPedidoDetalle — resolver faltantes', () => {

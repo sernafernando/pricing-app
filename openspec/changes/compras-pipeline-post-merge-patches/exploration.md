@@ -16,7 +16,7 @@ factura-cargada 5m timer, CAS resolver, or migration freeze agreements.
 | 2 | Depósito chips drop leading zeros on pedido numbers | Extract JSON number → string; `oc_poh_id` int; chip is `String(trim)` | recepcion-deposito, compras-oc-match-pipeline |
 | 3 | OC-match job select opens panel below whole list | `TabOcMatch.jsx` + CSS column layout — **shipped lock** expand-below | compras-oc-match-ui |
 | 4 | Pedidos filter should be all estados except cancelado | `TabPedidosCompra` `filtroEstado=''` includes cancelado; missing recibido/con_faltantes/controlado in select | pedidos-compra |
-| 5 | Alert checkbox looks stuck checked; PM notify OK | UI = `row.cargada`; notify from DB sweep. NC-as-factura rows amplify “always checked” | compras-pipeline-alerts, compras-factura-documentos |
+| 5 | Banner fijo: Ver no lo saca; refresh lo deja; solo X. Fix: Ver → `/ok` + navigate (dismissibles) | `AppLayout` Ver onClick vs `onDismiss`/`handleOkComprasAlerta` | compras-pipeline-alerts |
 | 6 | Ver / banner buttons often no-op; faltantes Ver works | `AppLayout.deepLinkForCompras`; close modal leaves `?pedido=`; navigate no-op if URL unchanged | compras-pipeline-alerts, pedidos-compra |
 | 7 | Banner open → switch Compras tab → back to Pedidos reopens pedido | `handleCloseDetalle` does not clear query; remount re-reads `pedido` | pedidos-compra, compras-pipeline-alerts |
 | 8 | Depósito toggle "Incluir cuenta corriente" default false → want true | `TabRecepcionDeposito.jsx` `useState(false)` for `incluirCC` | recepcion-deposito |

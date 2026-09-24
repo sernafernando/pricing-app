@@ -17,7 +17,8 @@ Implements proposal defense-in-depth and deltas: `compras-oc-match-pipeline`, `c
 | NC/ND ignore | prompt-only / persist-only / triple gate | Gemini may still emit `factura` | Prompt enum + `normalize_tipo` aliases + persist skip |
 | Tokens / zeros | `str(int)` after loads / quote lexeme then loads | `json.loads(00184465)` drops zeros | Quote `nro_pedido`/`nro_documento` in raw text when the value is a leading-zero integer; then stringify. Never `int()`/`Number()` |
 | Pedidos default | client hide / comma-OR known list / `excluir_estado` | hide lies on `total`; known-list hides future estados | Optional `excluir_estado` on `GET /pedidos`. Default FE sends `excluir_estado=cancelado`. Explicit `estado=` wins |
-| Checkbox | rebind / leave | already `row.cargada` | Keep `Boolean(row.cargada)`. Do not touch 5m sweep / PM notify. NC/ND stop creating rows |
+| Checkbox | ~~rebind~~ | DROPPED — wrong Gabe read | — |
+| Banner Ver/X | navigate-only Ver / Ver+/ok / faltantes X | only X dismisses factura; faltantes had no X | Factura: Ver+X → `/ok`. Faltantes: X → snooze; Ver navigate only; resolve path permanent |
 | Deep-link | local-only Ver / consume-or-clear + nonce | same-URL `navigate` no-ops; leftover remount-reopens | Consume after open; clear on close and user tab click; banner/Ver add `open=<nonce>` |
 | Expand-below | scroll polish / layout rewrite | amends locked UX | Deferred — not this change |
 | Incluir CC default | keep false / default true | operators miss CC pedidos | `useState(true)` for `incluirCC` |
@@ -64,9 +65,9 @@ Inbound land opens once, then consume. Query-driven `tab=` sync is not a user ta
 | `frontend/src/hooks/useRecepcionDeposito.js` | Modify | Shared strip of `pedido`/`focus`/`open` |
 | `frontend/src/components/compras/TabPedidosCompra.jsx` | Modify | Default exclude; logistic estados; consume/clear; Ver nonce |
 | `frontend/src/pages/AdministracionCompras.jsx` | Modify | User tab click clears `pedido`/`focus`/`open` |
-| `frontend/src/components/AppLayout.jsx` | Modify | `deepLinkForCompras` appends `open` nonce |
+| `frontend/src/components/AppLayout.jsx` | Modify | `deepLinkForCompras` appends `open` nonce; dismissible Ver → `/ok` then navigate |
 | `frontend/src/components/compras/TabRecepcionDeposito.jsx` | Modify | Split `pedidos_documento` on `;`; chip each stored string; `incluirCC` default `true` |
-| `frontend/src/components/compras/ModalPedidoDetalle.jsx` | Modify | Binding audit only if not already `row.cargada` |
+| `frontend/src/novedades/2026-09-23-compras-pipeline-ux.md` | Modify | CC default on; Pedidos default omits cancelados |
 
 Unchanged: `TabOcMatch.*`, Alembic, `compras_alertas_service` 5m/PM paths, CAS, freeze-migration.
 
@@ -94,7 +95,7 @@ Chips: `parse_tokens` (`split(';')`, strip, drop empty). Render the stored strin
 | Unit | NC/ND aliases + skip write-back; quote `00184465` | `test_oc_match_doc_refs.py` + extract helper |
 | Integration | NC/ND: no columns, no stamp, no factura row; factura still seeds constancia `cargada=false` | `test_oc_match_worker.py` |
 | API | default exclude hides cancelado; explicit `cancelado` + logistic estados | listar tests |
-| FE | default filter + dropdown; chips keep zeros / split; checkbox = `cargada`; nonce force-open; close/tab-change no sticky reopen; inbound opens once | existing vitest files |
+| FE | default filter + dropdown; chips keep zeros / split; Ver+/ok on dismissible banners; nonce force-open; close/tab-change no sticky reopen; inbound opens once | existing vitest files |
 | Timer | 5m / PM notify | do not edit sweep modules |
 
 ## Threat Matrix

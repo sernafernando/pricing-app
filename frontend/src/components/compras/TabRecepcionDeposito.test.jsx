@@ -212,22 +212,23 @@ afterEach(() => {
 });
 
 describe('TabRecepcionDeposito — "Por recibir" merged filter', () => {
-  it('requests the listing with pagado only on mount', async () => {
+  it('requests the listing with pagado and en_cuenta_corriente on mount', async () => {
     await renderTab();
 
+    expect(screen.getByLabelText('Incluir cuenta corriente')).toBeChecked();
     expect(api.get).toHaveBeenCalledWith(LISTADO_ENDPOINT, {
-      params: { estado: 'pagado', page_size: 200, tipo: 'mercaderia' },
+      params: { estado: 'pagado,en_cuenta_corriente', page_size: 200, tipo: 'mercaderia' },
     });
   });
 
-  it('includes cuenta corriente when the toggle is on', async () => {
+  it('requests pagado only after the operator turns Incluir CC off', async () => {
     const user = userEvent.setup();
     await renderTab();
 
     await user.click(screen.getByLabelText('Incluir cuenta corriente'));
 
     expect(api.get).toHaveBeenCalledWith(LISTADO_ENDPOINT, {
-      params: { estado: 'pagado,en_cuenta_corriente', page_size: 200, tipo: 'mercaderia' },
+      params: { estado: 'pagado', page_size: 200, tipo: 'mercaderia' },
     });
   });
 
@@ -856,6 +857,34 @@ describe('TabRecepcionDeposito — Factura cargada badge + ident chips (Phase 3)
     expect(screen.getByText(truncado)).toBeInTheDocument();
     expect(screen.queryByText(texto)).not.toBeInTheDocument();
     expect(screen.getByTitle(texto)).toHaveTextContent(`Pedidos documento: ${texto}`);
+  });
+
+  it('keeps leading zeros on the pedido chip', async () => {
+    await renderTab([
+      {
+        ...PEDIDO_PAGADO,
+        numero_factura: null,
+        observaciones: null,
+        pedidos_documento: '00184465',
+      },
+    ]);
+
+    expect(screen.getByText('00184465')).toBeInTheDocument();
+    expect(screen.queryByText('184465')).not.toBeInTheDocument();
+  });
+
+  it('splits pedidos_documento on ; and chips each stored string', async () => {
+    await renderTab([
+      {
+        ...PEDIDO_PAGADO,
+        numero_factura: null,
+        observaciones: null,
+        pedidos_documento: '0012; PED-08',
+      },
+    ]);
+
+    expect(screen.getByText('0012')).toBeInTheDocument();
+    expect(screen.getByText('PED-08')).toBeInTheDocument();
   });
 });
 

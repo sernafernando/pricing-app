@@ -789,6 +789,34 @@ class TestDocRefsWriteOnce:
         assert pedido.pedidos_documento == "KEEP-PED; PED-184465"
         assert job.doc_refs_aplicado_at is not None
 
+    @pytest.mark.parametrize("tipo", ["nota_credito", "nota_debito"])
+    def test_nc_nd_skip_writeback_stamp_and_factura_row(
+        self,
+        db: Session,
+        active_user: Any,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+        tipo: str,
+    ) -> None:
+        persist_spy = MagicMock()
+        monkeypatch.setattr(worker_mod.pedidos_service, "persist_factura_documento", persist_spy)
+        extract = {**GOLDEN_EXTRACT, "tipo_documento": tipo, "nro_documento": "NC-99"}
+        _seed_maestro(db)
+        job, _adj = _pedido_adjunto_job(db, active_user, tmp_path)
+        _mock_pool(monkeypatch, extract, GOLDEN_MATCH)
+        _patch_bg_db(monkeypatch, db)
+        process_oc_match_job(job.id)
+        db.refresh(job)
+        pedido = db.get(PedidoCompra, job.pedido_id)
+        assert pedido is not None
+        assert pedido.facturas_documento is None
+        assert pedido.pedidos_documento is None
+        assert job.doc_refs_aplicado_at is None
+        assert job.status == OcMatchJob.STATUS_DONE
+        rows = db.query(PedidoFacturaDocumento).filter(PedidoFacturaDocumento.pedido_id == pedido.id).all()
+        assert rows == []
+        persist_spy.assert_not_called()
+
     def test_skip_tipo_does_not_stamp(
         self,
         db: Session,

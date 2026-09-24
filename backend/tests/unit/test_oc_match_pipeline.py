@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 from typing import Any
 from unittest.mock import MagicMock
@@ -18,6 +19,7 @@ from app.services.oc_match import match as match_mod
 from app.services.oc_match.acta import acta_cierre
 from app.services.oc_match.candidatos import match_fabricante_exacto
 from app.services.oc_match.excel import RechazoExcel, generar
+from app.services.oc_match.extract import PROMPT, quote_numeric_doc_fields, stringify_nro_fields
 from app.services.oc_match.maestro import Articulo, cargar_maestro, es_combo_interno, sin_combos_internos
 from app.services.oc_match.match import match_renglones
 
@@ -253,6 +255,37 @@ class TestUsdSinTc:
         info = generar(_usd_ok_matched(tipo_cambio=1200), dest)
         assert dest.is_file()
         assert info["filas"] == 1
+
+
+class TestQuoteNumericDocFields:
+    def test_quote_leading_zero_pedido_token(self) -> None:
+        raw = '{"nro_pedido": 00184465, "nro_documento": "FA-1"}'
+        quoted = quote_numeric_doc_fields(raw)
+        parsed = json.loads(quoted)
+        assert parsed["nro_pedido"] == "00184465"
+        assert parsed["nro_documento"] == "FA-1"
+
+    def test_stringify_keeps_leading_zeros(self) -> None:
+        parsed = stringify_nro_fields({"nro_pedido": "00184465", "nro_documento": 12})
+        assert parsed["nro_pedido"] == "00184465"
+        assert parsed["nro_documento"] == "12"
+
+    def test_prompt_enum_includes_nc_nd(self) -> None:
+        assert "nota_credito" in PROMPT
+        assert "nota_debito" in PROMPT
+        assert "NO es factura" in PROMPT
+
+    def test_match_passes_nro_pedido_as_string(self) -> None:
+        extraido = {
+            "moneda": "ARS",
+            "nro_pedido": "00184465",
+            "nro_documento": "0001-99",
+            "renglones": [],
+        }
+        result = match_renglones(extraido, [_art()], MagicMock())
+        assert result["nro_pedido"] == "00184465"
+        assert result["nro_documento"] == "0001-99"
+        assert isinstance(result["nro_pedido"], str)
 
 
 class TestNoMailInPipeline:
