@@ -1,0 +1,16 @@
+.toolbar {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-xs);
+  margin-bottom: var(--spacing-sm);
+}
+
+.search {
+  max-width: 32rem;
+}
+
+.noResults {
+  margin: 0;
+  font-size: 0.85rem;
+  color: var(--text-secondary);
+}

@@ -435,6 +435,74 @@ describe('The two axes are independent and read correctly', () => {
   });
 });
 
+// ventas-ml-rediseno PR14.T1-T4 (SEARCH R25, R26, R27).
+describe('Search box (ventas-ml-rediseno PR14)', () => {
+  it('sends the debounced query as `q`, combined with the active status filter', async () => {
+    mockSalesList([PAID_SALE], { facets: { operation_status: { paid: 1 }, goods_status: {} } });
+    const user = userEvent.setup();
+    await renderWithRouter(<VentasML />);
+    await waitFor(() => expect(screen.getByText('comprador1')).toBeInTheDocument());
+
+    await user.click(screen.getByRole('button', { name: /^Pagada/ }));
+    await waitFor(() => {
+      const calls = api.get.mock.calls.filter((c) => c[0] === '/ml-ventas-ops/sales');
+      expect(calls[calls.length - 1][1].params.operation_status).toBe('paid');
+    });
+
+    await user.type(screen.getByRole('searchbox'), 'comprador1');
+
+    await waitFor(
+      () => {
+        const calls = api.get.mock.calls.filter((c) => c[0] === '/ml-ventas-ops/sales');
+        const last = calls[calls.length - 1];
+        // SEARCH R26: intersection, not replacement — the status filter set
+        // moments ago is still on the request that carries the search term.
+        expect(last[1].params).toEqual(
+          expect.objectContaining({ q: 'comprador1', operation_status: 'paid', offset: 0 })
+        );
+      },
+      { timeout: 2000 }
+    );
+  });
+
+  it('resets offset to 0 when the query changes', async () => {
+    mockSalesList(
+      Array.from({ length: 3 }, (_, i) => ({ ...PAID_SALE, order_id: 1000 + i })),
+      { total: 3, facets: { operation_status: { paid: 3 }, goods_status: {} } }
+    );
+    const user = userEvent.setup();
+    await renderWithRouter(<VentasML />);
+    await waitFor(() => expect(screen.getAllByText('comprador1').length).toBeGreaterThan(0));
+
+    await user.type(screen.getByRole('searchbox'), 'x');
+    await waitFor(
+      () => {
+        const calls = api.get.mock.calls.filter((c) => c[0] === '/ml-ventas-ops/sales');
+        expect(calls[calls.length - 1][1].params.offset).toBe(0);
+      },
+      { timeout: 2000 }
+    );
+  });
+
+  it('shows an explicit "sin resultados" message when the search term matches nothing (SEARCH R27)', async () => {
+    mockSalesList([PAID_SALE], { facets: { operation_status: { paid: 1 }, goods_status: {} } });
+    const user = userEvent.setup();
+    await renderWithRouter(<VentasML />);
+    await waitFor(() => expect(screen.getByText('comprador1')).toBeInTheDocument());
+
+    // Next fetch (triggered by the search term) resolves to an empty set.
+    mockSalesList([], { facets: { operation_status: {}, goods_status: {} } });
+    await user.type(screen.getByRole('searchbox'), 'nadie-existe');
+
+    await waitFor(() => expect(screen.getByText(/sin resultados/i)).toBeInTheDocument(), {
+      timeout: 2000,
+    });
+    // The list's own empty state ("no hay ventas...") coexists — this
+    // assertion only pins the search-specific message exists, never an
+    // error styling (see SalesToolbar.test.jsx for the style assertion).
+  });
+});
+
 describe('a stale response never overwrites the list', () => {
   it('ignores an older request that resolves last', async () => {
     const resolvers = [];

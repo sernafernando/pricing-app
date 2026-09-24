@@ -54,3 +54,55 @@ describe('clearSelection', () => {
     expect(result.current.selectedOrderId).toBeNull();
   });
 });
+
+// ventas-ml-rediseno PR14.T1 (SEARCH R25, R26): the `q` URL param drives the
+// search box, the same URL-state convention `orden` already uses.
+describe('searchQuery', () => {
+  it('is empty string when the URL carries no `q` param', () => {
+    const { result } = renderHook(() => useVentasMLFilters(), {
+      wrapper: (props) => wrapper({ ...props, initialEntries: ['/'] }),
+    });
+    expect(result.current.searchQuery).toBe('');
+  });
+
+  it('reads the `q` URL param verbatim', () => {
+    const { result } = renderHook(() => useVentasMLFilters(), {
+      wrapper: (props) => wrapper({ ...props, initialEntries: ['/?q=juan%20perez'] }),
+    });
+    expect(result.current.searchQuery).toBe('juan perez');
+  });
+});
+
+describe('setSearchQuery', () => {
+  it('sets the `q` URL param, driving searchQuery on the next render', () => {
+    const { result } = renderHook(() => useVentasMLFilters(), {
+      wrapper: (props) => wrapper({ ...props, initialEntries: ['/'] }),
+    });
+
+    act(() => result.current.setSearchQuery('MLA123456'));
+
+    expect(result.current.searchQuery).toBe('MLA123456');
+  });
+
+  it('removes the `q` URL param entirely when set to an empty string', () => {
+    const { result } = renderHook(() => useVentasMLFilters(), {
+      wrapper: (props) => wrapper({ ...props, initialEntries: ['/?q=algo'] }),
+    });
+
+    act(() => result.current.setSearchQuery(''));
+
+    expect(result.current.searchQuery).toBe('');
+    expect(result.current.hasSearchParam).toBe(false);
+  });
+
+  it('preserves the `orden` param when the search query changes', () => {
+    const { result } = renderHook(() => useVentasMLFilters(), {
+      wrapper: (props) => wrapper({ ...props, initialEntries: ['/?orden=1001'] }),
+    });
+
+    act(() => result.current.setSearchQuery('buscando'));
+
+    expect(result.current.selectedOrderId).toBe(1001);
+    expect(result.current.searchQuery).toBe('buscando');
+  });
+});

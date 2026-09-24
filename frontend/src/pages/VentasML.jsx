@@ -54,6 +54,7 @@ import { usePermisos } from '../contexts/PermisosContext';
 import api from '../services/api';
 import VentasMLLayout from '../components/ventasMl/VentasMLLayout';
 import SaleDetailPanel from '../components/ventasMl/SaleDetailPanel';
+import SalesToolbar from '../components/ventasMl/SalesToolbar';
 import { useVentasMLFilters } from '../hooks/useVentasMLFilters';
 import VariosVentaPctModal from '../components/VariosVentaPctModal';
 import DateRangeFilter from '../components/DateRangeFilter';
@@ -244,7 +245,8 @@ export default function VentasML() {
   // operator picks another row -- it only carries the order_id the
   // per-order endpoint needs, since the backend resolves the whole pack's
   // breakdown from any order inside it.
-  const { selectedOrderId, selectOrder, clearSelection } = useVentasMLFilters();
+  const { selectedOrderId, selectOrder, clearSelection, searchQuery, setSearchQuery } =
+    useVentasMLFilters();
 
   // Visible to everyone who can see this page — the modal itself decides
   // read-only vs. read+write once open, per product decision (see
@@ -275,6 +277,14 @@ export default function VentasML() {
   // the field could read "Septiembre" over a list filtered to 7 days.
   // Making them exclusive papered over that; removing one settles it.
   // `sold_month` stays supported by the endpoint for other callers.
+  const handleSearchChange = useCallback(
+    (value) => {
+      setSearchQuery(value);
+      setOffset(0);
+    },
+    [setSearchQuery],
+  );
+
   const handleDateRangeChange = useCallback(({ desde, hasta, filtro }) => {
     setFechaDesde(desde);
     setFechaHasta(hasta);
@@ -302,11 +312,12 @@ export default function VentasML() {
     setFechaDesde('');
     setFechaHasta('');
     setDateRangeFiltro(null);
+    setSearchQuery('');
     setOffset(0);
-  }, []);
+  }, [setSearchQuery]);
 
   const hasActiveFilters = Boolean(
-    operationStatusFilter || goodsStatusFilter || fechaDesde || fechaHasta
+    operationStatusFilter || goodsStatusFilter || fechaDesde || fechaHasta || searchQuery
   );
 
   // "Todas" is neither `total` (scoped by BOTH axes, so it under-counts
@@ -329,6 +340,10 @@ export default function VentasML() {
       if (goodsStatusFilter) params.goods_status = goodsStatusFilter;
       if (fechaDesde) params.date_from = fechaDesde;
       if (fechaHasta) params.date_to = fechaHasta;
+      // SEARCH R26: the search term combines with every other active
+      // filter as an INTERSECTION — sent alongside them in the same
+      // request, never as a separate call that replaces the filtered set.
+      if (searchQuery) params.q = searchQuery;
       const { data } = await api.get('/ml-ventas-ops/sales', { params });
       if (requestId !== latestRequestRef.current) return;
       setSales(data.sales || []);
@@ -352,7 +367,7 @@ export default function VentasML() {
     } finally {
       if (requestId === latestRequestRef.current) setLoading(false);
     }
-  }, [puedeVer, operationStatusFilter, goodsStatusFilter, fechaDesde, fechaHasta, offset]);
+  }, [puedeVer, operationStatusFilter, goodsStatusFilter, fechaDesde, fechaHasta, searchQuery, offset]);
 
   useEffect(() => {
     cargarVentas();
@@ -442,6 +457,12 @@ export default function VentasML() {
           {' '}Ver divergencias
         </Link>
       )}
+
+      <SalesToolbar
+        value={searchQuery}
+        onSearchChange={handleSearchChange}
+        noResults={!loading && Boolean(searchQuery) && sales.length === 0}
+      />
 
       <div className={styles.filters}>
         <div className={styles.filterRow} role="group" aria-label="Filtrar por estado de operación">
