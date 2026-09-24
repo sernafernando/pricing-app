@@ -762,6 +762,72 @@ describe('TabRecepcionDeposito — closed header identification chips (SIN-OC, D
   });
 });
 
+describe('TabRecepcionDeposito — Factura cargada badge + ident chips (Phase 3)', () => {
+  it('shows Factura cargada badge when factura_cargada is true', async () => {
+    await renderTab([{ ...PEDIDO_PAGADO, factura_cargada: true }]);
+
+    expect(screen.getByText('Factura cargada')).toBeInTheDocument();
+  });
+
+  it('does not show Factura cargada badge when numbers exist but factura_cargada is false', async () => {
+    await renderTab([
+      {
+        ...PEDIDO_PAGADO,
+        factura_cargada: false,
+        numero_factura: 'FA-1',
+      },
+    ]);
+
+    expect(screen.queryByText('Factura cargada')).not.toBeInTheDocument();
+    expect(screen.getByText('FA-1')).toBeInTheDocument();
+  });
+
+  it('shows factura and pedidos_documento chips on CON-OC rows', async () => {
+    await renderTab([
+      {
+        ...PEDIDO_CON_OC_PAGADO,
+        numero_factura: 'FA-1',
+        pedidos_documento: 'AD-9',
+      },
+    ]);
+
+    expect(screen.getByText('FA-1')).toBeInTheDocument();
+    expect(screen.getByText('AD-9')).toBeInTheDocument();
+    expect(screen.getByText('2 líneas · 15 u')).toBeInTheDocument();
+  });
+
+  it('shows factura and pedidos_documento chips on SIN-OC rows', async () => {
+    await renderTab([
+      {
+        ...PEDIDO_PAGADO,
+        numero_factura: 'FA-2',
+        pedidos_documento: 'AD-3',
+      },
+    ]);
+
+    expect(screen.getByText('FA-2')).toBeInTheDocument();
+    expect(screen.getByText('AD-3')).toBeInTheDocument();
+  });
+
+  it('truncates long pedidos_documento at 60ch and keeps the full text in title', async () => {
+    const texto =
+      'Administracion-OC-referencia-muy-larga-que-debe-truncarse-en-el-chip-visualmente';
+    await renderTab([
+      {
+        ...PEDIDO_PAGADO,
+        numero_factura: null,
+        observaciones: null,
+        pedidos_documento: texto,
+      },
+    ]);
+
+    const truncado = `${texto.slice(0, 60).trimEnd()}…`;
+    expect(screen.getByText(truncado)).toBeInTheDocument();
+    expect(screen.queryByText(texto)).not.toBeInTheDocument();
+    expect(screen.getByTitle(texto)).toHaveTextContent(`Pedidos documento: ${texto}`);
+  });
+});
+
 describe('TabRecepcionDeposito — Phase 3 depósito', () => {
   it('hides faltantes lines with saldo_pendiente 0', async () => {
     const user = userEvent.setup();

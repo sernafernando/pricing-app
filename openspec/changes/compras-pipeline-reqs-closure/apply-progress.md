@@ -57,5 +57,27 @@ None — implementation matches design.
 - `pages/Notificaciones.jsx` still calls PATCH `/descartar` (BE 409). Not campanita; left as risk note.
 - FE does not call PATCH `/estado` DESCARTADA. No cheap FE block needed.
 
-## Phase 3–5
+## Phase 3 — Depósito ID
+- [x] complete (tasks 3.1–3.3)
+Branch: feat/compras-pipeline-reqs-closure-03-deposito-id (from Phase2 tip 2e31e2fc)
+Work unit: phase3-deposito-id / evidence-goal phase3-cargada-badge-ident-chips
+Authored lines this slice: 128 insertions + 31 deletions (159) before apply-progress write — under 400 acquire cap.
+
+### Work Unit Evidence (WU3 / PR3 ← PR2)
+
+| Evidence | Value |
+|---|---|
+| Focused test command and exact result | `pnpm exec vitest run src/components/compras/TabRecepcionDeposito.test.jsx` → **53 passed** (1 file) |
+| Runtime harness command/scenario and exact result | N/A — design threat matrix is N/A; no new routing/shell/process boundary. UI coverage is jsdom vitest (badge iff `factura_cargada`, CON-OC + SIN-OC ident chips, 60ch truncate). |
+| Rollback boundary | Phase 3 only: revert this slice’s FE + tests + guia + SDD marks on `feat/compras-pipeline-reqs-closure-03-deposito-id`. Restores CON-OC XOR (no factura/pedidos_documento chips), no Cargada badge, guia “OC vinculada” without the GBP clarification. Does not revert Phase 1–2. |
+
+### Completed
+- 3.1 Cargada badge iff `factura_cargada === true` (`badgeControlado`); `identChips` (factura + `pedidos_documento` + observaciones, 60ch+title) on all rows including CON-OC (itemsBadge no longer XORs chips away)
+- 3.2 Guía: OC chip = vinculación in Pricing, not “exists in GBP”; ERP-missing copy stays
+- 3.3 vitest: badge on/off, CON-OC + SIN-OC chips, pedidos_documento truncate
+
+### Deviations
+None — implementation matches design. Observaciones chip kept (existing SIN-OC behavior) so prior header-chip tests do not regress.
+
+## Phase 4–5
 - [ ] pending

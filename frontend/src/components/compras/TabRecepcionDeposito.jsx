@@ -161,19 +161,20 @@ const ITEMS_BADGE_A11Y = (lineas, unidades) =>
 const formatUnidades = (v) =>
   v == null ? '—' : Number(v).toLocaleString('es-AR', { maximumFractionDigits: 2 });
 
-// Chips de identificación para pedidos SIN OC: los únicos datos identificatorios
-// que existen a nivel pedido. Se omiten cuando el campo es null/vacío, igual que
-// buildPedidoClipboardText.
+// Ident chips on EVERY Depósito row (CON-OC and SIN-OC): factura number and
+// `pedidos_documento`. Observaciones stays as a third optional chip. Each is
+// omitted independently when null/blank, same rule `buildPedidoClipboardText`
+// already follows. CON-OC used to XOR these away in favor of itemsBadge.
 const CHIP_FACTURA_A11Y = (numero) => `Factura ${numero}`;
+const CHIP_PEDIDOS_DOCUMENTO_A11Y = (texto) => `Pedidos documento: ${texto}`;
 const CHIP_OBSERVACIONES_A11Y = (texto) => `Observaciones: ${texto}`;
 
-// `observaciones` es texto libre sin tope. 60 caracteres entran en una línea al
-// tamaño del badge y alcanzan para distinguir dos pedidos; el texto COMPLETO
-// viaja por `title` (mouse) y por el span .sr-only (lectores de pantalla), así
-// que el truncado es puramente visual y no oculta información a nadie.
-const OBSERVACIONES_MAX_CHARS = 60;
-const truncarObservaciones = (t) =>
-  t.length > OBSERVACIONES_MAX_CHARS ? `${t.slice(0, OBSERVACIONES_MAX_CHARS).trimEnd()}…` : t;
+// Free-text ident fields have no hard cap. 60 characters fit one badge line and
+// still distinguish two pedidos; the FULL text travels via `title` (mouse) and
+// the .sr-only span (screen readers), so truncation is visual only.
+const CHIP_MAX_CHARS = 60;
+const truncarChip = (t) =>
+  t.length > CHIP_MAX_CHARS ? `${t.slice(0, CHIP_MAX_CHARS).trimEnd()}…` : t;
 
 // Banner de arribo. Se CONSERVA con un solo cambio: "control de ítems" →
 // "control de cantidades". La primera oración sigue siendo cierta en TODAS las
@@ -220,40 +221,65 @@ function itemsBadge(pedido, stylesMap) {
 }
 
 /**
- * Closed-header identification chips (SIN-OC only) — factura and
- * observaciones are the only pedido-level fields that identify one pedido
- * from another when there is no OC. Each is omitted independently when
- * null/blank, same rule `buildPedidoClipboardText` already follows.
+ * Closed-header identification chips — factura + pedidos_documento on every
+ * row, including CON-OC. Observaciones remains optional. Each field is omitted
+ * independently when null/blank.
  */
 function identChips(pedido, stylesMap) {
   const chips = [];
-  if (pedido.numero_factura && String(pedido.numero_factura).trim() !== '') {
+  const factura = pedido.numero_factura && String(pedido.numero_factura).trim();
+  if (factura) {
     chips.push(
       <span
         key="factura"
         className={stylesMap.chipIdent}
-        title={pedido.numero_factura}
+        title={factura}
       >
         <FileText size={11} aria-hidden="true" />
-        <span aria-hidden="true">{pedido.numero_factura}</span>
-        <span className="sr-only">{CHIP_FACTURA_A11Y(pedido.numero_factura)}</span>
+        <span aria-hidden="true">{truncarChip(factura)}</span>
+        <span className="sr-only">{CHIP_FACTURA_A11Y(factura)}</span>
       </span>,
     );
   }
-  if (pedido.observaciones && String(pedido.observaciones).trim() !== '') {
+  const pedidosDoc = pedido.pedidos_documento && String(pedido.pedidos_documento).trim();
+  if (pedidosDoc) {
+    chips.push(
+      <span
+        key="pedidos-documento"
+        className={stylesMap.chipIdent}
+        title={pedidosDoc}
+      >
+        <FileText size={11} aria-hidden="true" />
+        <span aria-hidden="true">{truncarChip(pedidosDoc)}</span>
+        <span className="sr-only">{CHIP_PEDIDOS_DOCUMENTO_A11Y(pedidosDoc)}</span>
+      </span>,
+    );
+  }
+  const observaciones = pedido.observaciones && String(pedido.observaciones).trim();
+  if (observaciones) {
     chips.push(
       <span
         key="observaciones"
         className={stylesMap.chipIdent}
-        title={pedido.observaciones}
+        title={observaciones}
       >
         <StickyNote size={11} aria-hidden="true" />
-        <span aria-hidden="true">{truncarObservaciones(pedido.observaciones)}</span>
-        <span className="sr-only">{CHIP_OBSERVACIONES_A11Y(pedido.observaciones)}</span>
+        <span aria-hidden="true">{truncarChip(observaciones)}</span>
+        <span className="sr-only">{CHIP_OBSERVACIONES_A11Y(observaciones)}</span>
       </span>,
     );
   }
   return chips;
+}
+
+/**
+ * "Factura cargada" uses the Controlado visual family (badgeControlado).
+ * Driven ONLY by the ERP `factura_cargada` flag — a numero_factura (or
+ * document-row presence) must never light this badge (chicho lock).
+ */
+function facturaCargadaBadge(facturaCargada, stylesMap) {
+  if (facturaCargada !== true) return null;
+  return <span className={stylesMap.badgeControlado}>Factura cargada</span>;
 }
 
 /**
@@ -1044,7 +1070,9 @@ function PedidoAccordion({ pedido, onRefreshList, onCopyOutcome, defaultOpen = f
           <span className={styles.pedidoProveedor}>{pedido.proveedor_nombre || '—'}</span>
         </button>
         <div className={styles.headerBadges}>
-          {pedido.oc_poh_id != null ? itemsBadge(pedido, styles) : identChips(pedido, styles)}
+          {pedido.oc_poh_id != null && itemsBadge(pedido, styles)}
+          {identChips(pedido, styles)}
+          {facturaCargadaBadge(pedido.factura_cargada, styles)}
           {estadoBadge(pedido.estado, styles)}
           <button
             type="button"
