@@ -95,7 +95,13 @@ def _rows(db, scope):
 class TestStatusDerivationParity:
     def test_cancelled_order_shows_as_cancelled(self, db):
         _seed_order(db, 1, status="cancelled", date_created=datetime(2026, 1, 1, tzinfo=timezone.utc))
-        scope = build_scope(db, SalesFilter())
+        scope = build_scope(
+            db,
+            SalesFilter(
+                include_unknown=True,
+                include_in_dispute=True,
+            ),
+        )
         rows = {r.order_id: r for r in _rows(db, scope)}
         assert rows[1].operation_status == "cancelled"
 
@@ -107,7 +113,13 @@ class TestStatusDerivationParity:
             shipping_status="delivered",
             date_created=datetime(2026, 1, 1, tzinfo=timezone.utc),
         )
-        scope = build_scope(db, SalesFilter())
+        scope = build_scope(
+            db,
+            SalesFilter(
+                include_unknown=True,
+                include_in_dispute=True,
+            ),
+        )
         rows = {r.order_id: r for r in _rows(db, scope)}
         assert rows[2].operation_status == "delivered"
 
@@ -140,13 +152,25 @@ class TestStatusDerivationParity:
         assert resultado.claims_linked >= 1, f"el reclamo no se vinculó: {resultado}"
         assert enlaces, "no hay fila en ml_operation_links para el reclamo de esta orden"
 
-        scope = build_scope(db, SalesFilter())
+        scope = build_scope(
+            db,
+            SalesFilter(
+                include_unknown=True,
+                include_in_dispute=True,
+            ),
+        )
         rows = {r.order_id: r for r in _rows(db, scope)}
         assert rows[order_id].operation_status == "in_dispute"
 
     def test_unrecognised_status_is_unknown(self, db):
         _seed_order(db, 4, status="weird_status", date_created=datetime(2026, 1, 1, tzinfo=timezone.utc))
-        scope = build_scope(db, SalesFilter())
+        scope = build_scope(
+            db,
+            SalesFilter(
+                include_unknown=True,
+                include_in_dispute=True,
+            ),
+        )
         rows = {r.order_id: r for r in _rows(db, scope)}
         assert rows[4].operation_status == "unknown"
 
@@ -158,10 +182,12 @@ class TestDateRangeScoping:
         scope = build_scope(
             db,
             SalesFilter(
+                include_unknown=True,
+                include_in_dispute=True,
                 date_range=(
                     datetime(2026, 1, 1, tzinfo=timezone.utc),
                     datetime(2026, 2, 1, tzinfo=timezone.utc),
-                )
+                ),
             ),
         )
         # Scoped to the ids this test seeds: another test's committed row
@@ -174,14 +200,16 @@ class TestOperationAndGoodsStatusFilters:
     def test_operation_status_filter_scopes_the_listing_query(self, db):
         _seed_order(db, 20, status="cancelled", date_created=datetime(2026, 1, 1, tzinfo=timezone.utc))
         _seed_order(db, 21, status="paid", date_created=datetime(2026, 1, 1, tzinfo=timezone.utc))
-        scope = build_scope(db, SalesFilter(operation_status="cancelled"))
+        scope = build_scope(
+            db, SalesFilter(include_unknown=True, include_in_dispute=True, operation_status="cancelled")
+        )
         ids = {r.order_id for r in _rows(db, scope)}
         assert ids == {20}
 
     def test_goods_status_filter_scopes_the_listing_query(self, db):
         _seed_order(db, 22, shipping_status="delivered", date_created=datetime(2026, 1, 1, tzinfo=timezone.utc))
         _seed_order(db, 23, date_created=datetime(2026, 1, 1, tzinfo=timezone.utc))
-        scope = build_scope(db, SalesFilter(goods_status="delivered"))
+        scope = build_scope(db, SalesFilter(include_unknown=True, include_in_dispute=True, goods_status="delivered"))
         ids = {r.order_id for r in _rows(db, scope)}
         assert ids == {22}
 
@@ -191,7 +219,9 @@ class TestOperationAndGoodsStatusFilters:
         the old `base` vs `listing_query` split."""
         _seed_order(db, 24, status="cancelled", date_created=datetime(2026, 1, 1, tzinfo=timezone.utc))
         _seed_order(db, 25, status="paid", date_created=datetime(2026, 1, 1, tzinfo=timezone.utc))
-        scope = build_scope(db, SalesFilter(operation_status="cancelled"))
+        scope = build_scope(
+            db, SalesFilter(include_unknown=True, include_in_dispute=True, operation_status="cancelled")
+        )
         base_ids = {row.MlOrdersOps.order_id for row in scope.base.all()} & {24, 25}
         assert base_ids == {24, 25}
 
@@ -201,7 +231,13 @@ class TestPackGrouping:
         _seed_order(db, 30, pack_id=999, date_created=datetime(2026, 1, 1, tzinfo=timezone.utc))
         _seed_order(db, 31, pack_id=999, date_created=datetime(2026, 1, 1, tzinfo=timezone.utc))
         _seed_order(db, 32, date_created=datetime(2026, 1, 1, tzinfo=timezone.utc))
-        scope = build_scope(db, SalesFilter())
+        scope = build_scope(
+            db,
+            SalesFilter(
+                include_unknown=True,
+                include_in_dispute=True,
+            ),
+        )
         rows = {r.order_id: r.group_key for r in _rows(db, scope)}
         assert rows[30] == rows[31] == "p:999"
         assert rows[32] == "o:32"
@@ -209,7 +245,13 @@ class TestPackGrouping:
     def test_pack_id_equal_to_another_order_id_does_not_collide(self, db):
         _seed_order(db, 40, pack_id=41, date_created=datetime(2026, 1, 1, tzinfo=timezone.utc))
         _seed_order(db, 41, date_created=datetime(2026, 1, 1, tzinfo=timezone.utc))
-        scope = build_scope(db, SalesFilter())
+        scope = build_scope(
+            db,
+            SalesFilter(
+                include_unknown=True,
+                include_in_dispute=True,
+            ),
+        )
         rows = {r.order_id: r.group_key for r in _rows(db, scope)}
         assert rows[40] == "p:41"
         assert rows[41] == "o:41"
@@ -220,7 +262,13 @@ class TestPaginationOrderingParity:
         _seed_order(db, 50, date_created=datetime(2026, 1, 1, tzinfo=timezone.utc))
         _seed_order(db, 51, date_created=datetime(2026, 1, 1, tzinfo=timezone.utc))
         _seed_order(db, 52, date_created=datetime(2026, 1, 2, tzinfo=timezone.utc))
-        scope = build_scope(db, SalesFilter())
+        scope = build_scope(
+            db,
+            SalesFilter(
+                include_unknown=True,
+                include_in_dispute=True,
+            ),
+        )
 
         key_rows = (
             scope.listing_query.with_entities(

@@ -935,6 +935,18 @@ def listar_ventas(
     marcas: Optional[str] = Query(default=None, description="CSV de marcas (PFILT R35, D12a)"),
     subcategorias: Optional[str] = Query(default=None, description="CSV de ids de subcategoría (PFILT R35, D12a)"),
     pms: Optional[str] = Query(default=None, description="CSV de ids de usuario PM (PFILT R35, D12a)"),
+    # PR11.T1/T9 (design D12/D13, spec KPI R9-R12): the four doubtful-case
+    # toggles, shared verbatim with `GET /sales/kpis` (KPI R7/R10). This
+    # endpoint's OWN default is `True` (show everything) on EVERY switch --
+    # deliberately NOT spec R11's KPI-screen defaults -- to keep `GET
+    # /sales` backward compatible for any caller that omits them; the
+    # SalesToolbar/useVentasMLFilters URL state (PR16, out of this PR's
+    # scope) is what actually applies R11's default-OFF/ON combination on
+    # first load, by sending these params explicitly.
+    include_unknown: bool = Query(default=True, description='Incluir "A revisar" (KPI R9)'),
+    include_in_dispute: bool = Query(default=True, description='Incluir "En disputa" (KPI R9)'),
+    include_mixed: bool = Query(default=True, description='Incluir "Mixta" (KPI R9)'),
+    include_provisional: bool = Query(default=True, description='Incluir "Provisorio" (KPI R9)'),
     limit: int = Query(default=50, ge=1, le=200),
     offset: int = Query(default=0, ge=0),
     current_user: Usuario = Depends(require_permission("ml_ops.ver")),
@@ -1025,6 +1037,10 @@ def listar_ventas(
             marcas=marcas_list,
             subcategorias=subcategorias_list,
             pms=pms_list,
+            include_unknown=include_unknown,
+            include_in_dispute=include_in_dispute,
+            include_mixed=include_mixed,
+            include_provisional=include_provisional,
         ),
     )
     op_status_expr = scope.op_status_expr

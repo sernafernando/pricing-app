@@ -29,6 +29,7 @@ from sqlalchemy.orm import Query, Session, aliased
 from app.core.config import settings
 from app.models.marca_pm import MarcaPM
 from app.models.ml_order_item_costo import MlOrderItemCosto
+from app.models.ml_order_metrics import MlOrderMetrics
 from app.models.ml_orders_ops import MlOperationLink, MlOrdersOps, MlShipmentOps
 from app.models.producto import ProductoERP
 from app.models.rma_claim_ml import RmaClaimML
@@ -55,6 +56,14 @@ class SalesFilter:
     marcas: Tuple[str, ...] = field(default_factory=tuple)
     subcategorias: Tuple[int, ...] = field(default_factory=tuple)
     pms: Tuple[int, ...] = field(default_factory=tuple)
+    # PR11.T1 (design D12, spec KPI R9-R11): the four doubtful-case toggle
+    # switches. Each, when OFF, excludes the WHOLE GROUP whose COLLAPSED
+    # status (across ALL its members, same rule `collapse()` applies) falls
+    # in that class -- never a per-order filter. Defaults per spec R11.
+    include_unknown: bool = False
+    include_in_dispute: bool = False
+    include_mixed: bool = True
+    include_provisional: bool = True
 
 
 @dataclass
@@ -207,6 +216,74 @@ def _product_facet_exists(db: Session, f: SalesFilter, group_key: Any) -> Option
     )
 
 
+def _group_switch_subquery(db: Session, op_status_expr: Any, goods_status_expr: Any):
+    """PR11.T1/T2 (design D12 Mixta resolution): one row per GROUP, computed
+    over ALL of a group's members (seller-scoped only, like `members_base`
+    -- a switch must agree with what the group's members actually collapse
+    to when rendered, not with a date-scoped slice of them). Mirrors what
+    `collapse()` (design D12/PR9) does for a Python list, in SQL:
+
+    - `op_distinct`/`op_single`, `goods_distinct`/`goods_single`: a distinct
+      count of 0 or 1 means every present member agrees (single value, or
+      'unknown' collapse when none are present -- unreachable for a real
+      group but mirrors `collapse()`'s empty-list branch); >1 means 'mixed'.
+    - `any_in_dispute`: true if ANY member's operation_status is
+      'in_dispute' -- En disputa is not a collapse rule, just an existence
+      check (design D12).
+    - `any_provisional`: true if ANY member's stored `gauss_status` is
+      'provisional' -- Provisorio (design D12), via an outer join so a
+      member with no metrics row yet contributes `NULL`, never a false
+      positive.
+
+    `modo_logistico` is deliberately NOT included here (PR11.T3): it is a
+    logistics attribute (design D12), not a status axis, and must never
+    drive the Mixta switch.
+    """
+    group_key = _group_key_expr()
+    q = db.query(
+        group_key.label("group_key"),
+        func.count(func.distinct(op_status_expr)).label("op_distinct"),
+        func.min(op_status_expr).label("op_single"),
+        func.count(func.distinct(goods_status_expr)).label("goods_distinct"),
+        func.min(goods_status_expr).label("goods_single"),
+        func.max(case((op_status_expr == "in_dispute", 1), else_=0)).label("any_in_dispute"),
+        func.max(case((MlOrderMetrics.gauss_status == "provisional", 1), else_=0)).label("any_provisional"),
+    ).outerjoin(MlShipmentOps, MlShipmentOps.shipment_id == MlOrdersOps.shipping_id)
+    q = q.outerjoin(MlOrderMetrics, MlOrderMetrics.order_id == MlOrdersOps.order_id)
+    if settings.ML_USER_ID:
+        q = q.filter(MlOrdersOps.seller_id == int(settings.ML_USER_ID))
+    return q.group_by(group_key).subquery()
+
+
+def _apply_switches(query: Query, db: Session, f: SalesFilter, op_status_expr: Any, goods_status_expr: Any) -> Query:
+    """PR11.T2: joins `query` against the group-switch aggregate and filters
+    out any group excluded by a currently-OFF toggle (spec KPI R9-R11). All
+    four switches ON is a no-op join elided entirely (the common/default
+    path touches nothing new)."""
+    if f.include_unknown and f.include_in_dispute and f.include_mixed and f.include_provisional:
+        return query
+
+    switches = _group_switch_subquery(db, op_status_expr, goods_status_expr)
+    group_key = _group_key_expr()
+    is_unknown = or_(switches.c.op_distinct == 0, switches.c.op_single == "unknown") | or_(
+        switches.c.goods_distinct == 0, switches.c.goods_single == "unknown"
+    )
+    is_mixed = (switches.c.op_distinct > 1) | (switches.c.goods_distinct > 1)
+    is_in_dispute = switches.c.any_in_dispute == 1
+    is_provisional = switches.c.any_provisional == 1
+
+    query = query.join(switches, switches.c.group_key == group_key)
+    if not f.include_unknown:
+        query = query.filter(~is_unknown)
+    if not f.include_mixed:
+        query = query.filter(~is_mixed)
+    if not f.include_in_dispute:
+        query = query.filter(~is_in_dispute)
+    if not f.include_provisional:
+        query = query.filter(~is_provisional)
+    return query
+
+
 def collapse(values: "list[Optional[str]]") -> str:
     """Moved verbatim from `ml_ventas_ops.py::_collapse` (renamed, no
     leading underscore, now a shared function)."""
@@ -263,6 +340,13 @@ def build_scope(db: Session, f: SalesFilter) -> SalesScope:
     if facet_exists is not None:
         listing_query = listing_query.filter(facet_exists)
         facet_base = facet_base.filter(facet_exists)
+
+    # PR11.T2 (design D12, spec KPI R9-R11): the four doubtful-case toggle
+    # switches apply to BOTH the listing and the facet/KPI base, same
+    # contract as the search and product facets above -- table and KPI
+    # strip must always reflect the exact same filtered set (spec R10).
+    listing_query = _apply_switches(listing_query, db, f, op_status_expr, goods_status_expr)
+    facet_base = _apply_switches(facet_base, db, f, op_status_expr, goods_status_expr)
 
     return SalesScope(
         base=base,

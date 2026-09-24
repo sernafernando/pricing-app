@@ -114,14 +114,14 @@ class TestMarcaFilter:
         _seed_order(db, 1)
         _seed_producto(db, 100, marca="Epson", categoria="Impresoras", subcategoria_id=1)
         _seed_costo(db, 1, "MLA1", 100)
-        scope = build_scope(db, SalesFilter(marcas=("epson",)))
+        scope = build_scope(db, SalesFilter(include_unknown=True, include_in_dispute=True, marcas=("epson",)))
         assert _ids(db, scope) == {1}
 
     def test_non_matching_brand_excludes_the_sale(self, db):
         _seed_order(db, 2)
         _seed_producto(db, 200, marca="Lexmark", categoria="Impresoras", subcategoria_id=1)
         _seed_costo(db, 2, "MLA2", 200)
-        scope = build_scope(db, SalesFilter(marcas=("epson",)))
+        scope = build_scope(db, SalesFilter(include_unknown=True, include_in_dispute=True, marcas=("epson",)))
         assert _ids(db, scope) == set()
 
 
@@ -130,14 +130,14 @@ class TestSubcategoriaFilter:
         _seed_order(db, 3)
         _seed_producto(db, 300, marca="Epson", categoria="Impresoras", subcategoria_id=42)
         _seed_costo(db, 3, "MLA3", 300)
-        scope = build_scope(db, SalesFilter(subcategorias=(42,)))
+        scope = build_scope(db, SalesFilter(include_unknown=True, include_in_dispute=True, subcategorias=(42,)))
         assert _ids(db, scope) == {3}
 
     def test_non_matching_id_excludes(self, db):
         _seed_order(db, 4)
         _seed_producto(db, 400, marca="Epson", categoria="Impresoras", subcategoria_id=1)
         _seed_costo(db, 4, "MLA4", 400)
-        scope = build_scope(db, SalesFilter(subcategorias=(999,)))
+        scope = build_scope(db, SalesFilter(include_unknown=True, include_in_dispute=True, subcategorias=(999,)))
         assert _ids(db, scope) == set()
 
 
@@ -149,7 +149,7 @@ class TestPmFilter:
         _seed_pm_user(db, 7, "pm7")
         db.add(MarcaPM(marca="Epson", categoria="Impresoras", usuario_id=7))
         db.flush()
-        scope = build_scope(db, SalesFilter(pms=(7,)))
+        scope = build_scope(db, SalesFilter(include_unknown=True, include_in_dispute=True, pms=(7,)))
         assert _ids(db, scope) == {5}
 
     def test_pm_with_no_assigned_pairs_yields_empty_result(self, db):
@@ -158,7 +158,7 @@ class TestPmFilter:
         _seed_order(db, 6)
         _seed_producto(db, 600, marca="Epson", categoria="Impresoras", subcategoria_id=1)
         _seed_costo(db, 6, "MLA6", 600)
-        scope = build_scope(db, SalesFilter(pms=(999999,)))
+        scope = build_scope(db, SalesFilter(include_unknown=True, include_in_dispute=True, pms=(999999,)))
         assert _ids(db, scope) == set()
 
     def test_pm_pair_wrong_categoria_does_not_match(self, db):
@@ -168,7 +168,7 @@ class TestPmFilter:
         _seed_pm_user(db, 8, "pm8")
         db.add(MarcaPM(marca="Epson", categoria="Impresoras", usuario_id=8))
         db.flush()
-        scope = build_scope(db, SalesFilter(pms=(8,)))
+        scope = build_scope(db, SalesFilter(include_unknown=True, include_in_dispute=True, pms=(8,)))
         assert _ids(db, scope) == set()
 
 
@@ -176,14 +176,20 @@ class TestUnresolvedItems:
     def test_no_cost_row_never_matches_a_facet_directly(self, db):
         _seed_order(db, 8)
         # No MlOrderItemCosto row at all for order 8.
-        scope = build_scope(db, SalesFilter(marcas=("epson",)))
+        scope = build_scope(db, SalesFilter(include_unknown=True, include_in_dispute=True, marcas=("epson",)))
         assert _ids(db, scope) == set()
 
     def test_no_facet_active_still_returns_unresolved_sale(self, db):
         """R39: with NO product facet active, a sale whose only item has no
         `producto_item_id` row is still returned."""
         _seed_order(db, 9)
-        scope = build_scope(db, SalesFilter())
+        scope = build_scope(
+            db,
+            SalesFilter(
+                include_unknown=True,
+                include_in_dispute=True,
+            ),
+        )
         assert _ids(db, scope) == {9}
 
     def test_unrelated_filter_does_not_drop_pack_with_one_unresolved_sibling(self, db):
@@ -195,7 +201,7 @@ class TestUnresolvedItems:
         _seed_producto(db, 1000, marca="Epson", categoria="Impresoras", subcategoria_id=1)
         _seed_costo(db, 10, "MLA10", 1000)
         # order 11 has no ml_order_item_costos row.
-        scope = build_scope(db, SalesFilter(marcas=("epson",)))
+        scope = build_scope(db, SalesFilter(include_unknown=True, include_in_dispute=True, marcas=("epson",)))
         assert _ids(db, scope) == {10, 11}
 
 
@@ -211,7 +217,9 @@ class TestFacetConjunction:
         _seed_producto(db, 1300, marca="Epson", categoria="Consumibles", subcategoria_id=2)
         _seed_costo(db, 12, "MLA12", 1200)
         _seed_costo(db, 13, "MLA13", 1300)
-        scope = build_scope(db, SalesFilter(marcas=("epson",), subcategorias=(1,)))
+        scope = build_scope(
+            db, SalesFilter(include_unknown=True, include_in_dispute=True, marcas=("epson",), subcategorias=(1,))
+        )
         assert _ids(db, scope) == set()
 
     def test_pack_with_single_item_matching_both_facets_returns_whole_group(self, db):
@@ -221,7 +229,9 @@ class TestFacetConjunction:
         _seed_producto(db, 1500, marca="Lexmark", categoria="Consumibles", subcategoria_id=2)
         _seed_costo(db, 14, "MLA14", 1400)
         _seed_costo(db, 15, "MLA15", 1500)
-        scope = build_scope(db, SalesFilter(marcas=("epson",), subcategorias=(1,)))
+        scope = build_scope(
+            db, SalesFilter(include_unknown=True, include_in_dispute=True, marcas=("epson",), subcategorias=(1,))
+        )
         assert _ids(db, scope) == {14, 15}
 
     def test_kpi_amounts_stay_the_groups_not_the_matched_items(self, db):
@@ -236,7 +246,7 @@ class TestFacetConjunction:
         _seed_producto(db, 1700, marca="Lexmark", categoria="Consumibles", subcategoria_id=2)
         _seed_costo(db, 17, "MLA17", 1700)
 
-        scope = build_scope(db, SalesFilter(marcas=("epson",)))
+        scope = build_scope(db, SalesFilter(include_unknown=True, include_in_dispute=True, marcas=("epson",)))
 
         assert _ids(db, scope) == {16, 17}
         # The AMOUNT, not just the ids: an aggregate over the filtered scope
@@ -261,4 +271,6 @@ class TestOutOfScopeFilters:
         assert "estado_mla" not in campos
         assert "estado_mla_actual" not in campos
         assert "tienda_oficial" not in campos
-        assert _ids(db, build_scope(db, SalesFilter(marcas=("epson",)))) == {18}
+        assert _ids(
+            db, build_scope(db, SalesFilter(include_unknown=True, include_in_dispute=True, marcas=("epson",)))
+        ) == {18}
