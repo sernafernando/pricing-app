@@ -250,6 +250,10 @@ class OrdenPagoResponse(OrdenPagoBase):
     # imputaciones activas y el updated_at superó la ventana de retención.
     puede_eliminar: bool = False
 
+    # Pipeline UX — Pricing `P-…` numbers from linked pedido imputations.
+    # Empty for `a_cuenta` with no pedido destinos (no placeholder).
+    pedidos_numeros: list[str] = Field(default_factory=list)
+
     model_config = ConfigDict(from_attributes=True)
 
 

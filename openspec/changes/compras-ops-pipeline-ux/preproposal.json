@@ -1,0 +1,83 @@
+{
+  "schemaName": "gentle-ai.sdd-preproposal/v1",
+  "revision": 1,
+  "change": "compras-ops-pipeline-ux",
+  "updated_at": "2026-09-22T19:49:23Z",
+  "exploration": {
+    "outcome": "completed",
+    "reference_openspec": "openspec/changes/compras-ops-pipeline-ux/exploration.md",
+    "reference_engram_topic": "compras-ux-boost",
+    "reference_engram_id": 382
+  },
+  "research_request": {
+    "selected": false,
+    "classes": [],
+    "questions": []
+  },
+  "admission": {
+    "status": "not_applicable",
+    "capability_schema": null,
+    "observed_grants": {}
+  },
+  "research_outcome": "unselected",
+  "evidence_references": {
+    "openspec_preproposal": "openspec/changes/compras-ops-pipeline-ux/preproposal.json",
+    "engram_preproposal_topic": "sdd/compras-ops-pipeline-ux/preproposal",
+    "preproposal_revision": 1
+  },
+  "product_decisions": "confirmed",
+  "proposal_ready": true,
+  "readiness_notes": "Operator questionnaire locked 2026-09-22. Research unselected. Ready for sdd-propose.",
+  "confirmed_product_decisions": {
+    "change_name": "compras-ops-pipeline-ux",
+    "program_scope": "all_operator_reqs_chained_prs",
+    "pr_order": [
+      "model_visibility_pedidos_ops",
+      "alerts",
+      "deposito_ux",
+      "multi_oc"
+    ],
+    "invoice_cargada_model": "normalized_rows_option_A",
+    "invoice_erp_multi_link": "deprecated_untouched",
+    "doc_ref_fields_existing": ["facturas_documento", "pedidos_documento"],
+    "alert_message_ids": "pricing_pedido_numero_plus_proveedor_plus_factura_numero",
+    "alert_factura_recipients": "marca_titular_OR_sub_pm_OR_admin_OR_gerente",
+    "alert_factura_ack": "per_user_ok",
+    "alert_factura_undo_window_minutes": 5,
+    "alert_factura_requires_nonempty_doc_number": true,
+    "alert_ui": "stackable_banner_until_ok_plus_campanita",
+    "alert_faltantes_recipient": "pedido_responsable_id",
+    "alert_faltantes_snooze_hours_from_mark": 1,
+    "alert_faltantes_requires_free_text": true,
+    "alert_faltantes_deep_link": "pedido_detalle_with_observaciones",
+    "alert_g31_deposito_on_resolution": "all_users_with_deposito.recibir_mercaderia",
+    "responsable_default": "created_by",
+    "responsable_editors": ["admin", "creator"],
+    "responsable_backfill": "created_by",
+    "tipo_pedido": "mercaderia|servicio",
+    "tipo_default": "mercaderia",
+    "tipo_editors": "pm_on_create_admin_editable",
+    "servicio_implies_no_oc": true,
+    "visibility_chips": ["oc_vinculada", "factura_cargada", "oc_match_status"],
+    "procesal_axis": "n_a_servicio|por_recibir|recibido|faltantes_sin_res|faltantes_con_res|controlado",
+    "oc_as_chip_not_procesal_state": true,
+    "pedidos_show_logistic_states": true,
+    "rename_aprobado_badge_pendiente": false,
+    "deposito_por_recibir_default": "pagado_only",
+    "deposito_por_recibir_toggle": "include_en_cuenta_corriente",
+    "deposito_undo_recibido": true,
+    "deposito_filters": "and_contains_proveedor_pedido_pricing_pedido_proveedor_factura_empresa",
+    "deposito_docs_button": "pedido_adjuntos",
+    "faltantes_hide_complete_lines": true,
+    "control_obs_photo": "always_optional",
+    "ops_column_all_pedido_numeros": true,
+    "multi_oc_ui": "single_pedido_n_blocks",
+    "multi_oc_controlado": "all_ocs_controlled",
+    "multi_oc_limit": "unlimited",
+    "multi_oc_link_mode": "add_without_replace",
+    "channel": "in_app_only",
+    "docs_update": "compras-guia-usuario.md",
+    "deploy": "production_chicho_disposes",
+    "rebase_before_apply": "upstream/main_includes_1314_1316_1317"
+  }
+}

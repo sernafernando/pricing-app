@@ -38,6 +38,7 @@ const ESTADOS_OP = ['pendiente', 'pagado', 'anulado', 'cancelado'];
 
 const COLUMNS = [
   { key: 'numero', label: 'Número', width: '160px' },
+  { key: 'pedidos', label: 'Pedidos', width: '200px' },
   { key: 'empresa', label: 'Empresa', width: '140px' },
   { key: 'proveedor', label: 'Proveedor' },
   { key: 'moneda', label: 'Mon.', align: 'center', width: '60px' },
@@ -424,6 +425,13 @@ export default function TabOrdenesPago() {
     switch (col.key) {
       case 'numero':
         return <span className={styles.tdMono}>{op.numero}</span>;
+      case 'pedidos': {
+        const nums = Array.isArray(op.pedidos_numeros) ? op.pedidos_numeros : [];
+        if (nums.length === 0) {
+          return <span className={styles.tdSecondary} />;
+        }
+        return <span className={styles.tdMono}>{nums.join(', ')}</span>;
+      }
       case 'empresa':
         return op.empresa_nombre || `#${op.empresa_id}`;
       case 'proveedor':

@@ -21,6 +21,7 @@ import {
   TrendingUp,
   Sliders,
   RotateCw,
+  ScanSearch,
 } from 'lucide-react';
 import { usePermisos } from '../../contexts/PermisosContext';
 import useComprasPedidos from '../../hooks/useComprasPedidos';
@@ -34,6 +35,23 @@ import styles from './ModalPedidoDetalle.module.css';
 
 // Estados desde los que se puede corregir un pedido (feature D).
 const ESTADOS_CORREGIBLES = new Set(['aprobado', 'pagado_parcial', 'pagado']);
+
+const EJES_PROCESAL_LABEL = {
+  n_a_servicio: 'N/A servicio',
+  por_recibir: 'Por recibir',
+  recibido: 'Recibido',
+  faltantes_sin_res: 'Faltantes',
+  faltantes_con_res: 'Faltantes resueltos',
+  controlado: 'Controlado',
+};
+
+const MATCH_STATUS_LABEL = {
+  queued: 'Match en cola',
+  running: 'Match en curso',
+  done: 'Match listo',
+  error: 'Match error',
+  skipped: 'Match omitido',
+};
 
 const eventoIcon = (tipo) => {
   const t = (tipo || '').toLowerCase();
@@ -351,6 +369,34 @@ export default function ModalPedidoDetalle({ pedidoId, onClose }) {
                 <span className={styles.infoLabel}>Estado</span>
                 <div className={styles.infoValue}>
                   <EstadoBadge variant="pedido" estado={pedido.estado} size="md" />
+                </div>
+              </div>
+              <div>
+                <span className={styles.infoLabel}>Proceso</span>
+                <div className={styles.infoValue}>
+                  {pedido.eje_procesal
+                    ? (EJES_PROCESAL_LABEL[pedido.eje_procesal] || pedido.eje_procesal)
+                    : '—'}
+                </div>
+                <div className={styles.chipRow}>
+                  {pedido.oc_vinculada && (
+                    <span className={styles.chip}>
+                      <Link2 size={11} aria-hidden="true" />
+                      OC
+                    </span>
+                  )}
+                  {pedido.factura_cargada && (
+                    <span className={styles.chip}>
+                      <FileText size={11} aria-hidden="true" />
+                      Factura
+                    </span>
+                  )}
+                  {pedido.oc_match_status && (
+                    <span className={styles.chip}>
+                      <ScanSearch size={11} aria-hidden="true" />
+                      {MATCH_STATUS_LABEL[pedido.oc_match_status] || pedido.oc_match_status}
+                    </span>
+                  )}
                 </div>
               </div>
               <div>

@@ -30,6 +30,8 @@ ESTADOS_PEDIDO: tuple[str, ...] = (
     "controlado",
 )
 
+TIPOS_PEDIDO: tuple[str, ...] = ("mercaderia", "servicio")
+
 
 class PedidoCompraBase(BaseModel):
     """Campos comunes del pedido de compra (input y output)."""
@@ -52,12 +54,21 @@ class PedidoCompraBase(BaseModel):
     observaciones: str | None = None
     facturas_documento: str | None = Field(None, max_length=500)
     pedidos_documento: str | None = Field(None, max_length=500)
+    tipo: str = "mercaderia"
+
+    @field_validator("tipo")
+    @classmethod
+    def _validar_tipo(cls, v: str) -> str:
+        tipo = (v or "mercaderia").strip()
+        if tipo not in TIPOS_PEDIDO:
+            raise ValueError(f"tipo debe ser uno de {TIPOS_PEDIDO}.")
+        return tipo
 
 
 class PedidoCompraCreate(PedidoCompraBase):
     """Body de POST /pedidos. `numero` lo genera el backend vía numeracion_service."""
 
-    pass
+    responsable_id: int | None = None
 
 
 class PedidoCompraUpdate(BaseModel):
@@ -76,6 +87,18 @@ class PedidoCompraUpdate(BaseModel):
     facturas_documento: str | None = Field(None, max_length=500)
     pedidos_documento: str | None = Field(None, max_length=500)
     estado: str | None = None
+    tipo: str | None = None
+    responsable_id: int | None = None
+
+    @field_validator("tipo")
+    @classmethod
+    def _validar_tipo_update(cls, v: str | None) -> str | None:
+        if v is None:
+            return None
+        tipo = v.strip()
+        if tipo not in TIPOS_PEDIDO:
+            raise ValueError(f"tipo debe ser uno de {TIPOS_PEDIDO}.")
+        return tipo
 
 
 class PedidoCompraResponse(PedidoCompraBase):
@@ -149,6 +172,14 @@ class PedidoCompraResponse(PedidoCompraBase):
     # OP pendiente creada al marcar (None tras revertir o si nunca se marcó).
     pagado_en: datetime | None = None
     op_cuenta_corriente_id: int | None = None
+    responsable_id: int | None = None
+    factura_cargada: bool = False
+    faltantes_resuelto_en: datetime | None = None
+    # Pipeline UX — derived logistic axis (never stored). None for financial-only
+    # states such as aprobado so the financial badge is not renamed Pendiente.
+    eje_procesal: str | None = None
+    oc_vinculada: bool = False
+    oc_match_status: str | None = None
 
     # compras-recepcion-visibilidad-items — composición de ítems de la OC vinculada.
     # Los popula `listar_pedidos` vía `pedidos_service.calcular_oc_totales_batch`
@@ -184,6 +215,32 @@ class PedidoCompraPaginated(BaseModel):
     total: int = Field(..., ge=0)
     page: int = Field(..., ge=1)
     page_size: int = Field(..., ge=1, le=200)
+
+
+class PedidoFacturaDocumentoCreate(BaseModel):
+    """Body de POST /pedidos/{id}/factura-documentos."""
+
+    numero: str = Field(..., min_length=1, max_length=100)
+
+    @field_validator("numero")
+    @classmethod
+    def _strip_numero(cls, v: str) -> str:
+        s = (v or "").strip()
+        if not s:
+            raise ValueError("numero de factura no puede estar vacío.")
+        return s
+
+
+class PedidoFacturaDocumentoResponse(BaseModel):
+    """Fila normalizada de factura cargada (option A)."""
+
+    id: int
+    pedido_id: int
+    numero: str
+    created_at: datetime
+    created_by_id: int
+
+    model_config = ConfigDict(from_attributes=True)
 
 
 # ==========================================================================
