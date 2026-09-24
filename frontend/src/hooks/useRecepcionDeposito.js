@@ -1,6 +1,12 @@
 import { useCallback, useState } from 'react';
 import api from '../services/api';
 
+/** Deep-link `?focus=observaciones` (no Router required — tab tests render bare). */
+export function readFocusQuery() {
+  if (typeof window === 'undefined') return null;
+  return new URLSearchParams(window.location.search).get('focus');
+}
+
 /**
  * useRecepcionDeposito — Slice B reception endpoints for Batch K.
  *
@@ -81,6 +87,21 @@ export default function useRecepcionDeposito() {
   );
 
   /**
+   * POST /pedidos/{id}/recepcion/deshacer-recibido
+   * @returns {Promise<{pedido_id: number, estado_nuevo: string}>}
+   */
+  const deshacerRecibido = useCallback(
+    (pedidoId) =>
+      wrap(async () => {
+        const { data } = await api.post(
+          `/administracion/compras/pedidos/${pedidoId}/recepcion/deshacer-recibido`
+        );
+        return data;
+      }),
+    [wrap]
+  );
+
+  /**
    * GET /pedidos/{id}/recepcion/eventos
    * @returns {Promise<EventosRecepcionResponse>}
    */
@@ -137,6 +158,7 @@ export default function useRecepcionDeposito() {
     getSaldos,
     registrarIngresos,
     confirmarPedido,
+    deshacerRecibido,
     getEventos,
     getDireccionesProveedor,
     generarRetiro,

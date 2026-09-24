@@ -49,10 +49,10 @@ Chain strategy: feature-branch-chain
 
 ## Phase 3: PR3 Depósito
 
-- [ ] 3.1 AND `q_proveedor|q_numero|q_factura|q_empresa` in `backend/app/routers/administracion_compras.py`. Test: Acme∩FA-1.
-- [ ] 3.2 `backend/app/schemas/recepcion.py` + `backend/app/services/recepcion_service.py`: undo; optional obs/photo; `faltantes_texto` required. Test: undo→pagado/CC; controlado 409.
-- [ ] 3.3 `frontend/src/components/compras/TabRecepcionDeposito.jsx` + `frontend/src/hooks/useRecepcionDeposito.js`: pagado+CC; hide saldo 0; Docs=adjuntos; `?focus=observaciones`. Test: RTL.
-- [ ] 3.4 Servicio 409 on recepción. Test: `n_a_servicio`.
+- [x] 3.1 AND `q_proveedor|q_numero|q_factura|q_empresa` in `backend/app/routers/administracion_compras.py`. Test: Acme∩FA-1.
+- [x] 3.2 `backend/app/schemas/recepcion.py` + `backend/app/services/recepcion_service.py`: undo; optional obs/photo; `faltantes_texto` required. Test: undo→pagado/CC; controlado 409.
+- [x] 3.3 `frontend/src/components/compras/TabRecepcionDeposito.jsx` + `frontend/src/hooks/useRecepcionDeposito.js`: pagado+CC; hide saldo 0; Docs=adjuntos; `?focus=observaciones`. Test: RTL.
+- [x] 3.4 Servicio 409 on recepción. Test: `n_a_servicio`.
 
 ## Phase 4: PR4 multi-OC
 

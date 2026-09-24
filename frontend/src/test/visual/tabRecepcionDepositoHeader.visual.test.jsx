@@ -22,6 +22,19 @@ vi.mock('../../services/api', () => ({
     delete: vi.fn(),
     interceptors: { request: { use: vi.fn() }, response: { use: vi.fn() } },
   },
+  // Named exports pulled in via usePermisos → authStore when the tab gates
+  // Coordinar retiro on deposito.despachar_retiro.
+  authAPI: { login: vi.fn(), me: vi.fn() },
+  registerAuthFailureHandler: vi.fn(),
+}));
+
+vi.mock('../../contexts/PermisosContext', () => ({
+  usePermisos: () => ({
+    permisos: ['deposito.recibir_mercaderia', 'deposito.despachar_retiro'],
+    tienePermiso: () => true,
+    cargandoPermisos: false,
+  }),
+  PermisosProvider: ({ children }) => children,
 }));
 
 // Worst case for D7's crowding question: a SIN-OC pedido carrying BOTH chips

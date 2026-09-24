@@ -31,6 +31,7 @@ from app.models.usuario import Usuario
 from app.schemas.recepcion import (
     ConfirmarPedidoRequest,
     ConfirmarPedidoResponse,
+    DeshacerRecibidoResponse,
     EventoRecepcionItem,
     EventosRecepcionResponse,
     IngresoCreadoResponse,
@@ -95,6 +96,15 @@ def _alertar_faltantes_si_corresponde(session: Session, pedido: PedidoCompra, te
     compras_alertas_service.notificar_faltantes(session, pedido=pedido, texto=texto)
 
 
+def _validar_no_servicio(pedido: PedidoCompra) -> None:
+    """Servicio pedidos stay on procesal n_a_servicio — no recepción actions."""
+    if getattr(pedido, "tipo", None) == "servicio":
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Pedido de servicio no admite recepción (n_a_servicio).",
+        )
+
+
 def _validar_estado_receptivo(pedido: PedidoCompra) -> None:
     """Raise 409 if the pedido cannot accept a receipt operation.
 
@@ -103,6 +113,7 @@ def _validar_estado_receptivo(pedido: PedidoCompra) -> None:
     'controlado' raises a distinct 409 — it is the terminal state (D-SINOC).
     All other states raise a generic 409.
     """
+    _validar_no_servicio(pedido)
     if pedido.estado == "controlado":
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
@@ -421,8 +432,12 @@ def registrar_ingresos(
 
     if nuevo_estado == "con_faltantes":
         texto = _texto_faltantes(request.faltantes_texto, request.observaciones)
-        if texto:
-            _alertar_faltantes_si_corresponde(session, pedido, texto)
+        if not texto:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+                detail="faltantes_texto is required when marking faltantes.",
+            )
+        _alertar_faltantes_si_corresponde(session, pedido, texto)
 
     return RegistrarIngresosResponse(
         pedido_id=pedido.id,
@@ -642,7 +657,14 @@ def get_eventos_recepcion(
         .filter(
             CompraEvento.entidad_tipo == CompraEvento.ENTIDAD_TIPO_PEDIDO,
             CompraEvento.entidad_id == pedido_id,
-            CompraEvento.tipo.in_(["recepcion_registrada", "recepcion_con_faltantes", "recepcion_arribo"]),
+            CompraEvento.tipo.in_(
+                [
+                    "recepcion_registrada",
+                    "recepcion_con_faltantes",
+                    "recepcion_arribo",
+                    "recepcion_undo_recibido",
+                ]
+            ),
         )
         .order_by(CompraEvento.id.desc())
         .all()
@@ -664,6 +686,49 @@ def get_eventos_recepcion(
         )
 
     return EventosRecepcionResponse(pedido_id=pedido_id, eventos=items)
+
+
+def deshacer_recibido(
+    session: Session,
+    pedido: PedidoCompra,
+    user: Usuario,
+) -> DeshacerRecibidoResponse:
+    """Undo `recibido` back to a waiting-for-goods state (D-UNDO-R).
+
+    Restores `en_cuenta_corriente` when the CC OP is still open
+    (`op_cuenta_corriente_id` set and `pagado_en` empty); otherwise `pagado`.
+    `controlado` is terminal (409). Servicio is rejected (409).
+    """
+    _validar_no_servicio(pedido)
+    if pedido.estado == "controlado":
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Pedido already controlled",
+        )
+    if pedido.estado != "recibido":
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=f"Undo recibido only from estado='recibido' (estado='{pedido.estado}')",
+        )
+
+    if pedido.op_cuenta_corriente_id is not None and pedido.pagado_en is None:
+        nuevo_estado = "en_cuenta_corriente"
+    else:
+        nuevo_estado = "pagado"
+
+    pedido.estado = nuevo_estado
+    _emit_evento(
+        session,
+        pedido=pedido,
+        user=user,
+        tipo="recepcion_undo_recibido",
+        payload={
+            "estado_anterior": "recibido",
+            "estado_nuevo": nuevo_estado,
+        },
+    )
+    session.flush()
+    return DeshacerRecibidoResponse(pedido_id=pedido.id, estado_nuevo=nuevo_estado)
 
 
 def resolver_faltantes(

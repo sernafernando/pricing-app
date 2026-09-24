@@ -32,7 +32,7 @@ from typing import Any, Optional
 
 from fastapi import APIRouter, BackgroundTasks, Body, Depends, File, Form, HTTPException, Query, UploadFile, status
 from fastapi.responses import FileResponse, Response
-from sqlalchemy import func as sa_func
+from sqlalchemy import exists, func as sa_func, or_
 from sqlalchemy import select, text
 from sqlalchemy.orm import Session, joinedload
 
@@ -48,7 +48,9 @@ from app.models.compra_evento import CompraEvento
 from app.models.etiqueta_envio import EtiquetaEnvio
 from app.models.imputacion import Imputacion
 from app.models.orden_pago import OrdenPago
+from app.models.empresa import Empresa
 from app.models.pedido_compra import PedidoCompra
+from app.models.pedido_factura_documento import PedidoFacturaDocumento
 from app.models.proveedor import Proveedor
 from app.models.tb_sale_document import SaleDocument
 from app.models.usuario import Usuario
@@ -108,6 +110,7 @@ from app.schemas.oc_ingreso import (
     OrdenCompraDetalleResponse,
     VincularOCRequest,
 )
+from app.schemas.recepcion import DespacharRetiroResponse
 from app.schemas.pedido_compra import (
     CorreccionPedidoRequest,
     DocumentoERPImputado,
@@ -236,6 +239,49 @@ def _obtener_proveedor_o_404(db: Session, proveedor_id: int) -> Proveedor:
     return prov
 
 
+def _ilike_contains(column: Any, raw: str) -> Any:
+    """Case-insensitive contains. Empty callers are skipped before this runs."""
+    escaped = raw.strip().replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+    return column.ilike(f"%{escaped}%", escape="\\")
+
+
+def _apply_q_contains_filters(
+    condiciones: list[Any],
+    *,
+    q_proveedor: str | None,
+    q_numero: str | None,
+    q_factura: str | None,
+    q_empresa: str | None,
+) -> None:
+    """AND-combine optional ILIKE contains filters (empty values ignored)."""
+    if q_proveedor and q_proveedor.strip():
+        condiciones.append(
+            exists().where(
+                Proveedor.id == PedidoCompra.proveedor_id,
+                _ilike_contains(Proveedor.nombre, q_proveedor),
+            )
+        )
+    if q_numero and q_numero.strip():
+        condiciones.append(_ilike_contains(PedidoCompra.numero, q_numero))
+    if q_factura and q_factura.strip():
+        condiciones.append(
+            or_(
+                _ilike_contains(PedidoCompra.numero_factura, q_factura),
+                exists().where(
+                    PedidoFacturaDocumento.pedido_id == PedidoCompra.id,
+                    _ilike_contains(PedidoFacturaDocumento.numero, q_factura),
+                ),
+            )
+        )
+    if q_empresa and q_empresa.strip():
+        condiciones.append(
+            exists().where(
+                Empresa.id == PedidoCompra.empresa_id,
+                _ilike_contains(Empresa.nombre, q_empresa),
+            )
+        )
+
+
 def _pedido_response(
     p: PedidoCompra,
     *,
@@ -354,6 +400,10 @@ def listar_pedidos(
     estado: Optional[str] = Query(None, description="Estado del pedido"),
     proveedor_id: Optional[int] = Query(None, ge=1),
     empresa_id: Optional[int] = Query(None, ge=1),
+    q_proveedor: Optional[str] = Query(None, description="Contains filter on proveedor name"),
+    q_numero: Optional[str] = Query(None, description="Contains filter on Pricing P-… / pedido numero"),
+    q_factura: Optional[str] = Query(None, description="Contains filter on factura number"),
+    q_empresa: Optional[str] = Query(None, description="Contains filter on empresa name"),
     desde: Optional[date] = Query(None, description="created_at >= desde"),
     hasta: Optional[date] = Query(None, description="created_at <= hasta"),
     diferencial_cambio_pendiente: Optional[bool] = Query(
@@ -505,6 +555,13 @@ def listar_pedidos(
         condiciones.append(PedidoCompra.created_at >= datetime.combine(desde, datetime.min.time()))
     if hasta is not None:
         condiciones.append(PedidoCompra.created_at <= datetime.combine(hasta, datetime.max.time()))
+    _apply_q_contains_filters(
+        condiciones,
+        q_proveedor=q_proveedor,
+        q_numero=q_numero,
+        q_factura=q_factura,
+        q_empresa=q_empresa,
+    )
 
     stmt = select(PedidoCompra).options(
         joinedload(PedidoCompra.empresa),
@@ -1323,6 +1380,7 @@ def _despachar_retiro_response(
 
 @router.post(
     "/pedidos/{pedido_id}/generar-etiqueta-envio",
+    response_model=DespacharRetiroResponse,
     summary="Generar etiqueta de retiro para un pedido (requiere_envio=True)",
 )
 def generar_etiqueta_envio(
@@ -1330,15 +1388,18 @@ def generar_etiqueta_envio(
     payload: dict[str, Any] = Body(default_factory=dict),
     db: Session = Depends(get_db),
     user: Usuario = Depends(require_permiso("administracion.gestionar_ordenes_compra")),
-) -> dict[str, Any]:
+) -> DespacharRetiroResponse:
     """Genera `etiquetas_envio` tipo=retiro_proveedor. REQ-LOG-002, design §9.1."""
-    return _despachar_retiro_response(
-        db, pedido_id=pedido_id, payload=payload, user_id=user.id, operacion="generar_etiqueta_envio"
+    return DespacharRetiroResponse.model_validate(
+        _despachar_retiro_response(
+            db, pedido_id=pedido_id, payload=payload, user_id=user.id, operacion="generar_etiqueta_envio"
+        )
     )
 
 
 @router.post(
     "/pedidos/{pedido_id}/recepcion/despachar-retiro",
+    response_model=DespacharRetiroResponse,
     summary="Despachar retiro de proveedor desde depósito (requiere_envio=True)",
 )
 def despachar_retiro(
@@ -1346,15 +1407,17 @@ def despachar_retiro(
     payload: dict[str, Any] = Body(default_factory=dict),
     db: Session = Depends(get_db),
     user: Usuario = Depends(require_permiso("deposito.despachar_retiro")),
-) -> dict[str, Any]:
+) -> DespacharRetiroResponse:
     """Genera `etiquetas_envio` tipo=retiro_proveedor desde el flujo de depósito.
 
     REQ-LOG-002, design §9.1. Gated by deposito.despachar_retiro — allows
     warehouse operators to dispatch supplier pickups from the reception tab
     without requiring administracion.gestionar_ordenes_compra.
     """
-    return _despachar_retiro_response(
-        db, pedido_id=pedido_id, payload=payload, user_id=user.id, operacion="despachar_retiro"
+    return DespacharRetiroResponse.model_validate(
+        _despachar_retiro_response(
+            db, pedido_id=pedido_id, payload=payload, user_id=user.id, operacion="despachar_retiro"
+        )
     )
 
 
@@ -5545,6 +5608,7 @@ def obtener_saldo_a_favor_breakdown(
 from app.schemas.recepcion import (  # noqa: E402
     ConfirmarPedidoRequest,
     ConfirmarPedidoResponse,
+    DeshacerRecibidoResponse,
     EventosRecepcionResponse,
     RegistrarIngresosRequest,
     RegistrarIngresosResponse,
@@ -5667,6 +5731,33 @@ def post_confirmar_pedido_recepcion(
         raise HTTPException(status_code=500, detail="Error al confirmar pedido.") from exc
 
     _commit_or_rollback(db, operacion="confirmar_pedido")
+    return result
+
+
+@router.post(
+    "/pedidos/{pedido_id}/recepcion/deshacer-recibido",
+    response_model=DeshacerRecibidoResponse,
+    status_code=status.HTTP_200_OK,
+    summary="Deshacer recibido → pagado o cuenta corriente",
+)
+def post_deshacer_recibido(
+    pedido_id: int,
+    db: Session = Depends(get_db),
+    user: Usuario = Depends(require_permiso(recepcion_service.PERMISO_RECEPCION)),
+) -> DeshacerRecibidoResponse:
+    """Undo recibido. Permission: deposito.recibir_mercaderia. controlado → 409."""
+    pedido = _obtener_pedido_recepcion_o_404(db, pedido_id)
+    try:
+        result = recepcion_service.deshacer_recibido(db, pedido, user)
+    except HTTPException:
+        db.rollback()
+        raise
+    except Exception as exc:
+        db.rollback()
+        logger.exception("deshacer_recibido falló: %s", exc)
+        raise HTTPException(status_code=500, detail="Error al deshacer recibido.") from exc
+
+    _commit_or_rollback(db, operacion="deshacer_recibido")
     return result
 
 

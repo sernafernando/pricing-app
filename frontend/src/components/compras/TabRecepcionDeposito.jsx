@@ -12,9 +12,14 @@ import {
   Truck,
   FileText,
   StickyNote,
+  Paperclip,
+  Undo2,
 } from 'lucide-react';
 import api from '../../services/api';
-import useRecepcionDeposito from '../../hooks/useRecepcionDeposito';
+import { useDebounce } from '../../hooks/useDebounce';
+import useRecepcionDeposito, { readFocusQuery } from '../../hooks/useRecepcionDeposito';
+import { usePermisos } from '../../contexts/PermisosContext';
+import AdjuntosPanel from './AdjuntosPanel';
 import ModalCargarRetiro from './ModalCargarRetiro';
 import styles from './TabRecepcionDeposito.module.css';
 
@@ -63,11 +68,12 @@ const ESTADO_BADGE_CLASS = {
 // them only forced the operator to check two tabs to do a single job.
 // The badge still distinguishes them — that information is useful, the filter is not.
 const FILTER_TABS = [
-  { id: 'pagado,en_cuenta_corriente', label: 'Por recibir' },
+  { id: 'pagado', label: 'Por recibir' },
   { id: 'recibido', label: 'Recibidos sin controlar' },
   { id: 'controlado', label: 'Controlados' },
   { id: 'con_faltantes', label: 'Con faltantes' },
 ];
+const POR_RECIBIR_ID = 'pagado';
 
 // Outcome text announced by the SINGLE list-level copy live region, keyed by
 // copyStatus. 'idle' is deliberately absent: it maps to an empty string, because
@@ -318,7 +324,7 @@ function AccordionBodyConOcArribo({ pedido, onRefreshList }) {
         </div>
       )}
       <div className={styles.noOcBanner} role="status">
-        <AlertTriangle size={16} style={{ flexShrink: 0, marginTop: 2 }} />
+        <AlertTriangle size={16} className={styles.noOcBannerIcon} />
         <p className={styles.noOcBannerText}>{ARRIBO_BANNER_TEXT}</p>
       </div>
       <div className={styles.noOcActions}>
@@ -376,6 +382,7 @@ function AccordionBodyConOc({ pedido, onRefreshList }) {
 
   // Tanda state: { [pod_id]: string } — each input value for this batch
   const [tanda, setTanda] = useState({});
+  const [faltantesTexto, setFaltantesTexto] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState(null);
   const [submitSuccess, setSubmitSuccess] = useState(null);
@@ -423,7 +430,7 @@ function AccordionBodyConOc({ pedido, onRefreshList }) {
 
   if (!saldos) return null;
 
-  const lineas = saldos.lineas || [];
+  const lineas = (saldos.lineas || []).filter((l) => Number(l.saldo_pendiente) !== 0);
 
   // ── Per-line input validation ──
   const hasInputError = (podId) => {
@@ -486,12 +493,18 @@ function AccordionBodyConOc({ pedido, onRefreshList }) {
     setTanda((prev) => ({ ...prev, [podId]: value }));
   };
 
-  const handleSubmit = async () => {
+  const handleSubmit = async ({ completo }) => {
+    if (!completo && !faltantesTexto.trim()) {
+      setSubmitError('El texto de faltantes es requerido.');
+      return;
+    }
     setSubmitting(true);
     setSubmitError(null);
     setSubmitSuccess(null);
     try {
-      await registrarIngresos(pedido.id, { lineas: tandaLineas });
+      const payload = { lineas: tandaLineas };
+      if (!completo) payload.faltantes_texto = faltantesTexto.trim();
+      await registrarIngresos(pedido.id, payload);
       setSubmitSuccess('Control registrado correctamente.');
       await fetchSaldos();
       onRefreshList();
@@ -598,9 +611,8 @@ function AccordionBodyConOc({ pedido, onRefreshList }) {
                     {inputErr && (
                       <span
                         id={`qty-err-${pedido.id}-${linea.pod_id}`}
-                        className={styles.inputError}
+                        className={`${styles.inputError} ${styles.qtyErrorHint}`}
                         role="alert"
-                        style={{ display: 'block', fontSize: 'var(--font-xs)', color: 'var(--cf-accent-red)', marginTop: 2 }}
                       >
                         Excede saldo ({formatUnidades(linea.saldo_pendiente)})
                       </span>
@@ -611,6 +623,19 @@ function AccordionBodyConOc({ pedido, onRefreshList }) {
             })}
           </tbody>
         </table>
+      </div>
+
+      <div className={styles.observacionesInline}>
+        <label htmlFor={`faltantes-conoc-${pedido.id}`} className={styles.observacionesLabel}>
+          Texto de faltantes (requerido al marcar faltantes)
+        </label>
+        <textarea
+          id={`faltantes-conoc-${pedido.id}`}
+          className={styles.observacionesTextarea}
+          placeholder="Describa los ítems faltantes…"
+          value={faltantesTexto}
+          onChange={(e) => setFaltantesTexto(e.target.value)}
+        />
       </div>
 
       <div className={styles.actionBar}>
@@ -628,7 +653,7 @@ function AccordionBodyConOc({ pedido, onRefreshList }) {
           <button
             type="button"
             className={styles.btnSecondary}
-            onClick={handleSubmit}
+            onClick={() => handleSubmit({ completo: false })}
             disabled={!canSubmitFaltantes || submitting || anyInputError}
           >
             {submitting ? <Loader2 size={14} className={styles.spin} /> : null}
@@ -637,7 +662,7 @@ function AccordionBodyConOc({ pedido, onRefreshList }) {
           <button
             type="button"
             className={styles.btnPrimary}
-            onClick={handleSubmit}
+            onClick={() => handleSubmit({ completo: true })}
             disabled={!canSubmitRecibido || submitting || anyInputError}
           >
             {submitting ? <Loader2 size={14} className={styles.spin} /> : null}
@@ -654,25 +679,30 @@ function AccordionBodyConOc({ pedido, onRefreshList }) {
 function AccordionBodySinOc({ pedido, onRefreshList }) {
   const { confirmarPedido } = useRecepcionDeposito();
   const [showFaltantes, setShowFaltantes] = useState(false);
+  const [faltantesTexto, setFaltantesTexto] = useState('');
   const [observaciones, setObservaciones] = useState('');
-  const [obsError, setObsError] = useState(false);
+  const [faltantesError, setFaltantesError] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState(null);
   const [submitSuccess, setSubmitSuccess] = useState(null);
 
   const handleConfirmar = async (completo) => {
-    if (!completo && !observaciones.trim()) {
-      setObsError(true);
+    if (!completo && !faltantesTexto.trim()) {
+      setFaltantesError(true);
       return;
     }
-    setObsError(false);
+    setFaltantesError(false);
     setSubmitting(true);
     setSubmitError(null);
     setSubmitSuccess(null);
     try {
       const payload = completo
-        ? { completo: true }
-        : { completo: false, observaciones: observaciones.trim() };
+        ? { completo: true, observaciones: observaciones.trim() || undefined }
+        : {
+            completo: false,
+            faltantes_texto: faltantesTexto.trim(),
+            observaciones: observaciones.trim() || undefined,
+          };
       await confirmarPedido(pedido.id, payload);
       // D-SINOC messages based on source estado
       let msg;
@@ -705,6 +735,12 @@ function AccordionBodySinOc({ pedido, onRefreshList }) {
   const showControladoBtn = estado === 'recibido' || estado === 'con_faltantes';
   const showFaltantesBtn = estado === 'recibido';
 
+  useEffect(() => {
+    if (!showFaltantes || readFocusQuery() !== 'observaciones') return undefined;
+    document.getElementById('pedido-observaciones')?.focus();
+    return undefined;
+  }, [showFaltantes]);
+
   return (
     <>
       {submitError && (
@@ -719,7 +755,7 @@ function AccordionBodySinOc({ pedido, onRefreshList }) {
       )}
 
       <div className={styles.noOcBanner} role="status">
-        <AlertTriangle size={16} style={{ flexShrink: 0, marginTop: 2 }} />
+        <AlertTriangle size={16} className={styles.noOcBannerIcon} />
         <p className={styles.noOcBannerText}>
           Este pedido no tiene OC vinculada. No es posible registrar por ítem.
         </p>
@@ -763,28 +799,38 @@ function AccordionBodySinOc({ pedido, onRefreshList }) {
       {showFaltantes && (
         <div className={styles.observacionesInline}>
           <label
-            htmlFor={`obs-sinoc-${pedido.id}`}
+            htmlFor="pedido-observaciones"
             className={styles.observacionesLabel}
           >
-            Observaciones (requerido) *
+            Texto de faltantes (requerido)
+          </label>
+          <textarea
+            id="pedido-observaciones"
+            className={`${styles.observacionesTextarea} ${faltantesError ? styles.textareaError : ''}`}
+            placeholder="Describa los ítems faltantes…"
+            value={faltantesTexto}
+            onChange={(e) => {
+              setFaltantesTexto(e.target.value);
+              if (faltantesError && e.target.value.trim()) setFaltantesError(false);
+            }}
+            aria-required="true"
+            aria-invalid={faltantesError}
+          />
+          {faltantesError && (
+            <span className={styles.fieldError} role="alert">
+              El texto de faltantes es requerido.
+            </span>
+          )}
+          <label htmlFor={`obs-sinoc-${pedido.id}`} className={styles.observacionesLabel}>
+            Observaciones (opcional)
           </label>
           <textarea
             id={`obs-sinoc-${pedido.id}`}
-            className={`${styles.observacionesTextarea} ${obsError ? styles.inputError : ''}`}
-            placeholder="Describa los ítems faltantes o motivo…"
+            className={styles.observacionesTextarea}
+            placeholder="Notas de control (opcional)…"
             value={observaciones}
-            onChange={(e) => {
-              setObservaciones(e.target.value);
-              if (obsError && e.target.value.trim()) setObsError(false);
-            }}
-            aria-required="true"
-            aria-invalid={obsError}
+            onChange={(e) => setObservaciones(e.target.value)}
           />
-          {obsError && (
-            <span role="alert" style={{ fontSize: 'var(--font-xs)', color: 'var(--cf-accent-red)' }}>
-              Las observaciones son requeridas al marcar con faltantes.
-            </span>
-          )}
           <div>
             <button
               type="button"
@@ -804,9 +850,14 @@ function AccordionBodySinOc({ pedido, onRefreshList }) {
 
 // ── Single accordion card ─────────────────────────────────────────
 
-function PedidoAccordion({ pedido, onRefreshList, onCopyOutcome }) {
-  const [open, setOpen] = useState(false);
+function PedidoAccordion({ pedido, onRefreshList, onCopyOutcome, defaultOpen = false }) {
+  const { deshacerRecibido } = useRecepcionDeposito();
+  const { tienePermiso } = usePermisos();
+  const canDespacharRetiro = tienePermiso('deposito.despachar_retiro');
+  const [open, setOpen] = useState(defaultOpen);
   const [retiroOpen, setRetiroOpen] = useState(false);
+  const [docsOpen, setDocsOpen] = useState(false);
+  const [undoing, setUndoing] = useState(false);
   // 'idle' | 'copied' | 'error'. A boolean could not tell "never clicked" apart
   // from "clicked and failed", which is exactly the state the operator needs.
   // This state is VISUAL only (icon swap + .copyButtonError); the announcement
@@ -859,6 +910,18 @@ function PedidoAccordion({ pedido, onRefreshList, onCopyOutcome }) {
   // change alone. Keeping both would risk announcing the failure twice.
   // `title` mirrors it for the same reason: tooltip and accessible name are both
   // "what this button does" affordances, not a status channel.
+  const handleDeshacer = async () => {
+    setUndoing(true);
+    try {
+      await deshacerRecibido(pedido.id);
+      onRefreshList();
+    } catch {
+      /* error surface lives in the hook; list stays as-is */
+    } finally {
+      setUndoing(false);
+    }
+  };
+
   const copiarLabel = `Copiar datos del pedido #${pedido.numero}`;
 
   return (
@@ -900,6 +963,27 @@ function PedidoAccordion({ pedido, onRefreshList, onCopyOutcome }) {
           {estadoBadge(pedido.estado, styles)}
           <button
             type="button"
+            className={styles.docsButton}
+            onClick={() => setDocsOpen(true)}
+            aria-label={`Documentos del pedido #${pedido.numero}`}
+          >
+            <Paperclip size={12} aria-hidden="true" />
+            Docs
+          </button>
+          {pedido.estado === 'recibido' && (
+            <button
+              type="button"
+              className={styles.btnSecondary}
+              onClick={handleDeshacer}
+              disabled={undoing}
+              aria-label={`Deshacer recibido del pedido #${pedido.numero}`}
+            >
+              {undoing ? <Loader2 size={12} className={styles.spin} /> : <Undo2 size={12} aria-hidden="true" />}
+              Deshacer recibido
+            </button>
+          )}
+          <button
+            type="button"
             className={`${styles.copyButton} ${copyStatus === 'error' ? styles.copyButtonError : ''}`}
             onClick={handleCopiar}
             aria-label={copiarLabel}
@@ -915,15 +999,17 @@ function PedidoAccordion({ pedido, onRefreshList, onCopyOutcome }) {
                 <Truck size={11} aria-hidden="true" />
                 Requiere retiro
               </span>
-              <button
-                type="button"
-                className={styles.retiroButton}
-                onClick={() => setRetiroOpen(true)}
-                aria-label={`Coordinar retiro para pedido #${pedido.numero}`}
-              >
-                <Truck size={12} aria-hidden="true" />
-                Coordinar retiro
-              </button>
+              {canDespacharRetiro && (
+                <button
+                  type="button"
+                  className={styles.retiroButton}
+                  onClick={() => setRetiroOpen(true)}
+                  aria-label={`Coordinar retiro para pedido #${pedido.numero}`}
+                >
+                  <Truck size={12} aria-hidden="true" />
+                  Coordinar retiro
+                </button>
+              )}
             </>
           )}
         </div>
@@ -948,7 +1034,28 @@ function PedidoAccordion({ pedido, onRefreshList, onCopyOutcome }) {
         </div>
       )}
 
-      {retiroOpen && (
+      {docsOpen && (
+        <div className={styles.docsOverlay} role="dialog" aria-modal="true" aria-labelledby={`docs-title-${pedido.id}`}>
+          <div className={styles.docsPanel}>
+            <div className={styles.docsHeader}>
+              <h2 id={`docs-title-${pedido.id}`} className={styles.docsTitle}>
+                Adjuntos del pedido #{pedido.numero}
+              </h2>
+              <button
+                type="button"
+                className={styles.docsClose}
+                onClick={() => setDocsOpen(false)}
+                aria-label="Cerrar documentos"
+              >
+                <X size={16} aria-hidden="true" />
+              </button>
+            </div>
+            <AdjuntosPanel entidadTipo="pedido_compra" entidadId={pedido.id} canManage={false} />
+          </div>
+        </div>
+      )}
+
+      {retiroOpen && canDespacharRetiro && (
         <ModalCargarRetiro
           pedidoId={pedido.id}
           pedidoNumero={pedido.numero}
@@ -968,10 +1075,20 @@ export default function TabRecepcionDeposito() {
   // `filtro` holds a FILTER_TABS id, i.e. the raw `estado` query param — which
   // may be a comma-separated list of estados, not a single one.
   const [filtro, setFiltro] = useState(FILTER_TABS[0].id);
+  const [incluirCC, setIncluirCC] = useState(false);
+  const [qProveedor, setQProveedor] = useState('');
+  const [qNumero, setQNumero] = useState('');
+  const [qFactura, setQFactura] = useState('');
+  const [qEmpresa, setQEmpresa] = useState('');
+  const dqProveedor = useDebounce(qProveedor, 300);
+  const dqNumero = useDebounce(qNumero, 300);
+  const dqFactura = useDebounce(qFactura, 300);
+  const dqEmpresa = useDebounce(qEmpresa, 300);
   const [pedidos, setPedidos] = useState([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
   const [refreshKey, setRefreshKey] = useState(0);
+  const focusObservaciones = readFocusQuery() === 'observaciones';
 
   // ONE live-region text for the whole list. Hoisted out of PedidoAccordion
   // because at most one row can ever carry an outcome, while a full page mounted
@@ -996,12 +1113,18 @@ export default function TabRecepcionDeposito() {
     setError(null);
     try {
       // Sent verbatim as the `estado` param. The backend splits it on comma and
-      // filters with IN(...), so a tab id may carry several estados at once
-      // (see FILTER_TABS: "Por recibir" = pagado + en_cuenta_corriente).
-      const estados = filtro;
+      // filters with IN(...). Por recibir defaults to pagado; CC is opt-in.
+      const estados =
+        filtro === POR_RECIBIR_ID && incluirCC ? 'pagado,en_cuenta_corriente' : filtro;
+
+      const params = { estado: estados, page_size: 200 };
+      if (dqProveedor.trim()) params.q_proveedor = dqProveedor.trim();
+      if (dqNumero.trim()) params.q_numero = dqNumero.trim();
+      if (dqFactura.trim()) params.q_factura = dqFactura.trim();
+      if (dqEmpresa.trim()) params.q_empresa = dqEmpresa.trim();
 
       const { data } = await api.get('/administracion/compras/pedidos', {
-        params: { estado: estados, page_size: 200 },
+        params,
       });
       // Normalize: API may return {items:[...]} or plain array
       const items = Array.isArray(data) ? data : data.items ?? data.pedidos ?? [];
@@ -1013,11 +1136,21 @@ export default function TabRecepcionDeposito() {
     } finally {
       setLoading(false);
     }
-  }, [filtro, refreshKey]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [filtro, incluirCC, dqProveedor, dqNumero, dqFactura, dqEmpresa, refreshKey]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     fetchPedidos();
   }, [fetchPedidos]);
+
+  useEffect(() => {
+    if (!focusObservaciones || loading) return undefined;
+    const node = document.getElementById('pedido-observaciones');
+    if (node) {
+      node.focus();
+      return undefined;
+    }
+    return undefined;
+  }, [focusObservaciones, loading, pedidos]);
 
   const handleRefreshList = useCallback(() => {
     setRefreshKey((k) => k + 1);
@@ -1059,6 +1192,56 @@ export default function TabRecepcionDeposito() {
         ))}
       </div>
 
+      {filtro === POR_RECIBIR_ID && (
+        <label className={styles.ccToggle}>
+          <input
+            type="checkbox"
+            checked={incluirCC}
+            onChange={(e) => setIncluirCC(e.target.checked)}
+          />
+          Incluir cuenta corriente
+        </label>
+      )}
+
+      <div className={styles.filterBar}>
+        <label className={styles.filterField}>
+          <span className={styles.filterLabel}>Proveedor</span>
+          <input
+            className={styles.filterInput}
+            value={qProveedor}
+            onChange={(e) => setQProveedor(e.target.value)}
+            placeholder="Contiene…"
+          />
+        </label>
+        <label className={styles.filterField}>
+          <span className={styles.filterLabel}>Pedido</span>
+          <input
+            className={styles.filterInput}
+            value={qNumero}
+            onChange={(e) => setQNumero(e.target.value)}
+            placeholder="P-…"
+          />
+        </label>
+        <label className={styles.filterField}>
+          <span className={styles.filterLabel}>Factura</span>
+          <input
+            className={styles.filterInput}
+            value={qFactura}
+            onChange={(e) => setQFactura(e.target.value)}
+            placeholder="Número…"
+          />
+        </label>
+        <label className={styles.filterField}>
+          <span className={styles.filterLabel}>Empresa</span>
+          <input
+            className={styles.filterInput}
+            value={qEmpresa}
+            onChange={(e) => setQEmpresa(e.target.value)}
+            placeholder="Contiene…"
+          />
+        </label>
+      </div>
+
       {/* Error */}
       {error && (
         <div className={styles.errorBanner} role="alert">
@@ -1089,6 +1272,7 @@ export default function TabRecepcionDeposito() {
               pedido={p}
               onRefreshList={handleRefreshList}
               onCopyOutcome={handleCopyOutcome}
+              defaultOpen={focusObservaciones && p.id === pedidos[0]?.id}
             />
           ))}
         </div>

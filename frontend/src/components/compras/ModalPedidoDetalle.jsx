@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   X,
   Loader2,
@@ -26,6 +26,7 @@ import {
 import { usePermisos } from '../../contexts/PermisosContext';
 import useComprasPedidos from '../../hooks/useComprasPedidos';
 import api from '../../services/api';
+import { readFocusQuery } from '../../hooks/useRecepcionDeposito';
 import AdjuntosPanel from './AdjuntosPanel';
 import EstadoBadge from './_shared/EstadoBadge';
 import ModalVincularFactura from './ModalVincularFactura';
@@ -176,6 +177,17 @@ export default function ModalPedidoDetalle({ pedidoId, onClose }) {
   useEffect(() => {
     fetchDetalle();
   }, [fetchDetalle]);
+
+  const observacionesRef = useRef(null);
+  useEffect(() => {
+    if (!pedido || readFocusQuery() !== 'observaciones') return undefined;
+    const node = observacionesRef.current;
+    if (node) {
+      node.scrollIntoView({ block: 'center' });
+      if (typeof node.focus === 'function') node.focus();
+    }
+    return undefined;
+  }, [pedido]);
 
   const handleDesvincular = useCallback(async () => {
     if (!pedido?.id) return;
@@ -675,6 +687,15 @@ export default function ModalPedidoDetalle({ pedidoId, onClose }) {
                 )}
               </div>
             )}
+
+            <h3 className={styles.sectionTitle} id="pedido-observaciones" ref={observacionesRef} tabIndex={-1}>
+              Observaciones
+            </h3>
+            <div className={styles.emptySection}>
+              {pedido.observaciones && String(pedido.observaciones).trim() !== ''
+                ? pedido.observaciones
+                : 'Sin observaciones.'}
+            </div>
 
             {/* ── Factura del ERP ── */}
             <h3 className={styles.sectionTitle}>

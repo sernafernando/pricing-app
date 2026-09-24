@@ -192,8 +192,19 @@ afterEach(() => {
 });
 
 describe('TabRecepcionDeposito — "Por recibir" merged filter', () => {
-  it('requests the listing with both receivable estados on mount', async () => {
+  it('requests the listing with pagado only on mount', async () => {
     await renderTab();
+
+    expect(api.get).toHaveBeenCalledWith(LISTADO_ENDPOINT, {
+      params: { estado: 'pagado', page_size: 200 },
+    });
+  });
+
+  it('includes cuenta corriente when the toggle is on', async () => {
+    const user = userEvent.setup();
+    await renderTab();
+
+    await user.click(screen.getByLabelText('Incluir cuenta corriente'));
 
     expect(api.get).toHaveBeenCalledWith(LISTADO_ENDPOINT, {
       params: { estado: 'pagado,en_cuenta_corriente', page_size: 200 },
@@ -451,9 +462,10 @@ describe('TabRecepcionDeposito — arrival item list (CON-OC, D5a)', () => {
     expect(screen.getByText('5')).toBeInTheDocument();
     expect(screen.queryByText('10.000000')).not.toBeInTheDocument();
 
-    // ZERO editable controls: no input (any type), no checkbox, no tanda state.
-    expect(document.querySelectorAll('input')).toHaveLength(0);
-    expect(screen.queryAllByRole('checkbox')).toHaveLength(0);
+    // ZERO editable controls in the arrival table (page filters stay outside).
+    const tabla = screen.getByRole('table');
+    expect(tabla.querySelectorAll('input')).toHaveLength(0);
+    expect(tabla.querySelectorAll('[type="checkbox"]')).toHaveLength(0);
     expect(screen.queryAllByRole('spinbutton')).toHaveLength(0);
     expect(
       screen.queryByRole('button', { name: /marcar (con faltantes|como controlado)/i }),
@@ -684,5 +696,70 @@ describe('TabRecepcionDeposito — closed header identification chips (SIN-OC, D
 
     // Fixture observaciones is 24 chars — must render verbatim, no ellipsis.
     expect(screen.getByText(PEDIDO_PAGADO.observaciones)).toBeInTheDocument();
+  });
+});
+
+describe('TabRecepcionDeposito — Phase 3 depósito', () => {
+  it('hides faltantes lines with saldo_pendiente 0', async () => {
+    const user = userEvent.setup();
+    const recibido = {
+      ...PEDIDO_CON_OC_PAGADO,
+      id: 11,
+      numero: 'PC-0011',
+      estado: 'recibido',
+    };
+    mockListadoAndSaldos([recibido], {
+      [recibido.id]: {
+        ...SALDOS_ARRIBO,
+        estado: 'recibido',
+        lineas: [
+          { ...SALDOS_ARRIBO.lineas[0], pod_id: 1, item_nombre: 'Completa', saldo_pendiente: '0.000000' },
+          { ...SALDOS_ARRIBO.lineas[1], pod_id: 2, item_nombre: 'Pendiente', saldo_pendiente: '10.000000' },
+        ],
+      },
+    });
+    render(<TabRecepcionDeposito />);
+    await screen.findByText(`#${recibido.numero}`);
+    await user.click(screen.getByRole('button', { name: /Proveedor Tres/ }));
+
+    expect(await screen.findByText('Pendiente')).toBeInTheDocument();
+    expect(screen.queryByText('Completa')).not.toBeInTheDocument();
+  });
+
+  it('Docs opens pedido adjuntos, not an ERP dump', async () => {
+    const user = userEvent.setup();
+    api.get.mockImplementation((url) => {
+      if (url === LISTADO_ENDPOINT) {
+        return Promise.resolve({
+          data: { items: [PEDIDO_PAGADO], total: 1, page: 1, page_size: 200 },
+        });
+      }
+      if (url === `/administracion/compras/pedidos/${PEDIDO_PAGADO.id}/adjuntos`) {
+        return Promise.resolve({
+          data: [{ id: 7, nombre_archivo: 'remito.pdf', tipo: 'otro' }],
+        });
+      }
+      return Promise.reject(new Error(`unexpected GET ${url}`));
+    });
+    render(<TabRecepcionDeposito />);
+    await screen.findByText('#PC-0001');
+
+    await user.click(screen.getByRole('button', { name: 'Documentos del pedido #PC-0001' }));
+
+    expect(await screen.findByText(/Adjuntos del pedido #PC-0001/)).toBeInTheDocument();
+    expect(await screen.findByText('remito.pdf')).toBeInTheDocument();
+    expect(screen.queryByText(/documentos imputados/i)).not.toBeInTheDocument();
+  });
+
+  it('focus=observaciones focuses the faltantes field', async () => {
+    const user = userEvent.setup();
+    window.history.pushState({}, '', '?focus=observaciones');
+    const recibido = { ...PEDIDO_PAGADO, estado: 'recibido' };
+    mockListado([recibido]);
+    render(<TabRecepcionDeposito />);
+    await screen.findByText('#PC-0001');
+    await user.click(screen.getByRole('button', { name: 'Con faltantes' }));
+    expect(document.getElementById('pedido-observaciones')).toHaveFocus();
+    window.history.pushState({}, '', '/');
   });
 });
