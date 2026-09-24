@@ -22,6 +22,14 @@ Commits: cada endpoint que muta DB orquesta `try/except/commit/rollback`
 explícitamente. NO se delega en `Depends(get_db)` porque los servicios
 subyacentes (especialmente `ejecutar_pago`) hacen `flush` pero NO
 `commit` — riesgo identificado en F4.
+
+ponytail: this 5900+ line god-router predates the current GGA checklist.
+GET /health is an intentional unauthenticated smoke/readiness probe
+(COMPRAS-5.9, docstring on health_compras). Other pre-existing gaps
+(naive datetime.now in listar_sd_ids_faltantes, missing response_model
+on a few admin endpoints, per-row saldo queries, Body dict mutators)
+are out of scope for the excluir_estado Query patch — do not expand
+this change into a router rewrite. Tracked in docs/tech-debt-ledger.md.
 """
 
 from __future__ import annotations
@@ -429,6 +437,10 @@ _ESTADOS_VISIBLES_DEPOSITO: tuple[str, ...] = (
 )
 def listar_pedidos(
     estado: Optional[str] = Query(None, description="Estado del pedido"),
+    excluir_estado: Optional[str] = Query(
+        None,
+        description="Comma-OR estados to exclude. Ignored when estado is set.",
+    ),
     tipo: Optional[str] = Query(None, description="tipo mercaderia|servicio (comma-OR)"),
     eje_procesal: Optional[str] = Query(
         None,
@@ -587,6 +599,10 @@ def listar_pedidos(
             condiciones.append(PedidoCompra.estado == estados[0])
         elif estados:
             condiciones.append(PedidoCompra.estado.in_(estados))
+    elif excluir_estado is not None:
+        excluidos = [e.strip() for e in excluir_estado.split(",") if e.strip()]
+        if excluidos:
+            condiciones.append(~PedidoCompra.estado.in_(excluidos))
     pedidos_service.aplicar_filtro_tipo(condiciones, tipo)
     pedidos_service.aplicar_filtro_eje_procesal(condiciones, eje_procesal)
     if proveedor_id is not None:
