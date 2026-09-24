@@ -9,12 +9,88 @@ from __future__ import annotations
 import logging
 import threading
 import time
+from datetime import datetime, timedelta, timezone
 
 import pytest
 from sqlalchemy import text
 from sqlalchemy.orm import sessionmaker
 
 from app.workers.runtime import WorkerRuntime
+
+
+class _StubCatchUpHandler:
+    """A `run_at_local` handler that ALSO declares `catch_up_interval`
+    (`order_metrics.divergence`'s real shape, PR6 review fix J4)."""
+
+    def __init__(self, name: str) -> None:
+        self.name = name
+        self.channels: tuple = ()
+        self.interval = None
+        from datetime import time as dtime
+
+        self.run_at_local = dtime(4, 0)
+        self.catch_up_interval = timedelta(minutes=2)
+
+
+@pytest.mark.postgres
+class TestDueHandlersReadsIncompleteFromPersistedDetail:
+    """PR6 review fix J4: `_due_handlers` must read the handler's own
+    persisted `detail.complete` flag and pass `incomplete=` into
+    `scheduling.is_due`, so a `catch_up_interval` handler becomes due off
+    its daily slot while the last lap is unfinished -- otherwise ~77k
+    orders would need 23+ hours between each on-demand click."""
+
+    def test_handler_is_due_off_slot_when_last_summary_is_incomplete(self, monkeypatch, pg_worker_engine) -> None:
+        session_factory = sessionmaker(bind=pg_worker_engine, autocommit=False, autoflush=False)
+        monkeypatch.setattr("app.core.database.SessionLocal", session_factory)
+
+        handler = _StubCatchUpHandler("order_metrics.divergence")
+        runtime = WorkerRuntime(registry=[handler], direct_url=None)
+
+        now = datetime(2026, 9, 23, 17, 0, tzinfo=timezone.utc)  # 14:00 AR -- off the 04:00 slot
+        with pg_worker_engine.connect() as conn:
+            conn.execute(text("DELETE FROM worker_job_state WHERE name = 'order_metrics.divergence'"))
+            conn.execute(
+                text(
+                    "INSERT INTO worker_job_state (name, last_success_at, detail) "
+                    "VALUES ('order_metrics.divergence', :last_success_at, "
+                    "CAST(:detail AS JSONB))"
+                ),
+                {"last_success_at": now - timedelta(minutes=5), "detail": '{"complete": false}'},
+            )
+            conn.commit()
+
+        # `now` here is far off the 04:00 AR daily slot -- the ONLY reason
+        # this is due is the persisted `complete=False` unlocking the
+        # short catch-up cadence.
+        due = runtime._due_handlers(now)
+        assert handler in due
+
+    def test_handler_is_not_due_off_slot_when_last_summary_is_complete(self, monkeypatch, pg_worker_engine) -> None:
+        session_factory = sessionmaker(bind=pg_worker_engine, autocommit=False, autoflush=False)
+        monkeypatch.setattr("app.core.database.SessionLocal", session_factory)
+
+        handler = _StubCatchUpHandler("order_metrics.divergence")
+        runtime = WorkerRuntime(registry=[handler], direct_url=None)
+
+        now = datetime(2026, 9, 23, 17, 0, tzinfo=timezone.utc)  # 14:00 AR -- off the 04:00 slot
+        with pg_worker_engine.connect() as conn:
+            conn.execute(text("DELETE FROM worker_job_state WHERE name = 'order_metrics.divergence'"))
+            conn.execute(
+                text(
+                    "INSERT INTO worker_job_state (name, last_success_at, detail) "
+                    "VALUES ('order_metrics.divergence', :last_success_at, "
+                    "CAST(:detail AS JSONB))"
+                ),
+                {"last_success_at": now - timedelta(minutes=5), "detail": '{"complete": true}'},
+            )
+            conn.commit()
+
+        due = runtime._due_handlers(now)
+        # A completed lap must fall back to the plain daily slot -- the
+        # short catch-up cadence must not fire when there is nothing left
+        # to catch up on.
+        assert handler not in due
 
 
 @pytest.mark.postgres

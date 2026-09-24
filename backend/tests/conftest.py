@@ -32,6 +32,7 @@ from sqlalchemy import (
     Column,
     MetaData,
     Table,
+    UniqueConstraint,
     create_engine,
     event,
     BigInteger,
@@ -641,6 +642,7 @@ def pg_order_metrics_engine():
     from app.models.ml_payments import MlPaymentCharge as _MlPaymentCharge
     from app.models.ml_payments import MlPaymentOps as _MlPaymentOps
     from app.models.ml_venta_deduccion import MlVentaDeduccion as _MlVentaDeduccion
+    from app.services.order_metrics.triggers import _ENQUEUE_FUNCTIONS_SQL, _ENQUEUE_SYSTEM_FUNCTION_SQL
     from app.models.varios_venta_pct import VariosVentaPct as _VariosVentaPct
 
     own_tables = [
@@ -697,10 +699,21 @@ def pg_order_metrics_engine():
         table.create(bind=eng, checkfirst=True)
     local_metadata.drop_all(bind=eng, checkfirst=True)
     local_metadata.create_all(bind=eng)
+    # PR6: `order_metrics.reconcile`/`.divergence` call
+    # `order_metrics_enqueue_system` -- these two functions only (never the
+    # six per-table trigger functions, which need sibling tables this
+    # fixture does not create; `pg_order_metrics_triggers_engine` owns
+    # those separately).
+    with eng.begin() as conn:
+        conn.execute(sa.text(_ENQUEUE_FUNCTIONS_SQL))
+        conn.execute(sa.text(_ENQUEUE_SYSTEM_FUNCTION_SQL))
     # Leave the shared Column objects patched for SQLite again, same as
     # `pg_tickets_engine`, in case the `db` fixture runs later this session.
     _patch_pg_types_for_sqlite()
     yield eng
+    with eng.begin() as conn:
+        conn.execute(sa.text("DROP FUNCTION IF EXISTS order_metrics_enqueue_system(BIGINT[], TEXT)"))
+        conn.execute(sa.text("DROP FUNCTION IF EXISTS order_metrics_enqueue(BIGINT[], TEXT)"))
     local_metadata.drop_all(bind=eng)
     # Reverse order on teardown: dependents (e.g. `ml_order_metrics` FKs
     # `ml_orders_ops`) must drop before what they reference.
@@ -873,6 +886,112 @@ def pg_order_metrics_triggers_db(pg_order_metrics_triggers_engine):
     yield session
     session.close()
     connection.close()
+
+
+@pytest.fixture(scope="module")
+def pg_order_metrics_divergence_engine():
+    """Module-scoped PostgreSQL engine for `order_metrics.divergence`
+    (ventas-ml-rediseno PR6, design D10): the SAME full table set
+    `pg_order_metrics_engine` creates (`compute_order_metrics`'s whole read
+    set -- costs, payments, deductions, `% de varios` -- the divergence
+    handler calls the exact same producer the drain handler does), PLUS
+    `ml_ops_divergence` (own FK-stripped mirror, same "drop the unused FK"
+    move as `pg_orders_ops_engine`'s copy above) and `worker_job_state`
+    (the handler's own summary sink). A separate fixture from
+    `pg_order_metrics_engine` (not just a subset of its tables) because
+    module-scoped fixtures in the same session cannot share Table objects
+    across files without risking a teardown race; this one carries its own
+    copies of the SAME table names.
+    """
+    if not _postgres_reachable():
+        pytest.skip(
+            f"PostgreSQL not reachable at {POSTGRES_TEST_URL} — set POSTGRES_TEST_URL "
+            "or start a local PostgreSQL to run @pytest.mark.postgres tests. "
+            "CI provides this via the `postgres` service in .github/workflows/ci.yml."
+        )
+
+    from app.models.ml_order_item_costo import MlOrderItemCosto as _MlOrderItemCosto
+    from app.models.ml_order_metrics import MlOrderMetrics as _MlOrderMetrics
+    from app.models.ml_order_metrics import MlOrderMetricsDirty as _MlOrderMetricsDirty
+    from app.models.ml_orders_ops import MlOpsDivergence as _MlOpsDivergence
+    from app.models.ml_orders_ops import MlOrderItemOps as _MlOrderItemOps
+    from app.models.ml_orders_ops import MlOrdersOps as _MlOrdersOps
+    from app.models.ml_payments import MlPaymentCharge as _MlPaymentCharge
+    from app.models.ml_payments import MlPaymentOps as _MlPaymentOps
+    from app.models.ml_venta_deduccion import MlVentaDeduccion as _MlVentaDeduccion
+    from app.models.worker_job_state import WorkerJobState as _WorkerJobState
+    from app.services.order_metrics.triggers import _ENQUEUE_FUNCTIONS_SQL, _ENQUEUE_SYSTEM_FUNCTION_SQL
+    from app.models.varios_venta_pct import VariosVentaPct as _VariosVentaPct
+
+    own_tables = [
+        _MlOrdersOps.__table__,
+        _MlOrderItemOps.__table__,
+        _MlOrderItemCosto.__table__,
+        _MlPaymentOps.__table__,
+        _MlPaymentCharge.__table__,
+        _MlOrderMetrics.__table__,
+        _MlVentaDeduccion.__table__,
+        _MlOrderMetricsDirty.__table__,
+        _WorkerJobState.__table__,
+    ]
+    _restore_pristine_pg_types(own_tables)
+
+    local_metadata = MetaData()
+    divergence_table = Table(
+        "ml_ops_divergence",
+        local_metadata,
+        *(c._copy() for c in _MlOpsDivergence.__table__.columns if c.name != "assigned_to_id"),
+        Column("assigned_to_id", Integer, nullable=True),  # no FK -- see pg_orders_ops_engine rationale
+    )
+    for constraint in _MlOpsDivergence.__table__.constraints:
+        if isinstance(constraint, CheckConstraint):
+            divergence_table.append_constraint(CheckConstraint(constraint.sqltext, name=constraint.name))
+        elif isinstance(constraint, UniqueConstraint):
+            # `_open_divergence_record` (PR6) relies on this constraint as
+            # the ON CONFLICT arbiter -- the plain Column copy above does
+            # NOT carry table-level constraints, so it must be copied
+            # explicitly, `postgresql_nulls_not_distinct` included (`field`
+            # is nullable, and the real table's constraint treats two NULLs
+            # as conflicting, same semantics this mirror must reproduce).
+            divergence_table.append_constraint(
+                UniqueConstraint(
+                    *[c.name for c in constraint.columns],
+                    name=constraint.name,
+                    postgresql_nulls_not_distinct=constraint.dialect_options["postgresql"]["nulls_not_distinct"],
+                )
+            )
+
+    # `VariosVentaPct.creado_por` FKs `usuarios`, not created here -- same
+    # "drop the unused FK" move `pg_order_metrics_engine` already uses.
+    varios_table = Table(
+        "ml_venta_varios_pct",
+        local_metadata,
+        *(c._copy() for c in _VariosVentaPct.__table__.columns if c.name != "creado_por"),
+        Column("creado_por", Integer, nullable=True),
+    )
+    for constraint in _VariosVentaPct.__table__.constraints:
+        if isinstance(constraint, CheckConstraint):
+            varios_table.append_constraint(CheckConstraint(constraint.sqltext, name=constraint.name))
+
+    eng = create_engine(POSTGRES_TEST_URL)
+    for table in reversed(own_tables):
+        table.drop(bind=eng, checkfirst=True)
+    for table in own_tables:
+        table.create(bind=eng, checkfirst=True)
+    local_metadata.drop_all(bind=eng, checkfirst=True)
+    local_metadata.create_all(bind=eng)
+    with eng.begin() as conn:
+        conn.execute(sa.text(_ENQUEUE_FUNCTIONS_SQL))
+        conn.execute(sa.text(_ENQUEUE_SYSTEM_FUNCTION_SQL))
+    _patch_pg_types_for_sqlite()
+    yield eng
+    with eng.begin() as conn:
+        conn.execute(sa.text("DROP FUNCTION IF EXISTS order_metrics_enqueue_system(BIGINT[], TEXT)"))
+        conn.execute(sa.text("DROP FUNCTION IF EXISTS order_metrics_enqueue(BIGINT[], TEXT)"))
+    local_metadata.drop_all(bind=eng)
+    for table in reversed(own_tables):
+        table.drop(bind=eng, checkfirst=True)
+    eng.dispose()
 
 
 @pytest.fixture(scope="module")

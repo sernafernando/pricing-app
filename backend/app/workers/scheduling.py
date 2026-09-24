@@ -21,9 +21,20 @@ class _SchedulableHandler(Protocol):
 
     interval: Optional[object]
     run_at_local: Optional[object]
+    # Optional (PR6 review fix J4): NOT part of the base `JobHandler`
+    # protocol in `registry.py` -- read via `getattr(handler,
+    # "catch_up_interval", None)` below, so a handler that never declares
+    # it (every handler except `order_metrics.divergence`) is unaffected.
+    catch_up_interval: Optional[object]
 
 
-def is_due(handler: _SchedulableHandler, *, now: datetime, last_success_at: Optional[datetime]) -> bool:
+def is_due(
+    handler: _SchedulableHandler,
+    *,
+    now: datetime,
+    last_success_at: Optional[datetime],
+    incomplete: bool = False,
+) -> bool:
     """Whether `handler` should run right now.
 
     - `interval` jobs (e.g. `order_metrics.reconcile`, every 10 min): due
@@ -35,6 +46,15 @@ def is_due(handler: _SchedulableHandler, *, now: datetime, last_success_at: Opti
       restarting at 04:05 after already succeeding at 04:01 today must not
       re-run, but a fresh day (or an earlier on-demand success before
       today's slot) must still let it run.
+    - `run_at_local` jobs that ALSO declare `catch_up_interval` and are
+      passed `incomplete=True` (PR6 review fix J4, design D10's ~77k-order
+      table cannot traverse in one 30s daily run): due on that short
+      cadence too, off the daily slot -- caller decides `incomplete` from
+      the handler's own last persisted `complete` summary flag (`order_
+      metrics.divergence`'s `worker_job_state.detail`). `incomplete=False`
+      (a lap just completed, or no summary exists yet) falls straight back
+      to the plain daily-slot check, identical to a handler with no `catch_
+      up_interval` at all.
     - A handler with neither (channel/notify-only, e.g. `order_metrics.drain`
       in PR3) is never due by schedule -- it only runs on LISTEN wake or the
       runtime's safety poll.
@@ -45,6 +65,12 @@ def is_due(handler: _SchedulableHandler, *, now: datetime, last_success_at: Opti
         return (now - last_success_at) >= handler.interval
 
     if handler.run_at_local is not None:
+        catch_up_interval = getattr(handler, "catch_up_interval", None)
+        if incomplete and catch_up_interval is not None:
+            if last_success_at is None:
+                return True
+            return (now - last_success_at) >= catch_up_interval
+
         local_now = now.astimezone(ARGENTINA_TZ)
         slot_today = local_now.replace(
             hour=handler.run_at_local.hour,

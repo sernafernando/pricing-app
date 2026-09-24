@@ -95,6 +95,13 @@ class WorkerRuntime:
         channels = sorted({channel for handler in self.registry for channel in handler.channels})
         for channel in channels:
             cur.execute(f"LISTEN {channel}")
+        # PR6 (design D10): `worker_jobs` is listened unconditionally, not
+        # derived from any handler's own `channels` -- `POST
+        # /order-metrics/divergence/run` notifies it regardless of which
+        # handlers happen to be registered, so an on-demand trigger wakes
+        # the worker even for a schedule-only handler like
+        # `order_metrics.divergence` (`channels=()`).
+        cur.execute("LISTEN worker_jobs")
         cur.close()
         return conn
 
@@ -107,14 +114,66 @@ class WorkerRuntime:
         with get_background_db() as db:
             for handler in scheduled:
                 row = db.execute(
-                    text("SELECT last_success_at FROM worker_job_state WHERE name = :name"), {"name": handler.name}
+                    text("SELECT last_success_at, detail FROM worker_job_state WHERE name = :name"),
+                    {"name": handler.name},
                 ).fetchone()
                 last_success_at = row[0] if row else None
-                if is_due(handler, now=now, last_success_at=last_success_at):
+                # PR6 review fix J4: a persisted `detail.complete is False`
+                # (only ever written by `order_metrics.divergence`'s own
+                # run summary) unlocks that handler's `catch_up_interval`
+                # in `is_due` -- no previous summary at all is NOT
+                # "incomplete" (nothing to catch up on yet, same as a
+                # freshly-registered handler).
+                detail = row[1] if row and len(row) > 1 else None
+                incomplete = bool(detail) and detail.get("complete") is False
+                if is_due(handler, now=now, last_success_at=last_success_at, incomplete=incomplete):
                     due.append(handler)
         return due
 
-    def _run_handler(self, handler: JobHandler, now: datetime) -> None:
+    def _requested_handlers(self) -> List[JobHandler]:
+        """On-demand triggers (design D10): `POST
+        /order-metrics/divergence/run` sets `worker_job_state.state
+        ='requested'` for one handler's row; this READS (never clears)
+        every such flag this worker's registry recognizes and returns the
+        matching handlers to run right now, regardless of schedule.
+        Postgres-only; on any other dialect (bare unit tests) this is a
+        no-op -- no test exercises the requested-flag path outside
+        `@pytest.mark.postgres`.
+
+        PR6 review fix J3: this used to clear the flag with an `UPDATE ...
+        RETURNING` right here, BEFORE the handler ever ran -- a handler
+        that raises, or a process that dies mid-run, silently lost the
+        request even though `POST /divergence/run` already answered `202`.
+        The flag now only clears in `_clear_requested`, called from
+        `drain_once` AFTER the handler's `JobResult.success` is known, so a
+        failed or crashed run leaves it `'requested'` for the next drain
+        pass to retry -- and a successful run is the only thing that ever
+        clears it, so it can never stay stuck forever either."""
+        names = {h.name: h for h in self.registry}
+        if not names:
+            return []
+        with get_background_db() as db:
+            if db.get_bind().dialect.name != "postgresql":
+                return []
+            rows = db.execute(
+                text("SELECT name FROM worker_job_state WHERE state = 'requested' AND name = ANY(:names)"),
+                {"names": list(names.keys())},
+            ).fetchall()
+        return [names[row[0]] for row in rows if row[0] in names]
+
+    def _clear_requested(self, handler_name: str) -> None:
+        """Clears one handler's `'requested'` flag -- called ONLY after
+        `_run_handler` reports `success=True` for a handler that was
+        picked up via `_requested_handlers` (PR6 review fix J3)."""
+        with get_background_db() as db:
+            if db.get_bind().dialect.name != "postgresql":
+                return
+            db.execute(
+                text("UPDATE worker_job_state SET state = NULL WHERE state = 'requested' AND name = :name"),
+                {"name": handler_name},
+            )
+
+    def _run_handler(self, handler: JobHandler, now: datetime) -> bool:
         deadline = now + timedelta(seconds=DEFAULT_HANDLER_DEADLINE_SECONDS)
         ctx = WorkerContext(deadline=deadline, worker_name=self.worker_name, held_tokens=self._held_tokens)
         # PR3.T6a: `worker_job_state.detail.draining` and the heartbeat's
@@ -129,6 +188,7 @@ class WorkerRuntime:
         finally:
             self._draining = False
         self._record_job_run(handler.name, success)
+        return success
 
     def _record_job_run(self, handler_name: str, success: bool) -> None:
         now = datetime.now(timezone.utc)
@@ -168,14 +228,21 @@ class WorkerRuntime:
         now = now or datetime.now(timezone.utc)
         due = self._due_handlers(now)
         channel_driven = [h for h in self.registry if h.channels and h.interval is None and h.run_at_local is None]
+        requested = self._requested_handlers()
+        requested_names = {h.name for h in requested}
         to_run: List[JobHandler] = []
         seen = set()
-        for handler in due + channel_driven:
+        for handler in due + channel_driven + requested:
             if handler.name not in seen:
                 seen.add(handler.name)
                 to_run.append(handler)
         for handler in to_run:
-            self._run_handler(handler, now)
+            success = self._run_handler(handler, now)
+            # Only a successful run clears the on-demand request flag
+            # (PR6 review fix J3) -- a raise or `success=False` leaves it
+            # `'requested'` so the next drain pass retries it.
+            if success and handler.name in requested_names:
+                self._clear_requested(handler.name)
 
     # -- heartbeat health check ---------------------------------------------
     def _check_heartbeat_or_die(self) -> None:
@@ -201,7 +268,12 @@ class WorkerRuntime:
             worker_name=self.worker_name,
             interval=self._heartbeat_interval,
             token_provider=lambda: set(self._held_tokens),
-            detail_provider=lambda: {"draining": self._draining},
+            # PR6 (design D9): the health endpoint reads `listener_mode`
+            # straight off this same `detail` JSON -- `notify`/`poll_only`
+            # is a property of this running process, never guessed from
+            # config alone (a stale `DATABASE_URL_DIRECT` that fails to
+            # connect still degrades to poll_only in practice).
+            detail_provider=lambda: {"draining": self._draining, "listener_mode": self.listener_mode},
         )
         self.heartbeat.start()
 
