@@ -861,6 +861,16 @@ hides an empty backfill behind a clean-looking number:
   only inspects orders that ALREADY have a row. On an un-backfilled
   database it reads 0 while nothing has been computed.
 
+**`last_divergence.divergent_count=0` only means anything when
+`last_divergence.complete=true`.** A single divergence run is bounded by
+the handler's own 30s deadline and cannot inspect ~77k orders in one pass
+— it resumes from a persisted cursor across runs (daily wake, or repeated
+`POST /divergence/run`) and only sets `complete=true` once a full lap has
+traversed the whole table since it last wrapped around. `complete=false`
+(or a summary written before this field existed, which reads as missing)
+means the run only checked a slice — trigger it again and re-check before
+trusting the number.
+
 Parked orders (`attempts >= 5`) are never in either figure: they are
 reported separately as `poisoned_count` / `poisoned_orders`, with each
 `order_id` and its `last_error`. A gate review must look at that list

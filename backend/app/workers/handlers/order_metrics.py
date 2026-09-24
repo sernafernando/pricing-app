@@ -273,7 +273,8 @@ DIVERGENCE_MAX_RECORDED_PER_RUN = 100
 
 _DIVERGENCE_CANDIDATES_SQL = """
 SELECT m.order_id, m.neto, m.neto_sin_iva, m.iva_reconcilia, m.costo_mercaderia,
-       m.total_gauss, m.markup_pct, m.gauss_status, m.formula_version
+       m.total_gauss, m.markup_pct, m.gauss_status, m.provisional_falta,
+       m.unresolved_reason, m.formula_version
 FROM ml_order_metrics m
 LEFT JOIN ml_order_metrics_dirty d ON d.order_id = m.order_id
 WHERE d.order_id IS NULL AND m.order_id > :last_order_id
@@ -287,15 +288,26 @@ def _stored_metrics_diverges(stored_row, fresh) -> bool:
     freshly computed `OrderMetrics` (design D10). Decimal columns come back
     from the driver as `Decimal`; `OrderMetrics` also carries `Decimal` (or
     `None`), so a plain `!=` is exact -- no float tolerance needed, same
-    discipline the rest of this module already uses for money."""
+    discipline the rest of this module already uses for money.
+
+    `iva_reconcilia` is compared with a plain `!=`, NOT
+    `bool(x) != bool(y)`: the column is nullable, and `bool(None) is
+    bool(False)`, so the old comparison silently treated a stored `NULL`
+    and a stored `False` as equal -- a row that should have flipped to
+    `False` (or the reverse) never got flagged. `provisional_falta` and
+    `unresolved_reason` are compared too (PR6.T3 promised "every stored
+    field"); a stale reason left behind after a fix would otherwise pass as
+    healthy forever."""
     return (
         stored_row.neto != fresh.neto
         or stored_row.neto_sin_iva != fresh.neto_sin_iva
-        or bool(stored_row.iva_reconcilia) != bool(fresh.iva_reconcilia)
+        or stored_row.iva_reconcilia != fresh.iva_reconcilia
         or stored_row.costo_mercaderia != fresh.costo_mercaderia
         or stored_row.total_gauss != fresh.total_gauss
         or stored_row.markup_pct != fresh.markup_pct
         or stored_row.gauss_status != fresh.gauss_status.value
+        or stored_row.provisional_falta != fresh.provisional_falta
+        or stored_row.unresolved_reason != fresh.unresolved_reason
         or stored_row.formula_version != fresh.formula_version
     )
 
@@ -333,6 +345,16 @@ def _write_divergence_summary(detail: dict) -> None:
         db.execute(stmt.on_conflict_do_update(index_elements=["name"], set_={"detail": stmt.excluded.detail}))
 
 
+def _read_divergence_detail() -> dict:
+    """Reads the previously persisted summary, if any -- the resume point
+    for `OrderMetricsDivergenceHandler.run` (PR6 review fix H1)."""
+    from app.models.worker_job_state import WorkerJobState
+
+    with get_background_db() as db:
+        row = db.query(WorkerJobState).filter(WorkerJobState.name == "order_metrics.divergence").first()
+        return dict(row.detail) if row is not None and row.detail else {}
+
+
 class OrderMetricsDivergenceHandler:
     """`JobHandler` (design D10) for `order_metrics.divergence`. Daily at
     04:00 America/Argentina/Buenos_Aires, batches of 500: compares every
@@ -341,7 +363,23 @@ class OrderMetricsDivergenceHandler:
     dirty row (mid-flight -- a mismatch there is expected, not a bug).
     Divergent orders open (or keep open) a `ml_ops_divergence` row and are
     re-enqueued via the system enqueue (self-heal, still visible -- never
-    silently patched in place)."""
+    silently patched in place).
+
+    A single run bounded by `ctx.deadline` (30s, `DEFAULT_HANDLER_DEADLINE_
+    SECONDS`) cannot walk ~77k orders' worth of `compute_order_metrics`
+    calls -- it inspects only a few thousand `order_id`s and would have
+    silently left the entire high-`order_id` tail unchecked while reporting
+    `success=True` with a `divergent_count` that LOOKS complete (PR6 review
+    fix H1). This is fixed by resumable, cumulative traversal: `cursor` (the
+    last `order_id` seen) is persisted in `worker_job_state.detail` and read
+    back at the start of the NEXT run; `divergent_count`/`missing_count`/
+    `checked_count` accumulate across every run of the same lap (a "lap"
+    always starts at `order_id > 0`, and only ever resets to 0 once a run
+    reaches the actual end of the table). `complete=True` in the summary
+    means a full lap -- possibly spread across many runs, whether daily or
+    via repeated `POST /divergence/run` -- has now traversed the whole
+    table since it last wrapped around; `complete=False` means exactly what
+    it says, and `divergent_count=0` on an incomplete run proves nothing."""
 
     name = "order_metrics.divergence"
     channels: Tuple[str, ...] = ()
@@ -349,11 +387,24 @@ class OrderMetricsDivergenceHandler:
     run_at_local: Optional[time] = time(4, 0)
 
     def run(self, ctx: WorkerContext) -> JobResult:
-        divergent_count = 0
-        missing_count = 0
-        checked_count = 0
+        previous = _read_divergence_detail()
+        # `complete` defaults True: no previous state (first ever run) or a
+        # previous run that finished its lap both mean "start a fresh lap
+        # from order_id 0, counters at 0" -- resuming stale counters from an
+        # already-completed lap would double-count.
+        if previous.get("complete", True):
+            last_order_id = 0
+            divergent_count = 0
+            missing_count = 0
+            checked_count = 0
+        else:
+            last_order_id = previous.get("cursor", 0)
+            divergent_count = previous.get("divergent_count", 0)
+            missing_count = previous.get("missing_count", 0)
+            checked_count = previous.get("checked_count", 0)
+
         recorded = 0
-        last_order_id = 0
+        complete = False
         started_at = datetime.now(timezone.utc)
 
         while datetime.now(timezone.utc) < ctx.deadline:
@@ -363,6 +414,8 @@ class OrderMetricsDivergenceHandler:
                     {"last_order_id": last_order_id, "limit": DIVERGENCE_BATCH_SIZE},
                 ).fetchall()
                 if not rows:
+                    complete = True
+                    last_order_id = 0
                     break
 
                 order_ids = [row.order_id for row in rows]
@@ -392,6 +445,8 @@ class OrderMetricsDivergenceHandler:
                 last_order_id = order_ids[-1]
 
             if len(rows) < DIVERGENCE_BATCH_SIZE:
+                complete = True
+                last_order_id = 0
                 break
 
         summary = {
@@ -399,6 +454,8 @@ class OrderMetricsDivergenceHandler:
             "divergent_count": divergent_count,
             "missing_count": missing_count,
             "checked_count": checked_count,
+            "complete": complete,
+            "cursor": last_order_id,
         }
         _write_divergence_summary(summary)
         return JobResult(success=True, detail=summary)

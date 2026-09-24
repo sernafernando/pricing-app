@@ -42,12 +42,18 @@ def claimed_count(db) -> int:
 
 def oldest_dirty_age_seconds(db) -> Optional[float]:
     """Age in seconds of the oldest CLAIMABLE dirty row (excludes parked
-    rows, same rationale as `queue_depth`), or `None` when there is none --
-    never a fabricated `0`."""
+    AND already-claimed rows, same `claimed_at IS NULL AND attempts <
+    threshold` definition `queue_depth` uses), or `None` when there is none
+    -- never a fabricated `0`.
+
+    This intentionally does NOT count a row a worker already holds a lease
+    on: the operator watching a backfill (design D10 gate) wants to know how
+    stale the still-WAITING queue is, not the age of something already being
+    worked -- a claimed-but-old row is progress in flight, not backlog."""
     row = db.execute(
         text(
             "SELECT EXTRACT(EPOCH FROM (now() - min(enqueued_at))) FROM ml_order_metrics_dirty "
-            "WHERE attempts < :threshold"
+            "WHERE claimed_at IS NULL AND attempts < :threshold"
         ),
         {"threshold": POISON_THRESHOLD},
     ).fetchone()

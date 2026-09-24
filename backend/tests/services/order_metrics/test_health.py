@@ -116,6 +116,31 @@ class TestOldestDirtyAge:
         finally:
             db.close()
 
+    def test_excludes_a_row_already_claimed_by_a_worker(
+        self, _order_metrics_db_session, pg_order_metrics_engine
+    ) -> None:
+        """PR6 review fix H3: the docstring says this measures the oldest
+        CLAIMABLE row, same as `queue_depth` -- but a claimed row was never
+        filtered out. An operator watching a backfill wants to know how
+        stale the still-WAITING queue is, not a row a worker already has a
+        lease on."""
+        with pg_order_metrics_engine.connect() as conn:
+            _insert_order(conn, 40)
+            conn.execute(
+                text(
+                    "INSERT INTO ml_order_metrics_dirty (order_id, version, reason, enqueued_at, claimed_at, claimed_by) "
+                    "VALUES (40, 1, 'input_write', now() - interval '90 seconds', now(), 'some-worker')"
+                )
+            )
+            conn.commit()
+
+        db_session_factory = sessionmaker(bind=pg_order_metrics_engine)
+        db = db_session_factory()
+        try:
+            assert oldest_dirty_age_seconds(db) is None
+        finally:
+            db.close()
+
 
 @pytest.mark.postgres
 class TestMissingMetricsCountExcludesParked:

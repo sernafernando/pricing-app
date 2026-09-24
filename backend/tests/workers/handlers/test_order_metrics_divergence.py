@@ -16,6 +16,7 @@ from sqlalchemy import text
 from sqlalchemy.orm import sessionmaker
 
 from app.workers.context import WorkerContext
+from app.workers.handlers import order_metrics as order_metrics_handlers
 from app.workers.handlers.order_metrics import divergence
 from app.workers.registry import REGISTRY
 
@@ -194,3 +195,166 @@ class TestDivergenceWritesSummaryToWorkerJobState:
         assert "divergent_count" in row.detail
         assert "missing_count" in row.detail
         assert "run_at" in row.detail
+
+
+class _ScriptedNow:
+    """Stand-in for `order_metrics.datetime` (module-level import) that
+    returns a scripted sequence of `.now(tz)` results -- gives deterministic
+    control over exactly when `ctx.deadline` is judged exceeded, instead of
+    racing the wall clock against real DB round-trips."""
+
+    def __init__(self, values):
+        self._values = iter(values)
+
+    def now(self, tz=None):  # noqa: ARG002 -- signature parity with datetime.now
+        return next(self._values)
+
+
+@pytest.mark.postgres
+class TestDivergenceCompletionCursor:
+    """PR6 review fix H1: a run truncated by `ctx.deadline` must NEVER claim
+    it inspected the whole table. `complete=False` plus a persisted `cursor`
+    is the only honest signal -- the production gate must not read
+    `divergent_count=0` as clean when only the head of the table was ever
+    looked at."""
+
+    def test_deadline_truncated_pass_reports_incomplete(
+        self, monkeypatch, _order_metrics_db_session, pg_order_metrics_divergence_engine
+    ) -> None:
+        monkeypatch.setattr(order_metrics_handlers, "DIVERGENCE_BATCH_SIZE", 1)
+        order_ids = [600101, 600102, 600103]
+        with pg_order_metrics_divergence_engine.connect() as conn:
+            for order_id in order_ids:
+                _insert_order(conn, order_id)
+                _insert_metrics(conn, order_id)
+            conn.commit()
+
+        t0 = datetime.now(timezone.utc)
+        deadline = t0 + timedelta(seconds=5)
+        t_exceeded = deadline + timedelta(seconds=1)
+        # started_at, loop-check#1 (enters, processes one batch of 1), loop-check#2 (exceeded, exits).
+        monkeypatch.setattr(order_metrics_handlers, "datetime", _ScriptedNow([t0, t0, t_exceeded]))
+
+        result = divergence.run(WorkerContext(deadline=deadline, worker_name="w"))
+
+        assert result.success is True
+        assert result.detail["complete"] is False
+        assert result.detail["checked_count"] == 1
+        assert result.detail["cursor"] == order_ids[0]
+
+        with pg_order_metrics_divergence_engine.connect() as conn:
+            row = conn.execute(
+                text("SELECT detail FROM worker_job_state WHERE name = 'order_metrics.divergence'")
+            ).fetchone()
+        assert row.detail["complete"] is False
+
+    def test_resumes_from_persisted_cursor_across_runs_until_complete(
+        self, monkeypatch, _order_metrics_db_session, pg_order_metrics_divergence_engine
+    ) -> None:
+        monkeypatch.setattr(order_metrics_handlers, "DIVERGENCE_BATCH_SIZE", 1)
+        order_ids = [600111, 600112, 600113]
+        with pg_order_metrics_divergence_engine.connect() as conn:
+            for order_id in order_ids:
+                _insert_order(conn, order_id)
+                _insert_metrics(conn, order_id)
+            conn.commit()
+
+        t0 = datetime.now(timezone.utc)
+        deadline = t0 + timedelta(seconds=5)
+        t_exceeded = deadline + timedelta(seconds=1)
+        with monkeypatch.context() as scoped:
+            scoped.setattr(order_metrics_handlers, "datetime", _ScriptedNow([t0, t0, t_exceeded]))
+            first = divergence.run(WorkerContext(deadline=deadline, worker_name="w"))
+        assert first.detail["complete"] is False
+        assert first.detail["cursor"] == order_ids[0]
+
+        # A second run with a real deadline (real `datetime` restored) and
+        # `DIVERGENCE_BATCH_SIZE` still patched to 1, starting from the persisted
+        # cursor, must reach the end of the table and finish the lap.
+        second = divergence.run(WorkerContext(deadline=_far_deadline(), worker_name="w"))
+        assert second.detail["complete"] is True
+        # Cumulative across both runs of the same lap, not just this run's slice.
+        assert second.detail["checked_count"] == len(order_ids)
+
+
+@pytest.mark.postgres
+class TestDivergenceComparesAllPromisedFields:
+    """PR6 review fix H2: `bool(x) != bool(y)` made `NULL` and `False`
+    compare equal for `iva_reconcilia`, and `provisional_falta`/
+    `unresolved_reason` were never selected nor compared at all."""
+
+    def test_iva_reconcilia_null_vs_false_is_a_divergence(
+        self, _order_metrics_db_session, pg_order_metrics_divergence_engine
+    ) -> None:
+        order_id = 600201
+        with pg_order_metrics_divergence_engine.connect() as conn:
+            _insert_order(conn, order_id)
+            conn.commit()
+
+        from app.services.order_metrics.store import recompute_order_metrics
+
+        session_factory = sessionmaker(bind=pg_order_metrics_divergence_engine)
+        session = session_factory()
+        try:
+            recompute_order_metrics(session, [order_id])
+            session.commit()
+        finally:
+            session.close()
+
+        with pg_order_metrics_divergence_engine.connect() as conn:
+            fresh_row = conn.execute(
+                text("SELECT iva_reconcilia FROM ml_order_metrics WHERE order_id = :order_id"), {"order_id": order_id}
+            ).fetchone()
+            # Force the stored value into the opposite of NULL/False that a
+            # plain `bool(x) != bool(y)` comparison cannot tell apart.
+            corrupted = None if fresh_row.iva_reconcilia is False else False
+            conn.execute(
+                text("UPDATE ml_order_metrics SET iva_reconcilia = :value WHERE order_id = :order_id"),
+                {"value": corrupted, "order_id": order_id},
+            )
+            conn.commit()
+
+        result = divergence.run(WorkerContext(deadline=_far_deadline(), worker_name="w"))
+        assert result.success is True
+
+        with pg_order_metrics_divergence_engine.connect() as conn:
+            div_row = conn.execute(
+                text("SELECT id FROM ml_ops_divergence WHERE order_id = :order_id"), {"order_id": order_id}
+            ).fetchone()
+        assert div_row is not None
+
+    def test_stale_unresolved_reason_is_a_divergence(
+        self, _order_metrics_db_session, pg_order_metrics_divergence_engine
+    ) -> None:
+        order_id = 600202
+        with pg_order_metrics_divergence_engine.connect() as conn:
+            _insert_order(conn, order_id)
+            conn.commit()
+
+        from app.services.order_metrics.store import recompute_order_metrics
+
+        session_factory = sessionmaker(bind=pg_order_metrics_divergence_engine)
+        session = session_factory()
+        try:
+            recompute_order_metrics(session, [order_id])
+            session.commit()
+        finally:
+            session.close()
+
+        with pg_order_metrics_divergence_engine.connect() as conn:
+            # A stale reason left behind that a fresh recompute would not
+            # produce (the order was just successfully reconciled above).
+            conn.execute(
+                text("UPDATE ml_order_metrics SET unresolved_reason = 'sin_pagos' WHERE order_id = :order_id"),
+                {"order_id": order_id},
+            )
+            conn.commit()
+
+        result = divergence.run(WorkerContext(deadline=_far_deadline(), worker_name="w"))
+        assert result.success is True
+
+        with pg_order_metrics_divergence_engine.connect() as conn:
+            div_row = conn.execute(
+                text("SELECT id FROM ml_ops_divergence WHERE order_id = :order_id"), {"order_id": order_id}
+            ).fetchone()
+        assert div_row is not None

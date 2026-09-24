@@ -71,6 +71,15 @@ class LastDivergenceSummary(BaseModel):
     run_at: Optional[str] = None
     divergent_count: Optional[int] = None
     missing_count: Optional[int] = None
+    checked_count: Optional[int] = None
+    # A full lap over `ml_order_metrics` -- possibly spread across many
+    # runs -- has finished traversing the whole table since it last wrapped
+    # around (PR6 review fix H1). `divergent_count=0` proves NOTHING about
+    # the gate while `complete` is False or missing: a run bounded by the
+    # handler's own deadline only ever inspects a slice of the table, and
+    # an old summary written before this fix carries no `complete` key at
+    # all -- treat that as unknown, never as clean.
+    complete: Optional[bool] = None
 
 
 class OrderMetricsHealthResponse(BaseModel):
@@ -134,6 +143,8 @@ def get_order_metrics_health(
             run_at=divergence_row.detail.get("run_at"),
             divergent_count=divergence_row.detail.get("divergent_count"),
             missing_count=divergence_row.detail.get("missing_count"),
+            checked_count=divergence_row.detail.get("checked_count"),
+            complete=divergence_row.detail.get("complete"),
         )
 
     return OrderMetricsHealthResponse(
