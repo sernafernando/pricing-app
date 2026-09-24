@@ -44,6 +44,13 @@ Reglas:
 """
 
 
+def _token_as_str(raw: object) -> str | None:
+    """Pass document tokens as strings. Never coerce with int()."""
+    if raw is None:
+        return None
+    return str(raw)
+
+
 def gemini_json(pool: GeminiPool, payload: dict[str, Any]) -> dict[str, Any]:
     return pool.generate_json(PROMPT + "\n\n" + json.dumps(payload, ensure_ascii=False))
 
@@ -179,8 +186,8 @@ def match_renglones(
     return {
         "proveedor_razon_social": extraido.get("proveedor_razon_social"),
         "proveedor_cuit": extraido.get("proveedor_cuit"),
-        "nro_documento": extraido.get("nro_documento"),
-        "nro_pedido": extraido.get("nro_pedido"),
+        "nro_documento": _token_as_str(extraido.get("nro_documento")),
+        "nro_pedido": _token_as_str(extraido.get("nro_pedido")),
         "tipo_documento": extraido.get("tipo_documento"),
         "fecha": extraido.get("fecha"),
         "moneda": extraido.get("moneda"),

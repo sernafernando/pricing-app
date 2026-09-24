@@ -17,11 +17,14 @@ TIPOS_CONOCIDOS: frozenset[str] = frozenset(
         "proforma",
         "nota_venta",
         "comprobante_pago",
+        "nota_credito",
+        "nota_debito",
         "otro",
     }
 )
 TIPOS_ROUTEABLE: frozenset[str] = frozenset({"factura", "pedido", "proforma", "nota_venta"})
 TIPOS_PEDIDO: frozenset[str] = frozenset({"pedido", "proforma", "nota_venta"})
+TIPOS_NC_ND: frozenset[str] = frozenset({"nota_credito", "nota_debito"})
 
 _TIPO_ALIASES: dict[str, str] = {
     "nv": "nota_venta",
@@ -31,6 +34,12 @@ _TIPO_ALIASES: dict[str, str] = {
     "constancia": "comprobante_pago",
     "recibo": "comprobante_pago",
     "transferencia": "comprobante_pago",
+    "nc": "nota_credito",
+    "nota de credito": "nota_credito",
+    "nota_de_credito": "nota_credito",
+    "nd": "nota_debito",
+    "nota de debito": "nota_debito",
+    "nota_de_debito": "nota_debito",
 }
 
 

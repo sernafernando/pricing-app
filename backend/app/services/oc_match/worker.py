@@ -20,7 +20,7 @@ from app.models.oc_match_job import OcMatchJob, OcMatchRenglon
 from app.models.pedido_compra import PedidoCompra
 from app.services import pedidos_service
 from app.services.oc_match.acta import acta_cierre, nombre_excel
-from app.services.oc_match.doc_refs import apply_writeback, normalize_tipo, token_or_none
+from app.services.oc_match.doc_refs import TIPOS_NC_ND, apply_writeback, normalize_tipo, token_or_none
 from app.services.oc_match.enqueue import claim_queued_job
 from app.services.oc_match.excel import RechazoExcel, generar
 from app.services.oc_match.extract import extract_one
@@ -239,10 +239,13 @@ def _persist(
         )
         if locked is None:
             return
+        tipo = normalize_tipo(extracted.get("tipo_documento"))
+        if tipo in TIPOS_NC_ND:
+            return
         if apply_writeback(locked, extracted):
             job.doc_refs_aplicado_at = datetime.now(UTC)
             nro_documento = token_or_none(extracted.get("nro_documento"))
-            if normalize_tipo(extracted.get("tipo_documento")) == "factura" and nro_documento is not None:
+            if tipo == "factura" and nro_documento is not None:
                 pedidos_service.persist_factura_documento(
                     db,
                     pedido=locked,
