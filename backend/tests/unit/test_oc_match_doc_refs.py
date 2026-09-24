@@ -32,6 +32,16 @@ class TestNormalizeTipo:
         assert normalize_tipo(None) == "otro"
         assert normalize_tipo("desconocido") == "otro"
 
+    def test_nc_nd_aliases(self) -> None:
+        assert normalize_tipo("nc") == "nota_credito"
+        assert normalize_tipo("nota de credito") == "nota_credito"
+        assert normalize_tipo("nota_de_credito") == "nota_credito"
+        assert normalize_tipo("nd") == "nota_debito"
+        assert normalize_tipo("nota de debito") == "nota_debito"
+        assert normalize_tipo("nota_de_debito") == "nota_debito"
+        assert normalize_tipo("nota_credito") == "nota_credito"
+        assert normalize_tipo("nota_debito") == "nota_debito"
+
 
 class TestRouteWriteback:
     def test_factura_routes_both_columns(self) -> None:
@@ -63,6 +73,23 @@ class TestRouteWriteback:
         assert pedido.pedidos_documento == "0001-99; PED-184465"
         assert pedido.facturas_documento == "KEEP-FA"
         assert pedido.numero_factura == "ERP-KEEP"
+
+    def test_nc_nd_skip_writeback(self) -> None:
+        pedido = _pedido(facturas="A", pedidos="B")
+        for tipo in ("nota_credito", "nota_debito", "nc", "nd"):
+            assert (
+                apply_writeback(
+                    pedido,  # type: ignore[arg-type]
+                    {
+                        "tipo_documento": tipo,
+                        "nro_documento": "NC-1",
+                        "nro_pedido": "00184465",
+                    },
+                )
+                is False
+            )
+        assert pedido.facturas_documento == "A"
+        assert pedido.pedidos_documento == "B"
 
     def test_skip_comprobante_pago_and_otro(self) -> None:
         pedido = _pedido(facturas="A", pedidos="B")

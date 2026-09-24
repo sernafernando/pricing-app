@@ -315,6 +315,102 @@ class TestPedidosCRUD:
         assert p_faltantes.id in ids
         assert p_borrador.id not in ids
 
+    def test_listar_pedidos_excluir_estado_cancelado(
+        self, client, auth_headers, db, empresa, proveedor, active_user, con_todos_los_permisos
+    ):
+        def _mk(estado: str) -> PedidoCompra:
+            p = pedidos_service.crear_pedido(
+                db,
+                empresa_id=empresa.id,
+                proveedor_id=proveedor.id,
+                moneda="ARS",
+                monto=Decimal("5000"),
+                creado_por_id=active_user.id,
+            )
+            p.estado = estado
+            db.flush()
+            return p
+
+        p_aprobado = _mk("aprobado")
+        p_pagado = _mk("pagado")
+        p_cancelado = _mk("cancelado")
+
+        r = client.get(
+            f"{BASE}/pedidos",
+            headers=auth_headers,
+            params={"excluir_estado": "cancelado"},
+        )
+        assert r.status_code == 200, r.text
+        ids = {p["id"] for p in r.json()["items"]}
+        assert p_aprobado.id in ids
+        assert p_pagado.id in ids
+        assert p_cancelado.id not in ids
+
+    def test_listar_pedidos_estado_explicito_gana_sobre_excluir(
+        self, client, auth_headers, db, empresa, proveedor, active_user, con_todos_los_permisos
+    ):
+        def _mk(estado: str) -> PedidoCompra:
+            p = pedidos_service.crear_pedido(
+                db,
+                empresa_id=empresa.id,
+                proveedor_id=proveedor.id,
+                moneda="ARS",
+                monto=Decimal("5000"),
+                creado_por_id=active_user.id,
+            )
+            p.estado = estado
+            db.flush()
+            return p
+
+        p_cancelado = _mk("cancelado")
+        p_pagado = _mk("pagado")
+
+        r = client.get(
+            f"{BASE}/pedidos",
+            headers=auth_headers,
+            params={"estado": "cancelado", "excluir_estado": "cancelado"},
+        )
+        assert r.status_code == 200, r.text
+        ids = {p["id"] for p in r.json()["items"]}
+        assert p_cancelado.id in ids
+        assert p_pagado.id not in ids
+
+    def test_listar_pedidos_estados_logisticos(
+        self, client, auth_headers, db, empresa, proveedor, active_user, con_todos_los_permisos
+    ):
+        def _mk(estado: str) -> PedidoCompra:
+            p = pedidos_service.crear_pedido(
+                db,
+                empresa_id=empresa.id,
+                proveedor_id=proveedor.id,
+                moneda="ARS",
+                monto=Decimal("5000"),
+                creado_por_id=active_user.id,
+            )
+            p.estado = estado
+            db.flush()
+            return p
+
+        p_recibido = _mk("recibido")
+        p_faltantes = _mk("con_faltantes")
+        p_controlado = _mk("controlado")
+        p_pagado = _mk("pagado")
+
+        for estado, expected in (
+            ("recibido", p_recibido),
+            ("con_faltantes", p_faltantes),
+            ("controlado", p_controlado),
+        ):
+            r = client.get(
+                f"{BASE}/pedidos",
+                headers=auth_headers,
+                params={"estado": estado},
+            )
+            assert r.status_code == 200, r.text
+            ids = {p["id"] for p in r.json()["items"]}
+            assert expected.id in ids
+            assert p_pagado.id not in ids
+
     def test_buscar_proveedores_con_permiso_compras(self, client, auth_headers):
         """El buscador de proveedor del modal de pedido debe funcionar con el
         permiso de compras (gestionar_ordenes_compra) SIN exigir ver_proveedores."""

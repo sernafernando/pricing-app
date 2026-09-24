@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import time
+from collections.abc import Callable
 from typing import Any
 
 from google import genai
@@ -96,7 +97,12 @@ class GeminiPool:
         demanda_sleeps.clear()
         return True
 
-    def generate_json(self, contents: object, attempts: int = 12) -> dict[str, Any]:
+    def generate_json(
+        self,
+        contents: object,
+        attempts: int = 12,
+        transform_text: Callable[[str], str] | None = None,
+    ) -> dict[str, Any]:
         cuota_usadas: set[int] = set()
         demanda_vistas: set[int] = set()
         demanda_sleeps: dict[int, int] = {}
@@ -113,6 +119,8 @@ class GeminiPool:
                 text = response.text
                 if not text:
                     raise RuntimeError("Gemini no devolvió texto")
+                if transform_text is not None:
+                    text = transform_text(text)
                 try:
                     parsed = json.loads(text)
                 except json.JSONDecodeError as exc:

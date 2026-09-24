@@ -14,6 +14,7 @@ import {
   ScanSearch,
 } from 'lucide-react';
 import { usePermisos } from '../contexts/PermisosContext';
+import { consumePedidoQuery } from '../hooks/useRecepcionDeposito';
 import TabPedidosCompra from '../components/compras/TabPedidosCompra';
 import TabOrdenesPago from '../components/compras/TabOrdenesPago';
 import TabNCsLocales from '../components/compras/TabNCsLocales';
@@ -103,7 +104,7 @@ const TABS = [
 
 export default function AdministracionCompras() {
   const { tienePermiso } = usePermisos();
-  const [searchParams] = useSearchParams();
+  const [searchParams, setSearchParams] = useSearchParams();
 
   // Tabs visibles según permiso (gating obligatorio por AGENTS.md).
   const visibleTabs = TABS.filter((t) => tienePermiso(t.permiso));
@@ -158,7 +159,10 @@ export default function AdministracionCompras() {
                   role="tab"
                   aria-selected={isActive}
                   className={isActive ? styles.tabBtnActive : styles.tabBtn}
-                  onClick={() => setActiveTabId(tab.id)}
+                  onClick={() => {
+                    setActiveTabId(tab.id);
+                    consumePedidoQuery(setSearchParams);
+                  }}
                 >
                   <Icon size={16} />
                   <span>{tab.label}</span>

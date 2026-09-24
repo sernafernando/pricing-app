@@ -1,0 +1,63 @@
+change: compras-pipeline-post-merge-patches
+created: 2026-09-24
+updated: 2026-09-24
+status: apply-in-progress
+phase: apply
+depends_on: []
+supersedes: []
+amends: []
+artifact_store: openspec
+branch_plan: feat/compras-pipeline-post-merge-patches
+baseline_locks: |
+  Do not amend compras-faltantes-responsable-cas / compras-pipeline-reqs-closure
+  (already merged via #1340). Do not regress factura-cargada timer model,
+  CAS resolver, or freeze-migration agreements.
+locked_decisions:
+  1_nc_nd_ignore: |
+    Ignore NC/ND in oc-match extract/writeback. Attach only factura / pedido /
+    nota_venta / proforma (pedidos). Defense in depth: prompt enum + normalize +
+    do not persist_factura_documento for NC/ND.
+  2_leading_zeros: |
+    Preserve leading zeros on pedido document tokens. Treat as string end-to-end;
+    fix chip/display if FE strips.
+  3_oc_match_expand_below: out_of_scope_defer_to_oc_match_owners
+  4_pedidos_filter_default: |
+    Default = all estados except cancelado. Cancelado remains selectable.
+    Add recibido, con_faltantes, controlado to dropdown.
+  5_alert_checkbox: REMOVED_wrong_interpretation
+  5_banner_ver_dismiss: |
+    CORRECTED 2026-09-24 (Gabe lock):
+    - compras.factura_cargada (and other non-faltantes dismissibles):
+      X → PATCH /ok (permanent). Ver → PATCH /ok then navigate (permanent).
+    - compras.faltantes: MUST show X (today dismissible=false).
+      X → same as Posponer: PATCH /snooze (hide ~1h, returns if unresolved).
+      Ver → navigate only; MUST NOT /ok and MUST NOT snooze.
+      Permanent clear remains: PM resolution texto → resuelto (unchanged).
+    NOT the Cargada checkbox.
+  6_deeplink_noop: |
+    Closing modal or changing Compras tabs must clear or remount-safe ?pedido= /
+    focus. Ver must force-open even if URL unchanged.
+  7_sticky_reopen: |
+    Banner open → switch Compras tab → return Pedidos must not reopen.
+    Same query lifecycle as (6).
+  8_incluir_cc_default_true: |
+    Depósito toggle Incluir cuenta corriente defaults to true (was false).
+  9_chip_colors: |
+    Proceso chips: OC info/blue, Factura success/green, Match error red,
+    other Match non-gray; procesalBadge stronger; Número stays muted.
+  10_con_faltantes_overlap: |
+    Estado Con faltantes badge must not sit behind/under Proceso column.
+notes: |
+  Phase 6 apply-in-progress: visual vitest landed (task 6.1). Phase 5 stays
+  checked; 5.3 remains contract unit tests. Visual suite covers the jsdom
+  PARTIAL gap for chip-colors/chip-overlap. Do not archive unless asked.
+artifacts:
+  exploration: exploration.md
+  proposal: proposal.md
+  specs: specs/
+  design: design.md
+  tasks: tasks.md
+  apply_progress: apply-progress.md
+  verify_report: verify-report.md
+next_phase: verify
+nextRecommended: verify

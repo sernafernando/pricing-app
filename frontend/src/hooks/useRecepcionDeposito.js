@@ -19,6 +19,39 @@ export function readEjeQuery() {
   return new URLSearchParams(window.location.search).get('eje');
 }
 
+const PEDIDO_QUERY_KEYS = ['pedido', 'focus', 'open'];
+
+/**
+ * Strip pedido/focus/open from a URLSearchParams copy. Keeps tab, eje, OP keys.
+ */
+export function stripPedidoQueryParams(searchParams) {
+  const next = new URLSearchParams(searchParams);
+  PEDIDO_QUERY_KEYS.forEach((key) => next.delete(key));
+  return next;
+}
+
+/**
+ * Consume-or-clear ?pedido= / focus / open after detalle opens or the operator
+ * closes / changes Compras tab. replace:true so inbound land does not stack.
+ */
+export function consumePedidoQuery(setSearchParams) {
+  setSearchParams(
+    (prev) => {
+      if (!PEDIDO_QUERY_KEYS.some((key) => prev.has(key))) return prev;
+      return stripPedidoQueryParams(prev);
+    },
+    { replace: true }
+  );
+}
+
+/** Force-open nonce so Ver/banner still open when the URL already has ?pedido=. */
+export function nextPedidoOpenNonce() {
+  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+    return crypto.randomUUID();
+  }
+  return String(Date.now());
+}
+
 /**
  * useRecepcionDeposito — Slice B reception endpoints for Batch K.
  *

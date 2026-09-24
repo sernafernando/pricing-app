@@ -8,8 +8,14 @@ import { useSSEChannel } from '../hooks/useSSEChannel';
 import { useSSE } from '../contexts/SSEContext';
 import { useAuthStore } from '../store/authStore';
 import { usePermisos } from '../contexts/PermisosContext';
+import { nextPedidoOpenNonce } from '../hooks/useRecepcionDeposito';
 import api from '../services/api';
 import styles from './AppLayout.module.css';
+
+// ponytail: this file is 320+ lines (layout + alert rotation + Compras
+// banner stack) and already violates the ~200-line component-size
+// convention. Split is a move-only refactor; not bundled with this
+// consume-or-clear / banner Ver-X patch. Tracked in docs/tech-debt-ledger.md.
 
 const COMPRAS_ALERT_TIPOS = new Set([
   'compras.factura_cargada',
@@ -27,10 +33,11 @@ const deepLinkForCompras = (notif) => {
   if (notif?.codigo_producto) return notif.codigo_producto;
   const pedidoId = notif?.item_id;
   if (!pedidoId) return '/administracion/compras?tab=pedidos';
+  const open = nextPedidoOpenNonce();
   if (notif.tipo === 'compras.faltantes') {
-    return `/administracion/compras?tab=pedidos&pedido=${pedidoId}&focus=observaciones`;
+    return `/administracion/compras?tab=pedidos&pedido=${pedidoId}&focus=observaciones&open=${open}`;
   }
-  return `/administracion/compras?tab=pedidos&pedido=${pedidoId}`;
+  return `/administracion/compras?tab=pedidos&pedido=${pedidoId}&open=${open}`;
 };
 
 /**
@@ -270,15 +277,24 @@ function AppLayoutInner() {
               message={notif.mensaje}
               action={{
                 label: 'Ver',
-                onClick: () => navigate(deepLinkForCompras(notif)),
+                onClick: async () => {
+                  if (!isFaltantes) {
+                    await handleOkComprasAlerta(notif.id);
+                  }
+                  navigate(deepLinkForCompras(notif));
+                },
               }}
               secondaryAction={isFaltantes ? {
                 label: 'Posponer',
                 onClick: () => handleSnoozeComprasAlerta(notif.id),
               } : null}
-              dismissible={!isFaltantes}
+              dismissible
               persistent
-              onDismiss={isFaltantes ? undefined : () => handleOkComprasAlerta(notif.id)}
+              onDismiss={
+                isFaltantes
+                  ? () => handleSnoozeComprasAlerta(notif.id)
+                  : () => handleOkComprasAlerta(notif.id)
+              }
             />
             );
           })}

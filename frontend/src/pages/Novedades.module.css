@@ -219,24 +219,27 @@
   background: var(--bg-primary);
   border-radius: var(--radius-lg);
   padding: var(--space-4) 20px; /* horizontal has no exact token */
-  margin: 0;
+  margin: 0 0 var(--space-4) 0;
   display: flex;
   flex-direction: column;
   gap: var(--space-3);
 }
 
+/* Block + absolute badge: nested <ul> stacks under the step text (flex made columns). */
 .entryBody :global(ol li) {
   counter-increment: novedades-step;
-  display: flex;
-  align-items: flex-start;
-  gap: var(--space-3);
+  position: relative;
+  display: block;
+  padding-left: calc(22px + var(--space-3));
   font-size: var(--font-sm);
   color: var(--text-primary);
 }
 
 .entryBody :global(ol li::before) {
   content: counter(novedades-step);
-  flex-shrink: 0;
+  position: absolute;
+  left: 0;
+  top: 0;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -247,6 +250,11 @@
   color: var(--accent-text);
   font-size: var(--font-xs);
   font-weight: var(--font-bold);
+}
+
+.entryBody :global(ol li > ul) {
+  margin-top: var(--space-2);
+  margin-bottom: 0;
 }
 
 .entryBody :global(ul) {

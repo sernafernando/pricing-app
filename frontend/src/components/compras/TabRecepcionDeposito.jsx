@@ -278,20 +278,23 @@ function identChips(pedido, stylesMap) {
       </span>,
     );
   }
-  const pedidosDoc = pedido.pedidos_documento && String(pedido.pedidos_documento).trim();
-  if (pedidosDoc) {
+  const pedidosTokens = String(pedido.pedidos_documento || '')
+    .split(';')
+    .map((part) => part.trim())
+    .filter(Boolean);
+  pedidosTokens.forEach((token, index) => {
     chips.push(
       <span
-        key="pedidos-documento"
+        key={`pedidos-documento-${index}`}
         className={stylesMap.chipIdent}
-        title={pedidosDoc}
+        title={token}
       >
         <FileText size={11} aria-hidden="true" />
-        <span aria-hidden="true">{truncarChip(pedidosDoc)}</span>
-        <span className="sr-only">{CHIP_PEDIDOS_DOCUMENTO_A11Y(pedidosDoc)}</span>
+        <span aria-hidden="true">{truncarChip(token)}</span>
+        <span className="sr-only">{CHIP_PEDIDOS_DOCUMENTO_A11Y(token)}</span>
       </span>,
     );
-  }
+  });
   const observaciones = pedido.observaciones && String(pedido.observaciones).trim();
   if (observaciones) {
     chips.push(
@@ -1326,7 +1329,7 @@ export default function TabRecepcionDeposito() {
     if (focusPedidoId) return 'recibido';
     return FILTER_TABS[0].id;
   });
-  const [incluirCC, setIncluirCC] = useState(false);
+  const [incluirCC, setIncluirCC] = useState(true);
   const [qProveedor, setQProveedor] = useState('');
   const [qNumero, setQNumero] = useState('');
   const [qFactura, setQFactura] = useState('');
