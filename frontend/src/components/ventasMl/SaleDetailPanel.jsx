@@ -226,344 +226,344 @@ export default function SaleDetailPanel({ orderId, onClose }) {
       </div>
 
       <div className={styles.body}>
-      {loading && <p className={styles.stateText}>Cargando desglose…</p>}
+        {loading && <p className={styles.stateText}>Cargando desglose…</p>}
 
-      {!loading && errorKind === 'generic' && (
-        <p className={styles.stateText}>Error al cargar el desglose.</p>
-      )}
+        {!loading && errorKind === 'generic' && (
+          <p className={styles.stateText}>Error al cargar el desglose.</p>
+        )}
 
-      {/* A response that carries no `breakdown` is neither an error nor
-          a zero, and without this the panel rendered blank: no loader,
-          no error, no lines. Blank reads as "this sale left nothing",
-          which is a number we never received. Say what happened. */}
-      {!loading && !errorKind && !breakdown && (
-        <p className={styles.stateText}>Esta venta todavía no tiene desglose disponible.</p>
-      )}
+        {/* A response that carries no `breakdown` is neither an error nor
+            a zero, and without this the panel rendered blank: no loader,
+            no error, no lines. Blank reads as "this sale left nothing",
+            which is a number we never received. Say what happened. */}
+        {!loading && !errorKind && !breakdown && (
+          <p className={styles.stateText}>Esta venta todavía no tiene desglose disponible.</p>
+        )}
 
-      {!loading && !errorKind && breakdown && (
-        <>
-          {/* The starting figure every line below is taken off. `null`
-              (never `0`, see `formatAmount`) when some member order's
-              `paid_amount` has not synced -- reads as "unknown", not
-              as a sale worth nothing. */}
-          <div className={styles.total}>
-            <span className={styles.totalLabel}>Monto de la operación</span>
-            <span className={styles.totalMonto}>{formatAmount(breakdown.monto_operacion)}</span>
-          </div>
-
-          {/* Per-item breakdown of the figure above -- product-owner
-              request: "debería ser la suma de los productos y no están
-              desglosados". Compact/muted on purpose: this is supporting
-              context for the total above it, not a primary figure of
-              its own -- see `.itemLineList` in the CSS module. Rendered
-              only when the backend sent at least one line; a reconcile
-              failure keeps the lines visible (a real partial list) but
-              swaps the reassurance for the named reason instead of
-              hiding the list outright. */}
-          {itemLines.length > 0 && (
-            <ul className={styles.itemLineList} aria-label="Detalle de productos">
-              {itemLines.map((item, index) => (
-                <li
-                  key={`${index}-${item.item_id}-${item.variation_id ?? ''}`}
-                  className={styles.itemLine}
-                >
-                  <span className={styles.itemLineTitle}>
-                    {item.title || item.item_id}
-                    {item.quantity && item.quantity > 1 ? ` (x${item.quantity})` : ''}
-                  </span>
-                  <span className={styles.itemLineMonto}>{formatAmount(item.monto)}</span>
-                </li>
-              ))}
-            </ul>
-          )}
-          {breakdown.item_lines_reconcilia === false && (
-            <p className={styles.itemLineWarning}>
-              {/* The fallback names the CONSEQUENCE without guessing
-                  the cause: a reason the backend adds tomorrow must
-                  still render as money the reader can act on, and
-                  "puede no sumar el monto" describes something that
-                  cannot happen any more -- the heading IS the lines'
-                  own sum. */}
-              {ITEM_LINES_RAZON_LABELS[breakdown.item_lines_razon] ||
-                'No se pudo calcular el monto de la operación a partir de los productos.'}
-            </p>
-          )}
-
-          {breakdown.incompleto && (
-            <div className={styles.incompleteBanner}>
-              <TriangleAlert size={16} aria-hidden="true" />
-              <div>
-                {reasons.length === 0 ? (
-                  <p>Este desglose está incompleto.</p>
-                ) : (
-                  reasons.map((reason) => (
-                    <p key={reason}>{INCOMPLETE_REASON_LABELS[reason] || reason}</p>
-                  ))
-                )}
-              </div>
+        {!loading && !errorKind && breakdown && (
+          <>
+            {/* The starting figure every line below is taken off. `null`
+                (never `0`, see `formatAmount`) when some member order's
+                `paid_amount` has not synced -- reads as "unknown", not
+                as a sale worth nothing. */}
+            <div className={styles.total}>
+              <span className={styles.totalLabel}>Monto de la operación</span>
+              <span className={styles.totalMonto}>{formatAmount(breakdown.monto_operacion)}</span>
             </div>
-          )}
 
-          <ul className={styles.lineList}>
-            {lines.map((line, index) => (
-              // Index, not `concepto`: the backend sends lines as-is,
-              // unfiltered and unreordered, so two lines CAN share a
-              // concepto and a key on it would collide.
-              <li key={`${index}-${line.concepto}`} className={styles.line}>
-                <span className={styles.lineConcepto}>{line.concepto}</span>
-                <span className={styles.lineMonto}>{formatAmount(line.monto)}</span>
-              </li>
-            ))}
-          </ul>
+            {/* Per-item breakdown of the figure above -- product-owner
+                request: "debería ser la suma de los productos y no están
+                desglosados". Compact/muted on purpose: this is supporting
+                context for the total above it, not a primary figure of
+                its own -- see `.itemLineList` in the CSS module. Rendered
+                only when the backend sent at least one line; a reconcile
+                failure keeps the lines visible (a real partial list) but
+                swaps the reassurance for the named reason instead of
+                hiding the list outright. */}
+            {itemLines.length > 0 && (
+              <ul className={styles.itemLineList} aria-label="Detalle de productos">
+                {itemLines.map((item, index) => (
+                  <li
+                    key={`${index}-${item.item_id}-${item.variation_id ?? ''}`}
+                    className={styles.itemLine}
+                  >
+                    <span className={styles.itemLineTitle}>
+                      {item.title || item.item_id}
+                      {item.quantity && item.quantity > 1 ? ` (x${item.quantity})` : ''}
+                    </span>
+                    <span className={styles.itemLineMonto}>{formatAmount(item.monto)}</span>
+                  </li>
+                ))}
+              </ul>
+            )}
+            {breakdown.item_lines_reconcilia === false && (
+              <p className={styles.itemLineWarning}>
+                {/* The fallback names the CONSEQUENCE without guessing
+                    the cause: a reason the backend adds tomorrow must
+                    still render as money the reader can act on, and
+                    "puede no sumar el monto" describes something that
+                    cannot happen any more -- the heading IS the lines'
+                    own sum. */}
+                {ITEM_LINES_RAZON_LABELS[breakdown.item_lines_razon] ||
+                  'No se pudo calcular el monto de la operación a partir de los productos.'}
+              </p>
+            )}
 
-          {/* ml-ventas-neto-iibb-varios D6: recoverable lines (today:
-              SIRTAC) render AFTER the subtraction list, visibly muted,
-              never counted in it -- see the `lines`/`recuperables`
-              split above. */}
-          {recuperables.length > 0 && (
-            <ul className={styles.lineList} aria-label="Recuperable">
-              {recuperables.map((line, index) => (
-                <li key={`${index}-${line.concepto}`} className={`${styles.line} ${styles.recuperableLine}`}>
-                  <span className={styles.lineConcepto}>
-                    {line.concepto}
-                    <span className={styles.mutedNote}> · se recupera a fin de mes (no se descuenta)</span>
-                  </span>
+            {breakdown.incompleto && (
+              <div className={styles.incompleteBanner}>
+                <TriangleAlert size={16} aria-hidden="true" />
+                <div>
+                  {reasons.length === 0 ? (
+                    <p>Este desglose está incompleto.</p>
+                  ) : (
+                    reasons.map((reason) => (
+                      <p key={reason}>{INCOMPLETE_REASON_LABELS[reason] || reason}</p>
+                    ))
+                  )}
+                </div>
+              </div>
+            )}
+
+            <ul className={styles.lineList}>
+              {lines.map((line, index) => (
+                // Index, not `concepto`: the backend sends lines as-is,
+                // unfiltered and unreordered, so two lines CAN share a
+                // concepto and a key on it would collide.
+                <li key={`${index}-${line.concepto}`} className={styles.line}>
+                  <span className={styles.lineConcepto}>{line.concepto}</span>
                   <span className={styles.lineMonto}>{formatAmount(line.monto)}</span>
                 </li>
               ))}
             </ul>
-          )}
 
-          <div className={`${styles.total} ${breakdown.incompleto ? styles.totalIncomplete : ''}`}>
-            <span className={styles.totalLabel}>Neto</span>
-            <span className={styles.totalMonto}>{formatAmount(breakdown.neto)}</span>
-          </div>
-          {/* ml-ventas-neto-iibb-varios R4/PR1.T10.c: explains why
-              Neto is higher than what ML actually deposited -- only
-              when there is a non-refunded SIRTAC to explain. */}
-          {breakdown.retenciones_recuperables > 0 && (
-            <p className={styles.netoSubLine}>
-              {`MP ${formatMoney(breakdown.neto_depositado)} · SIRTAC ${formatMoney(
-                breakdown.retenciones_recuperables,
-              )}`}
-            </p>
-          )}
-
-          {/* ml-ventas-modo-logistico PR6 — IVA por alícuota. Absent
-              entirely when the backend did not send it (defensive: an
-              older cached response, a malformed payload). */}
-          {ivaDecomposicion && (
-            <section className={styles.section} aria-label="IVA por alícuota">
-              <h3 className={styles.sectionTitle}>IVA por alícuota</h3>
-              {ivaDecomposicion.reconcilia ? (
-                <ul className={styles.lineList}>
-                  {componentesIva.map((componente, index) => (
-                    // Same index-keyed reasoning as `lines` above: the
-                    // backend can legitimately repeat a `concepto`.
-                    <li
-                      key={`${index}-${componente.concepto}`}
-                      className={`${styles.line} ${componente.informativo ? styles.recuperableLine : ''}`}
-                    >
-                      <span className={styles.lineConcepto}>
-                        {componente.concepto}
-                        {componente.informativo ? (
-                          <span className={styles.mutedNote}> (informativo)</span>
-                        ) : (
-                          <span className={styles.ivaAlicuota}>
-                            {' '}
-                            ({formatAlicuota(componente.alicuota)})
-                          </span>
-                        )}
-                      </span>
-                      {/* An informativo componente (SIRTAC) shows no
-                          base/IVA split -- it carries no rate and does
-                          not count in `neto_sin_iva`, so a figure here
-                          would read as part of it. */}
-                      {!componente.informativo && (
-                        <span className={styles.lineMonto}>
-                          base {formatAmount(componente.base)} · IVA {formatAmount(componente.iva)}
-                        </span>
-                      )}
-                    </li>
-                  ))}
-                </ul>
-              ) : (
-                // Never a bare number when it does not reconcile — the
-                // NAMED reason, exactly as `iva.py` produced it.
-                <div className={styles.reasonBox}>
-                  {razonesIva.length === 0 ? (
-                    <p>Este desglose de IVA no reconcilia.</p>
-                  ) : (
-                    razonesIva.map((razon) => <p key={razon}>{RAZON_LABELS[razon] || razon}</p>)
-                  )}
-                </div>
-              )}
-            </section>
-          )}
-
-          {/* ml-ventas-modo-logistico PR6 — the Total Gauss chain:
-              neto sin IVA -> costo de mercadería -> envío Flex ->
-              % de varios -> Total Gauss. A `null` link renders "—" and
-              is named below the chain; Total Gauss itself is only
-              ever shown once every link resolved -- never a zero. */}
-          {cadenaTotalGauss && (
-            <section className={styles.section} aria-label="Total Gauss">
-              <h3 className={styles.sectionTitle}>Total Gauss</h3>
-              <ul className={styles.lineList}>
-                <li className={styles.line}>
-                  <span className={styles.lineConcepto}>Neto sin IVA</span>
-                  <span className={styles.lineMonto}>{formatAmount(ivaDecomposicion?.neto_sin_iva)}</span>
-                </li>
-                {lineasGauss.map((linea) => (
-                  <li key={linea.code} className={styles.line}>
-                    {/* `concepto` carries the per-order label (today:
-                        the logistics company name on `envio_flex`) when
-                        the backend has one -- falls back to the static
-                        map only when it does not. */}
+            {/* ml-ventas-neto-iibb-varios D6: recoverable lines (today:
+                SIRTAC) render AFTER the subtraction list, visibly muted,
+                never counted in it -- see the `lines`/`recuperables`
+                split above. */}
+            {recuperables.length > 0 && (
+              <ul className={styles.lineList} aria-label="Recuperable">
+                {recuperables.map((line, index) => (
+                  <li key={`${index}-${line.concepto}`} className={`${styles.line} ${styles.recuperableLine}`}>
                     <span className={styles.lineConcepto}>
-                      {linea.concepto || DEDUCCION_LABELS[linea.code] || linea.code}
+                      {line.concepto}
+                      <span className={styles.mutedNote}> · se recupera a fin de mes (no se descuenta)</span>
                     </span>
-                    <span className={styles.lineMonto}>
-                      {linea.monto === null ? '—' : formatAmount(linea.monto)}
-                    </span>
+                    <span className={styles.lineMonto}>{formatAmount(line.monto)}</span>
                   </li>
                 ))}
               </ul>
+            )}
 
-              {/* Per-item arithmetic behind "Costo de mercadería" --
-                  product-owner request: "debería decir después de costo
-                  (precio USD + TC) de cada operación para saber cómo
-                  replicar ese valor". Always shown when the backend sent
-                  items, regardless of whether the aggregate line above
-                  resolved -- an operator can still see which items DO
-                  have a known cost. Compact/muted, same discipline as
-                  the product list above: this explains the line above
-                  it, it is not a total of its own. */}
-              {costoItems.length > 0 && (
-                <ul className={styles.itemLineList} aria-label="Detalle de costo de mercadería">
-                  {costoItems.map((item, index) => (
-                    // STACKED, not side by side. An ML title runs to
-                    // ~100 characters ("Cámara Wi-fi Tp-link Tapo C201
-                    // Full Hd 360° Visión Nocturna Detección Por Ia Y
-                    // Llanto De Bebé Color Negro") and the arithmetic
-                    // beside it is long and cannot shrink, so a two
-                    // column split squeezes the title into a sliver
-                    // and wraps it over dozens of lines. The products
-                    // list above keeps the side-by-side layout: its
-                    // amount is short.
-                    <li
-                      key={`${index}-${item.item_id}-${item.variation_id ?? ''}`}
-                      className={styles.costoItemLine}
-                    >
-                      <span className={styles.itemLineTitle}>
-                        {item.title || item.item_id}
-                        {item.quantity && item.quantity > 1 ? ` (x${item.quantity})` : ''}
-                        {item.fuente && (
-                          <span className={styles.itemLineFuente}>
-                            {' '}
-                            · {FUENTE_LABELS[item.fuente] || item.fuente}
-                            {item.costo_fecha ? ` (${formatCostoFecha(item.costo_fecha)})` : ''}
+            <div className={`${styles.total} ${breakdown.incompleto ? styles.totalIncomplete : ''}`}>
+              <span className={styles.totalLabel}>Neto</span>
+              <span className={styles.totalMonto}>{formatAmount(breakdown.neto)}</span>
+            </div>
+            {/* ml-ventas-neto-iibb-varios R4/PR1.T10.c: explains why
+                Neto is higher than what ML actually deposited -- only
+                when there is a non-refunded SIRTAC to explain. */}
+            {breakdown.retenciones_recuperables > 0 && (
+              <p className={styles.netoSubLine}>
+                {`MP ${formatMoney(breakdown.neto_depositado)} · SIRTAC ${formatMoney(
+                  breakdown.retenciones_recuperables,
+                )}`}
+              </p>
+            )}
+
+            {/* ml-ventas-modo-logistico PR6 — IVA por alícuota. Absent
+                entirely when the backend did not send it (defensive: an
+                older cached response, a malformed payload). */}
+            {ivaDecomposicion && (
+              <section className={styles.section} aria-label="IVA por alícuota">
+                <h3 className={styles.sectionTitle}>IVA por alícuota</h3>
+                {ivaDecomposicion.reconcilia ? (
+                  <ul className={styles.lineList}>
+                    {componentesIva.map((componente, index) => (
+                      // Same index-keyed reasoning as `lines` above: the
+                      // backend can legitimately repeat a `concepto`.
+                      <li
+                        key={`${index}-${componente.concepto}`}
+                        className={`${styles.line} ${componente.informativo ? styles.recuperableLine : ''}`}
+                      >
+                        <span className={styles.lineConcepto}>
+                          {componente.concepto}
+                          {componente.informativo ? (
+                            <span className={styles.mutedNote}> (informativo)</span>
+                          ) : (
+                            <span className={styles.ivaAlicuota}>
+                              {' '}
+                              ({formatAlicuota(componente.alicuota)})
+                            </span>
+                          )}
+                        </span>
+                        {/* An informativo componente (SIRTAC) shows no
+                            base/IVA split -- it carries no rate and does
+                            not count in `neto_sin_iva`, so a figure here
+                            would read as part of it. */}
+                        {!componente.informativo && (
+                          <span className={styles.lineMonto}>
+                            base {formatAmount(componente.base)} · IVA {formatAmount(componente.iva)}
                           </span>
                         )}
+                      </li>
+                    ))}
+                  </ul>
+                ) : (
+                  // Never a bare number when it does not reconcile — the
+                  // NAMED reason, exactly as `iva.py` produced it.
+                  <div className={styles.reasonBox}>
+                    {razonesIva.length === 0 ? (
+                      <p>Este desglose de IVA no reconcilia.</p>
+                    ) : (
+                      razonesIva.map((razon) => <p key={razon}>{RAZON_LABELS[razon] || razon}</p>)
+                    )}
+                  </div>
+                )}
+              </section>
+            )}
+
+            {/* ml-ventas-modo-logistico PR6 — the Total Gauss chain:
+                neto sin IVA -> costo de mercadería -> envío Flex ->
+                % de varios -> Total Gauss. A `null` link renders "—" and
+                is named below the chain; Total Gauss itself is only
+                ever shown once every link resolved -- never a zero. */}
+            {cadenaTotalGauss && (
+              <section className={styles.section} aria-label="Total Gauss">
+                <h3 className={styles.sectionTitle}>Total Gauss</h3>
+                <ul className={styles.lineList}>
+                  <li className={styles.line}>
+                    <span className={styles.lineConcepto}>Neto sin IVA</span>
+                    <span className={styles.lineMonto}>{formatAmount(ivaDecomposicion?.neto_sin_iva)}</span>
+                  </li>
+                  {lineasGauss.map((linea) => (
+                    <li key={linea.code} className={styles.line}>
+                      {/* `concepto` carries the per-order label (today:
+                          the logistics company name on `envio_flex`) when
+                          the backend has one -- falls back to the static
+                          map only when it does not. */}
+                      <span className={styles.lineConcepto}>
+                        {linea.concepto || DEDUCCION_LABELS[linea.code] || linea.code}
                       </span>
-                      <span className={styles.itemLineMonto}>
-                        {/* `costo_unitario_ars` is the UNIT cost, and
-                            the products list above shows the LINE
-                            total. Without the quantity spelled out
-                            here, a reader comparing "$200 (2 u.)"
-                            against "$50" cannot tell whether $50 is
-                            per unit or for the line -- and the
-                            deduction that uses this figure multiplies
-                            by the quantity. The arithmetic is shown
-                            whole so it can be replicated, which is why
-                            this panel exists. */}
-                        {!item.conocido ? (
-                          'Costo desconocido'
-                        ) : (
-                          <>
-                            {item.moneda === 'USD'
-                              ? `USD ${formatAmount(item.costo_origen)} × ${formatAmount(item.tipo_cambio)}${
-                                  item.tipo_cambio_fecha ? ` (${formatCostoFecha(item.tipo_cambio_fecha)})` : ''
-                                } = ${formatMoney(item.costo_unitario_ars)}`
-                              : formatMoney(item.costo_unitario_ars)}
-                            {item.quantity > 1
-                              ? ` c/u × ${item.quantity} = ${formatMoney(
-                                  Number(item.costo_unitario_ars) * item.quantity,
-                                )}`
-                              : ''}
-                          </>
-                        )}
+                      <span className={styles.lineMonto}>
+                        {linea.monto === null ? '—' : formatAmount(linea.monto)}
                       </span>
                     </li>
                   ))}
                 </ul>
-              )}
 
-              {cadenaTotalGauss.total_gauss === null ? (
-                <div>
-                  <div className={`${styles.total} ${styles.totalIncomplete}`}>
-                    <span className={styles.totalLabel}>Total Gauss</span>
-                    <span className={styles.totalMonto}>—</span>
-                  </div>
-                  {/* Names EXACTLY which link is missing, never a bare
-                      "unknown" -- the operator needs to know whether to
-                      wait for a sync or accept there is no frozen cost. */}
-                  <p className={styles.stateText}>
-                    {(() => {
-                      const unresolved = lineasGauss.find((linea) => linea.monto === null);
-                      if (unresolved) {
-                        return `Sin ${(DEDUCCION_LABELS[unresolved.code] || unresolved.code).toLowerCase()} conocido.`;
-                      }
-                      if (ivaDecomposicion && !ivaDecomposicion.reconcilia) {
-                        return 'El neto sin IVA no reconcilia — ver la razón arriba.';
-                      }
-                      return 'Total Gauss desconocido.';
-                    })()}
-                  </p>
-                </div>
-              ) : (
-                <div>
-                  <div className={styles.total}>
-                    <span className={styles.totalLabel}>
-                      Total Gauss
-                      {/* total-gauss-provisorio: a REAL computed number,
-                          just flagged -- never rendered as if it were
-                          unknown (the `—` branch above). */}
-                      {cadenaTotalGauss.provisional && (
-                        <span className={`badge badge-warning ${styles.provisionalBadge}`}>Provisorio</span>
-                      )}
-                    </span>
-                    <span className={styles.totalMonto}>{formatAmount(cadenaTotalGauss.total_gauss)}</span>
-                  </div>
-                  {cadenaTotalGauss.provisional && (
+                {/* Per-item arithmetic behind "Costo de mercadería" --
+                    product-owner request: "debería decir después de costo
+                    (precio USD + TC) de cada operación para saber cómo
+                    replicar ese valor". Always shown when the backend sent
+                    items, regardless of whether the aggregate line above
+                    resolved -- an operator can still see which items DO
+                    have a known cost. Compact/muted, same discipline as
+                    the product list above: this explains the line above
+                    it, it is not a total of its own. */}
+                {costoItems.length > 0 && (
+                  <ul className={styles.itemLineList} aria-label="Detalle de costo de mercadería">
+                    {costoItems.map((item, index) => (
+                      // STACKED, not side by side. An ML title runs to
+                      // ~100 characters ("Cámara Wi-fi Tp-link Tapo C201
+                      // Full Hd 360° Visión Nocturna Detección Por Ia Y
+                      // Llanto De Bebé Color Negro") and the arithmetic
+                      // beside it is long and cannot shrink, so a two
+                      // column split squeezes the title into a sliver
+                      // and wraps it over dozens of lines. The products
+                      // list above keeps the side-by-side layout: its
+                      // amount is short.
+                      <li
+                        key={`${index}-${item.item_id}-${item.variation_id ?? ''}`}
+                        className={styles.costoItemLine}
+                      >
+                        <span className={styles.itemLineTitle}>
+                          {item.title || item.item_id}
+                          {item.quantity && item.quantity > 1 ? ` (x${item.quantity})` : ''}
+                          {item.fuente && (
+                            <span className={styles.itemLineFuente}>
+                              {' '}
+                              · {FUENTE_LABELS[item.fuente] || item.fuente}
+                              {item.costo_fecha ? ` (${formatCostoFecha(item.costo_fecha)})` : ''}
+                            </span>
+                          )}
+                        </span>
+                        <span className={styles.itemLineMonto}>
+                          {/* `costo_unitario_ars` is the UNIT cost, and
+                              the products list above shows the LINE
+                              total. Without the quantity spelled out
+                              here, a reader comparing "$200 (2 u.)"
+                              against "$50" cannot tell whether $50 is
+                              per unit or for the line -- and the
+                              deduction that uses this figure multiplies
+                              by the quantity. The arithmetic is shown
+                              whole so it can be replicated, which is why
+                              this panel exists. */}
+                          {!item.conocido ? (
+                            'Costo desconocido'
+                          ) : (
+                            <>
+                              {item.moneda === 'USD'
+                                ? `USD ${formatAmount(item.costo_origen)} × ${formatAmount(item.tipo_cambio)}${
+                                    item.tipo_cambio_fecha ? ` (${formatCostoFecha(item.tipo_cambio_fecha)})` : ''
+                                  } = ${formatMoney(item.costo_unitario_ars)}`
+                                : formatMoney(item.costo_unitario_ars)}
+                              {item.quantity > 1
+                                ? ` c/u × ${item.quantity} = ${formatMoney(
+                                    Number(item.costo_unitario_ars) * item.quantity,
+                                  )}`
+                                : ''}
+                            </>
+                          )}
+                        </span>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+
+                {cadenaTotalGauss.total_gauss === null ? (
+                  <div>
+                    <div className={`${styles.total} ${styles.totalIncomplete}`}>
+                      <span className={styles.totalLabel}>Total Gauss</span>
+                      <span className={styles.totalMonto}>—</span>
+                    </div>
+                    {/* Names EXACTLY which link is missing, never a bare
+                        "unknown" -- the operator needs to know whether to
+                        wait for a sync or accept there is no frozen cost. */}
                     <p className={styles.stateText}>
-                      Calculado sin {(cadenaTotalGauss.provisional_falta || 'Envío Flex').toLowerCase()}: todavía
-                      no se cargó la etiqueta de envío. Se va a actualizar solo cuando se cargue.
+                      {(() => {
+                        const unresolved = lineasGauss.find((linea) => linea.monto === null);
+                        if (unresolved) {
+                          return `Sin ${(DEDUCCION_LABELS[unresolved.code] || unresolved.code).toLowerCase()} conocido.`;
+                        }
+                        if (ivaDecomposicion && !ivaDecomposicion.reconcilia) {
+                          return 'El neto sin IVA no reconcilia — ver la razón arriba.';
+                        }
+                        return 'Total Gauss desconocido.';
+                      })()}
                     </p>
-                  )}
-                </div>
-              )}
+                  </div>
+                ) : (
+                  <div>
+                    <div className={styles.total}>
+                      <span className={styles.totalLabel}>
+                        Total Gauss
+                        {/* total-gauss-provisorio: a REAL computed number,
+                            just flagged -- never rendered as if it were
+                            unknown (the `—` branch above). */}
+                        {cadenaTotalGauss.provisional && (
+                          <span className={`badge badge-warning ${styles.provisionalBadge}`}>Provisorio</span>
+                        )}
+                      </span>
+                      <span className={styles.totalMonto}>{formatAmount(cadenaTotalGauss.total_gauss)}</span>
+                    </div>
+                    {cadenaTotalGauss.provisional && (
+                      <p className={styles.stateText}>
+                        Calculado sin {(cadenaTotalGauss.provisional_falta || 'Envío Flex').toLowerCase()}: todavía
+                        no se cargó la etiqueta de envío. Se va a actualizar solo cuando se cargue.
+                      </p>
+                    )}
+                  </div>
+                )}
 
-              {/* The sale's REAL markup -- total_gauss / costo de
-                  mercadería, not the theoretical (neto sin IVA / costo)
-                  one -- because total_gauss already has Flex freight and
-                  % de varios subtracted too. `null` (never "0%": the
-                  same "unknown" dash `formatAmount` uses everywhere
-                  else) whenever total_gauss, the cost, or the division
-                  itself is undefined -- see `TotalGaussResultado.markup`
-                  in `deducciones.py`. */}
-              <div className={styles.total}>
-                <span className={styles.totalLabel}>Markup</span>
-                <span className={styles.totalMonto}>
-                  {cadenaTotalGauss.markup === null || cadenaTotalGauss.markup === undefined
-                    ? '—'
-                    : `${formatAmount(cadenaTotalGauss.markup)}%`}
-                </span>
-              </div>
-            </section>
-          )}
-        </>
-      )}
+                {/* The sale's REAL markup -- total_gauss / costo de
+                    mercadería, not the theoretical (neto sin IVA / costo)
+                    one -- because total_gauss already has Flex freight and
+                    % de varios subtracted too. `null` (never "0%": the
+                    same "unknown" dash `formatAmount` uses everywhere
+                    else) whenever total_gauss, the cost, or the division
+                    itself is undefined -- see `TotalGaussResultado.markup`
+                    in `deducciones.py`. */}
+                <div className={styles.total}>
+                  <span className={styles.totalLabel}>Markup</span>
+                  <span className={styles.totalMonto}>
+                    {cadenaTotalGauss.markup === null || cadenaTotalGauss.markup === undefined
+                      ? '—'
+                      : `${formatAmount(cadenaTotalGauss.markup)}%`}
+                  </span>
+                </div>
+              </section>
+            )}
+          </>
+        )}
       </div>
     </>
   );

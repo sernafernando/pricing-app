@@ -11,10 +11,23 @@
  *  - Deselecting (no `selectedOrderId`) hides the panel entirely (R18).
  */
 
-import { describe, it, expect, vi } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import VentasMLLayout from './VentasMLLayout';
+
+const { getMock } = vi.hoisted(() => ({ getMock: vi.fn() }));
+vi.mock('../../services/api', () => ({
+  default: { get: getMock, post: vi.fn() },
+}));
+vi.mock('../../contexts/PermisosContext', () => ({
+  usePermisos: () => ({ permisos: [], tienePermiso: () => true }),
+}));
+
+// Real modal, not a hand-built `role="dialog"` stand-in — M1 exists because
+// the previous test only ever exercised a stand-in that carried attributes
+// this app's actual modal does not.
+const VariosVentaPctModal = (await import('../VariosVentaPctModal')).default;
 
 describe('Grid layout', () => {
   it('renders a single column when no row is selected', () => {
@@ -342,5 +355,92 @@ describe('Table rows stay independently selectable while the panel is open (PANE
       return s.position === 'fixed' && (s.inset === '0px' || s.inset === '0' || (s.top === '0px' && s.left === '0px'));
     });
     expect(covering).toEqual([]);
+  });
+});
+
+describe('Escape does not steal input from a REAL ModalTesla-based modal (M1)', () => {
+  beforeEach(() => {
+    getMock.mockReset();
+    getMock.mockResolvedValue({ data: [] });
+  });
+
+  it('ignores Escape while a real VariosVentaPctModal is open, even though it never sets defaultPrevented nor role="dialog"', async () => {
+    const onClear = vi.fn();
+    const user = userEvent.setup();
+    render(
+      <VentasMLLayout selectedOrderId={1001} onClear={onClear} panel={<div>panel content</div>}>
+        <button>table button</button>
+      </VentasMLLayout>,
+    );
+    render(<VariosVentaPctModal isOpen={true} onClose={vi.fn()} />);
+
+    await waitFor(() => expect(getMock).toHaveBeenCalled());
+
+    // Sanity: the real modal does NOT carry the attributes the old,
+    // vacuous test relied on — proving this Escape ignores it for a
+    // different, real-DOM reason.
+    expect(document.querySelector('[role="dialog"]')).toBeNull();
+
+    screen.getByText('table button').focus();
+    await user.keyboard('{Escape}');
+
+    expect(onClear).not.toHaveBeenCalled();
+  });
+});
+
+describe('Focus restoration only when focus is still where the panel left it (M2)', () => {
+  it('does NOT yank focus back to the opener if the operator already moved on', () => {
+    const { rerender } = render(
+      <VentasMLLayout selectedOrderId={null} onClear={vi.fn()} panel={<button>panel button</button>}>
+        <button>opener button</button>
+        <button>other control</button>
+      </VentasMLLayout>,
+    );
+
+    screen.getByText('opener button').focus();
+    expect(screen.getByText('opener button')).toHaveFocus();
+
+    rerender(
+      <VentasMLLayout selectedOrderId={1001} onClear={vi.fn()} panel={<button>panel button</button>}>
+        <button>opener button</button>
+        <button>other control</button>
+      </VentasMLLayout>,
+    );
+
+    // Operator moved on to something else entirely WHILE the panel was
+    // open — e.g. clicked a filter or another row — before it closed.
+    screen.getByText('other control').focus();
+    expect(screen.getByText('other control')).toHaveFocus();
+
+    rerender(
+      <VentasMLLayout selectedOrderId={null} onClear={vi.fn()} panel={<button>panel button</button>}>
+        <button>opener button</button>
+        <button>other control</button>
+      </VentasMLLayout>,
+    );
+
+    // Restoring focus to the opener here would yank it away from whatever
+    // the operator is now doing.
+    expect(screen.getByText('other control')).toHaveFocus();
+  });
+});
+
+describe('isEditableElement recognises an open <select> (M3)', () => {
+  it('ignores Escape while focus sits inside a <select>', async () => {
+    const onClear = vi.fn();
+    const user = userEvent.setup();
+    render(
+      <VentasMLLayout selectedOrderId={1001} onClear={onClear} panel={<div>panel content</div>}>
+        <select aria-label="a select">
+          <option value="a">a</option>
+          <option value="b">b</option>
+        </select>
+      </VentasMLLayout>,
+    );
+
+    screen.getByLabelText('a select').focus();
+    await user.keyboard('{Escape}');
+
+    expect(onClear).not.toHaveBeenCalled();
   });
 });
