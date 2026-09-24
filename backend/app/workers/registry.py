@@ -15,7 +15,9 @@ from datetime import time, timedelta
 from typing import List, Optional, Protocol, Tuple
 
 from app.workers.context import JobResult, WorkerContext
+from app.workers.handlers.order_metrics import divergence as _order_metrics_divergence
 from app.workers.handlers.order_metrics import drain as _order_metrics_drain
+from app.workers.handlers.order_metrics import reconcile as _order_metrics_reconcile
 
 
 class JobHandler(Protocol):
@@ -46,4 +48,4 @@ class JobHandler(Protocol):
 # Explicit, ordered list -- no auto-discovery. PR3 appends
 # `order_metrics.drain`; PR6 appends `order_metrics.reconcile` and
 # `order_metrics.divergence`.
-REGISTRY: List[JobHandler] = [_order_metrics_drain]
+REGISTRY: List[JobHandler] = [_order_metrics_drain, _order_metrics_reconcile, _order_metrics_divergence]

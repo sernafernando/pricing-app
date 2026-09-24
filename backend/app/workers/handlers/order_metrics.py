@@ -21,10 +21,26 @@ from sqlalchemy import text
 from app.core.config import settings
 from app.core.database import get_background_db
 from app.services.order_metrics.compute import compute_order_metrics
+from app.services.order_metrics.constants import CURRENT_FORMULA_VERSION
 from app.services.order_metrics.queue import Claim, claim_dirty, fenced_store, mark_failed, release_uncharged
 from app.workers.context import JobResult, WorkerContext
 
 logger = logging.getLogger(__name__)
+
+# design D10: reconcile enqueues in batches of 5000, set-based, via the
+# SYSTEM enqueue (never the input-write one -- must not un-park anything).
+RECONCILE_BATCH_SIZE = 5000
+
+_RECONCILE_CANDIDATES_SQL = """
+SELECT o.order_id
+FROM ml_orders_ops o
+LEFT JOIN ml_order_metrics m ON m.order_id = o.order_id
+LEFT JOIN ml_order_metrics_dirty d ON d.order_id = o.order_id
+WHERE d.order_id IS NULL
+  AND (m.order_id IS NULL OR m.formula_version < :current_version)
+ORDER BY o.order_id
+LIMIT :limit
+"""
 
 
 class BatchTimeout(Exception):
@@ -203,3 +219,189 @@ class OrderMetricsDrainHandler:
 
 
 drain = OrderMetricsDrainHandler()
+
+
+class OrderMetricsReconcileHandler:
+    """`JobHandler` (design D10) for `order_metrics.reconcile`. Schedule-only
+    (`channels=()`), every 10 minutes: finds orders with no `ml_order_metrics`
+    row, or `formula_version < CURRENT_FORMULA_VERSION`, that have no dirty
+    row yet, and enqueues them in batches of `RECONCILE_BATCH_SIZE` via
+    `order_metrics_enqueue_system` -- never `order_metrics_enqueue`, so an
+    already-dirty row (including a parked one) is left completely
+    untouched (ON CONFLICT DO NOTHING, PR4). This IS the backfill: the
+    first run after this handler is deployed sweeps the whole pre-existing
+    backlog into the queue, throttled by the drain handler's own batch
+    pace -- no manual script, no cron (design D10)."""
+
+    name = "order_metrics.reconcile"
+    channels: Tuple[str, ...] = ()
+    interval: Optional[timedelta] = timedelta(minutes=10)
+    run_at_local: Optional[time] = None
+
+    def run(self, ctx: WorkerContext) -> JobResult:
+        total_enqueued = 0
+        batches = 0
+        while datetime.now(timezone.utc) < ctx.deadline:
+            with get_background_db() as db:
+                rows = db.execute(
+                    text(_RECONCILE_CANDIDATES_SQL),
+                    {"current_version": CURRENT_FORMULA_VERSION, "limit": RECONCILE_BATCH_SIZE},
+                ).fetchall()
+                order_ids = [row[0] for row in rows]
+                if order_ids:
+                    db.execute(
+                        text("SELECT order_metrics_enqueue_system(CAST(:ids AS bigint[]), 'reconcile')"),
+                        {"ids": order_ids},
+                    )
+            if not order_ids:
+                break
+            total_enqueued += len(order_ids)
+            batches += 1
+            if len(order_ids) < RECONCILE_BATCH_SIZE:
+                break
+        return JobResult(success=True, detail={"enqueued": total_enqueued, "batches": batches})
+
+
+reconcile = OrderMetricsReconcileHandler()
+
+# design D10: divergence runs in batches of 500, records at most this many
+# `ml_ops_divergence` rows per run (the health endpoint only needs enough
+# ids to be actionable, not an unbounded write burst against a table that
+# can already be large).
+DIVERGENCE_BATCH_SIZE = 500
+DIVERGENCE_MAX_RECORDED_PER_RUN = 100
+
+_DIVERGENCE_CANDIDATES_SQL = """
+SELECT m.order_id, m.neto, m.neto_sin_iva, m.iva_reconcilia, m.costo_mercaderia,
+       m.total_gauss, m.markup_pct, m.gauss_status, m.formula_version
+FROM ml_order_metrics m
+LEFT JOIN ml_order_metrics_dirty d ON d.order_id = m.order_id
+WHERE d.order_id IS NULL AND m.order_id > :last_order_id
+ORDER BY m.order_id
+LIMIT :limit
+"""
+
+
+def _stored_metrics_diverges(stored_row, fresh) -> bool:
+    """Compares every stored field + status + formula_version against a
+    freshly computed `OrderMetrics` (design D10). Decimal columns come back
+    from the driver as `Decimal`; `OrderMetrics` also carries `Decimal` (or
+    `None`), so a plain `!=` is exact -- no float tolerance needed, same
+    discipline the rest of this module already uses for money."""
+    return (
+        stored_row.neto != fresh.neto
+        or stored_row.neto_sin_iva != fresh.neto_sin_iva
+        or bool(stored_row.iva_reconcilia) != bool(fresh.iva_reconcilia)
+        or stored_row.costo_mercaderia != fresh.costo_mercaderia
+        or stored_row.total_gauss != fresh.total_gauss
+        or stored_row.markup_pct != fresh.markup_pct
+        or stored_row.gauss_status != fresh.gauss_status.value
+        or stored_row.formula_version != fresh.formula_version
+    )
+
+
+def _open_divergence_record(db, order_id: int) -> None:
+    """Inserts one `ml_ops_divergence` row (`kind='stored_metrics_mismatch'`,
+    design D10, reusing `ml_orders_ops.py:463`'s model) -- idempotent across
+    runs via the table's own `uq_ml_ops_divergence_order_kind_field`
+    (`order_id`, `kind`, `field`, `field IS NULL`) unique constraint, so a
+    still-open divergence found again tomorrow does not duplicate."""
+    from sqlalchemy.dialects.postgresql import insert as pg_insert
+
+    from app.models.ml_orders_ops import MlOpsDivergence
+
+    stmt = pg_insert(MlOpsDivergence.__table__).values(
+        order_id=order_id,
+        kind="stored_metrics_mismatch",
+        field=None,
+        state="open",
+    )
+    db.execute(stmt.on_conflict_do_nothing(index_elements=["order_id", "kind", "field"]))
+
+
+def _write_divergence_summary(detail: dict) -> None:
+    """Writes the run summary to `worker_job_state.detail` (design D10) --
+    NOT via `WorkerRuntime._record_job_run` (which only ever touches
+    `last_run_at`/`last_success_at`), a dedicated upsert scoped to this
+    handler's own row."""
+    from sqlalchemy.dialects.postgresql import insert as pg_insert
+
+    from app.models.worker_job_state import WorkerJobState
+
+    with get_background_db() as db:
+        stmt = pg_insert(WorkerJobState.__table__).values(name="order_metrics.divergence", detail=detail)
+        db.execute(stmt.on_conflict_do_update(index_elements=["name"], set_={"detail": stmt.excluded.detail}))
+
+
+class OrderMetricsDivergenceHandler:
+    """`JobHandler` (design D10) for `order_metrics.divergence`. Daily at
+    04:00 America/Argentina/Buenos_Aires, batches of 500: compares every
+    stored `ml_order_metrics` field + status + formula_version against a
+    fresh `compute_order_metrics`, skipping orders that currently have a
+    dirty row (mid-flight -- a mismatch there is expected, not a bug).
+    Divergent orders open (or keep open) a `ml_ops_divergence` row and are
+    re-enqueued via the system enqueue (self-heal, still visible -- never
+    silently patched in place)."""
+
+    name = "order_metrics.divergence"
+    channels: Tuple[str, ...] = ()
+    interval: Optional[timedelta] = None
+    run_at_local: Optional[time] = time(4, 0)
+
+    def run(self, ctx: WorkerContext) -> JobResult:
+        divergent_count = 0
+        missing_count = 0
+        checked_count = 0
+        recorded = 0
+        last_order_id = 0
+        started_at = datetime.now(timezone.utc)
+
+        while datetime.now(timezone.utc) < ctx.deadline:
+            with get_background_db() as db:
+                rows = db.execute(
+                    text(_DIVERGENCE_CANDIDATES_SQL),
+                    {"last_order_id": last_order_id, "limit": DIVERGENCE_BATCH_SIZE},
+                ).fetchall()
+                if not rows:
+                    break
+
+                order_ids = [row.order_id for row in rows]
+                fresh_by_order = compute_order_metrics(db, order_ids)
+
+                divergent_ids: List[int] = []
+                for row in rows:
+                    fresh = fresh_by_order.get(row.order_id)
+                    if fresh is None:
+                        missing_count += 1
+                        continue
+                    if _stored_metrics_diverges(row, fresh):
+                        divergent_ids.append(row.order_id)
+
+                if divergent_ids:
+                    remaining_slots = max(0, DIVERGENCE_MAX_RECORDED_PER_RUN - recorded)
+                    for order_id in divergent_ids[:remaining_slots]:
+                        _open_divergence_record(db, order_id)
+                    recorded += min(len(divergent_ids), remaining_slots)
+                    db.execute(
+                        text("SELECT order_metrics_enqueue_system(CAST(:ids AS bigint[]), 'divergence')"),
+                        {"ids": divergent_ids},
+                    )
+
+                divergent_count += len(divergent_ids)
+                checked_count += len(order_ids)
+                last_order_id = order_ids[-1]
+
+            if len(rows) < DIVERGENCE_BATCH_SIZE:
+                break
+
+        summary = {
+            "run_at": started_at.isoformat(),
+            "divergent_count": divergent_count,
+            "missing_count": missing_count,
+            "checked_count": checked_count,
+        }
+        _write_divergence_summary(summary)
+        return JobResult(success=True, detail=summary)
+
+
+divergence = OrderMetricsDivergenceHandler()

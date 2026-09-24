@@ -78,6 +78,9 @@ DIVERGENCE_KINDS = (
     UNENUMERABLE_KIND,
     "unknown",
     INGEST_FAILED_KIND,
+    # ventas-ml-rediseno PR6 (design D10): opened by `order_metrics.divergence`
+    # when a stored `ml_order_metrics` row disagrees with a fresh recompute.
+    "stored_metrics_mismatch",
 )
 DIVERGENCE_STATES = ("open", "acknowledged", "resolved", "ignored")
 # `window_not_enumerable` uses `order_id=0` as a sentinel (no single order

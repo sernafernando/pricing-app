@@ -445,7 +445,7 @@ class MlOpsDivergence(Base):
         # constraint, not a comment, in the same slice that starts writing.
         CheckConstraint(
             "kind IN ('missing_in_gbp', 'missing_in_ml', 'field_mismatch', 'out_of_window_update', "
-            "'window_not_enumerable', 'unknown', 'ingest_failed')",
+            "'window_not_enumerable', 'unknown', 'ingest_failed', 'stored_metrics_mismatch')",
             name="ck_ml_ops_divergence_kind",
         ),
         CheckConstraint(
