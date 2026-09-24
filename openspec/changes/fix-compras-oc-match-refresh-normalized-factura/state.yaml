@@ -1,8 +1,8 @@
 change: fix-compras-oc-match-refresh-normalized-factura
 change_id: fix-compras-oc-match-refresh-normalized-factura
 project: pricing-app
-phase: apply
-status: ready_for_verify
+phase: verify
+status: verified
 artifact_store: openspec
 persistence_mode: openspec
 parent_change: feat-compras-oc-match-inline-expand-doc-refresh
@@ -23,13 +23,14 @@ artifacts:
   design: openspec/changes/fix-compras-oc-match-refresh-normalized-factura/design.md
   tasks: openspec/changes/fix-compras-oc-match-refresh-normalized-factura/tasks.md
   apply_progress: openspec/changes/fix-compras-oc-match-refresh-normalized-factura/apply-progress.md
-next_phase: verify
-nextRecommended: verify
+  verify_report: openspec/changes/fix-compras-oc-match-refresh-normalized-factura/verify-report.md
+next_phase: archive
+nextRecommended: archive
 task_count: 7
 notes: >
-  Apply complete. 7/7 tasks. Refresh persist mirrors worker
-  persist_factura_documento after apply_writeback True. UI title+helper.
-  pytest 9 + vitest 23. Same PR #1343. nextRecommended=verify.
+  Verify PASS. 2/2 requirements, 8/8 scenarios. DoD pytest 9 + vitest 23.
+  evidence_revision sha256:fb79cebc0398c389ac4da53b51d51335821f9e446fd2230e14ed76977122e524.
+  nextRecommended=archive. Do NOT archive in this verify run. Same PR #1343.
 locked_decisions:
   red_fix:
     mirror_worker_after_apply_writeback: true
