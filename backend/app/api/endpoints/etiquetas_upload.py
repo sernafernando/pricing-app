@@ -25,7 +25,6 @@ from app.models.usuario import Usuario
 from app.models.etiqueta_envio import EtiquetaEnvio
 from app.models.etiqueta_envio_audit import EtiquetaEnvioAudit
 from app.services.etiqueta_enrichment_service import enriquecer_etiquetas_sync
-from app.services.ml_ventas_desglose.deducciones import marcar_stale
 
 from app.api.endpoints.etiquetas_shared import (
     _check_permiso,
@@ -129,17 +128,11 @@ def upload_etiquetas(
             errores += 1
             detalle_errores.append(f"Error parseando QR: {str(e)[:100]}")
 
-    if nuevos_shipping_ids:
-        # BEFORE the commit, and in the SAME transaction as the inserts.
-        # ONE call for the whole upload, not one per label: a ZPL carries
-        # hundreds, and `_insertar_etiqueta` runs once for each of them.
-        #
-        # An earlier version of this fix put it after `db.commit()` and
-        # `db.close()`, where `marcar_stale`'s own "the caller commits"
-        # contract cannot be met: the UPDATE opened a fresh transaction on
-        # a closed session and was thrown away. The bulk case -- the very
-        # one this moved here to serve -- invalidated nothing at all.
-        marcar_stale(db, nuevos_shipping_ids)
+    # PR8: the `marcar_stale` hook that used to live here is gone. The
+    # `etiquetas_envio` triggers (ventas-ml-rediseno PR5) capture the same
+    # writes and enqueue the affected orders themselves, in this very
+    # transaction -- an explicit call here would be a second, weaker copy
+    # of that rule, and one that a new write path could silently forget.
 
     try:
         db.commit()
@@ -199,11 +192,11 @@ def registrar_manual(
         nombre_archivo="escaneo_manual",
         fecha_envio=payload.fecha_envio or date.today(),
     )
-    if es_nueva:
-        # A new Flex label is itself an invalidation event: until it exists
-        # there is no Flex cost to resolve, so Total Gauss changes the
-        # moment it appears.
-        marcar_stale(db, [parsed["shipping_id"]])
+    # PR8: the `marcar_stale` hook that used to live here is gone. The
+    # `etiquetas_envio` triggers (ventas-ml-rediseno PR5) capture the same
+    # write and enqueue the affected order itself, in this very transaction
+    # -- an explicit call here would be a second, weaker copy of that rule,
+    # and one that a new write path could silently forget.
 
     try:
         db.commit()

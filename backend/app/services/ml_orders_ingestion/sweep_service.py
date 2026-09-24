@@ -90,7 +90,6 @@ from app.models.ml_orders_ops import (
     MlOrdersOps,
     MlShipmentOps,
 )
-from app.services.ml_ventas_desglose.deducciones import refrescar_total_gauss_pendientes
 from app.services.ml_orders_ingestion.ingestion_service import (
     QuarantineRetryResult,
     UpsertOutcome,
@@ -1773,23 +1772,6 @@ def run_sweep(seller_id: Optional[int] = None, window_days: Optional[int] = None
                 quarantine_result.recovered,
                 quarantine_result.still_failed,
             )
-
-        # Materialise `total_gauss` for whatever needs it, bounded. The
-        # column is a SORT KEY (design D2) and nothing else wrote it, so
-        # "sort by Total Gauss" was quietly falling back to sort by id and
-        # the five `marcar_stale` hooks were invalidating towards a
-        # recomputation that did not exist.
-        #
-        # INSIDE this `try`, in its own session, for the same reason the
-        # quarantine retry is: the block that takes the lock commits
-        # outside every try/finally, and a failure there strands the lock.
-        try:
-            with get_background_db() as gauss_db:
-                refrescados = refrescar_total_gauss_pendientes(gauss_db)
-            if refrescados:
-                logger.info("sync_ml_orders_ops: total_gauss refreshed for %s order(s)", refrescados)
-        except Exception:  # noqa: BLE001
-            logger.exception("sync_ml_orders_ops: total_gauss refresh failed; continuing with the pass")
 
         # Deferred payment recheck (ml-ventas-repreguntar-pagos-diferido):
         # run ONCE per pass, straight from the database, BEFORE the page
