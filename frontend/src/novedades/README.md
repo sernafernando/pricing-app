@@ -47,3 +47,7 @@ Right after the `# ` title, you can add a line `Área: <name>` (accents optional
 ## Tip boxes
 
 A `> ` blockquote renders as a highlighted tip box. Use it to call out something the reader should double-check or pay extra attention to.
+
+## Lists
+
+Prefer **bullets** (`-`) for feature inventories. Use a numbered list (`1.`) only for a short sequence of steps **without** nested bullets inside each step — nested `ul` inside `ol` used to render like broken table columns. If you need sub-points, put them in a following bullet list or a new subsection.
