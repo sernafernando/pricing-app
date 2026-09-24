@@ -790,14 +790,24 @@ describe('Opening the cost breakdown panel (ventas-ml-rediseno PR13, non-modal)'
     await user.click(screen.getByText('comprador1').closest('tr'));
     await screen.findByLabelText('Detalle de venta');
 
-    // No overlay/backdrop element must sit between the table and the
-    // document — the whole reason this PR exists is that a row must stay
-    // clickable/selectable while the panel is open.
-    expect(document.querySelector('[data-testid="drawer-overlay"]')).toBeNull();
-
+    // The whole reason this PR exists is that a row must stay
+    // clickable/selectable while the panel is open — proven here by the
+    // row staying fully reachable in the accessibility tree, focusable,
+    // and structurally outside the panel, not by grepping for one known
+    // testid an overlay implementation happens to use.
     const netoButton = screen.getByRole('button', { name: 'Ver desglose de costos' });
     netoButton.focus();
     expect(netoButton).toHaveFocus();
+
+    const aside = screen.getByLabelText('Detalle de venta');
+    expect(aside.contains(netoButton)).toBe(false);
+    expect(netoButton.closest('aside')).toBeNull();
+
+    // The buyer's own text, inside the table row, must stay selectable —
+    // still present and un-hidden while the panel is open.
+    const buyerCell = screen.getByText('comprador1');
+    expect(buyerCell.closest('[aria-hidden="true"]')).toBeNull();
+    expect(document.querySelector('[inert]')).toBeNull();
   });
 });
 

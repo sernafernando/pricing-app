@@ -17,18 +17,50 @@
  * and nothing when it is not (R18 — deselecting closes the panel with no
  * extra "no order" empty state to build or maintain).
  *
- * Escape clears the selection (R20). There is no focus trap: unlike the
- * deleted `DesgloseDrawer`, this component never moves focus on open and
- * never wraps Tab at the panel's edges — reaching the panel or leaving it
- * follows the page's normal tab order, exactly like reaching any other
- * sticky sidebar would.
+ * Escape clears the selection (R20), but only when nothing else already
+ * claimed the key: a modal open above this layout (e.g.
+ * `VariosVentaPctModal`) calls `preventDefault()` on its own Escape
+ * handling, and this listener bails on `e.defaultPrevented` so ONE Escape
+ * never closes both the modal and the panel (L2). It also ignores Escape
+ * while the operator is typing in an input/textarea/contenteditable, and
+ * while focus sits inside anything marked `role="dialog"` — Escape there
+ * belongs to that dialog, not to this layout.
+ *
+ * There is no focus trap: unlike the deleted `DesgloseDrawer`, this
+ * component never moves focus on open and never wraps Tab at the panel's
+ * edges — reaching the panel or leaving it follows the page's normal tab
+ * order, exactly like reaching any other sticky sidebar would. What IS
+ * restored (L1) is focus on CLOSE: the element that had focus at the
+ * moment the panel opened (the row's keyboard route — the "Ver desglose de
+ * costos" button — or whatever else had focus) gets it back once the
+ * panel unmounts, so a keyboard user is not thrown back to the top of the
+ * page.
  */
 
-import { useEffect } from 'react';
+import { useEffect, useRef } from 'react';
 import styles from './VentasMLLayout.module.css';
+
+function isEditableElement(el) {
+  if (!el) return false;
+  const tag = el.tagName;
+  return tag === 'INPUT' || tag === 'TEXTAREA' || el.isContentEditable;
+}
 
 export default function VentasMLLayout({ selectedOrderId, onClear, panel, children }) {
   const hasSelection = selectedOrderId !== null && selectedOrderId !== undefined;
+  const openerRef = useRef(null);
+
+  // Captured once per open, not on every render: the moment `hasSelection`
+  // flips to `true` is the only moment `document.activeElement` still
+  // points at whatever triggered the open (L1).
+  useEffect(() => {
+    if (hasSelection) {
+      openerRef.current = document.activeElement;
+    } else if (openerRef.current && document.body.contains(openerRef.current)) {
+      openerRef.current.focus();
+      openerRef.current = null;
+    }
+  }, [hasSelection]);
 
   // Global listener, not a per-panel keydown handler bound to a focused
   // dialog: there is no focus trap moving focus into the panel on open, so
@@ -38,7 +70,17 @@ export default function VentasMLLayout({ selectedOrderId, onClear, panel, childr
   useEffect(() => {
     if (!hasSelection) return undefined;
     const handleKeyDown = (e) => {
-      if (e.key === 'Escape') onClear();
+      if (e.key !== 'Escape') return;
+      // L2: a modal above this layout (VariosVentaPctModal) already
+      // handled its own Escape and called preventDefault — closing this
+      // panel too would be a second, unrelated effect from one keypress.
+      if (e.defaultPrevented) return;
+      const active = document.activeElement;
+      // L2: Escape while typing, or while focus sits inside a dialog,
+      // belongs to that input/dialog, not to this layout.
+      if (isEditableElement(active)) return;
+      if (active && active.closest && active.closest('[role="dialog"]')) return;
+      onClear();
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
@@ -47,14 +89,17 @@ export default function VentasMLLayout({ selectedOrderId, onClear, panel, childr
   return (
     <div className={`${styles.grid} ${hasSelection ? styles.gridWithPanel : ''}`}>
       <div className={styles.main}>{children}</div>
+      {/* PANEL R19/R20: mounted UNCONDITIONALLY, outside the conditional
+          `<aside>`, and only its TEXT changes (L3) — a live region that is
+          inserted already containing its announcement is generally not
+          read by screen readers, only later changes to an already-mounted
+          region are, so the very first selection (the one that matters
+          most) would otherwise be silent. */}
+      <div aria-live="polite" className={styles.srOnly}>
+        {hasSelection ? `Mostrando el detalle de la venta ${selectedOrderId}` : ''}
+      </div>
       {hasSelection && (
         <aside className={styles.panel} aria-label="Detalle de venta">
-          {/* PANEL R19/R20: screen readers are informed of panel content
-              changes without a modal role — an `aria-live` region, not a
-              focus move, announces which order the panel now shows. */}
-          <div aria-live="polite" className={styles.srOnly}>
-            {`Mostrando el detalle de la venta ${selectedOrderId}`}
-          </div>
           {panel}
         </aside>
       )}
