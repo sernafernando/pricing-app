@@ -95,6 +95,17 @@ Ejecutar **con un usuario piloto** (PM + aprobador + tesorero coordinados):
 
 ## Fase C — T+6h a T+24h (cron + sync ERP)
 
+### Cron de alerta factura-cargada (cada minuto)
+
+- [ ] Crontab every minute runs
+      `python -m app.scripts.dispatch_factura_cargada_alerts`.
+      Missing crontab is an ops defect: pending `cargada` rows stay
+      unfired (the ERP check only starts the 5-minute delay).
+      ```bash
+      crontab -l | grep dispatch_factura_cargada_alerts
+      ```
+      Esperado: una línea `* * * * *` que invoca el módulo.
+
 ### Cron de reconciliación (03:00 AM)
 
 - [ ] El cron corrió a las 03:00 AM Argentina (verificar `/var/log/compras/reconciliacion.log`):
@@ -235,6 +246,7 @@ ____________________________________________
 - [ ] 5 artefactos post-pago OK
 
 ### Fase C (T+6h..T+24h)
+- [ ] Cron `dispatch_factura_cargada_alerts` cada minuto
 - [ ] Cron reconciliación corrió a las 03:00
 - [ ] Hook matching ERP sin errores
 - [ ] Vista SQL responde < 500ms

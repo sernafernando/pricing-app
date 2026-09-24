@@ -8,7 +8,7 @@
 
 ### In Scope
 
-- Empresa: full name, **2 lines centered**, **no ellipsis**; cap = Grupo Gauss / Pastoriza
+- Empresa: **no ellipsis**; width cap = **Pastoriza**; **Grupo Gauss** only wraps **2 centered lines**
 - Acciones: **2×2 icon grid**; shrink ~180px col
 - Keep Fecha pago 110, Mon 60, Estado 152, Proceso 220; Proveedor stays flex
 - Tests: geometry/visual; keep 110px Fecha pago `<col>`

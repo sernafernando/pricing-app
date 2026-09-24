@@ -12,8 +12,8 @@ Two local slices, one PR stacked on #1347.
 
 | Decision | Options | Tradeoff | Choice |
 |----------|---------|----------|--------|
-| Empresa wrap | 1-line ellipsis vs 2-line no-ellipsis | Ellipsis hides Grupo Gauss; 2-line shrinks width | **2-line, `text-align: center`, no ellipsis** |
-| Empresa width | Keep 140 vs cap to names | 140 wastes; cap = max(Pastoriza, wrapped Grupo Gauss) + 2×16px td pad | **Measure at apply; expected ~88–120px** |
+| Empresa wrap | all 2-line vs Gauss-only | Only Grupo Gauss needs two lines | **Grupo Gauss = 2 lines centered; Pastoriza = 1 line; no ellipsis** |
+| Empresa width | Keep 140 vs Pastoriza | Pastoriza is the horizontal worst case | **Cap width to Pastoriza + td pad; Gauss wraps inside that width** |
 | Acciones | Flex row vs 2-col grid | Row needs ~180px | **`.rowActions { display:grid; grid-template-columns: repeat(2, min-content); }`**; width ~88–110px |
 | Locked cols | Cut Estado/Proceso vs keep | User: cut only if design proves | **Keep 110 / 60 / 152 / 220** |
 | Flexible | Cap Proveedor vs keep flex | Only leftover absorber | **Proveedor uncapped** |
