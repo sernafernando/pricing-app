@@ -1,0 +1,54 @@
+change: feat-compras-pedidos-layout-y-alerta-factura
+change_id: feat-compras-pedidos-layout-y-alerta-factura
+project: pricing-app
+phase: tasks
+status: tasks-ready
+artifact_store: openspec
+persistence_mode: openspec
+created_at: "2026-09-24"
+updated_at: "2026-09-24"
+branch_plan: feat/compras-pedidos-layout-y-alerta-factura
+base_branch: feat/compras-pedidos-fecha-pago-col-width
+delivery_target: main
+parent_pr: 1347
+amends_capability:
+  - pedidos-compra
+  - compras-pipeline-alerts
+depends_on: []
+supersedes: []
+amends: []
+artifacts:
+  exploration: openspec/changes/feat-compras-pedidos-layout-y-alerta-factura/exploration.md
+  proposal: openspec/changes/feat-compras-pedidos-layout-y-alerta-factura/proposal.md
+  specs:
+    - openspec/changes/feat-compras-pedidos-layout-y-alerta-factura/specs/pedidos-compra/spec.md
+    - openspec/changes/feat-compras-pedidos-layout-y-alerta-factura/specs/compras-pipeline-alerts/spec.md
+  design: openspec/changes/feat-compras-pedidos-layout-y-alerta-factura/design.md
+  tasks: openspec/changes/feat-compras-pedidos-layout-y-alerta-factura/tasks.md
+next_phase: apply
+nextRecommended: apply
+task_count: 9
+locked_decisions:
+  empresa: two_line_centered_no_ellipsis
+  empresa_width_cap: grupo_gauss_and_pastoriza
+  acciones: two_by_two_grid
+  keep_widths:
+    fecha_pago: 110
+    moneda: 60
+    estado: 152
+    proceso: 220
+  proveedor: flexible_absorber
+  tests: geometry_at_1280_1400_keep_110px_col
+  alert_recipients: administracion.ver_alertas_factura
+  alert_delay_minutes: 5
+  alert_fire: cron_dispatch_factura_cargada_alerts
+  empty_numero: notify_noop
+  chicho_assigns_perms: true
+  do_not_merge: 1347
+  out_of_scope:
+    - tab_oc_match_expand
+    - backend_pricing_math
+    - db_permission_assignment
+notes: >
+  Planning complete. nextRecommended apply. Do NOT apply in this session.
+  Do NOT open PR. Stacked on #1347 tip. Single PR to main when apply runs.
