@@ -618,20 +618,26 @@ def _stored_metrics(
     markup_pct=None,
     costo_mercaderia=None,
     formula_version: int = CURRENT_FORMULA_VERSION,
+    neto=None,
+    iva_reconcilia=None,
 ) -> None:
     """Directly seeds a `ml_order_metrics` row (ventas-ml-rediseno PR7) --
     the STORED value the readers must use, deliberately not derived from
     any live payment/cost fixture, so a test using this helper pins the
     reader path, never the producer. `costo_mercaderia` must accompany a
     non-`None` `markup_pct` (`OrderMetrics.__post_init__`'s own invariant:
-    a markup against an unknown/zero cost is never a real number)."""
+    a markup against an unknown/zero cost is never a real number).
+    `neto`/`iva_reconcilia` (PR10.T7/T5) default to `None`, matching every
+    pre-PR10 caller of this helper -- additive, backward compatible."""
     db.add(
         MlOrderMetrics(
             order_id=order_id,
+            neto=neto,
             total_gauss=total_gauss,
             gauss_status=gauss_status,
             markup_pct=markup_pct,
             costo_mercaderia=costo_mercaderia,
+            iva_reconcilia=iva_reconcilia,
             formula_version=formula_version,
             computed_at=datetime(2026, 9, 1, tzinfo=timezone.utc),
         )
@@ -664,6 +670,11 @@ class TestNetoInListing:
         _payment(db, 1, order_id, status="approved", net_received_amount=Decimal("7371.11"))
         _payment(db, 2, order_id, status="approved", net_received_amount=Decimal("12528.89"))
         db.commit()
+        # ventas-ml-rediseno PR10.T7 (design D2/D13, spec LISTING R31): the
+        # listing's `neto` now reads the STORED row, never a live
+        # recompute -- materialize it with the real producer first.
+        recompute_order_metrics(db, [order_id])
+        db.commit()
 
         body = client.get("/api/ml-ventas-ops/sales", headers=admin_auth_headers).json()
 
@@ -686,6 +697,8 @@ class TestNetoInListing:
             transaction_amount_refunded=Decimal("29000.00"),
         )
         _charge(db, 20, "meli_percentage_fee", "fee", Decimal("1386.00"), refunded=Decimal("1386.00"))
+        db.commit()
+        recompute_order_metrics(db, [order_id])
         db.commit()
 
         body = client.get("/api/ml-ventas-ops/sales", headers=admin_auth_headers).json()
@@ -714,6 +727,8 @@ class TestNetoInListing:
         _payment(db, 61, 61001, status="approved", net_received_amount=Decimal("1000.00"))
         _payment(db, 62, 61002, status="approved", net_received_amount=Decimal("500.00"))
         db.commit()
+        recompute_order_metrics(db, [61001, 61002])
+        db.commit()
 
         body = client.get("/api/ml-ventas-ops/sales", headers=admin_auth_headers).json()
 
@@ -740,6 +755,8 @@ class TestNetoInListing:
         _charge(db, 71, "meli_percentage_fee", "fee", Decimal("10.00"), refunded=Decimal("10.00"))
         _charge(db, 71, "financing_fee", "fee", Decimal("40.00"), refunded=Decimal("40.00"))
         db.commit()
+        recompute_order_metrics(db, [order_id])
+        db.commit()
 
         body = client.get("/api/ml-ventas-ops/sales", headers=admin_auth_headers).json()
 
@@ -755,6 +772,8 @@ class TestNetoInListing:
         _seed_order(db, order_id, date_created=datetime(2026, 9, 1, tzinfo=timezone.utc))
         _payment(db, 81100, order_id, status="approved", net_received_amount=Decimal("800.00"))
         _charge(db, 81100, "tax_withholding_sirtac-caba", "tax", Decimal("300.00"))
+        db.commit()
+        recompute_order_metrics(db, [order_id])
         db.commit()
 
         body = client.get("/api/ml-ventas-ops/sales", headers=admin_auth_headers).json()
@@ -1091,9 +1110,10 @@ class TestTotalGaussInListing:
         )
 
     def test_stored_total_gauss_agrees_with_recomputed(self, db, client, admin_auth_headers, rol_admin):
-        """Pins design D2: even when `MlOrdersOps.total_gauss` is stored
-        with a STALE, WRONG value, the listing shows the freshly recomputed
-        one, never the stored column."""
+        """Pins design D2: even when the LEGACY `MlOrdersOps.total_gauss`
+        mirror is stored with a STALE, WRONG value, the listing shows the
+        `ml_order_metrics` stored value (PR10.T7), never that legacy
+        column."""
         _grant_ml_ops_ver(db, rol_admin)
         order_id = 90001
         when = datetime(2026, 9, 1, tzinfo=timezone.utc)
@@ -1106,6 +1126,8 @@ class TestTotalGaussInListing:
         db.query(MlOrdersOps).filter(MlOrdersOps.order_id == order_id).update(
             {"total_gauss": Decimal("999999.00"), "total_gauss_stale": True}
         )
+        db.commit()
+        recompute_order_metrics(db, [order_id])
         db.commit()
 
         body = client.get("/api/ml-ventas-ops/sales", headers=admin_auth_headers).json()

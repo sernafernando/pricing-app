@@ -188,14 +188,14 @@ Design refs: D12, D12a. Satisfies: KPI R7, R15; SEARCH R25, R25a, R26, R27; PFIL
 ## PR10 — Additive listing fields
 Design refs: D13 route /sales. Satisfies: LISTING R28, R29, R31.
 
-- [ ] PR10.T1 RED: route /sales response adds optional `item_category` (via `ml_order_item_costos.producto_item_id` → `productos_erp.categoria`; NULL when no frozen cost) without changing/removing existing fields (LISTING R28).
-- [ ] PR10.T2 GREEN: implement the join; add `utils/categoryIcon.js` fallback mapping is FE (PR14), backend only returns the raw category string here.
-- [ ] PR10.T3 RED: `city`, `province` (from `MlShipmentOps.receiver_address`), `shipping_substatus`, `coupon_amount` additive fields — captured-fixture based, null-safe on missing/varying JSONB shape.
-- [ ] PR10.T4 GREEN: implement.
-- [ ] PR10.T5 RED: server-derived unified `alert_level` (`ok`, `warning`, `error`) per D13 rule (error = unresolved/neto null; warning = provisional/recalculating/iva-not-reconciling/op-or-goods-unknown; ok) — replaces ad-hoc per-field FE flags (LISTING R29).
-- [ ] PR10.T6 GREEN: implement `alert_level` derivation server-side.
-- [ ] PR10.T7 RED: listing `neto`, `total_gauss`, `markup` values equal `ml_order_metrics` stored fields, not a live recompute (LISTING R31 — regression guard alongside PR7).
-- [ ] PR10.T8 RED: `metrics_state` field present per row (`ok`, `provisional`, `unresolved`, `recalculating`, `failed`, `pending`).
+- [x] PR10.T1 RED: route /sales response adds optional `item_category` (via `ml_order_item_costos.producto_item_id` → `productos_erp.categoria`; NULL when no frozen cost) without changing/removing existing fields (LISTING R28).
+- [x] PR10.T2 GREEN: implement the join; add `utils/categoryIcon.js` fallback mapping is FE (PR14), backend only returns the raw category string here.
+- [x] PR10.T3 RED: `city`, `province` (from `MlShipmentOps.receiver_address`), `shipping_substatus`, `coupon_amount` additive fields — captured-fixture based, null-safe on missing/varying JSONB shape.
+- [x] PR10.T4 GREEN: implement.
+- [x] PR10.T5 RED: server-derived unified `alert_level` (`ok`, `warning`, `error`) per D13 rule (error = unresolved/neto null; warning = provisional/recalculating/iva-not-reconciling/op-or-goods-unknown; ok) — replaces ad-hoc per-field FE flags (LISTING R29).
+- [x] PR10.T6 GREEN: implement `alert_level` derivation server-side.
+- [x] PR10.T7 RED: listing `neto`, `total_gauss`, `markup` values equal `ml_order_metrics` stored fields, not a live recompute (LISTING R31 — regression guard alongside PR7).
+- [x] PR10.T8 RED: `metrics_state` field present per row (`ok`, `provisional`, `unresolved`, `recalculating`, `failed`, `pending`).
 
 ## PR11 — Doubtful switches + route /sales/kpis + aggregation
 Design refs: D12 aggregate.py, D13 route /sales/kpis, D9 KPI exclusion. Satisfies: KPI R8-R14; SM R3 scenario 11 (worker_alive surfacing).
