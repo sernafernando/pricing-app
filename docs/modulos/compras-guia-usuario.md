@@ -80,9 +80,12 @@ permisos. Los tabs se ocultan dinámicamente según los permisos del usuario.
 En el listado, la columna **Estado** es financiera (el badge de **aprobado**
 se mantiene; no se llama “Pendiente”). La columna **Proceso** muestra el
 eje logístico (`N/A servicio`, `Por recibir`, `Recibido`, `Faltantes`,
-`Faltantes resueltos`, `Controlado`) y chips: OC vinculada, **Factura**
+`Faltantes resueltos`, `Controlado`) y chips: **OC** (vinculación en
+Pricing — header / `ocs[]` —, no “existe en GBP”), **Factura**
 (cargada en ERP) y estado del último job de OC Match. Esos chips no son
-estados del pedido. Si hay número de factura pero nadie tildó ERP, puede
+estados del pedido. Si la OC vinculada no aparece en el ERP, el chip OC
+sigue (el vínculo no se pierde) y Depósito muestra **OC no encontrada en
+ERP**. Si hay número de factura pero nadie tildó ERP, puede
 verse un chip atenuado **Número** — no es el chip Factura.
 
 **Constancia ≠ cargada.** Identificar o matchear un número (OC Match,

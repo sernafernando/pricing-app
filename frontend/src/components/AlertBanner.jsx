@@ -26,6 +26,7 @@ export default function AlertBanner({
   variant = 'info', 
   message, 
   action,
+  secondaryAction,
   dismissible = true,
   persistent = false,
   onDismiss
@@ -64,6 +65,15 @@ export default function AlertBanner({
             onClick={action.onClick}
           >
             {action.label}
+          </button>
+        )}
+        {secondaryAction && (
+          <button
+            className={styles.actionBtn}
+            onClick={secondaryAction.onClick}
+            type="button"
+          >
+            {secondaryAction.label}
           </button>
         )}
       </div>

@@ -69,7 +69,7 @@ const EJES_PROCESAL_LABEL = {
   por_recibir: 'Por recibir',
   recibido: 'Recibido',
   faltantes_sin_res: 'Faltantes',
-  faltantes_con_res: 'Faltantes resueltos',
+  faltantes_con_res: 'Faltantes con resolución',
   controlado: 'Controlado',
 };
 

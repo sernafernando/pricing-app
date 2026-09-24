@@ -7,6 +7,18 @@ export function readFocusQuery() {
   return new URLSearchParams(window.location.search).get('focus');
 }
 
+/** G31 / banner deep-link `?pedido={id}` (same window.search, no Router). */
+export function readPedidoQuery() {
+  if (typeof window === 'undefined') return null;
+  return new URLSearchParams(window.location.search).get('pedido');
+}
+
+/** Optional `?eje=` to open a Depósito filter tab (e.g. faltantes_con_res). */
+export function readEjeQuery() {
+  if (typeof window === 'undefined') return null;
+  return new URLSearchParams(window.location.search).get('eje');
+}
+
 /**
  * useRecepcionDeposito — Slice B reception endpoints for Batch K.
  *
@@ -140,6 +152,24 @@ export default function useRecepcionDeposito() {
    * @param {{ proveedor_direccion_id: number }} payload
    * @returns {Promise<EtiquetaEnvioResponse>}
    */
+  /**
+   * POST /pedidos/{id}/faltantes/resolver
+   * @param {number} pedidoId
+   * @param {{ texto: string }} payload
+   * @returns {Promise<{pedido_id: number, faltantes_resuelto_en: string}>}
+   */
+  const resolverFaltantes = useCallback(
+    (pedidoId, payload) =>
+      wrap(async () => {
+        const { data } = await api.post(
+          `/administracion/compras/pedidos/${pedidoId}/faltantes/resolver`,
+          payload
+        );
+        return data;
+      }),
+    [wrap]
+  );
+
   const generarRetiro = useCallback(
     (pedidoId, payload) =>
       wrap(async () => {
@@ -162,5 +192,6 @@ export default function useRecepcionDeposito() {
     getEventos,
     getDireccionesProveedor,
     generarRetiro,
+    resolverFaltantes,
   };
 }

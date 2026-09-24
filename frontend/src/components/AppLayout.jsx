@@ -204,6 +204,15 @@ function AppLayoutInner() {
     }
   };
 
+  const handleSnoozeComprasAlerta = async (notifId) => {
+    try {
+      await api.patch(`/notificaciones/${notifId}/snooze`);
+      setComprasAlertas((prev) => prev.filter((n) => n.id !== notifId));
+    } catch {
+      // Keep banner; next SSE/list refresh will reconcile.
+    }
+  };
+
   // Escuchar cambios en localStorage para sincronizar
   useEffect(() => {
     const handleStorageChange = () => {
@@ -251,7 +260,9 @@ function AppLayoutInner() {
         
         {/* Alert Banners - Sistema de rotación */}
         <AlertBannerContainer sidebarExpanded={sidebarExpanded} sidebarHidden={isBrandOnly}>
-          {comprasVisibles.map((notif) => (
+          {comprasVisibles.map((notif) => {
+            const isFaltantes = notif.tipo === 'compras.faltantes';
+            return (
             <AlertBanner
               key={`compras-${notif.id}`}
               id={`compras-${notif.id}`}
@@ -261,11 +272,16 @@ function AppLayoutInner() {
                 label: 'Ver',
                 onClick: () => navigate(deepLinkForCompras(notif)),
               }}
-              dismissible
+              secondaryAction={isFaltantes ? {
+                label: 'Posponer',
+                onClick: () => handleSnoozeComprasAlerta(notif.id),
+              } : null}
+              dismissible={!isFaltantes}
               persistent
-              onDismiss={() => handleOkComprasAlerta(notif.id)}
+              onDismiss={isFaltantes ? undefined : () => handleOkComprasAlerta(notif.id)}
             />
-          ))}
+            );
+          })}
           {comprasOcultas > 0 && (
             <p className={styles.comprasOverflow}>+{comprasOcultas} más</p>
           )}

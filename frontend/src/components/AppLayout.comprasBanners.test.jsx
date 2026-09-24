@@ -153,4 +153,44 @@ describe('AppLayout — compras banners', () => {
     expect(screen.getByText(/Factura FA-2 persistente/)).toBeInTheDocument();
     expect(screen.getByText('+3 más')).toBeInTheDocument();
   });
+
+  it('does not dismiss compras.faltantes; Ver and Posponer stay, no /ok', async () => {
+    const user = userEvent.setup();
+    const faltantesNotif = {
+      id: 77,
+      tipo: 'compras.faltantes',
+      estado: 'PENDIENTE',
+      mensaje: 'Faltantes en P-01-2026-00012 (Acme). Resolver en Pedidos.',
+      item_id: 42,
+      leida: false,
+    };
+    api.get.mockImplementation((url) => {
+      if (url === '/notificaciones') {
+        return Promise.resolve({ data: [faltantesNotif] });
+      }
+      if (url === '/alertas/activas') {
+        return Promise.resolve({ data: [] });
+      }
+      if (url === '/alertas/configuracion') {
+        return Promise.resolve({ data: { max_alertas_visibles: 1 } });
+      }
+      return Promise.resolve({ data: {} });
+    });
+
+    renderWithRouter(<AppLayout />, { initialEntries: ['/'] });
+
+    expect(await screen.findByText(/Faltantes en P-01-2026-00012/)).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Ver' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Posponer' })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Cerrar alerta' })).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: 'Posponer' }));
+    await waitFor(() => {
+      expect(api.patch).toHaveBeenCalledWith('/notificaciones/77/snooze');
+    });
+    expect(api.patch).not.toHaveBeenCalledWith('/notificaciones/77/ok');
+    await waitFor(() => {
+      expect(screen.queryByText(/Faltantes en P-01-2026-00012/)).not.toBeInTheDocument();
+    });
+  });
 });

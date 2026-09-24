@@ -26,7 +26,7 @@ import {
 import { usePermisos } from '../../contexts/PermisosContext';
 import useComprasPedidos from '../../hooks/useComprasPedidos';
 import api from '../../services/api';
-import { readFocusQuery } from '../../hooks/useRecepcionDeposito';
+import useRecepcionDeposito, { readFocusQuery } from '../../hooks/useRecepcionDeposito';
 import AdjuntosPanel from './AdjuntosPanel';
 import EstadoBadge from './_shared/EstadoBadge';
 import ModalVincularFactura from './ModalVincularFactura';
@@ -42,7 +42,7 @@ const EJES_PROCESAL_LABEL = {
   por_recibir: 'Por recibir',
   recibido: 'Recibido',
   faltantes_sin_res: 'Faltantes',
-  faltantes_con_res: 'Faltantes resueltos',
+  faltantes_con_res: 'Faltantes con resolución',
   controlado: 'Controlado',
 };
 
@@ -96,6 +96,7 @@ const formatCurrency = (value, moneda = 'ARS') => {
 export default function ModalPedidoDetalle({ pedidoId, onClose }) {
   // Desestructurar función memoizada para evitar loop en useEffect.
   const { obtener: obtenerPedido, desvincularFactura, desvinculaOc, fetchOcDetalle } = useComprasPedidos();
+  const { resolverFaltantes } = useRecepcionDeposito();
   const { tienePermiso } = usePermisos();
 
   const canGestionar = tienePermiso('administracion.gestionar_ordenes_compra');
@@ -119,6 +120,10 @@ export default function ModalPedidoDetalle({ pedidoId, onClose }) {
   // F2 — ND/NC variance circuit.
   const [resolviendoVarianza, setResolviendoVarianza] = useState(false);
   const [errorVarianza, setErrorVarianza] = useState(null);
+
+  const [resolveTexto, setResolveTexto] = useState('');
+  const [resolviendoFaltantes, setResolviendoFaltantes] = useState(false);
+  const [errorResolverFaltantes, setErrorResolverFaltantes] = useState(null);
 
   // F5 — Manual TC override editor.
   const [showTCEditor, setShowTCEditor] = useState(false);
@@ -341,6 +346,36 @@ export default function ModalPedidoDetalle({ pedidoId, onClose }) {
     }
     await handleGuardarTC(null);
   }, [pedido, tcForm.motivo, handleGuardarTC]);
+
+  const handleResolverFaltantes = useCallback(async () => {
+    if (!pedido?.id) return;
+    const texto = resolveTexto.trim();
+    if (!texto) {
+      setErrorResolverFaltantes('El texto de resolución es obligatorio.');
+      return;
+    }
+    setResolviendoFaltantes(true);
+    setErrorResolverFaltantes(null);
+    try {
+      const data = await resolverFaltantes(pedido.id, { texto });
+      setPedido((prev) =>
+        prev
+          ? {
+              ...prev,
+              eje_procesal: 'faltantes_con_res',
+              faltantes_resuelto_en: data?.faltantes_resuelto_en || prev.faltantes_resuelto_en,
+            }
+          : prev
+      );
+      setResolveTexto('');
+    } catch (err) {
+      setErrorResolverFaltantes(
+        err.response?.data?.detail || 'Error al resolver faltantes.'
+      );
+    } finally {
+      setResolviendoFaltantes(false);
+    }
+  }, [pedido?.id, resolveTexto, resolverFaltantes]);
 
   const handleNavegarAPedidoRelacionado = useCallback(
     (relacionadoId) => {
@@ -764,6 +799,45 @@ export default function ModalPedidoDetalle({ pedidoId, onClose }) {
                 ? pedido.observaciones
                 : 'Sin observaciones.'}
             </div>
+
+            {pedido.eje_procesal === 'faltantes_sin_res' && (
+              <div className={styles.resolveFaltantesBlock}>
+                <label className={styles.resolveFaltantesLabel} htmlFor="resolver-faltantes-texto">
+                  Resolución de faltantes <span className={styles.tcAsterisk}>*</span>
+                </label>
+                <textarea
+                  id="resolver-faltantes-texto"
+                  className={styles.resolveFaltantesTextarea}
+                  value={resolveTexto}
+                  onChange={(e) => {
+                    setResolveTexto(e.target.value);
+                    if (errorResolverFaltantes) setErrorResolverFaltantes(null);
+                  }}
+                  placeholder="Describí la resolución para depósito…"
+                  required
+                  disabled={resolviendoFaltantes}
+                  rows={3}
+                />
+                {errorResolverFaltantes && (
+                  <div className={styles.resolveFaltantesError} role="alert">
+                    {errorResolverFaltantes}
+                  </div>
+                )}
+                <button
+                  type="button"
+                  className={styles.btnPrimaryInline}
+                  onClick={handleResolverFaltantes}
+                  disabled={resolviendoFaltantes || !resolveTexto.trim()}
+                >
+                  {resolviendoFaltantes ? (
+                    <Loader2 size={12} className={styles.spin} />
+                  ) : (
+                    <Check size={12} />
+                  )}
+                  Resolver faltantes
+                </button>
+              </div>
+            )}
 
             {/* ── Factura del ERP ── */}
             <h3 className={styles.sectionTitle}>

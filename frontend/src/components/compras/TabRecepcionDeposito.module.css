@@ -322,9 +322,9 @@
   font-variant-numeric: tabular-nums;
 }
 
-/* Chips de identificación SIN-OC (factura / observaciones). Mismo tono neutro:
-   mismo trabajo, distinto campo origen. max-width + ellipsis evita que una
-   observación larga empuje los botones de acción fuera del header. */
+/* Ident chips on every row (factura / pedidos_documento / observaciones).
+   Neutral tone: same job, different source field. max-width + ellipsis keeps
+   a long value from pushing action buttons off the header. */
 .chipIdent {
   composes: badgeItems;
   max-width: 22ch;

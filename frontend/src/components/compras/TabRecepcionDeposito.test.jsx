@@ -214,12 +214,13 @@ describe('TabRecepcionDeposito — "Por recibir" merged filter', () => {
   it('has no "En cuenta corriente" filter tab, but still shows its badge', async () => {
     await renderTab();
 
-    // The filter tabs are exactly four; payment mode is not a warehouse filter.
+    // Five warehouse tabs; payment mode is not a separate warehouse filter.
     expect(screen.getAllByRole('tab').map((tab) => tab.textContent)).toEqual([
       'Por recibir',
       'Recibidos sin controlar',
-      'Controlados',
       'Con faltantes',
+      'Faltantes con resolución',
+      'Controlados',
     ]);
     expect(screen.queryByRole('tab', { name: 'En cuenta corriente' })).not.toBeInTheDocument();
 
@@ -238,6 +239,68 @@ describe('TabRecepcionDeposito — "Por recibir" merged filter', () => {
     expect(screen.getByText('#PC-0002')).toBeInTheDocument();
     expect(screen.getByText('Proveedor Dos')).toBeInTheDocument();
     expect(screen.getByText('En cuenta corriente')).toBeInTheDocument();
+  });
+});
+
+describe('TabRecepcionDeposito — eje_procesal tabs and ?pedido=', () => {
+  it('Recibidos queries eje_procesal=recibido only', async () => {
+    const user = userEvent.setup();
+    await renderTab();
+
+    await user.click(screen.getByRole('tab', { name: 'Recibidos sin controlar' }));
+
+    expect(api.get).toHaveBeenCalledWith(LISTADO_ENDPOINT, {
+      params: { eje_procesal: 'recibido', page_size: 200 },
+    });
+  });
+
+  it('Con faltantes queries eje_procesal=faltantes_sin_res', async () => {
+    const user = userEvent.setup();
+    await renderTab();
+
+    await user.click(screen.getByRole('tab', { name: 'Con faltantes' }));
+
+    expect(api.get).toHaveBeenCalledWith(LISTADO_ENDPOINT, {
+      params: { eje_procesal: 'faltantes_sin_res', page_size: 200 },
+    });
+  });
+
+  it('Faltantes con resolución queries eje_procesal=faltantes_con_res', async () => {
+    const user = userEvent.setup();
+    await renderTab();
+
+    await user.click(screen.getByRole('tab', { name: 'Faltantes con resolución' }));
+
+    expect(api.get).toHaveBeenCalledWith(LISTADO_ENDPOINT, {
+      params: { eje_procesal: 'faltantes_con_res', page_size: 200 },
+    });
+  });
+
+  it('lands on Faltantes con resolución and expands ?pedido=&eje=', async () => {
+    window.history.pushState({}, '', '?pedido=7&eje=faltantes_con_res');
+    const target = {
+      ...PEDIDO_PAGADO,
+      id: 7,
+      numero: 'PC-0007',
+      estado: 'con_faltantes',
+      eje_procesal: 'faltantes_con_res',
+      faltantes_resuelto_en: '2026-09-23T12:00:00Z',
+    };
+    mockListado([target]);
+    render(<TabRecepcionDeposito />);
+    await screen.findByText('#PC-0007');
+
+    expect(api.get).toHaveBeenCalledWith(LISTADO_ENDPOINT, {
+      params: { eje_procesal: 'faltantes_con_res', page_size: 200 },
+    });
+    expect(screen.getByRole('tab', { name: 'Faltantes con resolución' })).toHaveAttribute(
+      'aria-selected',
+      'true'
+    );
+    expect(screen.getByRole('button', { expanded: true })).toHaveAccessibleName(
+      /#PC-0007/
+    );
+    window.history.pushState({}, '', '/');
   });
 });
 
@@ -696,6 +759,72 @@ describe('TabRecepcionDeposito — closed header identification chips (SIN-OC, D
 
     // Fixture observaciones is 24 chars — must render verbatim, no ellipsis.
     expect(screen.getByText(PEDIDO_PAGADO.observaciones)).toBeInTheDocument();
+  });
+});
+
+describe('TabRecepcionDeposito — Factura cargada badge + ident chips (Phase 3)', () => {
+  it('shows Factura cargada badge when factura_cargada is true', async () => {
+    await renderTab([{ ...PEDIDO_PAGADO, factura_cargada: true }]);
+
+    expect(screen.getByText('Factura cargada')).toBeInTheDocument();
+  });
+
+  it('does not show Factura cargada badge when numbers exist but factura_cargada is false', async () => {
+    await renderTab([
+      {
+        ...PEDIDO_PAGADO,
+        factura_cargada: false,
+        numero_factura: 'FA-1',
+      },
+    ]);
+
+    expect(screen.queryByText('Factura cargada')).not.toBeInTheDocument();
+    expect(screen.getByText('FA-1')).toBeInTheDocument();
+  });
+
+  it('shows factura and pedidos_documento chips on CON-OC rows', async () => {
+    await renderTab([
+      {
+        ...PEDIDO_CON_OC_PAGADO,
+        numero_factura: 'FA-1',
+        pedidos_documento: 'AD-9',
+      },
+    ]);
+
+    expect(screen.getByText('FA-1')).toBeInTheDocument();
+    expect(screen.getByText('AD-9')).toBeInTheDocument();
+    expect(screen.getByText('2 líneas · 15 u')).toBeInTheDocument();
+  });
+
+  it('shows factura and pedidos_documento chips on SIN-OC rows', async () => {
+    await renderTab([
+      {
+        ...PEDIDO_PAGADO,
+        numero_factura: 'FA-2',
+        pedidos_documento: 'AD-3',
+      },
+    ]);
+
+    expect(screen.getByText('FA-2')).toBeInTheDocument();
+    expect(screen.getByText('AD-3')).toBeInTheDocument();
+  });
+
+  it('truncates long pedidos_documento at 60ch and keeps the full text in title', async () => {
+    const texto =
+      'Administracion-OC-referencia-muy-larga-que-debe-truncarse-en-el-chip-visualmente';
+    await renderTab([
+      {
+        ...PEDIDO_PAGADO,
+        numero_factura: null,
+        observaciones: null,
+        pedidos_documento: texto,
+      },
+    ]);
+
+    const truncado = `${texto.slice(0, 60).trimEnd()}…`;
+    expect(screen.getByText(truncado)).toBeInTheDocument();
+    expect(screen.queryByText(texto)).not.toBeInTheDocument();
+    expect(screen.getByTitle(texto)).toHaveTextContent(`Pedidos documento: ${texto}`);
   });
 });
 

@@ -478,7 +478,7 @@ class TestResolucionG31:
         assert all(n.tipo == "compras.faltantes_resuelto" for n in creadas)
         assert all("P-01-2026-00012" in n.mensaje for n in creadas)
         assert all(texto in n.mensaje for n in creadas)
-        expected_link = f"/administracion/compras?tab=deposito&pedido={pedido.id}"
+        expected_link = f"/administracion/compras?tab=deposito&pedido={pedido.id}&eje=faltantes_con_res"
         assert all(expected_link in n.mensaje for n in creadas)
         assert all(n.codigo_producto == expected_link for n in creadas)
 

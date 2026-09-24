@@ -32,7 +32,7 @@ SNOOZE_WINDOW: Final[timedelta] = timedelta(hours=1)
 PERMISO_VER_ALERTAS_FACTURA: Final[str] = "administracion.ver_alertas_factura"
 PERMISO_DEPOSITO_RECEPCION: Final[str] = "deposito.recibir_mercaderia"
 DEEP_LINK_OBSERVACIONES: Final[str] = "/administracion/compras?tab=pedidos&pedido={pedido_id}&focus=observaciones"
-DEEP_LINK_DEPOSITO: Final[str] = "/administracion/compras?tab=deposito&pedido={pedido_id}"
+DEEP_LINK_DEPOSITO: Final[str] = "/administracion/compras?tab=deposito&pedido={pedido_id}&eje=faltantes_con_res"
 
 
 def _ahora_utc(ahora: datetime | None) -> datetime:

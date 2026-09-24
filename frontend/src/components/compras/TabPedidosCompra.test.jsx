@@ -66,3 +66,17 @@ describe('TabPedidosCompra — Factura chip from ERP cargada', () => {
     expect(screen.queryByTestId('chip-numero-factura')).not.toBeInTheDocument();
   });
 });
+
+describe('TabPedidosCompra — eje procesal label', () => {
+  it('labels faltantes_con_res as Faltantes con resolución', async () => {
+    renderTab({
+      ...PEDIDO_CON_NUMERO,
+      estado: 'con_faltantes',
+      eje_procesal: 'faltantes_con_res',
+    });
+
+    expect(await screen.findByText('P-01-2026-00001')).toBeInTheDocument();
+    expect(screen.getByText('Faltantes con resolución')).toBeInTheDocument();
+    expect(screen.queryByText('Faltantes resueltos')).not.toBeInTheDocument();
+  });
+});
