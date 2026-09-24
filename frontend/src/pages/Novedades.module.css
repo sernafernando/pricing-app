@@ -225,22 +225,21 @@
   gap: var(--space-3);
 }
 
-/* Grid keeps nested <ul> under the step text (flex made them look like table columns). */
+/* Block + absolute badge: nested <ul> stacks under the step text (flex made columns). */
 .entryBody :global(ol li) {
   counter-increment: novedades-step;
-  display: grid;
-  grid-template-columns: 22px minmax(0, 1fr);
-  column-gap: var(--space-3);
-  align-items: start;
+  position: relative;
+  display: block;
+  padding-left: calc(22px + var(--space-3));
   font-size: var(--font-sm);
   color: var(--text-primary);
 }
 
 .entryBody :global(ol li::before) {
   content: counter(novedades-step);
-  grid-column: 1;
-  grid-row: 1;
-  flex-shrink: 0;
+  position: absolute;
+  left: 0;
+  top: 0;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -253,14 +252,9 @@
   font-weight: var(--font-bold);
 }
 
-.entryBody :global(ol li > *) {
-  grid-column: 2;
-}
-
 .entryBody :global(ol li > ul) {
   margin-top: var(--space-2);
   margin-bottom: 0;
-  width: 100%;
 }
 
 .entryBody :global(ul) {
@@ -274,7 +268,6 @@
   color: var(--text-primary);
   font-size: var(--font-sm);
   margin-bottom: var(--space-1);
-  display: list-item; /* reset if nested under ol grid */
 }
 
 .entryBody :global(blockquote) {
