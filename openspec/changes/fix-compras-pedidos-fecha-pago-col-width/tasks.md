@@ -34,3 +34,8 @@ Chain strategy: pending
 ## Definition of Done / Verification
 
 `cd frontend && pnpm exec vitest run src/components/compras/TabPedidosCompra.test.jsx`
+
+## Phase 3: Remediate verify FAIL (badge + no-collide evidence)
+
+- [x] 3.1 Vitest: `aprobado` + `fecha_pago_estimada` within 7 days → date `dd/mm/yyyy`, urgency badge visible, Fecha pago `<col>` still `110px`. (`badge-wrap`)
+- [x] 3.2 Visual (Playwright): Proveedor and Mon. cells have positive width and zero overlap area (Chromium geometry). File under `src/test/visual/`. (`no-collide`)

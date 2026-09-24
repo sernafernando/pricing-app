@@ -51,7 +51,7 @@ Estado `152px`, Proceso `220px`, Mon. `60px`, Proveedor no width.
 | Layer | What | Approach |
 |-------|------|----------|
 | Unit | Fecha pago col `110px`; Estado `152px`; Proceso `220px` | `TabPedidosCompra.test.jsx` — `columnheader` → sibling index → `<col>.style.width` |
-| Visual | Painted Proveedor/Mon. overlap | Manual at apply; no new Playwright |
+| Visual | Painted Proveedor/Mon. overlap | Playwright `tabPedidosCompraFechaPago.visual.test.jsx` (Phase 3 remediates failed verify; jsdom cannot prove geometry) |
 | E2E | N/A | Layout-only |
 
 ## Threat Matrix

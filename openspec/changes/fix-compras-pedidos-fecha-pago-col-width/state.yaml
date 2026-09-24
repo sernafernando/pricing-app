@@ -23,7 +23,7 @@ artifacts:
   apply-progress: openspec/changes/fix-compras-pedidos-fecha-pago-col-width/apply-progress.md
 next_phase: verify
 nextRecommended: verify
-task_count: 3
+task_count: 5
 locked_decisions:
   column: fecha_pago
   width_px: 110
@@ -39,5 +39,7 @@ locked_decisions:
     - other_tabs
     - datatable_shared_padding
 notes: >
-  Apply complete (3/3). Fecha pago 110px; badge margin-left 0; vitest 13/13.
+  Remediation complete (5/5). Badge/date vitest 16/16; Playwright Proveedor/Mon
+  no-collide 1/1. Remediates failed evidence
+  sha256:13f6a7ffceacc189619f0583fe56242204c41c963e626b2924f36506dc3f0475.
   Ready for verify. Do NOT archive in apply.
