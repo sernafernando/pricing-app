@@ -68,6 +68,9 @@ from app.services.ml_ventas_desglose.breakdown_service import (
 from app.services.ml_sales_query.filters import SalesFilter, build_scope, collapse
 from app.services.ml_ventas_desglose.deducciones import calcular_total_gauss, resolve_costo_mercaderia_detalle
 from app.services.ml_ventas_desglose.iva import descomponer_neto
+from app.models.ml_order_metrics import MlOrderMetrics
+from app.services.order_metrics.read import metrics_state_for_orders, read_stored_metrics
+from app.services.order_metrics.types import GaussStatus
 from app.services.permisos_service import PermisosService
 
 DIVERGENCE_KINDS = (
@@ -500,16 +503,34 @@ class CadenaTotalGaussSummary(BaseModel):
     costo_mercaderia_items: List[ItemCostoLineSummary] = Field(default_factory=list)
 
     @classmethod
-    def from_domain(cls, resultado, costo_items: Optional[List] = None) -> "CadenaTotalGaussSummary":
+    def from_stored(cls, stored, costo_items: Optional[List] = None) -> "CadenaTotalGaussSummary":
+        """ventas-ml-rediseno PR7 (design D2/D13, spec SM R5/R6): the
+        detail panel's chain now renders from the STORED
+        `app.services.order_metrics.types.OrderMetrics` (`read.read_stored_metrics`),
+        never from a live `calcular_total_gauss` call. `stored=None` means
+        this order has no `ml_order_metrics` row yet (`pending`/never
+        computed) -- rendered as fully unknown, never a fabricated number.
+        `costo_mercaderia_items` is unrelated to the Total Gauss chain (it
+        reads the frozen cost snapshot directly) and is unaffected by this
+        switch."""
+        if stored is None:
+            return cls(
+                total_gauss=None,
+                lineas=[],
+                markup=None,
+                provisional=False,
+                provisional_falta=None,
+                costo_mercaderia_items=[ItemCostoLineSummary.from_domain(item) for item in (costo_items or [])],
+            )
         return cls(
-            total_gauss=float(resultado.total_gauss) if resultado.total_gauss is not None else None,
+            total_gauss=float(stored.total_gauss) if stored.total_gauss is not None else None,
             lineas=[
                 DeduccionLineaSummary(code=code, monto=float(monto) if monto is not None else None, concepto=concepto)
-                for code, monto, concepto in resultado.lineas
+                for code, monto, concepto in stored.lineas
             ],
-            markup=float(resultado.markup) if resultado.markup is not None else None,
-            provisional=resultado.provisional,
-            provisional_falta=resultado.provisional_falta,
+            markup=float(stored.markup_pct) if stored.markup_pct is not None else None,
+            provisional=stored.gauss_status == GaussStatus.PROVISIONAL,
+            provisional_falta=stored.provisional_falta,
             costo_mercaderia_items=[ItemCostoLineSummary.from_domain(item) for item in (costo_items or [])],
         )
 
@@ -531,6 +552,12 @@ class SaleCentricOperation(BaseModel):
     # is not) known, instead of just the final figure.
     iva_decomposicion: DescomposicionIvaSummary
     cadena_total_gauss: CadenaTotalGaussSummary
+    # ventas-ml-rediseno PR7 (design D9, spec SM R6): 'ok' | 'provisional' |
+    # 'unresolved' | 'recalculating' | 'failed' | 'pending' for THIS order.
+    # While 'recalculating', `total_gauss`/`cadena_total_gauss` above may
+    # be stale (or absent) -- the panel must show this explicit indicator
+    # instead of asserting the chain-equals-stored invariant.
+    metrics_state: str
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -1009,8 +1036,16 @@ def listar_ventas(
     # Pagination happens over GROUPS, so a pack can never be split across
     # two pages: page the keys first, then fetch every member of those keys.
     group_key = scope.group_key
+    key_page_query = listing_query
+    if sort == SORT_BY_TOTAL_GAUSS:
+        # ventas-ml-rediseno PR7.T5/T6 (design D2, D1 rationale): the sort
+        # key now joins the AUTHORITATIVE `ml_order_metrics` table, never
+        # the legacy `MlOrdersOps.total_gauss*` mirror -- that column is
+        # kept only for backward-compat until PR8's cleanup. One outer
+        # join for the whole page, never a per-row query loop.
+        key_page_query = key_page_query.outerjoin(MlOrderMetrics, MlOrderMetrics.order_id == MlOrdersOps.order_id)
     key_page = (
-        listing_query.with_entities(
+        key_page_query.with_entities(
             group_key.label("group_key"),
             func.min(MlOrdersOps.date_created).label("group_date"),
         )
@@ -1023,12 +1058,12 @@ def listar_ventas(
             (
                 func.max(MlOrdersOps.ml_last_updated).desc()
                 if sort == SORT_BY_LAST_UPDATE
-                # `nullslast()`: a historical order with no frozen cost (the
-                # overwhelming majority, design D7) has `total_gauss IS
-                # NULL` -- SQLite and Postgres order NULLs differently by
-                # default, so an explicit `nullslast()` is required or the
-                # sort disagrees between the test suite and production.
-                else func.max(MlOrdersOps.total_gauss).desc().nullslast()
+                # `nullslast()`: a historical order with no stored metrics
+                # row yet (design D7) has `total_gauss IS NULL` -- SQLite
+                # and Postgres order NULLs differently by default, so an
+                # explicit `nullslast()` is required or the sort disagrees
+                # between the test suite and production.
+                else func.max(MlOrderMetrics.total_gauss).desc().nullslast()
                 if sort == SORT_BY_TOTAL_GAUSS
                 # `ml_last_updated` is NOT NULL, so it needs no nullslast();
                 # `date_created` is nullable and Postgres would otherwise put
@@ -1331,20 +1366,28 @@ def obtener_operacion(
     # whole pack this detail belongs to (design: "the breakdown is of the
     # PACK, not just this order" -- same grouping the listing uses).
     descomposicion_by_order = descomponer_neto(db, breakdown_order_ids)
-    neto_sin_iva_by_order = {oid: desc.neto_sin_iva for oid, desc in descomposicion_by_order.items()}
-    # ml-ventas-neto-iibb-varios PR2 (D4): same bulk shape, no new queries.
-    venta_sin_iva_by_order = {oid: desc.base_venta_sin_iva for oid, desc in descomposicion_by_order.items()}
-    total_gauss_by_order = calcular_total_gauss(
-        db, breakdown_order_ids, neto_sin_iva_by_order, venta_sin_iva_by_order=venta_sin_iva_by_order
-    )
-    member_total_gauss = [r.total_gauss for r in total_gauss_by_order.values()]
-    pack_total_gauss = None if any(v is None for v in member_total_gauss) else sum(member_total_gauss)
+
+    # ventas-ml-rediseno PR7 (design D2/D9/D13, spec SM R5/R6, BREAKDOWN
+    # R33): `total_gauss`/`cadena_total_gauss` now read the STORED
+    # `ml_order_metrics` row -- never `calcular_total_gauss` live -- for
+    # every order of this pack, one bulk read. `metrics_state` for THIS
+    # order tells the panel whether it can trust the invariant.
+    stored_metrics_by_order = read_stored_metrics(db, breakdown_order_ids)
+    order_metrics_state = metrics_state_for_orders(db, [order.order_id])[order.order_id]
+
+    if len(stored_metrics_by_order) == len(breakdown_order_ids):
+        member_total_gauss = [m.total_gauss for m in stored_metrics_by_order.values()]
+        pack_total_gauss = None if any(v is None for v in member_total_gauss) else sum(member_total_gauss)
+    else:
+        # At least one member of the pack has no stored row yet (pending) --
+        # the pack total is unknown, never a partial sum over the others.
+        pack_total_gauss = None
 
     # THIS order's own split/chain -- the pack sum above answers "how much
     # in total", these answer "why", and summing componentes/lineas across
     # a pack would not be the honest per-order picture the drawer shows.
     order_descomposicion = descomposicion_by_order[order.order_id]
-    order_total_gauss = total_gauss_by_order[order.order_id]
+    order_stored_metrics = stored_metrics_by_order.get(order.order_id)
 
     # THIS order's items, deliberately NOT the whole pack's.
     #
@@ -1372,7 +1415,8 @@ def obtener_operacion(
         breakdown=OperationBreakdownSummary.from_domain(breakdown),
         total_gauss=float(pack_total_gauss) if pack_total_gauss is not None else None,
         iva_decomposicion=DescomposicionIvaSummary.from_domain(order_descomposicion),
-        cadena_total_gauss=CadenaTotalGaussSummary.from_domain(order_total_gauss, order_costo_items),
+        cadena_total_gauss=CadenaTotalGaussSummary.from_stored(order_stored_metrics, order_costo_items),
+        metrics_state=order_metrics_state,
     )
 
 

@@ -533,6 +533,14 @@ class TestSirtacFieldsOverHttp:
         db.add(VariosVentaPct(porcentaje=Decimal("5.00"), fecha_desde=date(2020, 1, 1), fecha_hasta=None))
         db.commit()
         _grant_ml_ops_ver(db, rol_admin)
+        # ventas-ml-rediseno PR7.T7: `cadena_total_gauss` now reads the
+        # STORED chain, never a live recompute -- produce it once via the
+        # real producer first (same formula the endpoint used to call
+        # live, so the assertions below are unchanged).
+        from app.services.order_metrics.store import recompute_order_metrics
+
+        recompute_order_metrics(db, [order_id])
+        db.commit()
 
         body = client.get(f"/api/ml-ventas-ops/orders/{order_id}", headers=admin_auth_headers).json()
 

@@ -14,11 +14,15 @@ from decimal import Decimal
 import pytest
 
 from app.core.config import settings
+from app.models.ml_order_metrics import MlOrderMetrics, MlOrderMetricsDirty
 from app.models.ml_orders_ops import MlOrdersOps, MlShipmentOps
 from app.models.ml_payments import MlPaymentCharge, MlPaymentOps
 from app.models.permiso import Permiso, RolPermisoBase
 from app.models.rma_claim_ml import RmaClaimML
 from app.services.ml_orders_ingestion.link_resolver_service import resolve_links
+from app.services.order_metrics.constants import CURRENT_FORMULA_VERSION
+from app.services.order_metrics.queue import POISON_THRESHOLD
+from app.services.order_metrics.store import recompute_order_metrics
 
 
 @pytest.fixture(autouse=True)
@@ -605,6 +609,35 @@ def _payment(
     )
 
 
+def _stored_metrics(
+    db,
+    order_id: int,
+    *,
+    total_gauss=None,
+    gauss_status: str = "ok",
+    markup_pct=None,
+    costo_mercaderia=None,
+    formula_version: int = CURRENT_FORMULA_VERSION,
+) -> None:
+    """Directly seeds a `ml_order_metrics` row (ventas-ml-rediseno PR7) --
+    the STORED value the readers must use, deliberately not derived from
+    any live payment/cost fixture, so a test using this helper pins the
+    reader path, never the producer. `costo_mercaderia` must accompany a
+    non-`None` `markup_pct` (`OrderMetrics.__post_init__`'s own invariant:
+    a markup against an unknown/zero cost is never a real number)."""
+    db.add(
+        MlOrderMetrics(
+            order_id=order_id,
+            total_gauss=total_gauss,
+            gauss_status=gauss_status,
+            markup_pct=markup_pct,
+            costo_mercaderia=costo_mercaderia,
+            formula_version=formula_version,
+            computed_at=datetime(2026, 9, 1, tzinfo=timezone.utc),
+        )
+    )
+
+
 def _charge(db, payment_id: int, name: str, type_: str, amount, refunded=None) -> None:
     db.add(
         MlPaymentCharge(
@@ -1093,17 +1126,24 @@ class TestTotalGaussInListing:
         sort silently degrading into sort by id, and nothing failing.
 
         Three rows, two with values and one without, is the minimum that
-        can tell an ordering from an accident."""
+        can tell an ordering from an accident.
+
+        ventas-ml-rediseno PR7.T5/T6/T7 (design D2, D1 rationale): the sort
+        key is the AUTHORITATIVE `ml_order_metrics` table now, never the
+        legacy `MlOrdersOps.total_gauss` mirror -- seeded here via
+        `_stored_metrics`, not the legacy column, so this test pins the new
+        reader path rather than the deprecated one PR8 will retire."""
         _grant_ml_ops_ver(db, rol_admin)
         when = datetime(2026, 9, 1, tzinfo=timezone.utc)
         _seed_order(db, 90010, date_created=when)
         _seed_order(db, 90011, date_created=when)
         _seed_order(db, 90012, date_created=when)
-        # The STORED column is the sort key (design D2). Seeded directly
-        # here: what this test pins is the ORDERING, not the producer.
-        db.query(MlOrdersOps).filter_by(order_id=90010).update({"total_gauss": Decimal("100.00")})
-        db.query(MlOrdersOps).filter_by(order_id=90011).update({"total_gauss": Decimal("900.00")})
-        # 90012 deliberately left NULL.
+        _stored_metrics(db, 90010, total_gauss=Decimal("100.00"))
+        _stored_metrics(db, 90011, total_gauss=Decimal("900.00"))
+        # A deliberately WRONG legacy value: must have no effect on the
+        # sort, proving the join no longer reads `MlOrdersOps.total_gauss`.
+        db.query(MlOrdersOps).filter_by(order_id=90012).update({"total_gauss": Decimal("999999.00")})
+        # 90012 deliberately has NO `ml_order_metrics` row (pending).
         db.commit()
 
         resp = client.get(
@@ -1125,6 +1165,12 @@ class TestTotalGaussInListing:
         _payment(db, order_id, order_id, status="approved", net_received_amount=Decimal("121.00"))
         self._item_with_frozen_cost(db, order_id, costo_unitario_ars=Decimal("10.00"))
         self._varios_baseline(db)
+        db.commit()
+        # ventas-ml-rediseno PR7.T7: the DETAIL endpoint now reads the
+        # STORED row (design D2/D5), never a live recompute -- this test
+        # compares it against the listing's still-live per-row value, so
+        # the stored row must actually exist first.
+        recompute_order_metrics(db, [order_id])
         db.commit()
 
         list_body = client.get("/api/ml-ventas-ops/sales", headers=admin_auth_headers).json()
@@ -1178,6 +1224,13 @@ class TestDetailIvaDecompositionAndDeductionChain(TestTotalGaussInListing):
         db.add(MlOrderItemOps(order_id=order_id, item_id="MLA1", seller_sku="SKU-1", quantity=1))
         self._varios_baseline(db)
         db.commit()
+        # ventas-ml-rediseno PR7.T7: `cadena_total_gauss` now reads the
+        # STORED chain (ml_order_metrics + ml_venta_deducciones), so it
+        # must actually be produced once via the real producer first --
+        # `recompute_order_metrics` applies the SAME formula the endpoint
+        # used to call live, so the assertions below are unchanged.
+        recompute_order_metrics(db, [order_id])
+        db.commit()
 
         body = client.get(f"/api/ml-ventas-ops/orders/{order_id}", headers=admin_auth_headers).json()
 
@@ -1201,6 +1254,10 @@ class TestDetailIvaDecompositionAndDeductionChain(TestTotalGaussInListing):
         self._item_with_frozen_cost(db, order_id, costo_unitario_ars=Decimal("10.00"))
         self._varios_baseline(db)
         db.commit()
+        # ventas-ml-rediseno PR7.T7: same reason as the sibling test above
+        # -- the chain is now read from the stored row.
+        recompute_order_metrics(db, [order_id])
+        db.commit()
 
         body = client.get(f"/api/ml-ventas-ops/orders/{order_id}", headers=admin_auth_headers).json()
 
@@ -1214,6 +1271,105 @@ class TestDetailIvaDecompositionAndDeductionChain(TestTotalGaussInListing):
         # neto_sin_iva 100.00, costo_mercaderia 10.00 (1 x 10.00), varios 0%
         # -> total_gauss 90.00 -> markup 90.00 / 10.00 * 100 = 900.00%.
         assert body["cadena_total_gauss"]["markup"] == pytest.approx(900.00)
+
+
+class TestDetailReadsStoredMetrics(TestTotalGaussInListing):
+    """ventas-ml-rediseno PR7.T1/T3/T3a (design D9/D13, spec SM R5/R6/R9,
+    BREAKDOWN R33): `GET /orders/{id}` sources `total_gauss` and
+    `cadena_total_gauss` from `ml_order_metrics`, never a live
+    `calcular_total_gauss` call, and exposes `metrics_state` so the panel
+    knows when it cannot trust the invariant.
+    """
+
+    def test_detail_never_recomputes_live_even_when_stored_disagrees(self, db, client, admin_auth_headers, rol_admin):
+        """A fully-costed order whose LIVE recompute would answer 90.00,
+        but whose STORED row deliberately carries a different number --
+        the response must show the STORED one (SM R5: 'none of them
+        recompute Total Gauss/neto/markup live')."""
+        _grant_ml_ops_ver(db, rol_admin)
+        order_id = 90040
+        _seed_order(db, order_id, date_created=datetime(2026, 9, 1, tzinfo=timezone.utc))
+        _payment(db, order_id, order_id, status="approved", net_received_amount=Decimal("121.00"))
+        self._item_with_frozen_cost(db, order_id, costo_unitario_ars=Decimal("10.00"))
+        self._varios_baseline(db)
+        _stored_metrics(
+            db, order_id, total_gauss=Decimal("42.00"), markup_pct=Decimal("420.00"), costo_mercaderia=Decimal("10.00")
+        )
+        db.commit()
+
+        body = client.get(f"/api/ml-ventas-ops/orders/{order_id}", headers=admin_auth_headers).json()
+
+        assert body["total_gauss"] == pytest.approx(42.00)
+        assert body["total_gauss"] != pytest.approx(90.00), "must never be the live-recomputed value"
+        assert body["metrics_state"] == "ok"
+
+    def test_invariant_chain_final_equals_stored_when_not_recalculating(
+        self, db, client, admin_auth_headers, rol_admin
+    ):
+        """BREAKDOWN R33 / SM R6, R9(scenario): when the order is not
+        `recalculating`, the chain's rendered final total MUST equal the
+        stored `total_gauss` exactly -- an invariant, not approximate."""
+        _grant_ml_ops_ver(db, rol_admin)
+        order_id = 90041
+        _seed_order(db, order_id, date_created=datetime(2026, 9, 1, tzinfo=timezone.utc))
+        _payment(db, order_id, order_id, status="approved", net_received_amount=Decimal("121.00"))
+        self._item_with_frozen_cost(db, order_id, costo_unitario_ars=Decimal("10.00"))
+        self._varios_baseline(db)
+        db.commit()
+        recompute_order_metrics(db, [order_id])
+        db.commit()
+
+        body = client.get(f"/api/ml-ventas-ops/orders/{order_id}", headers=admin_auth_headers).json()
+
+        assert body["metrics_state"] != "recalculating"
+        assert body["cadena_total_gauss"]["total_gauss"] == pytest.approx(body["total_gauss"])
+
+    def test_dirty_order_signals_recalculating_and_does_not_assert_invariant(
+        self, db, client, admin_auth_headers, rol_admin
+    ):
+        """A dirty (mid-flight) order: the response signals `recalculating`
+        explicitly, and the stored value it still carries (from a PRIOR
+        recompute) may legitimately disagree with what a fresh recompute
+        would produce -- SM R6 second half: no invariant is claimed while
+        recalculating."""
+        _grant_ml_ops_ver(db, rol_admin)
+        order_id = 90042
+        _seed_order(db, order_id, date_created=datetime(2026, 9, 1, tzinfo=timezone.utc))
+        # A stale stored value from before the pending input write below.
+        _stored_metrics(db, order_id, total_gauss=Decimal("999.00"))
+        db.add(MlOrderMetricsDirty(order_id=order_id, reason="test"))
+        db.commit()
+
+        body = client.get(f"/api/ml-ventas-ops/orders/{order_id}", headers=admin_auth_headers).json()
+
+        assert body["metrics_state"] == "recalculating"
+
+    def test_parked_order_is_failed_not_recalculating_forever(self, db, client, admin_auth_headers, rol_admin):
+        """SM R9(scenario)/design D9: a parked order (attempts >=
+        POISON_THRESHOLD) is never shown as `recalculating` -- nothing will
+        retry it automatically."""
+        _grant_ml_ops_ver(db, rol_admin)
+        order_id = 90043
+        _seed_order(db, order_id, date_created=datetime(2026, 9, 1, tzinfo=timezone.utc))
+        db.add(MlOrderMetricsDirty(order_id=order_id, reason="test", attempts=POISON_THRESHOLD))
+        db.commit()
+
+        body = client.get(f"/api/ml-ventas-ops/orders/{order_id}", headers=admin_auth_headers).json()
+
+        assert body["metrics_state"] == "failed"
+
+    def test_order_with_no_stored_row_is_pending_never_a_fabricated_number(
+        self, db, client, admin_auth_headers, rol_admin
+    ):
+        _grant_ml_ops_ver(db, rol_admin)
+        order_id = 90044
+        _seed_order(db, order_id, date_created=datetime(2026, 9, 1, tzinfo=timezone.utc))
+        db.commit()
+
+        body = client.get(f"/api/ml-ventas-ops/orders/{order_id}", headers=admin_auth_headers).json()
+
+        assert body["metrics_state"] == "pending"
+        assert body["cadena_total_gauss"]["total_gauss"] is None
 
 
 class TestSearch:
