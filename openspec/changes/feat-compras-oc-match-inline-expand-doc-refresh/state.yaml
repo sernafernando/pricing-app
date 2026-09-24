@@ -1,0 +1,103 @@
+change: feat-compras-oc-match-inline-expand-doc-refresh
+change_id: feat-compras-oc-match-inline-expand-doc-refresh
+project: pricing-app
+phase: verify
+status: verified
+artifact_store: openspec
+persistence_mode: openspec
+parent_change: feat-compras-oc-match-doc-refs-retry-guard
+sibling_changes:
+  - feat-compras-oc-match-ops-ux
+  - feat-compras-oc-match-pedido-doc-refs
+  - feat-compras-oc-match-doc-refs-retry-guard
+  - feat-compras-oc-match-ean-extract-fallback
+amends_capability:
+  - compras-oc-match-ui
+  - compras-oc-match-jobs
+  - compras-oc-match-pipeline
+created_at: "2026-09-24"
+updated_at: "2026-09-24"
+branch_plan: feat/compras-oc-match-inline-expand-doc-refresh
+base_branch: upstream/main
+delivery_target: main
+artifacts:
+  exploration: openspec/changes/feat-compras-oc-match-inline-expand-doc-refresh/exploration.md
+  proposal: openspec/changes/feat-compras-oc-match-inline-expand-doc-refresh/proposal.md
+  specs:
+    - openspec/changes/feat-compras-oc-match-inline-expand-doc-refresh/specs/compras-oc-match-ui/spec.md
+    - openspec/changes/feat-compras-oc-match-inline-expand-doc-refresh/specs/compras-oc-match-jobs/spec.md
+    - openspec/changes/feat-compras-oc-match-inline-expand-doc-refresh/specs/compras-oc-match-pipeline/spec.md
+  design: openspec/changes/feat-compras-oc-match-inline-expand-doc-refresh/design.md
+  tasks: openspec/changes/feat-compras-oc-match-inline-expand-doc-refresh/tasks.md
+  apply_progress: openspec/changes/feat-compras-oc-match-inline-expand-doc-refresh/apply-progress.md
+  verify_report: openspec/changes/feat-compras-oc-match-inline-expand-doc-refresh/verify-report.md
+next_phase: archive
+nextRecommended: archive
+task_count: 15
+notes: >
+  Verify PASS. 5/5 requirements, 24/24 scenarios. DoD pytest 24 + vitest 37.
+  evidence_revision sha256:2706ae77c0b1f036d794bc0cf620e55ed8d964f1a2337f07a65c3067a210bc6d.
+  nextRecommended=archive. Do NOT archive in this verify run. No Alembic.
+locked_decisions:
+  expand_ux: accordion_under_selected_row
+  not_expand: below_entire_list
+  expand_implementation: datatable_optional_expand_slot
+  expand_props:
+    - expandedRowId
+    - renderExpandedRow
+  expand_markup: colspan_tr_after_matching_row
+  same_row_click: toggle_collapse
+  other_tables: unchanged_when_props_omitted
+  keep_no_aside_no_modal: true
+  keep_full_width_renglones: true
+  doc_refresh:
+    dedicated_action: true
+    api_path: POST /administracion/compras/oc-match/jobs/{job_id}/refresh-doc-refs
+    body: empty
+    label: "Actualizar Factura/s y Pedido/s"
+    available_on: [done, error]
+    deny_on: [queued, running, skipped]
+    deny_status: 409
+    permission: administracion.gestionar_ordenes_compra
+    must_not_call_queue_retry: true
+    must_not_rematch: true
+    must_not_regenerate_excel: true
+    must_not_mutate_job_status: true
+    must_not_mutate_renglones: true
+    must_not_mutate_acta: true
+    clears_doc_refs_aplicado_at: true
+    clear_stamp_when: after_successful_extract_immediately_before_writeback
+    extract_required: true
+    reason_extract_required: extract_json_not_persisted_on_job
+    persist_extract_json: false
+  refresh_execution: background_tasks_two_session
+  refresh_http: return_immediately_non_blocking
+  fe_refresh_ux: async_banner_no_blocking_spinner
+  expose_doc_refs_aplicado_at_on_detalle: false
+  keep_error_retry_checkbox: true
+  retry_checkbox_flag: refrescar_doc_refs
+  do_not_write_numero_factura: true
+  no_alert_on_doc_refs: true
+  do_not_reuse_progress_phase: true
+  do_not_flip_queued_running: true
+  persist_skip_if_status_left_done_or_error: true
+  apply_writeback: reuse_unchanged_append_unique
+  persist_lock: select_for_update
+  view_only_hides_refresh_button: true
+  backend_without_gestionar: 403
+  delivery: single_pr
+  pr_target: main
+  branch: feat/compras-oc-match-inline-expand-doc-refresh
+  base: upstream/main
+pending_decisions: {}
+review_forecast:
+  estimated_changed_lines: "250-450"
+  budget_risk: Low-Med
+  chained_prs: No
+  delivery_strategy: single-pr
+  decision_needed_before_apply: No
+  chain_strategy: none
+  note: >
+    All product locks closed at propose. Specs must MODIFY ops-ux
+    "below the list" to accordion under selected row. No Alembic,
+    no extract-JSON column, no stamp-on-detalle.

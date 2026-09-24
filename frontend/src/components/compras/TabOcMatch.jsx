@@ -13,6 +13,12 @@ import FiltersBar from './_shared/FiltersBar';
 import LoadingBlock from './_shared/LoadingBlock';
 import styles from './TabOcMatch.module.css';
 
+// ponytail: this file is ~470 lines and already violates the ~200-line
+// component-size convention (list + accordion detail + renglones + actions).
+// Genuine fix is splitting JobDetailPanel / RenglonesTable into own files —
+// a move-only refactor that would bury the inline-expand + doc-refresh delta.
+// See docs/tech-debt-ledger.md.
+
 const PAGE_SIZE = 50;
 
 const STATUS_FILTERS = [
@@ -173,6 +179,7 @@ export default function TabOcMatch() {
     error,
     refresh,
     retry,
+    refreshDocRefs,
     downloadExcel,
   } = useOcMatch({ status, page, pageSize: PAGE_SIZE });
 
@@ -183,9 +190,14 @@ export default function TabOcMatch() {
   const [actionError, setActionError] = useState(null);
   const [busy, setBusy] = useState(false);
   const [refrescarDocRefs, setRefrescarDocRefs] = useState(false);
+  const [refreshBanner, setRefreshBanner] = useState(null);
+  const [refreshBusy, setRefreshBusy] = useState(false);
+  const [refreshEnqueued, setRefreshEnqueued] = useState(false);
 
   useEffect(() => {
     setRefrescarDocRefs(false);
+    setRefreshBanner(null);
+    setRefreshEnqueued(false);
   }, [selected?.id]);
 
   const handleRetry = async () => {
@@ -199,6 +211,23 @@ export default function TabOcMatch() {
       setActionError(typeof msg === 'string' ? msg : 'No se pudo reintentar el job.');
     } finally {
       setBusy(false);
+    }
+  };
+
+  const handleRefreshDocRefs = async () => {
+    if (!selected) return;
+    setActionError(null);
+    setRefreshBanner(null);
+    setRefreshBusy(true);
+    try {
+      await refreshDocRefs(selected.id);
+      setRefreshBanner('Actualización encolada');
+      setRefreshEnqueued(true);
+    } catch (err) {
+      const msg = err.response?.data?.detail;
+      setRefreshBanner(typeof msg === 'string' ? msg : 'No se pudo actualizar Factura/s y Pedido/s.');
+    } finally {
+      setRefreshBusy(false);
     }
   };
 
@@ -219,6 +248,128 @@ export default function TabOcMatch() {
   const totalPages = Math.max(1, Math.ceil((total || 0) / PAGE_SIZE));
   const showExcel = Boolean(selected?.excel_rel_path || selected?.status === 'done');
   const showRetry = canRetryJob(selected, puedeGestionar);
+  const showRefreshDocRefs = Boolean(
+    puedeGestionar && selected && (selected.status === 'done' || selected.status === 'error'),
+  );
+
+  const detailBody = selected ? (
+    <div className={styles.detailBody}>
+      <div className={styles.detailHeader}>
+        <h2 className={styles.detailTitle}>Job #{selected.id}</h2>
+        <StatusBadge status={selected.status} progressPhase={selected.progress_phase} />
+      </div>
+      <dl className={styles.meta}>
+        <div>
+          <dt>Pedido</dt>
+          <dd>{selected.pedido_numero || '—'}</dd>
+        </div>
+        <div>
+          <dt>Adjunto</dt>
+          <dd>{selected.attachment_id}</dd>
+        </div>
+      </dl>
+      {selected.error_message && (
+        <p className={styles.detailError}>{selected.error_message}</p>
+      )}
+      {refreshBanner && (
+        <div className={styles.refreshBanner} role="status">
+          {refreshBanner}
+        </div>
+      )}
+      <div className={styles.actions}>
+        {showExcel && (
+          <button
+            type="button"
+            className={styles.btnSecondary}
+            onClick={handleDownload}
+            disabled={busy}
+          >
+            <Download size={14} />
+            Descargar Excel
+          </button>
+        )}
+        {showRefreshDocRefs && (
+          <>
+            <button
+              type="button"
+              className={styles.btnSecondary}
+              onClick={handleRefreshDocRefs}
+              disabled={refreshBusy || refreshEnqueued}
+              title="Relee el PDF. Puede restaurar números borrados a mano."
+            >
+              Actualizar Factura/s y Pedido/s
+            </button>
+            <p className={styles.refreshHint}>
+              Vuelve a leer el PDF y puede restaurar números de factura o pedido que se hayan borrado a mano.
+            </p>
+          </>
+        )}
+        {showRetry && (
+          <>
+            <label className={styles.checkboxLabel}>
+              <input
+                type="checkbox"
+                checked={refrescarDocRefs}
+                onChange={(e) => setRefrescarDocRefs(e.target.checked)}
+              />
+              <span>También actualizar Factura/s y Pedido/s</span>
+            </label>
+            <button
+              type="button"
+              className={styles.btnPrimary}
+              onClick={handleRetry}
+              disabled={busy}
+            >
+              <RefreshCw size={14} />
+              Reintentar
+            </button>
+          </>
+        )}
+      </div>
+      <h3 className={styles.sectionTitle}>Renglones</h3>
+      <DataTable
+        columns={RENGLON_COLUMNS}
+        rows={(selected.renglones || []).map((r) => ({ ...r, id: r.id ?? r.indice }))}
+        minWidth="820px"
+        empty={{
+          icon: <Inbox size={20} strokeWidth={1.5} />,
+          title: 'Sin renglones todavía.',
+        }}
+        renderCell={(row, col) => {
+          if (col.key === 'confianza') {
+            return <ConfianzaBadge confianza={row.confianza} motivo={row.motivo} />;
+          }
+          if (col.key === 'ean') {
+            const resolved = resolveRenglonEan(row);
+            return (
+              <span className={resolved.className} title={resolved.title}>
+                {resolved.text}
+              </span>
+            );
+          }
+          if (col.key === 'descripcion') {
+            const full = row.descripcion == null || row.descripcion === '' ? '' : String(row.descripcion);
+            return (
+              <span className={styles.tdTruncate} title={full}>
+                {full || '—'}
+              </span>
+            );
+          }
+          if (col.key === 'cantidad') {
+            return formatCantidad(row.cantidad);
+          }
+          if (col.key === 'precio_unitario') {
+            return formatPrecioUnitario(row.precio_unitario);
+          }
+          const value = row[col.key];
+          if (value == null || value === '') return '—';
+          return String(value);
+        }}
+      />
+      <h3 className={styles.sectionTitle}>Acta</h3>
+      <pre className={styles.acta}>{selected.acta || '—'}</pre>
+    </div>
+  ) : null;
 
   return (
     <div className={styles.container}>
@@ -259,7 +410,9 @@ export default function TabOcMatch() {
               <DataTable
                 columns={COLUMNS}
                 rows={jobs}
-                onRowClick={(row) => setSelectedId(row.id)}
+                onRowClick={(row) => setSelectedId(row.id === selectedId ? null : row.id)}
+                expandedRowId={selectedId}
+                renderExpandedRow={() => <div className={styles.expandCell}>{detailBody}</div>}
                 minWidth="640px"
                 empty={{
                   icon: <Inbox size={28} strokeWidth={1.5} />,
@@ -323,104 +476,6 @@ export default function TabOcMatch() {
             </>
           )}
         </div>
-
-        {selected && (
-          <div className={styles.detailBody}>
-            <div className={styles.detailHeader}>
-              <h2 className={styles.detailTitle}>Job #{selected.id}</h2>
-              <StatusBadge status={selected.status} progressPhase={selected.progress_phase} />
-            </div>
-            <dl className={styles.meta}>
-              <div>
-                <dt>Pedido</dt>
-                <dd>{selected.pedido_numero || '—'}</dd>
-              </div>
-              <div>
-                <dt>Adjunto</dt>
-                <dd>{selected.attachment_id}</dd>
-              </div>
-            </dl>
-            {selected.error_message && (
-              <p className={styles.detailError}>{selected.error_message}</p>
-            )}
-            <div className={styles.actions}>
-              {showExcel && (
-                <button
-                  type="button"
-                  className={styles.btnSecondary}
-                  onClick={handleDownload}
-                  disabled={busy}
-                >
-                  <Download size={14} />
-                  Descargar Excel
-                </button>
-              )}
-              {showRetry && (
-                <>
-                  <label className={styles.checkboxLabel}>
-                    <input
-                      type="checkbox"
-                      checked={refrescarDocRefs}
-                      onChange={(e) => setRefrescarDocRefs(e.target.checked)}
-                    />
-                    <span>También actualizar Factura/s y Pedido/s</span>
-                  </label>
-                  <button
-                    type="button"
-                    className={styles.btnPrimary}
-                    onClick={handleRetry}
-                    disabled={busy}
-                  >
-                    <RefreshCw size={14} />
-                    Reintentar
-                  </button>
-                </>
-              )}
-            </div>
-            <h3 className={styles.sectionTitle}>Renglones</h3>
-            <DataTable
-              columns={RENGLON_COLUMNS}
-              rows={(selected.renglones || []).map((r) => ({ ...r, id: r.id ?? r.indice }))}
-              minWidth="820px"
-              empty={{
-                icon: <Inbox size={20} strokeWidth={1.5} />,
-                title: 'Sin renglones todavía.',
-              }}
-              renderCell={(row, col) => {
-                if (col.key === 'confianza') {
-                  return <ConfianzaBadge confianza={row.confianza} motivo={row.motivo} />;
-                }
-                if (col.key === 'ean') {
-                  const resolved = resolveRenglonEan(row);
-                  return (
-                    <span className={resolved.className} title={resolved.title}>
-                      {resolved.text}
-                    </span>
-                  );
-                }
-                if (col.key === 'descripcion') {
-                  const full = row.descripcion == null || row.descripcion === '' ? '' : String(row.descripcion);
-                  return (
-                    <span className={styles.tdTruncate} title={full}>
-                      {full || '—'}
-                    </span>
-                  );
-                }
-                if (col.key === 'cantidad') {
-                  return formatCantidad(row.cantidad);
-                }
-                if (col.key === 'precio_unitario') {
-                  return formatPrecioUnitario(row.precio_unitario);
-                }
-                const value = row[col.key];
-                if (value == null || value === '') return '—';
-                return String(value);
-              }}
-            />
-            <h3 className={styles.sectionTitle}>Acta</h3>
-            <pre className={styles.acta}>{selected.acta || '—'}</pre>
-          </div>
-        )}
       </div>
     </div>
   );

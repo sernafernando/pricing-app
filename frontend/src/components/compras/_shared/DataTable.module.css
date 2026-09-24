@@ -67,8 +67,28 @@
   border-bottom: none;
 }
 
-.table tbody tr:hover td {
+.table tbody tr:hover > td {
   background: var(--cf-bg-hover);
+}
+
+.table tbody tr.expandedRow {
+  cursor: default;
+}
+
+.table tbody tr.expandedRow > td {
+  background: var(--cf-bg-app);
+  vertical-align: top;
+  cursor: default;
+  padding: var(--spacing-md);
+}
+
+.table tbody tr.expandedRow:hover > td {
+  background: var(--cf-bg-app);
+}
+
+.table tbody tr.expandedRow > td:first-child::before {
+  content: none;
+  transform: none;
 }
 
 /* Left-border accent on hover for navegable rows (animated reveal) */

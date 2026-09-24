@@ -148,6 +148,7 @@ from app.services.oc_match.enqueue import (
     queue_retry,
     reclaim_stale_running,
 )
+from app.services.oc_match.refresh_doc_refs import refresh_doc_refs_job
 from app.services.permisos_service import PermisosService
 from app.services.sale_document_classifier import clasificar_documento_compra
 from app.services.wipe_compras_service import wipe_compras as _wipe_compras
@@ -4062,8 +4063,9 @@ def eliminar_adjunto(
 # GET  /oc-match/jobs
 # GET  /oc-match/jobs/{id}
 # POST /oc-match/jobs/{id}/retry
+# POST /oc-match/jobs/{id}/refresh-doc-refs
 # GET  /oc-match/jobs/{id}/excel
-# Permisos: ver=ver_ordenes_compra; retry=gestionar_ordenes_compra.
+# Permisos: ver=ver_ordenes_compra; retry/refresh-doc-refs=gestionar_ordenes_compra.
 # Sin rama deposito.
 
 _OC_MATCH_STATUSES = frozenset({"queued", "running", "done", "error", "skipped"})
@@ -4243,6 +4245,35 @@ def reintentar_oc_match_job(
         ) from None
     _commit_or_rollback(db, operacion="reintentar_oc_match_job")
     background_tasks.add_task(process_oc_match_job, job.id)
+    return _oc_match_job_response(job)
+
+
+@router.post(
+    "/oc-match/jobs/{job_id}/refresh-doc-refs",
+    response_model=OcMatchJobResponse,
+    summary="Re-extraer Factura/s y Pedido/s sin rematch",
+)
+def refrescar_oc_match_doc_refs(
+    job_id: int,
+    background_tasks: BackgroundTasks,
+    empresa_id: Optional[int] = Query(None, ge=1, description="Si se pasa, 404 si el pedido no es de esa empresa"),
+    db: Session = Depends(get_db),
+    _user: Usuario = Depends(require_permiso("administracion.gestionar_ordenes_compra")),
+) -> OcMatchJobResponse:
+    """Extract-only refresh. Empty body. 409 unless status is done|error after reclaim.
+
+    Never calls queue_retry. Does not rematch, regenerate Excel, or mutate
+    job status / renglones / acta. HTTP returns immediately.
+    """
+    reclaim_stale_running(db)
+    db.commit()
+    job = _obtener_oc_match_job_o_404(db, job_id, empresa_id=empresa_id)
+    if job.status not in (OcMatchJob.STATUS_DONE, OcMatchJob.STATUS_ERROR):
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="El job no admite actualizar Factura/s y Pedido/s.",
+        )
+    background_tasks.add_task(refresh_doc_refs_job, job.id)
     return _oc_match_job_response(job)
 
 

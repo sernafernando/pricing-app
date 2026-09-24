@@ -23,6 +23,7 @@
  * />
  */
 
+import { Fragment } from 'react';
 import EmptyState from './EmptyState';
 import LoadingBlock from './LoadingBlock';
 import styles from './DataTable.module.css';
@@ -37,6 +38,8 @@ import styles from './DataTable.module.css';
  * @param {(row: object) => void} [props.onRowClick]
  * @param {(row: object) => boolean} [props.navegableRowFn]
  * @param {string} [props.minWidth='720px']
+ * @param {string|number} [props.expandedRowId]
+ * @param {(row: object) => React.ReactNode} [props.renderExpandedRow]
  */
 export default function DataTable({
   columns,
@@ -47,6 +50,8 @@ export default function DataTable({
   onRowClick,
   navegableRowFn,
   minWidth = '720px',
+  expandedRowId,
+  renderExpandedRow,
 }) {
   if (loading) {
     return (
@@ -104,27 +109,40 @@ export default function DataTable({
           ) : (
             rows.map((row) => {
               const navegable = onRowClick && (!navegableRowFn || navegableRowFn(row));
+              const showExpand =
+                expandedRowId != null &&
+                typeof renderExpandedRow === 'function' &&
+                row.id === expandedRowId;
               return (
-                <tr
-                  key={row.id}
-                  className={navegable ? styles.rowClickable : undefined}
-                  onClick={navegable ? () => onRowClick(row) : undefined}
-                >
-                  {columns.map((col) => (
-                    <td
-                      key={col.key}
-                      className={
-                        col.align === 'right'
-                          ? styles.tdRight
-                          : col.align === 'center'
-                            ? styles.tdCenter
-                            : undefined
-                      }
+                <Fragment key={row.id}>
+                  <tr
+                    className={navegable ? styles.rowClickable : undefined}
+                    onClick={navegable ? () => onRowClick(row) : undefined}
+                  >
+                    {columns.map((col) => (
+                      <td
+                        key={col.key}
+                        className={
+                          col.align === 'right'
+                            ? styles.tdRight
+                            : col.align === 'center'
+                              ? styles.tdCenter
+                              : undefined
+                        }
+                      >
+                        {renderCell(row, col)}
+                      </td>
+                    ))}
+                  </tr>
+                  {showExpand ? (
+                    <tr
+                      className={styles.expandedRow}
+                      onClick={(event) => event.stopPropagation()}
                     >
-                      {renderCell(row, col)}
-                    </td>
-                  ))}
-                </tr>
+                      <td colSpan={columns.length}>{renderExpandedRow(row)}</td>
+                    </tr>
+                  ) : null}
+                </Fragment>
               );
             })
           )}
