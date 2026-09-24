@@ -1,12 +1,12 @@
 """compras_044: pipeline tipo, responsable, factura rows
 
 Revision ID: compras_044_pipeline_tipo_responsable_facturas
-Revises: 20260923_ml_order_metrics_triggers_orders
+Revises: 20260924_stored_metrics_mismatch
 Create Date: 2026-09-22
 
 PR1 of compras-ops-pipeline-ux. Main already consumed compras_042 / compras_043
 for doc-refs; this revision is the pipeline schema (was design.md compras_042).
-Rehang onto unique main head after 20260923_ml_order_metrics_triggers_orders (PR #1336).
+Rehang onto unique main head after 20260924_stored_metrics_mismatch (order-metrics PR5/PR6).
 
   * pedidos_compra.tipo IN (mercaderia, servicio), default mercaderia
   * pedidos_compra.responsable_id FK usuarios, backfill creado_por_id, NOT NULL
@@ -25,7 +25,7 @@ _log = logging.getLogger("alembic")
 _FACTURA_NUMERO_MAX_LEN = 100
 
 revision: str = "compras_044_pipeline_tipo_responsable_facturas"
-down_revision: Union[str, None] = "20260923_ml_order_metrics_triggers_orders"
+down_revision: Union[str, None] = "20260924_stored_metrics_mismatch"
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
