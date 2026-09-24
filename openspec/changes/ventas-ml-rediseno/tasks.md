@@ -247,17 +247,17 @@ Design refs: D14. Satisfies: PANEL R16, R18, R19, R20.
 ## PR14 — FE listing restyle + search bar + chips + recalculating badge
 Design refs: D14. Satisfies: LISTING (visual), SEARCH R25-R27 (FE), SM R3/R9 (recalculating UI).
 
-- [ ] PR14.T1 RED: `SalesToolbar` search input — debounced, updates URL `q` param, calls route /sales with combined filters (SEARCH R25, R26).
-- [ ] PR14.T2 GREEN: implement `SalesToolbar` + `useSales` hook.
-- [ ] PR14.T3 RED: empty/no-match search shows explicit "sin resultados" state, not an error (SEARCH R27).
-- [ ] PR14.T4 GREEN: implement.
-- [ ] PR14.T5 RED: `SalesTable`, `SaleGroupRow`, `SaleOrderSubRow` restyle — `ProductCell` (placeholder thumbnail + title + SKU + MLA + qty, `CategoryIcon` from `utils/categoryIcon.js` keyed by `productos_erp.categoria`, fallback `Package`), stacked operation/goods badges, `EnvioCell` (mode + substatus), `MoneyCell` (importe+coupon, neto/Total Gauss/markup in `--font-mono`), `AlertIcon` from server `alert_level`.
-- [ ] PR14.T6 GREEN: implement components + CSS modules (tokens only, light+dark, lucide icons).
-- [ ] PR14.T7 RED: `FacetChips` show live counts consistent with the active filter set (LISTING R30).
-- [ ] PR14.T8 GREEN: implement.
-- [ ] PR14.T9 RED: `RecalculatingBadge` on a row whose `metrics_state='recalculating'` — no stale value presented as current (SM R3/R9 FE side).
-- [ ] PR14.T10 GREEN: implement.
-- [ ] PR14.T11 Migrate/extend the 57-test `VentasML.jsx` baseline with assertion-mapping table per PR description.
+- [x] PR14.T1 RED: `SalesToolbar` search input — debounced, updates URL `q` param, calls route /sales with combined filters (SEARCH R25, R26).
+- [x] PR14.T2 GREEN: implement `SalesToolbar` (used `useVentasMLFilters`'s own `searchQuery`/`setSearchQuery` — a separate `useSales` hook was not introduced; `VentasML.jsx` already owns the fetch, and extracting it was out of this slice's scope).
+- [x] PR14.T3 RED: empty/no-match search shows explicit "sin resultados" state, not an error (SEARCH R27).
+- [x] PR14.T4 GREEN: implement.
+- [ ] PR14.T5 RED: `SalesTable`, `SaleGroupRow`, `SaleOrderSubRow` restyle — `ProductCell` (placeholder thumbnail + title + SKU + MLA + qty, `CategoryIcon` from `utils/categoryIcon.js` keyed by `productos_erp.categoria`, fallback `Package`), stacked operation/goods badges, `EnvioCell` (mode + substatus), `MoneyCell` (importe+coupon, neto/Total Gauss/markup in `--font-mono`), `AlertIcon` from server `alert_level`. **BLOCKED (apply pass 2026-09-24): none of PR10's additive listing fields exist yet on `GET /sales`** — verified directly against `backend/app/routers/ml_ventas_ops.py`'s `SaleListItem`/`SaleGroup` (PR10.T1-T8 above are still `[ ]`): no `item_category`, no product/item fields at all (no `item_id`/`title`/`seller_sku`/`quantity` on the listing response — those only exist on the PR12 detail/breakdown types), no `city`/`province`/`shipping_substatus`/`coupon_amount`, no `alert_level`, no `metrics_state`. `ProductCell`/`CategoryIcon`/`AlertIcon` have no data source without inventing a fetch — backend is explicitly out of this PR's scope.
+- [ ] PR14.T6 GREEN: NOT DONE — blocked by T5.
+- [ ] PR14.T7 RED: `FacetChips` show live counts consistent with the active filter set (LISTING R30). NOT DONE this pass — the existing inline operation/goods status chips already read `facets.*` live counts (see `VentasML.jsx`); extracting them into a standalone `FacetChips` component was deferred in favor of the genuinely blocked items above, to keep this apply batch focused and reviewable. No backend blocker for this one — safe to pick up next.
+- [ ] PR14.T8 GREEN: NOT DONE — see T7.
+- [ ] PR14.T9 RED: `RecalculatingBadge` on a row whose `metrics_state='recalculating'` — no stale value presented as current (SM R3/R9 FE side). **BLOCKED — same reason as T5**: the listing response carries no `metrics_state` field per row (PR7b/PR10.T8 scope, not shipped).
+- [ ] PR14.T10 GREEN: NOT DONE — blocked by T9.
+- [ ] PR14.T11 Migrate/extend the 57-test `VentasML.jsx` baseline with assertion-mapping table per PR description. NOT DONE — the baseline migration only makes sense once the restyled components it must map onto (T5/T6/T9/T10) exist; doing it now would map assertions onto components that do not exist yet. This apply pass ADDED tests (hook: +5, `SalesToolbar.test.jsx`: +5 new file, `VentasML.test.jsx`: +3) without removing or weakening any existing assertion — full assertion-mapping table deferred to the batch that ships T5/T6/T9/T10.
 
 ## PR15 — FE new panel sections
 Design refs: D14. Satisfies: PANEL R21, BREAKDOWN R32/R34 (FE rendering), SM R6 (FE recalculating indicator).
