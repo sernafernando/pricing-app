@@ -27,13 +27,37 @@ from app.models.marca_pm import MarcaPM
 from app.models.marca_sub_pm import MarcaSubPM
 from app.models.ml_venta_metrica import MLVentaMetrica
 from app.models.usuario import RolUsuario, Usuario
+from app.services.permisos_service import verificar_permiso
 
 FULL_VIEW_ROLES = (RolUsuario.SUPERADMIN, RolUsuario.ADMIN, RolUsuario.GERENTE)
+FULL_VIEW_CODIGOS = frozenset(rol.value for rol in FULL_VIEW_ROLES)
+
+# Grants brand-wide visibility on its own, independently of the role.
+PERMISO_FULL_VIEW = "ventas_ml.ver_todas_marcas"
 
 
-def is_full_view(usuario: Usuario) -> bool:
-    """True when the user's role sees all PM scopes (no filtering needed)."""
-    return usuario.rol in FULL_VIEW_ROLES
+def is_full_view(usuario: Usuario, db: Optional[Session] = None) -> bool:
+    """True when the user sees all PM scopes (no filtering needed).
+
+    Two independent grants:
+      - the user's role is one of FULL_VIEW_CODIGOS, or
+      - the user holds `PERMISO_FULL_VIEW`.
+
+    The role is read through `Usuario.rol_codigo`, not the deprecated `rol`
+    column: accounts created through the current admin UI are written with
+    `rol_id` only and leave `rol` NULL, so reading `rol` under-reports their
+    role and silently scopes them down to their own assignments.
+
+    `db` is optional so callers that only have a user (and only care about the
+    role) keep working; without a session the permission check is skipped.
+    """
+    if usuario.rol_codigo in FULL_VIEW_CODIGOS:
+        return True
+
+    if db is None:
+        return False
+
+    return verificar_permiso(db, usuario, PERMISO_FULL_VIEW)
 
 
 def _upper_pairs(rows) -> list[tuple]:
@@ -49,7 +73,7 @@ def get_pares_marca_categoria_usuario(db: Session, usuario: Usuario) -> Optional
     Inactive users are excluded upstream (the caller's own account gate);
     a `marca_sub_pm` row for an inactive grantee resolves to an empty scope.
     """
-    if is_full_view(usuario):
+    if is_full_view(usuario, db):
         return None
 
     if not usuario.activo:
@@ -103,7 +127,7 @@ def aplicar_filtro_marcas_pm(
     if categoria_col is None:
         categoria_col = MLVentaMetrica.categoria
 
-    if pm_ids and not is_full_view(usuario):
+    if pm_ids and not is_full_view(usuario, db):
         pm_ids = None  # D2: pm_ids is full-view-role-only; no impersonation for others
 
     if pm_ids:

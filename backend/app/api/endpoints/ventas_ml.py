@@ -12,8 +12,9 @@ from openpyxl import Workbook
 from openpyxl.styles import Font, Alignment, PatternFill
 from app.core.database import get_db, get_async_db
 from app.models.venta_ml import VentaML
-from app.models.usuario import Usuario, RolUsuario
+from app.models.usuario import Usuario
 from app.models.marca_pm import MarcaPM
+from app.services.pm_scope import is_full_view
 from app.api.deps import get_current_user
 from pydantic import BaseModel, ConfigDict
 from decimal import Decimal
@@ -24,12 +25,13 @@ logger = logging.getLogger(__name__)
 
 def get_pares_marca_cat_usuario_ventas(db: Session, usuario: Usuario) -> Optional[set]:
     """
-    Obtiene los pares (marca, categoría) asignados al usuario si no es admin/gerente.
+    Obtiene los pares (marca, categoría) asignados al usuario si no puede ver todo.
     Retorna None si el usuario puede ver todo. Retorna set vacío si no tiene asignaciones.
-    """
-    roles_completos = [RolUsuario.SUPERADMIN, RolUsuario.ADMIN, RolUsuario.GERENTE]
 
-    if usuario.rol in roles_completos:
+    La decisión de "ve todo" se delega en pm_scope.is_full_view, que contempla
+    tanto el rol vigente (rol_id) como el permiso ventas_ml.ver_todas_marcas.
+    """
+    if is_full_view(usuario, db):
         return None
 
     pares = db.query(MarcaPM.marca, MarcaPM.categoria).filter(MarcaPM.usuario_id == usuario.id).all()
