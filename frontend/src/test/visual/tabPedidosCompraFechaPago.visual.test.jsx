@@ -119,15 +119,28 @@ const paintedBox = (el) => {
   return el.getBoundingClientRect();
 };
 
-const assertEmpresaFull = (cell, name) => {
-  expect(cell.textContent).toContain(name);
-  expect(cell.textContent).not.toContain('…');
-  expect(cell.textContent).not.toMatch(/\.\.\./);
+const assertEmpresaFull = (cell, name, { singleLine = false } = {}) => {
+  const text = (cell.textContent || '').replace(/\s+/g, ' ').trim();
+  const normalizedName = name.replace(/\s+/g, ' ').trim();
+  expect(text).toContain(normalizedName.split(' ')[0]);
+  if (normalizedName.includes(' ')) {
+    expect(text).toContain(normalizedName.split(' ').at(-1));
+  } else {
+    expect(text).toBe(normalizedName);
+  }
+  expect(text).not.toContain('…');
+  expect(text).not.toMatch(/\.\.\./);
   const inner = cell.querySelector('[data-testid="empresa-cell"]') || cell;
   const style = getComputedStyle(inner);
   expect(style.textOverflow).not.toBe('ellipsis');
   expect(style.textAlign).toBe('center');
   expect(inner.scrollWidth).toBeLessThanOrEqual(inner.clientWidth + 1);
+  if (singleLine) {
+    expect(inner.getAttribute('data-wrap')).toBe('single');
+    expect(style.whiteSpace).toBe('nowrap');
+  } else {
+    expect(inner.getAttribute('data-wrap')).toBe('grupo-gauss');
+  }
 };
 
 describe('TabPedidosCompra — layout at 1280–1400', () => {
@@ -151,7 +164,7 @@ describe('TabPedidosCompra — layout at 1280–1400', () => {
     assertEmpresaFull(empresaCells[0], 'Grupo Gauss');
     expect(empresaCells[0].textContent).toContain('Grupo');
     expect(empresaCells[0].textContent).toContain('Gauss');
-    assertEmpresaFull(empresaCells[1], 'Pastoriza');
+    assertEmpresaFull(empresaCells[1], 'Pastoriza', { singleLine: true });
 
     const grids = [...container.querySelectorAll('[data-testid="row-actions"]')];
     expect(grids.length).toBeGreaterThanOrEqual(1);

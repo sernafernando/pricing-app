@@ -25,7 +25,7 @@ Chain strategy: pending
 ## Phase 1: Pedidos layout
 
 - [x] 1.1 In `frontend/src/components/compras/TabPedidosCompra.jsx` wrap Empresa in a cell class; show full `empresa_nombre`. Cap `COLUMNS.empresa.width` to **Pastoriza** (+ td pad). Do not change Fecha pago `110px`, Mon `60px`, Estado `152px`, Proceso `220px`, or Proveedor (no width).
-- [ ] 1.2 In `frontend/src/components/compras/TabPedidosCompra.module.css`: no ellipsis. **Pastoriza** one line. **Grupo Gauss** only → **2 centered lines** inside Pastoriza width (do not force every empresa to 2 lines). (Gabe lock mid-apply)
+- [x] 1.2 In `frontend/src/components/compras/TabPedidosCompra.module.css`: no ellipsis. **Pastoriza** one line. **Grupo Gauss** only → **2 centered lines** inside Pastoriza width (do not force every empresa to 2 lines). (Gabe lock mid-apply)
 - [x] 1.3 In `frontend/src/components/compras/TabPedidosCompra.module.css` make `.rowActions` a 2-column grid. In `frontend/src/components/compras/TabPedidosCompra.jsx` shrink `COLUMNS.acciones` below `180px` to the measured 2-icon width.
 
 ## Phase 2: Layout tests
