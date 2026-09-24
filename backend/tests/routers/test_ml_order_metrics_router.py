@@ -90,6 +90,28 @@ class TestHealthResponseShape:
         assert body["worker_heartbeat_at"] is None
 
 
+class TestHealthReportsOrdersWithNoMetricsRow:
+    """PR6 review: the D10 production gate (PR6.T12) tells the owner to poll
+    this endpoint and confirm nothing is missing before trusting the stored
+    values. The only `missing_count` the response carried came from the
+    DIVERGENCE summary, which scans orders that ALREADY have an
+    `ml_order_metrics` row -- so orders with no row at all were counted by
+    nobody. With the whole history un-backfilled (77k orders on this
+    project's production the day this shipped) the gate figure would have
+    read 0 while nothing was computed. The endpoint must surface
+    `missing_metrics_count`, the helper that counts exactly those orders
+    and deliberately excludes parked ones."""
+
+    def test_missing_metrics_count_is_surfaced(self, db, client, admin_auth_headers, rol_admin) -> None:
+        _grant(db, rol_admin, "ml_ops.ver")
+
+        body = client.get("/api/ml-ops/order-metrics/health", headers=admin_auth_headers).json()
+
+        assert body["missing_metrics_count"] == 7, (
+            "orders with no metrics row must be reported, or the gate reads clean on an empty backfill"
+        )
+
+
 class TestHealthGateAccounting:
     """PR6.T11a: `missing_count` excludes parked orders (health.py's own
     contract); the endpoint must surface `poisoned_count` and the poisoned

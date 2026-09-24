@@ -77,6 +77,14 @@ class OrderMetricsHealthResponse(BaseModel):
     queue_depth: int
     oldest_dirty_age_s: Optional[float]
     claimed_count: int
+    # Orders with NO `ml_order_metrics` row at all, parked ones excluded
+    # (those are reported separately as `poisoned_count`/`poisoned_orders`).
+    # This is the figure the D10 production gate reads: it must reach 0
+    # before the stored values can be trusted. Do NOT confuse it with
+    # `last_divergence.missing_count`, which only covers orders that
+    # ALREADY have a row and whose fresh compute came back empty -- that
+    # one reads 0 on a completely un-backfilled database.
+    missing_metrics_count: int
     poisoned_count: int
     poisoned_orders: List[PoisonedOrderSummary]
     worker_heartbeat_at: Optional[str]
@@ -132,6 +140,7 @@ def get_order_metrics_health(
         queue_depth=order_metrics_health.queue_depth(db),
         oldest_dirty_age_s=order_metrics_health.oldest_dirty_age_seconds(db),
         claimed_count=order_metrics_health.claimed_count(db),
+        missing_metrics_count=order_metrics_health.missing_metrics_count(db),
         poisoned_count=len(poisoned),
         poisoned_orders=[PoisonedOrderSummary(order_id=row.order_id, last_error=row.last_error) for row in poisoned],
         worker_heartbeat_at=heartbeat_at.isoformat() if heartbeat_at is not None else None,

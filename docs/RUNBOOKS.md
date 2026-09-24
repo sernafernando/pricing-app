@@ -846,10 +846,26 @@ the queue), but wake latency degrades from sub-second to the poll interval
 
 ### Health
 
-Once PR6 ships `GET /api/ml-ops/order-metrics/health`, use it to check
+`GET /api/ml-ops/order-metrics/health` (permission `ml_ops.ver`) reports
 `worker_alive`, `queue_depth`, `listener_mode` (`'notify'` vs `'poll_only'`)
-and `worker_heartbeat_at`. Until then, `systemctl status pricing-worker` and
-the process logs are the only signal.
+and `worker_heartbeat_at`.
+
+Two different "missing" figures live in that response, and confusing them
+hides an empty backfill behind a clean-looking number:
+
+- `missing_metrics_count` (top level) counts orders with NO
+  `ml_order_metrics` row at all, excluding parked ones. **This is the
+  figure the production gate reads**: it must reach 0 before the stored
+  values can be trusted.
+- `last_divergence.missing_count` comes from the divergence scan, which
+  only inspects orders that ALREADY have a row. On an un-backfilled
+  database it reads 0 while nothing has been computed.
+
+Parked orders (`attempts >= 5`) are never in either figure: they are
+reported separately as `poisoned_count` / `poisoned_orders`, with each
+`order_id` and its `last_error`. A gate review must look at that list
+explicitly — those orders failed five times and nothing will retry them
+until a real input write arrives.
 
 ### Restart
 
