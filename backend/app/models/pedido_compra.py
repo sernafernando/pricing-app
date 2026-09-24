@@ -157,6 +157,11 @@ class PedidoCompra(Base):
         back_populates="pedido",
         cascade="all, delete-orphan",
     )
+    ocs = relationship(
+        "PedidoCompraOc",
+        back_populates="pedido",
+        cascade="all, delete-orphan",
+    )
     # Self-ref relationships para el círculo de correcciones (Feature D).
     # `post_update=True` evita ciclos en la transacción cuando se setean
     # ambos FKs (clon.corregido_desde_id y original.corregido_a_id) a la

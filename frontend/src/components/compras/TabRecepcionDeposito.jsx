@@ -12,9 +12,14 @@ import {
   Truck,
   FileText,
   StickyNote,
+  Paperclip,
+  Undo2,
 } from 'lucide-react';
 import api from '../../services/api';
-import useRecepcionDeposito from '../../hooks/useRecepcionDeposito';
+import { useDebounce } from '../../hooks/useDebounce';
+import useRecepcionDeposito, { readFocusQuery, readPedidoQuery, readEjeQuery } from '../../hooks/useRecepcionDeposito';
+import { usePermisos } from '../../contexts/PermisosContext';
+import AdjuntosPanel from './AdjuntosPanel';
 import ModalCargarRetiro from './ModalCargarRetiro';
 import styles from './TabRecepcionDeposito.module.css';
 
@@ -63,11 +68,55 @@ const ESTADO_BADGE_CLASS = {
 // them only forced the operator to check two tabs to do a single job.
 // The badge still distinguishes them — that information is useful, the filter is not.
 const FILTER_TABS = [
-  { id: 'pagado,en_cuenta_corriente', label: 'Por recibir' },
+  { id: 'pagado', label: 'Por recibir' },
   { id: 'recibido', label: 'Recibidos sin controlar' },
-  { id: 'controlado', label: 'Controlados' },
   { id: 'con_faltantes', label: 'Con faltantes' },
+  { id: 'faltantes_con_res', label: 'Faltantes con resolución' },
+  { id: 'controlado', label: 'Controlados' },
 ];
+const POR_RECIBIR_ID = 'pagado';
+const FALTANTES_CON_RES_ID = 'faltantes_con_res';
+
+function mergeResponsableOptions(pool, pedido) {
+  const byId = new Map();
+  (Array.isArray(pool) ? pool : []).forEach((u) => {
+    const id = Number(u.id);
+    if (!Number.isFinite(id)) return;
+    byId.set(id, { id, nombre: u.nombre || `#${id}` });
+  });
+  const currentId = pedido.responsable_id;
+  if (currentId != null && !byId.has(Number(currentId))) {
+    byId.set(Number(currentId), {
+      id: Number(currentId),
+      nombre: pedido.responsable_nombre || `Responsable actual (#${currentId})`,
+    });
+  }
+  return Array.from(byId.values());
+}
+
+function ResponsableFaltantesPicker({ pedido, pool, value, onChange, selectId }) {
+  const options = mergeResponsableOptions(pool, pedido);
+  return (
+    <div className={styles.responsableField}>
+      <label htmlFor={selectId} className={styles.observacionesLabel}>
+        Responsable de faltantes
+      </label>
+      <select
+        id={selectId}
+        className={styles.responsableSelect}
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        aria-label="Responsable de faltantes"
+      >
+        {options.map((u) => (
+          <option key={u.id} value={String(u.id)}>
+            {u.nombre}
+          </option>
+        ))}
+      </select>
+    </div>
+  );
+}
 
 // Outcome text announced by the SINGLE list-level copy live region, keyed by
 // copyStatus. 'idle' is deliberately absent: it maps to an empty string, because
@@ -90,6 +139,44 @@ const ITEMS_BADGE_LABEL = (lineas, unidades) =>
   `${lineas} ${lineas === 1 ? 'línea' : 'líneas'} · ${formatUnidades(unidades)} u`;
 
 // Versión hablada del badge: "5 líneas · 120 u" leído en voz alta es críptico.
+const linkedOcs = (pedido, lineas = []) => {
+  if (Array.isArray(pedido.ocs) && pedido.ocs.length > 0) return pedido.ocs;
+  const seen = new Map();
+  lineas.forEach((l) => {
+    if (l.oc_poh_id == null) return;
+    const key = `${l.oc_comp_id}-${l.oc_bra_id}-${l.oc_poh_id}`;
+    if (!seen.has(key)) {
+      seen.set(key, {
+        oc_comp_id: l.oc_comp_id,
+        oc_bra_id: l.oc_bra_id,
+        oc_poh_id: l.oc_poh_id,
+      });
+    }
+  });
+  if (seen.size > 0) return [...seen.values()];
+  if (pedido.oc_poh_id != null) {
+    return [
+      {
+        oc_comp_id: pedido.oc_comp_id,
+        oc_bra_id: pedido.oc_bra_id,
+        oc_poh_id: pedido.oc_poh_id,
+      },
+    ];
+  }
+  return [];
+};
+
+const lineasDeOc = (lineas, oc) => {
+  const tagged = lineas.filter((l) => l.oc_poh_id != null);
+  if (tagged.length === 0) return lineas;
+  return lineas.filter(
+    (l) =>
+      l.oc_poh_id === oc.oc_poh_id &&
+      (l.oc_comp_id == null || l.oc_comp_id === oc.oc_comp_id) &&
+      (l.oc_bra_id == null || l.oc_bra_id === oc.oc_bra_id)
+  );
+};
+
 const ITEMS_BADGE_A11Y = (lineas, unidades) =>
   `${lineas} ${lineas === 1 ? 'línea' : 'líneas'} de orden de compra, ` +
   `${formatUnidades(unidades)} ${Number(unidades) === 1 ? 'unidad' : 'unidades'} en total`;
@@ -111,19 +198,20 @@ const ITEMS_BADGE_A11Y = (lineas, unidades) =>
 const formatUnidades = (v) =>
   v == null ? '—' : Number(v).toLocaleString('es-AR', { maximumFractionDigits: 2 });
 
-// Chips de identificación para pedidos SIN OC: los únicos datos identificatorios
-// que existen a nivel pedido. Se omiten cuando el campo es null/vacío, igual que
-// buildPedidoClipboardText.
+// Ident chips on EVERY Depósito row (CON-OC and SIN-OC): factura number and
+// `pedidos_documento`. Observaciones stays as a third optional chip. Each is
+// omitted independently when null/blank, same rule `buildPedidoClipboardText`
+// already follows. CON-OC used to XOR these away in favor of itemsBadge.
 const CHIP_FACTURA_A11Y = (numero) => `Factura ${numero}`;
+const CHIP_PEDIDOS_DOCUMENTO_A11Y = (texto) => `Pedidos documento: ${texto}`;
 const CHIP_OBSERVACIONES_A11Y = (texto) => `Observaciones: ${texto}`;
 
-// `observaciones` es texto libre sin tope. 60 caracteres entran en una línea al
-// tamaño del badge y alcanzan para distinguir dos pedidos; el texto COMPLETO
-// viaja por `title` (mouse) y por el span .sr-only (lectores de pantalla), así
-// que el truncado es puramente visual y no oculta información a nadie.
-const OBSERVACIONES_MAX_CHARS = 60;
-const truncarObservaciones = (t) =>
-  t.length > OBSERVACIONES_MAX_CHARS ? `${t.slice(0, OBSERVACIONES_MAX_CHARS).trimEnd()}…` : t;
+// Free-text ident fields have no hard cap. 60 characters fit one badge line and
+// still distinguish two pedidos; the FULL text travels via `title` (mouse) and
+// the .sr-only span (screen readers), so truncation is visual only.
+const CHIP_MAX_CHARS = 60;
+const truncarChip = (t) =>
+  t.length > CHIP_MAX_CHARS ? `${t.slice(0, CHIP_MAX_CHARS).trimEnd()}…` : t;
 
 // Banner de arribo. Se CONSERVA con un solo cambio: "control de ítems" →
 // "control de cantidades". La primera oración sigue siendo cierta en TODAS las
@@ -133,6 +221,10 @@ const truncarObservaciones = (t) =>
 // lado de ítems visibles se leía como una contradicción.
 const ARRIBO_BANNER_TEXT =
   'El pedido aún no fue recibido en depósito. Confirme el arribo para habilitar el control de cantidades.';
+
+// Linked OC whose ERP header/lines are missing must still occupy one block.
+// Hiding it made the vínculo look gone. Same Spanish copy in arribo + control.
+const OC_ERP_MISSING_COPY = 'OC no encontrada en ERP';
 
 function estadoBadge(estado, stylesMap) {
   const badgeClass = ESTADO_BADGE_CLASS[estado];
@@ -166,40 +258,65 @@ function itemsBadge(pedido, stylesMap) {
 }
 
 /**
- * Closed-header identification chips (SIN-OC only) — factura and
- * observaciones are the only pedido-level fields that identify one pedido
- * from another when there is no OC. Each is omitted independently when
- * null/blank, same rule `buildPedidoClipboardText` already follows.
+ * Closed-header identification chips — factura + pedidos_documento on every
+ * row, including CON-OC. Observaciones remains optional. Each field is omitted
+ * independently when null/blank.
  */
 function identChips(pedido, stylesMap) {
   const chips = [];
-  if (pedido.numero_factura && String(pedido.numero_factura).trim() !== '') {
+  const factura = pedido.numero_factura && String(pedido.numero_factura).trim();
+  if (factura) {
     chips.push(
       <span
         key="factura"
         className={stylesMap.chipIdent}
-        title={pedido.numero_factura}
+        title={factura}
       >
         <FileText size={11} aria-hidden="true" />
-        <span aria-hidden="true">{pedido.numero_factura}</span>
-        <span className="sr-only">{CHIP_FACTURA_A11Y(pedido.numero_factura)}</span>
+        <span aria-hidden="true">{truncarChip(factura)}</span>
+        <span className="sr-only">{CHIP_FACTURA_A11Y(factura)}</span>
       </span>,
     );
   }
-  if (pedido.observaciones && String(pedido.observaciones).trim() !== '') {
+  const pedidosDoc = pedido.pedidos_documento && String(pedido.pedidos_documento).trim();
+  if (pedidosDoc) {
+    chips.push(
+      <span
+        key="pedidos-documento"
+        className={stylesMap.chipIdent}
+        title={pedidosDoc}
+      >
+        <FileText size={11} aria-hidden="true" />
+        <span aria-hidden="true">{truncarChip(pedidosDoc)}</span>
+        <span className="sr-only">{CHIP_PEDIDOS_DOCUMENTO_A11Y(pedidosDoc)}</span>
+      </span>,
+    );
+  }
+  const observaciones = pedido.observaciones && String(pedido.observaciones).trim();
+  if (observaciones) {
     chips.push(
       <span
         key="observaciones"
         className={stylesMap.chipIdent}
-        title={pedido.observaciones}
+        title={observaciones}
       >
         <StickyNote size={11} aria-hidden="true" />
-        <span aria-hidden="true">{truncarObservaciones(pedido.observaciones)}</span>
-        <span className="sr-only">{CHIP_OBSERVACIONES_A11Y(pedido.observaciones)}</span>
+        <span aria-hidden="true">{truncarChip(observaciones)}</span>
+        <span className="sr-only">{CHIP_OBSERVACIONES_A11Y(observaciones)}</span>
       </span>,
     );
   }
   return chips;
+}
+
+/**
+ * "Factura cargada" uses the Controlado visual family (badgeControlado).
+ * Driven ONLY by the ERP `factura_cargada` flag — a numero_factura (or
+ * document-row presence) must never light this badge (chicho lock).
+ */
+function facturaCargadaBadge(facturaCargada, stylesMap) {
+  if (facturaCargada !== true) return null;
+  return <span className={stylesMap.badgeControlado}>Factura cargada</span>;
 }
 
 /**
@@ -294,6 +411,7 @@ function AccordionBodyConOcArribo({ pedido, onRefreshList }) {
   };
 
   const lineas = saldos?.lineas ?? [];
+  const ocs = linkedOcs(pedido, lineas);
 
   return (
     <>
@@ -318,7 +436,7 @@ function AccordionBodyConOcArribo({ pedido, onRefreshList }) {
         </div>
       )}
       <div className={styles.noOcBanner} role="status">
-        <AlertTriangle size={16} style={{ flexShrink: 0, marginTop: 2 }} />
+        <AlertTriangle size={16} className={styles.noOcBannerIcon} />
         <p className={styles.noOcBannerText}>{ARRIBO_BANNER_TEXT}</p>
       </div>
       <div className={styles.noOcActions}>
@@ -332,43 +450,89 @@ function AccordionBodyConOcArribo({ pedido, onRefreshList }) {
           Marcar como recibido
         </button>
       </div>
-      {lineas.length > 0 && (
-        <div className={styles.tableWrapper}>
-          <table className={styles.itemTable}>
-            <caption className="sr-only">Ítems de la orden de compra (solo lectura)</caption>
-            <thead>
-              <tr>
-                <th>Ítem</th>
-                <th>Depósito</th>
-                <th className={styles.thRight}>Cant. pedida</th>
-              </tr>
-            </thead>
-            <tbody>
-              {lineas.map((linea) => {
-                const nombre = linea.item_nombre || `Ítem #${linea.item_id}`;
-                return (
-                  <tr key={linea.pod_id}>
-                    <td>
-                      <div className={styles.itemNombre}>{nombre}</div>
-                      <div className={styles.itemCodigo}>#{linea.item_code ?? linea.item_id}</div>
-                    </td>
-                    <td>{linea.deposito_nombre || '—'}</td>
-                    <td className={styles.tdRight}>{formatUnidades(linea.pod_qty)}</td>
+      {(ocs.length > 0 ? ocs : [null]).map((oc) => {
+        const blockLineas = oc ? lineasDeOc(lineas, oc) : lineas;
+        const ocKey = oc ? `${oc.oc_comp_id}-${oc.oc_bra_id}-${oc.oc_poh_id}` : 'header';
+        const erpMissing = Boolean(oc) && blockLineas.length === 0;
+        if (!oc && blockLineas.length === 0) return null;
+        return (
+          <section key={ocKey} className={styles.ocBlock}>
+            {oc && <h3 className={styles.ocBlockTitle}>OC #{oc.oc_poh_id}</h3>}
+            {erpMissing ? (
+              <p className={styles.ocErpMissing}>{OC_ERP_MISSING_COPY}</p>
+            ) : (
+            <div className={styles.tableWrapper}>
+              <table className={styles.itemTable}>
+                <caption className="sr-only">
+                  Ítems de la orden de compra{oc ? ` #${oc.oc_poh_id}` : ''} (solo lectura)
+                </caption>
+                <thead>
+                  <tr>
+                    <th>Ítem</th>
+                    <th>Depósito</th>
+                    <th className={styles.thRight}>Cant. pedida</th>
                   </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        </div>
-      )}
+                </thead>
+                <tbody>
+                  {blockLineas.map((linea) => {
+                    const nombre = linea.item_nombre || `Ítem #${linea.item_id}`;
+                    return (
+                      <tr key={`${ocKey}-${linea.pod_id}`}>
+                        <td>
+                          <div className={styles.itemNombre}>{nombre}</div>
+                          <div className={styles.itemCodigo}>#{linea.item_code ?? linea.item_id}</div>
+                        </td>
+                        <td>{linea.deposito_nombre || '—'}</td>
+                        <td className={styles.tdRight}>{formatUnidades(linea.pod_qty)}</td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+            )}
+          </section>
+        );
+      })}
     </>
+  );
+}
+
+// Optional control evidence (#16): obs + AdjuntosPanel tipo=otro. Shown on
+// the control path (incl. control OK). Neither field is required to succeed.
+function ControlEvidenceFields({ pedidoId, observaciones, onObservacionesChange, obsInputId }) {
+  const fotoLabelId = `foto-control-${pedidoId}`;
+  return (
+    <div className={styles.observacionesInline}>
+      <label htmlFor={obsInputId} className={styles.observacionesLabel}>
+        Observaciones (opcional)
+      </label>
+      <textarea
+        id={obsInputId}
+        className={styles.observacionesTextarea}
+        placeholder="Notas de control (opcional)…"
+        value={observaciones}
+        onChange={(e) => onObservacionesChange(e.target.value)}
+      />
+      <p id={fotoLabelId} className={styles.observacionesLabel}>
+        Foto de control (opcional)
+      </p>
+      <div aria-labelledby={fotoLabelId}>
+        <AdjuntosPanel
+          entidadTipo="pedido_compra"
+          entidadId={pedidoId}
+          canManage
+          tipo="otro"
+        />
+      </div>
+    </div>
   );
 }
 
 // ── Accordion body — CON OC ───────────────────────────────────────
 
 function AccordionBodyConOc({ pedido, onRefreshList }) {
-  const { getSaldos, registrarIngresos } = useRecepcionDeposito();
+  const { getSaldos, registrarIngresos, getUsuariosResponsableFaltantes } = useRecepcionDeposito();
 
   const [saldos, setSaldos] = useState(null);
   const [loadingSaldos, setLoadingSaldos] = useState(false);
@@ -376,6 +540,12 @@ function AccordionBodyConOc({ pedido, onRefreshList }) {
 
   // Tanda state: { [pod_id]: string } — each input value for this batch
   const [tanda, setTanda] = useState({});
+  const [faltantesTexto, setFaltantesTexto] = useState('');
+  const [observaciones, setObservaciones] = useState('');
+  const [responsableId, setResponsableId] = useState(
+    pedido.responsable_id != null ? String(pedido.responsable_id) : ''
+  );
+  const [responsablePool, setResponsablePool] = useState([]);
   const [submitting, setSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState(null);
   const [submitSuccess, setSubmitSuccess] = useState(null);
@@ -405,6 +575,20 @@ function AccordionBodyConOc({ pedido, onRefreshList }) {
     fetchSaldos();
   }, [fetchSaldos]);
 
+  useEffect(() => {
+    let cancelled = false;
+    getUsuariosResponsableFaltantes()
+      .then((users) => {
+        if (!cancelled) setResponsablePool(Array.isArray(users) ? users : []);
+      })
+      .catch(() => {
+        if (!cancelled) setResponsablePool([]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [getUsuariosResponsableFaltantes]);
+
   if (loadingSaldos) {
     return (
       <div className={styles.centered}>
@@ -423,7 +607,9 @@ function AccordionBodyConOc({ pedido, onRefreshList }) {
 
   if (!saldos) return null;
 
-  const lineas = saldos.lineas || [];
+  const lineasErp = saldos.lineas || [];
+  const lineas = lineasErp.filter((l) => Number(l.saldo_pendiente) !== 0);
+  const ocs = linkedOcs(pedido, lineasErp);
 
   // ── Per-line input validation ──
   const hasInputError = (podId) => {
@@ -486,12 +672,23 @@ function AccordionBodyConOc({ pedido, onRefreshList }) {
     setTanda((prev) => ({ ...prev, [podId]: value }));
   };
 
-  const handleSubmit = async () => {
+  const handleSubmit = async ({ completo }) => {
+    if (!completo && !faltantesTexto.trim()) {
+      setSubmitError('El texto de faltantes es requerido.');
+      return;
+    }
     setSubmitting(true);
     setSubmitError(null);
     setSubmitSuccess(null);
     try {
-      await registrarIngresos(pedido.id, { lineas: tandaLineas });
+      const payload = { lineas: tandaLineas };
+      if (!completo) {
+        payload.faltantes_texto = faltantesTexto.trim();
+        if (responsableId) payload.responsable_id = Number(responsableId);
+      }
+      const obs = observaciones.trim();
+      if (obs) payload.observaciones = obs;
+      await registrarIngresos(pedido.id, payload);
       setSubmitSuccess('Control registrado correctamente.');
       await fetchSaldos();
       onRefreshList();
@@ -525,6 +722,18 @@ function AccordionBodyConOc({ pedido, onRefreshList }) {
         </div>
       )}
 
+      {(ocs.length > 0 ? ocs : [null]).map((oc) => {
+        const blockLineas = oc ? lineasDeOc(lineas, oc) : lineas;
+        const erpLineas = oc ? lineasDeOc(lineasErp, oc) : lineasErp;
+        const ocKey = oc ? `${oc.oc_comp_id}-${oc.oc_bra_id}-${oc.oc_poh_id}` : 'header';
+        const erpMissing = Boolean(oc) && erpLineas.length === 0;
+        if (!oc && blockLineas.length === 0) return null;
+        return (
+      <section key={ocKey} className={styles.ocBlock}>
+        {oc && <h3 className={styles.ocBlockTitle}>OC #{oc.oc_poh_id}</h3>}
+        {erpMissing ? (
+          <p className={styles.ocErpMissing}>{OC_ERP_MISSING_COPY}</p>
+        ) : (
       <div className={styles.tableWrapper}>
         <table className={styles.itemTable}>
           <thead>
@@ -532,13 +741,16 @@ function AccordionBodyConOc({ pedido, onRefreshList }) {
               <th className={styles.thCenter}>
                 <input
                   type="checkbox"
-                  aria-label="Marcar todo"
-                  checked={lineas.length > 0 && lineas.every((l) => isChecked(l.pod_id))}
+                  aria-label={oc ? `Marcar todo OC #${oc.oc_poh_id}` : 'Marcar todo'}
+                  checked={blockLineas.length > 0 && blockLineas.every((l) => isChecked(l.pod_id))}
                   onChange={(e) => {
-                    if (e.target.checked) handleMarcarTodo();
-                    else {
-                      const reset = {};
-                      lineas.forEach((l) => { reset[l.pod_id] = '0'; });
+                    if (e.target.checked) {
+                      const next = { ...tanda };
+                      blockLineas.forEach((l) => { next[l.pod_id] = String(l.saldo_pendiente); });
+                      setTanda(next);
+                    } else {
+                      const reset = { ...tanda };
+                      blockLineas.forEach((l) => { reset[l.pod_id] = '0'; });
                       setTanda(reset);
                     }
                   }}
@@ -553,12 +765,12 @@ function AccordionBodyConOc({ pedido, onRefreshList }) {
             </tr>
           </thead>
           <tbody>
-            {lineas.map((linea) => {
+            {blockLineas.map((linea) => {
               const inputErr = hasInputError(linea.pod_id);
               const checked = isChecked(linea.pod_id);
               const nombre = linea.item_nombre || `Ítem #${linea.item_id}`;
               return (
-                <tr key={linea.pod_id}>
+                <tr key={`${ocKey}-${linea.pod_id}`}>
                   <td className={styles.tdCenter}>
                     <input
                       type="checkbox"
@@ -598,9 +810,8 @@ function AccordionBodyConOc({ pedido, onRefreshList }) {
                     {inputErr && (
                       <span
                         id={`qty-err-${pedido.id}-${linea.pod_id}`}
-                        className={styles.inputError}
+                        className={`${styles.inputError} ${styles.qtyErrorHint}`}
                         role="alert"
-                        style={{ display: 'block', fontSize: 'var(--font-xs)', color: 'var(--cf-accent-red)', marginTop: 2 }}
                       >
                         Excede saldo ({formatUnidades(linea.saldo_pendiente)})
                       </span>
@@ -612,6 +823,37 @@ function AccordionBodyConOc({ pedido, onRefreshList }) {
           </tbody>
         </table>
       </div>
+        )}
+      </section>
+        );
+      })}
+
+      <div className={styles.observacionesInline}>
+        <label htmlFor={`faltantes-conoc-${pedido.id}`} className={styles.observacionesLabel}>
+          Texto de faltantes (requerido al marcar faltantes)
+        </label>
+        <textarea
+          id={`faltantes-conoc-${pedido.id}`}
+          className={styles.observacionesTextarea}
+          placeholder="Describa los ítems faltantes…"
+          value={faltantesTexto}
+          onChange={(e) => setFaltantesTexto(e.target.value)}
+        />
+        <ResponsableFaltantesPicker
+          pedido={pedido}
+          pool={responsablePool}
+          value={responsableId}
+          onChange={setResponsableId}
+          selectId={`responsable-conoc-${pedido.id}`}
+        />
+      </div>
+
+      <ControlEvidenceFields
+        pedidoId={pedido.id}
+        observaciones={observaciones}
+        onObservacionesChange={setObservaciones}
+        obsInputId={`obs-conoc-${pedido.id}`}
+      />
 
       <div className={styles.actionBar}>
         <div className={styles.actionBarLeft}>
@@ -628,7 +870,7 @@ function AccordionBodyConOc({ pedido, onRefreshList }) {
           <button
             type="button"
             className={styles.btnSecondary}
-            onClick={handleSubmit}
+            onClick={() => handleSubmit({ completo: false })}
             disabled={!canSubmitFaltantes || submitting || anyInputError}
           >
             {submitting ? <Loader2 size={14} className={styles.spin} /> : null}
@@ -637,7 +879,7 @@ function AccordionBodyConOc({ pedido, onRefreshList }) {
           <button
             type="button"
             className={styles.btnPrimary}
-            onClick={handleSubmit}
+            onClick={() => handleSubmit({ completo: true })}
             disabled={!canSubmitRecibido || submitting || anyInputError}
           >
             {submitting ? <Loader2 size={14} className={styles.spin} /> : null}
@@ -652,27 +894,37 @@ function AccordionBodyConOc({ pedido, onRefreshList }) {
 // ── Accordion body — SIN OC ───────────────────────────────────────
 
 function AccordionBodySinOc({ pedido, onRefreshList }) {
-  const { confirmarPedido } = useRecepcionDeposito();
+  const { confirmarPedido, getUsuariosResponsableFaltantes } = useRecepcionDeposito();
   const [showFaltantes, setShowFaltantes] = useState(false);
+  const [faltantesTexto, setFaltantesTexto] = useState('');
   const [observaciones, setObservaciones] = useState('');
-  const [obsError, setObsError] = useState(false);
+  const [faltantesError, setFaltantesError] = useState(false);
+  const [responsableId, setResponsableId] = useState(
+    pedido.responsable_id != null ? String(pedido.responsable_id) : ''
+  );
+  const [responsablePool, setResponsablePool] = useState([]);
   const [submitting, setSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState(null);
   const [submitSuccess, setSubmitSuccess] = useState(null);
 
   const handleConfirmar = async (completo) => {
-    if (!completo && !observaciones.trim()) {
-      setObsError(true);
+    if (!completo && !faltantesTexto.trim()) {
+      setFaltantesError(true);
       return;
     }
-    setObsError(false);
+    setFaltantesError(false);
     setSubmitting(true);
     setSubmitError(null);
     setSubmitSuccess(null);
     try {
       const payload = completo
-        ? { completo: true }
-        : { completo: false, observaciones: observaciones.trim() };
+        ? { completo: true, observaciones: observaciones.trim() || undefined }
+        : {
+            completo: false,
+            faltantes_texto: faltantesTexto.trim(),
+            observaciones: observaciones.trim() || undefined,
+            ...(responsableId ? { responsable_id: Number(responsableId) } : {}),
+          };
       await confirmarPedido(pedido.id, payload);
       // D-SINOC messages based on source estado
       let msg;
@@ -705,6 +957,27 @@ function AccordionBodySinOc({ pedido, onRefreshList }) {
   const showControladoBtn = estado === 'recibido' || estado === 'con_faltantes';
   const showFaltantesBtn = estado === 'recibido';
 
+  useEffect(() => {
+    if (!showFaltantes || readFocusQuery() !== 'observaciones') return undefined;
+    document.getElementById('pedido-observaciones')?.focus();
+    return undefined;
+  }, [showFaltantes]);
+
+  useEffect(() => {
+    if (!showFaltantes) return undefined;
+    let cancelled = false;
+    getUsuariosResponsableFaltantes()
+      .then((users) => {
+        if (!cancelled) setResponsablePool(Array.isArray(users) ? users : []);
+      })
+      .catch(() => {
+        if (!cancelled) setResponsablePool([]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [showFaltantes, getUsuariosResponsableFaltantes]);
+
   return (
     <>
       {submitError && (
@@ -719,7 +992,7 @@ function AccordionBodySinOc({ pedido, onRefreshList }) {
       )}
 
       <div className={styles.noOcBanner} role="status">
-        <AlertTriangle size={16} style={{ flexShrink: 0, marginTop: 2 }} />
+        <AlertTriangle size={16} className={styles.noOcBannerIcon} />
         <p className={styles.noOcBannerText}>
           Este pedido no tiene OC vinculada. No es posible registrar por ítem.
         </p>
@@ -760,31 +1033,47 @@ function AccordionBodySinOc({ pedido, onRefreshList }) {
         )}
       </div>
 
+      {showControladoBtn && (
+        <ControlEvidenceFields
+          pedidoId={pedido.id}
+          observaciones={observaciones}
+          onObservacionesChange={setObservaciones}
+          obsInputId={`obs-sinoc-${pedido.id}`}
+        />
+      )}
+
       {showFaltantes && (
         <div className={styles.observacionesInline}>
           <label
-            htmlFor={`obs-sinoc-${pedido.id}`}
+            htmlFor="pedido-observaciones"
             className={styles.observacionesLabel}
           >
-            Observaciones (requerido) *
+            Texto de faltantes (requerido)
           </label>
           <textarea
-            id={`obs-sinoc-${pedido.id}`}
-            className={`${styles.observacionesTextarea} ${obsError ? styles.inputError : ''}`}
-            placeholder="Describa los ítems faltantes o motivo…"
-            value={observaciones}
+            id="pedido-observaciones"
+            className={`${styles.observacionesTextarea} ${faltantesError ? styles.textareaError : ''}`}
+            placeholder="Describa los ítems faltantes…"
+            value={faltantesTexto}
             onChange={(e) => {
-              setObservaciones(e.target.value);
-              if (obsError && e.target.value.trim()) setObsError(false);
+              setFaltantesTexto(e.target.value);
+              if (faltantesError && e.target.value.trim()) setFaltantesError(false);
             }}
             aria-required="true"
-            aria-invalid={obsError}
+            aria-invalid={faltantesError}
           />
-          {obsError && (
-            <span role="alert" style={{ fontSize: 'var(--font-xs)', color: 'var(--cf-accent-red)' }}>
-              Las observaciones son requeridas al marcar con faltantes.
+          {faltantesError && (
+            <span className={styles.fieldError} role="alert">
+              El texto de faltantes es requerido.
             </span>
           )}
+          <ResponsableFaltantesPicker
+            pedido={pedido}
+            pool={responsablePool}
+            value={responsableId}
+            onChange={setResponsableId}
+            selectId={`responsable-sinoc-${pedido.id}`}
+          />
           <div>
             <button
               type="button"
@@ -804,9 +1093,14 @@ function AccordionBodySinOc({ pedido, onRefreshList }) {
 
 // ── Single accordion card ─────────────────────────────────────────
 
-function PedidoAccordion({ pedido, onRefreshList, onCopyOutcome }) {
-  const [open, setOpen] = useState(false);
+function PedidoAccordion({ pedido, onRefreshList, onCopyOutcome, defaultOpen = false }) {
+  const { deshacerRecibido } = useRecepcionDeposito();
+  const { tienePermiso } = usePermisos();
+  const canDespacharRetiro = tienePermiso('deposito.despachar_retiro');
+  const [open, setOpen] = useState(defaultOpen);
   const [retiroOpen, setRetiroOpen] = useState(false);
+  const [docsOpen, setDocsOpen] = useState(false);
+  const [undoing, setUndoing] = useState(false);
   // 'idle' | 'copied' | 'error'. A boolean could not tell "never clicked" apart
   // from "clicked and failed", which is exactly the state the operator needs.
   // This state is VISUAL only (icon swap + .copyButtonError); the announcement
@@ -859,6 +1153,18 @@ function PedidoAccordion({ pedido, onRefreshList, onCopyOutcome }) {
   // change alone. Keeping both would risk announcing the failure twice.
   // `title` mirrors it for the same reason: tooltip and accessible name are both
   // "what this button does" affordances, not a status channel.
+  const handleDeshacer = async () => {
+    setUndoing(true);
+    try {
+      await deshacerRecibido(pedido.id);
+      onRefreshList();
+    } catch {
+      /* error surface lives in the hook; list stays as-is */
+    } finally {
+      setUndoing(false);
+    }
+  };
+
   const copiarLabel = `Copiar datos del pedido #${pedido.numero}`;
 
   return (
@@ -896,8 +1202,31 @@ function PedidoAccordion({ pedido, onRefreshList, onCopyOutcome }) {
           <span className={styles.pedidoProveedor}>{pedido.proveedor_nombre || '—'}</span>
         </button>
         <div className={styles.headerBadges}>
-          {pedido.oc_poh_id != null ? itemsBadge(pedido, styles) : identChips(pedido, styles)}
+          {pedido.oc_poh_id != null && itemsBadge(pedido, styles)}
+          {identChips(pedido, styles)}
+          {facturaCargadaBadge(pedido.factura_cargada, styles)}
           {estadoBadge(pedido.estado, styles)}
+          <button
+            type="button"
+            className={styles.docsButton}
+            onClick={() => setDocsOpen(true)}
+            aria-label={`Documentos del pedido #${pedido.numero}`}
+          >
+            <Paperclip size={12} aria-hidden="true" />
+            Docs
+          </button>
+          {pedido.estado === 'recibido' && (
+            <button
+              type="button"
+              className={styles.btnSecondary}
+              onClick={handleDeshacer}
+              disabled={undoing}
+              aria-label={`Deshacer recibido del pedido #${pedido.numero}`}
+            >
+              {undoing ? <Loader2 size={12} className={styles.spin} /> : <Undo2 size={12} aria-hidden="true" />}
+              Deshacer recibido
+            </button>
+          )}
           <button
             type="button"
             className={`${styles.copyButton} ${copyStatus === 'error' ? styles.copyButtonError : ''}`}
@@ -915,15 +1244,17 @@ function PedidoAccordion({ pedido, onRefreshList, onCopyOutcome }) {
                 <Truck size={11} aria-hidden="true" />
                 Requiere retiro
               </span>
-              <button
-                type="button"
-                className={styles.retiroButton}
-                onClick={() => setRetiroOpen(true)}
-                aria-label={`Coordinar retiro para pedido #${pedido.numero}`}
-              >
-                <Truck size={12} aria-hidden="true" />
-                Coordinar retiro
-              </button>
+              {canDespacharRetiro && (
+                <button
+                  type="button"
+                  className={styles.retiroButton}
+                  onClick={() => setRetiroOpen(true)}
+                  aria-label={`Coordinar retiro para pedido #${pedido.numero}`}
+                >
+                  <Truck size={12} aria-hidden="true" />
+                  Coordinar retiro
+                </button>
+              )}
             </>
           )}
         </div>
@@ -948,7 +1279,28 @@ function PedidoAccordion({ pedido, onRefreshList, onCopyOutcome }) {
         </div>
       )}
 
-      {retiroOpen && (
+      {docsOpen && (
+        <div className={styles.docsOverlay} role="dialog" aria-modal="true" aria-labelledby={`docs-title-${pedido.id}`}>
+          <div className={styles.docsPanel}>
+            <div className={styles.docsHeader}>
+              <h2 id={`docs-title-${pedido.id}`} className={styles.docsTitle}>
+                Adjuntos del pedido #{pedido.numero}
+              </h2>
+              <button
+                type="button"
+                className={styles.docsClose}
+                onClick={() => setDocsOpen(false)}
+                aria-label="Cerrar documentos"
+              >
+                <X size={16} aria-hidden="true" />
+              </button>
+            </div>
+            <AdjuntosPanel entidadTipo="pedido_compra" entidadId={pedido.id} canManage={false} />
+          </div>
+        </div>
+      )}
+
+      {retiroOpen && canDespacharRetiro && (
         <ModalCargarRetiro
           pedidoId={pedido.id}
           pedidoNumero={pedido.numero}
@@ -967,11 +1319,27 @@ function PedidoAccordion({ pedido, onRefreshList, onCopyOutcome }) {
 export default function TabRecepcionDeposito() {
   // `filtro` holds a FILTER_TABS id, i.e. the raw `estado` query param — which
   // may be a comma-separated list of estados, not a single one.
-  const [filtro, setFiltro] = useState(FILTER_TABS[0].id);
+  const focusPedidoId = readPedidoQuery();
+  const [filtro, setFiltro] = useState(() => {
+    const eje = readEjeQuery();
+    if (eje && FILTER_TABS.some((t) => t.id === eje)) return eje;
+    if (focusPedidoId) return 'recibido';
+    return FILTER_TABS[0].id;
+  });
+  const [incluirCC, setIncluirCC] = useState(false);
+  const [qProveedor, setQProveedor] = useState('');
+  const [qNumero, setQNumero] = useState('');
+  const [qFactura, setQFactura] = useState('');
+  const [qEmpresa, setQEmpresa] = useState('');
+  const dqProveedor = useDebounce(qProveedor, 300);
+  const dqNumero = useDebounce(qNumero, 300);
+  const dqFactura = useDebounce(qFactura, 300);
+  const dqEmpresa = useDebounce(qEmpresa, 300);
   const [pedidos, setPedidos] = useState([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
   const [refreshKey, setRefreshKey] = useState(0);
+  const focusObservaciones = readFocusQuery() === 'observaciones';
 
   // ONE live-region text for the whole list. Hoisted out of PedidoAccordion
   // because at most one row can ever carry an outcome, while a full page mounted
@@ -995,13 +1363,29 @@ export default function TabRecepcionDeposito() {
     setLoading(true);
     setError(null);
     try {
-      // Sent verbatim as the `estado` param. The backend splits it on comma and
-      // filters with IN(...), so a tab id may carry several estados at once
-      // (see FILTER_TABS: "Por recibir" = pagado + en_cuenta_corriente).
-      const estados = filtro;
+      // Recibidos / Con faltantes / Controlados use eje_procesal. Por recibir
+      // still sends financial `estado` (pagado ± CC).
+      const params = { page_size: 200 };
+      if (filtro === 'recibido') {
+        params.eje_procesal = 'recibido';
+      } else if (filtro === 'con_faltantes') {
+        params.eje_procesal = 'faltantes_sin_res';
+      } else if (filtro === FALTANTES_CON_RES_ID) {
+        params.eje_procesal = 'faltantes_con_res';
+      } else if (filtro === 'controlado') {
+        params.eje_procesal = 'controlado';
+      } else {
+        params.estado =
+          filtro === POR_RECIBIR_ID && incluirCC ? 'pagado,en_cuenta_corriente' : filtro;
+      }
+      params.tipo = 'mercaderia';
+      if (dqProveedor.trim()) params.q_proveedor = dqProveedor.trim();
+      if (dqNumero.trim()) params.q_numero = dqNumero.trim();
+      if (dqFactura.trim()) params.q_factura = dqFactura.trim();
+      if (dqEmpresa.trim()) params.q_empresa = dqEmpresa.trim();
 
       const { data } = await api.get('/administracion/compras/pedidos', {
-        params: { estado: estados, page_size: 200 },
+        params,
       });
       // Normalize: API may return {items:[...]} or plain array
       const items = Array.isArray(data) ? data : data.items ?? data.pedidos ?? [];
@@ -1013,11 +1397,21 @@ export default function TabRecepcionDeposito() {
     } finally {
       setLoading(false);
     }
-  }, [filtro, refreshKey]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [filtro, incluirCC, dqProveedor, dqNumero, dqFactura, dqEmpresa, refreshKey]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     fetchPedidos();
   }, [fetchPedidos]);
+
+  useEffect(() => {
+    if (!focusObservaciones || loading) return undefined;
+    const node = document.getElementById('pedido-observaciones');
+    if (node) {
+      node.focus();
+      return undefined;
+    }
+    return undefined;
+  }, [focusObservaciones, loading, pedidos]);
 
   const handleRefreshList = useCallback(() => {
     setRefreshKey((k) => k + 1);
@@ -1059,6 +1453,56 @@ export default function TabRecepcionDeposito() {
         ))}
       </div>
 
+      {filtro === POR_RECIBIR_ID && (
+        <label className={styles.ccToggle}>
+          <input
+            type="checkbox"
+            checked={incluirCC}
+            onChange={(e) => setIncluirCC(e.target.checked)}
+          />
+          Incluir cuenta corriente
+        </label>
+      )}
+
+      <div className={styles.filterBar}>
+        <label className={styles.filterField}>
+          <span className={styles.filterLabel}>Proveedor</span>
+          <input
+            className={styles.filterInput}
+            value={qProveedor}
+            onChange={(e) => setQProveedor(e.target.value)}
+            placeholder="Contiene…"
+          />
+        </label>
+        <label className={styles.filterField}>
+          <span className={styles.filterLabel}>Pedido</span>
+          <input
+            className={styles.filterInput}
+            value={qNumero}
+            onChange={(e) => setQNumero(e.target.value)}
+            placeholder="P-…"
+          />
+        </label>
+        <label className={styles.filterField}>
+          <span className={styles.filterLabel}>Factura</span>
+          <input
+            className={styles.filterInput}
+            value={qFactura}
+            onChange={(e) => setQFactura(e.target.value)}
+            placeholder="Número…"
+          />
+        </label>
+        <label className={styles.filterField}>
+          <span className={styles.filterLabel}>Empresa</span>
+          <input
+            className={styles.filterInput}
+            value={qEmpresa}
+            onChange={(e) => setQEmpresa(e.target.value)}
+            placeholder="Contiene…"
+          />
+        </label>
+      </div>
+
       {/* Error */}
       {error && (
         <div className={styles.errorBanner} role="alert">
@@ -1089,6 +1533,10 @@ export default function TabRecepcionDeposito() {
               pedido={p}
               onRefreshList={handleRefreshList}
               onCopyOutcome={handleCopyOutcome}
+              defaultOpen={
+                (focusPedidoId != null && String(p.id) === String(focusPedidoId))
+                || (Boolean(focusObservaciones) && !focusPedidoId && p.id === pedidos[0]?.id)
+              }
             />
           ))}
         </div>

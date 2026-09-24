@@ -57,6 +57,8 @@ def get_oc_candidatas(
     Raw text() query — mirrors the module's existing pattern.
     """
     pedido = _obtener_pedido_o_404(session, pedido_id)
+    if getattr(pedido, "tipo", None) == "servicio":
+        return []
 
     supp_id = session.execute(
         text("SELECT supp_id FROM proveedores WHERE id = :pid"),
@@ -94,6 +96,12 @@ def get_oc_candidatas(
                 AND p.oc_comp_id = h.comp_id
                 AND p.oc_bra_id  = h.bra_id
                 AND p.id <> :pedido_id
+          )
+          AND NOT EXISTS (
+              SELECT 1 FROM pedido_compra_ocs l
+              WHERE l.oc_poh_id  = h.poh_id
+                AND l.oc_comp_id = h.comp_id
+                AND l.oc_bra_id  = h.bra_id
           )
         GROUP BY h.comp_id, h.bra_id, h.poh_id, h.poh_total, h.poh_cd
         HAVING MIN(CASE WHEN COALESCE(d.pod_isprocessed, FALSE) = TRUE THEN 1 ELSE 0 END) = 0

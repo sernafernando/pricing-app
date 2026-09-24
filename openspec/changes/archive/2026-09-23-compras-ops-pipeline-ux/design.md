@@ -36,7 +36,7 @@ PR4 POST vincular-oc → INSERT (no replace) → N blocks; last OC → controlad
 | File | Action | Why |
 |------|--------|-----|
 | `backend/alembic/versions/compras_044_pipeline_tipo_responsable_facturas.py` | Create | `tipo`+ck; `responsable_id` FK backfill `creado_por_id` NOT NULL; `faltantes_resuelto_en`; factura table; seed `;` tokens. (044: main already has `compras_042`/`compras_043`.) |
-| `backend/alembic/versions/compras_043_pedido_compra_ocs.py` | Create | Relation + copy triple; unique `(pedido_id,oc_*)`; index `oc_poh_id`. |
+| `backend/alembic/versions/compras_045_pedido_compra_ocs.py` | Create | Relation + copy triple; unique `(pedido_id,oc_*)`; index `oc_poh_id`. (045: 042/043/044 already used.) |
 | `backend/app/models/pedido_factura_documento.py` | Create | `pedido_id`, nonempty `numero`, `created_at`, `created_by_id`. |
 | `backend/app/models/pedido_compra_oc.py` | Create | N triples. |
 | `backend/app/services/compras_alertas_service.py` | Create | Fan-out, copy `P-…`+proveedor+nº, retract, snooze, G31. Tipos `compras.factura_cargada` / `faltantes` / `faltantes_resuelto`. |
@@ -85,7 +85,7 @@ N/A — no routing, shell, VCS/PR, or process-integration boundary.
 
 ## Migration / Rollout
 
-Rebase `upstream/main` first. `compras_044` (PR1; 042/043 already on main) then `compras_045` later for multi-OC (PR4). Downgrade drops tables/cols. Skip service to disable fan-out. PRs to `develop`. Chicho deploys.
+Rebase `upstream/main` first. `compras_044` (PR1; 042/043 already on main) then `compras_045` for multi-OC (PR4). Downgrade drops tables/cols. Skip service to disable fan-out. PRs to `develop`. Chicho deploys.
 
 ## Open Questions
 

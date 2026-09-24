@@ -19,8 +19,9 @@ If a user would not notice the change, it does not need an entry.
    - Files that do not match the pattern (like this README) are ignored.
 2. The first line is the title, as a single `# ` heading.
 3. Write it for the person who uses the feature, not for a developer. Spanish, plain language. Say who built it if relevant.
-4. Include a **"Cómo se usa"** section with concrete steps: where to click and what they will see.
-5. Ship the entry **in the same PR as the feature**, so it is reviewed with the code and goes live with the deploy.
+4. Right after the optional `Área` / “Desarrollado por …” lines, include a short **Resumen ejecutivo** (a few lines, no jargon dump). It is for people who will not read the rest: what changed and what they should notice. Put it as high as possible, before “Cómo se usa”.
+5. Include a **"Cómo se usa"** section with concrete steps: where to click and what they will see.
+6. Ship the entry **in the same PR as the feature**, so it is reviewed with the code and goes live with the deploy.
 
 No code change is needed: the page picks up new files at build time.
 

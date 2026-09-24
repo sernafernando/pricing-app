@@ -32,9 +32,9 @@ from typing import Any, Optional
 
 from fastapi import APIRouter, BackgroundTasks, Body, Depends, File, Form, HTTPException, Query, UploadFile, status
 from fastapi.responses import FileResponse, Response
-from sqlalchemy import func as sa_func
+from sqlalchemy import exists, func as sa_func, or_
 from sqlalchemy import select, text
-from sqlalchemy.orm import Session, joinedload
+from sqlalchemy.orm import Session, joinedload, selectinload
 
 from app.api.deps import get_current_user, require_algun_permiso, require_permiso
 from app.core.config import settings
@@ -48,7 +48,9 @@ from app.models.compra_evento import CompraEvento
 from app.models.etiqueta_envio import EtiquetaEnvio
 from app.models.imputacion import Imputacion
 from app.models.orden_pago import OrdenPago
+from app.models.empresa import Empresa
 from app.models.pedido_compra import PedidoCompra
+from app.models.pedido_factura_documento import PedidoFacturaDocumento
 from app.models.proveedor import Proveedor
 from app.models.tb_sale_document import SaleDocument
 from app.models.usuario import Usuario
@@ -108,15 +110,18 @@ from app.schemas.oc_ingreso import (
     OrdenCompraDetalleResponse,
     VincularOCRequest,
 )
+from app.schemas.recepcion import DespacharRetiroResponse
 from app.schemas.pedido_compra import (
     CorreccionPedidoRequest,
     DocumentoERPImputado,
     FacturaCandidataResponse,
     PedidoCompraCreate,
     PedidoCompraDetalle,
+    PedidoCompraOcLink,
     PedidoCompraPaginated,
     PedidoCompraResponse,
     PedidoCompraUpdate,
+    PedidoFacturaDocumentoCargadaUpdate,
     PedidoFacturaDocumentoCreate,
     PedidoFacturaDocumentoResponse,
     PedidoTipoCambioUpdate,
@@ -236,6 +241,72 @@ def _obtener_proveedor_o_404(db: Session, proveedor_id: int) -> Proveedor:
     return prov
 
 
+def _ilike_contains(column: Any, raw: str) -> Any:
+    """Case-insensitive contains. Empty callers are skipped before this runs."""
+    escaped = raw.strip().replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+    return column.ilike(f"%{escaped}%", escape="\\")
+
+
+def _apply_q_contains_filters(
+    condiciones: list[Any],
+    *,
+    q_proveedor: str | None,
+    q_numero: str | None,
+    q_factura: str | None,
+    q_empresa: str | None,
+) -> None:
+    """AND-combine optional ILIKE contains filters (empty values ignored)."""
+    if q_proveedor and q_proveedor.strip():
+        condiciones.append(
+            exists().where(
+                Proveedor.id == PedidoCompra.proveedor_id,
+                _ilike_contains(Proveedor.nombre, q_proveedor),
+            )
+        )
+    if q_numero and q_numero.strip():
+        condiciones.append(_ilike_contains(PedidoCompra.numero, q_numero))
+    if q_factura and q_factura.strip():
+        condiciones.append(
+            or_(
+                _ilike_contains(PedidoCompra.numero_factura, q_factura),
+                exists().where(
+                    PedidoFacturaDocumento.pedido_id == PedidoCompra.id,
+                    _ilike_contains(PedidoFacturaDocumento.numero, q_factura),
+                ),
+            )
+        )
+    if q_empresa and q_empresa.strip():
+        condiciones.append(
+            exists().where(
+                Empresa.id == PedidoCompra.empresa_id,
+                _ilike_contains(Empresa.nombre, q_empresa),
+            )
+        )
+
+
+def _ocs_payload(p: PedidoCompra) -> list[PedidoCompraOcLink]:
+    """Serialize linked OC triples (relation SoT, else header first-link cache)."""
+    rel = list(getattr(p, "ocs", None) or [])
+    if rel:
+        return [
+            PedidoCompraOcLink(
+                oc_comp_id=int(row.oc_comp_id),
+                oc_bra_id=int(row.oc_bra_id),
+                oc_poh_id=int(row.oc_poh_id),
+            )
+            for row in rel
+        ]
+    if getattr(p, "oc_poh_id", None) is not None:
+        return [
+            PedidoCompraOcLink(
+                oc_comp_id=int(p.oc_comp_id),
+                oc_bra_id=int(p.oc_bra_id),
+                oc_poh_id=int(p.oc_poh_id),
+            )
+        ]
+    return []
+
+
 def _pedido_response(
     p: PedidoCompra,
     *,
@@ -250,6 +321,7 @@ def _pedido_response(
     # N). None → el pedido no tiene OC vinculada; ambos campos quedan None.
     oc_totales: Optional[tuple[int, Decimal]] = None,
     factura_cargada: Optional[bool] = None,
+    tiene_numero_factura: Optional[bool] = None,
     oc_match_status: Optional[str] = None,
 ) -> PedidoCompraResponse:
     """Serializa PedidoCompra incluyendo empresa_nombre / proveedor_nombre.
@@ -276,6 +348,9 @@ def _pedido_response(
     prov = getattr(p, "proveedor", None)
     base = PedidoCompraResponse.model_validate(p)
     factura_flag = factura_cargada if factura_cargada is not None else bool(getattr(p, "factura_cargada", False))
+    tiene_numero_flag = (
+        tiene_numero_factura if tiene_numero_factura is not None else bool(getattr(p, "tiene_numero_factura", False))
+    )
     return base.model_copy(
         update={
             "empresa_nombre": emp.nombre if emp is not None else None,
@@ -290,8 +365,10 @@ def _pedido_response(
                 getattr(p, "estado", None),
                 getattr(p, "faltantes_resuelto_en", None),
             ),
-            "oc_vinculada": getattr(p, "oc_poh_id", None) is not None,
+            "oc_vinculada": getattr(p, "oc_poh_id", None) is not None or bool(getattr(p, "ocs", None)),
+            "ocs": _ocs_payload(p),
             "factura_cargada": factura_flag,
+            "tiene_numero_factura": tiene_numero_flag,
             "oc_match_status": oc_match_status,
             # F2 — varianza_tc_neta = None → fields stay at schema defaults (False/0).
             # Detail endpoint populates; list endpoints leave as defaults to avoid N+1.
@@ -352,8 +429,17 @@ _ESTADOS_VISIBLES_DEPOSITO: tuple[str, ...] = (
 )
 def listar_pedidos(
     estado: Optional[str] = Query(None, description="Estado del pedido"),
+    tipo: Optional[str] = Query(None, description="tipo mercaderia|servicio (comma-OR)"),
+    eje_procesal: Optional[str] = Query(
+        None,
+        description="Eje procesal comma-OR (recibido,faltantes_con_res,faltantes_sin_res,controlado,por_recibir)",
+    ),
     proveedor_id: Optional[int] = Query(None, ge=1),
     empresa_id: Optional[int] = Query(None, ge=1),
+    q_proveedor: Optional[str] = Query(None, description="Contains filter on proveedor name"),
+    q_numero: Optional[str] = Query(None, description="Contains filter on Pricing P-… / pedido numero"),
+    q_factura: Optional[str] = Query(None, description="Contains filter on factura number"),
+    q_empresa: Optional[str] = Query(None, description="Contains filter on empresa name"),
     desde: Optional[date] = Query(None, description="created_at >= desde"),
     hasta: Optional[date] = Query(None, description="created_at <= hasta"),
     diferencial_cambio_pendiente: Optional[bool] = Query(
@@ -391,6 +477,8 @@ def listar_pedidos(
         if not permitidos:
             return PedidoCompraPaginated(items=[], total=0, page=page, page_size=page_size)
         estado = ",".join(permitidos)
+        # Depósito listing never includes servicio (Por recibir / eje tabs).
+        tipo = "mercaderia"
         # The FX-variance query is a financial report, not reception data.
         diferencial_cambio_pendiente = None
 
@@ -443,6 +531,7 @@ def listar_pedidos(
                 .options(
                     joinedload(PedidoCompra.empresa),
                     joinedload(PedidoCompra.proveedor),
+                    selectinload(PedidoCompra.ocs),
                 )
                 .where(PedidoCompra.id.in_(page_ids))
             )
@@ -477,6 +566,7 @@ def listar_pedidos(
                     varianza_tc_neta=varianza_map.get(p.id),
                     oc_totales=oc_totales_map.get(p.id),
                     factura_cargada=chips_map.get(p.id, {}).get("factura_cargada"),
+                    tiene_numero_factura=chips_map.get(p.id, {}).get("tiene_numero_factura"),
                     oc_match_status=chips_map.get(p.id, {}).get("oc_match_status"),
                 )
                 for p in items_page
@@ -497,6 +587,8 @@ def listar_pedidos(
             condiciones.append(PedidoCompra.estado == estados[0])
         elif estados:
             condiciones.append(PedidoCompra.estado.in_(estados))
+    pedidos_service.aplicar_filtro_tipo(condiciones, tipo)
+    pedidos_service.aplicar_filtro_eje_procesal(condiciones, eje_procesal)
     if proveedor_id is not None:
         condiciones.append(PedidoCompra.proveedor_id == proveedor_id)
     if empresa_id is not None:
@@ -505,10 +597,18 @@ def listar_pedidos(
         condiciones.append(PedidoCompra.created_at >= datetime.combine(desde, datetime.min.time()))
     if hasta is not None:
         condiciones.append(PedidoCompra.created_at <= datetime.combine(hasta, datetime.max.time()))
+    _apply_q_contains_filters(
+        condiciones,
+        q_proveedor=q_proveedor,
+        q_numero=q_numero,
+        q_factura=q_factura,
+        q_empresa=q_empresa,
+    )
 
     stmt = select(PedidoCompra).options(
         joinedload(PedidoCompra.empresa),
         joinedload(PedidoCompra.proveedor),
+        selectinload(PedidoCompra.ocs),
     )
     if condiciones:
         stmt = stmt.where(*condiciones)
@@ -552,6 +652,7 @@ def listar_pedidos(
                 varianza_tc_neta=None if solo_deposito else varianza_map.get(p.id),
                 oc_totales=oc_totales_map.get(p.id),
                 factura_cargada=chips_map.get(p.id, {}).get("factura_cargada"),
+                tiene_numero_factura=chips_map.get(p.id, {}).get("tiene_numero_factura"),
                 oc_match_status=chips_map.get(p.id, {}).get("oc_match_status"),
             )
             for p in items
@@ -601,6 +702,7 @@ def listar_pedidos_pendientes_pago(
         .options(
             joinedload(PedidoCompra.empresa),
             joinedload(PedidoCompra.proveedor),
+            selectinload(PedidoCompra.ocs),
         )
         .where(PedidoCompra.estado.in_(["aprobado", "pagado_parcial"]))
     )
@@ -646,6 +748,8 @@ def obtener_pedido(
         .options(
             joinedload(PedidoCompra.empresa),
             joinedload(PedidoCompra.proveedor),
+            selectinload(PedidoCompra.ocs),
+            selectinload(PedidoCompra.factura_documentos),
         )
         .where(PedidoCompra.id == pedido_id)
     ).scalar_one_or_none()
@@ -702,9 +806,14 @@ def obtener_pedido(
                 getattr(pedido, "estado", None),
                 getattr(pedido, "faltantes_resuelto_en", None),
             ),
-            "oc_vinculada": getattr(pedido, "oc_poh_id", None) is not None,
+            "oc_vinculada": getattr(pedido, "oc_poh_id", None) is not None or bool(getattr(pedido, "ocs", None)),
             "factura_cargada": bool(chips.get("factura_cargada")),
+            "tiene_numero_factura": bool(chips.get("tiene_numero_factura")),
             "oc_match_status": chips.get("oc_match_status"),
+            "factura_documentos": [
+                PedidoFacturaDocumentoResponse.model_validate(row)
+                for row in pedidos_service.listar_factura_documentos(db, pedido.id)
+            ],
         }
     )
     detalle.eventos = [CompraEventoResponse.model_validate(e) for e in eventos]
@@ -810,7 +919,7 @@ def agregar_factura_documento(
     db: Session = Depends(get_db),
     user: Usuario = Depends(require_permiso("administracion.gestionar_ordenes_compra")),
 ) -> PedidoFacturaDocumentoResponse:
-    """Add a nonempty invoice number row. Does not fire alerts (PR2)."""
+    """Add a nonempty invoice number as constancia. Does not mark cargada or notify."""
     try:
         row = pedidos_service.agregar_factura_documento(
             db,
@@ -842,7 +951,7 @@ def deshacer_factura_documento(
     db: Session = Depends(get_db),
     user: Usuario = Depends(require_permiso("administracion.gestionar_ordenes_compra")),
 ) -> None:
-    """Undo a just-added factura row. After 5 minutes → 409. Alert retract is PR2."""
+    """Undo a just-added factura row. After 5 minutes → 409. Retracts factura alerts."""
     try:
         pedidos_service.deshacer_factura_documento(
             db,
@@ -858,6 +967,40 @@ def deshacer_factura_documento(
         raise HTTPException(status_code=500, detail="Error al deshacer la factura.") from exc
 
     _commit_or_rollback(db, operacion="deshacer_factura_documento")
+
+
+@router.patch(
+    "/pedidos/{pedido_id}/factura-documentos/{row_id}",
+    response_model=PedidoFacturaDocumentoResponse,
+    summary="Marcar o desmarcar factura cargada en ERP",
+)
+def marcar_factura_documento_cargada(
+    pedido_id: int,
+    row_id: int,
+    data: PedidoFacturaDocumentoCargadaUpdate,
+    db: Session = Depends(get_db),
+    user: Usuario = Depends(require_permiso("administracion.gestionar_ordenes_compra")),
+) -> PedidoFacturaDocumentoResponse:
+    """Toggle the Administración ERP check. Starts or cancels the 5-min pending alert."""
+    try:
+        row = pedidos_service.marcar_factura_cargada(
+            db,
+            pedido_id=pedido_id,
+            row_id=row_id,
+            cargada=data.cargada,
+            user_id=user.id,
+        )
+    except HTTPException:
+        db.rollback()
+        raise
+    except Exception as exc:
+        db.rollback()
+        logger.exception("marcar_factura_documento_cargada falló: %s", exc)
+        raise HTTPException(status_code=500, detail="Error al marcar la factura.") from exc
+
+    _commit_or_rollback(db, operacion="marcar_factura_documento_cargada")
+    db.refresh(row)
+    return PedidoFacturaDocumentoResponse.model_validate(row)
 
 
 # ──────────────────────────────────────────────────────────────────────────
@@ -1323,6 +1466,7 @@ def _despachar_retiro_response(
 
 @router.post(
     "/pedidos/{pedido_id}/generar-etiqueta-envio",
+    response_model=DespacharRetiroResponse,
     summary="Generar etiqueta de retiro para un pedido (requiere_envio=True)",
 )
 def generar_etiqueta_envio(
@@ -1330,15 +1474,18 @@ def generar_etiqueta_envio(
     payload: dict[str, Any] = Body(default_factory=dict),
     db: Session = Depends(get_db),
     user: Usuario = Depends(require_permiso("administracion.gestionar_ordenes_compra")),
-) -> dict[str, Any]:
+) -> DespacharRetiroResponse:
     """Genera `etiquetas_envio` tipo=retiro_proveedor. REQ-LOG-002, design §9.1."""
-    return _despachar_retiro_response(
-        db, pedido_id=pedido_id, payload=payload, user_id=user.id, operacion="generar_etiqueta_envio"
+    return DespacharRetiroResponse.model_validate(
+        _despachar_retiro_response(
+            db, pedido_id=pedido_id, payload=payload, user_id=user.id, operacion="generar_etiqueta_envio"
+        )
     )
 
 
 @router.post(
     "/pedidos/{pedido_id}/recepcion/despachar-retiro",
+    response_model=DespacharRetiroResponse,
     summary="Despachar retiro de proveedor desde depósito (requiere_envio=True)",
 )
 def despachar_retiro(
@@ -1346,15 +1493,17 @@ def despachar_retiro(
     payload: dict[str, Any] = Body(default_factory=dict),
     db: Session = Depends(get_db),
     user: Usuario = Depends(require_permiso("deposito.despachar_retiro")),
-) -> dict[str, Any]:
+) -> DespacharRetiroResponse:
     """Genera `etiquetas_envio` tipo=retiro_proveedor desde el flujo de depósito.
 
     REQ-LOG-002, design §9.1. Gated by deposito.despachar_retiro — allows
     warehouse operators to dispatch supplier pickups from the reception tab
     without requiring administracion.gestionar_ordenes_compra.
     """
-    return _despachar_retiro_response(
-        db, pedido_id=pedido_id, payload=payload, user_id=user.id, operacion="despachar_retiro"
+    return DespacharRetiroResponse.model_validate(
+        _despachar_retiro_response(
+            db, pedido_id=pedido_id, payload=payload, user_id=user.id, operacion="despachar_retiro"
+        )
     )
 
 
@@ -4322,8 +4471,8 @@ def desvincular_factura_pedido(
 #
 # Flujo Slice 1:
 #   GET    /pedidos/{id}/oc-candidatas       → lista OCs pendientes del proveedor
-#   POST   /pedidos/{id}/vincular-oc         → setea las 3 cols oc_*
-#   DELETE /pedidos/{id}/desvincular-oc      → limpia las 3 cols oc_*
+#   POST   /pedidos/{id}/vincular-oc         → INSERT relation + first-link cache
+#   DELETE /pedidos/{id}/desvincular-oc      → limpia relation + las 3 cols oc_*
 #   GET    /pedidos/{id}/orden-compra/detalle → desglose por depósito (read-only)
 #
 # Todos requieren `administracion.gestionar_ordenes_compra`.
@@ -4370,7 +4519,7 @@ def vincular_oc_pedido(
 
     Validates:
       - Pedido exists (404).
-      - Pedido has no OC yet (409 — unlink first).
+      - Pedido tipo=servicio (409). Duplicate triple (409).
       - OC exists in tb_purchase_order_header (404).
       - OC supp_id matches pedido proveedor supp_id (409 supplier mismatch).
       - OC satisfies CRITERION-PENDIENTE (409 if all lines processed).
@@ -5545,10 +5694,14 @@ def obtener_saldo_a_favor_breakdown(
 from app.schemas.recepcion import (  # noqa: E402
     ConfirmarPedidoRequest,
     ConfirmarPedidoResponse,
+    DeshacerRecibidoResponse,
     EventosRecepcionResponse,
     RegistrarIngresosRequest,
     RegistrarIngresosResponse,
+    ResolverFaltantesRequest,
+    ResolverFaltantesResponse,
     SaldosResponse,
+    UsuarioResponsableFaltantesItem,
 )
 
 
@@ -5561,6 +5714,34 @@ def _obtener_pedido_recepcion_o_404(db: Session, pedido_id: int) -> PedidoCompra
             detail="Pedido not found",
         )
     return pedido
+
+
+@router.get(
+    "/usuarios-responsable-faltantes",
+    response_model=list[UsuarioResponsableFaltantesItem],
+    summary="Usuarios elegibles como responsable al marcar faltantes",
+)
+def get_usuarios_responsable_faltantes(
+    db: Session = Depends(get_db),
+    _user: Usuario = Depends(require_permiso(recepcion_service.PERMISO_RECEPCION)),
+) -> list[UsuarioResponsableFaltantesItem]:
+    """Pool = active holders of administracion.gestionar_ordenes_compra.
+
+    Permission required: deposito.recibir_mercaderia.
+    """
+    from app.services.notificacion_service import resolver_usuarios_con_algun_permiso
+
+    usuarios = resolver_usuarios_con_algun_permiso(
+        db,
+        permisos_requeridos=[recepcion_service.PERMISO_GESTIONAR_OC],
+    )
+    return [
+        UsuarioResponsableFaltantesItem(
+            id=int(u.id),
+            nombre=u.nombre or getattr(u, "email", None) or str(u.id),
+        )
+        for u in usuarios
+    ]
 
 
 @router.get(
@@ -5665,6 +5846,66 @@ def post_confirmar_pedido_recepcion(
         raise HTTPException(status_code=500, detail="Error al confirmar pedido.") from exc
 
     _commit_or_rollback(db, operacion="confirmar_pedido")
+    return result
+
+
+@router.post(
+    "/pedidos/{pedido_id}/recepcion/deshacer-recibido",
+    response_model=DeshacerRecibidoResponse,
+    status_code=status.HTTP_200_OK,
+    summary="Deshacer recibido → pagado o cuenta corriente",
+)
+def post_deshacer_recibido(
+    pedido_id: int,
+    db: Session = Depends(get_db),
+    user: Usuario = Depends(require_permiso(recepcion_service.PERMISO_RECEPCION)),
+) -> DeshacerRecibidoResponse:
+    """Undo recibido. Permission: deposito.recibir_mercaderia. controlado → 409."""
+    pedido = _obtener_pedido_recepcion_o_404(db, pedido_id)
+    try:
+        result = recepcion_service.deshacer_recibido(db, pedido, user)
+    except HTTPException:
+        db.rollback()
+        raise
+    except Exception as exc:
+        db.rollback()
+        logger.exception("deshacer_recibido falló: %s", exc)
+        raise HTTPException(status_code=500, detail="Error al deshacer recibido.") from exc
+
+    _commit_or_rollback(db, operacion="deshacer_recibido")
+    return result
+
+
+@router.post(
+    "/pedidos/{pedido_id}/faltantes/resolver",
+    response_model=ResolverFaltantesResponse,
+    status_code=status.HTTP_200_OK,
+    summary="Resolver faltantes (G31 in-app a depósito)",
+)
+def post_resolver_faltantes(
+    pedido_id: int,
+    request: ResolverFaltantesRequest,
+    db: Session = Depends(get_db),
+    user: Usuario = Depends(get_current_user),
+) -> ResolverFaltantesResponse:
+    """Stamp faltantes resolved. Writer = responsable or gestionar_ordenes_compra."""
+    pedido = _obtener_pedido_recepcion_o_404(db, pedido_id)
+    try:
+        result = recepcion_service.resolver_faltantes(
+            db,
+            pedido,
+            user,
+            texto=request.texto,
+        )
+    except HTTPException:
+        db.rollback()
+        raise
+    except Exception as exc:
+        db.rollback()
+        logger.exception("resolver_faltantes falló: %s", exc)
+        raise HTTPException(status_code=500, detail="Error al resolver faltantes.") from exc
+
+    _commit_or_rollback(db, operacion="resolver_faltantes")
     return result
 
 

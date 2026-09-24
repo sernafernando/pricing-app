@@ -25,14 +25,12 @@ class VincularOCRequest(BaseModel):
     is semantically invalid — the validator enforces the invariant.
     """
 
-    oc_comp_id: int
-    oc_bra_id: int
-    oc_poh_id: int
+    oc_comp_id: int | None = None
+    oc_bra_id: int | None = None
+    oc_poh_id: int | None = None
 
     @model_validator(mode="after")
     def _all_fields_present(self) -> "VincularOCRequest":
-        # Pydantic already rejects missing required fields with 422, but this
-        # validator makes the business rule explicit and testable.
         if self.oc_comp_id is None or self.oc_bra_id is None or self.oc_poh_id is None:
             raise ValueError("oc_comp_id, oc_bra_id, and oc_poh_id must all be provided")
         return self

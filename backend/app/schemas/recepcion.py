@@ -34,6 +34,9 @@ class SaldoLineaResponse(BaseModel):
     pod_qty: Decimal
     cantidad_recibida_total: Decimal
     saldo_pendiente: Decimal
+    oc_comp_id: int | None = None
+    oc_bra_id: int | None = None
+    oc_poh_id: int | None = None
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -77,6 +80,8 @@ class RegistrarIngresosRequest(BaseModel):
 
     lineas: list[IngresoLinea]
     observaciones: str | None = None
+    faltantes_texto: str | None = None
+    responsable_id: int | None = None
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -119,17 +124,19 @@ class RegistrarIngresosResponse(BaseModel):
 class ConfirmarPedidoRequest(BaseModel):
     """Request body for POST /pedidos/{id}/recepcion/confirmar-pedido.
 
-    Business rule: if completo=False, observaciones is required (cannot be None).
-    Enforced at schema level so the endpoint returns 422 before reaching the service.
+    Observation text is optional. When completo=False (marking faltantes),
+    `faltantes_texto` is required (D-SINOC / compras-pipeline-alerts).
     """
 
     completo: bool
     observaciones: str | None = None
+    faltantes_texto: str | None = None
+    responsable_id: int | None = None
 
     @model_validator(mode="after")
-    def _observaciones_requeridas_si_incompleto(self) -> "ConfirmarPedidoRequest":
-        if not self.completo and (self.observaciones is None or self.observaciones.strip() == ""):
-            raise ValueError("observaciones is required when completo=False")
+    def _faltantes_texto_requerido_si_incompleto(self) -> "ConfirmarPedidoRequest":
+        if not self.completo and (self.faltantes_texto is None or self.faltantes_texto.strip() == ""):
+            raise ValueError("faltantes_texto is required when completo=False")
         return self
 
     model_config = ConfigDict(from_attributes=True)
@@ -140,6 +147,40 @@ class ConfirmarPedidoResponse(BaseModel):
 
     pedido_id: int
     estado_nuevo: str
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class DeshacerRecibidoResponse(BaseModel):
+    """Response for POST /pedidos/{id}/recepcion/deshacer-recibido."""
+
+    pedido_id: int
+    estado_nuevo: str
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class ResolverFaltantesRequest(BaseModel):
+    """Required note when marking faltantes as resolved (G31)."""
+
+    texto: str
+
+    model_config = ConfigDict(from_attributes=True)
+
+    @field_validator("texto")
+    @classmethod
+    def _texto_nonempty(cls, v: str) -> str:
+        texto = (v or "").strip()
+        if not texto:
+            raise ValueError("texto no puede estar vacío.")
+        return texto
+
+
+class ResolverFaltantesResponse(BaseModel):
+    """Response for POST /pedidos/{id}/faltantes/resolver."""
+
+    pedido_id: int
+    faltantes_resuelto_en: datetime
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -166,5 +207,33 @@ class EventosRecepcionResponse(BaseModel):
 
     pedido_id: int
     eventos: list[EventoRecepcionItem]
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class UsuarioResponsableFaltantesItem(BaseModel):
+    """One holder of administracion.gestionar_ordenes_compra for the picker."""
+
+    id: int
+    nombre: str
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class DespacharRetiroResponse(BaseModel):
+    """Compact etiqueta payload for despachar-retiro / generar-etiqueta-envio."""
+
+    id: int
+    shipping_id: str | None = None
+    tipo_envio: str | None = None
+    pedido_compra_id: int | None = None
+    proveedor_id: int | None = None
+    proveedor_direccion_id: int | None = None
+    fecha_envio: str | None = None
+    manual_receiver_name: str | None = None
+    manual_street_name: str | None = None
+    manual_zip_code: str | None = None
+    manual_city_name: str | None = None
+    manual_phone: str | None = None
 
     model_config = ConfigDict(from_attributes=True)

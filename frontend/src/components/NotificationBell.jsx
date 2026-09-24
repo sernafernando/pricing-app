@@ -69,7 +69,8 @@ export default function NotificationBell() {
     }
   };
 
-  const eliminarNotificacion = async (notificacionesIds) => {
+  const eliminarNotificacion = async (notificacionesIds, tipo) => {
+    if (tipo === 'compras.faltantes') return;
     try {
       // Eliminar todas las notificaciones del grupo
       await Promise.all(
@@ -182,13 +183,15 @@ export default function NotificationBell() {
                               ✓
                             </button>
                           )}
+                          {grupo.tipo !== 'compras.faltantes' && (
                           <button
                             className={styles.actionBtn}
-                            onClick={() => eliminarNotificacion(grupo.notificaciones_ids)}
+                            onClick={() => eliminarNotificacion(grupo.notificaciones_ids, grupo.tipo)}
                             title="Eliminar"
                           >
                             ✕
                           </button>
+                          )}
                         </div>
                       </div>
                     </div>

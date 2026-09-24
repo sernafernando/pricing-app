@@ -43,6 +43,89 @@ def test_aprobado_is_not_procesal_pendiente() -> None:
     assert pedidos_service.calcular_eje_procesal("mercaderia", "aprobado", None) is None
 
 
+def _pedido_eje(
+    db,
+    empresa: Empresa,
+    proveedor: Proveedor,
+    user: Usuario,
+    *,
+    numero: str,
+    estado: str,
+    tipo: str = "mercaderia",
+    faltantes_resuelto_en: datetime | None = None,
+) -> PedidoCompra:
+    pedido = PedidoCompra(
+        numero=numero,
+        empresa_id=empresa.id,
+        proveedor_id=proveedor.id,
+        moneda="ARS",
+        monto=Decimal("1000.00"),
+        estado=estado,
+        tipo=tipo,
+        faltantes_resuelto_en=faltantes_resuelto_en,
+        creado_por_id=user.id,
+    )
+    db.add(pedido)
+    db.flush()
+    return pedido
+
+
+def _ids_con_eje(db, eje_procesal: str, tipo: str | None = None) -> set[int]:
+    condiciones: list = []
+    pedidos_service.aplicar_filtro_tipo(condiciones, tipo)
+    pedidos_service.aplicar_filtro_eje_procesal(condiciones, eje_procesal)
+    q = db.query(PedidoCompra.id)
+    if condiciones:
+        q = q.filter(*condiciones)
+    return {int(row[0]) for row in q.all()}
+
+
+class TestFiltroEjeProcesal:
+    def test_comma_or_recibidos_and_tipo_excludes_servicio(self, db, empresa, proveedor, active_user) -> None:
+        p_rec = _pedido_eje(db, empresa, proveedor, active_user, numero="P-EJE-REC", estado="recibido")
+        p_con = _pedido_eje(
+            db,
+            empresa,
+            proveedor,
+            active_user,
+            numero="P-EJE-CON",
+            estado="con_faltantes",
+            faltantes_resuelto_en=datetime(2026, 1, 1, tzinfo=timezone.utc),
+        )
+        p_sin = _pedido_eje(db, empresa, proveedor, active_user, numero="P-EJE-SIN", estado="con_faltantes")
+        p_srv = _pedido_eje(
+            db,
+            empresa,
+            proveedor,
+            active_user,
+            numero="P-EJE-SRV",
+            estado="recibido",
+            tipo="servicio",
+        )
+
+        recibidos = _ids_con_eje(db, "recibido")
+        assert recibidos == {p_rec.id}
+
+        con_res = _ids_con_eje(db, "faltantes_con_res")
+        assert con_res == {p_con.id}
+
+        # Comma-OR still supported by the list API (legacy / composed filters).
+        mixed = _ids_con_eje(db, "recibido,faltantes_con_res")
+        assert p_rec.id in mixed
+        assert p_con.id in mixed
+        assert p_sin.id not in mixed
+        assert p_srv.id not in mixed
+
+        solo_sin = _ids_con_eje(db, "faltantes_sin_res")
+        assert solo_sin == {p_sin.id}
+
+        mercaderia = _ids_con_eje(db, "recibido", tipo="mercaderia")
+        assert mercaderia == {p_rec.id}
+
+        unknown = _ids_con_eje(db, "no_existe")
+        assert unknown == set()
+
+
 @pytest.fixture
 def empresa(db) -> Empresa:
     emp = Empresa(id=1, nombre="Empresa Eje", activo=True, orden=0)
@@ -98,6 +181,7 @@ class TestChipsVisibilidadBatch:
                 pedido_id=p1.id,
                 numero="FA-1",
                 created_by_id=active_user.id,
+                cargada=True,
             )
         )
         adj_old = CompraAdjunto(
@@ -135,8 +219,10 @@ class TestChipsVisibilidadBatch:
 
         chips = pedidos_service.chips_visibilidad_batch(db, [p1.id, p2.id])
         assert chips[p1.id]["factura_cargada"] is True
+        assert chips[p1.id]["tiene_numero_factura"] is True
         assert chips[p1.id]["oc_match_status"] == OcMatchJob.STATUS_DONE
         assert chips[p2.id]["factura_cargada"] is False
+        assert chips[p2.id]["tiene_numero_factura"] is False
         assert chips[p2.id]["oc_match_status"] is None
 
 

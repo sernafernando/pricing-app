@@ -69,7 +69,7 @@ const EJES_PROCESAL_LABEL = {
   por_recibir: 'Por recibir',
   recibido: 'Recibido',
   faltantes_sin_res: 'Faltantes',
-  faltantes_con_res: 'Faltantes resueltos',
+  faltantes_con_res: 'Faltantes con resolución',
   controlado: 'Controlado',
 };
 
@@ -81,16 +81,35 @@ const MATCH_STATUS_LABEL = {
   skipped: 'Match omitido',
 };
 
-const renderPedidoChips = (p) => (
+const renderPedidoChips = (p) => {
+  const ocs = Array.isArray(p.ocs) ? p.ocs : [];
+  const showOcChip = Boolean(p.oc_vinculada) || ocs.length > 0;
+  return (
   <div className={styles.chipRow}>
-    {p.oc_vinculada && (
-      <span className={styles.chip}>
+    {showOcChip && (
+      <span className={styles.chip} data-testid="chip-oc">
         <Link2 size={11} aria-hidden="true" />
         OC
       </span>
     )}
+    {ocs.length > 1 &&
+      ocs.map((oc) => (
+        <span
+          key={`${oc.oc_comp_id}-${oc.oc_bra_id}-${oc.oc_poh_id}`}
+          className={styles.chipMuted}
+          data-testid="oc-poh-label"
+        >
+          #{oc.oc_poh_id}
+        </span>
+      ))}
+    {p.tiene_numero_factura && !p.factura_cargada && (
+      <span className={styles.chipMuted} data-testid="chip-numero-factura">
+        <FileText size={11} aria-hidden="true" />
+        Número
+      </span>
+    )}
     {p.factura_cargada && (
-      <span className={styles.chip}>
+      <span className={styles.chip} data-testid="chip-factura-cargada">
         <FileText size={11} aria-hidden="true" />
         Factura
       </span>
@@ -102,7 +121,8 @@ const renderPedidoChips = (p) => (
       </span>
     )}
   </div>
-);
+  );
+};
 
 const formatCurrency = (value, moneda = 'ARS') => {
   const num = Number(value) || 0;
@@ -130,8 +150,9 @@ export default function TabPedidosCompra() {
   const canPay = tienePermiso('administracion.ejecutar_pagos');
   const canDeleteBasura = tienePermiso('administracion.eliminar_compras_basura');
 
-  // Deep-link para "Pagar" (abre tab ordenes-pago con pedido pre-cargado).
-  const [, setSearchParams] = useSearchParams();
+  // Deep-link para "Pagar" (abre tab ordenes-pago con pedido pre-cargado)
+  // and `?pedido=&focus=observaciones` from faltantes alerts.
+  const [searchParams, setSearchParams] = useSearchParams();
 
   // Días hasta fecha para badges "vence en N días".
   const diasHasta = (isoDate) => {
@@ -260,6 +281,15 @@ export default function TabPedidosCompra() {
   useEffect(() => {
     fetchPedidos();
   }, [fetchPedidos]);
+
+  useEffect(() => {
+    const raw = searchParams.get('pedido');
+    if (!raw) return;
+    const id = Number(raw);
+    if (!Number.isFinite(id) || id <= 0) return;
+    setPedidoDetalleId(id);
+    setShowModalDetalle(true);
+  }, [searchParams]);
 
   // Reset page on filters
   useEffect(() => {

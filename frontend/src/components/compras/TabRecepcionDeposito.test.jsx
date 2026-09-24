@@ -98,12 +98,26 @@ const SALDOS_ARRIBO = {
 };
 
 const LISTADO_ENDPOINT = '/administracion/compras/pedidos';
+const POOL_ENDPOINT = '/administracion/compras/usuarios-responsable-faltantes';
 const saldosUrlFor = (pedidoId) =>
   `/administracion/compras/pedidos/${pedidoId}/recepcion/saldos`;
 
+const POOL_DEFAULT = [
+  { id: 7, nombre: 'PM Pool' },
+  { id: 8, nombre: 'PM Dos' },
+];
+
 function mockListado(items) {
-  api.get.mockResolvedValue({
-    data: { items, total: items.length, page: 1, page_size: 200 },
+  api.get.mockImplementation((url) => {
+    if (typeof url === 'string' && url.includes('/adjuntos')) {
+      return Promise.resolve({ data: [] });
+    }
+    if (url === POOL_ENDPOINT) {
+      return Promise.resolve({ data: POOL_DEFAULT });
+    }
+    return Promise.resolve({
+      data: { items, total: items.length, page: 1, page_size: 200 },
+    });
   });
 }
 
@@ -116,6 +130,12 @@ function mockListadoAndSaldos(items, saldosByPedidoId = {}) {
   api.get.mockImplementation((url) => {
     if (url === LISTADO_ENDPOINT) {
       return Promise.resolve({ data: { items, total: items.length, page: 1, page_size: 200 } });
+    }
+    if (typeof url === 'string' && url.includes('/adjuntos')) {
+      return Promise.resolve({ data: [] });
+    }
+    if (url === POOL_ENDPOINT) {
+      return Promise.resolve({ data: POOL_DEFAULT });
     }
     const match = url.match(/\/pedidos\/(\d+)\/recepcion\/saldos$/);
     if (match) {
@@ -192,23 +212,35 @@ afterEach(() => {
 });
 
 describe('TabRecepcionDeposito — "Por recibir" merged filter', () => {
-  it('requests the listing with both receivable estados on mount', async () => {
+  it('requests the listing with pagado only on mount', async () => {
     await renderTab();
 
     expect(api.get).toHaveBeenCalledWith(LISTADO_ENDPOINT, {
-      params: { estado: 'pagado,en_cuenta_corriente', page_size: 200 },
+      params: { estado: 'pagado', page_size: 200, tipo: 'mercaderia' },
+    });
+  });
+
+  it('includes cuenta corriente when the toggle is on', async () => {
+    const user = userEvent.setup();
+    await renderTab();
+
+    await user.click(screen.getByLabelText('Incluir cuenta corriente'));
+
+    expect(api.get).toHaveBeenCalledWith(LISTADO_ENDPOINT, {
+      params: { estado: 'pagado,en_cuenta_corriente', page_size: 200, tipo: 'mercaderia' },
     });
   });
 
   it('has no "En cuenta corriente" filter tab, but still shows its badge', async () => {
     await renderTab();
 
-    // The filter tabs are exactly four; payment mode is not a warehouse filter.
+    // Five warehouse tabs; payment mode is not a separate warehouse filter.
     expect(screen.getAllByRole('tab').map((tab) => tab.textContent)).toEqual([
       'Por recibir',
       'Recibidos sin controlar',
-      'Controlados',
       'Con faltantes',
+      'Faltantes con resolución',
+      'Controlados',
     ]);
     expect(screen.queryByRole('tab', { name: 'En cuenta corriente' })).not.toBeInTheDocument();
 
@@ -227,6 +259,79 @@ describe('TabRecepcionDeposito — "Por recibir" merged filter', () => {
     expect(screen.getByText('#PC-0002')).toBeInTheDocument();
     expect(screen.getByText('Proveedor Dos')).toBeInTheDocument();
     expect(screen.getByText('En cuenta corriente')).toBeInTheDocument();
+  });
+});
+
+describe('TabRecepcionDeposito — eje_procesal tabs and ?pedido=', () => {
+  it('Recibidos queries eje_procesal=recibido only', async () => {
+    const user = userEvent.setup();
+    await renderTab();
+
+    await user.click(screen.getByRole('tab', { name: 'Recibidos sin controlar' }));
+
+    expect(api.get).toHaveBeenCalledWith(LISTADO_ENDPOINT, {
+      params: { eje_procesal: 'recibido', page_size: 200, tipo: 'mercaderia' },
+    });
+  });
+
+  it('Con faltantes queries eje_procesal=faltantes_sin_res', async () => {
+    const user = userEvent.setup();
+    await renderTab();
+
+    await user.click(screen.getByRole('tab', { name: 'Con faltantes' }));
+
+    expect(api.get).toHaveBeenCalledWith(LISTADO_ENDPOINT, {
+      params: { eje_procesal: 'faltantes_sin_res', page_size: 200, tipo: 'mercaderia' },
+    });
+  });
+
+  it('Faltantes con resolución queries eje_procesal=faltantes_con_res', async () => {
+    const user = userEvent.setup();
+    await renderTab();
+
+    await user.click(screen.getByRole('tab', { name: 'Faltantes con resolución' }));
+
+    expect(api.get).toHaveBeenCalledWith(LISTADO_ENDPOINT, {
+      params: { eje_procesal: 'faltantes_con_res', page_size: 200, tipo: 'mercaderia' },
+    });
+  });
+
+  it('Controlados queries eje_procesal=controlado', async () => {
+    const user = userEvent.setup();
+    await renderTab();
+
+    await user.click(screen.getByRole('tab', { name: 'Controlados' }));
+
+    expect(api.get).toHaveBeenCalledWith(LISTADO_ENDPOINT, {
+      params: { eje_procesal: 'controlado', page_size: 200, tipo: 'mercaderia' },
+    });
+  });
+
+  it('lands on Faltantes con resolución and expands ?pedido=&eje=', async () => {
+    window.history.pushState({}, '', '?pedido=7&eje=faltantes_con_res');
+    const target = {
+      ...PEDIDO_PAGADO,
+      id: 7,
+      numero: 'PC-0007',
+      estado: 'con_faltantes',
+      eje_procesal: 'faltantes_con_res',
+      faltantes_resuelto_en: '2026-09-23T12:00:00Z',
+    };
+    mockListado([target]);
+    render(<TabRecepcionDeposito />);
+    await screen.findByText('#PC-0007');
+
+    expect(api.get).toHaveBeenCalledWith(LISTADO_ENDPOINT, {
+      params: { eje_procesal: 'faltantes_con_res', page_size: 200, tipo: 'mercaderia' },
+    });
+    expect(screen.getByRole('tab', { name: 'Faltantes con resolución' })).toHaveAttribute(
+      'aria-selected',
+      'true'
+    );
+    expect(screen.getByRole('button', { expanded: true })).toHaveAccessibleName(
+      /#PC-0007/
+    );
+    window.history.pushState({}, '', '/');
   });
 });
 
@@ -451,9 +556,10 @@ describe('TabRecepcionDeposito — arrival item list (CON-OC, D5a)', () => {
     expect(screen.getByText('5')).toBeInTheDocument();
     expect(screen.queryByText('10.000000')).not.toBeInTheDocument();
 
-    // ZERO editable controls: no input (any type), no checkbox, no tanda state.
-    expect(document.querySelectorAll('input')).toHaveLength(0);
-    expect(screen.queryAllByRole('checkbox')).toHaveLength(0);
+    // ZERO editable controls in the arrival table (page filters stay outside).
+    const tabla = screen.getByRole('table');
+    expect(tabla.querySelectorAll('input')).toHaveLength(0);
+    expect(tabla.querySelectorAll('[type="checkbox"]')).toHaveLength(0);
     expect(screen.queryAllByRole('spinbutton')).toHaveLength(0);
     expect(
       screen.queryByRole('button', { name: /marcar (con faltantes|como controlado)/i }),
@@ -684,5 +790,417 @@ describe('TabRecepcionDeposito — closed header identification chips (SIN-OC, D
 
     // Fixture observaciones is 24 chars — must render verbatim, no ellipsis.
     expect(screen.getByText(PEDIDO_PAGADO.observaciones)).toBeInTheDocument();
+  });
+});
+
+describe('TabRecepcionDeposito — Factura cargada badge + ident chips (Phase 3)', () => {
+  it('shows Factura cargada badge when factura_cargada is true', async () => {
+    await renderTab([{ ...PEDIDO_PAGADO, factura_cargada: true }]);
+
+    expect(screen.getByText('Factura cargada')).toBeInTheDocument();
+  });
+
+  it('does not show Factura cargada badge when numbers exist but factura_cargada is false', async () => {
+    await renderTab([
+      {
+        ...PEDIDO_PAGADO,
+        factura_cargada: false,
+        numero_factura: 'FA-1',
+      },
+    ]);
+
+    expect(screen.queryByText('Factura cargada')).not.toBeInTheDocument();
+    expect(screen.getByText('FA-1')).toBeInTheDocument();
+  });
+
+  it('shows factura and pedidos_documento chips on CON-OC rows', async () => {
+    await renderTab([
+      {
+        ...PEDIDO_CON_OC_PAGADO,
+        numero_factura: 'FA-1',
+        pedidos_documento: 'AD-9',
+      },
+    ]);
+
+    expect(screen.getByText('FA-1')).toBeInTheDocument();
+    expect(screen.getByText('AD-9')).toBeInTheDocument();
+    expect(screen.getByText('2 líneas · 15 u')).toBeInTheDocument();
+  });
+
+  it('shows factura and pedidos_documento chips on SIN-OC rows', async () => {
+    await renderTab([
+      {
+        ...PEDIDO_PAGADO,
+        numero_factura: 'FA-2',
+        pedidos_documento: 'AD-3',
+      },
+    ]);
+
+    expect(screen.getByText('FA-2')).toBeInTheDocument();
+    expect(screen.getByText('AD-3')).toBeInTheDocument();
+  });
+
+  it('truncates long pedidos_documento at 60ch and keeps the full text in title', async () => {
+    const texto =
+      'Administracion-OC-referencia-muy-larga-que-debe-truncarse-en-el-chip-visualmente';
+    await renderTab([
+      {
+        ...PEDIDO_PAGADO,
+        numero_factura: null,
+        observaciones: null,
+        pedidos_documento: texto,
+      },
+    ]);
+
+    const truncado = `${texto.slice(0, 60).trimEnd()}…`;
+    expect(screen.getByText(truncado)).toBeInTheDocument();
+    expect(screen.queryByText(texto)).not.toBeInTheDocument();
+    expect(screen.getByTitle(texto)).toHaveTextContent(`Pedidos documento: ${texto}`);
+  });
+});
+
+describe('TabRecepcionDeposito — Phase 3 depósito', () => {
+  it('hides faltantes lines with saldo_pendiente 0', async () => {
+    const user = userEvent.setup();
+    const recibido = {
+      ...PEDIDO_CON_OC_PAGADO,
+      id: 11,
+      numero: 'PC-0011',
+      estado: 'recibido',
+    };
+    mockListadoAndSaldos([recibido], {
+      [recibido.id]: {
+        ...SALDOS_ARRIBO,
+        estado: 'recibido',
+        lineas: [
+          { ...SALDOS_ARRIBO.lineas[0], pod_id: 1, item_nombre: 'Completa', saldo_pendiente: '0.000000' },
+          { ...SALDOS_ARRIBO.lineas[1], pod_id: 2, item_nombre: 'Pendiente', saldo_pendiente: '10.000000' },
+        ],
+      },
+    });
+    render(<TabRecepcionDeposito />);
+    await screen.findByText(`#${recibido.numero}`);
+    await user.click(screen.getByRole('button', { name: /Proveedor Tres/ }));
+
+    expect(await screen.findByText('Pendiente')).toBeInTheDocument();
+    expect(screen.queryByText('Completa')).not.toBeInTheDocument();
+  });
+
+  it('Docs opens pedido adjuntos, not an ERP dump', async () => {
+    const user = userEvent.setup();
+    api.get.mockImplementation((url) => {
+      if (url === LISTADO_ENDPOINT) {
+        return Promise.resolve({
+          data: { items: [PEDIDO_PAGADO], total: 1, page: 1, page_size: 200 },
+        });
+      }
+      if (url === `/administracion/compras/pedidos/${PEDIDO_PAGADO.id}/adjuntos`) {
+        return Promise.resolve({
+          data: [{ id: 7, nombre_archivo: 'remito.pdf', tipo: 'otro' }],
+        });
+      }
+      return Promise.reject(new Error(`unexpected GET ${url}`));
+    });
+    render(<TabRecepcionDeposito />);
+    await screen.findByText('#PC-0001');
+
+    await user.click(screen.getByRole('button', { name: 'Documentos del pedido #PC-0001' }));
+
+    expect(await screen.findByText(/Adjuntos del pedido #PC-0001/)).toBeInTheDocument();
+    expect(await screen.findByText('remito.pdf')).toBeInTheDocument();
+    expect(screen.queryByText(/documentos imputados/i)).not.toBeInTheDocument();
+  });
+
+  it('focus=observaciones focuses the faltantes field', async () => {
+    const user = userEvent.setup();
+    window.history.pushState({}, '', '?focus=observaciones');
+    const recibido = { ...PEDIDO_PAGADO, estado: 'recibido' };
+    mockListado([recibido]);
+    render(<TabRecepcionDeposito />);
+    await screen.findByText('#PC-0001');
+    await user.click(screen.getByRole('button', { name: 'Con faltantes' }));
+    expect(document.getElementById('pedido-observaciones')).toHaveFocus();
+    window.history.pushState({}, '', '/');
+  });
+
+  it('renders one block per linked OC on the same pedido', async () => {
+    const user = userEvent.setup();
+    const pedidoDosOcs = {
+      ...PEDIDO_CON_OC_PAGADO,
+      id: 12,
+      numero: 'PC-0012',
+      oc_poh_id: 100,
+      ocs: [
+        { oc_comp_id: 1, oc_bra_id: 1, oc_poh_id: 100 },
+        { oc_comp_id: 1, oc_bra_id: 1, oc_poh_id: 200 },
+      ],
+    };
+    mockListadoAndSaldos([pedidoDosOcs], {
+      [pedidoDosOcs.id]: {
+        ...SALDOS_ARRIBO,
+        pedido_id: pedidoDosOcs.id,
+        lineas: [
+          { ...SALDOS_ARRIBO.lineas[0], oc_poh_id: 100, oc_comp_id: 1, oc_bra_id: 1, item_nombre: 'Linea A' },
+          { ...SALDOS_ARRIBO.lineas[1], oc_poh_id: 200, oc_comp_id: 1, oc_bra_id: 1, item_nombre: 'Linea B' },
+        ],
+      },
+    });
+    render(<TabRecepcionDeposito />);
+    await screen.findByText(`#${pedidoDosOcs.numero}`);
+    await user.click(screen.getByRole('button', { name: /Proveedor Tres/ }));
+
+    expect(await screen.findByRole('heading', { name: 'OC #100' })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'OC #200' })).toBeInTheDocument();
+    expect(screen.getByText('Linea A')).toBeInTheDocument();
+    expect(screen.getByText('Linea B')).toBeInTheDocument();
+  });
+
+  it('renders the empty-ERP OC block with required copy', async () => {
+    const user = userEvent.setup();
+    const pedidoEmptyErp = {
+      ...PEDIDO_CON_OC_PAGADO,
+      id: 13,
+      numero: 'PC-0013',
+      oc_poh_id: 500,
+      ocs: [{ oc_comp_id: 1, oc_bra_id: 1, oc_poh_id: 500 }],
+    };
+    mockListadoAndSaldos([pedidoEmptyErp], {
+      [pedidoEmptyErp.id]: { ...SALDOS_ARRIBO, pedido_id: pedidoEmptyErp.id, lineas: [] },
+    });
+    render(<TabRecepcionDeposito />);
+    await screen.findByText(`#${pedidoEmptyErp.numero}`);
+    await user.click(screen.getByRole('button', { name: /Proveedor Tres/ }));
+
+    expect(await screen.findByRole('heading', { name: 'OC #500' })).toBeInTheDocument();
+    expect(screen.getByText('OC no encontrada en ERP')).toBeInTheDocument();
+    expect(screen.queryByRole('table')).not.toBeInTheDocument();
+  });
+
+  it('keeps the empty-ERP block next to a sibling OC with lines', async () => {
+    const user = userEvent.setup();
+    const pedidoMixto = {
+      ...PEDIDO_CON_OC_PAGADO,
+      id: 14,
+      numero: 'PC-0014',
+      oc_poh_id: 100,
+      ocs: [
+        { oc_comp_id: 1, oc_bra_id: 1, oc_poh_id: 100 },
+        { oc_comp_id: 1, oc_bra_id: 1, oc_poh_id: 200 },
+      ],
+    };
+    mockListadoAndSaldos([pedidoMixto], {
+      [pedidoMixto.id]: {
+        ...SALDOS_ARRIBO,
+        pedido_id: pedidoMixto.id,
+        lineas: [
+          {
+            ...SALDOS_ARRIBO.lineas[1],
+            oc_poh_id: 200,
+            oc_comp_id: 1,
+            oc_bra_id: 1,
+            item_nombre: 'Linea B',
+          },
+        ],
+      },
+    });
+    render(<TabRecepcionDeposito />);
+    await screen.findByText(`#${pedidoMixto.numero}`);
+    await user.click(screen.getByRole('button', { name: /Proveedor Tres/ }));
+
+    expect(await screen.findByRole('heading', { name: 'OC #100' })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'OC #200' })).toBeInTheDocument();
+    expect(screen.getByText('OC no encontrada en ERP')).toBeInTheDocument();
+    expect(screen.getByText('Linea B')).toBeInTheDocument();
+    expect(screen.getByRole('table')).toBeInTheDocument();
+  });
+});
+
+describe('TabRecepcionDeposito — control OK obs+photo (Phase 4)', () => {
+  const PEDIDO_RECIBIDO_SIN_OC = { ...PEDIDO_PAGADO, estado: 'recibido' };
+
+  it('succeeds control OK with empty obs and no photo', async () => {
+    const user = userEvent.setup();
+    api.post.mockResolvedValue({
+      data: { pedido_id: PEDIDO_RECIBIDO_SIN_OC.id, estado_nuevo: 'controlado' },
+    });
+    mockListado([PEDIDO_RECIBIDO_SIN_OC]);
+    render(<TabRecepcionDeposito />);
+    await screen.findByText('#PC-0001');
+    await user.click(screen.getByRole('button', { name: /Proveedor Uno/ }));
+
+    expect(screen.getByLabelText('Observaciones (opcional)')).toHaveValue('');
+    expect(screen.getByLabelText('Subir adjuntos')).toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: 'Marcar como controlado' }));
+
+    await screen.findByText('Pedido marcado como controlado.');
+    expect(api.post).toHaveBeenCalledWith(
+      `/administracion/compras/pedidos/${PEDIDO_RECIBIDO_SIN_OC.id}/recepcion/confirmar-pedido`,
+      { completo: true },
+    );
+    expect(
+      api.post.mock.calls.some(([url]) => String(url).includes('/adjuntos')),
+    ).toBe(false);
+  });
+
+  it('uploads tipo=otro then control OK with observaciones', async () => {
+    const user = userEvent.setup();
+    api.post.mockImplementation((url) => {
+      if (String(url).includes('/adjuntos')) {
+        return Promise.resolve({
+          data: { id: 99, nombre_archivo: 'caja.jpg', tipo: 'otro' },
+        });
+      }
+      return Promise.resolve({
+        data: { pedido_id: PEDIDO_RECIBIDO_SIN_OC.id, estado_nuevo: 'controlado' },
+      });
+    });
+    mockListado([PEDIDO_RECIBIDO_SIN_OC]);
+    render(<TabRecepcionDeposito />);
+    await screen.findByText('#PC-0001');
+    await user.click(screen.getByRole('button', { name: /Proveedor Uno/ }));
+
+    await user.type(screen.getByLabelText('Observaciones (opcional)'), 'Caja intacta');
+    const file = new File(['x'], 'caja.jpg', { type: 'image/jpeg' });
+    const input = document.querySelector('input[type="file"]');
+    expect(input).toBeTruthy();
+    await user.upload(input, file);
+
+    await screen.findByText('caja.jpg');
+    await user.click(screen.getByRole('button', { name: 'Marcar como controlado' }));
+
+    await screen.findByText('Pedido marcado como controlado.');
+    const adjuntosUrl = `/administracion/compras/pedidos/${PEDIDO_RECIBIDO_SIN_OC.id}/adjuntos`;
+    const confirmarUrl = `/administracion/compras/pedidos/${PEDIDO_RECIBIDO_SIN_OC.id}/recepcion/confirmar-pedido`;
+    const uploadCall = api.post.mock.calls.find(([url]) => url === adjuntosUrl);
+    expect(uploadCall).toBeTruthy();
+    const formData = uploadCall[1];
+    expect(formData.get('tipo')).toBe('otro');
+    expect(formData.get('file')).toBeInstanceOf(File);
+    expect(formData.get('file').name).toBe('caja.jpg');
+    expect(api.post).toHaveBeenCalledWith(confirmarUrl, {
+      completo: true,
+      observaciones: 'Caja intacta',
+    });
+    const postUrls = api.post.mock.calls.map(([url]) => url);
+    expect(postUrls.indexOf(adjuntosUrl)).toBeLessThan(postUrls.indexOf(confirmarUrl));
+  });
+});
+
+describe('TabRecepcionDeposito — responsable picker on mark faltantes', () => {
+  const PEDIDO_RECIBIDO_SIN_OC = {
+    ...PEDIDO_PAGADO,
+    estado: 'recibido',
+    responsable_id: 42,
+    responsable_nombre: 'PM Fuera del pool',
+  };
+
+  const PEDIDO_RECIBIDO_CON_OC = {
+    ...PEDIDO_CON_OC_PAGADO,
+    id: 21,
+    numero: 'PC-0021',
+    estado: 'recibido',
+    responsable_id: 42,
+    responsable_nombre: 'PM Fuera del pool',
+  };
+
+  it('defaults to current responsable and keeps it even outside the pool', async () => {
+    const user = userEvent.setup();
+    mockListado([PEDIDO_RECIBIDO_SIN_OC]);
+    render(<TabRecepcionDeposito />);
+    await screen.findByText('#PC-0001');
+    await user.click(screen.getByRole('button', { name: /Proveedor Uno/ }));
+    await user.click(screen.getByRole('button', { name: 'Con faltantes' }));
+
+    const picker = await screen.findByLabelText('Responsable de faltantes');
+    expect(picker).toHaveValue('42');
+    expect(screen.getByRole('option', { name: 'PM Fuera del pool' })).toBeInTheDocument();
+    expect(screen.getByRole('option', { name: 'PM Pool' })).toBeInTheDocument();
+  });
+
+  it('sends responsable_id on mark faltantes only', async () => {
+    const user = userEvent.setup();
+    api.post.mockResolvedValue({
+      data: { pedido_id: PEDIDO_RECIBIDO_SIN_OC.id, estado_nuevo: 'con_faltantes' },
+    });
+    mockListado([PEDIDO_RECIBIDO_SIN_OC]);
+    render(<TabRecepcionDeposito />);
+    await screen.findByText('#PC-0001');
+    await user.click(screen.getByRole('button', { name: /Proveedor Uno/ }));
+    await user.click(screen.getByRole('button', { name: 'Con faltantes' }));
+    await screen.findByLabelText('Responsable de faltantes');
+    await user.type(screen.getByLabelText('Texto de faltantes (requerido)'), 'Faltan 2 cajas');
+    await user.selectOptions(screen.getByLabelText('Responsable de faltantes'), '7');
+    await user.click(screen.getByRole('button', { name: 'Confirmar con faltantes' }));
+
+    await screen.findByText('Pedido marcado con faltantes.');
+    expect(api.post).toHaveBeenCalledWith(
+      `/administracion/compras/pedidos/${PEDIDO_RECIBIDO_SIN_OC.id}/recepcion/confirmar-pedido`,
+      {
+        completo: false,
+        faltantes_texto: 'Faltan 2 cajas',
+        responsable_id: 7,
+      },
+    );
+  });
+
+  it('does not send responsable_id on control complete', async () => {
+    const user = userEvent.setup();
+    api.post.mockResolvedValue({
+      data: { pedido_id: PEDIDO_RECIBIDO_SIN_OC.id, estado_nuevo: 'controlado' },
+    });
+    mockListado([PEDIDO_RECIBIDO_SIN_OC]);
+    render(<TabRecepcionDeposito />);
+    await screen.findByText('#PC-0001');
+    await user.click(screen.getByRole('button', { name: /Proveedor Uno/ }));
+    await user.click(screen.getByRole('button', { name: 'Marcar como controlado' }));
+
+    await screen.findByText('Pedido marcado como controlado.');
+    expect(api.post).toHaveBeenCalledWith(
+      `/administracion/compras/pedidos/${PEDIDO_RECIBIDO_SIN_OC.id}/recepcion/confirmar-pedido`,
+      { completo: true },
+    );
+    expect(api.get).not.toHaveBeenCalledWith(POOL_ENDPOINT);
+  });
+
+  it('CON-OC mark faltantes sends responsable_id', async () => {
+    const user = userEvent.setup();
+    api.post.mockResolvedValue({
+      data: { pedido_id: PEDIDO_RECIBIDO_CON_OC.id, estado_nuevo: 'con_faltantes' },
+    });
+    mockListadoAndSaldos([PEDIDO_RECIBIDO_CON_OC], {
+      [PEDIDO_RECIBIDO_CON_OC.id]: {
+        ...SALDOS_ARRIBO,
+        estado: 'recibido',
+        lineas: [
+          { ...SALDOS_ARRIBO.lineas[0], saldo_pendiente: '10.000000' },
+          { ...SALDOS_ARRIBO.lineas[1], saldo_pendiente: '5.000000' },
+        ],
+      },
+    });
+    render(<TabRecepcionDeposito />);
+    await screen.findByText(`#${PEDIDO_RECIBIDO_CON_OC.numero}`);
+    await user.click(screen.getByRole('button', { name: /Proveedor Tres/ }));
+
+    const qty = await screen.findByLabelText('Cantidad recibida para Memoria RAM 16GB');
+    await user.clear(qty);
+    await user.type(qty, '4');
+    await user.type(
+      screen.getByLabelText('Texto de faltantes (requerido al marcar faltantes)'),
+      'Falta SSD',
+    );
+    const picker = await screen.findByLabelText('Responsable de faltantes');
+    expect(picker).toHaveValue('42');
+    await user.selectOptions(picker, '8');
+    await user.click(screen.getByRole('button', { name: 'Marcar con faltantes' }));
+
+    await screen.findByText('Control registrado correctamente.');
+    expect(api.post).toHaveBeenCalledWith(
+      `/administracion/compras/pedidos/${PEDIDO_RECIBIDO_CON_OC.id}/recepcion/ingresos`,
+      expect.objectContaining({
+        faltantes_texto: 'Falta SSD',
+        responsable_id: 8,
+      }),
+    );
   });
 });

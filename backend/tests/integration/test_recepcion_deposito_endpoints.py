@@ -14,16 +14,19 @@ Pattern mirrors test_oc_vincular_s1_endpoints.py.
 
 from __future__ import annotations
 
+from datetime import datetime, timezone
 from decimal import Decimal
 from unittest.mock import patch
 
 import pytest
+from fastapi import HTTPException
 from sqlalchemy import text
 
 from app.models.compra_evento import CompraEvento
 from app.models.empresa import Empresa
 from app.models.pedido_compra import PedidoCompra
 from app.models.pedido_compra_ingresos import PedidoCompraIngreso
+from app.models.pedido_factura_documento import PedidoFacturaDocumento
 from app.models.proveedor import OrigenProveedor, Proveedor
 from app.models.purchase_order_detail import PurchaseOrderDetail
 from app.models.purchase_order_header import PurchaseOrderHeader
@@ -281,6 +284,9 @@ def _mk_oc_detail(
 
 
 def _mk_storage(db, *, comp_id: int = 1, stor_id: int = 1, stor_desc: str = "Depósito Principal"):
+    existing = db.query(TbStorage).filter(TbStorage.comp_id == comp_id, TbStorage.stor_id == stor_id).one_or_none()
+    if existing is not None:
+        return existing
     s = TbStorage(comp_id=comp_id, stor_id=stor_id, stor_desc=stor_desc)
     db.add(s)
     db.flush()
@@ -609,6 +615,7 @@ class TestRegistrarIngresosService:
         req = RegistrarIngresosRequest(
             lineas=[IngresoLinea(pod_id=1, cantidad_recibida=Decimal("60"))],
             observaciones=None,
+            faltantes_texto="Faltan unidades en línea 2",
         )
         result = recepcion_service.registrar_ingresos(db, p, active_user, req)
         assert result.estado_nuevo == "con_faltantes"
@@ -678,6 +685,7 @@ class TestRegistrarIngresosService:
 
         req = RegistrarIngresosRequest(
             lineas=[IngresoLinea(pod_id=1, cantidad_recibida=Decimal("20"))],
+            faltantes_texto="Sigue faltando saldo",
         )
         result = recepcion_service.registrar_ingresos(db, p, active_user, req)
         assert result.estado_nuevo == "con_faltantes"
@@ -771,6 +779,7 @@ class TestRegistrarIngresosService:
                 IngresoLinea(pod_id=1, cantidad_recibida=Decimal("0")),
                 IngresoLinea(pod_id=2, cantidad_recibida=Decimal("30")),
             ],
+            faltantes_texto="Línea 1 en cero",
         )
         result = recepcion_service.registrar_ingresos(db, p, active_user, req)
         # Only pod_id=2 processed
@@ -785,6 +794,7 @@ class TestRegistrarIngresosService:
         p = self._pedido_con_oc_y_lineas(db, empresa, proveedor, active_user, poh_id=9017)
         req = RegistrarIngresosRequest(
             lineas=[IngresoLinea(pod_id=1, cantidad_recibida=Decimal("60"))],
+            faltantes_texto="Faltan líneas",
         )
         recepcion_service.registrar_ingresos(db, p, active_user, req)
 
@@ -809,6 +819,7 @@ class TestRegistrarIngresosService:
 
         req = RegistrarIngresosRequest(
             lineas=[IngresoLinea(pod_id=1, cantidad_recibida=Decimal("50"))],
+            faltantes_texto="Faltan líneas",
         )
         recepcion_service.registrar_ingresos(db, p, active_user, req)
 
@@ -851,7 +862,7 @@ class TestConfirmarPedidoSinOc:
 
     def test_confirmar_sin_oc_pagado_completo_false_da_recibido(self, db, pedido_pagado, active_user):
         # REQ-EC-003: pagado + completo=false → recibido (arrival step ignores completo)
-        req = ConfirmarPedidoRequest(completo=False, observaciones="Faltaron 3 ítems")
+        req = ConfirmarPedidoRequest(completo=False, faltantes_texto="Faltaron 3 ítems")
         result = recepcion_service.confirmar_pedido_sin_oc(db, pedido_pagado, active_user, req)
         assert result.estado_nuevo == "recibido"
 
@@ -868,7 +879,7 @@ class TestConfirmarPedidoSinOc:
         )
         db.add(p)
         db.flush()
-        req = ConfirmarPedidoRequest(completo=False, observaciones="Faltaron 3 ítems")
+        req = ConfirmarPedidoRequest(completo=False, faltantes_texto="Faltaron 3 ítems")
         result = recepcion_service.confirmar_pedido_sin_oc(db, p, active_user, req)
         assert result.estado_nuevo == "con_faltantes"
 
@@ -923,7 +934,7 @@ class TestConfirmarPedidoSinOc:
         db.add(p)
         db.flush()
 
-        req = ConfirmarPedidoRequest(completo=False, observaciones="Llegó parcial")
+        req = ConfirmarPedidoRequest(completo=False, faltantes_texto="Llegó parcial")
         result = recepcion_service.confirmar_pedido_sin_oc(db, p, active_user, req)
 
         assert result.estado_nuevo == "recibido"
@@ -937,7 +948,7 @@ class TestConfirmarPedidoSinOc:
         assert evento is not None, "arrival must emit recepcion_arribo even when completo=False"
 
     def test_confirmar_sin_oc_completo_false_sin_observaciones_422(self):
-        """Schema-level: completo=False without observaciones raises ValidationError."""
+        """Schema-level: completo=False without faltantes_texto raises ValidationError."""
         from pydantic import ValidationError
 
         with pytest.raises(ValidationError):
@@ -1142,7 +1153,7 @@ class TestIngresosEndpoint:
         p = self._setup_pedido_con_oc(db, empresa, proveedor, active_user, poh_id=8001)
         r = client.post(
             f"{BASE}/pedidos/{p.id}/recepcion/ingresos",
-            json={"lineas": [{"pod_id": 1, "cantidad_recibida": 60}]},
+            json={"lineas": [{"pod_id": 1, "cantidad_recibida": 60}], "faltantes_texto": "Faltan líneas"},
             headers=auth_headers,
         )
         assert r.status_code == 201
@@ -1220,7 +1231,7 @@ class TestConfirmarPedidoEndpoint:
         db.flush()
         r = client.post(
             f"{BASE}/pedidos/{p.id}/recepcion/confirmar-pedido",
-            json={"completo": False, "observaciones": "llegó parcial"},
+            json={"completo": False, "faltantes_texto": "llegó parcial"},
             headers=auth_headers,
         )
         assert r.status_code == 200
@@ -1243,7 +1254,7 @@ class TestConfirmarPedidoEndpoint:
         db.flush()
         r = client.post(
             f"{BASE}/pedidos/{p.id}/recepcion/confirmar-pedido",
-            json={"completo": False, "observaciones": "Faltaron ítems"},
+            json={"completo": False, "faltantes_texto": "Faltaron ítems"},
             headers=auth_headers,
         )
         assert r.status_code == 200
@@ -1405,7 +1416,10 @@ class TestStateMachine:
             db,
             p,
             active_user,
-            RegistrarIngresosRequest(lineas=[IngresoLinea(pod_id=1, cantidad_recibida=Decimal("40"))]),
+            RegistrarIngresosRequest(
+                lineas=[IngresoLinea(pod_id=1, cantidad_recibida=Decimal("40"))],
+                faltantes_texto="Parcial 1",
+            ),
         )
         assert r1.estado_nuevo == "con_faltantes"
 
@@ -1413,7 +1427,10 @@ class TestStateMachine:
             db,
             p,
             active_user,
-            RegistrarIngresosRequest(lineas=[IngresoLinea(pod_id=1, cantidad_recibida=Decimal("20"))]),
+            RegistrarIngresosRequest(
+                lineas=[IngresoLinea(pod_id=1, cantidad_recibida=Decimal("20"))],
+                faltantes_texto="Parcial 2",
+            ),
         )
         assert r2.estado_nuevo == "con_faltantes"
 
@@ -1535,7 +1552,7 @@ class TestStateMachine:
 
         r = client.post(
             f"{BASE}/pedidos/{p.id}/recepcion/ingresos",
-            json={"lineas": [{"pod_id": 1, "cantidad_recibida": 50}]},
+            json={"lineas": [{"pod_id": 1, "cantidad_recibida": 50}], "faltantes_texto": "Faltan líneas"},
             headers=auth_headers,
         )
         assert r.status_code == 201
@@ -1575,7 +1592,7 @@ class TestPermisosCoexistencia:
 
         r = client.post(
             f"{BASE}/pedidos/{p.id}/recepcion/ingresos",
-            json={"lineas": [{"pod_id": 1, "cantidad_recibida": 50}]},
+            json={"lineas": [{"pod_id": 1, "cantidad_recibida": 50}], "faltantes_texto": "Faltan líneas"},
             headers=auth_headers,
         )
         assert r.status_code == 201
@@ -1886,7 +1903,7 @@ class TestEstadoControladoTransitions:
         )
         db.add(p)
         db.flush()
-        req = ConfirmarPedidoRequest(completo=False, observaciones="Faltan 5 unidades")
+        req = ConfirmarPedidoRequest(completo=False, faltantes_texto="Faltan 5 unidades")
         result = recepcion_service.confirmar_pedido_sin_oc(db, p, active_user, req)
         assert result.estado_nuevo == "con_faltantes"
         assert p.estado == "con_faltantes"
@@ -2223,3 +2240,600 @@ class TestArriboEntryStatesInvariant:
             db, p_sin_oc, active_user, ConfirmarPedidoRequest(completo=True)
         )
         assert result.estado_nuevo == "controlado", f"estado='{estado}' must take the CONTROL branch"
+
+
+class TestListarPedidosAndFilters:
+    def test_and_proveedor_factura_intersection(
+        self, client, auth_headers, db, empresa, active_user, con_permiso_deposito
+    ):
+        """Acme ∩ FA-1 keeps only the pedido that matches both contains filters."""
+        from unittest.mock import patch
+
+        acme = Proveedor(
+            id=91,
+            nombre="Acme Widgets",
+            supp_id=91,
+            comp_id=1,
+            activo=True,
+            origen=OrigenProveedor.ERP.value,
+        )
+        other = Proveedor(
+            id=92,
+            nombre="Beta Supplies",
+            supp_id=92,
+            comp_id=1,
+            activo=True,
+            origen=OrigenProveedor.ERP.value,
+        )
+        db.add_all([acme, other])
+        db.flush()
+
+        def _mk(numero: str, proveedor_id: int, factura: str) -> PedidoCompra:
+            p = PedidoCompra(
+                numero=numero,
+                empresa_id=empresa.id,
+                proveedor_id=proveedor_id,
+                moneda="ARS",
+                monto=Decimal("1000"),
+                estado="pagado",
+                creado_por_id=active_user.id,
+            )
+            db.add(p)
+            db.flush()
+            db.add(
+                PedidoFacturaDocumento(
+                    pedido_id=p.id,
+                    numero=factura,
+                    created_by_id=active_user.id,
+                )
+            )
+            db.flush()
+            return p
+
+        both = _mk("P-01-2026-00012", acme.id, "FA-1")
+        _mk("P-01-2026-00013", acme.id, "FA-2")
+        _mk("P-01-2026-00014", other.id, "FA-1")
+
+        with patch(
+            "app.services.permisos_service.PermisosService.tiene_algun_permiso",
+            side_effect=lambda _u, codigos: "deposito.recibir_mercaderia" in codigos,
+        ):
+            r = client.get(
+                f"{BASE}/pedidos",
+                headers=auth_headers,
+                params={"estado": "pagado", "q_proveedor": "Acme", "q_factura": "FA-1"},
+            )
+        assert r.status_code == 200, r.text
+        ids = {item["id"] for item in r.json()["items"]}
+        assert ids == {both.id}
+
+        with patch(
+            "app.services.permisos_service.PermisosService.tiene_algun_permiso",
+            side_effect=lambda _u, codigos: "deposito.recibir_mercaderia" in codigos,
+        ):
+            r_num = client.get(
+                f"{BASE}/pedidos",
+                headers=auth_headers,
+                params={"estado": "pagado", "q_numero": "P-01-2026-00012"},
+            )
+        assert r_num.status_code == 200, r_num.text
+        assert {item["id"] for item in r_num.json()["items"]} == {both.id}
+
+
+class TestDeshacerRecibido:
+    def test_undo_recibido_to_pagado(self, db, empresa, proveedor, active_user):
+        p = PedidoCompra(
+            numero="P-UNDO-PAG",
+            empresa_id=empresa.id,
+            proveedor_id=proveedor.id,
+            moneda="ARS",
+            monto=Decimal("100"),
+            estado="recibido",
+            creado_por_id=active_user.id,
+        )
+        db.add(p)
+        db.flush()
+        result = recepcion_service.deshacer_recibido(db, p, active_user)
+        assert result.estado_nuevo == "pagado"
+        assert p.estado == "pagado"
+        evento = (
+            db.query(CompraEvento)
+            .filter_by(entidad_id=p.id, entidad_tipo="pedido_compra", tipo="recepcion_undo_recibido")
+            .first()
+        )
+        assert evento is not None
+
+    def test_undo_recibido_to_cuenta_corriente(self, db, empresa, proveedor, active_user):
+        from app.models.orden_pago import OrdenPago
+
+        op = OrdenPago(
+            numero="OP-UNDO-CC",
+            empresa_id=empresa.id,
+            proveedor_id=proveedor.id,
+            moneda="ARS",
+            monto_total=Decimal("100.00"),
+            modo_imputacion="especifica",
+            estado="pendiente",
+            creado_por_id=active_user.id,
+        )
+        db.add(op)
+        db.flush()
+        p = PedidoCompra(
+            numero="P-UNDO-CC",
+            empresa_id=empresa.id,
+            proveedor_id=proveedor.id,
+            moneda="ARS",
+            monto=Decimal("100"),
+            estado="recibido",
+            op_cuenta_corriente_id=op.id,
+            pagado_en=None,
+            creado_por_id=active_user.id,
+        )
+        db.add(p)
+        db.flush()
+        result = recepcion_service.deshacer_recibido(db, p, active_user)
+        assert result.estado_nuevo == "en_cuenta_corriente"
+        assert p.estado == "en_cuenta_corriente"
+
+    def test_undo_controlado_409(self, db, empresa, proveedor, active_user):
+        from fastapi import HTTPException
+
+        p = PedidoCompra(
+            numero="P-UNDO-CTRL",
+            empresa_id=empresa.id,
+            proveedor_id=proveedor.id,
+            moneda="ARS",
+            monto=Decimal("100"),
+            estado="controlado",
+            creado_por_id=active_user.id,
+        )
+        db.add(p)
+        db.flush()
+        with pytest.raises(HTTPException) as exc:
+            recepcion_service.deshacer_recibido(db, p, active_user)
+        assert exc.value.status_code == 409
+        assert p.estado == "controlado"
+
+    def test_undo_second_undo_409(
+        self, client, auth_headers, db, empresa, proveedor, active_user, con_permiso_deposito
+    ):
+        """Second undo after recibido was already undone → HTTP 409."""
+        p = PedidoCompra(
+            numero="P-UNDO-2ND",
+            empresa_id=empresa.id,
+            proveedor_id=proveedor.id,
+            moneda="ARS",
+            monto=Decimal("100"),
+            estado="recibido",
+            creado_por_id=active_user.id,
+        )
+        db.add(p)
+        db.flush()
+        first = client.post(
+            f"{BASE}/pedidos/{p.id}/recepcion/deshacer-recibido",
+            headers=auth_headers,
+        )
+        assert first.status_code == 200
+        assert first.json()["estado_nuevo"] == "pagado"
+
+        second = client.post(
+            f"{BASE}/pedidos/{p.id}/recepcion/deshacer-recibido",
+            headers=auth_headers,
+        )
+        assert second.status_code == 409
+        db.refresh(p)
+        assert p.estado == "pagado"
+
+    def test_undo_cc_with_pagado_en_reconstructs_pagado(self, db, empresa, proveedor, active_user):
+        """D-UNDO-R: CC OP present but pagado_en set → pagado, not en_cuenta_corriente."""
+        from datetime import UTC, datetime
+
+        from app.models.orden_pago import OrdenPago
+
+        op = OrdenPago(
+            numero="OP-UNDO-CC-PAG",
+            empresa_id=empresa.id,
+            proveedor_id=proveedor.id,
+            moneda="ARS",
+            monto_total=Decimal("100.00"),
+            modo_imputacion="especifica",
+            estado="pendiente",
+            creado_por_id=active_user.id,
+        )
+        db.add(op)
+        db.flush()
+        p = PedidoCompra(
+            numero="P-UNDO-CC-PAG",
+            empresa_id=empresa.id,
+            proveedor_id=proveedor.id,
+            moneda="ARS",
+            monto=Decimal("100"),
+            estado="recibido",
+            op_cuenta_corriente_id=op.id,
+            pagado_en=datetime.now(UTC),
+            creado_por_id=active_user.id,
+        )
+        db.add(p)
+        db.flush()
+        result = recepcion_service.deshacer_recibido(db, p, active_user)
+        assert result.estado_nuevo == "pagado"
+        assert p.estado == "pagado"
+
+    def test_undo_403_sin_permiso_recibir_mercaderia(
+        self, client, auth_headers, db, empresa, proveedor, active_user, sin_permiso
+    ):
+        """HTTP 403 when actor lacks deposito.recibir_mercaderia (router require_permiso)."""
+        p = PedidoCompra(
+            numero="P-UNDO-403",
+            empresa_id=empresa.id,
+            proveedor_id=proveedor.id,
+            moneda="ARS",
+            monto=Decimal("100"),
+            estado="recibido",
+            creado_por_id=active_user.id,
+        )
+        db.add(p)
+        db.flush()
+        r = client.post(
+            f"{BASE}/pedidos/{p.id}/recepcion/deshacer-recibido",
+            headers=auth_headers,
+        )
+        assert r.status_code == 403
+        db.refresh(p)
+        assert p.estado == "recibido"
+
+    def test_control_complete_without_obs_succeeds(self, db, empresa, proveedor, active_user):
+        p = PedidoCompra(
+            numero="P-CTRL-NO-OBS",
+            empresa_id=empresa.id,
+            proveedor_id=proveedor.id,
+            moneda="ARS",
+            monto=Decimal("100"),
+            estado="recibido",
+            creado_por_id=active_user.id,
+        )
+        db.add(p)
+        db.flush()
+        req = ConfirmarPedidoRequest(completo=True)
+        result = recepcion_service.confirmar_pedido_sin_oc(db, p, active_user, req)
+        assert result.estado_nuevo == "controlado"
+
+
+class TestRecepcionServicio409:
+    def test_servicio_confirmar_409(self, db, empresa, proveedor, active_user):
+        from fastapi import HTTPException
+
+        p = PedidoCompra(
+            numero="P-SRV-CONF",
+            empresa_id=empresa.id,
+            proveedor_id=proveedor.id,
+            moneda="ARS",
+            monto=Decimal("100"),
+            estado="pagado",
+            tipo="servicio",
+            creado_por_id=active_user.id,
+        )
+        db.add(p)
+        db.flush()
+        with pytest.raises(HTTPException) as exc:
+            recepcion_service.confirmar_pedido_sin_oc(db, p, active_user, ConfirmarPedidoRequest(completo=True))
+        assert exc.value.status_code == 409
+        assert "n_a_servicio" in exc.value.detail
+        assert p.estado == "pagado"
+
+    def test_servicio_ingresos_409(self, db, empresa, proveedor, active_user):
+        from fastapi import HTTPException
+
+        p = PedidoCompra(
+            numero="P-SRV-ING",
+            empresa_id=empresa.id,
+            proveedor_id=proveedor.id,
+            moneda="ARS",
+            monto=Decimal("100"),
+            estado="pagado",
+            tipo="servicio",
+            oc_comp_id=1,
+            oc_bra_id=1,
+            oc_poh_id=9901,
+            creado_por_id=active_user.id,
+        )
+        db.add(p)
+        db.flush()
+        req = RegistrarIngresosRequest(lineas=[IngresoLinea(pod_id=1, cantidad_recibida=Decimal("1"))])
+        with pytest.raises(HTTPException) as exc:
+            recepcion_service.registrar_ingresos(db, p, active_user, req)
+        assert exc.value.status_code == 409
+        assert "n_a_servicio" in exc.value.detail
+
+
+class TestResolverFaltantesHttp:
+    def test_empty_texto_422(self, client, auth_headers, db, empresa, proveedor, active_user) -> None:
+        p = PedidoCompra(
+            numero="P-RES-422",
+            empresa_id=empresa.id,
+            proveedor_id=proveedor.id,
+            moneda="ARS",
+            monto=Decimal("100"),
+            estado="con_faltantes",
+            creado_por_id=active_user.id,
+            responsable_id=active_user.id,
+        )
+        db.add(p)
+        db.commit()
+        r = client.post(
+            f"{BASE}/pedidos/{p.id}/faltantes/resolver",
+            json={"texto": "   "},
+            headers=auth_headers,
+        )
+        assert r.status_code == 422
+        db.refresh(p)
+        assert p.faltantes_resuelto_en is None
+
+    def test_deposito_only_403(
+        self,
+        client,
+        auth_headers,
+        db,
+        empresa,
+        proveedor,
+        active_user,
+        admin_user,
+        con_permiso_solo_recibir_mercaderia,
+    ) -> None:
+        p = PedidoCompra(
+            numero="P-RES-403",
+            empresa_id=empresa.id,
+            proveedor_id=proveedor.id,
+            moneda="ARS",
+            monto=Decimal("100"),
+            estado="con_faltantes",
+            creado_por_id=admin_user.id,
+            responsable_id=admin_user.id,
+        )
+        db.add(p)
+        db.commit()
+        r = client.post(
+            f"{BASE}/pedidos/{p.id}/faltantes/resolver",
+            json={"texto": "Comprar 2 cajas"},
+            headers=auth_headers,
+        )
+        assert r.status_code == 403
+        db.refresh(p)
+        assert p.faltantes_resuelto_en is None
+
+    def test_reresolve_409(self, client, auth_headers, db, empresa, proveedor, active_user) -> None:
+        stamp = datetime(2026, 3, 10, 12, 0, tzinfo=timezone.utc)
+        p = PedidoCompra(
+            numero="P-RES-409",
+            empresa_id=empresa.id,
+            proveedor_id=proveedor.id,
+            moneda="ARS",
+            monto=Decimal("100"),
+            estado="con_faltantes",
+            creado_por_id=active_user.id,
+            responsable_id=active_user.id,
+            faltantes_resuelto_en=stamp,
+        )
+        db.add(p)
+        db.commit()
+        r = client.post(
+            f"{BASE}/pedidos/{p.id}/faltantes/resolver",
+            json={"texto": "Otro intento"},
+            headers=auth_headers,
+        )
+        assert r.status_code == 409
+
+
+class TestResponsableFaltantesAssignAndPool:
+    def _pedido_recibido_sin_oc(self, db, empresa, proveedor, user, *, responsable_id: int) -> PedidoCompra:
+        p = PedidoCompra(
+            numero="P-RD-ASG-01",
+            empresa_id=empresa.id,
+            proveedor_id=proveedor.id,
+            moneda="ARS",
+            monto=Decimal("100"),
+            estado="recibido",
+            creado_por_id=user.id,
+            responsable_id=responsable_id,
+        )
+        db.add(p)
+        db.flush()
+        return p
+
+    def test_assign_chosen_on_confirmar_faltantes(self, db, empresa, proveedor, active_user, admin_user) -> None:
+        p = self._pedido_recibido_sin_oc(db, empresa, proveedor, active_user, responsable_id=active_user.id)
+
+        def _perm(_self, user, codigo: str) -> bool:
+            return codigo == "administracion.gestionar_ordenes_compra" and user.id == admin_user.id
+
+        req = ConfirmarPedidoRequest(
+            completo=False,
+            faltantes_texto="Faltan 2 cajas",
+            responsable_id=admin_user.id,
+        )
+        with patch("app.services.permisos_service.PermisosService.tiene_permiso", new=_perm):
+            result = recepcion_service.confirmar_pedido_sin_oc(db, p, active_user, req)
+        assert result.estado_nuevo == "con_faltantes"
+        assert p.responsable_id == admin_user.id
+
+    def test_omit_keeps_current_responsable(self, db, empresa, proveedor, active_user, admin_user) -> None:
+        p = self._pedido_recibido_sin_oc(db, empresa, proveedor, active_user, responsable_id=admin_user.id)
+        req = ConfirmarPedidoRequest(completo=False, faltantes_texto="Faltan 2 cajas")
+        result = recepcion_service.confirmar_pedido_sin_oc(db, p, active_user, req)
+        assert result.estado_nuevo == "con_faltantes"
+        assert p.responsable_id == admin_user.id
+
+    def test_same_as_current_skips_perm_recheck(self, db, empresa, proveedor, active_user) -> None:
+        p = self._pedido_recibido_sin_oc(db, empresa, proveedor, active_user, responsable_id=active_user.id)
+
+        def _deny_gestionar(_self, _user, codigo: str) -> bool:
+            return codigo != "administracion.gestionar_ordenes_compra"
+
+        req = ConfirmarPedidoRequest(
+            completo=False,
+            faltantes_texto="Faltan 2 cajas",
+            responsable_id=active_user.id,
+        )
+        with patch("app.services.permisos_service.PermisosService.tiene_permiso", new=_deny_gestionar):
+            result = recepcion_service.confirmar_pedido_sin_oc(db, p, active_user, req)
+        assert result.estado_nuevo == "con_faltantes"
+        assert p.responsable_id == active_user.id
+
+    def test_invalid_chosen_422_keeps_current(self, db, empresa, proveedor, active_user, admin_user) -> None:
+        p = self._pedido_recibido_sin_oc(db, empresa, proveedor, active_user, responsable_id=active_user.id)
+
+        def _deny(_self, _user, _codigo: str) -> bool:
+            return False
+
+        req = ConfirmarPedidoRequest(
+            completo=False,
+            faltantes_texto="Faltan 2 cajas",
+            responsable_id=admin_user.id,
+        )
+        with patch("app.services.permisos_service.PermisosService.tiene_permiso", new=_deny):
+            with pytest.raises(HTTPException) as exc:
+                recepcion_service.confirmar_pedido_sin_oc(db, p, active_user, req)
+        assert exc.value.status_code == 422
+        assert p.responsable_id == active_user.id
+
+    def test_control_complete_ignores_responsable_id(self, db, empresa, proveedor, active_user, admin_user) -> None:
+        p = self._pedido_recibido_sin_oc(db, empresa, proveedor, active_user, responsable_id=active_user.id)
+        req = ConfirmarPedidoRequest(completo=True, responsable_id=admin_user.id)
+        result = recepcion_service.confirmar_pedido_sin_oc(db, p, active_user, req)
+        assert result.estado_nuevo == "controlado"
+        assert p.responsable_id == active_user.id
+
+    def test_ingresos_assign_and_control_ignore(self, db, empresa, proveedor, active_user, admin_user) -> None:
+        helper = TestRegistrarIngresosService()
+        p = helper._pedido_con_oc_y_lineas(db, empresa, proveedor, active_user, poh_id=9801)
+        p.responsable_id = active_user.id
+        db.flush()
+
+        def _perm(_self, user, codigo: str) -> bool:
+            return codigo == "administracion.gestionar_ordenes_compra" and user.id == admin_user.id
+
+        assign_req = RegistrarIngresosRequest(
+            lineas=[IngresoLinea(pod_id=1, cantidad_recibida=Decimal("60"))],
+            faltantes_texto="Falta línea 2",
+            responsable_id=admin_user.id,
+        )
+        with patch("app.services.permisos_service.PermisosService.tiene_permiso", new=_perm):
+            assigned = recepcion_service.registrar_ingresos(db, p, active_user, assign_req)
+        assert assigned.estado_nuevo == "con_faltantes"
+        assert p.responsable_id == admin_user.id
+
+        p_ok = PedidoCompra(
+            numero="P-RD-RI-9802",
+            empresa_id=empresa.id,
+            proveedor_id=proveedor.id,
+            moneda="ARS",
+            monto=Decimal("5000"),
+            estado="pagado",
+            oc_comp_id=1,
+            oc_bra_id=1,
+            oc_poh_id=9802,
+            creado_por_id=active_user.id,
+            responsable_id=active_user.id,
+        )
+        db.add(p_ok)
+        db.flush()
+        _mk_oc_header(db, poh_id=9802, supp_id=55)
+        _mk_oc_detail(db, poh_id=9802, pod_id=1, qty=100.0, item_id=101)
+        _mk_oc_detail(db, poh_id=9802, pod_id=2, qty=50.0, item_id=102)
+        control_req = RegistrarIngresosRequest(
+            lineas=[
+                IngresoLinea(pod_id=1, cantidad_recibida=Decimal("100")),
+                IngresoLinea(pod_id=2, cantidad_recibida=Decimal("50")),
+            ],
+            responsable_id=admin_user.id,
+        )
+        controlled = recepcion_service.registrar_ingresos(db, p_ok, active_user, control_req)
+        assert controlled.estado_nuevo == "controlado"
+        assert p_ok.responsable_id == active_user.id
+
+    def test_pool_403_without_deposito(self, client, auth_headers, sin_permiso) -> None:
+        r = client.get(f"{BASE}/usuarios-responsable-faltantes", headers=auth_headers)
+        assert r.status_code == 403
+
+    def test_pool_returns_gestionar_holders(
+        self, client, auth_headers, db, admin_user, active_user, con_permiso_deposito
+    ) -> None:
+        with patch(
+            "app.services.notificacion_service.resolver_usuarios_con_algun_permiso",
+            return_value=[admin_user],
+        ) as mock_pool:
+            r = client.get(f"{BASE}/usuarios-responsable-faltantes", headers=auth_headers)
+        assert r.status_code == 200
+        mock_pool.assert_called_once()
+        ids = {row["id"] for row in r.json()}
+        assert admin_user.id in ids
+        assert active_user.id not in ids
+        assert r.json()[0]["nombre"] == admin_user.nombre
+
+
+class TestListarPedidosEjeTipo:
+    def test_eje_recibidos_excludes_servicio_and_sin_res(
+        self, client, auth_headers, db, empresa, proveedor, active_user, con_permiso_deposito
+    ) -> None:
+        rec = PedidoCompra(
+            numero="P-LIST-REC",
+            empresa_id=empresa.id,
+            proveedor_id=proveedor.id,
+            moneda="ARS",
+            monto=Decimal("100"),
+            estado="recibido",
+            creado_por_id=active_user.id,
+        )
+        con = PedidoCompra(
+            numero="P-LIST-CON",
+            empresa_id=empresa.id,
+            proveedor_id=proveedor.id,
+            moneda="ARS",
+            monto=Decimal("100"),
+            estado="con_faltantes",
+            faltantes_resuelto_en=datetime(2026, 1, 1, tzinfo=timezone.utc),
+            creado_por_id=active_user.id,
+        )
+        sin = PedidoCompra(
+            numero="P-LIST-SIN",
+            empresa_id=empresa.id,
+            proveedor_id=proveedor.id,
+            moneda="ARS",
+            monto=Decimal("100"),
+            estado="con_faltantes",
+            creado_por_id=active_user.id,
+        )
+        srv = PedidoCompra(
+            numero="P-LIST-SRV",
+            empresa_id=empresa.id,
+            proveedor_id=proveedor.id,
+            moneda="ARS",
+            monto=Decimal("100"),
+            estado="recibido",
+            tipo="servicio",
+            creado_por_id=active_user.id,
+        )
+        db.add_all([rec, con, sin, srv])
+        db.commit()
+        r_rec = client.get(
+            f"{BASE}/pedidos",
+            params={"eje_procesal": "recibido"},
+            headers=auth_headers,
+        )
+        assert r_rec.status_code == 200
+        nums_rec = {item["numero"] for item in r_rec.json()["items"]}
+        assert "P-LIST-REC" in nums_rec
+        assert "P-LIST-CON" not in nums_rec
+        assert "P-LIST-SIN" not in nums_rec
+
+        r_con = client.get(
+            f"{BASE}/pedidos",
+            params={"eje_procesal": "faltantes_con_res"},
+            headers=auth_headers,
+        )
+        assert r_con.status_code == 200
+        nums_con = {item["numero"] for item in r_con.json()["items"]}
+        assert "P-LIST-CON" in nums_con
+        assert "P-LIST-REC" not in nums_con
+        assert "P-LIST-SIN" not in nums_con
+        assert "P-LIST-SRV" not in nums_con

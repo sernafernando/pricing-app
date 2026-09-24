@@ -24,7 +24,7 @@ Chain strategy: feature-branch-chain
 | 1 | Model + chips | PR1←tracker | `pytest test_pedido_factura_documentos.py test_eje_procesal.py` | `alembic upgrade head` | downgrade `compras_044` |
 | 2 | Alerts | PR2←PR1 | `pytest test_compras_alertas_service.py` | POST factura banner | revert PR2 |
 | 3 | Depósito | PR3←PR2 | `pytest test_recepcion_deposito_endpoints.py` | pagado+CC AND | revert PR3 |
-| 4 | Multi-OC | PR4←PR3 | `pytest test_vincular_oc_multi.py` | 2nd OC N blocks | downgrade `compras_043` |
+| 4 | Multi-OC | PR4←PR3 | `pytest test_vincular_oc_multi.py` | 2nd OC N blocks | downgrade `compras_045` |
 
 ## Phase 0: Rebase
 
@@ -41,27 +41,27 @@ Chain strategy: feature-branch-chain
 
 ## Phase 2: PR2 alerts
 
-- [ ] 2.1 RED `backend/tests/unit/test_compras_alertas_service.py`: copy `P-…`+proveedor+nº not `pedidos_documento`; fan-out titular∪sub-PM∪Admin∪Gerente.
-- [ ] 2.2 GREEN `backend/app/services/compras_alertas_service.py`. Test: per-user OK; empty nº no alert.
-- [ ] 2.3 `backend/app/api/endpoints/notificaciones.py` PATCH ok + snooze routes; hide mark+1h. Test: 10:00/10:20 until 11:00.
-- [ ] 2.4 Faltantes → `responsable_id` + `faltantes_texto`; G31 `deposito.recibir_mercaderia`. Test: empty 422; D3 no alert.
-- [ ] 2.5 `frontend/src/components/AppLayout.jsx` stack `compras.*`; OK→DESCARTADA. Test: banner+bell; undo retracts; no email.
+- [x] 2.1 RED `backend/tests/unit/test_compras_alertas_service.py`: copy `P-…`+proveedor+nº not `pedidos_documento`; fan-out titular∪sub-PM∪Admin∪Gerente.
+- [x] 2.2 GREEN `backend/app/services/compras_alertas_service.py`. Test: per-user OK; empty nº no alert.
+- [x] 2.3 `backend/app/api/endpoints/notificaciones.py` PATCH ok + snooze routes; hide mark+1h. Test: 10:00/10:20 until 11:00.
+- [x] 2.4 Faltantes → `responsable_id` + `faltantes_texto`; G31 `deposito.recibir_mercaderia`. Test: empty 422; D3 no alert.
+- [x] 2.5 `frontend/src/components/AppLayout.jsx` stack `compras.*`; OK→DESCARTADA. Test: banner+bell; undo retracts; no email.
 
 ## Phase 3: PR3 Depósito
 
-- [ ] 3.1 AND `q_proveedor|q_numero|q_factura|q_empresa` in `backend/app/routers/administracion_compras.py`. Test: Acme∩FA-1.
-- [ ] 3.2 `backend/app/schemas/recepcion.py` + `backend/app/services/recepcion_service.py`: undo; optional obs/photo; `faltantes_texto` required. Test: undo→pagado/CC; controlado 409.
-- [ ] 3.3 `frontend/src/components/compras/TabRecepcionDeposito.jsx` + `frontend/src/hooks/useRecepcionDeposito.js`: pagado+CC; hide saldo 0; Docs=adjuntos; `?focus=observaciones`. Test: RTL.
-- [ ] 3.4 Servicio 409 on recepción. Test: `n_a_servicio`.
+- [x] 3.1 AND `q_proveedor|q_numero|q_factura|q_empresa` in `backend/app/routers/administracion_compras.py`. Test: Acme∩FA-1.
+- [x] 3.2 `backend/app/schemas/recepcion.py` + `backend/app/services/recepcion_service.py`: undo; optional obs/photo; `faltantes_texto` required. Test: undo→pagado/CC; controlado 409.
+- [x] 3.3 `frontend/src/components/compras/TabRecepcionDeposito.jsx` + `frontend/src/hooks/useRecepcionDeposito.js`: pagado+CC; hide saldo 0; Docs=adjuntos; `?focus=observaciones`. Test: RTL.
+- [x] 3.4 Servicio 409 on recepción. Test: `n_a_servicio`.
 
 ## Phase 4: PR4 multi-OC
 
-- [ ] 4.1 RED `backend/tests/integration/test_vincular_oc_multi.py`: add-not-replace; dup/servicio 409; partial 422.
-- [ ] 4.2 GREEN `backend/alembic/versions/compras_043_pedido_compra_ocs.py` + `backend/app/models/pedido_compra_oc.py`. Test: first link kept.
-- [ ] 4.3 `backend/app/services/pedidos_service.py` INSERT relation+header. Test: second kept; 403/404/supplier 409.
-- [ ] 4.4 `backend/app/services/recepcion_service.py` controlado iff all OCs. Test: 1/2 open; last → controlado.
-- [ ] 4.5 `frontend/src/components/compras/TabRecepcionDeposito.jsx` + `frontend/src/components/compras/ModalVincularOC.jsx` N blocks; servicio empty. Test: RTL 2 blocks.
+- [x] 4.1 RED `backend/tests/integration/test_vincular_oc_multi.py`: add-not-replace; dup/servicio 409; partial 422.
+- [x] 4.2 GREEN `backend/alembic/versions/compras_045_pedido_compra_ocs.py` + `backend/app/models/pedido_compra_oc.py`. Test: first link kept.
+- [x] 4.3 `backend/app/services/pedidos_service.py` INSERT relation+header. Test: second kept; 403/404/supplier 409.
+- [x] 4.4 `backend/app/services/recepcion_service.py` controlado iff all OCs. Test: 1/2 open; last → controlado.
+- [x] 4.5 `frontend/src/components/compras/TabRecepcionDeposito.jsx` + `frontend/src/components/compras/ModalVincularOC.jsx` N blocks; servicio empty. Test: RTL 2 blocks.
 
 ## Phase 5: Verify
 
-- [ ] 5.1 Confirm `docs/modulos/compras-guia-usuario.md` in-app only; no ERP multi-factura; `aprobado` kept; diffs clean.
+- [x] 5.1 Confirm `docs/modulos/compras-guia-usuario.md` in-app only; no ERP multi-factura; `aprobado` kept; diffs clean.

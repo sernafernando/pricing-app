@@ -1,6 +1,24 @@
 import { useCallback, useState } from 'react';
 import api from '../services/api';
 
+/** Deep-link `?focus=observaciones` (no Router required — tab tests render bare). */
+export function readFocusQuery() {
+  if (typeof window === 'undefined') return null;
+  return new URLSearchParams(window.location.search).get('focus');
+}
+
+/** G31 / banner deep-link `?pedido={id}` (same window.search, no Router). */
+export function readPedidoQuery() {
+  if (typeof window === 'undefined') return null;
+  return new URLSearchParams(window.location.search).get('pedido');
+}
+
+/** Optional `?eje=` to open a Depósito filter tab (e.g. faltantes_con_res). */
+export function readEjeQuery() {
+  if (typeof window === 'undefined') return null;
+  return new URLSearchParams(window.location.search).get('eje');
+}
+
 /**
  * useRecepcionDeposito — Slice B reception endpoints for Batch K.
  *
@@ -81,6 +99,21 @@ export default function useRecepcionDeposito() {
   );
 
   /**
+   * POST /pedidos/{id}/recepcion/deshacer-recibido
+   * @returns {Promise<{pedido_id: number, estado_nuevo: string}>}
+   */
+  const deshacerRecibido = useCallback(
+    (pedidoId) =>
+      wrap(async () => {
+        const { data } = await api.post(
+          `/administracion/compras/pedidos/${pedidoId}/recepcion/deshacer-recibido`
+        );
+        return data;
+      }),
+    [wrap]
+  );
+
+  /**
    * GET /pedidos/{id}/recepcion/eventos
    * @returns {Promise<EventosRecepcionResponse>}
    */
@@ -119,6 +152,39 @@ export default function useRecepcionDeposito() {
    * @param {{ proveedor_direccion_id: number }} payload
    * @returns {Promise<EtiquetaEnvioResponse>}
    */
+  /**
+   * POST /pedidos/{id}/faltantes/resolver
+   * @param {number} pedidoId
+   * @param {{ texto: string }} payload
+   * @returns {Promise<{pedido_id: number, faltantes_resuelto_en: string}>}
+   */
+  const resolverFaltantes = useCallback(
+    (pedidoId, payload) =>
+      wrap(async () => {
+        const { data } = await api.post(
+          `/administracion/compras/pedidos/${pedidoId}/faltantes/resolver`,
+          payload
+        );
+        return data;
+      }),
+    [wrap]
+  );
+
+  /**
+   * GET /administracion/compras/usuarios-responsable-faltantes
+   * @returns {Promise<Array<{id: number, nombre: string}>>}
+   */
+  const getUsuariosResponsableFaltantes = useCallback(
+    () =>
+      wrap(async () => {
+        const { data } = await api.get(
+          '/administracion/compras/usuarios-responsable-faltantes'
+        );
+        return data;
+      }),
+    [wrap]
+  );
+
   const generarRetiro = useCallback(
     (pedidoId, payload) =>
       wrap(async () => {
@@ -137,8 +203,11 @@ export default function useRecepcionDeposito() {
     getSaldos,
     registrarIngresos,
     confirmarPedido,
+    deshacerRecibido,
     getEventos,
     getDireccionesProveedor,
     generarRetiro,
+    resolverFaltantes,
+    getUsuariosResponsableFaltantes,
   };
 }

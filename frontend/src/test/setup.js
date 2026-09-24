@@ -83,18 +83,20 @@ vi.mock('../services/api', () => ({
 // at module init time (jsdom localStorage may not be available when authStore
 // module is first imported). This avoids "localStorage.getItem is not a function".
 // ---------------------------------------------------------------------------
+// Stable references — a fresh `user: {}` per call re-triggers useEffect([user])
+// and hangs CI (Maximum update depth / job timeout). See AppLayout compras banners.
+const __authStoreState = {
+  user: { id: 1, nombre: 'Test User', roles: ['admin'] },
+  token: 'test-token',
+  isAuthenticated: true,
+  logout: vi.fn(),
+  setUser: vi.fn(),
+  setToken: vi.fn(),
+};
 vi.mock('../store/authStore', () => ({
   useAuthStore: (selector) => {
-    const state = {
-      user: { id: 1, nombre: 'Test User', roles: ['admin'] },
-      token: 'test-token',
-      isAuthenticated: true,
-      logout: vi.fn(),
-      setUser: vi.fn(),
-      setToken: vi.fn(),
-    };
-    if (typeof selector === 'function') return selector(state);
-    return state;
+    if (typeof selector === 'function') return selector(__authStoreState);
+    return __authStoreState;
   },
 }));
 
@@ -103,12 +105,14 @@ vi.mock('../store/authStore', () => ({
 // Productos.jsx calls usePermisos() from this module; we intercept at the module
 // level so the real PermisosProvider (which makes API calls) is never mounted.
 // ---------------------------------------------------------------------------
+const __permisosStub = {
+  permisos: [],
+  rol: null,
+  tienePermiso: () => true,
+  cargandoPermisos: false,
+};
 vi.mock('../contexts/PermisosContext', () => ({
-  usePermisos: () => ({
-    permisos: [],
-    tienePermiso: () => true,
-    cargandoPermisos: false,
-  }),
+  usePermisos: () => __permisosStub,
   PermisosProvider: ({ children }) => children,
 }));
 

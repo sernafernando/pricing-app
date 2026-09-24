@@ -31,7 +31,7 @@ from decimal import ROUND_HALF_UP, Decimal
 from typing import Any, Final, Literal, Optional
 
 from fastapi import HTTPException, status
-from sqlalchemy import func
+from sqlalchemy import and_, false, func, or_
 from sqlalchemy.orm import Session
 
 from app.core.logging import get_logger
@@ -39,6 +39,7 @@ from app.models.compra_evento import CompraEvento
 from app.models.imputacion import Imputacion
 from app.models.oc_match_job import OcMatchJob
 from app.models.pedido_compra import PedidoCompra
+from app.models.pedido_compra_oc import PedidoCompraOc
 from app.models.pedido_factura_documento import PedidoFacturaDocumento
 from app.models.usuario import RolUsuario, Usuario
 from app.services import (
@@ -104,6 +105,7 @@ TIPOS_PEDIDO: Final[frozenset[str]] = frozenset({"mercaderia", "servicio"})
 TIPO_PEDIDO_DEFAULT: Final[str] = "mercaderia"
 ROLES_ADMIN_TIPO: Final[frozenset[str]] = frozenset({RolUsuario.ADMIN.value, RolUsuario.SUPERADMIN.value})
 FACTURA_UNDO_WINDOW: Final[timedelta] = timedelta(minutes=5)
+FACTURA_CARGADA_ALERT_DELAY: Final[timedelta] = timedelta(minutes=5)
 FACTURA_NUMERO_MAX_LEN: Final[int] = 100
 EJES_PROCESAL: Final[frozenset[str]] = frozenset(
     {
@@ -477,20 +479,85 @@ def calcular_eje_procesal(
     return None
 
 
+_EJE_FILTROS: Final[dict[str, Any]] = {
+    "faltantes_sin_res": and_(
+        PedidoCompra.tipo != "servicio",
+        PedidoCompra.estado == "con_faltantes",
+        PedidoCompra.faltantes_resuelto_en.is_(None),
+    ),
+    "faltantes_con_res": and_(
+        PedidoCompra.tipo != "servicio",
+        PedidoCompra.estado == "con_faltantes",
+        PedidoCompra.faltantes_resuelto_en.isnot(None),
+    ),
+    "recibido": and_(PedidoCompra.tipo != "servicio", PedidoCompra.estado == "recibido"),
+    "controlado": and_(PedidoCompra.tipo != "servicio", PedidoCompra.estado == "controlado"),
+    "por_recibir": and_(
+        PedidoCompra.tipo != "servicio",
+        PedidoCompra.estado.in_(("pagado", "en_cuenta_corriente")),
+    ),
+    "n_a_servicio": PedidoCompra.tipo == "servicio",
+}
+
+
+def aplicar_filtro_tipo(condiciones: list[Any], tipo: str | None) -> None:
+    """Append comma-OR tipo filter to a listar_pedidos condition list."""
+    if tipo is None:
+        return
+    tipos = [t.strip() for t in tipo.split(",") if t.strip()]
+    if not tipos:
+        return
+    if len(tipos) == 1:
+        condiciones.append(PedidoCompra.tipo == tipos[0])
+    else:
+        condiciones.append(PedidoCompra.tipo.in_(tipos))
+
+
+def aplicar_filtro_eje_procesal(condiciones: list[Any], eje_procesal: str | None) -> None:
+    """Append comma-OR eje_procesal filter matching calcular_eje_procesal."""
+    if eje_procesal is None:
+        return
+    ejes = [e.strip() for e in eje_procesal.split(",") if e.strip()]
+    if not ejes:
+        return
+    clauses = [_EJE_FILTROS[eje] for eje in ejes if eje in _EJE_FILTROS]
+    if not clauses:
+        condiciones.append(false())
+        return
+    if len(clauses) == 1:
+        condiciones.append(clauses[0])
+        return
+    condiciones.append(or_(*clauses))
+
+
 def es_factura_cargada(session: Session, pedido_id: int) -> bool:
-    """Cargada ⇔ ≥1 normalized row. ERP `ct_transaction` is never identity."""
+    """Cargada ⇔ ≥1 row with ERP check. Row presence is constancia only."""
+    count = (
+        session.query(PedidoFacturaDocumento)
+        .filter(
+            PedidoFacturaDocumento.pedido_id == pedido_id,
+            PedidoFacturaDocumento.cargada.is_(True),
+        )
+        .count()
+    )
+    return count > 0
+
+
+def tiene_numero_factura(session: Session, pedido_id: int) -> bool:
+    """Constancia ⇔ ≥1 normalized factura row, whether or not cargada."""
     count = session.query(PedidoFacturaDocumento).filter(PedidoFacturaDocumento.pedido_id == pedido_id).count()
     return count > 0
 
 
 def chips_visibilidad_batch(session: Session, pedido_ids: list[int]) -> dict[int, dict[str, Any]]:
-    """Batch factura-cargada + latest OC-match status for list/detail chips.
+    """Batch factura flags + latest OC-match status for list/detail chips.
 
-    Returns `{pedido_id: {factura_cargada, oc_match_status}}`. Missing ids
-    default to factura False / match None (null-safe stub).
+    Returns `{pedido_id: {factura_cargada, tiene_numero_factura, oc_match_status}}`.
+    `factura_cargada` follows ERP checks, not mere row presence.
     """
     out: dict[int, dict[str, Any]] = {
-        int(pid): {"factura_cargada": False, "oc_match_status": None} for pid in pedido_ids
+        int(pid): {"factura_cargada": False, "tiene_numero_factura": False, "oc_match_status": None}
+        for pid in pedido_ids
     }
     if not pedido_ids:
         return out
@@ -502,6 +569,19 @@ def chips_visibilidad_batch(session: Session, pedido_ids: list[int]) -> dict[int
         .all()
     )
     for pid, cnt in factura_rows:
+        if int(cnt) >= 1:
+            out[int(pid)]["tiene_numero_factura"] = True
+
+    cargada_rows = (
+        session.query(PedidoFacturaDocumento.pedido_id, func.count(PedidoFacturaDocumento.id))
+        .filter(
+            PedidoFacturaDocumento.pedido_id.in_(pedido_ids),
+            PedidoFacturaDocumento.cargada.is_(True),
+        )
+        .group_by(PedidoFacturaDocumento.pedido_id)
+        .all()
+    )
+    for pid, cnt in cargada_rows:
         if int(cnt) >= 1:
             out[int(pid)]["factura_cargada"] = True
 
@@ -555,25 +635,6 @@ def pedidos_numeros_por_op_batch(session: Session, op_ids: list[int]) -> dict[in
     return out
 
 
-def _notificar_factura_cargada(
-    session: Session,
-    *,
-    pedido: PedidoCompra,
-    factura: PedidoFacturaDocumento,
-) -> None:
-    """Fire in-app factura alerts when the PR2 service is present; no-op on PR1."""
-    try:
-        from app.services import compras_alertas_service
-    except ImportError:
-        return
-    notificar = getattr(compras_alertas_service, "notificar_factura_cargada", None)
-    if notificar is None:
-        return
-    if pedido.proveedor is None:
-        session.refresh(pedido, attribute_names=["proveedor"])
-    notificar(session, pedido=pedido, factura=factura)
-
-
 def persist_factura_documento(
     session: Session,
     *,
@@ -581,11 +642,12 @@ def persist_factura_documento(
     numero: str,
     created_by_id: int,
 ) -> Optional[PedidoFacturaDocumento]:
-    """Insert a factura row or skip overflow / casefold-duplicate. Notify on insert.
+    """Insert a constancia factura row or skip overflow / casefold-duplicate.
 
     Shared alta path for manual POST and OC Match writeback. Tokens longer than
     100 characters are logged and skipped. Casefold duplicates keep first-seen
-    casing. Returns the existing row on skip-dupe, None on overflow/empty.
+    casing and do not change `cargada`. Does not notify. Returns the existing
+    row on skip-dupe, None on overflow/empty.
     """
     numero_norm = (numero or "").strip()
     if not numero_norm:
@@ -610,10 +672,10 @@ def persist_factura_documento(
         pedido_id=pedido.id,
         numero=numero_norm,
         created_by_id=created_by_id,
+        cargada=False,
     )
     session.add(row)
     session.flush()
-    _notificar_factura_cargada(session, pedido=pedido, factura=row)
     return row
 
 
@@ -651,6 +713,7 @@ def seed_factura_documentos(session: Session, pedido: PedidoCompra) -> list[Pedi
             pedido_id=pedido.id,
             numero=numero,
             created_by_id=pedido.creado_por_id,
+            cargada=False,
         )
         session.add(row)
         rows.append(row)
@@ -666,7 +729,7 @@ def agregar_factura_documento(
     numero: str,
     user_id: int,
 ) -> PedidoFacturaDocumento:
-    """Persist a factura row via the shared alta path. Empty number → 422."""
+    """Persist a constancia factura row via the shared alta path. Empty number → 422. Does not notify."""
     pedido = _obtener_pedido_o_404(session, pedido_id)
     numero_norm = (numero or "").strip()
     if not numero_norm:
@@ -697,7 +760,7 @@ def deshacer_factura_documento(
 ) -> None:
     """Remove a just-added row within the 5-minute undo window. After that → 409.
 
-    Alert retract is PR2 — this path only deletes the row.
+    Also marks the fan-out `compras.factura_cargada` notifications DESCARTADA.
     """
     _obtener_pedido_o_404(session, pedido_id)
     row = session.get(PedidoFacturaDocumento, row_id)
@@ -712,8 +775,69 @@ def deshacer_factura_documento(
             status_code=status.HTTP_409_CONFLICT,
             detail="La ventana de 5 minutos para deshacer la carga de factura ya expiró.",
         )
+    from app.services import compras_alertas_service
+
+    compras_alertas_service.retractar_factura_cargada(
+        session,
+        pedido_id=pedido_id,
+        factura_row_id=row_id,
+        ahora=_ahora_utc(ahora),
+    )
     session.delete(row)
     session.flush()
+
+
+def marcar_factura_cargada(
+    session: Session,
+    *,
+    pedido_id: int,
+    row_id: int,
+    cargada: bool,
+    user_id: int,
+    ahora: Optional[datetime] = None,
+) -> PedidoFacturaDocumento:
+    """Toggle the Administración ERP check on one factura row.
+
+    Check starts `FACTURA_CARGADA_ALERT_DELAY` from `cargada_marked_at`.
+    Re-check while already cargada is a no-op (timer stays). Uncheck
+    cancels a pending alert without deleting the row. Re-check after
+    uncheck starts a new window and clears `alerta_disparada_at`.
+    """
+    _obtener_pedido_o_404(session, pedido_id)
+    row = session.get(PedidoFacturaDocumento, row_id)
+    if row is None or row.pedido_id != pedido_id:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Factura documento id={row_id} no encontrado en pedido {pedido_id}.",
+        )
+    stamp = _ahora_utc(ahora)
+    if cargada:
+        if row.cargada:
+            return row
+        row.cargada = True
+        row.cargada_marked_at = stamp
+        row.cargada_marked_by_id = user_id
+        row.alerta_pendiente_hasta = stamp + FACTURA_CARGADA_ALERT_DELAY
+        row.alerta_disparada_at = None
+    else:
+        if not row.cargada:
+            return row
+        row.cargada = False
+        row.cargada_marked_at = None
+        row.cargada_marked_by_id = None
+        row.alerta_pendiente_hasta = None
+    session.flush()
+    return row
+
+
+def listar_factura_documentos(session: Session, pedido_id: int) -> list[PedidoFacturaDocumento]:
+    """Constancia rows for detalle, ordered by insert."""
+    return (
+        session.query(PedidoFacturaDocumento)
+        .filter(PedidoFacturaDocumento.pedido_id == pedido_id)
+        .order_by(PedidoFacturaDocumento.id)
+        .all()
+    )
 
 
 # ──────────────────────────────────────────────────────────────────────────
@@ -2689,25 +2813,58 @@ def vincular_oc(
 
     Preconditions:
       - Pedido exists (404 otherwise).
-      - Pedido has no linked OC (409 otherwise — unlink first).
+      - Pedido tipo is mercaderia (409 for servicio).
+      - Triple is complete (422 if any of the three ids is missing).
+      - Duplicate of an already-linked triple is 409 (add-not-replace).
       - (comp_id, bra_id, poh_id) exists in tb_purchase_order_header (404 otherwise).
       - The OC's supp_id matches the pedido's proveedor supp_id (409 otherwise).
       - The OC satisfies CRITERION-PENDIENTE: at least one unprocessed line
         (bool_and(COALESCE(pod_isprocessed, FALSE)) = FALSE) — 409 otherwise.
 
+    Writers persist BOTH the relation row (`pedido_compra_ocs`) and the header
+    first-link cache (`pedidos_compra.oc_*` on the first link only).
+
     Registers event OC_VINCULADA. Does NOT commit (router commits).
 
     Raises:
         HTTPException 404 — pedido or OC not found.
-        HTTPException 409 — already linked, supplier mismatch, or OC not pending.
+        HTTPException 409 — servicio, duplicate, supplier mismatch, or OC not pending.
+        HTTPException 422 — partial triple.
     """
     from sqlalchemy import text  # noqa: PLC0415
+    from sqlalchemy.exc import IntegrityError  # noqa: PLC0415
+
+    if oc_comp_id is None or oc_bra_id is None or oc_poh_id is None:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail="oc_comp_id, oc_bra_id, and oc_poh_id must all be provided",
+        )
 
     pedido = _obtener_pedido_o_404(session, pedido_id)
-    if pedido.oc_poh_id is not None:
+    if getattr(pedido, "tipo", None) == "servicio":
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
-            detail=(f"Pedido id={pedido.id} already has a linked OC (poh_id={pedido.oc_poh_id}). Unlink first."),
+            detail="Pedido de servicio no admite vinculación de OC.",
+        )
+
+    already = (
+        session.query(PedidoCompraOc)
+        .filter(
+            PedidoCompraOc.pedido_id == pedido.id,
+            PedidoCompraOc.oc_comp_id == oc_comp_id,
+            PedidoCompraOc.oc_bra_id == oc_bra_id,
+            PedidoCompraOc.oc_poh_id == oc_poh_id,
+        )
+        .first()
+    )
+    if already is None and (
+        pedido.oc_comp_id == oc_comp_id and pedido.oc_bra_id == oc_bra_id and pedido.oc_poh_id == oc_poh_id
+    ):
+        already = True
+    if already:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=(f"Pedido id={pedido.id} already linked to OC (poh_id={oc_poh_id})."),
         )
 
     # Verify OC exists in ERP
@@ -2752,10 +2909,47 @@ def vincular_oc(
             detail=(f"OC poh_id={oc_poh_id} does not satisfy CRITERION-PENDIENTE: no unprocessed lines found."),
         )
 
-    pedido.oc_comp_id = oc_comp_id
-    pedido.oc_bra_id = oc_bra_id
-    pedido.oc_poh_id = oc_poh_id
-    session.flush()
+    if pedido.oc_poh_id is not None and not (
+        pedido.oc_comp_id == oc_comp_id and pedido.oc_bra_id == oc_bra_id and pedido.oc_poh_id == oc_poh_id
+    ):
+        header_row = (
+            session.query(PedidoCompraOc)
+            .filter(
+                PedidoCompraOc.pedido_id == pedido.id,
+                PedidoCompraOc.oc_comp_id == pedido.oc_comp_id,
+                PedidoCompraOc.oc_bra_id == pedido.oc_bra_id,
+                PedidoCompraOc.oc_poh_id == pedido.oc_poh_id,
+            )
+            .first()
+        )
+        if header_row is None:
+            session.add(
+                PedidoCompraOc(
+                    pedido_id=pedido.id,
+                    oc_comp_id=pedido.oc_comp_id,
+                    oc_bra_id=pedido.oc_bra_id,
+                    oc_poh_id=pedido.oc_poh_id,
+                )
+            )
+
+    link = PedidoCompraOc(
+        pedido_id=pedido.id,
+        oc_comp_id=oc_comp_id,
+        oc_bra_id=oc_bra_id,
+        oc_poh_id=oc_poh_id,
+    )
+    session.add(link)
+    if pedido.oc_poh_id is None:
+        pedido.oc_comp_id = oc_comp_id
+        pedido.oc_bra_id = oc_bra_id
+        pedido.oc_poh_id = oc_poh_id
+    try:
+        session.flush()
+    except IntegrityError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=(f"Pedido id={pedido.id} already linked to OC (poh_id={oc_poh_id})."),
+        ) from exc
 
     _registrar_evento(
         session,
@@ -2830,6 +3024,7 @@ def desvincular_oc(
         "oc_bra_id": pedido.oc_bra_id,
         "oc_poh_id": pedido.oc_poh_id,
     }
+    session.query(PedidoCompraOc).filter(PedidoCompraOc.pedido_id == pedido.id).delete(synchronize_session=False)
     pedido.oc_comp_id = None
     pedido.oc_bra_id = None
     pedido.oc_poh_id = None
