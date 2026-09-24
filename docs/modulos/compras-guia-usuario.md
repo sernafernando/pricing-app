@@ -80,6 +80,12 @@ no se renombra). La columna **Proceso** muestra el eje logístico
 `Controlado`) y chips de visibilidad: OC vinculada, factura cargada y
 estado del último job de OC Match. Esos chips no son estados del pedido.
 
+Las alertas de **factura cargada**, **faltantes** y **faltantes resueltos**
+son solo in-app (banner apilable + campanita). El texto usa el número
+Pricing `P-…`, el proveedor y el nº de factura — nunca `pedidos_documento`.
+OK descarta la alerta solo para quien la confirma. Faltantes se puede
+posponer 1 hora desde la marca; al resolver se avisa a depósito.
+
 ### 3.2 El PM envía el pedido a aprobación
 
 Desde el detalle del pedido → botón **Enviar a aprobación**. El pedido

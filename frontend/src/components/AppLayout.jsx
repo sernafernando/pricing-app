@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
-import { Outlet } from 'react-router-dom';
+import { Outlet, useNavigate } from 'react-router-dom';
 import Sidebar from './Sidebar';
 import TopBar from './TopBar';
 import AlertBanner, { AlertBannerContainer } from './AlertBanner';
@@ -10,6 +10,28 @@ import { useAuthStore } from '../store/authStore';
 import { usePermisos } from '../contexts/PermisosContext';
 import api from '../services/api';
 import styles from './AppLayout.module.css';
+
+const COMPRAS_ALERT_TIPOS = new Set([
+  'compras.factura_cargada',
+  'compras.faltantes',
+  'compras.faltantes_resuelto',
+]);
+
+const variantForComprasTipo = (tipo) => {
+  if (tipo === 'compras.faltantes') return 'warning';
+  if (tipo === 'compras.faltantes_resuelto') return 'success';
+  return 'info';
+};
+
+const deepLinkForCompras = (notif) => {
+  if (notif?.codigo_producto) return notif.codigo_producto;
+  const pedidoId = notif?.item_id;
+  if (!pedidoId) return '/administracion/compras?tab=pedidos';
+  if (notif.tipo === 'compras.faltantes') {
+    return `/administracion/compras?tab=pedidos&pedido=${pedidoId}&focus=observaciones`;
+  }
+  return `/administracion/compras?tab=pedidos&pedido=${pedidoId}`;
+};
 
 /**
  * AppLayout wraps children with SSEProvider.
@@ -34,6 +56,7 @@ function AppLayoutInner() {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 
   const user = useAuthStore((state) => state.user);
+  const navigate = useNavigate();
 
   // Brand-only users (every permission lives under the dashboard_tplink.*
   // namespace) get a focused, chrome-free view: no sidebar. SUPERADMIN and
@@ -47,6 +70,7 @@ function AppLayoutInner() {
   const [alertasVisibles, setAlertasVisibles] = useState([]);
   const [indiceRotacion, setIndiceRotacion] = useState(0);
   const [maxAlertasVisibles, setMaxAlertasVisibles] = useState(1);
+  const [comprasAlertas, setComprasAlertas] = useState([]);
 
   const { isDegraded } = useSSE();
 
@@ -69,20 +93,36 @@ function AppLayoutInner() {
     }
   }, []);
 
+  const cargarComprasAlertas = useCallback(async () => {
+    try {
+      const response = await api.get('/notificaciones', {
+        params: { solo_no_leidas: true, limit: 50 },
+      });
+      const rows = Array.isArray(response.data) ? response.data : [];
+      setComprasAlertas(rows.filter((n) => (
+        COMPRAS_ALERT_TIPOS.has(n.tipo) && n.estado !== 'DESCARTADA'
+      )));
+    } catch {
+      setComprasAlertas([]);
+    }
+  }, []);
+
   const reloadAlertas = useCallback(() => {
     cargarAlertasActivas();
     cargarConfiguracion();
-  }, [cargarAlertasActivas, cargarConfiguracion]);
+    cargarComprasAlertas();
+  }, [cargarAlertasActivas, cargarConfiguracion, cargarComprasAlertas]);
 
-  // Initial load
+  // Initial load (depend on user.id — identity, not object identity)
   useEffect(() => {
     if (user) {
       reloadAlertas();
     }
-  }, [user, reloadAlertas]);
+  }, [user?.id, reloadAlertas]);
 
   // SSE-driven reload: instant alert updates
   useSSEChannel('alertas:updated', reloadAlertas);
+  useSSEChannel('notificaciones:updated', cargarComprasAlertas);
 
   // Fallback polling: re-activate 300s polling when SSE is degraded
   useEffect(() => {
@@ -90,12 +130,12 @@ function AppLayoutInner() {
 
     const interval = setInterval(reloadAlertas, 300000);
     return () => clearInterval(interval);
-  }, [user, isDegraded, reloadAlertas]);
+  }, [user?.id, isDegraded, reloadAlertas]);
 
   // Sistema de rotación de alertas
   useEffect(() => {
     if (todasLasAlertas.length === 0) {
-      setAlertasVisibles([]);
+      setAlertasVisibles((prev) => (prev.length === 0 ? prev : []));
       return;
     }
 
@@ -151,6 +191,19 @@ function AppLayoutInner() {
     }
   };
 
+  const comprasCap = Number(maxAlertasVisibles) > 0 ? Number(maxAlertasVisibles) : 1;
+  const comprasVisibles = comprasAlertas.slice(0, comprasCap);
+  const comprasOcultas = Math.max(0, comprasAlertas.length - comprasVisibles.length);
+
+  const handleOkComprasAlerta = async (notifId) => {
+    try {
+      await api.patch(`/notificaciones/${notifId}/ok`);
+      setComprasAlertas((prev) => prev.filter((n) => n.id !== notifId));
+    } catch {
+      // Keep banner; next SSE/list refresh will reconcile.
+    }
+  };
+
   // Escuchar cambios en localStorage para sincronizar
   useEffect(() => {
     const handleStorageChange = () => {
@@ -198,6 +251,24 @@ function AppLayoutInner() {
         
         {/* Alert Banners - Sistema de rotación */}
         <AlertBannerContainer sidebarExpanded={sidebarExpanded} sidebarHidden={isBrandOnly}>
+          {comprasVisibles.map((notif) => (
+            <AlertBanner
+              key={`compras-${notif.id}`}
+              id={`compras-${notif.id}`}
+              variant={variantForComprasTipo(notif.tipo)}
+              message={notif.mensaje}
+              action={{
+                label: 'Ver',
+                onClick: () => navigate(deepLinkForCompras(notif)),
+              }}
+              dismissible
+              persistent
+              onDismiss={() => handleOkComprasAlerta(notif.id)}
+            />
+          ))}
+          {comprasOcultas > 0 && (
+            <p className={styles.comprasOverflow}>+{comprasOcultas} más</p>
+          )}
           {alertasVisibles.map((alerta) => (
             <AlertBanner
               key={alerta.id}

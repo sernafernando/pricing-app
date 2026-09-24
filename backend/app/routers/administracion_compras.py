@@ -810,7 +810,7 @@ def agregar_factura_documento(
     db: Session = Depends(get_db),
     user: Usuario = Depends(require_permiso("administracion.gestionar_ordenes_compra")),
 ) -> PedidoFacturaDocumentoResponse:
-    """Add a nonempty invoice number row. Does not fire alerts (PR2)."""
+    """Add a nonempty invoice number row and fan-out in-app factura alerts."""
     try:
         row = pedidos_service.agregar_factura_documento(
             db,
@@ -842,7 +842,7 @@ def deshacer_factura_documento(
     db: Session = Depends(get_db),
     user: Usuario = Depends(require_permiso("administracion.gestionar_ordenes_compra")),
 ) -> None:
-    """Undo a just-added factura row. After 5 minutes → 409. Alert retract is PR2."""
+    """Undo a just-added factura row. After 5 minutes → 409. Retracts factura alerts."""
     try:
         pedidos_service.deshacer_factura_documento(
             db,
@@ -5548,6 +5548,8 @@ from app.schemas.recepcion import (  # noqa: E402
     EventosRecepcionResponse,
     RegistrarIngresosRequest,
     RegistrarIngresosResponse,
+    ResolverFaltantesRequest,
+    ResolverFaltantesResponse,
     SaldosResponse,
 )
 
@@ -5665,6 +5667,41 @@ def post_confirmar_pedido_recepcion(
         raise HTTPException(status_code=500, detail="Error al confirmar pedido.") from exc
 
     _commit_or_rollback(db, operacion="confirmar_pedido")
+    return result
+
+
+@router.post(
+    "/pedidos/{pedido_id}/faltantes/resolver",
+    response_model=ResolverFaltantesResponse,
+    status_code=status.HTTP_200_OK,
+    summary="Resolver faltantes (G31 in-app a depósito)",
+)
+def post_resolver_faltantes(
+    pedido_id: int,
+    request: ResolverFaltantesRequest | None = None,
+    db: Session = Depends(get_db),
+    user: Usuario = Depends(
+        require_algun_permiso(["administracion.gestionar_ordenes_compra", recepcion_service.PERMISO_RECEPCION])
+    ),
+) -> ResolverFaltantesResponse:
+    """Set faltantes_resuelto_en and notify users with deposito.recibir_mercaderia."""
+    pedido = _obtener_pedido_recepcion_o_404(db, pedido_id)
+    try:
+        result = recepcion_service.resolver_faltantes(
+            db,
+            pedido,
+            user,
+            texto=request.texto if request is not None else None,
+        )
+    except HTTPException:
+        db.rollback()
+        raise
+    except Exception as exc:
+        db.rollback()
+        logger.exception("resolver_faltantes falló: %s", exc)
+        raise HTTPException(status_code=500, detail="Error al resolver faltantes.") from exc
+
+    _commit_or_rollback(db, operacion="resolver_faltantes")
     return result
 
 

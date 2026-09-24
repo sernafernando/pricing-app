@@ -666,7 +666,7 @@ def agregar_factura_documento(
     numero: str,
     user_id: int,
 ) -> PedidoFacturaDocumento:
-    """Persist a factura row via the shared alta path. Empty number → 422."""
+    """Persist a factura row via the shared alta path. Empty number → 422. Fires in-app factura alerts."""
     pedido = _obtener_pedido_o_404(session, pedido_id)
     numero_norm = (numero or "").strip()
     if not numero_norm:
@@ -697,7 +697,7 @@ def deshacer_factura_documento(
 ) -> None:
     """Remove a just-added row within the 5-minute undo window. After that → 409.
 
-    Alert retract is PR2 — this path only deletes the row.
+    Also marks the fan-out `compras.factura_cargada` notifications DESCARTADA.
     """
     _obtener_pedido_o_404(session, pedido_id)
     row = session.get(PedidoFacturaDocumento, row_id)
@@ -712,6 +712,14 @@ def deshacer_factura_documento(
             status_code=status.HTTP_409_CONFLICT,
             detail="La ventana de 5 minutos para deshacer la carga de factura ya expiró.",
         )
+    from app.services import compras_alertas_service
+
+    compras_alertas_service.retractar_factura_cargada(
+        session,
+        pedido_id=pedido_id,
+        factura_row_id=row_id,
+        ahora=_ahora_utc(ahora),
+    )
     session.delete(row)
     session.flush()
 
