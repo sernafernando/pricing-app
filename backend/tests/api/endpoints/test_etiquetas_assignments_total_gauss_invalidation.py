@@ -1,12 +1,24 @@
-"""RED/GREEN -- Total Gauss invalidation hooks (ml-ventas-modo-logistico,
-PR5, design D3). Every mutation site listed below MUST call `marcar_stale`
-in the SAME transaction; task 5.21's mutation check: silently removing one
-site's call and re-running the matching test here must fail.
+"""Flex-hook write preconditions (ml-ventas-modo-logistico, PR5, design D3;
+retired in PR8 — see below).
 
-Calls the endpoint functions directly (bypassing HTTP/auth) with
-`verificar_permiso` monkeypatched to always allow -- these tests are about
-the invalidation SIDE EFFECT, not the permission gate (which has its own
-coverage surface elsewhere in this router file).
+PR5 introduced Postgres triggers on `etiquetas_envio` (`UPDATE OF
+shipping_id, logistica_id, costo_override, fecha_envio, es_turbo, es_lluvia,
+transporte_id, manual_zip_code`, plus `AFTER INSERT` / `AFTER DELETE`) that
+enqueue the affected order(s) into `ml_order_metrics_dirty` directly from the
+write, superseding the old `marcar_stale` call-site hooks removed in PR8.
+
+These tests run on SQLite, where the Postgres triggers do not exist, so they
+CANNOT prove the enqueue itself happens — that is proven against a real
+Postgres trigger in
+`backend/tests/services/order_metrics/test_triggers_config_postgres.py`.
+
+What this module CAN still prove, per mutation site, is the trigger's
+PRECONDITION: each endpoint actually performs, in the same transaction, the
+`etiquetas_envio` column write (or row insert) the trigger watches. That is
+the value this module keeps from its pre-PR8 form — pinned PER SITE so that
+if a future refactor silently drops one site's write, the matching test
+here fails, even though the trigger and the enqueue are out of SQLite's
+reach.
 """
 
 from __future__ import annotations
@@ -46,12 +58,6 @@ def _order(db, order_id: int, shipping_id: int) -> None:
             ml_last_updated=datetime(2026, 8, 20, tzinfo=timezone.utc),
             seller_id=999,
             shipping_id=shipping_id,
-            # Explicit, NOT the server_default: SQLite stores the bare
-            # `false` server_default as the TEXT literal `"false"`, and
-            # `bool("false")` is `True` in Python -- a pre-existing gotcha
-            # this codebase already carries on `EtiquetaEnvio.es_turbo`
-            # (same `server_default="false"` pattern), not something this
-            # PR introduces. Sidestepped here rather than relied upon.
             total_gauss_stale=False,
         )
     )
@@ -63,8 +69,12 @@ def _fake_user() -> Usuario:
     return user
 
 
-class TestStaleOnLogisticaReassign:
-    def test_asignar_logistica_marks_stale(self, db) -> None:
+def _etiqueta(db, shipping_id: str) -> EtiquetaEnvio:
+    return db.query(EtiquetaEnvio).filter(EtiquetaEnvio.shipping_id == shipping_id).first()
+
+
+class TestFlexHookPreconditionOnLogisticaReassign:
+    def test_asignar_logistica_writes_logistica_id_column(self, db) -> None:
         _order(db, 100, 5000)
         db.add(Logistica(id=1, nombre="Andreani", activa=True))
         db.add(EtiquetaEnvio(shipping_id="5000", fecha_envio=date(2026, 8, 1)))
@@ -73,12 +83,12 @@ class TestStaleOnLogisticaReassign:
         payload = etiquetas_assignments.AsignarLogisticaRequest(logistica_id=1)
         etiquetas_assignments.asignar_logistica("5000", payload, db=db, current_user=_fake_user())
 
-        order = db.query(MlOrdersOps).filter(MlOrdersOps.order_id == 100).first()
-        assert order.total_gauss_stale is True
+        etiqueta = _etiqueta(db, "5000")
+        assert etiqueta.logistica_id == 1
 
 
-class TestStaleOnCambiarFecha:
-    def test_cambiar_fecha_marks_stale(self, db) -> None:
+class TestFlexHookPreconditionOnCambiarFecha:
+    def test_cambiar_fecha_writes_fecha_envio_column(self, db) -> None:
         _order(db, 101, 5001)
         db.add(EtiquetaEnvio(shipping_id="5001", fecha_envio=date(2026, 8, 1)))
         db.commit()
@@ -86,12 +96,12 @@ class TestStaleOnCambiarFecha:
         payload = etiquetas_assignments.CambiarFechaRequest(fecha_envio=date(2026, 8, 5))
         etiquetas_assignments.cambiar_fecha("5001", payload, db=db, current_user=_fake_user())
 
-        order = db.query(MlOrdersOps).filter(MlOrdersOps.order_id == 101).first()
-        assert order.total_gauss_stale is True
+        etiqueta = _etiqueta(db, "5001")
+        assert etiqueta.fecha_envio == date(2026, 8, 5)
 
 
-class TestStaleOnCostoOverrideEdit:
-    def test_set_costo_override_marks_stale(self, db) -> None:
+class TestFlexHookPreconditionOnCostoOverrideEdit:
+    def test_set_costo_override_writes_costo_override_column(self, db) -> None:
         _order(db, 102, 5002)
         db.add(Operador(id=1, nombre="Op", pin="1234", activo=True))
         db.add(EtiquetaEnvio(shipping_id="5002", fecha_envio=date(2026, 8, 1)))
@@ -100,12 +110,12 @@ class TestStaleOnCostoOverrideEdit:
         payload = etiquetas_assignments.CostoOverrideRequest(costo=500.0, operador_id=1)
         etiquetas_assignments.set_costo_override("5002", payload, db=db, current_user=_fake_user())
 
-        order = db.query(MlOrdersOps).filter(MlOrdersOps.order_id == 102).first()
-        assert order.total_gauss_stale is True
+        etiqueta = _etiqueta(db, "5002")
+        assert float(etiqueta.costo_override) == 500.0
 
 
-class TestStaleOnAsignarMasivo:
-    def test_asignar_masivo_marks_stale_for_every_matching_order(self, db) -> None:
+class TestFlexHookPreconditionOnAsignarMasivo:
+    def test_asignar_masivo_writes_logistica_id_for_every_matching_etiqueta(self, db) -> None:
         _order(db, 103, 5003)
         _order(db, 104, 5004)
         db.add(Logistica(id=2, nombre="OCA", activa=True))
@@ -116,12 +126,12 @@ class TestStaleOnAsignarMasivo:
         payload = etiquetas_assignments.AsignarMasivoRequest(shipping_ids=["5003", "5004"], logistica_id=2)
         etiquetas_assignments.asignar_masivo(payload, db=db, current_user=_fake_user())
 
-        orders = db.query(MlOrdersOps).filter(MlOrdersOps.order_id.in_([103, 104])).all()
-        assert all(o.total_gauss_stale for o in orders)
+        etiquetas = db.query(EtiquetaEnvio).filter(EtiquetaEnvio.shipping_id.in_(["5003", "5004"])).all()
+        assert all(e.logistica_id == 2 for e in etiquetas)
 
 
-class TestStaleOnCambiarFechaMasivo:
-    def test_cambiar_fecha_masivo_marks_stale(self, db) -> None:
+class TestFlexHookPreconditionOnCambiarFechaMasivo:
+    def test_cambiar_fecha_masivo_writes_fecha_envio_column(self, db) -> None:
         _order(db, 105, 5005)
         db.add(EtiquetaEnvio(shipping_id="5005", fecha_envio=date(2026, 8, 1)))
         db.commit()
@@ -129,23 +139,23 @@ class TestStaleOnCambiarFechaMasivo:
         payload = etiquetas_assignments.CambiarFechaMasivoRequest(shipping_ids=["5005"], fecha_envio=date(2026, 8, 9))
         etiquetas_assignments.cambiar_fecha_masivo(payload, db=db, current_user=_fake_user())
 
-        order = db.query(MlOrdersOps).filter(MlOrdersOps.order_id == 105).first()
-        assert order.total_gauss_stale is True
+        etiqueta = _etiqueta(db, "5005")
+        assert etiqueta.fecha_envio == date(2026, 8, 9)
 
 
-class TestStaleOnLabelBirth:
+class TestFlexHookPreconditionOnLabelBirth:
     """The maintainer's own extension to the task list: a Flex label's
-    BIRTH (not just later edits) invalidates Total Gauss, because until the
-    label exists there is no Flex cost to resolve at all."""
+    BIRTH (not just later edits) is a trigger `AFTER INSERT` precondition,
+    because until the label exists there is no Flex cost to resolve at
+    all."""
 
-    def test_new_real_ml_label_marks_matching_order_stale(self, db, monkeypatch) -> None:
-        """Exercised through the ENDPOINT, not `_insertar_etiqueta`.
+    def test_new_real_ml_label_inserts_etiqueta_row(self, db, monkeypatch) -> None:
+        """Exercised through the ENDPOINT, not `_insertar_etiqueta` directly.
 
         That function runs once per label and a ZPL upload carries
-        hundreds, so the invalidation moved out of it and into its callers,
-        which already collect the ids they inserted and can do it in one
-        call. Pinning the old placement would pin an implementation detail
-        and, worse, would pass while the endpoint invalidated nothing."""
+        hundreds, so pinning the write at the endpoint level is what
+        actually matters: it is the boundary the `AFTER INSERT` trigger
+        watches, in the SAME transaction as the request."""
         _order(db, 106, 5006)
         db.commit()
         monkeypatch.setattr(etiquetas_upload, "_check_permiso", lambda *a, **k: True)
@@ -160,13 +170,14 @@ class TestStaleOnLabelBirth:
             current_user=None,
         )
 
-        order = db.query(MlOrdersOps).filter(MlOrdersOps.order_id == 106).first()
-        assert order.total_gauss_stale is True
+        etiqueta = _etiqueta(db, "5006")
+        assert etiqueta is not None
 
     def test_manual_label_synthetic_id_never_matches_any_order(self, db) -> None:
         """MAN_/RETIRO- ids never collide with a real ML `shipping_id`, so
-        this is a harmless no-op, not a bug -- pinned so nobody "fixes" it
-        into resolving a fake shipping_id."""
+        the row is still inserted (trigger precondition met at the label
+        table) but can never resolve to an `MlOrdersOps` row -- pinned so
+        nobody "fixes" it into resolving a fake shipping_id."""
         touched = etiquetas_shared._insertar_etiqueta(
             db,
             shipping_id="MAN_20260101120000_1",
@@ -177,13 +188,14 @@ class TestStaleOnLabelBirth:
         )
         db.commit()
 
-        assert touched is True  # inserted fine, just never marks any order stale
+        assert touched is True  # inserted fine, just never resolves to a real order
 
 
-class TestNoStaleTriggerOnFrozenSnapshotEdit:
+class TestNoFlexHookTriggerOnFrozenSnapshotEdit:
     """Pins the D-frozen exclusion: a later ERP `producto.costo`/`.iva`
-    change must NOT invalidate an already-frozen sale's Total Gauss --
-    there is no hook on `ProductoERP` writes, and there must not be one."""
+    change must NOT touch `etiquetas_envio` at all -- there is no hook on
+    `ProductoERP` writes, and there must not be one, so it can never even
+    reach the trigger's watch list."""
 
     def test_product_cost_change_does_not_touch_orders_ops(self, db) -> None:
         _order(db, 107, 5007)
@@ -199,17 +211,15 @@ class TestNoStaleTriggerOnFrozenSnapshotEdit:
         assert order_after.total_gauss_stale is False
 
 
-class TestStaleOnBulkLabelUpload:
-    def test_the_BULK_upload_path_also_invalidates(self, db, monkeypatch) -> None:
-        """The case this hook exists for -- a ZPL carrying hundreds of Flex
-        labels -- and the one that had no test at all.
+class TestFlexHookPreconditionOnBulkLabelUpload:
+    def test_the_BULK_upload_path_also_inserts_etiqueta_rows(self, db, monkeypatch) -> None:
+        """The case this precondition exists for -- a ZPL carrying hundreds
+        of Flex labels -- and the one that had no test at all before PR5.
 
-        That gap let a real bug through: moving `marcar_stale` out of the
-        per-label helper (to stop N+1) landed it AFTER `db.commit()` and
-        `db.close()`, where its "the caller commits" contract cannot be
-        met. The UPDATE opened a fresh transaction on a closed session and
-        was discarded, so the bulk path invalidated nothing while the
-        single-scan test kept passing."""
+        Rolling back after the call and re-querying is what makes this
+        discriminate a real commit from a same-session read: reading
+        straight after the call would see the session's OWN uncommitted
+        INSERT and pass regardless of whether `db.commit()` actually ran."""
         _order(db, 107, 5007)
         _order(db, 108, 5008)
         db.commit()
@@ -239,13 +249,8 @@ class TestStaleOnBulkLabelUpload:
             current_user=None,
         )
 
-        # ROLLBACK FIRST, and this is what makes the test discriminate.
-        # Reading straight after the call sees the session's OWN uncommitted
-        # UPDATE, so it passes whether or not the invalidation was inside
-        # the transaction -- which is exactly how the bug survived. Rolling
-        # back discards anything never committed; what remains was.
         db.rollback()
 
-        for order_id in (107, 108):
-            order = db.query(MlOrdersOps).filter(MlOrdersOps.order_id == order_id).first()
-            assert order.total_gauss_stale is True, f"order {order_id} was never invalidated"
+        for shipping_id in ("5007", "5008"):
+            etiqueta = _etiqueta(db, shipping_id)
+            assert etiqueta is not None, f"etiqueta {shipping_id} was never committed"

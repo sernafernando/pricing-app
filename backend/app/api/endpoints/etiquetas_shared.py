@@ -508,18 +508,18 @@ def _insertar_etiqueta(
     # ml-ventas-modo-logistico PR5, design D3 (extended beyond the task
     # list, per the maintainer): "un flex en algún momento va a tener envío
     # no cuando se nutra, pero si cuando se cargue en depósito" -- until a
-    # real ML Flex label exists there is NO Flex cost to resolve, so the
-    # BIRTH of one here is itself an invalidation event, exactly like a
-    # later reassignment. Manual/retiro labels (`etiquetas_manual.py`,
-    # `etiqueta_retiro_service.py`) mint synthetic `MAN_.../RETIRO-...`
-    # ids that never match `MlOrdersOps.shipping_id` (a numeric ML id), so
-    # `marcar_stale` on those is a harmless no-op there -- this is the one
-    # site where the new label's id CAN match a real order.
+    # real ML Flex label exists there is NO Flex cost to resolve, so this
+    # INSERT is itself a Total Gauss invalidation event, exactly like a
+    # later reassignment. Since PR8, the invalidation is no longer a
+    # separate call: the `etiquetas_envio` `AFTER INSERT` trigger captures
+    # this INSERT directly, in the same transaction, and enqueues the
+    # matching order itself.
     #
-    # The invalidation itself is NOT done here: this function runs once per
-    # label, and a ZPL upload carries hundreds, which would mean hundreds of
-    # UPDATEs in one transaction. The callers already collect the ids they
-    # inserted, so they call `marcar_stale` ONCE with the whole batch.
+    # Manual/retiro labels (`etiquetas_manual.py`,
+    # `etiqueta_retiro_service.py`) mint synthetic `MAN_.../RETIRO-...` ids
+    # that never match `MlOrdersOps.shipping_id` (a numeric ML id), so the
+    # trigger firing on those rows is a harmless no-op there -- this is the
+    # one site where a new label's id CAN match a real order.
     return True
 
 
