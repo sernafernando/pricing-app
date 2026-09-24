@@ -80,10 +80,12 @@ permisos. Los tabs se ocultan dinámicamente según los permisos del usuario.
 En el listado, la columna **Estado** es financiera (el badge de **aprobado**
 se mantiene; no se llama “Pendiente”). La columna **Proceso** muestra el
 eje logístico (`N/A servicio`, `Por recibir`, `Recibido`, `Faltantes`,
-`Faltantes resueltos`, `Controlado`) y chips: **OC** (vinculación en
+`Faltantes con resolución`, `Controlado`) y chips: **OC** (vinculación en
 Pricing — header / `ocs[]` —, no “existe en GBP”), **Factura**
 (cargada en ERP) y estado del último job de OC Match. Esos chips no son
-estados del pedido. Si la OC vinculada no aparece en el ERP, el chip OC
+estados del pedido. Si hay **más de una OC**, además del chip aparecen
+etiquetas compactas `#poh` (ej. `#100` `#200`). Con una sola OC, solo el
+chip. Si la OC vinculada no aparece en el ERP, el chip OC
 sigue (el vínculo no se pierde) y Depósito muestra **OC no encontrada en
 ERP**. Si hay número de factura pero nadie tildó ERP, puede
 verse un chip atenuado **Número** — no es el chip Factura.
@@ -112,8 +114,9 @@ Las alertas de **factura cargada**, **faltantes** y **faltantes resueltos**
 son **solo in-app** (banner apilable + campanita). No hay email ni Slack.
 El texto usa el número Pricing `P-…`, el proveedor y el nº de factura —
 nunca `pedidos_documento`. OK descarta la alerta solo para quien la
-confirma. Faltantes se puede posponer 1 hora desde la marca; al resolver
-se avisa a depósito (también in-app).
+confirma. Faltantes se puede posponer 1 hora desde la marca. El OK del
+banner de faltantes **no** cierra el aviso: hay que resolverlo desde el
+pedido (ver 3.7).
 
 ### 3.2 El PM envía el pedido a aprobación
 
@@ -182,12 +185,19 @@ En un solo tick transaccional, el sistema crea:
 
 Tab **Recepción / Depósito** (permiso `deposito.recibir_mercaderia`):
 
-- **Por recibir** lista pedidos **pagado** por defecto. Un toggle incluye
-  cuenta corriente (CC). Se ocultan líneas con saldo 0.
+- **Por recibir** lista pedidos **pagado** por defecto y solo
+  **mercadería**. Un toggle incluye cuenta corriente (CC). Pedidos
+  **servicio** no aparecen (no hay llegada física). Se ocultan líneas
+  con saldo 0.
+- **Recibidos** lista solo lo recibido (sin controlar). **Con faltantes**
+  son solo los **sin** resolución. **Faltantes con resolución** es la cola
+  donde Depósito ve lo que el PM ya instructó, hasta pasar a controlado.
 - **Docs** abre los **adjuntos del pedido** (no un dump de documentos ERP).
 - Se puede **deshacer recibido** (vuelve a pagado o a CC). **Controlado**
   no se deshace.
-- Faltantes: texto obligatorio. Observación/foto de control son opcionales.
+- Faltantes en control: texto obligatorio. Observación y foto de control
+  son opcionales: controlar OK **sin** evidencia sigue valiendo. La foto
+  se sube como adjunto **antes** de confirmar el control.
 - Varias OCs en el mismo pedido: un bloque por OC. Vincular **agrega**, no
   reemplaza. **Controlado** recién cuando están todas las OCs. Pedido
   **servicio**: no hay candidatas OC (no se vincula).
@@ -196,6 +206,22 @@ Tab **Recepción / Depósito** (permiso `deposito.recibir_mercaderia`):
   por una sola OC. Si una OC no aparece en el ERP, el bloque sigue
   visible con el texto **OC no encontrada en ERP** (el vínculo no se
   borra solo).
+
+### 3.7 Resolver faltantes y aviso a Depósito (G31)
+
+1. El PM abre el **detalle** del pedido con faltantes sin resolución.
+2. Completa el texto obligatorio (“Faltantes con resolución”) y guarda.
+   El estado financiero **no cambia**; el eje pasa a **Faltantes con
+   resolución** y el pedido deja de listarse en **Con faltantes**.
+3. El banner de faltantes se cierra. Depósito recibe un aviso in-app
+   (G31) con ese texto.
+4. **Ver** en el aviso abre **Recepción / Depósito → Faltantes con
+   resolución** y expande ese pedido
+   (`?tab=deposito&pedido=…&eje=faltantes_con_res`). Desde ahí se controla
+   (obs/foto opcionales).
+5. El aviso G31 se puede confirmar con OK como otras alertas in-app. El de
+   **faltantes** al PM, en cambio, solo se cierra al resolver. No se puede
+   resolver dos veces el mismo pedido.
 
 ---
 

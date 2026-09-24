@@ -4,7 +4,7 @@
 
 ### Requirement: Depósito tabs filter by eje and exclude servicio
 
-Con faltantes MUST list only `eje_procesal=faltantes_sin_res`. Recibidos MUST include `recibido` AND `faltantes_con_res`. Por recibir MUST exclude `tipo=servicio`.
+Con faltantes MUST list only `eje_procesal=faltantes_sin_res`. **Faltantes con resolución** MUST list only `faltantes_con_res`. Recibidos MUST list only `recibido` (not resolved faltantes). Por recibir MUST exclude `tipo=servicio`.
 
 #### Scenario: Con faltantes hides resolved
 
@@ -12,11 +12,17 @@ Con faltantes MUST list only `eje_procesal=faltantes_sin_res`. Recibidos MUST in
 - WHEN Con faltantes loads
 - THEN only P-sin MUST appear
 
-#### Scenario: Recibidos includes resolved faltantes
+#### Scenario: Faltantes con resolución shows only resolved
+
+- GIVEN P-rec (`recibido`) and P-con (`faltantes_con_res`)
+- WHEN Faltantes con resolución loads
+- THEN only P-con MUST appear
+
+#### Scenario: Recibidos excludes resolved faltantes
 
 - GIVEN P-rec (`recibido`) and P-con (`faltantes_con_res`)
 - WHEN Recibidos loads
-- THEN both MUST appear
+- THEN only P-rec MUST appear
 
 #### Scenario: Servicio excluded from Por recibir
 
@@ -88,10 +94,11 @@ The component MUST:
 - Offer a CC toggle on Por recibir.
 - Apply the AND contains filters from this change.
 - Filter **Con faltantes** by `eje_procesal=faltantes_sin_res` only.
-- Filter **Recibidos** by `recibido` AND `faltantes_con_res`.
+- Filter **Faltantes con resolución** by `eje_procesal=faltantes_con_res` only.
+- Filter **Recibidos** by `recibido` only.
 - Show factura number and `pedidos_documento` chips on every row, including CON-OC.
 
-(Previously: one list of `pagado`+`con_faltantes`; no CC toggle; Con faltantes used financial `estado`; ident chips SIN-OC only.)
+(Previously: Recibidos mixed `recibido` + `faltantes_con_res`; no dedicated resolved-faltantes tab.)
 
 #### Scenario: List shows pagado and con_faltantes pedidos
 

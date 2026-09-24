@@ -17,11 +17,7 @@ import {
 } from 'lucide-react';
 import api from '../../services/api';
 import { useDebounce } from '../../hooks/useDebounce';
-import useRecepcionDeposito, {
-  readFocusQuery,
-  readPedidoQuery,
-  readEjeQuery,
-} from '../../hooks/useRecepcionDeposito';
+import useRecepcionDeposito, { readFocusQuery, readPedidoQuery, readEjeQuery } from '../../hooks/useRecepcionDeposito';
 import { usePermisos } from '../../contexts/PermisosContext';
 import AdjuntosPanel from './AdjuntosPanel';
 import ModalCargarRetiro from './ModalCargarRetiro';
@@ -1271,8 +1267,8 @@ export default function TabRecepcionDeposito() {
     setLoading(true);
     setError(null);
     try {
-      // Recibidos / Con faltantes / Faltantes con resolución use eje_procesal.
-      // Other tabs still send `estado` verbatim; Por recibir defaults to pagado, CC is opt-in.
+      // Recibidos / Con faltantes / Controlados use eje_procesal. Por recibir
+      // still sends financial `estado` (pagado ± CC).
       const params = { page_size: 200 };
       if (filtro === 'recibido') {
         params.eje_procesal = 'recibido';
@@ -1280,10 +1276,13 @@ export default function TabRecepcionDeposito() {
         params.eje_procesal = 'faltantes_sin_res';
       } else if (filtro === FALTANTES_CON_RES_ID) {
         params.eje_procesal = 'faltantes_con_res';
+      } else if (filtro === 'controlado') {
+        params.eje_procesal = 'controlado';
       } else {
         params.estado =
           filtro === POR_RECIBIR_ID && incluirCC ? 'pagado,en_cuenta_corriente' : filtro;
       }
+      params.tipo = 'mercaderia';
       if (dqProveedor.trim()) params.q_proveedor = dqProveedor.trim();
       if (dqNumero.trim()) params.q_numero = dqNumero.trim();
       if (dqFactura.trim()) params.q_factura = dqFactura.trim();

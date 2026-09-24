@@ -172,7 +172,7 @@ class TestCrearNotificacionesParaPermisos:
             mensaje="Diferencia detectada",
             severidad=SeveridadNotificacion.WARNING,
             item_id=42,
-            codigo_producto="/administracion/compras?tab=deposito&pedido=42",
+            codigo_producto="/administracion/compras?tab=deposito&pedido=42&eje=faltantes_con_res",
         )
         db.flush()
 
@@ -186,7 +186,7 @@ class TestCrearNotificacionesParaPermisos:
         assert notifs_admin1[0].estado == EstadoNotificacion.PENDIENTE
         assert notifs_admin1[0].tipo == "compras.pedido_monto_difiere_factura"
         assert notifs_admin1[0].item_id == 42
-        assert notifs_admin1[0].codigo_producto == "/administracion/compras?tab=deposito&pedido=42"
+        assert notifs_admin1[0].codigo_producto == "/administracion/compras?tab=deposito&pedido=42&eje=faltantes_con_res"
         # El usuario de ventas NO ve nada.
         assert db.query(Notificacion).filter(Notificacion.user_id == _ventas.id).count() == 0
 

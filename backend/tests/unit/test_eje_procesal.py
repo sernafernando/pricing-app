@@ -103,11 +103,18 @@ class TestFiltroEjeProcesal:
             tipo="servicio",
         )
 
-        recibidos = _ids_con_eje(db, "recibido,faltantes_con_res")
-        assert p_rec.id in recibidos
-        assert p_con.id in recibidos
-        assert p_sin.id not in recibidos
-        assert p_srv.id not in recibidos
+        recibidos = _ids_con_eje(db, "recibido")
+        assert recibidos == {p_rec.id}
+
+        con_res = _ids_con_eje(db, "faltantes_con_res")
+        assert con_res == {p_con.id}
+
+        # Comma-OR still supported by the list API (legacy / composed filters).
+        mixed = _ids_con_eje(db, "recibido,faltantes_con_res")
+        assert p_rec.id in mixed
+        assert p_con.id in mixed
+        assert p_sin.id not in mixed
+        assert p_srv.id not in mixed
 
         solo_sin = _ids_con_eje(db, "faltantes_sin_res")
         assert solo_sin == {p_sin.id}

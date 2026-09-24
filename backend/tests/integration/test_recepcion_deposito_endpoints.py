@@ -2664,14 +2664,25 @@ class TestListarPedidosEjeTipo:
         )
         db.add_all([rec, con, sin, srv])
         db.commit()
-        r = client.get(
+        r_rec = client.get(
             f"{BASE}/pedidos",
-            params={"eje_procesal": "recibido,faltantes_con_res"},
+            params={"eje_procesal": "recibido"},
             headers=auth_headers,
         )
-        assert r.status_code == 200
-        numeros = {item["numero"] for item in r.json()["items"]}
-        assert "P-LIST-REC" in numeros
-        assert "P-LIST-CON" in numeros
-        assert "P-LIST-SIN" not in numeros
-        assert "P-LIST-SRV" not in numeros
+        assert r_rec.status_code == 200
+        nums_rec = {item["numero"] for item in r_rec.json()["items"]}
+        assert "P-LIST-REC" in nums_rec
+        assert "P-LIST-CON" not in nums_rec
+        assert "P-LIST-SIN" not in nums_rec
+
+        r_con = client.get(
+            f"{BASE}/pedidos",
+            params={"eje_procesal": "faltantes_con_res"},
+            headers=auth_headers,
+        )
+        assert r_con.status_code == 200
+        nums_con = {item["numero"] for item in r_con.json()["items"]}
+        assert "P-LIST-CON" in nums_con
+        assert "P-LIST-REC" not in nums_con
+        assert "P-LIST-SIN" not in nums_con
+        assert "P-LIST-SRV" not in nums_con

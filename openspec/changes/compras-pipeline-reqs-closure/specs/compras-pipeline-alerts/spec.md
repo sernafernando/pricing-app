@@ -60,7 +60,7 @@ Resolving faltantes MUST require nonempty `texto`, MUST stamp `faltantes_resuelt
 - GIVEN P is resolved with texto `Comprar 2 cajas y entregar en dock`
 - WHEN G31 `compras.faltantes_resuelto` is created
 - THEN copy MUST include that texto
-- AND the alert MUST deep-link to Depósito for P
+- AND the alert MUST deep-link to Depósito **Faltantes con resolución** for P (`eje=faltantes_con_res`)
 
 #### Scenario: Empty resolve texto rejected
 
