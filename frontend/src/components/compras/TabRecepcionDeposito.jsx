@@ -77,6 +77,47 @@ const FILTER_TABS = [
 const POR_RECIBIR_ID = 'pagado';
 const FALTANTES_CON_RES_ID = 'faltantes_con_res';
 
+function mergeResponsableOptions(pool, pedido) {
+  const byId = new Map();
+  (Array.isArray(pool) ? pool : []).forEach((u) => {
+    const id = Number(u.id);
+    if (!Number.isFinite(id)) return;
+    byId.set(id, { id, nombre: u.nombre || `#${id}` });
+  });
+  const currentId = pedido.responsable_id;
+  if (currentId != null && !byId.has(Number(currentId))) {
+    byId.set(Number(currentId), {
+      id: Number(currentId),
+      nombre: pedido.responsable_nombre || `Responsable actual (#${currentId})`,
+    });
+  }
+  return Array.from(byId.values());
+}
+
+function ResponsableFaltantesPicker({ pedido, pool, value, onChange, selectId }) {
+  const options = mergeResponsableOptions(pool, pedido);
+  return (
+    <div className={styles.responsableField}>
+      <label htmlFor={selectId} className={styles.observacionesLabel}>
+        Responsable de faltantes
+      </label>
+      <select
+        id={selectId}
+        className={styles.responsableSelect}
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        aria-label="Responsable de faltantes"
+      >
+        {options.map((u) => (
+          <option key={u.id} value={String(u.id)}>
+            {u.nombre}
+          </option>
+        ))}
+      </select>
+    </div>
+  );
+}
+
 // Outcome text announced by the SINGLE list-level copy live region, keyed by
 // copyStatus. 'idle' is deliberately absent: it maps to an empty string, because
 // the region is mounted from the first render and only its TEXT may change.
@@ -491,7 +532,7 @@ function ControlEvidenceFields({ pedidoId, observaciones, onObservacionesChange,
 // ── Accordion body — CON OC ───────────────────────────────────────
 
 function AccordionBodyConOc({ pedido, onRefreshList }) {
-  const { getSaldos, registrarIngresos } = useRecepcionDeposito();
+  const { getSaldos, registrarIngresos, getUsuariosResponsableFaltantes } = useRecepcionDeposito();
 
   const [saldos, setSaldos] = useState(null);
   const [loadingSaldos, setLoadingSaldos] = useState(false);
@@ -501,6 +542,10 @@ function AccordionBodyConOc({ pedido, onRefreshList }) {
   const [tanda, setTanda] = useState({});
   const [faltantesTexto, setFaltantesTexto] = useState('');
   const [observaciones, setObservaciones] = useState('');
+  const [responsableId, setResponsableId] = useState(
+    pedido.responsable_id != null ? String(pedido.responsable_id) : ''
+  );
+  const [responsablePool, setResponsablePool] = useState([]);
   const [submitting, setSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState(null);
   const [submitSuccess, setSubmitSuccess] = useState(null);
@@ -529,6 +574,20 @@ function AccordionBodyConOc({ pedido, onRefreshList }) {
   useEffect(() => {
     fetchSaldos();
   }, [fetchSaldos]);
+
+  useEffect(() => {
+    let cancelled = false;
+    getUsuariosResponsableFaltantes()
+      .then((users) => {
+        if (!cancelled) setResponsablePool(Array.isArray(users) ? users : []);
+      })
+      .catch(() => {
+        if (!cancelled) setResponsablePool([]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [getUsuariosResponsableFaltantes]);
 
   if (loadingSaldos) {
     return (
@@ -623,7 +682,10 @@ function AccordionBodyConOc({ pedido, onRefreshList }) {
     setSubmitSuccess(null);
     try {
       const payload = { lineas: tandaLineas };
-      if (!completo) payload.faltantes_texto = faltantesTexto.trim();
+      if (!completo) {
+        payload.faltantes_texto = faltantesTexto.trim();
+        if (responsableId) payload.responsable_id = Number(responsableId);
+      }
       const obs = observaciones.trim();
       if (obs) payload.observaciones = obs;
       await registrarIngresos(pedido.id, payload);
@@ -777,6 +839,13 @@ function AccordionBodyConOc({ pedido, onRefreshList }) {
           value={faltantesTexto}
           onChange={(e) => setFaltantesTexto(e.target.value)}
         />
+        <ResponsableFaltantesPicker
+          pedido={pedido}
+          pool={responsablePool}
+          value={responsableId}
+          onChange={setResponsableId}
+          selectId={`responsable-conoc-${pedido.id}`}
+        />
       </div>
 
       <ControlEvidenceFields
@@ -825,11 +894,15 @@ function AccordionBodyConOc({ pedido, onRefreshList }) {
 // ── Accordion body — SIN OC ───────────────────────────────────────
 
 function AccordionBodySinOc({ pedido, onRefreshList }) {
-  const { confirmarPedido } = useRecepcionDeposito();
+  const { confirmarPedido, getUsuariosResponsableFaltantes } = useRecepcionDeposito();
   const [showFaltantes, setShowFaltantes] = useState(false);
   const [faltantesTexto, setFaltantesTexto] = useState('');
   const [observaciones, setObservaciones] = useState('');
   const [faltantesError, setFaltantesError] = useState(false);
+  const [responsableId, setResponsableId] = useState(
+    pedido.responsable_id != null ? String(pedido.responsable_id) : ''
+  );
+  const [responsablePool, setResponsablePool] = useState([]);
   const [submitting, setSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState(null);
   const [submitSuccess, setSubmitSuccess] = useState(null);
@@ -850,6 +923,7 @@ function AccordionBodySinOc({ pedido, onRefreshList }) {
             completo: false,
             faltantes_texto: faltantesTexto.trim(),
             observaciones: observaciones.trim() || undefined,
+            ...(responsableId ? { responsable_id: Number(responsableId) } : {}),
           };
       await confirmarPedido(pedido.id, payload);
       // D-SINOC messages based on source estado
@@ -888,6 +962,21 @@ function AccordionBodySinOc({ pedido, onRefreshList }) {
     document.getElementById('pedido-observaciones')?.focus();
     return undefined;
   }, [showFaltantes]);
+
+  useEffect(() => {
+    if (!showFaltantes) return undefined;
+    let cancelled = false;
+    getUsuariosResponsableFaltantes()
+      .then((users) => {
+        if (!cancelled) setResponsablePool(Array.isArray(users) ? users : []);
+      })
+      .catch(() => {
+        if (!cancelled) setResponsablePool([]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [showFaltantes, getUsuariosResponsableFaltantes]);
 
   return (
     <>
@@ -978,6 +1067,13 @@ function AccordionBodySinOc({ pedido, onRefreshList }) {
               El texto de faltantes es requerido.
             </span>
           )}
+          <ResponsableFaltantesPicker
+            pedido={pedido}
+            pool={responsablePool}
+            value={responsableId}
+            onChange={setResponsableId}
+            selectId={`responsable-sinoc-${pedido.id}`}
+          />
           <div>
             <button
               type="button"

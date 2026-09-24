@@ -576,6 +576,17 @@
   color: var(--cf-text-secondary);
 }
 
+.responsableField {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-xs);
+  max-width: 20rem;
+}
+
+.responsableSelect {
+  composes: select selectSm from '../../styles/forms-tesla.css';
+}
+
 .observacionesTextarea {
   composes: textarea textareaSm from '../../styles/forms-tesla.css';
   min-height: 64px;

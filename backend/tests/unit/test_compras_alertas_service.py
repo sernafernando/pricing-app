@@ -411,6 +411,34 @@ class TestFaltantes:
         assert exc_info.value.status_code == 422
         assert db.query(Notificacion).filter(Notificacion.tipo == "compras.faltantes").count() == 0
 
+    def test_chosen_responsable_receives_alert_after_assign(self, db, empresa, proveedor, fanout_users) -> None:
+        from app.schemas.recepcion import ConfirmarPedidoRequest
+        from app.services import recepcion_service
+
+        responsable = fanout_users["titular"]
+        chosen = fanout_users["admin"]
+        deposito = fanout_users["outsider"]
+        pedido = _pedido(db, empresa, proveedor, responsable, responsable_id=responsable.id)
+
+        def _perm(_self, user, codigo: str) -> bool:
+            return codigo == "administracion.gestionar_ordenes_compra" and user.id == chosen.id
+
+        with patch("app.services.permisos_service.PermisosService.tiene_permiso", new=_perm):
+            recepcion_service.confirmar_pedido_sin_oc(
+                db,
+                pedido,
+                deposito,
+                ConfirmarPedidoRequest(
+                    completo=False,
+                    faltantes_texto="Faltan 2 cajas",
+                    responsable_id=chosen.id,
+                ),
+            )
+        db.flush()
+        creadas = db.query(Notificacion).filter(Notificacion.tipo == "compras.faltantes").all()
+        assert {n.user_id for n in creadas} == {chosen.id}
+        assert pedido.responsable_id == chosen.id
+
     def test_factura_permiso_does_not_change_faltantes_recipients(self, db, empresa, proveedor, fanout_users) -> None:
         responsable = fanout_users["titular"]
         holder = fanout_users["holder_h1"]

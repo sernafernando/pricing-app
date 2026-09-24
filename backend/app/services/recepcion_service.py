@@ -20,7 +20,7 @@ from decimal import Decimal
 from typing import Any
 
 from fastapi import HTTPException, status
-from sqlalchemy import bindparam, text
+from sqlalchemy import bindparam, text, update
 from sqlalchemy.orm import Session
 
 from app.core.logging import get_logger
@@ -96,6 +96,33 @@ def _alertar_faltantes_si_corresponde(session: Session, pedido: PedidoCompra, te
     if pedido.proveedor is None:
         session.refresh(pedido, attribute_names=["proveedor"])
     compras_alertas_service.notificar_faltantes(session, pedido=pedido, texto=texto)
+
+
+def _asignar_responsable_en_faltantes(
+    session: Session,
+    pedido: PedidoCompra,
+    responsable_id: int | None,
+) -> None:
+    """Assign responsable on mark-faltantes only. Omit/same keep current (no perm re-check)."""
+    if responsable_id is None:
+        return
+    current = pedido.responsable_id
+    if current is not None and int(responsable_id) == int(current):
+        return
+    chosen = session.get(Usuario, int(responsable_id))
+    if chosen is None or not bool(chosen.activo):
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail="responsable_id inválido.",
+        )
+    from app.services.permisos_service import PermisosService
+
+    if not PermisosService(session).tiene_permiso(chosen, PERMISO_GESTIONAR_OC):
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail="responsable_id debe tener administracion.gestionar_ordenes_compra.",
+        )
+    pedido.responsable_id = int(responsable_id)
 
 
 def _validar_no_servicio(pedido: PedidoCompra) -> None:
@@ -521,6 +548,7 @@ def registrar_ingresos(
                 status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
                 detail="faltantes_texto is required when marking faltantes.",
             )
+        _asignar_responsable_en_faltantes(session, pedido, request.responsable_id)
         _alertar_faltantes_si_corresponde(session, pedido, texto)
 
     return RegistrarIngresosResponse(
@@ -636,6 +664,7 @@ def confirmar_pedido_sin_oc(
                 status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
                 detail="faltantes_texto is required when marking faltantes.",
             )
+        _asignar_responsable_en_faltantes(session, pedido, request.responsable_id)
         _alertar_faltantes_si_corresponde(session, pedido, texto)
 
     return ConfirmarPedidoResponse(
@@ -852,14 +881,24 @@ def resolver_faltantes(
             status_code=status.HTTP_409_CONFLICT,
             detail=f"Solo se resuelven faltantes en estado con_faltantes (estado='{pedido.estado}').",
         )
-    if pedido.faltantes_resuelto_en is not None:
+    stamp = ahora if ahora is not None else datetime.now(UTC)
+    if stamp.tzinfo is None:
+        stamp = stamp.replace(tzinfo=UTC)
+    result = session.execute(
+        update(PedidoCompra)
+        .where(
+            PedidoCompra.id == pedido.id,
+            PedidoCompra.faltantes_resuelto_en.is_(None),
+            PedidoCompra.estado == "con_faltantes",
+        )
+        .values(faltantes_resuelto_en=stamp)
+    )
+    if int(result.rowcount or 0) == 0:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail="Los faltantes ya fueron resueltos.",
         )
-    stamp = ahora if ahora is not None else datetime.now(UTC)
-    if stamp.tzinfo is None:
-        stamp = stamp.replace(tzinfo=UTC)
+    session.refresh(pedido)
     pedido.faltantes_resuelto_en = stamp
     _emit_evento(
         session,

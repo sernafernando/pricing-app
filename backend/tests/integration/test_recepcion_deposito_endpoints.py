@@ -19,6 +19,7 @@ from decimal import Decimal
 from unittest.mock import patch
 
 import pytest
+from fastapi import HTTPException
 from sqlalchemy import text
 
 from app.models.compra_evento import CompraEvento
@@ -283,6 +284,9 @@ def _mk_oc_detail(
 
 
 def _mk_storage(db, *, comp_id: int = 1, stor_id: int = 1, stor_desc: str = "Depósito Principal"):
+    existing = db.query(TbStorage).filter(TbStorage.comp_id == comp_id, TbStorage.stor_id == stor_id).one_or_none()
+    if existing is not None:
+        return existing
     s = TbStorage(comp_id=comp_id, stor_id=stor_id, stor_desc=stor_desc)
     db.add(s)
     db.flush()
@@ -2618,6 +2622,153 @@ class TestResolverFaltantesHttp:
             headers=auth_headers,
         )
         assert r.status_code == 409
+
+
+class TestResponsableFaltantesAssignAndPool:
+    def _pedido_recibido_sin_oc(self, db, empresa, proveedor, user, *, responsable_id: int) -> PedidoCompra:
+        p = PedidoCompra(
+            numero="P-RD-ASG-01",
+            empresa_id=empresa.id,
+            proveedor_id=proveedor.id,
+            moneda="ARS",
+            monto=Decimal("100"),
+            estado="recibido",
+            creado_por_id=user.id,
+            responsable_id=responsable_id,
+        )
+        db.add(p)
+        db.flush()
+        return p
+
+    def test_assign_chosen_on_confirmar_faltantes(self, db, empresa, proveedor, active_user, admin_user) -> None:
+        p = self._pedido_recibido_sin_oc(db, empresa, proveedor, active_user, responsable_id=active_user.id)
+
+        def _perm(_self, user, codigo: str) -> bool:
+            return codigo == "administracion.gestionar_ordenes_compra" and user.id == admin_user.id
+
+        req = ConfirmarPedidoRequest(
+            completo=False,
+            faltantes_texto="Faltan 2 cajas",
+            responsable_id=admin_user.id,
+        )
+        with patch("app.services.permisos_service.PermisosService.tiene_permiso", new=_perm):
+            result = recepcion_service.confirmar_pedido_sin_oc(db, p, active_user, req)
+        assert result.estado_nuevo == "con_faltantes"
+        assert p.responsable_id == admin_user.id
+
+    def test_omit_keeps_current_responsable(self, db, empresa, proveedor, active_user, admin_user) -> None:
+        p = self._pedido_recibido_sin_oc(db, empresa, proveedor, active_user, responsable_id=admin_user.id)
+        req = ConfirmarPedidoRequest(completo=False, faltantes_texto="Faltan 2 cajas")
+        result = recepcion_service.confirmar_pedido_sin_oc(db, p, active_user, req)
+        assert result.estado_nuevo == "con_faltantes"
+        assert p.responsable_id == admin_user.id
+
+    def test_same_as_current_skips_perm_recheck(self, db, empresa, proveedor, active_user) -> None:
+        p = self._pedido_recibido_sin_oc(db, empresa, proveedor, active_user, responsable_id=active_user.id)
+
+        def _deny_gestionar(_self, _user, codigo: str) -> bool:
+            return codigo != "administracion.gestionar_ordenes_compra"
+
+        req = ConfirmarPedidoRequest(
+            completo=False,
+            faltantes_texto="Faltan 2 cajas",
+            responsable_id=active_user.id,
+        )
+        with patch("app.services.permisos_service.PermisosService.tiene_permiso", new=_deny_gestionar):
+            result = recepcion_service.confirmar_pedido_sin_oc(db, p, active_user, req)
+        assert result.estado_nuevo == "con_faltantes"
+        assert p.responsable_id == active_user.id
+
+    def test_invalid_chosen_422_keeps_current(self, db, empresa, proveedor, active_user, admin_user) -> None:
+        p = self._pedido_recibido_sin_oc(db, empresa, proveedor, active_user, responsable_id=active_user.id)
+
+        def _deny(_self, _user, _codigo: str) -> bool:
+            return False
+
+        req = ConfirmarPedidoRequest(
+            completo=False,
+            faltantes_texto="Faltan 2 cajas",
+            responsable_id=admin_user.id,
+        )
+        with patch("app.services.permisos_service.PermisosService.tiene_permiso", new=_deny):
+            with pytest.raises(HTTPException) as exc:
+                recepcion_service.confirmar_pedido_sin_oc(db, p, active_user, req)
+        assert exc.value.status_code == 422
+        assert p.responsable_id == active_user.id
+
+    def test_control_complete_ignores_responsable_id(self, db, empresa, proveedor, active_user, admin_user) -> None:
+        p = self._pedido_recibido_sin_oc(db, empresa, proveedor, active_user, responsable_id=active_user.id)
+        req = ConfirmarPedidoRequest(completo=True, responsable_id=admin_user.id)
+        result = recepcion_service.confirmar_pedido_sin_oc(db, p, active_user, req)
+        assert result.estado_nuevo == "controlado"
+        assert p.responsable_id == active_user.id
+
+    def test_ingresos_assign_and_control_ignore(self, db, empresa, proveedor, active_user, admin_user) -> None:
+        helper = TestRegistrarIngresosService()
+        p = helper._pedido_con_oc_y_lineas(db, empresa, proveedor, active_user, poh_id=9801)
+        p.responsable_id = active_user.id
+        db.flush()
+
+        def _perm(_self, user, codigo: str) -> bool:
+            return codigo == "administracion.gestionar_ordenes_compra" and user.id == admin_user.id
+
+        assign_req = RegistrarIngresosRequest(
+            lineas=[IngresoLinea(pod_id=1, cantidad_recibida=Decimal("60"))],
+            faltantes_texto="Falta línea 2",
+            responsable_id=admin_user.id,
+        )
+        with patch("app.services.permisos_service.PermisosService.tiene_permiso", new=_perm):
+            assigned = recepcion_service.registrar_ingresos(db, p, active_user, assign_req)
+        assert assigned.estado_nuevo == "con_faltantes"
+        assert p.responsable_id == admin_user.id
+
+        p_ok = PedidoCompra(
+            numero="P-RD-RI-9802",
+            empresa_id=empresa.id,
+            proveedor_id=proveedor.id,
+            moneda="ARS",
+            monto=Decimal("5000"),
+            estado="pagado",
+            oc_comp_id=1,
+            oc_bra_id=1,
+            oc_poh_id=9802,
+            creado_por_id=active_user.id,
+            responsable_id=active_user.id,
+        )
+        db.add(p_ok)
+        db.flush()
+        _mk_oc_header(db, poh_id=9802, supp_id=55)
+        _mk_oc_detail(db, poh_id=9802, pod_id=1, qty=100.0, item_id=101)
+        _mk_oc_detail(db, poh_id=9802, pod_id=2, qty=50.0, item_id=102)
+        control_req = RegistrarIngresosRequest(
+            lineas=[
+                IngresoLinea(pod_id=1, cantidad_recibida=Decimal("100")),
+                IngresoLinea(pod_id=2, cantidad_recibida=Decimal("50")),
+            ],
+            responsable_id=admin_user.id,
+        )
+        controlled = recepcion_service.registrar_ingresos(db, p_ok, active_user, control_req)
+        assert controlled.estado_nuevo == "controlado"
+        assert p_ok.responsable_id == active_user.id
+
+    def test_pool_403_without_deposito(self, client, auth_headers, sin_permiso) -> None:
+        r = client.get(f"{BASE}/usuarios-responsable-faltantes", headers=auth_headers)
+        assert r.status_code == 403
+
+    def test_pool_returns_gestionar_holders(
+        self, client, auth_headers, db, admin_user, active_user, con_permiso_deposito
+    ) -> None:
+        with patch(
+            "app.services.notificacion_service.resolver_usuarios_con_algun_permiso",
+            return_value=[admin_user],
+        ) as mock_pool:
+            r = client.get(f"{BASE}/usuarios-responsable-faltantes", headers=auth_headers)
+        assert r.status_code == 200
+        mock_pool.assert_called_once()
+        ids = {row["id"] for row in r.json()}
+        assert admin_user.id in ids
+        assert active_user.id not in ids
+        assert r.json()[0]["nombre"] == admin_user.nombre
 
 
 class TestListarPedidosEjeTipo:

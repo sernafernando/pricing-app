@@ -1,0 +1,58 @@
+change: compras-faltantes-responsable-cas
+created: 2026-09-23
+updated: 2026-09-23
+status: tasks-ready
+phase: tasks
+depends_on: []
+supersedes: []
+amends: []
+artifact_store: openspec
+stack_tip: feat/compras-pipeline-reqs-closure-05-tipo-oc-guia
+branch_plan: feat/compras-faltantes-responsable-cas
+baseline_locks: |
+  Do not amend compras-pipeline-reqs-closure (verify-passed; tip
+  feat/compras-pipeline-reqs-closure-05-tipo-oc-guia).
+  Do not regress: resolver texto required; writers = responsable OR
+  administracion.gestionar_ordenes_compra; depósito-only resolve 403;
+  compras.faltantes retracts only on resolve; G31 to deposito.recibir_mercaderia;
+  PATCH responsable remains admin|creator and still 409 on reception estados.
+  Gabe locked product (this change only):
+  1. CAS on resolver_faltantes: UPDATE WHERE faltantes_resuelto_en IS NULL;
+     rowcount 0 → 409. Pattern like oc_match worker.
+  2. When Depósito marks faltantes, MUST pick responsable (default=current).
+     Pool = holders of administracion.gestionar_ordenes_compra. BE validates.
+     Alert goes to chosen responsable.
+  3. Spec today (admin|creator edit responsable) — revise ONLY the
+     faltantes-mark path so depósito can set responsable_id then.
+locked_decisions:
+  approach: mark-path-assign-plus-cas
+  cas: update_where_stamp_null_and_estado_con_faltantes
+  cas_rowcount_0: 409
+  responsable_on_mark: optional
+  omit_or_same: keep_current_no_perm_recheck
+  chosen_must_hold: administracion.gestionar_ordenes_compra
+  current_not_in_pool: always_valid
+  ignore_on_controlado: true
+  pool_source: resolver_usuarios_con_algun_permiso
+  pool_path: GET /administracion/compras/usuarios-responsable-faltantes
+  pool_auth: deposito.recibir_mercaderia
+  patch_editors: admin_or_creator_unchanged
+  do_not_amend: compras-pipeline-reqs-closure
+  no_alembic: true
+  delivery: single-pr
+  nextRecommended: apply
+notes: |
+  Specs + design + tasks complete. Next: sdd-apply on new branch from tip.
+  Do not reopen factura cargada, G31 copy, eje tabs, or tipo/OC-guia slices.
+artifacts:
+  exploration: openspec/changes/compras-faltantes-responsable-cas/exploration.md
+  proposal: openspec/changes/compras-faltantes-responsable-cas/proposal.md
+  specs:
+    - openspec/changes/compras-faltantes-responsable-cas/specs/pedidos-compra/spec.md
+    - openspec/changes/compras-faltantes-responsable-cas/specs/recepcion-deposito/spec.md
+    - openspec/changes/compras-faltantes-responsable-cas/specs/recepcion-estados/spec.md
+    - openspec/changes/compras-faltantes-responsable-cas/specs/compras-pipeline-alerts/spec.md
+  design: openspec/changes/compras-faltantes-responsable-cas/design.md
+  tasks: openspec/changes/compras-faltantes-responsable-cas/tasks.md
+next_phase: apply
+nextRecommended: apply
