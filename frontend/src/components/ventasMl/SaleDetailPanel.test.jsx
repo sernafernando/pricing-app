@@ -1,29 +1,22 @@
 /**
- * Tests for DesgloseDrawer.jsx (ml-ventas-desglose-costos, corte 6).
+ * Tests for SaleDetailPanel.jsx (ventas-ml-rediseno PR13).
  *
- * Scope:
- *  - Renders nothing when closed.
- *  - Fetches GET /ml-ventas-ops/orders/{orderId} when open, and re-fetches
- *    when orderId changes while staying open (R2 — never closes on its own).
- *  - Renders `lines` exactly as sent, in order, with no reordering or
- *    renaming -- except `origen="propio"` lines, which are dropped from
- *    this list (they are not part of what ML subtracted to reach `neto`,
- *    and the Flex one already appears, genuinely subtracted, in the Total
- *    Gauss chain).
- *  - Renders `monto_operacion` ("Monto de la operación") above the line
- *    list, `null` rendering as "—" like every other unknown amount.
- *  - `incompleto` shows the plain-language reason and never hides the total.
- *  - Escape closes the panel; clicking the actual backdrop (not the panel
- *    itself) closes it too, and clicking inside the panel does not.
- *  - A stale response never overwrites what a newer row selection loaded
- *    (sequence guard, same pattern as `VentasML.jsx`'s `latestRequestRef`).
+ * Migrated from `DesgloseDrawer.test.jsx` — see the assertion-mapping
+ * table in the PR13 report for what changed and why. In short: every test
+ * about CONTENT (lines, IVA, Total Gauss, item detail, incomplete/error
+ * states, stale-response guard) moved over unchanged in intent, only
+ * dropping the removed `open` prop and the `role="dialog"` query in favor
+ * of `getByText('Desglose de costos')`/the panel's own DOM. Every test
+ * about the MODAL SHELL (focus trap, backdrop click, aria-modal, focus
+ * restore) did NOT migrate: that behavior was deleted on purpose — see
+ * `VentasMLLayout.test.jsx` for its replacement (Escape without a trap,
+ * no overlay, rows stay selectable).
  */
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, waitFor, act, within } from '@testing-library/react';
-import userEvent from '@testing-library/user-event';
-import DesgloseDrawer from './DesgloseDrawer';
-import api from '../services/api';
+import SaleDetailPanel from './SaleDetailPanel';
+import api from '../../services/api';
 
 function mockBreakdown(orderId, breakdown) {
   api.get.mockImplementation((url) => {
@@ -38,13 +31,8 @@ beforeEach(() => {
   api.get.mockReset();
 });
 
-describe('Visibility', () => {
-  it('renders nothing when closed', () => {
-    const { container } = render(<DesgloseDrawer orderId={1001} open={false} onClose={vi.fn()} />);
-    expect(container).toBeEmptyDOMElement();
-  });
-
-  it('fetches the breakdown and renders it when open', async () => {
+describe('Fetch and render on mount', () => {
+  it('fetches the breakdown and renders it', async () => {
     mockBreakdown(1001, {
       lines: [
         { concepto: 'Cargo por vender', monto: 91250, origen: 'api' },
@@ -55,9 +43,9 @@ describe('Visibility', () => {
       incompleto: false,
       incomplete_reasons: [],
     });
-    render(<DesgloseDrawer orderId={1001} open onClose={vi.fn()} />);
+    render(<SaleDetailPanel orderId={1001} onClose={vi.fn()} />);
 
-    expect(await screen.findByRole('dialog', { name: /desglose de costos/i })).toBeInTheDocument();
+    expect(await screen.findByText('Desglose de costos')).toBeInTheDocument();
     expect(api.get).toHaveBeenCalledWith('/ml-ventas-ops/orders/1001');
 
     // Rendered exactly as the backend sent them, in the given order.
@@ -72,14 +60,14 @@ describe('Visibility', () => {
 });
 
 describe('Switching orders without closing', () => {
-  it('re-fetches when orderId changes while the drawer stays open', async () => {
+  it('re-fetches when orderId changes, staying mounted (R2 — never closes on its own)', async () => {
     mockBreakdown(1001, {
       lines: [{ concepto: 'Cargo por vender', monto: 10, origen: 'api' }],
       neto: 90,
       incompleto: false,
       incomplete_reasons: [],
     });
-    const { rerender } = render(<DesgloseDrawer orderId={1001} open onClose={vi.fn()} />);
+    const { rerender } = render(<SaleDetailPanel orderId={1001} onClose={vi.fn()} />);
     await waitFor(() => expect(api.get).toHaveBeenCalledWith('/ml-ventas-ops/orders/1001'));
 
     mockBreakdown(1002, {
@@ -88,13 +76,13 @@ describe('Switching orders without closing', () => {
       incompleto: false,
       incomplete_reasons: [],
     });
-    rerender(<DesgloseDrawer orderId={1002} open onClose={vi.fn()} />);
+    rerender(<SaleDetailPanel orderId={1002} onClose={vi.fn()} />);
 
     await waitFor(() => expect(api.get).toHaveBeenCalledWith('/ml-ventas-ops/orders/1002'));
     expect(await screen.findByText('Costo fijo')).toBeInTheDocument();
-    // Never unmounted between orders — the dialog stayed on screen the
+    // Never unmounted between orders — the panel stayed on screen the
     // whole time.
-    expect(screen.getByRole('dialog', { name: /desglose de costos/i })).toBeInTheDocument();
+    expect(screen.getByText('Desglose de costos')).toBeInTheDocument();
   });
 });
 
@@ -106,11 +94,9 @@ describe('Incomplete breakdown', () => {
       incompleto: true,
       incomplete_reasons: ['payments_not_synced'],
     });
-    render(<DesgloseDrawer orderId={1001} open onClose={vi.fn()} />);
+    render(<SaleDetailPanel orderId={1001} onClose={vi.fn()} />);
 
-    expect(
-      await screen.findByText(/todav[ií]a no los trajo/i)
-    ).toBeInTheDocument();
+    expect(await screen.findByText(/todav[ií]a no los trajo/i)).toBeInTheDocument();
     expect(screen.queryByText('payments_not_synced')).not.toBeInTheDocument();
   });
 
@@ -121,7 +107,7 @@ describe('Incomplete breakdown', () => {
       incompleto: true,
       incomplete_reasons: ['billing_not_swept'],
     });
-    render(<DesgloseDrawer orderId={1001} open onClose={vi.fn()} />);
+    render(<SaleDetailPanel orderId={1001} onClose={vi.fn()} />);
 
     expect(await screen.findByText(/falta el barrido de facturaci[oó]n/i)).toBeInTheDocument();
     // The real partial number stays visible — never hidden behind a dash.
@@ -130,33 +116,13 @@ describe('Incomplete breakdown', () => {
 });
 
 describe('Closing', () => {
-  it('calls onClose on Escape', async () => {
+  it('calls onClose when the close button is clicked', async () => {
     mockBreakdown(1001, { lines: [], neto: null, incompleto: false, incomplete_reasons: [] });
     const onClose = vi.fn();
-    const user = userEvent.setup();
-    render(<DesgloseDrawer orderId={1001} open onClose={onClose} />);
-    await screen.findByRole('dialog');
+    render(<SaleDetailPanel orderId={1001} onClose={onClose} />);
 
-    await user.keyboard('{Escape}');
-    expect(onClose).toHaveBeenCalled();
-  });
-
-  it('calls onClose when the actual backdrop is clicked, but not when the panel itself is', async () => {
-    mockBreakdown(1001, { lines: [], neto: null, incompleto: false, incomplete_reasons: [] });
-    const onClose = vi.fn();
-    const user = userEvent.setup();
-    render(<DesgloseDrawer orderId={1001} open onClose={onClose} />);
-    const dialog = await screen.findByRole('dialog');
-
-    // Clicking inside the panel must NOT close it — this is the assertion
-    // a fake "backdrop" test (clicking the dialog itself) cannot make,
-    // since the dialog is inside the backdrop and the click would bubble
-    // to the same handler either way.
-    await user.click(dialog);
-    expect(onClose).not.toHaveBeenCalled();
-
-    // The backdrop element itself, distinct from the panel it wraps.
-    await user.click(screen.getByTestId('drawer-overlay'));
+    const closeButton = await screen.findByRole('button', { name: /cerrar/i });
+    closeButton.click();
     expect(onClose).toHaveBeenCalledTimes(1);
   });
 });
@@ -174,11 +140,11 @@ describe('Stale response guard', () => {
       return Promise.resolve({ data: {} });
     });
 
-    const { rerender } = render(<DesgloseDrawer orderId={1001} open onClose={vi.fn()} />);
+    const { rerender } = render(<SaleDetailPanel orderId={1001} onClose={vi.fn()} />);
     await waitFor(() => expect(resolvers['1001']).toBeDefined());
 
     // Operator picks row B before A's response arrives.
-    rerender(<DesgloseDrawer orderId={1002} open onClose={vi.fn()} />);
+    rerender(<SaleDetailPanel orderId={1002} onClose={vi.fn()} />);
     await waitFor(() => expect(resolvers['1002']).toBeDefined());
 
     // B's response arrives FIRST, then the stale A response arrives LAST.
@@ -228,10 +194,10 @@ describe('Stale response guard', () => {
       return Promise.resolve({ data: {} });
     });
 
-    const { rerender } = render(<DesgloseDrawer orderId={1001} open onClose={vi.fn()} />);
+    const { rerender } = render(<SaleDetailPanel orderId={1001} onClose={vi.fn()} />);
     await waitFor(() => expect(resolvers['1001']).toBeDefined());
 
-    rerender(<DesgloseDrawer orderId={1002} open onClose={vi.fn()} />);
+    rerender(<SaleDetailPanel orderId={1002} onClose={vi.fn()} />);
     await waitFor(() => expect(resolvers['1002']).toBeDefined());
 
     // Only the STALE one answers. B is still in flight.
@@ -248,8 +214,7 @@ describe('Stale response guard', () => {
 
     // Flush the stale promise's continuations BEFORE asserting. Without
     // this the assertion finds the loader that was already on screen and
-    // passes whether or not the guard exists -- verified by mutation: it
-    // stayed green with the `finally` guard removed.
+    // passes whether or not the guard exists.
     await act(async () => {
       await Promise.resolve();
       await Promise.resolve();
@@ -260,44 +225,13 @@ describe('Stale response guard', () => {
   });
 });
 
-describe('Focus management', () => {
-  it('moves focus into the dialog on open, so the keyboard user is not left behind it', async () => {
-    mockBreakdown(1001, { lines: [], neto: null, incompleto: false, incomplete_reasons: [] });
-    render(<DesgloseDrawer orderId={1001} open onClose={vi.fn()} />);
-
-    const closeButton = await screen.findByRole('button', { name: /cerrar/i });
-    await waitFor(() => expect(closeButton).toHaveFocus());
-  });
-
-  it('returns focus to whatever opened it when it closes', async () => {
-    mockBreakdown(1001, { lines: [], neto: null, incompleto: false, incomplete_reasons: [] });
-
-    // The Neto button in the listing is what opens this in practice.
-    const opener = document.createElement('button');
-    opener.textContent = 'abrir';
-    document.body.appendChild(opener);
-    opener.focus();
-    expect(opener).toHaveFocus();
-
-    const { rerender } = render(<DesgloseDrawer orderId={1001} open onClose={vi.fn()} />);
-    await waitFor(() => expect(opener).not.toHaveFocus());
-
-    // Closing must not dump the keyboard user at the top of the document:
-    // they were reading a row, and that is where they have to come back to.
-    rerender(<DesgloseDrawer orderId={1001} open={false} onClose={vi.fn()} />);
-    await waitFor(() => expect(opener).toHaveFocus());
-
-    opener.remove();
-  });
-});
-
 describe('A response with no breakdown', () => {
   it('says so instead of rendering an empty panel', async () => {
     // Blank is the worst of the three states: it looks like a sale that
     // left nothing, which is a number we never received. No loader, no
     // error and no lines used to render exactly that.
     api.get.mockResolvedValue({ data: {} });
-    render(<DesgloseDrawer orderId={1001} open onClose={vi.fn()} />);
+    render(<SaleDetailPanel orderId={1001} onClose={vi.fn()} />);
 
     expect(
       await screen.findByText('Esta venta todavía no tiene desglose disponible.'),
@@ -309,11 +243,6 @@ describe('A response with no breakdown', () => {
 
 describe('The incomplete reason must match what actually happened', () => {
   it('tells the operator to check the payment, not to wait for a sweep that already ran', async () => {
-    // `payments_not_countable` fires when the rows ARE here and none of
-    // them counts (all rejected, or a status ML added). Reusing the
-    // "not synced yet" copy sent the operator to wait for a sweep that
-    // had already done its job -- the badge that lies, which makes the
-    // badge that tells the truth worthless.
     api.get.mockResolvedValue({
       data: {
         breakdown: {
@@ -324,7 +253,7 @@ describe('The incomplete reason must match what actually happened', () => {
         },
       },
     });
-    render(<DesgloseDrawer orderId={1001} open onClose={vi.fn()} />);
+    render(<SaleDetailPanel orderId={1001} onClose={vi.fn()} />);
 
     expect(await screen.findByText(/ninguno se puede computar/i)).toBeInTheDocument();
     expect(screen.queryByText(/todavía no los trajo/i)).not.toBeInTheDocument();
@@ -341,7 +270,7 @@ describe('The incomplete reason must match what actually happened', () => {
         },
       },
     });
-    render(<DesgloseDrawer orderId={1002} open onClose={vi.fn()} />);
+    render(<SaleDetailPanel orderId={1002} onClose={vi.fn()} />);
 
     expect(await screen.findByText(/todavía no los trajo/i)).toBeInTheDocument();
   });
@@ -359,15 +288,12 @@ describe('IVA decomposition and Total Gauss chain (ml-ventas-modo-logistico PR6)
 
   const BASE_BREAKDOWN = { lines: [], neto: 100, incompleto: false, incomplete_reasons: [] };
 
-  // Defensive FIRST: a response missing the new fields entirely (an older
-  // cached payload, or a malformed one) must not white-screen the drawer —
-  // this is the shape every response sent before PR6 actually has.
   describe('defensive: fields absent', () => {
     it('renders the existing breakdown fine when iva_decomposicion/cadena_total_gauss are absent', async () => {
       mockDetail(1001, { breakdown: BASE_BREAKDOWN });
-      render(<DesgloseDrawer orderId={1001} open onClose={vi.fn()} />);
+      render(<SaleDetailPanel orderId={1001} onClose={vi.fn()} />);
 
-      expect(await screen.findByRole('dialog', { name: /desglose de costos/i })).toBeInTheDocument();
+      expect(await screen.findByText('Desglose de costos')).toBeInTheDocument();
       expect(screen.getByText('Neto')).toBeInTheDocument();
       expect(screen.queryByText('IVA por alícuota')).not.toBeInTheDocument();
       expect(screen.queryByText('Total Gauss')).not.toBeInTheDocument();
@@ -375,9 +301,9 @@ describe('IVA decomposition and Total Gauss chain (ml-ventas-modo-logistico PR6)
 
     it('renders fine when iva_decomposicion/cadena_total_gauss are explicitly null', async () => {
       mockDetail(1001, { breakdown: BASE_BREAKDOWN, iva_decomposicion: null, cadena_total_gauss: null });
-      render(<DesgloseDrawer orderId={1001} open onClose={vi.fn()} />);
+      render(<SaleDetailPanel orderId={1001} onClose={vi.fn()} />);
 
-      expect(await screen.findByRole('dialog', { name: /desglose de costos/i })).toBeInTheDocument();
+      expect(await screen.findByText('Desglose de costos')).toBeInTheDocument();
       expect(screen.queryByText('IVA por alícuota')).not.toBeInTheDocument();
     });
   });
@@ -395,7 +321,7 @@ describe('IVA decomposition and Total Gauss chain (ml-ventas-modo-logistico PR6)
         },
         cadena_total_gauss: { total_gauss: null, lineas: [] },
       });
-      render(<DesgloseDrawer orderId={1001} open onClose={vi.fn()} />);
+      render(<SaleDetailPanel orderId={1001} onClose={vi.fn()} />);
 
       expect(await screen.findByText(/sin costo congelado/i)).toBeInTheDocument();
       expect(screen.queryByText('$0')).not.toBeInTheDocument();
@@ -423,12 +349,11 @@ describe('IVA decomposition and Total Gauss chain (ml-ventas-modo-logistico PR6)
           ],
         },
       });
-      render(<DesgloseDrawer orderId={1001} open onClose={vi.fn()} />);
+      render(<SaleDetailPanel orderId={1001} onClose={vi.fn()} />);
 
       await screen.findByRole('heading', { name: 'Total Gauss' });
       expect(screen.getByText('Costo de mercadería')).toBeInTheDocument();
       expect(screen.getByText(/sin costo de mercadería conocido/i)).toBeInTheDocument();
-      // The Total Gauss figure itself is a dash, never a fabricated number.
       const totalLabels = screen.getAllByText('Total Gauss');
       const totalRow = totalLabels[totalLabels.length - 1].closest('div');
       expect(within(totalRow).getByText('—')).toBeInTheDocument();
@@ -455,7 +380,7 @@ describe('IVA decomposition and Total Gauss chain (ml-ventas-modo-logistico PR6)
           ],
         },
       });
-      render(<DesgloseDrawer orderId={1001} open onClose={vi.fn()} />);
+      render(<SaleDetailPanel orderId={1001} onClose={vi.fn()} />);
 
       expect(await screen.findByText('Neto sin IVA')).toBeInTheDocument();
       expect(screen.getByText('Envío Flex')).toBeInTheDocument();
@@ -480,12 +405,11 @@ describe('IVA decomposition and Total Gauss chain (ml-ventas-modo-logistico PR6)
         },
         cadena_total_gauss: { total_gauss: null, lineas: [] },
       });
-      render(<DesgloseDrawer orderId={1001} open onClose={vi.fn()} />);
+      render(<SaleDetailPanel orderId={1001} onClose={vi.fn()} />);
 
       expect(await screen.findByText('IVA por alícuota')).toBeInTheDocument();
       expect(screen.getByText(/Venta ítem 21%/)).toBeInTheDocument();
       expect(screen.getByText(/\(21,00%\)/)).toBeInTheDocument();
-      // A withholding carries no alícuota — never a fabricated "0%".
       expect(screen.getByText(/Sin alícuota/)).toBeInTheDocument();
     });
 
@@ -501,7 +425,7 @@ describe('IVA decomposition and Total Gauss chain (ml-ventas-modo-logistico PR6)
         },
         cadena_total_gauss: { total_gauss: null, lineas: [] },
       });
-      render(<DesgloseDrawer orderId={1001} open onClose={vi.fn()} />);
+      render(<SaleDetailPanel orderId={1001} onClose={vi.fn()} />);
 
       expect(await screen.findByText(/todavía no se sincronizaron/i)).toBeInTheDocument();
     });
@@ -519,9 +443,9 @@ describe('Flex own-cost line vs the Total Gauss chain', () => {
       incompleto: false,
       incomplete_reasons: [],
     });
-    render(<DesgloseDrawer orderId={1001} open onClose={vi.fn()} />);
+    render(<SaleDetailPanel orderId={1001} onClose={vi.fn()} />);
 
-    await screen.findByRole('dialog', { name: /desglose de costos/i });
+    await screen.findByText('Desglose de costos');
 
     expect(screen.getByText('Cargo por vender')).toBeInTheDocument();
     expect(screen.queryByText('Envío Flex (costo propio)')).not.toBeInTheDocument();
@@ -552,13 +476,10 @@ describe('SIRTAC recuperable, componentes informativos y sub-línea de Neto (ml-
         incomplete_reasons: [],
       },
     });
-    render(<DesgloseDrawer orderId={1001} open onClose={vi.fn()} />);
+    render(<SaleDetailPanel orderId={1001} onClose={vi.fn()} />);
 
-    await screen.findByRole('dialog', { name: /desglose de costos/i });
+    await screen.findByText('Desglose de costos');
 
-    // Located through the api line it must contain, not by position or an
-    // empty accessible name: the subtraction list holds ONLY api lines --
-    // SIRTAC renders elsewhere, muted, never counted against Neto.
     const subtractionList = screen.getByText('Cargo por vender').closest('ul');
     expect(subtractionList).not.toBeNull();
     expect(within(subtractionList).queryByText('Retención IIBB (CABA) · SIRTAC')).not.toBeInTheDocument();
@@ -589,12 +510,11 @@ describe('SIRTAC recuperable, componentes informativos y sub-línea de Neto (ml-
         razones: [],
       },
     });
-    render(<DesgloseDrawer orderId={1001} open onClose={vi.fn()} />);
+    render(<SaleDetailPanel orderId={1001} onClose={vi.fn()} />);
 
-    await screen.findByRole('dialog', { name: /desglose de costos/i });
+    await screen.findByText('Desglose de costos');
 
     expect(screen.getByText(/informativo/i)).toBeInTheDocument();
-    // The informativo row must not show a base/IVA breakdown figure.
     expect(screen.queryByText(/base -20,00 · IVA 0,00/i)).not.toBeInTheDocument();
   });
 
@@ -609,9 +529,9 @@ describe('SIRTAC recuperable, componentes informativos y sub-línea de Neto (ml-
         incomplete_reasons: [],
       },
     });
-    render(<DesgloseDrawer orderId={1001} open onClose={vi.fn()} />);
+    render(<SaleDetailPanel orderId={1001} onClose={vi.fn()} />);
 
-    await screen.findByRole('dialog', { name: /desglose de costos/i });
+    await screen.findByText('Desglose de costos');
 
     expect(screen.getByText('MP $ 502.165,91 · SIRTAC $ 1.792,23')).toBeInTheDocument();
   });
@@ -630,9 +550,9 @@ describe('SIRTAC recuperable, componentes informativos y sub-línea de Neto (ml-
         incomplete_reasons: [],
       },
     });
-    render(<DesgloseDrawer orderId={1001} open onClose={vi.fn()} />);
+    render(<SaleDetailPanel orderId={1001} onClose={vi.fn()} />);
 
-    await screen.findByRole('dialog', { name: /desglose de costos/i });
+    await screen.findByText('Desglose de costos');
 
     expect(screen.queryByText(/^MP \$/)).not.toBeInTheDocument();
   });
@@ -647,7 +567,7 @@ describe('Monto de la operación', () => {
       incomplete_reasons: [],
       monto_operacion: 1000,
     });
-    render(<DesgloseDrawer orderId={1001} open onClose={vi.fn()} />);
+    render(<SaleDetailPanel orderId={1001} onClose={vi.fn()} />);
 
     expect(await screen.findByText('Monto de la operación')).toBeInTheDocument();
     expect(screen.getByText('1.000,00')).toBeInTheDocument();
@@ -661,12 +581,8 @@ describe('Monto de la operación', () => {
       incomplete_reasons: [],
       monto_operacion: null,
     });
-    render(<DesgloseDrawer orderId={1001} open onClose={vi.fn()} />);
+    render(<SaleDetailPanel orderId={1001} onClose={vi.fn()} />);
 
-    // Scoped to THIS row on purpose. The drawer renders a dash for every
-    // unknown figure, so `getAllByText('—').length > 0` passes even when
-    // the amount beside "Monto de la operación" is something else
-    // entirely -- the assertion would be about the rest of the screen.
     const label = await screen.findByText('Monto de la operación');
     expect(label.nextSibling).toHaveTextContent('—');
     expect(label.nextSibling).not.toHaveTextContent('0,00');
@@ -701,7 +617,7 @@ describe('Markup (total_gauss / costo de mercadería, as a percentage)', () => {
         markup: 14.97,
       },
     });
-    render(<DesgloseDrawer orderId={1001} open onClose={vi.fn()} />);
+    render(<SaleDetailPanel orderId={1001} onClose={vi.fn()} />);
 
     expect(await screen.findByText('Markup')).toBeInTheDocument();
     expect(screen.getByText('14,97%')).toBeInTheDocument();
@@ -723,7 +639,7 @@ describe('Markup (total_gauss / costo de mercadería, as a percentage)', () => {
         markup: null,
       },
     });
-    render(<DesgloseDrawer orderId={1001} open onClose={vi.fn()} />);
+    render(<SaleDetailPanel orderId={1001} onClose={vi.fn()} />);
 
     await screen.findByText('Markup');
     const markupRow = screen.getByText('Markup').closest('div');
@@ -762,19 +678,12 @@ describe('Product detail under "Monto de la operación" (ml-ventas-desglose-cost
         item_lines_razon: null,
       },
     });
-    render(<DesgloseDrawer orderId={1001} open onClose={vi.fn()} />);
+    render(<SaleDetailPanel orderId={1001} onClose={vi.fn()} />);
 
-    // Scoped to the ITEM list. `getAllByText('99.333,00').length > 0`
-    // passes on the "Monto de la operación" heading alone, so it asserts
-    // nothing about the row it claims to be about.
     const titulo = await screen.findByText(/board asus prime/i);
     const lista = screen.getByLabelText('Detalle de productos');
     expect(lista).toContainElement(titulo);
     expect(titulo.closest('li')).toHaveTextContent('99.333,00');
-    // Reconciled: NO warning at all. Asserting the absence of the old
-    // "puede no sumar" wording is vacuous -- that string no longer exists
-    // anywhere in the component, so the assertion cannot fail and proves
-    // nothing. Assert against what the component would actually render.
     expect(screen.queryByText(/no se puede calcular el monto/i)).not.toBeInTheDocument();
     expect(screen.queryByText(/no tiene ítems cargados/i)).not.toBeInTheDocument();
   });
@@ -792,7 +701,7 @@ describe('Product detail under "Monto de la operación" (ml-ventas-desglose-cost
         item_lines_razon: null,
       },
     });
-    render(<DesgloseDrawer orderId={1001} open onClose={vi.fn()} />);
+    render(<SaleDetailPanel orderId={1001} onClose={vi.fn()} />);
 
     expect(await screen.findByText(/mouse \(x2\)/i)).toBeInTheDocument();
   });
@@ -813,18 +722,11 @@ describe('Product detail under "Monto de la operación" (ml-ventas-desglose-cost
         item_lines_razon: 'item_lines_item_sin_precio',
       },
     });
-    render(<DesgloseDrawer orderId={1001} open onClose={vi.fn()} />);
+    render(<SaleDetailPanel orderId={1001} onClose={vi.fn()} />);
 
-    // The EXACT label for this reason, not a regex loose enough to match
-    // the generic fallback too: matching either would pass even when the
-    // named reason never reached the screen, which is the one thing this
-    // test exists to prove.
     expect(
       await screen.findByText(/no tienen precio unitario cargado.*no se puede calcular el monto/i),
     ).toBeInTheDocument();
-    // The unpriced item is still listed, and its amount reads as unknown.
-    // Asserting only that the title is present says nothing about the
-    // figure beside it -- which is the whole point of the case.
     const sinPrecio = screen.getByText(/teclado/i);
     expect(sinPrecio.closest('li')).toHaveTextContent('—');
     expect(sinPrecio.closest('li')).not.toHaveTextContent('0,00');
@@ -868,7 +770,7 @@ describe('Costo de mercadería per-item arithmetic (ml-ventas-desglose-costos)',
         ],
       },
     });
-    render(<DesgloseDrawer orderId={1001} open onClose={vi.fn()} />);
+    render(<SaleDetailPanel orderId={1001} onClose={vi.fn()} />);
 
     expect(await screen.findByText(/USD 45,00/)).toBeInTheDocument();
     expect(screen.getByText(/1\.183,50/)).toBeInTheDocument();
@@ -877,10 +779,6 @@ describe('Costo de mercadería per-item arithmetic (ml-ventas-desglose-costos)',
   });
 
   it('spells out the quantity so the cost of the LINE can be replicated, not just the unit', async () => {
-    // `costo_unitario_ars` is the UNIT cost while the products list above
-    // shows the LINE total. Without the quantity a reader cannot tell
-    // whether the figure is per unit or for the line -- and the deduction
-    // that consumes it multiplies by the quantity.
     mockDetail(1001, {
       breakdown: BASE_BREAKDOWN,
       iva_decomposicion: { componentes: [], neto_sin_iva: 100, reconcilia: true, diferencia: 0, razones: [] },
@@ -905,7 +803,7 @@ describe('Costo de mercadería per-item arithmetic (ml-ventas-desglose-costos)',
         ],
       },
     });
-    render(<DesgloseDrawer orderId={1001} open onClose={vi.fn()} />);
+    render(<SaleDetailPanel orderId={1001} onClose={vi.fn()} />);
 
     const titulo = await screen.findByText(/board asus/i);
     const fila = titulo.closest('li');
@@ -938,7 +836,7 @@ describe('Costo de mercadería per-item arithmetic (ml-ventas-desglose-costos)',
         ],
       },
     });
-    render(<DesgloseDrawer orderId={1001} open onClose={vi.fn()} />);
+    render(<SaleDetailPanel orderId={1001} onClose={vi.fn()} />);
 
     const titulo = await screen.findByText(/board asus/i);
     expect(titulo.closest('li')).not.toHaveTextContent('c/u');
@@ -969,7 +867,7 @@ describe('Costo de mercadería per-item arithmetic (ml-ventas-desglose-costos)',
         ],
       },
     });
-    render(<DesgloseDrawer orderId={1001} open onClose={vi.fn()} />);
+    render(<SaleDetailPanel orderId={1001} onClose={vi.fn()} />);
 
     expect(await screen.findByText(/mouse logitech/i)).toBeInTheDocument();
     expect(screen.queryByText(/×/)).not.toBeInTheDocument();
@@ -994,17 +892,13 @@ describe('Costo de mercadería per-item arithmetic (ml-ventas-desglose-costos)',
         ],
       },
     });
-    render(<DesgloseDrawer orderId={1001} open onClose={vi.fn()} />);
+    render(<SaleDetailPanel orderId={1001} onClose={vi.fn()} />);
 
     expect(await screen.findByText(/costo desconocido/i)).toBeInTheDocument();
     expect(screen.queryByText('$ 0,00')).not.toBeInTheDocument();
   });
 
   it('stacks the cost row instead of splitting it into two columns', async () => {
-    // An ML title runs to ~100 characters and the arithmetic beside it is
-    // long and cannot shrink, so a two-column split squeezes the title
-    // into a sliver and wraps it over dozens of lines. The row must carry
-    // the STACKED class, not the side-by-side one the products list uses.
     mockDetail(1001, {
       breakdown: BASE_BREAKDOWN,
       iva_decomposicion: { componentes: [], neto_sin_iva: 100, reconcilia: true, diferencia: 0, razones: [] },
@@ -1030,7 +924,7 @@ describe('Costo de mercadería per-item arithmetic (ml-ventas-desglose-costos)',
         ],
       },
     });
-    render(<DesgloseDrawer orderId={1001} open onClose={vi.fn()} />);
+    render(<SaleDetailPanel orderId={1001} onClose={vi.fn()} />);
 
     const titulo = await screen.findByText(/cámara wi-fi tp-link tapo c201/i);
     const fila = titulo.closest('li');

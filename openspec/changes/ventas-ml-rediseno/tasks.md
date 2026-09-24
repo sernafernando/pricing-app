@@ -232,17 +232,17 @@ Independent of PR9-PR11 (per design dependency graph); may run in parallel chain
 ## PR13 — FE layout shell: grid + SaleDetailPanel skeleton (modal removed, tests migrated)
 Design refs: D14. Satisfies: PANEL R16, R18, R19, R20.
 
-- [ ] PR13.T1 RED (Vitest+RTL): `VentasMLLayout` — CSS grid `minmax(0,1fr) var(--ventas-panel-width)` when a row is selected, single column otherwise; panel is a sticky `<aside aria-label="Detalle de venta">`, no overlay/`aria-modal`, `focus trap (PANEL R16, R20).
-- [ ] PR13.T2 GREEN: implement frontend/src/components/ventasMl/VentasMLLayout.jsx` + CSS module (tokens only, light+dark).
-- [ ] PR13.T3 RED: selection state driven by URL param (`orden`); Escape clears it and closes the panel without trapping focus; screen-reader live-region announces panel content changes (PANEL R19, R20).
-- [ ] PR13.T4 GREEN: `useVentasMLFilters` / selection hook wiring.
-- [ ] PR13.T5 RED: deselecting (no row selected) closes/hides the panel automatically (PANEL R18).
-- [ ] PR13.T6 GREEN: implement.
-- [ ] PR13.T7 RED: `<1280px` breakpoint — panel becomes a fixed right sheet without backdrop (still non-modal).
-- [ ] PR13.T8 GREEN: implement responsive CSS.
-- [ ] PR13.T9 Move `DesgloseDrawer.jsx`'s EXISTING sections (Producto/Comprador/Envío/Pago/waterfall/chain) into the new `SaleDetailPanel` shell verbatim (behavior unchanged); migrate their tests with an explicit assertion-mapping table in the PR description (54 DesgloseDrawer tests baseline, per design D14/testing strategy).
-- [ ] PR13.T10 RED: table rows remain independently selectable/copyable while the panel is open (no overlay blocking pointer/selection events) (PANEL R17).
-- [ ] PR13.T11 Delete `frontend/src/components/DesgloseDrawer.jsx` (+css/test) only after PR13.T9 migration is verified green.
+- [x] PR13.T1 RED (Vitest+RTL): `VentasMLLayout` — CSS grid `minmax(0,1fr) var(--ventas-panel-width)` when a row is selected, single column otherwise; panel is a sticky `<aside aria-label="Detalle de venta">`, no overlay/`aria-modal`, `focus trap (PANEL R16, R20).
+- [x] PR13.T2 GREEN: implement frontend/src/components/ventasMl/VentasMLLayout.jsx` + CSS module (tokens only, light+dark).
+- [x] PR13.T3 RED: selection state driven by URL param (`orden`); Escape clears it and closes the panel without trapping focus; screen-reader live-region announces panel content changes (PANEL R19, R20).
+- [x] PR13.T4 GREEN: `useVentasMLFilters` / selection hook wiring.
+- [x] PR13.T5 RED: deselecting (no row selected) closes/hides the panel automatically (PANEL R18).
+- [x] PR13.T6 GREEN: implement.
+- [ ] PR13.T7 `<1280px` breakpoint — panel becomes a fixed right sheet without backdrop (still non-modal). NOT covered by an automated test: the unit suite runs with `css: false` (jsdom computes no layout), and the visual (Playwright) project is pinned to a single fixed `1280x800` viewport with no per-test resize helper today. Verified BY HAND instead: `VentasMLLayout.module.css`'s `@media (max-width: 1279px)` rule switches `.panel` to `position: fixed; top/right/bottom: 0` with no backdrop element, matching the `1280px` desktop-grid cutover documented in `design-tokens.css` (`--ventas-panel-width`). Leaving this unchecked until a real per-viewport visual test exists.
+- [x] PR13.T8 GREEN: implement responsive CSS.
+- [x] PR13.T9 Move `DesgloseDrawer.jsx`'s EXISTING sections (Producto/Comprador/Envío/Pago/waterfall/chain) into the new `SaleDetailPanel` shell verbatim (behavior unchanged); migrate their tests with an explicit assertion-mapping table in the PR description (54 DesgloseDrawer tests baseline, per design D14/testing strategy).
+- [x] PR13.T10 RED: table rows remain independently selectable/copyable while the panel is open (no overlay blocking pointer/selection events) (PANEL R17).
+- [x] PR13.T11 Delete `frontend/src/components/DesgloseDrawer.jsx` (+css/test) only after PR13.T9 migration is verified green.
 
 ## PR14 — FE listing restyle + search bar + chips + recalculating badge
 Design refs: D14. Satisfies: LISTING (visual), SEARCH R25-R27 (FE), SM R3/R9 (recalculating UI).
