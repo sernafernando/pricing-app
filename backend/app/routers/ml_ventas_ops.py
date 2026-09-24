@@ -24,6 +24,7 @@ switched off right now" for a user who already cleared the permission gate.
 from __future__ import annotations
 
 import calendar
+import dataclasses
 from datetime import date, datetime, time, timedelta, timezone
 from zoneinfo import ZoneInfo
 from typing import Any, Dict, List, Optional, Tuple
@@ -65,10 +66,12 @@ from app.services.ml_ventas_desglose.breakdown_service import (
     compute_neto_by_order_ids,
     compute_neto_desglose_by_order_ids,
 )
+from app.services.ml_sales_query.aggregate import aggregate_order_metrics
 from app.services.ml_sales_query.filters import SalesFilter, build_scope, collapse
 from app.services.ml_ventas_desglose.deducciones import calcular_total_gauss, resolve_costo_mercaderia_detalle
 from app.services.ml_ventas_desglose.iva import descomponer_neto
 from app.models.ml_order_metrics import MlOrderMetrics
+from app.services.order_metrics import health as order_metrics_health
 from app.services.order_metrics.read import metrics_state_for_orders, read_stored_metrics
 from app.services.order_metrics.types import GaussStatus
 from app.services.permisos_service import PermisosService
@@ -1320,6 +1323,177 @@ def listar_ventas(
             operation_status_total=op_facet_total,
             goods_status_total=goods_facet_total,
         ),
+    )
+
+
+# ── PR11: KPI aggregation (design D12/D13, spec KPI R7-R15) ────────
+
+
+class SalesKpiExcludedByToggle(BaseModel):
+    """KPI R13: how many otherwise-matching GROUPS a currently-OFF toggle
+    is hiding, holding every other active filter constant. Always `0` for a
+    toggle that is currently ON (nothing of its class is being excluded by
+    it)."""
+
+    a_revisar: int = 0
+    en_disputa: int = 0
+    mixta: int = 0
+    provisorio: int = 0
+
+
+class SalesKpiResponse(BaseModel):
+    """Design D12 `aggregate.py` measures (spec KPI R8) plus the D9/D10
+    observability fields (spec KPI scenario re: SM R3 `worker_alive`
+    surfacing) and the D12 "response echoes effective switches" contract."""
+
+    groups_count: int
+    orders_count: int
+    gross_billed_ars: float
+    gross_billed_other: Dict[str, float]
+    neto_sum: float
+    neto_unknown_count: int
+    total_gauss_sum: float
+    total_gauss_ok_count: int
+    total_gauss_provisional_count: int
+    total_gauss_unresolved_count: int
+    markup_weighted_pct: Optional[float]
+    # SM R2/R3, design D9: never summed as zero/NULL, always counted and
+    # named separately from every other figure above.
+    recalculating_count: int
+    pending_count: int
+    failed_count: int
+    worker_alive: bool
+    excluded_by_toggle: SalesKpiExcludedByToggle
+    # Design D12 "explicit facet selection overrides its switch; response
+    # echoes effective switches" -- PR11.T9's URL round-trip contract reads
+    # this back, not just the accepted request params, so a caller can
+    # confirm what was ACTUALLY applied.
+    effective_switches: Dict[str, bool]
+
+
+def _toggle_excluded_counts(db: Session, f: SalesFilter) -> SalesKpiExcludedByToggle:
+    """KPI R13: for each toggle that is currently OFF, the count of GROUPS
+    that would additionally be included if ONLY that toggle were flipped
+    ON, holding every other active filter (including the other three
+    toggles) constant -- one extra `build_scope` call per OFF toggle, at
+    most 4, never a per-row query."""
+
+    def _count(filter_: SalesFilter) -> int:
+        scope = build_scope(db, filter_)
+        return scope.listing_query.with_entities(func.count(func.distinct(scope.group_key))).scalar() or 0
+
+    current_count = _count(f)
+
+    def _excluded_if_off(field_name: str) -> int:
+        if getattr(f, field_name):
+            return 0
+        with_toggle_on = dataclasses.replace(f, **{field_name: True})
+        return _count(with_toggle_on) - current_count
+
+    return SalesKpiExcludedByToggle(
+        a_revisar=_excluded_if_off("include_unknown"),
+        en_disputa=_excluded_if_off("include_in_dispute"),
+        mixta=_excluded_if_off("include_mixed"),
+        provisorio=_excluded_if_off("include_provisional"),
+    )
+
+
+@router.get("/sales/kpis", response_model=SalesKpiResponse)
+def sales_kpis(
+    operation_status_filter: Optional[str] = Query(default=None, alias="operation_status"),
+    goods_status_filter: Optional[str] = Query(default=None, alias="goods_status"),
+    sold_month: Optional[str] = Query(default=None, description="YYYY-MM (legacy, usar date_from/date_to)"),
+    date_from: Optional[str] = Query(default=None, description="YYYY-MM-DD, inclusive"),
+    date_to: Optional[str] = Query(default=None, description="YYYY-MM-DD, inclusive"),
+    q: Optional[str] = Query(default=None, description="Búsqueda libre, idéntica a GET /sales (SEARCH R25)"),
+    marcas: Optional[str] = Query(default=None, description="CSV de marcas (PFILT R35, D12a)"),
+    subcategorias: Optional[str] = Query(default=None, description="CSV de ids de subcategoría (PFILT R35, D12a)"),
+    pms: Optional[str] = Query(default=None, description="CSV de ids de usuario PM (PFILT R35, D12a)"),
+    # PR11.T9/spec R11: THIS endpoint has no legacy caller, so its own
+    # defaults ARE the spec R11 combination -- unlike `GET /sales`'s
+    # backward-compatible `True` defaults (see that endpoint's own
+    # docstring for why the two differ).
+    include_unknown: bool = Query(default=False, description='"A revisar" (KPI R9, R11)'),
+    include_in_dispute: bool = Query(default=False, description='"En disputa" (KPI R9, R11)'),
+    include_mixed: bool = Query(default=True, description='"Mixta" (KPI R9, R11)'),
+    include_provisional: bool = Query(default=True, description='"Provisorio" (KPI R9, R11)'),
+    current_user: Usuario = Depends(require_permission("ml_ops.ver")),
+    db: Session = Depends(get_db),
+) -> SalesKpiResponse:
+    """The KPI strip's data source (design D13, spec KPI R7-R15). Shares
+    `SalesFilter`/`build_scope` verbatim with `GET /sales` (KPI R7): the
+    SAME filter+toggle combination on both endpoints always agrees (KPI
+    R14) -- proven by
+    `tests/integration/test_ml_ventas_ops_sales_router.py::TestKpiParity`.
+
+    Aggregates the WHOLE filtered set, never the current page (KPI R8) --
+    this endpoint takes no `limit`/`offset`. Every measure comes from
+    stored `ml_order_metrics` only (`aggregate_order_metrics`), never a
+    live recompute.
+
+    Requires `ml_ops.ver`, same precedent as `GET /sales`.
+    """
+    _require_flag_enabled()
+
+    if operation_status_filter is not None and operation_status_filter not in OPERATION_STATUSES:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=f"operation_status inválido: {operation_status_filter}",
+        )
+    if goods_status_filter is not None and goods_status_filter not in GOODS_STATUSES:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=f"goods_status inválido: {goods_status_filter}",
+        )
+
+    sold_range: Optional[Tuple[datetime, datetime]] = _parse_date_range(date_from, date_to)
+    if sold_range is None and sold_month:
+        sold_range = _parse_sold_month(sold_month)
+
+    marcas_list = _parse_csv_strings(marcas, "marcas")
+    subcategorias_list = _parse_csv_ids(subcategorias, "subcategorias")
+    pms_list = _parse_csv_ids(pms, "pms")
+
+    sales_filter = SalesFilter(
+        date_range=sold_range,
+        operation_status=operation_status_filter,
+        goods_status=goods_status_filter,
+        q=q,
+        marcas=marcas_list,
+        subcategorias=subcategorias_list,
+        pms=pms_list,
+        include_unknown=include_unknown,
+        include_in_dispute=include_in_dispute,
+        include_mixed=include_mixed,
+        include_provisional=include_provisional,
+    )
+    scope = build_scope(db, sales_filter)
+    result = aggregate_order_metrics(db, scope.listing_query, scope.group_key)
+    excluded_by_toggle = _toggle_excluded_counts(db, sales_filter)
+
+    return SalesKpiResponse(
+        groups_count=result.groups_count,
+        orders_count=result.orders_count,
+        gross_billed_ars=float(result.gross_billed_ars),
+        gross_billed_other={currency: float(amount) for currency, amount in result.gross_billed_other.items()},
+        neto_sum=float(result.neto_sum),
+        neto_unknown_count=result.neto_unknown_count,
+        total_gauss_sum=float(result.total_gauss_sum),
+        total_gauss_ok_count=result.total_gauss_ok_count,
+        total_gauss_provisional_count=result.total_gauss_provisional_count,
+        total_gauss_unresolved_count=result.total_gauss_unresolved_count,
+        markup_weighted_pct=(float(result.markup_weighted_pct) if result.markup_weighted_pct is not None else None),
+        recalculating_count=result.recalculating_count,
+        pending_count=result.pending_count,
+        failed_count=result.failed_count,
+        worker_alive=order_metrics_health.worker_alive(db),
+        excluded_by_toggle=excluded_by_toggle,
+        effective_switches={
+            "include_unknown": include_unknown,
+            "include_in_dispute": include_in_dispute,
+            "include_mixed": include_mixed,
+            "include_provisional": include_provisional,
+        },
     )
 
 

@@ -18,7 +18,6 @@ Two endpoints only:
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
 from typing import List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, status
@@ -35,11 +34,6 @@ from app.services.order_metrics.constants import CURRENT_FORMULA_VERSION
 from app.services.permisos_service import PermisosService
 
 router = APIRouter(prefix="/ml-ops", tags=["ML Order Metrics"])
-
-# `worker_alive` (design D9): heartbeat_at younger than this many seconds.
-# Matches `app/workers/heartbeat.py`'s own tick cadence (~5s) with generous
-# slack for one or two missed ticks.
-WORKER_ALIVE_THRESHOLD_SECONDS = 30
 
 
 def require_permission(permission: str):
@@ -137,11 +131,10 @@ def get_order_metrics_health(
 
     worker_row = _worker_state_row(db)
     heartbeat_at = worker_row.heartbeat_at if worker_row is not None else None
-    worker_alive = False
-    if heartbeat_at is not None:
-        now = datetime.now(timezone.utc)
-        hb = heartbeat_at if heartbeat_at.tzinfo is not None else heartbeat_at.replace(tzinfo=timezone.utc)
-        worker_alive = (now - hb).total_seconds() < WORKER_ALIVE_THRESHOLD_SECONDS
+    # PR11.T6: shared with `GET /sales/kpis`'s own `worker_alive` field --
+    # `order_metrics_health.worker_alive` is the single implementation of
+    # this threshold check now, not two copies.
+    worker_alive = order_metrics_health.worker_alive(db)
     worker_draining = bool((worker_row.detail or {}).get("draining")) if worker_row is not None else False
     listener_mode = (worker_row.detail or {}).get("listener_mode") if worker_row is not None else None
 

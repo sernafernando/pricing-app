@@ -9,12 +9,20 @@ the queue's claim/fence primitives are not mixed with pure reporting reads.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import datetime, timezone
 from typing import List, Optional
 
 from sqlalchemy import text
 
 from app.services.order_metrics.queue import POISON_THRESHOLD
 from app.services.order_metrics.queue import poisoned_count as _queue_poisoned_count
+
+# `worker_alive` (design D9): heartbeat_at younger than this many seconds.
+# Matches `app/workers/heartbeat.py`'s own tick cadence (~5s) with generous
+# slack for one or two missed ticks. Shared by `GET
+# /ml-ops/order-metrics/health` and `GET /ml-ops/sales/kpis` (PR11.T6) so
+# both endpoints agree on the same threshold instead of two copies drifting.
+WORKER_ALIVE_THRESHOLD_SECONDS = 30
 
 
 @dataclass(frozen=True)
@@ -94,6 +102,29 @@ def poisoned_count(db) -> int:
     actually parked (PR6 review fix J1: a 300-order backlog silently read
     as 50)."""
     return _queue_poisoned_count(db)
+
+
+def worker_alive(db) -> bool:
+    """`True` when the worker's own heartbeat row (`worker_job_state`,
+    name='worker') was written less than `WORKER_ALIVE_THRESHOLD_SECONDS`
+    ago -- `False` on no row at all (worker never started) or a stale one
+    (design D9: "Worker down => queue grows ... visible in the endpoint and
+    the KPI strip banner"). Shared by the health endpoint and the KPI
+    endpoint (PR11.T6) -- one implementation, not two copies of the same
+    threshold check."""
+    # Local import: `WorkerJobState` lives in `app.models`, and importing it
+    # at module scope here would make this low-level health module depend
+    # on the ORM model layer for every OTHER function in it too -- keep the
+    # coupling scoped to the one function that actually needs it.
+    from app.models.worker_job_state import WorkerJobState
+
+    row = db.query(WorkerJobState.heartbeat_at).filter(WorkerJobState.name == "worker").first()
+    if row is None or row.heartbeat_at is None:
+        return False
+    heartbeat_at = row.heartbeat_at
+    now = datetime.now(timezone.utc)
+    hb = heartbeat_at if heartbeat_at.tzinfo is not None else heartbeat_at.replace(tzinfo=timezone.utc)
+    return (now - hb).total_seconds() < WORKER_ALIVE_THRESHOLD_SECONDS
 
 
 def poisoned_orders(db, *, limit: int = 50) -> List[PoisonedOrder]:
