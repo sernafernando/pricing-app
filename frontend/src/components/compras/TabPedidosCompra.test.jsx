@@ -267,3 +267,24 @@ describe('TabPedidosCompra — chip tones and con faltantes overlap', () => {
     expect(screen.getByTestId('proceso-cell')).toHaveAttribute('data-layout', 'no-clip');
   });
 });
+
+describe('TabPedidosCompra — Fecha pago col width', () => {
+  const colWidthByHeader = (label) => {
+    const headers = screen.getAllByRole('columnheader');
+    const index = headers.findIndex((th) => th.textContent === label);
+    expect(index).toBeGreaterThanOrEqual(0);
+    const table = headers[index].closest('table');
+    const cols = table.querySelectorAll('colgroup col');
+    expect(cols.length).toBe(headers.length);
+    return cols[index].style.width;
+  };
+
+  it('sizes Fecha pago to 110px and leaves Estado/Proceso unchanged', async () => {
+    renderTab(PEDIDO_CON_NUMERO);
+
+    expect(await screen.findByText('P-01-2026-00001')).toBeInTheDocument();
+    expect(colWidthByHeader('Fecha pago')).toBe('110px');
+    expect(colWidthByHeader('Estado')).toBe('152px');
+    expect(colWidthByHeader('Proceso')).toBe('220px');
+  });
+});

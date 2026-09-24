@@ -246,7 +246,7 @@
   font-weight: 600;
   padding: 2px 6px;
   border-radius: var(--radius-sm);
-  margin-left: var(--spacing-xs);
+  margin-left: 0;
 }
 
 .badgeVenceUrgente {
