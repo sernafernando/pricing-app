@@ -89,8 +89,14 @@ const renderPedidoChips = (p) => (
         OC
       </span>
     )}
+    {p.tiene_numero_factura && !p.factura_cargada && (
+      <span className={styles.chipMuted} data-testid="chip-numero-factura">
+        <FileText size={11} aria-hidden="true" />
+        Número
+      </span>
+    )}
     {p.factura_cargada && (
-      <span className={styles.chip}>
+      <span className={styles.chip} data-testid="chip-factura-cargada">
         <FileText size={11} aria-hidden="true" />
         Factura
       </span>

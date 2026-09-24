@@ -98,6 +98,7 @@ class TestChipsVisibilidadBatch:
                 pedido_id=p1.id,
                 numero="FA-1",
                 created_by_id=active_user.id,
+                cargada=True,
             )
         )
         adj_old = CompraAdjunto(
@@ -135,8 +136,10 @@ class TestChipsVisibilidadBatch:
 
         chips = pedidos_service.chips_visibilidad_batch(db, [p1.id, p2.id])
         assert chips[p1.id]["factura_cargada"] is True
+        assert chips[p1.id]["tiene_numero_factura"] is True
         assert chips[p1.id]["oc_match_status"] == OcMatchJob.STATUS_DONE
         assert chips[p2.id]["factura_cargada"] is False
+        assert chips[p2.id]["tiene_numero_factura"] is False
         assert chips[p2.id]["oc_match_status"] is None
 
 

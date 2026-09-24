@@ -336,3 +336,17 @@
   border: 1px solid var(--cf-border-default);
   white-space: nowrap;
 }
+
+.chipMuted {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  font-size: var(--font-xs);
+  font-weight: 400;
+  padding: 2px 6px;
+  border-radius: var(--radius-sm);
+  color: var(--cf-text-tertiary);
+  background: transparent;
+  border: 1px dashed var(--cf-border-default);
+  white-space: nowrap;
+}

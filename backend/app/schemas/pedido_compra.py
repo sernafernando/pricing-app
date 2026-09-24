@@ -101,16 +101,27 @@ class PedidoCompraUpdate(BaseModel):
         return tipo
 
 
+class PedidoCompraOcLink(BaseModel):
+    """One linked ERP OC triple (relation SoT; header is first-link cache)."""
+
+    oc_comp_id: int
+    oc_bra_id: int
+    oc_poh_id: int
+
+    model_config = ConfigDict(from_attributes=True)
+
+
 class PedidoCompraResponse(PedidoCompraBase):
     """Representación plana del pedido de compra (listados)."""
 
     id: int
     numero: str
     ct_transaction_id: int | None = None
-    # Batch J — OC link columns (nullable when not linked)
+    # Batch J — OC link columns (nullable when not linked). Header = first-link cache.
     oc_comp_id: int | None = None
     oc_bra_id: int | None = None
     oc_poh_id: int | None = None
+    ocs: list[PedidoCompraOcLink] = Field(default_factory=list)
     estado: str
     creado_por_id: int
     aprobado_por_id: int | None = None
@@ -174,6 +185,7 @@ class PedidoCompraResponse(PedidoCompraBase):
     op_cuenta_corriente_id: int | None = None
     responsable_id: int | None = None
     factura_cargada: bool = False
+    tiene_numero_factura: bool = False
     faltantes_resuelto_en: datetime | None = None
     # Pipeline UX — derived logistic axis (never stored). None for financial-only
     # states such as aprobado so the financial badge is not renamed Pendiente.
@@ -204,6 +216,7 @@ class PedidoCompraDetalle(PedidoCompraResponse):
 
     eventos: list["CompraEventoResponse"] = Field(default_factory=list)
     imputaciones: list["ImputacionResponse"] = Field(default_factory=list)
+    factura_documentos: list["PedidoFacturaDocumentoResponse"] = Field(default_factory=list)
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -231,14 +244,23 @@ class PedidoFacturaDocumentoCreate(BaseModel):
         return s
 
 
+class PedidoFacturaDocumentoCargadaUpdate(BaseModel):
+    """Body de PATCH /pedidos/{id}/factura-documentos/{row_id}."""
+
+    cargada: bool
+
+
 class PedidoFacturaDocumentoResponse(BaseModel):
-    """Fila normalizada de factura cargada (option A)."""
+    """Fila de constancia de factura; `cargada` is the Administración ERP check."""
 
     id: int
     pedido_id: int
     numero: str
     created_at: datetime
     created_by_id: int
+    cargada: bool = False
+    cargada_marked_at: datetime | None = None
+    cargada_marked_by_id: int | None = None
 
     model_config = ConfigDict(from_attributes=True)
 

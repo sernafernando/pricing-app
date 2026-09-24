@@ -1,5 +1,11 @@
 ## Exploration: compras-pipeline-chicho-review-fixes
 
+### Amendment (Gabe 2026-09-23)
+
+The write/read-split exploration below treated “row exists = factura cargada + alert on persist”. **That product model is wrong.** Gabe: numbers = constancia (no alert); cargada = Administración ERP check + 5-min pending alert (uncheck cancels). admin-ocs coord: Match stays Text write-back; typed rows + check live in compras-ux. Two 5-min clocks: DELETE undo (`created_at`) ≠ alert timer (`cargada_marked_at`). See proposal/design/specs/tasks as amended. Do not treat the “Shared alta fires alerts from OC Match — intended” risk below as current.
+
+---
+
 Chicho review of stacked PRs #1320→#1324 (Gabe fork → sernafernando **main**). Prior change `compras-ops-pipeline-ux` is archived. User locked full fix scope + one Novedades draft (Gabe gate before commit). admin-ocs confirmed catalog = DB; seed owned here; no admin-ocs code.
 
 ### Current State

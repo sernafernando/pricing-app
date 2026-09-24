@@ -15,7 +15,7 @@ Covers:
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 from unittest.mock import patch
 
@@ -28,6 +28,7 @@ from app.models.marca_pm import MarcaPM
 from app.models.marca_sub_pm import MarcaSubPM
 from app.models.notificacion import EstadoNotificacion, Notificacion
 from app.models.pedido_compra import PedidoCompra
+from app.models.pedido_factura_documento import PedidoFacturaDocumento
 from app.models.permiso import Permiso, RolPermisoBase, UsuarioPermisoOverride
 from app.models.proveedor import OrigenProveedor, Proveedor
 from app.models.rol import Rol
@@ -39,6 +40,10 @@ MARK = datetime(2026, 3, 10, 10, 0, tzinfo=timezone.utc)
 SNOOZE_AT = datetime(2026, 3, 10, 10, 20, tzinfo=timezone.utc)
 BEFORE_REOPEN = datetime(2026, 3, 10, 10, 59, tzinfo=timezone.utc)
 AT_REOPEN = datetime(2026, 3, 10, 11, 0, tzinfo=timezone.utc)
+T0 = datetime(2026, 3, 10, 12, 0, tzinfo=timezone.utc)
+T_4_59 = T0 + timedelta(minutes=4, seconds=59)
+T_5 = T0 + timedelta(minutes=5)
+T_6 = T0 + timedelta(minutes=6)
 
 PERMISO_DEPOSITO = "deposito.recibir_mercaderia"
 PERMISO_FACTURA = "administracion.ver_alertas_factura"
@@ -191,14 +196,35 @@ def _notif_ids(db, *, tipo: str) -> set[int]:
     return {n.user_id for n in db.query(Notificacion).filter(Notificacion.tipo == tipo).all()}
 
 
+def _alta_constancia(db, pedido: PedidoCompra, user: Usuario, numero: str = "FA-99"):
+    return pedidos_service.agregar_factura_documento(db, pedido_id=pedido.id, numero=numero, user_id=user.id)
+
+
+def _check_erp(db, pedido: PedidoCompra, row, user: Usuario, *, ahora: datetime):
+    return pedidos_service.marcar_factura_cargada(
+        db,
+        pedido_id=pedido.id,
+        row_id=row.id,
+        cargada=True,
+        user_id=user.id,
+        ahora=ahora,
+    )
+
+
+def _fire_at(db, *, ahora: datetime) -> int:
+    return compras_alertas_service.disparar_alertas_factura_pendientes(db, ahora=ahora)
+
+
 class TestCopyFactura:
     def test_copy_contains_p_proveedor_factura_not_pedidos_documento(
         self, db, empresa, proveedor, fanout_users
     ) -> None:
         pedido = _pedido(db, empresa, proveedor, fanout_users["titular"], pedidos_documento="DOC-ERP-NO-USAR")
-        row = pedidos_service.agregar_factura_documento(
-            db, pedido_id=pedido.id, numero="FA-99", user_id=fanout_users["titular"].id
-        )
+        row = _alta_constancia(db, pedido, fanout_users["titular"])
+        db.flush()
+        assert db.query(Notificacion).filter(Notificacion.tipo == "compras.factura_cargada").count() == 0
+        _check_erp(db, pedido, row, fanout_users["titular"], ahora=T0)
+        _fire_at(db, ahora=T_5)
         db.flush()
         notifs = db.query(Notificacion).filter(Notificacion.tipo == "compras.factura_cargada").all()
         assert notifs
@@ -206,17 +232,27 @@ class TestCopyFactura:
             assert "P-01-2026-00012" in notif.mensaje
             assert "Acme" in notif.mensaje
             assert "FA-99" in notif.mensaje
+            assert "ERP" in notif.mensaje
             assert "pedidos_documento" not in notif.mensaje
             assert "DOC-ERP-NO-USAR" not in notif.mensaje
         assert row.numero == "FA-99"
 
 
 class TestFanoutFactura:
-    def test_fanout_holders_only_and_admin_without_code_excluded(self, db, empresa, proveedor, fanout_users) -> None:
+    def test_alta_does_not_notify(self, db, empresa, proveedor, fanout_users) -> None:
         pedido = _pedido(db, empresa, proveedor, fanout_users["titular"])
-        pedidos_service.agregar_factura_documento(
-            db, pedido_id=pedido.id, numero="FA-99", user_id=fanout_users["titular"].id
-        )
+        _alta_constancia(db, pedido, fanout_users["titular"])
+        db.flush()
+        assert db.query(Notificacion).filter(Notificacion.tipo == "compras.factura_cargada").count() == 0
+
+    def test_fanout_holders_only_after_timer(self, db, empresa, proveedor, fanout_users) -> None:
+        pedido = _pedido(db, empresa, proveedor, fanout_users["titular"])
+        row = _alta_constancia(db, pedido, fanout_users["titular"])
+        db.flush()
+        _check_erp(db, pedido, row, fanout_users["titular"], ahora=T0)
+        db.flush()
+        assert db.query(Notificacion).filter(Notificacion.tipo == "compras.factura_cargada").count() == 0
+        _fire_at(db, ahora=T_5)
         db.flush()
         ids = _notif_ids(db, tipo="compras.factura_cargada")
         assert fanout_users["holder_h1"].id in ids
@@ -233,6 +269,63 @@ class TestFanoutFactura:
             fanout_users["holder_h2"].id,
             fanout_users["superadmin"].id,
         }
+
+    def test_sweep_before_five_minutes_is_noop(self, db, empresa, proveedor, fanout_users) -> None:
+        pedido = _pedido(db, empresa, proveedor, fanout_users["titular"])
+        row = _alta_constancia(db, pedido, fanout_users["titular"])
+        db.flush()
+        _check_erp(db, pedido, row, fanout_users["titular"], ahora=T0)
+        db.flush()
+        fired = _fire_at(db, ahora=T_4_59)
+        db.flush()
+        db.refresh(row)
+        assert fired == 0
+        assert db.query(Notificacion).filter(Notificacion.tipo == "compras.factura_cargada").count() == 0
+        assert row.alerta_pendiente_hasta is not None
+        assert row.alerta_disparada_at is None
+
+    def test_uncheck_before_fire_cancels_pending(self, db, empresa, proveedor, fanout_users) -> None:
+        pedido = _pedido(db, empresa, proveedor, fanout_users["titular"])
+        row = _alta_constancia(db, pedido, fanout_users["titular"])
+        db.flush()
+        _check_erp(db, pedido, row, fanout_users["titular"], ahora=T0)
+        pedidos_service.marcar_factura_cargada(
+            db,
+            pedido_id=pedido.id,
+            row_id=row.id,
+            cargada=False,
+            user_id=fanout_users["titular"].id,
+            ahora=T0 + timedelta(minutes=2),
+        )
+        db.flush()
+        _fire_at(db, ahora=T_6)
+        db.flush()
+        db.refresh(row)
+        assert db.query(Notificacion).filter(Notificacion.tipo == "compras.factura_cargada").count() == 0
+        assert db.get(PedidoFacturaDocumento, row.id) is not None
+        assert row.cargada is False
+
+    def test_recheck_after_uncheck_fires_new_window(self, db, empresa, proveedor, fanout_users) -> None:
+        t1 = T0 + timedelta(minutes=10)
+        pedido = _pedido(db, empresa, proveedor, fanout_users["titular"])
+        row = _alta_constancia(db, pedido, fanout_users["titular"])
+        db.flush()
+        _check_erp(db, pedido, row, fanout_users["titular"], ahora=T0)
+        pedidos_service.marcar_factura_cargada(
+            db,
+            pedido_id=pedido.id,
+            row_id=row.id,
+            cargada=False,
+            user_id=fanout_users["titular"].id,
+            ahora=T0 + timedelta(minutes=2),
+        )
+        _check_erp(db, pedido, row, fanout_users["titular"], ahora=t1)
+        db.flush()
+        assert _fire_at(db, ahora=t1 + timedelta(minutes=4, seconds=59)) == 0
+        fired = _fire_at(db, ahora=t1 + timedelta(minutes=5))
+        db.flush()
+        assert fired == 1
+        assert db.query(Notificacion).filter(Notificacion.tipo == "compras.factura_cargada").count() == 3
 
     def test_superadmin_matches_via_resolver(self, db, empresa, proveedor, fanout_users) -> None:
         recipients = compras_alertas_service.destinatarios_factura(db)
@@ -253,9 +346,10 @@ class TestFanoutFactura:
 class TestPerUserOkAndUndo:
     def test_ok_clears_only_that_user(self, db, empresa, proveedor, fanout_users) -> None:
         pedido = _pedido(db, empresa, proveedor, fanout_users["titular"])
-        pedidos_service.agregar_factura_documento(
-            db, pedido_id=pedido.id, numero="FA-99", user_id=fanout_users["titular"].id
-        )
+        row = _alta_constancia(db, pedido, fanout_users["titular"])
+        db.flush()
+        _check_erp(db, pedido, row, fanout_users["titular"], ahora=T0)
+        _fire_at(db, ahora=T_5)
         db.flush()
         t_notif = (
             db.query(Notificacion)
@@ -282,9 +376,10 @@ class TestPerUserOkAndUndo:
 
     def test_undo_retracts_factura_notifs(self, db, empresa, proveedor, fanout_users) -> None:
         pedido = _pedido(db, empresa, proveedor, fanout_users["titular"])
-        row = pedidos_service.agregar_factura_documento(
-            db, pedido_id=pedido.id, numero="FA-99", user_id=fanout_users["titular"].id
-        )
+        row = _alta_constancia(db, pedido, fanout_users["titular"])
+        db.flush()
+        _check_erp(db, pedido, row, fanout_users["titular"], ahora=T0)
+        _fire_at(db, ahora=T_5)
         db.flush()
         assert db.query(Notificacion).filter(Notificacion.tipo == "compras.factura_cargada").count() == 3
         pedidos_service.deshacer_factura_documento(db, pedido_id=pedido.id, row_id=row.id)
@@ -388,9 +483,10 @@ class TestResolucionG31:
             patch("smtplib.SMTP") as smtp,
             patch("smtplib.SMTP_SSL") as smtp_ssl,
         ):
-            pedidos_service.agregar_factura_documento(
-                db, pedido_id=pedido.id, numero="FA-99", user_id=fanout_users["titular"].id
-            )
+            row = _alta_constancia(db, pedido, fanout_users["titular"])
+            db.flush()
+            _check_erp(db, pedido, row, fanout_users["titular"], ahora=T0)
+            _fire_at(db, ahora=T_5)
             db.flush()
             smtp.assert_not_called()
             smtp_ssl.assert_not_called()

@@ -265,7 +265,7 @@ class TestVincularOC:
         assert pedido.oc_bra_id == 1
 
     def test_vincular_oc_409_ya_vinculado(self, client, auth_headers, db, pedido, proveedor, con_permiso_oc):
-        """REQ-OC-003: 409 if pedido already has a linked OC."""
+        """REQ-OC-003: second distinct OC is added; header first-link stays."""
         _mk_oc_header(db, poh_id=100, supp_id=proveedor.supp_id)
         _mk_oc_detail(db, poh_id=100, pod_id=1, is_processed=False)
         _mk_oc_header(db, poh_id=200, supp_id=proveedor.supp_id)
@@ -281,8 +281,9 @@ class TestVincularOC:
             json={"oc_comp_id": 1, "oc_bra_id": 1, "oc_poh_id": 200},
             headers=auth_headers,
         )
-        assert r.status_code == 409
-        assert "Unlink first" in r.json()["error"]["message"]
+        assert r.status_code == 200
+        db.refresh(pedido)
+        assert pedido.oc_poh_id == 100
 
     def test_vincular_oc_404_oc_no_existe(self, client, auth_headers, pedido, con_permiso_oc):
         """REQ-OC-003: 404 when OC does not exist in ERP."""

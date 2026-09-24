@@ -24,7 +24,7 @@ Chain strategy: feature-branch-chain
 | 1 | Model + chips | PR1←tracker | `pytest test_pedido_factura_documentos.py test_eje_procesal.py` | `alembic upgrade head` | downgrade `compras_044` |
 | 2 | Alerts | PR2←PR1 | `pytest test_compras_alertas_service.py` | POST factura banner | revert PR2 |
 | 3 | Depósito | PR3←PR2 | `pytest test_recepcion_deposito_endpoints.py` | pagado+CC AND | revert PR3 |
-| 4 | Multi-OC | PR4←PR3 | `pytest test_vincular_oc_multi.py` | 2nd OC N blocks | downgrade `compras_043` |
+| 4 | Multi-OC | PR4←PR3 | `pytest test_vincular_oc_multi.py` | 2nd OC N blocks | downgrade `compras_045` |
 
 ## Phase 0: Rebase
 
@@ -56,12 +56,12 @@ Chain strategy: feature-branch-chain
 
 ## Phase 4: PR4 multi-OC
 
-- [ ] 4.1 RED `backend/tests/integration/test_vincular_oc_multi.py`: add-not-replace; dup/servicio 409; partial 422.
-- [ ] 4.2 GREEN `backend/alembic/versions/compras_043_pedido_compra_ocs.py` + `backend/app/models/pedido_compra_oc.py`. Test: first link kept.
-- [ ] 4.3 `backend/app/services/pedidos_service.py` INSERT relation+header. Test: second kept; 403/404/supplier 409.
-- [ ] 4.4 `backend/app/services/recepcion_service.py` controlado iff all OCs. Test: 1/2 open; last → controlado.
-- [ ] 4.5 `frontend/src/components/compras/TabRecepcionDeposito.jsx` + `frontend/src/components/compras/ModalVincularOC.jsx` N blocks; servicio empty. Test: RTL 2 blocks.
+- [x] 4.1 RED `backend/tests/integration/test_vincular_oc_multi.py`: add-not-replace; dup/servicio 409; partial 422.
+- [x] 4.2 GREEN `backend/alembic/versions/compras_045_pedido_compra_ocs.py` + `backend/app/models/pedido_compra_oc.py`. Test: first link kept.
+- [x] 4.3 `backend/app/services/pedidos_service.py` INSERT relation+header. Test: second kept; 403/404/supplier 409.
+- [x] 4.4 `backend/app/services/recepcion_service.py` controlado iff all OCs. Test: 1/2 open; last → controlado.
+- [x] 4.5 `frontend/src/components/compras/TabRecepcionDeposito.jsx` + `frontend/src/components/compras/ModalVincularOC.jsx` N blocks; servicio empty. Test: RTL 2 blocks.
 
 ## Phase 5: Verify
 
-- [ ] 5.1 Confirm `docs/modulos/compras-guia-usuario.md` in-app only; no ERP multi-factura; `aprobado` kept; diffs clean.
+- [x] 5.1 Confirm `docs/modulos/compras-guia-usuario.md` in-app only; no ERP multi-factura; `aprobado` kept; diffs clean.

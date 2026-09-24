@@ -762,4 +762,95 @@ describe('TabRecepcionDeposito — Phase 3 depósito', () => {
     expect(document.getElementById('pedido-observaciones')).toHaveFocus();
     window.history.pushState({}, '', '/');
   });
+
+  it('renders one block per linked OC on the same pedido', async () => {
+    const user = userEvent.setup();
+    const pedidoDosOcs = {
+      ...PEDIDO_CON_OC_PAGADO,
+      id: 12,
+      numero: 'PC-0012',
+      oc_poh_id: 100,
+      ocs: [
+        { oc_comp_id: 1, oc_bra_id: 1, oc_poh_id: 100 },
+        { oc_comp_id: 1, oc_bra_id: 1, oc_poh_id: 200 },
+      ],
+    };
+    mockListadoAndSaldos([pedidoDosOcs], {
+      [pedidoDosOcs.id]: {
+        ...SALDOS_ARRIBO,
+        pedido_id: pedidoDosOcs.id,
+        lineas: [
+          { ...SALDOS_ARRIBO.lineas[0], oc_poh_id: 100, oc_comp_id: 1, oc_bra_id: 1, item_nombre: 'Linea A' },
+          { ...SALDOS_ARRIBO.lineas[1], oc_poh_id: 200, oc_comp_id: 1, oc_bra_id: 1, item_nombre: 'Linea B' },
+        ],
+      },
+    });
+    render(<TabRecepcionDeposito />);
+    await screen.findByText(`#${pedidoDosOcs.numero}`);
+    await user.click(screen.getByRole('button', { name: /Proveedor Tres/ }));
+
+    expect(await screen.findByRole('heading', { name: 'OC #100' })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'OC #200' })).toBeInTheDocument();
+    expect(screen.getByText('Linea A')).toBeInTheDocument();
+    expect(screen.getByText('Linea B')).toBeInTheDocument();
+  });
+
+  it('renders the empty-ERP OC block with required copy', async () => {
+    const user = userEvent.setup();
+    const pedidoEmptyErp = {
+      ...PEDIDO_CON_OC_PAGADO,
+      id: 13,
+      numero: 'PC-0013',
+      oc_poh_id: 500,
+      ocs: [{ oc_comp_id: 1, oc_bra_id: 1, oc_poh_id: 500 }],
+    };
+    mockListadoAndSaldos([pedidoEmptyErp], {
+      [pedidoEmptyErp.id]: { ...SALDOS_ARRIBO, pedido_id: pedidoEmptyErp.id, lineas: [] },
+    });
+    render(<TabRecepcionDeposito />);
+    await screen.findByText(`#${pedidoEmptyErp.numero}`);
+    await user.click(screen.getByRole('button', { name: /Proveedor Tres/ }));
+
+    expect(await screen.findByRole('heading', { name: 'OC #500' })).toBeInTheDocument();
+    expect(screen.getByText('OC no encontrada en ERP')).toBeInTheDocument();
+    expect(screen.queryByRole('table')).not.toBeInTheDocument();
+  });
+
+  it('keeps the empty-ERP block next to a sibling OC with lines', async () => {
+    const user = userEvent.setup();
+    const pedidoMixto = {
+      ...PEDIDO_CON_OC_PAGADO,
+      id: 14,
+      numero: 'PC-0014',
+      oc_poh_id: 100,
+      ocs: [
+        { oc_comp_id: 1, oc_bra_id: 1, oc_poh_id: 100 },
+        { oc_comp_id: 1, oc_bra_id: 1, oc_poh_id: 200 },
+      ],
+    };
+    mockListadoAndSaldos([pedidoMixto], {
+      [pedidoMixto.id]: {
+        ...SALDOS_ARRIBO,
+        pedido_id: pedidoMixto.id,
+        lineas: [
+          {
+            ...SALDOS_ARRIBO.lineas[1],
+            oc_poh_id: 200,
+            oc_comp_id: 1,
+            oc_bra_id: 1,
+            item_nombre: 'Linea B',
+          },
+        ],
+      },
+    });
+    render(<TabRecepcionDeposito />);
+    await screen.findByText(`#${pedidoMixto.numero}`);
+    await user.click(screen.getByRole('button', { name: /Proveedor Tres/ }));
+
+    expect(await screen.findByRole('heading', { name: 'OC #100' })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'OC #200' })).toBeInTheDocument();
+    expect(screen.getByText('OC no encontrada en ERP')).toBeInTheDocument();
+    expect(screen.getByText('Linea B')).toBeInTheDocument();
+    expect(screen.getByRole('table')).toBeInTheDocument();
+  });
 });

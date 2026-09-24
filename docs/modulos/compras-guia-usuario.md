@@ -30,6 +30,7 @@ Acceso: `https://pricing.miempresa.com/administracion/compras`.
 | ---------------------------------------------- | ------------------------------------------------ |
 | `administracion.ver_ordenes_compra`            | Cualquier usuario que precise ver pedidos/OPs.   |
 | `administracion.gestionar_ordenes_compra`      | PMs / compradores (crear y editar pedidos/OPs).  |
+| `administracion.ver_alertas_factura`           | Quien deba ver el aviso in-app de factura cargada en ERP. |
 | `administracion.aprobar_ordenes_compra`        | **CRÍTICO** — sólo aprobadores (gerentes).       |
 | `administracion.ejecutar_pagos`                | **CRÍTICO** — sólo tesorería.                    |
 | `administracion.ver_cuentas_corrientes`        | Contadores, gerentes, admin.                     |
@@ -66,6 +67,8 @@ permisos. Los tabs se ocultan dinámicamente según los permisos del usuario.
    - **Proveedor** (autocomplete contra `/administracion/proveedores`).
    - **Moneda** (ARS o USD).
    - **Monto estimado**, **descripción breve**, **notas** opcionales.
+   - **Tipo:** mercadería (default) o servicio. Después de creado, solo un
+     admin puede cambiarlo. Servicio no usa OC ni recepción en Depósito.
    - **¿Requiere envío por nuestra logística?** Si sí, marcar el flag
      `requiere_envio=true` y seleccionar la dirección de retiro del proveedor.
 3. Guardar → el pedido queda en estado **BORRADOR** con número
@@ -75,16 +78,39 @@ permisos. Los tabs se ocultan dinámicamente según los permisos del usuario.
 > hasta que se aprueben.
 
 En el listado, la columna **Estado** es financiera (el badge de **aprobado**
-no se renombra). La columna **Proceso** muestra el eje logístico
-(`N/A servicio`, `Por recibir`, `Recibido`, `Faltantes`, `Faltantes resueltos`,
-`Controlado`) y chips de visibilidad: OC vinculada, factura cargada y
-estado del último job de OC Match. Esos chips no son estados del pedido.
+se mantiene; no se llama “Pendiente”). La columna **Proceso** muestra el
+eje logístico (`N/A servicio`, `Por recibir`, `Recibido`, `Faltantes`,
+`Faltantes resueltos`, `Controlado`) y chips: OC vinculada, **Factura**
+(cargada en ERP) y estado del último job de OC Match. Esos chips no son
+estados del pedido. Si hay número de factura pero nadie tildó ERP, puede
+verse un chip atenuado **Número** — no es el chip Factura.
+
+**Constancia ≠ cargada.** Identificar o matchear un número (OC Match,
+alta manual o el texto `facturas_documento`) solo deja constancia del
+número. **No** prende el chip Factura y **no** dispara alerta. NV /
+`pedidos_documento` siguen siendo texto: no tienen check de cargada.
+
+**Cargada en ERP** = el check por factura en el detalle del pedido. El
+chip **Factura** se prende cuando al menos una fila está tildada. El
+vínculo ERP multi-factura (`ct_transaction`) sigue deprecado y no marca
+“cargada”.
+
+Hay **dos relojes de 5 minutos**, distintos:
+
+1. **Alerta de cargada:** al tildar “Cargada en ERP” arranca un pending
+   de 5 minutos. Si el check sigue tildado, llega el aviso in-app a
+   quienes tienen `administracion.ver_alertas_factura`. Destildar
+   **antes** de que dispare **cancela** el aviso (la fila no se borra).
+2. **Deshacer constancia:** borrar la fila (DELETE) solo se permite
+   durante 5 minutos desde que se **creó** esa fila. Destildar no es
+   borrar.
 
 Las alertas de **factura cargada**, **faltantes** y **faltantes resueltos**
-son solo in-app (banner apilable + campanita). El texto usa el número
-Pricing `P-…`, el proveedor y el nº de factura — nunca `pedidos_documento`.
-OK descarta la alerta solo para quien la confirma. Faltantes se puede
-posponer 1 hora desde la marca; al resolver se avisa a depósito.
+son **solo in-app** (banner apilable + campanita). No hay email ni Slack.
+El texto usa el número Pricing `P-…`, el proveedor y el nº de factura —
+nunca `pedidos_documento`. OK descarta la alerta solo para quien la
+confirma. Faltantes se puede posponer 1 hora desde la marca; al resolver
+se avisa a depósito (también in-app).
 
 ### 3.2 El PM envía el pedido a aprobación
 
@@ -148,6 +174,25 @@ En un solo tick transaccional, el sistema crea:
 - La OP cambia a **PAGADA**.
 - Los pedidos imputados cambian a **PAGADO** si la imputación cubrió el
   monto total, o quedan en **APROBADO** con saldo pendiente si fue parcial.
+
+### 3.6 Depósito (recepción)
+
+Tab **Recepción / Depósito** (permiso `deposito.recibir_mercaderia`):
+
+- **Por recibir** lista pedidos **pagado** por defecto. Un toggle incluye
+  cuenta corriente (CC). Se ocultan líneas con saldo 0.
+- **Docs** abre los **adjuntos del pedido** (no un dump de documentos ERP).
+- Se puede **deshacer recibido** (vuelve a pagado o a CC). **Controlado**
+  no se deshace.
+- Faltantes: texto obligatorio. Observación/foto de control son opcionales.
+- Varias OCs en el mismo pedido: un bloque por OC. Vincular **agrega**, no
+  reemplaza. **Controlado** recién cuando están todas las OCs. Pedido
+  **servicio**: no hay candidatas OC (no se vincula).
+- **Desvincular OC** es todo-o-nada: quita **todas** las OCs vinculadas del
+  pedido y limpia el cache de OC del encabezado. Hoy no hay desvínculo
+  por una sola OC. Si una OC no aparece en el ERP, el bloque sigue
+  visible con el texto **OC no encontrada en ERP** (el vínculo no se
+  borra solo).
 
 ---
 
@@ -322,6 +367,12 @@ un error, cancelar y crear uno nuevo.
 En el modal de detalle del pedido → sección **Timeline**. Se listan todos
 los eventos (creación, edición, envío a aprobación, aprobación, pago, etc.)
 con usuario, fecha y metadata.
+
+### ¿El vínculo de factura ERP (multi-factura) cambió?
+
+No. Sigue deprecado y sin cambios. El chip **Factura** es el check
+“Cargada en ERP” de cada fila, no el matching de `ct_transaction` ni
+el número que dejó OC Match.
 
 ---
 

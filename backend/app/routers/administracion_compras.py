@@ -34,7 +34,7 @@ from fastapi import APIRouter, BackgroundTasks, Body, Depends, File, Form, HTTPE
 from fastapi.responses import FileResponse, Response
 from sqlalchemy import exists, func as sa_func, or_
 from sqlalchemy import select, text
-from sqlalchemy.orm import Session, joinedload
+from sqlalchemy.orm import Session, joinedload, selectinload
 
 from app.api.deps import get_current_user, require_algun_permiso, require_permiso
 from app.core.config import settings
@@ -117,9 +117,11 @@ from app.schemas.pedido_compra import (
     FacturaCandidataResponse,
     PedidoCompraCreate,
     PedidoCompraDetalle,
+    PedidoCompraOcLink,
     PedidoCompraPaginated,
     PedidoCompraResponse,
     PedidoCompraUpdate,
+    PedidoFacturaDocumentoCargadaUpdate,
     PedidoFacturaDocumentoCreate,
     PedidoFacturaDocumentoResponse,
     PedidoTipoCambioUpdate,
@@ -282,6 +284,29 @@ def _apply_q_contains_filters(
         )
 
 
+def _ocs_payload(p: PedidoCompra) -> list[PedidoCompraOcLink]:
+    """Serialize linked OC triples (relation SoT, else header first-link cache)."""
+    rel = list(getattr(p, "ocs", None) or [])
+    if rel:
+        return [
+            PedidoCompraOcLink(
+                oc_comp_id=int(row.oc_comp_id),
+                oc_bra_id=int(row.oc_bra_id),
+                oc_poh_id=int(row.oc_poh_id),
+            )
+            for row in rel
+        ]
+    if getattr(p, "oc_poh_id", None) is not None:
+        return [
+            PedidoCompraOcLink(
+                oc_comp_id=int(p.oc_comp_id),
+                oc_bra_id=int(p.oc_bra_id),
+                oc_poh_id=int(p.oc_poh_id),
+            )
+        ]
+    return []
+
+
 def _pedido_response(
     p: PedidoCompra,
     *,
@@ -296,6 +321,7 @@ def _pedido_response(
     # N). None → el pedido no tiene OC vinculada; ambos campos quedan None.
     oc_totales: Optional[tuple[int, Decimal]] = None,
     factura_cargada: Optional[bool] = None,
+    tiene_numero_factura: Optional[bool] = None,
     oc_match_status: Optional[str] = None,
 ) -> PedidoCompraResponse:
     """Serializa PedidoCompra incluyendo empresa_nombre / proveedor_nombre.
@@ -322,6 +348,9 @@ def _pedido_response(
     prov = getattr(p, "proveedor", None)
     base = PedidoCompraResponse.model_validate(p)
     factura_flag = factura_cargada if factura_cargada is not None else bool(getattr(p, "factura_cargada", False))
+    tiene_numero_flag = (
+        tiene_numero_factura if tiene_numero_factura is not None else bool(getattr(p, "tiene_numero_factura", False))
+    )
     return base.model_copy(
         update={
             "empresa_nombre": emp.nombre if emp is not None else None,
@@ -336,8 +365,10 @@ def _pedido_response(
                 getattr(p, "estado", None),
                 getattr(p, "faltantes_resuelto_en", None),
             ),
-            "oc_vinculada": getattr(p, "oc_poh_id", None) is not None,
+            "oc_vinculada": getattr(p, "oc_poh_id", None) is not None or bool(getattr(p, "ocs", None)),
+            "ocs": _ocs_payload(p),
             "factura_cargada": factura_flag,
+            "tiene_numero_factura": tiene_numero_flag,
             "oc_match_status": oc_match_status,
             # F2 — varianza_tc_neta = None → fields stay at schema defaults (False/0).
             # Detail endpoint populates; list endpoints leave as defaults to avoid N+1.
@@ -493,6 +524,7 @@ def listar_pedidos(
                 .options(
                     joinedload(PedidoCompra.empresa),
                     joinedload(PedidoCompra.proveedor),
+                    selectinload(PedidoCompra.ocs),
                 )
                 .where(PedidoCompra.id.in_(page_ids))
             )
@@ -527,6 +559,7 @@ def listar_pedidos(
                     varianza_tc_neta=varianza_map.get(p.id),
                     oc_totales=oc_totales_map.get(p.id),
                     factura_cargada=chips_map.get(p.id, {}).get("factura_cargada"),
+                    tiene_numero_factura=chips_map.get(p.id, {}).get("tiene_numero_factura"),
                     oc_match_status=chips_map.get(p.id, {}).get("oc_match_status"),
                 )
                 for p in items_page
@@ -566,6 +599,7 @@ def listar_pedidos(
     stmt = select(PedidoCompra).options(
         joinedload(PedidoCompra.empresa),
         joinedload(PedidoCompra.proveedor),
+        selectinload(PedidoCompra.ocs),
     )
     if condiciones:
         stmt = stmt.where(*condiciones)
@@ -609,6 +643,7 @@ def listar_pedidos(
                 varianza_tc_neta=None if solo_deposito else varianza_map.get(p.id),
                 oc_totales=oc_totales_map.get(p.id),
                 factura_cargada=chips_map.get(p.id, {}).get("factura_cargada"),
+                tiene_numero_factura=chips_map.get(p.id, {}).get("tiene_numero_factura"),
                 oc_match_status=chips_map.get(p.id, {}).get("oc_match_status"),
             )
             for p in items
@@ -658,6 +693,7 @@ def listar_pedidos_pendientes_pago(
         .options(
             joinedload(PedidoCompra.empresa),
             joinedload(PedidoCompra.proveedor),
+            selectinload(PedidoCompra.ocs),
         )
         .where(PedidoCompra.estado.in_(["aprobado", "pagado_parcial"]))
     )
@@ -703,6 +739,8 @@ def obtener_pedido(
         .options(
             joinedload(PedidoCompra.empresa),
             joinedload(PedidoCompra.proveedor),
+            selectinload(PedidoCompra.ocs),
+            selectinload(PedidoCompra.factura_documentos),
         )
         .where(PedidoCompra.id == pedido_id)
     ).scalar_one_or_none()
@@ -759,9 +797,14 @@ def obtener_pedido(
                 getattr(pedido, "estado", None),
                 getattr(pedido, "faltantes_resuelto_en", None),
             ),
-            "oc_vinculada": getattr(pedido, "oc_poh_id", None) is not None,
+            "oc_vinculada": getattr(pedido, "oc_poh_id", None) is not None or bool(getattr(pedido, "ocs", None)),
             "factura_cargada": bool(chips.get("factura_cargada")),
+            "tiene_numero_factura": bool(chips.get("tiene_numero_factura")),
             "oc_match_status": chips.get("oc_match_status"),
+            "factura_documentos": [
+                PedidoFacturaDocumentoResponse.model_validate(row)
+                for row in pedidos_service.listar_factura_documentos(db, pedido.id)
+            ],
         }
     )
     detalle.eventos = [CompraEventoResponse.model_validate(e) for e in eventos]
@@ -867,7 +910,7 @@ def agregar_factura_documento(
     db: Session = Depends(get_db),
     user: Usuario = Depends(require_permiso("administracion.gestionar_ordenes_compra")),
 ) -> PedidoFacturaDocumentoResponse:
-    """Add a nonempty invoice number row and fan-out in-app factura alerts."""
+    """Add a nonempty invoice number as constancia. Does not mark cargada or notify."""
     try:
         row = pedidos_service.agregar_factura_documento(
             db,
@@ -915,6 +958,40 @@ def deshacer_factura_documento(
         raise HTTPException(status_code=500, detail="Error al deshacer la factura.") from exc
 
     _commit_or_rollback(db, operacion="deshacer_factura_documento")
+
+
+@router.patch(
+    "/pedidos/{pedido_id}/factura-documentos/{row_id}",
+    response_model=PedidoFacturaDocumentoResponse,
+    summary="Marcar o desmarcar factura cargada en ERP",
+)
+def marcar_factura_documento_cargada(
+    pedido_id: int,
+    row_id: int,
+    data: PedidoFacturaDocumentoCargadaUpdate,
+    db: Session = Depends(get_db),
+    user: Usuario = Depends(require_permiso("administracion.gestionar_ordenes_compra")),
+) -> PedidoFacturaDocumentoResponse:
+    """Toggle the Administración ERP check. Starts or cancels the 5-min pending alert."""
+    try:
+        row = pedidos_service.marcar_factura_cargada(
+            db,
+            pedido_id=pedido_id,
+            row_id=row_id,
+            cargada=data.cargada,
+            user_id=user.id,
+        )
+    except HTTPException:
+        db.rollback()
+        raise
+    except Exception as exc:
+        db.rollback()
+        logger.exception("marcar_factura_documento_cargada falló: %s", exc)
+        raise HTTPException(status_code=500, detail="Error al marcar la factura.") from exc
+
+    _commit_or_rollback(db, operacion="marcar_factura_documento_cargada")
+    db.refresh(row)
+    return PedidoFacturaDocumentoResponse.model_validate(row)
 
 
 # ──────────────────────────────────────────────────────────────────────────
@@ -4385,8 +4462,8 @@ def desvincular_factura_pedido(
 #
 # Flujo Slice 1:
 #   GET    /pedidos/{id}/oc-candidatas       → lista OCs pendientes del proveedor
-#   POST   /pedidos/{id}/vincular-oc         → setea las 3 cols oc_*
-#   DELETE /pedidos/{id}/desvincular-oc      → limpia las 3 cols oc_*
+#   POST   /pedidos/{id}/vincular-oc         → INSERT relation + first-link cache
+#   DELETE /pedidos/{id}/desvincular-oc      → limpia relation + las 3 cols oc_*
 #   GET    /pedidos/{id}/orden-compra/detalle → desglose por depósito (read-only)
 #
 # Todos requieren `administracion.gestionar_ordenes_compra`.
@@ -4433,7 +4510,7 @@ def vincular_oc_pedido(
 
     Validates:
       - Pedido exists (404).
-      - Pedido has no OC yet (409 — unlink first).
+      - Pedido tipo=servicio (409). Duplicate triple (409).
       - OC exists in tb_purchase_order_header (404).
       - OC supp_id matches pedido proveedor supp_id (409 supplier mismatch).
       - OC satisfies CRITERION-PENDIENTE (409 if all lines processed).
