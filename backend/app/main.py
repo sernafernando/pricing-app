@@ -80,6 +80,7 @@ from app.routers import (
     document_templates,
     empresas,
     free_shipping_alerts,
+    ml_order_metrics,
     ml_promotions,
     ml_ventas_ops,
     prearmado,
@@ -314,6 +315,7 @@ app.include_router(marcas_pm.router, prefix="/api", tags=["marcas-pm"])
 app.include_router(mla_banlist.router, prefix="/api", tags=["mla-banlist"])
 app.include_router(producto_banlist.router, prefix="/api", tags=["producto-banlist"])
 app.include_router(ventas_ml.router, prefix="/api", tags=["ventas-ml"])
+app.include_router(ml_order_metrics.router, prefix="/api", tags=["ML Order Metrics"])
 app.include_router(ventas_fuera_ml.router, prefix="/api", tags=["ventas-fuera-ml"])
 app.include_router(commercial_transactions.router, prefix="/api", tags=["commercial-transactions"])
 app.include_router(comisiones.router, prefix="/api", tags=["comisiones"])

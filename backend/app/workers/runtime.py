@@ -95,6 +95,13 @@ class WorkerRuntime:
         channels = sorted({channel for handler in self.registry for channel in handler.channels})
         for channel in channels:
             cur.execute(f"LISTEN {channel}")
+        # PR6 (design D10): `worker_jobs` is listened unconditionally, not
+        # derived from any handler's own `channels` -- `POST
+        # /order-metrics/divergence/run` notifies it regardless of which
+        # handlers happen to be registered, so an on-demand trigger wakes
+        # the worker even for a schedule-only handler like
+        # `order_metrics.divergence` (`channels=()`).
+        cur.execute("LISTEN worker_jobs")
         cur.close()
         return conn
 
@@ -113,6 +120,30 @@ class WorkerRuntime:
                 if is_due(handler, now=now, last_success_at=last_success_at):
                     due.append(handler)
         return due
+
+    def _requested_handlers(self) -> List[JobHandler]:
+        """On-demand triggers (design D10): `POST
+        /order-metrics/divergence/run` sets `worker_job_state.state
+        ='requested'` for one handler's row; this clears every such flag
+        this worker's registry recognizes and returns the matching
+        handlers to run right now, regardless of schedule. Postgres-only
+        (`UPDATE ... RETURNING`); on any other dialect (bare unit tests)
+        this is a no-op -- no test exercises the requested-flag path
+        outside `@pytest.mark.postgres`."""
+        names = {h.name: h for h in self.registry}
+        if not names:
+            return []
+        with get_background_db() as db:
+            if db.get_bind().dialect.name != "postgresql":
+                return []
+            rows = db.execute(
+                text(
+                    "UPDATE worker_job_state SET state = NULL "
+                    "WHERE state = 'requested' AND name = ANY(:names) RETURNING name"
+                ),
+                {"names": list(names.keys())},
+            ).fetchall()
+        return [names[row[0]] for row in rows if row[0] in names]
 
     def _run_handler(self, handler: JobHandler, now: datetime) -> None:
         deadline = now + timedelta(seconds=DEFAULT_HANDLER_DEADLINE_SECONDS)
@@ -168,9 +199,10 @@ class WorkerRuntime:
         now = now or datetime.now(timezone.utc)
         due = self._due_handlers(now)
         channel_driven = [h for h in self.registry if h.channels and h.interval is None and h.run_at_local is None]
+        requested = self._requested_handlers()
         to_run: List[JobHandler] = []
         seen = set()
-        for handler in due + channel_driven:
+        for handler in due + channel_driven + requested:
             if handler.name not in seen:
                 seen.add(handler.name)
                 to_run.append(handler)
@@ -201,7 +233,12 @@ class WorkerRuntime:
             worker_name=self.worker_name,
             interval=self._heartbeat_interval,
             token_provider=lambda: set(self._held_tokens),
-            detail_provider=lambda: {"draining": self._draining},
+            # PR6 (design D9): the health endpoint reads `listener_mode`
+            # straight off this same `detail` JSON -- `notify`/`poll_only`
+            # is a property of this running process, never guessed from
+            # config alone (a stale `DATABASE_URL_DIRECT` that fails to
+            # connect still degrades to poll_only in practice).
+            detail_provider=lambda: {"draining": self._draining, "listener_mode": self.listener_mode},
         )
         self.heartbeat.start()
 
