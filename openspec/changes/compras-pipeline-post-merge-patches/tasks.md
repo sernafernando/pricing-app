@@ -62,3 +62,7 @@ Create `feat/compras-pipeline-post-merge-patches` from this worktree #1340 tip (
 - [x] 5.1 In `TabPedidosCompra.module.css` + `.jsx`: semantic chip classes — OC info/blue, Factura success/green, Match `error` danger/red, other Match statuses non-gray; strengthen `.procesalBadge` tones for ejes (esp. recibido / faltantes*). Número stays `.chipMuted`. Use design tokens only. (`chip-colors`)
 - [x] 5.2 Fix Estado "Con faltantes" badge sitting behind/under Proceso: cell overflow, z-index, or column/layout so the badge stays fully visible beside Proceso chips. (`chip-overlap`)
 - [x] 5.3 Vitest in `TabPedidosCompra.test.jsx`: Factura vs Match-error distinct classes/tones; con_faltantes estado badge not clipped (layout/class assertions via roles/testids as existing suite). (`chip-colors`, `chip-overlap`)
+
+## Phase 6: Visual evidence for chips + Con faltantes (addendum 2026-09-24)
+
+- [x] 6.1 Add `frontend/src/test/visual/tabPedidosCompraChips.visual.test.jsx` — Chromium computed colors for OC/Factura/Match-error (distinct; token-aligned via visualHelpers) and Con faltantes vs Proceso layout (z-index/overflow or non-covering rects). (`chip-colors`, `chip-overlap`)

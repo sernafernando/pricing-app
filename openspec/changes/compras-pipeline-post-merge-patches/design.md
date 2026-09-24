@@ -58,6 +58,7 @@ Inbound land opens once, then consume. Query-driven `tab=` sync is not a user ta
 
 | File | Action | Description |
 |------|--------|-------------|
+| `frontend/src/test/visual/tabPedidosCompraChips.visual.test.jsx` | Create | Playwright Chromium: computed chip colors + Con faltantes vs Proceso geometry (closes jsdom PARTIAL) |
 | `backend/app/services/oc_match/extract.py` | Modify | Enum + NC/ND copy; `quote_numeric_doc_fields`; stringify tokens |
 | `backend/app/services/oc_match/gemini_pool.py` | Modify | Optional `transform_text` before `json.loads` |
 | `backend/app/services/oc_match/doc_refs.py` | Modify | Known + aliases for NC/ND; still not routeable |
@@ -99,7 +100,11 @@ Chips: `parse_tokens` (`split(';')`, strip, drop empty). Render the stored strin
 | Integration | NC/ND: no columns, no stamp, no factura row; factura still seeds constancia `cargada=false` | `test_oc_match_worker.py` |
 | API | default exclude hides cancelado; explicit `cancelado` + logistic estados | listar tests |
 | FE | default filter + dropdown; chips keep zeros / split; Ver+/ok on dismissible banners; nonce force-open; close/tab-change no sticky reopen; inbound opens once | existing vitest files |
+| FE contract | Chip `data-tone` + `data-layout=no-clip` (jsdom `css:false`) | `TabPedidosCompra.test.jsx` Phase 5.3 — class/testid contract only |
+| Visual | Chromium computed chip colors + Con faltantes vs Proceso geometry | `src/test/visual/tabPedidosCompraChips.visual.test.jsx` (`--project=visual`). Closes the verify PARTIAL gap: `data-tone`/`data-layout` cannot prove painted tokens or overlap. |
 | Timer | 5m / PM notify | do not edit sweep modules |
+
+Verify note (Phase 6 addendum): independent verify after Phase 5 marked `chip-colors` / `chip-overlap` PARTIAL because jsdom has no layout. The visual suite is the suggested computed-style/geometry evidence — not a replacement for 5.3 contract unit tests.
 
 ## Threat Matrix
 

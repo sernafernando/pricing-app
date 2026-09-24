@@ -4,7 +4,7 @@
 **Mode**: Standard
 **Delivery**: single-pr
 **Branch**: `feat/compras-pipeline-post-merge-patches`
-**Updated**: 2026-09-24
+**Updated**: 2026-09-24 (Phase 6 visual addendum)
 
 ## Completed Tasks
 
@@ -24,18 +24,19 @@
 - [x] 5.1 Semantic Proceso chip tones (OC info, Factura success, Match error danger, other Match warning; eje badges stronger; Número muted)
 - [x] 5.2 Estado `con_faltantes` cell widened + overflow/z-index so badge stays visible beside Proceso
 - [x] 5.3 Vitest: Factura vs Match-error `data-tone`; estado-cell `data-layout=no-clip`
+- [x] 6.1 Visual vitest: Chromium computed OC/Factura/Match-error token colors + Con faltantes vs Proceso geometry
 
 ## Work Unit Evidence
 
 | Evidence | Value |
 |---|---|
-| Focused test command and exact result | Phases 1–4: pytest 46 + vitest 86. Phase 5: `pnpm exec vitest run src/components/compras/TabPedidosCompra.test.jsx` → **12 passed**. |
-| Runtime harness command/scenario and exact result | N/A — no routing/shell/process-integration boundary; threat matrix in design is N/A. 5m/PM sweep modules not edited. |
-| Rollback boundary | Revert this branch / the apply commits. No Alembic. Extract/persist, Pedidos filter, and query-lifecycle FE revert independently. Unchanged: `TabOcMatch.*`, `compras_alertas_service` 5m/PM, CAS, freeze-migration. |
+| Focused test command and exact result | Phases 1–4: pytest 46 + vitest 86. Phase 5: `pnpm exec vitest run src/components/compras/TabPedidosCompra.test.jsx` → **12 passed**. Phase 6: `pnpm exec vitest run --project=visual src/test/visual/tabPedidosCompraChips.visual.test.jsx` → **2 passed**; unit `TabPedidosCompra.test.jsx` still **12 passed**. |
+| Runtime harness command/scenario and exact result | N/A — no routing/shell/process-integration boundary; threat matrix in design is N/A. Visual project is Playwright Chromium computed-style, not a 5m sweep. |
+| Rollback boundary | Revert this branch / the apply commits. No Alembic. Extract/persist, Pedidos filter, and query-lifecycle FE revert independently. Unchanged: `TabOcMatch.*`, `compras_alertas_service` 5m/PM, CAS, freeze-migration. Phase 6 is the visual test file + SDD artifact notes only. |
 
 ## Deviations from Design
 
-None — implementation matches design.
+Phase 6: mocked `useSearchParams` instead of wrapping with `MemoryRouter`. Importing `react-router-dom` live in the visual project makes Vite optimize it mid-run, reload the page, and throw invalid hook call (`useRef` null). The hook mock is enough — TabPedidosCompra only reads search params.
 
 ## Issues Found
 
