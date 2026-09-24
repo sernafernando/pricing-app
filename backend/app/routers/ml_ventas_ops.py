@@ -24,7 +24,6 @@ switched off right now" for a user who already cleared the permission gate.
 from __future__ import annotations
 
 import calendar
-import dataclasses
 from datetime import date, datetime, time, timedelta, timezone
 from zoneinfo import ZoneInfo
 from typing import Any, Dict, List, Optional, Tuple
@@ -67,7 +66,13 @@ from app.services.ml_ventas_desglose.breakdown_service import (
     compute_neto_desglose_by_order_ids,
 )
 from app.services.ml_sales_query.aggregate import aggregate_order_metrics
-from app.services.ml_sales_query.filters import SalesFilter, build_scope, collapse
+from app.services.ml_sales_query.filters import (
+    SalesFilter,
+    build_scope,
+    collapse,
+    effective_switches,
+    excluded_by_toggle_counts,
+)
 from app.services.ml_ventas_desglose.deducciones import calcular_total_gauss, resolve_costo_mercaderia_detalle
 from app.services.ml_ventas_desglose.iva import descomponer_neto
 from app.models.ml_order_metrics import MlOrderMetrics
@@ -1362,39 +1367,31 @@ class SalesKpiResponse(BaseModel):
     recalculating_count: int
     pending_count: int
     failed_count: int
+    # K1: an order missing either `total_gauss` or `costo_mercaderia`
+    # contributes to NEITHER side of `markup_weighted_pct` -- counted
+    # here, never silently dropped.
+    markup_skipped_count: int
     worker_alive: bool
     excluded_by_toggle: SalesKpiExcludedByToggle
     # Design D12 "explicit facet selection overrides its switch; response
     # echoes effective switches" -- PR11.T9's URL round-trip contract reads
     # this back, not just the accepted request params, so a caller can
-    # confirm what was ACTUALLY applied.
+    # confirm what was ACTUALLY applied (K2: this may differ from the raw
+    # request params when an explicit facet overrode its switch).
     effective_switches: Dict[str, bool]
 
 
 def _toggle_excluded_counts(db: Session, f: SalesFilter) -> SalesKpiExcludedByToggle:
-    """KPI R13: for each toggle that is currently OFF, the count of GROUPS
-    that would additionally be included if ONLY that toggle were flipped
-    ON, holding every other active filter (including the other three
-    toggles) constant -- one extra `build_scope` call per OFF toggle, at
-    most 4, never a per-row query."""
-
-    def _count(filter_: SalesFilter) -> int:
-        scope = build_scope(db, filter_)
-        return scope.listing_query.with_entities(func.count(func.distinct(scope.group_key))).scalar() or 0
-
-    current_count = _count(f)
-
-    def _excluded_if_off(field_name: str) -> int:
-        if getattr(f, field_name):
-            return 0
-        with_toggle_on = dataclasses.replace(f, **{field_name: True})
-        return _count(with_toggle_on) - current_count
-
+    """KPI R13: thin wrapper around `filters.excluded_by_toggle_counts`
+    (K3: computed in ONE aggregate query, not one `build_scope` re-run per
+    toggle) -- kept as a router-local function only to adapt the shared
+    layer's plain dict into this endpoint's own response model."""
+    counts = excluded_by_toggle_counts(db, f)
     return SalesKpiExcludedByToggle(
-        a_revisar=_excluded_if_off("include_unknown"),
-        en_disputa=_excluded_if_off("include_in_dispute"),
-        mixta=_excluded_if_off("include_mixed"),
-        provisorio=_excluded_if_off("include_provisional"),
+        a_revisar=counts["a_revisar"],
+        en_disputa=counts["en_disputa"],
+        mixta=counts["mixta"],
+        provisorio=counts["provisorio"],
     )
 
 
@@ -1430,6 +1427,14 @@ def sales_kpis(
     this endpoint takes no `limit`/`offset`. Every measure comes from
     stored `ml_order_metrics` only (`aggregate_order_metrics`), never a
     live recompute.
+
+    The four `include_*` query params are the REQUESTED switches; the
+    `effective_switches` field of the response is what was actually
+    applied, which can differ when an explicit `operation_status`/
+    `goods_status` facet overrides its own switch (K2, design D12
+    "explicit facet selection overrides its switch").
+    `excluded_by_toggle` (KPI R13) is computed in one aggregate query, not
+    one full scope re-run per toggle (K3).
 
     Requires `ml_ops.ver`, same precedent as `GET /sales`.
     """
@@ -1470,6 +1475,10 @@ def sales_kpis(
     scope = build_scope(db, sales_filter)
     result = aggregate_order_metrics(db, scope.listing_query, scope.group_key)
     excluded_by_toggle = _toggle_excluded_counts(db, sales_filter)
+    # K2: the switches ACTUALLY applied by `build_scope` (an explicit
+    # `operation_status`/`goods_status` facet selection may have overridden
+    # one), never the raw accepted request params.
+    applied_switches = effective_switches(sales_filter)
 
     return SalesKpiResponse(
         groups_count=result.groups_count,
@@ -1486,13 +1495,14 @@ def sales_kpis(
         recalculating_count=result.recalculating_count,
         pending_count=result.pending_count,
         failed_count=result.failed_count,
+        markup_skipped_count=result.markup_skipped_count,
         worker_alive=order_metrics_health.worker_alive(db),
         excluded_by_toggle=excluded_by_toggle,
         effective_switches={
-            "include_unknown": include_unknown,
-            "include_in_dispute": include_in_dispute,
-            "include_mixed": include_mixed,
-            "include_provisional": include_provisional,
+            "include_unknown": applied_switches.include_unknown,
+            "include_in_dispute": applied_switches.include_in_dispute,
+            "include_mixed": applied_switches.include_mixed,
+            "include_provisional": applied_switches.include_provisional,
         },
     )
 

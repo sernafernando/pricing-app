@@ -21,6 +21,14 @@ reported via `failed_count` (design D9: "excluded from KPI sums").
 counterpart for a row that DID finish computing but came back with an
 unresolvable value -- never a fabricated zero standing in for either kind
 of "don't know" (SM R2/R3, orchestrator instructions).
+
+K1 fix (blocking, money): `markup_weighted_pct`'s numerator
+(SUM(total_gauss)) and denominator (SUM(costo_mercaderia)) must be summed
+over the EXACT SAME population of orders -- an order contributes to
+EITHER side only when it carries BOTH values. Skipped orders are counted,
+never hidden, via `markup_skipped_count`. `total_gauss_sum` (a separate
+measure, spec KPI R8) is NOT gated by this rule -- it still includes an
+order's `total_gauss` whenever that value alone is present.
 """
 
 from __future__ import annotations
@@ -81,6 +89,10 @@ class AggregateResult:
     # costo denominator sums to zero or nothing summable exists, never a
     # fabricated 0%.
     markup_weighted_pct: Optional[Decimal] = None
+    # K1: an order missing EITHER `total_gauss` OR `costo_mercaderia`
+    # contributes to NEITHER side of the ratio above -- counted here,
+    # never silently dropped.
+    markup_skipped_count: int = 0
 
 
 def aggregate_order_metrics(db: Session, listing_query: Query, group_key) -> AggregateResult:
@@ -119,6 +131,7 @@ def aggregate_order_metrics(db: Session, listing_query: Query, group_key) -> Agg
 
     costo_sum = Decimal("0")
     tg_sum_for_markup = Decimal("0")
+    markup_skipped_count = 0
 
     for order in orders:
         state = states.get(order.order_id, "pending")
@@ -164,9 +177,17 @@ def aggregate_order_metrics(db: Session, listing_query: Query, group_key) -> Agg
 
         if row.total_gauss is not None:
             total_gauss_sum += Decimal(row.total_gauss)
+
+        # K1: only an order carrying BOTH values may contribute to EITHER
+        # side of the weighted markup ratio -- summing the numerator and
+        # denominator over two different populations (this order's
+        # total_gauss with no matching costo, or vice versa) produces a
+        # ratio that corresponds to nothing.
+        if row.total_gauss is not None and row.costo_mercaderia is not None:
             tg_sum_for_markup += Decimal(row.total_gauss)
-        if row.costo_mercaderia is not None:
             costo_sum += Decimal(row.costo_mercaderia)
+        else:
+            markup_skipped_count += 1
 
     markup_weighted_pct: Optional[Decimal] = None
     if costo_sum != 0:
@@ -188,4 +209,5 @@ def aggregate_order_metrics(db: Session, listing_query: Query, group_key) -> Agg
         total_gauss_provisional_count=total_gauss_provisional_count,
         total_gauss_unresolved_count=total_gauss_unresolved_count,
         markup_weighted_pct=markup_weighted_pct,
+        markup_skipped_count=markup_skipped_count,
     )

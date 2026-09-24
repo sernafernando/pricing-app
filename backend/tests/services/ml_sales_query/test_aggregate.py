@@ -204,3 +204,52 @@ class TestUnknownNeto:
         result = _aggregate(db)
         assert result.neto_unknown_count == 1
         assert result.neto_sum == Decimal("0")
+
+
+class TestWeightedMarkupOnlyFromOrdersCarryingBothValues:
+    """K1 (blocking, money): an order must carry BOTH `total_gauss` and
+    `costo_mercaderia` to contribute to EITHER side of the weighted markup
+    ratio -- summing the numerator and denominator over two DIFFERENT
+    populations produces a plausible-looking percentage that corresponds
+    to nothing."""
+
+    def test_order_missing_costo_never_inflates_the_numerator(self, db):
+        _seed_order(db, 1)
+        _seed_metrics(db, 1, total_gauss=100, costo_mercaderia=None, markup_pct=None)
+        _seed_order(db, 2)
+        _seed_metrics(db, 2, total_gauss=50, costo_mercaderia=50)
+        result = _aggregate(db)
+        # Only order 2 carries both values: 50/50*100 = 100%. If order 1's
+        # total_gauss leaked into the numerator without its (missing)
+        # costo in the denominator, this would read 150/50*100 = 300%.
+        assert result.markup_weighted_pct == Decimal("100")
+        assert result.markup_skipped_count == 1
+
+    def test_order_missing_total_gauss_never_inflates_the_denominator(self, db):
+        _seed_order(db, 1)
+        _seed_metrics(db, 1, total_gauss=None, costo_mercaderia=1000, markup_pct=None, gauss_status="unresolved")
+        _seed_order(db, 2)
+        _seed_metrics(db, 2, total_gauss=50, costo_mercaderia=50)
+        result = _aggregate(db)
+        # If order 1's costo leaked into the denominator without its
+        # (missing) total_gauss in the numerator, this would read
+        # 50/1050*100 ~= 4.76%, not the correct 100%.
+        assert result.markup_weighted_pct == Decimal("100")
+        assert result.markup_skipped_count == 1
+
+    def test_total_gauss_sum_is_unaffected_by_a_missing_costo(self, db):
+        """`total_gauss_sum` (spec KPI R8, a separate measure from the
+        weighted markup ratio) must still include an order's total_gauss
+        even when its costo_mercaderia is missing -- only the markup
+        numerator/denominator pairing is exclusion-gated by K1."""
+        _seed_order(db, 1)
+        _seed_metrics(db, 1, total_gauss=100, costo_mercaderia=None, markup_pct=None)
+        result = _aggregate(db)
+        assert result.total_gauss_sum == Decimal("100")
+
+    def test_both_missing_is_not_double_counted(self, db):
+        _seed_order(db, 1)
+        _seed_metrics(db, 1, total_gauss=None, costo_mercaderia=None, markup_pct=None, gauss_status="unresolved")
+        result = _aggregate(db)
+        assert result.markup_weighted_pct is None
+        assert result.markup_skipped_count == 1

@@ -54,6 +54,7 @@ def _seed_order(
     currency_id: str = "ARS",
     date_created=None,
     buyer_nickname: str | None = None,
+    has_no_shipping_tag: bool = False,
 ) -> None:
     if date_created is None:
         date_created = datetime(2026, 9, 1, tzinfo=timezone.utc)
@@ -71,6 +72,7 @@ def _seed_order(
             currency_id=currency_id,
             shipping_id=shipping_id,
             buyer_nickname=buyer_nickname,
+            has_no_shipping_tag=has_no_shipping_tag,
         )
     )
     if shipping_id is not None:
@@ -192,6 +194,116 @@ class TestExcludedByToggle:
             headers=admin_auth_headers,
         ).json()
         assert body["excluded_by_toggle"]["a_revisar"] == 0
+
+
+class TestNoShippingTagIncludedByDefault:
+    """K0 (product decision): a pickup / 'acordar con el vendedor' sale is
+    tagged `no_shipping` by ML and has no `ml_shipments_ops` row. It is a
+    REAL sale, not a doubtful one -- it must be included in the KPI sums
+    with the DEFAULT switches (no `include_unknown` override), while a
+    genuinely unknown order (no shipment, no tag) stays excluded."""
+
+    def test_no_shipping_tagged_sale_included_with_default_switches(self, db, client, admin_auth_headers, rol_admin):
+        _grant_ml_ops_ver(db, rol_admin)
+        _seed_order(db, 1, shipping_status=None, total_amount=1234, has_no_shipping_tag=True)
+        _stored_metrics(db, 1)
+        db.commit()
+
+        body = client.get("/api/ml-ventas-ops/sales/kpis", headers=admin_auth_headers).json()
+
+        assert body["orders_count"] == 1
+        assert body["gross_billed_ars"] == pytest.approx(1234.0)
+        assert body["excluded_by_toggle"]["a_revisar"] == 0
+
+    def test_genuinely_unknown_sale_still_excluded_with_default_switches(
+        self, db, client, admin_auth_headers, rol_admin
+    ):
+        _grant_ml_ops_ver(db, rol_admin)
+        _seed_order(db, 1, shipping_status=None, total_amount=1234, has_no_shipping_tag=False)
+        _stored_metrics(db, 1)
+        db.commit()
+
+        body = client.get("/api/ml-ventas-ops/sales/kpis", headers=admin_auth_headers).json()
+
+        assert body["orders_count"] == 0
+        assert body["gross_billed_ars"] == pytest.approx(0.0)
+        assert body["excluded_by_toggle"]["a_revisar"] == 1
+
+
+class TestExplicitFacetOverridesSwitch:
+    """K2: an explicit `operation_status`/`goods_status` filter must win
+    over the toggle that would otherwise hide it, and the response must
+    echo the switch it ACTUALLY applied (design D12 "response echoes
+    effective switches")."""
+
+    def test_explicit_operation_status_unknown_overrides_a_revisar_off(self, db, client, admin_auth_headers, rol_admin):
+        _grant_ml_ops_ver(db, rol_admin)
+        _seed_order(db, 1, status="pending_payment", shipping_status=None, total_amount=500)
+        _stored_metrics(db, 1)
+        db.commit()
+
+        body = client.get(
+            "/api/ml-ventas-ops/sales/kpis",
+            params={"operation_status": "unknown", "include_unknown": "false"},
+            headers=admin_auth_headers,
+        ).json()
+
+        assert body["orders_count"] == 1
+        assert body["effective_switches"]["include_unknown"] is True
+
+    def test_explicit_operation_status_in_dispute_overrides_en_disputa_off(
+        self, db, client, admin_auth_headers, rol_admin
+    ):
+        _grant_ml_ops_ver(db, rol_admin)
+        _seed_order(db, 1, status="paid", payment_status="in_mediation", shipping_status="delivered", total_amount=500)
+        _stored_metrics(db, 1)
+        db.commit()
+
+        body = client.get(
+            "/api/ml-ventas-ops/sales/kpis",
+            params={"operation_status": "in_dispute", "include_in_dispute": "false"},
+            headers=admin_auth_headers,
+        ).json()
+
+        assert body["orders_count"] == 1
+        assert body["effective_switches"]["include_in_dispute"] is True
+
+
+class TestExcludedByToggleQueryShape:
+    """K3: the per-toggle excluded counts must not re-run the whole scope
+    once per toggle -- computed here in a single aggregate query (plus the
+    unavoidable `build_scope` call already shared with the main
+    aggregation), never one full query execution per OFF toggle."""
+
+    def test_bounded_query_count_regardless_of_how_many_toggles_are_off(
+        self, db, client, admin_auth_headers, rol_admin, query_counter
+    ):
+        _grant_ml_ops_ver(db, rol_admin)
+        _seed_order(db, 1, shipping_status=None, total_amount=100)  # unknown
+        _seed_order(db, 2, status="paid", payment_status="in_mediation", shipping_status="delivered")  # in dispute
+        _stored_metrics(db, 1)
+        _stored_metrics(db, 2)
+        db.commit()
+
+        with query_counter() as counter:
+            resp = client.get(
+                "/api/ml-ventas-ops/sales/kpis",
+                # Every switch OFF: worst case for the old N-queries-per-
+                # toggle implementation (would have run 5 full scope
+                # queries just for the excluded-count computation).
+                params={
+                    "include_unknown": "false",
+                    "include_in_dispute": "false",
+                    "include_mixed": "false",
+                    "include_provisional": "false",
+                },
+                headers=admin_auth_headers,
+            )
+        assert resp.status_code == 200
+        # Bounded regardless of toggle state: order rows + metrics state +
+        # stored metrics + worker heartbeat + ONE excluded-counts
+        # aggregate, never scaling with the number of OFF toggles.
+        assert counter.total <= 10, f"Too many queries ({counter.total}): suspected per-toggle scope re-run."
 
 
 class TestWorkerAlive:

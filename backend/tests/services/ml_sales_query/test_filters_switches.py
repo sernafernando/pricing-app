@@ -19,7 +19,8 @@ import pytest
 from app.core.config import settings
 from app.models.ml_order_metrics import MlOrderMetrics
 from app.models.ml_orders_ops import MlOrdersOps, MlShipmentOps
-from app.services.ml_sales_query.filters import SalesFilter, build_scope
+from app.services.ml_sales_query import filters as filters_module
+from app.services.ml_sales_query.filters import SalesFilter, build_scope, effective_switches
 
 
 @pytest.fixture(autouse=True)
@@ -118,6 +119,24 @@ class TestIncludeUnknown:
         scope = build_scope(db, SalesFilter(include_unknown=False))
         assert _group_keys(db, scope) == {"o:2"}
 
+    def test_no_shipping_tagged_order_shown_by_default_never_unknown(self, db):
+        """K0 (user product decision): a real in-person pickup / 'acordar
+        con el vendedor' sale is tagged `no_shipping` by ML and has no
+        `ml_shipments_ops` row -- it must NOT be classified into the
+        doubtful 'A revisar' class just because there is no shipment. With
+        the default switches (A revisar OFF), it must still show."""
+        _seed_order(db, 50, status="paid", shipping_status=None, has_no_shipping_tag=True)
+        scope = build_scope(db, SalesFilter())  # defaults: include_unknown=False
+        assert _group_keys(db, scope) == {"o:50"}
+
+    def test_genuinely_unknown_order_still_excluded_by_default(self, db):
+        """The counterpart of the fix above: an order with no shipment and
+        NO `no_shipping` tag is genuinely doubtful and must stay excluded
+        by the default-OFF 'A revisar' switch."""
+        _seed_order(db, 51, status="paid", shipping_status=None, has_no_shipping_tag=False)
+        scope = build_scope(db, SalesFilter())
+        assert _group_keys(db, scope) == set()
+
 
 class TestIncludeInDispute:
     def test_include_in_dispute_false_excludes_it(self, db):
@@ -200,3 +219,70 @@ class TestDefaults:
         assert f.include_in_dispute is False
         assert f.include_mixed is True
         assert f.include_provisional is True
+
+
+class TestExplicitFacetOverridesSwitch:
+    """K2 (design D12): "explicit facet selection overrides its switch" --
+    a user who explicitly filters `operation_status=unknown` or
+    `operation_status=in_dispute` (or `goods_status=unknown`) must see
+    those rows even while the corresponding toggle is OFF, otherwise the
+    facet filter and the toggle silently fight each other and the user
+    sees an empty table with no explanation."""
+
+    def test_explicit_operation_status_unknown_overrides_a_revisar_off(self, db):
+        _seed_order(db, 60, status="pending_payment")
+        scope = build_scope(db, SalesFilter(operation_status="unknown", include_unknown=False))
+        assert _group_keys(db, scope) == {"o:60"}
+
+    def test_explicit_goods_status_unknown_overrides_a_revisar_off(self, db):
+        _seed_order(db, 61, status="paid", shipping_status=None)
+        scope = build_scope(db, SalesFilter(goods_status="unknown", include_unknown=False))
+        assert _group_keys(db, scope) == {"o:61"}
+
+    def test_explicit_operation_status_in_dispute_overrides_en_disputa_off(self, db):
+        _seed_order(db, 62, status="paid", payment_status="in_mediation", shipping_status="delivered")
+        scope = build_scope(db, SalesFilter(operation_status="in_dispute", include_in_dispute=False))
+        assert _group_keys(db, scope) == {"o:62"}
+
+    def test_no_explicit_facet_leaves_switch_in_control(self, db):
+        _seed_order(db, 63, status="pending_payment")
+        scope = build_scope(db, SalesFilter(include_unknown=False))
+        assert _group_keys(db, scope) == set()
+
+    def test_effective_switches_reports_the_override(self):
+        f = SalesFilter(operation_status="unknown", include_unknown=False)
+        applied = effective_switches(f)
+        assert applied.include_unknown is True
+        # Untouched switches are not affected by the override.
+        assert applied.include_in_dispute is False
+
+
+class TestUnknownClassificationIsExplicitNotAlphabetical:
+    """K4: `is_unknown` must be derived from an EXPLICIT "this axis
+    collapsed to exactly 'unknown'" check, not from `MIN()` happening to
+    pick 'unknown' out of a genuinely mixed (distinct>1) set of statuses --
+    an incidental property of today's status vocabulary (every other name
+    sorts before 'unknown') that a new status name sorting after it would
+    silently break."""
+
+    def test_mixed_group_with_a_status_name_sorting_after_unknown_is_not_misclassified(self, db, monkeypatch):
+        # Patch a shipping-status mapping so one member's goods_status is a
+        # value that sorts AFTER 'unknown' -- `MIN('unknown', 'zzz_x')` is
+        # 'unknown', which is exactly the incidental behaviour this fix
+        # removes.
+        patched_map = dict(filters_module.GOODS_STATUS_BY_SHIPPING_STATUS)
+        patched_map["not_delivered"] = "zzz_after_unknown"
+        monkeypatch.setattr(filters_module, "GOODS_STATUS_BY_SHIPPING_STATUS", patched_map)
+
+        # Member 70: no shipment -> goods_status 'unknown' (real, no tag).
+        _seed_order(db, 70, pack_id=444, status="paid", shipping_status=None)
+        # Member 71: patched shipping status -> goods_status
+        # 'zzz_after_unknown'. Both members are 'paid' on the operation
+        # axis (no shipment 'delivered' bump), so op axis stays single.
+        _seed_order(db, 71, pack_id=444, status="paid", shipping_status="not_delivered")
+
+        # Mixta ON (the group IS genuinely mixed on goods_status), A
+        # revisar OFF -- the group is mixed, not "collapsed to unknown",
+        # so it must show.
+        scope = build_scope(db, SalesFilter(include_mixed=True, include_unknown=False))
+        assert _group_keys(db, scope) == {"p:444"}

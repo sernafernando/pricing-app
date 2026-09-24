@@ -19,11 +19,11 @@ facet, and a match returns the whole group (spec PFILT R38).
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import datetime
-from typing import Any, Optional, Tuple
+from typing import Any, Dict, Optional, Tuple
 
-from sqlalchemy import String, and_, case, cast, false, func, literal, or_
+from sqlalchemy import String, and_, case, cast, false, func, literal, or_, true
 from sqlalchemy.orm import Query, Session, aliased
 
 from app.core.config import settings
@@ -84,12 +84,22 @@ class SalesScope:
     inline `members_base` had). `listing_query` is `base` PLUS the
     operation/goods status filters and the search filter, which is what
     selects which GROUPS appear on the page.
+
+    `pre_switch_listing_query` (K3) is `listing_query` BEFORE the
+    doubtful-case switches are applied -- everything else (seller, date,
+    status facets, search, product facets) already filtered. It exists so
+    a caller that needs to evaluate MULTIPLE switch combinations against
+    the SAME otherwise-filtered set (the KPI endpoint's per-toggle
+    excluded counts, `excluded_by_toggle_counts`) can do so with one join
+    against `_group_switch_subquery` and several conditional aggregates,
+    instead of re-running `build_scope` once per combination.
     """
 
     base: Query
     facet_base: Query
     members_base: Query
     listing_query: Query
+    pre_switch_listing_query: Query
     op_status_expr: Any
     goods_status_expr: Any
     group_key: Any
@@ -135,6 +145,38 @@ def _goods_status_expr():
         for shipping_status, goods_status in GOODS_STATUS_BY_SHIPPING_STATUS.items()
     ]
     return case(*whens, else_="unknown")
+
+
+def _goods_status_for_switch_expr():
+    """K0 (product decision, spec KPI R9): the "A revisar" doubtful-case
+    classification, ONLY -- a real shipment always outranks the tag, same
+    precedence `mode_resolution.resolve_modo_logistico` already applies
+    for `modo_logistico`. When there is genuinely no shipment
+    (`MlOrdersOps.shipping_id IS NULL`) AND the order carries ML's
+    `no_shipping` tag (`has_no_shipping_tag`, `mode_resolution.py`), the
+    parcel was handed off in person -- a real sale whose goods status
+    simply does not apply, never the same 'unknown' bucket a doubtful,
+    un-investigated order falls into. `has_no_shipping_tag` is NULLABLE:
+    NULL means "not tagged" and falls through to plain 'unknown',
+    unchanged.
+
+    This is DELIBERATELY separate from `_goods_status_expr()` (the value
+    shown on the listing/detail badge, unchanged by this fix) -- widening
+    the displayed goods_status vocabulary is a future slice's decision,
+    not this one's.
+    """
+    whens = [
+        (MlShipmentOps.status == shipping_status, goods_status)
+        for shipping_status, goods_status in GOODS_STATUS_BY_SHIPPING_STATUS.items()
+    ]
+    return case(
+        *whens,
+        (
+            and_(MlOrdersOps.shipping_id.is_(None), MlOrdersOps.has_no_shipping_tag.is_(True)),
+            "no_shipping",
+        ),
+        else_="unknown",
+    )
 
 
 def _group_key_expr():
@@ -216,7 +258,7 @@ def _product_facet_exists(db: Session, f: SalesFilter, group_key: Any) -> Option
     )
 
 
-def _group_switch_subquery(db: Session, op_status_expr: Any, goods_status_expr: Any):
+def _group_switch_subquery(db: Session, op_status_expr: Any):
     """PR11.T1/T2 (design D12 Mixta resolution): one row per GROUP, computed
     over ALL of a group's members (seller-scoped only, like `members_base`
     -- a switch must agree with what the group's members actually collapse
@@ -238,14 +280,20 @@ def _group_switch_subquery(db: Session, op_status_expr: Any, goods_status_expr: 
     `modo_logistico` is deliberately NOT included here (PR11.T3): it is a
     logistics attribute (design D12), not a status axis, and must never
     drive the Mixta switch.
+
+    The goods axis always uses `_goods_status_for_switch_expr` (K0), NOT
+    whatever `goods_status_expr` a caller built for display purposes --
+    the switch classification and the displayed badge are deliberately
+    allowed to diverge (see that function's docstring).
     """
+    goods_switch_expr = _goods_status_for_switch_expr()
     group_key = _group_key_expr()
     q = db.query(
         group_key.label("group_key"),
         func.count(func.distinct(op_status_expr)).label("op_distinct"),
         func.min(op_status_expr).label("op_single"),
-        func.count(func.distinct(goods_status_expr)).label("goods_distinct"),
-        func.min(goods_status_expr).label("goods_single"),
+        func.count(func.distinct(goods_switch_expr)).label("goods_distinct"),
+        func.min(goods_switch_expr).label("goods_single"),
         func.max(case((op_status_expr == "in_dispute", 1), else_=0)).label("any_in_dispute"),
         func.max(case((MlOrderMetrics.gauss_status == "provisional", 1), else_=0)).label("any_provisional"),
     ).outerjoin(MlShipmentOps, MlShipmentOps.shipment_id == MlOrdersOps.shipping_id)
@@ -255,22 +303,73 @@ def _group_switch_subquery(db: Session, op_status_expr: Any, goods_status_expr: 
     return q.group_by(group_key).subquery()
 
 
-def _apply_switches(query: Query, db: Session, f: SalesFilter, op_status_expr: Any, goods_status_expr: Any) -> Query:
-    """PR11.T2: joins `query` against the group-switch aggregate and filters
-    out any group excluded by a currently-OFF toggle (spec KPI R9-R11). All
-    four switches ON is a no-op join elided entirely (the common/default
-    path touches nothing new)."""
-    if f.include_unknown and f.include_in_dispute and f.include_mixed and f.include_provisional:
-        return query
+def _switch_flags(switches: Any) -> "tuple[Any, Any, Any, Any]":
+    """The four doubtful-case boolean expressions over one row of
+    `_group_switch_subquery`'s result (design D12, spec KPI R9).
 
-    switches = _group_switch_subquery(db, op_status_expr, goods_status_expr)
-    group_key = _group_key_expr()
-    is_unknown = or_(switches.c.op_distinct == 0, switches.c.op_single == "unknown") | or_(
-        switches.c.goods_distinct == 0, switches.c.goods_single == "unknown"
+    K4 fix: `is_unknown` is derived from an EXPLICIT "this axis collapsed
+    to EXACTLY 0 or 1 distinct value, and that value is 'unknown'" check
+    -- mirroring `collapse()`'s real semantics -- rather than from
+    `MIN()` happening to land on 'unknown' among a genuinely mixed
+    (`distinct > 1`) set. The old `op_single == "unknown"` check (with no
+    `distinct` guard) only ever worked because 'unknown' sorts after every
+    other status name in today's vocabulary, so `MIN()` never picked it
+    out of a mixed set BY COINCIDENCE -- a new status name sorting after
+    'unknown' would have silently flipped that coincidence and
+    double-classified a genuinely mixed group as also 'unknown'. A mixed
+    group is caught by `is_mixed` alone, never by `is_unknown` too.
+    """
+    op_collapsed_unknown = (switches.c.op_distinct == 0) | (
+        (switches.c.op_distinct == 1) & (switches.c.op_single == "unknown")
     )
+    goods_collapsed_unknown = (switches.c.goods_distinct == 0) | (
+        (switches.c.goods_distinct == 1) & (switches.c.goods_single == "unknown")
+    )
+    is_unknown = op_collapsed_unknown | goods_collapsed_unknown
     is_mixed = (switches.c.op_distinct > 1) | (switches.c.goods_distinct > 1)
     is_in_dispute = switches.c.any_in_dispute == 1
     is_provisional = switches.c.any_provisional == 1
+    return is_unknown, is_mixed, is_in_dispute, is_provisional
+
+
+def effective_switches(f: SalesFilter) -> SalesFilter:
+    """K2 (design D12 "explicit facet selection overrides its switch",
+    spec KPI R9-R11): a user who explicitly filters `operation_status` to
+    'unknown' or 'in_dispute', or `goods_status` to 'unknown', must see
+    those rows even while the corresponding toggle is OFF -- an explicit
+    per-order facet choice is a stronger signal than the default-hiding
+    switch, and the two must never silently fight (an operator clicking
+    "En disputa" while the switch defaults OFF must not land on an empty
+    table with no explanation).
+
+    Returns a NEW `SalesFilter` with the overridden switches applied; the
+    caller's `f` is never mutated (frozen dataclass). Both `build_scope`
+    (so the listing and the KPI aggregation stay in parity, spec R10) and
+    the router's `effective_switches` response field (design D12
+    "response echoes effective switches") MUST go through this one
+    function, never re-derive the override independently.
+    """
+    include_unknown = f.include_unknown or f.operation_status == "unknown" or f.goods_status == "unknown"
+    include_in_dispute = f.include_in_dispute or f.operation_status == "in_dispute"
+    return replace(f, include_unknown=include_unknown, include_in_dispute=include_in_dispute)
+
+
+def _apply_switches(query: Query, db: Session, f: SalesFilter, op_status_expr: Any) -> Query:
+    """PR11.T2: joins `query` against the group-switch aggregate and filters
+    out any group excluded by a currently-OFF toggle (spec KPI R9-R11). All
+    four switches ON is a no-op join elided entirely (the common/default
+    path touches nothing new).
+
+    `f` is expected to already be the EFFECTIVE filter (`effective_switches`
+    applied by the caller, K2) -- this function does not re-apply the
+    facet-override rule itself.
+    """
+    if f.include_unknown and f.include_in_dispute and f.include_mixed and f.include_provisional:
+        return query
+
+    switches = _group_switch_subquery(db, op_status_expr)
+    group_key = _group_key_expr()
+    is_unknown, is_mixed, is_in_dispute, is_provisional = _switch_flags(switches)
 
     query = query.join(switches, switches.c.group_key == group_key)
     if not f.include_unknown:
@@ -300,8 +399,10 @@ def build_scope(db: Session, f: SalesFilter) -> SalesScope:
     configured seller (same as the old inline logic), the filter's date
     range, its operation/goods status facets and its free-text search.
 
-    `apply_switches` semantics (the four doubtful-case toggles, KPI R9-R11)
-    are NOT applied yet -- that is PR11's `SalesFilter.include_*` wiring.
+    Also applies the four doubtful-case toggles (`_apply_switches`, spec
+    KPI R9-R11) to `listing_query`/`facet_base`, through `effective_switches`
+    (K2: an explicit `operation_status`/`goods_status` facet selection
+    overrides its own switch) -- never the raw, unadjusted `f`.
     """
     open_claim_exists = _open_claim_exists_subquery(db)
     op_status_expr = _operation_status_expr(open_claim_exists)
@@ -341,19 +442,94 @@ def build_scope(db: Session, f: SalesFilter) -> SalesScope:
         listing_query = listing_query.filter(facet_exists)
         facet_base = facet_base.filter(facet_exists)
 
+    pre_switch_listing_query = listing_query
+
     # PR11.T2 (design D12, spec KPI R9-R11): the four doubtful-case toggle
     # switches apply to BOTH the listing and the facet/KPI base, same
     # contract as the search and product facets above -- table and KPI
     # strip must always reflect the exact same filtered set (spec R10).
-    listing_query = _apply_switches(listing_query, db, f, op_status_expr, goods_status_expr)
-    facet_base = _apply_switches(facet_base, db, f, op_status_expr, goods_status_expr)
+    # K2: an explicit facet selection overrides its own switch -- always go
+    # through `effective_switches`, never the raw `f`, so the listing and
+    # the KPI aggregation (which independently calls `build_scope` with the
+    # same `f`) apply the identical override (spec R10 parity).
+    effective_f = effective_switches(f)
+    listing_query = _apply_switches(listing_query, db, effective_f, op_status_expr)
+    facet_base = _apply_switches(facet_base, db, effective_f, op_status_expr)
 
     return SalesScope(
         base=base,
         facet_base=facet_base,
         members_base=members_base,
         listing_query=listing_query,
+        pre_switch_listing_query=pre_switch_listing_query,
         op_status_expr=op_status_expr,
         goods_status_expr=goods_status_expr,
         group_key=group_key,
     )
+
+
+def excluded_by_toggle_counts(db: Session, f: SalesFilter) -> Dict[str, int]:
+    """K3 (spec KPI R13): for each toggle, how many additional GROUPS
+    would be included if ONLY that toggle were flipped ON, holding every
+    other active filter (including the other three toggles, and any K2
+    facet override) constant. `0` for a toggle that is already effectively
+    ON -- nothing of its class is being excluded by it.
+
+    Computed in ONE aggregate query over `pre_switch_listing_query`
+    (everything except the switches already filtered) joined ONCE against
+    `_group_switch_subquery`, using five `COUNT(DISTINCT CASE WHEN ...)`
+    expressions (current + one per toggle) -- never a `build_scope`
+    re-run per toggle (was up to four extra full scope queries).
+    """
+    scope = build_scope(db, f)
+    effective_f = effective_switches(f)
+    switches = _group_switch_subquery(db, scope.op_status_expr)
+    group_key = scope.group_key
+    is_unknown, is_mixed, is_in_dispute, is_provisional = _switch_flags(switches)
+
+    def _pass_condition(unknown_on: bool, mixed_on: bool, dispute_on: bool, provisional_on: bool) -> Any:
+        conditions = []
+        if not unknown_on:
+            conditions.append(~is_unknown)
+        if not mixed_on:
+            conditions.append(~is_mixed)
+        if not dispute_on:
+            conditions.append(~is_in_dispute)
+        if not provisional_on:
+            conditions.append(~is_provisional)
+        return and_(*conditions) if conditions else true()
+
+    base_state = (
+        effective_f.include_unknown,
+        effective_f.include_mixed,
+        effective_f.include_in_dispute,
+        effective_f.include_provisional,
+    )
+
+    def _count_label(state: "tuple[bool, bool, bool, bool]", label: str) -> Any:
+        condition = _pass_condition(*state)
+        return func.count(func.distinct(case((condition, group_key)))).label(label)
+
+    row = (
+        scope.pre_switch_listing_query.join(switches, switches.c.group_key == group_key)
+        .with_entities(
+            _count_label(base_state, "current"),
+            _count_label((True, base_state[1], base_state[2], base_state[3]), "unknown_on"),
+            _count_label((base_state[0], True, base_state[2], base_state[3]), "mixed_on"),
+            _count_label((base_state[0], base_state[1], True, base_state[3]), "dispute_on"),
+            _count_label((base_state[0], base_state[1], base_state[2], True), "provisional_on"),
+        )
+        .one()
+    )
+
+    def _excluded(currently_on: bool, with_flip: int) -> int:
+        if currently_on:
+            return 0
+        return with_flip - row.current
+
+    return {
+        "a_revisar": _excluded(effective_f.include_unknown, row.unknown_on),
+        "en_disputa": _excluded(effective_f.include_in_dispute, row.dispute_on),
+        "mixta": _excluded(effective_f.include_mixed, row.mixed_on),
+        "provisorio": _excluded(effective_f.include_provisional, row.provisional_on),
+    }
