@@ -56,3 +56,9 @@ Create `feat/compras-pipeline-post-merge-patches` from this worktree #1340 tip (
 - [x] 4.3 `backend/tests/integration/test_compras_endpoints.py`: default `excluir_estado=cancelado`; explicit `cancelado` + logistic estados. (`ped-filter`)
 - [x] 4.4 `frontend/src/components/compras/TabPedidosCompra.test.jsx` + `frontend/src/components/AppLayout.comprasBanners.test.jsx`: default filter; Ver/banner nonce; close/tab no sticky reopen; inbound opens once; **factura Ver+/ok permanent**; **faltantes X → snooze** (dismissible); faltantes Ver no `/ok`/snooze. Update/replace old “faltantes not dismissible” tests. (`ped-filter`, `ped-query`, `alert-open`, `alert-ver-dismiss`, `alert-faltantes-x-snooze`)
 - [x] 4.5 `frontend/src/components/compras/TabRecepcionDeposito.test.jsx`: chips `00184465` and `0012`/`PED-08`; Incluir CC defaults checked and Por recibir first fetch includes `en_cuenta_corriente`. (`dep-chips`, `dep-cc-default`)
+
+## Phase 5: Chip colors + Con faltantes overlap (addendum 2026-09-24)
+
+- [x] 5.1 In `TabPedidosCompra.module.css` + `.jsx`: semantic chip classes — OC info/blue, Factura success/green, Match `error` danger/red, other Match statuses non-gray; strengthen `.procesalBadge` tones for ejes (esp. recibido / faltantes*). Número stays `.chipMuted`. Use design tokens only. (`chip-colors`)
+- [x] 5.2 Fix Estado "Con faltantes" badge sitting behind/under Proceso: cell overflow, z-index, or column/layout so the badge stays fully visible beside Proceso chips. (`chip-overlap`)
+- [x] 5.3 Vitest in `TabPedidosCompra.test.jsx`: Factura vs Match-error distinct classes/tones; con_faltantes estado badge not clipped (layout/class assertions via roles/testids as existing suite). (`chip-colors`, `chip-overlap`)

@@ -298,11 +298,20 @@
   cursor: pointer;
 }
 
+.estadoCell {
+  position: relative;
+  z-index: 1;
+  overflow: visible;
+}
+
 .procesoCell {
   display: flex;
   flex-direction: column;
   align-items: flex-start;
   gap: 4px;
+  position: relative;
+  z-index: 0;
+  overflow: visible;
 }
 
 .procesalBadge {
@@ -335,6 +344,33 @@
   background: var(--cf-bg-hover);
   border: 1px solid var(--cf-border-default);
   white-space: nowrap;
+}
+
+.chipInfo,
+.procesalInfo {
+  color: var(--cf-accent-blue);
+  background: color-mix(in srgb, var(--cf-accent-blue) 14%, transparent);
+  border-color: color-mix(in srgb, var(--cf-accent-blue) 32%, transparent);
+}
+
+.chipSuccess,
+.procesalSuccess {
+  color: var(--cf-accent-green);
+  background: color-mix(in srgb, var(--cf-accent-green) 16%, transparent);
+  border-color: color-mix(in srgb, var(--cf-accent-green) 38%, transparent);
+}
+
+.chipDanger {
+  color: var(--cf-danger);
+  background: color-mix(in srgb, var(--cf-danger) 14%, transparent);
+  border-color: color-mix(in srgb, var(--cf-danger) 32%, transparent);
+}
+
+.chipWarning,
+.procesalWarning {
+  color: var(--cf-accent-orange);
+  background: color-mix(in srgb, var(--cf-accent-orange) 18%, transparent);
+  border-color: color-mix(in srgb, var(--cf-accent-orange) 40%, transparent);
 }
 
 .chipMuted {

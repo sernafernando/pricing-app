@@ -20,6 +20,8 @@ factura-cargada 5m timer, CAS resolver, or migration freeze agreements.
 | 6 | Ver / banner buttons often no-op; faltantes Ver works | `AppLayout.deepLinkForCompras`; close modal leaves `?pedido=`; navigate no-op if URL unchanged | compras-pipeline-alerts, pedidos-compra |
 | 7 | Banner open → switch Compras tab → back to Pedidos reopens pedido | `handleCloseDetalle` does not clear query; remount re-reads `pedido` | pedidos-compra, compras-pipeline-alerts |
 | 8 | Depósito toggle "Incluir cuenta corriente" default false → want true | `TabRecepcionDeposito.jsx` `useState(false)` for `incluirCC` | recepcion-deposito |
+| 9 | Proceso chips (OC/Factura/Match/recibido) all gray — need color codes | `TabPedidosCompra` `.chip` / `.procesalBadge` | pedidos-compra |
+| 10 | Estado "Con faltantes" badge sits behind Proceso column | table cell overflow / z-index / flex wrap in Pedidos list | pedidos-compra |
 
 ## Key paths
 

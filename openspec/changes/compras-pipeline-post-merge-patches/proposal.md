@@ -16,6 +16,8 @@ Fix Gabe post-#1340 Compras bugs without amending `compras-faltantes-responsable
 - Ver/banner no-ops + sticky reopen: close or Compras tab change MUST clear or remount-safe `?pedido=` / focus; Ver MUST force-open if URL unchanged.
 - Depósito filter toggle **Incluir cuenta corriente** default MUST be **on** (`true`); was shipped `false`.
 - Amend existing novedad `2026-09-23-compras-pipeline-ux.md` for CC default + Pedidos filter (no new novedad file for bugfixes).
+- **Proceso chips color:** OC / Factura / Match (esp. error) / eje procesal badges MUST use distinct semantic tones (not all gray/white). Keep muted Número as dashed/muted.
+- **Con faltantes overlap:** Estado badge "Con faltantes" MUST NOT render behind/under the Proceso column (fix cell overflow, stacking, or column width/wrap).
 
 ### Out of Scope
 OC-match expand-below (defers to oc-match owners; amends `feat-compras-oc-match-ops-ux`). Amending the two locked changes; Alembic unless proven; persist NC/ND; email/Slack. **Not** inventing a new factura-checkbox model (misread of item 4 — dropped).
@@ -29,7 +31,7 @@ None
 - `compras-oc-match-pipeline`: NC/ND non-routeable; enum + normalize + persist gate; string tokens.
 - `compras-factura-documentos`: OC-match MUST NOT create factura rows from NC/ND.
 - `recepcion-deposito`: pedido chips show the stored string (keep leading zeros); Incluir CC toggle defaults on.
-- `pedidos-compra`: default excludes only `cancelado`; dropdown adds logistic estados; `?pedido=` lifecycle + force-open Ver.
+- `pedidos-compra`: default excludes only `cancelado`; dropdown adds logistic estados; `?pedido=` lifecycle + force-open Ver; **proceso chip colors**; **con faltantes vs Proceso overlap**.
 - `compras-pipeline-alerts`: Ver dismisses dismissible banners via `/ok` (like X); force-open; no stale-query reopen; faltantes Ver still no `/ok`.
 - ~~checkbox stuck~~ — **removed** (wrong interpretation of Gabe item 4).
 
@@ -67,3 +69,5 @@ Merged #1340. Existing `AlertBanner`, `deepLinkForCompras`, `persist_factura_doc
 - [ ] Faltantes: X snoozes (~1h, returns if unresolved); Ver navigates only; permanent clear stays on resolution texto.
 - [ ] Ver/banner force-open if URL already has `?pedido=`; close or tab change does not sticky-reopen.
 - [ ] Depósito "Incluir cuenta corriente" defaults checked; user can still turn off.
+- [ ] Proceso chips use distinct colors (OC / Factura / Match error / eje); Número stays muted.
+- [ ] Estado "Con faltantes" does not sit behind the Proceso column.

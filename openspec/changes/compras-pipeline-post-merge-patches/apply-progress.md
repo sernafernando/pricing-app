@@ -21,12 +21,15 @@
 - [x] 3.6 REMOVED — ModalPedidoDetalle `Boolean(row.cargada)` left unchanged
 - [x] 3.7 Novedad amended: Incluir CC defaults on; Pedidos default omits cancelados
 - [x] 4.1–4.5 Focused backend + frontend tests
+- [x] 5.1 Semantic Proceso chip tones (OC info, Factura success, Match error danger, other Match warning; eje badges stronger; Número muted)
+- [x] 5.2 Estado `con_faltantes` cell widened + overflow/z-index so badge stays visible beside Proceso
+- [x] 5.3 Vitest: Factura vs Match-error `data-tone`; estado-cell `data-layout=no-clip`
 
 ## Work Unit Evidence
 
 | Evidence | Value |
 |---|---|
-| Focused test command and exact result | `ENVIRONMENT=testing pytest tests/unit/test_oc_match_doc_refs.py tests/unit/test_oc_match_pipeline.py tests/integration/test_oc_match_worker.py tests/integration/test_compras_endpoints.py -k 'excluir or listar_pedidos_estado' -q` → **4 passed**. Broader apply slice: same four files plus NC/ND/quote/string tests → **13 passed**; full `test_oc_match_{doc_refs,pipeline,worker}` → **46 passed**. `pnpm exec vitest run src/components/compras/TabPedidosCompra.test.jsx src/components/compras/TabRecepcionDeposito.test.jsx src/components/compras/ModalPedidoDetalle.test.jsx src/components/AppLayout.comprasBanners.test.jsx` → **86 passed** (4 files). |
+| Focused test command and exact result | Phases 1–4: pytest 46 + vitest 86. Phase 5: `pnpm exec vitest run src/components/compras/TabPedidosCompra.test.jsx` → **12 passed**. |
 | Runtime harness command/scenario and exact result | N/A — no routing/shell/process-integration boundary; threat matrix in design is N/A. 5m/PM sweep modules not edited. |
 | Rollback boundary | Revert this branch / the apply commits. No Alembic. Extract/persist, Pedidos filter, and query-lifecycle FE revert independently. Unchanged: `TabOcMatch.*`, `compras_alertas_service` 5m/PM, CAS, freeze-migration. |
 

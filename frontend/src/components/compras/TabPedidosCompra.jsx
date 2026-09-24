@@ -69,7 +69,7 @@ const COLUMNS = [
   { key: 'monto', label: 'Saldo', align: 'right', width: '180px' },
   { key: 'plazo', label: 'Plazo', width: '120px' },
   { key: 'fecha_pago', label: 'Fecha pago', width: '160px' },
-  { key: 'estado', label: 'Estado', width: '110px' },
+  { key: 'estado', label: 'Estado', width: '152px' },
   { key: 'proceso', label: 'Proceso', width: '220px' },
   { key: 'acciones', label: '', align: 'right', width: '180px' },
 ];
@@ -91,13 +91,22 @@ const MATCH_STATUS_LABEL = {
   skipped: 'Match omitido',
 };
 
+const PROCESAL_TONE_CLASS = {
+  recibido: 'procesalSuccess',
+  controlado: 'procesalSuccess',
+  faltantes_sin_res: 'procesalWarning',
+  faltantes_con_res: 'procesalWarning',
+  por_recibir: 'procesalInfo',
+};
+
 const renderPedidoChips = (p) => {
   const ocs = Array.isArray(p.ocs) ? p.ocs : [];
   const showOcChip = Boolean(p.oc_vinculada) || ocs.length > 0;
+  const matchError = p.oc_match_status === 'error';
   return (
   <div className={styles.chipRow}>
     {showOcChip && (
-      <span className={styles.chip} data-testid="chip-oc">
+      <span className={`${styles.chip} ${styles.chipInfo}`} data-testid="chip-oc" data-tone="info">
         <Link2 size={11} aria-hidden="true" />
         OC
       </span>
@@ -113,19 +122,27 @@ const renderPedidoChips = (p) => {
         </span>
       ))}
     {p.tiene_numero_factura && !p.factura_cargada && (
-      <span className={styles.chipMuted} data-testid="chip-numero-factura">
+      <span className={styles.chipMuted} data-testid="chip-numero-factura" data-tone="muted">
         <FileText size={11} aria-hidden="true" />
         Número
       </span>
     )}
     {p.factura_cargada && (
-      <span className={styles.chip} data-testid="chip-factura-cargada">
+      <span
+        className={`${styles.chip} ${styles.chipSuccess}`}
+        data-testid="chip-factura-cargada"
+        data-tone="success"
+      >
         <FileText size={11} aria-hidden="true" />
         Factura
       </span>
     )}
     {p.oc_match_status && (
-      <span className={styles.chip}>
+      <span
+        className={`${styles.chip} ${matchError ? styles.chipDanger : styles.chipWarning}`}
+        data-testid={matchError ? 'chip-match-error' : 'chip-match'}
+        data-tone={matchError ? 'danger' : 'warning'}
+      >
         <ScanSearch size={11} aria-hidden="true" />
         {MATCH_STATUS_LABEL[p.oc_match_status] || p.oc_match_status}
       </span>
@@ -764,12 +781,19 @@ export default function TabPedidosCompra() {
         );
       }
       case 'estado':
-        return <EstadoBadge variant="pedido" estado={p.estado} />;
+        return (
+          <div className={styles.estadoCell} data-testid="estado-cell" data-layout="no-clip">
+            <EstadoBadge variant="pedido" estado={p.estado} />
+          </div>
+        );
       case 'proceso':
         return (
-          <div className={styles.procesoCell}>
+          <div className={styles.procesoCell} data-testid="proceso-cell" data-layout="no-clip">
             {p.eje_procesal ? (
-              <span className={styles.procesalBadge}>
+              <span
+                className={`${styles.procesalBadge} ${styles[PROCESAL_TONE_CLASS[p.eje_procesal]] || ''}`}
+                data-testid="chip-eje-procesal"
+              >
                 {EJES_PROCESAL_LABEL[p.eje_procesal] || p.eje_procesal}
               </span>
             ) : (

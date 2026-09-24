@@ -245,3 +245,25 @@ describe('TabPedidosCompra — OC chip is vinculación', () => {
     expect(screen.queryByText('#100')).not.toBeInTheDocument();
   });
 });
+
+describe('TabPedidosCompra — chip tones and con faltantes overlap', () => {
+  it('uses distinct Factura vs Match-error tones and keeps Con faltantes visible', async () => {
+    renderTab({
+      ...PEDIDO_CON_NUMERO,
+      estado: 'con_faltantes',
+      oc_vinculada: true,
+      ocs: [{ oc_comp_id: 1, oc_bra_id: 1, oc_poh_id: 100 }],
+      factura_cargada: true,
+      oc_match_status: 'error',
+    });
+
+    expect(await screen.findByText('P-01-2026-00001')).toBeInTheDocument();
+    expect(screen.getByTestId('chip-oc')).toHaveAttribute('data-tone', 'info');
+    expect(screen.getByTestId('chip-factura-cargada')).toHaveAttribute('data-tone', 'success');
+    expect(screen.getByTestId('chip-match-error')).toHaveAttribute('data-tone', 'danger');
+    const estado = screen.getByTestId('estado-cell');
+    expect(estado).toHaveTextContent(/con faltantes/i);
+    expect(estado).toHaveAttribute('data-layout', 'no-clip');
+    expect(screen.getByTestId('proceso-cell')).toHaveAttribute('data-layout', 'no-clip');
+  });
+});

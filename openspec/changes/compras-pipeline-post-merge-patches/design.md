@@ -22,6 +22,8 @@ Implements proposal defense-in-depth and deltas: `compras-oc-match-pipeline`, `c
 | Deep-link | local-only Ver / consume-or-clear + nonce | same-URL `navigate` no-ops; leftover remount-reopens | Consume after open; clear on close and user tab click; banner/Ver add `open=<nonce>` |
 | Expand-below | scroll polish / layout rewrite | amends locked UX | Deferred — not this change |
 | Incluir CC default | keep false / default true | operators miss CC pedidos | `useState(true)` for `incluirCC` |
+| Chip colors | all gray / semantic tokens | low scanability | CSS variants: OC info, Factura success, Match error danger; eje badges stronger |
+| Con faltantes under Proceso | ignore / fix overflow-stack | badge unreadable | Fix table cell overflow/z-index/width so Estado badge stays above/beside Proceso |
 
 ## Data Flow
 
@@ -63,7 +65,8 @@ Inbound land opens once, then consume. Query-driven `tab=` sync is not a user ta
 | `backend/app/services/oc_match/match.py` | Modify | Pass string tokens (no numeric coerce) |
 | `backend/app/routers/administracion_compras.py` | Modify | `excluir_estado` Query; `~estado.in_()` when `estado` is None |
 | `frontend/src/hooks/useRecepcionDeposito.js` | Modify | Shared strip of `pedido`/`focus`/`open` |
-| `frontend/src/components/compras/TabPedidosCompra.jsx` | Modify | Default exclude; logistic estados; consume/clear; Ver nonce |
+| `frontend/src/components/compras/TabPedidosCompra.jsx` | Modify | Default exclude; logistic estados; consume/clear; Ver nonce; chip tone classNames |
+| `frontend/src/components/compras/TabPedidosCompra.module.css` | Modify | Chip/procesalBadge color variants; Estado vs Proceso overflow/stacking |
 | `frontend/src/pages/AdministracionCompras.jsx` | Modify | User tab click clears `pedido`/`focus`/`open` |
 | `frontend/src/components/AppLayout.jsx` | Modify | `deepLinkForCompras` appends `open` nonce; dismissible Ver → `/ok` then navigate |
 | `frontend/src/components/compras/TabRecepcionDeposito.jsx` | Modify | Split `pedidos_documento` on `;`; chip each stored string; `incluirCC` default `true` |

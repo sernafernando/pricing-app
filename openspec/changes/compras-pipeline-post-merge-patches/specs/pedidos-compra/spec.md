@@ -53,3 +53,42 @@ Closing pedido detalle or changing the Compras tab MUST clear or remount-safe `?
 - GIVEN Pedidos already at `?pedido=12` with detalle closed
 - WHEN the operator activates Ver for pedido 12
 - THEN detalle for 12 MUST open
+
+### Requirement: Proceso chips use semantic colors
+
+In the Pedidos **Proceso** column, chips MUST use distinct semantic tones (not a single gray/white for all). Minimum mapping:
+
+| Chip | Tone |
+|---|---|
+| OC | info/blue |
+| Factura (cargada) | success/green |
+| Match error | error/red |
+| Match other statuses | warning or info (not gray-identical to OC) |
+| Eje procesal badges (incl. recibido / con faltantes ejes) | warning/orange or success per eje — visibly stronger than muted |
+| Número (constancia only) | MAY stay muted/dashed |
+
+Use existing design tokens (`--cf-accent-*`, `--success`, `--error`, etc.) — no hardcoded hex outside tokens.
+
+#### Scenario: Factura and Match error are not gray twins
+
+- GIVEN a row with `factura_cargada` and `oc_match_status=error`
+- WHEN the Proceso cell renders
+- THEN the Factura chip and Match error chip MUST use different non-neutral colors
+- AND neither MUST look identical to the default gray `.chip` baseline
+
+#### Scenario: OC chip is distinctly colored
+
+- GIVEN a row with OC vinculada
+- WHEN the Proceso cell renders
+- THEN the OC chip MUST use an info/blue tone distinct from muted Número
+
+### Requirement: Con faltantes estado is not clipped by Proceso
+
+The Estado column badge for `con_faltantes` ("Con faltantes") MUST remain fully visible and MUST NOT render underneath or behind the Proceso column (no z-index/overflow clip that hides the badge under Proceso).
+
+#### Scenario: Con faltantes badge stays readable beside Proceso
+
+- GIVEN a pedido with `estado=con_faltantes` and proceso chips present
+- WHEN the Pedidos table row renders
+- THEN the "Con faltantes" estado badge MUST be fully visible
+- AND MUST NOT be covered by the Proceso cell content
