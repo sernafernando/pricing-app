@@ -79,5 +79,26 @@ Authored lines this slice: 128 insertions + 31 deletions (159) before apply-prog
 ### Deviations
 None — implementation matches design. Observaciones chip kept (existing SIN-OC behavior) so prior header-chip tests do not regress.
 
-## Phase 4–5
+## Phase 4 — Control photo (#16)
+- [x] complete (tasks 4.1–4.2)
+Branch: feat/compras-pipeline-reqs-closure-04-control-photo (from Phase3 tip 47e40fb8)
+Work unit: phase4-control-photo / evidence-goal phase4-obs-photo-control-ok
+Authored lines this slice: 137 insertions + 15 deletions (152) code + SDD marks — under 400 acquire cap.
+
+### Work Unit Evidence (WU4 / PR4 ← PR3)
+
+| Evidence | Value |
+|---|---|
+| Focused test command and exact result | `pnpm exec vitest run src/components/compras/TabRecepcionDeposito.test.jsx` → **55 passed** (1 file; +2 Phase 4) |
+| Runtime harness command/scenario and exact result | N/A — design threat matrix is N/A; no new routing/shell/process boundary. UI coverage is jsdom vitest (control OK empty succeeds; upload `tipo=otro` then control with obs). |
+| Rollback boundary | Phase 4 only: revert this slice’s FE + tests + SDD marks on `feat/compras-pipeline-reqs-closure-04-control-photo`. Restores control without inline obs/photo; AdjuntosPanel without `tipo` Form field. Does not revert Phase 1–3. |
+
+### Completed
+- 4.1 Control path (CON-OC ingresos + SIN-OC confirmar, incl. `completo=true`) shows optional observaciones + `AdjuntosPanel` `canManage` `tipo=otro` (upload-then-control). Empty obs/photo still succeeds.
+- 4.2 vitest: OK empty → `confirmar-pedido {completo:true}` and no adjuntos POST; OK with obs+photo → FormData `tipo=otro` then control with observaciones.
+
+### Deviations
+None — implementation matches design. Photo uses existing adjuntos `tipo=otro`; no `tipo=foto` / multipart control.
+
+## Phase 5
 - [ ] pending

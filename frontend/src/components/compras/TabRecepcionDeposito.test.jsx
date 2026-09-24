@@ -102,8 +102,13 @@ const saldosUrlFor = (pedidoId) =>
   `/administracion/compras/pedidos/${pedidoId}/recepcion/saldos`;
 
 function mockListado(items) {
-  api.get.mockResolvedValue({
-    data: { items, total: items.length, page: 1, page_size: 200 },
+  api.get.mockImplementation((url) => {
+    if (typeof url === 'string' && url.includes('/adjuntos')) {
+      return Promise.resolve({ data: [] });
+    }
+    return Promise.resolve({
+      data: { items, total: items.length, page: 1, page_size: 200 },
+    });
   });
 }
 
@@ -116,6 +121,9 @@ function mockListadoAndSaldos(items, saldosByPedidoId = {}) {
   api.get.mockImplementation((url) => {
     if (url === LISTADO_ENDPOINT) {
       return Promise.resolve({ data: { items, total: items.length, page: 1, page_size: 200 } });
+    }
+    if (typeof url === 'string' && url.includes('/adjuntos')) {
+      return Promise.resolve({ data: [] });
     }
     const match = url.match(/\/pedidos\/(\d+)\/recepcion\/saldos$/);
     if (match) {
@@ -981,5 +989,77 @@ describe('TabRecepcionDeposito — Phase 3 depósito', () => {
     expect(screen.getByText('OC no encontrada en ERP')).toBeInTheDocument();
     expect(screen.getByText('Linea B')).toBeInTheDocument();
     expect(screen.getByRole('table')).toBeInTheDocument();
+  });
+});
+
+describe('TabRecepcionDeposito — control OK obs+photo (Phase 4)', () => {
+  const PEDIDO_RECIBIDO_SIN_OC = { ...PEDIDO_PAGADO, estado: 'recibido' };
+
+  it('succeeds control OK with empty obs and no photo', async () => {
+    const user = userEvent.setup();
+    api.post.mockResolvedValue({
+      data: { pedido_id: PEDIDO_RECIBIDO_SIN_OC.id, estado_nuevo: 'controlado' },
+    });
+    mockListado([PEDIDO_RECIBIDO_SIN_OC]);
+    render(<TabRecepcionDeposito />);
+    await screen.findByText('#PC-0001');
+    await user.click(screen.getByRole('button', { name: /Proveedor Uno/ }));
+
+    expect(screen.getByLabelText('Observaciones (opcional)')).toHaveValue('');
+    expect(screen.getByLabelText('Subir adjuntos')).toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: 'Marcar como controlado' }));
+
+    await screen.findByText('Pedido marcado como controlado.');
+    expect(api.post).toHaveBeenCalledWith(
+      `/administracion/compras/pedidos/${PEDIDO_RECIBIDO_SIN_OC.id}/recepcion/confirmar-pedido`,
+      { completo: true },
+    );
+    expect(
+      api.post.mock.calls.some(([url]) => String(url).includes('/adjuntos')),
+    ).toBe(false);
+  });
+
+  it('uploads tipo=otro then control OK with observaciones', async () => {
+    const user = userEvent.setup();
+    api.post.mockImplementation((url) => {
+      if (String(url).includes('/adjuntos')) {
+        return Promise.resolve({
+          data: { id: 99, nombre_archivo: 'caja.jpg', tipo: 'otro' },
+        });
+      }
+      return Promise.resolve({
+        data: { pedido_id: PEDIDO_RECIBIDO_SIN_OC.id, estado_nuevo: 'controlado' },
+      });
+    });
+    mockListado([PEDIDO_RECIBIDO_SIN_OC]);
+    render(<TabRecepcionDeposito />);
+    await screen.findByText('#PC-0001');
+    await user.click(screen.getByRole('button', { name: /Proveedor Uno/ }));
+
+    await user.type(screen.getByLabelText('Observaciones (opcional)'), 'Caja intacta');
+    const file = new File(['x'], 'caja.jpg', { type: 'image/jpeg' });
+    const input = document.querySelector('input[type="file"]');
+    expect(input).toBeTruthy();
+    await user.upload(input, file);
+
+    await screen.findByText('caja.jpg');
+    await user.click(screen.getByRole('button', { name: 'Marcar como controlado' }));
+
+    await screen.findByText('Pedido marcado como controlado.');
+    const adjuntosUrl = `/administracion/compras/pedidos/${PEDIDO_RECIBIDO_SIN_OC.id}/adjuntos`;
+    const confirmarUrl = `/administracion/compras/pedidos/${PEDIDO_RECIBIDO_SIN_OC.id}/recepcion/confirmar-pedido`;
+    const uploadCall = api.post.mock.calls.find(([url]) => url === adjuntosUrl);
+    expect(uploadCall).toBeTruthy();
+    const formData = uploadCall[1];
+    expect(formData.get('tipo')).toBe('otro');
+    expect(formData.get('file')).toBeInstanceOf(File);
+    expect(formData.get('file').name).toBe('caja.jpg');
+    expect(api.post).toHaveBeenCalledWith(confirmarUrl, {
+      completo: true,
+      observaciones: 'Caja intacta',
+    });
+    const postUrls = api.post.mock.calls.map(([url]) => url);
+    expect(postUrls.indexOf(adjuntosUrl)).toBeLessThan(postUrls.indexOf(confirmarUrl));
   });
 });

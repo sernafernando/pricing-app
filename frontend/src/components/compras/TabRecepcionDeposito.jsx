@@ -461,6 +461,37 @@ function AccordionBodyConOcArribo({ pedido, onRefreshList }) {
   );
 }
 
+// Optional control evidence (#16): obs + AdjuntosPanel tipo=otro. Shown on
+// the control path (incl. control OK). Neither field is required to succeed.
+function ControlEvidenceFields({ pedidoId, observaciones, onObservacionesChange, obsInputId }) {
+  const fotoLabelId = `foto-control-${pedidoId}`;
+  return (
+    <div className={styles.observacionesInline}>
+      <label htmlFor={obsInputId} className={styles.observacionesLabel}>
+        Observaciones (opcional)
+      </label>
+      <textarea
+        id={obsInputId}
+        className={styles.observacionesTextarea}
+        placeholder="Notas de control (opcional)…"
+        value={observaciones}
+        onChange={(e) => onObservacionesChange(e.target.value)}
+      />
+      <p id={fotoLabelId} className={styles.observacionesLabel}>
+        Foto de control (opcional)
+      </p>
+      <div aria-labelledby={fotoLabelId}>
+        <AdjuntosPanel
+          entidadTipo="pedido_compra"
+          entidadId={pedidoId}
+          canManage
+          tipo="otro"
+        />
+      </div>
+    </div>
+  );
+}
+
 // ── Accordion body — CON OC ───────────────────────────────────────
 
 function AccordionBodyConOc({ pedido, onRefreshList }) {
@@ -473,6 +504,7 @@ function AccordionBodyConOc({ pedido, onRefreshList }) {
   // Tanda state: { [pod_id]: string } — each input value for this batch
   const [tanda, setTanda] = useState({});
   const [faltantesTexto, setFaltantesTexto] = useState('');
+  const [observaciones, setObservaciones] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState(null);
   const [submitSuccess, setSubmitSuccess] = useState(null);
@@ -596,6 +628,8 @@ function AccordionBodyConOc({ pedido, onRefreshList }) {
     try {
       const payload = { lineas: tandaLineas };
       if (!completo) payload.faltantes_texto = faltantesTexto.trim();
+      const obs = observaciones.trim();
+      if (obs) payload.observaciones = obs;
       await registrarIngresos(pedido.id, payload);
       setSubmitSuccess('Control registrado correctamente.');
       await fetchSaldos();
@@ -748,6 +782,13 @@ function AccordionBodyConOc({ pedido, onRefreshList }) {
           onChange={(e) => setFaltantesTexto(e.target.value)}
         />
       </div>
+
+      <ControlEvidenceFields
+        pedidoId={pedido.id}
+        observaciones={observaciones}
+        onObservacionesChange={setObservaciones}
+        obsInputId={`obs-conoc-${pedido.id}`}
+      />
 
       <div className={styles.actionBar}>
         <div className={styles.actionBarLeft}>
@@ -907,6 +948,15 @@ function AccordionBodySinOc({ pedido, onRefreshList }) {
         )}
       </div>
 
+      {showControladoBtn && (
+        <ControlEvidenceFields
+          pedidoId={pedido.id}
+          observaciones={observaciones}
+          onObservacionesChange={setObservaciones}
+          obsInputId={`obs-sinoc-${pedido.id}`}
+        />
+      )}
+
       {showFaltantes && (
         <div className={styles.observacionesInline}>
           <label
@@ -932,16 +982,6 @@ function AccordionBodySinOc({ pedido, onRefreshList }) {
               El texto de faltantes es requerido.
             </span>
           )}
-          <label htmlFor={`obs-sinoc-${pedido.id}`} className={styles.observacionesLabel}>
-            Observaciones (opcional)
-          </label>
-          <textarea
-            id={`obs-sinoc-${pedido.id}`}
-            className={styles.observacionesTextarea}
-            placeholder="Notas de control (opcional)…"
-            value={observaciones}
-            onChange={(e) => setObservaciones(e.target.value)}
-          />
           <div>
             <button
               type="button"
