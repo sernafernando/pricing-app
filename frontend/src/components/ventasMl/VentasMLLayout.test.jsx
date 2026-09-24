@@ -324,9 +324,23 @@ describe('Table rows stay independently selectable while the panel is open (PANE
     expect(rowButton.closest('aside')).toBeNull();
 
     // No element anywhere marks the table (or anything else) inert/hidden
-    // from assistive tech — the real mechanism a modal overlay uses to
-    // take the background out of interaction, CSS `position: fixed` aside.
+    // from assistive tech -- one of the two mechanisms a modal overlay
+    // uses to take the background out of interaction.
     expect(document.querySelector('[aria-hidden="true"]')).toBeNull();
     expect(document.querySelector('[inert]')).toBeNull();
+
+    // The other one: a viewport-covering layer. jsdom runs with
+    // `css: false`, so a `position: fixed` coming from a CSS MODULE class
+    // is invisible here and only the Playwright visual suite can catch it
+    // -- but an inline one is readable, and an overlay added in a hurry is
+    // exactly the shape this guards against. Without this assertion the
+    // test passes with a full-viewport `<div style="position:fixed;
+    // inset:0">` sitting over the table, which is precisely the thing the
+    // fixed panel exists to avoid ("no se puede copiar la data de la fila").
+    const covering = Array.from(document.querySelectorAll('[style]')).filter((el) => {
+      const s = el.style;
+      return s.position === 'fixed' && (s.inset === '0px' || s.inset === '0' || (s.top === '0px' && s.left === '0px'));
+    });
+    expect(covering).toEqual([]);
   });
 });
