@@ -133,14 +133,14 @@ Design refs: D9, D10. Satisfies: SM R4, R8; enables Success Criterion "divergenc
 Design refs: D9 metrics_state, D13 (route /orders/{id} invariant). Satisfies: SM R5, R6, R9(scenario), BREAKDOWN R33.
 Depends on: PR6.T12 gate passing (user confirmation required before merge).
 
-- [ ] PR7.T1 RED: `GET /orders/{id}` — `total_gauss`, `neto`, `markup` sourced from `ml_order_metrics`, NOT live `calcular_total_gauss`; chain final total equals stored `total_gauss` exactly when `metrics_state != 'recalculating'` (invariant test, BREAKDOWN R33 / SM R6).
-- [ ] PR7.T2 GREEN: switch `breakdown_service.py` reader path to stored values; keep chain-line rendering from `ml_venta_deducciones`.
-- [ ] PR7.T3 RED: when order is dirty (`recalculating`), detail response signals it explicitly and does NOT assert/claim the invariant (SM R6 second half).
-- [ ] PR7.T3a RED: a parked order (dirty row with attempts >= 5) has `metrics_state='failed'`, never `'recalculating'`; it is excluded from KPI sums and counted in `failed_count`, not in `recalculating_count`.
-- [ ] PR7.T4 GREEN: `metrics_state` derivation — `'failed'` if the dirty row is parked (attempts >= 5; wins), else `'recalculating'` if a dirty row exists, else stored `gauss_status`, else `'pending'`.
-- [ ] PR7.T5 RED: listing/sort reads switch to stored `total_gauss` for the existing sort-by-total-gauss behavior (no live recompute, no per-row query loop).
-- [ ] PR7.T6 GREEN: update `ml_ventas_ops.py` listing query.
-- [ ] PR7.T7 Regression: existing listing/detail tests updated to stored-value fixtures (assertion mapping noted in PR description, per design D14/testing strategy).
+- [x] PR7.T1 RED: `GET /orders/{id}` — `total_gauss`, `neto`, `markup` sourced from `ml_order_metrics`, NOT live `calcular_total_gauss`; chain final total equals stored `total_gauss` exactly when `metrics_state != 'recalculating'` (invariant test, BREAKDOWN R33 / SM R6).
+- [x] PR7.T2 GREEN: switch `breakdown_service.py` reader path to stored values; keep chain-line rendering from `ml_venta_deducciones`. Implemented as a new `app/services/order_metrics/read.py` (`read_stored_metrics`) consumed from the router, rather than a change inside `breakdown_service.py` itself — `iva_decomposicion`/`breakdown` (product/buyer/shipment) stay live, unaffected (out of SM R5/R6's Total-Gauss-only scope).
+- [x] PR7.T3 RED: when order is dirty (`recalculating`), detail response signals it explicitly and does NOT assert/claim the invariant (SM R6 second half).
+- [x] PR7.T3a RED: a parked order (dirty row with attempts >= 5) has `metrics_state='failed'`, never `'recalculating'`. KPI `failed_count`/`recalculating_count` wiring is PR11 scope; PR7 ships the correct per-order `metrics_state` value the KPI aggregator will read.
+- [x] PR7.T4 GREEN: `metrics_state` derivation — `'failed'` if the dirty row is parked (attempts >= 5; wins), else `'recalculating'` if a dirty row exists, else stored `gauss_status`, else `'pending'`. Implemented as `read.metrics_state_for_orders` (bulk, 2 queries).
+- [x] PR7.T5 RED: listing/sort reads switch to stored `total_gauss` for the existing sort-by-total-gauss behavior (no live recompute, no per-row query loop). Scope: the SORT KEY only (ORDER BY), joined against `ml_order_metrics` instead of the legacy `MlOrdersOps.total_gauss` mirror; per-row listing values stay live in PR7 (PR10.T7 switches those).
+- [x] PR7.T6 GREEN: update `ml_ventas_ops.py` listing query (one conditional `outerjoin(MlOrderMetrics, ...)`, applied only when `sort=total_gauss`).
+- [x] PR7.T7 Regression: existing listing/detail tests updated to stored-value fixtures (assertion mapping noted in PR description, per design D14/testing strategy).
 
 ## PR8 — Cleanup: retire live-recompute hooks
 Design refs: Migration/Rollout "legacy columns kept until cleanup". Satisfies: keeps SM R3/R5 clean (no dual writers).
