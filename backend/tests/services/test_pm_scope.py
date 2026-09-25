@@ -6,8 +6,12 @@ inactive-user exclusion, pm_ids role-gate, and the raw-SQL snippet builder.
 
 from __future__ import annotations
 
+import pytest
+
 from app.core.security import get_password_hash
 from app.models.marca_pm import MarcaPM
+from app.models.permiso import Permiso, RolPermisoBase
+from app.models.rol import Rol
 from app.models.marca_sub_pm import MarcaSubPM
 from app.models.ml_venta_metrica import MLVentaMetrica
 from app.models.usuario import AuthProvider, RolUsuario, Usuario
@@ -19,6 +23,28 @@ from app.services.pm_scope import (
     is_full_view,
     scope_exists_sql,
 )
+
+
+@pytest.fixture()
+def rol_gerente(db) -> Rol:
+    """Create the GERENTE role in test DB."""
+    rol = Rol(codigo="GERENTE", nombre="Gerente", es_sistema=False, orden=5, activo=True)
+    db.add(rol)
+    db.flush()
+    return rol
+
+
+@pytest.fixture()
+def permiso_ver_todas_marcas(db) -> Permiso:
+    """The permission that grants brand-wide visibility on its own."""
+    permiso = Permiso(
+        codigo="ventas_ml.ver_todas_marcas",
+        nombre="Ver todas las marcas ML",
+        categoria="ventas_ml",
+    )
+    db.add(permiso)
+    db.flush()
+    return permiso
 
 
 def _make_user(db, rol_ventas, username: str, rol=RolUsuario.VENTAS, activo: bool = True) -> Usuario:
@@ -190,3 +216,74 @@ class TestScopeExistsSql:
         snippet = scope_exists_sql("x")
         assert "x.marca" in snippet
         assert "x.categoria" in snippet
+
+
+class TestIsFullViewLiveRole:
+    """`rol` is the deprecated column; `rol_id` is the live one.
+
+    Accounts created through the current admin UI are written with `rol_id`
+    only and leave `rol` NULL, so a full-view role must still be honoured.
+    """
+
+    def test_role_from_rol_id_only_grants_full_view(self, db, rol_gerente) -> None:
+        user = Usuario(
+            username="gerente_sin_enum",
+            email="gerente_sin_enum@example.com",
+            nombre="Gerente sin enum",
+            password_hash=get_password_hash("TestPass123!"),
+            rol=None,
+            rol_id=rol_gerente.id,
+            auth_provider=AuthProvider.LOCAL,
+            activo=True,
+        )
+        db.add(user)
+        db.flush()
+
+        assert is_full_view(user) is True
+
+    def test_role_from_rol_id_only_skips_the_pair_filter(self, db, rol_gerente) -> None:
+        user = Usuario(
+            username="gerente_sin_enum_pares",
+            email="gerente_sin_enum_pares@example.com",
+            nombre="Gerente sin enum pares",
+            password_hash=get_password_hash("TestPass123!"),
+            rol=None,
+            rol_id=rol_gerente.id,
+            auth_provider=AuthProvider.LOCAL,
+            activo=True,
+        )
+        db.add(user)
+        db.flush()
+
+        assert get_pares_marca_categoria_usuario(db, user) is None
+
+
+class TestIsFullViewPermission:
+    """`ventas_ml.ver_todas_marcas` grants full view on its own."""
+
+    def test_permission_grants_full_view_without_a_full_view_role(
+        self, db, rol_ventas, permiso_ver_todas_marcas
+    ) -> None:
+        user = _make_user(db, rol_ventas, "ventas_con_permiso")
+        db.add(RolPermisoBase(rol_id=rol_ventas.id, permiso_id=permiso_ver_todas_marcas.id))
+        db.flush()
+
+        assert is_full_view(user, db) is True
+
+    def test_permission_skips_the_pair_filter(self, db, rol_ventas, permiso_ver_todas_marcas) -> None:
+        user = _make_user(db, rol_ventas, "ventas_con_permiso_pares")
+        db.add(MarcaPM(marca="Nike", categoria="Zapatillas", usuario_id=user.id))
+        db.add(RolPermisoBase(rol_id=rol_ventas.id, permiso_id=permiso_ver_todas_marcas.id))
+        db.flush()
+
+        assert get_pares_marca_categoria_usuario(db, user) is None
+
+    def test_without_the_permission_the_pair_filter_still_applies(
+        self, db, rol_ventas, permiso_ver_todas_marcas
+    ) -> None:
+        user = _make_user(db, rol_ventas, "ventas_sin_permiso")
+        db.add(MarcaPM(marca="Nike", categoria="Zapatillas", usuario_id=user.id))
+        db.flush()
+
+        assert is_full_view(user, db) is False
+        assert get_pares_marca_categoria_usuario(db, user) == [("NIKE", "ZAPATILLAS")]
