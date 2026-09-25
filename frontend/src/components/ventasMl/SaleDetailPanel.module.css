@@ -4,11 +4,21 @@
    this component only owns its own header/body/section styling, same as
    it did inside the deleted `.drawer` wrapper. */
 
+/* `.panel` in VentasMLLayout.module.css is the scrolling container
+   (`overflow-y: auto`) -- without its own sticky position, this header
+   scrolls away with `.body` the same way the table header used to. It
+   only has to clear its own scrolling siblings, so `--z-dropdown` (below
+   `.panel`'s own `--z-sticky`) is enough; it never needs to compete with
+   the table header, which lives in the other grid column entirely. */
 .header {
+  position: sticky;
+  top: 0;
+  z-index: var(--z-dropdown);
   display: flex;
   align-items: center;
   justify-content: space-between;
   padding: var(--spacing-md);
+  background: var(--bg-primary);
   border-bottom: 1px solid var(--border-primary);
 }
 

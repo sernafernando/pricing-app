@@ -174,20 +174,53 @@
 
 /* ── Table ───────────────────────────────────────────────── */
 
+/* NO `overflow-x` here on purpose. `overflow-x: auto` makes `.tableCard`
+   a scroll container on BOTH axes (per CSS overflow, a non-`visible`
+   value on one axis computes the other to `auto`), and a `position:
+   sticky` `<th>` pins to its nearest scrolling ancestor. With the card
+   as that ancestor -- and the card having no height limit, so it never
+   scrolls internally -- the header would scroll away with the page
+   instead of staying put. The primary width strategy is compression
+   (`table-layout: fixed`, see `.table` below), so the horizontal-scroll
+   fallback only exists below the panel-sheet breakpoint, where the
+   header is no longer sticky and that trade-off is acceptable. */
 .tableCard {
-  overflow-x: auto;
   background: var(--bg-primary);
   border: 1px solid var(--border-primary);
   border-radius: var(--radius-lg);
 }
 
+/* `table-layout: fixed` + percentage column widths (see `.col*` below) is
+   the compression mechanism for Q2: column widths are a share of
+   whatever room `.tableCard` actually has, so the row COMPRESSES when the
+   side panel narrows it instead of overflowing and hiding columns behind
+   `.tableCard`'s horizontal scroll. On a genuinely wide monitor the same
+   percentages simply resolve to more pixels, so nothing needs to change
+   there -- no separate breakpoint is needed for this to "only happen on
+   FHD". Cells that can still overflow their fixed width truncate with an
+   ellipsis (`.buyer` below, `.colProducto`'s ProductCell) rather than
+   pushing the layout wider. */
 .table {
   width: 100%;
+  table-layout: fixed;
   border-collapse: collapse;
   font-size: var(--font-sm);
 }
 
 .table thead th {
+  position: sticky;
+  /* Offset by the TopBar, which is `position: fixed; top: 0` and 56px tall
+     (`TopBar.module.css`). Sticking to `top: 0` would pin the header
+     exactly underneath it, so it would still look like it disappeared.
+     Same offset `AlertBanner.module.css` uses. */
+  top: var(--cf-topbar-height);
+  /* Deliberately a LOCAL stacking value, not `--z-dropdown`. The sticky
+     header only has to sit above `<tbody>`, which is unpositioned. Using
+     the global dropdown layer (1000) ties it with the date-range
+     dropdown's own 1000; on a tie the later element in the DOM wins, so
+     the header would paint over the open dropdown and swallow the clicks
+     meant for its close-overlay. */
+  z-index: 1;
   padding: var(--space-3) var(--spacing-md);
   text-align: left;
   font-size: 11px;
@@ -195,7 +228,13 @@
   letter-spacing: 0.04em;
   text-transform: uppercase;
   color: var(--text-tertiary);
-  border-bottom: 1px solid var(--border-primary);
+  background: var(--bg-primary);
+  /* `box-shadow` instead of `border-bottom`: with `border-collapse:
+     collapse` the collapsed border belongs to the table's border grid,
+     not to the cell, so it stays behind while the sticky cell moves and
+     the divider vanishes in Chrome and Safari. An inset shadow is painted
+     by the cell itself and travels with it. */
+  box-shadow: inset 0 -1px 0 var(--border-primary);
   white-space: nowrap;
 }
 
@@ -217,11 +256,12 @@
 }
 
 .colOrden {
+  width: 8%;
   white-space: nowrap;
 }
 
 .colAlerta {
-  width: 1%;
+  width: 32px;
   white-space: nowrap;
   text-align: center;
 }
@@ -230,15 +270,58 @@
    forced open — `min-width: 0` on the flex children inside `ProductCell`
    is what makes the ellipsis truncation actually work in a table cell,
    and this column shrinks together with the rest when the side panel
-   narrows the table (`.tableCard` already handles horizontal overflow). */
+   narrows the table (`table-layout: fixed` on `.table` is what makes a
+   `%` width here actually compress instead of just being a hint). */
+/* Deliberately `auto`, not a percentage. Every other column is a
+   percentage and `.colAlerta` is a fixed 32px; if this one declared a
+   percentage too the declared widths would add up to more than the table
+   has, and with `table-layout: fixed` the surplus overflows the card --
+   the very overflow this screen removed. `auto` makes the product column
+   absorb whatever is left, which is also the column best suited to it: it
+   already truncates with an ellipsis (the `min-width: 0` that actually
+   enables that truncation lives on the flex children inside
+   `ProductCell`; a `min-width` here would be ignored under fixed layout). */
 .colProducto {
-  /* `width` is a hint the browser honours under `table-layout: auto`;
-     `max-width` on a cell is NOT, so the actual truncation lives on
-     `.title`/`.meta` inside ProductCell, not here. */
-  width: 260px;
+  width: auto;
+}
+
+.colFecha {
+  width: 8%;
+}
+
+.colComprador {
+  width: 9%;
+}
+
+.colOperacion {
+  width: 9%;
+}
+
+/* Widest of the badge columns: "Devuelto sin entregar" is the longest
+   label `GOODS_STATUS_LABELS` renders and needs the extra room to stay
+   on one line at `--font-xs`. */
+.colMercaderia {
+  width: 11%;
+}
+
+.colEnvio {
+  width: 10%;
+}
+
+.colImporte {
+  width: 9%;
+}
+
+.colNeto {
+  width: 9%;
+}
+
+.colTotalGauss {
+  width: 10%;
 }
 
 .markup {
+  display: block;
   font-family: var(--font-mono);
   font-size: var(--font-xs);
   color: var(--text-tertiary);
@@ -254,10 +337,25 @@
   color: var(--text-secondary);
 }
 
+/* `nowrap` so a compressed column can never split an amount across two
+   lines -- "$ 54.200" breaking after the "$" reads as a different number.
+   The decorations that share these cells (the "Provisorio" badge, the
+   markup percentage) are block-level below, so they drop onto their own
+   line instead of forcing the column wider. */
 .numeric {
   text-align: right;
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
+}
+
+/* Buyer nickname: plain text with no existing wrapper to truncate inside
+   (unlike `.colProducto`, which delegates to `ProductCell`'s own
+   `.title`/`.meta` ellipsis) -- the full name is still available via the
+   `title` attribute set alongside this class in the JSX. */
+.buyer {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
 }
 
 .subline {
@@ -285,7 +383,9 @@
 /* total-gauss-provisorio: spacing for the "Provisorio" badge beside the
    Total Gauss cell -- reuses the global `badge`/`badge-warning` classes. */
 .provisionalBadge {
-  margin-left: var(--space-2);
+  display: inline-block;
+  margin-top: var(--space-1);
+  white-space: normal;
 }
 
 .netoButton {
@@ -370,4 +470,16 @@
   padding: var(--spacing-md) 0;
   font-size: var(--font-sm);
   color: var(--text-secondary);
+}
+
+/* Last-resort horizontal scroll, only where compression has run out of
+   room: below 1279px the panel is already a fixed sheet (see
+   `VentasMLLayout.module.css`) and the percentage columns bottom out. The
+   sticky header stops working inside this scroll container -- that is the
+   deliberate trade-off, and it only applies to viewports narrower than
+   the Full HD case this screen targets. */
+@media (max-width: 1279px) {
+  .tableCard {
+    overflow-x: auto;
+  }
 }
