@@ -18,8 +18,8 @@ Para cron (cada 2 horas):
     0 */2 * * * cd /var/www/html/pricing-app/backend && /var/www/html/pricing-app/backend/venv/bin/python -m app.scripts.sync_hikvision_fichadas >> /var/log/pricing-app/hikvision_sync.log 2>&1
 """
 
-import sys
 import os
+import sys
 from pathlib import Path
 
 if __name__ == "__main__":
@@ -88,6 +88,8 @@ def main() -> None:
 
         client = HikvisionClient(db)
         result = client.sync_fichadas(desde)
+        # Persistir primero lo que sí se pudo leer (incluso en una lectura
+        # parcial) antes de decidir si el proceso termina con error.
         db.commit()
 
         print(
@@ -97,6 +99,13 @@ def main() -> None:
             f"sin_empleado={result['sin_empleado']}, "
             f"errores={result['errores']}"
         )
+
+        if not result["lectura_completa"]:
+            print(
+                f"[{datetime.now()}] ADVERTENCIA: la lectura del dispositivo Hikvision fue INCOMPLETA — "
+                f"puede haber fichadas sin sincronizar. Error: {result['error_lectura']}"
+            )
+            sys.exit(1)
 
     except Exception as e:
         db.rollback()
