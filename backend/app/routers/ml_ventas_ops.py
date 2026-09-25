@@ -1252,9 +1252,29 @@ def listar_ventas(
         )
         page_order_ids = [order.order_id for order, _shipment, _key, _op, _goods in member_rows]
         # ml-ventas-neto-iibb-varios PR1.T12: same bulk shape, for the
-        # listing's Neto tooltip -- zero new per-row queries. Unaffected by
-        # PR10.T7's reader switch below: `neto_depositado`/
-        # `retenciones_recuperables` are not part of `ml_order_metrics`.
+        # listing's Neto tooltip -- zero new per-row queries.
+        #
+        # PR10 review N1 (corrected after initial review pass): this stays
+        # LIVE and ungated by `order_metrics_state`, on purpose.
+        # `compute_neto_desglose_by_order_ids` derives `neto_depositado`/
+        # `retenciones_recuperables` ONLY from `MlPaymentOps` +
+        # `MlPaymentCharge` (payments and their charges) -- see
+        # `app/services/ml_ventas_desglose/breakdown_service.py`. It does
+        # NOT read `costo_mercaderia`, the varios %, etiquetas, cordones,
+        # or any other input of the stored Gauss chain. So a recompute
+        # triggered by anything OTHER than a payment/charge change (a cost
+        # update, a label reassignment, a varios % edit, a config table
+        # touch) leaves this live figure byte-identical to what a settled
+        # stored row would have shown -- there is no second clock to
+        # reconcile in that overwhelming majority of cases. The two CAN
+        # only genuinely diverge when the payments/charges themselves
+        # changed, and that exact change is what marks the order dirty in
+        # the first place -- so the divergence window is the drain
+        # latency of that one dirty row, not a standing property of this
+        # field. Gating it off `order_metrics_state` (as an earlier draft
+        # of this fix did) would hide correct, useful information for
+        # every non-payment recompute to guard against a mismatch that
+        # does not occur there; reverted for that reason.
         neto_desglose_by_order = compute_neto_desglose_by_order_ids(db, page_order_ids)
         # ventas-ml-rediseno PR10.T7 (design D2/D13, spec LISTING R31):
         # `neto`, `total_gauss` and the new `markup` field are read from the
@@ -1270,9 +1290,6 @@ def listar_ventas(
         item_category_by_order = _item_category_by_order(db, page_order_ids)
         coupon_amount_by_order = _coupon_amount_by_order(db, page_order_ids)
         for order, shipment, key, operation_status_value, goods_status_value in member_rows:
-            order_neto_depositado, order_retenciones_recuperables = neto_desglose_by_order.get(
-                order.order_id, (None, None)
-            )
             stored = stored_metrics_by_order.get(order.order_id)
             order_neto = stored.neto if stored is not None else None
             order_total_gauss = stored.total_gauss if stored is not None else None
@@ -1280,6 +1297,13 @@ def listar_ventas(
             order_total_gauss_provisional = stored is not None and stored.gauss_status == GaussStatus.PROVISIONAL
             order_total_gauss_provisional_falta = stored.provisional_falta if stored is not None else None
             order_metrics_state = metrics_state_by_order.get(order.order_id, "pending")
+            # See the invariant documented above `neto_desglose_by_order`:
+            # deliberately NOT gated by `order_metrics_state` -- this field
+            # only depends on payments/charges, not on the rest of the
+            # stored Gauss chain.
+            order_neto_depositado, order_retenciones_recuperables = neto_desglose_by_order.get(
+                order.order_id, (None, None)
+            )
             order_coupon_amount = coupon_amount_by_order.get(order.order_id)
             # The real shipment ALWAYS outranks the `no_shipping` tag (order
             # 2000016977234624: tagged `no_shipping` AND a delivered

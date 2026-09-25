@@ -24,6 +24,7 @@ from app.models.producto import ProductoERP
 from app.services.order_metrics.constants import CURRENT_FORMULA_VERSION
 
 from .test_ml_ventas_ops_sales_router import (
+    _charge,
     _grant_ml_ops_ver,
     _group_holding,
     _payment,
@@ -480,6 +481,71 @@ class TestMetricsStateField:
         body = client.get("/api/ml-ventas-ops/sales", headers=admin_auth_headers).json()
         order = _group_holding(body, order_id)["orders"][0]
         assert order["metrics_state"] == "pending"
+
+
+class TestNetoDepositadoIsPaymentsOnlyRegardlessOfMetricsState:
+    """PR10 review finding N1 (corrected): `neto_depositado`/
+    `retenciones_recuperables` are a LIVE computation over payments/charges
+    only (`compute_neto_desglose_by_order_ids`), deliberately never gated
+    by `order_metrics_state`. The property that actually holds and is worth
+    pinning: a recompute triggered by a NON-payment input (a cost change,
+    for instance) leaves this live figure unchanged, because it never read
+    that input to begin with -- there is no second clock to reconcile
+    there. Divergence is only possible when the payments themselves
+    changed, and that is exactly what marks the row dirty."""
+
+    def test_recalculating_from_a_non_payment_change_leaves_neto_depositado_unchanged(
+        self, db, client, admin_auth_headers, rol_admin
+    ):
+        """The order is dirty (mid-flight) from a COST change, not a
+        payment change -- its stored `neto` is stale (SM R6), but its
+        payments/charges never moved, so `neto_depositado`/
+        `retenciones_recuperables` must read the SAME value they would for
+        a settled row with identical payments."""
+        from app.models.ml_order_metrics import MlOrderMetricsDirty
+
+        _grant_ml_ops_ver(db, rol_admin)
+        order_id = 95070
+        _seed_order(db, order_id, date_created=datetime(2026, 9, 1, tzinfo=timezone.utc))
+        _stored_metrics(db, order_id, gauss_status="ok", total_gauss=Decimal("999.00"), neto=Decimal("999.00"))
+        _payment(db, order_id, order_id, status="approved", net_received_amount=Decimal("800.00"))
+        _charge(db, order_id, "tax_withholding_sirtac-caba", "tax", Decimal("300.00"))
+        # Dirty for a reason unrelated to payments (e.g. a cost update) --
+        # `reason` is free text, what matters is payments are untouched.
+        db.add(MlOrderMetricsDirty(order_id=order_id, reason="costo_mercaderia changed", attempts=0))
+        db.commit()
+
+        body = client.get("/api/ml-ventas-ops/sales", headers=admin_auth_headers).json()
+
+        sale = _group_holding(body, order_id)
+        assert sale["orders"][0]["metrics_state"] == "recalculating"
+        # The stored `neto` is still the stale one (SM R6) ...
+        assert sale["neto"] == pytest.approx(999.00)
+        # ... but `neto_depositado`/`retenciones_recuperables` read the
+        # CURRENT payments/charges regardless -- unaffected by the stale
+        # stored `neto`/`total_gauss` above them.
+        assert sale["neto_depositado"] == pytest.approx(800.00)
+        assert sale["retenciones_recuperables"] == pytest.approx(300.00)
+        assert sale["orders"][0]["neto_depositado"] == pytest.approx(800.00)
+        assert sale["orders"][0]["retenciones_recuperables"] == pytest.approx(300.00)
+
+    def test_pending_row_still_carries_live_neto_depositado(self, db, client, admin_auth_headers, rol_admin):
+        """No stored row at all (`neto` is `None`, PR10.T7): the live
+        `neto_depositado`/`retenciones_recuperables` are still shown --
+        they carry real, correct payment information the user should not
+        lose just because the Gauss chain has not computed yet."""
+        _grant_ml_ops_ver(db, rol_admin)
+        order_id = 95071
+        _seed_order(db, order_id, date_created=datetime(2026, 9, 1, tzinfo=timezone.utc))
+        _payment(db, order_id, order_id, status="approved", net_received_amount=Decimal("500.00"))
+        db.commit()
+
+        body = client.get("/api/ml-ventas-ops/sales", headers=admin_auth_headers).json()
+
+        order = _group_holding(body, order_id)["orders"][0]
+        assert order["metrics_state"] == "pending"
+        assert order["neto"] is None
+        assert order["neto_depositado"] == pytest.approx(500.00)
 
 
 class TestPR10DoesNotIntroduceNPlusOne:
