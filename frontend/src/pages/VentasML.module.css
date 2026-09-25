@@ -220,6 +220,23 @@
   white-space: nowrap;
 }
 
+.colAlerta,
+.colCategoria {
+  width: 1%;
+  white-space: nowrap;
+  text-align: center;
+}
+
+.categoryIcon {
+  color: var(--text-tertiary);
+}
+
+.markup {
+  font-family: var(--font-mono);
+  font-size: var(--font-xs);
+  color: var(--text-tertiary);
+}
+
 .orden {
   font-family: var(--font-mono);
   font-size: var(--font-sm);

@@ -1052,3 +1052,102 @@ describe('Modo logístico badge (ml-ventas-modo-logistico PR6)', () => {
     expect(await screen.findByText('Mixto')).toBeInTheDocument();
   });
 });
+
+describe('PR14.T5 — category icon and alert icon on each row', () => {
+  it('renders the category icon (by title) for a lone order carrying item_category', async () => {
+    mockSalesList([{ ...PAID_SALE, item_category: 'NOTEBOOK' }]);
+    await renderWithRouter(<VentasML />);
+
+    expect(await screen.findByTitle('NOTEBOOK')).toBeInTheDocument();
+  });
+
+  it('renders no category icon for a pack whose orders disagree on item_category', async () => {
+    const user = userEvent.setup();
+    const a1 = { ...PAID_SALE, order_id: 3201, pack_id: 9201, item_category: 'NOTEBOOK' };
+    const a2 = { ...PAID_SALE, order_id: 3202, pack_id: 9201, item_category: 'ACCESORIOS' };
+    mockSalesList([packOf([a1, a2], 9201)]);
+    await renderWithRouter(<VentasML />);
+
+    // The pack row itself carries no single category — never picks one
+    // member's icon arbitrarily.
+    expect(screen.queryByTitle('NOTEBOOK')).not.toBeInTheDocument();
+
+    await user.click(await screen.findByRole('button', { name: /Pack 9201/ }));
+    // Each member row DOES show its own category once expanded.
+    expect(await screen.findByTitle('NOTEBOOK')).toBeInTheDocument();
+    expect(screen.getByTitle('ACCESORIOS')).toBeInTheDocument();
+  });
+
+  it('renders no category icon at all when item_category is null (no fabricated fallback icon shown as data)', async () => {
+    mockSalesList([{ ...PAID_SALE, item_category: null }]);
+    await renderWithRouter(<VentasML />);
+
+    const row = (await screen.findByText('comprador1')).closest('tr');
+    // No title-based category icon anywhere in that row.
+    expect(row.querySelector('svg[title]')).toBeNull();
+  });
+
+  it('renders an alert icon for alert_level="error", none for "ok"', async () => {
+    mockSalesList([{ ...PAID_SALE, alert_level: 'error' }]);
+    await renderWithRouter(<VentasML />);
+
+    expect(await screen.findByRole('img', { name: 'Alerta' })).toBeInTheDocument();
+  });
+
+  it('renders no alert icon for alert_level="ok"', async () => {
+    mockSalesList([{ ...PAID_SALE, alert_level: 'ok' }]);
+    await renderWithRouter(<VentasML />);
+
+    await screen.findByText('Ventas ML');
+    expect(screen.queryByRole('img', { name: 'Alerta' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('img', { name: 'Advertencia' })).not.toBeInTheDocument();
+  });
+});
+
+describe('PR14.T9/T10 — recalculating badge never shows a stale number', () => {
+  it('shows "Recalculando…" instead of the amount when metrics_state="recalculating"', async () => {
+    mockSalesList([{ ...PAID_SALE, neto: 82.5, total_gauss: 70, metrics_state: 'recalculating' }]);
+    await renderWithRouter(<VentasML />);
+
+    expect(await screen.findAllByText(/Recalculando/)).toHaveLength(2); // Neto + Total Gauss cells
+    expect(screen.queryByText('82,50 ARS')).not.toBeInTheDocument();
+  });
+
+  it('shows a distinct "no se pudo calcular" for metrics_state="failed" — never "Recalculando"', async () => {
+    mockSalesList([{ ...PAID_SALE, neto: 82.5, total_gauss: 70, metrics_state: 'failed' }]);
+    await renderWithRouter(<VentasML />);
+
+    expect(await screen.findAllByText(/No se pudo calcular/)).toHaveLength(2);
+    expect(screen.queryByText(/Recalculando/)).not.toBeInTheDocument();
+  });
+
+  it('shows the real number when metrics_state="ok"', async () => {
+    mockSalesList([{ ...PAID_SALE, neto: 82.5, total_gauss: 70, currency_id: 'ARS', metrics_state: 'ok' }]);
+    await renderWithRouter(<VentasML />);
+
+    expect(await screen.findByText('82,50 ARS')).toBeInTheDocument();
+  });
+
+  it('a pack with one recalculating member shows the badge on the pack row, not a stale sum', async () => {
+    const a1 = {
+      ...PAID_SALE,
+      order_id: 3301,
+      pack_id: 9301,
+      neto: 50,
+      total_gauss: 40,
+      metrics_state: 'ok',
+    };
+    const a2 = {
+      ...PAID_SALE,
+      order_id: 3302,
+      pack_id: 9301,
+      neto: 30,
+      total_gauss: 20,
+      metrics_state: 'recalculating',
+    };
+    mockSalesList([{ ...packOf([a1, a2], 9301), neto: null, total_gauss: null }]);
+    await renderWithRouter(<VentasML />);
+
+    expect(await screen.findAllByText(/Recalculando/)).toHaveLength(2);
+  });
+});

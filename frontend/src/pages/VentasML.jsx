@@ -55,6 +55,10 @@ import api from '../services/api';
 import VentasMLLayout from '../components/ventasMl/VentasMLLayout';
 import SaleDetailPanel from '../components/ventasMl/SaleDetailPanel';
 import SalesToolbar from '../components/ventasMl/SalesToolbar';
+import FacetChips from '../components/ventasMl/FacetChips';
+import AlertIcon from '../components/ventasMl/AlertIcon';
+import RecalculatingBadge from '../components/ventasMl/RecalculatingBadge';
+import { getCategoryIcon } from '../utils/categoryIcon';
 import { useVentasMLFilters } from '../hooks/useVentasMLFilters';
 import VariosVentaPctModal from '../components/VariosVentaPctModal';
 import DateRangeFilter from '../components/DateRangeFilter';
@@ -178,6 +182,42 @@ function formatMoney(value, currencyId) {
 // the drawer's sub-line (decision c), rendered as a `title` tooltip on
 // the Neto button rather than a permanent row, since the listing has no
 // room for a second line per row.
+// ventas-ml-rediseno PR14.T5/T9 (LISTING R28/R29, SM R3/R9): the row-level
+// summaries below are the ONLY client-side aggregation this table does over
+// per-order fields, and deliberately never touch money -- `group_neto`/
+// `group_total_gauss` already come pre-aggregated from the backend
+// (`SaleGroup`), null whenever any member is unresolved. These three only
+// decide which ICON/BADGE the pack-level row shows.
+
+// Worst-first, same discipline as the existing status "mixed" precedent:
+// a pack with any order in `error` reads as `error`, not an average.
+function groupAlertLevel(orders) {
+  if (orders.some((o) => o.alert_level === 'error')) return 'error';
+  if (orders.some((o) => o.alert_level === 'warning')) return 'warning';
+  return 'ok';
+}
+
+// Same precedence as `RecalculatingBadge` expects: `recalculating` beats
+// `failed` beats `pending` beats `ok`, so the pack row never claims a
+// stale/finished state while one of its orders is still catching up.
+function groupMetricsState(orders) {
+  if (orders.some((o) => o.metrics_state === 'recalculating')) return 'recalculating';
+  if (orders.some((o) => o.metrics_state === 'failed')) return 'failed';
+  if (orders.some((o) => o.metrics_state === 'pending')) return 'pending';
+  return 'ok';
+}
+
+// A pack's icon is only shown when every order agrees on `item_category` --
+// showing one item's category for a multi-item parcel would misrepresent
+// the other items, so this renders nothing (falls back to no icon) instead
+// of picking an arbitrary member.
+function groupCategory(orders) {
+  const categories = new Set(orders.map((o) => o.item_category).filter(Boolean));
+  return categories.size === 1 ? [...categories][0] : null;
+}
+
+const TABLE_COLUMN_COUNT = 11;
+
 function netoTooltip(netoDepositado, retencionesRecuperables) {
   if (!(retencionesRecuperables > 0)) return undefined;
   return `MP $ ${new Intl.NumberFormat('es-AR', {
@@ -291,20 +331,6 @@ export default function VentasML() {
     setDateRangeFiltro(filtro);
     setOffset(0);
   }, []);
-
-  const toggleOperationStatus = useCallback(
-    (value) => {
-      handleOperationStatusChange(operationStatusFilter === value ? '' : value);
-    },
-    [operationStatusFilter, handleOperationStatusChange]
-  );
-
-  const toggleGoodsStatus = useCallback(
-    (value) => {
-      handleGoodsStatusChange(goodsStatusFilter === value ? '' : value);
-    },
-    [goodsStatusFilter, handleGoodsStatusChange]
-  );
 
   const clearFilters = useCallback(() => {
     setOperationStatusFilter('');
@@ -465,60 +491,38 @@ export default function VentasML() {
       />
 
       <div className={styles.filters}>
-        <div className={styles.filterRow} role="group" aria-label="Filtrar por estado de operación">
+        <div className={styles.filterRow}>
           <span className={styles.fieldLabel}>
             Operación
             <span className={styles.fieldLabelSub}>el dinero</span>
           </span>
-          {/* "Todas" is a chip like the rest, not a hidden empty state:
-              clearing one axis has to be as reachable as setting it. */}
-          <button
-            type="button"
-            className={`${styles.filter} ${operationStatusFilter === '' ? styles.filterActive : ''}`}
-            aria-pressed={operationStatusFilter === ''}
-            onClick={() => handleOperationStatusChange('')}
-          >
-            Todas · {facets.operation_status_total ?? 0}
-          </button>
-          {OPERATION_STATUS_OPTIONS.map((value) => (
-            <button
-              key={value}
-              type="button"
-              className={`${styles.filter} ${operationStatusFilter === value ? styles.filterActive : ''}`}
-              aria-pressed={operationStatusFilter === value}
-              onClick={() => toggleOperationStatus(value)}
-            >
-              {OPERATION_STATUS_LABELS[value]} · {facets.operation_status?.[value] ?? 0}
-            </button>
-          ))}
+          <FacetChips
+            label="Filtrar por estado de operación"
+            options={OPERATION_STATUS_OPTIONS}
+            labels={OPERATION_STATUS_LABELS}
+            counts={facets.operation_status}
+            total={facets.operation_status_total}
+            activeValue={operationStatusFilter}
+            onChange={handleOperationStatusChange}
+          />
         </div>
 
         <div className={styles.divider} />
 
-        <div className={styles.filterRow} role="group" aria-label="Filtrar por estado de la mercadería">
+        <div className={styles.filterRow}>
           <span className={styles.fieldLabel}>
             Mercadería
             <span className={styles.fieldLabelSub}>el producto</span>
           </span>
-          <button
-            type="button"
-            className={`${styles.filter} ${goodsStatusFilter === '' ? styles.filterActive : ''}`}
-            aria-pressed={goodsStatusFilter === ''}
-            onClick={() => handleGoodsStatusChange('')}
-          >
-            Todas · {facets.goods_status_total ?? 0}
-          </button>
-          {GOODS_STATUS_OPTIONS.map((value) => (
-            <button
-              key={value}
-              type="button"
-              className={`${styles.filter} ${goodsStatusFilter === value ? styles.filterActive : ''}`}
-              aria-pressed={goodsStatusFilter === value}
-              onClick={() => toggleGoodsStatus(value)}
-            >
-              {GOODS_STATUS_LABELS[value]} · {facets.goods_status?.[value] ?? 0}
-            </button>
-          ))}
+          <FacetChips
+            label="Filtrar por estado de la mercadería"
+            options={GOODS_STATUS_OPTIONS}
+            labels={GOODS_STATUS_LABELS}
+            counts={facets.goods_status}
+            total={facets.goods_status_total}
+            activeValue={goodsStatusFilter}
+            onChange={handleGoodsStatusChange}
+          />
         </div>
 
         <div className={styles.divider} />
@@ -552,12 +556,14 @@ export default function VentasML() {
         <table className={styles.table}>
           <thead>
             <tr>
+              <th className={styles.colAlerta} aria-label="Alerta" />
+              <th className={styles.colCategoria} aria-label="Categoría" />
               <th className={styles.colOrden}>Orden</th>
               <th>Fecha</th>
               <th>Comprador</th>
               <th>Operación</th>
               <th>Mercadería</th>
-              <th>Modo logístico</th>
+              <th>Envío</th>
               <th className={styles.numeric}>Importe</th>
               <th className={styles.numeric}>Neto</th>
               <th className={styles.numeric}>Total Gauss</th>
@@ -566,13 +572,13 @@ export default function VentasML() {
           <tbody>
             {loading ? (
               <tr>
-                <td className={styles.stateCell} colSpan={9}>
+                <td className={styles.stateCell} colSpan={TABLE_COLUMN_COUNT}>
                   Cargando ventas…
                 </td>
               </tr>
             ) : sales.length === 0 ? (
               <tr>
-                <td className={styles.stateCell} colSpan={9}>
+                <td className={styles.stateCell} colSpan={TABLE_COLUMN_COUNT}>
                   No hay ventas que coincidan con los filtros
                 </td>
               </tr>
@@ -608,6 +614,25 @@ export default function VentasML() {
                           : undefined
                       }
                     >
+                      <td className={styles.colAlerta}>
+                        <AlertIcon level={groupAlertLevel(orders)} />
+                      </td>
+                      <td className={styles.colCategoria}>
+                        {(() => {
+                          const category = groupCategory(orders);
+                          if (!category) return null;
+                          const CategoryIcon = getCategoryIcon(category);
+                          return (
+                            <CategoryIcon
+                              size={16}
+                              className={styles.categoryIcon}
+                              role="img"
+                              aria-label={category}
+                              title={category}
+                            />
+                          );
+                        })()}
+                      </td>
                       <td className={styles.colOrden}>
                         {isPack ? (
                           <button
@@ -662,39 +687,56 @@ export default function VentasML() {
                         {formatMoney(group.total_amount, group.currency_id)}
                       </td>
                       <td className={styles.numeric}>
-                        {representativeOrderId != null ? (
-                          <button
-                            type="button"
-                            className={styles.netoButton}
-                            // The visible text is the amount, so without
-                            // this a screen reader announces "button,
-                            // 82,50 ARS" and never says what it does.
-                            aria-label="Ver desglose de costos"
-                            title={netoTooltip(group.neto_depositado, group.retenciones_recuperables)}
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              openDrawer(representativeOrderId);
-                            }}
-                          >
-                            {formatMoney(group.neto, group.currency_id)}
-                          </button>
-                        ) : (
-                          formatMoney(group.neto, group.currency_id)
-                        )}
+                        {(() => {
+                          const metricsState = groupMetricsState(orders);
+                          // SM R3/R9: a pack with any unresolved member
+                          // never shows the (possibly stale) sum as the
+                          // current amount -- the badge replaces it.
+                          if (metricsState !== 'ok') {
+                            return <RecalculatingBadge state={metricsState} />;
+                          }
+                          if (representativeOrderId != null) {
+                            return (
+                              <button
+                                type="button"
+                                className={styles.netoButton}
+                                // The visible text is the amount, so without
+                                // this a screen reader announces "button,
+                                // 82,50 ARS" and never says what it does.
+                                aria-label="Ver desglose de costos"
+                                title={netoTooltip(group.neto_depositado, group.retenciones_recuperables)}
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  openDrawer(representativeOrderId);
+                                }}
+                              >
+                                {formatMoney(group.neto, group.currency_id)}
+                              </button>
+                            );
+                          }
+                          return formatMoney(group.neto, group.currency_id);
+                        })()}
                       </td>
                       <td className={styles.numeric}>
-                        {formatMoney(group.total_gauss, group.currency_id)}
-                        {/* total-gauss-provisorio: the pack sum already
-                            includes a member's provisional figure -- the
-                            badge says so at THIS level too, not only in the
-                            drawer (product owner's explicit decision). */}
-                        {group.total_gauss_provisional && (
-                          <span
-                            className={`badge badge-warning ${styles.provisionalBadge}`}
-                            title={`Calculado sin ${(group.total_gauss_provisional_falta || 'Envío Flex').toLowerCase()}: todavía no se cargó la etiqueta de envío.`}
-                          >
-                            Provisorio
-                          </span>
+                        {groupMetricsState(orders) !== 'ok' ? (
+                          <RecalculatingBadge state={groupMetricsState(orders)} />
+                        ) : (
+                          <>
+                            {formatMoney(group.total_gauss, group.currency_id)}
+                            {/* total-gauss-provisorio: the pack sum already
+                                includes a member's provisional figure -- the
+                                badge says so at THIS level too, not only in
+                                the drawer (product owner's explicit
+                                decision). */}
+                            {group.total_gauss_provisional && (
+                              <span
+                                className={`badge badge-warning ${styles.provisionalBadge}`}
+                                title={`Calculado sin ${(group.total_gauss_provisional_falta || 'Envío Flex').toLowerCase()}: todavía no se cargó la etiqueta de envío.`}
+                              >
+                                Provisorio
+                              </span>
+                            )}
+                          </>
                         )}
                       </td>
                     </tr>
@@ -709,6 +751,25 @@ export default function VentasML() {
                           className={`${styles.memberRow} ${styles.clickableRow}`}
                           onClick={() => openDrawer(order.order_id)}
                         >
+                          <td className={styles.colAlerta}>
+                            <AlertIcon level={order.alert_level} />
+                          </td>
+                          <td className={styles.colCategoria}>
+                            {order.item_category
+                              ? (() => {
+                                  const CategoryIcon = getCategoryIcon(order.item_category);
+                                  return (
+                                    <CategoryIcon
+                                      size={16}
+                                      className={styles.categoryIcon}
+                                      role="img"
+                                      aria-label={order.item_category}
+                                      title={order.item_category}
+                                    />
+                                  );
+                                })()
+                              : null}
+                          </td>
                           <td className={styles.colOrden}>
                             <span className={styles.memberOrden}>{order.order_id}</span>
                           </td>
@@ -734,33 +795,55 @@ export default function VentasML() {
                             >
                               {MODO_LOGISTICO_LABELS[order.modo_logistico] || order.modo_logistico}
                             </span>
+                            {(order.city || order.province || order.shipping_substatus) && (
+                              <span className={styles.subline}>
+                                {[order.city, order.province].filter(Boolean).join(', ') || '—'}
+                                {order.shipping_substatus ? ` · ${order.shipping_substatus}` : ''}
+                              </span>
+                            )}
                           </td>
                           <td className={styles.numeric}>
                             {formatMoney(order.total_amount, order.currency_id)}
                           </td>
                           <td className={styles.numeric}>
-                            <button
-                              type="button"
-                              className={styles.netoButton}
-                              aria-label="Ver desglose de costos"
-                              title={netoTooltip(order.neto_depositado, order.retenciones_recuperables)}
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                openDrawer(order.order_id);
-                              }}
-                            >
-                              {formatMoney(order.neto, order.currency_id)}
-                            </button>
+                            {order.metrics_state && order.metrics_state !== 'ok' ? (
+                              <RecalculatingBadge state={order.metrics_state} />
+                            ) : (
+                              <button
+                                type="button"
+                                className={styles.netoButton}
+                                aria-label="Ver desglose de costos"
+                                title={netoTooltip(order.neto_depositado, order.retenciones_recuperables)}
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  openDrawer(order.order_id);
+                                }}
+                              >
+                                {formatMoney(order.neto, order.currency_id)}
+                              </button>
+                            )}
                           </td>
                           <td className={styles.numeric}>
-                            {formatMoney(order.total_gauss, order.currency_id)}
-                            {order.total_gauss_provisional && (
-                              <span
-                                className={`badge badge-warning ${styles.provisionalBadge}`}
-                                title={`Calculado sin ${(order.total_gauss_provisional_falta || 'Envío Flex').toLowerCase()}: todavía no se cargó la etiqueta de envío.`}
-                              >
-                                Provisorio
-                              </span>
+                            {order.metrics_state && order.metrics_state !== 'ok' ? (
+                              <RecalculatingBadge state={order.metrics_state} />
+                            ) : (
+                              <>
+                                {formatMoney(order.total_gauss, order.currency_id)}
+                                {order.total_gauss_provisional && (
+                                  <span
+                                    className={`badge badge-warning ${styles.provisionalBadge}`}
+                                    title={`Calculado sin ${(order.total_gauss_provisional_falta || 'Envío Flex').toLowerCase()}: todavía no se cargó la etiqueta de envío.`}
+                                  >
+                                    Provisorio
+                                  </span>
+                                )}
+                                {order.markup !== null && order.markup !== undefined && (
+                                  <span className={styles.markup}>
+                                    {' '}
+                                    · {new Intl.NumberFormat('es-AR', { maximumFractionDigits: 1 }).format(order.markup)}%
+                                  </span>
+                                )}
+                              </>
                             )}
                           </td>
                         </tr>
