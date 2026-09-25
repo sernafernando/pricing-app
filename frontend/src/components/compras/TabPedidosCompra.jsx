@@ -701,26 +701,9 @@ export default function TabPedidosCompra() {
         return <span className={styles.tdMono}>{p.numero}</span>;
       case 'empresa': {
         const nombre = p.empresa_nombre || `#${p.empresa_id}`;
-        const isGrupoGauss = /^grupo\s+gauss$/i.test(String(nombre).trim());
         return (
-          <span
-            className={
-              isGrupoGauss
-                ? `${styles.empresaCell} ${styles.empresaCellGrupoGauss}`
-                : styles.empresaCell
-            }
-            data-testid="empresa-cell"
-            data-wrap={isGrupoGauss ? 'grupo-gauss' : 'single'}
-          >
-            {isGrupoGauss ? (
-              <>
-                Grupo
-                <br />
-                Gauss
-              </>
-            ) : (
-              nombre
-            )}
+          <span className={styles.empresaCell} data-testid="empresa-cell">
+            {nombre}
           </span>
         );
       }

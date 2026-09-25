@@ -66,18 +66,29 @@ const PEDIDO_BASE = {
   saldo_pendiente: '1000.00',
 };
 
+const TWO_WORD_EMPRESA = 'Holding Norte';
+const SHORT_EMPRESA = 'Acme';
+const LONG_EMPRESA =
+  'Empresa Comercializadora Internacional del Sur Sociedad Anonima Limitada Extra Larga';
+
 const PEDIDOS = [
   {
     ...PEDIDO_BASE,
     id: 1,
     numero: 'P-01-2026-00001',
-    empresa_nombre: 'Grupo Gauss',
+    empresa_nombre: TWO_WORD_EMPRESA,
   },
   {
     ...PEDIDO_BASE,
     id: 2,
     numero: 'P-01-2026-00002',
-    empresa_nombre: 'Pastoriza',
+    empresa_nombre: SHORT_EMPRESA,
+  },
+  {
+    ...PEDIDO_BASE,
+    id: 3,
+    numero: 'P-01-2026-00003',
+    empresa_nombre: LONG_EMPRESA,
   },
 ];
 
@@ -101,7 +112,7 @@ beforeEach(() => {
   api.get.mockImplementation((url) => {
     if (url === '/administracion/compras/pedidos') {
       return Promise.resolve({
-        data: { items: PEDIDOS, total: 2, page: 1, page_size: 50 },
+        data: { items: PEDIDOS, total: PEDIDOS.length, page: 1, page_size: 50 },
       });
     }
     if (url === '/admin/empresas') {
@@ -119,32 +130,38 @@ const paintedBox = (el) => {
   return el.getBoundingClientRect();
 };
 
-const assertEmpresaFull = (cell, name, { singleLine = false } = {}) => {
-  const text = (cell.textContent || '').replace(/\s+/g, ' ').trim();
-  const normalizedName = name.replace(/\s+/g, ' ').trim();
-  expect(text).toContain(normalizedName.split(' ')[0]);
-  if (normalizedName.includes(' ')) {
-    expect(text).toContain(normalizedName.split(' ').at(-1));
-  } else {
-    expect(text).toBe(normalizedName);
-  }
+const empresaInner = (cell) => cell.querySelector('[data-testid="empresa-cell"]') || cell;
+
+const assertLockedEmpresaStyle = (inner) => {
+  const style = getComputedStyle(inner);
+  expect(style.display).toBe('block');
+  expect(style.textAlign).toBe('center');
+  expect(style.whiteSpace).toBe('normal');
+  expect(style.overflowWrap).toBe('anywhere');
+  expect(style.overflow).toBe('hidden');
+  expect(style.textOverflow).not.toBe('ellipsis');
+  const fontSize = Number.parseFloat(style.fontSize);
+  expect(Number.parseFloat(style.lineHeight) / fontSize).toBeCloseTo(1.25, 2);
+  expect(Number.parseFloat(style.maxHeight) / fontSize).toBeCloseTo(2.5, 2);
+  expect(inner.getAttribute('data-wrap')).toBeNull();
+  expect(inner.querySelector('br')).toBeNull();
+};
+
+const assertNoEllipsis = (el) => {
+  const text = (el.textContent || '').replace(/\s+/g, ' ').trim();
   expect(text).not.toContain('…');
   expect(text).not.toMatch(/\.\.\./);
-  const inner = cell.querySelector('[data-testid="empresa-cell"]') || cell;
+};
+
+const assertTwoLineClipBudget = (inner) => {
   const style = getComputedStyle(inner);
-  expect(style.textOverflow).not.toBe('ellipsis');
-  expect(style.textAlign).toBe('center');
-  expect(inner.scrollWidth).toBeLessThanOrEqual(inner.clientWidth + 1);
-  if (singleLine) {
-    expect(inner.getAttribute('data-wrap')).toBe('single');
-    expect(style.whiteSpace).toBe('nowrap');
-  } else {
-    expect(inner.getAttribute('data-wrap')).toBe('grupo-gauss');
-  }
+  const maxHeight = Number.parseFloat(style.maxHeight);
+  expect(inner.getBoundingClientRect().height).toBeLessThanOrEqual(maxHeight + 1);
+  expect(inner.clientHeight).toBeLessThanOrEqual(maxHeight + 1);
 };
 
 describe('TabPedidosCompra — layout at 1280–1400', () => {
-  it('shows full Empresa names, 2-col Acciones, and zero Proveedor/Mon overlap', async () => {
+  it('clips Empresa at two generic lines, 2-col Acciones, and zero Proveedor/Mon overlap', async () => {
     const { container } = await render(
       <div style={{ width: '1360px', maxWidth: '1360px' }}>
         <TabPedidosCompra />
@@ -155,16 +172,42 @@ describe('TabPedidosCompra — layout at 1280–1400', () => {
         throw new Error('Pedidos row not mounted yet');
       }
       if (!container.textContent.includes('P-01-2026-00002')) {
-        throw new Error('Pastoriza row not mounted yet');
+        throw new Error('Short-name row not mounted yet');
+      }
+      if (!container.textContent.includes('P-01-2026-00003')) {
+        throw new Error('Long-name row not mounted yet');
       }
     });
 
     const empresaCells = cellsByHeader(container, 'Empresa');
-    expect(empresaCells).toHaveLength(2);
-    assertEmpresaFull(empresaCells[0], 'Grupo Gauss');
-    expect(empresaCells[0].textContent).toContain('Grupo');
-    expect(empresaCells[0].textContent).toContain('Gauss');
-    assertEmpresaFull(empresaCells[1], 'Pastoriza', { singleLine: true });
+    const proveedorCells = cellsByHeader(container, 'Proveedor');
+    expect(empresaCells).toHaveLength(3);
+
+    const inners = empresaCells.map(empresaInner);
+    for (const inner of inners) {
+      assertLockedEmpresaStyle(inner);
+      assertNoEllipsis(inner);
+      assertTwoLineClipBudget(inner);
+      expect(inner.scrollWidth).toBeLessThanOrEqual(inner.clientWidth + 1);
+    }
+
+    const twoWord = inners[0];
+    const twoWordStyle = getComputedStyle(twoWord);
+    const twoWordLine = Number.parseFloat(twoWordStyle.lineHeight);
+    expect(twoWord.textContent).toContain('Holding');
+    expect(twoWord.textContent).toContain('Norte');
+    expect(twoWord.getBoundingClientRect().height).toBeGreaterThan(twoWordLine * 1.15);
+    expect(twoWord.scrollHeight).toBeLessThanOrEqual(twoWord.clientHeight + 1);
+
+    const shortName = inners[1];
+    const shortLine = Number.parseFloat(getComputedStyle(shortName).lineHeight);
+    expect(shortName.textContent.trim()).toBe(SHORT_EMPRESA);
+    expect(shortName.getBoundingClientRect().height).toBeLessThanOrEqual(shortLine * 1.2 + 1);
+
+    const longName = inners[2];
+    expect(longName.scrollHeight).toBeGreaterThan(longName.clientHeight);
+    expect(overlapArea(longName.getBoundingClientRect(), proveedorCells[2].getBoundingClientRect())).toBe(0);
+    expect(overlapArea(empresaCells[2].getBoundingClientRect(), proveedorCells[2].getBoundingClientRect())).toBe(0);
 
     const grids = [...container.querySelectorAll('[data-testid="row-actions"]')];
     expect(grids.length).toBeGreaterThanOrEqual(1);

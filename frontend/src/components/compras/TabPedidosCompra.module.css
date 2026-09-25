@@ -89,22 +89,14 @@
   color: var(--cf-text-secondary);
 }
 
-/* Width capped to Pastoriza (COLUMNS). Default: one centered line, no ellipsis. */
 .empresaCell {
   display: block;
   text-align: center;
-  white-space: nowrap;
-  overflow: visible;
-  text-overflow: clip;
-  line-height: 1.25;
-}
-
-/* Only Grupo Gauss: two centered lines inside the Pastoriza-sized column. */
-.empresaCellGrupoGauss {
   white-space: normal;
-  overflow-wrap: normal;
-  word-break: normal;
+  overflow-wrap: anywhere;
+  line-height: 1.25;
   max-height: 2.5em;
+  overflow: hidden;
 }
 
 .rowActions {
