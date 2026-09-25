@@ -268,7 +268,13 @@ class TestBulkPutConcurrency:
         from sqlalchemy.exc import IntegrityError
         from sqlalchemy.orm import Session as OrmSession
 
+        real_commit = OrmSession.commit
+
         def raising_commit(self):
+            # Auth ends its read-only transaction with a commit; let commits
+            # with nothing pending through so only the bulk write fails.
+            if not (self.new or self.dirty or self.deleted):
+                return real_commit(self)
             # Flush so the pending delete+insert actually reach the DB inside
             # the current SAVEPOINT (matching how a real IntegrityError is
             # normally raised — during flush, as part of commit's autoflush —
