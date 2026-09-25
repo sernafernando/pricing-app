@@ -244,7 +244,7 @@ class TestFlexShippingProrationLabel:
 
         body = client.get("/api/ml-ventas-ops/orders/4001", headers=admin_auth_headers).json()
 
-        flex_line = next(l for l in body["cadena_total_gauss"]["lineas"] if l["code"] == "envio_flex")
+        flex_line = next(linea for linea in body["cadena_total_gauss"]["lineas"] if linea["code"] == "envio_flex")
         assert flex_line["prorateado"] is True
 
     def test_standalone_order_flex_line_is_not_labeled_prorated(self, db, client, admin_auth_headers, rol_admin):
@@ -260,5 +260,52 @@ class TestFlexShippingProrationLabel:
 
         body = client.get("/api/ml-ventas-ops/orders/4101", headers=admin_auth_headers).json()
 
-        flex_line = next(l for l in body["cadena_total_gauss"]["lineas"] if l["code"] == "envio_flex")
+        flex_line = next(linea for linea in body["cadena_total_gauss"]["lineas"] if linea["code"] == "envio_flex")
         assert flex_line["prorateado"] is False
+
+    def test_shared_shipment_with_no_pack_id_is_still_labeled_prorated(self, db, client, admin_auth_headers, rol_admin):
+        """Reviewer-found bug: `EnvioFlexDeduccion.resolve_bulk` (deducciones.py)
+        divides the freight cost between EVERY order sharing `shipping_id`,
+        with no `pack_id` condition at all. The flag must match that same
+        criterion -- an order with `pack_id=None` sharing `shipping_id` with
+        another order still has its freight line divided, and the panel
+        must say so."""
+        _grant_ml_ops_ver(db, rol_admin)
+        when = datetime(2026, 9, 1, tzinfo=timezone.utc)
+        _seed_order(db, 4201, shipping_id=9200, date_created=when)
+        _seed_order(db, 4202, shipping_id=9200, date_created=when)
+        _stored_metrics(db, 4201, total_gauss=Decimal("10.00"), costo_mercaderia=Decimal("1.00"))
+        db.commit()
+        from app.models.ml_venta_deduccion import MlVentaDeduccion
+
+        db.add(MlVentaDeduccion(order_id=4201, code="envio_flex", monto=Decimal("5.00"), orden=2))
+        db.commit()
+
+        body = client.get("/api/ml-ventas-ops/orders/4201", headers=admin_auth_headers).json()
+
+        flex_line = next(linea for linea in body["cadena_total_gauss"]["lineas"] if linea["code"] == "envio_flex")
+        assert flex_line["prorateado"] is True
+
+    def test_shared_shipment_with_different_pack_ids_is_still_labeled_prorated(
+        self, db, client, admin_auth_headers, rol_admin
+    ):
+        """Same defect, other angle: two orders share `shipping_id` but
+        belong to DIFFERENT packs. `resolve_bulk` still divides the
+        freight between them (it only groups by `shipping_id`), so the
+        flag must still be True even though the old `pack_id` match
+        condition would have read False."""
+        _grant_ml_ops_ver(db, rol_admin)
+        when = datetime(2026, 9, 1, tzinfo=timezone.utc)
+        _seed_order(db, 4301, pack_id=810, shipping_id=9300, date_created=when)
+        _seed_order(db, 4302, pack_id=811, shipping_id=9300, date_created=when)
+        _stored_metrics(db, 4301, total_gauss=Decimal("10.00"), costo_mercaderia=Decimal("1.00"))
+        db.commit()
+        from app.models.ml_venta_deduccion import MlVentaDeduccion
+
+        db.add(MlVentaDeduccion(order_id=4301, code="envio_flex", monto=Decimal("5.00"), orden=2))
+        db.commit()
+
+        body = client.get("/api/ml-ventas-ops/orders/4301", headers=admin_auth_headers).json()
+
+        flex_line = next(linea for linea in body["cadena_total_gauss"]["lineas"] if linea["code"] == "envio_flex")
+        assert flex_line["prorateado"] is True

@@ -1820,18 +1820,21 @@ def obtener_operacion(
     costo_detalle_by_order = resolve_costo_mercaderia_detalle(db, breakdown_order_ids)
     order_costo_items = costo_detalle_by_order.get(order.order_id, [])
 
-    # PR18.T18/T19 (BREAKDOWN R38, scenario 8): this order's Flex shipping
+    # PR18 fix 1 (BREAKDOWN R38, scenario 8): this order's Flex shipping
     # line is prorated (`EnvioFlexDeduccion.resolve_bulk`, deducciones.py)
-    # whenever it shares its `shipping_id` with another order in the SAME
-    # pack. The freight math itself is unchanged -- this only flags it in
-    # the response so the panel never presents a shared cost as if it were
-    # this order's alone.
+    # whenever it shares its `shipping_id` with ANY other order -- the
+    # divisor query there groups by `shipping_id` alone, with no `pack_id`
+    # condition at all. The flag must match that exact criterion: gating
+    # it on the sibling ALSO sharing `pack_id` under-reported proration for
+    # a shared shipment with a null or differing `pack_id`, silently
+    # presenting a divided cost as if it were this order's own -- the
+    # exact lie R38 exists to prevent. The freight math itself is
+    # unchanged; this only flags it in the response.
     envio_flex_prorateado = False
-    if order.pack_id is not None and order.shipping_id is not None:
+    if order.shipping_id is not None:
         sibling_sharing_shipment = (
             db.query(MlOrdersOps.order_id)
             .filter(
-                MlOrdersOps.pack_id == order.pack_id,
                 MlOrdersOps.shipping_id == order.shipping_id,
                 MlOrdersOps.order_id != order.order_id,
             )
