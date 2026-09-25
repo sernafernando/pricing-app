@@ -1,6 +1,6 @@
 from fastapi import Depends, HTTPException, Request
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
-from sqlalchemy.orm import Session, joinedload
+from sqlalchemy.orm import Session, joinedload, raiseload
 from typing import Optional
 
 from app.core.config import settings
@@ -30,10 +30,13 @@ async def get_current_user(
         raise api_error(401, ErrorCode.INVALID_TOKEN, "Token inválido")
 
     # Buscar por username (nuevo) o email (backward compatibility)
-    # Eager-load rol_obj to avoid lazy load on es_superadmin check
+    # Eager-load rol_obj to avoid lazy load on es_superadmin check.
+    # raiseload: any other relationship on the auth user raises instead of
+    # lazy loading, which would reopen a transaction on this session and hold
+    # a second pooled connection for the rest of the request.
     usuario = (
         db.query(Usuario)
-        .options(joinedload(Usuario.rol_obj))
+        .options(joinedload(Usuario.rol_obj).raiseload("*"), raiseload("*"))
         .filter((Usuario.username == username) | (Usuario.email == username))
         .first()
     )
