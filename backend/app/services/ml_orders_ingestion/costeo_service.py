@@ -78,6 +78,34 @@ FUENTE_BACKFILL_COMBO = "hist_combo"
 FUENTE_COMBO = "combo"
 
 
+def tiene_costo_propio(producto: ProductoERP) -> bool:
+    """Whether `producto.costo` is a REAL cost, not a hole in the ERP.
+
+    `erp_sync.sincronizar_erp` reads `coslis_price` with
+    `convertir_a_numero(producto_data.get("coslis_price", 0))` -- default
+    `0`, never `None`. So a product with no cost row in the ERP (a
+    pack/combo/kit is the dominant case: nobody buys a pack, so the ERP
+    never carries a purchase cost for it) lands in `productos_erp.costo`
+    as `0.0`, NEVER as `NULL`. `producto.costo is None` alone is therefore
+    the wrong test on THIS field -- it is only ever true for a row this
+    service itself has not synced yet, not for the "no cost" case the sync
+    actually produces.
+
+    Same criterion the backfill's `_tiene_precio`
+    (`app/scripts/backfill_costo_congelado.py`) already applies to
+    `ItemCostListHistory.iclh_price` -- that predicate's own docstring:
+    "A NULL or <= 0 `iclh_price` is a HOLE in the ERP, not a product that
+    became free." `producto.costo` is a different column on a different
+    model, so the two predicates cannot share code, only the rule.
+    """
+    if producto.costo is None:
+        return False
+    try:
+        return Decimal(str(producto.costo)) > 0
+    except InvalidOperation:
+        return False
+
+
 @dataclass(frozen=True)
 class _ResolvedCost:
     """Everything needed to freeze ONE item's snapshot, always complete.
@@ -287,8 +315,10 @@ def _resolver_combo_vivo(
 
     ALL OR NOTHING, same discipline the backfill's `_resolver_combo`
     documents: one component that does not resolve to a `ProductoERP`, or
-    whose own `costo` is unknown, or whose currency cannot be converted,
-    sinks the WHOLE combo -- never a partial sum.
+    whose own `costo` is unknown (per `tiene_costo_propio` -- `NULL` or
+    `<= 0`, the sync never distinguishes "no cost row" from `0.0`), or
+    whose currency cannot be converted, sinks the WHOLE combo -- never a
+    partial sum.
 
     NO RECURSION: a component that is itself a combo (no `costo` of its
     own) is NOT resolved by summing ITS components -- it is treated the
@@ -303,7 +333,7 @@ def _resolver_combo_vivo(
 
     for componente_id, qty in componentes:
         componente = productos_componentes.get(componente_id)
-        if componente is None or componente.costo is None:
+        if componente is None or not tiene_costo_propio(componente):
             return None
         try:
             costo_componente = Decimal(str(componente.costo))
@@ -346,7 +376,7 @@ def _resolve_cost(
         logger.warning("costeo_service: unparseable iva for producto_item_id=%s", producto.item_id)
         return None
 
-    if producto.costo is not None:
+    if tiene_costo_propio(producto):
         # The product's OWN cost comes first, even if it also happens to
         # have `tb_item_association` rows -- a product the ERP actually
         # prices is costed with that figure, never with a derived sum
@@ -435,7 +465,9 @@ def congelar(db: Session, order_id: int, items: Sequence[OrderItemOpsDTO]) -> No
     # actually prices is never treated as a combo (see `_resolve_cost`).
     # Component products are fetched in a SECOND bulk query, same
     # discipline `run_backfill` follows: never one round-trip per combo.
-    erp_ids_sin_costo = {producto.item_id for producto, _ in productos_por_indice.values() if producto.costo is None}
+    erp_ids_sin_costo = {
+        producto.item_id for producto, _ in productos_por_indice.values() if not tiene_costo_propio(producto)
+    }
     combos = componentes_por_combo(db, erp_ids_sin_costo)
     componente_ids = {componente_id for componentes in combos.values() for componente_id, _ in componentes}
     productos_componentes: Dict[int, ProductoERP] = {}
