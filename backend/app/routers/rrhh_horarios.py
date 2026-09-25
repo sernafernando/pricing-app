@@ -102,6 +102,8 @@ class SyncHikvisionResponse(BaseModel):
     duplicadas: int = 0
     sin_empleado: int = 0
     errores: int = 0
+    lectura_completa: bool = True
+    error_lectura: Optional[str] = None
 
 
 # ──────────────────────────────────────────────

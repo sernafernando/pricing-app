@@ -15,6 +15,7 @@ Mapeo empleado: employeeNoString → rrhh_empleados.hikvision_employee_no.
 """
 
 import time
+from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from typing import Optional
 from uuid import uuid4
@@ -44,6 +45,21 @@ RETRY_DELAY_SECONDS = 2
 # El DS-K1T804AMF a veces genera eventos con employeeNoString="0"
 # que corresponden a autenticaciones fallidas o lecturas fantasma.
 EMPLOYEE_NO_BANLIST: set[str] = {"0"}
+
+
+@dataclass(frozen=True)
+class ResultadoEventos:
+    """Resultado de `fetch_events`: distingue lectura completa de parcial.
+
+    - `completa=True, error=None`: se leyeron todas las páginas sin problemas.
+    - `completa=False`: hubo un error de conexión durante la paginación.
+      `eventos` puede estar vacío (falló ya la primera página — falla total)
+      o contener los eventos de páginas previas exitosas (falla parcial).
+    """
+
+    eventos: list[dict]
+    completa: bool
+    error: Optional[str]
 
 
 class HikvisionClient:
@@ -204,13 +220,16 @@ class HikvisionClient:
     # Eventos de fichaje (AcsEvent)
     # ──────────────────────────────────────────────
 
-    def fetch_events(self, desde: Optional[datetime] = None, hasta: Optional[datetime] = None) -> list[dict]:
+    def fetch_events(self, desde: Optional[datetime] = None, hasta: Optional[datetime] = None) -> ResultadoEventos:
         """
         Obtiene eventos de acceso del dispositivo Hikvision.
 
         Pagina automáticamente (max 30 resultados por request).
         Si una página falla tras reintentos, devuelve los eventos que ya trajo
-        en vez de perder todo (graceful degradation).
+        en vez de perder todo (graceful degradation), pero marca el resultado
+        como incompleto para que el llamador decida qué hacer. NO levanta
+        excepción acá — `sync_fichadas` es quien decide si una lectura sin
+        ningún evento es un error fatal.
 
         IMPORTANTE: El DS-K1T804AMF requiere timestamps en hora local Argentina
         (UTC-3), SIN info de timezone. Si se envían timestamps UTC, el dispositivo
@@ -223,7 +242,9 @@ class HikvisionClient:
                    Si None, usa el momento actual en hora Argentina.
 
         Returns:
-            Lista de eventos raw del dispositivo (puede ser parcial si hubo error de paginación).
+            ResultadoEventos con los eventos raw del dispositivo (puede ser
+            parcial o vacío si hubo error de paginación), si la lectura fue
+            completa, y el mensaje de error si lo hubo.
         """
         self._check_configured()
 
@@ -273,14 +294,16 @@ class HikvisionClient:
             try:
                 data = self._make_request("POST", "/ISAPI/AccessControl/AcsEvent", search_body)
             except ConnectionError as e:
-                # Graceful degradation: devolver lo que ya tenemos en vez de perder todo
+                # Graceful degradation: devolver lo que ya tenemos en vez de perder todo.
+                # Si es la primera página (all_events vacío), es una falla TOTAL de
+                # lectura — sync_fichadas la trata como error fatal, no como "sin novedades".
                 logger.warning(
                     "Hikvision: error en página %d — devolviendo %d eventos parciales. Error: %s",
                     position,
                     len(all_events),
                     e,
                 )
-                break
+                return ResultadoEventos(eventos=all_events, completa=False, error=str(e))
 
             acs_event = data.get("AcsEvent", {})
             info_list = acs_event.get("InfoList", [])
@@ -301,7 +324,7 @@ class HikvisionClient:
 
             position = len(all_events)
 
-        return all_events
+        return ResultadoEventos(eventos=all_events, completa=True, error=None)
 
     # ──────────────────────────────────────────────
     # Sync fichadas a DB
@@ -317,10 +340,36 @@ class HikvisionClient:
         - Si el empleado está mapeado → asigna empleado_id.
         - Si no está mapeado → empleado_id=NULL (se linkea al mapear).
 
+        Si la lectura del dispositivo falla por completo (cero eventos leídos,
+        ej: la primera página ya devuelve 401), esto es un error real — NO un
+        día sin novedades — y se levanta ConnectionError sin tocar la DB.
+        Si al menos una página se leyó bien pero una posterior falló, se
+        conservan las fichadas leídas (el dedup por event_id hace que un
+        re-sync sea seguro) y el resultado queda marcado como incompleto.
+
         Returns:
-            { "nuevas": int, "duplicadas": int, "sin_empleado": int, "errores": int }
+            {
+                "nuevas": int,
+                "duplicadas": int,
+                "sin_empleado": int,
+                "errores": int,
+                "lectura_completa": bool,  # False si hubo un error de paginación
+                "error_lectura": Optional[str],  # mensaje del error, si lo hubo
+            }
+
+        Raises:
+            ConnectionError: si no se pudo leer ningún evento del dispositivo.
         """
-        events = self.fetch_events(desde, hasta)
+        resultado_lectura = self.fetch_events(desde, hasta)
+
+        if not resultado_lectura.completa and not resultado_lectura.eventos:
+            logger.error(
+                "Hikvision sync: falla total de lectura, no se pudo leer ningún evento. Error: %s",
+                resultado_lectura.error,
+            )
+            raise ConnectionError(resultado_lectura.error or "Hikvision: no se pudo leer ningún evento del dispositivo")
+
+        events = resultado_lectura.eventos
 
         # Pre-cargar mapeo hikvision_employee_no → empleado_id
         empleados = (
@@ -446,12 +495,19 @@ class HikvisionClient:
             sin_empleado,
             errores,
         )
+        if not resultado_lectura.completa:
+            logger.warning(
+                "Hikvision sync: LECTURA INCOMPLETA — puede haber fichadas sin sincronizar. Error: %s",
+                resultado_lectura.error,
+            )
 
         return {
             "nuevas": nuevas,
             "duplicadas": duplicadas,
             "sin_empleado": sin_empleado,
             "errores": errores,
+            "lectura_completa": resultado_lectura.completa,
+            "error_lectura": resultado_lectura.error,
         }
 
     def _classify_entry_exit(self, desde: Optional[datetime] = None, hasta: Optional[datetime] = None) -> None:
