@@ -1,0 +1,23 @@
+.row {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-xs);
+  flex-wrap: wrap;
+}
+
+.chip {
+  border: 1px solid var(--border-color, var(--text-tertiary));
+  background: var(--bg-primary);
+  color: var(--text-secondary);
+  border-radius: var(--radius-full, 999px);
+  padding: var(--spacing-xs) var(--spacing-sm);
+  font-size: var(--font-xs);
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.chipActive {
+  background: var(--text-primary);
+  color: var(--bg-primary);
+  border-color: var(--text-primary);
+}

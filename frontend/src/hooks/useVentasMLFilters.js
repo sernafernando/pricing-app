@@ -6,15 +6,21 @@ import { useCallback, useMemo } from 'react';
  * (ventas-ml-rediseno PR13, PANEL R19: "consistent with existing
  * filter/selection URL conventions on this screen").
  *
- * Scope for PR13 is the ROW SELECTION only (`orden` URL param), the piece
+ * Scope for PR13 was the ROW SELECTION only (`orden` URL param), the piece
  * `VentasMLLayout`/`SaleDetailPanel` need to replace `DesgloseDrawer`'s
- * local `drawerOrderId` state. Later PRs (search, chips) extend this same
- * hook with the rest of the screen's filters — see design D14.
+ * local `drawerOrderId` state.
+ *
+ * PR14 (SEARCH R25, R26) adds the `q` URL param for the search box, same
+ * URL-state convention as `orden`: the search box is a URL-driven filter,
+ * not local-only state, so a shared link or a page reload keeps the same
+ * results the operator was looking at.
  */
 export function useVentasMLFilters() {
   const [searchParams, setSearchParams] = useSearchParams();
 
   const ordenParam = searchParams.get('orden');
+  const qParam = searchParams.get('q');
+  const searchQuery = qParam ?? '';
   // Order ids are numeric on this screen (`order_id` from ML) — parsed
   // once here so every consumer (the panel's fetch, the layout's grid)
   // reads the same type instead of each doing its own `Number(...)`.
@@ -49,5 +55,30 @@ export function useVentasMLFilters() {
     );
   }, [setSearchParams]);
 
-  return { selectedOrderId, selectOrder, clearSelection };
+  // Setting an empty string REMOVES the param instead of writing `q=`,
+  // consistent with `clearSelection`: an empty search means "no filter",
+  // not "filter by the empty string" — a bare `?q=` in a shared link would
+  // otherwise read as an intentional (if odd) empty-search filter.
+  const setSearchQuery = useCallback(
+    (value) => {
+      setSearchParams(
+        (prev) => {
+          const next = new URLSearchParams(prev);
+          if (value) next.set('q', value);
+          else next.delete('q');
+          return next;
+        },
+        { replace: false },
+      );
+    },
+    [setSearchParams],
+  );
+
+  return {
+    selectedOrderId,
+    selectOrder,
+    clearSelection,
+    searchQuery,
+    setSearchQuery,
+  };
 }

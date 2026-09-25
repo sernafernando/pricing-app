@@ -54,6 +54,11 @@ import { usePermisos } from '../contexts/PermisosContext';
 import api from '../services/api';
 import VentasMLLayout from '../components/ventasMl/VentasMLLayout';
 import SaleDetailPanel from '../components/ventasMl/SaleDetailPanel';
+import SalesToolbar from '../components/ventasMl/SalesToolbar';
+import FacetChips from '../components/ventasMl/FacetChips';
+import AlertIcon from '../components/ventasMl/AlertIcon';
+import RecalculatingBadge from '../components/ventasMl/RecalculatingBadge';
+import { getCategoryIcon } from '../utils/categoryIcon';
 import { useVentasMLFilters } from '../hooks/useVentasMLFilters';
 import VariosVentaPctModal from '../components/VariosVentaPctModal';
 import DateRangeFilter from '../components/DateRangeFilter';
@@ -177,6 +182,68 @@ function formatMoney(value, currencyId) {
 // the drawer's sub-line (decision c), rendered as a `title` tooltip on
 // the Neto button rather than a permanent row, since the listing has no
 // room for a second line per row.
+// ventas-ml-rediseno PR14.T5/T9 (LISTING R28/R29, SM R3/R9): the row-level
+// summaries below are the ONLY client-side aggregation this table does over
+// per-order fields, and deliberately never touch money -- `group_neto`/
+// `group_total_gauss` already come pre-aggregated from the backend
+// (`SaleGroup`), null whenever any member is unresolved. These three only
+// decide which ICON/BADGE the pack-level row shows.
+
+// Worst-first, same discipline as the existing status "mixed" precedent:
+// a pack with any order in `error` reads as `error`, not an average.
+function groupAlertLevel(orders) {
+  if (orders.some((o) => o.alert_level === 'error')) return 'error';
+  if (orders.some((o) => o.alert_level === 'warning')) return 'warning';
+  return 'ok';
+}
+
+// Same precedence as `RecalculatingBadge` expects: `recalculating` beats
+// `failed` beats `pending` beats `ok`, so the pack row never claims a
+// stale/finished state while one of its orders is still catching up.
+function groupMetricsState(orders) {
+  if (orders.some((o) => o.metrics_state === 'recalculating')) return 'recalculating';
+  if (orders.some((o) => o.metrics_state === 'failed')) return 'failed';
+  if (orders.some((o) => o.metrics_state === 'pending')) return 'pending';
+  return 'ok';
+}
+
+// A pack's icon is only shown when every order agrees on `item_category` --
+// showing one item's category for a multi-item parcel would misrepresent
+// the other items, so this renders nothing (falls back to no icon) instead
+// of picking an arbitrary member.
+function groupCategory(orders) {
+  const categories = new Set(orders.map((o) => o.item_category).filter(Boolean));
+  return categories.size === 1 ? [...categories][0] : null;
+}
+
+// PR14 review fix P3: mirrors `_alert_level`'s own precedence
+// (`ml_ventas_ops.py`) using only the fields the listing endpoint actually
+// exposes per order (`metrics_state`, `neto`, `operation_status`,
+// `goods_status`) -- `iva_reconcilia` is never sent to the FE, so a warning
+// caused solely by that check falls back to the generic label rather than
+// inventing a reason the data cannot back up.
+function orderAlertReason(order) {
+  if (!order) return undefined;
+  if (order.metrics_state === 'failed') return 'El recálculo de esta venta falló.';
+  if (order.metrics_state === 'pending') return 'Todavía no se calculó esta venta.';
+  if (order.neto == null) return 'El neto de esta venta es desconocido.';
+  if (order.metrics_state === 'recalculating') return 'Esta venta se está recalculando.';
+  if (order.operation_status === 'unknown') return 'El estado de la operación todavía no se clasificó.';
+  if (order.goods_status === 'unknown') return 'El estado de la mercadería todavía no se clasificó.';
+  return 'Esta venta requiere revisión.';
+}
+
+// The group row's own alert_level is the worst among its orders
+// (`groupAlertLevel`). The reason shown must come from an order that
+// actually carries that level -- never a guess picked from an unrelated
+// member.
+function groupAlertReason(orders, level) {
+  const culprit = orders.find((o) => o.alert_level === level);
+  return orderAlertReason(culprit);
+}
+
+const TABLE_COLUMN_COUNT = 11;
+
 function netoTooltip(netoDepositado, retencionesRecuperables) {
   if (!(retencionesRecuperables > 0)) return undefined;
   return `MP $ ${new Intl.NumberFormat('es-AR', {
@@ -244,7 +311,8 @@ export default function VentasML() {
   // operator picks another row -- it only carries the order_id the
   // per-order endpoint needs, since the backend resolves the whole pack's
   // breakdown from any order inside it.
-  const { selectedOrderId, selectOrder, clearSelection } = useVentasMLFilters();
+  const { selectedOrderId, selectOrder, clearSelection, searchQuery, setSearchQuery } =
+    useVentasMLFilters();
 
   // Visible to everyone who can see this page — the modal itself decides
   // read-only vs. read+write once open, per product decision (see
@@ -275,6 +343,14 @@ export default function VentasML() {
   // the field could read "Septiembre" over a list filtered to 7 days.
   // Making them exclusive papered over that; removing one settles it.
   // `sold_month` stays supported by the endpoint for other callers.
+  const handleSearchChange = useCallback(
+    (value) => {
+      setSearchQuery(value);
+      setOffset(0);
+    },
+    [setSearchQuery],
+  );
+
   const handleDateRangeChange = useCallback(({ desde, hasta, filtro }) => {
     setFechaDesde(desde);
     setFechaHasta(hasta);
@@ -282,31 +358,18 @@ export default function VentasML() {
     setOffset(0);
   }, []);
 
-  const toggleOperationStatus = useCallback(
-    (value) => {
-      handleOperationStatusChange(operationStatusFilter === value ? '' : value);
-    },
-    [operationStatusFilter, handleOperationStatusChange]
-  );
-
-  const toggleGoodsStatus = useCallback(
-    (value) => {
-      handleGoodsStatusChange(goodsStatusFilter === value ? '' : value);
-    },
-    [goodsStatusFilter, handleGoodsStatusChange]
-  );
-
   const clearFilters = useCallback(() => {
     setOperationStatusFilter('');
     setGoodsStatusFilter('');
     setFechaDesde('');
     setFechaHasta('');
     setDateRangeFiltro(null);
+    setSearchQuery('');
     setOffset(0);
-  }, []);
+  }, [setSearchQuery]);
 
   const hasActiveFilters = Boolean(
-    operationStatusFilter || goodsStatusFilter || fechaDesde || fechaHasta
+    operationStatusFilter || goodsStatusFilter || fechaDesde || fechaHasta || searchQuery
   );
 
   // "Todas" is neither `total` (scoped by BOTH axes, so it under-counts
@@ -329,6 +392,10 @@ export default function VentasML() {
       if (goodsStatusFilter) params.goods_status = goodsStatusFilter;
       if (fechaDesde) params.date_from = fechaDesde;
       if (fechaHasta) params.date_to = fechaHasta;
+      // SEARCH R26: the search term combines with every other active
+      // filter as an INTERSECTION — sent alongside them in the same
+      // request, never as a separate call that replaces the filtered set.
+      if (searchQuery) params.q = searchQuery;
       const { data } = await api.get('/ml-ventas-ops/sales', { params });
       if (requestId !== latestRequestRef.current) return;
       setSales(data.sales || []);
@@ -352,7 +419,7 @@ export default function VentasML() {
     } finally {
       if (requestId === latestRequestRef.current) setLoading(false);
     }
-  }, [puedeVer, operationStatusFilter, goodsStatusFilter, fechaDesde, fechaHasta, offset]);
+  }, [puedeVer, operationStatusFilter, goodsStatusFilter, fechaDesde, fechaHasta, searchQuery, offset]);
 
   useEffect(() => {
     cargarVentas();
@@ -443,61 +510,45 @@ export default function VentasML() {
         </Link>
       )}
 
+      <SalesToolbar
+        value={searchQuery}
+        onSearchChange={handleSearchChange}
+        noResults={!loading && Boolean(searchQuery) && sales.length === 0}
+      />
+
       <div className={styles.filters}>
-        <div className={styles.filterRow} role="group" aria-label="Filtrar por estado de operación">
+        <div className={styles.filterRow}>
           <span className={styles.fieldLabel}>
             Operación
             <span className={styles.fieldLabelSub}>el dinero</span>
           </span>
-          {/* "Todas" is a chip like the rest, not a hidden empty state:
-              clearing one axis has to be as reachable as setting it. */}
-          <button
-            type="button"
-            className={`${styles.filter} ${operationStatusFilter === '' ? styles.filterActive : ''}`}
-            aria-pressed={operationStatusFilter === ''}
-            onClick={() => handleOperationStatusChange('')}
-          >
-            Todas · {facets.operation_status_total ?? 0}
-          </button>
-          {OPERATION_STATUS_OPTIONS.map((value) => (
-            <button
-              key={value}
-              type="button"
-              className={`${styles.filter} ${operationStatusFilter === value ? styles.filterActive : ''}`}
-              aria-pressed={operationStatusFilter === value}
-              onClick={() => toggleOperationStatus(value)}
-            >
-              {OPERATION_STATUS_LABELS[value]} · {facets.operation_status?.[value] ?? 0}
-            </button>
-          ))}
+          <FacetChips
+            label="Filtrar por estado de operación"
+            options={OPERATION_STATUS_OPTIONS}
+            labels={OPERATION_STATUS_LABELS}
+            counts={facets.operation_status}
+            total={facets.operation_status_total}
+            activeValue={operationStatusFilter}
+            onChange={handleOperationStatusChange}
+          />
         </div>
 
         <div className={styles.divider} />
 
-        <div className={styles.filterRow} role="group" aria-label="Filtrar por estado de la mercadería">
+        <div className={styles.filterRow}>
           <span className={styles.fieldLabel}>
             Mercadería
             <span className={styles.fieldLabelSub}>el producto</span>
           </span>
-          <button
-            type="button"
-            className={`${styles.filter} ${goodsStatusFilter === '' ? styles.filterActive : ''}`}
-            aria-pressed={goodsStatusFilter === ''}
-            onClick={() => handleGoodsStatusChange('')}
-          >
-            Todas · {facets.goods_status_total ?? 0}
-          </button>
-          {GOODS_STATUS_OPTIONS.map((value) => (
-            <button
-              key={value}
-              type="button"
-              className={`${styles.filter} ${goodsStatusFilter === value ? styles.filterActive : ''}`}
-              aria-pressed={goodsStatusFilter === value}
-              onClick={() => toggleGoodsStatus(value)}
-            >
-              {GOODS_STATUS_LABELS[value]} · {facets.goods_status?.[value] ?? 0}
-            </button>
-          ))}
+          <FacetChips
+            label="Filtrar por estado de la mercadería"
+            options={GOODS_STATUS_OPTIONS}
+            labels={GOODS_STATUS_LABELS}
+            counts={facets.goods_status}
+            total={facets.goods_status_total}
+            activeValue={goodsStatusFilter}
+            onChange={handleGoodsStatusChange}
+          />
         </div>
 
         <div className={styles.divider} />
@@ -531,12 +582,14 @@ export default function VentasML() {
         <table className={styles.table}>
           <thead>
             <tr>
+              <th className={styles.colAlerta} aria-label="Alerta" />
+              <th className={styles.colCategoria} aria-label="Categoría" />
               <th className={styles.colOrden}>Orden</th>
               <th>Fecha</th>
               <th>Comprador</th>
               <th>Operación</th>
               <th>Mercadería</th>
-              <th>Modo logístico</th>
+              <th>Envío</th>
               <th className={styles.numeric}>Importe</th>
               <th className={styles.numeric}>Neto</th>
               <th className={styles.numeric}>Total Gauss</th>
@@ -545,13 +598,13 @@ export default function VentasML() {
           <tbody>
             {loading ? (
               <tr>
-                <td className={styles.stateCell} colSpan={9}>
+                <td className={styles.stateCell} colSpan={TABLE_COLUMN_COUNT}>
                   Cargando ventas…
                 </td>
               </tr>
             ) : sales.length === 0 ? (
               <tr>
-                <td className={styles.stateCell} colSpan={9}>
+                <td className={styles.stateCell} colSpan={TABLE_COLUMN_COUNT}>
                   No hay ventas que coincidan con los filtros
                 </td>
               </tr>
@@ -569,6 +622,11 @@ export default function VentasML() {
                 // openDrawer(null) -- which is the very sentinel for "closed",
                 // so the click would do nothing at all.
                 const representativeOrderId = orders[0]?.order_id;
+                // PR14 review fix P1: a lone sale (`!isPack`) has no
+                // pack-member block to fall into, so it must carry its own
+                // subline/markup source directly.
+                const loneOrder = !isPack ? orders[0] : null;
+                const groupLevel = groupAlertLevel(orders);
                 return (
                   <Fragment key={group.group_key}>
                     {/* The row click is a MOUSE SHORTCUT, deliberately not a
@@ -587,6 +645,29 @@ export default function VentasML() {
                           : undefined
                       }
                     >
+                      <td className={styles.colAlerta}>
+                        <AlertIcon level={groupLevel} reason={groupAlertReason(orders, groupLevel)} />
+                      </td>
+                      <td className={styles.colCategoria}>
+                        {(() => {
+                          const category = groupCategory(orders);
+                          if (!category) return null;
+                          const CategoryIcon = getCategoryIcon(category);
+                          return (
+                            // PR14 review fix P3: `title` on an `<svg>`
+                            // renders no browser tooltip -- the hoverable
+                            // title needs a real (non-svg) host.
+                            <span title={category}>
+                              <CategoryIcon
+                                size={16}
+                                className={styles.categoryIcon}
+                                role="img"
+                                aria-label={category}
+                              />
+                            </span>
+                          );
+                        })()}
+                      </td>
                       <td className={styles.colOrden}>
                         {isPack ? (
                           <button
@@ -636,44 +717,92 @@ export default function VentasML() {
                         >
                           {MODO_LOGISTICO_LABELS[group.modo_logistico] || group.modo_logistico}
                         </span>
+                        {/* PR14 review fix P1: a lone sale has no
+                            pack-member block to render this in -- it must
+                            carry its own subline. */}
+                        {loneOrder &&
+                          (loneOrder.city || loneOrder.province || loneOrder.shipping_substatus) && (
+                            <span className={styles.subline}>
+                              {[loneOrder.city, loneOrder.province].filter(Boolean).join(', ') || '—'}
+                              {loneOrder.shipping_substatus ? ` · ${loneOrder.shipping_substatus}` : ''}
+                            </span>
+                          )}
                       </td>
                       <td className={styles.numeric}>
                         {formatMoney(group.total_amount, group.currency_id)}
                       </td>
                       <td className={styles.numeric}>
-                        {representativeOrderId != null ? (
-                          <button
-                            type="button"
-                            className={styles.netoButton}
-                            // The visible text is the amount, so without
-                            // this a screen reader announces "button,
-                            // 82,50 ARS" and never says what it does.
-                            aria-label="Ver desglose de costos"
-                            title={netoTooltip(group.neto_depositado, group.retenciones_recuperables)}
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              openDrawer(representativeOrderId);
-                            }}
-                          >
-                            {formatMoney(group.neto, group.currency_id)}
-                          </button>
-                        ) : (
-                          formatMoney(group.neto, group.currency_id)
-                        )}
+                        {(() => {
+                          const metricsState = groupMetricsState(orders);
+                          // SM R3/R9: a pack with any unresolved member
+                          // never shows the (possibly stale) sum as the
+                          // current amount -- the badge replaces it.
+                          const content =
+                            metricsState !== 'ok' ? (
+                              <RecalculatingBadge state={metricsState} />
+                            ) : (
+                              formatMoney(group.neto, group.currency_id)
+                            );
+                          if (representativeOrderId != null) {
+                            return (
+                              // PR14 review fix P2: this button IS the
+                              // keyboard route to the detail panel (see the
+                              // <tr> comment above) -- it must survive
+                              // every metrics_state, carrying the badge as
+                              // its content instead of being replaced by it.
+                              <button
+                                type="button"
+                                className={styles.netoButton}
+                                // The visible text is the amount, so without
+                                // this a screen reader announces "button,
+                                // 82,50 ARS" and never says what it does.
+                                aria-label="Ver desglose de costos"
+                                title={
+                                  metricsState === 'ok'
+                                    ? netoTooltip(group.neto_depositado, group.retenciones_recuperables)
+                                    : undefined
+                                }
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  openDrawer(representativeOrderId);
+                                }}
+                              >
+                                {content}
+                              </button>
+                            );
+                          }
+                          return content;
+                        })()}
                       </td>
                       <td className={styles.numeric}>
-                        {formatMoney(group.total_gauss, group.currency_id)}
-                        {/* total-gauss-provisorio: the pack sum already
-                            includes a member's provisional figure -- the
-                            badge says so at THIS level too, not only in the
-                            drawer (product owner's explicit decision). */}
-                        {group.total_gauss_provisional && (
-                          <span
-                            className={`badge badge-warning ${styles.provisionalBadge}`}
-                            title={`Calculado sin ${(group.total_gauss_provisional_falta || 'Envío Flex').toLowerCase()}: todavía no se cargó la etiqueta de envío.`}
-                          >
-                            Provisorio
-                          </span>
+                        {groupMetricsState(orders) !== 'ok' ? (
+                          <RecalculatingBadge state={groupMetricsState(orders)} />
+                        ) : (
+                          <>
+                            {formatMoney(group.total_gauss, group.currency_id)}
+                            {/* total-gauss-provisorio: the pack sum already
+                                includes a member's provisional figure -- the
+                                badge says so at THIS level too, not only in
+                                the drawer (product owner's explicit
+                                decision). */}
+                            {group.total_gauss_provisional && (
+                              <span
+                                className={`badge badge-warning ${styles.provisionalBadge}`}
+                                title={`Calculado sin ${(group.total_gauss_provisional_falta || 'Envío Flex').toLowerCase()}: todavía no se cargó la etiqueta de envío.`}
+                              >
+                                Provisorio
+                              </span>
+                            )}
+                            {/* PR14 review fix P1: markup was only ever
+                                rendered inside the pack-member block -- a
+                                lone sale must carry its own. */}
+                            {loneOrder && loneOrder.markup !== null && loneOrder.markup !== undefined && (
+                              <span className={styles.markup}>
+                                {' '}
+                                · {new Intl.NumberFormat('es-AR', { maximumFractionDigits: 1 }).format(loneOrder.markup)}%
+                              </span>
+                            )}
+                          </>
                         )}
                       </td>
                     </tr>
@@ -688,6 +817,26 @@ export default function VentasML() {
                           className={`${styles.memberRow} ${styles.clickableRow}`}
                           onClick={() => openDrawer(order.order_id)}
                         >
+                          <td className={styles.colAlerta}>
+                            <AlertIcon level={order.alert_level} reason={orderAlertReason(order)} />
+                          </td>
+                          <td className={styles.colCategoria}>
+                            {order.item_category
+                              ? (() => {
+                                  const CategoryIcon = getCategoryIcon(order.item_category);
+                                  return (
+                                    <span title={order.item_category}>
+                                      <CategoryIcon
+                                        size={16}
+                                        className={styles.categoryIcon}
+                                        role="img"
+                                        aria-label={order.item_category}
+                                      />
+                                    </span>
+                                  );
+                                })()
+                              : null}
+                          </td>
                           <td className={styles.colOrden}>
                             <span className={styles.memberOrden}>{order.order_id}</span>
                           </td>
@@ -713,33 +862,69 @@ export default function VentasML() {
                             >
                               {MODO_LOGISTICO_LABELS[order.modo_logistico] || order.modo_logistico}
                             </span>
+                            {(order.city || order.province || order.shipping_substatus) && (
+                              <span className={styles.subline}>
+                                {[order.city, order.province].filter(Boolean).join(', ') || '—'}
+                                {order.shipping_substatus ? ` · ${order.shipping_substatus}` : ''}
+                              </span>
+                            )}
                           </td>
                           <td className={styles.numeric}>
                             {formatMoney(order.total_amount, order.currency_id)}
                           </td>
                           <td className={styles.numeric}>
-                            <button
-                              type="button"
-                              className={styles.netoButton}
-                              aria-label="Ver desglose de costos"
-                              title={netoTooltip(order.neto_depositado, order.retenciones_recuperables)}
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                openDrawer(order.order_id);
-                              }}
-                            >
-                              {formatMoney(order.neto, order.currency_id)}
-                            </button>
+                            {(() => {
+                              const isRecalc = order.metrics_state && order.metrics_state !== 'ok';
+                              // PR14 review fix P2: same discipline as the
+                              // group row -- the button is the keyboard
+                              // affordance and must survive every
+                              // metrics_state, carrying the badge as its
+                              // content.
+                              return (
+                                <button
+                                  type="button"
+                                  className={styles.netoButton}
+                                  aria-label="Ver desglose de costos"
+                                  title={
+                                    isRecalc
+                                      ? undefined
+                                      : netoTooltip(order.neto_depositado, order.retenciones_recuperables)
+                                  }
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    openDrawer(order.order_id);
+                                  }}
+                                >
+                                  {isRecalc ? (
+                                    <RecalculatingBadge state={order.metrics_state} />
+                                  ) : (
+                                    formatMoney(order.neto, order.currency_id)
+                                  )}
+                                </button>
+                              );
+                            })()}
                           </td>
                           <td className={styles.numeric}>
-                            {formatMoney(order.total_gauss, order.currency_id)}
-                            {order.total_gauss_provisional && (
-                              <span
-                                className={`badge badge-warning ${styles.provisionalBadge}`}
-                                title={`Calculado sin ${(order.total_gauss_provisional_falta || 'Envío Flex').toLowerCase()}: todavía no se cargó la etiqueta de envío.`}
-                              >
-                                Provisorio
-                              </span>
+                            {order.metrics_state && order.metrics_state !== 'ok' ? (
+                              <RecalculatingBadge state={order.metrics_state} />
+                            ) : (
+                              <>
+                                {formatMoney(order.total_gauss, order.currency_id)}
+                                {order.total_gauss_provisional && (
+                                  <span
+                                    className={`badge badge-warning ${styles.provisionalBadge}`}
+                                    title={`Calculado sin ${(order.total_gauss_provisional_falta || 'Envío Flex').toLowerCase()}: todavía no se cargó la etiqueta de envío.`}
+                                  >
+                                    Provisorio
+                                  </span>
+                                )}
+                                {order.markup !== null && order.markup !== undefined && (
+                                  <span className={styles.markup}>
+                                    {' '}
+                                    · {new Intl.NumberFormat('es-AR', { maximumFractionDigits: 1 }).format(order.markup)}%
+                                  </span>
+                                )}
+                              </>
                             )}
                           </td>
                         </tr>

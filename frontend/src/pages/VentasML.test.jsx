@@ -435,6 +435,74 @@ describe('The two axes are independent and read correctly', () => {
   });
 });
 
+// ventas-ml-rediseno PR14.T1-T4 (SEARCH R25, R26, R27).
+describe('Search box (ventas-ml-rediseno PR14)', () => {
+  it('sends the debounced query as `q`, combined with the active status filter', async () => {
+    mockSalesList([PAID_SALE], { facets: { operation_status: { paid: 1 }, goods_status: {} } });
+    const user = userEvent.setup();
+    await renderWithRouter(<VentasML />);
+    await waitFor(() => expect(screen.getByText('comprador1')).toBeInTheDocument());
+
+    await user.click(screen.getByRole('button', { name: /^Pagada/ }));
+    await waitFor(() => {
+      const calls = api.get.mock.calls.filter((c) => c[0] === '/ml-ventas-ops/sales');
+      expect(calls[calls.length - 1][1].params.operation_status).toBe('paid');
+    });
+
+    await user.type(screen.getByRole('searchbox'), 'comprador1');
+
+    await waitFor(
+      () => {
+        const calls = api.get.mock.calls.filter((c) => c[0] === '/ml-ventas-ops/sales');
+        const last = calls[calls.length - 1];
+        // SEARCH R26: intersection, not replacement — the status filter set
+        // moments ago is still on the request that carries the search term.
+        expect(last[1].params).toEqual(
+          expect.objectContaining({ q: 'comprador1', operation_status: 'paid', offset: 0 })
+        );
+      },
+      { timeout: 2000 }
+    );
+  });
+
+  it('resets offset to 0 when the query changes', async () => {
+    mockSalesList(
+      Array.from({ length: 3 }, (_, i) => ({ ...PAID_SALE, order_id: 1000 + i })),
+      { total: 3, facets: { operation_status: { paid: 3 }, goods_status: {} } }
+    );
+    const user = userEvent.setup();
+    await renderWithRouter(<VentasML />);
+    await waitFor(() => expect(screen.getAllByText('comprador1').length).toBeGreaterThan(0));
+
+    await user.type(screen.getByRole('searchbox'), 'x');
+    await waitFor(
+      () => {
+        const calls = api.get.mock.calls.filter((c) => c[0] === '/ml-ventas-ops/sales');
+        expect(calls[calls.length - 1][1].params.offset).toBe(0);
+      },
+      { timeout: 2000 }
+    );
+  });
+
+  it('shows an explicit "sin resultados" message when the search term matches nothing (SEARCH R27)', async () => {
+    mockSalesList([PAID_SALE], { facets: { operation_status: { paid: 1 }, goods_status: {} } });
+    const user = userEvent.setup();
+    await renderWithRouter(<VentasML />);
+    await waitFor(() => expect(screen.getByText('comprador1')).toBeInTheDocument());
+
+    // Next fetch (triggered by the search term) resolves to an empty set.
+    mockSalesList([], { facets: { operation_status: {}, goods_status: {} } });
+    await user.type(screen.getByRole('searchbox'), 'nadie-existe');
+
+    await waitFor(() => expect(screen.getByText(/sin resultados/i)).toBeInTheDocument(), {
+      timeout: 2000,
+    });
+    // The list's own empty state ("no hay ventas...") coexists — this
+    // assertion only pins the search-specific message exists, never an
+    // error styling (see SalesToolbar.test.jsx for the style assertion).
+  });
+});
+
 describe('a stale response never overwrites the list', () => {
   it('ignores an older request that resolves last', async () => {
     const resolvers = [];
@@ -982,5 +1050,192 @@ describe('Modo logístico badge (ml-ventas-modo-logistico PR6)', () => {
     await renderWithRouter(<VentasML />);
 
     expect(await screen.findByText('Mixto')).toBeInTheDocument();
+  });
+});
+
+describe('PR14.T5 — category icon and alert icon on each row', () => {
+  it('renders the category icon (by title) for a lone order carrying item_category', async () => {
+    mockSalesList([{ ...PAID_SALE, item_category: 'NOTEBOOK' }]);
+    await renderWithRouter(<VentasML />);
+
+    expect(await screen.findByTitle('NOTEBOOK')).toBeInTheDocument();
+  });
+
+  it('renders no category icon for a pack whose orders disagree on item_category', async () => {
+    const user = userEvent.setup();
+    const a1 = { ...PAID_SALE, order_id: 3201, pack_id: 9201, item_category: 'NOTEBOOK' };
+    const a2 = { ...PAID_SALE, order_id: 3202, pack_id: 9201, item_category: 'ACCESORIOS' };
+    mockSalesList([packOf([a1, a2], 9201)]);
+    await renderWithRouter(<VentasML />);
+
+    // The pack row itself carries no single category — never picks one
+    // member's icon arbitrarily.
+    expect(screen.queryByTitle('NOTEBOOK')).not.toBeInTheDocument();
+
+    await user.click(await screen.findByRole('button', { name: /Pack 9201/ }));
+    // Each member row DOES show its own category once expanded.
+    expect(await screen.findByTitle('NOTEBOOK')).toBeInTheDocument();
+    expect(screen.getByTitle('ACCESORIOS')).toBeInTheDocument();
+  });
+
+  it('renders no category icon at all when item_category is null (no fabricated fallback icon shown as data)', async () => {
+    mockSalesList([{ ...PAID_SALE, item_category: null }]);
+    await renderWithRouter(<VentasML />);
+
+    const row = (await screen.findByText('comprador1')).closest('tr');
+    // No title-based category icon anywhere in that row.
+    expect(row.querySelector('svg[title]')).toBeNull();
+  });
+
+  it('renders an alert icon for alert_level="error", none for "ok"', async () => {
+    mockSalesList([{ ...PAID_SALE, alert_level: 'error' }]);
+    await renderWithRouter(<VentasML />);
+
+    expect(await screen.findByRole('img', { name: 'Alerta' })).toBeInTheDocument();
+  });
+
+  it('renders no alert icon for alert_level="ok"', async () => {
+    mockSalesList([{ ...PAID_SALE, alert_level: 'ok' }]);
+    await renderWithRouter(<VentasML />);
+
+    await screen.findByText('Ventas ML');
+    expect(screen.queryByRole('img', { name: 'Alerta' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('img', { name: 'Advertencia' })).not.toBeInTheDocument();
+  });
+});
+
+// PR14 review fix P3: `title` on an `<svg>` renders no browser tooltip — it
+// needs a real (non-svg) hoverable host, and `reason` was never actually
+// passed to AlertIcon from this page. Category name and alert reason must
+// be genuinely discoverable on hover.
+describe('PR14 review fix P3 — category and alert tooltips are on a real host element, not the svg attribute', () => {
+  it('puts the category tooltip on a wrapping element, not the svg attribute', async () => {
+    mockSalesList([{ ...PAID_SALE, item_category: 'NOTEBOOK' }]);
+    await renderWithRouter(<VentasML />);
+
+    const titled = await screen.findByTitle('NOTEBOOK');
+    expect(titled.tagName.toLowerCase()).not.toBe('svg');
+  });
+
+  it('passes a real alert reason through to AlertIcon, derived from the order that actually failed metrics', async () => {
+    mockSalesList([{ ...PAID_SALE, alert_level: 'error', metrics_state: 'failed', neto: 82.5 }]);
+    await renderWithRouter(<VentasML />);
+
+    const icon = await screen.findByRole('img', { name: 'Alerta' });
+    const titled = icon.closest('[title]');
+    expect(titled).not.toBeNull();
+    expect(titled.getAttribute('title')).toBeTruthy();
+    expect(titled.tagName.toLowerCase()).not.toBe('svg');
+  });
+});
+
+describe('PR14.T9/T10 — recalculating badge never shows a stale number', () => {
+  it('shows "Recalculando…" instead of the amount when metrics_state="recalculating"', async () => {
+    mockSalesList([{ ...PAID_SALE, neto: 82.5, total_gauss: 70, metrics_state: 'recalculating' }]);
+    await renderWithRouter(<VentasML />);
+
+    expect(await screen.findAllByText(/Recalculando/)).toHaveLength(2); // Neto + Total Gauss cells
+    expect(screen.queryByText('82,50 ARS')).not.toBeInTheDocument();
+  });
+
+  it('shows a distinct "no se pudo calcular" for metrics_state="failed" — never "Recalculando"', async () => {
+    mockSalesList([{ ...PAID_SALE, neto: 82.5, total_gauss: 70, metrics_state: 'failed' }]);
+    await renderWithRouter(<VentasML />);
+
+    expect(await screen.findAllByText(/No se pudo calcular/)).toHaveLength(2);
+    expect(screen.queryByText(/Recalculando/)).not.toBeInTheDocument();
+  });
+
+  it('shows the real number when metrics_state="ok"', async () => {
+    mockSalesList([{ ...PAID_SALE, neto: 82.5, total_gauss: 70, currency_id: 'ARS', metrics_state: 'ok' }]);
+    await renderWithRouter(<VentasML />);
+
+    expect(await screen.findByText('82,50 ARS')).toBeInTheDocument();
+  });
+
+  it('a pack with one recalculating member shows the badge on the pack row, not a stale sum', async () => {
+    const a1 = {
+      ...PAID_SALE,
+      order_id: 3301,
+      pack_id: 9301,
+      neto: 50,
+      total_gauss: 40,
+      metrics_state: 'ok',
+    };
+    const a2 = {
+      ...PAID_SALE,
+      order_id: 3302,
+      pack_id: 9301,
+      neto: 30,
+      total_gauss: 20,
+      metrics_state: 'recalculating',
+    };
+    mockSalesList([{ ...packOf([a1, a2], 9301), neto: null, total_gauss: null }]);
+    await renderWithRouter(<VentasML />);
+
+    expect(await screen.findAllByText(/Recalculando/)).toHaveLength(2);
+  });
+});
+
+// PR14 post-review fix P1: `city`/`province`/`shipping_substatus` and
+// `markup` were only ever rendered inside the pack-member block, which
+// never renders for a lone sale (`isPack = orders.length > 1` is false).
+// Since MOST sales are lone sales, this data was invisible on most rows.
+// The group row must render the same subline/markup, sourced from
+// `orders[0]`, when the group is NOT a pack.
+describe('PR14 review fix P1 — lone-sale subline and markup are visible', () => {
+  it('shows the city/province/substatus subline on a lone sale, not only inside an opened pack', async () => {
+    mockSalesList([
+      { ...PAID_SALE, city: 'Rosario', province: 'Santa Fe', shipping_substatus: 'in_hub' },
+    ]);
+    await renderWithRouter(<VentasML />);
+
+    const row = (await screen.findByText('comprador1')).closest('tr');
+    expect(within(row).getByText('Rosario, Santa Fe · in_hub')).toBeInTheDocument();
+  });
+
+  it('shows the markup percentage on a lone sale, not only inside an opened pack', async () => {
+    mockSalesList([{ ...PAID_SALE, neto: 82.5, total_gauss: 70, metrics_state: 'ok', markup: 12.3 }]);
+    await renderWithRouter(<VentasML />);
+
+    const row = (await screen.findByText('comprador1')).closest('tr');
+    expect(within(row).getByText('12,3%', { exact: false })).toBeInTheDocument();
+  });
+
+  it('renders no subline at all when city, province and substatus are all null — no fabricated dashes', async () => {
+    mockSalesList([{ ...PAID_SALE, city: null, province: null, shipping_substatus: null }]);
+    await renderWithRouter(<VentasML />);
+
+    const row = (await screen.findByText('comprador1')).closest('tr');
+    expect(row.textContent).not.toMatch(/·/);
+  });
+});
+
+// PR14 post-review fix P2: the Neto cell's own comment says the button IS
+// the keyboard affordance for the detail panel, but the button was REPLACED
+// by RecalculatingBadge whenever metrics_state !== 'ok' — the exact rows
+// (recalculating, failed, pending) an operator most needs to reach by
+// keyboard. The button must survive, carrying the badge as its content.
+describe('PR14 review fix P2 — the Neto button survives a non-ok metrics_state', () => {
+  it('keeps the Neto button (with the badge inside) on the group row when metrics_state="failed"', async () => {
+    mockSalesList([{ ...PAID_SALE, metrics_state: 'failed' }]);
+    await renderWithRouter(<VentasML />);
+
+    const row = (await screen.findByText('comprador1')).closest('tr');
+    const netoButton = within(row).getByRole('button', { name: 'Ver desglose de costos' });
+    expect(within(netoButton).getByText(/No se pudo calcular/)).toBeInTheDocument();
+  });
+
+  it('keeps the Neto button (with the badge inside) on a pack member row when metrics_state="recalculating"', async () => {
+    const user = userEvent.setup();
+    const a1 = { ...PAID_SALE, order_id: 4401, pack_id: 9401, metrics_state: 'ok' };
+    const a2 = { ...PAID_SALE, order_id: 4402, pack_id: 9401, metrics_state: 'recalculating' };
+    mockSalesList([{ ...packOf([a1, a2], 9401), neto: null }]);
+    await renderWithRouter(<VentasML />);
+
+    await user.click(await screen.findByRole('button', { name: /Pack 9401/ }));
+    const memberRow = (await screen.findByText('4402')).closest('tr');
+    const netoButton = within(memberRow).getByRole('button', { name: 'Ver desglose de costos' });
+    expect(within(netoButton).getByText(/Recalculando/)).toBeInTheDocument();
   });
 });

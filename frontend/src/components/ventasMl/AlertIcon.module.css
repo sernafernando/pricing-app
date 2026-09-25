@@ -1,0 +1,11 @@
+.iconWrapper {
+  display: inline-flex;
+}
+
+.error {
+  color: var(--error);
+}
+
+.warning {
+  color: var(--warning);
+}
