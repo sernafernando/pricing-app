@@ -197,6 +197,111 @@ class TestExclusionFromSums:
         assert result.orders_scanned == result.orders_count + result.recalculating_count + result.pending_count
 
 
+class TestPackAsUnitForWeightedMarkupPR18T20:
+    """ventas-ml-rediseno PR18.T20 (spec KPI R16/R17): investigates whether
+    the K1 all-or-nothing markup rule is enforced PER PACK, as R16/R17
+    require ("the pack is the unit of aggregation"), or only per individual
+    order (pre-PR18 behavior, grouping by `order_id` alone via the
+    per-order loop in `aggregate_order_metrics`)."""
+
+    def test_pack_member_with_data_should_not_contribute_when_its_sibling_has_none(self, db):
+        """A pack of two orders sharing `pack_id=700`: order 1 carries both
+        `total_gauss` and `costo_mercaderia`; its pack sibling, order 2,
+        carries NEITHER (a stored row exists -- `gauss_status=unresolved`
+        -- so it is not simply excluded as `pending`). Per R16/R17 the pack
+        is ONE unit for aggregation purposes: since the pack as a whole
+        cannot produce a markup (one member is unresolved), NEITHER member
+        should contribute to the weighted ratio.
+
+        This test pins the OBSERVED, POST-FIX result. Before PR18.T21, this
+        assertion FAILED: order 1 alone contributed `200%` to the ratio
+        (`tg_sum_for_markup=100, costo_sum=50 -> 100/50*100=200`) purely
+        because `aggregate_order_metrics` grouped its K1 markup summation
+        by individual `order_id`, never by pack -- confirming the defect
+        R16/R17 describe. PR18.T21 fixed it by grouping the markup
+        contribution by `group_key` (the same pack-or-order key the rest of
+        this module already uses) before applying the all-or-nothing rule.
+        """
+        _seed_order(db, 1, pack_id=700)
+        _seed_metrics(db, 1, total_gauss=100, costo_mercaderia=50, markup_pct=200)
+        _seed_order(db, 2, pack_id=700)
+        _seed_metrics(db, 2, total_gauss=None, costo_mercaderia=None, markup_pct=None, gauss_status="unresolved")
+
+        result = _aggregate(db)
+
+        assert result.markup_weighted_pct is None
+        # Both pack members are skipped as a unit -- not just the one that
+        # is individually incomplete.
+        assert result.markup_skipped_count == 2
+
+    def test_a_fully_costed_pack_still_contributes_its_summed_values(self, db):
+        """Control case: when EVERY member of the pack carries both
+        values, the pack still contributes -- the fix must not turn every
+        pack into a skip."""
+        _seed_order(db, 3, pack_id=800)
+        _seed_metrics(db, 3, total_gauss=100, costo_mercaderia=50, markup_pct=200)
+        _seed_order(db, 4, pack_id=800)
+        _seed_metrics(db, 4, total_gauss=50, costo_mercaderia=50, markup_pct=100)
+
+        result = _aggregate(db)
+
+        # (100 + 50) / (50 + 50) * 100 = 150%.
+        assert result.markup_weighted_pct == Decimal("150")
+        assert result.markup_skipped_count == 0
+
+    def test_standalone_order_is_unaffected(self, db):
+        """A lone order (no pack_id) is its own group -- grouping by
+        `group_key` must not change its existing, already-correct
+        behavior."""
+        _seed_order(db, 5)
+        _seed_metrics(db, 5, total_gauss=100, costo_mercaderia=50, markup_pct=200)
+
+        result = _aggregate(db)
+
+        assert result.markup_weighted_pct == Decimal("200")
+        assert result.markup_skipped_count == 0
+
+
+class TestPackGroupSizeIgnoresExcludedMembersPR18Fix2:
+    """PR18 fix 2 (reviewer-found regression on top of PR18.T21): `orders_per_group`
+    must count EVERY member of the group present in the filtered scope, not
+    only the members that survived the recalculating/pending/failed
+    exclusion. Otherwise a pack with one ready member and one pending
+    member reads `group_size == 1`, so the ready member's own pair
+    satisfies `len(candidates) == group_size` and contributes ALONE --
+    exactly the per-pack rule PR18.T21 exists to prevent, just triggered
+    by a different state than "unresolved"."""
+
+    def test_pack_member_with_data_should_not_contribute_when_sibling_is_still_pending(self, db):
+        """Pack of two: order 1 is fully computed (candidate), order 2 has
+        no stored metrics row at all yet (`pending`, excluded from the
+        main loop entirely -- never reaches `markup_candidates_by_group`
+        or `markup_skipped_count` on its own). The pack must still be
+        skipped as a whole."""
+        _seed_order(db, 10, pack_id=900)
+        _seed_metrics(db, 10, total_gauss=100, costo_mercaderia=50, markup_pct=200)
+        _seed_order(db, 11, pack_id=900)
+        # order 11 intentionally has no _seed_metrics call -> pending.
+
+        result = _aggregate(db)
+
+        assert result.markup_weighted_pct is None
+        assert result.markup_skipped_count == 1
+
+    def test_full_pack_with_no_pending_member_is_unaffected(self, db):
+        """Control: when no member of the pack is excluded, the fix must
+        not change the existing all-members-candidate behavior."""
+        _seed_order(db, 12, pack_id=901)
+        _seed_metrics(db, 12, total_gauss=100, costo_mercaderia=50, markup_pct=200)
+        _seed_order(db, 13, pack_id=901)
+        _seed_metrics(db, 13, total_gauss=50, costo_mercaderia=50, markup_pct=100)
+
+        result = _aggregate(db)
+
+        assert result.markup_weighted_pct == Decimal("150")
+        assert result.markup_skipped_count == 0
+
+
 class TestUnknownNeto:
     def test_null_neto_counted_as_unknown_never_summed_as_zero(self, db):
         _seed_order(db, 1)

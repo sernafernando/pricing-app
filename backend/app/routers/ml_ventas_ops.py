@@ -75,6 +75,7 @@ from app.services.ml_sales_query.filters import (
     excluded_by_toggle_counts,
 )
 from app.services.ml_ventas_desglose.deducciones import resolve_costo_mercaderia_detalle
+from app.services.ml_ventas_desglose.pack_aggregation import aggregate_pack_metrics, sum_all_or_nothing
 from app.services.ml_ventas_desglose.iva import descomponer_neto
 from app.models.ml_order_item_costo import MlOrderItemCosto
 from app.models.ml_order_metrics import MlOrderMetrics
@@ -432,6 +433,13 @@ class DeduccionLineaSummary(BaseModel):
     # `envio_flex`) when the deduction has one to offer -- `None` means
     # "use the frontend's static label for this `code`", never "no label".
     concepto: Optional[str] = None
+    # ventas-ml-rediseno PR18 (design D13, spec BREAKDOWN R38): `True` only
+    # on the `envio_flex` line, only when THIS order shares its shipment
+    # with another order in the same pack -- the freight math is already
+    # split across them (`EnvioFlexDeduccion.resolve_bulk`), this flag just
+    # says so, so the panel never presents the split amount as if it were
+    # the whole shipping cost of this order alone.
+    prorateado: bool = False
 
 
 class ItemCostoLineSummary(BaseModel):
@@ -514,7 +522,9 @@ class CadenaTotalGaussSummary(BaseModel):
     costo_mercaderia_items: List[ItemCostoLineSummary] = Field(default_factory=list)
 
     @classmethod
-    def from_stored(cls, stored, costo_items: Optional[List] = None) -> "CadenaTotalGaussSummary":
+    def from_stored(
+        cls, stored, costo_items: Optional[List] = None, envio_flex_prorateado: bool = False
+    ) -> "CadenaTotalGaussSummary":
         """ventas-ml-rediseno PR7 (design D2/D13, spec SM R5/R6): the
         detail panel's chain now renders from the STORED
         `app.services.order_metrics.types.OrderMetrics` (`read.read_stored_metrics`),
@@ -536,7 +546,12 @@ class CadenaTotalGaussSummary(BaseModel):
         return cls(
             total_gauss=float(stored.total_gauss) if stored.total_gauss is not None else None,
             lineas=[
-                DeduccionLineaSummary(code=code, monto=float(monto) if monto is not None else None, concepto=concepto)
+                DeduccionLineaSummary(
+                    code=code,
+                    monto=float(monto) if monto is not None else None,
+                    concepto=concepto,
+                    prorateado=(code == "envio_flex" and envio_flex_prorateado),
+                )
                 for code, monto, concepto in stored.lineas
             ],
             markup=float(stored.markup_pct) if stored.markup_pct is not None else None,
@@ -571,6 +586,26 @@ class SaleCentricOperation(BaseModel):
     metrics_state: str
 
     model_config = ConfigDict(from_attributes=True)
+
+
+class PackOperationSummary(BaseModel):
+    """Pack-centric counterpart of `SaleCentricOperation` (ventas-ml-rediseno
+    PR18, design D13, spec BREAKDOWN R36): `monto_operacion`/`item_lines`
+    aggregate every member order (same shape `compute_breakdown` already
+    produced for a pack pre-PR18); `total_gauss`/`costo_mercaderia`/`markup`
+    come from `aggregate_pack_metrics`'s all-or-nothing sum (R37).
+    `member_order_ids` lets the UI navigate to each member's own
+    order-scoped detail (`GET /orders/{order_id}`)."""
+
+    pack_id: int
+    monto_operacion: Optional[float] = None
+    item_lines: List[ItemDesgloseLineSummary] = Field(default_factory=list)
+    item_lines_reconcilia: bool = True
+    item_lines_razon: Optional[str] = None
+    total_gauss: Optional[float] = None
+    costo_mercaderia: Optional[float] = None
+    markup: Optional[float] = None
+    member_order_ids: List[int]
 
 
 class DivergenceSummary(BaseModel):
@@ -1422,8 +1457,14 @@ def listar_ventas(
         # Same all-or-nothing rule as `group_neto`: `total_gauss` is IVA-free
         # already, so it needs no currency gate, but ANY member unknown
         # still makes the pack's total unknown -- never a partial sum.
+        # ventas-ml-rediseno PR18.T8: reuses the SAME summing rule
+        # `aggregate_pack_metrics` applies against a fresh DB read --
+        # `sum_all_or_nothing` is the pure piece of that rule, factored out
+        # so this in-memory sum (over members this loop already fetched)
+        # and that DB-backed one cannot drift apart.
         member_total_gauss = [m.total_gauss for m in members]
-        group_total_gauss = None if any(v is None for v in member_total_gauss) else sum(member_total_gauss)
+        group_total_gauss = sum_all_or_nothing([Decimal(str(v)) if v is not None else None for v in member_total_gauss])
+        group_total_gauss = float(group_total_gauss) if group_total_gauss is not None else None
         group_total_gauss_provisional = any(m.total_gauss_provisional for m in members)
         group_total_gauss_provisional_falta = next(
             (m.total_gauss_provisional_falta for m in members if m.total_gauss_provisional_falta), None
@@ -1747,59 +1788,59 @@ def obtener_operacion(
     questions = db.query(MlBotQuestion).filter(MlBotQuestion.id.in_(question_ids)).all() if question_ids else []
     messages = db.query(MlBotMessage).filter(MlBotMessage.id.in_(message_ids)).all() if message_ids else []
 
-    # The breakdown is of the PACK, not just this order -- same grouping
-    # `listar_ventas` uses (`_group_key_expr`): a lone order is its own
-    # group, an order in a pack shares its breakdown with every sibling.
-    if order.pack_id is not None:
-        breakdown_order_ids = [
-            row.order_id for row in db.query(MlOrdersOps.order_id).filter(MlOrdersOps.pack_id == order.pack_id).all()
-        ]
-    else:
-        breakdown_order_ids = [order.order_id]
+    # ventas-ml-rediseno PR18 (design D13, spec BREAKDOWN R35): this
+    # endpoint is ORDER-scoped, full stop -- `monto_operacion`, the product
+    # list, `total_gauss`, `costo_mercaderia`, `cadena_total_gauss` and
+    # `markup` all describe ONLY the requested order, whether or not it is
+    # a member of a multi-order pack. A pack sibling's own figures never
+    # leak in here; `GET /packs/{pack_id}` (below) is the endpoint that
+    # answers "how much for the whole pack". Before PR18 this endpoint
+    # widened its scope to `breakdown_order_ids = all pack siblings`
+    # whenever `order.pack_id` was set, which made `monto_operacion`/
+    # `total_gauss` describe the PACK while the panel still labeled them as
+    # this order's own numbers -- exactly the bug R35 exists to close.
+    breakdown_order_ids = [order.order_id]
     breakdown = compute_breakdown(db, breakdown_order_ids)
-
-    # Same D2 discipline as the listing: ALWAYS recomputed here, for the
-    # whole pack this detail belongs to (design: "the breakdown is of the
-    # PACK, not just this order" -- same grouping the listing uses).
     descomposicion_by_order = descomponer_neto(db, breakdown_order_ids)
 
     # ventas-ml-rediseno PR7 (design D2/D9/D13, spec SM R5/R6, BREAKDOWN
-    # R33): `total_gauss`/`cadena_total_gauss` now read the STORED
-    # `ml_order_metrics` row -- never `calcular_total_gauss` live -- for
-    # every order of this pack, one bulk read. `metrics_state` for THIS
-    # order tells the panel whether it can trust the invariant.
+    # R33): `total_gauss`/`cadena_total_gauss` read the STORED
+    # `ml_order_metrics` row -- never `calcular_total_gauss` live.
+    # `aggregate_pack_metrics` (PR18) is the shared all-or-nothing summer;
+    # called here with a single-member list it degenerates to that order's
+    # own value, so this call is equivalent to (and replaces) the inline
+    # sum this endpoint used to carry.
     stored_metrics_by_order = read_stored_metrics(db, breakdown_order_ids)
     order_metrics_state = metrics_state_for_orders(db, [order.order_id])[order.order_id]
+    order_metrics = aggregate_pack_metrics(db, breakdown_order_ids)
 
-    if len(stored_metrics_by_order) == len(breakdown_order_ids):
-        member_total_gauss = [m.total_gauss for m in stored_metrics_by_order.values()]
-        pack_total_gauss = None if any(v is None for v in member_total_gauss) else sum(member_total_gauss)
-    else:
-        # At least one member of the pack has no stored row yet (pending) --
-        # the pack total is unknown, never a partial sum over the others.
-        pack_total_gauss = None
-
-    # THIS order's own split/chain -- the pack sum above answers "how much
-    # in total", these answer "why", and summing componentes/lineas across
-    # a pack would not be the honest per-order picture the drawer shows.
     order_descomposicion = descomposicion_by_order[order.order_id]
     order_stored_metrics = stored_metrics_by_order.get(order.order_id)
 
-    # THIS order's items, deliberately NOT the whole pack's.
-    #
-    # The panel carries two scopes on purpose, and this list belongs to the
-    # narrow one: it explains `cadena_total_gauss`, which is this order's
-    # chain ("the pack sum answers how much, these answer why", above). The
-    # products list higher up breaks down `monto_operacion`, which IS the
-    # pack. So on a pack the two lists legitimately differ in length.
-    #
-    # An earlier pass widened this to the pack to make the lengths match.
-    # That looked tidier and was wrong: it put the pack's items under this
-    # order's cost figure, so the detail no longer explained the number it
-    # sat beneath. Matching lengths is not the goal -- each list matching
-    # the figure it explains is.
     costo_detalle_by_order = resolve_costo_mercaderia_detalle(db, breakdown_order_ids)
     order_costo_items = costo_detalle_by_order.get(order.order_id, [])
+
+    # PR18 fix 1 (BREAKDOWN R38, scenario 8): this order's Flex shipping
+    # line is prorated (`EnvioFlexDeduccion.resolve_bulk`, deducciones.py)
+    # whenever it shares its `shipping_id` with ANY other order -- the
+    # divisor query there groups by `shipping_id` alone, with no `pack_id`
+    # condition at all. The flag must match that exact criterion: gating
+    # it on the sibling ALSO sharing `pack_id` under-reported proration for
+    # a shared shipment with a null or differing `pack_id`, silently
+    # presenting a divided cost as if it were this order's own -- the
+    # exact lie R38 exists to prevent. The freight math itself is
+    # unchanged; this only flags it in the response.
+    envio_flex_prorateado = False
+    if order.shipping_id is not None:
+        sibling_sharing_shipment = (
+            db.query(MlOrdersOps.order_id)
+            .filter(
+                MlOrdersOps.shipping_id == order.shipping_id,
+                MlOrdersOps.order_id != order.order_id,
+            )
+            .first()
+        )
+        envio_flex_prorateado = sibling_sharing_shipment is not None
 
     return SaleCentricOperation(
         order=OrderOpsSummary.from_order(order, payment_method_id, installments),
@@ -1809,10 +1850,60 @@ def obtener_operacion(
         questions=[QuestionSummary.model_validate(q) for q in questions],
         messages=[MessageSummary.model_validate(m) for m in messages],
         breakdown=OperationBreakdownSummary.from_domain(breakdown),
-        total_gauss=float(pack_total_gauss) if pack_total_gauss is not None else None,
+        total_gauss=float(order_metrics.total_gauss) if order_metrics.total_gauss is not None else None,
         iva_decomposicion=DescomposicionIvaSummary.from_domain(order_descomposicion),
-        cadena_total_gauss=CadenaTotalGaussSummary.from_stored(order_stored_metrics, order_costo_items),
+        cadena_total_gauss=CadenaTotalGaussSummary.from_stored(
+            order_stored_metrics, order_costo_items, envio_flex_prorateado=envio_flex_prorateado
+        ),
         metrics_state=order_metrics_state,
+    )
+
+
+@router.get("/packs/{pack_id}", response_model=PackOperationSummary)
+def obtener_pack(
+    pack_id: int,
+    current_user: Usuario = Depends(require_permission("ml_ops.ver")),
+    db: Session = Depends(get_db),
+) -> PackOperationSummary:
+    """Pack-centric view (ventas-ml-rediseno PR18, design D13, spec
+    BREAKDOWN R36, R37, R39, R40): the whole-pack counterpart of
+    `GET /orders/{order_id}`. `monto_operacion` and the product list are
+    the pack's (reusing `compute_breakdown` over every member order, same
+    as this endpoint's pre-PR18 pack-wide behavior); `total_gauss`,
+    `costo_mercaderia` and `markup` come from `aggregate_pack_metrics`'s
+    all-or-nothing sum. 404 when `pack_id` matches no order -- never
+    silently falls back to treating it as an order id (R39)."""
+    _require_flag_enabled()
+
+    member_order_ids = [
+        row.order_id for row in db.query(MlOrdersOps.order_id).filter(MlOrdersOps.pack_id == pack_id).all()
+    ]
+    if not member_order_ids:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Pack no encontrado")
+
+    breakdown = compute_breakdown(db, member_order_ids)
+    pack_metrics = aggregate_pack_metrics(db, member_order_ids)
+
+    return PackOperationSummary(
+        pack_id=pack_id,
+        monto_operacion=(float(breakdown.monto_operacion) if breakdown.monto_operacion is not None else None),
+        item_lines=[
+            ItemDesgloseLineSummary(
+                item_id=item.item_id,
+                variation_id=item.variation_id,
+                seller_sku=item.seller_sku,
+                title=item.title,
+                quantity=item.quantity,
+                monto=float(item.monto) if item.monto is not None else None,
+            )
+            for item in breakdown.item_lines
+        ],
+        item_lines_reconcilia=breakdown.item_lines_reconcilia,
+        item_lines_razon=breakdown.item_lines_razon,
+        total_gauss=(float(pack_metrics.total_gauss) if pack_metrics.total_gauss is not None else None),
+        costo_mercaderia=(float(pack_metrics.costo_mercaderia) if pack_metrics.costo_mercaderia is not None else None),
+        markup=(float(pack_metrics.markup_pct) if pack_metrics.markup_pct is not None else None),
+        member_order_ids=sorted(member_order_ids),
     )
 
 

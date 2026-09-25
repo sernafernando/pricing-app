@@ -315,9 +315,16 @@ class TestBreakdown:
         body = resp.json()
         assert body["breakdown"]["monto_operacion"] is None
 
-    def test_breakdown_covers_every_sibling_order_of_the_same_pack(
+    def test_breakdown_covers_only_the_requested_order_never_pack_siblings(
         self, db, client, admin_auth_headers, rol_admin
     ) -> None:
+        """ventas-ml-rediseno PR18 (design D13, spec BREAKDOWN R35, scenario
+        4): `GET /orders/{order_id}` is ORDER-scoped, even for a pack
+        member -- `neto` must never include a sibling order's payments.
+        Before PR18 this endpoint widened its scope to the whole pack
+        whenever `order.pack_id` was set, so this same fixture used to
+        assert `neto == 300.00` (both orders summed); that was exactly the
+        bug R35 exists to close."""
         pack_id = 6570
         order_a, order_b = 6571, 6572
         for order_id in (order_a, order_b):
@@ -338,8 +345,8 @@ class TestBreakdown:
         resp = client.get(f"/api/ml-ventas-ops/orders/{order_a}", headers=admin_auth_headers)
         assert resp.status_code == 200
         body = resp.json()
-        # Neto covers BOTH orders of the pack, not only the requested one.
-        assert body["breakdown"]["neto"] == 300.00
+        # Neto covers ONLY the requested order -- never the pack sibling's.
+        assert body["breakdown"]["neto"] == 100.00
 
     def test_breakdown_shipping_line_excludes_sender_cost_and_uses_shp_charges(
         self, db, client, admin_auth_headers, rol_admin
@@ -371,15 +378,17 @@ class TestBreakdown:
 
 
 class TestDesgloseDetalleScopes:
-    """The panel carries TWO scopes on purpose and the endpoint must keep
-    them apart: the product lines break down `monto_operacion` (the PACK),
-    the cost detail explains `cadena_total_gauss` (THIS order).
+    """ventas-ml-rediseno PR18 (design D13, spec BREAKDOWN R35): both the
+    product lines (which explain `monto_operacion`) and the cost detail
+    (which explains `cadena_total_gauss`) are now scoped to THIS order
+    only -- never a pack sibling's. `GET /packs/{pack_id}` is the
+    endpoint that answers "how much for the whole pack" instead.
 
-    An earlier pass widened the cost detail to the pack "so the lists
-    match", which put the pack's items under one order's cost figure --
-    tidier and wrong. Nothing tested the scope, so nothing objected."""
+    Before PR18 the product lines spanned the whole pack while the cost
+    detail stayed order-scoped -- an intentional two-scopes split that R35
+    retires in favor of a single, uniformly order-scoped detail endpoint."""
 
-    def test_item_lines_cover_the_pack_and_costo_items_only_this_order(
+    def test_item_lines_and_costo_items_both_cover_only_this_order(
         self, db, client, admin_auth_headers, rol_admin
     ) -> None:
         pack_id = 6600
@@ -411,13 +420,14 @@ class TestDesgloseDetalleScopes:
         assert resp.status_code == 200
         body = resp.json()
 
-        # The products list spans the whole pack -- it explains the pack's
-        # `monto_operacion`.
+        # The products list is THIS order's only -- it explains THIS
+        # order's `monto_operacion`, never the pack sibling's.
         mlas = {line["item_id"] for line in body["breakdown"]["item_lines"]}
-        assert mlas == {"MLA-A", "MLA-B"}
-        assert body["breakdown"]["monto_operacion"] == 200.00
+        assert mlas == {"MLA-A"}
+        assert body["breakdown"]["monto_operacion"] == 100.00
 
-        # The cost detail is THIS order's -- it explains this order's chain.
+        # The cost detail is THIS order's too -- it explains this order's
+        # chain, consistent with the products list above.
         costo_mlas = {item["item_id"] for item in body["cadena_total_gauss"]["costo_mercaderia_items"]}
         assert costo_mlas == {"MLA-A"}
 

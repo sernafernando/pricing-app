@@ -23,3 +23,11 @@ Source: proposal #2104 (rev 2) + explore #2103, with binding decisions Q1-Q3 res
 5. Given "A revisar" is turned ON, when the KPI strip recalculates, then orders with unknown operation or goods status are included in both the sum and the table, and the previously-shown excluded count for that toggle disappears/updates.
 6. Given a filtered set combining date range, status facets, search text, and toggle states, when the KPI aggregation runs, then it reflects the intersection of ALL active filters — not toggles alone.
 7. Given two consumers (this screen's KPI and, in a future change, a different metrics screen) apply the same filter+toggle parameters, when both call the shared filter/aggregation contract, then they receive consistent results, proving the contract is not hardwired to one screen.
+
+### ADDED Requirements
+- R16 The unit of aggregation for the KPI strip (count of orders, gross billed, neto ML, SUM of `total_gauss`, average markup) MUST be the PACK, not the individual order. A pack's member orders MUST NOT each contribute their own separate entry to the aggregate; a pack contributes exactly one entry, using its pack-scoped figures (per ml-order-breakdown R36-R37).
+- R17 A standalone order (not part of any multi-order pack) is its own single-order pack for aggregation purposes (per ml-order-breakdown R40) and contributes exactly one entry, consistent with R16.
+
+### Scenarios (ADDED)
+8. Given a pack with three member orders all passing the active filters and toggles, when the KPI strip aggregates, then that pack contributes exactly one entry to the count, gross billed, neto ML, Total Gauss sum, and markup average — not three.
+9. Given the filtered set mixes standalone orders and multi-order packs, when the KPI strip aggregates, then each standalone order and each pack contributes exactly one entry each, with no double counting of pack members.
