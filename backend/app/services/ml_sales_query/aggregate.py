@@ -35,7 +35,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from decimal import Decimal
-from typing import Dict, Optional
+from typing import Dict, List, Optional, Tuple
 
 from sqlalchemy.orm import Query, Session
 
@@ -132,6 +132,13 @@ def aggregate_order_metrics(db: Session, listing_query: Query, group_key) -> Agg
     costo_sum = Decimal("0")
     tg_sum_for_markup = Decimal("0")
     markup_skipped_count = 0
+    # PR18.T21 (spec KPI R16/R17, "the pack is the unit of aggregation"):
+    # K1's all-or-nothing rule must apply PER PACK, not per individual
+    # order -- an order that carries both values but whose pack sibling
+    # carries neither must not contribute alone. Collected per `group_key`
+    # (the same COALESCE(pack_id, order_id) key the rest of this module
+    # already groups by) and reduced AFTER the main loop below.
+    markup_candidates_by_group: Dict[object, List[Tuple[Decimal, Decimal]]] = {}
 
     for order in orders:
         state = states.get(order.order_id, "pending")
@@ -178,16 +185,41 @@ def aggregate_order_metrics(db: Session, listing_query: Query, group_key) -> Agg
         if row.total_gauss is not None:
             total_gauss_sum += Decimal(row.total_gauss)
 
-        # K1: only an order carrying BOTH values may contribute to EITHER
-        # side of the weighted markup ratio -- summing the numerator and
-        # denominator over two different populations (this order's
+        # K1: only an order carrying BOTH values is a CANDIDATE to
+        # contribute to the weighted markup ratio -- summing the numerator
+        # and denominator over two different populations (this order's
         # total_gauss with no matching costo, or vice versa) produces a
-        # ratio that corresponds to nothing.
+        # ratio that corresponds to nothing. Grouped by pack (PR18.T21)
+        # rather than applied immediately: whether this order's own pair
+        # actually contributes depends on whether EVERY member of its pack
+        # also carries both values (reduced after the loop, below).
         if row.total_gauss is not None and row.costo_mercaderia is not None:
-            tg_sum_for_markup += Decimal(row.total_gauss)
-            costo_sum += Decimal(row.costo_mercaderia)
+            markup_candidates_by_group.setdefault(order.group_key, []).append(
+                (Decimal(row.total_gauss), Decimal(row.costo_mercaderia))
+            )
         else:
             markup_skipped_count += 1
+
+    # PR18.T21: a pack contributes to the ratio all-or-nothing, as ONE
+    # unit -- every counted member of the group must have been a markup
+    # candidate above, or none of them contribute (their count moves to
+    # `markup_skipped_count` instead, same discipline as the per-order
+    # skip above, now applied at pack granularity).
+    orders_per_group: Dict[object, int] = {}
+    for order in orders:
+        state = states.get(order.order_id, "pending")
+        if state in _RECALCULATING_STATES or state in _PENDING_STATES or state in _FAILED_STATES:
+            continue
+        orders_per_group[order.group_key] = orders_per_group.get(order.group_key, 0) + 1
+
+    for group_key, group_size in orders_per_group.items():
+        candidates = markup_candidates_by_group.get(group_key, [])
+        if len(candidates) == group_size:
+            for tg, costo in candidates:
+                tg_sum_for_markup += tg
+                costo_sum += costo
+        else:
+            markup_skipped_count += len(candidates)
 
     markup_weighted_pct: Optional[Decimal] = None
     if costo_sum != 0:
