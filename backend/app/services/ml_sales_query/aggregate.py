@@ -29,6 +29,16 @@ EITHER side only when it carries BOTH values. Skipped orders are counted,
 never hidden, via `markup_skipped_count`. `total_gauss_sum` (a separate
 measure, spec KPI R8) is NOT gated by this rule -- it still includes an
 order's `total_gauss` whenever that value alone is present.
+
+PR18.T21 (spec KPI R16/R17): K1's all-or-nothing rule is enforced PER
+PACK, not per individual order -- the pack (`group_key`, the same
+COALESCE(pack_id, order_id) key the rest of this module groups by) is the
+unit of aggregation. An order that carries both values still contributes
+NOTHING when any counted sibling in its pack does not, including a
+sibling excluded entirely from the main loop for being
+`recalculating`/`pending`/`failed` (PR18 fix 2: `group_size` counts every
+member present in the filtered scope, not only the ones that survived
+that exclusion).
 """
 
 from __future__ import annotations
@@ -205,11 +215,18 @@ def aggregate_order_metrics(db: Session, listing_query: Query, group_key) -> Agg
     # candidate above, or none of them contribute (their count moves to
     # `markup_skipped_count` instead, same discipline as the per-order
     # skip above, now applied at pack granularity).
+    #
+    # PR18 fix 2 (reviewer-found regression): `group_size` here must count
+    # EVERY member of the group present in the filtered scope, including a
+    # sibling that is `recalculating`/`pending`/`failed` and therefore
+    # never reached `markup_candidates_by_group`. Filtering those members
+    # out of this count (as an earlier version did) let the pack's ready
+    # member satisfy `len(candidates) == group_size` and contribute ALONE
+    # whenever every OTHER counted member also happened to be a candidate
+    # -- the exact per-pack leak PR18.T21 exists to close, just reached
+    # through an excluded sibling instead of an "unresolved" one.
     orders_per_group: Dict[object, int] = {}
     for order in orders:
-        state = states.get(order.order_id, "pending")
-        if state in _RECALCULATING_STATES or state in _PENDING_STATES or state in _FAILED_STATES:
-            continue
         orders_per_group[order.group_key] = orders_per_group.get(order.group_key, 0) + 1
 
     for group_key, group_size in orders_per_group.items():

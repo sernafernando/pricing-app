@@ -262,6 +262,46 @@ class TestPackAsUnitForWeightedMarkupPR18T20:
         assert result.markup_skipped_count == 0
 
 
+class TestPackGroupSizeIgnoresExcludedMembersPR18Fix2:
+    """PR18 fix 2 (reviewer-found regression on top of PR18.T21): `orders_per_group`
+    must count EVERY member of the group present in the filtered scope, not
+    only the members that survived the recalculating/pending/failed
+    exclusion. Otherwise a pack with one ready member and one pending
+    member reads `group_size == 1`, so the ready member's own pair
+    satisfies `len(candidates) == group_size` and contributes ALONE --
+    exactly the per-pack rule PR18.T21 exists to prevent, just triggered
+    by a different state than "unresolved"."""
+
+    def test_pack_member_with_data_should_not_contribute_when_sibling_is_still_pending(self, db):
+        """Pack of two: order 1 is fully computed (candidate), order 2 has
+        no stored metrics row at all yet (`pending`, excluded from the
+        main loop entirely -- never reaches `markup_candidates_by_group`
+        or `markup_skipped_count` on its own). The pack must still be
+        skipped as a whole."""
+        _seed_order(db, 10, pack_id=900)
+        _seed_metrics(db, 10, total_gauss=100, costo_mercaderia=50, markup_pct=200)
+        _seed_order(db, 11, pack_id=900)
+        # order 11 intentionally has no _seed_metrics call -> pending.
+
+        result = _aggregate(db)
+
+        assert result.markup_weighted_pct is None
+        assert result.markup_skipped_count == 1
+
+    def test_full_pack_with_no_pending_member_is_unaffected(self, db):
+        """Control: when no member of the pack is excluded, the fix must
+        not change the existing all-members-candidate behavior."""
+        _seed_order(db, 12, pack_id=901)
+        _seed_metrics(db, 12, total_gauss=100, costo_mercaderia=50, markup_pct=200)
+        _seed_order(db, 13, pack_id=901)
+        _seed_metrics(db, 13, total_gauss=50, costo_mercaderia=50, markup_pct=100)
+
+        result = _aggregate(db)
+
+        assert result.markup_weighted_pct == Decimal("150")
+        assert result.markup_skipped_count == 0
+
+
 class TestUnknownNeto:
     def test_null_neto_counted_as_unknown_never_summed_as_zero(self, db):
         _seed_order(db, 1)
