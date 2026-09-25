@@ -1,0 +1,56 @@
+change: fix-compras-pedidos-empresa-wrap
+change_id: fix-compras-pedidos-empresa-wrap
+project: pricing-app
+phase: archive
+status: archived
+artifact_store: openspec
+persistence_mode: openspec
+created_at: "2026-09-25"
+updated_at: "2026-09-25"
+branch_plan: feat/compras-pedidos-layout-y-alerta-factura
+base_branch: feat/compras-pedidos-layout-y-alerta-factura
+delivery_target: main
+parent_pr: 1348
+amends_capability:
+  - pedidos-compra
+depends_on: []
+supersedes: []
+amends:
+  - feat-compras-pedidos-layout-y-alerta-factura
+artifacts:
+  proposal: openspec/changes/fix-compras-pedidos-empresa-wrap/proposal.md
+  specs:
+    - openspec/changes/fix-compras-pedidos-empresa-wrap/specs/pedidos-compra/spec.md
+  design: openspec/changes/fix-compras-pedidos-empresa-wrap/design.md
+  tasks: openspec/changes/fix-compras-pedidos-empresa-wrap/tasks.md
+  apply-progress: openspec/changes/fix-compras-pedidos-empresa-wrap/apply-progress.md
+  verify-report: openspec/changes/fix-compras-pedidos-empresa-wrap/verify-report.md
+next_phase: none
+nextRecommended: none
+task_count: 4
+tasks_complete: 4
+locked_decisions:
+  empresa_css: single_empresaCell_locked_rule
+  no_name_branch: true
+  no_regex: true
+  no_br: true
+  no_data_wrap: true
+  no_company_names_in_jsx_or_css_comments: true
+  clip_after_two_lines: true
+  no_ellipsis: true
+  keep_columns: true
+  delivery: follow_up_commit_on_pr_1348
+  out_of_scope:
+    - acciones_2x2
+    - fecha_pago_110px_literal_asserts
+    - backend
+    - permissions
+    - alerta_factura_docs
+    - new_pr
+notes: >
+  Archived 2026-09-25. Verify PASS 1/1 requirements, 4/4 scenarios.
+  Focused vitest 18/18 + eslint 0. evidence_revision
+  sha256:c4b88d5ec5ac6314bbe39a1667b572faf51f1a495a338040df7414da249ebbd1.
+  Main spec pedidos-compra Empresa requirement MODIFIED (replaced, not
+  duplicated). Do NOT commit. Do NOT push. Do NOT open a PR. Follow-up
+  commit on #1348 only.
