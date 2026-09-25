@@ -720,6 +720,14 @@ class SaleListItem(BaseModel):
     # `neto`/`total_gauss` above are switched to the same stored source in
     # `listar_ventas` without changing their name/shape (additive-only).
     markup: Optional[float] = None
+    # ventas-ml-producto-listado-pr10b (PR14.T5/T6 blocker): the SAME
+    # `OrderItemOpsSummary` shape `GET /orders/{id}` already exposes for its
+    # own `items` field -- reused rather than inventing a second per-item
+    # vocabulary. A LIST because one order can carry several items (ML
+    # never splits them into separate orders); a flat `title`/`seller_sku`
+    # pair here would silently pick one and lie about the rest. Empty list
+    # (never `None`) when the order has no synced item row yet.
+    items: List[OrderItemOpsSummary] = Field(default_factory=list)
 
 
 class SaleGroup(BaseModel):
@@ -1031,6 +1039,26 @@ def _coupon_amount_by_order(db: Session, order_ids: List[int]) -> Dict[int, Deci
     return result
 
 
+def _items_by_order(db: Session, order_ids: List[int]) -> Dict[int, List[MlOrderItemOps]]:
+    """ventas-ml-producto-listado-pr10b: ONE bulk query for the whole page
+    (same shape as `_item_category_by_order`/`_coupon_amount_by_order`
+    above), grouped in Python -- an order can carry several items, so a
+    per-row query here would be an N+1 defect. An order with no synced
+    item row is simply absent (`[]` at the call site)."""
+    result: Dict[int, List[MlOrderItemOps]] = {}
+    if not order_ids:
+        return result
+    rows = (
+        db.query(MlOrderItemOps)
+        .filter(MlOrderItemOps.order_id.in_(order_ids))
+        .order_by(MlOrderItemOps.order_id, MlOrderItemOps.id)
+        .all()
+    )
+    for item in rows:
+        result.setdefault(item.order_id, []).append(item)
+    return result
+
+
 def _alert_level(
     *,
     metrics_state: Optional[str],
@@ -1289,6 +1317,9 @@ def listar_ventas(
         # query for the whole page -- never one query per row.
         item_category_by_order = _item_category_by_order(db, page_order_ids)
         coupon_amount_by_order = _coupon_amount_by_order(db, page_order_ids)
+        # ventas-ml-producto-listado-pr10b: same ONE-bulk-query-for-the-page
+        # discipline as the two lookups above.
+        items_by_order = _items_by_order(db, page_order_ids)
         for order, shipment, key, operation_status_value, goods_status_value in member_rows:
             stored = stored_metrics_by_order.get(order.order_id)
             order_neto = stored.neto if stored is not None else None
@@ -1357,6 +1388,7 @@ def listar_ventas(
                     metrics_state=order_metrics_state,
                     alert_level=order_alert_level,
                     markup=float(order_markup) if order_markup is not None else None,
+                    items=[OrderItemOpsSummary.model_validate(item) for item in items_by_order.get(order.order_id, [])],
                 )
             )
 
