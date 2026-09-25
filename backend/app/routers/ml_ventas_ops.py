@@ -25,6 +25,7 @@ from __future__ import annotations
 
 import calendar
 from datetime import date, datetime, time, timedelta, timezone
+from decimal import Decimal
 from zoneinfo import ZoneInfo
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -61,8 +62,8 @@ from app.services.ml_orders_ingestion.operation_status import (
     OPERATION_STATUSES,
 )
 from app.services.ml_ventas_desglose.breakdown_service import (
+    RELEVANT_PAYMENT_STATUSES,
     compute_breakdown,
-    compute_neto_by_order_ids,
     compute_neto_desglose_by_order_ids,
 )
 from app.services.ml_sales_query.aggregate import aggregate_order_metrics
@@ -73,9 +74,11 @@ from app.services.ml_sales_query.filters import (
     effective_switches,
     excluded_by_toggle_counts,
 )
-from app.services.ml_ventas_desglose.deducciones import calcular_total_gauss, resolve_costo_mercaderia_detalle
+from app.services.ml_ventas_desglose.deducciones import resolve_costo_mercaderia_detalle
 from app.services.ml_ventas_desglose.iva import descomponer_neto
+from app.models.ml_order_item_costo import MlOrderItemCosto
 from app.models.ml_order_metrics import MlOrderMetrics
+from app.models.producto import ProductoERP
 from app.services.order_metrics import health as order_metrics_health
 from app.services.order_metrics.read import metrics_state_for_orders, read_stored_metrics
 from app.services.order_metrics.types import GaussStatus
@@ -681,6 +684,42 @@ class SaleListItem(BaseModel):
     # uses -- `None` only when `neto` itself is `None`.
     neto_depositado: Optional[float] = None
     retenciones_recuperables: Optional[float] = None
+    # ventas-ml-rediseno PR10.T2 (design D13, spec LISTING R28): the ERP
+    # category of ONE of this order's items, resolved through the frozen
+    # cost linkage (`ml_order_item_costos.producto_item_id` ->
+    # `productos_erp.item_id`) -- the same linkage the D12a product facets
+    # already join through. `None` when the order has no frozen cost row
+    # yet (FE falls back to a generic icon, PR14). ML's own
+    # `raw_item.category_id` is an opaque MLA id with no human mapping
+    # stored anywhere, so it is never used here.
+    item_category: Optional[str] = None
+    # ventas-ml-rediseno PR10.T4 (design D13, spec LISTING R28): captured
+    # from `MlShipmentOps.receiver_address` (real shape verified against
+    # `ml_webhook_service.py`'s own parsing: `{"city": {"name": ...},
+    # "state": {"name": ...}}`), null-safe on a missing key, a null value
+    # or an unexpected (non-dict) type -- this is raw ML JSONB, never
+    # assumed to have a fixed shape.
+    city: Optional[str] = None
+    province: Optional[str] = None
+    shipping_substatus: Optional[str] = None
+    # Sum of every relevant payment's `coupon_amount` for this order
+    # (`MlPaymentOps.coupon_amount`, already ingested -- ml-ventas-neto-
+    # iibb-varios's own `RELEVANT_PAYMENT_STATUSES`). `None` when the order
+    # has no relevant payment synced yet, never a fabricated zero.
+    coupon_amount: Optional[float] = None
+    # ventas-ml-rediseno PR10.T8 (design D9/D13): the SAME precedence
+    # `metrics_state_for_orders` already computes for the detail endpoint
+    # (PR7) -- never re-derived here.
+    metrics_state: Optional[str] = None
+    # ventas-ml-rediseno PR10.T6 (design D13, spec LISTING R29): unified
+    # alert level replacing ad-hoc per-field FE flags -- see
+    # `_alert_level`'s docstring for the exact precedence.
+    alert_level: str = "ok"
+    # ventas-ml-rediseno PR10.T7 (design D13, spec LISTING R31): read from
+    # `ml_order_metrics.markup_pct`, never a live recompute -- new field,
+    # `neto`/`total_gauss` above are switched to the same stored source in
+    # `listar_ventas` without changing their name/shape (additive-only).
+    markup: Optional[float] = None
 
 
 class SaleGroup(BaseModel):
@@ -929,6 +968,95 @@ def _parse_csv_ids(raw: Optional[str], field: str) -> Tuple[int, ...]:
     return tuple(values)
 
 
+def _receiver_address_field(receiver_address: Optional[Any], *nested_keys: str) -> Optional[str]:
+    """Null-safe read of a `MlShipmentOps.receiver_address` JSONB field
+    (PR10.T3/T4, spec LISTING R28). Real captured shape (verified against
+    `ml_webhook_service.py`'s own parsing): `{"city": {"name": "..."},
+    "state": {"name": "..."}}`. This is raw ML JSONB, so every hop is
+    guarded -- a missing key, an explicit `null`, or an unexpected type
+    (e.g. a string where a dict is expected) all resolve to `None`, never
+    a raised exception or an invented value."""
+    value: Any = receiver_address
+    for key in nested_keys:
+        if not isinstance(value, dict):
+            return None
+        value = value.get(key)
+    if not isinstance(value, str) or not value:
+        return None
+    return value
+
+
+def _item_category_by_order(db: Session, order_ids: List[int]) -> Dict[int, str]:
+    """PR10.T1/T2 (design D13, spec LISTING R28): ONE bulk query for the
+    whole page, same join D12a's product facets already use
+    (`ml_order_item_costos.producto_item_id` -> `productos_erp.item_id`).
+    An order with several items keeps its FIRST item's category (ordered
+    by `MlOrderItemCosto.id`, deterministic) -- the listing shows one
+    category per row, never a list. An order with no frozen cost row is
+    simply absent from the result (`None` at the call site)."""
+    result: Dict[int, str] = {}
+    if not order_ids:
+        return result
+    rows = (
+        db.query(MlOrderItemCosto.order_id, MlOrderItemCosto.id, ProductoERP.categoria)
+        .join(ProductoERP, ProductoERP.item_id == MlOrderItemCosto.producto_item_id)
+        .filter(MlOrderItemCosto.order_id.in_(order_ids))
+        .order_by(MlOrderItemCosto.order_id, MlOrderItemCosto.id)
+        .all()
+    )
+    for order_id, _costo_id, categoria in rows:
+        if order_id not in result and categoria:
+            result[order_id] = categoria
+    return result
+
+
+def _coupon_amount_by_order(db: Session, order_ids: List[int]) -> Dict[int, Decimal]:
+    """PR10.T3/T4 (design D13, spec LISTING R28): sum of `coupon_amount`
+    across every RELEVANT payment of the order (same status filter
+    `compute_neto_by_order_ids` applies) -- ONE bulk query for the whole
+    page. An order with no relevant payment synced yet is absent from the
+    result (`None` at the call site), never a fabricated zero."""
+    result: Dict[int, Decimal] = {}
+    if not order_ids:
+        return result
+    rows = (
+        db.query(MlPaymentOps.order_id, MlPaymentOps.coupon_amount)
+        .filter(MlPaymentOps.order_id.in_(order_ids), MlPaymentOps.status.in_(RELEVANT_PAYMENT_STATUSES))
+        .all()
+    )
+    for order_id, coupon_amount in rows:
+        if coupon_amount is None:
+            continue
+        result[order_id] = result.get(order_id, Decimal("0")) + coupon_amount
+    return result
+
+
+def _alert_level(
+    *,
+    metrics_state: Optional[str],
+    iva_reconcilia: Optional[bool],
+    neto: Optional[Decimal],
+    operation_status: str,
+    goods_status: str,
+) -> str:
+    """Server-derived unified alert level (design D13, spec LISTING R29):
+    `error` = the order's metrics are unresolved/failed/never computed, or
+    its `neto` is unknown; `warning` = the metrics are provisional or
+    mid-recompute, its IVA split does not reconcile, or either status axis
+    is `unknown`; `ok` otherwise. Replaces every ad-hoc per-field flag the
+    FE used to derive on its own (PR14 consumes this field only)."""
+    if metrics_state in ("unresolved", "failed", "pending") or neto is None:
+        return "error"
+    if (
+        metrics_state in ("provisional", "recalculating")
+        or iva_reconcilia is False
+        or operation_status == "unknown"
+        or goods_status == "unknown"
+    ):
+        return "warning"
+    return "ok"
+
+
 @router.get("/sales", response_model=SaleListResponse)
 def listar_ventas(
     operation_status_filter: Optional[str] = Query(default=None, alias="operation_status"),
@@ -1122,44 +1250,61 @@ def listar_ventas(
             .order_by(MlOrdersOps.date_created.asc().nullslast(), MlOrdersOps.order_id.asc())
             .all()
         )
-        # `neto` for every order on the page, in TWO bulk queries total --
-        # never one query per row. See `compute_neto_by_order_ids`'s
-        # docstring: same rule `compute_breakdown` applies to a single sale,
-        # reused (not reimplemented) here for the whole page at once.
         page_order_ids = [order.order_id for order, _shipment, _key, _op, _goods in member_rows]
-        neto_by_order = compute_neto_by_order_ids(db, page_order_ids)
         # ml-ventas-neto-iibb-varios PR1.T12: same bulk shape, for the
         # listing's Neto tooltip -- zero new per-row queries.
+        #
+        # PR10 review N1 (corrected after initial review pass): this stays
+        # LIVE and ungated by `order_metrics_state`, on purpose.
+        # `compute_neto_desglose_by_order_ids` derives `neto_depositado`/
+        # `retenciones_recuperables` ONLY from `MlPaymentOps` +
+        # `MlPaymentCharge` (payments and their charges) -- see
+        # `app/services/ml_ventas_desglose/breakdown_service.py`. It does
+        # NOT read `costo_mercaderia`, the varios %, etiquetas, cordones,
+        # or any other input of the stored Gauss chain. So a recompute
+        # triggered by anything OTHER than a payment/charge change (a cost
+        # update, a label reassignment, a varios % edit, a config table
+        # touch) leaves this live figure byte-identical to what a settled
+        # stored row would have shown -- there is no second clock to
+        # reconcile in that overwhelming majority of cases. The two CAN
+        # only genuinely diverge when the payments/charges themselves
+        # changed, and that exact change is what marks the order dirty in
+        # the first place -- so the divergence window is the drain
+        # latency of that one dirty row, not a standing property of this
+        # field. Gating it off `order_metrics_state` (as an earlier draft
+        # of this fix did) would hide correct, useful information for
+        # every non-payment recompute to guard against a mismatch that
+        # does not occur there; reverted for that reason.
         neto_desglose_by_order = compute_neto_desglose_by_order_ids(db, page_order_ids)
-        # `total_gauss` for the page, ALWAYS recomputed here -- design D2,
-        # never served from `MlOrdersOps.total_gauss` (sort/filter key
-        # only). `descomponer_neto` bulk-resolves `neto_sin_iva`, then the
-        # deduction chain bulk-resolves on top of that -- two bulk calls
-        # total for the whole page, never one per row.
-        descomposicion_by_order = descomponer_neto(db, page_order_ids)
-        neto_sin_iva_by_order = {oid: desc.neto_sin_iva for oid, desc in descomposicion_by_order.items()}
-        # ml-ventas-neto-iibb-varios PR2 (D4): the "% de varios" base,
-        # already in hand from `descomposicion_by_order` above -- zero new
-        # queries.
-        venta_sin_iva_by_order = {oid: desc.base_venta_sin_iva for oid, desc in descomposicion_by_order.items()}
-        total_gauss_by_order = calcular_total_gauss(
-            db, page_order_ids, neto_sin_iva_by_order, venta_sin_iva_by_order=venta_sin_iva_by_order
-        )
+        # ventas-ml-rediseno PR10.T7 (design D2/D13, spec LISTING R31):
+        # `neto`, `total_gauss` and the new `markup` field are read from the
+        # STORED `ml_order_metrics` row -- the SAME reader the detail
+        # endpoint already switched to in PR7 -- never a live
+        # `compute_neto_by_order_ids`/`calcular_total_gauss` call. An
+        # order_id with no stored row is simply absent (`metrics_state`
+        # 'pending'), never a fabricated number.
+        stored_metrics_by_order = read_stored_metrics(db, page_order_ids)
+        metrics_state_by_order = metrics_state_for_orders(db, page_order_ids)
+        # PR10.T1/T2, PR10.T3/T4: additive fields, each resolved in ONE bulk
+        # query for the whole page -- never one query per row.
+        item_category_by_order = _item_category_by_order(db, page_order_ids)
+        coupon_amount_by_order = _coupon_amount_by_order(db, page_order_ids)
         for order, shipment, key, operation_status_value, goods_status_value in member_rows:
-            order_neto = neto_by_order.get(order.order_id)
+            stored = stored_metrics_by_order.get(order.order_id)
+            order_neto = stored.neto if stored is not None else None
+            order_total_gauss = stored.total_gauss if stored is not None else None
+            order_markup = stored.markup_pct if stored is not None else None
+            order_total_gauss_provisional = stored is not None and stored.gauss_status == GaussStatus.PROVISIONAL
+            order_total_gauss_provisional_falta = stored.provisional_falta if stored is not None else None
+            order_metrics_state = metrics_state_by_order.get(order.order_id, "pending")
+            # See the invariant documented above `neto_desglose_by_order`:
+            # deliberately NOT gated by `order_metrics_state` -- this field
+            # only depends on payments/charges, not on the rest of the
+            # stored Gauss chain.
             order_neto_depositado, order_retenciones_recuperables = neto_desglose_by_order.get(
                 order.order_id, (None, None)
             )
-            order_total_gauss_resultado = total_gauss_by_order.get(order.order_id)
-            order_total_gauss = (
-                order_total_gauss_resultado.total_gauss if order_total_gauss_resultado is not None else None
-            )
-            order_total_gauss_provisional = (
-                order_total_gauss_resultado.provisional if order_total_gauss_resultado is not None else False
-            )
-            order_total_gauss_provisional_falta = (
-                order_total_gauss_resultado.provisional_falta if order_total_gauss_resultado is not None else None
-            )
+            order_coupon_amount = coupon_amount_by_order.get(order.order_id)
             # The real shipment ALWAYS outranks the `no_shipping` tag (order
             # 2000016977234624: tagged `no_shipping` AND a delivered
             # `cross_docking` shipment -- the shipment wins). Recomputed
@@ -1168,6 +1313,13 @@ def listar_ventas(
                 shipment_logistic_type=shipment.logistic_type if shipment is not None else None,
                 has_shipment=shipment is not None,
                 tagged_no_shipping=bool(order.has_no_shipping_tag),
+            )
+            order_alert_level = _alert_level(
+                metrics_state=order_metrics_state,
+                iva_reconcilia=stored.iva_reconcilia if stored is not None else None,
+                neto=order_neto,
+                operation_status=operation_status_value,
+                goods_status=goods_status_value,
             )
             members_by_key.setdefault(key, []).append(
                 SaleListItem(
@@ -1193,6 +1345,18 @@ def listar_ventas(
                     retenciones_recuperables=(
                         float(order_retenciones_recuperables) if order_retenciones_recuperables is not None else None
                     ),
+                    item_category=item_category_by_order.get(order.order_id),
+                    city=_receiver_address_field(
+                        shipment.receiver_address if shipment is not None else None, "city", "name"
+                    ),
+                    province=_receiver_address_field(
+                        shipment.receiver_address if shipment is not None else None, "state", "name"
+                    ),
+                    shipping_substatus=shipment.substatus if shipment is not None else None,
+                    coupon_amount=(float(order_coupon_amount) if order_coupon_amount is not None else None),
+                    metrics_state=order_metrics_state,
+                    alert_level=order_alert_level,
+                    markup=float(order_markup) if order_markup is not None else None,
                 )
             )
 
