@@ -1239,3 +1239,74 @@ describe('PR14 review fix P2 — the Neto button survives a non-ok metrics_state
     expect(within(netoButton).getByText(/Recalculando/)).toBeInTheDocument();
   });
 });
+
+// ventas-ml-producto-listado-pr10b (PR14.T5/T6 blocker, finally unblocked):
+// `SaleListItem.items` / `OrderItemOpsSummary` now reach the FE. The
+// product cell replaces the old icon-only `Categoría` column.
+describe('ProductCell — product identity on the listing (PR14b)', () => {
+  // LONE-SALE case: most rows in the real table are a single order with a
+  // single item. This is the discriminating case a vacuous test could miss.
+  it('shows the product title, SKU, MLA and quantity for a lone sale', async () => {
+    mockSalesList([
+      {
+        ...PAID_SALE,
+        items: [
+          { item_id: 'MLA2060835678', seller_sku: 'EPS-L3250', title: 'Impresora Epson EcoTank L3250', quantity: 1 },
+        ],
+      },
+    ]);
+    await renderWithRouter(<VentasML />);
+
+    const row = (await screen.findByText('comprador1')).closest('tr');
+    expect(within(row).getByText('Impresora Epson EcoTank L3250')).toBeInTheDocument();
+    expect(within(row).getByText(/SKU EPS-L3250/)).toBeInTheDocument();
+    expect(within(row).getByText(/MLA2060835678/)).toBeInTheDocument();
+  });
+
+  // MULTI-ITEM pack case: aggregates items across ALL orders in the pack,
+  // never picks one silently. Discriminates from the lone-sale case above.
+  it('shows the first item plus an explicit "+N productos" badge for a multi-item pack, aggregated across its orders', async () => {
+    const a1 = {
+      ...PAID_SALE,
+      order_id: 5501,
+      pack_id: 9501,
+      items: [{ item_id: 'MLA1429582101', seller_sku: 'LEN-82YU000PAR', title: 'Lenovo V15 G4', quantity: 1 }],
+    };
+    const a2 = {
+      ...PAID_SALE,
+      order_id: 5502,
+      pack_id: 9501,
+      items: [{ item_id: 'MLA1198421099', seller_sku: 'SAM-LS24C310', title: 'Monitor Samsung 24"', quantity: 1 }],
+    };
+    mockSalesList([packOf([a1, a2], 9501)]);
+    await renderWithRouter(<VentasML />);
+
+    const packRow = (await screen.findByRole('button', { name: /Pack 9501/ })).closest('tr');
+    expect(within(packRow).getByText('Lenovo V15 G4')).toBeInTheDocument();
+    expect(within(packRow).getByText('+1 producto')).toBeInTheDocument();
+  });
+
+  it('shows each order own product cell once the pack is expanded', async () => {
+    const user = userEvent.setup();
+    const a1 = {
+      ...PAID_SALE,
+      order_id: 5601,
+      pack_id: 9601,
+      items: [{ item_id: 'MLA1429582101', seller_sku: 'LEN-82YU000PAR', title: 'Lenovo V15 G4', quantity: 1 }],
+    };
+    const a2 = {
+      ...PAID_SALE,
+      order_id: 5602,
+      pack_id: 9601,
+      items: [{ item_id: 'MLA1198421099', seller_sku: 'SAM-LS24C310', title: 'Monitor Samsung 24"', quantity: 1 }],
+    };
+    mockSalesList([packOf([a1, a2], 9601)]);
+    await renderWithRouter(<VentasML />);
+
+    await user.click(await screen.findByRole('button', { name: /Pack 9601/ }));
+    const member1 = (await screen.findByText('5601')).closest('tr');
+    const member2 = (await screen.findByText('5602')).closest('tr');
+    expect(within(member1).getByText('Lenovo V15 G4')).toBeInTheDocument();
+    expect(within(member2).getByText('Monitor Samsung 24"')).toBeInTheDocument();
+  });
+});

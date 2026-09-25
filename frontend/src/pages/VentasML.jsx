@@ -58,7 +58,7 @@ import SalesToolbar from '../components/ventasMl/SalesToolbar';
 import FacetChips from '../components/ventasMl/FacetChips';
 import AlertIcon from '../components/ventasMl/AlertIcon';
 import RecalculatingBadge from '../components/ventasMl/RecalculatingBadge';
-import { getCategoryIcon } from '../utils/categoryIcon';
+import ProductCell from '../components/ventasMl/ProductCell';
 import { useVentasMLFilters } from '../hooks/useVentasMLFilters';
 import VariosVentaPctModal from '../components/VariosVentaPctModal';
 import DateRangeFilter from '../components/DateRangeFilter';
@@ -214,6 +214,16 @@ function groupMetricsState(orders) {
 function groupCategory(orders) {
   const categories = new Set(orders.map((o) => o.item_category).filter(Boolean));
   return categories.size === 1 ? [...categories][0] : null;
+}
+
+// ventas-ml-producto-listado-pr10b (PR14.T5/T6 blocker): a pack's row is
+// one PARCEL but can carry several orders, each with its own item(s) — the
+// collapsed row must represent EVERY item across the whole pack, never
+// just the first order's. `ProductCell` itself only ever silently keeps
+// the count of what it does not show inline (the "+N productos" badge);
+// this flattens the source so that count is correct at the pack level too.
+function groupItems(orders) {
+  return orders.flatMap((o) => o.items || []);
 }
 
 // PR14 review fix P3: mirrors `_alert_level`'s own precedence
@@ -583,7 +593,7 @@ export default function VentasML() {
           <thead>
             <tr>
               <th className={styles.colAlerta} aria-label="Alerta" />
-              <th className={styles.colCategoria} aria-label="Categoría" />
+              <th className={styles.colProducto}>Producto</th>
               <th className={styles.colOrden}>Orden</th>
               <th>Fecha</th>
               <th>Comprador</th>
@@ -648,25 +658,8 @@ export default function VentasML() {
                       <td className={styles.colAlerta}>
                         <AlertIcon level={groupLevel} reason={groupAlertReason(orders, groupLevel)} />
                       </td>
-                      <td className={styles.colCategoria}>
-                        {(() => {
-                          const category = groupCategory(orders);
-                          if (!category) return null;
-                          const CategoryIcon = getCategoryIcon(category);
-                          return (
-                            // PR14 review fix P3: `title` on an `<svg>`
-                            // renders no browser tooltip -- the hoverable
-                            // title needs a real (non-svg) host.
-                            <span title={category}>
-                              <CategoryIcon
-                                size={16}
-                                className={styles.categoryIcon}
-                                role="img"
-                                aria-label={category}
-                              />
-                            </span>
-                          );
-                        })()}
+                      <td className={styles.colProducto}>
+                        <ProductCell items={groupItems(orders)} category={groupCategory(orders)} />
                       </td>
                       <td className={styles.colOrden}>
                         {isPack ? (
@@ -820,22 +813,8 @@ export default function VentasML() {
                           <td className={styles.colAlerta}>
                             <AlertIcon level={order.alert_level} reason={orderAlertReason(order)} />
                           </td>
-                          <td className={styles.colCategoria}>
-                            {order.item_category
-                              ? (() => {
-                                  const CategoryIcon = getCategoryIcon(order.item_category);
-                                  return (
-                                    <span title={order.item_category}>
-                                      <CategoryIcon
-                                        size={16}
-                                        className={styles.categoryIcon}
-                                        role="img"
-                                        aria-label={order.item_category}
-                                      />
-                                    </span>
-                                  );
-                                })()
-                              : null}
+                          <td className={styles.colProducto}>
+                            <ProductCell items={order.items} category={order.item_category} />
                           </td>
                           <td className={styles.colOrden}>
                             <span className={styles.memberOrden}>{order.order_id}</span>
