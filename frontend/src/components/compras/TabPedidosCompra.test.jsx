@@ -267,3 +267,69 @@ describe('TabPedidosCompra — chip tones and con faltantes overlap', () => {
     expect(screen.getByTestId('proceso-cell')).toHaveAttribute('data-layout', 'no-clip');
   });
 });
+
+describe('TabPedidosCompra — Fecha pago col width', () => {
+  const colWidthByHeader = (label) => {
+    const headers = screen.getAllByRole('columnheader');
+    const index = headers.findIndex((th) => th.textContent === label);
+    expect(index).toBeGreaterThanOrEqual(0);
+    const table = headers[index].closest('table');
+    const cols = table.querySelectorAll('colgroup col');
+    expect(cols.length).toBe(headers.length);
+    return cols[index].style.width;
+  };
+
+  const fechaPagoCell = () => {
+    const headers = screen.getAllByRole('columnheader');
+    const index = headers.findIndex((th) => th.textContent === 'Fecha pago');
+    expect(index).toBeGreaterThanOrEqual(0);
+    const table = headers[index].closest('table');
+    return table.querySelector('tbody tr').children[index];
+  };
+
+  const isoDaysFromToday = (delta) => {
+    const d = new Date();
+    d.setHours(0, 0, 0, 0);
+    d.setDate(d.getDate() + delta);
+    const y = d.getFullYear();
+    const m = String(d.getMonth() + 1).padStart(2, '0');
+    const day = String(d.getDate()).padStart(2, '0');
+    return `${y}-${m}-${day}`;
+  };
+
+  const formatExpected = (iso) => {
+    const [y, m, d] = iso.split('-');
+    return `${d}/${m}/${y}`;
+  };
+
+  it('sizes Fecha pago to 110px and leaves Estado/Proceso unchanged', async () => {
+    renderTab(PEDIDO_CON_NUMERO);
+
+    expect(await screen.findByText('P-01-2026-00001')).toBeInTheDocument();
+    expect(colWidthByHeader('Fecha pago')).toBe('110px');
+    expect(colWidthByHeader('Estado')).toBe('152px');
+    expect(colWidthByHeader('Proceso')).toBe('220px');
+  });
+
+  it.each([
+    { days: 3, badge: '3d' },
+    { days: 0, badge: 'Hoy' },
+    { days: -2, badge: 'Vencido 2d' },
+  ])(
+    'renders dd/mm/yyyy + $badge for aprobado pay date and keeps col at 110px',
+    async ({ days, badge }) => {
+      const fecha = isoDaysFromToday(days);
+      renderTab({
+        ...PEDIDO_CON_NUMERO,
+        estado: 'aprobado',
+        fecha_pago_estimada: fecha,
+      });
+
+      expect(await screen.findByText('P-01-2026-00001')).toBeInTheDocument();
+      const cell = fechaPagoCell();
+      expect(cell).toHaveTextContent(formatExpected(fecha));
+      expect(cell).toHaveTextContent(badge);
+      expect(colWidthByHeader('Fecha pago')).toBe('110px');
+    }
+  );
+});

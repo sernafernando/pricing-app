@@ -68,7 +68,7 @@ const COLUMNS = [
   { key: 'moneda', label: 'Mon.', align: 'center', width: '60px' },
   { key: 'monto', label: 'Saldo', align: 'right', width: '180px' },
   { key: 'plazo', label: 'Plazo', width: '120px' },
-  { key: 'fecha_pago', label: 'Fecha pago', width: '160px' },
+  { key: 'fecha_pago', label: 'Fecha pago', width: '110px' },
   { key: 'estado', label: 'Estado', width: '152px' },
   { key: 'proceso', label: 'Proceso', width: '220px' },
   { key: 'acciones', label: '', align: 'right', width: '180px' },

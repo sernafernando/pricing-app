@@ -1,0 +1,45 @@
+change: fix-compras-pedidos-fecha-pago-col-width
+change_id: fix-compras-pedidos-fecha-pago-col-width
+project: pricing-app
+phase: apply
+status: ready_for_verify
+artifact_store: openspec
+persistence_mode: openspec
+created_at: "2026-09-24"
+updated_at: "2026-09-24"
+branch_plan: feat/compras-pedidos-fecha-pago-col-width
+base_branch: upstream/main
+delivery_target: main
+parent_pr: 1344
+amends_capability:
+  - pedidos-compra
+artifacts:
+  exploration: openspec/changes/fix-compras-pedidos-fecha-pago-col-width/exploration.md
+  proposal: openspec/changes/fix-compras-pedidos-fecha-pago-col-width/proposal.md
+  specs:
+    - openspec/changes/fix-compras-pedidos-fecha-pago-col-width/specs/pedidos-compra/spec.md
+  design: openspec/changes/fix-compras-pedidos-fecha-pago-col-width/design.md
+  tasks: openspec/changes/fix-compras-pedidos-fecha-pago-col-width/tasks.md
+  apply-progress: openspec/changes/fix-compras-pedidos-fecha-pago-col-width/apply-progress.md
+next_phase: verify
+nextRecommended: verify
+task_count: 5
+locked_decisions:
+  column: fecha_pago
+  width_px: 110
+  width_range: 100-110
+  reason: date_dd_mm_yyyy_plus_header_padding
+  badge_wrap: allowed
+  do_not_expand:
+    - estado
+    - proceso
+  out_of_scope:
+    - backend
+    - chip_colors
+    - other_tabs
+    - datatable_shared_padding
+notes: >
+  Remediation complete (5/5). Badge/date vitest 16/16; Playwright Proveedor/Mon
+  no-collide 1/1. Remediates failed evidence
+  sha256:13f6a7ffceacc189619f0583fe56242204c41c963e626b2924f36506dc3f0475.
+  Ready for verify. Do NOT archive in apply.
