@@ -17,8 +17,9 @@ from decimal import Decimal
 from app.models.ml_order_item_costo import MlOrderItemCosto
 from app.models.producto import ProductoERP, TipoMoneda
 from app.models.publicacion_ml import PublicacionML
+from app.models.tb_item_association import TbItemAssociation
 from app.models.tipo_cambio import TipoCambio
-from app.services.ml_orders_ingestion.costeo_service import FUENTE_PUBLICACION, FUENTE_SKU, congelar
+from app.services.ml_orders_ingestion.costeo_service import FUENTE_COMBO, FUENTE_PUBLICACION, FUENTE_SKU, congelar
 from app.services.ml_orders_ingestion.mapper import OrderItemOpsDTO
 
 
@@ -60,6 +61,19 @@ def _publicacion(db, mla: str = "MLA1", item_id: int = 500) -> PublicacionML:
     db.add(publicacion)
     db.flush()
     return publicacion
+
+
+def _componente(
+    db, combo_id: int, componente_id: int, qty: float, itema_id: int, comp_id: int = 1
+) -> TbItemAssociation:
+    """One line of a combo's bill of materials in `tb_item_association`,
+    same shape the backfill's own tests already use."""
+    row = TbItemAssociation(
+        comp_id=comp_id, itema_id=itema_id, item_id=combo_id, item_id_1=componente_id, iasso_qty=qty
+    )
+    db.add(row)
+    db.flush()
+    return row
 
 
 class TestReingestionNeverRewrites:
@@ -320,3 +334,295 @@ class TestDialectAwareInsert:
         rows = db.query(MlOrderItemCosto).filter_by(order_id=999, item_id="MLA1").all()
         assert len(rows) == 1
         assert rows[0].costo_unitario_ars == Decimal("42.0000")
+
+
+class TestComboLiveCosting:
+    """A pack/combo/kit has no purchase cost of its own -- nobody buys a
+    pack, so the ERP never carries one for it. It does NOT arrive as
+    `NULL`, though: `erp_sync` reads the cost with a `0` default, so it
+    lands as `0.0` (see `tiene_costo_propio`). That is the dominant reason
+    (3.470 of 4.249 measured) the live path leaves a sale uncosted -- and,
+    before this fix, froze a cost of zero as if the goods were free.
+    """
+
+    def test_a_combo_with_costed_components_freezes_a_summed_cost(self, db):
+        """T1 RED: today this writes NOTHING -- the combo (item_id=500) has
+        no `costo` of its own, and `congelar()` has no notion of summing
+        its components."""
+        combo = _producto(db, item_id=500, costo=None, iva=21.0)
+        db.add(combo)
+        componente_a = ProductoERP(
+            item_id=901,
+            codigo="COMP-A",
+            descripcion="Componente A",
+            costo=40.0,
+            moneda_costo=TipoMoneda.ARS,
+            iva=21.0,
+        )
+        componente_b = ProductoERP(
+            item_id=902,
+            codigo="COMP-B",
+            descripcion="Componente B",
+            costo=10.0,
+            moneda_costo=TipoMoneda.ARS,
+            iva=21.0,
+        )
+        db.add(componente_a)
+        db.add(componente_b)
+        _publicacion(db, item_id=500)
+        _componente(db, combo_id=500, componente_id=901, qty=2, itema_id=1)
+        _componente(db, combo_id=500, componente_id=902, qty=1, itema_id=2)
+        db.commit()
+
+        congelar(db, order_id=7001, items=[_item()])
+        db.commit()
+
+        row = db.query(MlOrderItemCosto).filter_by(order_id=7001, item_id="MLA1").one()
+        # 2 * 40 + 1 * 10 = 90
+        assert row.costo_unitario_ars == Decimal("90.0000")
+        assert row.fuente == FUENTE_COMBO
+        assert row.fuente != FUENTE_PUBLICACION
+
+    def test_one_uncosted_component_freezes_nothing_for_the_combo(self, db):
+        """All-or-nothing, same discipline `SKIP_COMBO_COMPONENT_NO_COST`
+        already applies in the backfill: never a partial sum."""
+        _producto(db, item_id=500, costo=None, iva=21.0)
+        componente_a = ProductoERP(
+            item_id=901,
+            codigo="COMP-A",
+            descripcion="Componente A",
+            costo=40.0,
+            moneda_costo=TipoMoneda.ARS,
+            iva=21.0,
+        )
+        componente_sin_costo = ProductoERP(
+            item_id=902,
+            codigo="COMP-B",
+            descripcion="Componente sin costo",
+            costo=None,
+            moneda_costo=TipoMoneda.ARS,
+            iva=21.0,
+        )
+        db.add(componente_a)
+        db.add(componente_sin_costo)
+        _publicacion(db, item_id=500)
+        _componente(db, combo_id=500, componente_id=901, qty=1, itema_id=1)
+        _componente(db, combo_id=500, componente_id=902, qty=1, itema_id=2)
+        db.commit()
+
+        congelar(db, order_id=7002, items=[_item()])
+        db.commit()
+
+        assert db.query(MlOrderItemCosto).filter_by(order_id=7002).count() == 0
+
+    def test_usd_components_resolve_the_exchange_rate_once(self, db):
+        """Two USD components: `latest_usd_rate_with_date` must be resolved
+        ONCE per `congelar()` call, not once per component -- mutation-
+        verified by asserting the converted total, which would silently
+        diverge if a stale/second rate lookup fired mid-sum."""
+        _producto(db, item_id=500, costo=None, iva=21.0)
+        componente_a = ProductoERP(
+            item_id=901,
+            codigo="COMP-A",
+            descripcion="Componente USD A",
+            costo=10.0,
+            moneda_costo=TipoMoneda.USD,
+            iva=21.0,
+        )
+        componente_b = ProductoERP(
+            item_id=902,
+            codigo="COMP-B",
+            descripcion="Componente USD B",
+            costo=5.0,
+            moneda_costo=TipoMoneda.USD,
+            iva=21.0,
+        )
+        db.add(componente_a)
+        db.add(componente_b)
+        _publicacion(db, item_id=500)
+        _componente(db, combo_id=500, componente_id=901, qty=1, itema_id=1)
+        _componente(db, combo_id=500, componente_id=902, qty=1, itema_id=2)
+        rate = TipoCambio(fecha=date(2026, 9, 1), moneda="USD", compra=900.0, venta=950.0)
+        db.add(rate)
+        db.commit()
+
+        congelar(db, order_id=7003, items=[_item()])
+        db.commit()
+
+        row = db.query(MlOrderItemCosto).filter_by(order_id=7003, item_id="MLA1").one()
+        # (10 + 5) * 950 = 14250
+        assert row.costo_unitario_ars == Decimal("14250.0")
+        assert row.tipo_cambio == Decimal("950.0")
+
+    def test_usd_rate_lookup_is_called_at_most_once_per_congelar_call(self, db, monkeypatch):
+        """MUTATION-VERIFIED: dropping the `usd_rate_cache` memoization in
+        `_resolve_usd_rate` (calling `latest_usd_rate_with_date` straight
+        from `_resolver_combo_vivo` on every component) makes this fail --
+        it would be called twice for this two-USD-component combo."""
+        import app.services.ml_orders_ingestion.costeo_service as costeo_service_module
+
+        _producto(db, item_id=500, costo=None, iva=21.0)
+        componente_a = ProductoERP(
+            item_id=901,
+            codigo="COMP-A",
+            descripcion="Componente USD A",
+            costo=10.0,
+            moneda_costo=TipoMoneda.USD,
+            iva=21.0,
+        )
+        componente_b = ProductoERP(
+            item_id=902,
+            codigo="COMP-B",
+            descripcion="Componente USD B",
+            costo=5.0,
+            moneda_costo=TipoMoneda.USD,
+            iva=21.0,
+        )
+        db.add(componente_a)
+        db.add(componente_b)
+        _publicacion(db, item_id=500)
+        _componente(db, combo_id=500, componente_id=901, qty=1, itema_id=1)
+        _componente(db, combo_id=500, componente_id=902, qty=1, itema_id=2)
+        rate = TipoCambio(fecha=date(2026, 9, 1), moneda="USD", compra=900.0, venta=950.0)
+        db.add(rate)
+        db.commit()
+
+        calls = []
+        original = costeo_service_module.latest_usd_rate_with_date
+
+        def _spy(db_arg):
+            calls.append(1)
+            return original(db_arg)
+
+        monkeypatch.setattr(costeo_service_module, "latest_usd_rate_with_date", _spy)
+
+        congelar(db, order_id=7005, items=[_item()])
+        db.commit()
+
+        assert len(calls) == 1, "the FX rate must resolve ONCE per congelar() call, not once per component"
+
+    def test_a_combo_with_zero_cost_freezes_the_summed_component_cost(self, db):
+        """The sync (`erp_sync.py`) never writes `producto.costo = None` --
+        `convertir_a_numero(..., default=0)` means a combo with no cost row
+        in the ERP lands as `costo=0.0`, never `NULL`. This is the SHAPE
+        `congelar()` actually sees in production, not the `costo=None` the
+        other tests in this class use.
+
+        RED today: `_resolve_cost` takes the `producto.costo is not None`
+        branch for a `costo=0.0` product, converts a zero, and freezes a
+        `costo_unitario_ars == 0` row -- reading exactly like a real cost
+        of zero, when the honest state is "this product has no cost of its
+        own, sum its components" (same as the `costo=None` case)."""
+        _producto(db, item_id=500, costo=0.0, iva=21.0)
+        componente_a = ProductoERP(
+            item_id=901,
+            codigo="COMP-A",
+            descripcion="Componente A",
+            costo=40.0,
+            moneda_costo=TipoMoneda.ARS,
+            iva=21.0,
+        )
+        componente_b = ProductoERP(
+            item_id=902,
+            codigo="COMP-B",
+            descripcion="Componente B",
+            costo=10.0,
+            moneda_costo=TipoMoneda.ARS,
+            iva=21.0,
+        )
+        db.add(componente_a)
+        db.add(componente_b)
+        _publicacion(db, item_id=500)
+        _componente(db, combo_id=500, componente_id=901, qty=2, itema_id=1)
+        _componente(db, combo_id=500, componente_id=902, qty=1, itema_id=2)
+        db.commit()
+
+        congelar(db, order_id=7006, items=[_item()])
+        db.commit()
+
+        row = db.query(MlOrderItemCosto).filter_by(order_id=7006, item_id="MLA1").one()
+        # 2 * 40 + 1 * 10 = 90
+        assert row.costo_unitario_ars == Decimal("90.0000")
+        assert row.fuente == FUENTE_COMBO
+
+    def test_a_plain_product_with_zero_cost_and_no_components_freezes_nothing(self, db):
+        """A `costo=0.0` product with NO bill-of-materials rows in
+        `tb_item_association` is a hole in the ERP, not a product that
+        became free. `congelar()` must not freeze `costo_unitario_ars == 0`
+        for it -- "unknown is not zero" applies to the live path exactly
+        like it already applies to the backfill's `_tiene_precio`.
+
+        RED today: `producto.costo is not None` is `True` for `0.0`, so
+        `_resolve_cost` converts and freezes the zero."""
+        _producto(db, item_id=500, costo=0.0, iva=21.0)
+        _publicacion(db, item_id=500)
+        db.commit()
+
+        congelar(db, order_id=7007, items=[_item()])
+        db.commit()
+
+        assert db.query(MlOrderItemCosto).filter_by(order_id=7007).count() == 0
+
+    def test_one_zero_cost_component_sinks_the_whole_combo(self, db):
+        """A component with `costo=0.0` (the real ERP shape for "no cost"),
+        not just `costo=None`, must sink the whole combo -- same
+        all-or-nothing discipline, never a partial sum that silently
+        excludes the free-looking component.
+
+        RED today: `_resolver_combo_vivo` only checks `componente.costo is
+        None`, so a `costo=0.0` component sails through and contributes
+        `0` to the sum instead of sinking it -- the combo freezes an
+        UNDERSTATED cost that looks complete."""
+        _producto(db, item_id=500, costo=None, iva=21.0)
+        componente_a = ProductoERP(
+            item_id=901,
+            codigo="COMP-A",
+            descripcion="Componente A",
+            costo=40.0,
+            moneda_costo=TipoMoneda.ARS,
+            iva=21.0,
+        )
+        componente_cero = ProductoERP(
+            item_id=902,
+            codigo="COMP-B",
+            descripcion="Componente con costo cero",
+            costo=0.0,
+            moneda_costo=TipoMoneda.ARS,
+            iva=21.0,
+        )
+        db.add(componente_a)
+        db.add(componente_cero)
+        _publicacion(db, item_id=500)
+        _componente(db, combo_id=500, componente_id=901, qty=1, itema_id=1)
+        _componente(db, combo_id=500, componente_id=902, qty=1, itema_id=2)
+        db.commit()
+
+        congelar(db, order_id=7008, items=[_item()])
+        db.commit()
+
+        assert db.query(MlOrderItemCosto).filter_by(order_id=7008).count() == 0
+
+    def test_a_plain_product_with_its_own_cost_is_never_treated_as_a_combo(self, db):
+        """A product that has BOTH its own cost and (incidentally) rows in
+        `tb_item_association` is costed with its own figure -- same order-
+        of-preference the backfill documents for `_resolve_backfill_cost`."""
+        _producto(db, item_id=500, costo=100.0, iva=21.0)
+        componente_a = ProductoERP(
+            item_id=901,
+            codigo="COMP-A",
+            descripcion="Componente A",
+            costo=999.0,
+            moneda_costo=TipoMoneda.ARS,
+            iva=21.0,
+        )
+        db.add(componente_a)
+        _publicacion(db, item_id=500)
+        _componente(db, combo_id=500, componente_id=901, qty=1, itema_id=1)
+        db.commit()
+
+        congelar(db, order_id=7004, items=[_item()])
+        db.commit()
+
+        row = db.query(MlOrderItemCosto).filter_by(order_id=7004, item_id="MLA1").one()
+        assert row.costo_unitario_ars == Decimal("100.0")
+        assert row.fuente == FUENTE_PUBLICACION
