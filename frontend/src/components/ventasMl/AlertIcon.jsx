@@ -14,27 +14,27 @@ import styles from './AlertIcon.module.css';
 export default function AlertIcon({ level, reason }) {
   if (level === 'error') {
     return (
-      <XCircle
-        size={16}
-        className={styles.error}
-        data-alert-level="error"
-        role="img"
-        aria-label="Alerta"
-        title={reason}
-      />
+      // PR14 review fix P3: a `title` ATTRIBUTE on an `<svg>` renders no
+      // native browser tooltip — only a real (non-svg) host element does.
+      // The wrapper carries the hoverable title; the svg stays the visual
+      // icon.
+      <span className={styles.iconWrapper} title={reason}>
+        <XCircle size={16} className={styles.error} data-alert-level="error" role="img" aria-label="Alerta" />
+      </span>
     );
   }
 
   if (level === 'warning') {
     return (
-      <AlertTriangle
-        size={16}
-        className={styles.warning}
-        data-alert-level="warning"
-        role="img"
-        aria-label="Advertencia"
-        title={reason}
-      />
+      <span className={styles.iconWrapper} title={reason}>
+        <AlertTriangle
+          size={16}
+          className={styles.warning}
+          data-alert-level="warning"
+          role="img"
+          aria-label="Advertencia"
+        />
+      </span>
     );
   }
 

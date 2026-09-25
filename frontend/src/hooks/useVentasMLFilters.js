@@ -21,7 +21,6 @@ export function useVentasMLFilters() {
   const ordenParam = searchParams.get('orden');
   const qParam = searchParams.get('q');
   const searchQuery = qParam ?? '';
-  const hasSearchParam = qParam !== null;
   // Order ids are numeric on this screen (`order_id` from ML) — parsed
   // once here so every consumer (the panel's fetch, the layout's grid)
   // reads the same type instead of each doing its own `Number(...)`.
@@ -80,7 +79,6 @@ export function useVentasMLFilters() {
     selectOrder,
     clearSelection,
     searchQuery,
-    hasSearchParam,
     setSearchQuery,
   };
 }

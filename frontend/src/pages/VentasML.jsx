@@ -216,6 +216,32 @@ function groupCategory(orders) {
   return categories.size === 1 ? [...categories][0] : null;
 }
 
+// PR14 review fix P3: mirrors `_alert_level`'s own precedence
+// (`ml_ventas_ops.py`) using only the fields the listing endpoint actually
+// exposes per order (`metrics_state`, `neto`, `operation_status`,
+// `goods_status`) -- `iva_reconcilia` is never sent to the FE, so a warning
+// caused solely by that check falls back to the generic label rather than
+// inventing a reason the data cannot back up.
+function orderAlertReason(order) {
+  if (!order) return undefined;
+  if (order.metrics_state === 'failed') return 'El recálculo de esta venta falló.';
+  if (order.metrics_state === 'pending') return 'Todavía no se calculó esta venta.';
+  if (order.neto == null) return 'El neto de esta venta es desconocido.';
+  if (order.metrics_state === 'recalculating') return 'Esta venta se está recalculando.';
+  if (order.operation_status === 'unknown') return 'El estado de la operación todavía no se clasificó.';
+  if (order.goods_status === 'unknown') return 'El estado de la mercadería todavía no se clasificó.';
+  return 'Esta venta requiere revisión.';
+}
+
+// The group row's own alert_level is the worst among its orders
+// (`groupAlertLevel`). The reason shown must come from an order that
+// actually carries that level -- never a guess picked from an unrelated
+// member.
+function groupAlertReason(orders, level) {
+  const culprit = orders.find((o) => o.alert_level === level);
+  return orderAlertReason(culprit);
+}
+
 const TABLE_COLUMN_COUNT = 11;
 
 function netoTooltip(netoDepositado, retencionesRecuperables) {
@@ -596,6 +622,11 @@ export default function VentasML() {
                 // openDrawer(null) -- which is the very sentinel for "closed",
                 // so the click would do nothing at all.
                 const representativeOrderId = orders[0]?.order_id;
+                // PR14 review fix P1: a lone sale (`!isPack`) has no
+                // pack-member block to fall into, so it must carry its own
+                // subline/markup source directly.
+                const loneOrder = !isPack ? orders[0] : null;
+                const groupLevel = groupAlertLevel(orders);
                 return (
                   <Fragment key={group.group_key}>
                     {/* The row click is a MOUSE SHORTCUT, deliberately not a
@@ -615,7 +646,7 @@ export default function VentasML() {
                       }
                     >
                       <td className={styles.colAlerta}>
-                        <AlertIcon level={groupAlertLevel(orders)} />
+                        <AlertIcon level={groupLevel} reason={groupAlertReason(orders, groupLevel)} />
                       </td>
                       <td className={styles.colCategoria}>
                         {(() => {
@@ -623,13 +654,17 @@ export default function VentasML() {
                           if (!category) return null;
                           const CategoryIcon = getCategoryIcon(category);
                           return (
-                            <CategoryIcon
-                              size={16}
-                              className={styles.categoryIcon}
-                              role="img"
-                              aria-label={category}
-                              title={category}
-                            />
+                            // PR14 review fix P3: `title` on an `<svg>`
+                            // renders no browser tooltip -- the hoverable
+                            // title needs a real (non-svg) host.
+                            <span title={category}>
+                              <CategoryIcon
+                                size={16}
+                                className={styles.categoryIcon}
+                                role="img"
+                                aria-label={category}
+                              />
+                            </span>
                           );
                         })()}
                       </td>
@@ -682,6 +717,16 @@ export default function VentasML() {
                         >
                           {MODO_LOGISTICO_LABELS[group.modo_logistico] || group.modo_logistico}
                         </span>
+                        {/* PR14 review fix P1: a lone sale has no
+                            pack-member block to render this in -- it must
+                            carry its own subline. */}
+                        {loneOrder &&
+                          (loneOrder.city || loneOrder.province || loneOrder.shipping_substatus) && (
+                            <span className={styles.subline}>
+                              {[loneOrder.city, loneOrder.province].filter(Boolean).join(', ') || '—'}
+                              {loneOrder.shipping_substatus ? ` · ${loneOrder.shipping_substatus}` : ''}
+                            </span>
+                          )}
                       </td>
                       <td className={styles.numeric}>
                         {formatMoney(group.total_amount, group.currency_id)}
@@ -692,11 +737,19 @@ export default function VentasML() {
                           // SM R3/R9: a pack with any unresolved member
                           // never shows the (possibly stale) sum as the
                           // current amount -- the badge replaces it.
-                          if (metricsState !== 'ok') {
-                            return <RecalculatingBadge state={metricsState} />;
-                          }
+                          const content =
+                            metricsState !== 'ok' ? (
+                              <RecalculatingBadge state={metricsState} />
+                            ) : (
+                              formatMoney(group.neto, group.currency_id)
+                            );
                           if (representativeOrderId != null) {
                             return (
+                              // PR14 review fix P2: this button IS the
+                              // keyboard route to the detail panel (see the
+                              // <tr> comment above) -- it must survive
+                              // every metrics_state, carrying the badge as
+                              // its content instead of being replaced by it.
                               <button
                                 type="button"
                                 className={styles.netoButton}
@@ -704,17 +757,21 @@ export default function VentasML() {
                                 // this a screen reader announces "button,
                                 // 82,50 ARS" and never says what it does.
                                 aria-label="Ver desglose de costos"
-                                title={netoTooltip(group.neto_depositado, group.retenciones_recuperables)}
+                                title={
+                                  metricsState === 'ok'
+                                    ? netoTooltip(group.neto_depositado, group.retenciones_recuperables)
+                                    : undefined
+                                }
                                 onClick={(e) => {
                                   e.stopPropagation();
                                   openDrawer(representativeOrderId);
                                 }}
                               >
-                                {formatMoney(group.neto, group.currency_id)}
+                                {content}
                               </button>
                             );
                           }
-                          return formatMoney(group.neto, group.currency_id);
+                          return content;
                         })()}
                       </td>
                       <td className={styles.numeric}>
@@ -736,6 +793,15 @@ export default function VentasML() {
                                 Provisorio
                               </span>
                             )}
+                            {/* PR14 review fix P1: markup was only ever
+                                rendered inside the pack-member block -- a
+                                lone sale must carry its own. */}
+                            {loneOrder && loneOrder.markup !== null && loneOrder.markup !== undefined && (
+                              <span className={styles.markup}>
+                                {' '}
+                                · {new Intl.NumberFormat('es-AR', { maximumFractionDigits: 1 }).format(loneOrder.markup)}%
+                              </span>
+                            )}
                           </>
                         )}
                       </td>
@@ -752,20 +818,21 @@ export default function VentasML() {
                           onClick={() => openDrawer(order.order_id)}
                         >
                           <td className={styles.colAlerta}>
-                            <AlertIcon level={order.alert_level} />
+                            <AlertIcon level={order.alert_level} reason={orderAlertReason(order)} />
                           </td>
                           <td className={styles.colCategoria}>
                             {order.item_category
                               ? (() => {
                                   const CategoryIcon = getCategoryIcon(order.item_category);
                                   return (
-                                    <CategoryIcon
-                                      size={16}
-                                      className={styles.categoryIcon}
-                                      role="img"
-                                      aria-label={order.item_category}
-                                      title={order.item_category}
-                                    />
+                                    <span title={order.item_category}>
+                                      <CategoryIcon
+                                        size={16}
+                                        className={styles.categoryIcon}
+                                        role="img"
+                                        aria-label={order.item_category}
+                                      />
+                                    </span>
                                   );
                                 })()
                               : null}
@@ -806,22 +873,36 @@ export default function VentasML() {
                             {formatMoney(order.total_amount, order.currency_id)}
                           </td>
                           <td className={styles.numeric}>
-                            {order.metrics_state && order.metrics_state !== 'ok' ? (
-                              <RecalculatingBadge state={order.metrics_state} />
-                            ) : (
-                              <button
-                                type="button"
-                                className={styles.netoButton}
-                                aria-label="Ver desglose de costos"
-                                title={netoTooltip(order.neto_depositado, order.retenciones_recuperables)}
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  openDrawer(order.order_id);
-                                }}
-                              >
-                                {formatMoney(order.neto, order.currency_id)}
-                              </button>
-                            )}
+                            {(() => {
+                              const isRecalc = order.metrics_state && order.metrics_state !== 'ok';
+                              // PR14 review fix P2: same discipline as the
+                              // group row -- the button is the keyboard
+                              // affordance and must survive every
+                              // metrics_state, carrying the badge as its
+                              // content.
+                              return (
+                                <button
+                                  type="button"
+                                  className={styles.netoButton}
+                                  aria-label="Ver desglose de costos"
+                                  title={
+                                    isRecalc
+                                      ? undefined
+                                      : netoTooltip(order.neto_depositado, order.retenciones_recuperables)
+                                  }
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    openDrawer(order.order_id);
+                                  }}
+                                >
+                                  {isRecalc ? (
+                                    <RecalculatingBadge state={order.metrics_state} />
+                                  ) : (
+                                    formatMoney(order.neto, order.currency_id)
+                                  )}
+                                </button>
+                              );
+                            })()}
                           </td>
                           <td className={styles.numeric}>
                             {order.metrics_state && order.metrics_state !== 'ok' ? (

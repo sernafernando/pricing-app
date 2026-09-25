@@ -1,3 +1,7 @@
+.iconWrapper {
+  display: inline-flex;
+}
+
 .error {
   color: var(--error);
 }

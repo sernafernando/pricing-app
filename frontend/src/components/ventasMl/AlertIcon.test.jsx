@@ -32,6 +32,17 @@ describe('AlertIcon', () => {
     expect(container.querySelector('[title="Margen negativo detectado"]')).toBeInTheDocument();
   });
 
+  // A `title` ATTRIBUTE on an `<svg>` element renders no native tooltip in
+  // browsers — only a `<title>` CHILD element does, or a `title` attribute
+  // on an ordinary (non-SVG) host element. The real, hoverable tooltip must
+  // live on a wrapping element, never on the svg attribute alone.
+  it('puts the hoverable title on a real (non-svg) wrapping element, not only on the svg attribute', () => {
+    const { container } = render(<AlertIcon level="error" reason="Margen negativo detectado" />);
+    const titled = container.querySelector('[title="Margen negativo detectado"]');
+    expect(titled).toBeInTheDocument();
+    expect(titled.tagName.toLowerCase()).not.toBe('svg');
+  });
+
   it('renders nothing for an unrecognised level, failing safe instead of throwing', () => {
     const { container } = render(<AlertIcon level="something_new" />);
     expect(container).toBeEmptyDOMElement();

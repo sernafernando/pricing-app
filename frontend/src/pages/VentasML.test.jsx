@@ -1104,6 +1104,31 @@ describe('PR14.T5 — category icon and alert icon on each row', () => {
   });
 });
 
+// PR14 review fix P3: `title` on an `<svg>` renders no browser tooltip — it
+// needs a real (non-svg) hoverable host, and `reason` was never actually
+// passed to AlertIcon from this page. Category name and alert reason must
+// be genuinely discoverable on hover.
+describe('PR14 review fix P3 — category and alert tooltips are on a real host element, not the svg attribute', () => {
+  it('puts the category tooltip on a wrapping element, not the svg attribute', async () => {
+    mockSalesList([{ ...PAID_SALE, item_category: 'NOTEBOOK' }]);
+    await renderWithRouter(<VentasML />);
+
+    const titled = await screen.findByTitle('NOTEBOOK');
+    expect(titled.tagName.toLowerCase()).not.toBe('svg');
+  });
+
+  it('passes a real alert reason through to AlertIcon, derived from the order that actually failed metrics', async () => {
+    mockSalesList([{ ...PAID_SALE, alert_level: 'error', metrics_state: 'failed', neto: 82.5 }]);
+    await renderWithRouter(<VentasML />);
+
+    const icon = await screen.findByRole('img', { name: 'Alerta' });
+    const titled = icon.closest('[title]');
+    expect(titled).not.toBeNull();
+    expect(titled.getAttribute('title')).toBeTruthy();
+    expect(titled.tagName.toLowerCase()).not.toBe('svg');
+  });
+});
+
 describe('PR14.T9/T10 — recalculating badge never shows a stale number', () => {
   it('shows "Recalculando…" instead of the amount when metrics_state="recalculating"', async () => {
     mockSalesList([{ ...PAID_SALE, neto: 82.5, total_gauss: 70, metrics_state: 'recalculating' }]);
@@ -1149,5 +1174,68 @@ describe('PR14.T9/T10 — recalculating badge never shows a stale number', () =>
     await renderWithRouter(<VentasML />);
 
     expect(await screen.findAllByText(/Recalculando/)).toHaveLength(2);
+  });
+});
+
+// PR14 post-review fix P1: `city`/`province`/`shipping_substatus` and
+// `markup` were only ever rendered inside the pack-member block, which
+// never renders for a lone sale (`isPack = orders.length > 1` is false).
+// Since MOST sales are lone sales, this data was invisible on most rows.
+// The group row must render the same subline/markup, sourced from
+// `orders[0]`, when the group is NOT a pack.
+describe('PR14 review fix P1 — lone-sale subline and markup are visible', () => {
+  it('shows the city/province/substatus subline on a lone sale, not only inside an opened pack', async () => {
+    mockSalesList([
+      { ...PAID_SALE, city: 'Rosario', province: 'Santa Fe', shipping_substatus: 'in_hub' },
+    ]);
+    await renderWithRouter(<VentasML />);
+
+    const row = (await screen.findByText('comprador1')).closest('tr');
+    expect(within(row).getByText('Rosario, Santa Fe · in_hub')).toBeInTheDocument();
+  });
+
+  it('shows the markup percentage on a lone sale, not only inside an opened pack', async () => {
+    mockSalesList([{ ...PAID_SALE, neto: 82.5, total_gauss: 70, metrics_state: 'ok', markup: 12.3 }]);
+    await renderWithRouter(<VentasML />);
+
+    const row = (await screen.findByText('comprador1')).closest('tr');
+    expect(within(row).getByText('12,3%', { exact: false })).toBeInTheDocument();
+  });
+
+  it('renders no subline at all when city, province and substatus are all null — no fabricated dashes', async () => {
+    mockSalesList([{ ...PAID_SALE, city: null, province: null, shipping_substatus: null }]);
+    await renderWithRouter(<VentasML />);
+
+    const row = (await screen.findByText('comprador1')).closest('tr');
+    expect(row.textContent).not.toMatch(/·/);
+  });
+});
+
+// PR14 post-review fix P2: the Neto cell's own comment says the button IS
+// the keyboard affordance for the detail panel, but the button was REPLACED
+// by RecalculatingBadge whenever metrics_state !== 'ok' — the exact rows
+// (recalculating, failed, pending) an operator most needs to reach by
+// keyboard. The button must survive, carrying the badge as its content.
+describe('PR14 review fix P2 — the Neto button survives a non-ok metrics_state', () => {
+  it('keeps the Neto button (with the badge inside) on the group row when metrics_state="failed"', async () => {
+    mockSalesList([{ ...PAID_SALE, metrics_state: 'failed' }]);
+    await renderWithRouter(<VentasML />);
+
+    const row = (await screen.findByText('comprador1')).closest('tr');
+    const netoButton = within(row).getByRole('button', { name: 'Ver desglose de costos' });
+    expect(within(netoButton).getByText(/No se pudo calcular/)).toBeInTheDocument();
+  });
+
+  it('keeps the Neto button (with the badge inside) on a pack member row when metrics_state="recalculating"', async () => {
+    const user = userEvent.setup();
+    const a1 = { ...PAID_SALE, order_id: 4401, pack_id: 9401, metrics_state: 'ok' };
+    const a2 = { ...PAID_SALE, order_id: 4402, pack_id: 9401, metrics_state: 'recalculating' };
+    mockSalesList([{ ...packOf([a1, a2], 9401), neto: null }]);
+    await renderWithRouter(<VentasML />);
+
+    await user.click(await screen.findByRole('button', { name: /Pack 9401/ }));
+    const memberRow = (await screen.findByText('4402')).closest('tr');
+    const netoButton = within(memberRow).getByRole('button', { name: 'Ver desglose de costos' });
+    expect(within(netoButton).getByText(/Recalculando/)).toBeInTheDocument();
   });
 });

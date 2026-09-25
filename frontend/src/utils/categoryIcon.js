@@ -48,7 +48,7 @@ const CATEGORY_ICON_RULES = [
   [/CELULAR|TABLET|EBOOK|SMARTPHONE/, Smartphone],
   [/ALMACENAMIENTO/, HardDrive],
   [/MUEBLE|HOGAR/, Home],
-  [/MONITOR|TV/, Monitor],
+  [/MONITOR|\bTV\b/, Monitor],
   [/MEMORIA/, MemoryStick],
   [/ELECTRICIDAD/, Zap],
   [/MOTHER/, CircuitBoard],

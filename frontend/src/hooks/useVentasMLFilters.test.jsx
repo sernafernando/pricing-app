@@ -92,7 +92,6 @@ describe('setSearchQuery', () => {
     act(() => result.current.setSearchQuery(''));
 
     expect(result.current.searchQuery).toBe('');
-    expect(result.current.hasSearchParam).toBe(false);
   });
 
   it('preserves the `orden` param when the search query changes', () => {
