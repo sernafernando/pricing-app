@@ -56,7 +56,7 @@
   border-radius: var(--radius-base);
   background: var(--bg-tertiary);
   color: var(--brand-primary);
-  font-size: 10px;
+  font-size: var(--font-xs);
   font-weight: var(--font-semibold);
 }
 

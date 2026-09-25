@@ -80,4 +80,17 @@ describe('ProductCell', () => {
     render(<ProductCell items={[{ item_id: 'MLA1', seller_sku: 'EPS', title: longTitle, quantity: 1 }]} />);
     expect(screen.getByTitle(longTitle)).toBeInTheDocument();
   });
+  it('announces the category to assistive tech, and stays silent when there is none', () => {
+    // Regression: the icon once carried `aria-hidden` AND `role="img"
+    // aria-label` at the same time. `aria-hidden` removes the node from the
+    // accessibility tree, so the label was never announced -- the separate
+    // Categoria column it replaced HAD been accessible.
+    const { rerender } = render(
+      <ProductCell items={[{ item_id: 'MLA1', title: 'Impresora', quantity: 1 }]} category="IMPRESORAS" />,
+    );
+    expect(screen.getByRole('img', { name: 'IMPRESORAS' })).toBeInTheDocument();
+
+    rerender(<ProductCell items={[{ item_id: 'MLA1', title: 'Impresora', quantity: 1 }]} />);
+    expect(screen.queryByRole('img')).toBeNull();
+  });
 });

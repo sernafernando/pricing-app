@@ -35,7 +35,7 @@ export default function ProductCell({ items, category }) {
             disappear just because the item list hasn't arrived yet. */}
         <div className={styles.thumbnail} title={category || undefined}>
           {category ? (
-            <CategoryIcon size={16} aria-hidden="true" role="img" aria-label={category} />
+            <CategoryIcon size={16} role="img" aria-label={category} />
           ) : (
             <Package size={16} aria-hidden="true" />
           )}
@@ -53,13 +53,19 @@ export default function ProductCell({ items, category }) {
 
   const metaParts = [];
   if (primary.seller_sku) metaParts.push(`SKU ${primary.seller_sku}`);
-  metaParts.push(primary.item_id);
+  if (primary.item_id) metaParts.push(primary.item_id);
   if (primary.quantity != null) metaParts.push(`x${primary.quantity}`);
 
   return (
     <div className={styles.cell}>
       <div className={styles.thumbnail} title={category || undefined}>
-        <CategoryIcon size={16} aria-hidden="true" role="img" aria-label={category || 'Sin categoría'} />
+        {category ? (
+          <CategoryIcon size={16} role="img" aria-label={category} />
+        ) : (
+          // No category to announce: the icon is decorative here, so it stays
+          // out of the accessibility tree instead of reading "Sin categoría".
+          <CategoryIcon size={16} aria-hidden="true" />
+        )}
       </div>
       <div className={styles.info}>
         <span className={`${styles.title} ${!primary.title ? styles.titleEmpty : ''}`} title={title}>
