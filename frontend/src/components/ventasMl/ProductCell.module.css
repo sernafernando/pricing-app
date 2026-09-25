@@ -1,0 +1,66 @@
+.cell {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--spacing-sm);
+  min-width: 0;
+}
+
+.thumbnail {
+  flex-shrink: 0;
+  width: 32px;
+  height: 32px;
+  border-radius: var(--radius-base);
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-primary);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-tertiary);
+}
+
+.info {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.title {
+  font-weight: var(--font-medium);
+  color: var(--text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 240px;
+}
+
+.titleEmpty {
+  font-style: italic;
+  color: var(--text-tertiary);
+}
+
+.meta {
+  font-family: var(--font-mono);
+  font-size: var(--font-xs);
+  color: var(--text-tertiary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 240px;
+}
+
+.extraBadge {
+  display: inline-block;
+  align-self: flex-start;
+  padding: 1px var(--spacing-xs);
+  border-radius: var(--radius-base);
+  background: var(--bg-tertiary);
+  color: var(--brand-primary);
+  font-size: var(--font-xs);
+  font-weight: var(--font-semibold);
+}
+
+.emptyText {
+  color: var(--text-tertiary);
+  font-size: var(--font-xs);
+}

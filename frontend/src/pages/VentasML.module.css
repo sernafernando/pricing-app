@@ -220,15 +220,22 @@
   white-space: nowrap;
 }
 
-.colAlerta,
-.colCategoria {
+.colAlerta {
   width: 1%;
   white-space: nowrap;
   text-align: center;
 }
 
-.categoryIcon {
-  color: var(--text-tertiary);
+/* Product cell column: wide enough for a title + meta line, but never
+   forced open — `min-width: 0` on the flex children inside `ProductCell`
+   is what makes the ellipsis truncation actually work in a table cell,
+   and this column shrinks together with the rest when the side panel
+   narrows the table (`.tableCard` already handles horizontal overflow). */
+.colProducto {
+  /* `width` is a hint the browser honours under `table-layout: auto`;
+     `max-width` on a cell is NOT, so the actual truncation lives on
+     `.title`/`.meta` inside ProductCell, not here. */
+  width: 260px;
 }
 
 .markup {
