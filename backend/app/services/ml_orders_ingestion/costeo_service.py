@@ -30,7 +30,7 @@ from __future__ import annotations
 import logging
 from dataclasses import dataclass
 from decimal import Decimal, InvalidOperation
-from typing import Any, Dict, Optional, Sequence
+from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 from sqlalchemy.dialects import postgresql, sqlite
 from sqlalchemy.orm import Session
@@ -38,6 +38,7 @@ from sqlalchemy.orm import Session
 from app.models.ml_order_item_costo import MlOrderItemCosto
 from app.models.producto import ProductoERP
 from app.models.publicacion_ml import PublicacionML
+from app.models.tb_item_association import TbItemAssociation
 from app.services.ml_orders_ingestion.mapper import OrderItemOpsDTO
 from app.services.tn_publish_core.resolve import (
     latest_usd_rate_with_date,
@@ -69,6 +70,12 @@ FUENTE_BACKFILL_SKU = "hist_sku"
 # components, resolved from `tb_item_association`. Stamped distinctly so a
 # reader can always tell a SUMMED cost from a READ one.
 FUENTE_BACKFILL_COMBO = "hist_combo"
+
+# Live-path counterpart of `FUENTE_BACKFILL_COMBO` -- a combo costed by
+# summing its CURRENT components' `ProductoERP.costo` (never a dated
+# history row; the dated path stays exclusive to the backfill per the
+# module docstring above).
+FUENTE_COMBO = "combo"
 
 
 @dataclass(frozen=True)
@@ -156,72 +163,241 @@ def _productos_por_item(db: Session, items: Sequence[OrderItemOpsDTO]) -> Dict[i
     return resueltos
 
 
+def componentes_por_combo(db: Session, erp_ids: Sequence[int]) -> Dict[int, List[Tuple[int, Decimal]]]:
+    """`{combo_item_id: [(component_item_id, qty), ...]}` for this batch of
+    ERP item ids, in ONE query -- never one per item (same bulk rule
+    `_productos_por_item` documents).
+
+    SHARED between the backfill (`app/scripts/backfill_costo_congelado.py`)
+    and the live path below -- both need the exact same "what is this
+    combo made of" answer, including the same refusal to sum across
+    companies. Moved here (rather than duplicated) so the day this bill-of-
+    materials rule changes, it changes in ONE place for both callers.
+
+    `tb_item_association` is the ERP's bill of materials: `item_id` is the
+    parent, `item_id_1` the component, `iasso_qty` how many of it go in.
+    `iasso_qty > 0` is what `prearmado.buscar_combos` already uses to
+    decide "this is a combo", and this follows that definition rather than
+    inventing a second one."""
+    if not erp_ids:
+        return {}
+    rows = (
+        db.query(
+            TbItemAssociation.item_id,
+            TbItemAssociation.item_id_1,
+            TbItemAssociation.iasso_qty,
+            TbItemAssociation.comp_id,
+        )
+        .filter(
+            TbItemAssociation.item_id.in_(sorted(set(erp_ids))),
+            TbItemAssociation.iasso_qty > 0,
+        )
+        .all()
+    )
+    por_combo: Dict[int, List[Tuple[int, Decimal]]] = {}
+    empresas_por_combo: Dict[int, set] = {}
+    for combo_id, componente_id, qty, comp_id in rows:
+        if componente_id is None:
+            continue
+        por_combo.setdefault(combo_id, []).append((componente_id, Decimal(str(qty))))
+        empresas_por_combo.setdefault(combo_id, set()).add(comp_id)
+
+    # `comp_id` is the ERP's COMPANY, and it is part of this table's key --
+    # see `_componentes_por_combo`'s former docstring (now here) for why
+    # summing across companies is refused rather than silently attempted.
+    # Measured: production holds exactly ONE `comp_id` today, so this never
+    # fires; it exists so a second company SAYS SO instead of quietly
+    # summing both.
+    for combo_id, empresas in empresas_por_combo.items():
+        if len(empresas) > 1:
+            logger.warning(
+                "costeo_service.componentes_por_combo: combo item_id=%s has components in %s companies "
+                "(comp_id=%s) -- refusing to sum across companies",
+                combo_id,
+                len(empresas),
+                sorted(empresas),
+            )
+            por_combo.pop(combo_id, None)
+    return por_combo
+
+
+def _resolve_usd_rate(db: Session, usd_rate_cache: Dict[str, Any]) -> Optional[Tuple[Decimal, Any]]:
+    """The single `latest_usd_rate_with_date` lookup for this whole
+    `congelar()` call, memoized in `usd_rate_cache` -- called from BOTH the
+    plain path and the combo path below so a combo with several USD
+    components never resolves the rate more than once (design: FX
+    resolved once per batch, never per item, never per component)."""
+    if "resolved" not in usd_rate_cache:
+        # No try/except: `latest_usd_rate_with_date` RETURNS None when
+        # there is no usable rate, it does not raise. Catching
+        # `MissingExchangeRateError` here suggested a guarantee that is
+        # not there, and the `is None` branch below already covers it.
+        usd_rate_cache["resolved"] = latest_usd_rate_with_date(db)
+    rate_result = usd_rate_cache["resolved"]
+    if rate_result is None:
+        return None
+    rate_value, rate_date = rate_result
+    return Decimal(str(rate_value)), rate_date
+
+
+def _convertir_a_ars(
+    db: Session,
+    costo_origen: Decimal,
+    moneda: str,
+    producto_item_id: int,
+    usd_rate_cache: Dict[str, Any],
+) -> Optional[Tuple[Decimal, Optional[Decimal], Optional[Any]]]:
+    """`(costo_unitario_ars, tipo_cambio, tipo_cambio_fecha)` or `None` when
+    the currency is USD with no usable rate, or is neither ARS nor USD.
+    Shared by the plain single-product path and the combo-sum path so a
+    component and a stand-alone product are never converted by two
+    different rules."""
+    if moneda == "USD":
+        rate = _resolve_usd_rate(db, usd_rate_cache)
+        if rate is None:
+            # No usable TipoCambio row: a USD cost cannot be converted, so
+            # the whole snapshot is unknown -- never send the unconverted
+            # USD figure through as if it were ARS.
+            return None
+        tipo_cambio, tipo_cambio_fecha = rate
+        return costo_origen * tipo_cambio, tipo_cambio, tipo_cambio_fecha
+    if moneda != "ARS":
+        logger.warning(
+            "costeo_service: unrecognized moneda_costo=%r for producto_item_id=%s",
+            moneda,
+            producto_item_id,
+        )
+        return None
+    return costo_origen, None, None
+
+
+def _moneda_de(producto: ProductoERP) -> str:
+    moneda = (producto.moneda_costo.value if producto.moneda_costo is not None else "ARS") or "ARS"
+    return str(moneda).upper()
+
+
+def _resolver_combo_vivo(
+    db: Session,
+    componentes: Sequence[Tuple[int, Decimal]],
+    productos_componentes: Dict[int, ProductoERP],
+    usd_rate_cache: Dict[str, Any],
+) -> Optional[Tuple[Decimal, Optional[Decimal], Optional[Any]]]:
+    """A pack/combo/kit's cost, live: the sum of its CURRENT components'
+    `ProductoERP.costo`, each converted to ARS, times how many go in.
+
+    ALL OR NOTHING, same discipline the backfill's `_resolver_combo`
+    documents: one component that does not resolve to a `ProductoERP`, or
+    whose own `costo` is unknown, or whose currency cannot be converted,
+    sinks the WHOLE combo -- never a partial sum.
+
+    NO RECURSION: a component that is itself a combo (no `costo` of its
+    own) is NOT resolved by summing ITS components -- it is treated the
+    same as any other component with an unknown cost, and the whole combo
+    fails closed. The backfill's `_resolver_combo` has the identical gap
+    (it looks up a component's dated history row directly, never recurses
+    into `_componentes_por_combo` for it); this mirrors that rather than
+    silently doing more than the backfill's already-shipped behaviour."""
+    total = Decimal("0")
+    tipo_cambio: Optional[Decimal] = None
+    tipo_cambio_fecha = None
+
+    for componente_id, qty in componentes:
+        componente = productos_componentes.get(componente_id)
+        if componente is None or componente.costo is None:
+            return None
+        try:
+            costo_componente = Decimal(str(componente.costo))
+        except InvalidOperation:
+            return None
+        moneda_componente = _moneda_de(componente)
+        convertido = _convertir_a_ars(db, costo_componente, moneda_componente, componente.item_id, usd_rate_cache)
+        if convertido is None:
+            return None
+        valor_ars, tc, tc_fecha = convertido
+        total += valor_ars * qty
+        if tc is not None:
+            tipo_cambio = tc
+            tipo_cambio_fecha = tc_fecha
+
+    return total, tipo_cambio, tipo_cambio_fecha
+
+
 def _resolve_cost(
     db: Session,
     resuelto: Optional[tuple[ProductoERP, str]],
     usd_rate_cache: Dict[str, Any],
+    componentes_por_combo: Optional[Dict[int, List[Tuple[int, Decimal]]]] = None,
+    productos_componentes: Optional[Dict[int, ProductoERP]] = None,
 ) -> Optional[_ResolvedCost]:
     """Resolves one item's cost snapshot, or `None` on any unknown step:
-    no linked product, missing `costo`, missing `iva`, or (for a USD-costed
-    product) no exchange rate available. `usd_rate_cache` is populated at
-    most once per `congelar()` call (design: FX resolved once per batch,
-    never per item)."""
+    no linked product, missing `costo` (and no costable combo composition),
+    missing `iva`, or (for a USD-costed product/component) no exchange rate
+    available. `usd_rate_cache` is populated at most once per `congelar()`
+    call (design: FX resolved once per batch, never per item)."""
     if resuelto is None:
         return None
     producto, fuente = resuelto
 
-    if producto.costo is None:
-        return None
     if producto.iva is None:
         return None
-
     try:
-        costo_origen = Decimal(str(producto.costo))
         iva_pct = Decimal(str(producto.iva))
     except InvalidOperation:
-        logger.warning("costeo_service: unparseable costo/iva for producto_item_id=%s", producto.item_id)
+        logger.warning("costeo_service: unparseable iva for producto_item_id=%s", producto.item_id)
         return None
 
-    moneda = (producto.moneda_costo.value if producto.moneda_costo is not None else "ARS") or "ARS"
-    moneda = str(moneda).upper()
-
-    tipo_cambio: Optional[Decimal] = None
-    tipo_cambio_fecha = None
-    costo_unitario_ars = costo_origen
-
-    if moneda == "USD":
-        if "resolved" not in usd_rate_cache:
-            # No try/except: `latest_usd_rate_with_date` RETURNS None when
-            # there is no usable rate, it does not raise. Catching
-            # `MissingExchangeRateError` here suggested a guarantee that is
-            # not there, and the `is None` branch below already covers it.
-            usd_rate_cache["resolved"] = latest_usd_rate_with_date(db)
-        rate_result = usd_rate_cache["resolved"]
-        if rate_result is None:
-            # No usable TipoCambio row: a USD cost cannot be converted, so
-            # the whole snapshot is unknown for this item -- never send the
-            # unconverted USD figure through as if it were ARS.
+    if producto.costo is not None:
+        # The product's OWN cost comes first, even if it also happens to
+        # have `tb_item_association` rows -- a product the ERP actually
+        # prices is costed with that figure, never with a derived sum
+        # (same order-of-preference the backfill's `_resolve_backfill_cost`
+        # documents).
+        try:
+            costo_origen = Decimal(str(producto.costo))
+        except InvalidOperation:
+            logger.warning("costeo_service: unparseable costo for producto_item_id=%s", producto.item_id)
             return None
-        rate_value, rate_date = rate_result
-        tipo_cambio = Decimal(str(rate_value))
-        tipo_cambio_fecha = rate_date
-        costo_unitario_ars = costo_origen * tipo_cambio
-    elif moneda != "ARS":
-        logger.warning(
-            "costeo_service: unrecognized moneda_costo=%r for producto_item_id=%s",
-            moneda,
-            producto.item_id,
+        moneda = _moneda_de(producto)
+        convertido = _convertir_a_ars(db, costo_origen, moneda, producto.item_id, usd_rate_cache)
+        if convertido is None:
+            return None
+        costo_unitario_ars, tipo_cambio, tipo_cambio_fecha = convertido
+        return _ResolvedCost(
+            costo_origen=costo_origen,
+            moneda=moneda,
+            tipo_cambio=tipo_cambio,
+            tipo_cambio_fecha=tipo_cambio_fecha,
+            costo_unitario_ars=costo_unitario_ars,
+            iva_pct=iva_pct,
+            fuente=fuente,
+            producto_item_id=producto.item_id,
         )
+
+    # No cost of its own -- the only remaining honest answer is "unknown",
+    # unless the ERP knows this item's bill of materials (design item: a
+    # pack/combo/kit has no purchase cost because nobody buys a pack).
+    componentes = (componentes_por_combo or {}).get(producto.item_id)
+    if not componentes:
+        return None
+
+    resuelto_combo = _resolver_combo_vivo(db, componentes, productos_componentes or {}, usd_rate_cache)
+    if resuelto_combo is None:
+        return None
+    total_ars, tipo_cambio, tipo_cambio_fecha = resuelto_combo
+    if total_ars <= 0:
         return None
 
     return _ResolvedCost(
-        costo_origen=costo_origen,
-        moneda=moneda,
+        # Already summed IN ARS: a combo can mix an ARS component with a
+        # USD one, so there is no single source currency to report --
+        # same reasoning the backfill's `_resolver_combo` documents.
+        costo_origen=total_ars,
+        moneda="ARS",
         tipo_cambio=tipo_cambio,
         tipo_cambio_fecha=tipo_cambio_fecha,
-        costo_unitario_ars=costo_unitario_ars,
+        costo_unitario_ars=total_ars,
         iva_pct=iva_pct,
-        fuente=fuente,
+        fuente=FUENTE_COMBO,
         producto_item_id=producto.item_id,
     )
 
@@ -254,6 +430,21 @@ def congelar(db: Session, order_id: int, items: Sequence[OrderItemOpsDTO]) -> No
     usd_rate_cache: Dict[str, Any] = {}
     productos_por_indice = _productos_por_item(db, items)
 
+    # Combo composition for the whole batch, in ONE query -- only for
+    # products that have no cost of their own, since a product the ERP
+    # actually prices is never treated as a combo (see `_resolve_cost`).
+    # Component products are fetched in a SECOND bulk query, same
+    # discipline `run_backfill` follows: never one round-trip per combo.
+    erp_ids_sin_costo = {producto.item_id for producto, _ in productos_por_indice.values() if producto.costo is None}
+    combos = componentes_por_combo(db, erp_ids_sin_costo)
+    componente_ids = {componente_id for componentes in combos.values() for componente_id, _ in componentes}
+    productos_componentes: Dict[int, ProductoERP] = {}
+    if componente_ids:
+        productos_componentes = {
+            producto.item_id: producto
+            for producto in db.query(ProductoERP).filter(ProductoERP.item_id.in_(sorted(componente_ids)))
+        }
+
     # Existence guard, dialect-independent, resolved in ONE query before the
     # loop rather than one per item.
     #
@@ -282,7 +473,7 @@ def congelar(db: Session, order_id: int, items: Sequence[OrderItemOpsDTO]) -> No
             # off it later) -- an item with no price is unknown, not zero.
             continue
 
-        resolved = _resolve_cost(db, productos_por_indice.get(indice), usd_rate_cache)
+        resolved = _resolve_cost(db, productos_por_indice.get(indice), usd_rate_cache, combos, productos_componentes)
         if resolved is None:
             continue
 
