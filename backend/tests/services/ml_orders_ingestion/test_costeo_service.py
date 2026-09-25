@@ -338,9 +338,11 @@ class TestDialectAwareInsert:
 
 class TestComboLiveCosting:
     """A pack/combo/kit has no purchase cost of its own -- nobody buys a
-    pack, so `ProductoERP.costo` is NULL for it forever. Today `congelar()`
-    reads that NULL and skips the item, which is the dominant reason (3.470
-    of 4.249 measured) the live path leaves a sale without a frozen cost.
+    pack, so the ERP never carries one for it. It does NOT arrive as
+    `NULL`, though: `erp_sync` reads the cost with a `0` default, so it
+    lands as `0.0` (see `tiene_costo_propio`). That is the dominant reason
+    (3.470 of 4.249 measured) the live path leaves a sale uncosted -- and,
+    before this fix, froze a cost of zero as if the goods were free.
     """
 
     def test_a_combo_with_costed_components_freezes_a_summed_cost(self, db):

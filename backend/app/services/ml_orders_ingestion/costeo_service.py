@@ -19,8 +19,15 @@ with a fallback when no publication links that MLA:
 
     item.seller_sku -> ProductoERP.codigo
 
-Absence at any step, or a NULL `costo`/`iva` once a product IS found, means
-UNKNOWN -- no row is written for that item. `Decimal(str(...))` conversion
+Absence at any step means UNKNOWN -- no row is written for that item. So
+does a cost that is not a REAL cost once a product IS found: `NULL` OR
+`<= 0`, because `erp_sync` reads the cost with a `0` default and never
+writes `NULL` there (see `tiene_costo_propio`). A product with no cost row
+in the ERP -- a pack/combo/kit is the dominant case -- arrives as `0.0`,
+and freezing that zero would report the goods as free. Such a product is
+costed from its components instead when the ERP knows its bill of
+materials (`componentes_por_combo`), and left uncosted when it does not.
+`Decimal(str(...))` conversion
 happens HERE, at the first read of `ProductoERP.costo`/`.iva` (both `Float`
 columns) -- never later in the chain (money-path Decimal discipline).
 """
@@ -230,9 +237,11 @@ def componentes_por_combo(db: Session, erp_ids: Sequence[int]) -> Dict[int, List
         por_combo.setdefault(combo_id, []).append((componente_id, Decimal(str(qty))))
         empresas_por_combo.setdefault(combo_id, set()).add(comp_id)
 
-    # `comp_id` is the ERP's COMPANY, and it is part of this table's key --
-    # see `_componentes_por_combo`'s former docstring (now here) for why
-    # summing across companies is refused rather than silently attempted.
+    # `comp_id` is the ERP's COMPANY, and it is part of this table's key.
+    # Summing across companies is REFUSED rather than silently attempted:
+    # `ProductoERP` carries no company of its own, so there is no way to
+    # tell which company's components belong to the combo being costed --
+    # a sum over both would be a number that corresponds to neither.
     # Measured: production holds exactly ONE `comp_id` today, so this never
     # fires; it exists so a second company SAYS SO instead of quietly
     # summing both.
