@@ -255,9 +255,13 @@
   background: var(--bg-hover);
 }
 
+/* No `white-space: nowrap`. A 16-digit order id ("Pack 2000014816536209")
+   is wider than 8% of a table that has the side panel open, and under
+   `table-layout: fixed` the content does NOT widen the cell -- it spills
+   over the Fecha column. Letting the id wrap keeps every digit visible,
+   which is the point: compress, never hide. */
 .colOrden {
   width: 8%;
-  white-space: nowrap;
 }
 
 .colAlerta {
@@ -330,10 +334,15 @@
 .orden {
   font-family: var(--font-mono);
   font-size: var(--font-sm);
+  /* A long run of digits has no break opportunity of its own, so without
+     this it overflows the fixed column instead of wrapping. */
+  overflow-wrap: anywhere;
 }
 
+/* No `white-space: nowrap` either: "20/08/2026, 10:00" does not fit 8% of
+   a narrowed table. The comma is a natural break point, so the time drops
+   onto a second line rather than spilling into the next column. */
 .fecha {
-  white-space: nowrap;
   color: var(--text-secondary);
 }
 
@@ -456,6 +465,7 @@
 
 .memberOrden {
   padding-left: 22px;
+  overflow-wrap: anywhere;
   font-family: var(--font-mono);
   font-size: var(--font-xs);
   color: var(--text-secondary);
