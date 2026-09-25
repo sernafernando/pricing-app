@@ -571,3 +571,106 @@ class TestPR10DoesNotIntroduceNPlusOne:
         assert counter.matching("ml_order_item_costos") <= 1
         assert counter.matching("ml_order_metrics") <= 2  # read_stored_metrics + metrics_state_for_orders
         assert counter.matching("ml_payments_ops") <= 2  # coupon_amount_by_order + neto_desglose
+        assert counter.matching("ml_order_items_ops") <= 1  # items_by_order
+
+
+class TestItemsAdditiveField:
+    """ventas-ml-producto-listado-pr10b: `items` on `SaleListItem`, reusing
+    the SAME `OrderItemOpsSummary` shape `GET /orders/{id}` already exposes
+    (title/seller_sku/item_id/variation_id/quantity/unit_price) -- an order
+    can carry several items, so a flat `title`/`seller_sku` pair on the row
+    would silently pick one and lie about the rest."""
+
+    def test_single_item_order_exposes_its_item(self, db, client, admin_auth_headers, rol_admin):
+        _grant_ml_ops_ver(db, rol_admin)
+        order_id = 95080
+        _seed_order(db, order_id, date_created=datetime(2026, 9, 1, tzinfo=timezone.utc))
+        db.add(
+            MlOrderItemOps(
+                order_id=order_id,
+                item_id="MLA1000",
+                seller_sku="SKU-A",
+                title="Producto A",
+                quantity=2,
+                unit_price=Decimal("50.00"),
+            )
+        )
+        db.commit()
+
+        body = client.get("/api/ml-ventas-ops/sales", headers=admin_auth_headers).json()
+
+        order = _group_holding(body, order_id)["orders"][0]
+        assert len(order["items"]) == 1
+        item = order["items"][0]
+        assert item["item_id"] == "MLA1000"
+        assert item["seller_sku"] == "SKU-A"
+        assert item["title"] == "Producto A"
+        assert item["quantity"] == 2
+        assert item["unit_price"] == pytest.approx(50.00)
+
+    def test_multi_item_order_returns_every_item(self, db, client, admin_auth_headers, rol_admin):
+        _grant_ml_ops_ver(db, rol_admin)
+        order_id = 95081
+        _seed_order(db, order_id, date_created=datetime(2026, 9, 1, tzinfo=timezone.utc))
+        db.add(MlOrderItemOps(order_id=order_id, item_id="MLA2000", seller_sku="SKU-B1", title="B1", quantity=1))
+        db.add(MlOrderItemOps(order_id=order_id, item_id="MLA2001", seller_sku="SKU-B2", title="B2", quantity=3))
+        db.commit()
+
+        body = client.get("/api/ml-ventas-ops/sales", headers=admin_auth_headers).json()
+
+        order = _group_holding(body, order_id)["orders"][0]
+        assert len(order["items"]) == 2
+        item_ids = {item["item_id"] for item in order["items"]}
+        assert item_ids == {"MLA2000", "MLA2001"}
+
+    def test_order_with_no_items_returns_empty_list_not_500(self, db, client, admin_auth_headers, rol_admin):
+        _grant_ml_ops_ver(db, rol_admin)
+        order_id = 95082
+        _seed_order(db, order_id, date_created=datetime(2026, 9, 1, tzinfo=timezone.utc))
+        db.commit()
+
+        resp = client.get("/api/ml-ventas-ops/sales", headers=admin_auth_headers)
+
+        assert resp.status_code == 200
+        order = _group_holding(resp.json(), order_id)["orders"][0]
+        assert order["items"] == []
+
+    def test_two_orders_on_the_same_page_never_leak_items_into_each_other(
+        self, db, client, admin_auth_headers, rol_admin
+    ):
+        """The bulk lookup groups in Python -- a wrong grouping key (e.g.
+        the first row's order_id) would silently merge every order's items
+        under one bucket without any error, so an order-scoped assertion
+        with TWO orders on the page is the only way to catch that."""
+        _grant_ml_ops_ver(db, rol_admin)
+        when = datetime(2026, 9, 1, tzinfo=timezone.utc)
+        order_a, order_b = 95083, 95084
+        _seed_order(db, order_a, date_created=when)
+        _seed_order(db, order_b, date_created=when)
+        db.add(MlOrderItemOps(order_id=order_a, item_id="MLA-A", seller_sku="SKU-A", quantity=1))
+        db.add(MlOrderItemOps(order_id=order_b, item_id="MLA-B", seller_sku="SKU-B", quantity=1))
+        db.commit()
+
+        body = client.get("/api/ml-ventas-ops/sales", headers=admin_auth_headers).json()
+
+        items_a = _group_holding(body, order_a)["orders"][0]["items"]
+        items_b = _group_holding(body, order_b)["orders"][0]["items"]
+        assert [i["item_id"] for i in items_a] == ["MLA-A"]
+        assert [i["item_id"] for i in items_b] == ["MLA-B"]
+
+    def test_items_stay_within_one_bulk_query_for_the_page(
+        self, db, client, admin_auth_headers, rol_admin, query_counter
+    ):
+        _grant_ml_ops_ver(db, rol_admin)
+        when = datetime(2026, 9, 1, tzinfo=timezone.utc)
+        for i in range(5):
+            order_id = 95090 + i
+            _seed_order(db, order_id, date_created=when)
+            db.add(MlOrderItemOps(order_id=order_id, item_id=f"MLA30{i}", seller_sku=f"SKU-{i}", quantity=1))
+        db.commit()
+
+        with query_counter() as counter:
+            resp = client.get("/api/ml-ventas-ops/sales", headers=admin_auth_headers)
+
+        assert resp.status_code == 200
+        assert counter.matching("ml_order_items_ops") <= 1
