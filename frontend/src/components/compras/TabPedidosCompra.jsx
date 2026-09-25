@@ -63,7 +63,7 @@ const ESTADOS = [
 
 const COLUMNS = [
   { key: 'numero', label: 'Número', width: '160px' },
-  { key: 'empresa', label: 'Empresa', width: '140px' },
+  { key: 'empresa', label: 'Empresa', width: '104px' },
   { key: 'proveedor', label: 'Proveedor' },
   { key: 'moneda', label: 'Mon.', align: 'center', width: '60px' },
   { key: 'monto', label: 'Saldo', align: 'right', width: '180px' },
@@ -71,7 +71,7 @@ const COLUMNS = [
   { key: 'fecha_pago', label: 'Fecha pago', width: '110px' },
   { key: 'estado', label: 'Estado', width: '152px' },
   { key: 'proceso', label: 'Proceso', width: '220px' },
-  { key: 'acciones', label: '', align: 'right', width: '180px' },
+  { key: 'acciones', label: '', align: 'right', width: '104px' },
 ];
 
 const EJES_PROCESAL_LABEL = {
@@ -557,7 +557,7 @@ export default function TabPedidosCompra() {
     const puedeRevertirCuentaCorriente = canManage && estado === 'en_cuenta_corriente';
 
     return (
-      <div className={styles.rowActions}>
+      <div className={styles.rowActions} data-testid="row-actions">
         <button
           className={styles.iconBtn}
           onClick={() => handleOpenDetalle(p)}
@@ -699,8 +699,14 @@ export default function TabPedidosCompra() {
     switch (col.key) {
       case 'numero':
         return <span className={styles.tdMono}>{p.numero}</span>;
-      case 'empresa':
-        return p.empresa_nombre || `#${p.empresa_id}`;
+      case 'empresa': {
+        const nombre = p.empresa_nombre || `#${p.empresa_id}`;
+        return (
+          <span className={styles.empresaCell} data-testid="empresa-cell">
+            {nombre}
+          </span>
+        );
+      }
       case 'proveedor':
         return p.proveedor_nombre || `#${p.proveedor_id}`;
       case 'moneda':

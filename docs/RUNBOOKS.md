@@ -1,6 +1,6 @@
 # Runbooks - Pricing App
 
-Last update: 2026-08-13
+Last update: 2026-09-24
 Audience: On-call / solo developer
 
 ## 1) API Degraded or Down
@@ -906,3 +906,35 @@ always` (`RestartSec=5`) brings it back up. Frequent restarts with exit
 code 70 in the journal (`journalctl -u pricing-worker | grep 'code=exited'`)
 mean the heartbeat thread itself is failing (DB connectivity, lock
 contention) — investigate the DB, not the systemd unit.
+
+---
+
+## 7) Compras factura-cargada alerts (cron required)
+
+`compras.factura_cargada` notifications are **not** created by the ERP
+check itself. Checking “Cargada en ERP” only sets
+`alerta_pendiente_hasta = now + 5 minutes`. The 5-minute delay is
+unchanged.
+
+A deploy **must** schedule this sweep at least once per minute. Missing
+crontab is an ops defect: pending rows stay unfired.
+
+```bash
+python -m app.scripts.dispatch_factura_cargada_alerts
+```
+
+Example crontab (every minute; delay stays in the service, not here):
+
+```
+* * * * * cd /var/www/html/pricing-app/backend && \
+    /var/www/html/pricing-app/backend/venv/bin/python \
+    -m app.scripts.dispatch_factura_cargada_alerts \
+    >> /var/log/pricing-app/factura-cargada-alerts.log 2>&1
+```
+
+Empty or whitespace `pedido_factura_documentos.numero` is a notify
+**no-op** (no in-app alert). Recipients are holders of
+`administracion.ver_alertas_factura` — the ADMIN role alone is not
+enough. Chicho assigns that permission; do not assign it in DB from this
+runbook.
+

@@ -103,9 +103,13 @@ vínculo ERP multi-factura (`ct_transaction`) sigue deprecado y no marca
 Hay **dos relojes de 5 minutos**, distintos:
 
 1. **Alerta de cargada:** al tildar “Cargada en ERP” arranca un pending
-   de 5 minutos. Si el check sigue tildado, llega el aviso in-app a
-   quienes tienen `administracion.ver_alertas_factura`. Destildar
-   **antes** de que dispare **cancela** el aviso (la fila no se borra).
+   de 5 minutos. El aviso **no** se crea en el check: hace falta el cron
+   `python -m app.scripts.dispatch_factura_cargada_alerts` (cada minuto).
+   Si el check sigue tildado, llega el aviso in-app **solo** a quienes
+   tienen `administracion.ver_alertas_factura`. El rol **ADMIN no
+   alcanza** por sí solo. La asignación de ese permiso la hace Chicho.
+   Destildar **antes** de que dispare **cancela** el aviso (la fila no
+   se borra).
 2. **Deshacer constancia:** borrar la fila (DELETE) solo se permite
    durante 5 minutos desde que se **creó** esa fila. Destildar no es
    borrar.

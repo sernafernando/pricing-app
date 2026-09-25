@@ -40,7 +40,7 @@ En el **detalle** del pedido, cada factura es número + check **Cargada en ERP**
 ### Check “Cargada en ERP” y alerta (5 minutos)
 
 1. Tildá **Cargada en ERP** cuando esa factura ya está en el ERP. El chip **Factura** se prende al toque.
-2. Arranca un timer de **5 minutos**. Si el check sigue tildado al finalizar, llega la alerta in-app a quienes tienen `administracion.ver_alertas_factura`.
+2. Arranca un timer de **5 minutos**. Si el check sigue tildado al finalizar, llega la alerta in-app **solo** a quienes tienen `administracion.ver_alertas_factura`. El rol **ADMIN no alcanza** por sí solo (Chicho asigna el permiso). El aviso lo dispara el cron `python -m app.scripts.dispatch_factura_cargada_alerts`; sin crontab no llega.
 3. Si destildás **antes** de que dispare, se cancela el aviso. La fila **no** se borra.
 4. Destildar **después** de que ya llegó el aviso apaga el chip; el banner que ya viste no se retracta solo — en ese caso hay que avisar a mano.
 

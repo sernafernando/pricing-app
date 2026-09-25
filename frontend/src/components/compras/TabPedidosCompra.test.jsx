@@ -268,6 +268,49 @@ describe('TabPedidosCompra — chip tones and con faltantes overlap', () => {
   });
 });
 
+describe('TabPedidosCompra — Empresa wrap is name-agnostic', () => {
+  it('shows raw names with no br and no data-wrap', async () => {
+    api.get.mockImplementation((url) => {
+      if (url === '/administracion/compras/pedidos') {
+        return Promise.resolve({
+          data: {
+            items: [
+              { ...PEDIDO_CON_NUMERO, id: 1, numero: 'P-01-2026-00001', empresa_nombre: 'Empresa Uno' },
+              { ...PEDIDO_CON_NUMERO, id: 2, numero: 'P-01-2026-00002', empresa_nombre: 'Otra Firma' },
+            ],
+            total: 2,
+            page: 1,
+            page_size: 50,
+          },
+        });
+      }
+      if (url === '/admin/empresas') {
+        return Promise.resolve({ data: [] });
+      }
+      return Promise.resolve({ data: { items: [], total: 0 } });
+    });
+
+    render(
+      <MemoryRouter initialEntries={['/']}>
+        <SearchProbe />
+        <TabPedidosCompra />
+      </MemoryRouter>
+    );
+
+    expect(await screen.findByText('P-01-2026-00001')).toBeInTheDocument();
+    expect(screen.getByText('P-01-2026-00002')).toBeInTheDocument();
+
+    const cells = screen.getAllByTestId('empresa-cell');
+    expect(cells).toHaveLength(2);
+    expect(cells[0]).toHaveTextContent('Empresa Uno');
+    expect(cells[1]).toHaveTextContent('Otra Firma');
+    for (const cell of cells) {
+      expect(cell.querySelector('br')).toBeNull();
+      expect(cell).not.toHaveAttribute('data-wrap');
+    }
+  });
+});
+
 describe('TabPedidosCompra — Fecha pago col width', () => {
   const colWidthByHeader = (label) => {
     const headers = screen.getAllByRole('columnheader');
@@ -309,6 +352,7 @@ describe('TabPedidosCompra — Fecha pago col width', () => {
     expect(colWidthByHeader('Fecha pago')).toBe('110px');
     expect(colWidthByHeader('Estado')).toBe('152px');
     expect(colWidthByHeader('Proceso')).toBe('220px');
+    expect(Number.parseInt(colWidthByHeader(''), 10)).toBeLessThan(180);
   });
 
   it.each([
