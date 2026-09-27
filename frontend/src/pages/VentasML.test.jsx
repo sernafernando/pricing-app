@@ -93,6 +93,11 @@ function asGroup(order) {
     goods_status: order.goods_status,
     neto: order.neto,
     neto_depositado: order.neto_depositado,
+    // The API's group row carries its own Total Gauss; leaving it out here
+    // silently made every assertion about that cell pass for the wrong
+    // reason (the value was absent, not withheld).
+    total_gauss: order.total_gauss,
+    total_gauss_provisional: order.total_gauss_provisional,
     retenciones_recuperables: order.retenciones_recuperables,
     modo_logistico: order.modo_logistico,
     orders: [order],
@@ -542,6 +547,50 @@ describe('a stale response never overwrites the list', () => {
   });
 });
 
+// `vitest.config.js` runs with `css: false` (no layout, no computed
+// styles) so this cannot assert stickiness or that a column actually
+// fits a compressed width -- only that the header row exists as a
+// structural sibling of `<tbody>` (not nested inside a scrolling wrapper
+// around it) and that every column survives, which is what CSS Modules
+// compression must not remove. Sticky behaviour and the FHD/wide-monitor
+// visual are verified by hand (see the PR description).
+describe('Table header structure (ventas-ml-encabezados-fijos-y-tabla-compacta)', () => {
+  it('renders the header row as a direct sibling of the body, not inside a nested scroll wrapper', async () => {
+    mockSalesList([asGroup(PAID_SALE)]);
+    await renderWithRouter(<VentasML />);
+
+    await screen.findByText(PAID_SALE.buyer_nickname);
+    const table = screen.getByRole('table');
+    expect(table.querySelector('thead')).toBe(table.children[0]);
+    expect(table.querySelector('tbody')).toBe(table.children[1]);
+  });
+
+  it('keeps every column header even with the panel open (compression, not hiding)', async () => {
+    mockSalesList([asGroup(PAID_SALE)]);
+    await renderWithRouter(<VentasML />, {
+      initialEntries: [`/ventas-ml?orden=${PAID_SALE.order_id}`],
+    });
+
+    await screen.findByText(PAID_SALE.buyer_nickname);
+    const headerRow = screen.getAllByRole('columnheader');
+    const headerTexts = headerRow.map((th) => th.textContent);
+    expect(headerTexts).toEqual(
+      expect.arrayContaining([
+        'Producto',
+        'Orden',
+        'Fecha',
+        'Comprador',
+        'Operación',
+        'Mercadería',
+        'Envío',
+        'Importe',
+        'Neto',
+        'Total Gauss',
+      ]),
+    );
+  });
+});
+
 describe('A pack is one row', () => {
   // The production report (2026-09-02): three rows, same buyer, same
   // timestamp, where two were a single parcel and the third another.
@@ -592,7 +641,7 @@ describe('A pack is one row', () => {
 
     // 27.868,10 + 24.750,00 — the number that was invisible while the
     // three rows stood apart.
-    expect(await screen.findByText('52.618,10 ARS')).toBeInTheDocument();
+    expect(await screen.findByText('52.618,10')).toBeInTheDocument();
   });
 
   it('gives a lone order no spoiler to open', async () => {
@@ -743,7 +792,7 @@ describe('The Neto column', () => {
     await waitFor(() => expect(screen.getByText('comprador1')).toBeInTheDocument());
 
     const row = screen.getByText('comprador1').closest('tr');
-    expect(within(row).getByText('0,00 ARS')).toBeInTheDocument();
+    expect(within(row).getByText('0,00')).toBeInTheDocument();
   });
 
   it('formats a positive neto like the other money columns', async () => {
@@ -752,7 +801,45 @@ describe('The Neto column', () => {
     await waitFor(() => expect(screen.getByText('comprador1')).toBeInTheDocument());
 
     const row = screen.getByText('comprador1').closest('tr');
-    expect(within(row).getByText('82,50 ARS')).toBeInTheDocument();
+    expect(within(row).getByText('82,50')).toBeInTheDocument();
+  });
+
+  // The listing is denominated in ARS, so the suffix is dropped there to
+  // leave the amount its column width. A foreign currency is NOT implied
+  // and must stay spelled out, or a USD sale reads as a pesos sale.
+  it('keeps the currency suffix on a sale that is not in ARS', async () => {
+    mockSalesList([{ ...PAID_SALE, neto: 82.5, currency_id: 'USD' }]);
+    await renderWithRouter(<VentasML />);
+    await waitFor(() => expect(screen.getByText('comprador1')).toBeInTheDocument());
+
+    const row = screen.getByText('comprador1').closest('tr');
+    expect(within(row).getByText('82,50 USD')).toBeInTheDocument();
+    expect(within(row).queryByText('82,50')).not.toBeInTheDocument();
+  });
+
+  // Dropping the visible suffix must not drop the information: the cell
+  // still carries the unabridged value, currency included.
+  it('keeps the full amount with its currency in the cell tooltip', async () => {
+    mockSalesList([{ ...PAID_SALE, total_amount: 1234567.89 }]);
+    await renderWithRouter(<VentasML />);
+    await waitFor(() => expect(screen.getByText('comprador1')).toBeInTheDocument());
+
+    const cell = screen.getByText('1.234.567,89').closest('td');
+    expect(cell).toHaveAttribute('title', '1.234.567,89 ARS');
+  });
+
+  // SM R3/R9: while metrics are recalculating the stale figure is hidden
+  // behind the badge. A `title` is another way of reading it, so it has to
+  // obey the same rule -- otherwise hovering reveals exactly what the badge
+  // is there to withhold.
+  it('does not leak the stale Total Gauss through the tooltip while recalculating', async () => {
+    mockSalesList([{ ...PAID_SALE, total_gauss: 70, metrics_state: 'recalculating' }]);
+    await renderWithRouter(<VentasML />);
+    await waitFor(() => expect(screen.getByText('comprador1')).toBeInTheDocument());
+
+    const row = screen.getByText('comprador1').closest('tr');
+    const leaked = Array.from(row.querySelectorAll('[title]')).map((el) => el.title);
+    expect(leaked.some((t) => t.includes('70,00'))).toBe(false);
   });
 
   it('shows the "MP $X · SIRTAC $Y" tooltip when retenciones_recuperables > 0', async () => {
@@ -1135,7 +1222,7 @@ describe('PR14.T9/T10 — recalculating badge never shows a stale number', () =>
     await renderWithRouter(<VentasML />);
 
     expect(await screen.findAllByText(/Recalculando/)).toHaveLength(2); // Neto + Total Gauss cells
-    expect(screen.queryByText('82,50 ARS')).not.toBeInTheDocument();
+    expect(screen.queryByText('82,50')).not.toBeInTheDocument();
   });
 
   it('shows a distinct "no se pudo calcular" for metrics_state="failed" — never "Recalculando"', async () => {
@@ -1150,7 +1237,7 @@ describe('PR14.T9/T10 — recalculating badge never shows a stale number', () =>
     mockSalesList([{ ...PAID_SALE, neto: 82.5, total_gauss: 70, currency_id: 'ARS', metrics_state: 'ok' }]);
     await renderWithRouter(<VentasML />);
 
-    expect(await screen.findByText('82,50 ARS')).toBeInTheDocument();
+    expect(await screen.findByText('82,50')).toBeInTheDocument();
   });
 
   it('a pack with one recalculating member shows the badge on the pack row, not a stale sum', async () => {

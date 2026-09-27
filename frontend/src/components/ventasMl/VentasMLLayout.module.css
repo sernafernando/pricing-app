@@ -25,8 +25,12 @@
 
 .panel {
   position: sticky;
-  top: var(--spacing-lg);
-  max-height: calc(100vh - var(--spacing-lg) * 2);
+  /* The TopBar is `position: fixed; top: 0` and 56px tall, and it sits
+     ABOVE this panel in the stacking order, so a sticky offset that
+     ignores it parks the panel's own header out of sight. The available
+     height shrinks by the same amount. */
+  top: calc(var(--cf-topbar-height) + var(--spacing-lg));
+  max-height: calc(100vh - var(--cf-topbar-height) - var(--spacing-lg) * 2);
   overflow-y: auto;
   display: flex;
   flex-direction: column;

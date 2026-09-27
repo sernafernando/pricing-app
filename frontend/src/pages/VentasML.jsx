@@ -168,13 +168,45 @@ function formatDate(value) {
 
 // With thousands separators. `1234567.50 ARS` in a column of amounts
 // forces the operator to count digits to tell 1,2M from 123k.
-function formatMoney(value, currencyId) {
-  if (value === null || value === undefined) return '—';
-  const amount = new Intl.NumberFormat('es-AR', {
+// The listing is denominated in ARS, so repeating "ARS" on every row costs
+// the width the amount itself needs: with `table-layout: fixed` a money
+// column is a share of the table, and at Full HD with the side panel open
+// the suffix pushes a 7-digit amount over its cell and on top of the next
+// one. Only a foreign currency is spelled out -- which also makes the few
+// USD sales stand out instead of blending in. `formatMoneyFull` keeps the
+// unabridged value for `title` tooltips and for anywhere the currency is
+// not implied by the surrounding column.
+const LISTING_IMPLIED_CURRENCY = 'ARS';
+
+function formatAmount(value) {
+  return new Intl.NumberFormat('es-AR', {
     minimumFractionDigits: 2,
     maximumFractionDigits: 2,
   }).format(Number(value));
+}
+
+function formatMoneyFull(value, currencyId) {
+  if (value === null || value === undefined) return '—';
+  const amount = formatAmount(value);
   return currencyId ? `${amount} ${currencyId}` : amount;
+}
+
+// Tooltip for a money cell: the unabridged value, or nothing at all. A
+// `title` is still a way of reading the number, so it obeys the same rule
+// as the visible cell -- while metrics are being recalculated the stale
+// figure must not surface anywhere (SM R3/R9), and an absent value gets no
+// tooltip rather than a tooltip reading "—".
+function moneyTitle(value, currencyId, metricsState) {
+  if (metricsState && metricsState !== 'ok') return undefined;
+  if (value === null || value === undefined) return undefined;
+  return formatMoneyFull(value, currencyId);
+}
+
+function formatMoney(value, currencyId) {
+  if (value === null || value === undefined) return '—';
+  const amount = formatAmount(value);
+  if (!currencyId || currencyId === LISTING_IMPLIED_CURRENCY) return amount;
+  return `${amount} ${currencyId}`;
 }
 
 // ml-ventas-neto-iibb-varios PR1.T12: the listing's own explanation for
@@ -595,14 +627,14 @@ export default function VentasML() {
               <th className={styles.colAlerta} aria-label="Alerta" />
               <th className={styles.colProducto}>Producto</th>
               <th className={styles.colOrden}>Orden</th>
-              <th>Fecha</th>
-              <th>Comprador</th>
-              <th>Operación</th>
-              <th>Mercadería</th>
-              <th>Envío</th>
-              <th className={styles.numeric}>Importe</th>
-              <th className={styles.numeric}>Neto</th>
-              <th className={styles.numeric}>Total Gauss</th>
+              <th className={styles.colFecha}>Fecha</th>
+              <th className={styles.colComprador}>Comprador</th>
+              <th className={styles.colOperacion}>Operación</th>
+              <th className={styles.colMercaderia}>Mercadería</th>
+              <th className={styles.colEnvio}>Envío</th>
+              <th className={`${styles.colImporte} ${styles.numeric}`}>Importe</th>
+              <th className={`${styles.colNeto} ${styles.numeric}`}>Neto</th>
+              <th className={`${styles.colTotalGauss} ${styles.numeric}`}>Total Gauss</th>
             </tr>
           </thead>
           <tbody>
@@ -689,7 +721,9 @@ export default function VentasML() {
                         )}
                       </td>
                       <td className={styles.fecha}>{formatDate(group.date_created)}</td>
-                      <td>{group.buyer_nickname || '—'}</td>
+                      <td className={styles.buyer} title={group.buyer_nickname || undefined}>
+                        {group.buyer_nickname || '—'}
+                      </td>
                       <td>
                         <span
                           className={`badge ${OPERATION_STATUS_BADGE_CLASS[group.operation_status] || 'badge-neutral'}`}
@@ -721,7 +755,10 @@ export default function VentasML() {
                             </span>
                           )}
                       </td>
-                      <td className={styles.numeric}>
+                      <td
+                        className={styles.numeric}
+                        title={moneyTitle(group.total_amount, group.currency_id)}
+                      >
                         {formatMoney(group.total_amount, group.currency_id)}
                       </td>
                       <td className={styles.numeric}>
@@ -767,7 +804,10 @@ export default function VentasML() {
                           return content;
                         })()}
                       </td>
-                      <td className={styles.numeric}>
+                      <td
+                        className={styles.numeric}
+                        title={moneyTitle(group.total_gauss, group.currency_id, groupMetricsState(orders))}
+                      >
                         {groupMetricsState(orders) !== 'ok' ? (
                           <RecalculatingBadge state={groupMetricsState(orders)} />
                         ) : (
@@ -791,8 +831,7 @@ export default function VentasML() {
                                 lone sale must carry its own. */}
                             {loneOrder && loneOrder.markup !== null && loneOrder.markup !== undefined && (
                               <span className={styles.markup}>
-                                {' '}
-                                · {new Intl.NumberFormat('es-AR', { maximumFractionDigits: 1 }).format(loneOrder.markup)}%
+                                {new Intl.NumberFormat('es-AR', { maximumFractionDigits: 1 }).format(loneOrder.markup)}%
                               </span>
                             )}
                           </>
@@ -848,7 +887,10 @@ export default function VentasML() {
                               </span>
                             )}
                           </td>
-                          <td className={styles.numeric}>
+                          <td
+                            className={styles.numeric}
+                            title={moneyTitle(order.total_amount, order.currency_id)}
+                          >
                             {formatMoney(order.total_amount, order.currency_id)}
                           </td>
                           <td className={styles.numeric}>
@@ -883,7 +925,10 @@ export default function VentasML() {
                               );
                             })()}
                           </td>
-                          <td className={styles.numeric}>
+                          <td
+                            className={styles.numeric}
+                            title={moneyTitle(order.total_gauss, order.currency_id, order.metrics_state)}
+                          >
                             {order.metrics_state && order.metrics_state !== 'ok' ? (
                               <RecalculatingBadge state={order.metrics_state} />
                             ) : (
@@ -899,8 +944,7 @@ export default function VentasML() {
                                 )}
                                 {order.markup !== null && order.markup !== undefined && (
                                   <span className={styles.markup}>
-                                    {' '}
-                                    · {new Intl.NumberFormat('es-AR', { maximumFractionDigits: 1 }).format(order.markup)}%
+                                    {new Intl.NumberFormat('es-AR', { maximumFractionDigits: 1 }).format(order.markup)}%
                                   </span>
                                 )}
                               </>
