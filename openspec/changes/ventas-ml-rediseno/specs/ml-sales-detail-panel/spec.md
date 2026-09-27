@@ -21,3 +21,13 @@ Source: proposal #2104 (rev 2) + explore #2103, with binding decisions Q1-Q3 res
 6. Given an order has IVA lines that do not reconcile, when the panel renders the neto waterfall, then it displays the specific non-reconcile reasons (not a bare "does not reconcile" message) (per D5).
 7. Given the stored Total Gauss for an order is `provisional`, when the panel renders the Total Gauss chain, then it visibly marks the total as provisional and the total shown equals the stored provisional value (ties to ml-order-stored-metrics R6).
 8. Given the user clicks "Resincronizar" in the panel, when the resync completes, then the panel refreshes to show the updated stored values without requiring the user to reselect the row.
+
+### ADDED Requirements
+- R22 Selecting a table row that represents a pack MUST open a pack-scoped panel backed by `GET /ml-ventas-ops/packs/{pack_id}` (per ml-order-breakdown R36), never the order-scoped panel of an arbitrary member order.
+- R23 The pack panel MUST show the pack's `monto_operacion`, its aggregated product list, the pack's Total Gauss chain and markup (per ml-order-breakdown R37), and MUST list its member orders in a way that lets the user navigate from the pack panel to each member order's order-scoped panel.
+- R24 When an order-scoped panel (for a pack member) displays its Flex shipping cost, it MUST visibly indicate that the figure is prorated across the pack's shared shipment (per ml-order-breakdown R38), so the operator does not read it as that order's own exclusive shipping cost.
+
+### Scenarios (ADDED)
+9. Given the table lists a pack row (not a standalone order), when the user selects that row, then the panel opens showing pack-scoped data (`monto_operacion`, product list, Total Gauss, markup) for the whole pack, not for a single member order.
+10. Given the pack panel is open, when the user picks one of the listed member orders, then the panel navigates to that member's order-scoped detail, and its figures (`monto_operacion`, product list, Total Gauss, markup) describe only that order.
+11. Given an order-scoped panel is open for an order that shares a shipment with other pack members, when the panel renders the Flex shipping line, then it is labeled as prorated across the shipment's orders.
