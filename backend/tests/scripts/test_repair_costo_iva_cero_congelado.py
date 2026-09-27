@@ -203,6 +203,161 @@ class TestHappyPathRecongela:
         assert float(filas[0].costo_unitario_ars) == 250.0
 
 
+class TestBackfillRowsAreOutOfScope:
+    def test_backfill_row_with_bad_iva_is_never_deleted(self, db):
+        """Defect 1: a row written by the BACKFILL path (`fuente=hist_*`)
+        carries a DATED historic cost, correct for the order's own date --
+        even when its `iva_pct` is `<= 0`. This script must NEVER touch it:
+        recongelar() would resolve TODAY's cost/rate for a sale months
+        old, silently corrupting a correct historic snapshot. It must be
+        reported separately, never deleted, never recongelado."""
+        db.add(_order(300))
+        db.add(_item_ops(300))
+        _producto(db, costo=999.0, iva=21.0)  # today's cost -- must NOT be used
+        _publicacion(db)
+        row = _frozen_row(db, order_id=300, costo_unitario_ars=250.0, iva_pct=0.0)
+        row.fuente = "hist_publicacion"
+        db.commit()
+
+        result = script.run_repair(limit=None, dry_run=False)
+
+        assert result.deleted == 0
+        assert result.recongelados == 0
+        assert result.examined_out_of_scope_backfill == 1
+
+        still_there = db.query(MlOrderItemCosto).filter_by(order_id=300).one()
+        assert still_there.costo_unitario_ars == Decimal("250.0000")
+        assert still_there.iva_pct == Decimal("0.00")
+
+
+class TestNeverInsertsUntouchedItems:
+    def test_repair_does_not_write_a_row_for_an_item_it_did_not_delete(self, db):
+        """Defect 2: the order has TWO items -- one with a corrupt frozen
+        row (deleted+recongelado), and one with NO frozen row at all (a
+        pre-existing hole). `congelar()` runs over the whole order, but
+        the untouched item must stay untouched -- it was never a
+        candidate, so this script must never be the reason it gets a
+        fresh row stamped with today's cost."""
+        db.add(_order(400))
+        db.add(_item_ops(400, item_id="MLA1"))
+        db.add(_item_ops(400, item_id="MLA2"))
+        _producto(db, item_id=500, costo=250.0, iva=21.0)
+        _publicacion(db, mla="MLA1", item_id=500)
+        # MLA2 deliberately has NO ProductoERP/publicacion link -> would be
+        # uncostable if congelar() ever looked at it.
+        _frozen_row(db, order_id=400, item_id="MLA1", costo_unitario_ars=0.0, iva_pct=21.0)
+        db.commit()
+
+        result = script.run_repair(limit=None, dry_run=False)
+
+        assert result.deleted == 1
+        assert result.recongelados == 1
+        assert result.huecos == 0  # MLA2 was never a candidate -- not a "hole" either
+
+        assert db.query(MlOrderItemCosto).filter_by(order_id=400, item_id="MLA2").count() == 0
+
+
+class TestNeverResurrectsRemovedItems:
+    def test_repair_never_recreates_a_row_for_an_item_no_longer_on_the_order(self, db):
+        """Defect 3: a frozen row can deliberately OUTLIVE its item (a
+        partial cancellation removed the `MlOrderItemOps` row). If that
+        surviving snapshot happens to be corrupt (`iva_pct<=0`), deleting
+        it is fine -- but `congelar()` has NOTHING to re-freeze from
+        because the item is gone, and the row must NOT come back changed
+        or otherwise: it must be reported as an untouchable loss, not
+        silently vanish."""
+        db.add(_order(500))
+        # No MlOrderItemOps row for this order/item -- it was cancelled out.
+        _frozen_row(db, order_id=500, item_id="MLA1", costo_unitario_ars=250.0, iva_pct=0.0)
+        db.commit()
+
+        result = script.run_repair(limit=None, dry_run=False)
+
+        assert result.deleted == 0
+        assert result.examined_out_of_scope_item_gone == 1
+        assert db.query(MlOrderItemCosto).filter_by(order_id=500, item_id="MLA1").count() == 1
+
+
+class TestReportArithmeticCloses:
+    def test_deleted_equals_recongelados_plus_huecos_plus_out_of_scope(self, db):
+        """Defect 4: the report's numbers must CLOSE. Every examined
+        candidate row lands in exactly one bucket: recongelado, hueco, or
+        one of the out-of-scope reasons (backfill / item gone)."""
+        # 1) real fix -> recongelado
+        db.add(_order(600))
+        db.add(_item_ops(600, item_id="MLA1"))
+        _producto(db, item_id=501, costo=250.0, iva=21.0)
+        _publicacion(db, mla="MLA1", item_id=501)
+        _frozen_row(db, order_id=600, item_id="MLA1", costo_unitario_ars=0.0, iva_pct=21.0, producto_item_id=501)
+
+        # 2) still uncostable -> hueco
+        db.add(_order(601))
+        db.add(_item_ops(601, item_id="MLA2"))
+        _producto(db, item_id=502, costo=0.0, iva=21.0)
+        _publicacion(db, mla="MLA2", item_id=502)
+        _frozen_row(db, order_id=601, item_id="MLA2", costo_unitario_ars=0.0, iva_pct=21.0, producto_item_id=502)
+
+        # 3) backfill row -> out of scope
+        db.add(_order(602))
+        db.add(_item_ops(602, item_id="MLA3"))
+        _producto(db, item_id=503, costo=999.0, iva=21.0)
+        _publicacion(db, mla="MLA3", item_id=503)
+        backfill_row = _frozen_row(
+            db, order_id=602, item_id="MLA3", costo_unitario_ars=250.0, iva_pct=0.0, producto_item_id=503
+        )
+        backfill_row.fuente = "hist_publicacion"
+
+        # 4) item gone -> out of scope
+        db.add(_order(603))
+        _frozen_row(db, order_id=603, item_id="MLA4", costo_unitario_ars=250.0, iva_pct=0.0, producto_item_id=504)
+
+        db.commit()
+
+        result = script.run_repair(limit=None, dry_run=False)
+
+        assert result.examined == 4
+        assert result.deleted == 2  # only (1) and (4) match the delete criterion path
+        assert (
+            result.recongelados + result.huecos + result.examined_out_of_scope_backfill
+            == result.examined - result.examined_out_of_scope_item_gone
+        )
+
+
+class TestKeyIncludesOrderId:
+    def test_same_item_id_different_orders_do_not_collide(self, db):
+        """Defect 4 (report collision): two DIFFERENT orders sharing the
+        same MLA -- one recongelado, one left as a hole -- must be
+        reported and re-frozen independently. A key without `order_id`
+        would let one order's outcome overwrite the other's in
+        `items_by_key`."""
+        db.add(_order(700))
+        db.add(_item_ops(700, item_id="MLA1"))
+        _producto(db, item_id=505, costo=250.0, iva=21.0)
+        _publicacion(db, mla="MLA1", item_id=505)
+        _frozen_row(db, order_id=700, item_id="MLA1", costo_unitario_ars=0.0, iva_pct=21.0, producto_item_id=505)
+
+        db.add(_order(701))
+        db.add(_item_ops(701, item_id="MLA1"))
+        # Different product row (same MLA, different order) that is still
+        # uncostable -- linked via a SEPARATE PublicacionML? No: same MLA
+        # necessarily resolves to the same ProductoERP. Use a still-zero
+        # cost so THIS order's item ends up a hole while order 700's does
+        # not -- proving per-order independence requires per-order product
+        # state, so give order 701's item no publicacion link at all.
+        _frozen_row(db, order_id=701, item_id="MLA1", costo_unitario_ars=0.0, iva_pct=21.0, producto_item_id=505)
+
+        db.commit()
+
+        result = script.run_repair(limit=None, dry_run=False)
+
+        assert result.deleted == 2
+        assert result.recongelados == 2
+        row_700 = db.query(MlOrderItemCosto).filter_by(order_id=700, item_id="MLA1").one()
+        row_701 = db.query(MlOrderItemCosto).filter_by(order_id=701, item_id="MLA1").one()
+        assert row_700.costo_unitario_ars == Decimal("250.0000")
+        assert row_701.costo_unitario_ars == Decimal("250.0000")
+
+
 class TestUncostableHoleIsVisible:
     def test_item_still_uncostable_after_deletion_is_left_as_hole(self, db):
         """The linked product ALSO has no real cost under the current

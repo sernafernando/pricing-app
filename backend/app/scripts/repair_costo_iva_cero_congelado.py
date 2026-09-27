@@ -53,10 +53,30 @@ INSERT each fire their own trigger, so `ml_order_metrics` gets recomputed
 for every affected order without this script touching the queue table
 itself.
 
+SCOPE -- this script ONLY repairs rows written by the LIVE path
+(`congelar()`'s own `FUENTE_PUBLICACION` / `FUENTE_SKU` / `FUENTE_COMBO`).
+A row written by the BACKFILL path (`fuente` in `hist_publicacion`,
+`hist_sku`, `hist_combo`) is EXCLUDED even when it matches the `<= 0`
+criterion below: its `costo_origen` came from a DATED
+`ItemCostListHistory` row, correct for the order's own date, and
+re-`congelar()`-ing it would silently replace that correct historic value
+with TODAY's `ProductoERP.costo`/exchange rate. A backfilled row with a
+bad IVA needs a re-dated backfill run, never this script -- it is counted
+under `examined_out_of_scope_backfill` and left completely untouched.
+
+Likewise, a candidate row whose item is no longer on `MlOrderItemOps` (a
+partial cancellation) is NEVER deleted, even though it matches the `<= 0`
+criterion: the design says this snapshot deliberately OUTLIVES the item it
+describes, and `congelar()` only has the items CURRENT on the order to
+work from -- there is no way to ever recreate a deleted row like this one.
+Preserving a zero is bad; losing the snapshot forever is worse and
+irreversible. It is counted under `examined_out_of_scope_item_gone` and
+left completely untouched, reported as a known, intocable case rather
+than silently destroyed.
+
 Run:
-    python -m app.scripts.repair_costo_iva_cero_congelado --limit 5000
     python -m app.scripts.repair_costo_iva_cero_congelado --limit 5000            # reports only
-    python -m app.scripts.repair_costo_iva_cero_congelado --limit 5000 --apply
+    python -m app.scripts.repair_costo_iva_cero_congelado --limit 5000 --apply    # actually repairs
 """
 
 from __future__ import annotations
@@ -67,7 +87,7 @@ import sys
 from collections import Counter
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Sequence, Tuple
+from typing import Dict, List, Optional, Sequence, Tuple
 
 # Agregar path del backend
 backend_path = Path(__file__).resolve().parent.parent.parent
@@ -83,8 +103,10 @@ from sqlalchemy.orm import Session  # noqa: E402
 from app.core.database import SessionLocal  # noqa: E402
 from app.models.ml_order_item_costo import MlOrderItemCosto  # noqa: E402
 from app.models.ml_orders_ops import MlOrderItemOps  # noqa: E402
-from app.models.producto import ProductoERP  # noqa: E402
 from app.services.ml_orders_ingestion.costeo_service import (  # noqa: E402
+    FUENTE_COMBO,
+    FUENTE_PUBLICACION,
+    FUENTE_SKU,
     _productos_por_item,
     componentes_por_combo,
     congelar,
@@ -100,6 +122,12 @@ DEFAULT_BATCH_SIZE = 500
 MOTIVO_COSTO_CERO = "costo_congelado_cero"
 MOTIVO_IVA_CERO = "iva_congelado_cero"
 MOTIVO_COSTO_Y_IVA_CERO = "costo_y_iva_congelados_cero"
+
+# The ONLY `fuente` values this script is allowed to delete+re-`congelar()`
+# -- exactly the constants `congelar()` itself stamps on the live path. A
+# row with any other `fuente` (the `hist_*`/backfill family) is out of
+# scope by construction -- see the module docstring.
+FUENTES_EN_VIVO = frozenset({FUENTE_PUBLICACION, FUENTE_SKU, FUENTE_COMBO})
 
 # Post-correction hole reasons, best-effort (a real second pass through
 # `_resolve_cost` is private on purpose -- these are the same public
@@ -117,6 +145,14 @@ class RepairResult:
     deleted: int = 0
     recongelados: int = 0
     huecos: int = 0
+    # Candidates matching the `<= 0` criterion that this script deliberately
+    # does NOT delete (defect 1, `hist_*` rows) or deletes but cannot
+    # recreate (defect 3, item no longer on the order) -- see the module
+    # docstring. Every candidate lands in EXACTLY one bucket, so:
+    #   examined == recongelados + huecos + examined_out_of_scope_backfill
+    #             + examined_out_of_scope_item_gone
+    examined_out_of_scope_backfill: int = 0
+    examined_out_of_scope_item_gone: int = 0
     motivos_borrado: Counter = field(default_factory=Counter)
     motivos_hueco: Counter = field(default_factory=Counter)
 
@@ -125,7 +161,9 @@ def _candidate_query(db: Session, limit: Optional[int]):
     """Every frozen row whose `costo_unitario_ars` or `iva_pct` is `<= 0` --
     the exact translation of `tiene_costo_propio`/`tiene_iva_conocido` onto
     the FROZEN columns, since this table has no `ProductoERP` reference to
-    re-check directly."""
+    re-check directly. Includes out-of-scope (`hist_*`) rows too: they must
+    still be EXAMINED and COUNTED, just never deleted -- see
+    `examined_out_of_scope_backfill`."""
     query = (
         db.query(MlOrderItemCosto)
         .filter((MlOrderItemCosto.costo_unitario_ars <= 0) | (MlOrderItemCosto.iva_pct <= 0))
@@ -162,8 +200,8 @@ def _item_dto_from_ops(row: MlOrderItemOps) -> OrderItemOpsDTO:
 
 def _diagnose_hueco(
     db: Session,
-    keys: Sequence[Tuple[str, Optional[int]]],
-    items_by_key: Dict[Tuple[str, Optional[int]], MlOrderItemOps],
+    keys: Sequence[Tuple[int, str, Optional[int]]],
+    items_by_key: Dict[Tuple[int, str, Optional[int]], MlOrderItemOps],
     result: RepairResult,
 ) -> None:
     """Best-effort explanation for every key that STILL has no frozen row
@@ -207,23 +245,30 @@ def run_repair(limit: Optional[int], dry_run: bool, batch_size: int = DEFAULT_BA
         for row in candidatos:
             result.motivos_borrado[_motivo(row)] += 1
 
-        # Grouped by order so re-`congelar()` runs ONCE per affected order
-        # over its WHOLE item set, never once per deleted row -- same bulk
-        # discipline every other module in this slice documents.
-        keys_by_order: Dict[int, List[Tuple[str, Optional[int]]]] = {}
-        for row in candidatos:
-            keys_by_order.setdefault(row.order_id, []).append((row.item_id, row.variation_id))
+        # Defect 1: split out-of-scope (backfill) rows FIRST -- they are
+        # counted but never deleted, never passed to `congelar()`.
+        en_vivo = [row for row in candidatos if row.fuente in FUENTES_EN_VIVO]
+        result.examined_out_of_scope_backfill = len(candidatos) - len(en_vivo)
 
         if dry_run:
-            # Dry run reports ONLY what would be deleted. It deliberately
-            # does NOT simulate the re-`congelar()` outcome: that would mean
-            # duplicating `_resolve_cost`'s private resolution logic just to
-            # predict its answer without writing, which risks the exact
-            # "two paths that can disagree" this whole module refuses
-            # elsewhere. Run without `--dry-run` to see real recongelado/
-            # hueco counts.
-            result.deleted = result.examined
+            # Dry run reports ONLY what would be deleted -- the in-scope
+            # (live-path) subset. It deliberately does NOT simulate the
+            # re-`congelar()` outcome: that would mean duplicating
+            # `_resolve_cost`'s private resolution logic just to predict its
+            # answer without writing, which risks the exact "two paths that
+            # can disagree" this whole module refuses elsewhere. Run with
+            # `--apply` to see real recongelado/hueco counts.
+            result.deleted = len(en_vivo)
             return result
+
+        # Grouped by order so a single query per order finds which of ITS
+        # candidate keys are still on the order and which are not (defect
+        # 3), and so `congelar()` is called once per order but ONLY over
+        # the keys THIS script actually deleted (defect 2) -- never the
+        # order's whole item set.
+        keys_by_order: Dict[int, List[Tuple[str, Optional[int]]]] = {}
+        for row in en_vivo:
+            keys_by_order.setdefault(row.order_id, []).append((row.item_id, row.variation_id))
 
         order_ids = sorted(keys_by_order)
         for start in range(0, len(order_ids), batch_size):
@@ -234,8 +279,34 @@ def run_repair(limit: Optional[int], dry_run: bool, batch_size: int = DEFAULT_BA
                 for item_id, variation_id in keys_by_order[order_id]:
                     all_keys.append((order_id, item_id, variation_id))
 
+            ops_rows = db.query(MlOrderItemOps).filter(MlOrderItemOps.order_id.in_(batch_order_ids)).all()
+            # Keyed by (order_id, item_id, variation_id) -- defect 4: a bare
+            # (item_id, variation_id) key collides across orders sharing the
+            # same MLA.
+            items_by_key: Dict[Tuple[int, str, Optional[int]], MlOrderItemOps] = {
+                (ops_row.order_id, ops_row.item_id, ops_row.variation_id): ops_row for ops_row in ops_rows
+            }
+
+            # Defect 3: a candidate key with no matching `MlOrderItemOps` row
+            # means the item was removed from the order (a partial
+            # cancellation) AFTER this frozen row was written. The design
+            # says this snapshot deliberately OUTLIVES the item it
+            # describes -- deleting it here would be an IRREVERSIBLE loss
+            # with no way to ever re-`congelar()` it back, since `congelar()`
+            # only has the items current on the order to work from. So this
+            # row is NOT deleted at all: it is left exactly as it is,
+            # counted and reported as untouchable, never silently destroyed.
+            keys_to_recongelar: List[Tuple[int, str, Optional[int]]] = []
+            keys_to_delete: List[Tuple[int, str, Optional[int]]] = []
+            for key in all_keys:
+                if key in items_by_key:
+                    keys_to_recongelar.append(key)
+                    keys_to_delete.append(key)
+                else:
+                    result.examined_out_of_scope_item_gone += 1
+
             deleted_count = 0
-            for order_id, item_id, variation_id in all_keys:
+            for order_id, item_id, variation_id in keys_to_delete:
                 deleted_count += (
                     db.query(MlOrderItemCosto)
                     .filter(
@@ -244,6 +315,7 @@ def run_repair(limit: Optional[int], dry_run: bool, batch_size: int = DEFAULT_BA
                         MlOrderItemCosto.variation_id.is_(variation_id)
                         if variation_id is None
                         else MlOrderItemCosto.variation_id == variation_id,
+                        MlOrderItemCosto.fuente.in_(FUENTES_EN_VIVO),
                         # Belt and braces: the same "not a real cost" condition
                         # the SELECT above used, repeated HERE so the DELETE's
                         # own WHERE carries the safety property instead of
@@ -257,21 +329,26 @@ def run_repair(limit: Optional[int], dry_run: bool, batch_size: int = DEFAULT_BA
             result.deleted += deleted_count
             db.commit()
 
-            ops_rows = db.query(MlOrderItemOps).filter(MlOrderItemOps.order_id.in_(batch_order_ids)).all()
-            ops_by_order: Dict[int, List[MlOrderItemOps]] = {}
-            for ops_row in ops_rows:
-                ops_by_order.setdefault(ops_row.order_id, []).append(ops_row)
+            # Group the keys to re-freeze back by order, and pass `congelar()`
+            # ONLY those items' DTOs -- never the order's whole item set, so
+            # an untouched hole on the same order can never get a fresh row
+            # stamped by this script (defect 2).
+            recongelar_keys_by_order: Dict[int, List[Tuple[str, Optional[int]]]] = {}
+            for order_id, item_id, variation_id in keys_to_recongelar:
+                recongelar_keys_by_order.setdefault(order_id, []).append((item_id, variation_id))
 
-            for order_id in batch_order_ids:
-                items_for_order = ops_by_order.get(order_id, [])
-                if not items_for_order:
-                    continue
-                dtos = [_item_dto_from_ops(row) for row in items_for_order]
+            for order_id, keys in recongelar_keys_by_order.items():
+                dtos = [
+                    _item_dto_from_ops(items_by_key[(order_id, item_id, variation_id)])
+                    for item_id, variation_id in keys
+                ]
                 congelar(db, order_id=order_id, items=dtos)
             db.commit()
 
-            # Which of the just-deleted keys got a fresh row, and which are
-            # now a visible hole.
+            # Which of the just-recongelado-attempted keys got a fresh row,
+            # and which are now a visible hole. Only keys actually passed to
+            # `congelar()` are considered -- the "item gone" keys were never
+            # a candidate for recongelado in the first place.
             fresh_rows = (
                 db.query(MlOrderItemCosto.order_id, MlOrderItemCosto.item_id, MlOrderItemCosto.variation_id)
                 .filter(MlOrderItemCosto.order_id.in_(batch_order_ids))
@@ -279,19 +356,15 @@ def run_repair(limit: Optional[int], dry_run: bool, batch_size: int = DEFAULT_BA
             )
             fresh_keys = {(r.order_id, r.item_id, r.variation_id) for r in fresh_rows}
 
-            items_by_key: Dict[Tuple[str, Optional[int]], MlOrderItemOps] = {}
-            for ops_row in ops_rows:
-                items_by_key[(ops_row.item_id, ops_row.variation_id)] = ops_row
-
-            huecos_por_orden: Dict[int, List[Tuple[str, Optional[int]]]] = {}
-            for order_id, item_id, variation_id in all_keys:
-                if (order_id, item_id, variation_id) in fresh_keys:
+            huecos: List[Tuple[int, str, Optional[int]]] = []
+            for key in keys_to_recongelar:
+                if key in fresh_keys:
                     result.recongelados += 1
                 else:
-                    huecos_por_orden.setdefault(order_id, []).append((item_id, variation_id))
+                    huecos.append(key)
 
-            for keys in huecos_por_orden.values():
-                _diagnose_hueco(db, keys, items_by_key, result)
+            if huecos:
+                _diagnose_hueco(db, huecos, items_by_key, result)
 
         return result
     finally:
@@ -337,6 +410,7 @@ def main(argv: Optional[List[str]] = None) -> None:
     logger.info(
         "repair_costo_iva_cero_congelado: complete (dry_run=%s, limit=%s) -- "
         "examined=%s deleted=%s recongelados=%s huecos=%s "
+        "out_of_scope_backfill=%s out_of_scope_item_gone=%s "
         "motivos_borrado=%s motivos_hueco=%s",
         not args.apply,
         args.limit,
@@ -344,6 +418,8 @@ def main(argv: Optional[List[str]] = None) -> None:
         result.deleted,
         result.recongelados,
         result.huecos,
+        result.examined_out_of_scope_backfill,
+        result.examined_out_of_scope_item_gone,
         dict(result.motivos_borrado),
         dict(result.motivos_hueco),
     )

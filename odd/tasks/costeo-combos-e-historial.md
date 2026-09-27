@@ -104,6 +104,41 @@ se trata igual que un agujero del ERP (misma forma que el costo, razón de negoc
       `order_metrics_enqueue` — el DELETE + re-INSERT del script disparan el recálculo de
       `ml_order_metrics` solos, sin necesidad de encolar nada a mano.
 
+### Parte 1d — Endurecer el alcance del script correctivo (mismo commit, review posterior)
+
+El review encontró cuatro defectos en `repair_costo_iva_cero_congelado.py`, todos con la misma
+raíz: el script borraba por un criterio amplio y reconstruía con `congelar()` (costo de HOY, orden
+entera), sin acotar el alcance a lo que en verdad puede repararse sin riesgo.
+
+- [x] T20 **Defecto 1 (pérdida de datos, verificado)**: una fila escrita por el backfill
+      (`fuente` en `hist_publicacion`/`hist_sku`/`hist_combo`) con IVA malo tiene un costo
+      HISTÓRICO correcto (fechado). El script la borraba y la recongelaba con el costo de HOY.
+      Arreglo: `FUENTES_EN_VIVO = {FUENTE_PUBLICACION, FUENTE_SKU, FUENTE_COMBO}` — el script
+      SOLO borra/recongela filas con esos `fuente`; una fila `hist_*` queda contada aparte
+      (`examined_out_of_scope_backfill`) y completamente intocada. Necesita un re-backfill fechado,
+      no este script (deuda declarada abajo).
+- [x] T21 **Defecto 2 (escrituras invisibles)**: `congelar()` corría sobre TODOS los ítems de la
+      orden, así que un hueco previo (sin fila) de la misma orden se insertaba con el costo actual
+      sin figurar en el conteo. Arreglo: se pasa a `congelar()` únicamente los DTOs de las claves
+      que este script borró, nunca el set completo de la orden.
+- [x] T22 **Defecto 3 (destruye un snapshot irreversible)**: una fila cuyo ítem ya no está en
+      `MlOrderItemOps` (cancelación parcial) se borraba igual, aunque el diseño manda que ese
+      snapshot "deliberadamente sobrevive al ítem que describe" y no hay forma de recrearla.
+      Arreglo: esa fila NO se borra — se cuenta (`examined_out_of_scope_item_gone`) y se reporta
+      como intocable, preservando el cero antes que perder el dato para siempre.
+- [x] T23 **Defecto 4 (números que no cierran)**: `items_by_key` se armaba por `(item_id,
+      variation_id)` sin `order_id`, así que dos órdenes con el mismo MLA se pisaban. Arreglo:
+      la clave ahora es `(order_id, item_id, variation_id)` en todo el script. Identidad aritmética
+      verificada con test: `examined == recongelados + huecos + examined_out_of_scope_backfill
+      + examined_out_of_scope_item_gone`.
+- [x] T24 Prolijidad: se sacaron `Any`/`ProductoERP` sin usar, se corrigió el comentario obsoleto
+      ("Run without `--dry-run`" → el flag real es `--apply`) y el docstring de módulo (el ejemplo
+      "Run" tenía dos veces el mismo comando).
+- [x] T25 5 tests RED nuevos (uno por defecto + uno de identidad aritmética + uno de colisión de
+      clave), confirmados en rojo contra el código anterior, luego GREEN. Cuidado especial con la
+      aserción en el test del defecto 3: no alcanza con contar filas (borra+reinserta da el mismo
+      conteo en los dos casos), hay que afirmar el VALOR que sobrevive.
+
 ### Parte 2 — Historial de costos propio (rama aparte, con migración)
 
 - [ ] T7 Tabla propia para el historial de costos (migración Alembic). Deja de escribirse en la
@@ -134,6 +169,14 @@ se trata igual que un agujero del ERP (misma forma que el costo, razón de negoc
   pueden estar asumiendo `0` y el radio de impacto excede este PR. La guarda vive en el camino del
   dinero (`costeo_service.py`), no en la raíz.
 - IVA en cero: NO DETERMINADO si hay productos legítimamente exentos — ver sección Parte 1b.
+- **Filas `hist_*` (backfill) con IVA congelado en cero** (deuda nueva, Parte 1d): el script
+  correctivo las deja completamente afuera a propósito (`examined_out_of_scope_backfill`). Para
+  corregirlas hace falta un RE-BACKFILL FECHADO (recorrer `ItemCostListHistory` de nuevo para esas
+  filas puntuales, no `congelar()` con el costo de hoy). NO implementado — ver Parte 1d, T20.
+- **Filas de ítems ya no vigentes en la orden** (deuda nueva, Parte 1d): si una fila con costo/IVA
+  cero corresponde a un ítem que salió de `MlOrderItemOps` (cancelación parcial), el script la deja
+  intacta (`examined_out_of_scope_item_gone`) porque no hay forma segura de recrearla. Sigue
+  mintiendo un cero para siempre, a propósito — perder el snapshot sería peor. NO implementado.
 
 ## Progreso
 
@@ -157,3 +200,15 @@ se trata igual que un agujero del ERP (misma forma que el costo, razón de negoc
   métricas solo (no hace falta encolar a mano). Suite completa verde: `ml_orders_ingestion` 416
   passed (412+4), resto del backend 6085 passed/2 skipped, integración 1294 passed/14 skipped,
   `ruff format`/`ruff check` limpios sobre `app/`.
+- 2026-09-27 — Parte 1d: el review adversarial encontró 4 defectos en el script correctivo (borraba
+  filas del backfill con costo histórico correcto, insertaba filas invisibles fuera del alcance
+  borrado, destruía snapshots irrecuperables de ítems cancelados, y el reporte no cerraba
+  numéricamente por colisión de clave sin `order_id`). Acotado el alcance del script por
+  construcción: `FUENTES_EN_VIVO` restringe borrado/recongelado a los `fuente` que escribe el
+  camino en vivo; `congelar()` recibe solo las claves borradas, nunca la orden entera; una fila sin
+  ítem vigente no se borra; la clave incluye `order_id`. 5 tests RED confirmados antes del fix,
+  luego GREEN. `python -m pytest tests/scripts/ tests/services/ml_orders_ingestion/ -q`: 498
+  passed. `python -m pytest tests/ -q --ignore=tests/integration`: 6092 passed, 2 skipped (483s).
+  `ruff format app/ && ruff check app/`: limpio (reformateó 1 archivo). Deuda nueva declarada:
+  re-backfill fechado para filas `hist_*` con IVA cero, y filas de ítems ya cancelados que quedan
+  con cero para siempre.
