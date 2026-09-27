@@ -139,6 +139,69 @@ entera), sin acotar el alcance a lo que en verdad puede repararse sin riesgo.
       aserción en el test del defecto 3: no alcanza con contar filas (borra+reinserta da el mismo
       conteo en los dos casos), hay que afirmar el VALOR que sobrevive.
 
+### Parte 1e — El script correctivo deja de tocar el IVA solo (decisión de alcance)
+
+`repair_costo_iva_cero_congelado.py` mezclaba dos reparaciones en un mismo pase: cuando la ÚNICA
+falla de una fila en vivo era `iva_pct<=0`, el script la borraba y la recongelaba con
+`ProductoERP.costo` y el tipo de cambio de HOY — pisando un costo histórico BUENO para arreglar el
+IVA. Es la misma razón por la que las filas `hist_*` quedan excluidas (Parte 1d, T20), pero no se
+aplicaba a las filas en vivo con IVA cero. El test no lo detectaba porque el fixture usaba el MISMO
+costo (250) en la fila congelada y en el producto — el valor viejo y el nuevo eran el mismo número
+y la aserción no podía discriminar un recongelado real de un no-op.
+
+- [x] T26 Script renombrado `repair_costo_iva_cero_congelado.py` → `repair_costo_cero_congelado.py`
+      (y su test) porque dejó de tocar el IVA — el nombre viejo mentía sobre lo que hace ahora.
+      Actualizada toda referencia (este documento incluido).
+- [x] T27 Criterio de candidatos acotado a `costo_unitario_ars <= 0` únicamente. Una fila con
+      costo bueno e IVA malo queda FUERA del pipeline de borrado/recongelado — nueva categoría
+      `examined_out_of_scope_iva_solo`, contada e informada por separado (constante
+      `MENSAJE_IVA_SOLO_FUERA_DE_ALCANCE`, logueada en `main()`), nunca tocada. Docstring del módulo
+      documenta explícitamente por qué (sección "WHY THIS SCRIPT DOES NOT ALSO REPAIR").
+- [x] T28 2 tests RED nuevos (`TestIvaOnlyIsOutOfScope`), con costo DISTINTO en la fila congelada
+      (250) contra el del producto (900) — la única forma de que la aserción discrimine un
+      recongelado real de un no-op. Confirmados en rojo contra el criterio anterior
+      (`costo<=0 OR iva<=0`), mutación revertida y confirmado GREEN otra vez.
+- [x] T29 `backfill_costo_congelado.py:389` (`_resolve_backfill_cost`) chequeaba `producto.iva is
+      None` en vez de `tiene_iva_conocido(producto)` — seguía generando la misma deuda que Parte 1c
+      cerró del lado del costo, escribiendo filas nuevas con `iva_pct=0` desde el backfill. Test RED
+      (`TestKnownZeroIvaIsSkippedNotBackfilled`, fixture con `iva=0.0` explícito) confirmado en rojo,
+      luego GREEN con el predicado correcto.
+- [x] T30 Dry-run mentía cuánto iba a borrar: contaba como borrables también las filas cuyo ítem ya
+      no está en la orden (`examined_out_of_scope_item_gone`), que `--apply` nunca borra. Arreglo:
+      el dry-run ahora consulta `MlOrderItemOps` y separa esas filas igual que el camino real
+      (`--apply`), reportando el mismo número que efectivamente se va a borrar.
+- [x] T31 `_diagnose_hueco` etiquetaba un combo cuyos COMPONENTES no se pueden costear como
+      `hueco_iva_desconocido`/`hueco_otro` en vez de `hueco_sin_costo_ni_combo` — un `combos.get(...)`
+      no vacío se interpretaba como "tiene combo costeable" sin revisar si cada componente tiene
+      costo propio. Arreglo: se resuelven los `ProductoERP` de los componentes (una query bulk) y se
+      exige que TODOS tengan costo propio para considerar el combo costeable. Test RED confirmado
+      (combo declarado con componente sin costo, antes caía en `hueco_otro`), luego GREEN.
+- [x] T32 Borrado por lote: el DELETE corría uno por clave dentro de un loop (regla del proyecto:
+      no consultar la base en loop). Arreglo: `_select_deletable_rows` hace un SELECT batched con
+      `tuple_(...).in_(...)` (partido en dos por la clave con `variation_id=NULL`, que `IN` no
+      matchea vía `tuple_`) para obtener las filas realmente vigentes, y el DELETE final es un único
+      `id IN (...)`. Además, `keys_to_recongelar` ahora se restringe a las claves que el SELECT
+      confirmó como efectivamente borradas (`actually_deleted_keys`), no a todas las claves
+      candidatas — si el borrado de una clave no afectara ninguna fila, ya no se cuenta como
+      recongelada por error (fila vieja sin tocar contada como si se hubiera reemplazado). Sin test
+      RED dedicado: no encontré un escenario unitario realista donde el SELECT y el DELETE puedan
+      divergir (misma sesión, sin escritores concurrentes) — declarado honestamente como fix
+      defensivo, cubierto por la suite existente (38 tests) sin regresiones.
+- [x] T33 Comentarios/docstrings/tests que contradecían al código, corregidos: párrafo "RE-FREEZING"
+      del docstring de módulo (ya no corre sobre la orden entera, solo sobre las claves borradas);
+      comentario de `RepairResult` ("deletes but cannot recreate" → ya no se borra ese caso);
+      `TestReportArithmeticCloses` (comentario `deleted==2 # only (1) and (4)` estaba mal — son (1)
+      recongelado y (2) hueco, ambos se borran aunque (2) termine hueco; (3) backfill y (4)
+      item-gone nunca se borran; la segunda aserción era la misma ecuación reordenada, reemplazada
+      por aserciones de valor exacto por bucket); `TestKeyIncludesOrderId` (el test decía "one
+      recongelado, one left as a hole" pero afirmaba dos recongelados — reescrito para que el
+      segundo item realmente quede sin tocar por falta de `MlOrderItemOps`, probando la colisión de
+      clave de verdad); `TestNeverResurrectsRemovedItems` (docstring decía "deleting it is fine",
+      contrario al comportamiento real — corregido a "it is STILL never deleted").
+- Verificación: `python -m pytest tests/scripts/ tests/services/ml_orders_ingestion/ -q` → 502
+  passed. `python -m pytest tests/ -q --ignore=tests/integration` → 6096 passed, 2 skipped (481s).
+  `ruff format app/ && ruff check app/` → limpio (reformateó 1 archivo).
+
 ### Parte 2 — Historial de costos propio (rama aparte, con migración)
 
 - [ ] T7 Tabla propia para el historial de costos (migración Alembic). Deja de escribirse en la
@@ -169,7 +232,14 @@ entera), sin acotar el alcance a lo que en verdad puede repararse sin riesgo.
   pueden estar asumiendo `0` y el radio de impacto excede este PR. La guarda vive en el camino del
   dinero (`costeo_service.py`), no en la raíz.
 - IVA en cero: NO DETERMINADO si hay productos legítimamente exentos — ver sección Parte 1b.
-- **Filas `hist_*` (backfill) con IVA congelado en cero** (deuda nueva, Parte 1d): el script
+- **Filas con costo BUENO e IVA congelado en cero** (deuda nueva, Parte 1e): el script correctivo
+  (`repair_costo_cero_congelado.py`) las deja completamente afuera a propósito
+  (`examined_out_of_scope_iva_solo`) — recongelar reemplazaría un costo histórico correcto por el
+  de HOY solo para arreglar el IVA. Necesitan una corrección FUTURA que reemplace únicamente
+  `iva_pct` preservando el resto de la fila congelada (costo, tipo de cambio, fecha). NO
+  implementado — mecanismo a diseñar: un UPDATE dirigido (no un borrado+recongelado) sobre
+  `ml_order_item_costo.iva_pct`, alcance limitado a filas con costo bueno confirmado.
+- **Filas `hist_*` (backfill) con costo congelado en cero** (deuda nueva, Parte 1d): el script
   correctivo las deja completamente afuera a propósito (`examined_out_of_scope_backfill`). Para
   corregirlas hace falta un RE-BACKFILL FECHADO (recorrer `ItemCostListHistory` de nuevo para esas
   filas puntuales, no `congelar()` con el costo de hoy). NO implementado — ver Parte 1d, T20.

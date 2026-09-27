@@ -668,3 +668,29 @@ class TestACombosBomNeverCrossesCompanies:
         # Not a combo any more as far as the resolver is concerned, so it
         # falls through to the plain "no dated cost" path.
         assert result.skipped[script.SKIP_NO_HISTORY] == 1
+
+
+class TestKnownZeroIvaIsSkippedNotBackfilled:
+    def test_product_with_iva_zero_is_skipped_like_no_iva(self, db):
+        """`erp_sync.sincronizar_erp` writes `0.0` for a product with no IVA
+        row, NEVER `None` (`costeo_service.tiene_iva_conocido`'s own
+        docstring). Checking `producto.iva is None` alone never catches this
+        case, so a `0` IVA product silently gets backfilled with `iva_pct=0`
+        -- the exact live-path corruption `repair_costo_cero_congelado.py`
+        exists to clean up, except this script would be the one CREATING it.
+
+        MUTATION-VERIFIED: reverting the guard to `producto.iva is None`
+        makes this test fail -- a row would get written with `iva_pct=0`
+        instead of being skipped under `SKIP_NO_IVA`.
+        """
+        _producto(db, item_id=500, iva=0.0)
+        _publicacion(db)
+        _history(db, item_id=500, price=100.0, when=date(2026, 7, 1), iclh_id=1)
+        db.add(_order(1050, datetime(2026, 7, 15, tzinfo=timezone.utc)))
+        db.add(_item(1050))
+        db.commit()
+
+        result = script.run_backfill(limit=None, dry_run=False)
+
+        assert db.query(MlOrderItemCosto).filter_by(order_id=1050).count() == 0
+        assert result.skipped[script.SKIP_NO_IVA] == 1

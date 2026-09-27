@@ -1,17 +1,17 @@
-"""Repair frozen cost snapshots written before the cost-zero / IVA-zero guard
-shipped (see `costeo_service.tiene_costo_propio` / `tiene_iva_conocido`).
+"""Repair frozen cost snapshots written before the cost-zero guard shipped
+(see `costeo_service.tiene_costo_propio`).
 
 WHY this needs a script rather than a plain UPDATE: `ml_order_item_costos`
 is INSERT-only by design (`ON CONFLICT DO NOTHING`, see that model's module
 docstring) so a re-ingestion never rewrites an already-frozen row. Before the
-guard, `_resolve_cost` froze `producto.costo`/`producto.iva` verbatim even
-when the ERP sync had written `0.0` for "no real value" (the sync's own
+guard, `_resolve_cost` froze `producto.costo` verbatim even when the ERP sync
+had written `0.0` for "no real value" (the sync's own
 `convertir_a_numero(..., 0)` default, NEVER `None` -- see
 `costeo_service.tiene_costo_propio`'s docstring). A `0` frozen there is not a
-snapshot of a real cost or a real 21%-or-whatever IVA rate: it is corruption
-that inflates the "Total Gauss" bottom line of every sale it touches, exactly
-like a product that costs nothing or carries no tax. It has no more business
-staying in an immutable table than a bit-flipped row would.
+snapshot of a real cost: it is corruption that inflates the "Total Gauss"
+bottom line of every sale it touches, exactly like a product that costs
+nothing. It has no more business staying in an immutable table than a
+bit-flipped row would.
 
 DELETING is the only way to correct an INSERT-only table on purpose: an
 UPDATE would be indistinguishable, downstream, from every other row this
@@ -22,21 +22,30 @@ this script is the ONE place allowed to delete from this table, and it does
 so ONLY for rows matching the exact criterion below, never as a general
 cleanup tool.
 
-CRITERION -- the SAME one the live path (`costeo_service`) already applies,
-translated to the FROZEN columns instead of `ProductoERP.costo`/`.iva`:
-    - `costo_unitario_ars <= 0` (mirrors `tiene_costo_propio`)
-    - `iva_pct <= 0` (mirrors `tiene_iva_conocido`)
-A row matching either is deleted; the two reasons are counted separately
-because a wrong cost and a wrong tax rate get fixed by re-resolving
-different inputs, even though today the correction path (re-`congelar()`)
-happens to run through the same code for both.
+CRITERION -- the SAME one the live path (`costeo_service.tiene_costo_propio`)
+already applies, translated to the FROZEN column instead of `ProductoERP.costo`:
+    - `costo_unitario_ars <= 0`
+
+WHY THIS SCRIPT DOES NOT ALSO REPAIR `iva_pct <= 0`: a live-frozen row whose
+ONLY problem is its IVA rate has a GOOD, correctly-dated cost -- frozen the
+day of the sale. Re-`congelar()`-ing it (this script's only correction
+mechanism) would resolve `ProductoERP.costo` and the exchange rate as of
+TODAY, silently replacing a correct historic cost to fix an unrelated tax
+rate. That is exactly the reason `hist_*` (backfill) rows are excluded below
+even when their cost is bad: recongelar-ing a row with a good value is worse
+than leaving the bad value in place. A row matching ONLY `iva_pct <= 0` (its
+cost is fine) is therefore OUT OF SCOPE for this script on purpose: it is
+counted under `examined_out_of_scope_iva_solo` and needs a DIFFERENT, future
+correction that replaces `iva_pct` alone while preserving `costo_unitario_ars`
+and every other frozen column untouched.
 
 RE-FREEZING reuses `costeo_service.congelar()` UNCHANGED -- it already knows
 how to sum a combo's components (`FUENTE_COMBO`) and already refuses to
-write a hole as a zero. Re-running it over the WHOLE order (not just the
-deleted item) is deliberate and safe: `congelar()`'s own `ya_congelados`
-existence guard means every OTHER already-frozen item on that order is a
-structural no-op, so this can never touch a row it did not just delete.
+write a hole as a zero. It is called ONLY with the keys THIS script actually
+deleted, never the order's whole item set: `congelar()`'s own `ya_congelados`
+existence guard would make every other already-frozen item a structural
+no-op anyway, but passing a narrower list keeps that guarantee explicit
+rather than incidental.
 
 An item that still cannot be costed under the current rules is left WITHOUT
 a row on purpose ("unknown is not zero" -- same discipline every other
@@ -61,7 +70,7 @@ criterion below: its `costo_origen` came from a DATED
 `ItemCostListHistory` row, correct for the order's own date, and
 re-`congelar()`-ing it would silently replace that correct historic value
 with TODAY's `ProductoERP.costo`/exchange rate. A backfilled row with a
-bad IVA needs a re-dated backfill run, never this script -- it is counted
+bad cost needs a re-dated backfill run, never this script -- it is counted
 under `examined_out_of_scope_backfill` and left completely untouched.
 
 Likewise, a candidate row whose item is no longer on `MlOrderItemOps` (a
@@ -74,9 +83,19 @@ irreversible. It is counted under `examined_out_of_scope_item_gone` and
 left completely untouched, reported as a known, intocable case rather
 than silently destroyed.
 
+CATEGORIES OF ROW THIS SCRIPT DELIBERATELY LEAVES UNTOUCHED, all reported,
+none silently skipped:
+    - `examined_out_of_scope_iva_solo`: good cost, bad IVA -- needs a
+      future IVA-only correction, never a recongelado (see above).
+    - `examined_out_of_scope_backfill`: bad cost, but written by the dated
+      backfill path -- needs a re-dated backfill run, never this script.
+    - `examined_out_of_scope_item_gone`: bad cost, live-path row, but the
+      item is no longer on the order -- deleting it would be irreversible
+      with nothing left to recreate it from.
+
 Run:
-    python -m app.scripts.repair_costo_iva_cero_congelado --limit 5000            # reports only
-    python -m app.scripts.repair_costo_iva_cero_congelado --limit 5000 --apply    # actually repairs
+    python -m app.scripts.repair_costo_cero_congelado --limit 5000            # reports only
+    python -m app.scripts.repair_costo_cero_congelado --limit 5000 --apply    # actually repairs
 """
 
 from __future__ import annotations
@@ -98,11 +117,13 @@ from dotenv import load_dotenv  # noqa: E402
 env_path = backend_path / ".env"
 load_dotenv(dotenv_path=env_path)
 
+from sqlalchemy import tuple_  # noqa: E402
 from sqlalchemy.orm import Session  # noqa: E402
 
 from app.core.database import SessionLocal  # noqa: E402
 from app.models.ml_order_item_costo import MlOrderItemCosto  # noqa: E402
 from app.models.ml_orders_ops import MlOrderItemOps  # noqa: E402
+from app.models.producto import ProductoERP  # noqa: E402
 from app.services.ml_orders_ingestion.costeo_service import (  # noqa: E402
     FUENTE_COMBO,
     FUENTE_PUBLICACION,
@@ -120,8 +141,6 @@ logger = logging.getLogger(__name__)
 DEFAULT_BATCH_SIZE = 500
 
 MOTIVO_COSTO_CERO = "costo_congelado_cero"
-MOTIVO_IVA_CERO = "iva_congelado_cero"
-MOTIVO_COSTO_Y_IVA_CERO = "costo_y_iva_congelados_cero"
 
 # The ONLY `fuente` values this script is allowed to delete+re-`congelar()`
 # -- exactly the constants `congelar()` itself stamps on the live path. A
@@ -138,6 +157,17 @@ HUECO_SIN_COSTO_NI_COMBO = "hueco_sin_costo_propio_ni_combo_costeable"
 HUECO_IVA_DESCONOCIDO = "hueco_iva_desconocido"
 HUECO_OTRO = "hueco_otro_ej_sin_tipo_de_cambio"
 
+# Human-readable reminder logged whenever an IVA-only row is observed --
+# never silently skipped, but never touched by this script either. See the
+# module docstring's "WHY THIS SCRIPT DOES NOT ALSO REPAIR" section.
+MENSAJE_IVA_SOLO_FUERA_DE_ALCANCE = (
+    "fila con costo_unitario_ars bueno pero iva_pct<=0: fuera de alcance a "
+    "proposito -- recongelar reemplazaria el costo historico correcto por el "
+    "costo/tipo de cambio de HOY solo para arreglar el IVA. Necesita una "
+    "correccion futura que reemplace UNICAMENTE iva_pct preservando el resto "
+    "de la fila congelada."
+)
+
 
 @dataclass
 class RepairResult:
@@ -145,28 +175,31 @@ class RepairResult:
     deleted: int = 0
     recongelados: int = 0
     huecos: int = 0
-    # Candidates matching the `<= 0` criterion that this script deliberately
-    # does NOT delete (defect 1, `hist_*` rows) or deletes but cannot
-    # recreate (defect 3, item no longer on the order) -- see the module
-    # docstring. Every candidate lands in EXACTLY one bucket, so:
+    # Candidates matching the `costo_unitario_ars <= 0` criterion that this
+    # script deliberately does NOT delete (defect 1, `hist_*` rows) or
+    # deletes but cannot recreate (defect 3, item no longer on the order) --
+    # see the module docstring. Every candidate lands in EXACTLY one bucket:
     #   examined == recongelados + huecos + examined_out_of_scope_backfill
     #             + examined_out_of_scope_item_gone
     examined_out_of_scope_backfill: int = 0
     examined_out_of_scope_item_gone: int = 0
+    # NOT part of the invariant above: this is a SEPARATE population (good
+    # cost, bad IVA) that never enters the cost-repair candidate query at
+    # all -- see `_iva_solo_query`. Reported purely for visibility.
+    examined_out_of_scope_iva_solo: int = 0
     motivos_borrado: Counter = field(default_factory=Counter)
     motivos_hueco: Counter = field(default_factory=Counter)
 
 
 def _candidate_query(db: Session, limit: Optional[int]):
-    """Every frozen row whose `costo_unitario_ars` or `iva_pct` is `<= 0` --
-    the exact translation of `tiene_costo_propio`/`tiene_iva_conocido` onto
-    the FROZEN columns, since this table has no `ProductoERP` reference to
-    re-check directly. Includes out-of-scope (`hist_*`) rows too: they must
-    still be EXAMINED and COUNTED, just never deleted -- see
-    `examined_out_of_scope_backfill`."""
+    """Every frozen row whose `costo_unitario_ars` is `<= 0` -- the exact
+    translation of `tiene_costo_propio` onto the FROZEN column, since this
+    table has no `ProductoERP` reference to re-check directly. Includes
+    out-of-scope (`hist_*`) rows too: they must still be EXAMINED and
+    COUNTED, just never deleted -- see `examined_out_of_scope_backfill`."""
     query = (
         db.query(MlOrderItemCosto)
-        .filter((MlOrderItemCosto.costo_unitario_ars <= 0) | (MlOrderItemCosto.iva_pct <= 0))
+        .filter(MlOrderItemCosto.costo_unitario_ars <= 0)
         .order_by(MlOrderItemCosto.order_id, MlOrderItemCosto.id)
     )
     if limit is not None:
@@ -174,14 +207,14 @@ def _candidate_query(db: Session, limit: Optional[int]):
     return query
 
 
-def _motivo(row: MlOrderItemCosto) -> str:
-    costo_cero = row.costo_unitario_ars is not None and row.costo_unitario_ars <= 0
-    iva_cero = row.iva_pct is not None and row.iva_pct <= 0
-    if costo_cero and iva_cero:
-        return MOTIVO_COSTO_Y_IVA_CERO
-    if costo_cero:
-        return MOTIVO_COSTO_CERO
-    return MOTIVO_IVA_CERO
+def _iva_solo_query(db: Session):
+    """Rows with a GOOD cost but a bad IVA -- out of scope for this script
+    by design. A separate, unlimited count: it is informational only, never
+    fed into the delete/recongelar pipeline."""
+    return db.query(MlOrderItemCosto).filter(
+        MlOrderItemCosto.costo_unitario_ars > 0,
+        MlOrderItemCosto.iva_pct <= 0,
+    )
 
 
 def _item_dto_from_ops(row: MlOrderItemOps) -> OrderItemOpsDTO:
@@ -217,6 +250,32 @@ def _diagnose_hueco(
     }
     combos = componentes_por_combo(db, erp_ids_sin_costo)
 
+    # A combo declaration alone does not mean the combo can be COSTED --
+    # `_resolve_cost` (`costeo_service`) only accepts it when EVERY
+    # component itself has a real cost. Fetching the components' own
+    # `ProductoERP` rows here (one bulk query, never per item) is what lets
+    # this diagnosis tell "no combo declared" apart from "combo declared but
+    # at least one component is itself an ERP hole" -- both cases end up a
+    # hole, but only the first one is genuinely `HUECO_SIN_COSTO_NI_COMBO`
+    # unless the SECOND is checked too.
+    componente_ids = {componente_id for lista in combos.values() for componente_id, _qty in lista}
+    productos_componentes: Dict[int, ProductoERP] = {}
+    if componente_ids:
+        productos_componentes = {
+            producto.item_id: producto
+            for producto in db.query(ProductoERP).filter(ProductoERP.item_id.in_(componente_ids)).all()
+        }
+
+    def _combo_es_costeable(item_id: int) -> bool:
+        componentes = combos.get(item_id)
+        if not componentes:
+            return False
+        return all(
+            (producto_componente := productos_componentes.get(componente_id)) is not None
+            and tiene_costo_propio(producto_componente)
+            for componente_id, _qty in componentes
+        )
+
     for idx, dto in enumerate(dtos):
         result.huecos += 1
         resuelto = productos_por_indice.get(idx)
@@ -224,7 +283,7 @@ def _diagnose_hueco(
             result.motivos_hueco[HUECO_SIN_VINCULACION] += 1
             continue
         producto, _fuente = resuelto
-        if not tiene_costo_propio(producto) and not combos.get(producto.item_id):
+        if not tiene_costo_propio(producto) and not _combo_es_costeable(producto.item_id):
             result.motivos_hueco[HUECO_SIN_COSTO_NI_COMBO] += 1
             continue
         if not tiene_iva_conocido(producto):
@@ -233,17 +292,65 @@ def _diagnose_hueco(
         result.motivos_hueco[HUECO_OTRO] += 1
 
 
+def _select_deletable_rows(db: Session, keys: Sequence[Tuple[int, str, Optional[int]]]) -> List[MlOrderItemCosto]:
+    """The CURRENT rows matching every `(order_id, item_id, variation_id)`
+    key that still satisfy the delete criteria right now -- one batched
+    query instead of one query per key.
+
+    Split in two because `tuple_(...).in_(...)` cannot match a NULL
+    `variation_id` through SQL `IN` semantics (`NULL = NULL` is never TRUE):
+    a bare item (no variation) needs its own `variation_id IS NULL` branch.
+    """
+    con_variacion = [
+        (order_id, item_id, variation_id) for order_id, item_id, variation_id in keys if variation_id is not None
+    ]
+    sin_variacion = [(order_id, item_id) for order_id, item_id, variation_id in keys if variation_id is None]
+
+    filas: List[MlOrderItemCosto] = []
+    if con_variacion:
+        filas.extend(
+            db.query(MlOrderItemCosto)
+            .filter(
+                tuple_(
+                    MlOrderItemCosto.order_id,
+                    MlOrderItemCosto.item_id,
+                    MlOrderItemCosto.variation_id,
+                ).in_(con_variacion),
+                MlOrderItemCosto.fuente.in_(FUENTES_EN_VIVO),
+                MlOrderItemCosto.costo_unitario_ars <= 0,
+            )
+            .all()
+        )
+    if sin_variacion:
+        filas.extend(
+            db.query(MlOrderItemCosto)
+            .filter(
+                tuple_(MlOrderItemCosto.order_id, MlOrderItemCosto.item_id).in_(sin_variacion),
+                MlOrderItemCosto.variation_id.is_(None),
+                MlOrderItemCosto.fuente.in_(FUENTES_EN_VIVO),
+                MlOrderItemCosto.costo_unitario_ars <= 0,
+            )
+            .all()
+        )
+    return filas
+
+
 def run_repair(limit: Optional[int], dry_run: bool, batch_size: int = DEFAULT_BATCH_SIZE) -> RepairResult:
     result = RepairResult()
     db = SessionLocal()
     try:
+        # Informational, separate population -- see the module docstring's
+        # "WHY THIS SCRIPT DOES NOT ALSO REPAIR" section. Counted regardless
+        # of dry-run/apply, never deleted, never recongelado.
+        result.examined_out_of_scope_iva_solo = _iva_solo_query(db).count()
+
         candidatos = _candidate_query(db, limit).all()
         result.examined = len(candidatos)
         if not candidatos:
             return result
 
-        for row in candidatos:
-            result.motivos_borrado[_motivo(row)] += 1
+        for _row in candidatos:
+            result.motivos_borrado[MOTIVO_COSTO_CERO] += 1
 
         # Defect 1: split out-of-scope (backfill) rows FIRST -- they are
         # counted but never deleted, never passed to `congelar()`.
@@ -252,13 +359,28 @@ def run_repair(limit: Optional[int], dry_run: bool, batch_size: int = DEFAULT_BA
 
         if dry_run:
             # Dry run reports ONLY what would be deleted -- the in-scope
-            # (live-path) subset. It deliberately does NOT simulate the
-            # re-`congelar()` outcome: that would mean duplicating
-            # `_resolve_cost`'s private resolution logic just to predict its
-            # answer without writing, which risks the exact "two paths that
-            # can disagree" this whole module refuses elsewhere. Run with
-            # `--apply` to see real recongelado/hueco counts.
-            result.deleted = len(en_vivo)
+            # (live-path) subset MINUS the item-gone rows `--apply` never
+            # deletes either (defect 3), so the number the operator sees
+            # matches what a real run would actually remove. It deliberately
+            # does NOT simulate the re-`congelar()` outcome: that would mean
+            # duplicating `_resolve_cost`'s private resolution logic just to
+            # predict its answer without writing, which risks the exact "two
+            # paths that can disagree" this whole module refuses elsewhere.
+            # Run with `--apply` to see real recongelado/hueco counts.
+            order_ids = sorted({row.order_id for row in en_vivo})
+            ops_keys = {
+                (ops_row.order_id, ops_row.item_id, ops_row.variation_id)
+                for ops_row in db.query(MlOrderItemOps).filter(MlOrderItemOps.order_id.in_(order_ids)).all()
+            }
+            deletable = 0
+            item_gone = 0
+            for row in en_vivo:
+                if (row.order_id, row.item_id, row.variation_id) in ops_keys:
+                    deletable += 1
+                else:
+                    item_gone += 1
+            result.deleted = deletable
+            result.examined_out_of_scope_item_gone = item_gone
             return result
 
         # Grouped by order so a single query per order finds which of ITS
@@ -296,34 +418,28 @@ def run_repair(limit: Optional[int], dry_run: bool, batch_size: int = DEFAULT_BA
             # only has the items current on the order to work from. So this
             # row is NOT deleted at all: it is left exactly as it is,
             # counted and reported as untouchable, never silently destroyed.
-            keys_to_recongelar: List[Tuple[int, str, Optional[int]]] = []
             keys_to_delete: List[Tuple[int, str, Optional[int]]] = []
             for key in all_keys:
                 if key in items_by_key:
-                    keys_to_recongelar.append(key)
                     keys_to_delete.append(key)
                 else:
                     result.examined_out_of_scope_item_gone += 1
 
+            # One batched SELECT (split only for the NULL-variation case,
+            # see `_select_deletable_rows`) instead of one query per key,
+            # AND the source of truth for which keys were ACTUALLY deleted --
+            # never assume every candidate key still matches; a key whose
+            # row no longer satisfies the criteria (or is simply gone) must
+            # never be passed to `congelar()` as if it had just been deleted.
+            filas_a_borrar = _select_deletable_rows(db, keys_to_delete)
+            actually_deleted_keys = {(row.order_id, row.item_id, row.variation_id) for row in filas_a_borrar}
+            ids_a_borrar = [row.id for row in filas_a_borrar]
+
             deleted_count = 0
-            for order_id, item_id, variation_id in keys_to_delete:
-                deleted_count += (
+            if ids_a_borrar:
+                deleted_count = (
                     db.query(MlOrderItemCosto)
-                    .filter(
-                        MlOrderItemCosto.order_id == order_id,
-                        MlOrderItemCosto.item_id == item_id,
-                        MlOrderItemCosto.variation_id.is_(variation_id)
-                        if variation_id is None
-                        else MlOrderItemCosto.variation_id == variation_id,
-                        MlOrderItemCosto.fuente.in_(FUENTES_EN_VIVO),
-                        # Belt and braces: the same "not a real cost" condition
-                        # the SELECT above used, repeated HERE so the DELETE's
-                        # own WHERE carries the safety property instead of
-                        # trusting the key list it was handed. A row that does
-                        # not match it cannot be destroyed by this statement
-                        # even if the list were ever built wrong.
-                        (MlOrderItemCosto.costo_unitario_ars <= 0) | (MlOrderItemCosto.iva_pct <= 0),
-                    )
+                    .filter(MlOrderItemCosto.id.in_(ids_a_borrar))
                     .delete(synchronize_session=False)
                 )
             result.deleted += deleted_count
@@ -339,10 +455,14 @@ def run_repair(limit: Optional[int], dry_run: bool, batch_size: int = DEFAULT_BA
             # failing to write the right one is the exact data loss this
             # script exists to avoid.
             #
-            # Group the keys to re-freeze back by order, and pass `congelar()`
-            # ONLY those items' DTOs -- never the order's whole item set, so
-            # an untouched hole on the same order can never get a fresh row
-            # stamped by this script (defect 2).
+            # Group the ACTUALLY-DELETED keys back by order, and pass
+            # `congelar()` ONLY those items' DTOs -- never the order's whole
+            # item set, so an untouched hole on the same order can never get
+            # a fresh row stamped by this script (defect 2), and a key whose
+            # delete silently affected zero rows can never be miscounted as
+            # recongelado just because some OTHER (undeleted) row for that
+            # key happens to still be there.
+            keys_to_recongelar = [key for key in keys_to_delete if key in actually_deleted_keys]
             recongelar_keys_by_order: Dict[int, List[Tuple[str, Optional[int]]]] = {}
             for order_id, item_id, variation_id in keys_to_recongelar:
                 recongelar_keys_by_order.setdefault(order_id, []).append((item_id, variation_id))
@@ -383,9 +503,10 @@ def run_repair(limit: Optional[int], dry_run: bool, batch_size: int = DEFAULT_BA
 
 def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        description="Delete frozen ml_order_item_costos rows whose cost or IVA was "
-        "frozen as zero (an ERP hole, never a real value) and re-freeze those items "
-        "with the current combo-aware, zero-guarded costeo_service logic."
+        description="Delete frozen ml_order_item_costos rows whose cost was frozen as "
+        "zero (an ERP hole, never a real value) and re-freeze those items with the "
+        "current combo-aware, zero-guarded costeo_service logic. Rows whose ONLY "
+        "problem is iva_pct are OUT OF SCOPE on purpose -- see the module docstring."
     )
     parser.add_argument(
         "--limit",
@@ -417,10 +538,17 @@ def main(argv: Optional[List[str]] = None) -> None:
 
     result = run_repair(limit=args.limit, dry_run=not args.apply, batch_size=args.batch_size)
 
+    if result.examined_out_of_scope_iva_solo:
+        logger.warning(
+            "repair_costo_cero_congelado: %s %s",
+            result.examined_out_of_scope_iva_solo,
+            MENSAJE_IVA_SOLO_FUERA_DE_ALCANCE,
+        )
+
     logger.info(
-        "repair_costo_iva_cero_congelado: complete (dry_run=%s, limit=%s) -- "
+        "repair_costo_cero_congelado: complete (dry_run=%s, limit=%s) -- "
         "examined=%s deleted=%s recongelados=%s huecos=%s "
-        "out_of_scope_backfill=%s out_of_scope_item_gone=%s "
+        "out_of_scope_backfill=%s out_of_scope_item_gone=%s out_of_scope_iva_solo=%s "
         "motivos_borrado=%s motivos_hueco=%s",
         not args.apply,
         args.limit,
@@ -430,6 +558,7 @@ def main(argv: Optional[List[str]] = None) -> None:
         result.huecos,
         result.examined_out_of_scope_backfill,
         result.examined_out_of_scope_item_gone,
+        result.examined_out_of_scope_iva_solo,
         dict(result.motivos_borrado),
         dict(result.motivos_hueco),
     )

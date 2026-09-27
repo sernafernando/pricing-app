@@ -86,6 +86,7 @@ from app.services.ml_orders_ingestion.costeo_service import (  # noqa: E402
     _insert_stmt,
     _productos_por_item,
     componentes_por_combo,
+    tiene_iva_conocido,
 )
 
 logger = logging.getLogger(__name__)
@@ -386,7 +387,7 @@ def _resolve_backfill_cost(
     Summing components for something the ERP actually prices would replace
     a measured figure with a derived one.
     """
-    if producto.iva is None:
+    if not tiene_iva_conocido(producto):
         result.skipped[SKIP_NO_IVA] += 1
         return None
     try:
