@@ -76,7 +76,6 @@ from app.models.item_cost_list_history import ItemCostListHistory  # noqa: E402
 from app.models.ml_order_item_costo import MlOrderItemCosto  # noqa: E402
 from app.models.ml_orders_ops import MlOrderItemOps, MlOrdersOps  # noqa: E402
 from app.models.producto import ProductoERP  # noqa: E402
-from app.models.tb_item_association import TbItemAssociation  # noqa: E402
 from app.models.tipo_cambio import TipoCambio  # noqa: E402
 from app.services.ml_orders_ingestion.costeo_service import (  # noqa: E402
     FUENTE_BACKFILL_PUBLICACION,
@@ -86,6 +85,7 @@ from app.services.ml_orders_ingestion.costeo_service import (  # noqa: E402
     FUENTE_SKU,
     _insert_stmt,
     _productos_por_item,
+    componentes_por_combo,
 )
 
 logger = logging.getLogger(__name__)
@@ -238,59 +238,6 @@ def _hay_fila_fechada(rows: Sequence[ItemCostListHistory], as_of: date) -> bool:
     date" and "every row it has for that date came empty" get fixed in
     different places."""
     return any(_as_date(row.iclh_cd) is not None and _as_date(row.iclh_cd) <= as_of for row in rows)
-
-
-def _componentes_por_combo(db: Session, erp_ids: Sequence[int]) -> Dict[int, List[tuple[int, Decimal]]]:
-    """`{combo_item_id: [(component_item_id, qty), ...]}` for this batch, in
-    ONE query -- never one per item (same bulk rule `_productos_por_item`
-    documents).
-
-    `tb_item_association` is the ERP's bill of materials: `item_id` is the
-    parent, `item_id_1` the component, `iasso_qty` how many of it go in.
-    `iasso_qty > 0` is what `prearmado.buscar_combos` already uses to
-    decide "this is a combo", and this follows that definition rather than
-    inventing a second one."""
-    if not erp_ids:
-        return {}
-    rows = (
-        db.query(
-            TbItemAssociation.item_id,
-            TbItemAssociation.item_id_1,
-            TbItemAssociation.iasso_qty,
-            TbItemAssociation.comp_id,
-        )
-        .filter(
-            TbItemAssociation.item_id.in_(sorted(set(erp_ids))),
-            TbItemAssociation.iasso_qty > 0,
-        )
-        .all()
-    )
-    por_combo: Dict[int, List[tuple[int, Decimal]]] = {}
-    empresas_por_combo: Dict[int, set] = {}
-    for combo_id, componente_id, qty, comp_id in rows:
-        if componente_id is None:
-            continue
-        por_combo.setdefault(combo_id, []).append((componente_id, Decimal(str(qty))))
-        empresas_por_combo.setdefault(combo_id, set()).add(comp_id)
-
-    # `comp_id` is the ERP's COMPANY, and it is part of this table's key --
-    # `prearmado`'s own queries join on it. `ProductoERP` carries no
-    # company, so there is nothing here to correlate a combo to one; the
-    # only honest options are to sum across companies (silently wrong money)
-    # or to refuse. Measured today: production holds exactly ONE `comp_id`,
-    # so this never fires. It exists so that the day a second company
-    # appears the script SAYS SO instead of quietly summing both.
-    for combo_id, empresas in empresas_por_combo.items():
-        if len(empresas) > 1:
-            logger.warning(
-                "backfill_costo_congelado: combo item_id=%s has components in %s companies (comp_id=%s) -- "
-                "refusing to sum across companies",
-                combo_id,
-                len(empresas),
-                sorted(empresas),
-            )
-            por_combo.pop(combo_id, None)
-    return por_combo
 
 
 def _usd_rates_by_date(db: Session, dates: Sequence[date]) -> List[TipoCambio]:
@@ -532,8 +479,8 @@ def run_backfill(limit: Optional[int], dry_run: bool, batch_size: int = DEFAULT_
             # components' ids folded into the SAME history fetch -- a
             # second round-trip per combo would reintroduce exactly the
             # N+1 this module spends a docstring forbidding.
-            componentes_por_combo = _componentes_por_combo(db, item_ids_needed)
-            for componentes in componentes_por_combo.values():
+            combos = componentes_por_combo(db, item_ids_needed)
+            for componentes in combos.values():
                 item_ids_needed.extend(componente_id for componente_id, _ in componentes)
 
             history_by_item = _dated_history_rows(db, item_ids_needed)
@@ -564,7 +511,7 @@ def run_backfill(limit: Optional[int], dry_run: bool, batch_size: int = DEFAULT_
                     producto,
                     fuente_live,
                     history_rows,
-                    componentes_por_combo.get(producto.item_id, []),
+                    combos.get(producto.item_id, []),
                     history_by_item,
                     usd_rates,
                     order_date,
