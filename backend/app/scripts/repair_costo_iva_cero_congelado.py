@@ -327,8 +327,18 @@ def run_repair(limit: Optional[int], dry_run: bool, batch_size: int = DEFAULT_BA
                     .delete(synchronize_session=False)
                 )
             result.deleted += deleted_count
-            db.commit()
 
+            # NO `db.commit()` HERE, deliberately. The DELETE and the
+            # re-`congelar()` below are ONE transaction per batch: committing
+            # the deletion first would mean that a crash, a lost connection or
+            # any exception raised while re-freezing leaves rows deleted with
+            # nothing to recreate them -- `congelar()` reads the CURRENT items,
+            # so a second run would re-freeze them, but the operator would
+            # never know a window existed where those sales had no cost at
+            # all. Deleting a wrong value is recoverable; deleting it and
+            # failing to write the right one is the exact data loss this
+            # script exists to avoid.
+            #
             # Group the keys to re-freeze back by order, and pass `congelar()`
             # ONLY those items' DTOs -- never the order's whole item set, so
             # an untouched hole on the same order can never get a fresh row

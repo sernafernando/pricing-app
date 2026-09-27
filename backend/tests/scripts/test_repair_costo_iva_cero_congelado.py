@@ -378,3 +378,33 @@ class TestUncostableHoleIsVisible:
         assert result.motivos_hueco[script.HUECO_SIN_COSTO_NI_COMBO] == 1
 
         assert db.query(MlOrderItemCosto).filter_by(order_id=200).count() == 0
+
+
+class TestDeleteAndRefreezeAreOneTransaction:
+    """Deleting a wrong value is recoverable. Deleting it and then failing to
+    write the right one is not: the sale is left with NO cost at all and
+    nobody knows a window existed. So the DELETE and the re-freeze are one
+    transaction per batch -- if re-freezing raises, the deletion rolls back
+    and the (wrong) row is still there to try again."""
+
+    def test_a_failure_while_refreezing_rolls_the_deletion_back(self, db, monkeypatch):
+        db.add(_order(301))
+        db.add(_item_ops(301))
+        _producto(db, costo=250.0, iva=21.0)
+        _publicacion(db)
+        _frozen_row(db, order_id=301, costo_unitario_ars=0.0, iva_pct=21.0)
+        db.commit()
+
+        def _boom(*args, **kwargs):
+            raise RuntimeError("congelar blew up mid-batch")
+
+        monkeypatch.setattr(script, "congelar", _boom)
+
+        with pytest.raises(RuntimeError):
+            script.run_repair(limit=None, dry_run=False)
+
+        db.rollback()
+        # The zero row survived: the deletion was never committed on its own.
+        filas = db.query(MlOrderItemCosto).filter_by(order_id=301).all()
+        assert len(filas) == 1
+        assert float(filas[0].costo_unitario_ars) == 0.0
