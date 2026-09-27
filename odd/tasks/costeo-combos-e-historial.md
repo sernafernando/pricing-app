@@ -79,12 +79,30 @@ capturado).
 - [x] T13 Verificación por mutación: 3 mutaciones (revertir cada uno de los 3 puntos a
       `is not None`), las 3 pusieron en rojo el test correspondiente.
 
-**IVA — investigado, NO tocado**: `erp_sync.py:362` tiene la misma forma (`IVA` con default `0`),
-pero a diferencia del costo, un IVA de 0% PUEDE ser legítimo (producto exento). Búsqueda en código
-no encontró un modelo de "producto exento de IVA" distinto de la condición fiscal de proveedores
-(`afip_service.py` maneja "IVA Exento" para PROVEEDORES ante AFIP, no para productos). Sin acceso
-a la base de datos no se pudo determinar si hay productos con `iva=0` legítimos en producción.
-**NO DETERMINADO** — queda para que el usuario lo resuelva antes de aplicar la misma guarda al IVA.
+**IVA — resuelto**: el dueño del producto decidió "no vendemos exentos", así que un IVA de `0`
+se trata igual que un agujero del ERP (misma forma que el costo, razón de negocio distinta).
+
+### Parte 1c — Guarda del IVA cero + pase correctivo (rama `fix/costeo-iva-cero-y-pase-correctivo`)
+
+- [x] T14 RED: test con `iva=0.0` (forma real que escribe `erp_sync.py:362`, default `0`, nunca
+      `None`) confirmado en rojo contra el código de Parte 1b.
+- [x] T15 Predicado propio `tiene_iva_conocido(producto)` en `costeo_service.py` (`NULL` o `<= 0` →
+      IVA desconocido), separado de `tiene_costo_propio` porque la razón de negocio es distinta
+      (decisión "no vendemos exentos", no una limitación estructural del ERP); docstring deja
+      constancia de la decisión para revisar si algún día cambia.
+- [x] T16 Aplicado en `_resolve_cost`, reemplazando el chequeo `producto.iva is None`.
+- [x] T17 Verificación por mutación: 2 mutaciones (`is None` en vez del predicado; `>= 0` en vez de
+      `> 0` dentro del predicado), las 2 pusieron en rojo el test.
+- [x] T18 Script `app/scripts/repair_costo_iva_cero_congelado.py`: borra filas congeladas con
+      `costo_unitario_ars <= 0` o `iva_pct <= 0` (mismo criterio del camino en vivo, traducido a las
+      columnas congeladas) y re-`congelar()`-ea esos ítems con la lógica actual (combos + guardas).
+      Un ítem que sigue sin poder costearse queda SIN fila (hueco visible, no un cero). Reporta por
+      motivo: borrado (costo cero / IVA cero / ambos) y hueco (sin vinculación / sin costo ni combo /
+      IVA desconocido / otro). Tests: camino feliz (recongela con costo real) + hueco visible.
+- [x] T19 Investigado el pipeline de triggers: `ml_order_item_costos` tiene triggers Postgres
+      `AFTER INSERT`/`AFTER DELETE` (`app/services/order_metrics/triggers.py:249,265`) que llaman
+      `order_metrics_enqueue` — el DELETE + re-INSERT del script disparan el recálculo de
+      `ml_order_metrics` solos, sin necesidad de encolar nada a mano.
 
 ### Parte 2 — Historial de costos propio (rama aparte, con migración)
 
@@ -131,3 +149,11 @@ a la base de datos no se pudo determinar si hay productos con `iva=0` legítimos
   aplicado en los 3 puntos (filtro de candidatos, `_resolve_cost`, `_resolver_combo_vivo`).
   3 mutaciones verificadas, las 3 rompieron su test. Suite `ml_orders_ingestion` 411 passed (408+3).
   IVA investigado, NO tocado — NO DETERMINADO si hay exentos legítimos, queda para el usuario.
+- 2026-09-27 — Parte 1c: guarda del IVA cero (`tiene_iva_conocido`, mismo criterio `<=0`/`NULL`,
+  razón de negocio distinta) + pase correctivo (`repair_costo_iva_cero_congelado.py`). RED con
+  `iva=0.0` confirmado, GREEN aplicado, 2 mutaciones verificadas. Script borra+recongela filas con
+  costo o IVA congelados en cero; hueco visible si sigue sin poder costearse. Confirmado con
+  evidencia de código que el trigger Postgres de `ml_order_item_costos` dispara el recálculo de
+  métricas solo (no hace falta encolar a mano). Suite completa verde: `ml_orders_ingestion` 416
+  passed (412+4), resto del backend 6085 passed/2 skipped, integración 1294 passed/14 skipped,
+  `ruff format`/`ruff check` limpios sobre `app/`.

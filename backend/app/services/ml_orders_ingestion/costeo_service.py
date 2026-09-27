@@ -113,6 +113,33 @@ def tiene_costo_propio(producto: ProductoERP) -> bool:
         return False
 
 
+def tiene_iva_conocido(producto: ProductoERP) -> bool:
+    """Whether `producto.iva` is a REAL, known rate -- distinct in
+    REASONING from `tiene_costo_propio` even though the check has the same
+    shape (`NULL` or `<= 0` -> unknown), because a `0` means something
+    different on each column.
+
+    `erp_sync.sincronizar_erp` reads `IVA` with
+    `convertir_a_numero(producto_data.get("IVA", 0))` -- default `0`, never
+    `None`, same as `coslis_price`. So a product with no IVA row in the ERP
+    lands in `productos_erp.iva` as `0.0`, NEVER as `NULL`.
+
+    Unlike a missing `costo`, a `0` IVA is not automatically an ERP hole --
+    it CAN be a legitimate rate for a product genuinely exento. This
+    business decided otherwise: the product owner stated plainly that this
+    business "no vendemos exentos" (we do not sell IVA-exempt products), so
+    a `0` IVA is treated as unknown here on that business rule, NOT as a
+    universal accounting truth. If that ever changes -- this business
+    starts selling exento products -- this predicate is exactly what needs
+    revisiting, and this docstring is the pointer to why it exists."""
+    if producto.iva is None:
+        return False
+    try:
+        return Decimal(str(producto.iva)) > 0
+    except InvalidOperation:
+        return False
+
+
 @dataclass(frozen=True)
 class _ResolvedCost:
     """Everything needed to freeze ONE item's snapshot, always complete.
@@ -377,7 +404,7 @@ def _resolve_cost(
         return None
     producto, fuente = resuelto
 
-    if producto.iva is None:
+    if not tiene_iva_conocido(producto):
         return None
     try:
         iva_pct = Decimal(str(producto.iva))

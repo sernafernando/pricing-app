@@ -313,6 +313,25 @@ class TestUnknownIsNotZero:
 
         assert db.query(MlOrderItemCosto).filter_by(order_id=888).count() == 0
 
+    def test_iva_zero_is_unknown_not_exento(self, db):
+        """`erp_sync.sincronizar_erp` reads `IVA` with
+        `convertir_a_numero(producto_data.get("IVA", 0))` -- default `0`,
+        NEVER `None` (same shape `tiene_costo_propio`'s docstring documents
+        for `costo`). So a product with no IVA row in the ERP lands in
+        `productos_erp.iva` as `0.0`, never as `NULL` -- `iva=0.0` is the
+        REAL form of this data, not `iva=None`, which the sync never
+        produces. The business decision (`no vendemos exentos`, stated by
+        the product owner) means a `0` IVA is treated the same as a hole in
+        the ERP: unknown, never a real 0% rate."""
+        _producto(db, costo=100.0, iva=0.0)
+        _publicacion(db)
+        db.commit()
+
+        congelar(db, order_id=889, items=[_item()])
+        db.commit()
+
+        assert db.query(MlOrderItemCosto).filter_by(order_id=889).count() == 0
+
 
 class TestDialectAwareInsert:
     def test_sqlite_postgres_on_conflict_do_nothing_dialect_path(self, db):
