@@ -422,6 +422,15 @@ export default function SaleDetailPanel({ orderId, onClose }) {
                           map only when it does not. */}
                       <span className={styles.lineConcepto}>
                         {linea.concepto || DEDUCCION_LABELS[linea.code] || linea.code}
+                        {/* ventas-ml-rediseno PR19 (BREAKDOWN R38, PANEL
+                            R24): this order shares its shipment with other
+                            pack members, so the Flex cost below is a SPLIT
+                            of the shared shipment, never this order's own
+                            exclusive shipping cost -- the figure itself is
+                            unchanged, only this label is added. */}
+                        {linea.code === 'envio_flex' && linea.prorateado && (
+                          <span className={styles.mutedNote}> (prorrateado entre las órdenes del envío)</span>
+                        )}
                       </span>
                       <span className={styles.lineMonto}>
                         {linea.monto === null ? '—' : formatAmount(linea.monto)}
