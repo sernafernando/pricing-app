@@ -61,6 +61,49 @@ describe('Product filters (marca / subcategoría / PM) on VentasML', () => {
     });
   });
 
+  it('picking a product filter returns to page 1, like every other filter', async () => {
+    // Changing WHAT is filtered must reset WHERE you are in the result set.
+    // Without it, picking a brand while on page 3 renders "no hay ventas que
+    // coincidan" for a brand that DOES have sales -- they are on page 1, and
+    // nothing on screen says so.
+    api.get.mockImplementation((url) => {
+      if (url === '/ml-ventas-ops/sales') {
+        return Promise.resolve({
+          data: { sales: [], total: 300, limit: 50, offset: 0, facets: {} },
+        });
+      }
+      if (url === '/usuarios/pms') return Promise.resolve({ data: [] });
+      return Promise.resolve({ data: {} });
+    });
+
+    await renderWithRouter(<VentasML />);
+    await waitFor(() => expect(screen.getByText('Marca')).toBeInTheDocument());
+
+    // Actually navigate away from page 1. `?offset=` in the URL does NOT work
+    // here: this screen never read pagination from the URL, so seeding it that
+    // way leaves the page on offset 0 and the assertion below passes for the
+    // wrong reason (it did, before this comment existed).
+    await userEvent.click(screen.getByText('Siguiente'));
+    await waitFor(() => {
+      const tras = api.get.mock.calls.filter(([url]) => url === '/ml-ventas-ops/sales').at(-1);
+      expect(tras[1].params.offset).toBeGreaterThan(0);
+    });
+
+    await userEvent.click(screen.getByText('Marca'));
+    await userEvent.click(await screen.findByText('Sony'));
+
+    await waitFor(() => {
+      const ultima = api.get.mock.calls
+        .filter(([url]) => url === '/ml-ventas-ops/sales')
+        .at(-1);
+      // Assert BOTH: that the brand travelled AND that the offset reset. The
+      // offset alone would also be 0 on the very first load, so it cannot
+      // discriminate on its own.
+      expect(ultima[1].params.marcas).toBe('Sony');
+      expect(ultima[1].params.offset ?? 0).toBe(0);
+    });
+  });
+
   it('"Limpiar filtros" clears the selected marca too', async () => {
     await renderWithRouter(<VentasML />, { initialEntries: ['/?marcas=Sony'] });
     await waitFor(() => {

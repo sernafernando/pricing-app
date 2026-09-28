@@ -402,6 +402,18 @@ export default function VentasML() {
     [setSearchQuery],
   );
 
+  // Same discipline every other filter on this screen follows: changing WHAT
+  // is filtered resets WHERE you are in the result set. Without it, picking a
+  // brand while on page 3 shows "no hay ventas que coincidan" for a brand that
+  // does have sales -- they are simply on page 1.
+  const handleProductFiltersChange = useCallback(
+    (next) => {
+      setProductFilters(next);
+      setOffset(0);
+    },
+    [setProductFilters],
+  );
+
   const handleDateRangeChange = useCallback(({ desde, hasta, filtro }) => {
     setFechaDesde(desde);
     setFechaHasta(hasta);
@@ -627,7 +639,7 @@ export default function VentasML() {
 
         <div className={styles.filterRow}>
           <span className={styles.fieldLabel}>Producto</span>
-          <ProductFiltersPanel value={productFilters} onChange={setProductFilters} />
+          <ProductFiltersPanel value={productFilters} onChange={handleProductFiltersChange} />
         </div>
 
         <div className={styles.divider} />

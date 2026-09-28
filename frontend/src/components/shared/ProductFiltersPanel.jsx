@@ -83,6 +83,7 @@ export default function ProductFiltersPanel({ value, onChange }) {
                 <h3>Marcas</h3>
                 {selectedMarcas.length > 0 && (
                   <button
+                    type="button"
                     onClick={() => onChange({ ...value, marcas: [] })}
                     className="btn-tesla outline-subtle-danger sm"
                   >
@@ -124,6 +125,7 @@ export default function ProductFiltersPanel({ value, onChange }) {
                 <h3>Subcategorías</h3>
                 {selectedSubcategorias.length > 0 && (
                   <button
+                    type="button"
                     onClick={() => onChange({ ...value, subcategorias: [] })}
                     className="btn-tesla outline-subtle-danger sm"
                   >
@@ -172,6 +174,7 @@ export default function ProductFiltersPanel({ value, onChange }) {
                 <h3>Product Managers</h3>
                 {selectedPms.length > 0 && (
                   <button
+                    type="button"
                     onClick={() => onChange({ ...value, pms: [] })}
                     className="btn-tesla outline-subtle-danger sm"
                   >

@@ -172,23 +172,8 @@ export function useProductFilters({ value = EMPTY_VALUE, onChange } = {}) {
     [selectedPms, emit],
   );
 
-  const clear = useCallback(() => {
-    onChange?.({ marcas: [], subcategorias: [], pms: [] });
-  }, [onChange]);
 
-  const hasActiveFilters =
-    selectedMarcas.length > 0 || selectedSubcategorias.length > 0 || selectedPms.length > 0;
 
-  // CSV params ready for `GET /sales` / `GET /sales/kpis` (PFILT R35-R37):
-  // `marcas` are names, `subcategorias`/`pms` are integer ids.
-  const csvParams = useMemo(
-    () => ({
-      marcas: selectedMarcas.length > 0 ? selectedMarcas.join(',') : undefined,
-      subcategorias: selectedSubcategorias.length > 0 ? selectedSubcategorias.join(',') : undefined,
-      pms: selectedPms.length > 0 ? selectedPms.join(',') : undefined,
-    }),
-    [selectedMarcas, selectedSubcategorias, selectedPms],
-  );
 
   return {
     selectedMarcas,
@@ -204,8 +189,5 @@ export function useProductFilters({ value = EMPTY_VALUE, onChange } = {}) {
     toggleMarca,
     toggleSubcategoria,
     togglePm,
-    clear,
-    hasActiveFilters,
-    csvParams,
   };
 }
