@@ -55,6 +55,7 @@ def _seed_order(
     date_created=None,
     buyer_nickname: str | None = None,
     has_no_shipping_tag: bool = False,
+    pack_id: int | None = None,
 ) -> None:
     if date_created is None:
         date_created = datetime(2026, 9, 1, tzinfo=timezone.utc)
@@ -73,6 +74,7 @@ def _seed_order(
             shipping_id=shipping_id,
             buyer_nickname=buyer_nickname,
             has_no_shipping_tag=has_no_shipping_tag,
+            pack_id=pack_id,
         )
     )
     if shipping_id is not None:
@@ -494,3 +496,52 @@ class TestKpiListingParity:
             listing_body["total"]
             == kpi_body["orders_count"] + kpi_body["recalculating_count"] + kpi_body["pending_count"]
         )
+
+
+class TestKpiCountsWholePacksThatStraddleTheFilter:
+    """Product rule, verbatim: "si un pack es de ayer todos sus
+    integrantes tienen que entrar en ayer". `GET /sales` already applies
+    this (`TestAFilterNeverSplitsAPack`, `test_ml_ventas_ops_sales_router.py`):
+    a pack selected by the `sold_month` filter comes back with EVERY
+    member, including one whose own `date_created` falls outside the
+    requested month. The KPI aggregate must count that same whole pack,
+    not just the fraction `listing_query` (date-scoped) would return."""
+
+    def test_kpi_orders_count_and_gross_billed_include_the_out_of_range_member(
+        self, db, client, admin_auth_headers, rol_admin
+    ):
+        _grant_ml_ops_ver(db, rol_admin)
+        # Pack 555: one order inside September, one just before midnight in
+        # August -- same fixture shape as
+        # `TestAFilterNeverSplitsAPack.test_the_month_filter_keeps_a_pack_that_straddles_midnight_whole`.
+        _seed_order(
+            db, 1001, pack_id=555, total_amount=100, date_created=datetime(2026, 8, 31, 23, 59, tzinfo=timezone.utc)
+        )
+        _seed_order(
+            db, 1002, pack_id=555, total_amount=200, date_created=datetime(2026, 9, 1, 0, 1, tzinfo=timezone.utc)
+        )
+        _stored_metrics(db, 1001, neto=Decimal("80.00"), total_gauss=Decimal("20.00"))
+        _stored_metrics(db, 1002, neto=Decimal("160.00"), total_gauss=Decimal("40.00"))
+        db.commit()
+
+        params = {"sold_month": "2026-09", "include_unknown": "true"}
+
+        listing_body = client.get("/api/ml-ventas-ops/sales", params=params, headers=admin_auth_headers).json()
+        # Precondition check (RED-test discipline): confirm order 1001
+        # genuinely falls OUTSIDE the September window on its own, and
+        # that the listing nonetheless returns the whole pack (both
+        # members) under the single group it selected.
+        assert datetime(2026, 8, 31, 23, 59, tzinfo=timezone.utc) < datetime(2026, 9, 1, tzinfo=timezone.utc)
+        assert listing_body["total"] == 1
+        assert sorted(o["order_id"] for o in listing_body["sales"][0]["orders"]) == [1001, 1002]
+
+        kpi_body = client.get("/api/ml-ventas-ops/sales/kpis", params=params, headers=admin_auth_headers).json()
+
+        # Today (before the fix): only order 1002 (the one inside the
+        # date-scoped `listing_query`) is summed -- `orders_count == 1`,
+        # `gross_billed_ars == 200`. After the fix, BOTH members must be
+        # counted, matching the listing's whole-pack row.
+        assert kpi_body["groups_count"] == 1
+        assert kpi_body["orders_count"] == 2
+        assert kpi_body["gross_billed_ars"] == pytest.approx(300.0)
+        assert kpi_body["neto_sum"] == pytest.approx(240.0)

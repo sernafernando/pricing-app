@@ -4,10 +4,21 @@ spec `ml-sales-kpi-aggregation` R8, R14; SM R2/R3).
 `aggregate_order_metrics` NEVER recomputes anything -- it reads bulk from
 `order_metrics.read` (`read_stored_metrics`/`metrics_state_for_orders`),
 the same authoritative reader PR7's listing/detail switch to, and sums over
-the WHOLE filtered set in-process from those two bulk reads plus one bulk
-read of the order rows themselves -- O(1) queries total, never a per-row
+the WHOLE filtered set in-process from those bulk reads plus two bulk reads
+of the order rows themselves -- O(1) queries total (four), never a per-row
 loop, matching the KPI endpoint's own no-LIMIT contract (design D12a
 "Query-count / plan note").
+
+Whole-pack fix (product rule, verbatim: "si un pack es de ayer todos sus
+integrantes tienen que entrar en ayer"): the population aggregated here is
+NOT `listing_query`'s own rows -- a date/status filter narrows
+`listing_query` per ORDER, which would silently drop a pack's member that
+falls outside the requested range even though `GET /sales` still renders
+that whole pack (`SalesScope.members_base` docstring). Instead,
+`listing_query` selects which GROUPS (`group_key`) are in scope, and every
+member of each selected group is then pulled from `members_base` (scoped
+to the seller only, never the date/status filters) -- one extra bulk query
+over the group keys, not a per-group loop.
 
 Exclusion rule (design D9, spec KPI R8/R14, SM R2/R3): an order whose
 `metrics_state` is `'recalculating'` or `'pending'` is counted (via
@@ -105,16 +116,39 @@ class AggregateResult:
     markup_skipped_count: int = 0
 
 
-def aggregate_order_metrics(db: Session, listing_query: Query, group_key) -> AggregateResult:
-    """Aggregates the WHOLE filtered set `listing_query` describes -- no
-    `LIMIT`, no pagination (design D12a: the KPI endpoint has none). Reads
-    every `MlOrdersOps` row the query matches (one bulk query), then the
-    stored metrics for exactly those order_ids (two more bulk queries, via
-    `order_metrics.read`) -- three queries total regardless of how many
-    orders match."""
-    orders = listing_query.with_entities(
-        MlOrdersOps.order_id, MlOrdersOps.total_amount, MlOrdersOps.currency_id, group_key.label("group_key")
-    ).all()
+def aggregate_order_metrics(db: Session, listing_query: Query, members_base: Query, group_key) -> AggregateResult:
+    """Aggregates every MEMBER of every group `listing_query` selects --
+    no `LIMIT`, no pagination (design D12a: the KPI endpoint has none).
+
+    `listing_query` decides which GROUPS (packs/lone orders) are in scope
+    (the date range, the status facets, the search, the product facets,
+    the doubtful-case switches). Once a group is selected, ALL of its
+    members are aggregated, even a member whose own `date_created` falls
+    outside a requested date range -- the same whole-pack contract
+    `GET /sales` already gives its listing (`SalesScope.members_base`
+    docstring; "a pack that straddles a month boundary must still come
+    back with every member"). `members_base` is scoped to the seller only,
+    never the date/status filters, for exactly that reason.
+
+    Reads: (1) the DISTINCT `group_key`s `listing_query` matches, (2) every
+    `MlOrdersOps` row belonging to those groups from `members_base`, then
+    (3)/(4) the stored metrics for exactly those order_ids (via
+    `order_metrics.read`) -- four bulk queries total regardless of how
+    many orders/groups match, never a per-group loop."""
+    selected_group_keys = {
+        row.group_key for row in listing_query.with_entities(group_key.label("group_key")).distinct().all()
+    }
+
+    if selected_group_keys:
+        orders = (
+            members_base.with_entities(
+                MlOrdersOps.order_id, MlOrdersOps.total_amount, MlOrdersOps.currency_id, group_key.label("group_key")
+            )
+            .filter(group_key.in_(selected_group_keys))
+            .all()
+        )
+    else:
+        orders = []
 
     orders_scanned = len(orders)
     group_keys = {row.group_key for row in orders}

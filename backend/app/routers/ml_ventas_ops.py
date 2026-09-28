@@ -1710,7 +1710,7 @@ def sales_kpis(
         include_provisional=include_provisional,
     )
     scope = build_scope(db, sales_filter)
-    result = aggregate_order_metrics(db, scope.listing_query, scope.group_key)
+    result = aggregate_order_metrics(db, scope.listing_query, scope.members_base, scope.group_key)
     excluded_by_toggle = _toggle_excluded_counts(db, sales_filter)
     # K2: the switches ACTUALLY applied by `build_scope` (an explicit
     # `operation_status`/`goods_status` facet selection may have overridden
