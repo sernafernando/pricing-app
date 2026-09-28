@@ -1658,7 +1658,7 @@ def sales_kpis(
     `SalesFilter`/`build_scope` verbatim with `GET /sales` (KPI R7): the
     SAME filter+toggle combination on both endpoints always agrees (KPI
     R14) -- proven by
-    `tests/integration/test_ml_ventas_ops_sales_router.py::TestKpiParity`.
+    `tests/integration/test_ml_ventas_ops_kpis_router.py::TestKpiListingParity`.
 
     Aggregates the WHOLE filtered set, never the current page (KPI R8) --
     this endpoint takes no `limit`/`offset`. Every measure comes from
