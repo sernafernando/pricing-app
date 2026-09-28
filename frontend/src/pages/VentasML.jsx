@@ -56,6 +56,7 @@ import VentasMLLayout from '../components/ventasMl/VentasMLLayout';
 import SaleDetailPanel from '../components/ventasMl/SaleDetailPanel';
 import SalesToolbar from '../components/ventasMl/SalesToolbar';
 import FacetChips from '../components/ventasMl/FacetChips';
+import ProductFiltersPanel from '../components/shared/ProductFiltersPanel';
 import AlertIcon from '../components/ventasMl/AlertIcon';
 import RecalculatingBadge from '../components/ventasMl/RecalculatingBadge';
 import ProductCell from '../components/ventasMl/ProductCell';
@@ -353,8 +354,16 @@ export default function VentasML() {
   // operator picks another row -- it only carries the order_id the
   // per-order endpoint needs, since the backend resolves the whole pack's
   // breakdown from any order inside it.
-  const { selectedOrderId, selectOrder, clearSelection, searchQuery, setSearchQuery } =
-    useVentasMLFilters();
+  const {
+    selectedOrderId,
+    selectOrder,
+    clearSelection,
+    searchQuery,
+    setSearchQuery,
+    productFilters,
+    setProductFilters,
+    clearProductFilters,
+  } = useVentasMLFilters();
 
   // Visible to everyone who can see this page — the modal itself decides
   // read-only vs. read+write once open, per product decision (see
@@ -407,11 +416,19 @@ export default function VentasML() {
     setFechaHasta('');
     setDateRangeFiltro(null);
     setSearchQuery('');
+    clearProductFilters();
     setOffset(0);
-  }, [setSearchQuery]);
+  }, [setSearchQuery, clearProductFilters]);
 
   const hasActiveFilters = Boolean(
-    operationStatusFilter || goodsStatusFilter || fechaDesde || fechaHasta || searchQuery
+    operationStatusFilter ||
+      goodsStatusFilter ||
+      fechaDesde ||
+      fechaHasta ||
+      searchQuery ||
+      productFilters.marcas.length > 0 ||
+      productFilters.subcategorias.length > 0 ||
+      productFilters.pms.length > 0
   );
 
   // "Todas" is neither `total` (scoped by BOTH axes, so it under-counts
@@ -438,6 +455,10 @@ export default function VentasML() {
       // filter as an INTERSECTION — sent alongside them in the same
       // request, never as a separate call that replaces the filtered set.
       if (searchQuery) params.q = searchQuery;
+      if (productFilters.marcas.length > 0) params.marcas = productFilters.marcas.join(',');
+      if (productFilters.subcategorias.length > 0)
+        params.subcategorias = productFilters.subcategorias.join(',');
+      if (productFilters.pms.length > 0) params.pms = productFilters.pms.join(',');
       const { data } = await api.get('/ml-ventas-ops/sales', { params });
       if (requestId !== latestRequestRef.current) return;
       setSales(data.sales || []);
@@ -461,7 +482,16 @@ export default function VentasML() {
     } finally {
       if (requestId === latestRequestRef.current) setLoading(false);
     }
-  }, [puedeVer, operationStatusFilter, goodsStatusFilter, fechaDesde, fechaHasta, searchQuery, offset]);
+  }, [
+    puedeVer,
+    operationStatusFilter,
+    goodsStatusFilter,
+    fechaDesde,
+    fechaHasta,
+    searchQuery,
+    productFilters,
+    offset,
+  ]);
 
   useEffect(() => {
     cargarVentas();
@@ -591,6 +621,13 @@ export default function VentasML() {
             activeValue={goodsStatusFilter}
             onChange={handleGoodsStatusChange}
           />
+        </div>
+
+        <div className={styles.divider} />
+
+        <div className={styles.filterRow}>
+          <span className={styles.fieldLabel}>Producto</span>
+          <ProductFiltersPanel value={productFilters} onChange={setProductFilters} />
         </div>
 
         <div className={styles.divider} />

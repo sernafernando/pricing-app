@@ -38,19 +38,19 @@ Rentabilidad, ni `useTiendaData.js`. Ni siquiera para "aprovechar el viaje".
 
 ## Tareas
 
-- [ ] T1 Mapear el comportamiento real de los filtros en Productos antes de copiar nada:
+- [x] T1 Mapear el comportamiento real de los filtros en Productos antes de copiar nada:
       de dónde salen las opciones, cómo se busca dentro del panel, y cómo el PM
       seleccionado angosta las marcas ofrecidas (`marcasPorPM`). Reportar lo que se
       encuentre; no suponer.
-- [ ] T2 RED: la pantalla no ofrece filtro de marca / subcategoría / PM.
-- [ ] T3 GREEN: componente compartido + su hook de estado, autocontenido.
-- [ ] T4 RED/GREEN: seleccionar un filtro manda el CSV correcto a `/sales`.
-- [ ] T5 RED/GREEN: los tres conviven, y el botón de limpiar también los limpia.
-- [ ] T6 RED/GREEN: round-trip por URL, con el mismo patrón que ya usan los filtros
+- [x] T2 RED: la pantalla no ofrece filtro de marca / subcategoría / PM.
+- [x] T3 GREEN: componente compartido + su hook de estado, autocontenido.
+- [x] T4 RED/GREEN: seleccionar un filtro manda el CSV correcto a `/sales`.
+- [x] T5 RED/GREEN: los tres conviven, y el botón de limpiar también los limpia.
+- [x] T6 RED/GREEN: round-trip por URL, con el mismo patrón que ya usan los filtros
       existentes de la pantalla (no inventar uno nuevo).
-- [ ] T7 Verificar que los conteos de los chips existentes siguen coincidiendo con lo que
+- [x] T7 Verificar que los conteos de los chips existentes siguen coincidiendo con lo que
       muestra la tabla cuando hay un filtro de producto activo.
-- [ ] T8 Verificación por mutación de cada test nuevo.
+- [x] T8 Verificación por mutación de cada test nuevo.
 
 ## Criterios de aceptación
 
@@ -69,3 +69,12 @@ Rentabilidad, ni `useTiendaData.js`. Ni siquiera para "aprovechar el viaje".
 ## Progreso
 
 - 2026-09-28 — Documento creado tras confirmar que el backend está completo y sin consumidor.
+- 2026-09-28 — Implementado y verificado. Componente `ProductFiltersPanel.jsx` + hook
+  `useProductFilters.js` (ambos en `frontend/src/{components/shared,hooks}/`, autocontenidos,
+  sin import desde `ventasMl/`). Cableado en `VentasML.jsx`; round-trip por URL agregado a
+  `useVentasMLFilters.js` (mismo patrón CSV que ya usaba `q`). `facet_base` del backend ya
+  incluía marcas/subcategorías/pms desde PR9 (verificado, no hizo falta tocarlo). Tests:
+  `useVentasMLFilters.productFilters.test.jsx` (4) y `VentasML.productFilters.test.jsx` (2),
+  cada uno verificado por mutación ejecutada (rojo confirmado, revertido). Suite completa
+  (1738 passed) y `pnpm build` en verde. `/sales/kpis` no se llama hoy desde `VentasML.jsx`;
+  quedó listo para cuando llegue (mismos params). Deuda declarada sin cambios.
