@@ -1,6 +1,5 @@
 import { useState, useEffect, useMemo, useCallback } from 'react';
-import { productosAPI } from '../services/api';
-import api from '../services/api';
+import api, { productosAPI } from '../services/api';
 
 const EMPTY_VALUE = { marcas: [], subcategorias: [], pms: [] };
 
@@ -171,9 +170,6 @@ export function useProductFilters({ value = EMPTY_VALUE, onChange } = {}) {
     },
     [selectedPms, emit],
   );
-
-
-
 
   return {
     selectedMarcas,

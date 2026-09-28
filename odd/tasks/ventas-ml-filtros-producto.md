@@ -66,6 +66,20 @@ Rentabilidad, ni `useTiendaData.js`. Ni siquiera para "aprovechar el viaje".
   solo se puede leer de las publicaciones ACTUALES del producto, así que la misma venta
   entraría o saldría del filtro a medida que las publicaciones se mueven.
 
+## Tareas de corrección (post-mapeo del componente compartido)
+
+- [x] T9 Verificar la afirmación del JSDoc sobre "clases globales compartidas": es falsa, esas
+      clases (`filter-button`, `advanced-filters-panel`, `dropdown-*`, ...) solo existen en el
+      CSS de `Productos.jsx`/`Tienda.jsx`/`ItemsSinMLA.jsx`, cargado de forma diferida — el
+      panel se ve sin estilos si Ventas ML se abre directo.
+- [x] T10 `ProductFiltersPanel.module.css` — mismo aspecto visual que `Productos.css`, pero
+      sobre tokens de `styles/theme.css` (claro y oscuro), sin ningún valor hardcodeado
+      (ratchet `css-guard/cssGuard.test.js` en verde).
+- [x] T11 JSDoc corregido: ya no afirma reuso de clases globales inexistentes.
+- [x] T12 Cierre del dropdown con clic afuera y con Escape, sin pisar el Escape de
+      `VentasMLLayout` (detalle de venta).
+- [x] T13 `useProductFilters.js`: import único de `services/api`, limpieza de líneas en blanco.
+
 ## Progreso
 
 - 2026-09-28 — Documento creado tras confirmar que el backend está completo y sin consumidor.
@@ -78,3 +92,16 @@ Rentabilidad, ni `useTiendaData.js`. Ni siquiera para "aprovechar el viaje".
   cada uno verificado por mutación ejecutada (rojo confirmado, revertido). Suite completa
   (1738 passed) y `pnpm build` en verde. `/sales/kpis` no se llama hoy desde `VentasML.jsx`;
   quedó listo para cuando llegue (mismos params). Deuda declarada sin cambios.
+- 2026-09-28 — Corrección post-review: `ProductFiltersPanel.module.css` nuevo (tokens de
+  `theme.css`, claro/oscuro, sin hardcodear), JSDoc corregido, cierre con clic afuera/Escape
+  sin pisar el Escape de `VentasMLLayout` (Escape se registra UNA sola vez al montar —no en
+  cada apertura del dropdown— para que el listener de este componente, hijo de
+  `VentasMLLayout`, quede siempre registrado antes que el de `VentasMLLayout`, y
+  `preventDefault()` evita que el Escape del dropdown también cierre el panel de detalle),
+  y limpieza de `useProductFilters.js` (import único + líneas en blanco). 4 tests nuevos en
+  `ProductFiltersPanel.test.jsx`, cada uno con rojo confirmado (mutación ejecutada revirtiendo
+  `preventDefault`, restaurado luego). Suite completa (1743 passed + 2 expected fail),
+  `pnpm build` y `css-guard/cssGuard.test.js` en verde. No se pudo verificar apariencia visual
+  real (jsdom corre con `css: false`, sin layout ni estilos computados) — se verificó por
+  lectura de código que ningún className de página (`filter-button`,
+  `advanced-filters-panel`, `dropdown-*`) sigue en uso.
