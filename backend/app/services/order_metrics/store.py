@@ -187,5 +187,9 @@ def store_order_metrics(db: Session, metrics_by_order: Dict[int, OrderMetrics]) 
         from app.services.ml_group_metrics.compute import recompute_group_metrics
         from app.services.ml_group_metrics.store import store_group_metrics
 
-        group_metrics = recompute_group_metrics(db, group_keys)
+        # The orders this call just wrote still carry their dirty row --
+        # `fenced_store` deletes it AFTER this returns -- so they are named
+        # here explicitly. Any OTHER member of the group keeps its own dirty
+        # row and still holds the group back.
+        group_metrics = recompute_group_metrics(db, group_keys, just_stored_order_ids=order_ids)
         store_group_metrics(db, group_metrics)

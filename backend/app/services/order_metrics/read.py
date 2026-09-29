@@ -21,7 +21,7 @@ accepted regression in display fidelity, not a bug.
 
 from __future__ import annotations
 
-from typing import Dict, List, Sequence
+from typing import Dict, Iterable, List, Optional, Sequence
 
 from sqlalchemy.orm import Session
 
@@ -81,7 +81,12 @@ def read_stored_metrics(db: Session, order_ids: Sequence[int]) -> Dict[int, Orde
     return result
 
 
-def metrics_state_for_orders(db: Session, order_ids: Sequence[int]) -> Dict[int, str]:
+def metrics_state_for_orders(
+    db: Session,
+    order_ids: Sequence[int],
+    *,
+    ignore_dirty_order_ids: Optional[Iterable[int]] = None,
+) -> Dict[int, str]:
     """`metrics_state` per `order_id` (design D9, PR7.T4): one of `'ok'`,
     `'provisional'`, `'unresolved'`, `'recalculating'`, `'failed'`,
     `'pending'`. Precedence, in order:
@@ -95,9 +100,22 @@ def metrics_state_for_orders(db: Session, order_ids: Sequence[int]) -> Dict[int,
        when a `ml_order_metrics` row exists and is not dirty.
     4. `'pending'` -- no `ml_order_metrics` row at all yet.
 
+    `ignore_dirty_order_ids` skips rule 1 and 2 for exactly those orders, so
+    they fall through to their STORED status. It exists for ONE caller: the
+    group hook inside `store_order_metrics`, which runs while the orders it
+    just wrote STILL HOLD their dirty row -- `fenced_store` only deletes that
+    row afterwards, once its fence check passed. Without this, an order that
+    resolved perfectly reports `'recalculating'` to the hook that is storing
+    it, and its group is written as `unresolved` every single time in
+    production while every direct-call test sees `'ok'`. It is NOT a general
+    "pretend the queue is empty" switch: any OTHER member of the group keeps
+    its dirty row and still holds the group back, which is the whole point of
+    the all-or-nothing sum.
+
     Bulk: two queries total for the whole `order_ids` batch, never one
     query per order."""
     order_ids = list(order_ids)
+    ignore_dirty = set(ignore_dirty_order_ids or ())
     result: Dict[int, str] = {}
     if not order_ids:
         return result
@@ -117,7 +135,7 @@ def metrics_state_for_orders(db: Session, order_ids: Sequence[int]) -> Dict[int,
     status_by_order: Dict[int, str] = {row.order_id: row.gauss_status for row in stored_rows}
 
     for order_id in order_ids:
-        attempts = attempts_by_order.get(order_id)
+        attempts = None if order_id in ignore_dirty else attempts_by_order.get(order_id)
         if attempts is not None and attempts >= POISON_THRESHOLD:
             result[order_id] = "failed"
         elif attempts is not None:

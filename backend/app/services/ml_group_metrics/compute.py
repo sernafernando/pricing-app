@@ -124,13 +124,24 @@ def _gross_amount(db: Session, member_order_ids: Sequence[int]) -> tuple[Optiona
     return sum(Decimal(str(a)) for a in montos), monedas.pop()
 
 
-def recompute_group_metrics(db: Session, group_keys: Sequence[str]) -> Dict[str, GroupMetrics]:
+def recompute_group_metrics(
+    db: Session,
+    group_keys: Sequence[str],
+    *,
+    just_stored_order_ids: Optional[Sequence[int]] = None,
+) -> Dict[str, GroupMetrics]:
     """Computes `GroupMetrics` for every `group_key` in `group_keys`. A
     `group_key` whose current membership is empty (the group no longer
     exists -- SM R14) is simply ABSENT from the result, never a fabricated
     empty-group record; the caller (T22e's orphan cleanup) is responsible
-    for deleting any existing stored row in that case."""
+    for deleting any existing stored row in that case.
+
+    `just_stored_order_ids` names members whose metrics THIS TRANSACTION has
+    already written and whose dirty row has not been deleted yet -- see
+    `metrics_state_for_orders`. Only the group hook in `store_order_metrics`
+    passes it; every other caller leaves it empty and reads the queue as is."""
     result: Dict[str, GroupMetrics] = {}
+    recien_guardados = set(just_stored_order_ids or ())
     now = datetime.now(timezone.utc)
 
     for group_key in group_keys:
@@ -138,7 +149,7 @@ def recompute_group_metrics(db: Session, group_keys: Sequence[str]) -> Dict[str,
         if not member_order_ids:
             continue
 
-        states = metrics_state_for_orders(db, member_order_ids)
+        states = metrics_state_for_orders(db, member_order_ids, ignore_dirty_order_ids=recien_guardados)
         # `states` only carries entries for order_ids resolvable by
         # `metrics_state_for_orders` (it defaults every requested id to
         # 'pending' when it has neither a dirty nor a stored row -- see
