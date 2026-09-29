@@ -1,0 +1,167 @@
+/*
+ * ProductFiltersPanel — self-contained styles.
+ *
+ * This component is shared (Ventas ML today, more screens later) and must
+ * look right regardless of which page's CSS happened to load first — see
+ * the JSDoc in `ProductFiltersPanel.jsx` for why that matters. Visual
+ * language matches `Productos.jsx`'s own filter dropdown (`.filter-button`,
+ * `.advanced-filters-panel`, `.dropdown-*` in `pages/Productos.css`) so the
+ * operator sees no difference switching screens, but every value here comes
+ * from `styles/theme.css` design tokens instead of that file's
+ * dark-mode-only hardcoded colors, so this also works in light mode.
+ */
+
+.panel {
+  position: relative;
+  display: inline-flex;
+  flex-direction: column;
+}
+
+.buttonsRow {
+  display: flex;
+  gap: var(--spacing-sm);
+  flex-wrap: wrap;
+}
+
+.filterButton {
+  padding: 5px var(--spacing-md);
+  border-radius: var(--radius-lg);
+  border: 1px solid var(--border-primary);
+  background: var(--bg-secondary);
+  color: var(--text-primary);
+  cursor: pointer;
+  font-size: var(--font-sm);
+  font-weight: var(--font-medium);
+  height: 32px;
+  box-sizing: border-box;
+  display: inline-flex;
+  align-items: center;
+  gap: var(--spacing-xs);
+  transition: all 150ms cubic-bezier(0.4, 0, 0.2, 1);
+  white-space: nowrap;
+}
+
+.filterButton:hover {
+  border-color: var(--border-secondary);
+  background: var(--bg-hover);
+  transform: translateY(-1px);
+}
+
+.filterButtonActive {
+  background: var(--brand-primary);
+  border-color: var(--brand-primary);
+  color: var(--text-inverse);
+  box-shadow: var(--shadow-md);
+}
+
+.filterBadge {
+  background: var(--text-inverse);
+  color: var(--brand-primary);
+  padding: 3px var(--spacing-sm);
+  border-radius: var(--radius-full);
+  font-size: var(--font-xs);
+  font-weight: var(--font-semibold);
+  line-height: 1;
+}
+
+.dropdown {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  margin-top: var(--spacing-xs);
+  width: 320px;
+  max-height: 420px;
+  background: var(--bg-primary);
+  border: 2px solid var(--border-primary);
+  border-radius: var(--radius-xl);
+  box-shadow: var(--shadow-lg);
+  z-index: 1000;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.dropdownHeaderRow {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: var(--spacing-md) var(--spacing-md) 0;
+}
+
+.dropdownHeaderRow h3 {
+  margin: 0;
+  font-size: var(--font-lg);
+  font-weight: var(--font-semibold);
+  color: var(--text-primary);
+}
+
+.clearButton {
+  padding: 4px var(--spacing-sm);
+  background: transparent;
+  border: 1px solid var(--danger);
+  color: var(--danger);
+  border-radius: var(--radius-md);
+  font-size: var(--font-xs);
+  cursor: pointer;
+}
+
+.clearButton:hover {
+  background: var(--error-light);
+}
+
+.searchWrap {
+  padding: var(--spacing-md);
+}
+
+.searchWrap input {
+  width: 100%;
+  padding: var(--spacing-xs) var(--spacing-sm);
+  border: 1px solid var(--border-secondary);
+  border-radius: var(--radius-md);
+  font-size: var(--font-sm);
+  outline: none;
+  box-sizing: border-box;
+  background: var(--bg-secondary);
+  color: var(--text-primary);
+}
+
+.content {
+  overflow-y: auto;
+  flex: 1;
+  padding: var(--spacing-sm);
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-xs);
+}
+
+.groupLabel {
+  font-size: var(--font-xs);
+  font-weight: var(--font-semibold);
+  color: var(--text-secondary);
+  padding: var(--spacing-xs) var(--spacing-sm) 0;
+}
+
+.item {
+  display: flex;
+  align-items: center;
+  padding: var(--spacing-xs) var(--spacing-sm);
+  cursor: pointer;
+  border-radius: var(--radius-base);
+  font-size: var(--font-sm);
+  background: transparent;
+  color: var(--text-primary);
+  transition: background 150ms ease;
+}
+
+.item:hover {
+  background: var(--bg-hover);
+}
+
+.itemSelected {
+  background: var(--brand-primary-light);
+}
+
+.item input[type='checkbox'] {
+  margin-right: var(--spacing-xs);
+  cursor: pointer;
+}
