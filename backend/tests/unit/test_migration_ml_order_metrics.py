@@ -40,6 +40,33 @@ def _load_migration():
     return module
 
 
+# The columns this test's migration needs `ml_orders_ops` to have: it creates
+# `ix_ml_orders_ops_seller_date` on them.
+_COLUMNAS_REQUERIDAS = {"seller_id", "date_created"}
+
+
+def _ml_orders_ops_es_usable(conn) -> bool:
+    """True when `ml_orders_ops` exists AND carries the columns this test
+    indexes.
+
+    "Does the table exist" is NOT the question. `POSTGRES_TEST_URL` is a
+    SHARED database, and a sibling migration test creates a one-column
+    `ml_orders_ops (order_id)` placeholder to satisfy an FK. That placeholder
+    is dropped on the way out -- but a run killed mid-test leaves it behind,
+    and from then on every run of THIS test finds a table, decides it was
+    already there, skips creating its own, and dies on
+    `column "seller_id" does not exist`.
+
+    The symptom is the nastiest kind: each file passes alone and only the
+    suite fails, which reads as flaky and is not. So the precondition checked
+    here is the one that actually matters -- the columns, not the name.
+    """
+    if not sa.inspect(conn).has_table("ml_orders_ops"):
+        return False
+    columnas = {c["name"] for c in sa.inspect(conn).get_columns("ml_orders_ops")}
+    return _COLUMNAS_REQUERIDAS <= columnas
+
+
 class TestMigrationGraph:
     def test_revision_is_registered_and_linked(self) -> None:
         # The PARENT is not pinned by name: a rebase onto a main that added
@@ -84,8 +111,11 @@ class TestMigrationPostgresRoundTrip:
             # index BEFORE this test runs -- recorded here so the `finally`
             # block below restores that exact pre-existing state instead of
             # unconditionally dropping an index this test never created.
-            ml_orders_ops_preexisted = sa.inspect(conn).has_table("ml_orders_ops")
+            ml_orders_ops_preexisted = _ml_orders_ops_es_usable(conn)
             if not ml_orders_ops_preexisted:
+                # DROP first: what is there, if anything, is a leftover
+                # placeholder without the columns below, not a real table.
+                conn.execute(sa.text("DROP TABLE IF EXISTS ml_orders_ops CASCADE"))
                 conn.execute(
                     sa.text(
                         "CREATE TABLE ml_orders_ops ("
@@ -230,8 +260,11 @@ class TestMigrationPostgresRoundTrip:
         the index survived the round trip -- not a reimplementation of its
         cleanup logic."""
         with pg_engine.begin() as conn:
-            table_preexisted = sa.inspect(conn).has_table("ml_orders_ops")
+            table_preexisted = _ml_orders_ops_es_usable(conn)
             if not table_preexisted:
+                # DROP first: what is there, if anything, is a leftover
+                # placeholder without the columns below, not a real table.
+                conn.execute(sa.text("DROP TABLE IF EXISTS ml_orders_ops CASCADE"))
                 conn.execute(
                     sa.text(
                         "CREATE TABLE ml_orders_ops ("

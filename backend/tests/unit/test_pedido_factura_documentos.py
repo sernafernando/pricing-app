@@ -414,9 +414,7 @@ class TestTipoYResponsable:
             )
         assert exc_info.value.status_code == 403
 
-    def test_deposito_actor_cannot_patch_responsable(
-        self, db, empresa, proveedor, active_user, admin_user
-    ) -> None:
+    def test_deposito_actor_cannot_patch_responsable(self, db, empresa, proveedor, active_user, admin_user) -> None:
         """Depósito may assign on mark-faltantes only; PATCH/editar stays admin|creator."""
         pedido = pedidos_service.crear_pedido(
             db,

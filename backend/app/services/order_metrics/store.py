@@ -30,6 +30,17 @@ from app.services.ml_ventas_desglose.deducciones import DEDUCCIONES
 from app.services.order_metrics.compute import compute_order_metrics
 from app.services.order_metrics.types import GaussStatus, OrderMetrics
 
+# `app.services.ml_group_metrics.compute` -> `order_metrics.read` ->
+# `order_metrics.queue` -> `order_metrics.store` (this module) is a real
+# import cycle at MODULE level. (`compute` imports `read` DIRECTLY; an
+# earlier version of this comment routed the chain through
+# `pack_aggregation`, which `compute` also imports but which is not what
+# closes the cycle.) (queue.py imports
+# `store_order_metrics` at import time). Imported lazily inside
+# `store_order_metrics` below instead of at module top to break it --
+# both modules are fully initialized by the time this function actually
+# runs.
+
 
 def _insert(db: Session, table):
     """Dialect-aware `INSERT` builder for the upserts below. Production
@@ -158,3 +169,30 @@ def store_order_metrics(db: Session, metrics_by_order: Dict[int, OrderMetrics]) 
             db.expire(deduccion_row)
     for metrics_row in db.query(MlOrderMetrics).filter(MlOrderMetrics.order_id.in_(order_ids)).all():
         db.expire(metrics_row)
+
+    # PR20.T11/T12 (design D3/D7, spec SM R11): the CURRENT group of every
+    # order just stored is recomputed and stored too, IN THIS SAME
+    # transaction -- no new queue, no new worker, no `BackgroundTask`. No
+    # new formula: `recompute_group_metrics` reuses `aggregate_pack_metrics`'s
+    # own all-or-nothing summation. `orders_by_id` was already loaded above
+    # (for the legacy `total_gauss*` sort-key columns) -- an order missing
+    # from it (deleted between compute and store) contributes no group_key,
+    # same "nothing to enqueue" shape T22a's orphan-cleanup fanout handles
+    # separately.
+    group_keys = sorted(
+        {
+            ("p:" + str(order.pack_id)) if order.pack_id is not None else ("o:" + str(order.order_id))
+            for order in (orders_by_id.get(order_id) for order_id in order_ids)
+            if order is not None
+        }
+    )
+    if group_keys:
+        from app.services.ml_group_metrics.compute import recompute_group_metrics
+        from app.services.ml_group_metrics.store import store_group_metrics
+
+        # The orders this call just wrote still carry their dirty row --
+        # `fenced_store` deletes it AFTER this returns -- so they are named
+        # here explicitly. Any OTHER member of the group keeps its own dirty
+        # row and still holds the group back.
+        group_metrics = recompute_group_metrics(db, group_keys, just_stored_order_ids=order_ids)
+        store_group_metrics(db, group_metrics)

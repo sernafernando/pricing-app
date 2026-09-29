@@ -108,10 +108,17 @@ class TestReadSetGuardCannotBeANoOp:
     exactly the no-op the review found."""
 
     def test_a_genuinely_unlisted_table_read_raises(self, db) -> None:
-        assert "ml_order_metrics" not in (TRIGGERED_TABLES | NON_INPUT_READ_TABLES)
-        assert "ml_order_metrics" not in TRIGGERED_TABLES
+        # `ml_order_metrics` was this canary's original sentinel table, but
+        # ventas-ml-rediseno PR20.T13 legitimately added it to
+        # `NON_INPUT_READ_TABLES` (it is `recompute_group_metrics`'s own
+        # read, an OUTPUT of the per-order pipeline, not a raw input) --
+        # `ml_group_metrics` (the PR20 table itself) is genuinely unlisted
+        # in EITHER set as of this test and serves the same negative-proof
+        # purpose: some real table must always be able to trip the guard.
+        assert "ml_group_metrics" not in (TRIGGERED_TABLES | NON_INPUT_READ_TABLES)
+        assert "ml_group_metrics" not in TRIGGERED_TABLES
 
         engine = db.get_bind()
-        with pytest.raises(UntriggeredReadError, match="ml_order_metrics"):
+        with pytest.raises(UntriggeredReadError, match="ml_group_metrics"):
             with assert_read_set_is_triggered(engine):
-                db.execute(text("SELECT * FROM ml_order_metrics"))
+                db.execute(text("SELECT * FROM ml_group_metrics"))

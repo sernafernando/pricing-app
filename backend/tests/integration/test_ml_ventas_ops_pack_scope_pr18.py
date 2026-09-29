@@ -15,6 +15,7 @@ from decimal import Decimal
 import pytest
 
 from app.core.config import settings
+from app.models.ml_group_metrics import MlGroupMetrics
 from app.models.ml_order_metrics import MlOrderMetrics
 from app.models.ml_orders_ops import MlOrderItemOps, MlOrdersOps
 from app.models.permiso import Permiso, RolPermisoBase
@@ -163,6 +164,26 @@ class TestPacksEndpoint:
         _stored_metrics(db, 3001, total_gauss=Decimal("10.00"), costo_mercaderia=Decimal("1.00"))
         _stored_metrics(db, 3002, total_gauss=Decimal("20.00"), costo_mercaderia=Decimal("2.00"))
         _stored_metrics(db, 3003, total_gauss=Decimal("30.00"), costo_mercaderia=Decimal("3.00"))
+        db.flush()
+        # PR20 changed this endpoint's contract: the totals come from the
+        # STORED group record, not from a live sum of the members. So the
+        # fixture has to seed what the worker would have written -- seeding
+        # only per-order metrics now describes a pack whose group record has
+        # not been computed yet, which correctly reads as unknown.
+        db.add(
+            MlGroupMetrics(
+                group_key="p:700",
+                neto=None,
+                neto_sin_iva=None,
+                costo_mercaderia=Decimal("6.00"),
+                total_gauss=Decimal("60.00"),
+                markup_pct=Decimal("1000.00"),
+                gauss_status="ok",
+                member_order_ids=[3001, 3002, 3003],
+                formula_version=2,
+                computed_at=datetime.now(timezone.utc),
+            )
+        )
         db.commit()
 
         body = client.get("/api/ml-ventas-ops/packs/700", headers=admin_auth_headers).json()
@@ -215,6 +236,26 @@ class TestPacksEndpoint:
         _item(db, 3301, "MLA1", unit_price=Decimal("150.00"))
         _stored_metrics(
             db, 3301, total_gauss=Decimal("50.00"), costo_mercaderia=Decimal("5.00"), markup_pct=Decimal("1000.00")
+        )
+        db.flush()
+        # PR20 changed this endpoint's contract: the totals come from the
+        # STORED group record, not from a live sum of the members. So the
+        # fixture has to seed what the worker would have written -- seeding
+        # only per-order metrics now describes a pack whose group record has
+        # not been computed yet, which correctly reads as unknown.
+        db.add(
+            MlGroupMetrics(
+                group_key="p:702",
+                neto=None,
+                neto_sin_iva=None,
+                costo_mercaderia=Decimal("5.00"),
+                total_gauss=Decimal("50.00"),
+                markup_pct=Decimal("1000.00"),
+                gauss_status="ok",
+                member_order_ids=[3301],
+                formula_version=2,
+                computed_at=datetime.now(timezone.utc),
+            )
         )
         db.commit()
 
@@ -309,3 +350,59 @@ class TestFlexShippingProrationLabel:
 
         flex_line = next(linea for linea in body["cadena_total_gauss"]["lineas"] if linea["code"] == "envio_flex")
         assert flex_line["prorateado"] is True
+
+
+class TestPackDetailReadsTheStoredGroupRow:
+    """KPI R18 / PR20: the pack detail and the KPI must not be two different
+    ways of arriving at the same figure.
+
+    Before this, the detail summed its members live through
+    `aggregate_pack_metrics` while the KPI was about to read
+    `ml_group_metrics`. Two mechanisms for one number is exactly what started
+    this whole slice -- a panel showing a monto from one scope beside a costo
+    from another.
+
+    NOTE ON WHAT IS **NOT** ASSERTED HERE: `monto_operacion` and the group's
+    `gross_amount` are DIFFERENT measures, not two spellings of one.
+    `monto_operacion` is the sum of the pack's item lines
+    (`breakdown_service`: `monto_operacion = item_lines_total`); `gross_amount`
+    is the sum of its orders' `total_amount`. Asserting them equal would
+    invent a relationship the data does not have.
+    """
+
+    def test_totals_come_from_ml_group_metrics_not_a_live_sum(self, db, client, admin_auth_headers, rol_admin):
+        _grant_ml_ops_ver(db, rol_admin)
+        when = datetime(2026, 9, 1, tzinfo=timezone.utc)
+        _seed_order(db, 3901, pack_id=790, total_amount=100, date_created=when)
+        _seed_order(db, 3902, pack_id=790, total_amount=200, date_created=when)
+        _item(db, 3901, "MLA1", unit_price=Decimal("100.00"))
+        _item(db, 3902, "MLA2", unit_price=Decimal("200.00"))
+        _stored_metrics(db, 3901, total_gauss=Decimal("10.00"), costo_mercaderia=Decimal("1.00"))
+        _stored_metrics(db, 3902, total_gauss=Decimal("20.00"), costo_mercaderia=Decimal("2.00"))
+        db.flush()
+
+        # The stored group row DISAGREES with what a live sum of the members
+        # would produce. That disagreement is the whole point: it is the only
+        # way to tell which source the endpoint actually read. If it still
+        # sums live it answers 30/3; if it reads the row it answers 99/9.
+        db.add(
+            MlGroupMetrics(
+                group_key="p:790",
+                neto=None,
+                neto_sin_iva=None,
+                costo_mercaderia=Decimal("9.00"),
+                total_gauss=Decimal("99.00"),
+                markup_pct=Decimal("1100.00"),
+                gauss_status="ok",
+                member_order_ids=[3901, 3902],
+                formula_version=2,
+                computed_at=datetime.now(timezone.utc),
+            )
+        )
+        db.commit()
+
+        body = client.get("/api/ml-ventas-ops/packs/790", headers=admin_auth_headers).json()
+
+        assert body["total_gauss"] == pytest.approx(99.00)
+        assert body["costo_mercaderia"] == pytest.approx(9.00)
+        assert body["markup"] == pytest.approx(1100.00)

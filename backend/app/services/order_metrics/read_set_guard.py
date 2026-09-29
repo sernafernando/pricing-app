@@ -31,7 +31,28 @@ from app.services.order_metrics.triggers import TRIGGERED_TABLES
 #   ONLY to format the Flex `concepto` label shown alongside the cost. The
 #   cost itself resolves off `logistica_id` against `logistica_costo_cordon`
 #   -- renaming a logistics company changes no stored metric.
-NON_INPUT_READ_TABLES = frozenset({"logisticas"})
+#
+# - "ml_order_metrics" (ventas-ml-rediseno PR20.T13, `read_stored_metrics`/
+#   `metrics_state_for_orders`, consumed by `ml_group_metrics.compute.
+#   recompute_group_metrics`): the OUTPUT of the per-order pipeline this
+#   function consumes to build a GROUP-level sum, not a raw input -- its
+#   own upstream inputs (the tables `compute_order_metrics` reads) are
+#   already covered by `TRIGGERED_TABLES`, and every write to this table
+#   already goes through `store_order_metrics`, which itself now recomputes
+#   the affected group in the SAME transaction (PR20.T11/T12) -- no
+#   separate trigger needed to keep a group row fresh relative to its own
+#   members' stored rows.
+# - "ml_order_metrics_dirty" (same call site, `metrics_state_for_orders`):
+#   the versioned dirty QUEUE itself, read only to know whether a member's
+#   stored row is fresh -- never a metrics input. A row landing/leaving
+#   this table is a symptom of an input write elsewhere (already triggered),
+#   not a cause of one.
+# - "ml_venta_deducciones" (same call site, `read_stored_metrics`'s chain
+#   lines): also an OUTPUT of the per-order pipeline (design D2: "Chain
+#   lines stay in `ml_venta_deducciones`, written by the same recompute"),
+#   read here only to reconstruct `OrderMetrics.lineas` -- never a raw
+#   input either.
+NON_INPUT_READ_TABLES = frozenset({"logisticas", "ml_order_metrics", "ml_order_metrics_dirty", "ml_venta_deducciones"})
 
 _TABLE_REF_RE = re.compile(r"\b(?:FROM|JOIN)\s+\"?(\w+)\"?", re.IGNORECASE)
 
