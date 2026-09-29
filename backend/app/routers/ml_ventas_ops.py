@@ -78,6 +78,7 @@ from app.services.ml_ventas_desglose.deducciones import resolve_costo_mercaderia
 from app.services.ml_ventas_desglose.pack_aggregation import aggregate_pack_metrics, sum_all_or_nothing
 from app.services.ml_ventas_desglose.iva import descomponer_neto
 from app.models.ml_order_item_costo import MlOrderItemCosto
+from app.models.ml_group_metrics import MlGroupMetrics
 from app.models.ml_order_metrics import MlOrderMetrics
 from app.models.producto import ProductoERP
 from app.services.order_metrics import health as order_metrics_health
@@ -1882,7 +1883,18 @@ def obtener_pack(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Pack no encontrado")
 
     breakdown = compute_breakdown(db, member_order_ids)
-    pack_metrics = aggregate_pack_metrics(db, member_order_ids)
+    # PR20 (KPI R18): the totals come from the STORED group record, the same
+    # row `GET /sales/kpis` aggregates. Two mechanisms for one figure -- a
+    # live sum here and a stored row there -- is exactly what this change
+    # exists to remove: they can disagree, and nothing would say which one
+    # is right. The per-item breakdown above stays live on purpose: it
+    # EXPLAINS the number, it does not produce it.
+    #
+    # A group with no stored row yet reads as fully unknown rather than
+    # falling back to a live sum. A fallback would be the most expensive
+    # kind of correct: right most of the time and silently inconsistent with
+    # the KPI exactly when the record is missing.
+    grupo = db.query(MlGroupMetrics).filter(MlGroupMetrics.group_key == f"p:{pack_id}").one_or_none()
 
     return PackOperationSummary(
         pack_id=pack_id,
@@ -1900,9 +1912,11 @@ def obtener_pack(
         ],
         item_lines_reconcilia=breakdown.item_lines_reconcilia,
         item_lines_razon=breakdown.item_lines_razon,
-        total_gauss=(float(pack_metrics.total_gauss) if pack_metrics.total_gauss is not None else None),
-        costo_mercaderia=(float(pack_metrics.costo_mercaderia) if pack_metrics.costo_mercaderia is not None else None),
-        markup=(float(pack_metrics.markup_pct) if pack_metrics.markup_pct is not None else None),
+        total_gauss=(float(grupo.total_gauss) if grupo is not None and grupo.total_gauss is not None else None),
+        costo_mercaderia=(
+            float(grupo.costo_mercaderia) if grupo is not None and grupo.costo_mercaderia is not None else None
+        ),
+        markup=(float(grupo.markup_pct) if grupo is not None and grupo.markup_pct is not None else None),
         member_order_ids=sorted(member_order_ids),
     )
 
