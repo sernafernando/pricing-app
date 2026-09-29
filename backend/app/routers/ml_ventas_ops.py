@@ -594,7 +594,10 @@ class PackOperationSummary(BaseModel):
     PR18, design D13, spec BREAKDOWN R36): `monto_operacion`/`item_lines`
     aggregate every member order (same shape `compute_breakdown` already
     produced for a pack pre-PR18); `total_gauss`/`costo_mercaderia`/`markup`
-    come from `aggregate_pack_metrics`'s all-or-nothing sum (R37).
+    are READ from the group's stored `ml_group_metrics` row (PR20), not
+    summed live. They are all null together when that row is `unresolved`
+    or does not exist yet -- the all-or-nothing rule (R37) now lives in
+    `recompute_group_metrics`, which produced the row.
     `member_order_ids` lets the UI navigate to each member's own
     order-scoped detail (`GET /orders/{order_id}`)."""
 
@@ -1871,8 +1874,10 @@ def obtener_pack(
     `GET /orders/{order_id}`. `monto_operacion` and the product list are
     the pack's (reusing `compute_breakdown` over every member order, same
     as this endpoint's pre-PR18 pack-wide behavior); `total_gauss`,
-    `costo_mercaderia` and `markup` come from `aggregate_pack_metrics`'s
-    all-or-nothing sum. 404 when `pack_id` matches no order -- never
+    `costo_mercaderia` and `markup` are READ from the group's stored
+    `ml_group_metrics` row (PR20), never summed live -- so this detail and
+    the KPI can never answer from two different mechanisms. All null
+    together when that row is `unresolved` or not written yet. 404 when `pack_id` matches no order -- never
     silently falls back to treating it as an order id (R39)."""
     _require_flag_enabled()
 

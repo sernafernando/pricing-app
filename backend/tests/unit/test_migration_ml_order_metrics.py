@@ -262,8 +262,9 @@ class TestMigrationPostgresRoundTrip:
         with pg_engine.begin() as conn:
             table_preexisted = _ml_orders_ops_es_usable(conn)
             if not table_preexisted:
+                # DROP first: what is there, if anything, is a leftover
+                # placeholder without the columns below, not a real table.
                 conn.execute(sa.text("DROP TABLE IF EXISTS ml_orders_ops CASCADE"))
-            if not table_preexisted:
                 conn.execute(
                     sa.text(
                         "CREATE TABLE ml_orders_ops ("

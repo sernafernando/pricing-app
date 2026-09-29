@@ -184,6 +184,13 @@ def _gross_amount(
     return sum(Decimal(str(monto)) for monto in montos), monedas.pop()
 
 
+# Namespace for `pg_advisory_xact_lock`'s two-argument form, so these locks
+# cannot collide with any other advisory lock in the application. Arbitrary
+# but FIXED: changing it while workers are running would let an old and a new
+# process hold what they each think is the same group's lock.
+_ADVISORY_LOCK_NAMESPACE = 0x6D676D74  # "mgmt" -- ml_group_metrics
+
+
 def _lock_group(db: Session, group_key: str) -> None:
     """Serializes concurrent recomputes of ONE group, for the duration of the
     caller's transaction.
@@ -213,7 +220,16 @@ def _lock_group(db: Session, group_key: str) -> None:
     """
     if db.bind is None or db.bind.dialect.name != "postgresql":
         return
-    db.execute(text("SELECT pg_advisory_xact_lock(hashtext(:k))"), {"k": group_key})
+    # Two-argument form, NOT `pg_advisory_xact_lock(hashtext(...))`. The
+    # single-argument form shares one 64-bit keyspace with every other
+    # advisory lock in the application, so an unrelated lock that happens to
+    # hash to the same number would make these transactions wait on each
+    # other for no reason. The first argument namespaces this lock to group
+    # metrics; only the second varies per group.
+    db.execute(
+        text("SELECT pg_advisory_xact_lock(:ns, hashtext(:k))"),
+        {"ns": _ADVISORY_LOCK_NAMESPACE, "k": group_key},
+    )
 
 
 def recompute_group_metrics(
