@@ -10,9 +10,13 @@ all-or-nothing (reusing `aggregate_pack_metrics`'s core --
 formula), and derives `gauss_status` via `group_gauss_status`.
 
 A group with any member that is not resolved (no stored row yet, a dirty
-row pending recompute, or parked) resolves to `gauss_status='unresolved'`
-or `'recalculating'` with every numeric field `None` -- NEVER a partial
-sum over the members that happen to be ready (SM R10, KPI R19).
+row pending recompute, or parked) is STORED as `gauss_status='unresolved'`
+with every numeric field `None` -- NEVER a partial sum over the members
+that happen to be ready (SM R10, KPI R19). `group_gauss_status` has a wider
+per-member vocabulary (`recalculating`, `failed`), but the stored column is
+CHECK-constrained to ('ok', 'provisional', 'unresolved'), so those collapse
+to `unresolved` here; the WHY stays derivable from the per-member queue
+state.
 """
 
 from __future__ import annotations
@@ -218,7 +222,13 @@ def _lock_group(db: Session, group_key: str) -> None:
     SQLite has no advisory locks and no concurrent writers to protect
     against (single-writer), so there it is a no-op rather than an error.
     """
-    if db.bind is None or db.bind.dialect.name != "postgresql":
+    # `get_bind()`, like every other dialect check in this package
+    # (`ml_group_metrics/store.py`, `order_metrics/store.py`). `db.bind` is
+    # only set when the session was built with an explicit bind; on any other
+    # session it is None, and this function would then return WITHOUT taking
+    # the lock and without saying so -- quietly reopening the race it exists
+    # to close.
+    if db.get_bind().dialect.name != "postgresql":
         return
     # Two-argument form, NOT `pg_advisory_xact_lock(hashtext(...))`. The
     # single-argument form shares one 64-bit keyspace with every other

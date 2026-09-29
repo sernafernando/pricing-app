@@ -30,9 +30,12 @@ from app.services.ml_ventas_desglose.deducciones import DEDUCCIONES
 from app.services.order_metrics.compute import compute_order_metrics
 from app.services.order_metrics.types import GaussStatus, OrderMetrics
 
-# `app.services.ml_group_metrics.compute` -> `pack_aggregation` ->
-# `order_metrics.read` -> `order_metrics.queue` -> `order_metrics.store`
-# (this module) is a real import cycle at MODULE level (queue.py imports
+# `app.services.ml_group_metrics.compute` -> `order_metrics.read` ->
+# `order_metrics.queue` -> `order_metrics.store` (this module) is a real
+# import cycle at MODULE level. (`compute` imports `read` DIRECTLY; an
+# earlier version of this comment routed the chain through
+# `pack_aggregation`, which `compute` also imports but which is not what
+# closes the cycle.) (queue.py imports
 # `store_order_metrics` at import time). Imported lazily inside
 # `store_order_metrics` below instead of at module top to break it --
 # both modules are fully initialized by the time this function actually
