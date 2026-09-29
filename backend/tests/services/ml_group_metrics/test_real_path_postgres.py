@@ -133,3 +133,102 @@ class TestGroupRecordThroughTheWorkerPath:
         assert fila is not None
         assert fila.gauss_status == "unresolved"
         assert fila.total_gauss is None
+
+
+@pytest.mark.postgres
+class TestTwoWorkersStoringTheSamePackAtOnce:
+    """Two workers, two members of ONE pack, overlapping transactions.
+
+    This is the case that does not fix itself. Each transaction reads the
+    OTHER member as still dirty -- true in its own snapshot, since the other
+    has not committed -- so both write the group as `unresolved`. Both then
+    commit, and NOTHING is left dirty afterwards: no sibling to enqueue, no
+    retry, no reconcile pass that covers it. The group keeps a null amount
+    for a pedido whose members are both perfectly resolved, and the only way
+    out is an unrelated future write to one of them.
+    """
+
+    def test_the_group_ends_resolved_not_unresolved(self, worker_db, pg_order_metrics_engine) -> None:
+        import threading
+
+        with pg_order_metrics_engine.connect() as conn:
+            _insert_order(conn, 820001, pack_id=8200)
+            _insert_order(conn, 820002, pack_id=8200)
+            _insert_dirty(conn, 820001)
+            _insert_dirty(conn, 820002)
+            conn.commit()
+
+        claims = {c.order_id: c for c in claim_dirty(limit=10, lease=timedelta(seconds=120), worker_id="w")}
+        assert set(claims) == {820001, 820002}
+
+        # Both threads sit on the barrier until the other has arrived, so the
+        # two transactions genuinely overlap. Without it the first would
+        # usually commit before the second started and the race would simply
+        # not happen -- a test that passes by being too slow to reproduce the
+        # bug is worth nothing.
+        barrera = threading.Barrier(2, timeout=30)
+        fallas: list[BaseException] = []
+
+        def guardar(order_id: int) -> None:
+            try:
+                barrera.wait()
+                fenced_store([claims[order_id]], {order_id: _metrics(order_id)})
+            except BaseException as exc:  # noqa: BLE001 - se re-lanza abajo
+                fallas.append(exc)
+
+        hilos = [threading.Thread(target=guardar, args=(oid,)) for oid in (820001, 820002)]
+        for h in hilos:
+            h.start()
+        for h in hilos:
+            h.join(timeout=60)
+        assert not fallas, fallas
+
+        with pg_order_metrics_engine.connect() as conn:
+            fila = conn.execute(
+                text("SELECT gauss_status, total_gauss FROM ml_group_metrics WHERE group_key = 'p:8200'")
+            ).fetchone()
+        assert fila is not None
+        assert fila.gauss_status == "ok", "los dos miembros resolvieron; el grupo no puede quedar sin plata"
+        assert fila.total_gauss == Decimal("80.00")
+
+
+@pytest.mark.postgres
+class TestBatchReadsDoNotScaleWithGroupCount:
+    """The backfill passes 500 groups per batch. A per-group read there is a
+    textbook N+1 -- around seven queries per group -- so what is pinned here
+    is that the query count stays FLAT as groups are added, not that it is
+    below some magic number."""
+
+    def _contar_queries(self, engine, group_keys) -> int:
+        from sqlalchemy import event
+        from sqlalchemy.orm import sessionmaker
+
+        from app.services.ml_group_metrics.compute import recompute_group_metrics
+
+        contador = {"n": 0}
+
+        def _antes(conn, cursor, statement, params, context, executemany):
+            contador["n"] += 1
+
+        session = sessionmaker(bind=engine)()
+        event.listen(engine, "before_cursor_execute", _antes)
+        try:
+            recompute_group_metrics(session, group_keys)
+        finally:
+            event.remove(engine, "before_cursor_execute", _antes)
+            session.rollback()
+            session.close()
+        return contador["n"]
+
+    def test_ten_groups_cost_about_the_same_as_two(self, worker_db, pg_order_metrics_engine) -> None:
+        with pg_order_metrics_engine.connect() as conn:
+            for i in range(20):
+                _insert_order(conn, 830000 + i, pack_id=8300 + i)
+            conn.commit()
+
+        dos = self._contar_queries(pg_order_metrics_engine, [f"p:{8300 + i}" for i in range(2)])
+        diez = self._contar_queries(pg_order_metrics_engine, [f"p:{8300 + i}" for i in range(10)])
+
+        # The ONLY part that grows per group is its advisory lock, which is
+        # one statement. Everything else is read once for the whole batch.
+        assert diez - dos == 8, f"2 grupos={dos} queries, 10 grupos={diez}"

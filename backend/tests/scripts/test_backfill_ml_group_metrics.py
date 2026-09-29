@@ -131,3 +131,25 @@ class TestBackfillWritesTheMissingGroupRecords:
         script.main(["--limit", "100", "--dry-run"])
 
         assert db.query(MlGroupMetrics).filter_by(group_key="o:9030").one_or_none() is None
+
+    def test_the_result_reports_written_and_no_members_separately(self, db):
+        """The two counters mean different things, and one of them used to be
+        named after the other.
+
+        `no_members` is NOT a count of `unresolved` records: a group whose
+        members are not all resolvable still GETS a record and is counted in
+        `written`. `no_members` counts the groups `recompute_group_metrics`
+        declined to return at all. The key was called `unresolved` while the
+        log printed it as `no_members` -- two names for one number, with the
+        wrong one facing the caller.
+        """
+        _order(db, 9040, pack_id=None)
+        db.flush()
+        _stored(db, 9040)
+        db.commit()
+
+        resultado = script.run_backfill(limit=100, dry_run=False)
+
+        assert set(resultado) == {"examined", "written", "no_members"}
+        assert resultado["written"] == 1
+        assert resultado["no_members"] == 0

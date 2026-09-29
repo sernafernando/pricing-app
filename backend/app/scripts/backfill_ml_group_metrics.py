@@ -4,10 +4,14 @@ WHY THIS IS NOT OPTIONAL: `ml_group_metrics` rows are written as a SIDE
 EFFECT of storing a member order's metrics. Every sale that existed before
 this slice already has its per-order metrics, so nothing will ever re-store
 them and their group record would never come into being. `GET
-/ml-ventas-ops/packs/{pack_id}` and `GET /sales/kpis` read that record with
-no live fallback -- deliberately, so the detail and the KPI can never answer
-from two different mechanisms -- which means every historical pedido would
-read as unknown until this runs.
+/ml-ventas-ops/packs/{pack_id}` reads that record with no live fallback, so
+every historical pedido's detail reads as unknown until this runs.
+
+(`GET /sales/kpis` does NOT read it yet -- it still aggregates per-order via
+`aggregate_order_metrics`. T28/T29 are what move it over, and until they land
+the detail and the KPI can disagree. Stated here rather than left implicit:
+the first draft of this docstring already described the destination as if it
+had arrived.)
 
 The existing `order_metrics.reconcile` does NOT cover it: it re-enqueues
 orders whose `formula_version` is stale or that have no metrics row at all,
@@ -80,7 +84,7 @@ def missing_group_keys(db, limit: Optional[int]) -> List[str]:
 
 def run_backfill(limit: Optional[int], dry_run: bool, batch_size: int = DEFAULT_BATCH_SIZE) -> dict:
     db = SessionLocal()
-    resultado = {"examined": 0, "written": 0, "unresolved": 0}
+    resultado = {"examined": 0, "written": 0, "no_members": 0}
     try:
         group_keys = missing_group_keys(db, limit)
         resultado["examined"] = len(group_keys)
@@ -95,12 +99,14 @@ def run_backfill(limit: Optional[int], dry_run: bool, batch_size: int = DEFAULT_
                 store_group_metrics(db, computados)
             db.commit()
             resultado["written"] += len(computados)
-            # A group whose members are not all resolvable still gets a
-            # record -- an `unresolved` one. What is counted here is the
-            # groups `recompute_group_metrics` declined to return at all
-            # (no current members), which the caller must not mistake for
-            # "computed fine".
-            resultado["unresolved"] += len(lote) - len(computados)
+            # NOT a count of `unresolved` records. A group whose members are
+            # not all resolvable still GETS a record, an `unresolved` one, and
+            # is counted in `written`. What is counted here is the groups
+            # `recompute_group_metrics` declined to return at all, because
+            # they have no current members. The key was named `unresolved`
+            # while the log printed it as `no_members`, which is two names for
+            # one number and the wrong one in front.
+            resultado["no_members"] += len(lote) - len(computados)
         return resultado
     finally:
         db.close()
@@ -127,7 +133,7 @@ def main(argv: Optional[List[str]] = None) -> None:
         args.dry_run,
         resultado["examined"],
         resultado["written"],
-        resultado["unresolved"],
+        resultado["no_members"],
     )
 
 

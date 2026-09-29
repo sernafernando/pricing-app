@@ -22,7 +22,7 @@ from datetime import datetime, timezone
 from decimal import Decimal
 from typing import Dict, List, Optional, Sequence
 
-from sqlalchemy import func
+from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 from app.models.ml_orders_ops import MlOrdersOps
@@ -61,37 +61,102 @@ def _parse_group_key(group_key: str) -> tuple[str, int]:
     return kind, int(raw_id)
 
 
-def _current_member_order_ids(db: Session, group_key: str) -> List[int]:
-    kind, group_id = _parse_group_key(group_key)
-    if kind == "p":
-        rows = db.query(MlOrdersOps.order_id).filter(MlOrdersOps.pack_id == group_id).all()
-        return sorted(r.order_id for r in rows)
-    # kind == "o": a standalone order IS the group; it may since have
-    # joined a pack (in which case it is no longer this group's member --
-    # the caller's fanout/cleanup, T15-T22, handles that transition), but
-    # `recompute_group_metrics` itself only ever reports what is CURRENTLY
-    # true: this exact order, if it still exists and is still standalone.
-    row = db.query(MlOrdersOps.order_id).filter(MlOrdersOps.order_id == group_id, MlOrdersOps.pack_id.is_(None)).first()
-    return [row.order_id] if row else []
+def _members_by_group(db: Session, group_keys: Sequence[str]) -> Dict[str, List[int]]:
+    """Current membership of EVERY requested group, in two queries total.
+
+    Deliberately not one query per group: the hook in `store_order_metrics`
+    almost always passes a single group, but `backfill_ml_group_metrics`
+    passes 500 at a time, and a per-group read there is a textbook N+1 --
+    around 3,500 round trips per batch.
+
+    A `"o:<id>"` group whose order has since JOINED a pack comes back empty,
+    exactly as before: that order is no longer this group's member (the
+    caller's orphan cleanup handles the transition), and
+    `recompute_group_metrics` only ever reports what is CURRENTLY true.
+    """
+    pack_ids: List[int] = []
+    standalone_ids: List[int] = []
+    for group_key in group_keys:
+        kind, group_id = _parse_group_key(group_key)
+        (pack_ids if kind == "p" else standalone_ids).append(group_id)
+
+    result: Dict[str, List[int]] = {key: [] for key in group_keys}
+
+    if pack_ids:
+        filas = db.query(MlOrdersOps.pack_id, MlOrdersOps.order_id).filter(MlOrdersOps.pack_id.in_(pack_ids)).all()
+        for pack_id, order_id in filas:
+            result["p:" + str(pack_id)].append(order_id)
+
+    if standalone_ids:
+        filas = (
+            db.query(MlOrdersOps.order_id)
+            .filter(MlOrdersOps.order_id.in_(standalone_ids), MlOrdersOps.pack_id.is_(None))
+            .all()
+        )
+        for (order_id,) in filas:
+            result["o:" + str(order_id)].append(order_id)
+
+    for miembros in result.values():
+        miembros.sort()
+    return result
 
 
-def _group_date(db: Session, member_order_ids: Sequence[int]) -> Optional[datetime]:
-    """Group-level date (KPI R20): the MIN `date_created` across the
-    group's current members -- a pack straddling a date-filter boundary is
-    included/excluded as ONE whole pack, never split (PR20.T24/T25)."""
-    if not member_order_ids:
-        return None
-    # An aggregate MIN, deliberately, NOT `ORDER BY date_created ASC LIMIT 1`.
-    # `date_created` is nullable, and ASC puts NULLs FIRST on SQLite and LAST
-    # on Postgres -- so the ordering form returns the real date in production
-    # and `None` in the tests, which is the worst shape of bug: invisible
-    # exactly where it would be caught. SQL `MIN()` ignores NULLs by
-    # definition on both engines, which removes the question instead of
-    # answering it with a `nullslast()` someone can drop later.
-    return db.query(func.min(MlOrdersOps.date_created)).filter(MlOrdersOps.order_id.in_(member_order_ids)).scalar()
+@dataclass(frozen=True)
+class _OrderFacts:
+    """The `ml_orders_ops` columns the group-level fields are derived from."""
+
+    total_amount: Optional[Decimal]
+    currency_id: Optional[str]
+    date_created: Optional[datetime]
 
 
-def _gross_amount(db: Session, member_order_ids: Sequence[int]) -> tuple[Optional[Decimal], Optional[str]]:
+def _order_facts(db: Session, order_ids: Sequence[int]) -> Dict[int, _OrderFacts]:
+    """One query for every member of every group in the batch -- see
+    `_members_by_group` for why this is not done per group."""
+    if not order_ids:
+        return {}
+    filas = (
+        db.query(
+            MlOrdersOps.order_id,
+            MlOrdersOps.total_amount,
+            MlOrdersOps.currency_id,
+            MlOrdersOps.date_created,
+        )
+        .filter(MlOrdersOps.order_id.in_(list(order_ids)))
+        .all()
+    )
+    return {
+        row.order_id: _OrderFacts(
+            total_amount=row.total_amount,
+            currency_id=row.currency_id,
+            date_created=row.date_created,
+        )
+        for row in filas
+    }
+
+
+def _group_date(facts: Dict[int, _OrderFacts], member_order_ids: Sequence[int]) -> Optional[datetime]:
+    """Group-level date (KPI R20): the MIN `date_created` across the group's
+    current members -- a pack straddling a date-filter boundary is
+    included/excluded as ONE whole pack, never split (PR20.T24/T25).
+
+    Members WITHOUT a date are skipped, not treated as the minimum. This used
+    to be a SQL `ORDER BY date_created ASC LIMIT 1`, which put NULLs first on
+    SQLite and last on Postgres -- so it returned the real date in production
+    and `None` in the tests, the worst shape of bug: invisible exactly where
+    it would be caught.
+    """
+    fechas = [
+        facts[order_id].date_created
+        for order_id in member_order_ids
+        if order_id in facts and facts[order_id].date_created is not None
+    ]
+    return min(fechas) if fechas else None
+
+
+def _gross_amount(
+    facts: Dict[int, _OrderFacts], member_order_ids: Sequence[int]
+) -> tuple[Optional[Decimal], Optional[str]]:
     """The group's gross billed and the currency it is expressed in.
 
     BOTH are `None` unless every member shares ONE currency and every
@@ -105,23 +170,50 @@ def _gross_amount(db: Session, member_order_ids: Sequence[int]) -> tuple[Optiona
     is exactly the misleading value the gate exists to prevent, so there is no
     way to get one without the other.
     """
-    filas = (
-        db.query(MlOrdersOps.total_amount, MlOrdersOps.currency_id)
-        .filter(MlOrdersOps.order_id.in_(member_order_ids))
-        .all()
-    )
-    if not filas or len(filas) != len(member_order_ids):
+    if not member_order_ids or any(order_id not in facts for order_id in member_order_ids):
         return None, None
 
-    monedas = {c for _a, c in filas}
+    monedas = {facts[order_id].currency_id for order_id in member_order_ids}
     if len(monedas) != 1 or None in monedas:
         return None, None
 
-    montos = [a for a, _c in filas]
-    if any(a is None for a in montos):
+    montos = [facts[order_id].total_amount for order_id in member_order_ids]
+    if any(monto is None for monto in montos):
         return None, None
 
-    return sum(Decimal(str(a)) for a in montos), monedas.pop()
+    return sum(Decimal(str(monto)) for monto in montos), monedas.pop()
+
+
+def _lock_group(db: Session, group_key: str) -> None:
+    """Serializes concurrent recomputes of ONE group, for the duration of the
+    caller's transaction.
+
+    THE RACE IT CLOSES: two workers storing two members of the same pack in
+    overlapping transactions each read the OTHER member as still dirty --
+    true in its own snapshot, since the other has not committed -- so both
+    write the group as `unresolved`. Both then commit and NOTHING is left
+    dirty: no sibling to enqueue, no retry, no reconcile pass that covers a
+    group row. The pedido keeps a null amount forever although both its
+    members resolved fine, until some unrelated future write to one of them
+    happens to fix it by accident.
+
+    `pg_advisory_xact_lock` makes the second transaction wait for the first
+    to COMMIT. Its next statement then reads at a fresh snapshot (READ
+    COMMITTED), sees the sibling's stored row and its deleted dirty row, and
+    computes `ok`. The lock is released by the commit or rollback itself, so
+    there is nothing to leak on a crash.
+
+    Taken in SORTED `group_key` order by the caller's loop, so two
+    transactions covering overlapping sets of groups queue instead of
+    deadlocking -- the same rule `store_order_metrics` already follows for
+    its row upserts.
+
+    SQLite has no advisory locks and no concurrent writers to protect
+    against (single-writer), so there it is a no-op rather than an error.
+    """
+    if db.bind is None or db.bind.dialect.name != "postgresql":
+        return
+    db.execute(text("SELECT pg_advisory_xact_lock(hashtext(:k))"), {"k": group_key})
 
 
 def recompute_group_metrics(
@@ -144,18 +236,32 @@ def recompute_group_metrics(
     recien_guardados = set(just_stored_order_ids or ())
     now = datetime.now(timezone.utc)
 
-    for group_key in group_keys:
-        member_order_ids = _current_member_order_ids(db, group_key)
+    # Sorted here, not trusted from the caller: the lock below only prevents
+    # deadlocks if every transaction takes its group locks in one order.
+    claves = sorted(set(group_keys))
+    for group_key in claves:
+        _lock_group(db, group_key)
+
+    # Everything the loop below needs, read ONCE for the whole batch. The
+    # locks above are already held, so nothing can change underneath between
+    # this prefetch and the rows it produces.
+    members_by_group = _members_by_group(db, claves)
+    todos_los_miembros = sorted({oid for miembros in members_by_group.values() for oid in miembros})
+    facts = _order_facts(db, todos_los_miembros)
+    estados = metrics_state_for_orders(db, todos_los_miembros, ignore_dirty_order_ids=recien_guardados)
+    almacenados = read_stored_metrics(db, todos_los_miembros)
+
+    for group_key in claves:
+        member_order_ids = members_by_group.get(group_key) or []
         if not member_order_ids:
             continue
 
-        states = metrics_state_for_orders(db, member_order_ids, ignore_dirty_order_ids=recien_guardados)
-        # `states` only carries entries for order_ids resolvable by
+        # `estados` only carries entries for order_ids resolvable by
         # `metrics_state_for_orders` (it defaults every requested id to
         # 'pending' when it has neither a dirty nor a stored row -- see
         # its own loop) -- request every member explicitly so a truly
         # unseen member still resolves to 'pending', not a KeyError.
-        member_states = [states.get(order_id, "pending") for order_id in member_order_ids]
+        member_states = [estados.get(order_id, "pending") for order_id in member_order_ids]
         gauss_status = group_gauss_status(member_states)
 
         if gauss_status in ("unresolved", "recalculating", "failed"):
@@ -177,18 +283,18 @@ def recompute_group_metrics(
                 markup_pct=None,
                 gauss_status="unresolved",
                 member_order_ids=member_order_ids,
-                group_date=_group_date(db, member_order_ids),
+                group_date=_group_date(facts, member_order_ids),
                 computed_at=now,
             )
             continue
 
-        stored_by_order = read_stored_metrics(db, member_order_ids)
+        stored_by_order = {oid: almacenados[oid] for oid in member_order_ids if oid in almacenados}
         total_gauss = sum_all_or_nothing([m.total_gauss for m in stored_by_order.values()])
         costo_mercaderia = sum_all_or_nothing([m.costo_mercaderia for m in stored_by_order.values()])
         neto = sum_all_or_nothing([m.neto for m in stored_by_order.values()])
         neto_sin_iva = sum_all_or_nothing([m.neto_sin_iva for m in stored_by_order.values()])
 
-        gross_amount, currency_id = _gross_amount(db, member_order_ids)
+        gross_amount, currency_id = _gross_amount(facts, member_order_ids)
 
         markup_pct: Optional[Decimal] = None
         if total_gauss is not None and costo_mercaderia is not None and costo_mercaderia != 0:
@@ -205,7 +311,7 @@ def recompute_group_metrics(
             gross_amount=gross_amount,
             currency_id=currency_id,
             member_order_ids=member_order_ids,
-            group_date=_group_date(db, member_order_ids),
+            group_date=_group_date(facts, member_order_ids),
             computed_at=now,
         )
 
