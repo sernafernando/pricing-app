@@ -43,6 +43,8 @@ class GroupMetrics:
     total_gauss: Optional[Decimal]
     markup_pct: Optional[Decimal]
     gauss_status: str
+    gross_amount: Optional[Decimal] = None
+    currency_id: Optional[str] = None
     member_order_ids: List[int] = field(default_factory=list)
     group_date: Optional[datetime] = None
     formula_version: int = CURRENT_FORMULA_VERSION
@@ -85,6 +87,39 @@ def _group_date(db: Session, member_order_ids: Sequence[int]) -> Optional[dateti
         .first()
     )
     return row.date_created if row else None
+
+
+def _gross_amount(db: Session, member_order_ids: Sequence[int]) -> tuple[Optional[Decimal], Optional[str]]:
+    """The group's gross billed and the currency it is expressed in.
+
+    BOTH are `None` unless every member shares ONE currency and every
+    member's `total_amount` is known. That is the same rule `listar_ventas`
+    applies to a pack row, and its comment gives the reason better than this
+    one could: adding ARS to USD produces a number that means nothing, and a
+    mixed pack rendering a numeric amount beside an honest null would read as
+    MORE trustworthy than the null, not less.
+
+    Returning the pair together is deliberate: an amount without its currency
+    is exactly the misleading value the gate exists to prevent, so there is no
+    way to get one without the other.
+    """
+    filas = (
+        db.query(MlOrdersOps.total_amount, MlOrdersOps.currency_id)
+        .filter(MlOrdersOps.order_id.in_(member_order_ids))
+        .all()
+    )
+    if not filas or len(filas) != len(member_order_ids):
+        return None, None
+
+    monedas = {c for _a, c in filas}
+    if len(monedas) != 1 or None in monedas:
+        return None, None
+
+    montos = [a for a, _c in filas]
+    if any(a is None for a in montos):
+        return None, None
+
+    return sum(Decimal(str(a)) for a in montos), monedas.pop()
 
 
 def recompute_group_metrics(db: Session, group_keys: Sequence[str]) -> Dict[str, GroupMetrics]:
@@ -140,6 +175,8 @@ def recompute_group_metrics(db: Session, group_keys: Sequence[str]) -> Dict[str,
         neto = sum_all_or_nothing([m.neto for m in stored_by_order.values()])
         neto_sin_iva = sum_all_or_nothing([m.neto_sin_iva for m in stored_by_order.values()])
 
+        gross_amount, currency_id = _gross_amount(db, member_order_ids)
+
         markup_pct: Optional[Decimal] = None
         if total_gauss is not None and costo_mercaderia is not None and costo_mercaderia != 0:
             markup_pct = (total_gauss / costo_mercaderia) * Decimal("100")
@@ -152,6 +189,8 @@ def recompute_group_metrics(db: Session, group_keys: Sequence[str]) -> Dict[str,
             total_gauss=total_gauss,
             markup_pct=markup_pct,
             gauss_status=gauss_status,
+            gross_amount=gross_amount,
+            currency_id=currency_id,
             member_order_ids=member_order_ids,
             group_date=_group_date(db, member_order_ids),
             computed_at=now,

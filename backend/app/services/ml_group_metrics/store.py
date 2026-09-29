@@ -41,6 +41,8 @@ def store_group_metrics(db: Session, group_metrics_by_key: Dict[str, GroupMetric
             "total_gauss": metrics.total_gauss,
             "markup_pct": metrics.markup_pct,
             "gauss_status": metrics.gauss_status,
+            "gross_amount": metrics.gross_amount,
+            "currency_id": metrics.currency_id,
             "member_order_ids": list(metrics.member_order_ids),
             "group_date": metrics.group_date,
             "formula_version": metrics.formula_version,
@@ -76,6 +78,10 @@ def store_group_metrics(db: Session, group_metrics_by_key: Dict[str, GroupMetric
             "total_gauss": stmt.excluded.total_gauss,
             "markup_pct": stmt.excluded.markup_pct,
             "gauss_status": stmt.excluded.gauss_status,
+            # Both lists have to know: a field listed only on the INSERT path
+            # round-trips once and then goes stale on every later recompute.
+            "gross_amount": stmt.excluded.gross_amount,
+            "currency_id": stmt.excluded.currency_id,
             "member_order_ids": stmt.excluded.member_order_ids,
             "group_date": stmt.excluded.group_date,
             "formula_version": stmt.excluded.formula_version,

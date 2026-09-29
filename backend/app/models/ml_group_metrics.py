@@ -62,6 +62,20 @@ class MlGroupMetrics(Base):
     markup_pct = Column(Numeric(9, 2), nullable=True)
     gauss_status = Column(String(16), nullable=False)
     member_order_ids = Column(ARRAY(BigInteger), nullable=False)
+    # Gross billed for the whole group: the SUM of its members'
+    # `ml_orders_ops.total_amount`, with `currency_id` the single currency
+    # they all share. BOTH are NULL when the members do not share one
+    # currency, or when any member's amount is unknown -- the same rule
+    # `listar_ventas` already applies to a pack row, and for the reason its
+    # own comment gives: "adding ARS to USD produces a number that means
+    # nothing", and a mixed pack rendering a numeric amount beside an honest
+    # null would read as MORE trustworthy than the null, not less.
+    #
+    # Stored here rather than summed at read time so the group record is
+    # self-sufficient: KPI aggregation reads ONE row per pedido and never
+    # falls back to walking its members for a single measure (KPI R18).
+    gross_amount = Column(Numeric(14, 2), nullable=True)
+    currency_id = Column(String(8), nullable=True)
     # The group-level date `GET /sales` / `GET /sales/kpis` filter by
     # (KPI R20) -- never split a pack across a date-range boundary.
     group_date = Column(DateTime(timezone=True), nullable=True)

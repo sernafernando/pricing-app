@@ -89,3 +89,69 @@ class TestStoreGroupMetrics:
         store_group_metrics(db, {})
         db.commit()
         assert db.query(MlGroupMetrics).count() == 0
+
+
+class TestStorePersistsGrossAmount:
+    """`recompute_group_metrics` producing a value means nothing if the store
+    drops it on the way to the table -- these two fields were added to the
+    dataclass and the model in the same change, and the upsert is the third
+    place that has to know about them."""
+
+    def test_gross_amount_and_currency_round_trip(self, db):
+        metrics = GroupMetrics(
+            group_key="p:9100",
+            neto=Decimal("100.00"),
+            neto_sin_iva=Decimal("82.64"),
+            costo_mercaderia=Decimal("30.00"),
+            total_gauss=Decimal("50.00"),
+            markup_pct=Decimal("166.67"),
+            gauss_status="ok",
+            gross_amount=Decimal("1250.50"),
+            currency_id="ARS",
+            member_order_ids=[1, 2],
+        )
+
+        store_group_metrics(db, {"p:9100": metrics})
+        db.commit()
+
+        fila = db.query(MlGroupMetrics).filter_by(group_key="p:9100").one()
+        assert fila.gross_amount == Decimal("1250.50")
+        assert fila.currency_id == "ARS"
+
+    def test_an_upsert_overwrites_a_stale_gross_amount(self, db):
+        """The insert path and the ON CONFLICT path are two different column
+        lists: a field can round-trip on insert and still go stale on every
+        later recompute if only one of them lists it."""
+        primero = GroupMetrics(
+            group_key="p:9200",
+            neto=None,
+            neto_sin_iva=None,
+            costo_mercaderia=None,
+            total_gauss=None,
+            markup_pct=None,
+            gauss_status="unresolved",
+            gross_amount=Decimal("100.00"),
+            currency_id="ARS",
+            member_order_ids=[1],
+        )
+        store_group_metrics(db, {"p:9200": primero})
+        db.commit()
+
+        segundo = GroupMetrics(
+            group_key="p:9200",
+            neto=None,
+            neto_sin_iva=None,
+            costo_mercaderia=None,
+            total_gauss=None,
+            markup_pct=None,
+            gauss_status="unresolved",
+            gross_amount=Decimal("999.00"),
+            currency_id="USD",
+            member_order_ids=[1, 2],
+        )
+        store_group_metrics(db, {"p:9200": segundo})
+        db.commit()
+
+        fila = db.query(MlGroupMetrics).filter_by(group_key="p:9200").one()
+        assert fila.gross_amount == Decimal("999.00")
+        assert fila.currency_id == "USD"
