@@ -22,6 +22,7 @@ from datetime import datetime, timezone
 from decimal import Decimal
 from typing import Dict, List, Optional, Sequence
 
+from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from app.models.ml_orders_ops import MlOrdersOps
@@ -80,13 +81,14 @@ def _group_date(db: Session, member_order_ids: Sequence[int]) -> Optional[dateti
     included/excluded as ONE whole pack, never split (PR20.T24/T25)."""
     if not member_order_ids:
         return None
-    row = (
-        db.query(MlOrdersOps.date_created)
-        .filter(MlOrdersOps.order_id.in_(member_order_ids))
-        .order_by(MlOrdersOps.date_created.asc())
-        .first()
-    )
-    return row.date_created if row else None
+    # An aggregate MIN, deliberately, NOT `ORDER BY date_created ASC LIMIT 1`.
+    # `date_created` is nullable, and ASC puts NULLs FIRST on SQLite and LAST
+    # on Postgres -- so the ordering form returns the real date in production
+    # and `None` in the tests, which is the worst shape of bug: invisible
+    # exactly where it would be caught. SQL `MIN()` ignores NULLs by
+    # definition on both engines, which removes the question instead of
+    # answering it with a `nullslast()` someone can drop later.
+    return db.query(func.min(MlOrdersOps.date_created)).filter(MlOrdersOps.order_id.in_(member_order_ids)).scalar()
 
 
 def _gross_amount(db: Session, member_order_ids: Sequence[int]) -> tuple[Optional[Decimal], Optional[str]]:

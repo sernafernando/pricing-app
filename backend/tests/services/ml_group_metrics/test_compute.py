@@ -206,3 +206,38 @@ class TestGroupGrossAmountCurrencyGate:
 
         assert grupo.gross_amount == Decimal("777.00")
         assert grupo.currency_id == "ARS"
+
+
+class TestGroupDateIgnoresMembersWithoutADate:
+    """`date_created` is nullable, and ordering by it ASC puts NULLs FIRST on
+    SQLite and LAST on Postgres. A pack with one dateless member would then
+    get a real date in production and `None` in the tests -- the worst shape
+    of bug, invisible exactly where it is tested.
+
+    This repo already learned it once: `ml_ventas_ops.py` carries an explicit
+    `nullslast()` with a comment saying why. Here the fix is better than a
+    `nullslast()`, though: the value wanted IS the minimum, and SQL `MIN()`
+    ignores NULLs by definition on both engines -- that removes the ordering
+    question instead of answering it.
+
+    And it matters beyond tidiness: `group_date` is what the KPI date filter
+    will read (T25). A silently null date there is a sale that vanishes from
+    the filtered range.
+    """
+
+    def test_a_member_without_a_date_does_not_hide_the_real_one(self, db):
+        _order(db, 820001, pack_id=8500)
+        _order(db, 820002, pack_id=8500)
+        db.query(MlOrdersOps).filter_by(order_id=820001).update({"date_created": None})
+        db.flush()
+        _stored(db, 820001)
+        _stored(db, 820002)
+        db.commit()
+
+        grupo = recompute_group_metrics(db, ["p:8500"])["p:8500"]
+
+        assert grupo.group_date is not None, "el miembro sin fecha no puede tapar la real"
+        # Compared without tzinfo on purpose: SQLite drops it on the way back
+        # out, so demanding an aware datetime here would fail for a reason
+        # that has nothing to do with what this test is about.
+        assert grupo.group_date.replace(tzinfo=None) == datetime(2026, 9, 15)
