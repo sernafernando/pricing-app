@@ -54,6 +54,7 @@ import { usePermisos } from '../contexts/PermisosContext';
 import api from '../services/api';
 import VentasMLLayout from '../components/ventasMl/VentasMLLayout';
 import SaleDetailPanel from '../components/ventasMl/SaleDetailPanel';
+import PackDetailPanel from '../components/ventasMl/PackDetailPanel';
 import SalesToolbar from '../components/ventasMl/SalesToolbar';
 import FacetChips from '../components/ventasMl/FacetChips';
 import ProductFiltersPanel from '../components/shared/ProductFiltersPanel';
@@ -357,6 +358,8 @@ export default function VentasML() {
   const {
     selectedOrderId,
     selectOrder,
+    selectedPackId,
+    selectPack,
     clearSelection,
     searchQuery,
     setSearchQuery,
@@ -375,6 +378,16 @@ export default function VentasML() {
       selectOrder(orderId);
     },
     [selectOrder],
+  );
+
+  // PR19 (PANEL R22): a pack row opens the PACK-scoped panel, keyed by
+  // `pack_id` — never `openDrawer(orders[0].order_id)`, which opened the
+  // order-scoped panel of an arbitrary member (the bug this PR fixes).
+  const openPackDrawer = useCallback(
+    (packId) => {
+      selectPack(packId);
+    },
+    [selectPack],
   );
 
   const handleOperationStatusChange = useCallback((value) => {
@@ -666,8 +679,19 @@ export default function VentasML() {
 
       <VentasMLLayout
         selectedOrderId={selectedOrderId}
+        selectedPackId={selectedPackId}
         onClear={clearSelection}
-        panel={<SaleDetailPanel orderId={selectedOrderId} onClose={clearSelection} />}
+        panel={
+          selectedPackId !== null && selectedPackId !== undefined ? (
+            <PackDetailPanel
+              packId={selectedPackId}
+              onClose={clearSelection}
+              onSelectOrder={openDrawer}
+            />
+          ) : (
+            <SaleDetailPanel orderId={selectedOrderId} onClose={clearSelection} />
+          )
+        }
       >
       <div className={styles.tableCard}>
         <table className={styles.table}>
@@ -718,6 +742,16 @@ export default function VentasML() {
                 // subline/markup source directly.
                 const loneOrder = !isPack ? orders[0] : null;
                 const groupLevel = groupAlertLevel(orders);
+                // PR19 (PANEL R22): a pack row opens the PACK-scoped panel
+                // keyed by `group.pack_id` -- never
+                // `openDrawer(representativeOrderId)`, which opened an
+                // arbitrary member's order-scoped panel instead.
+                const isRowClickable = isPack ? group.pack_id != null : representativeOrderId != null;
+                const openGroupPanel = isPack
+                  ? () => openPackDrawer(group.pack_id)
+                  : representativeOrderId != null
+                    ? () => openDrawer(representativeOrderId)
+                    : undefined;
                 return (
                   <Fragment key={group.group_key}>
                     {/* The row click is a MOUSE SHORTCUT, deliberately not a
@@ -728,13 +762,9 @@ export default function VentasML() {
                         accessible name. */}
                     <tr
                       className={`${isPack ? styles.packRow : ''} ${
-                        representativeOrderId != null ? styles.clickableRow : ''
+                        isRowClickable ? styles.clickableRow : ''
                       }`.trim()}
-                      onClick={
-                        representativeOrderId != null
-                          ? () => openDrawer(representativeOrderId)
-                          : undefined
-                      }
+                      onClick={isRowClickable ? openGroupPanel : undefined}
                     >
                       <td className={styles.colAlerta}>
                         <AlertIcon level={groupLevel} reason={groupAlertReason(orders, groupLevel)} />
@@ -822,13 +852,16 @@ export default function VentasML() {
                             ) : (
                               formatMoney(group.neto, group.currency_id)
                             );
-                          if (representativeOrderId != null) {
+                          if (isRowClickable) {
                             return (
                               // PR14 review fix P2: this button IS the
                               // keyboard route to the detail panel (see the
                               // <tr> comment above) -- it must survive
                               // every metrics_state, carrying the badge as
                               // its content instead of being replaced by it.
+                              // PR19: opens the SAME panel the row itself
+                              // opens -- pack-scoped for a pack, order-scoped
+                              // for a lone sale.
                               <button
                                 type="button"
                                 className={styles.netoButton}
@@ -843,7 +876,7 @@ export default function VentasML() {
                                 }
                                 onClick={(e) => {
                                   e.stopPropagation();
-                                  openDrawer(representativeOrderId);
+                                  openGroupPanel();
                                 }}
                               >
                                 {content}

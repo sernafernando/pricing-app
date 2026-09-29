@@ -60,8 +60,13 @@ function isEditableElement(el) {
   return tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || el.isContentEditable;
 }
 
-export default function VentasMLLayout({ selectedOrderId, onClear, panel, children }) {
-  const hasSelection = selectedOrderId !== null && selectedOrderId !== undefined;
+export default function VentasMLLayout({ selectedOrderId, selectedPackId, onClear, panel, children }) {
+  // PR19 (PANEL R22): a pack row opens a PACK-scoped selection instead of
+  // an order one — either carries the panel open, never both at once (see
+  // `useVentasMLFilters`, which keeps `orden`/`pack` mutually exclusive).
+  const hasOrderSelection = selectedOrderId !== null && selectedOrderId !== undefined;
+  const hasPackSelection = selectedPackId !== null && selectedPackId !== undefined;
+  const hasSelection = hasOrderSelection || hasPackSelection;
   const openerRef = useRef(null);
   const panelRef = useRef(null);
   // M2: whether focus is currently somewhere inside the panel (or has
@@ -149,7 +154,11 @@ export default function VentasMLLayout({ selectedOrderId, onClear, panel, childr
           region are, so the very first selection (the one that matters
           most) would otherwise be silent. */}
       <div aria-live="polite" className={styles.srOnly}>
-        {hasSelection ? `Mostrando el detalle de la venta ${selectedOrderId}` : ''}
+        {hasPackSelection
+          ? `Mostrando el detalle del pack ${selectedPackId}`
+          : hasOrderSelection
+            ? `Mostrando el detalle de la venta ${selectedOrderId}`
+            : ''}
       </div>
       {hasSelection && (
         <aside ref={panelRef} className={styles.panel} aria-label="Detalle de venta">

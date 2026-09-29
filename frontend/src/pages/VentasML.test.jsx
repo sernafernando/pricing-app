@@ -743,6 +743,180 @@ describe('A pack is one row', () => {
     expect(api.get).not.toHaveBeenCalledWith(expect.stringContaining('/ml-ventas-ops/orders/'));
     expect(screen.queryByLabelText('Detalle de venta')).not.toBeInTheDocument();
   });
+
+  describe('PR19 — selecting a pack row opens the PACK panel, not an arbitrary member', () => {
+    // The product filters (`ventas-ml-filtros-producto`) and the pack panel
+    // (PR19) were built on separate branches off the same main and only met
+    // at the merge. Nothing covered them TOGETHER, and a merge is exactly
+    // where two independently-correct features stop cooperating: both write
+    // to the same URL search params and both read from `useVentasMLFilters`.
+    it('opens the pack panel even with a product filter active', async () => {
+      const grupo = packOf([PACK_A1, PACK_A2], 2000014816536209);
+      api.get.mockImplementation((url) => {
+        if (url === '/ml-ventas-ops/sales') {
+          return Promise.resolve({
+            data: {
+              sales: [grupo],
+              total: 1,
+              limit: 50,
+              offset: 0,
+              facets: { operation_status: {}, goods_status: {} },
+            },
+          });
+        }
+        if (url === '/ml-ventas-ops/packs/2000014816536209') {
+          return Promise.resolve({
+            data: {
+              pack_id: 2000014816536209,
+              monto_operacion: 52618.1,
+              item_lines: [],
+              item_lines_reconcilia: true,
+              item_lines_razon: null,
+              total_gauss: 40000,
+              costo_mercaderia: 20000,
+              markup: 100,
+              member_order_ids: [2000018230951686, 2000018230945962],
+            },
+          });
+        }
+        return Promise.resolve({ data: {} });
+      });
+      const user = userEvent.setup();
+      await renderWithRouter(<VentasML />, { initialEntries: ['/?marcas=Sony'] });
+
+      // Precondition, asserted and not assumed: the filter really IS active
+      // and travelling. Without this the test would pass on a build where
+      // the filter silently stopped working.
+      await waitFor(() => {
+        expect(api.get).toHaveBeenCalledWith(
+          '/ml-ventas-ops/sales',
+          expect.objectContaining({ params: expect.objectContaining({ marcas: 'Sony' }) }),
+        );
+      });
+
+      await screen.findByText(/Pack 2000014816536209/);
+      await user.click(screen.getByText(PACK_A1.buyer_nickname));
+
+      expect(api.get).toHaveBeenCalledWith('/ml-ventas-ops/packs/2000014816536209');
+      // And the filter survived the selection: picking a pack must not wipe
+      // the filter out of the URL.
+      const ultimaVenta = api.get.mock.calls
+        .filter(([url]) => url === '/ml-ventas-ops/sales')
+        .at(-1);
+      expect(ultimaVenta[1].params.marcas).toBe('Sony');
+    });
+
+    it('calls GET /ml-ventas-ops/packs/{pack_id}, never opening the order-scoped panel of a member (PANEL R22)', async () => {
+      mockSalesList([packOf([PACK_A1, PACK_A2], 2000014816536209)]);
+      api.get.mockImplementation((url) => {
+        if (url === '/ml-ventas-ops/sales') {
+          return Promise.resolve({
+            data: {
+              sales: [packOf([PACK_A1, PACK_A2], 2000014816536209)],
+              total: 1,
+              limit: 50,
+              offset: 0,
+              facets: { operation_status: {}, goods_status: {} },
+            },
+          });
+        }
+        if (url === '/ml-ventas-ops/packs/2000014816536209') {
+          return Promise.resolve({
+            data: {
+              pack_id: 2000014816536209,
+              monto_operacion: 52618.1,
+              item_lines: [],
+              item_lines_reconcilia: true,
+              item_lines_razon: null,
+              total_gauss: 40000,
+              costo_mercaderia: 20000,
+              markup: 100,
+              member_order_ids: [2000018230951686, 2000018230945962],
+            },
+          });
+        }
+        return Promise.resolve({ data: {} });
+      });
+      const user = userEvent.setup();
+      await renderWithRouter(<VentasML />);
+
+      // Clicking the pack LABEL itself lands inside the expand toggle
+      // <button>, which calls stopPropagation -- the buyer cell is a plain
+      // <td>, so a click there bubbles to the row's own onClick, same as
+      // an operator clicking anywhere on the row that is not the toggle.
+      await screen.findByText(/Pack 2000014816536209/);
+      const buyerCell = screen.getByText(PACK_A1.buyer_nickname);
+      await user.click(buyerCell);
+
+      // The bug this PR fixes: the CURRENT handler called
+      // openDrawer(orders[0].order_id), which would have requested
+      // GET /ml-ventas-ops/orders/2000018230951686 instead.
+      expect(api.get).toHaveBeenCalledWith('/ml-ventas-ops/packs/2000014816536209');
+      expect(api.get).not.toHaveBeenCalledWith(
+        expect.stringContaining('/ml-ventas-ops/orders/2000018230951686'),
+      );
+      expect(await screen.findByText('Desglose del pack 2000014816536209')).toBeInTheDocument();
+    });
+
+    it('navigates from the pack panel to a member order\'s own order-scoped panel (PANEL R23 scenario 10)', async () => {
+      api.get.mockImplementation((url) => {
+        if (url === '/ml-ventas-ops/sales') {
+          return Promise.resolve({
+            data: {
+              sales: [packOf([PACK_A1, PACK_A2], 2000014816536209)],
+              total: 1,
+              limit: 50,
+              offset: 0,
+              facets: { operation_status: {}, goods_status: {} },
+            },
+          });
+        }
+        if (url === '/ml-ventas-ops/packs/2000014816536209') {
+          return Promise.resolve({
+            data: {
+              pack_id: 2000014816536209,
+              monto_operacion: 52618.1,
+              item_lines: [],
+              item_lines_reconcilia: true,
+              item_lines_razon: null,
+              total_gauss: 40000,
+              costo_mercaderia: 20000,
+              markup: 100,
+              member_order_ids: [2000018230951686, 2000018230945962],
+            },
+          });
+        }
+        if (url === `/ml-ventas-ops/orders/${PACK_A1.order_id}`) {
+          return Promise.resolve({
+            data: {
+              breakdown: {
+                lines: [],
+                neto: 27868.1,
+                incompleto: false,
+                incomplete_reasons: [],
+              },
+            },
+          });
+        }
+        return Promise.resolve({ data: {} });
+      });
+      const user = userEvent.setup();
+      await renderWithRouter(<VentasML />);
+
+      const buyerCell = await screen.findByText(PACK_A1.buyer_nickname);
+      await user.click(buyerCell);
+      await screen.findByText('Desglose del pack 2000014816536209');
+
+      const memberButton = await screen.findByRole('button', { name: String(PACK_A1.order_id) });
+      await user.click(memberButton);
+
+      // The pack panel is gone; the order-scoped panel for JUST that
+      // member is open (its own monto_operacion/lines, not the pack's).
+      expect(await screen.findByText('Desglose de costos')).toBeInTheDocument();
+      expect(screen.queryByText('Desglose del pack 2000014816536209')).not.toBeInTheDocument();
+      expect(api.get).toHaveBeenCalledWith(`/ml-ventas-ops/orders/${PACK_A1.order_id}`);
+    });
+  });
 });
 
 describe('The "Todas" chip follows the same arithmetic as the chips beside it', () => {

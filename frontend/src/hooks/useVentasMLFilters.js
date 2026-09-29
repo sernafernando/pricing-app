@@ -19,11 +19,18 @@ import { useCallback, useMemo } from 'react';
  * same convention again: CSV params, set when non-empty, deleted (never
  * written as an empty string) when cleared — exactly the `q` pattern
  * above, not a new one.
+ * PR19 (PANEL R22/R23) adds the `pack` URL param for a PACK-scoped
+ * selection, mutually exclusive with `orden`: a pack row opens the pack
+ * panel (`selectPack`), and picking a member order from inside that panel
+ * (or a member row directly) opens the order-scoped panel (`selectOrder`).
+ * Each setter clears the other param so the two never disagree about
+ * what is selected.
  */
 export function useVentasMLFilters() {
   const [searchParams, setSearchParams] = useSearchParams();
 
   const ordenParam = searchParams.get('orden');
+  const packParam = searchParams.get('pack');
   const qParam = searchParams.get('q');
   const searchQuery = qParam ?? '';
 
@@ -49,14 +56,21 @@ export function useVentasMLFilters() {
     }),
     [marcasParam, subcategoriasParam, pmsParam],
   );
-  // Order ids are numeric on this screen (`order_id` from ML) — parsed
-  // once here so every consumer (the panel's fetch, the layout's grid)
-  // reads the same type instead of each doing its own `Number(...)`.
+  // Order/pack ids are numeric on this screen (`order_id`/`pack_id` from
+  // ML) — parsed once here so every consumer (the panel's fetch, the
+  // layout's grid) reads the same type instead of each doing its own
+  // `Number(...)`.
   const selectedOrderId = useMemo(() => {
     if (ordenParam === null || ordenParam === '') return null;
     const parsed = Number(ordenParam);
     return Number.isNaN(parsed) ? null : parsed;
   }, [ordenParam]);
+
+  const selectedPackId = useMemo(() => {
+    if (packParam === null || packParam === '') return null;
+    const parsed = Number(packParam);
+    return Number.isNaN(parsed) ? null : parsed;
+  }, [packParam]);
 
   const selectOrder = useCallback(
     (orderId) => {
@@ -64,6 +78,22 @@ export function useVentasMLFilters() {
         (prev) => {
           const next = new URLSearchParams(prev);
           next.set('orden', String(orderId));
+          next.delete('pack');
+          return next;
+        },
+        { replace: false },
+      );
+    },
+    [setSearchParams],
+  );
+
+  const selectPack = useCallback(
+    (packId) => {
+      setSearchParams(
+        (prev) => {
+          const next = new URLSearchParams(prev);
+          next.set('pack', String(packId));
+          next.delete('orden');
           return next;
         },
         { replace: false },
@@ -77,6 +107,7 @@ export function useVentasMLFilters() {
       (prev) => {
         const next = new URLSearchParams(prev);
         next.delete('orden');
+        next.delete('pack');
         return next;
       },
       { replace: false },
@@ -140,6 +171,8 @@ export function useVentasMLFilters() {
   return {
     selectedOrderId,
     selectOrder,
+    selectedPackId,
+    selectPack,
     clearSelection,
     searchQuery,
     setSearchQuery,

@@ -340,15 +340,15 @@ Design refs: D13 route /orders/{id}, new route /packs/{pack_id}. Satisfies: BREA
 Design refs: D14. Satisfies: PANEL R22, R23, R24.
 Depends on: PR18 (needs `GET /packs/{pack_id}` and the prorated-flag field on the order-scoped response).
 
-- [ ] PR19.T1 RED: regression test on the CURRENT pack row click handler — `frontend/src/pages/VentasML.jsx:662-666` calls `openDrawer(orders[0].order_id)` for a pack row, opening the order-scoped panel of an arbitrary member instead of a pack-scoped panel (PANEL R22, scenario 9).
-- [ ] PR19.T2 GREEN: change the pack row handler to open a pack-scoped view keyed by `pack_id` (not `orders[0]`); add a `usePackDetail(pack_id)` fetch hook against `GET /ml-ventas-ops/packs/{pack_id}`.
-- [ ] PR19.T3 RED: `PackDetailPanel` renders the pack's `monto_operacion`, aggregated product list, Total Gauss chain + markup, and the member order id list (PANEL R23, scenarios 5/9).
-- [ ] PR19.T4 GREEN: implement `frontend/src/components/ventasMl/PackDetailPanel.jsx`.
-- [ ] PR19.T5 RED: from the open pack panel, selecting one listed member order navigates to that member's order-scoped `SaleDetailPanel`, whose figures (`monto_operacion`, product list, Total Gauss, markup) describe only that order (PANEL R23, scenario 10).
-- [ ] PR19.T6 GREEN: implement pack→member navigation (URL selection state toggles between pack view and order view for the same click target).
-- [ ] PR19.T7 RED: the order-scoped panel for a pack member sharing a shipment visibly labels its Flex shipping line as prorated across the shipment's orders (PANEL R24, scenario 11); negative case in the same task — a standalone order's panel shows no such label.
-- [ ] PR19.T8 GREEN: implement the prorated label in `SaleDetailPanel`'s shipping section, reading the flag PR18.T19 added to the order-scoped response.
-- [ ] PR19.T9 Regression sweep: confirm the old `openDrawer(orders[0])` pack-row path (frontend/src/pages/VentasML.jsx:662-666) is fully replaced, not left reachable as dead/parallel code alongside the new pack-panel path.
+- [x] PR19.T1 RED: regression test on the CURRENT pack row click handler — `frontend/src/pages/VentasML.jsx:662-666` calls `openDrawer(orders[0].order_id)` for a pack row, opening the order-scoped panel of an arbitrary member instead of a pack-scoped panel (PANEL R22, scenario 9).
+- [x] PR19.T2 GREEN: change the pack row handler to open a pack-scoped view keyed by `pack_id` (not `orders[0]`); add a `usePackDetail(pack_id)` fetch hook against `GET /ml-ventas-ops/packs/{pack_id}`.
+- [x] PR19.T3 RED: `PackDetailPanel` renders the pack's `monto_operacion`, aggregated product list, Total Gauss chain + markup, and the member order id list (PANEL R23, scenarios 5/9).
+- [x] PR19.T4 GREEN: implement `frontend/src/components/ventasMl/PackDetailPanel.jsx`.
+- [x] PR19.T5 RED: from the open pack panel, selecting one listed member order navigates to that member's order-scoped `SaleDetailPanel`, whose figures (`monto_operacion`, product list, Total Gauss, markup) describe only that order (PANEL R23, scenario 10).
+- [x] PR19.T6 GREEN: implement pack→member navigation (URL selection state toggles between pack view and order view for the same click target).
+- [x] PR19.T7 RED: the order-scoped panel for a pack member sharing a shipment visibly labels its Flex shipping line as prorated across the shipment's orders (PANEL R24, scenario 11); negative case in the same task — a standalone order's panel shows no such label.
+- [x] PR19.T8 GREEN: implement the prorated label in `SaleDetailPanel`'s shipping section, reading the flag PR18.T19 added to the order-scoped response.
+- [x] PR19.T9 Regression sweep: confirm the old `openDrawer(orders[0])` pack-row path (frontend/src/pages/VentasML.jsx:662-666) is fully replaced, not left reachable as dead/parallel code alongside the new pack-panel path.
 
 ## Negative scenarios (woven throughout, tracked here for visibility)
 Satisfies: `negative-scenarios` spec.

@@ -309,6 +309,50 @@ describe('Live region announces content, even the first open (L3)', () => {
   });
 });
 
+describe('Pack selection opens the panel too (ventas-ml-rediseno PR19, PANEL R22)', () => {
+  it('opens the panel and announces the pack, not an order id, when selectedPackId is set', () => {
+    const { container } = render(
+      <VentasMLLayout
+        selectedOrderId={null}
+        selectedPackId={555}
+        onClear={vi.fn()}
+        panel={<div>pack panel content</div>}
+      >
+        <table>
+          <tbody>
+            <tr>
+              <td>row</td>
+            </tr>
+          </tbody>
+        </table>
+      </VentasMLLayout>,
+    );
+
+    expect(screen.getByLabelText('Detalle de venta')).toBeInTheDocument();
+    expect(screen.getByText('pack panel content')).toBeInTheDocument();
+    const liveRegion = container.querySelector('[aria-live="polite"]');
+    expect(liveRegion.textContent).toBe('Mostrando el detalle del pack 555');
+  });
+
+  it('renders a single column with neither param set', () => {
+    const { container } = render(
+      <VentasMLLayout selectedOrderId={null} selectedPackId={null} onClear={vi.fn()} panel={<div />}>
+        <table>
+          <tbody>
+            <tr>
+              <td>row</td>
+            </tr>
+          </tbody>
+        </table>
+      </VentasMLLayout>,
+    );
+
+    expect(screen.queryByLabelText('Detalle de venta')).not.toBeInTheDocument();
+    const liveRegion = container.querySelector('[aria-live="polite"]');
+    expect(liveRegion.textContent).toBe('');
+  });
+});
+
 describe('Table rows stay independently selectable while the panel is open (PANEL R17)', () => {
   it('lets a table row receive focus and text selection with no blocking overlay in between', () => {
     render(

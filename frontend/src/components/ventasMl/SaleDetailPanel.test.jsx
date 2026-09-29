@@ -389,6 +389,58 @@ describe('IVA decomposition and Total Gauss chain (ml-ventas-modo-logistico PR6)
     });
   });
 
+  describe('Prorated Flex freight (ventas-ml-rediseno PR19, BREAKDOWN R38, PANEL R24)', () => {
+    it('labels the Flex line as prorated when this order shares a shipment with other pack members', async () => {
+      mockDetail(1001, {
+        breakdown: BASE_BREAKDOWN,
+        iva_decomposicion: {
+          componentes: [{ concepto: 'Venta ítem', alicuota: 21, bruto: 100, base: 82.64, iva: 17.36 }],
+          neto_sin_iva: 82.64,
+          reconcilia: true,
+          diferencia: 0,
+          razones: [],
+        },
+        cadena_total_gauss: {
+          total_gauss: 70.64,
+          lineas: [
+            { code: 'costo_mercaderia', monto: 10 },
+            { code: 'envio_flex', monto: 5, prorateado: true },
+            { code: 'varios', monto: 2 },
+          ],
+        },
+      });
+      render(<SaleDetailPanel orderId={1001} onClose={vi.fn()} />);
+
+      await screen.findByText('Envío Flex');
+      expect(screen.getByText(/prorrateado entre las órdenes del envío/i)).toBeInTheDocument();
+    });
+
+    it('shows no prorated label for a standalone order (negative case)', async () => {
+      mockDetail(1002, {
+        breakdown: BASE_BREAKDOWN,
+        iva_decomposicion: {
+          componentes: [{ concepto: 'Venta ítem', alicuota: 21, bruto: 100, base: 82.64, iva: 17.36 }],
+          neto_sin_iva: 82.64,
+          reconcilia: true,
+          diferencia: 0,
+          razones: [],
+        },
+        cadena_total_gauss: {
+          total_gauss: 70.64,
+          lineas: [
+            { code: 'costo_mercaderia', monto: 10 },
+            { code: 'envio_flex', monto: 5, prorateado: false },
+            { code: 'varios', monto: 2 },
+          ],
+        },
+      });
+      render(<SaleDetailPanel orderId={1002} onClose={vi.fn()} />);
+
+      await screen.findByText('Envío Flex');
+      expect(screen.queryByText(/prorrateado entre las órdenes del envío/i)).not.toBeInTheDocument();
+    });
+  });
+
   describe('IVA rows per alícuota', () => {
     it('renders each componente with its own base/IVA/alícuota', async () => {
       mockDetail(1001, {
