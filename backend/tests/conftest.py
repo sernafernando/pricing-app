@@ -42,7 +42,7 @@ from sqlalchemy import (
 )
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
-from sqlalchemy.dialects.postgresql import JSONB, UUID as PG_UUID
+from sqlalchemy.dialects.postgresql import ARRAY as PG_ARRAY, JSONB, UUID as PG_UUID
 from pgvector.sqlalchemy import Vector
 
 from app.core.database import Base, get_async_db, get_db
@@ -72,6 +72,7 @@ from app.models.ml_billing import (  # noqa: F401 — registers tables for creat
 )
 from app.models.ml_order_item_costo import MlOrderItemCosto  # noqa: F401 — registers table for create_all
 from app.models.ml_order_metrics import MlOrderMetrics, MlOrderMetricsDirty  # noqa: F401 — registers tables for create_all
+from app.models.ml_group_metrics import MlGroupMetrics  # noqa: F401 — registers table for create_all
 from app.models.worker_job_state import WorkerJobState  # noqa: F401 — registers table for create_all
 from app.models.pedido_factura_documento import PedidoFacturaDocumento  # noqa: F401 — registers table for create_all
 from app.models.pedido_compra_oc import PedidoCompraOc  # noqa: F401 — registers table for create_all
@@ -138,6 +139,12 @@ _PG_TYPE_MAP = {
     # behavior of storing the JSON "null" literal, which would silently
     # satisfy a NOT NULL column.
     Vector: lambda: JSON(none_as_null=True),
+    # `ARRAY(BigInteger)` (`ml_group_metrics.member_order_ids`, ventas-ml
+    # PR20) has no SQLite equivalent -- remap to JSON, same pattern as
+    # JSONB/UUID/Vector above. A Python `list[int]` round-trips fine through
+    # JSON for the SQLite test suite's purposes (equality on the list, not
+    # on Postgres array operators).
+    PG_ARRAY: lambda: JSON(),
 }
 
 # Snapshot of the real PostgreSQL column types, captured at import time —
@@ -636,6 +643,7 @@ def pg_order_metrics_engine():
             "CI provides this via the `postgres` service in .github/workflows/ci.yml."
         )
 
+    from app.models.ml_group_metrics import MlGroupMetrics as _MlGroupMetrics
     from app.models.ml_order_item_costo import MlOrderItemCosto as _MlOrderItemCosto
     from app.models.ml_order_metrics import MlOrderMetrics as _MlOrderMetrics
     from app.models.ml_order_metrics import MlOrderMetricsDirty as _MlOrderMetricsDirty
@@ -660,6 +668,12 @@ def pg_order_metrics_engine():
         # table in the SAME fixture (fenced_store writes both, fenced by a
         # claim_token that lives only on this table).
         _MlOrderMetricsDirty.__table__,
+        # ventas-ml-rediseno PR20: `store_order_metrics` now ALSO recomputes
+        # and stores the affected order's CURRENT group in the SAME
+        # transaction (T11/T12) -- this fixture must create the group
+        # table too, or every real-Postgres store call in this file fails
+        # with `UndefinedTable`.
+        _MlGroupMetrics.__table__,
     ]
     _restore_pristine_pg_types(own_tables)
 
@@ -912,6 +926,7 @@ def pg_order_metrics_divergence_engine():
             "CI provides this via the `postgres` service in .github/workflows/ci.yml."
         )
 
+    from app.models.ml_group_metrics import MlGroupMetrics as _MlGroupMetrics
     from app.models.ml_order_item_costo import MlOrderItemCosto as _MlOrderItemCosto
     from app.models.ml_order_metrics import MlOrderMetrics as _MlOrderMetrics
     from app.models.ml_order_metrics import MlOrderMetricsDirty as _MlOrderMetricsDirty
@@ -935,6 +950,9 @@ def pg_order_metrics_divergence_engine():
         _MlVentaDeduccion.__table__,
         _MlOrderMetricsDirty.__table__,
         _WorkerJobState.__table__,
+        # ventas-ml-rediseno PR20: `store_order_metrics` writes the
+        # affected order's group row in the SAME transaction (T11/T12).
+        _MlGroupMetrics.__table__,
     ]
     _restore_pristine_pg_types(own_tables)
 
