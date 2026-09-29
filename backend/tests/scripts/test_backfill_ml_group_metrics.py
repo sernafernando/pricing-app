@@ -150,6 +150,44 @@ class TestBackfillWritesTheMissingGroupRecords:
 
         resultado = script.run_backfill(limit=100, dry_run=False)
 
-        assert set(resultado) == {"examined", "written", "no_members"}
+        assert set(resultado) == {"examined", "written", "no_members", "remaining"}
         assert resultado["written"] == 1
         assert resultado["no_members"] == 0
+
+    def test_a_partial_run_says_how_many_are_left(self, db):
+        """A backfill that can stop early must never stop QUIETLY.
+
+        `--limit` truncates the set of groups to process. Without a count of
+        what is left, a run that covered half the work reports exactly the
+        same shape as one that covered all of it -- and this script is the
+        thing standing between a deploy and every historical pedido reading
+        as unknown. The operator has to be able to tell the two apart without
+        writing their own query.
+        """
+        for i, order_id in enumerate((9050, 9051, 9052)):
+            _order(db, order_id, pack_id=None)
+            db.flush()
+            _stored(db, order_id)
+        db.commit()
+
+        parcial = script.run_backfill(limit=1, dry_run=False)
+        assert parcial["written"] == 1
+        assert parcial["remaining"] == 2, "una corrida parcial tiene que decir qué falta"
+
+        completa = script.run_backfill(limit=None, dry_run=False)
+        assert completa["written"] == 2
+        assert completa["remaining"] == 0, "cuando termina, no queda nada"
+
+    def test_a_dry_run_reports_the_whole_pending_set(self, db):
+        """A dry run's whole purpose is answering 'how much is there'. It
+        must count what is pending, not what a limited pass would touch."""
+        for order_id in (9060, 9061):
+            _order(db, order_id, pack_id=None)
+            db.flush()
+            _stored(db, order_id)
+        db.commit()
+
+        resultado = script.run_backfill(limit=None, dry_run=True)
+
+        assert resultado["written"] == 0
+        assert resultado["remaining"] == 2
