@@ -86,7 +86,7 @@ def _seed_dirty(db, order_id: int, *, attempts: int = 0) -> None:
 
 def _aggregate(db, f: SalesFilter | None = None):
     scope = build_scope(db, f or SalesFilter(include_unknown=True, include_in_dispute=True))
-    return aggregate_order_metrics(db, scope.listing_query, scope.group_key)
+    return aggregate_order_metrics(db, scope.listing_query, scope.members_base, scope.group_key)
 
 
 class TestBasicSums:

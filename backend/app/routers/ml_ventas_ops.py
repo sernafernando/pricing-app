@@ -1658,7 +1658,7 @@ def sales_kpis(
     `SalesFilter`/`build_scope` verbatim with `GET /sales` (KPI R7): the
     SAME filter+toggle combination on both endpoints always agrees (KPI
     R14) -- proven by
-    `tests/integration/test_ml_ventas_ops_sales_router.py::TestKpiParity`.
+    `tests/integration/test_ml_ventas_ops_kpis_router.py::TestKpiListingParity`.
 
     Aggregates the WHOLE filtered set, never the current page (KPI R8) --
     this endpoint takes no `limit`/`offset`. Every measure comes from
@@ -1710,7 +1710,7 @@ def sales_kpis(
         include_provisional=include_provisional,
     )
     scope = build_scope(db, sales_filter)
-    result = aggregate_order_metrics(db, scope.listing_query, scope.group_key)
+    result = aggregate_order_metrics(db, scope.listing_query, scope.members_base, scope.group_key)
     excluded_by_toggle = _toggle_excluded_counts(db, sales_filter)
     # K2: the switches ACTUALLY applied by `build_scope` (an explicit
     # `operation_status`/`goods_status` facet selection may have overridden
