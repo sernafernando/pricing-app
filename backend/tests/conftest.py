@@ -846,6 +846,7 @@ def pg_order_metrics_triggers_engine():
         )
 
     from app.models.ml_order_item_costo import MlOrderItemCosto as _MlOrderItemCosto
+    from app.models.ml_group_metrics import MlGroupMetrics as _MlGroupMetrics
     from app.models.ml_order_metrics import MlOrderMetricsDirty as _MlOrderMetricsDirty
     from app.models.ml_orders_ops import MlOrderItemOps as _MlOrderItemOps
     from app.models.ml_orders_ops import MlOrdersOps as _MlOrdersOps
@@ -853,6 +854,7 @@ def pg_order_metrics_triggers_engine():
     from app.models.ml_payments import MlPaymentCharge as _MlPaymentCharge
     from app.models.ml_payments import MlPaymentOps as _MlPaymentOps
     from app.services.order_metrics.triggers import create_triggers, drop_triggers
+    from app.services.order_metrics.triggers_pack import create_pack_triggers
 
     # `ml_order_metrics_dirty` LAST -- the trigger DDL applied right after
     # this list is created references the six tables above.
@@ -863,6 +865,11 @@ def pg_order_metrics_triggers_engine():
         _MlPaymentOps.__table__,
         _MlPaymentCharge.__table__,
         _MlShipmentOps.__table__,
+        # PR20: the pack-aware enqueue function DELETEs orphaned rows from
+        # `ml_group_metrics`, so the table must exist wherever the trigger can
+        # fire -- a missing table would make every write to `ml_orders_ops` fail,
+        # not just the group bookkeeping.
+        _MlGroupMetrics.__table__,
         _MlOrderMetricsDirty.__table__,
     ]
     _restore_pristine_pg_types(own_tables)
@@ -880,6 +887,11 @@ def pg_order_metrics_triggers_engine():
         table.create(bind=eng, checkfirst=True)
     with eng.begin() as conn:
         create_triggers(conn)
+        # PR20: replaces the orders-ops function body with the pack-aware one.
+        # MUST run AFTER `create_triggers`, which defines the original version of
+        # the same function -- the other order would silently revert the pack
+        # fan-out and the orphan cleanup.
+        create_pack_triggers(conn)
     _patch_pg_types_for_sqlite()
     yield eng
     with eng.begin() as conn:
@@ -1049,6 +1061,7 @@ def pg_order_metrics_config_triggers_engine():
     from app.models.etiqueta_envio import EtiquetaEnvio as _EtiquetaEnvio
     from app.models.logistica_costo_cordon import LogisticaCostoCordon as _LogisticaCostoCordon
     from app.models.ml_order_item_costo import MlOrderItemCosto as _MlOrderItemCosto
+    from app.models.ml_group_metrics import MlGroupMetrics as _MlGroupMetrics
     from app.models.ml_order_metrics import MlOrderMetricsDirty as _MlOrderMetricsDirty
     from app.models.ml_orders_ops import MlOrderItemOps as _MlOrderItemOps
     from app.models.ml_orders_ops import MlOrdersOps as _MlOrdersOps
@@ -1058,6 +1071,7 @@ def pg_order_metrics_config_triggers_engine():
     from app.models.transporte import Transporte as _Transporte
     from app.models.varios_venta_pct import VariosVentaPct as _VariosVentaPct
     from app.services.order_metrics.triggers import create_triggers, drop_triggers
+    from app.services.order_metrics.triggers_pack import create_pack_triggers
     from app.services.order_metrics.triggers_config import create_config_triggers, drop_config_triggers
 
     own_tables = [
@@ -1067,6 +1081,11 @@ def pg_order_metrics_config_triggers_engine():
         _MlPaymentOps.__table__,
         _MlPaymentCharge.__table__,
         _MlShipmentOps.__table__,
+        # PR20: the pack-aware enqueue function DELETEs orphaned rows from
+        # `ml_group_metrics`, so the table must exist wherever the trigger can
+        # fire -- a missing table would make every write to `ml_orders_ops` fail,
+        # not just the group bookkeeping.
+        _MlGroupMetrics.__table__,
         _MlOrderMetricsDirty.__table__,
     ]
     _restore_pristine_pg_types(own_tables)
@@ -1137,6 +1156,11 @@ def pg_order_metrics_config_triggers_engine():
     local_metadata.create_all(bind=eng)
     with eng.begin() as conn:
         create_triggers(conn)
+        # PR20: replaces the orders-ops function body with the pack-aware one.
+        # MUST run AFTER `create_triggers`, which defines the original version of
+        # the same function -- the other order would silently revert the pack
+        # fan-out and the orphan cleanup.
+        create_pack_triggers(conn)
         create_config_triggers(conn)
     _patch_pg_types_for_sqlite()
     yield eng
