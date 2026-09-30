@@ -21,8 +21,21 @@ reuses the sweep's own run-lock/cursor helpers
 ever racing the same row -- exactly the same reasoning that already lets
 the sweep and `backfill_payments_costs_service` coexist.
 
+What an activity event's id IS depends on its `resource`, not on the
+`order_id` field (2026-09-30 incident): the bridge feed mixes topics, and
+for `shipments` (`/shipments/<id>`) and `flex-handshakes`
+(`/flex/sites/<site>/shipments/<id>/...`) events the `order_id` field
+carries the SHIPMENT id. Asking ML `/orders/<shipment_id>` answers 404 and
+left 393 permanent false `activity_unresolved` debts. Events are therefore
+classified by `resource`: an order resource is fetched as before; a
+shipment resource is translated to its order(s) through
+`ml_orders_ops.shipping_id` (one bulk query per page, zero HTTP) and those
+orders are refreshed; a shipment whose order we do not hold yet, and any
+other resource, is ignored WITHOUT recording a debt (the order event will
+arrive, and the sweep covers it anyway).
+
 Why not `search_orders` (design D1, rejected alternative): an activity
-event carries only an `order_id` (obs #2008), not a `date_last_updated`
+event identifies an order (obs #2008) but carries no `date_last_updated`
 window. Feeding those ids into `search_orders`'s window semantics would
 recreate a second, ad hoc sweep keyed on whatever window happens to
 contain "now" -- and could pull in orders no event ever mentioned,
@@ -75,6 +88,7 @@ split from the start.
 from __future__ import annotations
 
 import logging
+import re
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional
@@ -201,21 +215,65 @@ class ActivityDrainResult:
     error: Optional[str] = None
 
 
+_ORDER_RESOURCE = re.compile(r"^/orders/(\d+)$")
+# `/shipments/<id>` and the flex form `/flex/sites/<site>/shipments/<id>/...`.
+_SHIPMENT_RESOURCE = re.compile(r"^(?:/flex/sites/[A-Za-z]+)?/shipments/(\d+)(?:/.*)?$")
+
+
+def _classify_event(event: Dict[str, Any]) -> tuple[Optional[str], Optional[int]]:
+    """Returns ("order" | "shipment", id) from the event's `resource`, or
+    (None, None) for anything else. The `order_id` field is NOT trusted:
+    for non-order resources it carries another kind of id."""
+    resource = event.get("resource")
+    if not isinstance(resource, str):
+        return None, None
+    match = _ORDER_RESOURCE.match(resource)
+    if match:
+        return "order", int(match.group(1))
+    match = _SHIPMENT_RESOURCE.match(resource)
+    if match:
+        return "shipment", int(match.group(1))
+    return None, None
+
+
+def _order_ids_for_shipments(db, shipment_ids: List[int]) -> List[int]:
+    """Orders we hold whose `shipping_id` is one of `shipment_ids`: ONE
+    bulk query for the whole page. A shipment with no order in our DB is
+    simply absent from the result."""
+    if not shipment_ids:
+        return []
+    rows = db.query(MlOrdersOps.order_id).filter(MlOrdersOps.shipping_id.in_(shipment_ids)).all()
+    return [row[0] for row in rows]
+
+
 def _collect_new_order_ids(events: List[Dict[str, Any]], seen_this_pass: Dict[int, bool]) -> tuple[List[int], int]:
     """Returns (new_order_ids_in_page_order, events_without_order_id),
     where `new_order_ids` is insertion-ordered and excludes any id
     already resolved (successfully or not) earlier in THIS pass -- see
-    module docstring on per-pass dedup."""
+    module docstring on per-pass dedup.
+
+    Order resources come first, in page order; orders translated from
+    shipment resources follow. Both feed the same dedup, so a shipment and
+    an order event for the SAME order fetch it once."""
     new_ids: Dict[int, None] = {}
+    shipment_ids: Dict[int, None] = {}
     without_order_id = 0
     for event in events:
-        order_id = event.get("order_id")
-        if order_id is None:
+        if event.get("order_id") is None:
             without_order_id += 1
             continue
-        if order_id in seen_this_pass:
-            continue
-        new_ids.setdefault(order_id, None)
+        kind, resource_id = _classify_event(event)
+        if kind == "order":
+            if resource_id not in seen_this_pass:
+                new_ids.setdefault(resource_id, None)
+        elif kind == "shipment":
+            shipment_ids.setdefault(resource_id, None)
+    if shipment_ids:
+        with get_background_db() as db:
+            translated = _order_ids_for_shipments(db, list(shipment_ids))
+        for order_id in translated:
+            if order_id not in seen_this_pass:
+                new_ids.setdefault(order_id, None)
     return list(new_ids.keys()), without_order_id
 
 
@@ -310,6 +368,31 @@ def _clear_resolved_unresolved_debts(db) -> int:
             MlOpsDivergence.kind == "unknown",
             MlOpsDivergence.field == UNRESOLVED_FIELD,
             MlOpsDivergence.order_id.in_(resolved_order_ids),
+        )
+        .delete(synchronize_session=False)
+    )
+
+
+def _clear_shipment_id_unresolved_debts(db) -> int:
+    """Settles the false debts recorded before events were classified by
+    `resource`: an `activity_unresolved` debt whose id is the `shipping_id`
+    of an order we hold names a SHIPMENT, not a missing sale (393 of them
+    in production on 2026-09-30).
+
+    Safe by construction, same shape as `_clear_resolved_unresolved_debts`:
+    the filter only ever selects ids that appear in
+    `ml_orders_ops.shipping_id` (NULLs excluded), so a debt whose id is not
+    a shipping_id we hold -- a real, still-open miss -- cannot be touched;
+    `kind` and `field` are pinned in the `WHERE` so other divergences are
+    never touched either. Idempotent. Returns the rows cleared.
+    """
+    known_shipping_ids = db.query(MlOrdersOps.shipping_id).filter(MlOrdersOps.shipping_id.isnot(None))
+    return (
+        db.query(MlOpsDivergence)
+        .filter(
+            MlOpsDivergence.kind == "unknown",
+            MlOpsDivergence.field == UNRESOLVED_FIELD,
+            MlOpsDivergence.order_id.in_(known_shipping_ids),
         )
         .delete(synchronize_session=False)
     )

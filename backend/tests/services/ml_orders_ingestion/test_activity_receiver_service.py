@@ -107,6 +107,41 @@ def _event(order_id: int, topic: str = "orders_v2") -> dict:
     }
 
 
+def _shipment_event(shipment_id: int) -> dict:
+    """Real production shape (bridge `webhooks` table): the `order_id` field
+    carries the SHIPMENT id; only `resource` says what it is."""
+    return {
+        "topic": "shipments",
+        "order_id": shipment_id,
+        "pack_id": None,
+        "resource": f"/shipments/{shipment_id}",
+        "sent": datetime.now(timezone.utc).isoformat(),
+        "occurred_at": datetime.now(timezone.utc).isoformat(),
+    }
+
+
+def _flex_event(shipment_id: int) -> dict:
+    return {
+        "topic": "flex-handshakes",
+        "order_id": shipment_id,
+        "pack_id": None,
+        "resource": f"/flex/sites/MLA/shipments/{shipment_id}/assignment/v1",
+        "sent": datetime.now(timezone.utc).isoformat(),
+        "occurred_at": datetime.now(timezone.utc).isoformat(),
+    }
+
+
+def _other_event(topic: str, resource: str, order_id: int) -> dict:
+    return {
+        "topic": topic,
+        "order_id": order_id,
+        "pack_id": None,
+        "resource": resource,
+        "sent": datetime.now(timezone.utc).isoformat(),
+        "occurred_at": datetime.now(timezone.utc).isoformat(),
+    }
+
+
 def _page(events, has_more=False, next_cursor="cursor-2"):
     return {"events": events, "has_more": has_more, "next_cursor": next_cursor}
 
@@ -939,3 +974,203 @@ class TestClearResolvedUnresolvedDebts:
 
         assert first == 1
         assert second == 0
+
+
+SHIPMENT_ID = 48137554327  # 11 digits, as in production
+ORDER_ID = 2000018126384162  # 16 digits, as in production
+
+
+class TestShipmentEventsAreNotOrders:
+    """An activity event's `order_id` field carries the SHIPMENT id for
+    `shipments`/`flex-handshakes` events. Asking ML `/orders/<shipment_id>`
+    returned 404 and left a permanent false `activity_unresolved` debt
+    (393 of them in production on 2026-09-30)."""
+
+    def _debts(self, db):
+        return db.query(MlOpsDivergence).filter(MlOpsDivergence.field == service.UNRESOLVED_FIELD).all()
+
+    def _known_order(self, db, order_id=ORDER_ID, shipping_id=SHIPMENT_ID):
+        db.add(
+            MlOrdersOps(
+                order_id=order_id,
+                seller_id=999,
+                shipping_id=shipping_id,
+                ml_last_updated=datetime.now(timezone.utc),
+            )
+        )
+        db.commit()
+
+    def _drain(self, monkeypatch, events, get_order):
+        monkeypatch.setattr(ml_webhook_client, "get_activity", AsyncMock(return_value=_page(events, next_cursor="c1")))
+        mock = AsyncMock(side_effect=get_order)
+        monkeypatch.setattr(ml_webhook_client, "get_order", mock)
+        result = service.drain_activity()
+        assert result.error is None
+        return result, mock
+
+    def test_a_shipment_id_is_never_asked_to_ml_as_an_order_and_leaves_no_debt(self, db, monkeypatch):
+        _, get_order = self._drain(monkeypatch, [_shipment_event(SHIPMENT_ID)], lambda oid: None)
+
+        called = [c.args[0] for c in get_order.call_args_list]
+        assert SHIPMENT_ID not in called
+        assert self._debts(db) == []
+
+    def test_a_shipment_event_refreshes_the_order_that_owns_that_shipment(self, db, monkeypatch):
+        self._known_order(db)
+
+        result, get_order = self._drain(
+            monkeypatch, [_shipment_event(SHIPMENT_ID)], lambda oid: _order(oid) if oid == ORDER_ID else None
+        )
+
+        assert [c.args[0] for c in get_order.call_args_list] == [ORDER_ID]
+        assert result.orders_resolved == 1
+        assert self._debts(db) == []
+
+    def test_a_flex_handshake_event_is_translated_the_same_way(self, db, monkeypatch):
+        self._known_order(db)
+
+        _, get_order = self._drain(
+            monkeypatch, [_flex_event(SHIPMENT_ID)], lambda oid: _order(oid) if oid == ORDER_ID else None
+        )
+
+        assert [c.args[0] for c in get_order.call_args_list] == [ORDER_ID]
+        assert self._debts(db) == []
+
+    def test_a_shipment_and_an_order_event_for_the_same_order_fetch_it_once(self, db, monkeypatch):
+        self._known_order(db)
+
+        _, get_order = self._drain(
+            monkeypatch,
+            [_event(ORDER_ID), _shipment_event(SHIPMENT_ID), _flex_event(SHIPMENT_ID)],
+            lambda oid: _order(oid) if oid == ORDER_ID else None,
+        )
+
+        assert [c.args[0] for c in get_order.call_args_list] == [ORDER_ID]
+
+    def test_dedup_holds_across_pages_for_a_shipment_translated_order(self, db, monkeypatch):
+        self._known_order(db)
+        page1 = _page([_event(ORDER_ID)], has_more=True, next_cursor="c1")
+        page2 = _page([_shipment_event(SHIPMENT_ID)], has_more=False, next_cursor="c2")
+        monkeypatch.setattr(ml_webhook_client, "get_activity", AsyncMock(side_effect=[page1, page2]))
+        get_order = AsyncMock(side_effect=lambda oid: _order(oid))
+        monkeypatch.setattr(ml_webhook_client, "get_order", get_order)
+
+        service.drain_activity()
+
+        assert [c.args[0] for c in get_order.call_args_list] == [ORDER_ID]
+
+    def test_a_shipment_whose_order_is_not_in_our_db_is_ignored_without_debt(self, db, monkeypatch):
+        result, get_order = self._drain(
+            monkeypatch, [_shipment_event(SHIPMENT_ID), _flex_event(SHIPMENT_ID)], lambda oid: None
+        )
+
+        get_order.assert_not_called()
+        assert self._debts(db) == []
+        assert db.query(MlOpsSyncCursor).filter_by(name="ml_activity").one().activity_cursor == "c1"
+
+    @pytest.mark.parametrize(
+        "topic,resource",
+        [
+            ("items", "/items/MLA1234567890"),
+            ("questions", "/questions/13000000000"),
+            ("payments", "/collections/123456789"),
+            ("orders_v2", "/orders/"),
+            ("shipments", "/shipments/not-a-number"),
+            ("x", ""),
+        ],
+    )
+    def test_any_other_resource_is_ignored_without_debt(self, db, monkeypatch, topic, resource):
+        self._known_order(db, order_id=ORDER_ID, shipping_id=12345678901)
+
+        _, get_order = self._drain(monkeypatch, [_other_event(topic, resource, 12345678901)], lambda oid: None)
+
+        get_order.assert_not_called()
+        assert self._debts(db) == []
+
+    def test_an_order_event_still_records_a_debt_when_ml_says_nothing(self, db, monkeypatch):
+        """Unchanged behaviour for real order events."""
+        _, get_order = self._drain(monkeypatch, [_event(ORDER_ID)], lambda oid: None)
+
+        assert [c.args[0] for c in get_order.call_args_list] == [ORDER_ID]
+        assert [d.order_id for d in self._debts(db)] == [ORDER_ID]
+
+    def test_an_event_whose_resource_is_missing_is_ignored(self, db, monkeypatch):
+        event = _event(ORDER_ID)
+        del event["resource"]
+
+        _, get_order = self._drain(monkeypatch, [event], lambda oid: None)
+
+        get_order.assert_not_called()
+        assert self._debts(db) == []
+
+
+class TestClearShipmentIdDebts:
+    """Existing false debts (the shipment id recorded as if it were an
+    order) self-heal in the sweep pass."""
+
+    def _order(self, db, order_id, shipping_id):
+        db.add(
+            MlOrdersOps(
+                order_id=order_id, seller_id=999, shipping_id=shipping_id, ml_last_updated=datetime.now(timezone.utc)
+            )
+        )
+
+    def _debt(self, db, order_id, kind="unknown", field=None):
+        db.add(
+            MlOpsDivergence(
+                order_id=order_id,
+                kind=kind,
+                field=field if field is not None else service.UNRESOLVED_FIELD,
+                detected_at=datetime.now(timezone.utc),
+            )
+        )
+
+    def test_a_debt_whose_id_is_a_known_shipping_id_is_cleared(self, db):
+        self._order(db, ORDER_ID, SHIPMENT_ID)
+        self._debt(db, SHIPMENT_ID)
+        db.commit()
+
+        cleared = service._clear_shipment_id_unresolved_debts(db)
+        db.commit()
+
+        assert cleared == 1
+        assert db.query(MlOpsDivergence).count() == 0
+
+    def test_a_debt_whose_id_is_not_a_known_shipping_id_is_left_alone(self, db):
+        # THE SAFETY TEST. 48999999999 is neither a shipping_id nor an
+        # order we hold: a real, still-open miss. It must survive, even
+        # while a different, known shipping_id exists beside it.
+        self._order(db, ORDER_ID, SHIPMENT_ID)
+        self._order(db, 2000018126384163, None)  # NULL shipping_id must not match anything
+        self._debt(db, 48999999999)
+        self._debt(db, 2000018126384999)
+        db.commit()
+
+        cleared = service._clear_shipment_id_unresolved_debts(db)
+        db.commit()
+
+        assert cleared == 0
+        assert sorted(d.order_id for d in db.query(MlOpsDivergence).all()) == [48999999999, 2000018126384999]
+
+    def test_other_kinds_and_fields_naming_a_shipping_id_are_not_touched(self, db):
+        self._order(db, ORDER_ID, SHIPMENT_ID)
+        self._debt(db, SHIPMENT_ID, kind="out_of_window_update", field=None)
+        self._debt(db, SHIPMENT_ID, kind="unknown", field="some_other_field")
+        db.commit()
+
+        cleared = service._clear_shipment_id_unresolved_debts(db)
+        db.commit()
+
+        assert cleared == 0
+        assert db.query(MlOpsDivergence).count() == 2
+
+    def test_running_it_twice_is_a_no_op_the_second_time(self, db):
+        self._order(db, ORDER_ID, SHIPMENT_ID)
+        self._debt(db, SHIPMENT_ID)
+        db.commit()
+
+        first = service._clear_shipment_id_unresolved_debts(db)
+        db.commit()
+        second = service._clear_shipment_id_unresolved_debts(db)
+
+        assert (first, second) == (1, 0)

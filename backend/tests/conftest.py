@@ -601,6 +601,11 @@ def pg_orders_ops_engine():
         _MlOrderItemOps.__table__,
         _MlOrdersOpsCuarentena.__table__,
     ]
+    # Real BigInteger PKs (16-digit ML order ids), not the SQLite-patched
+    # Integer: see `_restore_pristine_pg_types`. The divergence mirror above
+    # copies its columns from the ORM table, none of which is a BigInteger PK
+    # that the SQLite patch rewrites except `id`, which is a serial either way.
+    _restore_pristine_pg_types(own_tables)
     eng = create_engine(POSTGRES_TEST_URL)
     Base.metadata.create_all(bind=eng, tables=own_tables)
     local_metadata.create_all(bind=eng)
