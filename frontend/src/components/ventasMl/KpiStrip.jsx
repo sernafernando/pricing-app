@@ -69,24 +69,31 @@ export default function KpiStrip({ kpi, loading, error }) {
 
   const otherCurrencies = formatOtherCurrencies(kpi.gross_billed_other);
 
-  // T2, corrected after review: ONLY these three can be added together.
-  // `metrics_state` assigns each order exactly one of recalculating/pending/
-  // failed, and such an order never reaches `aggregate.py`'s stored-row block
-  // at all (it `continue`s), so the three are mutually exclusive with each
-  // other AND with the two counters below.
-  const notComputedCount =
-    (kpi.recalculating_count || 0) + (kpi.pending_count || 0) + (kpi.failed_count || 0);
+  // What this card is FOR: how many sales carry no usable Total Gauss.
+  //
+  // It first showed only the never-computed count, and production reported a
+  // big fat `0` sitting on top of "21 sin Total Gauss" -- a true number
+  // answering a question nobody asked. A sale that finished computing and came
+  // back `unresolved` is just as unusable as one still in the queue.
+  //
+  // These four ARE safe to add: `metrics_state` assigns each order exactly one
+  // of recalculating/pending/failed, and such an order never reaches
+  // `aggregate.py`'s stored-row block at all (it `continue`s), so it cannot
+  // also be counted in `total_gauss_unresolved_count`.
+  const noUsableGaussCount =
+    (kpi.total_gauss_unresolved_count || 0) +
+    (kpi.recalculating_count || 0) +
+    (kpi.pending_count || 0) +
+    (kpi.failed_count || 0);
 
-  // NOT added into the figure above, and not added to each other either.
-  // `aggregate.py` increments `neto_unknown_count` and
-  // `total_gauss_unresolved_count` from the SAME stored row, independently: one
-  // order missing both is counted once in each. Since an unresolved Gauss
-  // usually means an unknown neto too, summing them would roughly DOUBLE the
-  // real number of affected orders — on the one screen built so the totals stop
-  // lying. There is no per-order data here to de-duplicate them, so they are
-  // reported side by side and the card shows no invented grand total.
+  // NOT added into the figure above. `aggregate.py` increments
+  // `neto_unknown_count` from the SAME stored row that may also be
+  // `unresolved`, so one order missing both is counted once in each. Since an
+  // unresolved Gauss usually means an unknown neto too, folding it in would
+  // roughly DOUBLE the count -- on the one screen built so the totals stop
+  // lying. There is no per-order data here to de-duplicate them, so it stays
+  // on its own line.
   const netoUnknown = kpi.neto_unknown_count || 0;
-  const gaussUnresolved = kpi.total_gauss_unresolved_count || 0;
 
   return (
     <div className={styles.strip} role="region" aria-label="Métricas principales">
@@ -142,19 +149,18 @@ export default function KpiStrip({ kpi, loading, error }) {
 
         <div className={`${styles.card} ${styles.cardWarning}`}>
           <span className={styles.label}>Desglose incompleto</span>
-          <div className={styles.value}>{INT_FORMAT.format(notComputedCount)}</div>
+          <div className={styles.value}>{INT_FORMAT.format(noUsableGaussCount)}</div>
+          <div className={styles.sub}>sin Total Gauss usable</div>
           <div className={styles.sub}>
-            {`sin calcular: ${INT_FORMAT.format(kpi.recalculating_count || 0)} recalculando · ${INT_FORMAT.format(
-              kpi.pending_count || 0
-            )} pendientes · ${INT_FORMAT.format(kpi.failed_count || 0)} fallidos`}
+            {`${INT_FORMAT.format(kpi.total_gauss_unresolved_count || 0)} sin resolver · ${INT_FORMAT.format(
+              kpi.recalculating_count || 0
+            )} recalculando · ${INT_FORMAT.format(kpi.pending_count || 0)} pendientes · ${INT_FORMAT.format(
+              kpi.failed_count || 0
+            )} fallidos`}
           </div>
-          {/* Reported apart, never folded into the figure above: these two can
-              describe the SAME order, so no total over them would be true. */}
-          <div className={styles.sub}>
-            {`ya calculadas pero incompletas: ${INT_FORMAT.format(netoUnknown)} sin neto · ${INT_FORMAT.format(
-              gaussUnresolved
-            )} sin Total Gauss`}
-          </div>
+          {/* Apart, never folded in: this one can describe the SAME order as
+              `sin resolver` above, so adding it would count that order twice. */}
+          <div className={styles.sub}>{`además, ${INT_FORMAT.format(netoUnknown)} sin neto`}</div>
         </div>
       </div>
     </div>

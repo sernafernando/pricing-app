@@ -1268,7 +1268,22 @@ def listar_ventas(
             group_key.label("group_key"),
             func.min(MlOrdersOps.date_created).label("group_date"),
         )
-        .group_by("group_key")
+        # The EXPRESSION, never the string `"group_key"`. That string is an
+        # output alias, and as soon as a toggle is off `_apply_switches` joins
+        # a subquery that ALSO exposes a `group_key` column: Postgres then
+        # resolves the alias to the subquery's column instead of the CASE
+        # above, leaving that CASE's `pack_id` ungrouped, and answers
+        #   GroupingError: column "ml_orders_ops.pack_id" must appear in the
+        #   GROUP BY clause or be used in an aggregate function
+        # -- a 500 on every request with any of the four switches off.
+        #
+        # It stayed invisible because three things lined up: with all four ON
+        # `_apply_switches` returns the query untouched (no join, no ambiguous
+        # name), the frontend did not send the toggles at all until now so
+        # that all-ON path was the ONLY one production ever ran, and SQLite
+        # resolves the alias to the outer expression so the whole existing
+        # test suite passes. See `test_filters_switches_postgres.py`.
+        .group_by(group_key)
         # The tiebreaker is `max(order_id)`, NOT `group_key`: the key is TEXT,
         # and text ordering puts "o:9" after "o:10". Ordering groups by their
         # key would silently drop the deterministic numeric tiebreaker the
