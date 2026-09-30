@@ -43,12 +43,18 @@ describe('IncludeToggles', () => {
         onChange={vi.fn()}
       />
     );
-    // "Sin clasificar" is off and excludes 3 groups -> the count is visible.
-    expect(screen.getByText(/3/)).toBeInTheDocument();
-    // "Mixta" stays on -> no count shown for it even though the field
-    // exists in excludedByToggle (it is always 0 for an ON toggle anyway).
-    const provisorioCheckbox = screen.getByRole('checkbox', { name: /provisorio/i });
-    expect(provisorioCheckbox).toBeChecked();
+    // "Sin clasificar" is OFF and excludes 3 groups -> its count shows.
+    expect(screen.getByText('+3')).toBeInTheDocument();
+
+    // And the half that makes the assertion above mean anything: the badge
+    // must be ABSENT for a toggle that is ON, even when `excludedByToggle`
+    // carries a non-zero number for it. `en_disputa` is 1 and `provisorio`
+    // is 5 in the fixture, and both toggles are on. Asserting only that
+    // their checkboxes are checked leaves `!checked` untested — delete it
+    // from the component and the old version of this test still passed.
+    expect(screen.queryByText('+1')).not.toBeInTheDocument();
+    expect(screen.queryByText('+5')).not.toBeInTheDocument();
+    expect(screen.getByRole('checkbox', { name: /provisorio/i })).toBeChecked();
   });
 
   it('renders with no crash when excludedByToggle is not loaded yet', () => {

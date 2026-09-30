@@ -18,6 +18,7 @@ import styles from './ColumnPicker.module.css';
 export default function ColumnPicker({ table }) {
   const [open, setOpen] = useState(false);
   const containerRef = useRef(null);
+  const triggerRef = useRef(null);
 
   useEffect(() => {
     if (!open) return undefined;
@@ -26,8 +27,21 @@ export default function ColumnPicker({ table }) {
         setOpen(false);
       }
     }
+    // Escape closes it and returns focus to the trigger, the behaviour any
+    // keyboard user expects from something opened with `aria-expanded`.
+    // Without it the only way out is a mouse click elsewhere.
+    function handleKeyDown(event) {
+      if (event.key === 'Escape') {
+        setOpen(false);
+        triggerRef.current?.focus();
+      }
+    }
     document.addEventListener('mousedown', handleClickOutside);
-    return () => document.removeEventListener('mousedown', handleClickOutside);
+    document.addEventListener('keydown', handleKeyDown);
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+      document.removeEventListener('keydown', handleKeyDown);
+    };
   }, [open]);
 
   const toggleableColumns = table.getAllLeafColumns().filter((col) => col.getCanHide());
@@ -36,6 +50,7 @@ export default function ColumnPicker({ table }) {
     <div className={styles.container} ref={containerRef}>
       <button
         type="button"
+        ref={triggerRef}
         className="btn-tesla outline sm"
         aria-haspopup="true"
         aria-expanded={open}
@@ -44,8 +59,14 @@ export default function ColumnPicker({ table }) {
         <Columns3 size={14} />
         Columnas
       </button>
+      {/* `role="group"`, NOT `role="menu"`: a `menu` expects
+          `menuitemcheckbox` children with full arrow-key navigation, and these
+          are plain `<label><input type="checkbox">` pairs. Claiming `menu`
+          tells a screen reader to expect a keyboard contract this popover does
+          not implement, which is worse than claiming nothing. A group of
+          native checkboxes is already announced correctly. */}
       {open && (
-        <div className={styles.popover} role="menu" aria-label="Elegir columnas visibles">
+        <div className={styles.popover} role="group" aria-label="Elegir columnas visibles">
           {toggleableColumns.map((col) => (
             <label key={col.id} className={styles.option}>
               <input

@@ -33,7 +33,7 @@ import {
 // `cell(ctx)` is called once per row with a context object carrying
 // EITHER a group row (`ctx.kind === 'group'`) or a single pack-member
 // order (`ctx.kind === 'member'`) plus whatever per-row handlers that
-// render needs — see `buildGroupCellContext`/`buildMemberCellContext` in
+// render needs — see `the group-row cell context`/`the member-row cell context` in
 // `VentasML.jsx`.
 //
 // `size` is in PIXELS, measured against the real content (see

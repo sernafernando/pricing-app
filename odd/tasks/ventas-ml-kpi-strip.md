@@ -111,4 +111,3 @@ número de "Ventas" coincide con el total de la paginación de la tabla.
 ## Estado
 
 Creado 2026-09-29. Implementado y verificado el mismo día (ver Evidencia de
-verificación arriba). Working tree queda sin commitear para review.

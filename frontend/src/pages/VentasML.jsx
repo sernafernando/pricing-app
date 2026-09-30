@@ -422,7 +422,13 @@ export default function VentasML() {
     } catch (err) {
       if (requestId !== latestKpiRequestRef.current) return;
       setKpi(null);
-      setKpiError(err?.response?.status === 403 ? 'forbidden' : 'generic');
+      // Same three kinds the list already distinguishes (see `errorKind`):
+      // 403 is "you lack the permission", 503 is "the feature is switched
+      // off". Collapsing them into one generic message sends an operator
+      // hunting for an outage that is really a flag, or for a flag that is
+      // really their own permissions.
+      const kpiStatus = err?.response?.status;
+      setKpiError(kpiStatus === 403 ? 'forbidden' : kpiStatus === 503 ? 'disabled' : 'generic');
     } finally {
       if (requestId === latestKpiRequestRef.current) setKpiLoading(false);
     }
@@ -497,7 +503,19 @@ export default function VentasML() {
           >
             % de varios
           </button>
-          <button type="button" className="btn-tesla outline sm" onClick={cargarVentas} disabled={loading}>
+          {/* Refreshes BOTH: reloading only the list would leave the six
+              cards showing the previous totals beside fresh rows, which is
+              exactly the "what I see is what it sums" promise broken by the
+              one button whose whole job is to make them agree. */}
+          <button
+            type="button"
+            className="btn-tesla outline sm"
+            onClick={() => {
+              cargarVentas();
+              cargarKpis();
+            }}
+            disabled={loading}
+          >
             {loading ? 'Actualizando...' : 'Actualizar'}
           </button>
         </div>

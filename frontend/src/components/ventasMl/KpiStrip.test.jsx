@@ -73,17 +73,77 @@ describe('KpiStrip', () => {
     expect(screen.getByText(/320,50\s*USD/)).toBeInTheDocument();
   });
 
-  it('rolls up unresolved figures into an incomplete-breakdown card, worded from what it is made of', () => {
+  it('breaks the incomplete card down by state, without a total over overlapping counts', () => {
+    // This test used to assert 2+4+3+1+0 = 10, which CODIFIED the double
+    // count: `neto_unknown_count` (2) and `total_gauss_unresolved_count` (4)
+    // can describe the same order, so no sum over them is true. The headline
+    // is now only the three mutually exclusive states — 3 recalculating +
+    // 1 pending + 0 failed = 4 — and the overlapping pair is reported apart.
     render(<KpiStrip kpi={FULL_KPI} loading={false} error={null} />);
     const label = screen.getByText(/desglose incompleto/i);
     const card = label.closest('div');
-    // 2 (neto_unknown) + 4 (total_gauss_unresolved) + 3 (recalculating) + 1 (pending) + 0 (failed) = 10
-    expect(within(card).getByText('10')).toBeInTheDocument();
-    expect(within(card).getByText(/2.*neto desconocido/i)).toBeInTheDocument();
+    expect(within(card).getByText('4')).toBeInTheDocument();
+    expect(within(card).queryByText('10')).not.toBeInTheDocument();
+    expect(within(card).getByText(/2 sin neto/i)).toBeInTheDocument();
+    expect(within(card).getByText(/4 sin Total Gauss/i)).toBeInTheDocument();
   });
 
   it('warns when the metrics worker is not alive', () => {
     render(<KpiStrip kpi={{ ...FULL_KPI, worker_alive: false }} loading={false} error={null} />);
     expect(screen.getByText(/recálculo detenido|worker.*(caído|inactivo)/i)).toBeInTheDocument();
+  });
+});
+
+describe('the "Desglose incompleto" card never invents a total', () => {
+  // One order can be BOTH `neto is None` AND `gauss_status == 'unresolved'`:
+  // `aggregate.py` increments `neto_unknown_count` and
+  // `total_gauss_unresolved_count` from the SAME stored row, independently.
+  // Adding them reports that one order as two — and since an unresolved Gauss
+  // usually means an unknown neto too, the card would roughly DOUBLE the real
+  // number. On a screen whose whole reason to exist is that the totals stop
+  // lying, a headline built from that sum is the worst possible cell.
+  //
+  // `recalculating`/`pending`/`failed` DO come from `metrics_state` and are
+  // mutually exclusive with each other and with the stored-row counters (such
+  // an order never reaches the row block at all — `aggregate.py` `continue`s),
+  // so those three are the only ones that can honestly be added together.
+  it('does not render the sum of neto_unknown and total_gauss_unresolved', () => {
+    render(
+      <KpiStrip
+        kpi={({ ...FULL_KPI, 
+          neto_unknown_count: 7,
+          total_gauss_unresolved_count: 7,
+          recalculating_count: 0,
+          pending_count: 0,
+          failed_count: 0,
+        })}
+        loading={false}
+        error={null}
+      />
+    );
+
+    // 7 + 7 = 14 would be the double-counted headline.
+    expect(screen.queryByText('14')).not.toBeInTheDocument();
+    // Each figure is still reported, on its own terms.
+    expect(screen.getByText(/7 sin neto/)).toBeInTheDocument();
+    expect(screen.getByText(/7 sin Total Gauss/)).toBeInTheDocument();
+  });
+
+  it('adds up only the three states that are mutually exclusive', () => {
+    render(
+      <KpiStrip
+        kpi={({ ...FULL_KPI, 
+          neto_unknown_count: 0,
+          total_gauss_unresolved_count: 0,
+          recalculating_count: 2,
+          pending_count: 3,
+          failed_count: 1,
+        })}
+        loading={false}
+        error={null}
+      />
+    );
+
+    expect(screen.getByText('6')).toBeInTheDocument();
   });
 });

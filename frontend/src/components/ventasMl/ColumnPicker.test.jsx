@@ -24,9 +24,25 @@ describe('ColumnPicker', () => {
     const user = userEvent.setup();
     render(<TestHarness />);
 
-    expect(screen.queryByRole('menu')).not.toBeInTheDocument();
+    // `role="group"`, not `role="menu"`: see the comment on the popover in
+    // ColumnPicker.jsx -- a `menu` promises a `menuitemcheckbox` keyboard
+    // contract these plain checkboxes do not implement.
+    expect(screen.queryByRole('group', { name: /columnas visibles/i })).not.toBeInTheDocument();
     await user.click(screen.getByRole('button', { name: 'Columnas' }));
-    expect(screen.getByRole('menu')).toBeInTheDocument();
+    expect(screen.getByRole('group', { name: /columnas visibles/i })).toBeInTheDocument();
+  });
+
+  it('closes on Escape and hands focus back to the trigger', async () => {
+    const user = userEvent.setup();
+    render(<TestHarness />);
+
+    const trigger = screen.getByRole('button', { name: 'Columnas' });
+    await user.click(trigger);
+    expect(screen.getByRole('group', { name: /columnas visibles/i })).toBeInTheDocument();
+
+    await user.keyboard('{Escape}');
+    expect(screen.queryByRole('group', { name: /columnas visibles/i })).not.toBeInTheDocument();
+    expect(trigger).toHaveFocus();
   });
 
   it('lists only the hideable columns, never one with enableHiding: false', async () => {

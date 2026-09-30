@@ -50,7 +50,8 @@ pack**: las filas hijas se siguen renderizando a mano.
   y body.
 - Nuevo `frontend/src/components/ventasMl/ColumnPicker.jsx` + CSS module.
 - Nuevo `frontend/src/pages/ventasMlTableHelpers.js` — persistencia
-  fail-safe de visibilidad y de sizing, calcada de
+  fail-safe de VISIBILIDAD (el sizing no se implementó: los `size` son
+  proporciones fijas, no hay resize por el usuario todavía), calcada de
   `tiendaNubeReconcileTableHelpers.js`.
 - `frontend/src/pages/VentasML.jsx` y su CSS module.
 - NADA de backend. NADA de la tira de KPIs que acaba de aterrizar.
