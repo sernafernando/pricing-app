@@ -38,6 +38,7 @@ from app.services.ml_orders_ingestion.operation_status import (
     PAID_ORDER_STATUSES,
     SETTLED_CLAIM_STATUSES,
 )
+from app.services.ml_sales_query.accreditation import group_accreditation_date_subquery
 from app.services.ml_sales_query.search import apply_search
 
 
@@ -103,6 +104,18 @@ class SalesScope:
     op_status_expr: Any
     goods_status_expr: Any
     group_key: Any
+    # ODD `ventas-ml-dia-por-acreditacion`: the accreditation subquery,
+    # ALWAYS handed back so a caller that needs it (the day filter, or the
+    # accreditation-based sort) can join or read it -- but only actually
+    # LEFT-joined onto `base`/`listing_query` when `accreditation_joined`
+    # is True (a date filter was active). `base` is shared by every derived
+    # query (key page, total, facets, switches), so joining this
+    # unconditionally would tax every one of them even when nothing reads
+    # it. A caller that needs the column on a path where it is NOT joined
+    # (the accreditation sort with no date filter) must join it itself,
+    # exactly once, onto the specific query it is building.
+    accreditation_subquery: Any
+    accreditation_joined: bool
 
 
 def _open_claim_exists_subquery(db: Session):
@@ -414,8 +427,31 @@ def build_scope(db: Session, f: SalesFilter) -> SalesScope:
     )
     if settings.ML_USER_ID:
         base = base.filter(MlOrdersOps.seller_id == int(settings.ML_USER_ID))
-    if f.date_range is not None:
-        base = base.filter(MlOrdersOps.date_created >= f.date_range[0], MlOrdersOps.date_created < f.date_range[1])
+    # ODD `ventas-ml-dia-por-acreditacion` (2026-09-30): the day is when the
+    # money ACCREDITED, not `date_created` -- see
+    # `accreditation.group_accreditation_date_subquery`'s docstring for the
+    # full rule. The subquery is built here regardless, but (T4 review
+    # finding #2) LEFT-joined onto the shared `base` ONLY when a date range
+    # actually filters the page -- `base` feeds every derived query (key
+    # page, total, facets, switches), so an unconditional join taxes ALL of
+    # them even on the far more common request that neither filters nor
+    # sorts by accreditation. A caller that needs the column on the
+    # unjoined path (the accreditation-based sort with no date filter,
+    # `ml_ventas_ops.py`) joins `accred` itself, once, onto the specific
+    # query it is building -- `accreditation_joined` on `SalesScope` tells
+    # it whether that join already happened here. An unaccredited order
+    # gets `accreditation_date IS NULL` from the LEFT join; the WHERE below
+    # only applies when a date range was actually requested, and NULL fails
+    # that comparison on both engines -- "a sale with no accredited money is
+    # in no day" falls out of the LEFT join + WHERE combination without a
+    # separate exclusion rule.
+    accred = group_accreditation_date_subquery(db, group_key)
+    accreditation_joined = f.date_range is not None
+    if accreditation_joined:
+        base = base.outerjoin(accred, accred.c.group_key == group_key)
+        base = base.filter(
+            accred.c.accreditation_date >= f.date_range[0], accred.c.accreditation_date < f.date_range[1]
+        )
 
     # Every order of a group on the page, regardless of the filters that
     # selected that group -- scoped to the seller only (see `SalesScope`
@@ -465,6 +501,8 @@ def build_scope(db: Session, f: SalesFilter) -> SalesScope:
         op_status_expr=op_status_expr,
         goods_status_expr=goods_status_expr,
         group_key=group_key,
+        accreditation_subquery=accred,
+        accreditation_joined=accreditation_joined,
     )
 
 

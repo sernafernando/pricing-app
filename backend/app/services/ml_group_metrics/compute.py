@@ -31,6 +31,7 @@ from sqlalchemy.orm import Session
 
 from app.models.ml_orders_ops import MlOrdersOps
 from app.services.ml_group_metrics.state import group_gauss_status
+from app.services.ml_sales_query.accreditation import member_accreditation_dates
 from app.services.ml_ventas_desglose.pack_aggregation import sum_all_or_nothing
 from app.services.order_metrics.constants import CURRENT_FORMULA_VERSION
 from app.services.order_metrics.read import metrics_state_for_orders, read_stored_metrics
@@ -107,11 +108,17 @@ def _members_by_group(db: Session, group_keys: Sequence[str]) -> Dict[str, List[
 
 @dataclass(frozen=True)
 class _OrderFacts:
-    """The `ml_orders_ops` columns the group-level fields are derived from."""
+    """The `ml_orders_ops` columns the group-level fields are derived from.
+
+    `date_created` was REMOVED (ODD `ventas-ml-dia-por-acreditacion`,
+    review finding #6): `_group_date` now reads accreditation dates
+    exclusively via `member_accreditation_dates`, and a repo-wide search
+    confirmed nothing else read this field -- bringing it back needs a new,
+    deliberate reason, not a silent carry-over from the old
+    `date_created`-MIN basis."""
 
     total_amount: Optional[Decimal]
     currency_id: Optional[str]
-    date_created: Optional[datetime]
 
 
 def _order_facts(db: Session, order_ids: Sequence[int]) -> Dict[int, _OrderFacts]:
@@ -124,7 +131,6 @@ def _order_facts(db: Session, order_ids: Sequence[int]) -> Dict[int, _OrderFacts
             MlOrdersOps.order_id,
             MlOrdersOps.total_amount,
             MlOrdersOps.currency_id,
-            MlOrdersOps.date_created,
         )
         .filter(MlOrdersOps.order_id.in_(list(order_ids)))
         .all()
@@ -133,29 +139,31 @@ def _order_facts(db: Session, order_ids: Sequence[int]) -> Dict[int, _OrderFacts
         row.order_id: _OrderFacts(
             total_amount=row.total_amount,
             currency_id=row.currency_id,
-            date_created=row.date_created,
         )
         for row in filas
     }
 
 
-def _group_date(facts: Dict[int, _OrderFacts], member_order_ids: Sequence[int]) -> Optional[datetime]:
-    """Group-level date (KPI R20): the MIN `date_created` across the group's
-    current members -- a pack straddling a date-filter boundary is
-    included/excluded as ONE whole pack, never split (PR20.T24/T25).
+def _group_date(accreditation_by_order: Dict[int, datetime], member_order_ids: Sequence[int]) -> Optional[datetime]:
+    """Group-level date (ODD `ventas-ml-dia-por-acreditacion`, 2026-09-30):
+    the MAX accreditation date across the group's current members -- the
+    LAST payment to land, because that is when the whole pack can ship
+    (a pack cannot ship until every member is paid). A pack straddling a
+    date-filter boundary is included/excluded as ONE whole pack, never
+    split (unchanged from the old PR20.T24/T25 contract; only the basis
+    changed from `date_created` MIN to accreditation MAX -- see
+    `ml_sales_query/accreditation.py`'s module docstring for why MIN there
+    and MAX here are NOT the same question).
 
-    Members WITHOUT a date are skipped, not treated as the minimum. This used
-    to be a SQL `ORDER BY date_created ASC LIMIT 1`, which put NULLs first on
-    SQLite and last on Postgres -- so it returned the real date in production
-    and `None` in the tests, the worst shape of bug: invisible exactly where
-    it would be caught.
+    `accreditation_by_order` comes from `member_accreditation_dates` (the
+    single resolver, bulk-fetched once for the whole batch by the caller).
+    A member with NO relevant accredited payment is simply absent from that
+    dict and skipped here -- never treated as the maximum, and a group
+    where EVERY member is absent gets `None` (no day), matching "a sale
+    with no accredited money is in no day".
     """
-    fechas = [
-        facts[order_id].date_created
-        for order_id in member_order_ids
-        if order_id in facts and facts[order_id].date_created is not None
-    ]
-    return min(fechas) if fechas else None
+    fechas = [accreditation_by_order[order_id] for order_id in member_order_ids if order_id in accreditation_by_order]
+    return max(fechas) if fechas else None
 
 
 def _gross_amount(
@@ -274,6 +282,7 @@ def recompute_group_metrics(
     members_by_group = _members_by_group(db, claves)
     todos_los_miembros = sorted({oid for miembros in members_by_group.values() for oid in miembros})
     facts = _order_facts(db, todos_los_miembros)
+    accreditation_by_order = member_accreditation_dates(db, todos_los_miembros)
     estados = metrics_state_for_orders(db, todos_los_miembros, ignore_dirty_order_ids=recien_guardados)
     almacenados = read_stored_metrics(db, todos_los_miembros)
 
@@ -309,7 +318,7 @@ def recompute_group_metrics(
                 markup_pct=None,
                 gauss_status="unresolved",
                 member_order_ids=member_order_ids,
-                group_date=_group_date(facts, member_order_ids),
+                group_date=_group_date(accreditation_by_order, member_order_ids),
                 computed_at=now,
             )
             continue
@@ -337,7 +346,7 @@ def recompute_group_metrics(
             gross_amount=gross_amount,
             currency_id=currency_id,
             member_order_ids=member_order_ids,
-            group_date=_group_date(facts, member_order_ids),
+            group_date=_group_date(accreditation_by_order, member_order_ids),
             computed_at=now,
         )
 

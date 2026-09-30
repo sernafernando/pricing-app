@@ -54,7 +54,17 @@ def slate(pg_order_metrics_triggers_db, monkeypatch):
     # Created here rather than by widening the shared fixture: this module is
     # the only one that needs it, and touching a session-scoped engine's table
     # list affects every test that borrows it.
-    for tabla in (MlOrderMetrics.__table__, MlOperationLink.__table__, RmaClaimML.__table__):
+    # `_restore_pristine_pg_types` FIRST: the Postgres fixtures in
+    # `conftest.py` call it on their own tables before building DDL, because
+    # `_patch_pg_types_for_sqlite()` mutates the SHARED `Column` objects.
+    # Creating a table here without it builds DDL from whatever the SQLite
+    # fixture last left on those columns, so the same test sees different
+    # column types depending on which files ran before it.
+    from tests.conftest import _restore_pristine_pg_types
+
+    tablas = (MlOrderMetrics.__table__, MlOperationLink.__table__, RmaClaimML.__table__)
+    _restore_pristine_pg_types(tablas)
+    for tabla in tablas:
         tabla.create(session.get_bind(), checkfirst=True)
     session.execute(text("DELETE FROM ml_orders_ops WHERE seller_id = 999"))
     session.commit()
