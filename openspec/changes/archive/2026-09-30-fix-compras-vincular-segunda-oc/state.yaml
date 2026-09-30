@@ -1,0 +1,54 @@
+change: fix-compras-vincular-segunda-oc
+change_id: fix-compras-vincular-segunda-oc
+project: pricing-app
+phase: archived
+status: archived
+artifact_store: openspec
+persistence_mode: openspec
+created_at: "2026-09-30"
+updated_at: "2026-09-30"
+branch_plan: fix/compras-vincular-segunda-oc
+base_branch: main
+delivery_target: main
+parent_pr: null
+amends_capability:
+  - vincular-oc
+  - pedidos-compra
+depends_on: []
+supersedes: []
+amends: []
+artifacts:
+  exploration: openspec/changes/archive/2026-09-30-fix-compras-vincular-segunda-oc/exploration.md
+  proposal: openspec/changes/archive/2026-09-30-fix-compras-vincular-segunda-oc/proposal.md
+  specs:
+    - openspec/changes/archive/2026-09-30-fix-compras-vincular-segunda-oc/specs/vincular-oc/spec.md
+    - openspec/changes/archive/2026-09-30-fix-compras-vincular-segunda-oc/specs/pedidos-compra/spec.md
+  design: openspec/changes/archive/2026-09-30-fix-compras-vincular-segunda-oc/design.md
+  tasks: openspec/changes/archive/2026-09-30-fix-compras-vincular-segunda-oc/tasks.md
+  applyProgress: openspec/changes/archive/2026-09-30-fix-compras-vincular-segunda-oc/apply-progress.md
+next_phase: none
+nextRecommended: none
+task_count: 11
+tasks_complete: 11
+locked_decisions:
+  button_visible_when: canGestionar_and_not_servicio
+  oc_poh_id_must_not_hide_vincular: true
+  reuse_modal_and_post: true
+  no_new_permiso: true
+  desvincular_all_or_nothing: true
+  detail_lists_every_linked_oc: true
+  list_poh_chips_no_regress: true
+  apply_branch_from: main
+  apply_not_from: feat/compras-pedidos-layout-y-alerta-factura
+  pr_target: sernafernando/pricing-app main
+  planning_does_not_branch: true
+  task_2_1: skipped_get_already_returns_ocs
+  out_of_scope:
+    - new_permiso
+    - candidate_rule_changes
+    - granular_desvincular
+    - vincular_oc_service_behavior
+    - new_endpoint
+notes: >
+  Apply complete 2026-09-30 on fix/compras-vincular-segunda-oc from main.
+  11/11 tasks. 2.1 skipped — GET already returns ocs. No commit, no push, no PR.

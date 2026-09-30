@@ -190,6 +190,7 @@
 .facturaVinculada,
 .facturaNoVinculada {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   justify-content: space-between;
   gap: var(--spacing-sm);
@@ -199,6 +200,16 @@
   display: flex;
   flex-direction: column;
   gap: 2px;
+  min-width: 0;
+  flex: 1 1 12rem;
+}
+
+.ocActionCluster {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--spacing-sm);
+  flex: 0 1 auto;
 }
 
 .facturaMain {
