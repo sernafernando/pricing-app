@@ -26,6 +26,7 @@ def _order(
     seller_id: int = 999,
     total_amount=Decimal("1000.00"),
     currency_id: str = "ARS",
+    date_created=None,
 ) -> None:
     db.add(
         MlOrdersOps(
@@ -33,7 +34,7 @@ def _order(
             pack_id=pack_id,
             status="paid",
             ml_last_updated=datetime(2026, 9, 20, tzinfo=timezone.utc),
-            date_created=datetime(2026, 9, 15, tzinfo=timezone.utc),
+            date_created=date_created or datetime(2026, 9, 15, tzinfo=timezone.utc),
             seller_id=seller_id,
             total_amount=total_amount,
             currency_id=currency_id,
@@ -209,35 +210,90 @@ class TestGroupGrossAmountCurrencyGate:
 
 
 class TestGroupDateIgnoresMembersWithoutADate:
-    """`date_created` is nullable, and ordering by it ASC puts NULLs FIRST on
-    SQLite and LAST on Postgres. A pack with one dateless member would then
-    get a real date in production and `None` in the tests -- the worst shape
-    of bug, invisible exactly where it is tested.
+    """ODD `ventas-ml-dia-por-acreditacion` (2026-09-30): `group_date` is now
+    the MAX accreditation date over the group's members' relevant payments,
+    never `date_created`. A member with NO accredited payment (unpaid, or
+    only rejected payments) must not hide the real date from the member
+    that DOES have one -- same "don't let an absence look like a value"
+    discipline the old MIN-over-`date_created` version of this test
+    documented, applied to the new basis.
 
-    This repo already learned it once: `ml_ventas_ops.py` carries an explicit
-    `nullslast()` with a comment saying why. Here the fix is better than a
-    `nullslast()`, though: the value wanted IS the minimum, and SQL `MIN()`
-    ignores NULLs by definition on both engines -- that removes the ordering
-    question instead of answering it.
-
-    And it matters beyond tidiness: `group_date` is what the KPI date filter
-    will read (T25). A silently null date there is a sale that vanishes from
-    the filtered range.
+    And it matters beyond tidiness: `group_date` is what the day filter
+    (`ml_sales_query/filters.py`) and the KPI date filter read. A silently
+    null date there is a sale that vanishes from the filtered range.
     """
 
-    def test_a_member_without_a_date_does_not_hide_the_real_one(self, db):
+    def test_a_member_without_accreditation_does_not_hide_the_real_one(self, db):
+        from app.models.ml_payments import MlPaymentOps
+
         _order(db, 820001, pack_id=8500)
         _order(db, 820002, pack_id=8500)
-        db.query(MlOrdersOps).filter_by(order_id=820001).update({"date_created": None})
         db.flush()
         _stored(db, 820001)
         _stored(db, 820002)
+        # 820001 has NO relevant payment (e.g. only a rejected one) --
+        # must not read as the maximum, nor as `None` for the whole group.
+        db.add(MlPaymentOps(payment_id=8200011, order_id=820001, status="rejected", date_approved=None))
+        db.add(
+            MlPaymentOps(
+                payment_id=8200021,
+                order_id=820002,
+                status="approved",
+                date_approved=datetime(2026, 9, 15, tzinfo=timezone.utc),
+            )
+        )
         db.commit()
 
         grupo = recompute_group_metrics(db, ["p:8500"])["p:8500"]
 
-        assert grupo.group_date is not None, "el miembro sin fecha no puede tapar la real"
+        assert grupo.group_date is not None, "el miembro sin acreditación no puede tapar la real"
         # Compared without tzinfo on purpose: SQLite drops it on the way back
         # out, so demanding an aware datetime here would fail for a reason
         # that has nothing to do with what this test is about.
         assert grupo.group_date.replace(tzinfo=None) == datetime(2026, 9, 15)
+
+
+class TestGroupDateIsAccreditationNotCreation:
+    """ODD `ventas-ml-dia-por-acreditacion`: `group_date` must be the
+    MAX(date_approved) over the group's members' relevant payments, never
+    `date_created`."""
+
+    def test_group_date_is_max_accreditation_across_members(self, db):
+        from app.models.ml_payments import MlPaymentOps
+
+        _order(db, 1, pack_id=900, date_created=datetime(2026, 9, 25, tzinfo=timezone.utc))
+        _order(db, 2, pack_id=900, date_created=datetime(2026, 9, 25, tzinfo=timezone.utc))
+        db.flush()
+        _stored(db, 1)
+        _stored(db, 2)
+        db.add(
+            MlPaymentOps(
+                payment_id=901,
+                order_id=1,
+                status="approved",
+                date_approved=datetime(2026, 9, 26, tzinfo=timezone.utc),
+            )
+        )
+        db.add(
+            MlPaymentOps(
+                payment_id=902,
+                order_id=2,
+                status="approved",
+                date_approved=datetime(2026, 9, 30, tzinfo=timezone.utc),
+            )
+        )
+        db.commit()
+
+        result = recompute_group_metrics(db, ["p:900"])
+
+        assert result["p:900"].group_date.replace(tzinfo=None) == datetime(2026, 9, 30)
+
+    def test_group_date_none_when_no_member_has_accredited_payment(self, db):
+        _order(db, 3, pack_id=901, date_created=datetime(2026, 9, 25, tzinfo=timezone.utc))
+        db.flush()
+        _stored(db, 3)
+        db.commit()
+
+        result = recompute_group_metrics(db, ["p:901"])
+
+        assert result["p:901"].group_date is None

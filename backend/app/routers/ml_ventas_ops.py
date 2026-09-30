@@ -1263,10 +1263,16 @@ def listar_ventas(
         # kept only for backward-compat until PR8's cleanup. One outer
         # join for the whole page, never a per-row query loop.
         key_page_query = key_page_query.outerjoin(MlOrderMetrics, MlOrderMetrics.order_id == MlOrdersOps.order_id)
+    # ODD `ventas-ml-dia-por-acreditacion` (T4): the sort/page key for
+    # `SORT_BY_SALE_DATE` must read the SAME basis the day filter itself
+    # applies (`scope.accreditation_subquery`, already LEFT-joined into
+    # `base`/`listing_query` by `build_scope`) -- otherwise the list is
+    # filtered by one date and sorted by another.
+    accreditation_date_col = scope.accreditation_subquery.c.accreditation_date
     key_page = (
         key_page_query.with_entities(
             group_key.label("group_key"),
-            func.min(MlOrdersOps.date_created).label("group_date"),
+            func.max(accreditation_date_col).label("group_date"),
         )
         # The EXPRESSION, never the string `"group_key"`. That string is an
         # output alias, and as soon as a toggle is off `_apply_switches` joins
@@ -1300,9 +1306,11 @@ def listar_ventas(
                 else func.max(MlOrderMetrics.total_gauss).desc().nullslast()
                 if sort == SORT_BY_TOTAL_GAUSS
                 # `ml_last_updated` is NOT NULL, so it needs no nullslast();
-                # `date_created` is nullable and Postgres would otherwise put
-                # its NULLs first on a DESC sort.
-                else func.min(MlOrdersOps.date_created).desc().nullslast()
+                # `accreditation_date` is nullable (a sale with no accredited
+                # payment has none) and Postgres would otherwise put its
+                # NULLs first on a DESC sort -- and per the rule, a dateless
+                # sale belongs LAST regardless, never first.
+                else func.max(accreditation_date_col).desc().nullslast()
             ),
             func.max(MlOrdersOps.order_id).desc(),
         )

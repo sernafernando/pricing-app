@@ -57,6 +57,12 @@ def _seed_order(
     buyer_nickname: str | None = None,
     has_no_shipping_tag: bool = False,
     pack_id: int | None = None,
+    # ODD `ventas-ml-dia-por-acreditacion`: the seeded payment below now
+    # needs a `date_approved` too, or the group's accreditation date is
+    # NULL and the day filter drops it. Defaults to `date_created` so every
+    # existing single-payment fixture keeps landing on the day it always
+    # expected; pass explicitly for a test exercising the divergence.
+    accredited_at=None,
 ) -> None:
     if date_created is None:
         date_created = datetime(2026, 9, 1, tzinfo=timezone.utc)
@@ -85,7 +91,14 @@ def _seed_order(
     # `19b2d6c3`, see `aggregate.py`). Seed a single matching payment so
     # existing single-payment fixtures keep exercising the same behavior.
     if payment_status is not None:
-        db.add(MlPaymentOps(payment_id=order_id * 10 + 1, order_id=order_id, status=payment_status))
+        db.add(
+            MlPaymentOps(
+                payment_id=order_id * 10 + 1,
+                order_id=order_id,
+                status=payment_status,
+                date_approved=accredited_at or date_created,
+            )
+        )
     db.flush()
 
 

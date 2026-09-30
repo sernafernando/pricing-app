@@ -45,6 +45,9 @@ def _grant_ml_ops_ver(db, rol_admin) -> None:
     db.flush()
 
 
+_UNSET = object()
+
+
 def _seed_order(
     db,
     order_id: int,
@@ -61,6 +64,15 @@ def _seed_order(
     ml_last_updated: datetime | None = None,
     logistic_type: str | None = None,
     has_no_shipping_tag: bool = False,
+    # ODD `ventas-ml-dia-por-acreditacion`: the day filter/sort now read
+    # accreditation (`MlPaymentOps.date_approved`), not `date_created`.
+    # Defaults to seeding ONE approved payment dated `date_created`, so
+    # every existing caller that never cared about the distinction keeps
+    # landing on the day it always expected. Pass `accredited_at=None` for a
+    # sale that must have NO accredited payment; pass an explicit datetime
+    # for a test that specifically exercises accreditation-vs-creation
+    # divergence.
+    accredited_at: datetime | None | object = _UNSET,
 ) -> None:
     if shipping_id is None:
         shipping_id = order_id * 10 if (shipping_status is not None or logistic_type is not None) else None
@@ -96,6 +108,18 @@ def _seed_order(
             )
     if claim_status is not None:
         db.add(RmaClaimML(claim_id=order_id * 100, resource_id=order_id, status=claim_status))
+    resolved_accredited_at = date_created if accredited_at is _UNSET else accredited_at
+    if resolved_accredited_at is not None:
+        existing_payment = db.query(MlPaymentOps).filter(MlPaymentOps.payment_id == order_id * 1000 + 1).first()
+        if existing_payment is None:
+            db.add(
+                MlPaymentOps(
+                    payment_id=order_id * 1000 + 1,
+                    order_id=order_id,
+                    status="approved",
+                    date_approved=resolved_accredited_at,
+                )
+            )
     db.flush()
 
 
@@ -822,7 +846,15 @@ class TestNetoInListing:
             resp = client.get("/api/ml-ventas-ops/sales", headers=admin_auth_headers)
         assert resp.status_code == 200
 
-        assert counter.matching("ml_payments_ops") <= 3
+        # ODD `ventas-ml-dia-por-acreditacion`: the day filter/sort key now
+        # reads `ml_payments_ops` too (`accreditation.py`'s subquery, LEFT
+        # JOINed into `base`/`listing_query`) -- still O(1) per REQUEST, not
+        # per row (this test's 5 rows would blow past this ceiling if it
+        # were per-row). That subquery's SQL text appears everywhere
+        # `base`/`listing_query` is executed (key page, total count, and the
+        # switches subquery it is ALSO joined into), on top of the three
+        # bulk calls already documented above.
+        assert counter.matching("ml_payments_ops") <= 8
         assert counter.matching("ml_payment_charges") <= 3
 
 
@@ -1216,7 +1248,11 @@ class TestDetailIvaDecompositionAndDeductionChain(TestTotalGaussInListing):
         never a fabricated `0`."""
         _grant_ml_ops_ver(db, rol_admin)
         order_id = 90030
-        _seed_order(db, order_id, date_created=datetime(2026, 9, 1, tzinfo=timezone.utc))
+        # `accredited_at=None`: this test's whole point is "no `MlPaymentOps`
+        # row at all" -- the `_seed_order` default (an approved payment
+        # dated `date_created`, added for `ventas-ml-dia-por-acreditacion`)
+        # would silently contradict its own docstring.
+        _seed_order(db, order_id, date_created=datetime(2026, 9, 1, tzinfo=timezone.utc), accredited_at=None)
         db.commit()
 
         body = client.get(f"/api/ml-ventas-ops/orders/{order_id}", headers=admin_auth_headers).json()
@@ -1780,3 +1816,31 @@ class TestProductFacetValueLimits:
         assert una.status_code == repetida.status_code == 200
         assert _order_ids(una.json()) == [96041], "el filtro tiene que traer la venta sembrada"
         assert _order_ids(repetida.json()) == _order_ids(una.json())
+
+
+class TestDefaultSortUsesAccreditationNotCreation:
+    """ODD `ventas-ml-dia-por-acreditacion` (T4): the default sale-date sort
+    must read the SAME basis the day filter reads -- accreditation, never
+    `date_created`. Otherwise the list is filtered by one date and sorted
+    by another."""
+
+    def test_older_creation_but_later_accreditation_sorts_first(self, db, client, admin_auth_headers, rol_admin):
+        _grant_ml_ops_ver(db, rol_admin)
+        # 60 was CREATED later but ACCREDITED earlier; 61 the reverse.
+        _seed_order(
+            db,
+            60,
+            date_created=datetime(2026, 9, 10, tzinfo=timezone.utc),
+            accredited_at=datetime(2026, 9, 11, tzinfo=timezone.utc),
+        )
+        _seed_order(
+            db,
+            61,
+            date_created=datetime(2026, 9, 1, tzinfo=timezone.utc),
+            accredited_at=datetime(2026, 9, 20, tzinfo=timezone.utc),
+        )
+        db.commit()
+
+        resp = client.get("/api/ml-ventas-ops/sales", headers=admin_auth_headers)
+
+        assert _order_ids(resp.json()) == [61, 60]

@@ -38,6 +38,7 @@ from app.services.ml_orders_ingestion.operation_status import (
     PAID_ORDER_STATUSES,
     SETTLED_CLAIM_STATUSES,
 )
+from app.services.ml_sales_query.accreditation import group_accreditation_date_subquery
 from app.services.ml_sales_query.search import apply_search
 
 
@@ -103,6 +104,12 @@ class SalesScope:
     op_status_expr: Any
     goods_status_expr: Any
     group_key: Any
+    # ODD `ventas-ml-dia-por-acreditacion`: the accreditation subquery
+    # `base`/`listing_query` are already LEFT-joined to (T4) -- exposed so a
+    # caller building its OWN sort/select over `listing_query` (the router's
+    # `key_page` grouping) reads `accreditation_subquery.c.accreditation_date`
+    # instead of re-deriving or re-joining it.
+    accreditation_subquery: Any
 
 
 def _open_claim_exists_subquery(db: Session):
@@ -414,8 +421,24 @@ def build_scope(db: Session, f: SalesFilter) -> SalesScope:
     )
     if settings.ML_USER_ID:
         base = base.filter(MlOrdersOps.seller_id == int(settings.ML_USER_ID))
+    # ODD `ventas-ml-dia-por-acreditacion` (2026-09-30): the day is when the
+    # money ACCREDITED, not `date_created` -- see
+    # `accreditation.group_accreditation_date_subquery`'s docstring for the
+    # full rule. Joined here UNCONDITIONALLY (LEFT, not INNER) -- T4: the
+    # sort key (`ml_ventas_ops.py`'s `SORT_BY_SALE_DATE`) must read this
+    # SAME column, so it has to be available on `SalesScope` even when no
+    # `date_range` filter narrows the page. An unaccredited order gets
+    # `accreditation_date IS NULL` from the LEFT join; the WHERE below only
+    # applies when a date range was actually requested, and NULL fails that
+    # comparison on both engines -- "a sale with no accredited money is in
+    # no day" falls out of the LEFT join + WHERE combination without a
+    # separate exclusion rule.
+    accred = group_accreditation_date_subquery(db, group_key)
+    base = base.outerjoin(accred, accred.c.group_key == group_key)
     if f.date_range is not None:
-        base = base.filter(MlOrdersOps.date_created >= f.date_range[0], MlOrdersOps.date_created < f.date_range[1])
+        base = base.filter(
+            accred.c.accreditation_date >= f.date_range[0], accred.c.accreditation_date < f.date_range[1]
+        )
 
     # Every order of a group on the page, regardless of the filters that
     # selected that group -- scoped to the seller only (see `SalesScope`
@@ -465,6 +488,7 @@ def build_scope(db: Session, f: SalesFilter) -> SalesScope:
         op_status_expr=op_status_expr,
         goods_status_expr=goods_status_expr,
         group_key=group_key,
+        accreditation_subquery=accred,
     )
 
 

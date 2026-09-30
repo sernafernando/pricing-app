@@ -177,8 +177,31 @@ class TestStatusDerivationParity:
 
 class TestDateRangeScoping:
     def test_date_range_excludes_orders_outside_the_window(self, db):
+        # ODD `ventas-ml-dia-por-acreditacion`: the day filter now reads
+        # accreditation (`MlPaymentOps.date_approved`), not `date_created` --
+        # each order needs an approved payment dated inside the window it is
+        # meant to land in.
+        from app.models.ml_payments import MlPaymentOps
+
         _seed_order(db, 10, date_created=datetime(2026, 1, 5, tzinfo=timezone.utc))
         _seed_order(db, 11, date_created=datetime(2026, 2, 5, tzinfo=timezone.utc))
+        db.add(
+            MlPaymentOps(
+                payment_id=100010,
+                order_id=10,
+                status="approved",
+                date_approved=datetime(2026, 1, 5, tzinfo=timezone.utc),
+            )
+        )
+        db.add(
+            MlPaymentOps(
+                payment_id=100011,
+                order_id=11,
+                status="approved",
+                date_approved=datetime(2026, 2, 5, tzinfo=timezone.utc),
+            )
+        )
+        db.flush()
         scope = build_scope(
             db,
             SalesFilter(
@@ -275,7 +298,13 @@ class TestPaginationOrderingParity:
                 scope.group_key.label("group_key"),
                 func.min(MlOrdersOps.date_created).label("group_date"),
             )
-            .group_by("group_key")
+            # The EXPRESSION, never the string `"group_key"` -- see
+            # `ml_ventas_ops.py`'s comment on the exact same landmine: this
+            # scope's `base`/`listing_query` is now ALWAYS left-joined to
+            # the accreditation subquery (T4), which ALSO exposes a
+            # `group_key` output column, so a bare string alias resolves
+            # ambiguously on Postgres.
+            .group_by(scope.group_key)
             .order_by(func.min(MlOrdersOps.date_created).desc().nullslast(), func.max(MlOrdersOps.order_id).desc())
             .all()
         )
