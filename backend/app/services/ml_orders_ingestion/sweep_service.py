@@ -1864,10 +1864,14 @@ def run_sweep(seller_id: Optional[int] = None, window_days: Optional[int] = None
             # fully loaded, so a deferred import here is safe.
             from app.services.ml_orders_ingestion.activity_receiver_service import (
                 _clear_resolved_unresolved_debts,
+                _clear_shipment_id_unresolved_debts,
             )
 
             with get_background_db() as debt_db:
                 _clear_resolved_unresolved_debts(debt_db)
+                # Debts recorded before activity events were classified by
+                # `resource`: the id is a SHIPMENT id of an order we hold.
+                _clear_shipment_id_unresolved_debts(debt_db)
         except Exception:  # noqa: BLE001
             logger.exception("sync_ml_orders_ops: clearing resolved activity_unresolved debts failed; continuing")
     except WindowFetchError as e:

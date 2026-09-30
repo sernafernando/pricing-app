@@ -1477,3 +1477,36 @@ class TestTheWholeCostsPayloadIsKept:
         assert row.costs_synced_at is None, "an unusable payload must NOT seal the retry gate"
         assert row.raw_costs is not None, "we asked and ML answered -- that fact has to survive"
         assert row.raw_costs["gross_amount"] == 8990
+
+
+class TestSweepPassClearsShipmentIdDebts:
+    def test_a_false_debt_naming_a_known_shipping_id_is_cleared_by_the_pass(self, db, monkeypatch):
+        """The sweep pass is what makes existing false `activity_unresolved`
+        debts (a shipment id recorded as an order) self-heal."""
+        from app.services.ml_orders_ingestion.activity_receiver_service import UNRESOLVED_FIELD
+
+        db.add(
+            MlOrdersOps(
+                order_id=2000018126384162,
+                seller_id=999,
+                shipping_id=48137554327,
+                ml_last_updated=datetime.now(timezone.utc),
+            )
+        )
+        db.add(
+            MlOpsDivergence(
+                order_id=48137554327, kind="unknown", field=UNRESOLVED_FIELD, detected_at=datetime.now(timezone.utc)
+            )
+        )
+        db.add(
+            MlOpsDivergence(
+                order_id=48999999999, kind="unknown", field=UNRESOLVED_FIELD, detected_at=datetime.now(timezone.utc)
+            )
+        )
+        db.commit()
+        monkeypatch.setattr(ml_webhook_client, "search_orders", AsyncMock(return_value=_page([])))
+
+        result = sweep_service.run_sweep(seller_id=999, window_days=90)
+
+        assert result.error is None
+        assert [d.order_id for d in db.query(MlOpsDivergence).all()] == [48999999999]
