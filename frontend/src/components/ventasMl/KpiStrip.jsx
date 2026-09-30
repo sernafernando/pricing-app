@@ -95,6 +95,12 @@ export default function KpiStrip({ kpi, loading, error }) {
   // on its own line.
   const netoUnknown = kpi.neto_unknown_count || 0;
 
+  // A rejected or never-completed payment is not revenue: it never counts
+  // toward `gross_billed_ars` above, but it must not silently vanish either
+  // (`aggregate.py`'s `excluded_non_money_orders_count`/`excluded_non_money_ars`,
+  // same `RELEVANT_PAYMENT_STATUSES` allow-list the Gauss chain already uses).
+  const excludedNonMoneyCount = kpi.excluded_non_money_orders_count || 0;
+
   return (
     <div className={styles.strip} role="region" aria-label="Métricas principales">
       {!kpi.worker_alive && (
@@ -162,6 +168,17 @@ export default function KpiStrip({ kpi, loading, error }) {
               `sin resolver` above, so adding it would count that order twice. */}
           <div className={styles.sub}>{`además, ${INT_FORMAT.format(netoUnknown)} sin neto`}</div>
         </div>
+
+        {excludedNonMoneyCount > 0 && (
+          <div className={`${styles.card} ${styles.cardWarning}`}>
+            <span className={styles.label}>Ventas sin cobro efectivo</span>
+            <div className={styles.value}>{formatMoneyARS(kpi.excluded_non_money_ars)}</div>
+            <div className={styles.sub}>
+              {`${INT_FORMAT.format(excludedNonMoneyCount)} ventas con pago rechazado o no completado`}
+            </div>
+            <div className={styles.sub}>excluidas de Facturado bruto: no es dinero cobrado</div>
+          </div>
+        )}
       </div>
     </div>
   );

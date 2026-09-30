@@ -20,6 +20,7 @@ import pytest
 from app.core.config import settings
 from app.models.ml_order_metrics import MlOrderMetrics, MlOrderMetricsDirty
 from app.models.ml_orders_ops import MlOrdersOps, MlShipmentOps
+from app.models.ml_payments import MlPaymentOps
 from app.models.permiso import Permiso, RolPermisoBase
 from app.models.worker_job_state import WorkerJobState
 from app.services.order_metrics.constants import CURRENT_FORMULA_VERSION
@@ -79,6 +80,12 @@ def _seed_order(
     )
     if shipping_id is not None:
         db.add(MlShipmentOps(shipment_id=shipping_id, order_id=order_id, status=shipping_status))
+    # `MlOrdersOps.payment_status` above is seeded for realism only -- the
+    # KPI money predicate reads `MlPaymentOps` per payment (fix for
+    # `19b2d6c3`, see `aggregate.py`). Seed a single matching payment so
+    # existing single-payment fixtures keep exercising the same behavior.
+    if payment_status is not None:
+        db.add(MlPaymentOps(payment_id=order_id * 10 + 1, order_id=order_id, status=payment_status))
     db.flush()
 
 
@@ -127,7 +134,7 @@ class TestPermissionAndFlagGate:
 class TestBasicAggregation:
     def test_sums_over_the_stored_metrics(self, db, client, admin_auth_headers, rol_admin):
         _grant_ml_ops_ver(db, rol_admin)
-        _seed_order(db, 1, total_amount=1000)
+        _seed_order(db, 1, total_amount=1000, payment_status="approved")
         _stored_metrics(db, 1, neto=Decimal("800.00"), total_gauss=Decimal("200.00"))
         db.commit()
 
@@ -207,7 +214,7 @@ class TestNoShippingTagIncludedByDefault:
 
     def test_no_shipping_tagged_sale_included_with_default_switches(self, db, client, admin_auth_headers, rol_admin):
         _grant_ml_ops_ver(db, rol_admin)
-        _seed_order(db, 1, shipping_status=None, total_amount=1234, has_no_shipping_tag=True)
+        _seed_order(db, 1, shipping_status=None, total_amount=1234, has_no_shipping_tag=True, payment_status="approved")
         _stored_metrics(db, 1)
         db.commit()
 
@@ -515,10 +522,20 @@ class TestKpiCountsWholePacksThatStraddleTheFilter:
         # August -- same fixture shape as
         # `TestAFilterNeverSplitsAPack.test_the_month_filter_keeps_a_pack_that_straddles_midnight_whole`.
         _seed_order(
-            db, 1001, pack_id=555, total_amount=100, date_created=datetime(2026, 8, 31, 23, 59, tzinfo=timezone.utc)
+            db,
+            1001,
+            pack_id=555,
+            total_amount=100,
+            date_created=datetime(2026, 8, 31, 23, 59, tzinfo=timezone.utc),
+            payment_status="approved",
         )
         _seed_order(
-            db, 1002, pack_id=555, total_amount=200, date_created=datetime(2026, 9, 1, 0, 1, tzinfo=timezone.utc)
+            db,
+            1002,
+            pack_id=555,
+            total_amount=200,
+            date_created=datetime(2026, 9, 1, 0, 1, tzinfo=timezone.utc),
+            payment_status="approved",
         )
         _stored_metrics(db, 1001, neto=Decimal("80.00"), total_gauss=Decimal("20.00"))
         _stored_metrics(db, 1002, neto=Decimal("160.00"), total_gauss=Decimal("40.00"))

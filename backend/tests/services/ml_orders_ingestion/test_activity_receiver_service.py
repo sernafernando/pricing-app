@@ -844,3 +844,98 @@ class TestTheQuarantineRetryCannotStrandTheRunLock:
         assert result.ran is True
         cursor = db.query(MlOpsSyncCursor).filter_by(name="ml_activity").one()
         assert cursor.state != "running", "the run lock was stranded -- every later pass will skip"
+
+
+class TestClearResolvedUnresolvedDebts:
+    """`_clear_resolved_unresolved_debts` settles an `activity_unresolved`
+    debt the moment its order lands in `ml_orders_ops` -- see the
+    function's own docstring for why this is safe by construction: it can
+    only ever select `order_id`s that already exist in `ml_orders_ops`.
+    """
+
+    def _make_order(self, db, order_id: int, seller_id: int = 999):
+        db.add(
+            MlOrdersOps(
+                order_id=order_id,
+                seller_id=seller_id,
+                ml_last_updated=datetime.now(timezone.utc),
+            )
+        )
+
+    def _make_debt(self, db, order_id: int, kind: str = "unknown", field: str | None = None):
+        db.add(
+            MlOpsDivergence(
+                order_id=order_id,
+                kind=kind,
+                field=field if field is not None else service.UNRESOLVED_FIELD,
+                detected_at=datetime.now(timezone.utc),
+            )
+        )
+
+    def test_a_debt_whose_order_exists_is_cleared(self, db):
+        self._make_order(db, order_id=1)
+        self._make_debt(db, order_id=1)
+        db.commit()
+
+        cleared = service._clear_resolved_unresolved_debts(db)
+        db.commit()
+
+        assert cleared == 1
+        assert (
+            db.query(MlOpsDivergence)
+            .filter(
+                MlOpsDivergence.order_id == 1,
+                MlOpsDivergence.kind == "unknown",
+                MlOpsDivergence.field == service.UNRESOLVED_FIELD,
+            )
+            .count()
+            == 0
+        )
+
+    def test_a_debt_whose_order_does_not_exist_is_left_alone(self, db):
+        # THE SAFETY TEST: order_id=2 names no row in `ml_orders_ops`.
+        # This is a real, still-open miss -- clearing it would destroy
+        # the only evidence of an order ML never gave back. The function
+        # must be provably incapable of touching it.
+        self._make_debt(db, order_id=2)
+        db.commit()
+
+        cleared = service._clear_resolved_unresolved_debts(db)
+        db.commit()
+
+        assert cleared == 0
+        assert (
+            db.query(MlOpsDivergence)
+            .filter(
+                MlOpsDivergence.order_id == 2,
+                MlOpsDivergence.kind == "unknown",
+                MlOpsDivergence.field == service.UNRESOLVED_FIELD,
+            )
+            .count()
+            == 1
+        )
+
+    def test_a_different_kind_or_field_naming_an_existing_order_is_not_touched(self, db):
+        self._make_order(db, order_id=3)
+        self._make_debt(db, order_id=3, kind="out_of_window_update", field=None)
+        self._make_debt(db, order_id=3, kind="unknown", field="some_other_field")
+        db.commit()
+
+        cleared = service._clear_resolved_unresolved_debts(db)
+        db.commit()
+
+        assert cleared == 0
+        assert db.query(MlOpsDivergence).filter(MlOpsDivergence.order_id == 3).count() == 2
+
+    def test_running_it_twice_is_a_no_op_the_second_time(self, db):
+        self._make_order(db, order_id=4)
+        self._make_debt(db, order_id=4)
+        db.commit()
+
+        first = service._clear_resolved_unresolved_debts(db)
+        db.commit()
+        second = service._clear_resolved_unresolved_debts(db)
+        db.commit()
+
+        assert first == 1
+        assert second == 0

@@ -1842,6 +1842,34 @@ def run_sweep(seller_id: Optional[int] = None, window_days: Optional[int] = None
         # Inside the try on purpose: `budget_exhausted` breaks out with up
         # to BATCH_SIZE-1 orders still buffered, and this flush writes them.
         _flush_pending()
+
+        # Settle any `activity_unresolved` debt whose order this pass (or
+        # an earlier one) has since upserted into `ml_orders_ops` --
+        # placed HERE, right after the last write this pass makes, so it
+        # sees every order this pass just landed, not just the ones
+        # already committed when the pass started. Idempotent and scoped
+        # to `order_id IN (SELECT order_id FROM ml_orders_ops)`, so
+        # running it on a pass that upserted nothing new is a harmless
+        # no-op, and it can never touch a debt whose order is still
+        # missing (see `_clear_resolved_unresolved_debts`'s own
+        # docstring). Own session, same reasoning as the quarantine retry
+        # above: a failure here must not strand the run lock or abort an
+        # otherwise-successful pass.
+        try:
+            # Local import: `activity_receiver_service` imports FROM this
+            # module at its own top level (it reuses the sweep's run-lock
+            # helpers under a distinct cursor name), so importing it back
+            # up here at module load time would be circular. By the time
+            # `run_sweep` actually executes, both modules are already
+            # fully loaded, so a deferred import here is safe.
+            from app.services.ml_orders_ingestion.activity_receiver_service import (
+                _clear_resolved_unresolved_debts,
+            )
+
+            with get_background_db() as debt_db:
+                _clear_resolved_unresolved_debts(debt_db)
+        except Exception:  # noqa: BLE001
+            logger.exception("sync_ml_orders_ops: clearing resolved activity_unresolved debts failed; continuing")
     except WindowFetchError as e:
         logger.error("sync_ml_orders_ops: window fetch failed, cursor NOT advanced past the last completed leaf: %s", e)
         failure = e
