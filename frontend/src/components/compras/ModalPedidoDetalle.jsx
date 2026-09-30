@@ -93,6 +93,22 @@ const formatCurrency = (value, moneda = 'ARS') => {
   return `${prefix}${num.toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 };
 
+/** Linked OC identities: relation `ocs[]` when present, else header first-link cache. */
+const linkedOcTriples = (pedido) => {
+  if (!pedido) return [];
+  if (Array.isArray(pedido.ocs) && pedido.ocs.length > 0) return pedido.ocs;
+  if (pedido.oc_poh_id != null) {
+    return [
+      {
+        oc_comp_id: pedido.oc_comp_id,
+        oc_bra_id: pedido.oc_bra_id,
+        oc_poh_id: pedido.oc_poh_id,
+      },
+    ];
+  }
+  return [];
+};
+
 export default function ModalPedidoDetalle({ pedidoId, onClose }) {
   // Desestructurar función memoizada para evitar loop en useEffect.
   const { obtener: obtenerPedido, desvincularFactura, desvinculaOc, fetchOcDetalle } = useComprasPedidos();
@@ -241,21 +257,10 @@ export default function ModalPedidoDetalle({ pedidoId, onClose }) {
   const handleVinculaOC = useCallback(
     async (updatedPedido) => {
       setShowVincularOCModal(false);
-      setPedido(updatedPedido);
-      // Fetch OC detalle after linking
-      if (updatedPedido?.oc_poh_id) {
-        setLoadingOcDetalle(true);
-        try {
-          const detalle = await fetchOcDetalle(updatedPedido.id);
-          setOcDetalle(detalle);
-        } catch {
-          setOcDetalle(null);
-        } finally {
-          setLoadingOcDetalle(false);
-        }
-      }
+      if (updatedPedido) setPedido(updatedPedido);
+      await fetchDetalle();
     },
-    [fetchOcDetalle]
+    [fetchDetalle]
   );
 
   // Feature D — al corregir se crea un clon. Cierra este modal y propaga el
@@ -418,6 +423,9 @@ export default function ModalPedidoDetalle({ pedidoId, onClose }) {
     },
     [pedido?.id]
   );
+
+  const linkedOcs = linkedOcTriples(pedido);
+  const canVincularOc = Boolean(pedido && canGestionar && pedido.tipo !== 'servicio');
 
   return (
     <div className={styles.modalOverlay}>
@@ -901,37 +909,56 @@ export default function ModalPedidoDetalle({ pedidoId, onClose }) {
               </div>
             )}
             <div className={styles.facturaBlock}>
-              {pedido.oc_poh_id ? (
+              {linkedOcs.length > 0 ? (
                 <div className={styles.facturaVinculada}>
                   <div className={styles.facturaInfo}>
                     <span className={styles.facturaMain}>
-                      Vinculada a OC <strong>#{pedido.oc_poh_id}</strong>
+                      Vinculada a OC{' '}
+                      {linkedOcs.map((oc, i) => (
+                        <span key={`${oc.oc_comp_id}-${oc.oc_bra_id}-${oc.oc_poh_id}`}>
+                          {i > 0 ? ', ' : ''}
+                          <strong>#{oc.oc_poh_id}</strong>
+                        </span>
+                      ))}
                     </span>
                     <span className={styles.facturaSub}>
-                      comp_id={pedido.oc_comp_id} | bra_id={pedido.oc_bra_id}
+                      {linkedOcs
+                        .map((oc) => `comp_id=${oc.oc_comp_id} | bra_id=${oc.oc_bra_id}`)
+                        .join(' · ')}
                     </span>
                   </div>
-                  {canGestionar && (
-                    <button
-                      type="button"
-                      className={styles.btnGhost}
-                      onClick={handleDesvinculaOC}
-                      disabled={desvinculandoOC}
-                      title="Desvincular OC"
-                    >
-                      {desvinculandoOC ? (
-                        <Loader2 size={14} className={styles.spin} />
-                      ) : (
-                        <Link2Off size={14} />
-                      )}
-                      Desvincular OC
-                    </button>
-                  )}
+                  <div className={styles.ocActionCluster}>
+                    {canVincularOc && (
+                      <button
+                        type="button"
+                        className={styles.btnPrimaryInline}
+                        onClick={() => setShowVincularOCModal(true)}
+                      >
+                        <Link2 size={14} /> Vincular OC
+                      </button>
+                    )}
+                    {canGestionar && (
+                      <button
+                        type="button"
+                        className={styles.btnGhost}
+                        onClick={handleDesvinculaOC}
+                        disabled={desvinculandoOC}
+                        title="Desvincular OC"
+                      >
+                        {desvinculandoOC ? (
+                          <Loader2 size={14} className={styles.spin} />
+                        ) : (
+                          <Link2Off size={14} />
+                        )}
+                        Desvincular OC
+                      </button>
+                    )}
+                  </div>
                 </div>
               ) : (
                 <div className={styles.facturaNoVinculada}>
                   <span className={styles.emptyHint}>Sin OC del ERP vinculada.</span>
-                  {canGestionar && (
+                  {canVincularOc && (
                     <button
                       type="button"
                       className={styles.btnPrimaryInline}

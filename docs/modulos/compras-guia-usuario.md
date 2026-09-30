@@ -203,8 +203,13 @@ Tab **Recepción / Depósito** (permiso `deposito.recibir_mercaderia`):
   son opcionales: controlar OK **sin** evidencia sigue valiendo. La foto
   se sube como adjunto **antes** de confirmar el control.
 - Varias OCs en el mismo pedido: un bloque por OC. Vincular **agrega**, no
-  reemplaza. **Controlado** recién cuando están todas las OCs. Pedido
-  **servicio**: no hay candidatas OC (no se vincula).
+  reemplaza. Desde el **detalle** del pedido, **Vincular OC** sigue
+  disponible para agregar otra OC (permiso
+  `administracion.gestionar_ordenes_compra`, y el pedido no es
+  **servicio**), aunque ya haya una OC vinculada. El detalle lista **todas**
+  las OCs vinculadas, no solo la primera del encabezado. **Controlado**
+  recién cuando están todas las OCs. Pedido **servicio**: no hay candidatas
+  OC (no se vincula) y el detalle no muestra **Vincular OC**.
 - **Desvincular OC** es todo-o-nada: quita **todas** las OCs vinculadas del
   pedido y limpia el cache de OC del encabezado. Hoy no hay desvínculo
   por una sola OC. Si una OC no aparece en el ERP, el bloque sigue

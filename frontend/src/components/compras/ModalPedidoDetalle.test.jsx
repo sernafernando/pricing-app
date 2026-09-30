@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import api from '../../services/api';
@@ -6,6 +6,19 @@ import ModalPedidoDetalle from './ModalPedidoDetalle';
 
 // NOTE: vite.config.js sets `css: false` for the test run, so CSS Module class
 // names do NOT resolve. Never assert on className — assert on text, roles, testids.
+
+const permisoState = vi.hoisted(() => ({ gestionar: true }));
+
+vi.mock('../../contexts/PermisosContext', () => ({
+  usePermisos: () => ({
+    permisos: [],
+    rol: null,
+    tienePermiso: (key) =>
+      key === 'administracion.gestionar_ordenes_compra' ? permisoState.gestionar : true,
+    cargandoPermisos: false,
+  }),
+  PermisosProvider: ({ children }) => children,
+}));
 
 const FACTURA_ROW = {
   id: 10,
@@ -22,6 +35,7 @@ const PEDIDO_BASE = {
   id: 1,
   numero: 'P-01-2026-00001',
   estado: 'aprobado',
+  tipo: 'mercaderia',
   empresa_id: 1,
   empresa_nombre: 'Empresa Uno',
   proveedor_id: 2,
@@ -55,6 +69,10 @@ async function renderDetalle(pedido) {
   render(<ModalPedidoDetalle pedidoId={pedido.id} onClose={() => {}} />);
   await screen.findByText(`Pedido ${pedido.numero}`);
 }
+
+beforeEach(() => {
+  permisoState.gestionar = true;
+});
 
 describe('ModalPedidoDetalle — constancia vs cargada ERP', () => {
   it('chip-off-with-numbers: shows constancia + unchecked ERP box; blob is not cargada', async () => {
@@ -168,5 +186,71 @@ describe('ModalPedidoDetalle — resolver faltantes', () => {
     expect(screen.getByText('Faltantes con resolución')).toBeInTheDocument();
     expect(screen.queryByLabelText(/resoluci[oó]n de faltantes/i)).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Resolver faltantes' })).not.toBeInTheDocument();
+  });
+});
+
+describe('ModalPedidoDetalle — Vincular OC stays available', () => {
+  it('shows Vincular OC when mercadería already has oc_poh_id', async () => {
+    await renderDetalle({
+      ...PEDIDO_BASE,
+      oc_poh_id: 100,
+      oc_comp_id: 1,
+      oc_bra_id: 1,
+    });
+
+    expect(screen.getByRole('button', { name: /^\s*Vincular OC\s*$/ })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /Desvincular OC/ })).toBeInTheDocument();
+    expect(screen.getByText('#100')).toBeInTheDocument();
+  });
+
+  it('lists every linked OC from ocs[], not only the header oc_poh_id', async () => {
+    await renderDetalle({
+      ...PEDIDO_BASE,
+      oc_poh_id: 100,
+      oc_comp_id: 1,
+      oc_bra_id: 1,
+      ocs: [
+        { oc_comp_id: 1, oc_bra_id: 1, oc_poh_id: 100 },
+        { oc_comp_id: 1, oc_bra_id: 1, oc_poh_id: 200 },
+      ],
+    });
+
+    expect(screen.getByText('#100')).toBeInTheDocument();
+    expect(screen.getByText('#200')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /^\s*Vincular OC\s*$/ })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /Desvincular OC/ })).toBeInTheDocument();
+  });
+
+  it('hides Vincular OC for tipo=servicio even with gestionar permiso', async () => {
+    await renderDetalle({
+      ...PEDIDO_BASE,
+      tipo: 'servicio',
+      oc_poh_id: null,
+    });
+
+    expect(screen.queryByRole('button', { name: /^\s*Vincular OC\s*$/ })).not.toBeInTheDocument();
+  });
+
+  it('hides Vincular OC when gestionar_ordenes_compra is missing', async () => {
+    permisoState.gestionar = false;
+    await renderDetalle({
+      ...PEDIDO_BASE,
+      oc_poh_id: 100,
+      oc_comp_id: 1,
+      oc_bra_id: 1,
+    });
+
+    expect(screen.queryByRole('button', { name: /^\s*Vincular OC\s*$/ })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /Desvincular OC/ })).not.toBeInTheDocument();
+  });
+
+  it('shows Vincular OC for mercadería with no OC', async () => {
+    await renderDetalle({
+      ...PEDIDO_BASE,
+      oc_poh_id: null,
+    });
+
+    expect(screen.getByRole('button', { name: /^\s*Vincular OC\s*$/ })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /Desvincular OC/ })).not.toBeInTheDocument();
   });
 });
