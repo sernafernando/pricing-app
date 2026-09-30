@@ -15,12 +15,19 @@ export const COLUMN_VISIBILITY_STORAGE_KEY = 'ventasml:colvisibility';
 // `LOCKED_VISIBLE_COLUMN_IDS` is TanStack's own `enableHiding: false`
 // escape hatch's source of truth, so this stays in lockstep with it rather
 // than re-deciding which columns are locked.
-export function loadColumnVisibility(columns, lockedVisibleIds) {
+// The locked ids are DERIVED from `columns`, not received as a second
+// argument. They used to be an exported `LOCKED_VISIBLE_COLUMN_IDS` constant
+// computed inside `ventasMlColumns.jsx`, which tripped
+// `react-refresh/only-export-components`: that rule tolerates a plain
+// constant export beside the column list, but not a COMPUTED one. Deriving it
+// here removes the export instead of relocating it — one less thing that can
+// fall out of sync with `enableHiding`.
+export function loadColumnVisibility(columns) {
   try {
     const parsed = JSON.parse(localStorage.getItem(COLUMN_VISIBILITY_STORAGE_KEY) || '{}');
     if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return {};
     const knownIds = new Set(columns.map((c) => c.id));
-    const locked = new Set(lockedVisibleIds || []);
+    const locked = new Set(columns.filter((c) => c.enableHiding === false).map((c) => c.id));
     return Object.fromEntries(
       Object.entries(parsed).filter(([id, value]) => knownIds.has(id) && typeof value === 'boolean' && !locked.has(id))
     );

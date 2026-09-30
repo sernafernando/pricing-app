@@ -1821,7 +1821,7 @@ describe('the KPI strip stays in parity with the list', () => {
       const kpiCall = api.get.mock.calls.find((c) => c[0] === '/ml-ventas-ops/sales/kpis');
       expect(listCall).toBeTruthy();
       expect(kpiCall).toBeTruthy();
-      const { limit, offset, ...listFilterParams } = listCall[1].params;
+      const { limit: _limit, offset: _offset, ...listFilterParams } = listCall[1].params;
       expect(kpiCall[1].params).toEqual(listFilterParams);
     });
   });

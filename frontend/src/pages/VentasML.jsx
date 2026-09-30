@@ -62,7 +62,7 @@ import ProductFiltersPanel from '../components/shared/ProductFiltersPanel';
 import KpiStrip from '../components/ventasMl/KpiStrip';
 import IncludeToggles from '../components/ventasMl/IncludeToggles';
 import ColumnPicker from '../components/ventasMl/ColumnPicker';
-import { COLUMNS, LOCKED_VISIBLE_COLUMN_IDS } from '../components/ventasMl/ventasMlColumns';
+import { COLUMNS } from '../components/ventasMl/ventasMlColumns';
 import { loadColumnVisibility, saveColumnVisibility } from './ventasMlTableHelpers';
 import { useVentasMLFilters } from '../hooks/useVentasMLFilters';
 import VariosVentaPctModal from '../components/VariosVentaPctModal';
@@ -168,7 +168,7 @@ export default function VentasML() {
   // pack-member rows, from `table.getVisibleLeafColumns()` -- that is what
   // keeps a hidden column out of every row kind at once (T4).
   const [columnVisibility, setColumnVisibilityState] = useState(() =>
-    loadColumnVisibility(COLUMNS, LOCKED_VISIBLE_COLUMN_IDS),
+    loadColumnVisibility(COLUMNS),
   );
 
   const handleColumnVisibilityChange = useCallback((updater) => {

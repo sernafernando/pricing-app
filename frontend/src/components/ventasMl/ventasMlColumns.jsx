@@ -350,4 +350,3 @@ export const COLUMNS = [
   },
 ];
 
-export const LOCKED_VISIBLE_COLUMN_IDS = COLUMNS.filter((c) => c.enableHiding === false).map((c) => c.id);
