@@ -110,4 +110,14 @@ número de "Ventas" coincide con el total de la paginación de la tabla.
 
 ## Estado
 
-Creado 2026-09-29. Implementado y verificado el mismo día (ver Evidencia de
+Creado 2026-09-29. Implementado y verificado el mismo día.
+
+Suite completa del frontend: 1784 passed, 2 expected fail (los dos
+preexistentes). Build OK. Cada comportamiento se verificó rompiendo el código
+a propósito, no solo viendo el test en verde.
+
+Correcciones que salieron de la revisión previa al push, todas con su test:
+el doble conteo de la tarjeta de incompletos (el test que existía FIJABA el
+bug), el botón "Actualizar" que refrescaba solo la lista, el 403 y el 503 que
+mostraban el mismo mensaje, y el badge de los toggles cuyo test no probaba la
+ausencia.

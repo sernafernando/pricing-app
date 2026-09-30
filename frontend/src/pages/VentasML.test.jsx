@@ -690,8 +690,9 @@ describe('Configurable columns (ventas-ml-columnas)', () => {
     expect(Number(emptyCell.getAttribute('colspan'))).toBe(headerCountBefore - 1);
   });
 
-  // T6 — Producto and Total Gauss carry the whole point of this screen;
-  // the picker must never offer to hide either.
+  // T6 — a column may be unhideable for two different reasons, and both
+  // have to hold. Producto and Total Gauss carry the whole point of the
+  // screen; Orden and Neto carry the only CONTROLS.
   it('never offers Producto or Total Gauss in the column picker', async () => {
     const user = userEvent.setup();
     mockSalesList([asGroup(PAID_SALE)]);
@@ -701,6 +702,29 @@ describe('Configurable columns (ventas-ml-columnas)', () => {
     await user.click(screen.getByRole('button', { name: 'Columnas' }));
     expect(screen.queryByRole('checkbox', { name: 'Producto' })).not.toBeInTheDocument();
     expect(screen.queryByRole('checkbox', { name: 'Total Gauss' })).not.toBeInTheDocument();
+  });
+
+  // Reviewer-found: hiding a column that holds a CONTROL does not hide data,
+  // it removes functionality — and the choice is persisted in localStorage,
+  // so the operator is stuck with it across reloads, with nothing on screen
+  // explaining why packs stopped opening.
+  //
+  //   - `orden` holds `packToggle` (`aria-expanded`), the ONLY way to expand a
+  //     pack and see the orders inside it. Hidden, the pack's members are
+  //     unreachable by mouse AND by keyboard.
+  //   - `neto` holds the `aria-label="Ver desglose de costos"` button, which
+  //     the column file itself documents as the keyboard route to the detail
+  //     panel (the row click is a mouse-only shortcut). Hidden, the panel has
+  //     no keyboard route at all.
+  it('never offers Orden or Neto either, because they hold the only controls', async () => {
+    const user = userEvent.setup();
+    mockSalesList([asGroup(PAID_SALE)]);
+    await renderWithRouter(<VentasML />);
+    await screen.findByText(PAID_SALE.buyer_nickname);
+
+    await user.click(screen.getByRole('button', { name: 'Columnas' }));
+    expect(screen.queryByRole('checkbox', { name: 'Orden' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('checkbox', { name: 'Neto' })).not.toBeInTheDocument();
   });
 
   // T7 — corrupted/disabled localStorage must never take the screen down

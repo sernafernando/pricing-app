@@ -108,6 +108,14 @@ export const COLUMNS = [
         </button>
       );
     },
+    // NOT hideable, and not because of the data it shows: this cell holds
+    // `packToggle` (`aria-expanded`), the ONLY control that expands a pack and
+    // reveals the orders inside it. Hidden, a pack's members are unreachable
+    // by mouse and by keyboard alike -- and the choice is persisted in
+    // localStorage, so the operator stays stuck with it across reloads with
+    // nothing on screen explaining why packs stopped opening. Hiding a column
+    // is meant to drop information you do not need, never functionality.
+    enableHiding: false,
   },
   {
     id: 'fecha',
@@ -262,6 +270,12 @@ export const COLUMNS = [
       }
       return content;
     },
+    // NOT hideable, same reason as `orden`: this cell holds the
+    // `aria-label="Ver desglose de costos"` button, which is the KEYBOARD
+    // route into the breakdown panel (the row's own click handler is a
+    // mouse-only shortcut). Hide this column and the panel has no keyboard
+    // route at all, on group rows and member rows both.
+    enableHiding: false,
   },
   {
     id: 'total_gauss',

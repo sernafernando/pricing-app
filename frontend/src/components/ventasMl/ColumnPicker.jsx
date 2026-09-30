@@ -15,6 +15,8 @@ import styles from './ColumnPicker.module.css';
  * `ventasMlColumns.jsx`) are left out of the list entirely: offering a
  * checkbox that TanStack itself refuses to uncheck would be a dead control.
  */
+const POPOVER_ID = 'ventas-ml-column-picker';
+
 export default function ColumnPicker({ table }) {
   const [open, setOpen] = useState(false);
   const containerRef = useRef(null);
@@ -48,12 +50,17 @@ export default function ColumnPicker({ table }) {
 
   return (
     <div className={styles.container} ref={containerRef}>
+      {/* NO `aria-haspopup` on this trigger. In ARIA, `aria-haspopup="true"`
+          is literally `"menu"` -- announcing to a screen reader the very
+          contract the popover below deliberately does NOT claim.
+          `aria-expanded` plus `aria-controls` say what is actually true: this
+          button shows and hides that group. */}
       <button
         type="button"
         ref={triggerRef}
         className="btn-tesla outline sm"
-        aria-haspopup="true"
         aria-expanded={open}
+        aria-controls={POPOVER_ID}
         onClick={() => setOpen((prev) => !prev)}
       >
         <Columns3 size={14} />
@@ -66,7 +73,7 @@ export default function ColumnPicker({ table }) {
           not implement, which is worse than claiming nothing. A group of
           native checkboxes is already announced correctly. */}
       {open && (
-        <div className={styles.popover} role="group" aria-label="Elegir columnas visibles">
+        <div id={POPOVER_ID} className={styles.popover} role="group" aria-label="Elegir columnas visibles">
           {toggleableColumns.map((col) => (
             <label key={col.id} className={styles.option}>
               <input
