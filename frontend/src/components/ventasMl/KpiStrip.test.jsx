@@ -82,10 +82,12 @@ describe('KpiStrip', () => {
     render(<KpiStrip kpi={FULL_KPI} loading={false} error={null} />);
     const label = screen.getByText(/desglose incompleto/i);
     const card = label.closest('div');
-    expect(within(card).getByText('4')).toBeInTheDocument();
+    // FULL_KPI: 4 unresolved + 3 recalculating + 1 pending + 0 failed = 8.
+    // NOT 10 — that was the old headline, which folded in the 2 of
+    // `neto_unknown_count` that can describe an order already counted above.
+    expect(within(card).getByText('8')).toBeInTheDocument();
     expect(within(card).queryByText('10')).not.toBeInTheDocument();
-    expect(within(card).getByText(/2 sin neto/i)).toBeInTheDocument();
-    expect(within(card).getByText(/4 sin Total Gauss/i)).toBeInTheDocument();
+    expect(within(card).getByText(/además, 2 sin neto/i)).toBeInTheDocument();
   });
 
   it('warns when the metrics worker is not alive', () => {
@@ -122,11 +124,13 @@ describe('the "Desglose incompleto" card never invents a total', () => {
       />
     );
 
-    // 7 + 7 = 14 would be the double-counted headline.
+    // 7 + 7 = 14 would be the double-counted headline. The honest one is 7:
+    // the unresolved count, with nothing computed still in flight.
     expect(screen.queryByText('14')).not.toBeInTheDocument();
-    // Each figure is still reported, on its own terms.
-    expect(screen.getByText(/7 sin neto/)).toBeInTheDocument();
-    expect(screen.getByText(/7 sin Total Gauss/)).toBeInTheDocument();
+    const card = screen.getByText(/desglose incompleto/i).closest('div');
+    expect(within(card).getByText('7')).toBeInTheDocument();
+    // The overlapping figure is still reported, on its own line.
+    expect(within(card).getByText(/además, 7 sin neto/i)).toBeInTheDocument();
   });
 
   it('adds up only the three states that are mutually exclusive', () => {
@@ -145,5 +149,62 @@ describe('the "Desglose incompleto" card never invents a total', () => {
     );
 
     expect(screen.getByText('6')).toBeInTheDocument();
+  });
+});
+
+describe('the incomplete card headline reflects the real problem', () => {
+  // Reported from production: the card read
+  //
+  //   Desglose incompleto
+  //   0
+  //   sin calcular: 0 recalculando · 0 pendientes · 0 fallidos
+  //   ya calculadas pero incompletas: 2 sin neto · 21 sin Total Gauss
+  //
+  // A big fat 0 sitting on top of 21 unusable sales. The headline was the
+  // never-computed count, which is a true number but answers a question
+  // nobody asked: what the card is FOR is "how many sales can I not trust",
+  // and 21 of them have no Total Gauss at all.
+  //
+  // `total_gauss_unresolved_count` and recalculating/pending/failed ARE
+  // mutually exclusive (an order in one of those three states never reaches
+  // `aggregate.py`'s stored-row block), so their sum is honest. Only
+  // `neto_unknown_count` overlaps, and it stays on its own line.
+  it('counts every sale with no usable Total Gauss, not just the uncomputed ones', () => {
+    render(
+      <KpiStrip
+        kpi={{
+          ...FULL_KPI,
+          neto_unknown_count: 2,
+          total_gauss_unresolved_count: 21,
+          recalculating_count: 0,
+          pending_count: 0,
+          failed_count: 0,
+        }}
+        loading={false}
+        error={null}
+      />
+    );
+    const card = screen.getByText(/desglose incompleto/i).closest('div');
+    expect(within(card).getByText('21')).toBeInTheDocument();
+    expect(within(card).queryByText('0')).not.toBeInTheDocument();
+  });
+
+  it('adds the uncomputed states in, since they are disjoint from unresolved', () => {
+    render(
+      <KpiStrip
+        kpi={{
+          ...FULL_KPI,
+          neto_unknown_count: 0,
+          total_gauss_unresolved_count: 21,
+          recalculating_count: 2,
+          pending_count: 3,
+          failed_count: 1,
+        }}
+        loading={false}
+        error={null}
+      />
+    );
+    const card = screen.getByText(/desglose incompleto/i).closest('div');
+    expect(within(card).getByText('27')).toBeInTheDocument();
   });
 });
