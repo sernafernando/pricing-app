@@ -15,6 +15,7 @@ import pytest
 from app.core.config import settings
 from app.models.ml_order_metrics import MlOrderMetrics, MlOrderMetricsDirty
 from app.models.ml_orders_ops import MlOrdersOps
+from app.models.ml_payments import MlPaymentOps
 from app.services.ml_sales_query.aggregate import aggregate_order_metrics
 from app.services.ml_sales_query.filters import SalesFilter, build_scope
 from app.services.order_metrics.queue import POISON_THRESHOLD
@@ -52,6 +53,20 @@ def _seed_order(
             payment_status=payment_status,
         )
     )
+    db.flush()
+    # `MlOrdersOps.payment_status` above is seeded for realism only -- the
+    # money predicate under test reads `MlPaymentOps`, per payment, exactly
+    # like the Gauss chain (`breakdown_service.py`). A single-payment order
+    # is the common case: one payment whose status mirrors the legacy
+    # `payment_status` kwarg, so existing single-payment tests keep working
+    # unchanged. A test exercising more than one payment per order (a
+    # rejected-then-approved retry) calls `_seed_payment` directly instead.
+    if payment_status is not None:
+        _seed_payment(db, payment_id=order_id * 10, order_id=order_id, status=payment_status)
+
+
+def _seed_payment(db, *, payment_id: int, order_id: int, status: str) -> None:
+    db.add(MlPaymentOps(payment_id=payment_id, order_id=order_id, status=status))
     db.flush()
 
 
@@ -197,28 +212,37 @@ class TestNonMoneyPaymentStatusExcludedFromGross:
 
     def test_real_world_segmentation_579_groups(self, db):
         """One day's real production segmentation (five status/payment_status
-        combinations, 579 lone-order groups total). Only `approved` and
-        `refunded` are money; `rejected`/`cancelled` are excluded, whatever
-        their `status`."""
+        combinations, 579 lone-order groups total). Only a payment whose
+        status is `approved`/`refunded`/`in_mediation` counts as money.
+
+        The `("paid", "rejected", 9, ...)` segment is the real-world retry
+        scenario the bruto-sin-rechazados fix targets: `payment_status`
+        (the FIRST payment's status) reads `rejected`, but ML settled the
+        order on a SECOND, approved payment -- `status="paid"` says the
+        money arrived. Each of these 9 orders is seeded with BOTH a
+        rejected first payment and an approved second payment and must be
+        INCLUDED in the gross, not excluded -- the exact production defect
+        (9 orders, $1.142.154,15 in one day) this test used to enshrine as
+        correctly-excluded before the fix."""
         order_id = 1
         segments = [
-            ("paid", "approved", 549, Decimal("80815500.96")),
-            ("cancelled", "refunded", 19, Decimal("4539819.13")),
-            ("paid", "rejected", 9, Decimal("1142154.15")),
-            ("cancelled", "cancelled", 1, Decimal("71000.00")),
-            ("payment_required", "rejected", 1, Decimal("2870175.00")),
+            ("paid", "approved", 549, Decimal("80815500.96"), False),
+            ("cancelled", "refunded", 19, Decimal("4539819.13"), False),
+            ("paid", "rejected", 9, Decimal("1142154.15"), True),
+            ("cancelled", "cancelled", 1, Decimal("71000.00"), False),
+            ("payment_required", "rejected", 1, Decimal("2870175.00"), False),
         ]
         expected_gross = Decimal("0")
         expected_excluded = Decimal("0")
         expected_excluded_count = 0
-        for status, payment_status, count, group_total in segments:
+        for status, payment_status, count, group_total, is_retry_approved in segments:
             # Distribute the group's exact total across its orders in
             # whole cents, with the remainder on the last order -- so the
             # sum of per-order amounts equals `group_total` exactly, no
             # rounding drift to tolerate.
             cents_total = int((group_total * 100).to_integral_value())
             base_cents, remainder_cents = divmod(cents_total, count)
-            is_money = payment_status in {"approved", "refunded", "in_mediation"}
+            is_money = is_retry_approved or payment_status in {"approved", "refunded", "in_mediation"}
             for i in range(count):
                 cents = base_cents + (remainder_cents if i == count - 1 else 0)
                 per_order_amount = Decimal(cents) / Decimal(100)
@@ -229,6 +253,10 @@ class TestNonMoneyPaymentStatusExcludedFromGross:
                     status=status,
                     payment_status=payment_status,
                 )
+                if is_retry_approved:
+                    # A retried, approved second payment on top of the
+                    # rejected first one `_seed_order` already seeded.
+                    _seed_payment(db, payment_id=order_id * 10 + 1, order_id=order_id, status="approved")
                 _seed_metrics(db, order_id)
                 order_id += 1
             if is_money:
@@ -242,6 +270,63 @@ class TestNonMoneyPaymentStatusExcludedFromGross:
         assert result.gross_billed_ars == pytest.approx(expected_gross, abs=Decimal("0.01"))
         assert result.excluded_non_money_orders_count == expected_excluded_count
         assert result.excluded_non_money_ars == pytest.approx(expected_excluded, abs=Decimal("0.01"))
+
+    def test_rejected_first_payment_approved_retry_counts_as_money(self, db):
+        """The single most important new test: a buyer's first card is
+        rejected, they retry, the second is approved. ML leaves the order
+        `status="paid"` (the money arrived) but `MlOrdersOps.payment_status`
+        (the FIRST payment's status, per `ml_orders_ingestion/mapper.py`)
+        records `rejected`. The order must COUNT in the gross -- excluding
+        it would drop real revenue, the exact defect commit `19b2d6c3`
+        introduced by deciding money via `payment_status` instead of the
+        order's actual, real payments."""
+        _seed_order(db, 1, total_amount=1000, status="paid", payment_status="rejected")
+        _seed_payment(db, payment_id=11, order_id=1, status="approved")
+        _seed_metrics(db, 1)
+        result = _aggregate(db)
+        assert result.gross_billed_ars == Decimal("1000")
+        assert result.excluded_non_money_orders_count == 0
+        assert result.excluded_non_money_ars == Decimal("0")
+
+
+class TestGrossAndNetoShareTheSameMoneyBasis:
+    """Consistency point (fix commit for `19b2d6c3`): `aggregate.py`'s gross
+    predicate and `breakdown_service.compute_neto_by_order_ids` (the real
+    pipeline that computes the `neto`/`total_gauss` this module later reads
+    from `MlOrderMetrics`) must agree on which orders are money -- both are
+    now the SAME per-payment rule over `MlPaymentOps`. An order excluded
+    from the gross has no relevant payment, so the breakdown finds none
+    either and reports `neto=None` for it -- never a case where `neto_sum`
+    reads higher than `gross_billed` for the same population."""
+
+    def test_excluded_order_has_no_computable_neto_either(self, db):
+        from app.services.ml_ventas_desglose.breakdown_service import compute_neto_by_order_ids
+
+        _seed_order(db, 1, total_amount=1000, payment_status="rejected")
+        _seed_metrics(
+            db, 1, neto=None, total_gauss=None, costo_mercaderia=None, markup_pct=None, gauss_status="unresolved"
+        )
+
+        result = _aggregate(db)
+        neto_by_order = compute_neto_by_order_ids(db, [1])
+
+        assert result.gross_billed_ars == Decimal("0")
+        assert result.excluded_non_money_orders_count == 1
+        assert neto_by_order[1] is None
+
+    def test_retried_and_approved_order_has_a_computable_neto(self, db):
+        from app.services.ml_ventas_desglose.breakdown_service import compute_neto_by_order_ids
+
+        _seed_order(db, 1, total_amount=1000, status="paid", payment_status="rejected")
+        _seed_payment(db, payment_id=11, order_id=1, status="approved")
+        _seed_metrics(db, 1)
+
+        result = _aggregate(db)
+        neto_by_order = compute_neto_by_order_ids(db, [1])
+
+        assert result.gross_billed_ars == Decimal("1000")
+        assert result.excluded_non_money_orders_count == 0
+        assert neto_by_order[1] is not None
 
 
 class TestExclusionFromSums:

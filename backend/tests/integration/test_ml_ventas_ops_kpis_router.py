@@ -20,6 +20,7 @@ import pytest
 from app.core.config import settings
 from app.models.ml_order_metrics import MlOrderMetrics, MlOrderMetricsDirty
 from app.models.ml_orders_ops import MlOrdersOps, MlShipmentOps
+from app.models.ml_payments import MlPaymentOps
 from app.models.permiso import Permiso, RolPermisoBase
 from app.models.worker_job_state import WorkerJobState
 from app.services.order_metrics.constants import CURRENT_FORMULA_VERSION
@@ -79,6 +80,12 @@ def _seed_order(
     )
     if shipping_id is not None:
         db.add(MlShipmentOps(shipment_id=shipping_id, order_id=order_id, status=shipping_status))
+    # `MlOrdersOps.payment_status` above is seeded for realism only -- the
+    # KPI money predicate reads `MlPaymentOps` per payment (fix for
+    # `19b2d6c3`, see `aggregate.py`). Seed a single matching payment so
+    # existing single-payment fixtures keep exercising the same behavior.
+    if payment_status is not None:
+        db.add(MlPaymentOps(payment_id=order_id * 10 + 1, order_id=order_id, status=payment_status))
     db.flush()
 
 

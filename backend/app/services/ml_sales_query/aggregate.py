@@ -61,6 +61,7 @@ from typing import Dict, List, Optional, Tuple
 from sqlalchemy.orm import Query, Session
 
 from app.models.ml_orders_ops import MlOrdersOps
+from app.models.ml_payments import MlPaymentOps
 from app.services.ml_ventas_desglose.breakdown_service import RELEVANT_PAYMENT_STATUSES
 from app.services.order_metrics.read import metrics_state_for_orders, read_stored_metrics
 from app.services.order_metrics.types import GaussStatus
@@ -118,9 +119,12 @@ class AggregateResult:
 
     # A rejected or never-completed payment is not revenue (same ALLOW-list
     # `breakdown_service.RELEVANT_PAYMENT_STATUSES` uses for the Gauss
-    # chain): an order whose `payment_status` is not in that set contributes
-    # NOTHING to `gross_billed_ars`/`gross_billed_other`, but it is counted
-    # here rather than silently vanishing. `excluded_non_money_ars` is ARS
+    # chain, applied PER PAYMENT via `MlPaymentOps` -- never via
+    # `MlOrdersOps.payment_status`, which only records the FIRST payment
+    # and would misclassify a retried-and-approved order as non-money):
+    # an order with no payment in that set contributes NOTHING to
+    # `gross_billed_ars`/`gross_billed_other`, but it is counted here
+    # rather than silently vanishing. `excluded_non_money_ars` is ARS
     # only -- a non-ARS excluded amount is never folded into it (same
     # discipline as `gross_billed_other` itself).
     excluded_non_money_orders_count: int = 0
@@ -142,10 +146,12 @@ def aggregate_order_metrics(db: Session, listing_query: Query, members_base: Que
     never the date/status filters, for exactly that reason.
 
     Reads: (1) the DISTINCT `group_key`s `listing_query` matches, (2) every
-    `MlOrdersOps` row belonging to those groups from `members_base`, then
-    (3)/(4) the stored metrics for exactly those order_ids (via
-    `order_metrics.read`) -- four bulk queries total regardless of how
-    many orders/groups match, never a per-group loop."""
+    `MlOrdersOps` row belonging to those groups from `members_base`, (3)/(4)
+    the stored metrics for exactly those order_ids (via
+    `order_metrics.read`), then (5) every `MlPaymentOps` row for exactly
+    those order_ids, to decide the money predicate below -- five bulk
+    queries total regardless of how many orders/groups match, never a
+    per-group or per-order loop."""
     selected_group_keys = {
         row.group_key for row in listing_query.with_entities(group_key.label("group_key")).distinct().all()
     }
@@ -156,7 +162,6 @@ def aggregate_order_metrics(db: Session, listing_query: Query, members_base: Que
                 MlOrdersOps.order_id,
                 MlOrdersOps.total_amount,
                 MlOrdersOps.currency_id,
-                MlOrdersOps.payment_status,
                 group_key.label("group_key"),
             )
             .filter(group_key.in_(selected_group_keys))
@@ -171,6 +176,31 @@ def aggregate_order_metrics(db: Session, listing_query: Query, members_base: Que
 
     states = metrics_state_for_orders(db, order_ids)
     metrics = read_stored_metrics(db, order_ids)
+
+    # Money predicate, bulk, ONE query for the whole batch: an order counts
+    # as money when it has AT LEAST ONE payment whose status is in
+    # `RELEVANT_PAYMENT_STATUSES` -- the SAME per-payment basis the Gauss
+    # chain (`breakdown_service.compute_breakdown`/`net_received_for_orders`)
+    # uses to decide `neto`/`total_gauss`. `MlOrdersOps.payment_status` is
+    # NOT usable here: it stores only the FIRST payment's status (see
+    # `ml_orders_ingestion/mapper.py`), so a buyer whose first card was
+    # rejected and second approved would read as non-money even though ML
+    # settled the order -- real revenue silently dropped from the gross.
+    # Deciding by the SAME basis the breakdown already applies keeps a
+    # single rule instead of a third, inconsistent one; it also keeps
+    # `gross_billed` and `neto_sum`/`total_gauss_sum` on the same footing
+    # (an order excluded here has no relevant payment, so the breakdown
+    # finds none either -- see `TestGrossAndNetoShareTheSameMoneyBasis`).
+    money_order_ids: set = set()
+    if order_ids:
+        money_order_ids = {
+            row.order_id
+            for row in db.query(MlPaymentOps.order_id)
+            .filter(MlPaymentOps.order_id.in_(order_ids))
+            .filter(MlPaymentOps.status.in_(RELEVANT_PAYMENT_STATUSES))
+            .distinct()
+            .all()
+        }
 
     recalculating_count = 0
     pending_count = 0
@@ -216,7 +246,7 @@ def aggregate_order_metrics(db: Session, listing_query: Query, members_base: Que
 
         orders_count += 1
 
-        is_money = order.payment_status in RELEVANT_PAYMENT_STATUSES
+        is_money = order.order_id in money_order_ids
 
         if order.total_amount is not None:
             if not is_money:
