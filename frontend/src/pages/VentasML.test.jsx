@@ -147,6 +147,10 @@ beforeEach(() => {
   mockTienePermiso.mockImplementation(() => true);
   api.get.mockReset();
   mockSalesList([]);
+  // The global jsdom `localStorage` stub (`src/test/setup.js`) persists
+  // across tests in the same file -- without this, one test's saved
+  // column-visibility state (ventas-ml-columnas) leaks into the next.
+  localStorage.clear();
 });
 
 describe('Visibility gated by ml_ops.ver', () => {
@@ -561,8 +565,13 @@ describe('Table header structure (ventas-ml-encabezados-fijos-y-tabla-compacta)'
 
     await screen.findByText(PAID_SALE.buyer_nickname);
     const table = screen.getByRole('table');
-    expect(table.querySelector('thead')).toBe(table.children[0]);
-    expect(table.querySelector('tbody')).toBe(table.children[1]);
+    // `<colgroup>` (ventas-ml-columnas T2, column-geometry sizing) is a
+    // legitimate direct table child ahead of `<thead>` — the concern this
+    // test guards is that `<thead>`/`<tbody>` are direct children of
+    // `<table>` and not nested inside some scrolling wrapper, not their
+    // exact sibling index.
+    expect(Array.from(table.children)).toContain(table.querySelector('thead'));
+    expect(Array.from(table.children)).toContain(table.querySelector('tbody'));
   });
 
   it('keeps every column header even with the panel open (compression, not hiding)', async () => {
@@ -588,6 +597,128 @@ describe('Table header structure (ventas-ml-encabezados-fijos-y-tabla-compacta)'
         'Total Gauss',
       ]),
     );
+  });
+});
+
+describe('Configurable columns (ventas-ml-columnas)', () => {
+  const CP_A1 = {
+    ...PAID_SALE,
+    order_id: 3000018230951686,
+    pack_id: 3000014816536209,
+    total_amount: 100,
+    buyer_nickname: 'CPBUYER',
+  };
+  const CP_A2 = {
+    ...PAID_SALE,
+    order_id: 3000018230945962,
+    pack_id: 3000014816536209,
+    total_amount: 200,
+    buyer_nickname: 'CPBUYER',
+  };
+
+  function packOfCp() {
+    return {
+      group_key: 'p:3000014816536209',
+      pack_id: 3000014816536209,
+      date_created: CP_A1.date_created,
+      buyer_nickname: 'CPBUYER',
+      total_amount: CP_A1.total_amount + CP_A2.total_amount,
+      neto: null,
+      currency_id: 'ARS',
+      shipping_status: CP_A1.shipping_status,
+      operation_status: CP_A1.operation_status,
+      goods_status: CP_A1.goods_status,
+      orders: [CP_A1, CP_A2],
+    };
+  }
+
+  // T4 — THE ONE THING THAT MUST NOT BREAK: hiding a column via the picker
+  // must remove it from the header, the group row, AND every expanded
+  // pack-member row, in the same order. If a member row keeps rendering a
+  // column the group row hid, every cell after that point shifts and money
+  // ends up under the wrong header for that row.
+  it('hides a column from the group row and its expanded pack-member rows together', async () => {
+    const user = userEvent.setup();
+    mockSalesList([packOfCp()]);
+    await renderWithRouter(<VentasML />);
+
+    const toggle = await screen.findByRole('button', { name: /Pack 3000014816536209/ });
+    await user.click(toggle);
+    const groupRow = toggle.closest('tr');
+    const memberRows = (await screen.findAllByText(/^300001823/)).map((el) => el.closest('tr'));
+
+    const cellCountBefore = within(groupRow).getAllByRole('cell').length;
+    memberRows.forEach((row) => {
+      expect(within(row).getAllByRole('cell').length).toBe(cellCountBefore);
+    });
+
+    await user.click(screen.getByRole('button', { name: 'Columnas' }));
+    await user.click(screen.getByRole('checkbox', { name: 'Envío' }));
+
+    await waitFor(() => {
+      expect(within(groupRow).getAllByRole('cell').length).toBe(cellCountBefore - 1);
+    });
+    const cellCountAfter = within(groupRow).getAllByRole('cell').length;
+    memberRows.forEach((row) => {
+      expect(within(row).getAllByRole('cell').length).toBe(cellCountAfter);
+    });
+    // And the header itself agrees.
+    expect(screen.queryAllByRole('columnheader').map((h) => h.textContent)).not.toContain('Envío');
+  });
+
+  // T5 — the empty/loading state's colSpan must track the VISIBLE column
+  // count, not a hardcoded constant that goes stale the moment a column is
+  // hidden (it used to be `TABLE_COLUMN_COUNT = 11`).
+  it('keeps the empty-state colSpan in sync with the visible column count', async () => {
+    const user = userEvent.setup();
+    mockSalesList([]);
+    await renderWithRouter(<VentasML />);
+
+    await screen.findByText('No hay ventas que coincidan con los filtros');
+    const headerCountBefore = screen.getAllByRole('columnheader').length;
+    let emptyCell = screen.getByText('No hay ventas que coincidan con los filtros');
+    expect(Number(emptyCell.getAttribute('colspan'))).toBe(headerCountBefore);
+
+    await user.click(screen.getByRole('button', { name: 'Columnas' }));
+    await user.click(screen.getByRole('checkbox', { name: 'Envío' }));
+
+    await waitFor(() => {
+      const headerCountAfter = screen.getAllByRole('columnheader').length;
+      expect(headerCountAfter).toBe(headerCountBefore - 1);
+    });
+    emptyCell = screen.getByText('No hay ventas que coincidan con los filtros');
+    expect(Number(emptyCell.getAttribute('colspan'))).toBe(headerCountBefore - 1);
+  });
+
+  // T6 — Producto and Total Gauss carry the whole point of this screen;
+  // the picker must never offer to hide either.
+  it('never offers Producto or Total Gauss in the column picker', async () => {
+    const user = userEvent.setup();
+    mockSalesList([asGroup(PAID_SALE)]);
+    await renderWithRouter(<VentasML />);
+    await screen.findByText(PAID_SALE.buyer_nickname);
+
+    await user.click(screen.getByRole('button', { name: 'Columnas' }));
+    expect(screen.queryByRole('checkbox', { name: 'Producto' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('checkbox', { name: 'Total Gauss' })).not.toBeInTheDocument();
+  });
+
+  // T7 — corrupted/disabled localStorage must never take the screen down
+  // with it; the fail-safe discipline from `tiendaNubeReconcileTableHelpers.js`
+  // (filter-to-known-ids, try/catch) applies here too.
+  it('survives a corrupted column-visibility payload in localStorage', async () => {
+    // The jsdom `localStorage` stub (`src/test/setup.js`) is a plain
+    // object with its own `getItem`, not a real `Storage` instance --
+    // spying on `Storage.prototype` would never reach it. Writing directly
+    // through the stub's own `setItem` is what actually reproduces a
+    // corrupted payload for `loadColumnVisibility`'s `JSON.parse` to trip
+    // over.
+    localStorage.setItem('ventasml:colvisibility', '{not json');
+    mockSalesList([asGroup(PAID_SALE)]);
+    await renderWithRouter(<VentasML />);
+
+    expect(await screen.findByText(PAID_SALE.buyer_nickname)).toBeInTheDocument();
+    expect(screen.getAllByRole('columnheader').length).toBeGreaterThan(0);
   });
 });
 
@@ -1569,5 +1700,136 @@ describe('ProductCell — product identity on the listing (PR14b)', () => {
     const member2 = (await screen.findByText('5602')).closest('tr');
     expect(within(member1).getByText('Lenovo V15 G4')).toBeInTheDocument();
     expect(within(member2).getByText('Monitor Samsung 24"')).toBeInTheDocument();
+  });
+});
+
+// ventas-ml-kpi-strip: the KPI strip must call the SAME filter params as
+// the list (T5) — a filter that reaches one endpoint but not the other
+// breaks "lo que veo es lo que suma", which is the entire point of the
+// feature.
+describe('the KPI strip stays in parity with the list', () => {
+  function mockKpi(overrides = {}) {
+    api.get.mockImplementation((url) => {
+      if (url === '/ml-ventas-ops/sales') {
+        return Promise.resolve({
+          data: { sales: [], total: 0, limit: 50, offset: 0, facets: { operation_status: {}, goods_status: {} } },
+        });
+      }
+      if (url === '/ml-ventas-ops/sales/kpis') {
+        return Promise.resolve({
+          data: {
+            groups_count: 0,
+            orders_count: 0,
+            gross_billed_ars: 0,
+            gross_billed_other: {},
+            neto_sum: 0,
+            neto_unknown_count: 0,
+            total_gauss_sum: 0,
+            total_gauss_ok_count: 0,
+            total_gauss_provisional_count: 0,
+            total_gauss_unresolved_count: 0,
+            markup_weighted_pct: null,
+            recalculating_count: 0,
+            pending_count: 0,
+            failed_count: 0,
+            markup_skipped_count: 0,
+            worker_alive: true,
+            excluded_by_toggle: { a_revisar: 0, en_disputa: 0, mixta: 0, provisorio: 0 },
+            effective_switches: {
+              include_unknown: true,
+              include_in_dispute: true,
+              include_mixed: true,
+              include_provisional: true,
+            },
+            ...overrides,
+          },
+        });
+      }
+      return Promise.resolve({ data: {} });
+    });
+  }
+
+  it('calls GET /ml-ventas-ops/sales/kpis on load, with no limit/offset', async () => {
+    mockKpi();
+    await renderWithRouter(<VentasML />);
+    await waitFor(() => {
+      expect(api.get).toHaveBeenCalledWith('/ml-ventas-ops/sales/kpis', expect.anything());
+    });
+    const kpiCall = api.get.mock.calls.find((c) => c[0] === '/ml-ventas-ops/sales/kpis');
+    expect(kpiCall[1].params).not.toHaveProperty('limit');
+    expect(kpiCall[1].params).not.toHaveProperty('offset');
+  });
+
+  it('carries a brand filter through to the KPI endpoint, not just to the list', async () => {
+    // The headline promise of this screen: filter a brand, see THAT BRAND's
+    // total. The parity test above only ever clicks a status facet, so a
+    // regression that dropped `marcas` from the KPI request alone would sail
+    // straight through it while the six cards quietly showed the total for
+    // everything.
+    mockKpi();
+    await renderWithRouter(<VentasML />, { initialEntries: ['/?marcas=Sony'] });
+
+    await waitFor(() => {
+      const kpiCall = api.get.mock.calls.find((c) => c[0] === '/ml-ventas-ops/sales/kpis');
+      expect(kpiCall).toBeTruthy();
+      expect(kpiCall[1].params.marcas).toBe('Sony');
+    });
+
+    const listCall = api.get.mock.calls.find((c) => c[0] === '/ml-ventas-ops/sales');
+    const kpiCall = api.get.mock.calls.find((c) => c[0] === '/ml-ventas-ops/sales/kpis');
+    expect(kpiCall[1].params.marcas).toBe(listCall[1].params.marcas);
+  });
+
+  it('sends the exact same filter params to the list and to the KPI endpoint', async () => {
+    mockKpi();
+    const user = userEvent.setup();
+    await renderWithRouter(<VentasML />);
+    await waitFor(() => {
+      expect(api.get).toHaveBeenCalledWith('/ml-ventas-ops/sales/kpis', expect.anything());
+    });
+
+    api.get.mock.calls.length = 0; // clear the initial-load calls, keep the mock implementation
+
+    await user.click(screen.getAllByRole('button', { name: /^Pagada/ })[0]);
+
+    await waitFor(() => {
+      const listCall = api.get.mock.calls.find((c) => c[0] === '/ml-ventas-ops/sales');
+      const kpiCall = api.get.mock.calls.find((c) => c[0] === '/ml-ventas-ops/sales/kpis');
+      expect(listCall).toBeTruthy();
+      expect(kpiCall).toBeTruthy();
+      const { limit, offset, ...listFilterParams } = listCall[1].params;
+      expect(kpiCall[1].params).toEqual(listFilterParams);
+    });
+  });
+
+  it('turning a toggle off reaches both the list and the KPI request with the same value', async () => {
+    mockKpi();
+    const user = userEvent.setup();
+    await renderWithRouter(<VentasML />);
+    await waitFor(() => {
+      expect(api.get).toHaveBeenCalledWith('/ml-ventas-ops/sales/kpis', expect.anything());
+    });
+
+    api.get.mock.calls.length = 0;
+
+    await user.click(screen.getByRole('checkbox', { name: /sin clasificar/i }));
+
+    await waitFor(() => {
+      const listCall = api.get.mock.calls.find((c) => c[0] === '/ml-ventas-ops/sales');
+      const kpiCall = api.get.mock.calls.find((c) => c[0] === '/ml-ventas-ops/sales/kpis');
+      expect(listCall[1].params.include_unknown).toBe(false);
+      expect(kpiCall[1].params.include_unknown).toBe(false);
+    });
+  });
+
+  it('renders a null markup_weighted_pct from the live response as "—", not 0%', async () => {
+    mockKpi({ markup_weighted_pct: null });
+    await renderWithRouter(<VentasML />);
+    await waitFor(() => {
+      expect(api.get).toHaveBeenCalledWith('/ml-ventas-ops/sales/kpis', expect.anything());
+    });
+    await waitFor(() => {
+      expect(screen.getByText('—', { selector: 'div' })).toBeInTheDocument();
+    });
   });
 });
