@@ -169,6 +169,18 @@ _PRISTINE_PG_COLUMN_TYPES = {
     for table in Base.metadata.tables.values()
     for column in table.columns
     if isinstance(column.type, tuple(_PG_TYPE_MAP.keys()))
+    # `_patch_pg_types_for_sqlite()` ALSO downgrades every BigInteger PK
+    # column to `Integer` (below), separately from the `_PG_TYPE_MAP`
+    # remaps above -- snapshot those too, or `_restore_pristine_pg_types()`
+    # can never undo that downgrade once it has happened. Without this, a
+    # Postgres-only fixture built AFTER anything called
+    # `_patch_pg_types_for_sqlite()` earlier in the session (e.g. the
+    # SQLite `engine` fixture, or another Postgres fixture's own
+    # "leave it patched for SQLite" step) emits `SERIAL` instead of
+    # `BIGSERIAL` for e.g. `ml_orders_ops.order_id`, and a real ML order id
+    # above 2**31-1 overflows with `NumericValueOutOfRange` --
+    # order-dependent across test files.
+    or (column.primary_key and isinstance(column.type, BigInteger))
 }
 
 
