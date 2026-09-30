@@ -10,7 +10,7 @@
 export const COLUMN_VISIBILITY_STORAGE_KEY = 'ventasml:colvisibility';
 
 // Fail-safe persistence — absent/corrupt/disabled localStorage MUST never
-// throw. A locked-visible column (Producto, Total Gauss) is never allowed
+// throw. A locked-visible column is never allowed
 // to load as hidden even if a stale/corrupted/foreign payload says so --
 // `LOCKED_VISIBLE_COLUMN_IDS` is TanStack's own `enableHiding: false`
 // escape hatch's source of truth, so this stays in lockstep with it rather

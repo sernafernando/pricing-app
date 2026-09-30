@@ -11,9 +11,12 @@ import styles from './ColumnPicker.module.css';
  * the header/body render from, so there is no separate "picker state" that
  * could drift from what the table actually shows.
  *
- * Columns with `enableHiding: false` (Producto, Total Gauss -- see
- * `ventasMlColumns.jsx`) are left out of the list entirely: offering a
- * checkbox that TanStack itself refuses to uncheck would be a dead control.
+ * Columns with `enableHiding: false` are left out of the list entirely:
+ * offering a checkbox TanStack itself refuses to uncheck would be a dead
+ * control. Which ones those are lives in `ventasMlColumns.jsx` and is NOT
+ * repeated here -- the list grew once already (Producto and Total Gauss for
+ * the information they carry, then alerta, orden and neto for the CONTROLS
+ * they hold) and a copy of it here would just rot.
  */
 const POPOVER_ID = 'ventas-ml-column-picker';
 

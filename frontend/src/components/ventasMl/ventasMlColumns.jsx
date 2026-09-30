@@ -36,11 +36,15 @@ import {
 // render needs — see `the group-row cell context`/`the member-row cell context` in
 // `VentasML.jsx`.
 //
-// `size` is in PIXELS, measured against the real content (see
-// `odd/tasks/ventas-ml-columnas.md`), not a percentage — that is the whole
-// point of this change: a percentage table can shrink `colProducto` to
-// eight characters and there is no way to tell from the CSS alone that
-// this will happen.
+// `size` is expressed in PIXELS, measured against the real content (see
+// `odd/tasks/ventas-ml-columnas.md`). They are RATIOS, not absolute widths:
+// `VentasML.jsx` renders each one as `size / total-of-visible * 100%` in the
+// `<colgroup>`, so the table still compresses to whatever room it has
+// instead of overflowing past the card's edge. Pixels are just a readable
+// unit for "how much room does this content need relative to the rest", and
+// they are measurable against a real string, which ten percentages spread
+// across a CSS file were not: the old layout shrank the product column to
+// eight characters on a laptop and nothing in the CSS said it would.
 export const COLUMNS = [
   {
     id: 'alerta',

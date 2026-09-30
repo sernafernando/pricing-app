@@ -43,7 +43,7 @@ function formatPct(value) {
 export default function KpiStrip({ kpi, loading, error }) {
   if (loading) {
     return (
-      <div className={styles.strip} aria-label="Métricas principales">
+      <div className={styles.strip} role="region" aria-label="Métricas principales">
         <div className={styles.stateCard}>Cargando métricas…</div>
       </div>
     );
@@ -59,7 +59,7 @@ export default function KpiStrip({ kpi, loading, error }) {
           ? 'Las métricas de ventas están desactivadas.'
           : 'No se pudieron cargar las métricas.';
     return (
-      <div className={styles.strip} aria-label="Métricas principales">
+      <div className={styles.strip} role="region" aria-label="Métricas principales">
         <div className={styles.stateCard}>{message}</div>
       </div>
     );
@@ -89,7 +89,7 @@ export default function KpiStrip({ kpi, loading, error }) {
   const gaussUnresolved = kpi.total_gauss_unresolved_count || 0;
 
   return (
-    <div className={styles.strip} aria-label="Métricas principales">
+    <div className={styles.strip} role="region" aria-label="Métricas principales">
       {!kpi.worker_alive && (
         <div className={styles.workerWarning}>
           <AlertTriangle size={14} aria-hidden="true" />

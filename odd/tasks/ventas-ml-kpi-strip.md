@@ -53,10 +53,16 @@ effective_switches{}`
       Desglose incompleto). Tokens del design system, nada de Tailwind.
 - [x] T2 — Honestidad de los números: lo que no se pudo resolver se CUENTA
       aparte, nunca se suma como cero. `markup_weighted_pct` nulo se muestra
-      como "—", no como 0%. La tarjeta de "Desglose incompleto" junta
-      `neto_unknown_count` + `total_gauss_unresolved_count` +
-      `recalculating_count` + `pending_count` + `failed_count` y dice de qué
-      está hecha.
+      como "—", no como 0%.
+
+      CORREGIDO respecto de lo que pedía originalmente esta tarea: el número
+      grande de "Desglose incompleto" suma SOLO `recalculating_count` +
+      `pending_count` + `failed_count`, que son mutuamente excluyentes.
+      `neto_unknown_count` y `total_gauss_unresolved_count` NO se suman ni
+      entre sí ni al resto: `aggregate.py` los incrementa desde la MISMA fila
+      guardada, así que una orden sin neto y con Gauss sin resolver se contaba
+      dos veces, y como lo uno suele implicar lo otro la tarjeta venía casi
+      duplicando el número. Se informan aparte, sin total inventado.
 - [x] T3 — Moneda: `gross_billed_ars` es ARS. `gross_billed_other` son otras
       monedas y NO se suman a los pesos; se muestran aparte.
 - [x] T4 — Los cuatro toggles en la UI (`IncludeToggles.jsx`), con el badge
