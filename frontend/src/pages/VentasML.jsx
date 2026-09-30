@@ -47,9 +47,10 @@
  * the API per order for whoever needs the finer reading.
  */
 
-import { Fragment, useState, useEffect, useCallback, useRef } from 'react';
+import { Fragment, useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { Link } from 'react-router-dom';
-import { ShoppingBag, ShieldAlert, ChevronRight, AlertTriangle } from 'lucide-react';
+import { useReactTable, getCoreRowModel } from '@tanstack/react-table';
+import { ShoppingBag, ShieldAlert, AlertTriangle } from 'lucide-react';
 import { usePermisos } from '../contexts/PermisosContext';
 import api from '../services/api';
 import VentasMLLayout from '../components/ventasMl/VentasMLLayout';
@@ -58,12 +59,24 @@ import PackDetailPanel from '../components/ventasMl/PackDetailPanel';
 import SalesToolbar from '../components/ventasMl/SalesToolbar';
 import FacetChips from '../components/ventasMl/FacetChips';
 import ProductFiltersPanel from '../components/shared/ProductFiltersPanel';
-import AlertIcon from '../components/ventasMl/AlertIcon';
-import RecalculatingBadge from '../components/ventasMl/RecalculatingBadge';
-import ProductCell from '../components/ventasMl/ProductCell';
+import KpiStrip from '../components/ventasMl/KpiStrip';
+import IncludeToggles from '../components/ventasMl/IncludeToggles';
+import ColumnPicker from '../components/ventasMl/ColumnPicker';
+import { COLUMNS } from '../components/ventasMl/ventasMlColumns';
+import { loadColumnVisibility, saveColumnVisibility } from './ventasMlTableHelpers';
 import { useVentasMLFilters } from '../hooks/useVentasMLFilters';
 import VariosVentaPctModal from '../components/VariosVentaPctModal';
 import DateRangeFilter from '../components/DateRangeFilter';
+import { buildVentasMLFilterParams } from '../utils/ventasMlParams';
+import {
+  formatDate,
+  OPERATION_STATUS_LABELS,
+  OPERATION_STATUS_OPTIONS,
+  GOODS_STATUS_LABELS,
+  GOODS_STATUS_OPTIONS,
+  groupAlertLevel,
+  groupMetricsState,
+} from '../utils/ventasMlFormat';
 import styles from './VentasML.module.css';
 
 const PAGE_SIZE = 50;
@@ -75,229 +88,12 @@ const EMPTY_FACETS = {
   goods_status_total: 0,
 };
 
-const OPERATION_STATUS_LABELS = {
-  paid: 'Pagada',
-  cancelled: 'Cancelada',
-  // A cancellation Mercado Libre covered through its Buyer Protection
-  // Programme — the money still arrived, so this must not read as a plain
-  // cancellation.
-  cancelled_ml_covered: 'Cubierta por ML',
-  in_dispute: 'En disputa',
-  delivered: 'Entregada',
-  unknown: 'A revisar',
-  // Not a status the backend derives per order — the pack's orders
-  // disagree. Never render a winner.
-  mixed: 'Mixta',
-};
-
-const OPERATION_STATUS_BADGE_CLASS = {
-  paid: 'badge-primary',
-  cancelled: 'badge-danger',
-  cancelled_ml_covered: 'badge-success',
-  in_dispute: 'badge-warning',
-  delivered: 'badge-success',
-  unknown: 'badge-neutral',
-  mixed: 'badge-warning',
-};
-
-// `mixed` is deliberately NOT a filter chip: it is a property of a row,
-// not a value any order carries, so there is nothing to filter on.
-const OPERATION_STATUS_OPTIONS = Object.keys(OPERATION_STATUS_LABELS).filter((v) => v !== 'mixed');
-
-const GOODS_STATUS_LABELS = {
-  unknown: 'A revisar',
-  in_warehouse: 'En depósito',
-  in_transit: 'En tránsito',
-  delivered: 'Entregado',
-  returned_undelivered: 'Devuelto sin entregar',
-  mixed: 'Mixta',
-};
-
-const GOODS_STATUS_BADGE_CLASS = {
-  unknown: 'badge-neutral',
-  in_warehouse: 'badge-primary',
-  in_transit: 'badge-warning',
-  delivered: 'badge-success',
-  returned_undelivered: 'badge-danger',
-  mixed: 'badge-warning',
-};
-
-const GOODS_STATUS_OPTIONS = Object.keys(GOODS_STATUS_LABELS).filter((v) => v !== 'mixed');
-
-// ml-ventas-modo-logistico PR6: `modo_logistico` badge. Known values come
-// straight from `MlShipmentOps.logistic_type` (`resolve_modo_logistico`,
-// backend): `self_service` is Flex, `fulfillment` is Full, `cross_docking`
-// is Colecta. `retiro` is the tag-only fallback when there is no shipment
-// at all. An UNRECOGNISED value is rendered VERBATIM — never folded into
-// "desconocido" — because the backend passes a future ML logistic type
-// through on purpose so it cannot silently vanish here.
-const MODO_LOGISTICO_LABELS = {
-  self_service: 'Flex',
-  fulfillment: 'Full',
-  cross_docking: 'Colecta',
-  retiro: 'Retiro',
-  desconocido: 'Desconocido',
-  // The group's modo_logistico when its orders disagree — same "mixed"
-  // discipline as the two status axes above.
-  mixed: 'Mixto',
-};
-
-const MODO_LOGISTICO_BADGE_CLASS = {
-  self_service: 'badge-primary',
-  fulfillment: 'badge-success',
-  cross_docking: 'badge-warning',
-  retiro: 'badge-neutral',
-  desconocido: 'badge-neutral',
-  mixed: 'badge-warning',
-};
-
-// Locale pinned, like every other page in the app (`Prearmado.jsx`,
-// `DashboardMetricasML.jsx`). Left to the browser, a client in en-US
-// renders MM/DD and AM/PM in the middle of a DD/MM table.
-const DATE_FORMAT = new Intl.DateTimeFormat('es-AR', {
-  day: '2-digit',
-  month: '2-digit',
-  year: 'numeric',
-  hour: '2-digit',
-  minute: '2-digit',
-  hour12: false,
-});
-
-function formatDate(value) {
-  if (!value) return '—';
-  return DATE_FORMAT.format(new Date(value));
-}
-
-// With thousands separators. `1234567.50 ARS` in a column of amounts
-// forces the operator to count digits to tell 1,2M from 123k.
-// The listing is denominated in ARS, so repeating "ARS" on every row costs
-// the width the amount itself needs: with `table-layout: fixed` a money
-// column is a share of the table, and at Full HD with the side panel open
-// the suffix pushes a 7-digit amount over its cell and on top of the next
-// one. Only a foreign currency is spelled out -- which also makes the few
-// USD sales stand out instead of blending in. `formatMoneyFull` keeps the
-// unabridged value for `title` tooltips and for anywhere the currency is
-// not implied by the surrounding column.
-const LISTING_IMPLIED_CURRENCY = 'ARS';
-
-function formatAmount(value) {
-  return new Intl.NumberFormat('es-AR', {
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
-  }).format(Number(value));
-}
-
-function formatMoneyFull(value, currencyId) {
-  if (value === null || value === undefined) return '—';
-  const amount = formatAmount(value);
-  return currencyId ? `${amount} ${currencyId}` : amount;
-}
-
-// Tooltip for a money cell: the unabridged value, or nothing at all. A
-// `title` is still a way of reading the number, so it obeys the same rule
-// as the visible cell -- while metrics are being recalculated the stale
-// figure must not surface anywhere (SM R3/R9), and an absent value gets no
-// tooltip rather than a tooltip reading "—".
-function moneyTitle(value, currencyId, metricsState) {
-  if (metricsState && metricsState !== 'ok') return undefined;
-  if (value === null || value === undefined) return undefined;
-  return formatMoneyFull(value, currencyId);
-}
-
-function formatMoney(value, currencyId) {
-  if (value === null || value === undefined) return '—';
-  const amount = formatAmount(value);
-  if (!currencyId || currencyId === LISTING_IMPLIED_CURRENCY) return amount;
-  return `${amount} ${currencyId}`;
-}
-
-// ml-ventas-neto-iibb-varios PR1.T12: the listing's own explanation for
-// why Neto reads higher than what ML deposited -- same text and fields as
-// the drawer's sub-line (decision c), rendered as a `title` tooltip on
-// the Neto button rather than a permanent row, since the listing has no
-// room for a second line per row.
-// ventas-ml-rediseno PR14.T5/T9 (LISTING R28/R29, SM R3/R9): the row-level
-// summaries below are the ONLY client-side aggregation this table does over
-// per-order fields, and deliberately never touch money -- `group_neto`/
-// `group_total_gauss` already come pre-aggregated from the backend
-// (`SaleGroup`), null whenever any member is unresolved. These three only
-// decide which ICON/BADGE the pack-level row shows.
-
-// Worst-first, same discipline as the existing status "mixed" precedent:
-// a pack with any order in `error` reads as `error`, not an average.
-function groupAlertLevel(orders) {
-  if (orders.some((o) => o.alert_level === 'error')) return 'error';
-  if (orders.some((o) => o.alert_level === 'warning')) return 'warning';
-  return 'ok';
-}
-
-// Same precedence as `RecalculatingBadge` expects: `recalculating` beats
-// `failed` beats `pending` beats `ok`, so the pack row never claims a
-// stale/finished state while one of its orders is still catching up.
-function groupMetricsState(orders) {
-  if (orders.some((o) => o.metrics_state === 'recalculating')) return 'recalculating';
-  if (orders.some((o) => o.metrics_state === 'failed')) return 'failed';
-  if (orders.some((o) => o.metrics_state === 'pending')) return 'pending';
-  return 'ok';
-}
-
-// A pack's icon is only shown when every order agrees on `item_category` --
-// showing one item's category for a multi-item parcel would misrepresent
-// the other items, so this renders nothing (falls back to no icon) instead
-// of picking an arbitrary member.
-function groupCategory(orders) {
-  const categories = new Set(orders.map((o) => o.item_category).filter(Boolean));
-  return categories.size === 1 ? [...categories][0] : null;
-}
-
-// ventas-ml-producto-listado-pr10b (PR14.T5/T6 blocker): a pack's row is
-// one PARCEL but can carry several orders, each with its own item(s) — the
-// collapsed row must represent EVERY item across the whole pack, never
-// just the first order's. `ProductCell` itself only ever silently keeps
-// the count of what it does not show inline (the "+N productos" badge);
-// this flattens the source so that count is correct at the pack level too.
-function groupItems(orders) {
-  return orders.flatMap((o) => o.items || []);
-}
-
-// PR14 review fix P3: mirrors `_alert_level`'s own precedence
-// (`ml_ventas_ops.py`) using only the fields the listing endpoint actually
-// exposes per order (`metrics_state`, `neto`, `operation_status`,
-// `goods_status`) -- `iva_reconcilia` is never sent to the FE, so a warning
-// caused solely by that check falls back to the generic label rather than
-// inventing a reason the data cannot back up.
-function orderAlertReason(order) {
-  if (!order) return undefined;
-  if (order.metrics_state === 'failed') return 'El recálculo de esta venta falló.';
-  if (order.metrics_state === 'pending') return 'Todavía no se calculó esta venta.';
-  if (order.neto == null) return 'El neto de esta venta es desconocido.';
-  if (order.metrics_state === 'recalculating') return 'Esta venta se está recalculando.';
-  if (order.operation_status === 'unknown') return 'El estado de la operación todavía no se clasificó.';
-  if (order.goods_status === 'unknown') return 'El estado de la mercadería todavía no se clasificó.';
-  return 'Esta venta requiere revisión.';
-}
-
-// The group row's own alert_level is the worst among its orders
-// (`groupAlertLevel`). The reason shown must come from an order that
-// actually carries that level -- never a guess picked from an unrelated
-// member.
-function groupAlertReason(orders, level) {
-  const culprit = orders.find((o) => o.alert_level === level);
-  return orderAlertReason(culprit);
-}
-
-const TABLE_COLUMN_COUNT = 11;
-
-function netoTooltip(netoDepositado, retencionesRecuperables) {
-  if (!(retencionesRecuperables > 0)) return undefined;
-  return `MP $ ${new Intl.NumberFormat('es-AR', {
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
-  }).format(Number(netoDepositado))} · SIRTAC $ ${new Intl.NumberFormat('es-AR', {
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
-  }).format(Number(retencionesRecuperables))}`;
-}
+// Status labels/badge classes, money/date formatting, and the group-level
+// alert/metrics-state/category/items helpers all live in
+// `utils/ventasMlFormat.js` now (ventas-ml-columnas) -- moved out so
+// `components/ventasMl/ventasMlColumns.jsx` can render both the group row
+// and the pack-member rows from the SAME formatting rules without an
+// import cycle back into this page module. Behaviour unchanged.
 
 export default function VentasML() {
   const latestRequestRef = useRef(0);
@@ -320,6 +116,22 @@ export default function VentasML() {
   // count is best-effort — a failure here must never break the sales list
   // itself, only skip the warning banner (see the catch block below).
   const [failedIngestCount, setFailedIngestCount] = useState(0);
+
+  // ventas-ml-kpi-strip T5: the four `include_*` toggles. Defaulted to
+  // `true` (show everything) to match the LIST endpoint's own legacy
+  // backward-compatible default (`GET /sales`'s docstring) -- before this
+  // feature the frontend never sent them at all, so the list already
+  // behaved as if all four were on. Both the list and the KPI request read
+  // from this SAME state (T5 parity), regardless of each endpoint's own
+  // individual default.
+  const [includeUnknown, setIncludeUnknown] = useState(true);
+  const [includeInDispute, setIncludeInDispute] = useState(true);
+  const [includeMixed, setIncludeMixed] = useState(true);
+  const [includeProvisional, setIncludeProvisional] = useState(true);
+
+  const [kpi, setKpi] = useState(null);
+  const [kpiLoading, setKpiLoading] = useState(true);
+  const [kpiError, setKpiError] = useState(null);
 
   const [operationStatusFilter, setOperationStatusFilter] = useState('');
   const [goodsStatusFilter, setGoodsStatusFilter] = useState('');
@@ -348,6 +160,39 @@ export default function VentasML() {
       return next;
     });
   }, []);
+
+  // ventas-ml-columnas: the table instance is used ONLY as a column-
+  // geometry engine (sizing + visibility) -- the same discipline
+  // `tiendaNubeReconcileTableHelpers.js` documents for its own table. Rows
+  // still render manually below, for BOTH the group row and the expanded
+  // pack-member rows, from `table.getVisibleLeafColumns()` -- that is what
+  // keeps a hidden column out of every row kind at once (T4).
+  const [columnVisibility, setColumnVisibilityState] = useState(() =>
+    loadColumnVisibility(COLUMNS),
+  );
+
+  const handleColumnVisibilityChange = useCallback((updater) => {
+    setColumnVisibilityState((prev) => {
+      const next = typeof updater === 'function' ? updater(prev) : updater;
+      saveColumnVisibility(next);
+      return next;
+    });
+  }, []);
+
+  const table = useReactTable({
+    columns: COLUMNS,
+    data: useMemo(() => [], []),
+    getCoreRowModel: getCoreRowModel(),
+    state: { columnVisibility },
+    onColumnVisibilityChange: handleColumnVisibilityChange,
+  });
+
+  const visibleColumns = table.getVisibleLeafColumns();
+  // Sum of the VISIBLE columns only, so the `<colgroup>` ratios below always
+  // add up to 100% no matter how many the operator hid. `getTotalSize()`
+  // would serve here too, but naming it makes the division read as what it
+  // is: a share of what is actually on screen.
+  const visibleColumnsTotalSize = visibleColumns.reduce((acc, col) => acc + col.getSize(), 0) || 1;
 
   // Panel selection lives in the `orden` URL param, consistent with this
   // screen's other URL-driven filters (PANEL R19 — see design D14). The
@@ -442,8 +287,23 @@ export default function VentasML() {
     setDateRangeFiltro(null);
     setSearchQuery('');
     clearProductFilters();
+    setIncludeUnknown(true);
+    setIncludeInDispute(true);
+    setIncludeMixed(true);
+    setIncludeProvisional(true);
     setOffset(0);
   }, [setSearchQuery, clearProductFilters]);
+
+  // T4/T5: a single fan-out so a toggle change always reaches both the
+  // list and the KPI request (they read the same state) and never drifts
+  // out of sync with each other.
+  const handleToggleChange = useCallback((key, value) => {
+    if (key === 'includeUnknown') setIncludeUnknown(value);
+    else if (key === 'includeInDispute') setIncludeInDispute(value);
+    else if (key === 'includeMixed') setIncludeMixed(value);
+    else if (key === 'includeProvisional') setIncludeProvisional(value);
+    setOffset(0);
+  }, []);
 
   const hasActiveFilters = Boolean(
     operationStatusFilter ||
@@ -453,7 +313,11 @@ export default function VentasML() {
       searchQuery ||
       productFilters.marcas.length > 0 ||
       productFilters.subcategorias.length > 0 ||
-      productFilters.pms.length > 0
+      productFilters.pms.length > 0 ||
+      !includeUnknown ||
+      !includeInDispute ||
+      !includeMixed ||
+      !includeProvisional
   );
 
   // "Todas" is neither `total` (scoped by BOTH axes, so it under-counts
@@ -471,19 +335,25 @@ export default function VentasML() {
     setLoading(true);
     setErrorKind(null);
     try {
-      const params = { limit: PAGE_SIZE, offset };
-      if (operationStatusFilter) params.operation_status = operationStatusFilter;
-      if (goodsStatusFilter) params.goods_status = goodsStatusFilter;
-      if (fechaDesde) params.date_from = fechaDesde;
-      if (fechaHasta) params.date_to = fechaHasta;
-      // SEARCH R26: the search term combines with every other active
-      // filter as an INTERSECTION — sent alongside them in the same
-      // request, never as a separate call that replaces the filtered set.
-      if (searchQuery) params.q = searchQuery;
-      if (productFilters.marcas.length > 0) params.marcas = productFilters.marcas.join(',');
-      if (productFilters.subcategorias.length > 0)
-        params.subcategorias = productFilters.subcategorias.join(',');
-      if (productFilters.pms.length > 0) params.pms = productFilters.pms.join(',');
+      // T5: the list uses the SAME filter params the KPI strip does
+      // (`buildVentasMLFilterParams`) plus its own pagination on top — the
+      // one shared builder is what keeps the two requests from drifting.
+      const params = {
+        limit: PAGE_SIZE,
+        offset,
+        ...buildVentasMLFilterParams({
+          operationStatusFilter,
+          goodsStatusFilter,
+          fechaDesde,
+          fechaHasta,
+          searchQuery,
+          productFilters,
+          includeUnknown,
+          includeInDispute,
+          includeMixed,
+          includeProvisional,
+        }),
+      };
       const { data } = await api.get('/ml-ventas-ops/sales', { params });
       if (requestId !== latestRequestRef.current) return;
       setSales(data.sales || []);
@@ -515,8 +385,70 @@ export default function VentasML() {
     fechaHasta,
     searchQuery,
     productFilters,
+    includeUnknown,
+    includeInDispute,
+    includeMixed,
+    includeProvisional,
     offset,
   ]);
+
+  // T5/T6: the KPI strip's own load — same filter params as the list
+  // (never its `limit`/`offset`, the endpoint aggregates the whole
+  // filtered set), a separate request so a paging click doesn't re-fetch
+  // totals that have not changed, and its own sequence guard for the same
+  // reason `cargarVentas` needs one.
+  const latestKpiRequestRef = useRef(0);
+  const cargarKpis = useCallback(async () => {
+    if (!puedeVer) return;
+    const requestId = ++latestKpiRequestRef.current;
+    setKpiLoading(true);
+    setKpiError(null);
+    try {
+      const params = buildVentasMLFilterParams({
+        operationStatusFilter,
+        goodsStatusFilter,
+        fechaDesde,
+        fechaHasta,
+        searchQuery,
+        productFilters,
+        includeUnknown,
+        includeInDispute,
+        includeMixed,
+        includeProvisional,
+      });
+      const { data } = await api.get('/ml-ventas-ops/sales/kpis', { params });
+      if (requestId !== latestKpiRequestRef.current) return;
+      setKpi(data);
+    } catch (err) {
+      if (requestId !== latestKpiRequestRef.current) return;
+      setKpi(null);
+      // Same three kinds the list already distinguishes (see `errorKind`):
+      // 403 is "you lack the permission", 503 is "the feature is switched
+      // off". Collapsing them into one generic message sends an operator
+      // hunting for an outage that is really a flag, or for a flag that is
+      // really their own permissions.
+      const kpiStatus = err?.response?.status;
+      setKpiError(kpiStatus === 403 ? 'forbidden' : kpiStatus === 503 ? 'disabled' : 'generic');
+    } finally {
+      if (requestId === latestKpiRequestRef.current) setKpiLoading(false);
+    }
+  }, [
+    puedeVer,
+    operationStatusFilter,
+    goodsStatusFilter,
+    fechaDesde,
+    fechaHasta,
+    searchQuery,
+    productFilters,
+    includeUnknown,
+    includeInDispute,
+    includeMixed,
+    includeProvisional,
+  ]);
+
+  useEffect(() => {
+    cargarKpis();
+  }, [cargarKpis]);
 
   useEffect(() => {
     cargarVentas();
@@ -563,6 +495,7 @@ export default function VentasML() {
           <h1>Ventas ML</h1>
         </div>
         <div className={styles.headerActions}>
+          <ColumnPicker table={table} />
           <button
             type="button"
             className="btn-tesla outline sm"
@@ -570,7 +503,19 @@ export default function VentasML() {
           >
             % de varios
           </button>
-          <button type="button" className="btn-tesla outline sm" onClick={cargarVentas} disabled={loading}>
+          {/* Refreshes BOTH: reloading only the list would leave the six
+              cards showing the previous totals beside fresh rows, which is
+              exactly the "what I see is what it sums" promise broken by the
+              one button whose whole job is to make them agree. */}
+          <button
+            type="button"
+            className="btn-tesla outline sm"
+            onClick={() => {
+              cargarVentas();
+              cargarKpis();
+            }}
+            disabled={loading}
+          >
             {loading ? 'Actualizando...' : 'Actualizar'}
           </button>
         </div>
@@ -606,6 +551,8 @@ export default function VentasML() {
           {' '}Ver divergencias
         </Link>
       )}
+
+      <KpiStrip kpi={kpi} loading={kpiLoading} error={kpiError} />
 
       <SalesToolbar
         value={searchQuery}
@@ -658,6 +605,17 @@ export default function VentasML() {
         <div className={styles.divider} />
 
         <div className={styles.filterRow}>
+          <span className={styles.fieldLabel}>Incluir</span>
+          <IncludeToggles
+            values={{ includeUnknown, includeInDispute, includeMixed, includeProvisional }}
+            excludedByToggle={kpi?.excluded_by_toggle}
+            onChange={handleToggleChange}
+          />
+        </div>
+
+        <div className={styles.divider} />
+
+        <div className={styles.filterRow}>
           <span className={styles.fieldLabel}>Y además</span>
           <DateRangeFilter
             fechaDesde={fechaDesde}
@@ -694,32 +652,54 @@ export default function VentasML() {
         }
       >
       <div className={styles.tableCard}>
+        {/* NO inline `width: table.getTotalSize()`. The eleven `size` values
+            add up to 1427px, and `.tableCard` deliberately has no
+            `overflow-x` above 1280px (it would become a scroll container on
+            BOTH axes and break the sticky header). A fixed 1427px table in
+            the ~1080px a 1366px laptop leaves after the sidebar does not
+            scroll -- the right-hand columns simply fall off the edge, Total
+            Gauss included, with no way to reach them. Worse than the
+            squeeze it replaced.
+
+            So the table stays `width: 100%` and each `size` is used as a
+            RATIO of the visible total below: one source of truth for the
+            proportions, compression instead of clipping, and hiding a
+            column still hands its share to the rest. */}
         <table className={styles.table}>
+          <colgroup>
+            {visibleColumns.map((col) => (
+              <col
+                key={col.id}
+                style={{ width: `${((col.getSize() / visibleColumnsTotalSize) * 100).toFixed(4)}%` }}
+              />
+            ))}
+          </colgroup>
           <thead>
             <tr>
-              <th className={styles.colAlerta} aria-label="Alerta" />
-              <th className={styles.colProducto}>Producto</th>
-              <th className={styles.colOrden}>Orden</th>
-              <th className={styles.colFecha}>Fecha</th>
-              <th className={styles.colComprador}>Comprador</th>
-              <th className={styles.colOperacion}>Operación</th>
-              <th className={styles.colMercaderia}>Mercadería</th>
-              <th className={styles.colEnvio}>Envío</th>
-              <th className={`${styles.colImporte} ${styles.numeric}`}>Importe</th>
-              <th className={`${styles.colNeto} ${styles.numeric}`}>Neto</th>
-              <th className={`${styles.colTotalGauss} ${styles.numeric}`}>Total Gauss</th>
+              {table.getFlatHeaders().map((h) => {
+                const def = h.column.columnDef;
+                return (
+                  <th
+                    key={h.id}
+                    className={def.numeric ? styles.numeric : def.align === 'center' ? styles.colAlerta : undefined}
+                    aria-label={def.header ? undefined : def.headerAriaLabel}
+                  >
+                    {def.header}
+                  </th>
+                );
+              })}
             </tr>
           </thead>
           <tbody>
             {loading ? (
               <tr>
-                <td className={styles.stateCell} colSpan={TABLE_COLUMN_COUNT}>
+                <td className={styles.stateCell} colSpan={visibleColumns.length}>
                   Cargando ventas…
                 </td>
               </tr>
             ) : sales.length === 0 ? (
               <tr>
-                <td className={styles.stateCell} colSpan={TABLE_COLUMN_COUNT}>
+                <td className={styles.stateCell} colSpan={visibleColumns.length}>
                   No hay ventas que coincidan con los filtros
                 </td>
               </tr>
@@ -752,6 +732,19 @@ export default function VentasML() {
                   : representativeOrderId != null
                     ? () => openDrawer(representativeOrderId)
                     : undefined;
+                const groupCtx = {
+                  kind: 'group',
+                  group,
+                  orders,
+                  isPack,
+                  isOpen,
+                  toggleExpanded,
+                  loneOrder,
+                  groupLevel,
+                  metricsState: groupMetricsState(orders),
+                  isRowClickable,
+                  openGroupPanel,
+                };
                 return (
                   <Fragment key={group.group_key}>
                     {/* The row click is a MOUSE SHORTCUT, deliberately not a
@@ -766,274 +759,56 @@ export default function VentasML() {
                       }`.trim()}
                       onClick={isRowClickable ? openGroupPanel : undefined}
                     >
-                      <td className={styles.colAlerta}>
-                        <AlertIcon level={groupLevel} reason={groupAlertReason(orders, groupLevel)} />
-                      </td>
-                      <td className={styles.colProducto}>
-                        <ProductCell items={groupItems(orders)} category={groupCategory(orders)} />
-                      </td>
-                      <td className={styles.colOrden}>
-                        {isPack ? (
-                          <button
-                            type="button"
-                            className={styles.packToggle}
-                            aria-expanded={isOpen}
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              toggleExpanded(group.group_key);
-                            }}
-                          >
-                            <ChevronRight
-                              size={14}
-                              className={`${styles.chevron} ${isOpen ? styles.chevronOpen : ''}`}
-                              aria-hidden="true"
-                            />
-                            <span>
-                              <span className={styles.orden}>Pack {group.pack_id}</span>
-                              <span className={styles.subline}>
-                                {orders.length} órdenes
-                              </span>
-                            </span>
-                          </button>
-                        ) : (
-                          <span className={styles.orden}>{orders[0]?.order_id ?? group.group_key}</span>
-                        )}
-                      </td>
-                      <td className={styles.fecha}>{formatDate(group.date_created)}</td>
-                      <td className={styles.buyer} title={group.buyer_nickname || undefined}>
-                        {group.buyer_nickname || '—'}
-                      </td>
-                      <td>
-                        <span
-                          className={`badge ${OPERATION_STATUS_BADGE_CLASS[group.operation_status] || 'badge-neutral'}`}
-                        >
-                          {OPERATION_STATUS_LABELS[group.operation_status] || group.operation_status}
-                        </span>
-                      </td>
-                      <td>
-                        <span
-                          className={`badge ${GOODS_STATUS_BADGE_CLASS[group.goods_status] || 'badge-neutral'}`}
-                        >
-                          {GOODS_STATUS_LABELS[group.goods_status] || group.goods_status}
-                        </span>
-                      </td>
-                      <td>
-                        <span
-                          className={`badge ${MODO_LOGISTICO_BADGE_CLASS[group.modo_logistico] || 'badge-neutral'}`}
-                        >
-                          {MODO_LOGISTICO_LABELS[group.modo_logistico] || group.modo_logistico}
-                        </span>
-                        {/* PR14 review fix P1: a lone sale has no
-                            pack-member block to render this in -- it must
-                            carry its own subline. */}
-                        {loneOrder &&
-                          (loneOrder.city || loneOrder.province || loneOrder.shipping_substatus) && (
-                            <span className={styles.subline}>
-                              {[loneOrder.city, loneOrder.province].filter(Boolean).join(', ') || '—'}
-                              {loneOrder.shipping_substatus ? ` · ${loneOrder.shipping_substatus}` : ''}
-                            </span>
-                          )}
-                      </td>
-                      <td
-                        className={styles.numeric}
-                        title={moneyTitle(group.total_amount, group.currency_id)}
-                      >
-                        {formatMoney(group.total_amount, group.currency_id)}
-                      </td>
-                      <td className={styles.numeric}>
-                        {(() => {
-                          const metricsState = groupMetricsState(orders);
-                          // SM R3/R9: a pack with any unresolved member
-                          // never shows the (possibly stale) sum as the
-                          // current amount -- the badge replaces it.
-                          const content =
-                            metricsState !== 'ok' ? (
-                              <RecalculatingBadge state={metricsState} />
-                            ) : (
-                              formatMoney(group.neto, group.currency_id)
-                            );
-                          if (isRowClickable) {
-                            return (
-                              // PR14 review fix P2: this button IS the
-                              // keyboard route to the detail panel (see the
-                              // <tr> comment above) -- it must survive
-                              // every metrics_state, carrying the badge as
-                              // its content instead of being replaced by it.
-                              // PR19: opens the SAME panel the row itself
-                              // opens -- pack-scoped for a pack, order-scoped
-                              // for a lone sale.
-                              <button
-                                type="button"
-                                className={styles.netoButton}
-                                // The visible text is the amount, so without
-                                // this a screen reader announces "button,
-                                // 82,50 ARS" and never says what it does.
-                                aria-label="Ver desglose de costos"
-                                title={
-                                  metricsState === 'ok'
-                                    ? netoTooltip(group.neto_depositado, group.retenciones_recuperables)
-                                    : undefined
-                                }
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  openGroupPanel();
-                                }}
-                              >
-                                {content}
-                              </button>
-                            );
-                          }
-                          return content;
-                        })()}
-                      </td>
-                      <td
-                        className={styles.numeric}
-                        title={moneyTitle(group.total_gauss, group.currency_id, groupMetricsState(orders))}
-                      >
-                        {groupMetricsState(orders) !== 'ok' ? (
-                          <RecalculatingBadge state={groupMetricsState(orders)} />
-                        ) : (
-                          <>
-                            {formatMoney(group.total_gauss, group.currency_id)}
-                            {/* total-gauss-provisorio: the pack sum already
-                                includes a member's provisional figure -- the
-                                badge says so at THIS level too, not only in
-                                the drawer (product owner's explicit
-                                decision). */}
-                            {group.total_gauss_provisional && (
-                              <span
-                                className={`badge badge-warning ${styles.provisionalBadge}`}
-                                title={`Calculado sin ${(group.total_gauss_provisional_falta || 'Envío Flex').toLowerCase()}: todavía no se cargó la etiqueta de envío.`}
-                              >
-                                Provisorio
-                              </span>
-                            )}
-                            {/* PR14 review fix P1: markup was only ever
-                                rendered inside the pack-member block -- a
-                                lone sale must carry its own. */}
-                            {loneOrder && loneOrder.markup !== null && loneOrder.markup !== undefined && (
-                              <span className={styles.markup}>
-                                {new Intl.NumberFormat('es-AR', { maximumFractionDigits: 1 }).format(loneOrder.markup)}%
-                              </span>
-                            )}
-                          </>
-                        )}
-                      </td>
+                      {/* T4/T3: the group row renders EXACTLY the columns
+                          `table.getVisibleLeafColumns()` reports -- the
+                          same list the header and the pack-member rows
+                          below read from, so hiding a column can never
+                          desync one row kind from another. */}
+                      {visibleColumns.map((col) => {
+                        const def = col.columnDef;
+                        const extraProps = def.cellProps ? def.cellProps(groupCtx) : {};
+                        const className = [def.numeric ? styles.numeric : '', def.align === 'center' ? styles.colAlerta : '', extraProps.className || '']
+                          .filter(Boolean)
+                          .join(' ');
+                        return (
+                          <td key={col.id} {...extraProps} className={className || undefined}>
+                            {def.cell(groupCtx)}
+                          </td>
+                        );
+                      })}
                     </tr>
                     {/* The orders inside the parcel. Rendered only when
                         opened, and never for a lone order — there is
                         nothing to unfold. */}
                     {isPack &&
                       isOpen &&
-                      orders.map((order) => (
-                        <tr
-                          key={order.order_id}
-                          className={`${styles.memberRow} ${styles.clickableRow}`}
-                          onClick={() => openDrawer(order.order_id)}
-                        >
-                          <td className={styles.colAlerta}>
-                            <AlertIcon level={order.alert_level} reason={orderAlertReason(order)} />
-                          </td>
-                          <td className={styles.colProducto}>
-                            <ProductCell items={order.items} category={order.item_category} />
-                          </td>
-                          <td className={styles.colOrden}>
-                            <span className={styles.memberOrden}>{order.order_id}</span>
-                          </td>
-                          <td className={styles.fecha}>{formatDate(order.date_created)}</td>
-                          <td />
-                          <td>
-                            <span
-                              className={`badge ${OPERATION_STATUS_BADGE_CLASS[order.operation_status] || 'badge-neutral'}`}
-                            >
-                              {OPERATION_STATUS_LABELS[order.operation_status] || order.operation_status}
-                            </span>
-                          </td>
-                          <td>
-                            <span
-                              className={`badge ${GOODS_STATUS_BADGE_CLASS[order.goods_status] || 'badge-neutral'}`}
-                            >
-                              {GOODS_STATUS_LABELS[order.goods_status] || order.goods_status}
-                            </span>
-                          </td>
-                          <td>
-                            <span
-                              className={`badge ${MODO_LOGISTICO_BADGE_CLASS[order.modo_logistico] || 'badge-neutral'}`}
-                            >
-                              {MODO_LOGISTICO_LABELS[order.modo_logistico] || order.modo_logistico}
-                            </span>
-                            {(order.city || order.province || order.shipping_substatus) && (
-                              <span className={styles.subline}>
-                                {[order.city, order.province].filter(Boolean).join(', ') || '—'}
-                                {order.shipping_substatus ? ` · ${order.shipping_substatus}` : ''}
-                              </span>
-                            )}
-                          </td>
-                          <td
-                            className={styles.numeric}
-                            title={moneyTitle(order.total_amount, order.currency_id)}
+                      orders.map((order) => {
+                        const memberCtx = { kind: 'member', order, openDrawer };
+                        return (
+                          <tr
+                            key={order.order_id}
+                            className={`${styles.memberRow} ${styles.clickableRow}`}
+                            onClick={() => openDrawer(order.order_id)}
                           >
-                            {formatMoney(order.total_amount, order.currency_id)}
-                          </td>
-                          <td className={styles.numeric}>
-                            {(() => {
-                              const isRecalc = order.metrics_state && order.metrics_state !== 'ok';
-                              // PR14 review fix P2: same discipline as the
-                              // group row -- the button is the keyboard
-                              // affordance and must survive every
-                              // metrics_state, carrying the badge as its
-                              // content.
+                            {/* T4: THE SAME `visibleColumns` list the group
+                                row above just rendered -- a hidden column
+                                disappears from both at once, so a value can
+                                never shift under the wrong header here. */}
+                            {visibleColumns.map((col) => {
+                              const def = col.columnDef;
+                              const extraProps = def.cellProps ? def.cellProps(memberCtx) : {};
+                              const className = [def.numeric ? styles.numeric : '', def.align === 'center' ? styles.colAlerta : '', extraProps.className || '']
+                                .filter(Boolean)
+                                .join(' ');
                               return (
-                                <button
-                                  type="button"
-                                  className={styles.netoButton}
-                                  aria-label="Ver desglose de costos"
-                                  title={
-                                    isRecalc
-                                      ? undefined
-                                      : netoTooltip(order.neto_depositado, order.retenciones_recuperables)
-                                  }
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    openDrawer(order.order_id);
-                                  }}
-                                >
-                                  {isRecalc ? (
-                                    <RecalculatingBadge state={order.metrics_state} />
-                                  ) : (
-                                    formatMoney(order.neto, order.currency_id)
-                                  )}
-                                </button>
+                                <td key={col.id} {...extraProps} className={className || undefined}>
+                                  {def.cell(memberCtx)}
+                                </td>
                               );
-                            })()}
-                          </td>
-                          <td
-                            className={styles.numeric}
-                            title={moneyTitle(order.total_gauss, order.currency_id, order.metrics_state)}
-                          >
-                            {order.metrics_state && order.metrics_state !== 'ok' ? (
-                              <RecalculatingBadge state={order.metrics_state} />
-                            ) : (
-                              <>
-                                {formatMoney(order.total_gauss, order.currency_id)}
-                                {order.total_gauss_provisional && (
-                                  <span
-                                    className={`badge badge-warning ${styles.provisionalBadge}`}
-                                    title={`Calculado sin ${(order.total_gauss_provisional_falta || 'Envío Flex').toLowerCase()}: todavía no se cargó la etiqueta de envío.`}
-                                  >
-                                    Provisorio
-                                  </span>
-                                )}
-                                {order.markup !== null && order.markup !== undefined && (
-                                  <span className={styles.markup}>
-                                    {new Intl.NumberFormat('es-AR', { maximumFractionDigits: 1 }).format(order.markup)}%
-                                  </span>
-                                )}
-                              </>
-                            )}
-                          </td>
-                        </tr>
-                      ))}
+                            })}
+                          </tr>
+                        );
+                      })}
                   </Fragment>
                 );
               })

@@ -1,0 +1,102 @@
+/* ventas-ml-kpi-strip T1: six-card totals strip. Layout/hierarchy follow
+   the Stitch mockup's "KPI Metric Strip" section (uppercase small label,
+   big mono number, small secondary sub-line, warning-coloured 6th card) —
+   this project has no Tailwind, so every class here is this project's own
+   design tokens, same convention as `VentasML.module.css`/
+   `ProductCell.module.css`. */
+
+.strip {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  margin-bottom: var(--spacing-md);
+}
+
+.cards {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: var(--space-3);
+}
+
+@media (min-width: 768px) {
+  .cards {
+    grid-template-columns: repeat(3, 1fr);
+  }
+}
+
+@media (min-width: 1280px) {
+  .cards {
+    grid-template-columns: repeat(6, 1fr);
+  }
+}
+
+.card {
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  padding: var(--space-3);
+  background: var(--bg-primary);
+  border: 1px solid var(--border-primary);
+  border-radius: var(--radius-lg);
+}
+
+.cardWarning {
+  background: var(--warning-light);
+  border-color: var(--warning);
+}
+
+.label {
+  font-size: 11px;
+  font-weight: var(--font-semibold);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--text-tertiary);
+}
+
+.cardWarning .label {
+  color: var(--warning-text);
+}
+
+.value {
+  margin-top: var(--space-1);
+  font-family: var(--font-mono);
+  font-size: var(--font-xl);
+  font-weight: var(--font-semibold);
+  color: var(--text-primary);
+  font-variant-numeric: tabular-nums;
+}
+
+.cardWarning .value {
+  color: var(--warning-text);
+}
+
+.sub {
+  margin-top: 2px;
+  font-size: var(--font-xs);
+  color: var(--text-tertiary);
+}
+
+.cardWarning .sub {
+  color: var(--warning-text);
+}
+
+.stateCard {
+  padding: var(--spacing-lg);
+  text-align: center;
+  color: var(--text-tertiary);
+  background: var(--bg-primary);
+  border: 1px solid var(--border-primary);
+  border-radius: var(--radius-lg);
+}
+
+.workerWarning {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-3);
+  font-size: var(--font-sm);
+  color: var(--warning-text);
+  background: var(--warning-light);
+  border: 1px solid var(--warning);
+  border-radius: var(--radius-md);
+}

@@ -190,16 +190,18 @@
   border-radius: var(--radius-lg);
 }
 
-/* `table-layout: fixed` + percentage column widths (see `.col*` below) is
-   the compression mechanism for Q2: column widths are a share of
-   whatever room `.tableCard` actually has, so the row COMPRESSES when the
-   side panel narrows it instead of overflowing and hiding columns behind
-   `.tableCard`'s horizontal scroll. On a genuinely wide monitor the same
-   percentages simply resolve to more pixels, so nothing needs to change
-   there -- no separate breakpoint is needed for this to "only happen on
-   FHD". Cells that can still overflow their fixed width truncate with an
-   ellipsis (`.buyer` below, `.colProducto`'s ProductCell) rather than
-   pushing the layout wider. */
+/* `table-layout: fixed` + a `width: 100%` table is the compression
+   mechanism for Q2. The per-column widths no longer live here: they are
+   `size` values in `ventasMlColumns.jsx`, rendered into the `<colgroup>` as
+   a PERCENTAGE of the visible columns' total (see the comment at that
+   `<colgroup>`). So a column's width is still a share of whatever room
+   `.tableCard` actually has, and the row COMPRESSES when the side panel
+   narrows it instead of overflowing and hiding columns past the card's
+   edge. On a genuinely wide monitor the same shares simply resolve to more
+   pixels -- no breakpoint needed for this to "only happen on FHD". Cells
+   that can still overflow their share truncate with an ellipsis (`.buyer`
+   below, ProductCell's own title/meta) rather than pushing the layout
+   wider. */
 .table {
   width: 100%;
   table-layout: fixed;
@@ -255,73 +257,17 @@
   background: var(--bg-hover);
 }
 
-/* No `white-space: nowrap`. A 16-digit order id ("Pack 2000014816536209")
-   is wider than 8% of a table that has the side panel open, and under
-   `table-layout: fixed` the content does NOT widen the cell -- it spills
-   over the Fecha column. Letting the id wrap keeps every digit visible,
-   which is the point: compress, never hide. */
-.colOrden {
-  width: 8%;
-}
-
+/* ventas-ml-columnas: every column's WIDTH is now a pixel `size` on
+   `COLUMNS` (`components/ventasMl/ventasMlColumns.jsx`), applied through
+   the `<colgroup>` TanStack's column-geometry engine renders -- ONE source
+   of truth, not two. `.colAlerta` keeps only its non-width styling
+   (centered, non-wrapping icon); every other `.col*` percentage-width
+   class that used to live here (colOrden/colProducto/colFecha/
+   colComprador/colOperacion/colMercaderia/colEnvio/colImporte/colNeto/
+   colTotalGauss) carried nothing but a width and is gone with it. */
 .colAlerta {
-  width: 32px;
   white-space: nowrap;
   text-align: center;
-}
-
-/* Product cell column: wide enough for a title + meta line, but never
-   forced open — `min-width: 0` on the flex children inside `ProductCell`
-   is what makes the ellipsis truncation actually work in a table cell,
-   and this column shrinks together with the rest when the side panel
-   narrows the table (`table-layout: fixed` on `.table` is what makes a
-   `%` width here actually compress instead of just being a hint). */
-/* Deliberately `auto`, not a percentage. Every other column is a
-   percentage and `.colAlerta` is a fixed 32px; if this one declared a
-   percentage too the declared widths would add up to more than the table
-   has, and with `table-layout: fixed` the surplus overflows the card --
-   the very overflow this screen removed. `auto` makes the product column
-   absorb whatever is left, which is also the column best suited to it: it
-   already truncates with an ellipsis (the `min-width: 0` that actually
-   enables that truncation lives on the flex children inside
-   `ProductCell`; a `min-width` here would be ignored under fixed layout). */
-.colProducto {
-  width: auto;
-}
-
-.colFecha {
-  width: 8%;
-}
-
-.colComprador {
-  width: 9%;
-}
-
-.colOperacion {
-  width: 9%;
-}
-
-/* Widest of the badge columns: "Devuelto sin entregar" is the longest
-   label `GOODS_STATUS_LABELS` renders and needs the extra room to stay
-   on one line at `--font-xs`. */
-.colMercaderia {
-  width: 11%;
-}
-
-.colEnvio {
-  width: 10%;
-}
-
-.colImporte {
-  width: 9%;
-}
-
-.colNeto {
-  width: 9%;
-}
-
-.colTotalGauss {
-  width: 10%;
 }
 
 .markup {
