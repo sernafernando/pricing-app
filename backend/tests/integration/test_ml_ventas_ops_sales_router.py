@@ -857,6 +857,35 @@ class TestNetoInListing:
         assert counter.matching("ml_payments_ops") <= 8
         assert counter.matching("ml_payment_charges") <= 3
 
+    def test_no_date_filter_and_non_accreditation_sort_never_joins_accreditation(
+        self, db, client, admin_auth_headers, rol_admin, query_counter
+    ) -> None:
+        """`base` is shared by every derived query (key page, total, facets,
+        switches). The accreditation subquery must be joined onto it ONLY
+        when actually needed -- a date filter, or the accreditation-based
+        sort (the default `sort=date_created`). Neither applies here
+        (`sort=ml_last_updated`, no `date_from`/`date_to`), so `base` must be
+        EXACTLY what it was before ODD `ventas-ml-dia-por-acreditacion`: the
+        original ceiling (2/3), not the inflated one (8) another path
+        legitimately needs."""
+        _grant_ml_ops_ver(db, rol_admin)
+        when = datetime(2026, 9, 1, tzinfo=timezone.utc)
+        for i in range(5):
+            order_id = 81200 + i
+            _seed_order(db, order_id, date_created=when)
+            _payment(db, 81200 + i, order_id, status="approved", net_received_amount=Decimal("100.00"))
+            _charge(db, 81200 + i, "meli_percentage_fee", "fee", Decimal("10.00"))
+        db.commit()
+
+        with query_counter() as counter:
+            resp = client.get(
+                "/api/ml-ventas-ops/sales", params={"sort": "ml_last_updated"}, headers=admin_auth_headers
+            )
+        assert resp.status_code == 200
+
+        assert counter.matching("ml_payments_ops") <= 3
+        assert counter.matching("ml_payment_charges") <= 2
+
 
 class TestMixedCurrencyPack:
     def test_a_pack_across_two_currencies_reports_no_amount_at_all(self, db, client, admin_auth_headers, rol_admin):

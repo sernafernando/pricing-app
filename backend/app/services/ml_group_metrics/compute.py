@@ -108,11 +108,17 @@ def _members_by_group(db: Session, group_keys: Sequence[str]) -> Dict[str, List[
 
 @dataclass(frozen=True)
 class _OrderFacts:
-    """The `ml_orders_ops` columns the group-level fields are derived from."""
+    """The `ml_orders_ops` columns the group-level fields are derived from.
+
+    `date_created` was REMOVED (ODD `ventas-ml-dia-por-acreditacion`,
+    review finding #6): `_group_date` now reads accreditation dates
+    exclusively via `member_accreditation_dates`, and a repo-wide search
+    confirmed nothing else read this field -- bringing it back needs a new,
+    deliberate reason, not a silent carry-over from the old
+    `date_created`-MIN basis."""
 
     total_amount: Optional[Decimal]
     currency_id: Optional[str]
-    date_created: Optional[datetime]
 
 
 def _order_facts(db: Session, order_ids: Sequence[int]) -> Dict[int, _OrderFacts]:
@@ -125,7 +131,6 @@ def _order_facts(db: Session, order_ids: Sequence[int]) -> Dict[int, _OrderFacts
             MlOrdersOps.order_id,
             MlOrdersOps.total_amount,
             MlOrdersOps.currency_id,
-            MlOrdersOps.date_created,
         )
         .filter(MlOrdersOps.order_id.in_(list(order_ids)))
         .all()
@@ -134,7 +139,6 @@ def _order_facts(db: Session, order_ids: Sequence[int]) -> Dict[int, _OrderFacts
         row.order_id: _OrderFacts(
             total_amount=row.total_amount,
             currency_id=row.currency_id,
-            date_created=row.date_created,
         )
         for row in filas
     }

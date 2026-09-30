@@ -118,6 +118,26 @@ class TestBackfillGroupDateAccreditation:
         row = slate.execute(text("SELECT group_date FROM ml_group_metrics WHERE group_key = 'o:3'")).one()
         assert row.group_date == datetime(2026, 9, 1, tzinfo=timezone.utc)
 
+    def test_dry_run_examined_counts_rows_actually_scanned_not_rows_that_would_change(self, slate) -> None:
+        """`examined` must mean rows actually examined, in BOTH modes. Under
+        `--dry-run` it was set to `remaining` (rows that WOULD change), which
+        misreports the moment one already-correct row exists alongside a
+        stale one: `examined` (scanned) must be 2, `remaining` (would change)
+        must stay 1 -- they are different numbers and must not collapse."""
+        _order(slate, 20)
+        _payment(slate, 20, 20, "approved", datetime(2026, 9, 30, tzinfo=timezone.utc))
+        _group_metrics_row(slate, "o:20", [20], datetime(2026, 9, 1, tzinfo=timezone.utc))  # stale -> would change
+
+        _order(slate, 21)
+        _payment(slate, 21, 21, "approved", datetime(2026, 9, 15, tzinfo=timezone.utc))
+        _group_metrics_row(slate, "o:21", [21], datetime(2026, 9, 15, tzinfo=timezone.utc))  # already correct
+        slate.commit()
+
+        resultado = run_backfill(limit=None, dry_run=True)
+
+        assert resultado["remaining"] == 1
+        assert resultado["examined"] == 2, "examined must count ALL scanned rows, not only the ones that would change"
+
     def test_no_accredited_payment_becomes_null_group_date(self, slate) -> None:
         _order(slate, 4)
         _payment(slate, 4, 4, "rejected", None)
@@ -140,3 +160,37 @@ class TestBackfillGroupDateAccreditation:
 
         assert resultado["written"] == 1
         assert resultado["remaining"] == 1, "a partial run must NEVER report 0 remaining"
+
+    def test_writes_go_out_as_one_executemany_per_batch_not_one_update_per_row(self, slate) -> None:
+        """BLOCKING finding: the real run touches ~77k rows. Issuing one
+        `UPDATE` per changed `group_key` is 77k round trips. The batch must
+        build a list of param dicts and hand them to a SINGLE `db.execute(text(...), [...])`
+        call (`executemany`), the same pattern `backfill_ml_group_metrics.py`'s
+        `store_group_metrics` already uses via `db.execute(stmt, rows)`."""
+        for i in range(10, 13):
+            _order(slate, i)
+            _payment(slate, i, i, "approved", datetime(2026, 9, 30, tzinfo=timezone.utc))
+            _group_metrics_row(slate, f"o:{i}", [i], datetime(2026, 9, 1, tzinfo=timezone.utc))
+        slate.commit()
+
+        update_calls = []
+        real_execute = slate.execute
+
+        def _spy(clause, *args, **kwargs):
+            sql_text = str(getattr(clause, "text", clause))
+            if sql_text.strip().upper().startswith("UPDATE ML_GROUP_METRICS"):
+                update_calls.append(args[0] if args else None)
+            return real_execute(clause, *args, **kwargs)
+
+        slate.execute = _spy
+        try:
+            resultado = run_backfill(limit=None, dry_run=False, batch_size=500)
+        finally:
+            slate.execute = real_execute
+
+        assert resultado["written"] == 3
+        assert len(update_calls) == 1, (
+            f"expected exactly ONE executemany UPDATE call for the whole batch of 3 changed rows, "
+            f"got {len(update_calls)} calls (one per row = N+1)"
+        )
+        assert isinstance(update_calls[0], list) and len(update_calls[0]) == 3

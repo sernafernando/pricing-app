@@ -20,8 +20,6 @@ DESC, `order_id` DESC tiebreak).
 
 from __future__ import annotations
 
-from sqlalchemy import func
-
 from datetime import datetime, timezone
 
 import pytest
@@ -281,10 +279,59 @@ class TestPackGrouping:
 
 
 class TestPaginationOrderingParity:
-    def test_group_key_query_orders_by_date_then_order_id_desc(self, db):
+    """Real parity with what the router ACTUALLY does, not a hand-rolled
+    reimplementation of its ordering rule (review finding #4: a test that
+    mirrors production code instead of calling it is the same trap the
+    original `min(date_created)` version fell into -- it kept passing green
+    after the router moved the default sort to `MAX(date_approved)` over
+    the relevant payments, because it never called the router's own
+    ordering logic to find out).
+
+    `build_key_page_query` -- the SAME function
+    `GET /sales` calls -- is imported and called directly, against a
+    `SalesFilter(date_range=None)` scope so the accreditation subquery is
+    NOT pre-joined by `build_scope` (`scope.accreditation_joined is
+    False`), exactly like the router's default (no date filter) request:
+    this also exercises `build_key_page_query`'s own join-when-needed
+    branch (review finding #2), not just its ordering.
+    """
+
+    def test_group_key_query_orders_by_accreditation_then_order_id_desc(self, db):
+        from app.models.ml_payments import MlPaymentOps
+        from app.routers.ml_ventas_ops import SORT_BY_SALE_DATE, build_key_page_query
+
+        # `date_created` is DELIBERATELY out of step with accreditation, so
+        # a test that (wrongly) asserted `date_created` order would fail:
+        # order 52 has the LATEST `date_created` but the EARLIEST
+        # accreditation; order 50 has the EARLIEST `date_created` but the
+        # LATEST accreditation. Only a test that calls the router's real
+        # ordering -- accreditation DESC -- gets this right.
         _seed_order(db, 50, date_created=datetime(2026, 1, 1, tzinfo=timezone.utc))
         _seed_order(db, 51, date_created=datetime(2026, 1, 1, tzinfo=timezone.utc))
         _seed_order(db, 52, date_created=datetime(2026, 1, 2, tzinfo=timezone.utc))
+        db.add_all(
+            [
+                MlPaymentOps(
+                    payment_id=900050,
+                    order_id=50,
+                    status="approved",
+                    date_approved=datetime(2026, 1, 5, tzinfo=timezone.utc),
+                ),
+                MlPaymentOps(
+                    payment_id=900051,
+                    order_id=51,
+                    status="approved",
+                    date_approved=datetime(2026, 1, 3, tzinfo=timezone.utc),
+                ),
+                MlPaymentOps(
+                    payment_id=900052,
+                    order_id=52,
+                    status="approved",
+                    date_approved=datetime(2026, 1, 1, tzinfo=timezone.utc),
+                ),
+            ]
+        )
+        db.flush()
         scope = build_scope(
             db,
             SalesFilter(
@@ -292,20 +339,10 @@ class TestPaginationOrderingParity:
                 include_in_dispute=True,
             ),
         )
-
-        key_rows = (
-            scope.listing_query.with_entities(
-                scope.group_key.label("group_key"),
-                func.min(MlOrdersOps.date_created).label("group_date"),
-            )
-            # The EXPRESSION, never the string `"group_key"` -- see
-            # `ml_ventas_ops.py`'s comment on the exact same landmine: this
-            # scope's `base`/`listing_query` is now ALWAYS left-joined to
-            # the accreditation subquery (T4), which ALSO exposes a
-            # `group_key` output column, so a bare string alias resolves
-            # ambiguously on Postgres.
-            .group_by(scope.group_key)
-            .order_by(func.min(MlOrdersOps.date_created).desc().nullslast(), func.max(MlOrdersOps.order_id).desc())
-            .all()
+        assert scope.accreditation_joined is False, (
+            "this test exists to exercise the un-joined, sort-only-needs-it path -- see review finding #2"
         )
-        assert [r.group_key for r in key_rows] == ["o:52", "o:51", "o:50"]
+
+        key_rows = build_key_page_query(scope, SORT_BY_SALE_DATE, limit=50, offset=0).all()
+
+        assert [r.group_key for r in key_rows] == ["o:50", "o:51", "o:52"]

@@ -32,6 +32,7 @@ from typing import Any, Dict, List, Optional, Tuple
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, status
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import func
+from sqlalchemy.orm import Query as SAQuery
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_current_user
@@ -69,6 +70,7 @@ from app.services.ml_ventas_desglose.breakdown_service import (
 from app.services.ml_sales_query.aggregate import aggregate_order_metrics
 from app.services.ml_sales_query.filters import (
     SalesFilter,
+    SalesScope,
     build_scope,
     collapse,
     effective_switches,
@@ -902,6 +904,94 @@ SORT_BY_TOTAL_GAUSS = "total_gauss"
 SALE_SORTS = (SORT_BY_SALE_DATE, SORT_BY_LAST_UPDATE, SORT_BY_TOTAL_GAUSS)
 
 
+def build_key_page_query(scope: SalesScope, sort: str, limit: int, offset: int) -> SAQuery:
+    """The grouped/ordered/paged GROUP KEY query `GET /sales` runs to
+    decide which page of groups to show (T4/T9, review finding #4: the
+    single producer of this ordering -- a test asserting "pagination
+    ordering parity" must call THIS, never reimplement the ordering rules
+    itself, or it stops testing what production actually does).
+
+    `sort` picks the ORDER BY key and, for `total_gauss`, an extra join;
+    `scope.listing_query` already carries everything else (seller, date,
+    status/product facets, search, switches -- see `build_scope`).
+
+    ODD `ventas-ml-dia-por-acreditacion` (T4, review finding #2): the
+    sort/page key for `SORT_BY_SALE_DATE` (the default) must read the SAME
+    basis the day filter itself applies. `build_scope` only LEFT-joins
+    `scope.accreditation_subquery` onto `base`/`listing_query` when a date
+    filter is active (`scope.accreditation_joined`); when it is NOT (no
+    date filter, but the sort still needs the column) this query joins it
+    itself, once, right here -- never taxing the OTHER sorts
+    (`ml_last_updated`/`total_gauss`), which need no accreditation data at
+    all and must stay at the original, un-inflated query cost.
+    """
+    group_key = scope.group_key
+    key_page_query = scope.listing_query
+    if sort == SORT_BY_TOTAL_GAUSS:
+        # ventas-ml-rediseno PR7.T5/T6 (design D2, D1 rationale): the sort
+        # key now joins the AUTHORITATIVE `ml_order_metrics` table, never
+        # the legacy `MlOrdersOps.total_gauss*` mirror -- that column is
+        # kept only for backward-compat until PR8's cleanup. One outer
+        # join for the whole page, never a per-row query loop.
+        key_page_query = key_page_query.outerjoin(MlOrderMetrics, MlOrderMetrics.order_id == MlOrdersOps.order_id)
+    needs_accreditation_sort = sort not in (SORT_BY_LAST_UPDATE, SORT_BY_TOTAL_GAUSS)
+    accreditation_date_col = None
+    if needs_accreditation_sort:
+        accreditation_date_col = scope.accreditation_subquery.c.accreditation_date
+        if not scope.accreditation_joined:
+            key_page_query = key_page_query.outerjoin(
+                scope.accreditation_subquery, scope.accreditation_subquery.c.group_key == group_key
+            )
+    key_page_entities = [group_key.label("group_key")]
+    if needs_accreditation_sort:
+        key_page_entities.append(func.max(accreditation_date_col).label("group_date"))
+    return (
+        key_page_query.with_entities(*key_page_entities)
+        # The EXPRESSION, never the string `"group_key"`. That string is an
+        # output alias, and as soon as a toggle is off `_apply_switches` joins
+        # a subquery that ALSO exposes a `group_key` column: Postgres then
+        # resolves the alias to the subquery's column instead of the CASE
+        # above, leaving that CASE's `pack_id` ungrouped, and answers
+        #   GroupingError: column "ml_orders_ops.pack_id" must appear in the
+        #   GROUP BY clause or be used in an aggregate function
+        # -- a 500 on every request with any of the four switches off.
+        #
+        # It stayed invisible because three things lined up: with all four ON
+        # `_apply_switches` returns the query untouched (no join, no ambiguous
+        # name), the frontend did not send the toggles at all until now so
+        # that all-ON path was the ONLY one production ever ran, and SQLite
+        # resolves the alias to the outer expression so the whole existing
+        # test suite passes. See `test_filters_switches_postgres.py`.
+        .group_by(group_key)
+        # The tiebreaker is `max(order_id)`, NOT `group_key`: the key is TEXT,
+        # and text ordering puts "o:9" after "o:10". Ordering groups by their
+        # key would silently drop the deterministic numeric tiebreaker the
+        # per-order listing had, which is what `TestPagination` pins.
+        .order_by(
+            (
+                func.max(MlOrdersOps.ml_last_updated).desc()
+                if sort == SORT_BY_LAST_UPDATE
+                # `nullslast()`: a historical order with no stored metrics
+                # row yet (design D7) has `total_gauss IS NULL` -- SQLite
+                # and Postgres order NULLs differently by default, so an
+                # explicit `nullslast()` is required or the sort disagrees
+                # between the test suite and production.
+                else func.max(MlOrderMetrics.total_gauss).desc().nullslast()
+                if sort == SORT_BY_TOTAL_GAUSS
+                # `ml_last_updated` is NOT NULL, so it needs no nullslast();
+                # `accreditation_date` is nullable (a sale with no accredited
+                # payment has none) and Postgres would otherwise put its
+                # NULLs first on a DESC sort -- and per the rule, a dateless
+                # sale belongs LAST regardless, never first.
+                else func.max(accreditation_date_col).desc().nullslast()
+            ),
+            func.max(MlOrdersOps.order_id).desc(),
+        )
+        .limit(limit)
+        .offset(offset)
+    )
+
+
 def _parse_date_range(date_from: Optional[str], date_to: Optional[str]) -> Optional[Tuple[datetime, datetime]]:
     """Parses `YYYY-MM-DD` bounds into a tz-aware `[from 00:00, to+1d 00:00)`
     range, so `date_from == date_to` means that whole day rather than an
@@ -1160,8 +1250,11 @@ def listar_ventas(
     derived query-time via `op_status_expr`/`goods_status_expr` from `ml_sales_query.filters`,
     the single source of truth those mirror lives in `operation_status.py`).
 
-    Paginated with a deterministic tiebreaker (`date_created` DESC, then
-    `order_id` DESC) -- `date_created` alone is not unique across orders.
+    Paginated with a deterministic tiebreaker: by default (`sort=date_created`)
+    the primary key is the accreditation date (`MAX(date_approved)` over
+    each group's RELEVANT payments -- ODD `ventas-ml-dia-por-acreditacion`),
+    DESC, then `order_id` DESC. Accreditation alone is not unique across
+    groups, and a group with no accredited payment sorts last, never first.
 
     Facet counts (`facets.operation_status`, `facets.goods_status`) are
     each computed WITHIN the scope the OTHER active filters leave
@@ -1255,69 +1348,7 @@ def listar_ventas(
     # Pagination happens over GROUPS, so a pack can never be split across
     # two pages: page the keys first, then fetch every member of those keys.
     group_key = scope.group_key
-    key_page_query = listing_query
-    if sort == SORT_BY_TOTAL_GAUSS:
-        # ventas-ml-rediseno PR7.T5/T6 (design D2, D1 rationale): the sort
-        # key now joins the AUTHORITATIVE `ml_order_metrics` table, never
-        # the legacy `MlOrdersOps.total_gauss*` mirror -- that column is
-        # kept only for backward-compat until PR8's cleanup. One outer
-        # join for the whole page, never a per-row query loop.
-        key_page_query = key_page_query.outerjoin(MlOrderMetrics, MlOrderMetrics.order_id == MlOrdersOps.order_id)
-    # ODD `ventas-ml-dia-por-acreditacion` (T4): the sort/page key for
-    # `SORT_BY_SALE_DATE` must read the SAME basis the day filter itself
-    # applies (`scope.accreditation_subquery`, already LEFT-joined into
-    # `base`/`listing_query` by `build_scope`) -- otherwise the list is
-    # filtered by one date and sorted by another.
-    accreditation_date_col = scope.accreditation_subquery.c.accreditation_date
-    key_page = (
-        key_page_query.with_entities(
-            group_key.label("group_key"),
-            func.max(accreditation_date_col).label("group_date"),
-        )
-        # The EXPRESSION, never the string `"group_key"`. That string is an
-        # output alias, and as soon as a toggle is off `_apply_switches` joins
-        # a subquery that ALSO exposes a `group_key` column: Postgres then
-        # resolves the alias to the subquery's column instead of the CASE
-        # above, leaving that CASE's `pack_id` ungrouped, and answers
-        #   GroupingError: column "ml_orders_ops.pack_id" must appear in the
-        #   GROUP BY clause or be used in an aggregate function
-        # -- a 500 on every request with any of the four switches off.
-        #
-        # It stayed invisible because three things lined up: with all four ON
-        # `_apply_switches` returns the query untouched (no join, no ambiguous
-        # name), the frontend did not send the toggles at all until now so
-        # that all-ON path was the ONLY one production ever ran, and SQLite
-        # resolves the alias to the outer expression so the whole existing
-        # test suite passes. See `test_filters_switches_postgres.py`.
-        .group_by(group_key)
-        # The tiebreaker is `max(order_id)`, NOT `group_key`: the key is TEXT,
-        # and text ordering puts "o:9" after "o:10". Ordering groups by their
-        # key would silently drop the deterministic numeric tiebreaker the
-        # per-order listing had, which is what `TestPagination` pins.
-        .order_by(
-            (
-                func.max(MlOrdersOps.ml_last_updated).desc()
-                if sort == SORT_BY_LAST_UPDATE
-                # `nullslast()`: a historical order with no stored metrics
-                # row yet (design D7) has `total_gauss IS NULL` -- SQLite
-                # and Postgres order NULLs differently by default, so an
-                # explicit `nullslast()` is required or the sort disagrees
-                # between the test suite and production.
-                else func.max(MlOrderMetrics.total_gauss).desc().nullslast()
-                if sort == SORT_BY_TOTAL_GAUSS
-                # `ml_last_updated` is NOT NULL, so it needs no nullslast();
-                # `accreditation_date` is nullable (a sale with no accredited
-                # payment has none) and Postgres would otherwise put its
-                # NULLs first on a DESC sort -- and per the rule, a dateless
-                # sale belongs LAST regardless, never first.
-                else func.max(accreditation_date_col).desc().nullslast()
-            ),
-            func.max(MlOrdersOps.order_id).desc(),
-        )
-        .limit(limit)
-        .offset(offset)
-        .all()
-    )
+    key_page = build_key_page_query(scope, sort, limit, offset).all()
     page_keys = [row.group_key for row in key_page]
 
     total = listing_query.with_entities(func.count(func.distinct(group_key))).scalar() or 0
@@ -1522,13 +1553,28 @@ def listar_ventas(
                 total_gauss_provisional_falta=group_total_gauss_provisional_falta,
                 neto_depositado=group_neto_depositado,
                 retenciones_recuperables=group_retenciones_recuperables,
-                # The earliest member. NOTE this is not always the value the
-                # row is sorted by: the sort uses `min` over the FILTERED
-                # orders, this uses `min` over all of them. For the pack that
-                # straddles a month boundary they differ -- filtering
-                # `2026-09` shows `31/08` on a row sorted by `01/09`. Showing
-                # the parcel's real date is the right trade; claiming the two
-                # always agree was not.
+                # The earliest member's `date_created` -- DISPLAYED to the
+                # user, but NOT what the row is filtered or sorted by. ODD
+                # `ventas-ml-dia-por-acreditacion`: the default sort/filter
+                # key is now the accreditation date (`MAX(date_approved)`
+                # over ALL member orders' RELEVANT payments, across the
+                # WHOLE group -- see `accreditation.py`'s module docstring),
+                # a DIFFERENT column from a DIFFERENT basis (`min`, not
+                # `max`; `date_created`, not `date_approved`; filtered
+                # orders only, not every member) than what is shown here.
+                # A reader seeing this date column sorted by an invisible
+                # accreditation date will otherwise read the order as a bug
+                # -- it is intentional: money can accredit well after the
+                # order was created, and the row belongs on the day the
+                # money landed even though the displayed date says
+                # otherwise. On top of that, this specific value uses `min`
+                # over ALL members (unfiltered), while the sort/filter use
+                # `max`(accreditation) over the FILTERED set -- for a pack
+                # that straddles a boundary, filtering `2026-09` can still
+                # show `31/08` here on a row that sorted/filtered into
+                # September on its accreditation date. Showing the parcel's
+                # real earliest `date_created` is the right trade; claiming
+                # it agrees with the sort/filter key was not.
                 date_created=min(dates) if dates else None,
                 ml_last_updated=(
                     max(u for m in members if (u := m.ml_last_updated) is not None)

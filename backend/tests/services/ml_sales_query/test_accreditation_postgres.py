@@ -44,9 +44,19 @@ def _payment(session, payment_id: int, order_id: int, status: str, date_approved
 
 def _key_page(session, scope, date_range=None):
     """Mirrors the router's grouped/ordered/paged query, including the
-    `nullslast()` DESC sort over the accreditation subquery column."""
+    `nullslast()` DESC sort over the accreditation subquery column.
+
+    ODD `ventas-ml-dia-por-acreditacion` (T4, review finding #2):
+    `build_scope` only LEFT-joins the accreditation subquery onto
+    `listing_query` when a date filter is active (`scope.accreditation_joined`).
+    When it is not, THIS query -- exactly like the router's `key_page_query`
+    -- has to join it itself before reading `accred.c.accreditation_date`,
+    or the column is unresolvable/cartesian."""
     accred = scope.accreditation_subquery
-    q = scope.listing_query.with_entities(
+    listing_query = scope.listing_query
+    if not scope.accreditation_joined:
+        listing_query = listing_query.outerjoin(accred, accred.c.group_key == scope.group_key)
+    q = listing_query.with_entities(
         scope.group_key.label("group_key"),
         func.max(accred.c.accreditation_date).label("group_date"),
     ).group_by(scope.group_key)
@@ -135,9 +145,11 @@ class TestAccreditationDayFilterThroughTheEndpointQuery:
     def test_group_by_string_alias_never_used_still_pages_fine(self, slate) -> None:
         """Same landmine `test_filters_switches_postgres.py` documents for
         the switches subquery: the accreditation subquery ALSO exposes a
-        `group_key` output column now that it is always LEFT-joined, so
-        the endpoint's `.group_by(group_key)` (the expression, never the
-        string) must keep resolving to the CASE, not the subquery column."""
+        `group_key` output column once joined (here with no date filter,
+        so `_key_page` joins it itself, same as the router does when the
+        sort needs it), so the endpoint's `.group_by(group_key)` (the
+        expression, never the string) must keep resolving to the CASE, not
+        the subquery column."""
         _order(slate, 900030, date_created=datetime(2026, 9, 25, tzinfo=timezone.utc))
         slate.commit()
         scope = build_scope(slate, SalesFilter(include_unknown=True, include_in_dispute=True))

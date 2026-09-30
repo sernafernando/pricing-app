@@ -106,10 +106,13 @@ def run_backfill(limit: Optional[int], dry_run: bool, batch_size: int = DEFAULT_
     resultado = {"examined": 0, "written": 0, "unchanged": 0, "remaining": 0}
     try:
         if dry_run:
-            # The WHOLE pending set, not what a limited pass would touch --
-            # same discipline `backfill_ml_group_metrics.py` applies.
+            # `examined` and `remaining` are DIFFERENT numbers and must not
+            # collapse into one: `examined` is every row this pass actually
+            # scanned, `remaining` is how many of those WOULD change. Both
+            # come from the WHOLE pending set, not what a limited pass would
+            # touch -- same discipline `backfill_ml_group_metrics.py` applies.
+            resultado["examined"] = len(_all_group_keys(db, None))
             resultado["remaining"] = count_remaining(db, batch_size)
-            resultado["examined"] = resultado["remaining"]
             logger.info("backfill_group_date_accreditation: %s rows WOULD change, dry run", resultado["remaining"])
             return resultado
 
@@ -121,10 +124,16 @@ def run_backfill(limit: Optional[int], dry_run: bool, batch_size: int = DEFAULT_
             groups = _members_and_current(db, lote)
             recomputed = _recomputed_group_dates(db, groups)
             changed = _changed_keys(groups, recomputed)
-            for group_key in changed:
+            if changed:
+                # ONE executemany call for the whole batch (same pattern
+                # `ml_group_metrics/store.py::store_group_metrics` uses via
+                # `db.execute(stmt, rows)`) -- not one UPDATE per row. At the
+                # real run's scale (~77k groups) a per-row UPDATE is 77k
+                # round trips; a list of param dicts handed to one `execute`
+                # is a single `executemany`.
                 db.execute(
                     text("UPDATE ml_group_metrics SET group_date = :d WHERE group_key = :k"),
-                    {"d": recomputed[group_key], "k": group_key},
+                    [{"d": recomputed[group_key], "k": group_key} for group_key in changed],
                 )
             db.commit()
             resultado["written"] += len(changed)
