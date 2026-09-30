@@ -61,6 +61,7 @@ from typing import Dict, List, Optional, Tuple
 from sqlalchemy.orm import Query, Session
 
 from app.models.ml_orders_ops import MlOrdersOps
+from app.services.ml_ventas_desglose.breakdown_service import RELEVANT_PAYMENT_STATUSES
 from app.services.order_metrics.read import metrics_state_for_orders, read_stored_metrics
 from app.services.order_metrics.types import GaussStatus
 
@@ -115,6 +116,16 @@ class AggregateResult:
     # never silently dropped.
     markup_skipped_count: int = 0
 
+    # A rejected or never-completed payment is not revenue (same ALLOW-list
+    # `breakdown_service.RELEVANT_PAYMENT_STATUSES` uses for the Gauss
+    # chain): an order whose `payment_status` is not in that set contributes
+    # NOTHING to `gross_billed_ars`/`gross_billed_other`, but it is counted
+    # here rather than silently vanishing. `excluded_non_money_ars` is ARS
+    # only -- a non-ARS excluded amount is never folded into it (same
+    # discipline as `gross_billed_other` itself).
+    excluded_non_money_orders_count: int = 0
+    excluded_non_money_ars: Decimal = Decimal("0")
+
 
 def aggregate_order_metrics(db: Session, listing_query: Query, members_base: Query, group_key) -> AggregateResult:
     """Aggregates every MEMBER of every group `listing_query` selects --
@@ -142,7 +153,11 @@ def aggregate_order_metrics(db: Session, listing_query: Query, members_base: Que
     if selected_group_keys:
         orders = (
             members_base.with_entities(
-                MlOrdersOps.order_id, MlOrdersOps.total_amount, MlOrdersOps.currency_id, group_key.label("group_key")
+                MlOrdersOps.order_id,
+                MlOrdersOps.total_amount,
+                MlOrdersOps.currency_id,
+                MlOrdersOps.payment_status,
+                group_key.label("group_key"),
             )
             .filter(group_key.in_(selected_group_keys))
             .all()
@@ -164,6 +179,9 @@ def aggregate_order_metrics(db: Session, listing_query: Query, members_base: Que
 
     gross_billed_ars = Decimal("0")
     gross_billed_other: Dict[str, Decimal] = {}
+
+    excluded_non_money_orders_count = 0
+    excluded_non_money_ars = Decimal("0")
 
     neto_sum = Decimal("0")
     neto_unknown_count = 0
@@ -198,8 +216,14 @@ def aggregate_order_metrics(db: Session, listing_query: Query, members_base: Que
 
         orders_count += 1
 
+        is_money = order.payment_status in RELEVANT_PAYMENT_STATUSES
+
         if order.total_amount is not None:
-            if order.currency_id == "ARS":
+            if not is_money:
+                excluded_non_money_orders_count += 1
+                if order.currency_id == "ARS":
+                    excluded_non_money_ars += Decimal(order.total_amount)
+            elif order.currency_id == "ARS":
                 gross_billed_ars += Decimal(order.total_amount)
             elif order.currency_id is not None:
                 gross_billed_other[order.currency_id] = gross_billed_other.get(
@@ -293,4 +317,6 @@ def aggregate_order_metrics(db: Session, listing_query: Query, members_base: Que
         total_gauss_unresolved_count=total_gauss_unresolved_count,
         markup_weighted_pct=markup_weighted_pct,
         markup_skipped_count=markup_skipped_count,
+        excluded_non_money_orders_count=excluded_non_money_orders_count,
+        excluded_non_money_ars=excluded_non_money_ars,
     )

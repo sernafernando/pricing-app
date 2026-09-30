@@ -81,7 +81,7 @@ from typing import Any, Dict, List, Optional
 
 from app.core.config import settings
 from app.core.database import get_background_db
-from app.models.ml_orders_ops import MlOpsDivergence
+from app.models.ml_orders_ops import MlOpsDivergence, MlOrdersOps
 from app.services.ml_orders_ingestion.ingestion_service import QuarantineRetryResult, retry_quarantined_orders
 from app.services.ml_orders_ingestion.sweep_service import (
     BATCH_SIZE,
@@ -233,9 +233,16 @@ def _record_unresolved_order(db, order_id: int) -> None:
     `9cc60ef7` for the payments/costs backfill (a row that never settled
     blocked every candidate behind it). Recording the debt keeps the
     stream moving AND keeps the miss visible: the row is operator-facing
-    in the divergence dashboard, and the audit sweep re-ingests the order
-    on its next window pass. Deduped by the `(order_id, kind, field)`
-    unique constraint, so a repeated miss refreshes `detected_at`.
+    in the divergence dashboard, and the audit sweep re-ingesting the
+    order is what actually settles it -- `_clear_resolved_unresolved_debts`
+    below is the function that closes the ticket once that re-ingest
+    lands (this docstring used to just say "the audit sweep re-ingests
+    the order on its next window pass" and stop there, which was true but
+    incomplete: nothing ever cleared the debt row once that re-ingest
+    landed, so 358 of these piled up as permanent false alarms on the
+    Ventas ML screen before that function existed). Deduped by the
+    `(order_id, kind, field)` unique constraint, so a repeated miss
+    refreshes `detected_at`.
     """
     existing = (
         db.query(MlOpsDivergence)
@@ -264,6 +271,48 @@ def _clear_unresolved_orders(db, order_ids) -> None:
         MlOpsDivergence.kind == "unknown",
         MlOpsDivergence.field == UNRESOLVED_FIELD,
     ).delete(synchronize_session=False)
+
+
+def _clear_resolved_unresolved_debts(db) -> int:
+    """Settles any `activity_unresolved` debt whose order has since
+    landed in `ml_orders_ops` -- by definition a false alarm, since the
+    debt means "we could not fetch this order" and the order is right
+    there.
+
+    Why this exists alongside `_clear_unresolved_orders` above: that
+    function only clears ids THIS drain pass just resolved, on the
+    receiver's own page loop. Nothing else ever cleared the debt, so an
+    order that got picked up later by the sweep's own upsert (its
+    ordinary window pass, or the audit/backfill re-ingesting it) left its
+    debt row permanently open -- 358 of these had accumulated in
+    production, 29 naming an order already present in `ml_orders_ops`,
+    inflating the "N ventas no pudieron ingresar" warning on the Ventas
+    ML screen with pure false alarms.
+
+    One `NOT EXISTS`-style membership check settles it, and self-heals
+    the existing backlog the first time it runs: it is provably incapable
+    of touching a debt whose order is ABSENT from `ml_orders_ops` (the
+    real, still-open misses), because the filter only ever selects
+    `order_id`s that appear in that table, and it never touches a
+    different `kind`/`field` divergence because both are pinned in the
+    `WHERE` clause exactly like `_clear_unresolved_orders` above. Prefer
+    this over threading resolved ids through the sweep's upsert loop: one
+    statement covers the sweep, the backfill, the receiver and the
+    already-open backlog, and it cannot drift out of sync with whoever
+    writes an order next.
+
+    Returns the number of debt rows cleared, purely for logging/tests.
+    """
+    resolved_order_ids = db.query(MlOrdersOps.order_id)
+    return (
+        db.query(MlOpsDivergence)
+        .filter(
+            MlOpsDivergence.kind == "unknown",
+            MlOpsDivergence.field == UNRESOLVED_FIELD,
+            MlOpsDivergence.order_id.in_(resolved_order_ids),
+        )
+        .delete(synchronize_session=False)
+    )
 
 
 def drain_activity() -> ActivityDrainResult:

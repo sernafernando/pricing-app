@@ -1627,6 +1627,12 @@ class SalesKpiResponse(BaseModel):
     # contributes to NEITHER side of `markup_weighted_pct` -- counted
     # here, never silently dropped.
     markup_skipped_count: int
+    # A rejected or never-completed payment is not revenue (same
+    # `RELEVANT_PAYMENT_STATUSES` allow-list the Gauss chain uses): excluded
+    # from `gross_billed_ars`/`gross_billed_other`, counted here instead of
+    # silently vanishing. ARS only -- never folds a non-ARS amount in.
+    excluded_non_money_orders_count: int
+    excluded_non_money_ars: float
     worker_alive: bool
     excluded_by_toggle: SalesKpiExcludedByToggle
     # Design D12 "explicit facet selection overrides its switch; response
@@ -1752,6 +1758,8 @@ def sales_kpis(
         pending_count=result.pending_count,
         failed_count=result.failed_count,
         markup_skipped_count=result.markup_skipped_count,
+        excluded_non_money_orders_count=result.excluded_non_money_orders_count,
+        excluded_non_money_ars=float(result.excluded_non_money_ars),
         worker_alive=order_metrics_health.worker_alive(db),
         excluded_by_toggle=excluded_by_toggle,
         effective_switches={

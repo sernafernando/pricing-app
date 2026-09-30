@@ -127,7 +127,7 @@ class TestPermissionAndFlagGate:
 class TestBasicAggregation:
     def test_sums_over_the_stored_metrics(self, db, client, admin_auth_headers, rol_admin):
         _grant_ml_ops_ver(db, rol_admin)
-        _seed_order(db, 1, total_amount=1000)
+        _seed_order(db, 1, total_amount=1000, payment_status="approved")
         _stored_metrics(db, 1, neto=Decimal("800.00"), total_gauss=Decimal("200.00"))
         db.commit()
 
@@ -207,7 +207,7 @@ class TestNoShippingTagIncludedByDefault:
 
     def test_no_shipping_tagged_sale_included_with_default_switches(self, db, client, admin_auth_headers, rol_admin):
         _grant_ml_ops_ver(db, rol_admin)
-        _seed_order(db, 1, shipping_status=None, total_amount=1234, has_no_shipping_tag=True)
+        _seed_order(db, 1, shipping_status=None, total_amount=1234, has_no_shipping_tag=True, payment_status="approved")
         _stored_metrics(db, 1)
         db.commit()
 
@@ -515,10 +515,20 @@ class TestKpiCountsWholePacksThatStraddleTheFilter:
         # August -- same fixture shape as
         # `TestAFilterNeverSplitsAPack.test_the_month_filter_keeps_a_pack_that_straddles_midnight_whole`.
         _seed_order(
-            db, 1001, pack_id=555, total_amount=100, date_created=datetime(2026, 8, 31, 23, 59, tzinfo=timezone.utc)
+            db,
+            1001,
+            pack_id=555,
+            total_amount=100,
+            date_created=datetime(2026, 8, 31, 23, 59, tzinfo=timezone.utc),
+            payment_status="approved",
         )
         _seed_order(
-            db, 1002, pack_id=555, total_amount=200, date_created=datetime(2026, 9, 1, 0, 1, tzinfo=timezone.utc)
+            db,
+            1002,
+            pack_id=555,
+            total_amount=200,
+            date_created=datetime(2026, 9, 1, 0, 1, tzinfo=timezone.utc),
+            payment_status="approved",
         )
         _stored_metrics(db, 1001, neto=Decimal("80.00"), total_gauss=Decimal("20.00"))
         _stored_metrics(db, 1002, neto=Decimal("160.00"), total_gauss=Decimal("40.00"))

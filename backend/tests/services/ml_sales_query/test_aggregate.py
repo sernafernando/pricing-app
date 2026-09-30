@@ -33,6 +33,8 @@ def _seed_order(
     currency_id: str = "ARS",
     pack_id: int | None = None,
     date_created=None,
+    status: str = "paid",
+    payment_status: str | None = "approved",
 ) -> None:
     if date_created is None:
         date_created = datetime(2026, 1, 1, tzinfo=timezone.utc)
@@ -40,13 +42,14 @@ def _seed_order(
         MlOrdersOps(
             order_id=order_id,
             pack_id=pack_id,
-            status="paid",
+            status=status,
             ml_last_updated=date_created,
             date_created=date_created,
             seller_id=999,
             total_amount=total_amount,
             paid_amount=total_amount,
             currency_id=currency_id,
+            payment_status=payment_status,
         )
     )
     db.flush()
@@ -147,6 +150,98 @@ class TestBasicSums:
         result = _aggregate(db)
         assert result.groups_count == 1
         assert result.orders_count == 2
+
+
+class TestNonMoneyPaymentStatusExcludedFromGross:
+    """A rejected or never-completed payment is not revenue: an order whose
+    `payment_status` is not in `RELEVANT_PAYMENT_STATUSES`
+    (`breakdown_service.py`) must contribute NOTHING to `gross_billed_ars`/
+    `gross_billed_other` -- but it must be counted, never silently
+    dropped."""
+
+    def test_rejected_payment_excluded_from_gross_and_counted(self, db):
+        _seed_order(db, 1, total_amount=1000, payment_status="rejected")
+        _seed_metrics(db, 1)
+        result = _aggregate(db)
+        assert result.gross_billed_ars == Decimal("0")
+        assert result.excluded_non_money_orders_count == 1
+        assert result.excluded_non_money_ars == Decimal("1000")
+
+    def test_null_payment_status_excluded_from_gross_and_counted(self, db):
+        _seed_order(db, 1, total_amount=1000, payment_status=None)
+        _seed_metrics(db, 1)
+        result = _aggregate(db)
+        assert result.gross_billed_ars == Decimal("0")
+        assert result.excluded_non_money_orders_count == 1
+        assert result.excluded_non_money_ars == Decimal("1000")
+
+    def test_approved_refunded_in_mediation_all_count_as_money(self, db):
+        _seed_order(db, 1, total_amount=100, payment_status="approved")
+        _seed_metrics(db, 1)
+        _seed_order(db, 2, total_amount=200, payment_status="refunded")
+        _seed_metrics(db, 2)
+        _seed_order(db, 3, total_amount=300, payment_status="in_mediation")
+        _seed_metrics(db, 3)
+        result = _aggregate(db)
+        assert result.gross_billed_ars == Decimal("600")
+        assert result.excluded_non_money_orders_count == 0
+        assert result.excluded_non_money_ars == Decimal("0")
+
+    def test_excluded_non_ars_amount_never_folds_into_ars(self, db):
+        _seed_order(db, 1, total_amount=50, currency_id="USD", payment_status="rejected")
+        _seed_metrics(db, 1)
+        result = _aggregate(db)
+        assert result.gross_billed_ars == Decimal("0")
+        assert result.excluded_non_money_ars == Decimal("0")
+        assert result.excluded_non_money_orders_count == 1
+
+    def test_real_world_segmentation_579_groups(self, db):
+        """One day's real production segmentation (five status/payment_status
+        combinations, 579 lone-order groups total). Only `approved` and
+        `refunded` are money; `rejected`/`cancelled` are excluded, whatever
+        their `status`."""
+        order_id = 1
+        segments = [
+            ("paid", "approved", 549, Decimal("80815500.96")),
+            ("cancelled", "refunded", 19, Decimal("4539819.13")),
+            ("paid", "rejected", 9, Decimal("1142154.15")),
+            ("cancelled", "cancelled", 1, Decimal("71000.00")),
+            ("payment_required", "rejected", 1, Decimal("2870175.00")),
+        ]
+        expected_gross = Decimal("0")
+        expected_excluded = Decimal("0")
+        expected_excluded_count = 0
+        for status, payment_status, count, group_total in segments:
+            # Distribute the group's exact total across its orders in
+            # whole cents, with the remainder on the last order -- so the
+            # sum of per-order amounts equals `group_total` exactly, no
+            # rounding drift to tolerate.
+            cents_total = int((group_total * 100).to_integral_value())
+            base_cents, remainder_cents = divmod(cents_total, count)
+            is_money = payment_status in {"approved", "refunded", "in_mediation"}
+            for i in range(count):
+                cents = base_cents + (remainder_cents if i == count - 1 else 0)
+                per_order_amount = Decimal(cents) / Decimal(100)
+                _seed_order(
+                    db,
+                    order_id,
+                    total_amount=per_order_amount,
+                    status=status,
+                    payment_status=payment_status,
+                )
+                _seed_metrics(db, order_id)
+                order_id += 1
+            if is_money:
+                expected_gross += group_total
+            else:
+                expected_excluded += group_total
+                expected_excluded_count += count
+
+        result = _aggregate(db)
+        assert result.orders_count == 579
+        assert result.gross_billed_ars == pytest.approx(expected_gross, abs=Decimal("0.01"))
+        assert result.excluded_non_money_orders_count == expected_excluded_count
+        assert result.excluded_non_money_ars == pytest.approx(expected_excluded, abs=Decimal("0.01"))
 
 
 class TestExclusionFromSums:

@@ -28,6 +28,8 @@ const FULL_KPI = {
   pending_count: 1,
   failed_count: 0,
   markup_skipped_count: 2,
+  excluded_non_money_orders_count: 10,
+  excluded_non_money_ars: 4083329.15,
   worker_alive: true,
   excluded_by_toggle: { a_revisar: 0, en_disputa: 0, mixta: 0, provisorio: 0 },
   effective_switches: {
@@ -93,6 +95,27 @@ describe('KpiStrip', () => {
   it('warns when the metrics worker is not alive', () => {
     render(<KpiStrip kpi={{ ...FULL_KPI, worker_alive: false }} loading={false} error={null} />);
     expect(screen.getByText(/recálculo detenido|worker.*(caído|inactivo)/i)).toBeInTheDocument();
+  });
+
+  it('surfaces excluded non-money orders as its own card, never inside the gross figure', () => {
+    render(<KpiStrip kpi={FULL_KPI} loading={false} error={null} />);
+    // The gross card shows only money, unaffected by the excluded amount.
+    expect(screen.getByText(/84\.920\.450,00/)).toBeInTheDocument();
+    // The excluded amount is a distinct, clearly-labeled card.
+    expect(screen.getByText(/4\.083\.329,15/)).toBeInTheDocument();
+    expect(screen.getByText(/10 ventas/i)).toBeInTheDocument();
+    expect(screen.getAllByText(/rechazad[oa]s?|no.*completad[oa]s?|no es dinero/i).length).toBeGreaterThan(0);
+  });
+
+  it('does not render an excluded-non-money card when there is nothing excluded', () => {
+    render(
+      <KpiStrip
+        kpi={{ ...FULL_KPI, excluded_non_money_orders_count: 0, excluded_non_money_ars: 0 }}
+        loading={false}
+        error={null}
+      />
+    );
+    expect(screen.queryAllByText(/rechazad[oa]s?|no.*completad[oa]s?|no es dinero/i).length).toBe(0);
   });
 });
 
