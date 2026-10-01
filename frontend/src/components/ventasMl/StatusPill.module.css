@@ -1,0 +1,75 @@
+/* Status pill: one shape, six tones. Colours are the `--tone-*` tokens
+   (design-tokens.css), which carry their own dark-mode values. */
+
+.pill {
+  display: inline-block;
+  max-width: 100%;
+  padding: 1px 6px;
+  border: 1px solid;
+  border-radius: var(--radius-base);
+  font-weight: var(--font-semibold);
+  line-height: 1.4;
+  /* Wraps inside the pill rather than spilling past the column: a long
+     label ("Devuelto sin entregar") in a compressed column becomes a
+     two-line pill, never a clipped or overlapping one. */
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
+.caps {
+  font-size: 10.5px;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+}
+
+.soft {
+  padding: 2px 10px;
+  border-radius: var(--radius-full);
+  font-size: var(--font-xs);
+}
+
+.dot {
+  display: inline-block;
+  margin-right: 5px;
+  vertical-align: 1px;
+  width: 6px;
+  height: 6px;
+  border-radius: var(--radius-full);
+  background: currentColor;
+}
+
+.success {
+  color: var(--tone-success-fg);
+  background: var(--tone-success-bg);
+  border-color: var(--tone-success-border);
+}
+
+.danger {
+  color: var(--tone-danger-fg);
+  background: var(--tone-danger-bg);
+  border-color: var(--tone-danger-border);
+}
+
+.warning {
+  color: var(--tone-warning-fg);
+  background: var(--tone-warning-bg);
+  border-color: var(--tone-warning-border);
+}
+
+.info {
+  color: var(--tone-info-fg);
+  background: var(--tone-info-bg);
+  border-color: var(--tone-info-border);
+}
+
+.purple {
+  color: var(--tone-purple-fg);
+  background: var(--tone-purple-bg);
+  border-color: var(--tone-purple-border);
+}
+
+.neutral {
+  color: var(--tone-neutral-fg);
+  background: var(--tone-neutral-bg);
+  border-color: var(--tone-neutral-border);
+}

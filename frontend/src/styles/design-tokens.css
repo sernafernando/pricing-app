@@ -114,7 +114,46 @@
      and its sheet width on the <1280px fixed-sheet fallback. Named here,
      not a magic number, so both `VentasMLLayout.module.css` breakpoints
      stay in sync with a single source of truth. */
-  --ventas-panel-width: 420px;
+  --ventas-panel-width: 460px;
+  /* The same panel as a sheet over the table (below 1600px): wider, since
+     it no longer has to share the row -- room for Comprador | Envío side
+     by side, like `detalle.jpg`. */
+  --ventas-sheet-width: 560px;
+
+  /* Semantic tones for money and status on the Ventas ML screen (Stitch
+     `docs/design/ventas-ml/*`). Light values here; dark ones further down.
+     fg = text, bg = pill fill, border = pill border. */
+  --tone-success-fg: #047a3a;
+  --tone-success-bg: #e6f9ed;
+  --tone-success-border: #b9ebcb;
+  --tone-danger-fg: #c81e2c;
+  --tone-danger-bg: #fef2f2;
+  --tone-danger-border: #fbcaca;
+  --tone-warning-fg: #9a5b00;
+  --tone-warning-bg: #fff7e6;
+  --tone-warning-border: #fbdc9a;
+  --tone-info-fg: #0062c4;
+  --tone-info-bg: #e8f2ff;
+  --tone-info-border: #bcd7ff;
+  --tone-purple-fg: #7e22ce;
+  --tone-purple-bg: #f3e8ff;
+  --tone-purple-border: #e2ccfb;
+  --tone-neutral-fg: #4b5563;
+  --tone-neutral-bg: #f3f4f6;
+  --tone-neutral-border: #e2e4e8;
+
+  /* Money: a subtraction, an addition, and the headline figure (Neto). */
+  --money-negative: #d92332;
+  --money-positive: #047a3a;
+  --money-headline: #0062c4;
+
+  /* A card inside the Ventas ML detail panel: a step off the panel's own
+     surface, like `detalle.jpg`'s grey cards on white. */
+  --ventas-card-bg: #f7f8fa;
+  /* Hairlines of the Ventas ML cards and table rows. `--cf-border-subtle`
+     is invisible on a dark card (#1a1a1a on #181818), so the rows of the
+     table ran into each other in dark mode. */
+  --ventas-divider: #e6e8eb;
 
   /* ============================================
      TRANSITIONS & ANIMATIONS
@@ -378,6 +417,31 @@
   /* Accent variations */
   --cf-accent-blue-light: rgba(59, 130, 246, 0.1);
   --cf-accent-purple-light: rgba(168, 85, 247, 0.1);
+
+  /* Ventas ML tones -- dark variants (see the light block in `:root`). */
+  --tone-success-fg: #4ade80;
+  --tone-success-bg: rgba(34, 197, 94, 0.12);
+  --tone-success-border: rgba(34, 197, 94, 0.32);
+  --tone-danger-fg: #f87171;
+  --tone-danger-bg: rgba(239, 68, 68, 0.12);
+  --tone-danger-border: rgba(239, 68, 68, 0.34);
+  --tone-warning-fg: #fbbf24;
+  --tone-warning-bg: rgba(245, 158, 11, 0.12);
+  --tone-warning-border: rgba(245, 158, 11, 0.34);
+  --tone-info-fg: #60a5fa;
+  --tone-info-bg: rgba(59, 130, 246, 0.14);
+  --tone-info-border: rgba(59, 130, 246, 0.36);
+  --tone-purple-fg: #c084fc;
+  --tone-purple-bg: rgba(168, 85, 247, 0.14);
+  --tone-purple-border: rgba(168, 85, 247, 0.36);
+  --tone-neutral-fg: rgba(255, 255, 255, 0.72);
+  --tone-neutral-bg: rgba(255, 255, 255, 0.06);
+  --tone-neutral-border: rgba(255, 255, 255, 0.14);
+  --money-negative: #f87171;
+  --money-positive: #4ade80;
+  --money-headline: #60a5fa;
+  --ventas-card-bg: #202020;
+  --ventas-divider: #2c2c2c;
 
   /* Hover overlay for dark mode */
   --cf-hover-overlay: rgba(255, 255, 255, 0.05);

@@ -22,6 +22,12 @@ export function formatDate(value) {
   return DATE_FORMAT.format(new Date(value));
 }
 
+/** `21/09/2026 09:12` -- the table's second line under the order id. */
+export function formatDateTime(value) {
+  if (!value) return '—';
+  return formatDate(value).replace(', ', ' ');
+}
+
 // The listing is denominated in ARS, so repeating "ARS" on every row costs
 // the width the amount itself needs. Only a foreign currency is spelled out.
 export const LISTING_IMPLIED_CURRENCY = 'ARS';
