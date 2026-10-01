@@ -1,0 +1,493 @@
+/* Métricas ML watchlist table (tablero.png / tablero.html).
+
+   The card around it (`MetricasML.module.css` `.tableScroll`) scrolls
+   sideways; the Producto column is `position: sticky; left: 0` so it stays
+   while the numbers move. Because the card is the horizontal scroll
+   container, the header is NOT sticky vertically (a sticky `<th>` pins to its
+   nearest scrolling ancestor -- the card, not the page). Money is
+   `white-space: nowrap` everywhere: "$" never sits alone on a line. */
+
+.table {
+  width: 100%;
+  min-width: 1760px;
+  border-collapse: separate;
+  border-spacing: 0;
+  font-size: 12px;
+  color: var(--cf-text-primary);
+}
+
+.table th,
+.table td {
+  padding: 10px 8px;
+  border-bottom: 1px solid var(--ventas-divider);
+  vertical-align: middle;
+  background: var(--cf-bg-card);
+}
+
+/* ── Header ─────────────────────────────────────────────── */
+
+.table thead th {
+  font-size: 11px;
+  font-weight: var(--font-semibold);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--cf-text-tertiary);
+  background: var(--metricas-head-bg);
+  white-space: nowrap;
+  text-align: left;
+}
+
+.groupRow th {
+  padding-top: 9px;
+  padding-bottom: 9px;
+}
+
+.groupHead {
+  text-align: center !important;
+  border-left: 1px solid var(--ventas-divider);
+}
+
+.leafRow th {
+  font-size: 10px;
+  color: var(--cf-text-secondary);
+  background: var(--metricas-subhead-bg);
+}
+
+.sortButton {
+  padding: 0;
+  font: inherit;
+  letter-spacing: inherit;
+  text-transform: inherit;
+  color: inherit;
+  background: none;
+  border: none;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.sortButton:hover {
+  color: var(--cf-text-primary);
+}
+
+.sortButton:focus-visible {
+  outline: 2px solid var(--cf-accent-blue);
+  outline-offset: 2px;
+}
+
+.soonHead {
+  font-weight: var(--font-normal) !important;
+  color: var(--cf-text-muted) !important;
+  border-left: 1px dashed var(--cf-border-default) !important;
+}
+
+.soonBadge {
+  margin-left: 6px;
+  padding: 1px 6px;
+  border-radius: var(--radius-base);
+  font-size: 9px;
+  font-weight: var(--font-semibold);
+  letter-spacing: 0.02em;
+  text-transform: none;
+  color: var(--tone-neutral-fg);
+  background: var(--tone-neutral-bg);
+}
+
+/* ── Columns ────────────────────────────────────────────── */
+
+/* Pinned while the table scrolls sideways. Its own background (rows paint
+   per cell, not per <tr>) so scrolled numbers pass UNDER it, and a hairline
+   shadow on its right edge so the seam reads. */
+.colProducto {
+  position: sticky;
+  left: 0;
+  z-index: 2;
+  width: 400px;
+  min-width: 400px;
+  max-width: 400px;
+  box-shadow: inset -1px 0 0 var(--ventas-divider);
+}
+
+thead .colProducto {
+  z-index: 3;
+}
+
+/* Full HD has room for whole titles (tablero.png); 1366 keeps the column
+   narrower so the figures still get most of the card. */
+@media (min-width: 1600px) {
+  .colProducto {
+    width: 470px;
+    min-width: 470px;
+    max-width: 470px;
+  }
+}
+
+.numeric {
+  text-align: right !important;
+  font-variant-numeric: tabular-nums;
+}
+
+.centered {
+  text-align: center !important;
+}
+
+.centered > svg {
+  margin: 0 auto;
+}
+
+.groupStart {
+  border-left: 1px solid var(--ventas-divider);
+}
+
+.soonCol.groupStart {
+  border-left: 1px dashed var(--cf-border-default);
+}
+
+.soonCol {
+  color: var(--cf-text-muted) !important;
+}
+
+/* ── Rows ───────────────────────────────────────────────── */
+
+.table tbody tr:hover td {
+  background: var(--cf-bg-hover);
+}
+
+.openRow td {
+  background: var(--metricas-open-bg);
+}
+
+.subRow td {
+  padding-top: 7px;
+  padding-bottom: 7px;
+  font-size: 11px;
+  background: var(--metricas-sub-bg);
+}
+
+/* ── Producto cell ──────────────────────────────────────── */
+
+.product {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+
+.expand {
+  display: inline-flex;
+  flex-shrink: 0;
+  padding: 2px;
+  color: var(--money-headline);
+  background: none;
+  border: none;
+  border-radius: var(--radius-base);
+  cursor: pointer;
+}
+
+.expand:focus-visible {
+  outline: 2px solid var(--cf-accent-blue);
+}
+
+.thumb {
+  display: inline-flex;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 40px;
+  padding: 2px;
+  object-fit: contain;
+  color: var(--cf-text-tertiary);
+  background: var(--cf-bg-card);
+  border: 1px solid var(--cf-border-default);
+  border-radius: var(--radius-md);
+}
+
+.productText {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.titleLine {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+.title {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 13px;
+  font-weight: var(--font-semibold);
+  color: var(--cf-text-primary);
+}
+
+.meta {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  font-size: 11px;
+  color: var(--cf-text-tertiary);
+  white-space: nowrap;
+}
+
+.metaTitle {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.sku,
+.mla {
+  font-family: var(--font-mono);
+  font-weight: var(--font-medium);
+  color: var(--cf-text-secondary);
+}
+
+.mla {
+  color: var(--money-headline);
+}
+
+.dotSep {
+  color: var(--cf-text-muted);
+}
+
+.pubsPill {
+  padding: 0 6px;
+  border-radius: var(--radius-base);
+  font-weight: var(--font-medium);
+  color: var(--tone-info-fg);
+  background: var(--tone-info-bg);
+}
+
+.dangerBadge,
+.bestBadge {
+  flex-shrink: 0;
+  padding: 0 5px;
+  border: 1px solid var(--tone-danger-border);
+  border-radius: var(--radius-base);
+  font-size: 9px;
+  font-weight: var(--font-bold);
+  letter-spacing: 0.04em;
+  line-height: 15px;
+  color: var(--tone-danger-fg);
+  background: var(--tone-danger-bg);
+}
+
+.bestBadge {
+  letter-spacing: 0;
+  color: var(--tone-success-fg);
+  background: var(--tone-success-bg);
+  border-color: var(--tone-success-border);
+}
+
+.subProduct {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  padding-left: 30px;
+}
+
+.subLine {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  white-space: nowrap;
+}
+
+.subArrow {
+  flex-shrink: 0;
+  color: var(--cf-text-muted);
+}
+
+.descriptor {
+  color: var(--cf-text-secondary);
+}
+
+.subTitle {
+  padding-left: 18px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--cf-text-secondary);
+}
+
+.subNote {
+  padding-left: 30px;
+  color: var(--cf-text-tertiary);
+}
+
+/* ── Figures ────────────────────────────────────────────── */
+
+.units {
+  font-family: var(--font-mono);
+  color: var(--cf-text-secondary);
+}
+
+.strong {
+  font-weight: var(--font-bold);
+  color: var(--cf-text-primary);
+}
+
+.muted {
+  color: var(--cf-text-muted);
+}
+
+.markup {
+  font-family: var(--font-mono);
+  font-size: 13px;
+  font-weight: var(--font-bold);
+  white-space: nowrap;
+}
+
+.tone_good {
+  color: var(--money-positive);
+}
+
+.tone_low {
+  color: var(--tone-warning-fg);
+}
+
+.tone_negative {
+  color: var(--money-negative);
+}
+
+/* "vs anterior": the chip stays on ONE line ("▲ +2,1 pp"). */
+.delta {
+  display: inline-block;
+  padding: 2px 6px;
+  border: 1px solid var(--tone-neutral-border);
+  border-radius: var(--radius-base);
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  font-weight: var(--font-medium);
+  color: var(--tone-neutral-fg);
+  background: var(--tone-neutral-bg);
+  white-space: nowrap;
+}
+
+.delta[data-tone='up'] {
+  color: var(--tone-success-fg);
+  background: var(--tone-success-bg);
+  border-color: var(--tone-success-border);
+}
+
+.delta[data-tone='down'] {
+  color: var(--tone-danger-fg);
+  background: var(--tone-danger-bg);
+  border-color: var(--tone-danger-border);
+}
+
+.deltaText {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--tone-neutral-fg);
+  white-space: nowrap;
+}
+
+.deltaText[data-tone='up'] {
+  color: var(--tone-success-fg);
+}
+
+.deltaText[data-tone='down'] {
+  color: var(--tone-danger-fg);
+}
+
+/* Mín / Máx on ONE line. */
+.range {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--cf-text-secondary);
+  white-space: nowrap;
+}
+
+.money {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.moneyStrong {
+  font-weight: var(--font-bold);
+}
+
+.money_positive {
+  color: var(--money-positive);
+}
+
+.money_negative {
+  color: var(--money-negative);
+}
+
+.gaussCell {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 3px;
+}
+
+.markupChip,
+.ageing {
+  display: inline-block;
+  padding: 0 5px;
+  border: 1px solid var(--tone-neutral-border);
+  border-radius: var(--radius-base);
+  font-family: var(--font-mono);
+  font-size: 9.5px;
+  font-weight: var(--font-semibold);
+  line-height: 16px;
+  color: var(--tone-neutral-fg);
+  background: var(--tone-neutral-bg);
+  white-space: nowrap;
+}
+
+.ageing {
+  font-size: 10.5px;
+}
+
+.chip_good {
+  color: var(--tone-success-fg);
+  background: var(--tone-success-bg);
+  border-color: var(--tone-success-border);
+}
+
+.chip_low {
+  color: var(--tone-warning-fg);
+  background: var(--tone-warning-bg);
+  border-color: var(--tone-warning-border);
+}
+
+.chip_negative {
+  color: var(--tone-danger-fg);
+  background: var(--tone-danger-bg);
+  border-color: var(--tone-danger-border);
+}
+
+.lastSale {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  white-space: nowrap;
+}
+
+.when {
+  font-family: var(--font-mono);
+  font-size: 11px;
+}
+
+.ago {
+  font-size: 10px;
+  color: var(--cf-text-tertiary);
+}
+
+.placeholder {
+  font-family: var(--font-mono);
+  color: var(--cf-text-muted);
+}

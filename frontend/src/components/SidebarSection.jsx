@@ -76,6 +76,7 @@ export default function SidebarSection({
               onClick={onItemClick}
             >
               <span className={styles.itemLabel}>{item.label}</span>
+              {item.badge && <span className={styles.badge}>{item.badge}</span>}
             </Link>
           ))}
         </div>

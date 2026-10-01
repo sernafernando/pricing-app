@@ -1,0 +1,255 @@
+/* Métricas ML — page layout and filter card (design
+   `docs/design/metricas-ml/tablero.png`). Same visual language as Ventas ML
+   (`VentasML.module.css`): tokens only, quiet header buttons, one filter
+   card in bands. */
+
+.container {
+  padding: var(--spacing-lg);
+}
+
+.header {
+  display: flex;
+  align-items: flex-end;
+  flex-wrap: wrap;
+  gap: var(--spacing-md);
+  margin-bottom: var(--spacing-md);
+}
+
+.headerLeft {
+  display: flex;
+  flex: 1 1 360px;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.headerLeft h1 {
+  margin: 0;
+  font-size: 26px;
+  font-weight: var(--font-bold);
+  letter-spacing: -0.02em;
+  line-height: 1.15;
+  color: var(--cf-text-primary);
+}
+
+.description {
+  margin: 0;
+  font-size: 13px;
+  color: var(--cf-text-tertiary);
+}
+
+.headerActions {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--spacing-sm);
+}
+
+.headerActions :global(.btn-tesla) {
+  height: 34px;
+  padding: 0 14px;
+  color: var(--cf-text-primary);
+  background: var(--cf-bg-card);
+  border: 1px solid var(--cf-border-default);
+  box-shadow: none;
+}
+
+.headerActions :global(.btn-tesla):hover {
+  background: var(--cf-bg-hover);
+  border-color: var(--cf-border-strong);
+  transform: none;
+}
+
+.freshness {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-right: var(--space-2);
+  font-size: var(--font-xs);
+  color: var(--cf-text-tertiary);
+  white-space: nowrap;
+}
+
+.freshnessDot {
+  width: 7px;
+  height: 7px;
+  border-radius: var(--radius-full);
+  background: var(--money-positive);
+}
+
+.errorBar {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-3);
+  margin-bottom: var(--spacing-md);
+  font-size: var(--font-sm);
+  color: var(--tone-danger-fg);
+  background: var(--tone-danger-bg);
+  border: 1px solid var(--tone-danger-border);
+  border-radius: var(--radius-md);
+}
+
+/* ── Filter card ─────────────────────────────────────────── */
+
+.filterCard {
+  display: flex;
+  flex-direction: column;
+  margin-bottom: var(--spacing-md);
+  background: var(--cf-bg-card);
+  border: 1px solid var(--ventas-divider);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--cf-card-shadow);
+}
+
+.filterBand {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--space-2) var(--spacing-lg);
+  padding: var(--space-3) var(--spacing-md);
+}
+
+.filterBand + .filterBand {
+  border-top: 1px solid var(--ventas-divider);
+}
+
+.searchSlot {
+  flex: 1 1 260px;
+  min-width: 220px;
+  max-width: 420px;
+}
+
+.segments {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--space-2) var(--spacing-lg);
+  margin-left: auto;
+}
+
+.filterGroup {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+  min-width: 0;
+}
+
+.filterLabel {
+  flex-shrink: 0;
+  font-size: 11px;
+  font-weight: var(--font-semibold);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--cf-text-tertiary);
+}
+
+.subLabel {
+  margin-left: 6px;
+  font-size: var(--font-xs);
+  color: var(--cf-text-tertiary);
+}
+
+.divider {
+  width: 1px;
+  height: 18px;
+  background: var(--ventas-divider);
+}
+
+.spacer {
+  flex-grow: 1;
+}
+
+.clearFilters {
+  composes: btn-tesla ghost sm from '../styles/buttons-tesla.css';
+}
+
+/* Alert pills (design: amber "Sin ventas", rose "Ageing"/"Markup cayendo"). */
+.alertChip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: 26px;
+  padding: 0 10px;
+  font-family: inherit;
+  font-size: 11px;
+  font-weight: var(--font-medium);
+  border: 1px solid;
+  border-radius: var(--radius-full);
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.alertChip[data-tone='warning'] {
+  color: var(--tone-warning-fg);
+  background: var(--tone-warning-bg);
+  border-color: var(--tone-warning-border);
+}
+
+.alertChip[data-tone='danger'] {
+  color: var(--tone-danger-fg);
+  background: var(--tone-danger-bg);
+  border-color: var(--tone-danger-border);
+}
+
+.alertChip:focus-visible {
+  outline: 2px solid var(--cf-accent-blue);
+  outline-offset: 1px;
+}
+
+/* Selected: the pill fills with its own colour. */
+.alertActive[data-tone='warning'],
+.alertActive[data-tone='danger'] {
+  color: var(--cf-bg-card);
+  background: currentcolor;
+}
+
+.alertActive[data-tone='warning'] {
+  background: var(--tone-warning-fg);
+}
+
+.alertActive[data-tone='danger'] {
+  background: var(--tone-danger-fg);
+}
+
+/* ── Table card ──────────────────────────────────────────── */
+
+.tableCard {
+  overflow: hidden;
+  background: var(--cf-bg-card);
+  border: 1px solid var(--ventas-divider);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--cf-card-shadow);
+}
+
+/* The table is wider than any screen (design: 1720px+): it scrolls
+   sideways HERE, inside the card, never the page. */
+.tableScroll {
+  overflow-x: auto;
+}
+
+.empty {
+  margin: 0;
+  padding: var(--spacing-lg);
+  text-align: center;
+  font-size: var(--font-sm);
+  color: var(--cf-text-tertiary);
+}
+
+.footer {
+  padding: 0 var(--spacing-md);
+  border-top: 1px solid var(--ventas-divider);
+}
+
+.summary strong {
+  font-family: var(--font-mono);
+  font-weight: var(--font-medium);
+  color: var(--cf-text-primary);
+}
+
+.rotating {
+  font-family: var(--font-mono);
+  color: var(--money-positive);
+}

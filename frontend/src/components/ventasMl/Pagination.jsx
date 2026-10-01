@@ -4,8 +4,10 @@ import styles from './Pagination.module.css';
 /**
  * Numbered pager + rows-per-page selector for the Ventas ML list.
  * Controlled: the page owns `offset`/`pageSize` (they drive the request).
+ * `summary` replaces the "mostrando a-b de N ventas" line for a screen that
+ * counts something else (Métricas ML counts products).
  */
-export default function Pagination({ total, offset, pageSize, onOffsetChange, onPageSizeChange }) {
+export default function Pagination({ total, offset, pageSize, onOffsetChange, onPageSizeChange, summary }) {
   const totalPages = Math.max(1, Math.ceil(total / pageSize));
   const currentPage = Math.floor(offset / pageSize) + 1;
   const rangeFrom = total === 0 ? 0 : offset + 1;
@@ -14,9 +16,11 @@ export default function Pagination({ total, offset, pageSize, onOffsetChange, on
 
   return (
     <div className={styles.bar}>
-      <span>
-        mostrando {rangeFrom}-{rangeTo} de {total} ventas
-      </span>
+      {summary ?? (
+        <span>
+          mostrando {rangeFrom}-{rangeTo} de {total} ventas
+        </span>
+      )}
       <div className={styles.pages}>
         <button
           type="button"

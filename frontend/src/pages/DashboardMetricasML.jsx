@@ -346,7 +346,7 @@ export default function DashboardMetricasML() {
   return (
     <div className={styles.container}>
       <div className={styles.header}>
-        <h1 className={styles.title}><BarChart3 size={22} /> Dashboard Métricas ML</h1>
+        <h1 className={styles.title}><BarChart3 size={22} /> Métricas ML (anterior)</h1>
 
         {/* Tabs */}
         <div className={styles.tabs}>

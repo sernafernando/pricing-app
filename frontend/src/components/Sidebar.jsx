@@ -132,7 +132,10 @@ export default function Sidebar({ mobileOpen = false, onMobileClose }) {
       defaultOpen: false,
       items: [
         { label: 'Ranking productos', path: '/consultas/ranking', permiso: 'consultas.ver_ranking,consultas.ver_mi_ranking', multiple: true },
-        { label: 'Métricas ML', path: '/dashboard-metricas-ml', permiso: 'ventas_ml.ver_dashboard' },
+        // ODD metricas-ml-tablero (2026-10-01): the new board took the plain
+        // name; the old dashboard keeps its URL, relabelled.
+        { label: 'Métricas ML', path: '/metricas-ml', permiso: 'ml_metricas.ver', badge: 'Nuevo' },
+        { label: 'Métricas ML (anterior)', path: '/dashboard-metricas-ml', permiso: 'ventas_ml.ver_dashboard' },
         { label: 'Ventas ML', path: '/ml-ventas-listado', permiso: 'ml_ops.ver' },
         { label: 'Divergencias ML Ventas', path: '/ml-ventas-divergencias', permiso: 'ml_ops.ver' },
         { label: 'Dashboard TP-Link', path: '/dashboard-tplink', permiso: 'dashboard_tplink.ver' },

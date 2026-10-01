@@ -52,6 +52,11 @@ describe('DashboardMetricasML — shared date filter wiring', () => {
     vi.useRealTimers();
   });
 
+  it('is titled "Métricas ML (anterior)": the new board took the plain name', async () => {
+    await renderWithRouter(<DashboardMetricasML />);
+    expect(await screen.findByRole('heading', { level: 1, name: /Métricas ML \(anterior\)/ })).toBeInTheDocument();
+  });
+
   it('asks the API for the preset window when a preset is clicked', async () => {
     await renderWithRouter(<DashboardMetricasML />);
     await waitFor(() => {

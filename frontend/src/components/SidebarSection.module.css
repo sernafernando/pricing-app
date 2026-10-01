@@ -141,3 +141,17 @@
   opacity: 1;
   color: var(--cf-accent-blue);
 }
+
+/* A short label next to an item ("Nuevo"): tone chip, never a second link. */
+.badge {
+  flex-shrink: 0;
+  margin-left: 6px;
+  padding: 0 6px;
+  border: 1px solid var(--tone-info-border);
+  border-radius: var(--radius-full);
+  font-size: 10px;
+  font-weight: var(--font-semibold);
+  line-height: 16px;
+  color: var(--tone-info-fg);
+  background: var(--tone-info-bg);
+}
