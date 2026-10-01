@@ -1908,6 +1908,41 @@ describe('the KPI strip stays in parity with the list', () => {
     expect(screen.getByRole('button', { name: /solo con alertas/i })).toHaveAttribute('aria-pressed', 'false');
   });
 
+  it('Exportar CSV sends the SAME filters as the list (no paging) and tells the operator when it fails', async () => {
+    mockKpi();
+    const baseImpl = api.get.getMockImplementation();
+    api.get.mockImplementation((url, config) => {
+      if (url === '/ml-ventas-ops/sales/export') {
+        return Promise.reject({
+          response: {
+            status: 422,
+            data: new Blob([JSON.stringify({ error: { message: 'Son 20000 ventas. Acotá los filtros.' } })]),
+          },
+        });
+      }
+      return baseImpl(url, config);
+    });
+    const user = userEvent.setup();
+    await renderWithRouter(<VentasML />);
+    await user.click(await screen.findByRole('checkbox', { name: /canceladas/i }));
+    await user.click(await screen.findByRole('button', { name: /solo con alertas/i }));
+    await waitFor(() => {
+      const last = api.get.mock.calls.filter((c) => c[0] === '/ml-ventas-ops/sales').at(-1);
+      expect(last[1].params).toMatchObject({ include_cancelled: false, only_alerts: true });
+    });
+    const listParams = api.get.mock.calls.filter((c) => c[0] === '/ml-ventas-ops/sales').at(-1)[1].params;
+
+    await user.click(screen.getByRole('button', { name: /exportar csv/i }));
+
+    await waitFor(() => {
+      const exportCall = api.get.mock.calls.find((c) => c[0] === '/ml-ventas-ops/sales/export');
+      expect(exportCall[1].responseType).toBe('blob');
+      const { limit, offset, ...listFilters } = listParams; // eslint-disable-line no-unused-vars
+      expect(exportCall[1].params).toEqual(listFilters);
+    });
+    expect(await screen.findByText(/Acotá los filtros/)).toBeInTheDocument();
+  });
+
   it('renders a null markup_weighted_pct from the live response as "—", not 0%', async () => {
     mockKpi({ markup_weighted_pct: null });
     await renderWithRouter(<VentasML />);

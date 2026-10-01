@@ -78,6 +78,7 @@ import { useVentasMLFilters } from '../hooks/useVentasMLFilters';
 import VariosVentaPctModal from '../components/VariosVentaPctModal';
 import DateRangeFilter from '../components/DateRangeFilter';
 import { buildVentasMLFilterParams } from '../utils/ventasMlParams';
+import { exportVentasCsv } from '../utils/ventasMlExport';
 import {
   formatDate,
   OPERATION_STATUS_LABELS,
@@ -140,6 +141,8 @@ export default function VentasML() {
   const [includeProvisional, setIncludeProvisional] = useState(true);
   const [includeCancelled, setIncludeCancelled] = useState(true);
   const [onlyAlerts, setOnlyAlerts] = useState(false);
+  const [exporting, setExporting] = useState(false);
+  const [exportError, setExportError] = useState(null);
 
   const [kpi, setKpi] = useState(null);
   const [kpiLoading, setKpiLoading] = useState(true);
@@ -276,6 +279,48 @@ export default function VentasML() {
     setOperationStatusFilter(value);
     setOffset(0);
   }, []);
+
+  // The file is the filtered set the table shows: same shared params builder,
+  // no paging (the backend walks the pages itself).
+  const handleExport = useCallback(async () => {
+    setExporting(true);
+    setExportError(null);
+    try {
+      await exportVentasCsv(
+        buildVentasMLFilterParams({
+          operationStatusFilter,
+          goodsStatusFilter,
+          fechaDesde,
+          fechaHasta,
+          searchQuery,
+          productFilters,
+          includeUnknown,
+          includeInDispute,
+          includeMixed,
+          includeProvisional,
+          includeCancelled,
+          onlyAlerts,
+        }),
+      );
+    } catch (err) {
+      setExportError(err.message);
+    } finally {
+      setExporting(false);
+    }
+  }, [
+    operationStatusFilter,
+    goodsStatusFilter,
+    fechaDesde,
+    fechaHasta,
+    searchQuery,
+    productFilters,
+    includeUnknown,
+    includeInDispute,
+    includeMixed,
+    includeProvisional,
+    includeCancelled,
+    onlyAlerts,
+  ]);
 
   const handleOnlyAlertsChange = useCallback((value) => {
     setOnlyAlerts(value);
@@ -559,6 +604,14 @@ export default function VentasML() {
           >
             % de varios
           </button>
+          <button
+            type="button"
+            className="btn-tesla outline sm"
+            onClick={handleExport}
+            disabled={exporting}
+          >
+            {exporting ? 'Exportando...' : 'Exportar CSV'}
+          </button>
           {/* Refreshes BOTH: reloading only the list would leave the six
               cards showing the previous totals beside fresh rows, which is
               exactly the "what I see is what it sums" promise broken by the
@@ -581,6 +634,12 @@ export default function VentasML() {
         Listado de ventas de Mercado Libre. El estado de la operación describe el dinero; el estado de la
         mercadería describe el producto — son ejes independientes a propósito.
       </p>
+
+      {exportError && (
+        <div className={styles.errorBar} role="alert">
+          <ShieldAlert size={16} /> {exportError}
+        </div>
+      )}
 
       {errorKind === 'forbidden' && (
         <div className={styles.errorBar}>

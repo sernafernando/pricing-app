@@ -56,7 +56,7 @@ Ruta: delegated direct (writer único, 2+ archivos no triviales por tarea).
 - [x] T3 — Cupón en Importe + toggle "A revisar" (frontend).
 - [x] T4 — Panel: Comprador / Pago / Envío + Ver en ML + copiar ID (BE+FE).
 - [x] T5 — Filtro "Solo con alertas" con conteo (BE+FE).
-- [ ] T6 — Exportar CSV del conjunto filtrado (BE+FE).
+- [x] T6 — Exportar CSV del conjunto filtrado (BE+FE).
 - [ ] T7 — Resincronizar venta + permiso + "sincronizado hace X" (BE+FE).
 - [x] T8 — Toggle "Canceladas" en Incluir (BE+FE; pedido del usuario 2026-09-30).
 
@@ -180,3 +180,30 @@ Creado 2026-09-30. Línea base vitest: 133 archivos, 1794 passed + 2 expected fa
   recalculating, mercadería desconocida, packs).
 - GREEN: pytest 249 passed (alerts+sales+kpis+ml_sales_query); ruff OK;
   vitest 140 archivos, 1852 passed + 2 expected fail; eslint 0 errores.
+
+### T6
+- `GET /ml-ventas-ops/sales/export` (permiso `ml_ops.ver`, mismos params que el
+  listado sin paginado/orden). Decisión de diseño: recorre el MISMO
+  `listar_ventas` página por página (200 grupos), así el archivo tiene lo que
+  tiene la tabla, sin una segunda consulta que pueda divergir de
+  `build_scope`. La primera página se pide ANTES de empezar la respuesta (un
+  parámetro inválido, la feature apagada o un set enorme fallan como error
+  HTTP normal, no como archivo truncado). Tope 10.000 grupos (422 con "Acotá
+  los filtros"); cada página re-corre el listado, un export sin tope sería un
+  request lento y ciego.
+- Columnas: set fijo, una fila por ORDEN (el pack aporta una fila por miembro,
+  columna `pack` los une): fecha, orden, pack, comprador, operación,
+  mercadería, modo logístico, ciudad, provincia, moneda, importe, cupón ML,
+  neto, total gauss, markup %, provisorio, estado de métricas, alerta. Fijo y
+  no "columnas visibles" porque varias celdas visibles son compuestas
+  (producto+categoría, importe+cupón). CSV con coma, punto decimal, BOM UTF-8;
+  texto libre de ML con `= + - @` se neutraliza (inyección de fórmulas).
+  Limitación: Excel con configuración regional es-AR espera `;` — en Sheets o
+  importando con coma abre bien.
+- Frontend: botón "Exportar CSV" (acciones del encabezado) usa el mismo
+  `buildVentasMLFilterParams`; si falla muestra el mensaje del backend (el
+  cuerpo del error llega como Blob y se lee).
+- RED: `test_ml_ventas_ops_export_router.py` (7 fallaron: ruta inexistente);
+  `ventasMlExport.test.js` (módulo inexistente) y el test de página (sin botón).
+- GREEN: pytest export 7 passed; ruff OK; vitest 141 archivos, 1858 passed + 2
+  expected fail; eslint 0 errores; build OK.

@@ -24,12 +24,15 @@ switched off right now" for a user who already cleared the permission gate.
 from __future__ import annotations
 
 import calendar
+import csv
+import io
 from datetime import date, datetime, time, timedelta, timezone
 from decimal import Decimal
 from zoneinfo import ZoneInfo
 from typing import Any, Dict, List, Optional, Tuple
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, status
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import func
 from sqlalchemy.orm import Query as SAQuery
@@ -1684,6 +1687,168 @@ def listar_ventas(
             goods_status_total=goods_facet_total,
             alerts_total=alert_groups_count(scope),
         ),
+    )
+
+
+# ── ODD ventas-ml-ui-pendiente T6: CSV export of the filtered set ───
+
+# The export walks the REAL listing (`listar_ventas`) page by page, so it
+# holds exactly what the table holds for the same params: there is no second
+# query that could drift from `build_scope`. The cap is a guard rail, not a
+# feature: every page re-runs the listing, so an unbounded export would be a
+# slow request the operator cannot see the end of.
+EXPORT_PAGE_SIZE = 200
+EXPORT_MAX_GROUPS = 10_000
+
+# One row per ORDER (a pack contributes one row per member, `pack` links them).
+# A fixed set rather than "the visible columns": several visible cells are
+# composites (product + category, amount + coupon) that do not survive as one
+# spreadsheet cell, and a stable header is what makes the file reusable.
+EXPORT_HEADER = [
+    "fecha",
+    "orden",
+    "pack",
+    "comprador",
+    "operacion",
+    "mercaderia",
+    "modo_logistico",
+    "ciudad",
+    "provincia",
+    "moneda",
+    "importe",
+    "cupon_ml",
+    "neto",
+    "total_gauss",
+    "markup_pct",
+    "provisorio",
+    "estado_metricas",
+    "alerta",
+]
+
+
+def _csv_text(value: Optional[str]) -> str:
+    """Free text from ML (buyer nickname, city...) goes into a spreadsheet:
+    a cell starting with `= + - @` (or tab/CR) would be run as a formula, so
+    it is defused with a leading quote. Standard CSV-injection guard."""
+    if value is None:
+        return ""
+    return "'" + value if value[:1] in ("=", "+", "-", "@", "\t", "\r") else value
+
+
+def _csv_money(value: Optional[float]) -> str:
+    return "" if value is None else f"{value:.2f}"
+
+
+def _csv_order_row(order: SaleListItem) -> List[str]:
+    return [
+        order.date_created.isoformat() if order.date_created else "",
+        str(order.order_id),
+        "" if order.pack_id is None else str(order.pack_id),
+        _csv_text(order.buyer_nickname),
+        order.operation_status,
+        order.goods_status,
+        order.modo_logistico,
+        _csv_text(order.city),
+        _csv_text(order.province),
+        order.currency_id or "",
+        _csv_money(order.total_amount),
+        _csv_money(order.coupon_amount),
+        _csv_money(order.neto),
+        _csv_money(order.total_gauss),
+        _csv_money(order.markup),
+        "si" if order.total_gauss_provisional else "no",
+        order.metrics_state or "",
+        order.alert_level,
+    ]
+
+
+@router.get("/sales/export")
+def exportar_ventas(
+    operation_status_filter: Optional[str] = Query(default=None, alias="operation_status"),
+    goods_status_filter: Optional[str] = Query(default=None, alias="goods_status"),
+    sold_month: Optional[str] = Query(default=None, description="YYYY-MM (legacy, usar date_from/date_to)"),
+    date_from: Optional[str] = Query(default=None, description="YYYY-MM-DD, inclusive"),
+    date_to: Optional[str] = Query(default=None, description="YYYY-MM-DD, inclusive"),
+    q: Optional[str] = Query(default=None),
+    marcas: Optional[str] = Query(default=None),
+    subcategorias: Optional[str] = Query(default=None),
+    pms: Optional[str] = Query(default=None),
+    include_unknown: bool = Query(default=True),
+    include_in_dispute: bool = Query(default=True),
+    include_mixed: bool = Query(default=True),
+    include_provisional: bool = Query(default=True),
+    include_cancelled: bool = Query(default=True),
+    only_alerts: bool = Query(default=False),
+    current_user: Usuario = Depends(require_permission("ml_ops.ver")),
+    db: Session = Depends(get_db),
+) -> StreamingResponse:
+    """CSV of the filtered set: the same params as `GET /sales` (minus
+    paging/sort), the same `ml_ops.ver` permission. Streams page by page; the
+    first page is fetched BEFORE the response starts so a bad param, a
+    disabled feature or an oversized set fail as a normal HTTP error instead
+    of a truncated file."""
+
+    def page(offset: int) -> SaleListResponse:
+        return listar_ventas(
+            operation_status_filter=operation_status_filter,
+            goods_status_filter=goods_status_filter,
+            sold_month=sold_month,
+            date_from=date_from,
+            date_to=date_to,
+            sort=SORT_BY_SALE_DATE,
+            q=q,
+            marcas=marcas,
+            subcategorias=subcategorias,
+            pms=pms,
+            include_unknown=include_unknown,
+            include_in_dispute=include_in_dispute,
+            include_mixed=include_mixed,
+            include_provisional=include_provisional,
+            include_cancelled=include_cancelled,
+            only_alerts=only_alerts,
+            limit=EXPORT_PAGE_SIZE,
+            offset=offset,
+            current_user=current_user,
+            db=db,
+        )
+
+    first = page(0)
+    if first.total > EXPORT_MAX_GROUPS:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=(
+                f"Son {first.total} ventas, demasiadas para exportar de una vez "
+                f"(máximo {EXPORT_MAX_GROUPS}). Acotá los filtros, por ejemplo con un rango de fechas."
+            ),
+        )
+
+    def rows_of(response: SaleListResponse) -> str:
+        buffer = io.StringIO()
+        writer = csv.writer(buffer)
+        for group in response.sales:
+            for order in group.orders:
+                writer.writerow(_csv_order_row(order))
+        return buffer.getvalue()
+
+    def stream():
+        header = io.StringIO()
+        csv.writer(header).writerow(EXPORT_HEADER)
+        # BOM so Excel reads the accents as UTF-8.
+        yield "\ufeff" + header.getvalue()
+        current = first
+        offset = 0
+        while True:
+            yield rows_of(current)
+            offset += EXPORT_PAGE_SIZE
+            if offset >= first.total or not current.sales:
+                break
+            current = page(offset)
+
+    filename = f"ventas-ml-{datetime.now().strftime('%Y%m%d-%H%M')}.csv"
+    return StreamingResponse(
+        stream(),
+        media_type="text/csv; charset=utf-8",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
     )
 
 
