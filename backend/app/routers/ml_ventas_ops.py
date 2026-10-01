@@ -88,6 +88,8 @@ from app.services.ml_sales_query.filters import (
     effective_switches,
     alert_groups_count,
     excluded_by_toggle_counts,
+    NO_STORE,
+    store_facet_counts,
 )
 from app.services.ml_ventas_desglose.deducciones import resolve_costo_mercaderia_detalle
 from app.services.ml_ventas_desglose.pack_aggregation import aggregate_pack_metrics, sum_all_or_nothing
@@ -899,6 +901,11 @@ class SaleFacetCounts(BaseModel):
     # every OTHER filter leaves standing (never scoped by `only_alerts`
     # itself, so the "Solo con alertas (N)" counter stays honest while ON).
     alerts_total: int = 0
+    # ODD `metricas-ml-tablero` T1: groups per official-store bucket
+    # (`mlp_official_store_id` as text, or `sin_tienda`) and the "Todas"
+    # count, both scoped by every OTHER filter, never by `stores` itself.
+    stores: Dict[str, int] = Field(default_factory=dict)
+    stores_total: int = 0
 
 
 class SaleListResponse(BaseModel):
@@ -1164,6 +1171,25 @@ def _parse_csv_ids(raw: Optional[str], field: str) -> Tuple[int, ...]:
     return tuple(values)
 
 
+_STORES_PARAM_DESCRIPTION = "CSV de mlp_official_store_id y/o 'sin_tienda' (ODD metricas-ml-tablero T1)"
+
+
+def _parse_csv_stores(raw: Optional[str]) -> Tuple[str, ...]:
+    """ODD `metricas-ml-tablero` T1: CSV of official-store ids plus the
+    `sin_tienda` sentinel, normalised to text (`"057997"` -> `"57997"`) and
+    deduplicated. An empty entry, a non-numeric token or an out-of-range id is
+    422, same contract as the other facets (`_parse_csv_ids`)."""
+    if not raw:
+        return ()
+    values: "list[str]" = []
+    for part in raw.split(","):
+        token = part.strip()
+        value = NO_STORE if token == NO_STORE else str(_parse_csv_ids(token or ",", "stores")[0])
+        if value not in values:
+            values.append(value)
+    return tuple(values)
+
+
 def _nested_str_field(raw: Optional[Any], *nested_keys: str) -> Optional[str]:
     """Null-safe read of a nested string out of ANY raw ML JSON dict -- the
     `MlShipmentOps.receiver_address` JSONB (PR10.T3/T4, spec LISTING R28) and
@@ -1288,6 +1314,7 @@ def listar_ventas(
     marcas: Optional[str] = Query(default=None, description="CSV de marcas (PFILT R35, D12a)"),
     subcategorias: Optional[str] = Query(default=None, description="CSV de ids de subcategoría (PFILT R35, D12a)"),
     pms: Optional[str] = Query(default=None, description="CSV de ids de usuario PM (PFILT R35, D12a)"),
+    stores: Optional[str] = Query(default=None, description=_STORES_PARAM_DESCRIPTION),
     # PR11.T1/T9 (design D12/D13, spec KPI R9-R12): the four doubtful-case
     # toggles, shared verbatim with `GET /sales/kpis` (KPI R7/R10). This
     # endpoint's OWN default is `True` (show everything) on EVERY switch --
@@ -1355,6 +1382,7 @@ def listar_ventas(
         marcas=marcas,
         subcategorias=subcategorias,
         pms=pms,
+        stores=stores,
         include_unknown=include_unknown,
         include_in_dispute=include_in_dispute,
         include_mixed=include_mixed,
@@ -1379,6 +1407,7 @@ def _sales_page(
     marcas: Optional[str],
     subcategorias: Optional[str],
     pms: Optional[str],
+    stores: Optional[str],
     include_unknown: bool,
     include_in_dispute: bool,
     include_mixed: bool,
@@ -1429,6 +1458,7 @@ def _sales_page(
     marcas_list = _parse_csv_strings(marcas, "marcas")
     subcategorias_list = _parse_csv_ids(subcategorias, "subcategorias")
     pms_list = _parse_csv_ids(pms, "pms")
+    stores_list = _parse_csv_stores(stores)
 
     # PR9.T1/T2 (design D12): the seller/date scoping, status derivation,
     # status filters and free-text search all live in `build_scope` now.
@@ -1448,6 +1478,7 @@ def _sales_page(
             marcas=marcas_list,
             subcategorias=subcategorias_list,
             pms=pms_list,
+            stores=stores_list,
             include_unknown=include_unknown,
             include_in_dispute=include_in_dispute,
             include_mixed=include_mixed,
@@ -1752,6 +1783,7 @@ def _sales_page(
         goods_facet[bucket] = count
 
     goods_facet_total = goods_facet_query.with_entities(func.count(func.distinct(group_key))).scalar() or 0
+    store_counts, stores_total = store_facet_counts(scope)
 
     return SaleListResponse(
         total=total,
@@ -1764,6 +1796,8 @@ def _sales_page(
             operation_status_total=op_facet_total,
             goods_status_total=goods_facet_total,
             alerts_total=alert_groups_count(scope),
+            stores=store_counts,
+            stores_total=stores_total,
         ),
     )
 
@@ -1904,6 +1938,7 @@ def exportar_ventas(
     marcas: Optional[str] = Query(default=None),
     subcategorias: Optional[str] = Query(default=None),
     pms: Optional[str] = Query(default=None),
+    stores: Optional[str] = Query(default=None, description=_STORES_PARAM_DESCRIPTION),
     include_unknown: bool = Query(default=True),
     include_in_dispute: bool = Query(default=True),
     include_mixed: bool = Query(default=True),
@@ -1937,6 +1972,7 @@ def exportar_ventas(
                 marcas=marcas,
                 subcategorias=subcategorias,
                 pms=pms,
+                stores=stores,
                 include_unknown=include_unknown,
                 include_in_dispute=include_in_dispute,
                 include_mixed=include_mixed,
@@ -2092,6 +2128,7 @@ def sales_kpis(
     marcas: Optional[str] = Query(default=None, description="CSV de marcas (PFILT R35, D12a)"),
     subcategorias: Optional[str] = Query(default=None, description="CSV de ids de subcategoría (PFILT R35, D12a)"),
     pms: Optional[str] = Query(default=None, description="CSV de ids de usuario PM (PFILT R35, D12a)"),
+    stores: Optional[str] = Query(default=None, description=_STORES_PARAM_DESCRIPTION),
     # PR11.T9/spec R11: THIS endpoint has no legacy caller, so its own
     # defaults ARE the spec R11 combination -- unlike `GET /sales`'s
     # backward-compatible `True` defaults (see that endpoint's own
@@ -2146,6 +2183,7 @@ def sales_kpis(
     marcas_list = _parse_csv_strings(marcas, "marcas")
     subcategorias_list = _parse_csv_ids(subcategorias, "subcategorias")
     pms_list = _parse_csv_ids(pms, "pms")
+    stores_list = _parse_csv_stores(stores)
 
     sales_filter = SalesFilter(
         date_range=sold_range,
@@ -2155,6 +2193,7 @@ def sales_kpis(
         marcas=marcas_list,
         subcategorias=subcategorias_list,
         pms=pms_list,
+        stores=stores_list,
         include_unknown=include_unknown,
         include_in_dispute=include_in_dispute,
         include_mixed=include_mixed,
