@@ -307,3 +307,36 @@ Rama `fix/ventas-ml-ui-observaciones`, TDD estricto (RED observado antes de cada
    counts con 3 páginas vs 1 con una. (b) la sesión del request se CIERRA
    (`db.close()`, antes `rollback()`) antes de empezar a streamear. RED: el test no
    vio ningún `close` del request. Targeted + ruff verdes.
+
+## Observaciones de la revisión final
+
+1. Export truncado en silencio: las páginas 2+ abren su sesión dentro del generador,
+   con el 200 ya enviado. Ahora un error por página se loguea (`logger.exception`) y el
+   archivo termina con `# ERROR: exportación incompleta — N de TOTAL ventas exportadas.
+   Volvé a intentar.`. RED: la última línea era una fila de datos, sin marca de error.
+2. El fake de `get_background_db` devolvía el mismo `db` del request. Ahora entrega una
+   `Session` distinta atada a la misma conexión y un test verifica por identidad que
+   `_sales_page` y `member_accreditation_dates` la usan (3 páginas). Prueba de mutación:
+   con `page_db = db` el test falla (`assert <Session> is not <Session>` misma
+   instancia); restaurado, 17 verdes.
+3. `resync_order`: `db.commit()` -> `db.rollback()` tras el chequeo de existencia (es
+   una lectura; el commit persistía escrituras pendientes ajenas y commiteaba aun si
+   `_try_begin` rechazaba). RED: 2 tests nuevos (pendiente persistido tras
+   `ResyncInProgress` y durante la llamada a ML). `_store_order` del test ahora commitea
+   (la orden guardada real ya está commiteada). El test de "sin transacción abierta
+   durante ML" sigue verde. 469 verdes en servicios + router.
+4. `SHIPMENT_DOT_TONE` movido a `ventasMlTone.js` como `shipmentDotTone` (default
+   neutral), testeado. RED: `shipmentDotTone is not a function`.
+5. Comentario de `--ventas-panel-width` corregido (>=1600px, sheet aparte con
+   `--ventas-sheet-width`).
+6. Tests de comportamiento en `VentasML.test.jsx`: pills+fecha cuando la fila está en la
+   página, omitidos si no (deep link), y un único `selectedRow`. Esos tres caracterizan
+   comportamiento ya existente (pasaron en verde de entrada). Nuevo helper `sameId`
+   (string de la URL vs `order_id` numérico) usado en los 4 sitios de comparación;
+   RED: `sameId is not a function`.
+7. `sharedShippingId`/`shippingIdCount` reemplazados por `distinctShippingIds`
+   (`ventasMlTableHelpers.js`), testeado. RED: `distinctShippingIds is not a function`.
+
+Verificación: ruff format/check limpios; pytest dirigido 379 verdes; vitest 1919 verdes +
+2 expected fail (144 archivos; antes 1910 verdes + 6 rojos = los RED de arriba); visual
+68 verdes; eslint 0 errores (8 warnings preexistentes); stylelint y build OK.

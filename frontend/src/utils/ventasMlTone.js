@@ -158,3 +158,18 @@ export const MODO_LOGISTICO_TONE = {
   desconocido: 'neutral',
   mixed: 'warning',
 };
+
+// Where the parcel is, in the detail panel's status dot colour.
+const SHIPMENT_DOT_TONE = {
+  delivered: 'success',
+  shipped: 'info',
+  ready_to_ship: 'warning',
+  handling: 'warning',
+  pending: 'neutral',
+  not_delivered: 'danger',
+  cancelled: 'danger',
+};
+
+export function shipmentDotTone(status) {
+  return SHIPMENT_DOT_TONE[status] || 'neutral';
+}

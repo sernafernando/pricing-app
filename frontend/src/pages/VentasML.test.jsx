@@ -23,6 +23,7 @@ import userEvent from '@testing-library/user-event';
 import { renderWithRouter } from '../test/renderWithRouter';
 import VentasML from './VentasML';
 import api from '../services/api';
+import { OPERATION_STATUS_LABELS, GOODS_STATUS_LABELS, formatDateTime } from '../utils/ventasMlFormat';
 
 const mockTienePermiso = vi.fn(() => true);
 
@@ -2003,5 +2004,61 @@ describe('the KPI strip stays in parity with the list', () => {
     await waitFor(() => {
       expect(screen.getByText('—', { selector: 'div' })).toBeInTheDocument();
     });
+  });
+});
+
+
+describe('Selected order: header pills and row highlight', () => {
+  function mockWithDetail(rows) {
+    api.get.mockImplementation((url) => {
+      if (url === '/ml-ventas-ops/sales') {
+        return Promise.resolve({
+          data: {
+            sales: rows.map(asGroup),
+            total: rows.length,
+            limit: 50,
+            offset: 0,
+            facets: { operation_status: {}, goods_status: {} },
+          },
+        });
+      }
+      if (url.startsWith('/ml-ventas-ops/orders/')) {
+        return Promise.resolve({
+          data: { breakdown: { lines: [], neto: 1, incompleto: false, incomplete_reasons: [] } },
+        });
+      }
+      return Promise.resolve({ data: {} });
+    });
+  }
+
+  it('shows the status pills and the sale date in the panel when the row is on this page', async () => {
+    mockWithDetail([PAID_SALE]);
+    await renderWithRouter(<VentasML />, { initialEntries: ['/?orden=1001'] });
+
+    const panel = await screen.findByLabelText('Detalle de venta');
+    expect(await within(panel).findByText('Orden')).toBeInTheDocument();
+    expect(within(panel).getByText(OPERATION_STATUS_LABELS.paid)).toBeInTheDocument();
+    expect(within(panel).getByText(GOODS_STATUS_LABELS.delivered)).toBeInTheDocument();
+    expect(within(panel).getByText(formatDateTime(PAID_SALE.date_created))).toBeInTheDocument();
+  });
+
+  it('omits them when the selected order is not on this page (a deep link), never guessing', async () => {
+    mockWithDetail([PAID_SALE]);
+    await renderWithRouter(<VentasML />, { initialEntries: ['/?orden=9999'] });
+
+    const panel = await screen.findByLabelText('Detalle de venta');
+    expect(await within(panel).findByText('9999')).toBeInTheDocument();
+    expect(within(panel).queryByText(OPERATION_STATUS_LABELS.paid)).not.toBeInTheDocument();
+    expect(within(panel).queryByText(formatDateTime(PAID_SALE.date_created))).not.toBeInTheDocument();
+  });
+
+  it('highlights the selected row and no other', async () => {
+    mockWithDetail([PAID_SALE, ML_COVERED_SALE]);
+    await renderWithRouter(<VentasML />, { initialEntries: ['/?orden=1001'] });
+
+    await screen.findByLabelText('Detalle de venta');
+    const selected = document.querySelectorAll('tr[class*="selectedRow"]');
+    expect(selected).toHaveLength(1);
+    expect(selected[0]).toHaveTextContent('comprador1');
   });
 });

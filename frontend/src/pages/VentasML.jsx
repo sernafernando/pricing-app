@@ -73,6 +73,7 @@ import {
   loadPageSize,
   savePageSize,
   COLUMN_SIZING_STORAGE_KEY,
+  sameId,
 } from './ventasMlTableHelpers';
 import { useVentasMLFilters } from '../hooks/useVentasMLFilters';
 import VariosVentaPctModal from '../components/VariosVentaPctModal';
@@ -618,7 +619,7 @@ export default function VentasML() {
   const selectedListOrder =
     selectedOrderId === null || selectedOrderId === undefined
       ? null
-      : sales.flatMap((group) => group.orders || []).find((o) => o.order_id === selectedOrderId) || null;
+      : sales.flatMap((group) => group.orders || []).find((o) => sameId(o.order_id, selectedOrderId)) || null;
 
   return (
     <div className={styles.container}>
@@ -946,8 +947,8 @@ export default function VentasML() {
                       className={[
                         isPack ? styles.packRow : '',
                         isRowClickable ? styles.clickableRow : '',
-                        (isPack && selectedPackId != null && group.pack_id === selectedPackId) ||
-                        (!isPack && selectedOrderId != null && representativeOrderId === selectedOrderId)
+                        (isPack && sameId(group.pack_id, selectedPackId)) ||
+                        (!isPack && sameId(representativeOrderId, selectedOrderId))
                           ? styles.selectedRow
                           : '',
                       ]
@@ -984,7 +985,7 @@ export default function VentasML() {
                           <tr
                             key={order.order_id}
                             className={`${styles.memberRow} ${styles.clickableRow} ${
-                              selectedOrderId === order.order_id ? styles.selectedRow : ''
+                              sameId(selectedOrderId, order.order_id) ? styles.selectedRow : ''
                             }`.trim()}
                             onClick={() => openDrawer(order.order_id)}
                           >

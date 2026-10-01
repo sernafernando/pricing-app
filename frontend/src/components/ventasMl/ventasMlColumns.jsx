@@ -1,5 +1,6 @@
 import { ChevronRight } from 'lucide-react';
 import styles from '../../pages/VentasML.module.css';
+import { distinctShippingIds } from '../../pages/ventasMlTableHelpers';
 import AlertIcon from './AlertIcon';
 import ProductCell from './ProductCell';
 import RecalculatingBadge from './RecalculatingBadge';
@@ -64,16 +65,6 @@ import {
 // dragged over its neighbour -- the Producto/Orden overlap bug.
 
 const orderMeta = (ctx) => (ctx.kind === 'group' ? ctx.loneOrder || ctx.orders[0] : ctx.order);
-
-// The shipment every order of a pack shares, or `null` when they disagree
-// (then the cell says how many there are instead of picking one).
-const sharedShippingId = (orders) => {
-  const ids = new Set(orders.map((o) => o.shipping_id).filter((v) => v !== null && v !== undefined));
-  return ids.size === 1 ? [...ids][0] : null;
-};
-
-const shippingIdCount = (orders) =>
-  new Set(orders.map((o) => o.shipping_id).filter((v) => v !== null && v !== undefined)).size;
 
 export const COLUMNS = [
   {
@@ -226,8 +217,10 @@ export const COLUMNS = [
       const modo = ctx.kind === 'group' ? ctx.group.modo_logistico : ctx.order.modo_logistico;
       const meta = orderMeta(ctx);
       const status = shippingStatusLabel({ status: meta?.shipping_status, substatus: meta?.shipping_substatus });
-      const shippingId = sharedShippingId(orders);
-      const count = shippingIdCount(orders);
+      // One distinct id: the pack's shared shipment. Several: say how many.
+      const shippingIds = distinctShippingIds(orders);
+      const shippingId = shippingIds.length === 1 ? shippingIds[0] : null;
+      const count = shippingIds.length;
       return (
         <>
           <span className={styles.envioTop}>

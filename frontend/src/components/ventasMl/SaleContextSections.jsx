@@ -3,7 +3,7 @@ import CopyButton from './CopyButton';
 import StatusPill from './StatusPill';
 import styles from './SaleDetailPanel.module.css';
 import { MODO_LOGISTICO_LABELS, formatDay, paymentMethodLabel } from '../../utils/ventasMlFormat';
-import { MODO_LOGISTICO_TONE, formatSignedMoney, shippingStatusLabel } from '../../utils/ventasMlTone';
+import { MODO_LOGISTICO_TONE, formatSignedMoney, shipmentDotTone, shippingStatusLabel } from '../../utils/ventasMlTone';
 
 function hasValue(value) {
   return value !== null && value !== undefined && value !== '';
@@ -17,17 +17,6 @@ function Row({ label, children }) {
     </div>
   );
 }
-
-// Where the parcel is, in the panel's status dot colour.
-const SHIPMENT_DOT_TONE = {
-  delivered: 'success',
-  shipped: 'info',
-  ready_to_ship: 'warning',
-  handling: 'warning',
-  pending: 'neutral',
-  not_delivered: 'danger',
-  cancelled: 'danger',
-};
 
 /**
  * Producto card (Stitch `detalle`): one block per item of the order, with
@@ -114,7 +103,7 @@ export default function SaleContextSections({ order, shipment }) {
               )}
             </div>
             {shipmentStatus && (
-              <p className={`${styles.shipStatus} ${styles[`dot_${SHIPMENT_DOT_TONE[shipment.status] || 'neutral'}`]}`}>
+              <p className={`${styles.shipStatus} ${styles[`dot_${shipmentDotTone(shipment.status)}`]}`}>
                 <span className={styles.statusDot} aria-hidden="true" />
                 {shipmentStatus}
               </p>

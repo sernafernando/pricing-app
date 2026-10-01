@@ -7,6 +7,7 @@ import {
   formatListMoney,
   formatDeduction,
   shippingStatusLabel,
+  shipmentDotTone,
   OPERATION_STATUS_TONE,
   GOODS_STATUS_TONE,
 } from './ventasMlTone';
@@ -145,5 +146,23 @@ describe('status tones', () => {
     expect(GOODS_STATUS_TONE.in_transit).toBe('info');
     expect(GOODS_STATUS_TONE.delivered).toBe('success');
     expect(GOODS_STATUS_TONE.returned_undelivered).toBe('danger');
+  });
+});
+
+describe('shipmentDotTone', () => {
+  it('paints where the parcel is: delivered green, moving blue, waiting amber, failed red', () => {
+    expect(shipmentDotTone('delivered')).toBe('success');
+    expect(shipmentDotTone('shipped')).toBe('info');
+    expect(shipmentDotTone('ready_to_ship')).toBe('warning');
+    expect(shipmentDotTone('handling')).toBe('warning');
+    expect(shipmentDotTone('not_delivered')).toBe('danger');
+    expect(shipmentDotTone('cancelled')).toBe('danger');
+    expect(shipmentDotTone('pending')).toBe('neutral');
+  });
+
+  it('is neutral for a status it does not know, or none', () => {
+    expect(shipmentDotTone('brand_new_status')).toBe('neutral');
+    expect(shipmentDotTone(null)).toBe('neutral');
+    expect(shipmentDotTone(undefined)).toBe('neutral');
   });
 });

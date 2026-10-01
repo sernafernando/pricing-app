@@ -110,10 +110,11 @@
      VENTAS ML — SaleDetailPanel (ventas-ml-rediseno PANEL R16-R20)
      ============================================ */
 
-  /* The panel's fixed column width in the desktop grid layout (>=1280px)
-     and its sheet width on the <1280px fixed-sheet fallback. Named here,
-     not a magic number, so both `VentasMLLayout.module.css` breakpoints
-     stay in sync with a single source of truth. */
+  /* The panel's fixed column width in the side-by-side grid layout
+     (>=1600px). Below 1600px the panel becomes a sheet over the table and
+     uses --ventas-sheet-width instead. Named here, not a magic number, so
+     `VentasMLLayout.module.css` stays in sync with a single source of
+     truth. */
   --ventas-panel-width: 460px;
   /* The same panel as a sheet over the table (below 1600px): wider, since
      it no longer has to share the row -- room for Comprador | Envío side
