@@ -194,5 +194,19 @@ def store_order_metrics(db: Session, metrics_by_order: Dict[int, OrderMetrics]) 
         # `fenced_store` deletes it AFTER this returns -- so they are named
         # here explicitly. Any OTHER member of the group keeps its own dirty
         # row and still holds the group back.
+        from app.models.ml_group_metrics import MlGroupMetrics
+        from app.services.ml_daily_metrics.rollup import buckets_for_groups, refresh_rollup
+
+        # ODD `metricas-ml-tablero` T2: the group's day BEFORE this store, so
+        # a sale whose accreditation day moved leaves its old daily bucket.
+        previous_dates = dict(
+            db.query(MlGroupMetrics.group_key, MlGroupMetrics.group_date).filter(
+                MlGroupMetrics.group_key.in_(group_keys)
+            )
+        )
         group_metrics = recompute_group_metrics(db, group_keys, just_stored_order_ids=order_ids)
         store_group_metrics(db, group_metrics)
+        # Same transaction, same writer: the daily rollup's affected (MLA,
+        # day) buckets are recomputed from source right after the group row
+        # they read their day from.
+        refresh_rollup(db, buckets_for_groups(db, group_keys, previous_dates))
