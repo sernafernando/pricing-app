@@ -45,11 +45,26 @@
  */
 
 import { useEffect, useCallback, useState, useRef } from 'react';
-import { X, TriangleAlert, ExternalLink, RefreshCw } from 'lucide-react';
+import { X, TriangleAlert, ExternalLink, RefreshCw, ReceiptText } from 'lucide-react';
 import api from '../../services/api';
 import CopyButton from './CopyButton';
-import SaleContextSections from './SaleContextSections';
-import { mlSaleUrl, timeAgo } from '../../utils/ventasMlFormat';
+import StatusPill from './StatusPill';
+import SaleContextSections, { ProductSection } from './SaleContextSections';
+import {
+  mlSaleUrl,
+  timeAgo,
+  formatDateTime,
+  OPERATION_STATUS_LABELS,
+  GOODS_STATUS_LABELS,
+} from '../../utils/ventasMlFormat';
+import {
+  formatDeduction,
+  formatSignedMoney,
+  markupTone,
+  moneyTone,
+  OPERATION_STATUS_TONE,
+  GOODS_STATUS_TONE,
+} from '../../utils/ventasMlTone';
 import styles from './SaleDetailPanel.module.css';
 
 const INCOMPLETE_REASON_LABELS = {
@@ -148,7 +163,14 @@ function resyncErrorMessage(err) {
   return data?.error?.message || (typeof data?.detail === 'string' ? data.detail : null) || 'No se pudo resincronizar la venta.';
 }
 
-export default function SaleDetailPanel({ orderId, onClose, canResync = false, lastSyncedAt = null, onResynced }) {
+export default function SaleDetailPanel({
+  orderId,
+  onClose,
+  canResync = false,
+  lastSyncedAt = null,
+  onResynced,
+  listOrder = null,
+}) {
   const [breakdown, setBreakdown] = useState(null);
   // ml-ventas-modo-logistico PR6: the IVA split and the Total Gauss chain,
   // both from the SAME detail response. Kept separate from `breakdown`
@@ -160,6 +182,7 @@ export default function SaleDetailPanel({ orderId, onClose, canResync = false, l
   // -- from the same response, rendered by `SaleContextSections`.
   const [orderInfo, setOrderInfo] = useState(null);
   const [shipmentInfo, setShipmentInfo] = useState(null);
+  const [orderItems, setOrderItems] = useState([]);
   const [loading, setLoading] = useState(false);
   // ODD ventas-ml-ui-pendiente T7: per-sale resync (ML re-fetch + recompute).
   const [resyncing, setResyncing] = useState(false);
@@ -186,6 +209,7 @@ export default function SaleDetailPanel({ orderId, onClose, canResync = false, l
       setCadenaTotalGauss(data.cadena_total_gauss || null);
       setOrderInfo(data.order || null);
       setShipmentInfo(data.shipment || null);
+      setOrderItems(Array.isArray(data.items) ? data.items : []);
     } catch {
       if (requestId !== latestRequestRef.current) return;
       setErrorKind('generic');
@@ -194,6 +218,7 @@ export default function SaleDetailPanel({ orderId, onClose, canResync = false, l
       setCadenaTotalGauss(null);
       setOrderInfo(null);
       setShipmentInfo(null);
+      setOrderItems([]);
     } finally {
       if (requestId === latestRequestRef.current) setLoading(false);
     }
@@ -259,39 +284,56 @@ export default function SaleDetailPanel({ orderId, onClose, canResync = false, l
   const costoItems = cadenaTotalGauss?.costo_mercaderia_items || [];
   const mlUrl = mlSaleUrl({ orderId, packId: orderInfo?.pack_id });
 
+  const montoOperacion = breakdown?.monto_operacion;
+  const gaussTone = moneyTone(cadenaTotalGauss?.total_gauss);
+  const syncedAgo = timeAgo(lastSyncedAt);
+
   return (
     <>
       <div className={styles.header}>
-        <div className={styles.titleBlock}>
-          <h2 className={styles.title}>Desglose de costos</h2>
-          {orderId !== null && orderId !== undefined && (
-            <div className={styles.identityRow}>
-              <span className={styles.mono}>Orden {orderId}</span>
-              <CopyButton value={orderId} label="Copiar ID de la orden" />
-              {mlUrl && orderInfo && (
-                <a className={styles.mlLink} href={mlUrl} target="_blank" rel="noopener noreferrer">
-                  Ver en ML <ExternalLink size={12} aria-hidden="true" />
-                </a>
-              )}
-            </div>
-          )}
+        <div className={styles.headerTop}>
+          <div className={styles.titleBlock}>
+            {orderId !== null && orderId !== undefined ? (
+              <div className={styles.identityRow}>
+                <h2 className={styles.title}>
+                  Orden <span className={styles.mono}>{orderId}</span>
+                </h2>
+                <CopyButton value={orderId} label="Copiar ID de la orden" />
+                {mlUrl && orderInfo && (
+                  <a className={styles.mlLink} href={mlUrl} target="_blank" rel="noopener noreferrer">
+                    Ver en ML <ExternalLink size={12} aria-hidden="true" />
+                  </a>
+                )}
+              </div>
+            ) : null}
+            <span className={styles.kicker}>Desglose de costos</span>
+          </div>
+          <button type="button" className={styles.closeButton} onClick={onClose} aria-label="Cerrar">
+            <X size={18} />
+          </button>
         </div>
-        <button
-          type="button"
-          className={styles.closeButton}
-          onClick={onClose}
-          aria-label="Cerrar"
-        >
-          <X size={18} />
-        </button>
+        {/* The two status axes and the sale date come from the listing row
+            (the detail endpoint carries neither): shown when the row is on
+            the current page, omitted -- never guessed -- when it is not. */}
+        {listOrder && (
+          <div className={styles.headerMeta}>
+            <StatusPill variant="soft" dot tone={OPERATION_STATUS_TONE[listOrder.operation_status]}>
+              {OPERATION_STATUS_LABELS[listOrder.operation_status] || listOrder.operation_status}
+            </StatusPill>
+            <StatusPill variant="soft" dot tone={GOODS_STATUS_TONE[listOrder.goods_status]}>
+              {GOODS_STATUS_LABELS[listOrder.goods_status] || listOrder.goods_status}
+            </StatusPill>
+            {listOrder.date_created && (
+              <span className={styles.headerDate}>{formatDateTime(listOrder.date_created)}</span>
+            )}
+          </div>
+        )}
       </div>
 
       <div className={styles.body}>
         {loading && <p className={styles.stateText}>Cargando desglose…</p>}
 
-        {!loading && errorKind === 'generic' && (
-          <p className={styles.stateText}>Error al cargar el desglose.</p>
-        )}
+        {!loading && errorKind === 'generic' && <p className={styles.stateText}>Error al cargar el desglose.</p>}
 
         {/* A response that carries no `breakdown` is neither an error nor
             a zero, and without this the panel rendered blank: no loader,
@@ -303,230 +345,238 @@ export default function SaleDetailPanel({ orderId, onClose, canResync = false, l
 
         {!loading && !errorKind && breakdown && (
           <>
+            <ProductSection items={orderItems} />
+
             <SaleContextSections order={orderInfo} shipment={shipmentInfo} />
 
-            {/* The starting figure every line below is taken off. `null`
-                (never `0`, see `formatAmount`) when some member order's
-                `paid_amount` has not synced -- reads as "unknown", not
-                as a sale worth nothing. */}
-            <div className={styles.total}>
-              <span className={styles.totalLabel}>Monto de la operación</span>
-              <span className={styles.totalMonto}>{formatAmount(breakdown.monto_operacion)}</span>
-            </div>
-
-            {/* Per-item breakdown of the figure above -- product-owner
-                request: "debería ser la suma de los productos y no están
-                desglosados". Compact/muted on purpose: this is supporting
-                context for the total above it, not a primary figure of
-                its own -- see `.itemLineList` in the CSS module. Rendered
-                only when the backend sent at least one line; a reconcile
-                failure keeps the lines visible (a real partial list) but
-                swaps the reassurance for the named reason instead of
-                hiding the list outright. */}
-            {itemLines.length > 0 && (
-              <ul className={styles.itemLineList} aria-label="Detalle de productos">
-                {itemLines.map((item, index) => (
-                  <li
-                    key={`${index}-${item.item_id}-${item.variation_id ?? ''}`}
-                    className={styles.itemLine}
-                  >
-                    <span className={styles.itemLineTitle}>
-                      {item.title || item.item_id}
-                      {item.quantity && item.quantity > 1 ? ` (x${item.quantity})` : ''}
-                    </span>
-                    <span className={styles.itemLineMonto}>{formatAmount(item.monto)}</span>
-                  </li>
-                ))}
-              </ul>
-            )}
-            {breakdown.item_lines_reconcilia === false && (
-              <p className={styles.itemLineWarning}>
-                {/* The fallback names the CONSEQUENCE without guessing
-                    the cause: a reason the backend adds tomorrow must
-                    still render as money the reader can act on, and
-                    "puede no sumar el monto" describes something that
-                    cannot happen any more -- the heading IS the lines'
-                    own sum. */}
-                {ITEM_LINES_RAZON_LABELS[breakdown.item_lines_razon] ||
-                  'No se pudo calcular el monto de la operación a partir de los productos.'}
-              </p>
-            )}
-
-            {breakdown.incompleto && (
-              <div className={styles.incompleteBanner}>
-                <TriangleAlert size={16} aria-hidden="true" />
-                <div>
-                  {reasons.length === 0 ? (
-                    <p>Este desglose está incompleto.</p>
-                  ) : (
-                    reasons.map((reason) => (
-                      <p key={reason}>{INCOMPLETE_REASON_LABELS[reason] || reason}</p>
-                    ))
-                  )}
-                </div>
+            {/* "De dónde sale el neto" (detalle.jpg): the sale amount, every
+                charge ML took off it as a red (−) line, and the Neto that is
+                left. Same lines, same order the backend sent -- only signed
+                and coloured now, so the subtraction reads as one. */}
+            <section className={styles.card} aria-label="De dónde sale el neto">
+              <div className={styles.cardTitleRow}>
+                <h3 className={styles.cardTitle}>De dónde sale el neto</h3>
+                <span className={styles.cardHint}>Liquidación ARS</span>
               </div>
-            )}
 
-            <ul className={styles.lineList}>
-              {lines.map((line, index) => (
-                // Index, not `concepto`: the backend sends lines as-is,
-                // unfiltered and unreordered, so two lines CAN share a
-                // concepto and a key on it would collide.
-                <li key={`${index}-${line.concepto}`} className={styles.line}>
-                  <span className={styles.lineConcepto}>{line.concepto}</span>
-                  <span className={styles.lineMonto}>{formatAmount(line.monto)}</span>
+              <ul className={styles.lineList}>
+                {/* The starting figure every line below is taken off. `null`
+                    (never `0`) when some member order's `paid_amount` has not
+                    synced -- reads as "unknown", not as a sale worth nothing. */}
+                <li className={styles.line}>
+                  <span className={styles.lineSign}>(+)</span>
+                  <span className={styles.lineConcepto}>Monto de la operación</span>
+                  <span className={styles.lineMonto}>{formatSignedMoney(montoOperacion)}</span>
                 </li>
-              ))}
-            </ul>
-
-            {/* ml-ventas-neto-iibb-varios D6: recoverable lines (today:
-                SIRTAC) render AFTER the subtraction list, visibly muted,
-                never counted in it -- see the `lines`/`recuperables`
-                split above. */}
-            {recuperables.length > 0 && (
-              <ul className={styles.lineList} aria-label="Recuperable">
-                {recuperables.map((line, index) => (
-                  <li key={`${index}-${line.concepto}`} className={`${styles.line} ${styles.recuperableLine}`}>
-                    <span className={styles.lineConcepto}>
-                      {line.concepto}
-                      <span className={styles.mutedNote}> · se recupera a fin de mes (no se descuenta)</span>
-                    </span>
-                    <span className={styles.lineMonto}>{formatAmount(line.monto)}</span>
-                  </li>
-                ))}
               </ul>
-            )}
 
-            <div className={`${styles.total} ${breakdown.incompleto ? styles.totalIncomplete : ''}`}>
-              <span className={styles.totalLabel}>Neto</span>
-              <span className={styles.totalMonto}>{formatAmount(breakdown.neto)}</span>
-            </div>
-            {/* ml-ventas-neto-iibb-varios R4/PR1.T10.c: explains why
-                Neto is higher than what ML actually deposited -- only
-                when there is a non-refunded SIRTAC to explain. */}
-            {breakdown.retenciones_recuperables > 0 && (
-              <p className={styles.netoSubLine}>
-                {`MP ${formatMoney(breakdown.neto_depositado)} · SIRTAC ${formatMoney(
-                  breakdown.retenciones_recuperables,
-                )}`}
-              </p>
-            )}
-
-            {/* ml-ventas-modo-logistico PR6 — IVA por alícuota. Absent
-                entirely when the backend did not send it (defensive: an
-                older cached response, a malformed payload). */}
-            {ivaDecomposicion && (
-              <section className={styles.section} aria-label="IVA por alícuota">
-                <h3 className={styles.sectionTitle}>IVA por alícuota</h3>
-                {ivaDecomposicion.reconcilia ? (
-                  <ul className={styles.lineList}>
-                    {componentesIva.map((componente, index) => (
-                      // Same index-keyed reasoning as `lines` above: the
-                      // backend can legitimately repeat a `concepto`.
-                      <li
-                        key={`${index}-${componente.concepto}`}
-                        className={`${styles.line} ${componente.informativo ? styles.recuperableLine : ''}`}
-                      >
-                        <span className={styles.lineConcepto}>
-                          {componente.concepto}
-                          {componente.informativo ? (
-                            <span className={styles.mutedNote}> (informativo)</span>
-                          ) : (
-                            <span className={styles.ivaAlicuota}>
-                              {' '}
-                              ({formatAlicuota(componente.alicuota)})
-                            </span>
-                          )}
-                        </span>
-                        {/* An informativo componente (SIRTAC) shows no
-                            base/IVA split -- it carries no rate and does
-                            not count in `neto_sin_iva`, so a figure here
-                            would read as part of it. */}
-                        {!componente.informativo && (
-                          <span className={styles.lineMonto}>
-                            base {formatAmount(componente.base)} · IVA {formatAmount(componente.iva)}
-                          </span>
-                        )}
-                      </li>
-                    ))}
-                  </ul>
-                ) : (
-                  // Never a bare number when it does not reconcile — the
-                  // NAMED reason, exactly as `iva.py` produced it.
-                  <div className={styles.reasonBox}>
-                    {razonesIva.length === 0 ? (
-                      <p>Este desglose de IVA no reconcilia.</p>
-                    ) : (
-                      razonesIva.map((razon) => <p key={razon}>{RAZON_LABELS[razon] || razon}</p>)
-                    )}
-                  </div>
-                )}
-              </section>
-            )}
-
-            {/* ml-ventas-modo-logistico PR6 — the Total Gauss chain:
-                neto sin IVA -> costo de mercadería -> envío Flex ->
-                % de varios -> Total Gauss. A `null` link renders "—" and
-                is named below the chain; Total Gauss itself is only
-                ever shown once every link resolved -- never a zero. */}
-            {cadenaTotalGauss && (
-              <section className={styles.section} aria-label="Total Gauss">
-                <h3 className={styles.sectionTitle}>Total Gauss</h3>
-                <ul className={styles.lineList}>
-                  <li className={styles.line}>
-                    <span className={styles.lineConcepto}>Neto sin IVA</span>
-                    <span className={styles.lineMonto}>{formatAmount(ivaDecomposicion?.neto_sin_iva)}</span>
-                  </li>
-                  {lineasGauss.map((linea) => (
-                    <li key={linea.code} className={styles.line}>
-                      {/* `concepto` carries the per-order label (today:
-                          the logistics company name on `envio_flex`) when
-                          the backend has one -- falls back to the static
-                          map only when it does not. */}
-                      <span className={styles.lineConcepto}>
-                        {linea.concepto || DEDUCCION_LABELS[linea.code] || linea.code}
-                        {/* ventas-ml-rediseno PR19 (BREAKDOWN R38, PANEL
-                            R24): this order shares its shipment with other
-                            pack members, so the Flex cost below is a SPLIT
-                            of the shared shipment, never this order's own
-                            exclusive shipping cost -- the figure itself is
-                            unchanged, only this label is added. */}
-                        {linea.code === 'envio_flex' && linea.prorateado && (
-                          <span className={styles.mutedNote}> (prorrateado entre las órdenes del envío)</span>
-                        )}
+              {/* Per-item breakdown of the figure above -- product-owner
+                  request: "debería ser la suma de los productos y no están
+                  desglosados". Compact/muted on purpose: supporting context
+                  for the total above it, not a primary figure of its own. */}
+              {itemLines.length > 0 && (
+                <ul className={styles.itemLineList} aria-label="Detalle de productos">
+                  {itemLines.map((item, index) => (
+                    <li key={`${index}-${item.item_id}-${item.variation_id ?? ''}`} className={styles.itemLine}>
+                      <span className={styles.itemLineTitle}>
+                        {item.title || item.item_id}
+                        {item.quantity && item.quantity > 1 ? ` (x${item.quantity})` : ''}
                       </span>
-                      <span className={styles.lineMonto}>
-                        {linea.monto === null ? '—' : formatAmount(linea.monto)}
-                      </span>
+                      <span className={styles.itemLineMonto}>{formatAmount(item.monto)}</span>
                     </li>
                   ))}
+                </ul>
+              )}
+              {breakdown.item_lines_reconcilia === false && (
+                <p className={styles.itemLineWarning}>
+                  {/* The fallback names the CONSEQUENCE without guessing the
+                      cause: a reason the backend adds tomorrow must still
+                      render as money the reader can act on. */}
+                  {ITEM_LINES_RAZON_LABELS[breakdown.item_lines_razon] ||
+                    'No se pudo calcular el monto de la operación a partir de los productos.'}
+                </p>
+              )}
+
+              {breakdown.incompleto && (
+                <div className={styles.incompleteBanner}>
+                  <TriangleAlert size={16} aria-hidden="true" />
+                  <div>
+                    {reasons.length === 0 ? (
+                      <p>Este desglose está incompleto.</p>
+                    ) : (
+                      reasons.map((reason) => <p key={reason}>{INCOMPLETE_REASON_LABELS[reason] || reason}</p>)
+                    )}
+                  </div>
+                </div>
+              )}
+
+              <ul className={styles.lineList} aria-label="Cargos descontados">
+                {lines.map((line, index) => {
+                  // Index, not `concepto`: the backend sends lines as-is,
+                  // unfiltered and unreordered, so two lines CAN share a
+                  // concepto and a key on it would collide.
+                  const deduction = formatDeduction(line.monto);
+                  return (
+                    <li key={`${index}-${line.concepto}`} className={styles.line}>
+                      <span className={styles.lineSign}>{deduction.sign}</span>
+                      <span className={styles.lineConcepto}>{line.concepto}</span>
+                      <span className={`${styles.lineMonto} ${deduction.tone ? styles[`money_${deduction.tone}`] : ''}`}>
+                        {deduction.text}
+                      </span>
+                    </li>
+                  );
+                })}
+              </ul>
+
+              {/* ml-ventas-neto-iibb-varios D6: recoverable lines (today:
+                  SIRTAC) render AFTER the subtraction list, visibly muted,
+                  never counted in it -- see the `lines`/`recuperables` split
+                  above. */}
+              {recuperables.length > 0 && (
+                <ul className={styles.lineList} aria-label="Recuperable">
+                  {recuperables.map((line, index) => (
+                    <li key={`${index}-${line.concepto}`} className={`${styles.line} ${styles.recuperableLine}`}>
+                      <span className={styles.lineSign} aria-hidden="true">
+                        ·
+                      </span>
+                      <span className={styles.lineConcepto}>
+                        {line.concepto}
+                        <span className={styles.mutedNote}> · se recupera a fin de mes (no se descuenta)</span>
+                      </span>
+                      <span className={styles.lineMonto}>{formatSignedMoney(line.monto)}</span>
+                    </li>
+                  ))}
+                </ul>
+              )}
+
+              <div className={`${styles.total} ${breakdown.incompleto ? styles.totalIncomplete : ''}`}>
+                <span className={styles.totalLabel}>Neto</span>
+                <span className={`${styles.totalMonto} ${styles.money_headline}`}>
+                  {formatSignedMoney(breakdown.neto)}
+                </span>
+              </div>
+              {/* ml-ventas-neto-iibb-varios R4/PR1.T10.c: explains why Neto is
+                  higher than what ML actually deposited -- only when there is
+                  a non-refunded SIRTAC to explain. */}
+              {breakdown.retenciones_recuperables > 0 && (
+                <p className={styles.netoSubLine}>
+                  {`MP ${formatMoney(breakdown.neto_depositado)} · SIRTAC ${formatMoney(
+                    breakdown.retenciones_recuperables,
+                  )}`}
+                </p>
+              )}
+
+              {/* ml-ventas-modo-logistico PR6 — IVA por alícuota, an inset
+                  under Neto. Absent entirely when the backend did not send it. */}
+              {ivaDecomposicion && (
+                <section className={styles.inset} aria-label="IVA por alícuota">
+                  <h4 className={styles.insetTitle}>
+                    <ReceiptText size={14} aria-hidden="true" />
+                    IVA por alícuota
+                  </h4>
+                  {ivaDecomposicion.reconcilia ? (
+                    <ul className={styles.insetList}>
+                      {componentesIva.map((componente, index) => (
+                        // Same index-keyed reasoning as `lines` above.
+                        <li
+                          key={`${index}-${componente.concepto}`}
+                          className={`${styles.insetLine} ${componente.informativo ? styles.recuperableLine : ''}`}
+                        >
+                          <span className={styles.lineConcepto}>
+                            {componente.concepto}
+                            {componente.informativo ? (
+                              <span className={styles.mutedNote}> (informativo)</span>
+                            ) : (
+                              <span className={styles.ivaAlicuota}> ({formatAlicuota(componente.alicuota)})</span>
+                            )}
+                          </span>
+                          {/* An informativo componente (SIRTAC) shows no
+                              base/IVA split -- it carries no rate and does not
+                              count in `neto_sin_iva`. */}
+                          {!componente.informativo && (
+                            <span className={styles.lineMonto}>
+                              base {formatAmount(componente.base)} · IVA {formatAmount(componente.iva)}
+                            </span>
+                          )}
+                        </li>
+                      ))}
+                    </ul>
+                  ) : (
+                    // Never a bare number when it does not reconcile — the
+                    // NAMED reason, exactly as `iva.py` produced it.
+                    <div className={styles.reasonBox}>
+                      {razonesIva.length === 0 ? (
+                        <p>Este desglose de IVA no reconcilia.</p>
+                      ) : (
+                        razonesIva.map((razon) => <p key={razon}>{RAZON_LABELS[razon] || razon}</p>)
+                      )}
+                    </div>
+                  )}
+                </section>
+              )}
+            </section>
+
+            {/* ml-ventas-modo-logistico PR6 — the Total Gauss chain: neto sin
+                IVA -> costo de mercadería -> envío Flex -> % de varios ->
+                Total Gauss. A `null` link renders "—" and is named below the
+                chain; Total Gauss itself is only ever shown when every link
+                resolved -- never a zero. */}
+            {cadenaTotalGauss && (
+              <section className={styles.card} aria-label="Total Gauss">
+                <div className={styles.cardTitleRow}>
+                  <h3 className={styles.cardTitle}>Total Gauss</h3>
+                  {/* total-gauss-provisorio: a REAL computed number, just
+                      flagged -- never rendered as if it were unknown. */}
+                  {cadenaTotalGauss.total_gauss !== null && cadenaTotalGauss.provisional && (
+                    <span className={styles.provisionalBadge}>Provisorio</span>
+                  )}
+                </div>
+                <ul className={styles.lineList}>
+                  <li className={styles.line}>
+                    <span className={styles.lineSign}>(+)</span>
+                    <span className={styles.lineConcepto}>Neto sin IVA</span>
+                    <span className={styles.lineMonto}>{formatSignedMoney(ivaDecomposicion?.neto_sin_iva)}</span>
+                  </li>
+                  {lineasGauss.map((linea) => {
+                    // A Gauss deduction is always SUBTRACTED from the chain
+                    // (`deducciones.py`: `total = total - monto`).
+                    const deduction = formatDeduction(linea.monto);
+                    return (
+                      <li key={linea.code} className={styles.line}>
+                        <span className={styles.lineSign}>{deduction.sign}</span>
+                        {/* `concepto` carries the per-order label (today: the
+                            logistics company name on `envio_flex`) when the
+                            backend has one -- falls back to the static map. */}
+                        <span className={styles.lineConcepto}>
+                          {linea.concepto || DEDUCCION_LABELS[linea.code] || linea.code}
+                          {/* ventas-ml-rediseno PR19 (BREAKDOWN R38): a SPLIT of
+                              the shared shipment, never this order's own
+                              exclusive shipping cost. */}
+                          {linea.code === 'envio_flex' && linea.prorateado && (
+                            <span className={styles.mutedNote}> (prorrateado entre las órdenes del envío)</span>
+                          )}
+                        </span>
+                        <span
+                          className={`${styles.lineMonto} ${deduction.tone ? styles[`money_${deduction.tone}`] : ''}`}
+                        >
+                          {linea.monto === null ? '—' : deduction.text}
+                        </span>
+                      </li>
+                    );
+                  })}
                 </ul>
 
                 {/* Per-item arithmetic behind "Costo de mercadería" --
                     product-owner request: "debería decir después de costo
                     (precio USD + TC) de cada operación para saber cómo
                     replicar ese valor". Always shown when the backend sent
-                    items, regardless of whether the aggregate line above
-                    resolved -- an operator can still see which items DO
-                    have a known cost. Compact/muted, same discipline as
-                    the product list above: this explains the line above
-                    it, it is not a total of its own. */}
+                    items. */}
                 {costoItems.length > 0 && (
                   <ul className={styles.itemLineList} aria-label="Detalle de costo de mercadería">
                     {costoItems.map((item, index) => (
-                      // STACKED, not side by side. An ML title runs to
-                      // ~100 characters ("Cámara Wi-fi Tp-link Tapo C201
-                      // Full Hd 360° Visión Nocturna Detección Por Ia Y
-                      // Llanto De Bebé Color Negro") and the arithmetic
-                      // beside it is long and cannot shrink, so a two
-                      // column split squeezes the title into a sliver
-                      // and wraps it over dozens of lines. The products
-                      // list above keeps the side-by-side layout: its
-                      // amount is short.
-                      <li
-                        key={`${index}-${item.item_id}-${item.variation_id ?? ''}`}
-                        className={styles.costoItemLine}
-                      >
+                      // STACKED, not side by side: an ML title runs to ~100
+                      // characters and the arithmetic beside it cannot shrink.
+                      <li key={`${index}-${item.item_id}-${item.variation_id ?? ''}`} className={styles.costoItemLine}>
                         <span className={styles.itemLineTitle}>
                           {item.title || item.item_id}
                           {item.quantity && item.quantity > 1 ? ` (x${item.quantity})` : ''}
@@ -539,16 +589,9 @@ export default function SaleDetailPanel({ orderId, onClose, canResync = false, l
                           )}
                         </span>
                         <span className={styles.itemLineMonto}>
-                          {/* `costo_unitario_ars` is the UNIT cost, and
-                              the products list above shows the LINE
-                              total. Without the quantity spelled out
-                              here, a reader comparing "$200 (2 u.)"
-                              against "$50" cannot tell whether $50 is
-                              per unit or for the line -- and the
-                              deduction that uses this figure multiplies
-                              by the quantity. The arithmetic is shown
-                              whole so it can be replicated, which is why
-                              this panel exists. */}
+                          {/* `costo_unitario_ars` is the UNIT cost; the
+                              quantity is spelled out so the arithmetic can be
+                              replicated, which is why this panel exists. */}
                           {!item.conocido ? (
                             'Costo desconocido'
                           ) : (
@@ -559,9 +602,7 @@ export default function SaleDetailPanel({ orderId, onClose, canResync = false, l
                                   } = ${formatMoney(item.costo_unitario_ars)}`
                                 : formatMoney(item.costo_unitario_ars)}
                               {item.quantity > 1
-                                ? ` c/u × ${item.quantity} = ${formatMoney(
-                                    Number(item.costo_unitario_ars) * item.quantity,
-                                  )}`
+                                ? ` c/u × ${item.quantity} = ${formatMoney(Number(item.costo_unitario_ars) * item.quantity)}`
                                 : ''}
                             </>
                           )}
@@ -578,8 +619,7 @@ export default function SaleDetailPanel({ orderId, onClose, canResync = false, l
                       <span className={styles.totalMonto}>—</span>
                     </div>
                     {/* Names EXACTLY which link is missing, never a bare
-                        "unknown" -- the operator needs to know whether to
-                        wait for a sync or accept there is no frozen cost. */}
+                        "unknown". */}
                     <p className={styles.stateText}>
                       {(() => {
                         const unresolved = lineasGauss.find((linea) => linea.monto === null);
@@ -596,19 +636,17 @@ export default function SaleDetailPanel({ orderId, onClose, canResync = false, l
                 ) : (
                   <div>
                     <div className={styles.total}>
-                      <span className={styles.totalLabel}>
-                        Total Gauss
-                        {/* total-gauss-provisorio: a REAL computed number,
-                            just flagged -- never rendered as if it were
-                            unknown (the `—` branch above). */}
-                        {cadenaTotalGauss.provisional && (
-                          <span className={`badge badge-warning ${styles.provisionalBadge}`}>Provisorio</span>
-                        )}
+                      <span className={styles.totalLabel}>Total Gauss</span>
+                      <span
+                        className={`${styles.totalMonto} ${
+                          gaussTone === 'negative' ? styles.money_negative : gaussTone === 'positive' ? styles.money_positive : ''
+                        }`}
+                      >
+                        {formatSignedMoney(cadenaTotalGauss.total_gauss)}
                       </span>
-                      <span className={styles.totalMonto}>{formatAmount(cadenaTotalGauss.total_gauss)}</span>
                     </div>
                     {cadenaTotalGauss.provisional && (
-                      <p className={styles.stateText}>
+                      <p className={styles.provisionalNote}>
                         Calculado sin {(cadenaTotalGauss.provisional_falta || 'Envío Flex').toLowerCase()}: todavía
                         no se cargó la etiqueta de envío. Se va a actualizar solo cuando se cargue.
                       </p>
@@ -617,16 +655,16 @@ export default function SaleDetailPanel({ orderId, onClose, canResync = false, l
                 )}
 
                 {/* The sale's REAL markup -- total_gauss / costo de
-                    mercadería, not the theoretical (neto sin IVA / costo)
-                    one -- because total_gauss already has Flex freight and
-                    % de varios subtracted too. `null` (never "0%": the
-                    same "unknown" dash `formatAmount` uses everywhere
-                    else) whenever total_gauss, the cost, or the division
-                    itself is undefined -- see `TotalGaussResultado.markup`
-                    in `deducciones.py`. */}
-                <div className={styles.total}>
+                    mercadería -- coloured by the same thresholds as the
+                    listing (`markupTone`). `null` (never "0%") whenever it is
+                    undefined -- see `TotalGaussResultado.markup`. */}
+                <div className={styles.markupRow}>
                   <span className={styles.totalLabel}>Markup</span>
-                  <span className={styles.totalMonto}>
+                  <span
+                    className={`${styles.markupChip} ${
+                      markupTone(cadenaTotalGauss.markup) ? styles[`markup_${markupTone(cadenaTotalGauss.markup)}`] : ''
+                    }`}
+                  >
                     {cadenaTotalGauss.markup === null || cadenaTotalGauss.markup === undefined
                       ? '—'
                       : `${formatAmount(cadenaTotalGauss.markup)}%`}
@@ -638,24 +676,22 @@ export default function SaleDetailPanel({ orderId, onClose, canResync = false, l
         )}
       </div>
 
-      {(canResync || timeAgo(lastSyncedAt)) && (
+      {(canResync || syncedAgo) && (
         <div className={styles.footer}>
-          {timeAgo(lastSyncedAt) && (
-            <span className={styles.syncedAt}>Sincronizado {timeAgo(lastSyncedAt)}</span>
+          {syncedAgo && (
+            <span className={styles.syncedAt}>
+              <span className={styles.syncedDot} aria-hidden="true" />
+              Sincronizado {syncedAgo}
+            </span>
           )}
-          {resyncDone && !resyncError && <span className={styles.syncedAt}>Venta resincronizada</span>}
+          {resyncDone && !resyncError && <span className={styles.resyncDone}>Venta resincronizada</span>}
           {resyncError && (
             <span className={styles.resyncError} role="alert">
               {resyncError}
             </span>
           )}
           {canResync && (
-            <button
-              type="button"
-              className="btn-tesla outline sm"
-              onClick={handleResync}
-              disabled={resyncing}
-            >
+            <button type="button" className={styles.resyncButton} onClick={handleResync} disabled={resyncing}>
               <RefreshCw size={14} aria-hidden="true" />
               {resyncing ? 'Resincronizando...' : 'Resincronizar'}
             </button>

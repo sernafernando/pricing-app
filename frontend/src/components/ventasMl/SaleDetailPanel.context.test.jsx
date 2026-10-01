@@ -26,7 +26,7 @@ const DETAIL = {
     payment_date_approved: '2026-09-21T12:13:00.000Z',
   },
   shipment: {
-    shipment_id: 1,
+    shipment_id: 44012876543,
     status: 'shipped',
     substatus: 'out_for_delivery',
     tracking_number: 'MEL-849201948',
@@ -66,9 +66,12 @@ describe('Comprador / Pago / Envio sections', () => {
 
     const envio = screen.getByRole('region', { name: 'Envío' });
     expect(within(envio).getByText('Colecta')).toBeInTheDocument();
-    expect(within(envio).getByText('out_for_delivery')).toBeInTheDocument();
-    expect(within(envio).getByText('MEL-849201948')).toBeInTheDocument();
-    expect(within(envio).getByText('22/09/2026')).toBeInTheDocument();
+    // ML's raw substatus is translated, never shown as `out_for_delivery`.
+    expect(within(envio).getByText('En reparto')).toBeInTheDocument();
+    expect(within(envio).queryByText('out_for_delivery')).not.toBeInTheDocument();
+    // The ML shipping id is the shipment's identity on this panel.
+    expect(within(envio).getByText('44012876543')).toBeInTheDocument();
+    expect(within(envio).getByText(/22\/09\/2026/)).toBeInTheDocument();
   });
 
   it('hides a field it does not have instead of printing a blank or a zero', async () => {
@@ -113,7 +116,7 @@ describe('header identity row', () => {
     );
   });
 
-  it('copies the order id and the tracking number', async () => {
+  it('copies the order id and the ML shipping id', async () => {
     const user = userEvent.setup();
     // After `setup()`: user-event installs its own clipboard stub there.
     const writeText = vi.fn().mockResolvedValue(undefined);
@@ -125,8 +128,16 @@ describe('header identity row', () => {
     expect(writeText).toHaveBeenCalledWith('2000018567320906');
     expect(await screen.findByText('Copiado')).toBeInTheDocument();
 
-    await user.click(screen.getByRole('button', { name: 'Copiar número de seguimiento' }));
-    expect(writeText).toHaveBeenCalledWith('MEL-849201948');
+    await user.click(screen.getByRole('button', { name: 'Copiar ID de envío' }));
+    expect(writeText).toHaveBeenCalledWith('44012876543');
+  });
+
+  it('demotes the carrier tracking number: still visible, no longer the copyable identity', async () => {
+    mockDetail(DETAIL);
+    render(<SaleDetailPanel orderId={2000018567320906} onClose={vi.fn()} />);
+    const envio = await screen.findByRole('region', { name: 'Envío' });
+    expect(within(envio).getByText(/MEL-849201948/)).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Copiar número de seguimiento' })).not.toBeInTheDocument();
   });
 
   it('does not crash when the clipboard is unavailable', async () => {

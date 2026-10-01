@@ -48,14 +48,17 @@ describe('Fetch and render on mount', () => {
     expect(await screen.findByText('Desglose de costos')).toBeInTheDocument();
     expect(api.get).toHaveBeenCalledWith('/ml-ventas-ops/orders/1001');
 
-    // Rendered exactly as the backend sent them, in the given order.
+    // Rendered exactly as the backend sent them, in the given order -- each
+    // one a signed, red "(−) … -$" subtraction under the (+) sale amount
+    // (detalle.jpg's "De dónde sale el neto").
     const items = await screen.findAllByRole('listitem');
     expect(items.map((li) => li.textContent)).toEqual([
-      'Cargo por vender91.250,00',
-      'Costo por ofrecer cuotas97.820,00',
-      'Envíos15.190,00',
+      '(+)Monto de la operación—',
+      '(−)Cargo por vender-$ 91.250,00',
+      '(−)Costo por ofrecer cuotas-$ 97.820,00',
+      '(−)Envíos-$ 15.190,00',
     ]);
-    expect(screen.getByText('525.740,00')).toBeInTheDocument();
+    expect(screen.getByText('$ 525.740,00')).toBeInTheDocument();
   });
 });
 
@@ -111,7 +114,7 @@ describe('Incomplete breakdown', () => {
 
     expect(await screen.findByText(/falta el barrido de facturaci[oó]n/i)).toBeInTheDocument();
     // The real partial number stays visible — never hidden behind a dash.
-    expect(screen.getByText('900,00')).toBeInTheDocument();
+    expect(screen.getByText('$ 900,00')).toBeInTheDocument();
   });
 });
 
@@ -385,7 +388,7 @@ describe('IVA decomposition and Total Gauss chain (ml-ventas-modo-logistico PR6)
       expect(await screen.findByText('Neto sin IVA')).toBeInTheDocument();
       expect(screen.getByText('Envío Flex')).toBeInTheDocument();
       expect(screen.getByText('% de varios')).toBeInTheDocument();
-      expect(screen.getByText('70,64')).toBeInTheDocument();
+      expect(screen.getByText('$ 70,64')).toBeInTheDocument();
     });
   });
 
@@ -622,7 +625,7 @@ describe('Monto de la operación', () => {
     render(<SaleDetailPanel orderId={1001} onClose={vi.fn()} />);
 
     expect(await screen.findByText('Monto de la operación')).toBeInTheDocument();
-    expect(screen.getByText('1.000,00')).toBeInTheDocument();
+    expect(screen.getByText('$ 1.000,00')).toBeInTheDocument();
   });
 
   it('renders the unknown treatment, never a zero, when monto_operacion is null', async () => {

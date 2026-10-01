@@ -3,24 +3,30 @@ import styles from '../../pages/VentasML.module.css';
 import AlertIcon from './AlertIcon';
 import ProductCell from './ProductCell';
 import RecalculatingBadge from './RecalculatingBadge';
+import StatusPill from './StatusPill';
+import { Money, MarkupChip, ProvisionalPill, ShippingId } from './ventasMlCells';
 import {
-  formatDate,
   formatAmount,
-  formatMoney,
+  formatDateTime,
   couponAmountOf,
   moneyTitle,
   netoTooltip,
   OPERATION_STATUS_LABELS,
-  OPERATION_STATUS_BADGE_CLASS,
   GOODS_STATUS_LABELS,
-  GOODS_STATUS_BADGE_CLASS,
   MODO_LOGISTICO_LABELS,
-  MODO_LOGISTICO_BADGE_CLASS,
   groupItems,
   groupCategory,
   orderAlertReason,
   groupAlertReason,
 } from '../../utils/ventasMlFormat';
+import {
+  markupTone,
+  moneyTone,
+  shippingStatusLabel,
+  OPERATION_STATUS_TONE,
+  GOODS_STATUS_TONE,
+  MODO_LOGISTICO_TONE,
+} from '../../utils/ventasMlTone';
 
 // Single source of truth for the Ventas ML table's columns
 // (ventas-ml-columnas): both the header (via `@tanstack/react-table`, used
@@ -35,36 +41,52 @@ import {
 // `cell(ctx)` is called once per row with a context object carrying
 // EITHER a group row (`ctx.kind === 'group'`) or a single pack-member
 // order (`ctx.kind === 'member'`) plus whatever per-row handlers that
-// render needs — see `the group-row cell context`/`the member-row cell context` in
+// render needs — see the group-row / member-row cell contexts in
 // `VentasML.jsx`.
 //
-// `size` is expressed in PIXELS, measured against the real content (see
-// `odd/tasks/ventas-ml-columnas.md`). They are RATIOS, not absolute widths:
-// `VentasML.jsx` renders each one as `size / total-of-visible * 100%` in the
-// `<colgroup>`, so the table still compresses to whatever room it has
-// instead of overflowing past the card's edge. Pixels are just a readable
-// unit for "how much room does this content need relative to the rest", and
-// they are measurable against a real string, which ten percentages spread
-// across a CSS file were not: the old layout shrank the product column to
-// eight characters on a laptop and nothing in the CSS said it would.
+// NINE columns, laid out like the Stitch `listado` design: each cell carries
+// a primary value and a muted second line instead of spending a column per
+// fact. The old eleven-column layout gave the date, and each status axis,
+// a column of its own, which is what left ~90px per money column on a
+// 1366px laptop and pushed badges into the next column. Nothing was
+// dropped: the date is the Orden cell's second line, the city the
+// Comprador's, and both status axes stay visible -- stacked in Estado, each
+// still its own pill and its own filter.
+//
+// `size` is expressed in PIXELS, measured against the real content. They are
+// RATIOS, not absolute widths: `VentasML.jsx` renders each one as
+// `size / total-of-visible * 100%` in the `<colgroup>`, so the table still
+// compresses to whatever room it has instead of overflowing past the card's
+// edge.
 //
 // `minSize` is the narrowest the operator can drag a column, in real pixels
 // (`useColumnResize` clamps with it): it is what keeps one column from being
 // dragged over its neighbour -- the Producto/Orden overlap bug.
+
+const orderMeta = (ctx) => (ctx.kind === 'group' ? ctx.loneOrder || ctx.orders[0] : ctx.order);
+
+// The shipment every order of a pack shares, or `null` when they disagree
+// (then the cell says how many there are instead of picking one).
+const sharedShippingId = (orders) => {
+  const ids = new Set(orders.map((o) => o.shipping_id).filter((v) => v !== null && v !== undefined));
+  return ids.size === 1 ? [...ids][0] : null;
+};
+
+const shippingIdCount = (orders) =>
+  new Set(orders.map((o) => o.shipping_id).filter((v) => v !== null && v !== undefined)).size;
+
 export const COLUMNS = [
   {
     id: 'alerta',
     header: '',
     headerAriaLabel: 'Alerta',
-    size: 32,
-    minSize: 32,
+    size: 36,
+    minSize: 36,
     enableResizing: false,
     align: 'center',
     // The alert column has no useful thing to hide behind a picker entry
-    // for — it is 32px and carries no information a user would trade away
-    // — but it is not in the "must stay visible" set either; it is simply
-    // never offered. `enableHiding: false` keeps it out of the picker via
-    // `table.getAllLeafColumns()` filtering in `ColumnPicker`.
+    // for — it is narrow and carries no information a user would trade away
+    // — so it is simply never offered.
     enableHiding: false,
     cell: (ctx) =>
       ctx.kind === 'group' ? (
@@ -76,50 +98,63 @@ export const COLUMNS = [
   {
     id: 'producto',
     header: 'Producto',
-    size: 320,
-    minSize: 160,
+    size: 315,
+    minSize: 200,
     // T6: without Producto the row says nothing — it can never be hidden.
     enableHiding: false,
     cell: (ctx) =>
       ctx.kind === 'group' ? (
-        <ProductCell items={groupItems(ctx.orders)} category={groupCategory(ctx.orders)} />
+        <ProductCell items={groupItems(ctx.orders)} category={groupCategory(ctx.orders)} isPack={ctx.isPack} />
       ) : (
-        <ProductCell items={ctx.order.items} category={ctx.order.item_category} />
+        <ProductCell items={ctx.order.items} category={ctx.order.item_category} variant="member" />
       ),
   },
   {
     id: 'orden',
     header: 'Orden',
-    size: 120,
-    minSize: 90,
+    // A 16-digit ML id in mono plus the pack chevron, on one line: the
+    // narrowest this column can be without clipping the id.
+    size: 170,
+    minSize: 150,
     cell: (ctx) => {
       if (ctx.kind === 'member') {
         return <span className={styles.memberOrden}>{ctx.order.order_id}</span>;
       }
       const { group, orders, isPack, isOpen, toggleExpanded } = ctx;
       if (!isPack) {
-        return <span className={styles.orden}>{orders[0]?.order_id ?? group.group_key}</span>;
+        return (
+          <>
+            <span className={styles.orden}>{orders[0]?.order_id ?? group.group_key}</span>
+            <span className={styles.subline}>{formatDateTime(group.date_created)}</span>
+          </>
+        );
       }
       return (
-        <button
-          type="button"
-          className={styles.packToggle}
-          aria-expanded={isOpen}
-          onClick={(e) => {
-            e.stopPropagation();
-            toggleExpanded(group.group_key);
-          }}
-        >
-          <ChevronRight
-            size={14}
-            className={`${styles.chevron} ${isOpen ? styles.chevronOpen : ''}`}
-            aria-hidden="true"
-          />
-          <span>
-            <span className={styles.orden}>Pack {group.pack_id}</span>
-            <span className={styles.subline}>{orders.length} órdenes</span>
+        <>
+          <button
+            type="button"
+            className={styles.packToggle}
+            aria-expanded={isOpen}
+            onClick={(e) => {
+              e.stopPropagation();
+              toggleExpanded(group.group_key);
+            }}
+          >
+            <ChevronRight
+              size={14}
+              className={`${styles.chevron} ${isOpen ? styles.chevronOpen : ''}`}
+              aria-hidden="true"
+            />
+            {/* "Pack " is read by assistive tech as part of the button's
+                name; on screen the word lives on the line below, so the
+                id alone has the column's width. */}
+            <span className={styles.srOnly}>Pack</span> <span className={styles.orden}>{group.pack_id}</span>
+          </button>
+          <span className={styles.subline}>
+            <span className={styles.packLabel}>Pack</span> · <span>{orders.length} órdenes</span> ·{' '}
+            {formatDateTime(group.date_created)}
           </span>
-        </button>
+        </>
       );
     },
     // NOT hideable, and not because of the data it shows: this cell holds
@@ -132,51 +167,48 @@ export const COLUMNS = [
     enableHiding: false,
   },
   {
-    id: 'fecha',
-    header: 'Fecha',
-    size: 90,
-    minSize: 80,
-    cell: (ctx) => formatDate(ctx.kind === 'group' ? ctx.group.date_created : ctx.order.date_created),
-    cellProps: () => ({ className: styles.fecha }),
-  },
-  {
     id: 'comprador',
     header: 'Comprador',
-    size: 130,
-    minSize: 80,
+    size: 135,
+    minSize: 90,
     cell: (ctx) => {
       // A pack-member row never carries its own buyer cell — the buyer is
       // a property of the parcel, shown once on the group row.
       if (ctx.kind === 'member') return null;
-      return ctx.group.buyer_nickname || '—';
-    },
-    cellProps: (ctx) =>
-      ctx.kind === 'group' ? { title: ctx.group.buyer_nickname || undefined, className: styles.buyer } : {},
-  },
-  {
-    id: 'operacion',
-    header: 'Operación',
-    size: 120,
-    minSize: 90,
-    cell: (ctx) => {
-      const status = ctx.kind === 'group' ? ctx.group.operation_status : ctx.order.operation_status;
+      const meta = orderMeta(ctx);
+      const where = meta?.city || meta?.province;
       return (
-        <span className={`badge ${OPERATION_STATUS_BADGE_CLASS[status] || 'badge-neutral'}`}>
-          {OPERATION_STATUS_LABELS[status] || status}
-        </span>
+        <>
+          <span className={styles.buyer} title={ctx.group.buyer_nickname || undefined}>
+            {ctx.group.buyer_nickname || '—'}
+          </span>
+          {where && (
+            <span className={styles.sublineClip} title={[meta.city, meta.province].filter(Boolean).join(', ')}>
+              {where}
+            </span>
+          )}
+        </>
       );
     },
   },
   {
-    id: 'mercaderia',
-    header: 'Mercadería',
-    size: 155,
+    id: 'estado',
+    header: 'Estado',
+    size: 130,
     minSize: 100,
+    // Two pills, one per axis: the money (operación) above the goods
+    // (mercadería). They stay independent -- a cancellation with the goods
+    // back in the warehouse and one the buyer kept must read differently.
     cell: (ctx) => {
-      const status = ctx.kind === 'group' ? ctx.group.goods_status : ctx.order.goods_status;
+      const entity = ctx.kind === 'group' ? ctx.group : ctx.order;
       return (
-        <span className={`badge ${GOODS_STATUS_BADGE_CLASS[status] || 'badge-neutral'}`}>
-          {GOODS_STATUS_LABELS[status] || status}
+        <span className={styles.pillStack}>
+          <StatusPill tone={OPERATION_STATUS_TONE[entity.operation_status]} title="Operación (el dinero)">
+            {OPERATION_STATUS_LABELS[entity.operation_status] || entity.operation_status}
+          </StatusPill>
+          <StatusPill tone={GOODS_STATUS_TONE[entity.goods_status]} title="Mercadería (el producto)">
+            {GOODS_STATUS_LABELS[entity.goods_status] || entity.goods_status}
+          </StatusPill>
         </span>
       );
     },
@@ -184,38 +216,28 @@ export const COLUMNS = [
   {
     id: 'envio',
     header: 'Envío',
-    size: 110,
-    minSize: 90,
+    size: 150,
+    minSize: 110,
+    // The ML shipping id is the identifier an operator pastes into ML's
+    // own tools, so it is the cell's identity; the carrier tracking number
+    // lives (demoted) in the detail panel.
     cell: (ctx) => {
-      if (ctx.kind === 'member') {
-        const order = ctx.order;
-        return (
-          <>
-            <span className={`badge ${MODO_LOGISTICO_BADGE_CLASS[order.modo_logistico] || 'badge-neutral'}`}>
-              {MODO_LOGISTICO_LABELS[order.modo_logistico] || order.modo_logistico}
-            </span>
-            {(order.city || order.province || order.shipping_substatus) && (
-              <span className={styles.subline}>
-                {[order.city, order.province].filter(Boolean).join(', ') || '—'}
-                {order.shipping_substatus ? ` · ${order.shipping_substatus}` : ''}
-              </span>
-            )}
-          </>
-        );
-      }
-      const { group, loneOrder } = ctx;
+      const orders = ctx.kind === 'group' ? ctx.orders : [ctx.order];
+      const modo = ctx.kind === 'group' ? ctx.group.modo_logistico : ctx.order.modo_logistico;
+      const meta = orderMeta(ctx);
+      const status = shippingStatusLabel({ status: meta?.shipping_status, substatus: meta?.shipping_substatus });
+      const shippingId = sharedShippingId(orders);
+      const count = shippingIdCount(orders);
       return (
         <>
-          <span className={`badge ${MODO_LOGISTICO_BADGE_CLASS[group.modo_logistico] || 'badge-neutral'}`}>
-            {MODO_LOGISTICO_LABELS[group.modo_logistico] || group.modo_logistico}
+          <span className={styles.envioTop}>
+            <StatusPill tone={MODO_LOGISTICO_TONE[modo]}>{MODO_LOGISTICO_LABELS[modo] || modo}</StatusPill>
+            {status && <span className={styles.envioStatus}>{status}</span>}
           </span>
-          {/* PR14 review fix P1: a lone sale has no pack-member block to
-              render this in -- it must carry its own subline. */}
-          {loneOrder && (loneOrder.city || loneOrder.province || loneOrder.shipping_substatus) && (
-            <span className={styles.subline}>
-              {[loneOrder.city, loneOrder.province].filter(Boolean).join(', ') || '—'}
-              {loneOrder.shipping_substatus ? ` · ${loneOrder.shipping_substatus}` : ''}
-            </span>
+          {shippingId !== null ? (
+            <ShippingId value={shippingId} />
+          ) : (
+            count > 1 && <span className={styles.subline}>{count} envíos</span>
           )}
         </>
       );
@@ -224,18 +246,16 @@ export const COLUMNS = [
   {
     id: 'importe',
     header: 'Importe',
-    size: 115,
-    minSize: 90,
+    size: 125,
+    minSize: 100,
     numeric: true,
     cell: (ctx) => {
       const entity = ctx.kind === 'group' ? ctx.group : ctx.order;
       const coupon = couponAmountOf(ctx.kind === 'group' ? ctx.orders : [ctx.order]);
       return (
         <>
-          {formatMoney(entity.total_amount, entity.currency_id)}
-          {coupon !== null && (
-            <span className={styles.subline}>cupón ML $ {formatAmount(coupon)}</span>
-          )}
+          <Money value={entity.total_amount} currencyId={entity.currency_id} />
+          {coupon !== null && <span className={styles.subline}>cupón ML $ {formatAmount(coupon)}</span>}
         </>
       );
     },
@@ -247,8 +267,8 @@ export const COLUMNS = [
   {
     id: 'neto',
     header: 'Neto',
-    size: 115,
-    minSize: 90,
+    size: 125,
+    minSize: 100,
     numeric: true,
     cell: (ctx) => {
       if (ctx.kind === 'member') {
@@ -268,7 +288,11 @@ export const COLUMNS = [
               ctx.openDrawer(order.order_id);
             }}
           >
-            {isRecalc ? <RecalculatingBadge state={order.metrics_state} /> : formatMoney(order.neto, order.currency_id)}
+            {isRecalc ? (
+              <RecalculatingBadge state={order.metrics_state} />
+            ) : (
+              <Money value={order.neto} currencyId={order.currency_id} tone="headline" />
+            )}
           </button>
         );
       }
@@ -277,7 +301,7 @@ export const COLUMNS = [
         metricsState !== 'ok' ? (
           <RecalculatingBadge state={metricsState} />
         ) : (
-          formatMoney(group.neto, group.currency_id)
+          <Money value={group.neto} currencyId={group.currency_id} tone="headline" />
         );
       if (isRowClickable) {
         return (
@@ -309,60 +333,39 @@ export const COLUMNS = [
   {
     id: 'total_gauss',
     header: 'Total Gauss',
-    size: 120,
-    minSize: 90,
+    size: 135,
+    minSize: 110,
     numeric: true,
     // T6: Total Gauss is the other column the screen cannot lose meaning
     // without -- can never be hidden.
     enableHiding: false,
+    // The amount sits alone on its line, right-aligned on the same edge as
+    // every other money column; the markup and the "Provisorio" flag share
+    // the line UNDER it. Beside the amount, the badge pushed the number off
+    // that edge and out of the column.
     cell: (ctx) => {
-      if (ctx.kind === 'member') {
-        const order = ctx.order;
-        if (order.metrics_state && order.metrics_state !== 'ok') {
-          return <RecalculatingBadge state={order.metrics_state} />;
-        }
-        return (
-          <>
-            {formatMoney(order.total_gauss, order.currency_id)}
-            {order.total_gauss_provisional && (
-              <span
-                className={`badge badge-warning ${styles.provisionalBadge}`}
-                title={`Calculado sin ${(order.total_gauss_provisional_falta || 'Envío Flex').toLowerCase()}: todavía no se cargó la etiqueta de envío.`}
-              >
-                Provisorio
-              </span>
-            )}
-            {order.markup !== null && order.markup !== undefined && (
-              <span className={styles.markup}>
-                {new Intl.NumberFormat('es-AR', { maximumFractionDigits: 1 }).format(order.markup)}%
-              </span>
-            )}
-          </>
-        );
-      }
-      const { group, metricsState, loneOrder } = ctx;
+      const entity = ctx.kind === 'group' ? ctx.group : ctx.order;
+      const metricsState = ctx.kind === 'group' ? ctx.metricsState : ctx.order.metrics_state || 'ok';
       if (metricsState !== 'ok') {
         return <RecalculatingBadge state={metricsState} />;
       }
+      // PR14 review fix P1: a lone sale carries its own markup; a pack row
+      // has no single markup of its own (its members show theirs).
+      const markup = ctx.kind === 'group' ? ctx.loneOrder?.markup : ctx.order.markup;
+      const tone = moneyTone(entity.total_gauss);
       return (
         <>
-          {formatMoney(group.total_gauss, group.currency_id)}
-          {/* total-gauss-provisorio: the pack sum already includes a
-              member's provisional figure -- the badge says so at THIS
-              level too. */}
-          {group.total_gauss_provisional && (
-            <span
-              className={`badge badge-warning ${styles.provisionalBadge}`}
-              title={`Calculado sin ${(group.total_gauss_provisional_falta || 'Envío Flex').toLowerCase()}: todavía no se cargó la etiqueta de envío.`}
-            >
-              Provisorio
-            </span>
-          )}
-          {/* PR14 review fix P1: markup was only ever rendered inside the
-              pack-member block -- a lone sale must carry its own. */}
-          {loneOrder && loneOrder.markup !== null && loneOrder.markup !== undefined && (
-            <span className={styles.markup}>
-              {new Intl.NumberFormat('es-AR', { maximumFractionDigits: 1 }).format(loneOrder.markup)}%
+          <Money
+            value={entity.total_gauss}
+            currencyId={entity.currency_id}
+            tone={tone === 'negative' ? 'negative' : tone === 'positive' ? 'positive' : null}
+          />
+          {(markupTone(markup) !== null || entity.total_gauss_provisional) && (
+            <span className={styles.moneyMeta} data-testid="total-gauss-meta">
+              <MarkupChip value={markup} />
+              {/* total-gauss-provisorio: the pack sum already includes a
+                  member's provisional figure -- flagged at THIS level too. */}
+              {entity.total_gauss_provisional && <ProvisionalPill falta={entity.total_gauss_provisional_falta} />}
             </span>
           )}
         </>
@@ -375,4 +378,3 @@ export const COLUMNS = [
     },
   },
 ];
-

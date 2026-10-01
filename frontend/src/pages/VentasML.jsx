@@ -50,7 +50,7 @@
 import { Fragment, useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { Link } from 'react-router-dom';
 import { useReactTable, getCoreRowModel } from '@tanstack/react-table';
-import { ShoppingBag, ShieldAlert, AlertTriangle } from 'lucide-react';
+import { ShieldAlert, AlertTriangle, Download, RefreshCw } from 'lucide-react';
 import { usePermisos } from '../contexts/PermisosContext';
 import api from '../services/api';
 import VentasMLLayout from '../components/ventasMl/VentasMLLayout';
@@ -611,14 +611,34 @@ export default function VentasML() {
     return null;
   }
 
+  // The selected order's own listing row, when it is on this page: the
+  // detail endpoint carries no status axes or sale date, the row does. The
+  // panel shows those pills only when it has them -- a deep link to an
+  // order on another page simply goes without.
+  const selectedListOrder =
+    selectedOrderId === null || selectedOrderId === undefined
+      ? null
+      : sales.flatMap((group) => group.orders || []).find((o) => o.order_id === selectedOrderId) || null;
+
   return (
     <div className={styles.container}>
       <div className={styles.header}>
         <div className={styles.headerLeft}>
-          <ShoppingBag size={20} />
           <h1>Ventas ML</h1>
+          <p className={styles.description}>
+            Ventas de Mercado Libre. La operación describe el dinero; la mercadería, el producto — son ejes
+            independientes a propósito.
+          </p>
         </div>
         <div className={styles.headerActions}>
+          {(timeAgo(lastSyncedAt) || lastLoadedAt) && (
+            <span className={styles.freshness}>
+              {timeAgo(lastSyncedAt) && <span className={styles.freshnessDot} aria-hidden="true" />}
+              {timeAgo(lastSyncedAt) && <span>sincronizado {timeAgo(lastSyncedAt)}</span>}
+              {timeAgo(lastSyncedAt) && lastLoadedAt && <span aria-hidden="true">·</span>}
+              {lastLoadedAt && <span>actualizado {formatDate(lastLoadedAt)}</span>}
+            </span>
+          )}
           <ColumnPicker table={table} />
           {hasCustomSizing && (
             <button type="button" className="btn-tesla outline sm" onClick={resetColumnSizing}>
@@ -638,6 +658,7 @@ export default function VentasML() {
             onClick={handleExport}
             disabled={exporting}
           >
+            <Download size={14} aria-hidden="true" />
             {exporting ? 'Exportando...' : 'Exportar CSV'}
           </button>
           {/* Refreshes BOTH: reloading only the list would leave the six
@@ -654,15 +675,11 @@ export default function VentasML() {
             }}
             disabled={loading}
           >
+            <RefreshCw size={14} aria-hidden="true" />
             {loading ? 'Actualizando...' : 'Actualizar'}
           </button>
         </div>
       </div>
-
-      <p className={styles.description}>
-        Listado de ventas de Mercado Libre. El estado de la operación describe el dinero; el estado de la
-        mercadería describe el producto — son ejes independientes a propósito.
-      </p>
 
       {exportError && (
         <div className={styles.errorBar} role="alert">
@@ -696,108 +713,93 @@ export default function VentasML() {
         </Link>
       )}
 
-      <KpiStrip kpi={kpi} loading={kpiLoading} error={kpiError} />
-
-      <SalesToolbar
-        value={searchQuery}
-        onSearchChange={handleSearchChange}
-        noResults={!loading && Boolean(searchQuery) && sales.length === 0}
-      />
-
-      <div className={styles.filters}>
-        <div className={styles.filterRow}>
-          <span className={styles.fieldLabel}>
-            Operación
-            <span className={styles.fieldLabelSub}>el dinero</span>
-          </span>
-          <FacetChips
-            label="Filtrar por estado de operación"
-            options={OPERATION_STATUS_OPTIONS}
-            labels={OPERATION_STATUS_LABELS}
-            counts={facets.operation_status}
-            total={facets.operation_status_total}
-            activeValue={operationStatusFilter}
-            onChange={handleOperationStatusChange}
-          />
-        </div>
-
-        <div className={styles.divider} />
-
-        <div className={styles.filterRow}>
-          <span className={styles.fieldLabel}>
-            Mercadería
-            <span className={styles.fieldLabelSub}>el producto</span>
-          </span>
-          <FacetChips
-            label="Filtrar por estado de la mercadería"
-            options={GOODS_STATUS_OPTIONS}
-            labels={GOODS_STATUS_LABELS}
-            counts={facets.goods_status}
-            total={facets.goods_status_total}
-            activeValue={goodsStatusFilter}
-            onChange={handleGoodsStatusChange}
-          />
-        </div>
-
-        <div className={styles.divider} />
-
-        <div className={styles.filterRow}>
-          <span className={styles.fieldLabel}>Alertas</span>
-          <AlertsFilterChip
-            active={onlyAlerts}
-            count={facets.alerts_total}
-            onChange={handleOnlyAlertsChange}
-          />
-        </div>
-
-        <div className={styles.divider} />
-
-        <div className={styles.filterRow}>
-          <span className={styles.fieldLabel}>Producto</span>
-          <ProductFiltersPanel value={productFilters} onChange={handleProductFiltersChange} />
-        </div>
-
-        <div className={styles.divider} />
-
-        <div className={styles.filterRow}>
-          <span className={styles.fieldLabel}>Incluir</span>
-          <IncludeToggles
-            values={{
-              includeUnknown,
-              includeInDispute,
-              includeMixed,
-              includeProvisional,
-              includeCancelled,
-            }}
-            excludedByToggle={kpi?.excluded_by_toggle}
-            onChange={handleToggleChange}
-          />
-        </div>
-
-        <div className={styles.divider} />
-
-        <div className={styles.filterRow}>
-          <span className={styles.fieldLabel}>Y además</span>
+      {/* ONE filter card, three bands (Stitch `listado`): search, statuses,
+          products. Same controls, same state and params as before
+          (`buildVentasMLFilterParams`) -- only the arrangement changed. */}
+      <section className={styles.filterCard} aria-label="Filtros">
+        <div className={styles.filterBand}>
           <DateRangeFilter
             fechaDesde={fechaDesde}
             fechaHasta={fechaHasta}
             filtroActivo={dateRangeFiltro}
             onChange={handleDateRangeChange}
           />
+          <div className={styles.searchSlot}>
+            <SalesToolbar
+              value={searchQuery}
+              onSearchChange={handleSearchChange}
+              noResults={!loading && Boolean(searchQuery) && sales.length === 0}
+            />
+          </div>
+          <div className={styles.alertsSlot}>
+            <AlertsFilterChip
+              active={onlyAlerts}
+              count={facets.alerts_total}
+              onChange={handleOnlyAlertsChange}
+            />
+          </div>
+        </div>
+
+        <div className={styles.filterBand}>
+          <div className={styles.filterGroup}>
+            <span className={styles.filterLabel} title="El dinero">
+              Operación:
+            </span>
+            <FacetChips
+              label="Filtrar por estado de operación"
+              options={OPERATION_STATUS_OPTIONS}
+              labels={OPERATION_STATUS_LABELS}
+              counts={facets.operation_status}
+              total={facets.operation_status_total}
+              activeValue={operationStatusFilter}
+              onChange={handleOperationStatusChange}
+            />
+          </div>
+          <div className={styles.filterGroup}>
+            <span className={styles.filterLabel} title="El producto">
+              Mercadería:
+            </span>
+            <FacetChips
+              label="Filtrar por estado de la mercadería"
+              options={GOODS_STATUS_OPTIONS}
+              labels={GOODS_STATUS_LABELS}
+              counts={facets.goods_status}
+              total={facets.goods_status_total}
+              activeValue={goodsStatusFilter}
+              onChange={handleGoodsStatusChange}
+            />
+          </div>
+        </div>
+
+        <div className={styles.filterBand}>
+          <div className={styles.filterGroup}>
+            <span className={styles.filterLabel}>Producto:</span>
+            <ProductFiltersPanel value={productFilters} onChange={handleProductFiltersChange} />
+          </div>
+          <div className={styles.filterGroup}>
+            <span className={styles.filterLabel}>Incluir:</span>
+            <IncludeToggles
+              values={{
+                includeUnknown,
+                includeInDispute,
+                includeMixed,
+                includeProvisional,
+                includeCancelled,
+              }}
+              excludedByToggle={kpi?.excluded_by_toggle}
+              onChange={handleToggleChange}
+            />
+          </div>
+          <div className={styles.spacer} />
           {hasActiveFilters && (
             <button type="button" className={styles.clearFilters} onClick={clearFilters}>
               Limpiar filtros
             </button>
           )}
-          <div className={styles.spacer} />
-          {timeAgo(lastSyncedAt) && (
-            <span className={styles.stale}>sincronizado {timeAgo(lastSyncedAt)}</span>
-          )}
-          {lastLoadedAt && (
-            <span className={styles.stale}>actualizado {formatDate(lastLoadedAt)}</span>
-          )}
         </div>
-      </div>
+      </section>
+
+      <KpiStrip kpi={kpi} loading={kpiLoading} error={kpiError} />
 
       <VentasMLLayout
         selectedOrderId={selectedOrderId}
@@ -817,13 +819,14 @@ export default function VentasML() {
               canResync={puedeResincronizar}
               lastSyncedAt={lastSyncedAt}
               onResynced={handleResynced}
+              listOrder={selectedListOrder}
             />
           )
         }
       >
       <div className={styles.tableCard}>
-        {/* NO inline `width: table.getTotalSize()`. The eleven `size` values
-            add up to 1427px, and `.tableCard` deliberately has no
+        {/* NO inline `width: table.getTotalSize()`. The `size` values add
+            up to ~1320px, and `.tableCard` deliberately has no
             `overflow-x` above 1280px (it would become a scroll container on
             BOTH axes and break the sticky header). A fixed 1427px table in
             the ~1080px a 1366px laptop leaves after the sidebar does not
@@ -940,9 +943,16 @@ export default function VentasML() {
                         describe, and the button already carries the
                         accessible name. */}
                     <tr
-                      className={`${isPack ? styles.packRow : ''} ${
-                        isRowClickable ? styles.clickableRow : ''
-                      }`.trim()}
+                      className={[
+                        isPack ? styles.packRow : '',
+                        isRowClickable ? styles.clickableRow : '',
+                        (isPack && selectedPackId != null && group.pack_id === selectedPackId) ||
+                        (!isPack && selectedOrderId != null && representativeOrderId === selectedOrderId)
+                          ? styles.selectedRow
+                          : '',
+                      ]
+                        .filter(Boolean)
+                        .join(' ')}
                       onClick={isRowClickable ? openGroupPanel : undefined}
                     >
                       {/* T4/T3: the group row renders EXACTLY the columns
@@ -957,7 +967,7 @@ export default function VentasML() {
                           .filter(Boolean)
                           .join(' ');
                         return (
-                          <td key={col.id} {...extraProps} className={className || undefined}>
+                          <td key={col.id} data-col-id={col.id} {...extraProps} className={className || undefined}>
                             {def.cell(groupCtx)}
                           </td>
                         );
@@ -973,7 +983,9 @@ export default function VentasML() {
                         return (
                           <tr
                             key={order.order_id}
-                            className={`${styles.memberRow} ${styles.clickableRow}`}
+                            className={`${styles.memberRow} ${styles.clickableRow} ${
+                              selectedOrderId === order.order_id ? styles.selectedRow : ''
+                            }`.trim()}
                             onClick={() => openDrawer(order.order_id)}
                           >
                             {/* T4: THE SAME `visibleColumns` list the group
@@ -987,7 +999,12 @@ export default function VentasML() {
                                 .filter(Boolean)
                                 .join(' ');
                               return (
-                                <td key={col.id} {...extraProps} className={className || undefined}>
+                                <td
+                                  key={col.id}
+                                  data-col-id={col.id}
+                                  {...extraProps}
+                                  className={className || undefined}
+                                >
                                   {def.cell(memberCtx)}
                                 </td>
                               );

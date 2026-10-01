@@ -1,4 +1,4 @@
-import { Package } from 'lucide-react';
+import { CornerDownRight, Package } from 'lucide-react';
 import { getCategoryIcon } from '../../utils/categoryIcon';
 import styles from './ProductCell.module.css';
 
@@ -16,14 +16,22 @@ import styles from './ProductCell.module.css';
  * (`docs/design/ventas-ml/listado.html`, "+2 productos" badge) rather than
  * inventing a client-side aggregate title.
  *
+ * NEVER TRUNCATED TO NOTHING. The title used to sit in a one-line ellipsis
+ * capped at 240px, so widening the column showed the same eight words:
+ * the content did not depend on the column, it ignored it. Now the title
+ * wraps (up to two lines, clamped -- the full text stays in `title`) and the
+ * SKU · MLA · xN line wraps instead of clipping, so the cell grows with the
+ * column and still says everything at its narrowest.
+ *
+ * `variant="member"` is the indented sub-row inside an opened pack: no
+ * thumbnail, a "↳" lead, title and meta on one flowing line (design
+ * `listado.html`, "Pack Sub-row").
+ *
  * Thumbnails are a PLACEHOLDER by product decision — real images arrive
- * later with the publicaciones module (see PR14b task description). The
- * placeholder box doubles as the category icon host (`item_category`,
- * LISTING R28), folded in from the PR14 leading `Categoría` column now
- * that this cell exists to hold it (see `VentasML.jsx` for the removal
- * rationale).
+ * later with the publicaciones module. The placeholder box doubles as the
+ * category icon host (`item_category`, LISTING R28).
  */
-export default function ProductCell({ items, category }) {
+export default function ProductCell({ items, category, variant = 'row', isPack = false }) {
   const list = items || [];
   const CategoryIcon = getCategoryIcon(category);
 
@@ -56,9 +64,23 @@ export default function ProductCell({ items, category }) {
   if (primary.item_id) metaParts.push(primary.item_id);
   if (primary.quantity != null) metaParts.push(`x${primary.quantity}`);
 
+  if (variant === 'member') {
+    return (
+      <div className={styles.memberCell}>
+        <CornerDownRight size={14} className={styles.memberLead} aria-hidden="true" />
+        <div className={styles.memberInfo}>
+          <span className={`${styles.memberTitle} ${!primary.title ? styles.titleEmpty : ''}`} title={title}>
+            {title}
+          </span>
+          <span className={styles.meta}>{metaParts.join(' · ')}</span>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className={styles.cell}>
-      <div className={styles.thumbnail} title={category || undefined}>
+      <div className={`${styles.thumbnail} ${isPack ? styles.thumbnailPack : ''}`} title={category || undefined}>
         {category ? (
           <CategoryIcon size={16} role="img" aria-label={category} />
         ) : (
@@ -68,15 +90,21 @@ export default function ProductCell({ items, category }) {
         )}
       </div>
       <div className={styles.info}>
-        <span className={`${styles.title} ${!primary.title ? styles.titleEmpty : ''}`} title={title}>
+        <span
+          className={`${styles.title} ${!primary.title ? styles.titleEmpty : ''}`}
+          title={title}
+          data-product-title
+        >
           {title}
         </span>
-        <span className={styles.meta}>{metaParts.join(' · ')}</span>
-        {extraCount > 0 && (
-          <span className={styles.extraBadge}>
-            +{extraCount} producto{extraCount === 1 ? '' : 's'}
-          </span>
-        )}
+        <span className={styles.metaRow}>
+          <span className={styles.meta}>{metaParts.join(' · ')}</span>
+          {extraCount > 0 && (
+            <span className={styles.extraBadge}>
+              +{extraCount} producto{extraCount === 1 ? '' : 's'}
+            </span>
+          )}
+        </span>
       </div>
     </div>
   );

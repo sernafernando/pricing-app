@@ -1,7 +1,7 @@
 .cell {
   display: flex;
   align-items: flex-start;
-  gap: var(--spacing-sm);
+  gap: 10px;
   min-width: 0;
 }
 
@@ -9,13 +9,20 @@
   flex-shrink: 0;
   width: 32px;
   height: 32px;
-  border-radius: var(--radius-base);
-  background: var(--bg-secondary);
-  border: 1px solid var(--border-primary);
+  border-radius: var(--radius-md);
+  background: var(--tone-neutral-bg);
+  border: 1px solid var(--tone-neutral-border);
   display: flex;
   align-items: center;
   justify-content: center;
-  color: var(--text-tertiary);
+  color: var(--cf-text-tertiary);
+}
+
+/* A parcel of several products: tinted like the design's pack row icon. */
+.thumbnailPack {
+  color: var(--tone-info-fg);
+  background: var(--tone-info-bg);
+  border-color: var(--tone-info-border);
 }
 
 .info {
@@ -25,42 +32,96 @@
   min-width: 0;
 }
 
+/* Wraps, two lines at most. The full title is in the `title` attribute;
+   what is on screen is whatever the column has room for, never a fixed
+   number of characters. */
 .title {
-  font-weight: var(--font-medium);
-  color: var(--text-primary);
-  white-space: nowrap;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
   overflow: hidden;
-  text-overflow: ellipsis;
-  max-width: 240px;
+  font-size: 13px;
+  font-weight: var(--font-medium);
+  line-height: 1.35;
+  color: var(--cf-text-primary);
+  overflow-wrap: anywhere;
 }
 
 .titleEmpty {
   font-style: italic;
-  color: var(--text-tertiary);
+  color: var(--cf-text-tertiary);
 }
 
+.metaRow {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 2px 6px;
+  min-width: 0;
+}
+
+/* SKU · MLA · xN: wraps on the " · " boundaries rather than clipping, so a
+   narrow column still shows all three. */
 .meta {
   font-family: var(--font-mono);
-  font-size: var(--font-xs);
-  color: var(--text-tertiary);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  max-width: 240px;
+  font-size: 11px;
+  line-height: 1.4;
+  color: var(--cf-text-tertiary);
+  overflow-wrap: anywhere;
 }
 
 .extraBadge {
-  display: inline-block;
-  align-self: flex-start;
-  padding: 1px var(--spacing-xs);
+  flex-shrink: 0;
+  padding: 0 6px;
   border-radius: var(--radius-base);
-  background: var(--bg-tertiary);
-  color: var(--brand-primary);
-  font-size: var(--font-xs);
+  border: 1px solid var(--tone-info-border);
+  background: var(--tone-info-bg);
+  color: var(--tone-info-fg);
+  font-family: var(--font-mono);
+  font-size: 10.5px;
   font-weight: var(--font-semibold);
+  line-height: 1.5;
+  white-space: nowrap;
 }
 
 .emptyText {
-  color: var(--text-tertiary);
+  color: var(--cf-text-tertiary);
   font-size: var(--font-xs);
+}
+
+/* ── Pack sub-row ── */
+
+.memberCell {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  min-width: 0;
+  padding-left: 18px;
+}
+
+.memberLead {
+  flex-shrink: 0;
+  margin-top: 2px;
+  color: var(--cf-text-muted);
+}
+
+.memberInfo {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+}
+
+.memberTitle {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+  overflow: hidden;
+  font-size: var(--font-xs);
+  font-weight: var(--font-medium);
+  line-height: 1.35;
+  color: var(--cf-text-primary);
+  overflow-wrap: anywhere;
 }

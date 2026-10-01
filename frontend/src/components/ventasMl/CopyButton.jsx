@@ -7,13 +7,15 @@ import styles from './SaleDetailPanel.module.css';
  * for a moment. A missing clipboard (insecure context, old browser) must not
  * break the panel: the click is simply a no-op.
  */
-export default function CopyButton({ value, label }) {
+export default function CopyButton({ value, label, compact = false }) {
   const [copied, setCopied] = useState(false);
   const timerRef = useRef(null);
 
   useEffect(() => () => clearTimeout(timerRef.current), []);
 
-  async function handleClick() {
+  async function handleClick(e) {
+    // Inside a clickable table row the copy must not also open the panel.
+    e.stopPropagation();
     try {
       await navigator.clipboard.writeText(String(value));
     } catch {
@@ -26,10 +28,18 @@ export default function CopyButton({ value, label }) {
 
   return (
     <>
-      <button type="button" className={styles.copyButton} onClick={handleClick} aria-label={label}>
-        {copied ? <Check size={14} aria-hidden="true" /> : <Copy size={14} aria-hidden="true" />}
+      <button
+        type="button"
+        className={compact ? styles.copyButtonCompact : styles.copyButton}
+        onClick={handleClick}
+        aria-label={label}
+        title={copied ? 'Copiado' : label}
+      >
+        {copied ? <Check size={compact ? 12 : 14} aria-hidden="true" /> : <Copy size={compact ? 12 : 14} aria-hidden="true" />}
       </button>
-      {copied && (
+      {/* `compact` (a table cell) has no room for the word: the icon
+          turning into a check, plus the title, says it instead. */}
+      {copied && !compact && (
         <span className={styles.copiedNote} role="status">
           Copiado
         </span>

@@ -1,11 +1,12 @@
 .iconWrapper {
   display: inline-flex;
+  vertical-align: middle;
 }
 
 .error {
-  color: var(--error);
+  color: var(--tone-danger-fg);
 }
 
 .warning {
-  color: var(--warning);
+  color: var(--tone-warning-fg);
 }

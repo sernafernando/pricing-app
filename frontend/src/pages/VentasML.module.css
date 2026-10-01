@@ -1,54 +1,93 @@
-/* Layout follows the `SalesConsolePage` idiom from gbs-pricing — the
-   previous version rendered a wall of unseparated rows the operator
-   described as reading like a .txt, and everything here about row height,
-   dividers and alignment exists to fix that.
+/* Ventas ML — page layout, filter card and table.
 
-   The COMPONENTS stay on this project's design system: buttons compose
-   from `buttons-tesla.css` and the month field from `forms-tesla.css`,
-   rather than being re-implemented in an idiom borrowed from another
-   repository. Colors are tokens only, so `data-theme` still switches the
-   page. The remaining literals are layout metrics (row height, the label
-   column width) with no token to name them. */
+   Visual target: the Stitch mockups in `docs/design/ventas-ml/`
+   (`listado.jpg` / `listado.html`). Built on this project's design system:
+   buttons compose from `buttons-tesla.css`, colours are tokens only (the
+   `--tone-*` / `--money-*` ones are this screen's semantic palette, with
+   dark-mode values in `design-tokens.css`), so `data-theme` still switches
+   the page. The remaining literals are layout metrics with no token. */
 
 .container {
   padding: var(--spacing-lg);
 }
 
+/* ── Header ──────────────────────────────────────────────── */
+
 .header {
   display: flex;
   align-items: flex-end;
+  flex-wrap: wrap;
   gap: var(--spacing-md);
-  margin-bottom: var(--space-1);
+  margin-bottom: var(--spacing-md);
 }
 
 .headerLeft {
   display: flex;
-  align-items: center;
-  gap: var(--space-2);
+  flex: 1 1 360px;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
 }
 
 .headerLeft h1 {
   margin: 0;
-  font-size: var(--font-xl);
-  font-weight: var(--font-semibold);
-  letter-spacing: -0.01em;
+  font-size: 26px;
+  font-weight: var(--font-bold);
+  letter-spacing: -0.02em;
+  line-height: 1.15;
+  color: var(--cf-text-primary);
+}
+
+.description {
+  margin: 0;
+  font-size: 13px;
+  color: var(--cf-text-tertiary);
 }
 
 /* FLEX, not inline-block siblings. Without this the buttons align on the
-   text baseline, so one carrying an icon sits off from one that does not,
-   and the space between them is whatever whitespace the JSX happens to
-   leave. */
+   text baseline, so one carrying an icon sits off from one that does not. */
 .headerActions {
   margin-left: auto;
   display: flex;
   align-items: center;
-  gap: var(--spacing-sm, 8px);
+  flex-wrap: wrap;
+  gap: var(--spacing-sm);
 }
 
-.description {
-  margin: 0 0 var(--spacing-md);
+/* Quiet header buttons (design: white, hairline border, dark label). The
+   app-wide `outline` variant is a 2px brand-blue frame, which made four
+   secondary actions shout louder than the data. Scoped to this header --
+   including the Columnas button `ColumnPicker` renders. */
+.headerActions :global(.btn-tesla) {
+  height: 34px;
+  padding: 0 14px;
+  color: var(--cf-text-primary);
+  background: var(--cf-bg-card);
+  border: 1px solid var(--cf-border-default);
+  box-shadow: none;
+}
+
+.headerActions :global(.btn-tesla):hover {
+  background: var(--cf-bg-hover);
+  border-color: var(--cf-border-strong);
+  transform: none;
+}
+
+.freshness {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-right: var(--space-2);
   font-size: var(--font-xs);
-  color: var(--text-secondary);
+  color: var(--cf-text-tertiary);
+  white-space: nowrap;
+}
+
+.freshnessDot {
+  width: 7px;
+  height: 7px;
+  border-radius: var(--radius-full);
+  background: var(--money-positive);
 }
 
 .errorBar {
@@ -58,9 +97,9 @@
   padding: var(--space-3);
   margin-bottom: var(--spacing-md);
   font-size: var(--font-sm);
-  color: var(--text-primary);
-  background: var(--bg-secondary);
-  border: 1px solid var(--border-primary);
+  color: var(--tone-danger-fg);
+  background: var(--tone-danger-bg);
+  border: 1px solid var(--tone-danger-border);
   border-radius: var(--radius-md);
 }
 
@@ -75,9 +114,9 @@
   margin-bottom: var(--spacing-md);
   font-size: var(--font-sm);
   font-weight: var(--font-medium);
-  color: var(--error);
-  background: var(--error-light);
-  border: 1px solid var(--error);
+  color: var(--tone-danger-fg);
+  background: var(--tone-danger-bg);
+  border: 1px solid var(--tone-danger-border);
   border-radius: var(--radius-md);
   text-decoration: none;
   cursor: pointer;
@@ -87,166 +126,136 @@
   opacity: 0.85;
 }
 
-/* ── Filters ─────────────────────────────────────────────── */
+/* ── Filter card ─────────────────────────────────────────── */
 
-.filters {
+/* ONE card, three bands (listado.jpg): what you search, which statuses,
+   which products. Every control used to be its own labelled row, which
+   read as a form, not as a filter bar. */
+.filterCard {
   display: flex;
   flex-direction: column;
-  gap: var(--space-2);
-  padding: var(--spacing-md);
   margin-bottom: var(--spacing-md);
-  background: var(--bg-primary);
-  border: 1px solid var(--border-primary);
+  background: var(--cf-bg-card);
+  border: 1px solid var(--ventas-divider);
   border-radius: var(--radius-lg);
+  box-shadow: var(--cf-card-shadow);
 }
 
-.filterRow {
+.filterBand {
   display: flex;
   align-items: center;
-  gap: var(--space-2);
   flex-wrap: wrap;
+  /* The column gap separates GROUPS (Operación | Mercadería): wide enough
+     to read as a boundary without a divider that would dangle at the end
+     of a line once the band wraps. */
+  gap: var(--space-2) var(--spacing-lg);
+  padding: var(--space-3) var(--spacing-md);
 }
 
-/* Fixed width so the three rows' chips line up in a column instead of
-   starting at three different x positions. */
-.fieldLabel {
-  display: inline-block;
-  width: 118px;
+.filterBand + .filterBand {
+  border-top: 1px solid var(--ventas-divider);
+}
+
+.searchSlot {
+  flex: 1 1 280px;
+  min-width: 240px;
+}
+
+.alertsSlot {
+  margin-left: auto;
+}
+
+/* A label and the controls it names, kept together when the band wraps. */
+.filterGroup {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+  min-width: 0;
+}
+
+.filterLabel {
   flex-shrink: 0;
   font-size: 11px;
   font-weight: var(--font-semibold);
-  letter-spacing: 0.04em;
+  letter-spacing: 0.06em;
   text-transform: uppercase;
-  color: var(--text-tertiary);
+  color: var(--cf-text-tertiary);
 }
 
-.fieldLabelSub {
-  display: block;
-  font-weight: var(--font-medium);
-  letter-spacing: 0;
-  text-transform: none;
-  font-size: 11px;
-  color: var(--text-tertiary);
-}
 
-.filter {
-  height: 32px;
-  padding: 0 14px;
-  font-family: inherit;
-  font-size: var(--font-sm);
-  font-weight: var(--font-medium);
-  letter-spacing: 0.02em;
-  color: var(--text-primary);
-  background: var(--bg-primary);
-  border: 1px solid var(--border-primary);
-  border-radius: var(--radius-md);
-  cursor: pointer;
-}
-
-.filter:hover {
-  background: var(--bg-hover);
-}
-
-.filterActive {
-  color: var(--bg-primary);
-  background: var(--text-primary);
-  border-color: var(--text-primary);
+.spacer {
+  flex-grow: 1;
 }
 
 .clearFilters {
   composes: btn-tesla ghost sm from '../styles/buttons-tesla.css';
 }
 
-.divider {
-  height: 1px;
-  background: var(--border-primary);
-  margin: var(--space-1) 0;
-}
-
-.spacer {
-  flex-grow: 1;
-}
-
-.stale {
-  font-size: var(--font-sm);
-  color: var(--text-tertiary);
-}
 
 /* ── Table ───────────────────────────────────────────────── */
 
 /* NO `overflow-x` here on purpose. `overflow-x: auto` makes `.tableCard`
-   a scroll container on BOTH axes (per CSS overflow, a non-`visible`
-   value on one axis computes the other to `auto`), and a `position:
-   sticky` `<th>` pins to its nearest scrolling ancestor. With the card
-   as that ancestor -- and the card having no height limit, so it never
-   scrolls internally -- the header would scroll away with the page
-   instead of staying put. The primary width strategy is compression
-   (`table-layout: fixed`, see `.table` below), so the horizontal-scroll
-   fallback only exists below the panel-sheet breakpoint, where the
-   header is no longer sticky and that trade-off is acceptable. */
+   a scroll container on BOTH axes, and a `position: sticky` `<th>` pins to
+   its nearest scrolling ancestor -- with the card as that ancestor the
+   header would scroll away with the page. The primary width strategy is
+   compression (`table-layout: fixed`), so the horizontal-scroll fallback
+   only exists below the panel-sheet breakpoint. */
 .tableCard {
-  background: var(--bg-primary);
-  border: 1px solid var(--border-primary);
+  background: var(--cf-bg-card);
+  border: 1px solid var(--ventas-divider);
   border-radius: var(--radius-lg);
+  box-shadow: var(--cf-card-shadow);
 }
 
 /* `table-layout: fixed` + a `width: 100%` table is the compression
-   mechanism for Q2. The per-column widths no longer live here: they are
-   `size` values in `ventasMlColumns.jsx`, rendered into the `<colgroup>` as
-   a PERCENTAGE of the visible columns' total (see the comment at that
-   `<colgroup>`). So a column's width is still a share of whatever room
-   `.tableCard` actually has, and the row COMPRESSES when the side panel
-   narrows it instead of overflowing and hiding columns past the card's
-   edge. On a genuinely wide monitor the same shares simply resolve to more
-   pixels -- no breakpoint needed for this to "only happen on FHD". Cells
-   that can still overflow their share truncate with an ellipsis (`.buyer`
-   below, ProductCell's own title/meta) rather than pushing the layout
-   wider. */
+   mechanism: per-column widths are `size` RATIOS in `ventasMlColumns.jsx`,
+   rendered into the `<colgroup>` as percentages of the visible total. */
 .table {
   width: 100%;
   table-layout: fixed;
   border-collapse: collapse;
-  font-size: var(--font-sm);
+  font-size: 13px;
 }
 
 .table thead th {
   position: sticky;
-  /* Offset by the TopBar, which is `position: fixed; top: 0` and 56px tall
-     (`TopBar.module.css`). Sticking to `top: 0` would pin the header
-     exactly underneath it, so it would still look like it disappeared.
-     Same offset `AlertBanner.module.css` uses. */
+  /* Offset by the TopBar (`position: fixed; top: 0`, 56px tall). */
   top: var(--cf-topbar-height);
-  /* Deliberately a LOCAL stacking value, not `--z-dropdown`. The sticky
-     header only has to sit above `<tbody>`, which is unpositioned. Using
-     the global dropdown layer (1000) ties it with the date-range
-     dropdown's own 1000; on a tie the later element in the DOM wins, so
-     the header would paint over the open dropdown and swallow the clicks
-     meant for its close-overlay. */
+  /* A LOCAL stacking value, not `--z-dropdown`: the header only has to sit
+     above `<tbody>`; the global dropdown layer would tie with the
+     date-range dropdown and swallow its clicks. */
   z-index: 1;
-  padding: var(--space-3) var(--spacing-md);
+  padding: 10px 10px;
   text-align: left;
   font-size: 11px;
   font-weight: var(--font-semibold);
-  letter-spacing: 0.04em;
+  letter-spacing: 0.06em;
   text-transform: uppercase;
-  color: var(--text-tertiary);
-  background: var(--bg-primary);
-  /* `box-shadow` instead of `border-bottom`: with `border-collapse:
-     collapse` the collapsed border belongs to the table's border grid,
-     not to the cell, so it stays behind while the sticky cell moves and
-     the divider vanishes in Chrome and Safari. An inset shadow is painted
-     by the cell itself and travels with it. */
-  box-shadow: inset 0 -1px 0 var(--border-primary);
+  color: var(--cf-text-tertiary);
+  background: var(--cf-bg-card);
+  /* `box-shadow` instead of `border-bottom`: a collapsed border stays
+     behind while the sticky cell moves; an inset shadow travels with it. */
+  box-shadow: inset 0 -1px 0 var(--cf-border-default);
   white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
-/* The row height and the divider ARE the fix: without them consecutive
-   sales blur into one block of text. */
+.table thead th:first-child {
+  border-top-left-radius: var(--radius-lg);
+}
+
+.table thead th:last-child {
+  border-top-right-radius: var(--radius-lg);
+}
+
 .table tbody td {
-  padding: var(--space-3) var(--spacing-md);
-  border-bottom: 1px solid var(--border-primary);
-  color: var(--text-primary);
+  padding: 10px 10px;
+  border-bottom: 1px solid var(--ventas-divider);
+  color: var(--cf-text-primary);
   vertical-align: middle;
+  overflow: hidden;
 }
 
 .table tbody tr:last-child td {
@@ -254,101 +263,196 @@
 }
 
 .table tbody tr:hover td {
-  background: var(--bg-hover);
+  background: var(--cf-bg-hover);
 }
 
-/* ventas-ml-columnas: every column's WIDTH is now a pixel `size` on
-   `COLUMNS` (`components/ventasMl/ventasMlColumns.jsx`), applied through
-   the `<colgroup>` TanStack's column-geometry engine renders -- ONE source
-   of truth, not two. `.colAlerta` keeps only its non-width styling
-   (centered, non-wrapping icon); every other `.col*` percentage-width
-   class that used to live here (colOrden/colProducto/colFecha/
-   colComprador/colOperacion/colMercaderia/colEnvio/colImporte/colNeto/
-   colTotalGauss) carried nothing but a width and is gone with it. */
 .colAlerta {
   white-space: nowrap;
   text-align: center;
 }
 
-.markup {
+/* Money headers sit over their figures: right-aligned like the cells. */
+.table thead th.numeric {
+  text-align: right;
+}
+
+.table tbody td.colAlerta,
+.table thead th.colAlerta {
+  padding-left: 4px;
+  padding-right: 4px;
+}
+
+/* Money columns: right-aligned on ONE edge, tabular digits so the
+   thousands line up down the column. */
+.numeric {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.amount {
   display: block;
+  font-weight: var(--font-semibold);
+  white-space: nowrap;
+  color: var(--cf-text-primary);
+}
+
+.money_negative {
+  color: var(--money-negative);
+}
+
+.money_positive {
+  color: var(--money-positive);
+}
+
+.money_headline {
+  color: var(--money-headline);
+}
+
+/* The line UNDER a money figure: markup + "Provisorio" (Total Gauss). It
+   wraps instead of widening the cell, and never shares the amount's line. */
+.moneyMeta {
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-top: 4px;
+}
+
+.markupChip {
+  padding: 0 5px;
+  border-radius: var(--radius-base);
   font-family: var(--font-mono);
-  font-size: var(--font-xs);
-  color: var(--text-tertiary);
+  font-size: 12px;
+  font-weight: var(--font-bold);
+  line-height: 1.5;
+  white-space: nowrap;
+}
+
+.markup_good {
+  color: var(--tone-success-fg);
+  background: var(--tone-success-bg);
+}
+
+.markup_low {
+  color: var(--tone-warning-fg);
+  background: var(--tone-warning-bg);
+}
+
+.markup_negative {
+  color: var(--tone-danger-fg);
+  background: var(--tone-danger-bg);
+}
+
+.provisionalPill {
+  padding: 0 5px;
+  border: 1px solid var(--tone-warning-border);
+  border-radius: var(--radius-base);
+  font-size: 10.5px;
+  font-weight: var(--font-semibold);
+  line-height: 1.5;
+  color: var(--tone-warning-fg);
+  background: var(--tone-warning-bg);
+  white-space: nowrap;
 }
 
 .orden {
   font-family: var(--font-mono);
-  font-size: var(--font-sm);
-  /* A long run of digits has no break opportunity of its own, so without
-     this it overflows the fixed column instead of wrapping. */
-  overflow-wrap: anywhere;
-}
-
-/* No `white-space: nowrap` either: "20/08/2026, 10:00" does not fit 8% of
-   a narrowed table. The comma is a natural break point, so the time drops
-   onto a second line rather than spilling into the next column. */
-.fecha {
-  color: var(--text-secondary);
-}
-
-/* `nowrap` so a compressed column can never split an amount across two
-   lines -- "$ 54.200" breaking after the "$" reads as a different number.
-   The decorations that share these cells (the "Provisorio" badge, the
-   markup percentage) are block-level below, so they drop onto their own
-   line instead of forcing the column wider. */
-.numeric {
-  text-align: right;
-  font-variant-numeric: tabular-nums;
+  font-size: 11.5px;
+  font-weight: var(--font-medium);
   white-space: nowrap;
 }
 
-/* Buyer nickname: plain text with no existing wrapper to truncate inside
-   (unlike `.colProducto`, which delegates to `ProductCell`'s own
-   `.title`/`.meta` ellipsis) -- the full name is still available via the
-   `title` attribute set alongside this class in the JSX. */
-.buyer {
+.mono {
+  font-family: var(--font-mono);
+}
+
+.subline {
+  display: block;
+  margin-top: 2px;
+  font-size: 11.5px;
+  line-height: 1.35;
+  color: var(--cf-text-tertiary);
+}
+
+.sublineClip {
+  composes: subline;
   overflow: hidden;
   white-space: nowrap;
   text-overflow: ellipsis;
 }
 
-.subline {
+/* Buyer nickname: the full name stays in the `title` attribute. */
+.buyer {
   display: block;
-  font-size: var(--font-xs);
-  color: var(--text-tertiary);
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  font-weight: var(--font-medium);
+}
+
+.pillStack {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+  min-width: 0;
+}
+
+.envioTop {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 3px 6px;
+  min-width: 0;
+}
+
+.envioStatus {
+  font-size: 11.5px;
+  line-height: 1.35;
+  color: var(--cf-text-secondary);
+}
+
+.shippingId {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  max-width: 100%;
+  margin-top: 3px;
+  font-size: 11.5px;
+  color: var(--cf-text-secondary);
 }
 
 .stateCell {
   padding: var(--spacing-lg);
   text-align: center;
-  color: var(--text-tertiary);
+  color: var(--cf-text-tertiary);
 }
 
-/* A row that opens the cost breakdown drawer.
-
-   The cursor IS the affordance here: `.table tbody tr:hover td` already
-   highlights every row on hover, clickable or not, so the highlight says
-   nothing about whether this one does anything. Adding a second hover
-   treatment just for these rows would fight that one. */
+/* The cursor IS the affordance: the hover highlight applies to every row. */
 .clickableRow {
   cursor: pointer;
 }
 
-/* total-gauss-provisorio: spacing for the "Provisorio" badge beside the
-   Total Gauss cell -- reuses the global `badge`/`badge-warning` classes. */
-.provisionalBadge {
-  display: inline-block;
-  margin-top: var(--space-1);
-  white-space: normal;
+/* The row whose detail is open in the panel (design: blue tint + a bar on
+   the left edge), so the eye can find it again after reading the panel. */
+.selectedRow td {
+  background: var(--tone-info-bg);
+}
+
+.selectedRow td:first-child {
+  box-shadow: inset 3px 0 0 var(--tone-info-fg);
 }
 
 .netoButton {
+  display: block;
+  width: 100%;
   padding: 0;
   font-family: inherit;
   font-size: inherit;
+  text-align: right;
   font-variant-numeric: tabular-nums;
-  color: var(--text-primary);
+  color: inherit;
   background: none;
   border: none;
   cursor: pointer;
@@ -358,39 +462,56 @@
 
 .netoButton:hover,
 .netoButton:focus-visible {
-  color: var(--brand-primary);
   text-decoration-color: currentColor;
 }
 
-/* Color-plus-underline alone repeats the hover treatment almost exactly,
-   so a keyboard user cannot tell hover from focus. The outline is the one
-   signal that is focus-only. */
+/* Underline alone repeats the hover treatment, so a keyboard user cannot
+   tell hover from focus. The outline is the one focus-only signal. */
 .netoButton:focus-visible {
-  outline: 2px solid var(--brand-primary);
+  outline: 2px solid var(--cf-accent-blue);
   outline-offset: 2px;
 }
 
 /* ── Packs ───────────────────────────────────────────────── */
 
-/* The parcel's own row: it heads the orders under it, so it carries the
-   weight they do not. Referenced from the JSX — it used to be applied
-   with no rule behind it, which styled nothing. */
 .packRow td {
   font-weight: var(--font-medium);
 }
 
 .packToggle {
-  display: flex;
+  display: inline-flex;
   align-items: center;
-  gap: var(--space-2);
+  gap: 4px;
+  max-width: 100%;
   padding: 0;
   font-family: inherit;
-  font-size: var(--font-sm);
+  font-size: inherit;
   text-align: left;
-  color: var(--text-primary);
+  color: var(--cf-text-primary);
   background: none;
   border: none;
   cursor: pointer;
+  white-space: nowrap;
+}
+
+.packLabel {
+  font-size: 10.5px;
+  font-weight: var(--font-semibold);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--tone-info-fg);
+}
+
+.srOnly {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
 }
 
 .chevron {
@@ -402,27 +523,25 @@
   transform: rotate(90deg);
 }
 
-/* The orders inside a parcel are subordinate to it, and have to read that
-   way — indented, quieter, and visually inside the row above. */
+/* The orders inside a parcel are subordinate to it, and read that way:
+   indented, smaller, on a quieter background. */
 .memberRow td {
-  background: var(--bg-secondary);
-  color: var(--text-secondary);
+  padding-top: 7px;
+  padding-bottom: 7px;
+  font-size: var(--font-xs);
+  background: var(--cf-bg-app);
 }
 
 .memberOrden {
-  padding-left: 22px;
-  overflow-wrap: anywhere;
   font-family: var(--font-mono);
-  font-size: var(--font-xs);
-  color: var(--text-secondary);
+  font-size: 11.5px;
+  white-space: nowrap;
+  color: var(--cf-text-secondary);
 }
 
 /* Last-resort horizontal scroll, only where compression has run out of
-   room: below 1279px the panel is already a fixed sheet (see
-   `VentasMLLayout.module.css`) and the percentage columns bottom out. The
-   sticky header stops working inside this scroll container -- that is the
-   deliberate trade-off, and it only applies to viewports narrower than
-   the Full HD case this screen targets. */
+   room: below 1279px the percentage columns bottom out. The sticky header
+   stops working inside this scroll container -- a deliberate trade-off. */
 @media (max-width: 1279px) {
   .tableCard {
     overflow-x: auto;
@@ -444,7 +563,7 @@
 }
 
 .table thead th:hover .resizeGrip {
-  border-right-color: var(--border-primary);
+  border-right-color: var(--cf-border-default);
 }
 
 .resizeGrip:hover,
