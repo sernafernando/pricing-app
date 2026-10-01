@@ -207,3 +207,19 @@ Creado 2026-09-30. Línea base vitest: 133 archivos, 1794 passed + 2 expected fa
   `ventasMlExport.test.js` (módulo inexistente) y el test de página (sin botón).
 - GREEN: pytest export 7 passed; ruff OK; vitest 141 archivos, 1858 passed + 2
   expected fail; eslint 0 errores; build OK.
+
+### Fix T6 (export CSV): producto, día de acreditación, formato Excel es-AR
+- Defectos pedidos por el coordinador: (1) faltaba el producto; (2) la fecha
+  era `date_created` y la regla (#1368) es el día de acreditación; (3) el
+  formato no abría bien en Excel es-AR.
+- Cambios: columnas `producto`, `sku`, `cantidad` (varios ítems de una orden
+  se unen con " | ", nunca se elige uno; mismo orden en las tres);
+  `fecha_acreditacion` (MAX de `date_approved` de pagos relevantes de los
+  miembros del grupo, vía `member_accreditation_dates`, sin regla nueva; un
+  pack repite el día de su último miembro) y `fecha_creacion`; delimitador `;`
+  y coma decimal en la plata, BOM se mantiene. El guard de inyección de
+  fórmulas cubre título y SKU. Supera la limitación (2) del cierre: el CSV ya
+  abre bien en Excel es-AR.
+- RED: 8 de 10 tests del archivo `test_ml_ventas_ops_export_router.py` fallaron
+  (columnas inexistentes / formato viejo). GREEN: export + sales router 106
+  passed; ruff limpio. Frontend sin cambios (sus tests no asertan el formato).

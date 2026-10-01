@@ -70,6 +70,7 @@ from app.services.ml_ventas_desglose.breakdown_service import (
     compute_breakdown,
     compute_neto_desglose_by_order_ids,
 )
+from app.services.ml_sales_query.accreditation import member_accreditation_dates
 from app.services.ml_sales_query.aggregate import aggregate_order_metrics
 from app.services.ml_sales_query.filters import (
     SalesFilter,
@@ -1705,10 +1706,14 @@ EXPORT_MAX_GROUPS = 10_000
 # composites (product + category, amount + coupon) that do not survive as one
 # spreadsheet cell, and a stable header is what makes the file reusable.
 EXPORT_HEADER = [
-    "fecha",
+    "fecha_acreditacion",
+    "fecha_creacion",
     "orden",
     "pack",
     "comprador",
+    "producto",
+    "sku",
+    "cantidad",
     "operacion",
     "mercaderia",
     "modo_logistico",
@@ -1736,15 +1741,34 @@ def _csv_text(value: Optional[str]) -> str:
 
 
 def _csv_money(value: Optional[float]) -> str:
-    return "" if value is None else f"{value:.2f}"
+    # Excel es-AR reads a decimal COMMA (and `;` as the delimiter).
+    return "" if value is None else f"{value:.2f}".replace(".", ",")
 
 
-def _csv_order_row(order: SaleListItem) -> List[str]:
+# An order can carry several items: they are joined, never reduced to one.
+_CSV_ITEM_SEPARATOR = " | "
+
+
+def _csv_items(order: SaleListItem) -> "tuple[str, str, str]":
+    items = order.items or []
+    return (
+        _CSV_ITEM_SEPARATOR.join(_csv_text(i.title or i.item_id) for i in items),
+        _CSV_ITEM_SEPARATOR.join(_csv_text(i.seller_sku or "") for i in items),
+        _CSV_ITEM_SEPARATOR.join("" if i.quantity is None else str(i.quantity) for i in items),
+    )
+
+
+def _csv_order_row(order: SaleListItem, accreditation_date: Optional[datetime]) -> List[str]:
+    product, sku, quantity = _csv_items(order)
     return [
+        accreditation_date.isoformat() if accreditation_date else "",
         order.date_created.isoformat() if order.date_created else "",
         str(order.order_id),
         "" if order.pack_id is None else str(order.pack_id),
         _csv_text(order.buyer_nickname),
+        product,
+        sku,
+        quantity,
         order.operation_status,
         order.goods_status,
         order.modo_logistico,
@@ -1824,15 +1848,21 @@ def exportar_ventas(
 
     def rows_of(response: SaleListResponse) -> str:
         buffer = io.StringIO()
-        writer = csv.writer(buffer)
+        writer = csv.writer(buffer, delimiter=";")
+        # The sale's day is its ACCREDITATION day (#1368), resolved by the
+        # same `member_accreditation_dates` the list's day rule is built on;
+        # a pack's day is its LAST member's (MAX), repeated on each of its rows.
+        per_order = member_accreditation_dates(db, [o.order_id for g in response.sales for o in g.orders])
         for group in response.sales:
+            dates = [per_order[o.order_id] for o in group.orders if o.order_id in per_order]
+            day = max(dates) if dates else None
             for order in group.orders:
-                writer.writerow(_csv_order_row(order))
+                writer.writerow(_csv_order_row(order, day))
         return buffer.getvalue()
 
     def stream():
         header = io.StringIO()
-        csv.writer(header).writerow(EXPORT_HEADER)
+        csv.writer(header, delimiter=";").writerow(EXPORT_HEADER)
         # BOM so Excel reads the accents as UTF-8.
         yield "\ufeff" + header.getvalue()
         current = first

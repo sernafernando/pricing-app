@@ -14,7 +14,7 @@ import pytest
 
 from app.core.config import settings
 from app.models.ml_order_metrics import MlOrderMetrics
-from app.models.ml_orders_ops import MlOrdersOps, MlShipmentOps
+from app.models.ml_orders_ops import MlOrderItemOps, MlOrdersOps, MlShipmentOps
 from app.models.ml_payments import MlPaymentOps
 from app.models.permiso import Permiso, RolPermisoBase
 from app.routers import ml_ventas_ops
@@ -45,7 +45,7 @@ def _grant(db, rol_admin):
     db.flush()
 
 
-def _sale(db, order_id, *, pack_id=None, status="paid", metrics="ok", nick="comprador", day=1):
+def _sale(db, order_id, *, pack_id=None, status="paid", metrics="ok", nick="comprador", day=1, accredited_day=None):
     when = NOW.replace(day=day)
     shipping_id = order_id * 10
     db.add(
@@ -76,7 +76,11 @@ def _sale(db, order_id, *, pack_id=None, status="paid", metrics="ok", nick="comp
     db.flush()
     db.add(
         MlPaymentOps(
-            payment_id=order_id * 10 + 1, order_id=order_id, status="approved", date_approved=when, coupon_amount=10
+            payment_id=order_id * 10 + 1,
+            order_id=order_id,
+            status="approved",
+            date_approved=NOW.replace(day=accredited_day or day),
+            coupon_amount=10,
         )
     )
     db.add(
@@ -98,7 +102,7 @@ def _sale(db, order_id, *, pack_id=None, status="paid", metrics="ok", nick="comp
 
 def _rows(response):
     text = response.content.decode("utf-8-sig")
-    return list(csv.DictReader(io.StringIO(text)))
+    return list(csv.DictReader(io.StringIO(text), delimiter=";"))
 
 
 def test_exports_one_row_per_order_with_a_utf8_bom_and_a_filename(db, client, admin_auth_headers, rol_admin):
@@ -120,11 +124,11 @@ def test_exports_one_row_per_order_with_a_utf8_bom_and_a_filename(db, client, ad
     assert len(pack_rows) == 2
     one = next(r for r in rows if r["orden"] == "1")
     assert one["comprador"] == "comprador"
-    assert one["importe"] == "1234.50"
-    assert one["cupon_ml"] == "10.00"
-    assert one["neto"] == "900.00"
-    assert one["total_gauss"] == "150.00"
-    assert one["markup_pct"] == "30.00"
+    assert one["importe"] == "1234,50"
+    assert one["cupon_ml"] == "10,00"
+    assert one["neto"] == "900,00"
+    assert one["total_gauss"] == "150,00"
+    assert one["markup_pct"] == "30,00"
     assert one["ciudad"] == "Rosario"
     assert one["provincia"] == "Santa Fe"
     assert one["alerta"] == "ok"
@@ -204,4 +208,63 @@ def test_empty_set_is_a_header_only_file(db, client, admin_auth_headers, rol_adm
     resp = client.get("/api/ml-ventas-ops/sales/export", params=ALL_ON, headers=admin_auth_headers)
     assert resp.status_code == 200
     assert _rows(resp) == []
-    assert resp.content.decode("utf-8-sig").startswith("fecha,orden,pack")
+    assert resp.content.decode("utf-8-sig").startswith("fecha_acreditacion;fecha_creacion;orden;pack")
+
+
+def _item(db, order_id, title, sku, qty):
+    db.add(
+        MlOrderItemOps(
+            order_id=order_id, item_id=f"MLA{order_id}{qty}", title=title, seller_sku=sku, quantity=qty, unit_price=10
+        )
+    )
+    db.flush()
+
+
+def test_exports_the_product_joining_several_items_never_dropping_one(db, client, admin_auth_headers, rol_admin):
+    _grant(db, rol_admin)
+    _sale(db, 1)
+    _item(db, 1, "Router TP-Link", "TPL-1", 2)
+    _item(db, 1, "Cable UTP", "UTP-5", 3)
+    _sale(db, 2)
+    db.commit()
+
+    rows = {
+        r["orden"]: r
+        for r in _rows(client.get("/api/ml-ventas-ops/sales/export", params=ALL_ON, headers=admin_auth_headers))
+    }
+
+    assert rows["1"]["producto"] == "Router TP-Link | Cable UTP"
+    assert rows["1"]["sku"] == "TPL-1 | UTP-5"
+    assert rows["1"]["cantidad"] == "2 | 3"
+    assert rows["2"]["producto"] == ""
+
+
+def test_product_titles_get_the_formula_guard_too(db, client, admin_auth_headers, rol_admin):
+    _grant(db, rol_admin)
+    _sale(db, 1)
+    _item(db, 1, "=cmd|' /C calc'!A0", "+SKU", 1)
+    db.commit()
+
+    row = _rows(client.get("/api/ml-ventas-ops/sales/export", params=ALL_ON, headers=admin_auth_headers))[0]
+
+    assert row["producto"].startswith("'=")
+    assert row["sku"].startswith("'+")
+
+
+def test_the_day_is_the_accreditation_day_not_the_creation_day(db, client, admin_auth_headers, rol_admin):
+    _grant(db, rol_admin)
+    _sale(db, 1, day=3, accredited_day=9)
+    # A pack's day is its LAST member's accreditation (same MAX rule as the list).
+    _sale(db, 2, pack_id=600, day=3, accredited_day=4)
+    _sale(db, 3, pack_id=600, day=3, accredited_day=12)
+    db.commit()
+
+    rows = {
+        r["orden"]: r
+        for r in _rows(client.get("/api/ml-ventas-ops/sales/export", params=ALL_ON, headers=admin_auth_headers))
+    }
+
+    assert rows["1"]["fecha_acreditacion"].startswith("2026-09-09")
+    assert rows["1"]["fecha_creacion"].startswith("2026-09-03")
+    assert rows["2"]["fecha_acreditacion"].startswith("2026-09-12")
+    assert rows["3"]["fecha_acreditacion"].startswith("2026-09-12")
