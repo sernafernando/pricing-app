@@ -95,6 +95,13 @@ el usuario). Cambios pedidos sobre ese diseño que Stitch no llegó a aplicar:
   proyecto pero 50 filas × 2 gráficos no lo justifican). El encabezado de la
   tabla NO es sticky vertical: la tarjeta es el contenedor del scroll
   horizontal y un `th` sticky se pega a ella, no a la página.
+- (T5, writer) Tabla TEMPORARY por request para el agregado por par:
+  calcularlo una vez y no once (una por sentencia). Es privada de la
+  conexión, se borra al final (y `DROP IF EXISTS` al empezar por si una
+  request anterior en la misma conexión murió a mitad). Fila de una
+  publicación: su producto es el `item_id` actual de la publicación (antes,
+  el que más vendió en el período). Orden por "última venta" usa el DÍA de
+  la última venta.
 - (T4, writer) Tienda va en su propia franja, la primera de chips (debajo de
   fechas/búsqueda); Producto + Publicación/Tipo en la siguiente; Alertas al
   final. Sin el permiso de ganancia no se muestran las columnas de markup/
@@ -164,6 +171,44 @@ Ruta: delegated direct (writer único). TDD estricto.
   Encontró 2 presupuestos de queries de Ventas ML que contaban
   `ml_order_items_ops` ≤ 1; el facet de Tienda suma una consulta constante
   (no por fila) → presupuesto 2, commit aparte.
+
+- [x] T5 (pedido del coordinador antes de la PR) — Rendimiento del tablero.
+      Commit: `03bb71ef`. Ruta: delegated direct (mismo writer).
+      Antes: el tablero cargaba el espejo de publicaciones entero y todas las
+      filas del período en Python. RED medido en Postgres con volumen
+      (2.000 productos, 6.000 MLAs, 90 días ≈ 216k filas de resumen):
+      6 sentencias pero **230.001 filas** devueltas por request y ~2,8–3,5 s;
+      sin sentencia con LIMIT.
+      Ahora: por request se materializa UNA vez el agregado por (producto,
+      MLA) en una tabla TEMPORARY privada de la conexión (`board_pair_agg`,
+      una sola pasada por el resumen + `ANALYZE`), y todo lo demás la lee:
+      página con ORDER BY + LIMIT/OFFSET en SQL, KPIs, conteos de chips
+      (CTEs MATERIALIZED, cada uno sin su propio eje), y detalle + series de
+      90 días de la página en UNA consulta cada una. El espejo de
+      publicaciones nunca se carga en Python.
+      Medido (local, Postgres 18, `-s`): **16 sentencias** por request con
+      página de 10, 50 o 200 y agrupando por producto o publicación (14 si la
+      página sale vacía); **443 filas** devueltas para una página de 10;
+      **~370 ms** página de 50, ~430 ms página de 200, ~400 ms con filtros
+      (tienda+marca+estado+búsqueda), ~950 ms la primera request en frío. El
+      grueso: crear el agregado ~155 ms, `ANALYZE` ~38 ms, serie de KPIs
+      ~40 ms; el resto 2–12 ms cada una.
+      EXPLAIN: con el planner por defecto, el detalle y la serie de la página
+      llegan al resumen por índice (nunca Seq Scan); "actualizado hace" usa
+      `ix_ml_product_daily_metrics_updated_at`. Sin los `IN` sobre la clave
+      casteada y sin estadísticas de la tabla temporal el planner anidaba
+      loops (0,7 s un conteo de chip): por eso el `ANALYZE` y los CTE
+      materializados.
+      Índices nuevos (migración `20261001_ix_board_reads`, CONCURRENTLY, un
+      solo head): `ml_group_metrics.group_date` (ventana 24h) y
+      `ml_product_daily_metrics.updated_at`.
+      Ventas ML: EXISTS de tienda + marca + subcategoría juntos, EXPLAIN con
+      seqscan apagado sin Seq Scan en publicaciones, ítems, costos ni
+      productos; y prueba de que se combinan (tienda ∧ marca).
+      Checks: ruff OK; pytest focalizado 241 passed; volumen Postgres 4
+      passed; router del tablero 25 passed sin cambios de contrato. Suite
+      backend completa, sola: 7676 passed, 16 skipped. Frontend sin cambios
+      (no se re-corrió).
 
 ## Entrega
 
