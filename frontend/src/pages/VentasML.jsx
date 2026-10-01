@@ -81,6 +81,7 @@ import { buildVentasMLFilterParams } from '../utils/ventasMlParams';
 import { exportVentasCsv } from '../utils/ventasMlExport';
 import {
   formatDate,
+  timeAgo,
   OPERATION_STATUS_LABELS,
   OPERATION_STATUS_OPTIONS,
   GOODS_STATUS_LABELS,
@@ -109,6 +110,7 @@ export default function VentasML() {
   const latestRequestRef = useRef(0);
   const { tienePermiso } = usePermisos();
   const puedeVer = tienePermiso('ml_ops.ver');
+  const puedeResincronizar = tienePermiso('ml_ops.resincronizar');
 
   const [sales, setSales] = useState([]);
   const [total, setTotal] = useState(0);
@@ -116,6 +118,9 @@ export default function VentasML() {
   const [pageSize, setPageSizeState] = useState(loadPageSize);
   const [loading, setLoading] = useState(true);
   const [lastLoadedAt, setLastLoadedAt] = useState(null);
+  // When ML data last reached the list (sweep / activity drain), not when
+  // this screen last fetched it.
+  const [lastSyncedAt, setLastSyncedAt] = useState(null);
   // 403 (no permission) and 503 (feature switched off) are distinct
   // failures the operator needs to tell apart — never collapsed into one
   // generic error message.
@@ -551,6 +556,29 @@ export default function VentasML() {
     cargarKpis();
   }, [cargarKpis]);
 
+  // Best-effort and independent of the list (same stance as the ingest-failed
+  // banner below): losing this indicator must never cost the operator the list.
+  const cargarSyncStatus = useCallback(async () => {
+    if (!puedeVer) return;
+    try {
+      const { data } = await api.get('/ml-ventas-ops/sales/sync-status');
+      setLastSyncedAt(data?.last_synced_at ?? null);
+    } catch {
+      setLastSyncedAt(null);
+    }
+  }, [puedeVer]);
+
+  useEffect(() => {
+    cargarSyncStatus();
+  }, [cargarSyncStatus]);
+
+  // A resynced sale can change its row, the totals and the freshness stamp.
+  const handleResynced = useCallback(() => {
+    cargarVentas();
+    cargarKpis();
+    cargarSyncStatus();
+  }, [cargarVentas, cargarKpis, cargarSyncStatus]);
+
   useEffect(() => {
     cargarVentas();
   }, [cargarVentas]);
@@ -622,6 +650,7 @@ export default function VentasML() {
             onClick={() => {
               cargarVentas();
               cargarKpis();
+              cargarSyncStatus();
             }}
             disabled={loading}
           >
@@ -761,6 +790,9 @@ export default function VentasML() {
             </button>
           )}
           <div className={styles.spacer} />
+          {timeAgo(lastSyncedAt) && (
+            <span className={styles.stale}>sincronizado {timeAgo(lastSyncedAt)}</span>
+          )}
           {lastLoadedAt && (
             <span className={styles.stale}>actualizado {formatDate(lastLoadedAt)}</span>
           )}
@@ -779,7 +811,13 @@ export default function VentasML() {
               onSelectOrder={openDrawer}
             />
           ) : (
-            <SaleDetailPanel orderId={selectedOrderId} onClose={clearSelection} />
+            <SaleDetailPanel
+              orderId={selectedOrderId}
+              onClose={clearSelection}
+              canResync={puedeResincronizar}
+              lastSyncedAt={lastSyncedAt}
+              onResynced={handleResynced}
+            />
           )
         }
       >

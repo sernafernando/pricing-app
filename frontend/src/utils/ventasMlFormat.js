@@ -252,3 +252,21 @@ export function paymentMethodLabel(id) {
   if (!id) return null;
   return PAYMENT_METHOD_LABELS[id] || id;
 }
+
+/**
+ * "hace 3 min" for a past timestamp; `null` when there is none (the caller
+ * then shows nothing rather than a made-up freshness). `now` is injectable so
+ * the text is testable; it is evaluated at render time, no timers involved.
+ */
+export function timeAgo(value, now = new Date()) {
+  if (!value) return null;
+  const then = new Date(value);
+  if (Number.isNaN(then.getTime())) return null;
+  const seconds = Math.max(0, Math.floor((now.getTime() - then.getTime()) / 1000));
+  if (seconds < 60) return 'hace instantes';
+  const minutes = Math.floor(seconds / 60);
+  if (minutes < 60) return `hace ${minutes} min`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `hace ${hours} h`;
+  return `hace ${Math.floor(hours / 24)} d`;
+}

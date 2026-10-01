@@ -45,11 +45,11 @@
  */
 
 import { useEffect, useCallback, useState, useRef } from 'react';
-import { X, TriangleAlert, ExternalLink } from 'lucide-react';
+import { X, TriangleAlert, ExternalLink, RefreshCw } from 'lucide-react';
 import api from '../../services/api';
 import CopyButton from './CopyButton';
 import SaleContextSections from './SaleContextSections';
-import { mlSaleUrl } from '../../utils/ventasMlFormat';
+import { mlSaleUrl, timeAgo } from '../../utils/ventasMlFormat';
 import styles from './SaleDetailPanel.module.css';
 
 const INCOMPLETE_REASON_LABELS = {
@@ -141,7 +141,14 @@ function formatCostoFecha(value) {
   return `${day}/${month}/${year}`;
 }
 
-export default function SaleDetailPanel({ orderId, onClose }) {
+// Prefers the backend's own message (the resync endpoint explains WHAT failed
+// and that nothing changed) over a generic one.
+function resyncErrorMessage(err) {
+  const data = err?.response?.data;
+  return data?.error?.message || (typeof data?.detail === 'string' ? data.detail : null) || 'No se pudo resincronizar la venta.';
+}
+
+export default function SaleDetailPanel({ orderId, onClose, canResync = false, lastSyncedAt = null, onResynced }) {
   const [breakdown, setBreakdown] = useState(null);
   // ml-ventas-modo-logistico PR6: the IVA split and the Total Gauss chain,
   // both from the SAME detail response. Kept separate from `breakdown`
@@ -154,6 +161,10 @@ export default function SaleDetailPanel({ orderId, onClose }) {
   const [orderInfo, setOrderInfo] = useState(null);
   const [shipmentInfo, setShipmentInfo] = useState(null);
   const [loading, setLoading] = useState(false);
+  // ODD ventas-ml-ui-pendiente T7: per-sale resync (ML re-fetch + recompute).
+  const [resyncing, setResyncing] = useState(false);
+  const [resyncError, setResyncError] = useState(null);
+  const [resyncDone, setResyncDone] = useState(false);
   const [errorKind, setErrorKind] = useState(null); // 'generic' | null
 
   // Same sequence guard `VentasML.jsx` uses for its list fetch: selecting
@@ -191,6 +202,31 @@ export default function SaleDetailPanel({ orderId, onClose }) {
   useEffect(() => {
     loadBreakdown();
   }, [loadBreakdown]);
+
+  // Another sale was picked: a message about the previous one must not stay.
+  useEffect(() => {
+    setResyncError(null);
+    setResyncDone(false);
+  }, [orderId]);
+
+  async function handleResync() {
+    setResyncing(true);
+    setResyncError(null);
+    setResyncDone(false);
+    try {
+      await api.post(`/ml-ventas-ops/orders/${orderId}/resync`);
+    } catch (err) {
+      // The backend leaves the stored data untouched on failure, so there is
+      // nothing to reload: just say what happened.
+      setResyncError(resyncErrorMessage(err));
+      setResyncing(false);
+      return;
+    }
+    setResyncDone(true);
+    await loadBreakdown();
+    if (onResynced) onResynced();
+    setResyncing(false);
+  }
 
   // Defensive on purpose, same as the listing does with `group.orders`:
   // a malformed payload must not white-screen the panel. `incompleto`
@@ -601,6 +637,31 @@ export default function SaleDetailPanel({ orderId, onClose }) {
           </>
         )}
       </div>
+
+      {(canResync || timeAgo(lastSyncedAt)) && (
+        <div className={styles.footer}>
+          {timeAgo(lastSyncedAt) && (
+            <span className={styles.syncedAt}>Sincronizado {timeAgo(lastSyncedAt)}</span>
+          )}
+          {resyncDone && !resyncError && <span className={styles.syncedAt}>Venta resincronizada</span>}
+          {resyncError && (
+            <span className={styles.resyncError} role="alert">
+              {resyncError}
+            </span>
+          )}
+          {canResync && (
+            <button
+              type="button"
+              className="btn-tesla outline sm"
+              onClick={handleResync}
+              disabled={resyncing}
+            >
+              <RefreshCw size={14} aria-hidden="true" />
+              {resyncing ? 'Resincronizando...' : 'Resincronizar'}
+            </button>
+          )}
+        </div>
+      )}
     </>
   );
 }

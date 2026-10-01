@@ -52,6 +52,7 @@ from app.models.ml_orders_ops import (
     UNENUMERABLE_KIND,
     MlOperationLink,
     MlOpsDivergence,
+    MlOpsSyncCursor,
     MlOrderItemOps,
     MlOrdersOps,
     MlShipmentOps,
@@ -69,6 +70,12 @@ from app.services.ml_ventas_desglose.breakdown_service import (
     RELEVANT_PAYMENT_STATUSES,
     compute_breakdown,
     compute_neto_desglose_by_order_ids,
+)
+from app.services.ml_orders_ingestion.resync_service import (
+    OrderNotFound,
+    ResyncFailed,
+    ResyncInProgress,
+    resync_order,
 )
 from app.services.ml_sales_query.accreditation import member_accreditation_dates
 from app.services.ml_sales_query.aggregate import aggregate_order_metrics
@@ -1691,6 +1698,35 @@ def listar_ventas(
     )
 
 
+class SyncStatusResponse(BaseModel):
+    last_synced_at: Optional[datetime] = None
+
+
+# The cursors whose completed passes keep the sales list fresh: the windowed
+# sweep and the event-driven activity drain. The backfill is a one-off
+# historical job -- its timestamp says nothing about how current the list is.
+_FRESHNESS_CURSORS = ("sweep", "ml_activity")
+
+
+@router.get("/sales/sync-status", response_model=SyncStatusResponse)
+def estado_sincronizacion(
+    current_user: Usuario = Depends(require_permission("ml_ops.ver")),
+    db: Session = Depends(get_db),
+) -> SyncStatusResponse:
+    """When the sales list was last brought up to date from Mercado Libre:
+    the most recent COMPLETE pass of the sweep or the activity drain (a pass
+    that stopped early on its budget does not stamp `last_success_at`, so this
+    never claims freshness it did not reach). `null` when nothing has
+    completed yet. Two cheap indexed-by-PK reads, no polling machinery."""
+    _require_flag_enabled()
+    last = (
+        db.query(func.max(MlOpsSyncCursor.last_success_at))
+        .filter(MlOpsSyncCursor.name.in_(_FRESHNESS_CURSORS))
+        .scalar()
+    )
+    return SyncStatusResponse(last_synced_at=last)
+
+
 # ── ODD ventas-ml-ui-pendiente T6: CSV export of the filtered set ───
 
 # The export walks the REAL listing (`listar_ventas`) page by page, so it
@@ -2202,6 +2238,42 @@ def obtener_operacion(
         ),
         metrics_state=order_metrics_state,
     )
+
+
+class ResyncResponse(BaseModel):
+    order_id: int
+    # `False` when ML's answer carried nothing newer than what we stored (the
+    # metrics were still enqueued -- R23).
+    order_changed: bool
+
+
+@router.post("/orders/{order_id}/resync", response_model=ResyncResponse)
+def resincronizar_venta(
+    order_id: int,
+    current_user: Usuario = Depends(require_permission("ml_ops.resincronizar")),
+    db: Session = Depends(get_db),
+) -> ResyncResponse:
+    """Re-fetches ONE order (and its payments/shipment) from Mercado Libre
+    through the ingestion building blocks and enqueues its metrics for
+    recompute (ODD ventas-ml-ui-pendiente T7, spec `ml-order-resync`
+    R22-R24). Own permission `ml_ops.resincronizar`: it spends ML API
+    requests and rewrites stored money fields. Failures are explicit and
+    leave the stored data untouched: 404 unknown order, 409 a resync of it is
+    already running (or just finished), 502 Mercado Libre could not be read or
+    the data could not be saved."""
+    _require_flag_enabled()
+    try:
+        result = resync_order(db, order_id)
+    except OrderNotFound:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Orden no encontrada")
+    except ResyncInProgress:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Ya hay una resincronización de esta venta en curso o recién terminada. Probá en unos segundos.",
+        )
+    except ResyncFailed as e:
+        raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=str(e))
+    return ResyncResponse(order_id=result.order_id, order_changed=result.order_changed)
 
 
 @router.get("/packs/{pack_id}", response_model=PackOperationSummary)
