@@ -1381,11 +1381,14 @@ def _sales_page(
     limit: int,
     offset: int,
     with_facets: bool = True,
+    total: Optional[int] = None,
 ) -> SaleListResponse:
     """The single scope/query path behind `GET /sales` AND the CSV export, so
     the export can never diverge from the listing. `with_facets=False` skips
     the facet counts and the alerts counter: the export reads neither, and
-    they are ~5 whole-scope aggregate queries per page."""
+    they are ~5 whole-scope aggregate queries per page. A caller that already
+    knows the scope's group `total` (the export, after page 1) passes it to
+    skip the distinct-count query."""
     _require_flag_enabled()
 
     if operation_status_filter is not None and operation_status_filter not in OPERATION_STATUSES:
@@ -1458,7 +1461,8 @@ def _sales_page(
     key_page = build_key_page_query(scope, sort, limit, offset).all()
     page_keys = [row.group_key for row in key_page]
 
-    total = listing_query.with_entities(func.count(func.distinct(group_key))).scalar() or 0
+    if total is None:
+        total = listing_query.with_entities(func.count(func.distinct(group_key))).scalar() or 0
 
     members_by_key: Dict[str, List[SaleListItem]] = {}
     if page_keys:
@@ -1907,7 +1911,7 @@ def exportar_ventas(
     disabled feature or an oversized set fail as a normal HTTP error instead
     of a truncated file."""
 
-    def fetch_page(offset: int) -> "tuple[SaleListResponse, str]":
+    def fetch_page(offset: int, known_total: Optional[int] = None) -> "tuple[SaleListResponse, str]":
         # ONE short session per page, opened and closed here: the response
         # outlives this handler, and a session held across the whole download
         # pins a pooled connection while the client reads (QueuePool incident,
@@ -1934,6 +1938,7 @@ def exportar_ventas(
                 limit=EXPORT_PAGE_SIZE,
                 offset=offset,
                 with_facets=False,
+                total=known_total,
             )
             return response, rows_of(page_db, response)
 
@@ -1952,9 +1957,10 @@ def exportar_ventas(
         return buffer.getvalue()
 
     first, first_rows = fetch_page(0)
-    # The permission check left a read transaction open on the request
-    # session; end it so no pooled connection is held while the file streams.
-    db.rollback()
+    # CLOSE the request session (the permission check left it holding a
+    # pooled connection): the streamed pages use their own short sessions, so
+    # nothing may stay tied to the response's lifetime.
+    db.close()
     if first.total > EXPORT_MAX_GROUPS:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
@@ -1976,7 +1982,7 @@ def exportar_ventas(
             offset += EXPORT_PAGE_SIZE
             if offset >= first.total or not current.sales:
                 break
-            current, current_rows = fetch_page(offset)
+            current, current_rows = fetch_page(offset, known_total=first.total)
 
     filename = f"ventas-ml-{datetime.now().strftime('%Y%m%d-%H%M')}.csv"
     return StreamingResponse(

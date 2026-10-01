@@ -335,3 +335,48 @@ def test_export_pages_skip_the_facets_and_the_alert_counter(
     assert sorted(r["orden"] for r in _rows(resp)) == ["1", "2", "3"]
     assert alert_counts == []
     assert not any(" as bucket" in st for st in export.statements)
+
+
+def test_only_the_first_export_page_runs_the_total_count(
+    db, client, admin_auth_headers, rol_admin, monkeypatch, query_counter
+):
+    monkeypatch.setattr(ml_ventas_ops, "EXPORT_PAGE_SIZE", 2)
+    _grant(db, rol_admin)
+    for i in range(1, 6):
+        _sale(db, i, day=i)
+    db.commit()
+
+    def totals(statements):
+        return [st for st in statements if "count(distinct" in st and "group by" not in st]
+
+    with query_counter() as one_page:
+        monkeypatch.setattr(ml_ventas_ops, "EXPORT_PAGE_SIZE", 200)
+        client.get("/api/ml-ventas-ops/sales/export", params=ALL_ON, headers=admin_auth_headers)
+    monkeypatch.setattr(ml_ventas_ops, "EXPORT_PAGE_SIZE", 2)
+    with query_counter() as three_pages:
+        resp = client.get("/api/ml-ventas-ops/sales/export", params=ALL_ON, headers=admin_auth_headers)
+
+    assert len(_rows(resp)) == 5
+    assert len(totals(one_page.statements)) >= 1
+    assert len(totals(three_pages.statements)) == len(totals(one_page.statements))
+
+
+def test_the_request_session_is_closed_before_the_first_byte_streams(
+    db, client, admin_auth_headers, rol_admin, monkeypatch, bg_sessions
+):
+    monkeypatch.setattr(ml_ventas_ops, "EXPORT_PAGE_SIZE", 2)
+    _grant(db, rol_admin)
+    for i in range(1, 6):
+        _sale(db, i, day=i)
+    db.commit()
+    timeline = []
+    real_close = db.close
+    monkeypatch.setattr(db, "close", lambda: (timeline.append(("request_close", bg_sessions["open"])), real_close())[1])
+
+    resp = client.get("/api/ml-ventas-ops/sales/export", params=ALL_ON, headers=admin_auth_headers)
+
+    assert resp.status_code == 200
+    assert len(_rows(resp)) == 5
+    # Closed once the first page was read (1 short session so far), never
+    # later, i.e. before page 2's session opens.
+    assert timeline and timeline[0] == ("request_close", 1)

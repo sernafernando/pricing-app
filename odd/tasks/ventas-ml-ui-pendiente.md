@@ -302,3 +302,8 @@ Rama `fix/ventas-ml-ui-observaciones`, TDD estricto (RED observado antes de cada
    RED: la entrada vencida seguía en el dict.
 4. `_receiver_address_field` -> `_nested_str_field` (lee claves anidadas de cualquier
    JSON crudo, también `raw_shipment`). RED: ImportError del nombre nuevo.
+5. Pendientes del review: (a) las páginas 2+ del export ya no corren el count
+   distinct de `total` (`_sales_page(total=...)`, se pasa `first.total`). RED: 3
+   counts con 3 páginas vs 1 con una. (b) la sesión del request se CIERRA
+   (`db.close()`, antes `rollback()`) antes de empezar a streamear. RED: el test no
+   vio ningún `close` del request. Targeted + ruff verdes.
