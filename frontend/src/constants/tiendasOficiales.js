@@ -34,4 +34,21 @@ export function getTiendaOficialLabel(officialStoreId) {
   return entry ? entry.label : String(officialStoreId);
 }
 
+/**
+ * ODD `metricas-ml-tablero` T1: the "Tienda:" filter chips on Ventas ML and
+ * Métricas ML. Values are what the backend's `stores` param takes
+ * (`mlp_official_store_id` as text, plus the `sin_tienda` sentinel for an
+ * MLA published with no official store). Labels are the product's names for
+ * the stores on these screens, deliberately not `TIENDAS_OFICIALES` labels.
+ */
+export const STORE_NONE = 'sin_tienda';
+export const STORE_FILTER_OPTIONS = ['57997', '2645', '144', '191942', STORE_NONE];
+export const STORE_FILTER_LABELS = {
+  57997: 'Gauss',
+  2645: 'TP-Link Oficial',
+  144: 'Forza/Verbatim',
+  191942: 'Multimarca',
+  [STORE_NONE]: 'Sin tienda',
+};
+
 export default TIENDAS_OFICIALES;
