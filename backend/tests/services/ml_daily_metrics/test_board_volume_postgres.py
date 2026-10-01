@@ -257,3 +257,77 @@ class TestBoardOnVolume:
         plan = "\n".join(row[0] for row in cursor.fetchall())
 
         assert "ix_ml_product_daily_metrics_updated_at" in plan, plan
+
+
+# ── Lifecycle of the request's temporary table (PgBouncer transaction mode) ──
+#
+# Production talks to Postgres through PgBouncer in TRANSACTION pooling: a
+# server connection belongs to a client only for one transaction. The pair
+# table must therefore live and die INSIDE one transaction: never survive it
+# (the next client on that server connection would inherit it) and never be
+# needed after a commit (later statements may land on another server
+# connection, where it does not exist).
+
+
+@pytest.fixture()
+def plain_session(volume_session):
+    """A fresh connection with NO outer test transaction, so commits and
+    rollbacks are the real ones. The module's tables exist (committed DDL);
+    its seed rows are invisible here (uncommitted elsewhere): an empty board
+    is enough to exercise the lifecycle."""
+    engine = volume_session.get_bind().engine
+    session = sessionmaker(bind=engine)()
+    yield session
+    session.rollback()
+    session.close()
+
+
+def _pairs_table_exists(session) -> bool:
+    return session.execute(text(f"SELECT to_regclass('pg_temp.{board.PAIRS_TABLE}') IS NOT NULL")).scalar()
+
+
+def _filter():
+    return board.BoardFilter(date_from=TODAY - timedelta(days=29), date_to=TODAY)
+
+
+@pytest.mark.postgres
+class TestPairsTableLifecycle:
+    def test_gone_after_a_request(self, plain_session) -> None:
+        build_board_response(plain_session, _filter(), limit=10, offset=0, can_see_margin=True)
+
+        assert not _pairs_table_exists(plain_session)
+
+    def test_gone_after_a_request_that_fails_midway_and_the_real_error_surfaces(
+        self, plain_session, monkeypatch
+    ) -> None:
+        """A database error after the table exists aborts the transaction.
+        The caller must see THAT error (not a secondary 'transaction is
+        aborted' from cleanup), and the session must be usable again with no
+        table left behind."""
+
+        def boom(self):
+            self.db.execute(text("SELECT 1 / 0"))
+
+        monkeypatch.setattr(board.Board, "kpis", boom)
+        from sqlalchemy.exc import DataError
+
+        with pytest.raises(DataError, match="division by zero"):
+            build_board_response(plain_session, _filter(), limit=10, offset=0, can_see_margin=True)
+
+        assert not _pairs_table_exists(plain_session)
+
+    def test_a_commit_midway_never_leaves_the_table_behind(self, plain_session) -> None:
+        """Something committing inside the computation is a bug the board
+        refuses loudly -- and even then the table must not outlive the commit
+        (ON COMMIT DROP), or PgBouncer would hand it to another client."""
+        with pytest.raises(RuntimeError, match="transaction"):
+            with board.Board(plain_session, _filter()):
+                plain_session.commit()
+                assert not _pairs_table_exists(plain_session)
+
+    def test_two_computations_back_to_back_on_one_connection(self, plain_session) -> None:
+        first = build_board_response(plain_session, _filter(), limit=10, offset=0, can_see_margin=True)
+        second = build_board_response(plain_session, _filter(), limit=10, offset=0, can_see_margin=True)
+
+        assert first.total == second.total
+        assert not _pairs_table_exists(plain_session)

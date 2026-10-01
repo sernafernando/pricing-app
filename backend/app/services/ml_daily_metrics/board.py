@@ -105,15 +105,19 @@ FALLING_MARGIN_PP = -1
 LISTING_TYPES = {"gold_special": "clasica", "gold_pro": "premium"}
 
 # The request's materialized (product, MLA) aggregate: computed once per
-# request, read by every statement after it, dropped at the end. A TEMPORARY
-# table is private to the connection, so concurrent requests never see each
-# other's.
+# request, read by every statement after it. Production reaches Postgres
+# through PgBouncer in TRANSACTION pooling (`app/core/database.py`): a server
+# connection is ours only for one transaction. So the table lives and dies
+# INSIDE one transaction -- created `ON COMMIT DROP`, inside a SAVEPOINT that
+# `Board.__exit__` always rolls back (a rolled-back CREATE leaves nothing
+# behind, success or failure), and a commit in between is refused loudly.
 PAIRS_TABLE = "board_pair_agg"
 
 
 class CreateTempTableAs(Executable, ClauseElement):
-    """`CREATE TEMPORARY TABLE <name> AS <select>`, compiled by the dialect
-    (bind parameters included), for Postgres and SQLite alike."""
+    """`CREATE TEMPORARY TABLE <name> [ON COMMIT DROP] AS <select>`, compiled
+    by the dialect (bind parameters included). `ON COMMIT DROP` on Postgres
+    only: SQLite has no such clause (and no connection pooler to leak to)."""
 
     inherit_cache = False
 
@@ -124,7 +128,8 @@ class CreateTempTableAs(Executable, ClauseElement):
 
 @compiles(CreateTempTableAs)
 def _compile_create_temp_table_as(element: CreateTempTableAs, compiler: Any, **kw: Any) -> str:
-    return f"CREATE TEMPORARY TABLE {element.name} AS {compiler.process(element.query, **kw)}"
+    on_commit = " ON COMMIT DROP" if compiler.dialect.name == "postgresql" else ""
+    return f"CREATE TEMPORARY TABLE {element.name}{on_commit} AS {compiler.process(element.query, **kw)}"
 
 
 R = MlProductDailyMetrics
@@ -453,7 +458,11 @@ class Board:
 
     def __enter__(self) -> "Board":
         source = self._pair_source()
-        self.db.execute(text(f"DROP TABLE IF EXISTS {PAIRS_TABLE}"))
+        # Everything below runs in ONE transaction: a SAVEPOINT inside the
+        # request's transaction, rolled back on the way out whatever happens.
+        self._savepoint = self.db.begin_nested()
+        if not self.db.in_transaction() or not self._savepoint.is_active:
+            raise RuntimeError("Board needs an open transaction: its pair table must not outlive it")
         self.db.execute(CreateTempTableAs(PAIRS_TABLE, source))
         if not self.sqlite:
             # A fresh temp table has no statistics: without them the planner
@@ -463,8 +472,18 @@ class Board:
         self.t = table(PAIRS_TABLE, *(column(name) for name in source.selected_columns.keys()))
         return self
 
-    def __exit__(self, *exc: object) -> None:
-        self.db.execute(text(f"DROP TABLE IF EXISTS {PAIRS_TABLE}"))
+    def __exit__(self, exc_type: Any, exc: Any, tb: Any) -> None:
+        if not self._savepoint.is_active:
+            # Someone committed (or rolled back) the transaction in the middle
+            # of the board: under transaction pooling the rest may have run on
+            # another server connection. A bug, never a state to paper over.
+            if exc_type is None:
+                raise RuntimeError("The board's transaction ended midway (commit/rollback inside Board)")
+            return
+        # Read-only: roll back. The CREATE goes with it -- nothing survives,
+        # and a failed statement's aborted transaction is usable again, so the
+        # caller sees the ORIGINAL error, not a cleanup one.
+        self._savepoint.rollback()
 
     def filtered_pairs(self, skip: str = ""):
         """One row per (product, MLA) pair that passes every filter but

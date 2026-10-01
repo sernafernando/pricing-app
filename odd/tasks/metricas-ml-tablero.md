@@ -96,9 +96,16 @@ el usuario). Cambios pedidos sobre ese diseño que Stitch no llegó a aplicar:
   tabla NO es sticky vertical: la tarjeta es el contenedor del scroll
   horizontal y un `th` sticky se pega a ella, no a la página.
 - (T5, writer) Tabla TEMPORARY por request para el agregado por par:
-  calcularlo una vez y no once (una por sentencia). Es privada de la
-  conexión, se borra al final (y `DROP IF EXISTS` al empezar por si una
-  request anterior en la misma conexión murió a mitad). Fila de una
+  calcularlo una vez y no once (una por sentencia). Producción pasa por
+  PgBouncer en modo TRANSACCIÓN, así que la tabla vive y muere DENTRO de una
+  transacción: `CREATE TEMPORARY TABLE ... ON COMMIT DROP`, dentro de un
+  SAVEPOINT de la transacción del request que `Board.__exit__` siempre
+  revierte (pase lo que pase, el CREATE se deshace y no queda nada en la
+  conexión del servidor para el próximo cliente); el ANALYZE y todas las
+  lecturas van adentro. Si algo hace commit/rollback en el medio, el tablero
+  falla fuerte (RuntimeError) y la tabla igual ya no existe (ON COMMIT DROP).
+  Un error de base a mitad de camino sale como el error original, no como
+  "transaction aborted" de la limpieza. Fila de una
   publicación: su producto es el `item_id` actual de la publicación (antes,
   el que más vendió en el período). Orden por "última venta" usa el DÍA de
   la última venta.
@@ -209,6 +216,15 @@ Ruta: delegated direct (writer único). TDD estricto.
       passed; router del tablero 25 passed sin cambios de contrato. Suite
       backend completa, sola: 7676 passed, 16 skipped. Frontend sin cambios
       (no se re-corrió).
+      Ajuste PgBouncer (pedido del coordinador): RED visto — tras un error de
+      base a mitad de camino la limpieza tapaba el error real con
+      `InFailedSqlTransaction`, y tras un commit en el medio la tabla seguía
+      existiendo en la sesión. GREEN: tests de ciclo de vida en Postgres con
+      conexión sin transacción externa (`to_regclass('pg_temp.board_pair_agg')
+      IS NULL` tras request OK, tras falla a mitad y tras commit en el medio;
+      dos cálculos seguidos en la misma conexión). Sigue en 16 sentencias
+      (salen los dos DROP, entran SAVEPOINT y ROLLBACK TO SAVEPOINT); mismos
+      tiempos. pytest focalizado 200 passed; no se tocó código compartido.
 
 ## Entrega
 
