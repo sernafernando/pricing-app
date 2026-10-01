@@ -58,6 +58,17 @@ el usuario). Cambios pedidos sobre ese diseño que Stitch no llegó a aplicar:
   dashboard viejo (`pages/DashboardMetricasML.jsx`) pasa a llamarse
   "Métricas ML (anterior)" en menú y título — sólo etiqueta, misma ruta y
   código. La nueva tiene su propia ruta (`/metricas-ml`).
+- (T2, writer) La tabla resumen (`ml_product_daily_metrics`) NO guarda la
+  tienda: la clave es producto × MLA × día y la tienda se resuelve al leer
+  desde el `mlp_official_store_id` ACTUAL de la publicación. Es la única
+  forma de cumplir "si una publicación cambió de tienda, su historial se
+  mueve con ella" sin cron (una tienda congelada en la fila quedaría vieja).
+- (T2, writer) Ítem sin costo congelado → producto `0` ("sin producto").
+  Venta cancelada sin cobertura de ML no suma; "Cubierta por ML" sí (la
+  plata llegó). Total Gauss/costo sólo de órdenes `ok`/`provisional` con
+  ambos valores; el resto suma unidades y cuenta en `unresolved_orders`.
+  Bruto sólo de órdenes en ARS. Día = `ml_group_metrics.group_date` en hora
+  de Buenos Aires.
 
 ## Tareas
 
@@ -77,8 +88,22 @@ Ruta: delegated direct (writer único). TDD estricto.
       seqscan off usa el índice de `mlp_publicationid`) 5 passed; vitest
       144→145 archivos, 1919→1923 tests; test:visual 9 files OK; eslint 0
       errores (8 warnings previos); lint:css OK; build OK.
-- [ ] T2 — Tabla resumen diaria + migración + actualización desde el worker
+- [x] T2 — Tabla resumen diaria + migración + actualización desde el worker
       de métricas + script de backfill (con remaining/NOT DONE como los otros).
+      Commits: `9beb3c9b` (+ `76345136`: el test de la migración
+      `ml_ops.resincronizar` fijaba el head por nombre y se rompía con
+      cualquier migración nueva).
+      Hook: `store_order_metrics` → tras guardar el grupo, `refresh_rollup`
+      de los buckets (MLA, día) de los MLAs del grupo, en el día nuevo y en
+      el anterior. Backfill: `python -m app.scripts.backfill_ml_daily_metrics
+      --dry-run` y luego sin flag (correr en prod después del deploy).
+      RED visto: 10/13 fallando (filas faltantes, KeyError) con el stub; el
+      backfill por ImportError del módulo.
+      Checks: ruff OK; pytest order_metrics + ml_group_metrics + workers +
+      scripts + ml_daily_metrics + routers ventas_ops + unit → 3704 passed
+      (1 fallo encontrado y arreglado en `76345136`); Postgres: rollup con
+      ids de 16 dígitos + upsert real + borrado de bucket vacío, y round
+      trip de la migración, OK.
 - [ ] T3 — Endpoint del tablero: por producto y por publicación, ventanas,
       markup actual/anterior/mín/máx, series 90d para sparklines, última venta,
       ageing, KPIs con delta vs período anterior, filtros (tienda, fechas,
@@ -100,4 +125,4 @@ Una PR por tarea (T1 sola es útil ya; T2→T3→T4 en orden).
 
 ## Estado
 
-Creado 2026-10-01. T1 hecho; sigue T2.
+Creado 2026-10-01. T1 y T2 hechos; sigue T3.
