@@ -1,7 +1,7 @@
 import styles from './IncludeToggles.module.css';
 
 /**
- * ventas-ml-kpi-strip T4/T5: the four `include_*` switches the backend's
+ * ventas-ml-kpi-strip T4/T5: the five `include_*` switches the backend's
  * `SalesFilter` accepts (`ml_ventas_ops.py`). This component ONLY renders
  * state handed to it and reports a toggle by KEY — `VentasML.jsx` owns the
  * actual state and is the one place that fans a change out to BOTH the
@@ -19,6 +19,10 @@ const TOGGLE_DEFS = [
   { key: 'includeInDispute', excludedKey: 'en_disputa', label: 'En disputa' },
   { key: 'includeMixed', excludedKey: 'mixta', label: 'Mixta' },
   { key: 'includeProvisional', excludedKey: 'provisorio', label: 'Provisorio' },
+  // Hides groups whose collapsed operation status is plain `cancelled`
+  // (not the ML-covered ones: the money arrived). "Pagada" in the operation
+  // facet is NOT the same thing -- it also drops delivered, in dispute...
+  { key: 'includeCancelled', excludedKey: 'canceladas', label: 'Canceladas' },
 ];
 
 export default function IncludeToggles({ values, excludedByToggle, onChange }) {

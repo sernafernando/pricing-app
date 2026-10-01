@@ -1847,6 +1847,30 @@ describe('the KPI strip stays in parity with the list', () => {
     });
   });
 
+  it('Canceladas off reaches the list and the KPI request, and Limpiar filtros turns it back on', async () => {
+    mockKpi();
+    const user = userEvent.setup();
+    await renderWithRouter(<VentasML />);
+    await waitFor(() => {
+      expect(api.get).toHaveBeenCalledWith('/ml-ventas-ops/sales/kpis', expect.anything());
+    });
+    // Default ON: today's numbers do not change silently.
+    const firstList = api.get.mock.calls.find((c) => c[0] === '/ml-ventas-ops/sales');
+    expect(firstList[1].params.include_cancelled).toBe(true);
+
+    api.get.mock.calls.length = 0;
+    await user.click(screen.getByRole('checkbox', { name: /canceladas/i }));
+    await waitFor(() => {
+      const listCall = api.get.mock.calls.find((c) => c[0] === '/ml-ventas-ops/sales');
+      const kpiCall = api.get.mock.calls.find((c) => c[0] === '/ml-ventas-ops/sales/kpis');
+      expect(listCall[1].params.include_cancelled).toBe(false);
+      expect(kpiCall[1].params.include_cancelled).toBe(false);
+    });
+
+    await user.click(await screen.findByRole('button', { name: /limpiar filtros/i }));
+    expect(screen.getByRole('checkbox', { name: /canceladas/i })).toBeChecked();
+  });
+
   it('renders a null markup_weighted_pct from the live response as "—", not 0%', async () => {
     mockKpi({ markup_weighted_pct: null });
     await renderWithRouter(<VentasML />);

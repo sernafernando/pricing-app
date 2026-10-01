@@ -14,9 +14,10 @@ const VALUES = {
   includeInDispute: true,
   includeMixed: true,
   includeProvisional: true,
+  includeCancelled: true,
 };
 
-const EXCLUDED = { a_revisar: 3, en_disputa: 1, mixta: 0, provisorio: 5 };
+const EXCLUDED = { a_revisar: 3, en_disputa: 1, mixta: 0, provisorio: 5, canceladas: 7 };
 
 describe('IncludeToggles', () => {
   it('renders the four toggles, all checked by default', () => {
@@ -25,6 +26,27 @@ describe('IncludeToggles', () => {
     expect(screen.getByRole('checkbox', { name: /en disputa/i })).toBeChecked();
     expect(screen.getByRole('checkbox', { name: /mixta/i })).toBeChecked();
     expect(screen.getByRole('checkbox', { name: /provisorio/i })).toBeChecked();
+  });
+
+  it('has a Canceladas switch, ON by default, that reports its own key', async () => {
+    const user = userEvent.setup();
+    const onChange = vi.fn();
+    render(<IncludeToggles values={VALUES} excludedByToggle={EXCLUDED} onChange={onChange} />);
+    const toggle = screen.getByRole('checkbox', { name: /canceladas/i });
+    expect(toggle).toBeChecked();
+    await user.click(toggle);
+    expect(onChange).toHaveBeenCalledWith('includeCancelled', false);
+  });
+
+  it('shows how many cancelled groups Canceladas hides while it is OFF', () => {
+    render(
+      <IncludeToggles
+        values={{ ...VALUES, includeCancelled: false }}
+        excludedByToggle={EXCLUDED}
+        onChange={vi.fn()}
+      />,
+    );
+    expect(screen.getByText('+7')).toBeInTheDocument();
   });
 
   it('calls onChange with the toggled key and the new value', async () => {

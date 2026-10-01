@@ -12,6 +12,7 @@ const BASE_FILTERS = {
   includeInDispute: true,
   includeMixed: true,
   includeProvisional: true,
+  includeCancelled: true,
 };
 
 describe('buildVentasMLFilterParams', () => {
@@ -56,7 +57,19 @@ describe('buildVentasMLFilterParams', () => {
       include_in_dispute: true,
       include_mixed: true,
       include_provisional: true,
+      include_cancelled: true,
     });
+  });
+
+  it('sends include_cancelled=false when Canceladas is switched off', () => {
+    const params = buildVentasMLFilterParams({ ...BASE_FILTERS, includeCancelled: false });
+    expect(params.include_cancelled).toBe(false);
+    expect(params.include_unknown).toBe(true);
+  });
+
+  it('a caller that does not know the switch keeps cancelled sales (default ON)', () => {
+    const { includeCancelled, ...withoutIt } = BASE_FILTERS; // eslint-disable-line no-unused-vars
+    expect(buildVentasMLFilterParams(withoutIt).include_cancelled).toBe(true);
   });
 
   it('reflects a toggle turned off', () => {

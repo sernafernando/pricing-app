@@ -58,6 +58,7 @@ Ruta: delegated direct (writer único, 2+ archivos no triviales por tarea).
 - [ ] T5 — Filtro "Solo con alertas" con conteo (BE+FE).
 - [ ] T6 — Exportar CSV del conjunto filtrado (BE+FE).
 - [ ] T7 — Resincronizar venta + permiso + "sincronizado hace X" (BE+FE).
+- [x] T8 — Toggle "Canceladas" en Incluir (BE+FE; pedido del usuario 2026-09-30).
 
 ## Entrega
 
@@ -66,6 +67,7 @@ Pronóstico > 400 líneas: una PR por grupo, en orden.
 - PR-2: T4.
 - PR-3: T5–T6.
 - PR-4: T7.
+- T8 (BE+FE) viaja con PR-3 (T5–T6): comparte `filters.py`/`ventasMlParams.js`.
 
 ## Checks
 
@@ -113,3 +115,26 @@ Creado 2026-09-30. Línea base vitest: 133 archivos, 1794 passed + 2 expected fa
   etiqueta del toggle: se acotó la consulta a la tabla).
 - GREEN: vitest completo 137 archivos, 1827 passed + 2 expected fail (base
   133 / 1794). eslint 0 errores / 8 warnings. build OK.
+
+### T8 (se hizo después de T3; backend + frontend)
+- Pedido: "en 'incluir' falta un toggle para sacar las canceladas" — "Pagada"
+  en el filtro de operación no equivale a "todas menos canceladas" (deja
+  afuera entregadas, en disputa...).
+- Decisión: `include_cancelled` (default ON en ambos endpoints, no cambia los
+  números actuales) oculta los GRUPOS cuyo estado de operación colapsado es
+  `cancelled`. NO oculta `cancelled_ml_covered` (la plata llegó; el spec dice
+  que nunca se muestre como cancelada común) ni un pack mixto (una cancelada
+  + una paga = `mixed`, lo gobierna el toggle Mixta). Elegir explícitamente
+  operación=Cancelada pisa el toggle (K2, igual que A revisar/En disputa).
+  Va por `SalesFilter`/`build_scope`/`_apply_switches`: tabla, facets y KPI
+  coinciden; `excluded_by_toggle.canceladas` y `effective_switches` lo
+  reflejan. Estado en memoria como los otros toggles (los demás no se
+  persisten ni van a la URL hoy; se mantuvo la misma convención).
+- RED: `TestIncludeCancelled` (8 fallan: `unexpected keyword argument
+  'include_cancelled'`); frontend 6 fallan (param, toggle, página). Los tests
+  de integración de router se escribieron con la implementación ya hecha (RED
+  observado a nivel de scope, no de endpoint).
+- GREEN: pytest `test_filters_switches.py`+kpis+sales router+ml_sales_query:
+  230 passed. Dos tests existentes que comparan `effective_switches` exacto se
+  actualizaron con `include_cancelled`. ruff format/check OK. vitest 137
+  archivos, 1832 passed + 2 expected fail; eslint 0 errores / 8 warnings.

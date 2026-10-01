@@ -65,6 +65,11 @@ class SalesFilter:
     include_in_dispute: bool = False
     include_mixed: bool = True
     include_provisional: bool = True
+    # ODD `ventas-ml-ui-pendiente` T8: "Canceladas" switch. ON (default)
+    # keeps today's numbers; OFF hides the groups whose COLLAPSED operation
+    # status is plain `cancelled`. `cancelled_ml_covered` is NOT hidden: the
+    # money arrived (Buyer Protection), it is a sale commercially.
+    include_cancelled: bool = True
 
 
 @dataclass
@@ -316,8 +321,8 @@ def _group_switch_subquery(db: Session, op_status_expr: Any):
     return q.group_by(group_key).subquery()
 
 
-def _switch_flags(switches: Any) -> "tuple[Any, Any, Any, Any]":
-    """The four doubtful-case boolean expressions over one row of
+def _switch_flags(switches: Any) -> "tuple[Any, Any, Any, Any, Any]":
+    """The five toggle boolean expressions over one row of
     `_group_switch_subquery`'s result (design D12, spec KPI R9).
 
     K4 fix: `is_unknown` is derived from an EXPLICIT "this axis collapsed
@@ -342,7 +347,10 @@ def _switch_flags(switches: Any) -> "tuple[Any, Any, Any, Any]":
     is_mixed = (switches.c.op_distinct > 1) | (switches.c.goods_distinct > 1)
     is_in_dispute = switches.c.any_in_dispute == 1
     is_provisional = switches.c.any_provisional == 1
-    return is_unknown, is_mixed, is_in_dispute, is_provisional
+    # Collapsed like `collapse()`: every member agrees AND it is `cancelled`.
+    # A pack mixing a cancelled and a paid order is `mixed`, not cancelled.
+    is_cancelled = (switches.c.op_distinct == 1) & (switches.c.op_single == "cancelled")
+    return is_unknown, is_mixed, is_in_dispute, is_provisional, is_cancelled
 
 
 def effective_switches(f: SalesFilter) -> SalesFilter:
@@ -364,7 +372,13 @@ def effective_switches(f: SalesFilter) -> SalesFilter:
     """
     include_unknown = f.include_unknown or f.operation_status == "unknown" or f.goods_status == "unknown"
     include_in_dispute = f.include_in_dispute or f.operation_status == "in_dispute"
-    return replace(f, include_unknown=include_unknown, include_in_dispute=include_in_dispute)
+    include_cancelled = f.include_cancelled or f.operation_status == "cancelled"
+    return replace(
+        f,
+        include_unknown=include_unknown,
+        include_in_dispute=include_in_dispute,
+        include_cancelled=include_cancelled,
+    )
 
 
 def _apply_switches(query: Query, db: Session, f: SalesFilter, op_status_expr: Any) -> Query:
@@ -377,12 +391,12 @@ def _apply_switches(query: Query, db: Session, f: SalesFilter, op_status_expr: A
     applied by the caller, K2) -- this function does not re-apply the
     facet-override rule itself.
     """
-    if f.include_unknown and f.include_in_dispute and f.include_mixed and f.include_provisional:
+    if f.include_unknown and f.include_in_dispute and f.include_mixed and f.include_provisional and f.include_cancelled:
         return query
 
     switches = _group_switch_subquery(db, op_status_expr)
     group_key = _group_key_expr()
-    is_unknown, is_mixed, is_in_dispute, is_provisional = _switch_flags(switches)
+    is_unknown, is_mixed, is_in_dispute, is_provisional, is_cancelled = _switch_flags(switches)
 
     query = query.join(switches, switches.c.group_key == group_key)
     if not f.include_unknown:
@@ -393,6 +407,8 @@ def _apply_switches(query: Query, db: Session, f: SalesFilter, op_status_expr: A
         query = query.filter(~is_in_dispute)
     if not f.include_provisional:
         query = query.filter(~is_provisional)
+    if not f.include_cancelled:
+        query = query.filter(~is_cancelled)
     return query
 
 
@@ -523,9 +539,11 @@ def excluded_by_toggle_counts(db: Session, f: SalesFilter) -> Dict[str, int]:
     effective_f = effective_switches(f)
     switches = _group_switch_subquery(db, scope.op_status_expr)
     group_key = scope.group_key
-    is_unknown, is_mixed, is_in_dispute, is_provisional = _switch_flags(switches)
+    is_unknown, is_mixed, is_in_dispute, is_provisional, is_cancelled = _switch_flags(switches)
 
-    def _pass_condition(unknown_on: bool, mixed_on: bool, dispute_on: bool, provisional_on: bool) -> Any:
+    def _pass_condition(
+        unknown_on: bool, mixed_on: bool, dispute_on: bool, provisional_on: bool, cancelled_on: bool
+    ) -> Any:
         conditions = []
         if not unknown_on:
             conditions.append(~is_unknown)
@@ -535,6 +553,8 @@ def excluded_by_toggle_counts(db: Session, f: SalesFilter) -> Dict[str, int]:
             conditions.append(~is_in_dispute)
         if not provisional_on:
             conditions.append(~is_provisional)
+        if not cancelled_on:
+            conditions.append(~is_cancelled)
         return and_(*conditions) if conditions else true()
 
     base_state = (
@@ -542,9 +562,10 @@ def excluded_by_toggle_counts(db: Session, f: SalesFilter) -> Dict[str, int]:
         effective_f.include_mixed,
         effective_f.include_in_dispute,
         effective_f.include_provisional,
+        effective_f.include_cancelled,
     )
 
-    def _count_label(state: "tuple[bool, bool, bool, bool]", label: str) -> Any:
+    def _count_label(state: "tuple[bool, bool, bool, bool, bool]", label: str) -> Any:
         condition = _pass_condition(*state)
         return func.count(func.distinct(case((condition, group_key)))).label(label)
 
@@ -552,10 +573,11 @@ def excluded_by_toggle_counts(db: Session, f: SalesFilter) -> Dict[str, int]:
         scope.pre_switch_listing_query.join(switches, switches.c.group_key == group_key)
         .with_entities(
             _count_label(base_state, "current"),
-            _count_label((True, base_state[1], base_state[2], base_state[3]), "unknown_on"),
-            _count_label((base_state[0], True, base_state[2], base_state[3]), "mixed_on"),
-            _count_label((base_state[0], base_state[1], True, base_state[3]), "dispute_on"),
-            _count_label((base_state[0], base_state[1], base_state[2], True), "provisional_on"),
+            _count_label((True, *base_state[1:]), "unknown_on"),
+            _count_label((base_state[0], True, *base_state[2:]), "mixed_on"),
+            _count_label((*base_state[:2], True, *base_state[3:]), "dispute_on"),
+            _count_label((*base_state[:3], True, base_state[4]), "provisional_on"),
+            _count_label((*base_state[:4], True), "cancelled_on"),
         )
         .one()
     )
@@ -570,4 +592,5 @@ def excluded_by_toggle_counts(db: Session, f: SalesFilter) -> Dict[str, int]:
         "en_disputa": _excluded(effective_f.include_in_dispute, row.dispute_on),
         "mixta": _excluded(effective_f.include_mixed, row.mixed_on),
         "provisorio": _excluded(effective_f.include_provisional, row.provisional_on),
+        "canceladas": _excluded(effective_f.include_cancelled, row.cancelled_on),
     }

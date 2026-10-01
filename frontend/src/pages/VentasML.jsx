@@ -136,6 +136,7 @@ export default function VentasML() {
   const [includeInDispute, setIncludeInDispute] = useState(true);
   const [includeMixed, setIncludeMixed] = useState(true);
   const [includeProvisional, setIncludeProvisional] = useState(true);
+  const [includeCancelled, setIncludeCancelled] = useState(true);
 
   const [kpi, setKpi] = useState(null);
   const [kpiLoading, setKpiLoading] = useState(true);
@@ -324,6 +325,7 @@ export default function VentasML() {
     setIncludeInDispute(true);
     setIncludeMixed(true);
     setIncludeProvisional(true);
+    setIncludeCancelled(true);
     setOffset(0);
   }, [setSearchQuery, clearProductFilters]);
 
@@ -335,6 +337,7 @@ export default function VentasML() {
     else if (key === 'includeInDispute') setIncludeInDispute(value);
     else if (key === 'includeMixed') setIncludeMixed(value);
     else if (key === 'includeProvisional') setIncludeProvisional(value);
+    else if (key === 'includeCancelled') setIncludeCancelled(value);
     setOffset(0);
   }, []);
 
@@ -350,7 +353,8 @@ export default function VentasML() {
       !includeUnknown ||
       !includeInDispute ||
       !includeMixed ||
-      !includeProvisional
+      !includeProvisional ||
+      !includeCancelled
   );
 
   // "Todas" is neither `total` (scoped by BOTH axes, so it under-counts
@@ -385,6 +389,7 @@ export default function VentasML() {
           includeInDispute,
           includeMixed,
           includeProvisional,
+          includeCancelled,
         }),
       };
       const { data } = await api.get('/ml-ventas-ops/sales', { params });
@@ -422,6 +427,7 @@ export default function VentasML() {
     includeInDispute,
     includeMixed,
     includeProvisional,
+    includeCancelled,
     offset,
     pageSize,
   ]);
@@ -449,6 +455,7 @@ export default function VentasML() {
         includeInDispute,
         includeMixed,
         includeProvisional,
+        includeCancelled,
       });
       const { data } = await api.get('/ml-ventas-ops/sales/kpis', { params });
       if (requestId !== latestKpiRequestRef.current) return;
@@ -478,6 +485,7 @@ export default function VentasML() {
     includeInDispute,
     includeMixed,
     includeProvisional,
+    includeCancelled,
   ]);
 
   useEffect(() => {
@@ -641,7 +649,13 @@ export default function VentasML() {
         <div className={styles.filterRow}>
           <span className={styles.fieldLabel}>Incluir</span>
           <IncludeToggles
-            values={{ includeUnknown, includeInDispute, includeMixed, includeProvisional }}
+            values={{
+              includeUnknown,
+              includeInDispute,
+              includeMixed,
+              includeProvisional,
+              includeCancelled,
+            }}
             excludedByToggle={kpi?.excluded_by_toggle}
             onChange={handleToggleChange}
           />

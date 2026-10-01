@@ -22,6 +22,9 @@ export function buildVentasMLFilterParams({
   includeInDispute,
   includeMixed,
   includeProvisional,
+  // ON (cancelled sales included) unless a caller says otherwise, so a
+  // caller that predates the switch never hides cancelled sales by accident.
+  includeCancelled = true,
 }) {
   const params = {};
   if (operationStatusFilter) params.operation_status = operationStatusFilter;
@@ -32,7 +35,7 @@ export function buildVentasMLFilterParams({
   if (productFilters?.marcas?.length > 0) params.marcas = productFilters.marcas.join(',');
   if (productFilters?.subcategorias?.length > 0) params.subcategorias = productFilters.subcategorias.join(',');
   if (productFilters?.pms?.length > 0) params.pms = productFilters.pms.join(',');
-  // The four toggles are ALWAYS sent explicitly (never omitted), even when
+  // The five toggles are ALWAYS sent explicitly (never omitted), even when
   // `true` — the backend's own per-endpoint defaults disagree with each
   // other (KPI R11 vs the list's legacy `True` default), which is exactly
   // the parity bug this feature fixes. Sending the frontend's own state
@@ -42,5 +45,6 @@ export function buildVentasMLFilterParams({
   params.include_in_dispute = Boolean(includeInDispute);
   params.include_mixed = Boolean(includeMixed);
   params.include_provisional = Boolean(includeProvisional);
+  params.include_cancelled = Boolean(includeCancelled);
   return params;
 }
