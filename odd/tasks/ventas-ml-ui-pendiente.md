@@ -54,7 +54,7 @@ Ruta: delegated direct (writer único, 2+ archivos no triviales por tarea).
 - [x] T1 — Anchos ajustables + restablecer (frontend).
 - [x] T2 — Paginador numerado + filas por página (frontend).
 - [x] T3 — Cupón en Importe + toggle "A revisar" (frontend).
-- [ ] T4 — Panel: Comprador / Pago / Envío + Ver en ML + copiar ID (BE+FE).
+- [x] T4 — Panel: Comprador / Pago / Envío + Ver en ML + copiar ID (BE+FE).
 - [ ] T5 — Filtro "Solo con alertas" con conteo (BE+FE).
 - [ ] T6 — Exportar CSV del conjunto filtrado (BE+FE).
 - [ ] T7 — Resincronizar venta + permiso + "sincronizado hace X" (BE+FE).
@@ -138,3 +138,25 @@ Creado 2026-09-30. Línea base vitest: 133 archivos, 1794 passed + 2 expected fa
   230 passed. Dos tests existentes que comparan `effective_switches` exacto se
   actualizaron con `include_cancelled`. ruff format/check OK. vitest 137
   archivos, 1832 passed + 2 expected fail; eslint 0 errores / 8 warnings.
+
+### T4
+- RED: backend `TestOrderDetailPanelFields` (3 fallan: `KeyError:
+  'payment_date_approved'` / `'estimated_delivery'`); frontend
+  `ventasMlFormat.test.js` (8, helpers inexistentes) y
+  `SaleDetailPanel.context.test.jsx` (6 fallan: sin secciones/enlace/copiar).
+- Backend (`GET /orders/{id}`, solo campos aditivos, sin llamadas nuevas a ML):
+  `order.payment_date_approved` (MAX date_approved de pagos relevantes, igual
+  que la regla del día), `order.coupon_amount` (suma de pagos relevantes),
+  `shipment.modo_logistico`, `city`, `province`, `estimated_delivery`.
+- Decisiones: "Ver en ML" = `https://www.mercadolibre.com.ar/ventas/{pack_id
+  ?? order_id}/detalle` (armado con datos que ya tenemos; el link se oculta
+  si no hay id). Fecha estimada: se lee de
+  `raw_shipment.shipping_option.estimated_delivery_final.date` (forma
+  documentada de ML; NO hay fixture capturado de un envío en el repo, así que
+  el test usa esa forma modelada y el dato es null si la clave no está —
+  verificar contra un envío real en producción). Tracking: se muestra y se
+  copia. CUIT/marca de tarjeta/factura quedan fuera (alcance). Las secciones
+  usan `<dl>`, no `<li>`, para no romper tests existentes de la lista de
+  líneas.
+- GREEN: pytest router/pr10/pack_scope 71 passed; vitest 139 archivos, 1847
+  passed + 2 expected fail; eslint 0 errores / 8 warnings; build OK; ruff OK.

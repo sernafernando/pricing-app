@@ -45,8 +45,11 @@
  */
 
 import { useEffect, useCallback, useState, useRef } from 'react';
-import { X, TriangleAlert } from 'lucide-react';
+import { X, TriangleAlert, ExternalLink } from 'lucide-react';
 import api from '../../services/api';
+import CopyButton from './CopyButton';
+import SaleContextSections from './SaleContextSections';
+import { mlSaleUrl } from '../../utils/ventasMlFormat';
 import styles from './SaleDetailPanel.module.css';
 
 const INCOMPLETE_REASON_LABELS = {
@@ -146,6 +149,10 @@ export default function SaleDetailPanel({ orderId, onClose }) {
   // views of the sale, not one replacing the other.
   const [ivaDecomposicion, setIvaDecomposicion] = useState(null);
   const [cadenaTotalGauss, setCadenaTotalGauss] = useState(null);
+  // ODD ventas-ml-ui-pendiente T4: who bought, how it was paid, how it ships
+  // -- from the same response, rendered by `SaleContextSections`.
+  const [orderInfo, setOrderInfo] = useState(null);
+  const [shipmentInfo, setShipmentInfo] = useState(null);
   const [loading, setLoading] = useState(false);
   const [errorKind, setErrorKind] = useState(null); // 'generic' | null
 
@@ -166,12 +173,16 @@ export default function SaleDetailPanel({ orderId, onClose }) {
       setBreakdown(data.breakdown || null);
       setIvaDecomposicion(data.iva_decomposicion || null);
       setCadenaTotalGauss(data.cadena_total_gauss || null);
+      setOrderInfo(data.order || null);
+      setShipmentInfo(data.shipment || null);
     } catch {
       if (requestId !== latestRequestRef.current) return;
       setErrorKind('generic');
       setBreakdown(null);
       setIvaDecomposicion(null);
       setCadenaTotalGauss(null);
+      setOrderInfo(null);
+      setShipmentInfo(null);
     } finally {
       if (requestId === latestRequestRef.current) setLoading(false);
     }
@@ -210,11 +221,25 @@ export default function SaleDetailPanel({ orderId, onClose }) {
   const lineasGauss = cadenaTotalGauss?.lineas || [];
   const itemLines = breakdown?.item_lines || [];
   const costoItems = cadenaTotalGauss?.costo_mercaderia_items || [];
+  const mlUrl = mlSaleUrl({ orderId, packId: orderInfo?.pack_id });
 
   return (
     <>
       <div className={styles.header}>
-        <h2 className={styles.title}>Desglose de costos</h2>
+        <div className={styles.titleBlock}>
+          <h2 className={styles.title}>Desglose de costos</h2>
+          {orderId !== null && orderId !== undefined && (
+            <div className={styles.identityRow}>
+              <span className={styles.mono}>Orden {orderId}</span>
+              <CopyButton value={orderId} label="Copiar ID de la orden" />
+              {mlUrl && orderInfo && (
+                <a className={styles.mlLink} href={mlUrl} target="_blank" rel="noopener noreferrer">
+                  Ver en ML <ExternalLink size={12} aria-hidden="true" />
+                </a>
+              )}
+            </div>
+          )}
+        </div>
         <button
           type="button"
           className={styles.closeButton}
@@ -242,6 +267,8 @@ export default function SaleDetailPanel({ orderId, onClose }) {
 
         {!loading && !errorKind && breakdown && (
           <>
+            <SaleContextSections order={orderInfo} shipment={shipmentInfo} />
+
             {/* The starting figure every line below is taken off. `null`
                 (never `0`, see `formatAmount`) when some member order's
                 `paid_amount` has not synced -- reads as "unknown", not

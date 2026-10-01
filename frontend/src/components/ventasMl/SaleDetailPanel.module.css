@@ -280,3 +280,127 @@
   font-size: var(--font-xs, var(--font-sm));
   color: var(--warning-text, var(--text-tertiary));
 }
+
+/* ── Header identity row + Comprador / Pago / Envío (T4) ───────────── */
+
+.titleBlock {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1, 4px);
+  min-width: 0;
+}
+
+.identityRow {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  font-size: var(--font-sm);
+  color: var(--text-secondary);
+}
+
+.mono {
+  font-family: var(--font-mono);
+  overflow-wrap: anywhere;
+}
+
+.mlLink {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  color: var(--cf-accent-blue);
+  text-decoration: none;
+}
+
+.mlLink:hover {
+  text-decoration: underline;
+}
+
+.copyButton {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 2px;
+  margin-left: var(--space-1, 4px);
+  color: var(--text-tertiary);
+  background: none;
+  border: none;
+  border-radius: var(--radius-sm, 4px);
+  cursor: pointer;
+}
+
+.copyButton:hover {
+  color: var(--text-primary);
+  background: var(--bg-hover);
+}
+
+.copiedNote {
+  font-size: var(--font-xs);
+  color: var(--text-tertiary);
+}
+
+.contextGrid {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: var(--spacing-sm, 8px);
+  margin-bottom: var(--spacing-md);
+}
+
+.contextCard {
+  padding: var(--space-3);
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-primary);
+  border-radius: var(--radius-md);
+}
+
+.contextTitle {
+  margin: 0 0 var(--space-2);
+  font-size: 11px;
+  font-weight: var(--font-semibold);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--text-tertiary);
+}
+
+.buyerNick {
+  margin: 0;
+  font-family: var(--font-mono);
+  font-size: var(--font-sm);
+  color: var(--text-primary);
+  overflow-wrap: anywhere;
+}
+
+.contextText {
+  margin: 0;
+  font-size: var(--font-sm);
+  color: var(--text-primary);
+}
+
+.contextMuted {
+  margin: 0;
+  font-size: var(--font-xs);
+  color: var(--text-tertiary);
+}
+
+.contextList {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1, 4px);
+  margin: 0;
+}
+
+.contextRow {
+  display: flex;
+  justify-content: space-between;
+  gap: var(--space-3);
+  font-size: var(--font-sm);
+}
+
+.contextRow dt {
+  color: var(--text-tertiary);
+}
+
+.contextRow dd {
+  margin: 0;
+  text-align: right;
+  color: var(--text-primary);
+}
