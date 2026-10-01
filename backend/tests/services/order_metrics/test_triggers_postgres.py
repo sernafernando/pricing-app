@@ -915,3 +915,29 @@ class TestNotifyOnlyOnCommit:
             assert len(raw.notifies) == 1
         finally:
             _clear_orders(session, *order_ids)
+
+
+@pytest.mark.postgres
+class TestEnqueueOrderMetricsHelper:
+    """`queue.enqueue_order_metrics` (ODD ventas-ml-ui-pendiente T7, the
+    explicit enqueue a resync uses) delegates to the very same PL/pgSQL
+    function on PostgreSQL -- same semantics as an input write."""
+
+    def test_enqueues_and_requeues_through_the_plpgsql_function(self, clean_slate) -> None:
+        from app.services.order_metrics.queue import enqueue_order_metrics
+
+        session = clean_slate
+        enqueue_order_metrics(session, [123470], "resync")
+        session.commit()
+        first = _dirty_row(session, 123470)
+        assert (first.version, first.attempts) == (1, 0)
+
+        session.execute(
+            text("UPDATE ml_order_metrics_dirty SET attempts = 5, last_error = 'boom' WHERE order_id = 123470")
+        )
+        session.commit()
+        enqueue_order_metrics(session, [123470], "resync")
+        session.commit()
+
+        again = _dirty_row(session, 123470)
+        assert (again.version, again.attempts, again.last_error) == (2, 0, None)

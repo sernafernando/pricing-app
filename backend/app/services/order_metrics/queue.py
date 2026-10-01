@@ -286,3 +286,38 @@ def poisoned_count(db) -> int:
         {"threshold": POISON_THRESHOLD},
     ).fetchone()
     return int(row[0]) if row else 0
+
+
+def enqueue_order_metrics(db, order_ids: Sequence[int], reason: str) -> None:
+    """Explicit enqueue on the CALLER's session (the caller commits) -- the
+    one write in this module that is not its own transaction, because a
+    resync must enqueue atomically with the writes it just made.
+
+    Same semantics as the PL/pgSQL `order_metrics_enqueue` the capture
+    triggers use ("input write": an already-dirty row gets its version
+    bumped, its attempts reset and its failure cleared, so even a parked
+    order is retried). On PostgreSQL it calls that function, which also
+    notifies the worker; elsewhere (the SQLite test DB) it applies the same
+    upsert through the ORM, since PL/pgSQL is not available there."""
+    ids = sorted({int(order_id) for order_id in order_ids})
+    if not ids:
+        return
+    if db.get_bind().dialect.name == "postgresql":
+        db.execute(
+            text("SELECT order_metrics_enqueue(CAST(:ids AS bigint[]), :reason)"), {"ids": ids, "reason": reason}
+        )
+        return
+
+    from app.models.ml_order_metrics import MlOrderMetricsDirty
+
+    for order_id in ids:
+        row = db.get(MlOrderMetricsDirty, order_id)
+        if row is None:
+            db.add(MlOrderMetricsDirty(order_id=order_id, version=1, reason=reason, attempts=0, suspect=False))
+        else:
+            row.version = row.version + 1
+            row.reason = reason
+            row.attempts = 0
+            row.last_error = None
+            row.suspect = False
+    db.flush()

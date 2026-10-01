@@ -57,7 +57,7 @@ Ruta: delegated direct (writer único, 2+ archivos no triviales por tarea).
 - [x] T4 — Panel: Comprador / Pago / Envío + Ver en ML + copiar ID (BE+FE).
 - [x] T5 — Filtro "Solo con alertas" con conteo (BE+FE).
 - [x] T6 — Exportar CSV del conjunto filtrado (BE+FE).
-- [ ] T7 — Resincronizar venta + permiso + "sincronizado hace X" (BE+FE).
+- [x] T7 — Resincronizar venta + permiso + "sincronizado hace X" (BE+FE).
 - [x] T8 — Toggle "Canceladas" en Incluir (BE+FE; pedido del usuario 2026-09-30).
 
 ## Entrega
@@ -78,7 +78,8 @@ Pronóstico > 400 líneas: una PR por grupo, en orden.
 
 ## Estado
 
-Creado 2026-09-30. Línea base vitest: 133 archivos, 1794 passed + 2 expected fail.
+Todas las tareas (T1–T8) hechas en la rama; sin push ni PR. Resultado final
+abajo en "Cierre". Creado 2026-09-30. Línea base vitest: 133 archivos, 1794 passed + 2 expected fail.
 
 ## Evidencia
 
@@ -196,7 +197,7 @@ Creado 2026-09-30. Línea base vitest: 133 archivos, 1794 passed + 2 expected fa
   mercadería, modo logístico, ciudad, provincia, moneda, importe, cupón ML,
   neto, total gauss, markup %, provisorio, estado de métricas, alerta. Fijo y
   no "columnas visibles" porque varias celdas visibles son compuestas
-  (producto+categoría, importe+cupón). CSV con coma, punto decimal, BOM UTF-8;
+  (producto+categoría, importe+cupón). CSV con ;, punto decimal, BOM UTF-8;
   texto libre de ML con `= + - @` se neutraliza (inyección de fórmulas).
   Limitación: Excel con configuración regional es-AR espera `;` — en Sheets o
   importando con coma abre bien.
@@ -207,6 +208,63 @@ Creado 2026-09-30. Línea base vitest: 133 archivos, 1794 passed + 2 expected fa
   `ventasMlExport.test.js` (módulo inexistente) y el test de página (sin botón).
 - GREEN: pytest export 7 passed; ruff OK; vitest 141 archivos, 1858 passed + 2
   expected fail; eslint 0 errores; build OK.
+
+### T7
+- Backend:
+  - `POST /ml-ventas-ops/orders/{id}/resync` con permiso NUEVO
+    `ml_ops.resincronizar` (migración `20260930_ml_ops_resincronizar`, ADMIN
+    solamente, mismo molde que `ml_ops.varios_editar`; un solo head). Gasta
+    pedidos a ML y reescribe campos de plata, por eso no cuelga de `ml_ops.ver`.
+  - `resync_service.resync_order`: no usa `process_batch` (sus compuertas del
+    sweep saltean una orden cuyo `ml_last_updated` no se movió); compone los
+    mismos bloques (`_fetch_shipments`, `_fetch_payments`, `upsert_order`,
+    `sync_payments_for_order`, `upsert_shipment`). TODO el HTTP va antes de la
+    primera escritura: si falla traer la orden, un pago, el envío, o un pago no
+    se puede mapear, no se escribe nada y el error nombra qué falló (R24,
+    escenario 3). Luego encola las métricas EXPLÍCITAMENTE en la misma
+    transacción (`enqueue_order_metrics`, R23: aunque los datos sean idénticos,
+    los triggers ignoran el no-op); el worker recalcula la orden y su grupo.
+  - Repetición (escenario 4): una resync por orden a la vez + cooldown de 10 s
+    tras una exitosa (409); una fallida no arranca cooldown. En proceso a
+    propósito: las escrituras son upserts idempotentes protegidos por
+    `ml_last_updated`, el guard evita gastar pedidos a ML por un doble click.
+  - `GET /ml-ventas-ops/sales/sync-status`: MAX(`last_success_at`) de los
+    cursores `sweep` y `ml_activity` (un pase cortado por presupuesto no sella
+    `last_success_at`, así que no promete frescura que no alcanzó; el
+    `backfill` no cuenta). Sin cron ni polling nuevo.
+  - Hallazgo: `get_payment` (proxy ml-webhook) devuelve `payment_id`, no `id`
+    — un fixture mío lo tenía mal y el test lo delató.
+- Frontend: footer del panel con "Sincronizado hace X" (`timeAgo`, calculado al
+  render, sin timers) y botón "Resincronizar" (solo con permiso; deshabilitado
+  mientras corre; error del backend visible y sin recargar datos; éxito recarga
+  el detalle y avisa a la página para refrescar lista/KPI/estado de sync). La
+  página muestra "sincronizado hace X" junto a "actualizado".
+- RED: `test_resync_service.py` (no cargaba: módulo inexistente),
+  `test_ml_ventas_ops_resync_router.py` + `test_migration_ml_ops_resincronizar.py`
+  (11 fallaron), frontend `timeAgo` (4), `SaleDetailPanel.resync.test.jsx`
+  (6 de 9) y 2 de página.
+- GREEN: resync 14 + router/migración 11 passed; postgres real: el helper
+  `enqueue_order_metrics` pasa por la función PL/pgSQL
+  (`TestEnqueueOrderMetricsHelper`, 1 passed, no skipped).
+
+## Cierre
+
+- vitest: base 133 archivos / 1794 passed (+2 expected fail) → final 142
+  archivos / 1873 passed (+2 expected fail). eslint src: 0 errores, 8 warnings
+  (los preexistentes). `pnpm build` OK.
+- Backend: ruff format --check y ruff check limpios; `alembic heads` = 1
+  (`20260930_ml_ops_resincronizar`). Suite completa SOLA
+  (`pytest tests/ -q -p no:randomly`): 7581 passed, 16 skipped, 0 failed, 12m40s.
+  La primera corrida completa cortó en un test de presupuesto de queries
+  (`test_five_rows_stay_within_a_fixed_query_budget`): el contador de alertas
+  (T5) suma UNA lectura de `ml_order_metrics` por request; el techo pasó de 2 a
+  3 con comentario (sigue siendo O(1), no por fila).
+- Pendiente / límites honestos: (1) `estimated_delivery` sale de la forma
+  documentada de ML (`raw_shipment.shipping_option.estimated_delivery_final`),
+  sin fixture capturado en el repo: verificar contra un envío real. (2) CSV con
+  coma: Excel es-AR espera `;`. (3) Guard de resync es por proceso. (4) El
+  permiso nuevo hay que asignarlo a quien no sea ADMIN por overrides. (5) No se
+  pushó ni se abrió PR (pedido explícito).
 
 ### Fix T6 (export CSV): producto, día de acreditación, formato Excel es-AR
 - Defectos pedidos por el coordinador: (1) faltaba el producto; (2) la fecha

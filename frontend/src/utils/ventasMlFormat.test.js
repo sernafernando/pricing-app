@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { mlSaleUrl, paymentMethodLabel, formatDay } from './ventasMlFormat';
+import { mlSaleUrl, paymentMethodLabel, formatDay, timeAgo } from './ventasMlFormat';
 
 describe('mlSaleUrl', () => {
   it('points at the seller sale detail by order id', () => {
@@ -43,5 +43,29 @@ describe('formatDay', () => {
   it('is an em dash for an absent or invalid value', () => {
     expect(formatDay(null)).toBe('—');
     expect(formatDay('not a date')).toBe('—');
+  });
+});
+
+describe('timeAgo', () => {
+  const now = new Date('2026-09-30T12:00:00Z');
+  const ago = (ms) => new Date(now.getTime() - ms).toISOString();
+
+  it('says just now under a minute', () => {
+    expect(timeAgo(ago(20_000), now)).toBe('hace instantes');
+  });
+
+  it('counts minutes, hours and days', () => {
+    expect(timeAgo(ago(3 * 60_000), now)).toBe('hace 3 min');
+    expect(timeAgo(ago(2 * 3_600_000), now)).toBe('hace 2 h');
+    expect(timeAgo(ago(3 * 86_400_000), now)).toBe('hace 3 d');
+  });
+
+  it('never shows a negative age for a clock a bit ahead of ours', () => {
+    expect(timeAgo(ago(-5_000), now)).toBe('hace instantes');
+  });
+
+  it('is null when there is no timestamp, so nothing is claimed', () => {
+    expect(timeAgo(null, now)).toBeNull();
+    expect(timeAgo('garbage', now)).toBeNull();
   });
 });

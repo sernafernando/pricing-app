@@ -1943,6 +1943,50 @@ describe('the KPI strip stays in parity with the list', () => {
     expect(await screen.findByText(/Acotá los filtros/)).toBeInTheDocument();
   });
 
+  it('the panel offers Resincronizar only to who holds ml_ops.resincronizar', async () => {
+    mockSalesList([asGroup(PAID_SALE)]);
+    mockTienePermiso.mockImplementation((codigo) => codigo !== 'ml_ops.resincronizar');
+    const first = await renderWithRouter(<VentasML />, {
+      initialEntries: [`/ventas-ml?orden=${PAID_SALE.order_id}`],
+    });
+    await screen.findByText('Desglose de costos');
+    expect(screen.queryByRole('button', { name: /resincronizar/i })).not.toBeInTheDocument();
+    first.unmount();
+
+    mockTienePermiso.mockImplementation(() => true);
+    await renderWithRouter(<VentasML />, {
+      initialEntries: [`/ventas-ml?orden=${PAID_SALE.order_id}`],
+    });
+    expect(await screen.findByRole('button', { name: /resincronizar/i })).toBeInTheDocument();
+  });
+
+  it('shows when the sales list was last synced from ML, and nothing when it never was', async () => {
+    mockKpi();
+    const baseImpl = api.get.getMockImplementation();
+    const when = new Date(Date.now() - 5 * 60_000).toISOString();
+    api.get.mockImplementation((url, config) =>
+      url === '/ml-ventas-ops/sales/sync-status'
+        ? Promise.resolve({ data: { last_synced_at: when } })
+        : baseImpl(url, config),
+    );
+    await renderWithRouter(<VentasML />);
+    expect(await screen.findByText('sincronizado hace 5 min')).toBeInTheDocument();
+  });
+
+  it('does not claim a sync time when the backend has none', async () => {
+    mockKpi();
+    const baseImpl = api.get.getMockImplementation();
+    api.get.mockImplementation((url, config) =>
+      url === '/ml-ventas-ops/sales/sync-status'
+        ? Promise.resolve({ data: { last_synced_at: null } })
+        : baseImpl(url, config),
+    );
+    await renderWithRouter(<VentasML />);
+    await screen.findByText('Ventas ML');
+    await waitFor(() => expect(api.get).toHaveBeenCalledWith('/ml-ventas-ops/sales/sync-status'));
+    expect(screen.queryByText(/sincronizado hace/i)).not.toBeInTheDocument();
+  });
+
   it('renders a null markup_weighted_pct from the live response as "—", not 0%', async () => {
     mockKpi({ markup_weighted_pct: null });
     await renderWithRouter(<VentasML />);
