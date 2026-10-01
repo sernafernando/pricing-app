@@ -108,7 +108,9 @@ def _store_order(db, status="paid"):
             shipping_id=SHIPMENT_ID,
         )
     )
-    db.flush()
+    # Committed, like the real stored order: the service releases its read
+    # transaction with a rollback, which must not discard what was stored.
+    db.commit()
 
 
 def _ml(monkeypatch, *, order=None, payment=None, shipment=None):
@@ -291,6 +293,55 @@ class TestNoConnectionHeldWhileWaitingOnMl:
         assert {name for name, _ in seen} >= {"order", "payment", "shipment"}
         assert [name for name, in_tx in seen if in_tx] == []
         assert enqueued == [([ORDER_ID], "resync")]
+
+
+class TestReleasingTheConnectionNeverCommitsOthersWrites:
+    """The existence check is a read: ending its transaction must not persist
+    unrelated pending writes the caller's session holds, nor commit when the
+    guard then refuses."""
+
+    def _pending_unrelated_write(self, db):
+        other = ORDER_ID + 1
+        db.add(
+            MlOrdersOps(
+                order_id=other,
+                status="paid",
+                ml_last_updated=STORED_AT,
+                date_created=STORED_AT,
+                seller_id=999,
+            )
+        )
+        return other
+
+    def _persisted(self, db, order_id):
+        return db.query(MlOrdersOps.order_id).filter(MlOrdersOps.order_id == order_id).first() is not None
+
+    def test_a_refused_resync_does_not_commit_pending_writes(self, db, monkeypatch, enqueued):
+        _store_order(db)
+        _ml(monkeypatch, order=_ml_order(), payment=_ml_payment(), shipment=_ml_shipment())
+        assert resync_service._try_begin(ORDER_ID)
+        other = self._pending_unrelated_write(db)
+
+        with pytest.raises(ResyncInProgress):
+            resync_order(db, ORDER_ID)
+
+        assert not self._persisted(db, other)
+
+    def test_a_resync_does_not_commit_pending_writes_while_waiting_on_ml(self, db, monkeypatch, enqueued):
+        _store_order(db)
+        other = self._pending_unrelated_write(db)
+        seen = []
+
+        async def _order(*args, **kwargs):
+            seen.append(self._persisted(db, other))
+            return None
+
+        monkeypatch.setattr(ml_webhook_client, "get_order", _order)
+
+        with pytest.raises(ResyncFailed):
+            resync_order(db, ORDER_ID)
+
+        assert seen == [False]
 
 
 class TestGuardPrunesExpiredEntries:

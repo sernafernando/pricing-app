@@ -133,8 +133,11 @@ def resync_order(db: Session, order_id: int, monotonic: Callable[[], float] = ti
     # End the read transaction NOW: `_resync` makes up to three rounds of HTTP
     # to Mercado Libre, and a session left in a transaction pins a pooled
     # connection for all of it (QueuePool incident, PR #811). The session
-    # re-acquires one lazily for the write transaction.
-    db.commit()
+    # re-acquires one lazily for the write transaction. ROLLBACK, not commit:
+    # the existence check only read, and a commit here would persist whatever
+    # unrelated writes the caller's session holds pending (even if the guard
+    # then refuses).
+    db.rollback()
     if not _try_begin(order_id, monotonic):
         raise ResyncInProgress(order_id)
     completed = False
