@@ -56,13 +56,6 @@ export function moneyTitle(value, currencyId, metricsState) {
   return formatMoneyFull(value, currencyId);
 }
 
-export function formatMoney(value, currencyId) {
-  if (value === null || value === undefined) return '—';
-  const amount = formatAmount(value);
-  if (!currencyId || currencyId === LISTING_IMPLIED_CURRENCY) return amount;
-  return `${amount} ${currencyId}`;
-}
-
 export function netoTooltip(netoDepositado, retencionesRecuperables) {
   if (!(retencionesRecuperables > 0)) return undefined;
   return `MP $ ${new Intl.NumberFormat('es-AR', {
@@ -89,16 +82,6 @@ export const OPERATION_STATUS_LABELS = {
   mixed: 'Mixta',
 };
 
-export const OPERATION_STATUS_BADGE_CLASS = {
-  paid: 'badge-primary',
-  cancelled: 'badge-danger',
-  cancelled_ml_covered: 'badge-success',
-  in_dispute: 'badge-warning',
-  delivered: 'badge-success',
-  unknown: 'badge-neutral',
-  mixed: 'badge-warning',
-};
-
 // `mixed` is deliberately NOT a filter chip: it is a property of a row,
 // not a value any order carries, so there is nothing to filter on.
 export const OPERATION_STATUS_OPTIONS = Object.keys(OPERATION_STATUS_LABELS).filter((v) => v !== 'mixed');
@@ -110,15 +93,6 @@ export const GOODS_STATUS_LABELS = {
   delivered: 'Entregado',
   returned_undelivered: 'Devuelto sin entregar',
   mixed: 'Mixta',
-};
-
-export const GOODS_STATUS_BADGE_CLASS = {
-  unknown: 'badge-neutral',
-  in_warehouse: 'badge-primary',
-  in_transit: 'badge-warning',
-  delivered: 'badge-success',
-  returned_undelivered: 'badge-danger',
-  mixed: 'badge-warning',
 };
 
 export const GOODS_STATUS_OPTIONS = Object.keys(GOODS_STATUS_LABELS).filter((v) => v !== 'mixed');
@@ -139,15 +113,6 @@ export const MODO_LOGISTICO_LABELS = {
   // The group's modo_logistico when its orders disagree — same "mixed"
   // discipline as the two status axes above.
   mixed: 'Mixto',
-};
-
-export const MODO_LOGISTICO_BADGE_CLASS = {
-  self_service: 'badge-primary',
-  fulfillment: 'badge-success',
-  cross_docking: 'badge-warning',
-  retiro: 'badge-neutral',
-  desconocido: 'badge-neutral',
-  mixed: 'badge-warning',
 };
 
 // Worst-first, same discipline as the existing status "mixed" precedent:
