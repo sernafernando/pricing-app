@@ -24,12 +24,15 @@ switched off right now" for a user who already cleared the permission gate.
 from __future__ import annotations
 
 import calendar
+import csv
+import io
 from datetime import date, datetime, time, timedelta, timezone
 from decimal import Decimal
 from zoneinfo import ZoneInfo
 from typing import Any, Dict, List, Optional, Tuple
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, status
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import func
 from sqlalchemy.orm import Query as SAQuery
@@ -67,6 +70,7 @@ from app.services.ml_ventas_desglose.breakdown_service import (
     compute_breakdown,
     compute_neto_desglose_by_order_ids,
 )
+from app.services.ml_sales_query.accreditation import member_accreditation_dates
 from app.services.ml_sales_query.aggregate import aggregate_order_metrics
 from app.services.ml_sales_query.filters import (
     SalesFilter,
@@ -74,6 +78,7 @@ from app.services.ml_sales_query.filters import (
     build_scope,
     collapse,
     effective_switches,
+    alert_groups_count,
     excluded_by_toggle_counts,
 )
 from app.services.ml_ventas_desglose.deducciones import resolve_costo_mercaderia_detalle
@@ -876,6 +881,10 @@ class SaleFacetCounts(BaseModel):
     # it would actually render, or it contradicts the table under it.
     operation_status_total: int = 0
     goods_status_total: int = 0
+    # ODD `ventas-ml-ui-pendiente` T5: groups with an alert inside the scope
+    # every OTHER filter leaves standing (never scoped by `only_alerts`
+    # itself, so the "Solo con alertas (N)" counter stays honest while ON).
+    alerts_total: int = 0
 
 
 class SaleListResponse(BaseModel):
@@ -1277,6 +1286,7 @@ def listar_ventas(
     include_mixed: bool = Query(default=True, description='Incluir "Mixta" (KPI R9)'),
     include_provisional: bool = Query(default=True, description='Incluir "Provisorio" (KPI R9)'),
     include_cancelled: bool = Query(default=True, description='Incluir "Canceladas" (ODD ventas-ml-ui-pendiente T8)'),
+    only_alerts: bool = Query(default=False, description="Solo con alertas (ODD ventas-ml-ui-pendiente T5)"),
     limit: int = Query(default=50, ge=1, le=200),
     offset: int = Query(default=0, ge=0),
     current_user: Usuario = Depends(require_permission("ml_ops.ver")),
@@ -1375,6 +1385,7 @@ def listar_ventas(
             include_mixed=include_mixed,
             include_provisional=include_provisional,
             include_cancelled=include_cancelled,
+            only_alerts=only_alerts,
         ),
     )
     op_status_expr = scope.op_status_expr
@@ -1675,7 +1686,199 @@ def listar_ventas(
             goods_status=goods_facet,
             operation_status_total=op_facet_total,
             goods_status_total=goods_facet_total,
+            alerts_total=alert_groups_count(scope),
         ),
+    )
+
+
+# ── ODD ventas-ml-ui-pendiente T6: CSV export of the filtered set ───
+
+# The export walks the REAL listing (`listar_ventas`) page by page, so it
+# holds exactly what the table holds for the same params: there is no second
+# query that could drift from `build_scope`. The cap is a guard rail, not a
+# feature: every page re-runs the listing, so an unbounded export would be a
+# slow request the operator cannot see the end of.
+EXPORT_PAGE_SIZE = 200
+EXPORT_MAX_GROUPS = 10_000
+
+# One row per ORDER (a pack contributes one row per member, `pack` links them).
+# A fixed set rather than "the visible columns": several visible cells are
+# composites (product + category, amount + coupon) that do not survive as one
+# spreadsheet cell, and a stable header is what makes the file reusable.
+EXPORT_HEADER = [
+    "fecha_acreditacion",
+    "fecha_creacion",
+    "orden",
+    "pack",
+    "comprador",
+    "producto",
+    "sku",
+    "cantidad",
+    "operacion",
+    "mercaderia",
+    "modo_logistico",
+    "ciudad",
+    "provincia",
+    "moneda",
+    "importe",
+    "cupon_ml",
+    "neto",
+    "total_gauss",
+    "markup_pct",
+    "provisorio",
+    "estado_metricas",
+    "alerta",
+]
+
+
+def _csv_text(value: Optional[str]) -> str:
+    """Free text from ML (buyer nickname, city...) goes into a spreadsheet:
+    a cell starting with `= + - @` (or tab/CR) would be run as a formula, so
+    it is defused with a leading quote. Standard CSV-injection guard."""
+    if value is None:
+        return ""
+    return "'" + value if value[:1] in ("=", "+", "-", "@", "\t", "\r") else value
+
+
+def _csv_money(value: Optional[float]) -> str:
+    # Excel es-AR reads a decimal COMMA (and `;` as the delimiter).
+    return "" if value is None else f"{value:.2f}".replace(".", ",")
+
+
+# An order can carry several items: they are joined, never reduced to one.
+_CSV_ITEM_SEPARATOR = " | "
+
+
+def _csv_items(order: SaleListItem) -> "tuple[str, str, str]":
+    items = order.items or []
+    return (
+        _CSV_ITEM_SEPARATOR.join(_csv_text(i.title or i.item_id) for i in items),
+        _CSV_ITEM_SEPARATOR.join(_csv_text(i.seller_sku or "") for i in items),
+        _CSV_ITEM_SEPARATOR.join("" if i.quantity is None else str(i.quantity) for i in items),
+    )
+
+
+def _csv_order_row(order: SaleListItem, accreditation_date: Optional[datetime]) -> List[str]:
+    product, sku, quantity = _csv_items(order)
+    return [
+        accreditation_date.isoformat() if accreditation_date else "",
+        order.date_created.isoformat() if order.date_created else "",
+        str(order.order_id),
+        "" if order.pack_id is None else str(order.pack_id),
+        _csv_text(order.buyer_nickname),
+        product,
+        sku,
+        quantity,
+        order.operation_status,
+        order.goods_status,
+        order.modo_logistico,
+        _csv_text(order.city),
+        _csv_text(order.province),
+        order.currency_id or "",
+        _csv_money(order.total_amount),
+        _csv_money(order.coupon_amount),
+        _csv_money(order.neto),
+        _csv_money(order.total_gauss),
+        _csv_money(order.markup),
+        "si" if order.total_gauss_provisional else "no",
+        order.metrics_state or "",
+        order.alert_level,
+    ]
+
+
+@router.get("/sales/export")
+def exportar_ventas(
+    operation_status_filter: Optional[str] = Query(default=None, alias="operation_status"),
+    goods_status_filter: Optional[str] = Query(default=None, alias="goods_status"),
+    sold_month: Optional[str] = Query(default=None, description="YYYY-MM (legacy, usar date_from/date_to)"),
+    date_from: Optional[str] = Query(default=None, description="YYYY-MM-DD, inclusive"),
+    date_to: Optional[str] = Query(default=None, description="YYYY-MM-DD, inclusive"),
+    q: Optional[str] = Query(default=None),
+    marcas: Optional[str] = Query(default=None),
+    subcategorias: Optional[str] = Query(default=None),
+    pms: Optional[str] = Query(default=None),
+    include_unknown: bool = Query(default=True),
+    include_in_dispute: bool = Query(default=True),
+    include_mixed: bool = Query(default=True),
+    include_provisional: bool = Query(default=True),
+    include_cancelled: bool = Query(default=True),
+    only_alerts: bool = Query(default=False),
+    current_user: Usuario = Depends(require_permission("ml_ops.ver")),
+    db: Session = Depends(get_db),
+) -> StreamingResponse:
+    """CSV of the filtered set: the same params as `GET /sales` (minus
+    paging/sort), the same `ml_ops.ver` permission. Streams page by page; the
+    first page is fetched BEFORE the response starts so a bad param, a
+    disabled feature or an oversized set fail as a normal HTTP error instead
+    of a truncated file."""
+
+    def page(offset: int) -> SaleListResponse:
+        return listar_ventas(
+            operation_status_filter=operation_status_filter,
+            goods_status_filter=goods_status_filter,
+            sold_month=sold_month,
+            date_from=date_from,
+            date_to=date_to,
+            sort=SORT_BY_SALE_DATE,
+            q=q,
+            marcas=marcas,
+            subcategorias=subcategorias,
+            pms=pms,
+            include_unknown=include_unknown,
+            include_in_dispute=include_in_dispute,
+            include_mixed=include_mixed,
+            include_provisional=include_provisional,
+            include_cancelled=include_cancelled,
+            only_alerts=only_alerts,
+            limit=EXPORT_PAGE_SIZE,
+            offset=offset,
+            current_user=current_user,
+            db=db,
+        )
+
+    first = page(0)
+    if first.total > EXPORT_MAX_GROUPS:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=(
+                f"Son {first.total} ventas, demasiadas para exportar de una vez "
+                f"(máximo {EXPORT_MAX_GROUPS}). Acotá los filtros, por ejemplo con un rango de fechas."
+            ),
+        )
+
+    def rows_of(response: SaleListResponse) -> str:
+        buffer = io.StringIO()
+        writer = csv.writer(buffer, delimiter=";")
+        # The sale's day is its ACCREDITATION day (#1368), resolved by the
+        # same `member_accreditation_dates` the list's day rule is built on;
+        # a pack's day is its LAST member's (MAX), repeated on each of its rows.
+        per_order = member_accreditation_dates(db, [o.order_id for g in response.sales for o in g.orders])
+        for group in response.sales:
+            dates = [per_order[o.order_id] for o in group.orders if o.order_id in per_order]
+            day = max(dates) if dates else None
+            for order in group.orders:
+                writer.writerow(_csv_order_row(order, day))
+        return buffer.getvalue()
+
+    def stream():
+        header = io.StringIO()
+        csv.writer(header, delimiter=";").writerow(EXPORT_HEADER)
+        # BOM so Excel reads the accents as UTF-8.
+        yield "\ufeff" + header.getvalue()
+        current = first
+        offset = 0
+        while True:
+            yield rows_of(current)
+            offset += EXPORT_PAGE_SIZE
+            if offset >= first.total or not current.sales:
+                break
+            current = page(offset)
+
+    filename = f"ventas-ml-{datetime.now().strftime('%Y%m%d-%H%M')}.csv"
+    return StreamingResponse(
+        stream(),
+        media_type="text/csv; charset=utf-8",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
     )
 
 
@@ -1771,6 +1974,7 @@ def sales_kpis(
     include_mixed: bool = Query(default=True, description='"Mixta" (KPI R9, R11)'),
     include_provisional: bool = Query(default=True, description='"Provisorio" (KPI R9, R11)'),
     include_cancelled: bool = Query(default=True, description='"Canceladas" (ODD ventas-ml-ui-pendiente T8)'),
+    only_alerts: bool = Query(default=False, description="Solo con alertas (ODD ventas-ml-ui-pendiente T5)"),
     current_user: Usuario = Depends(require_permission("ml_ops.ver")),
     db: Session = Depends(get_db),
 ) -> SalesKpiResponse:
@@ -1829,6 +2033,7 @@ def sales_kpis(
         include_mixed=include_mixed,
         include_provisional=include_provisional,
         include_cancelled=include_cancelled,
+        only_alerts=only_alerts,
     )
     scope = build_scope(db, sales_filter)
     result = aggregate_order_metrics(db, scope.listing_query, scope.members_base, scope.group_key)

@@ -55,8 +55,8 @@ Ruta: delegated direct (writer único, 2+ archivos no triviales por tarea).
 - [x] T2 — Paginador numerado + filas por página (frontend).
 - [x] T3 — Cupón en Importe + toggle "A revisar" (frontend).
 - [x] T4 — Panel: Comprador / Pago / Envío + Ver en ML + copiar ID (BE+FE).
-- [ ] T5 — Filtro "Solo con alertas" con conteo (BE+FE).
-- [ ] T6 — Exportar CSV del conjunto filtrado (BE+FE).
+- [x] T5 — Filtro "Solo con alertas" con conteo (BE+FE).
+- [x] T6 — Exportar CSV del conjunto filtrado (BE+FE).
 - [ ] T7 — Resincronizar venta + permiso + "sincronizado hace X" (BE+FE).
 - [x] T8 — Toggle "Canceladas" en Incluir (BE+FE; pedido del usuario 2026-09-30).
 
@@ -158,5 +158,68 @@ Creado 2026-09-30. Línea base vitest: 133 archivos, 1794 passed + 2 expected fa
   copia. CUIT/marca de tarjeta/factura quedan fuera (alcance). Las secciones
   usan `<dl>`, no `<li>`, para no romper tests existentes de la lista de
   líneas.
-- GREEN: pytest router/pr10/pack_scope 71 passed; vitest 139 archivos, 1847
+- GREEN: pytest router/pr10/pack_scope 67 passed; vitest 139 archivos, 1847
   passed + 2 expected fail; eslint 0 errores / 8 warnings; build OK; ruff OK.
+
+### T5
+- Hallazgo: `_alert_level` se calcula en Python por orden, pero depende solo de
+  datos SQL-expresibles (estado de métricas = fila dirty / fila stored /
+  `gauss_status`, `neto`, `iva_reconcilia`, ejes operación/mercadería). Se
+  implementó el equivalente en SQL (`_group_alert_subquery`: un grupo tiene
+  alerta si ALGUNA orden no está limpia) y se aplica como filtro de scope
+  (como los facets de producto) ANTES de paginar; lista, facets y KPI lo
+  comparten. Sin limitación: no se filtra en Python.
+- Contador: `facets.alerts_total` = grupos con alerta dentro del scope de los
+  demás filtros (ignora al propio `only_alerts`, como todo facet).
+- RED: `test_filters_alerts.py` (no cargaba: `alert_groups_count` inexistente),
+  router `test_ml_ventas_ops_alerts_router.py` (filtro ignorado + `KeyError:
+  'alerts_total'`), frontend `AlertsFilterChip`, params y página.
+- Prueba de paridad: el filtro SQL devuelve EXACTAMENTE los grupos que la API
+  muestra con `alert_level != ok` en alguna orden (bolsa mixta de 13 ventas:
+  provisional, unresolved, neto null, iva no reconcilia, pending,
+  recalculating, mercadería desconocida, packs).
+- GREEN: pytest 249 passed (alerts+sales+kpis+ml_sales_query); ruff OK;
+  vitest 140 archivos, 1852 passed + 2 expected fail; eslint 0 errores.
+
+### T6
+- `GET /ml-ventas-ops/sales/export` (permiso `ml_ops.ver`, mismos params que el
+  listado sin paginado/orden). Decisión de diseño: recorre el MISMO
+  `listar_ventas` página por página (200 grupos), así el archivo tiene lo que
+  tiene la tabla, sin una segunda consulta que pueda divergir de
+  `build_scope`. La primera página se pide ANTES de empezar la respuesta (un
+  parámetro inválido, la feature apagada o un set enorme fallan como error
+  HTTP normal, no como archivo truncado). Tope 10.000 grupos (422 con "Acotá
+  los filtros"); cada página re-corre el listado, un export sin tope sería un
+  request lento y ciego.
+- Columnas: set fijo, una fila por ORDEN (el pack aporta una fila por miembro,
+  columna `pack` los une): fecha, orden, pack, comprador, operación,
+  mercadería, modo logístico, ciudad, provincia, moneda, importe, cupón ML,
+  neto, total gauss, markup %, provisorio, estado de métricas, alerta. Fijo y
+  no "columnas visibles" porque varias celdas visibles son compuestas
+  (producto+categoría, importe+cupón). CSV con coma, punto decimal, BOM UTF-8;
+  texto libre de ML con `= + - @` se neutraliza (inyección de fórmulas).
+  Limitación: Excel con configuración regional es-AR espera `;` — en Sheets o
+  importando con coma abre bien.
+- Frontend: botón "Exportar CSV" (acciones del encabezado) usa el mismo
+  `buildVentasMLFilterParams`; si falla muestra el mensaje del backend (el
+  cuerpo del error llega como Blob y se lee).
+- RED: `test_ml_ventas_ops_export_router.py` (7 fallaron: ruta inexistente);
+  `ventasMlExport.test.js` (módulo inexistente) y el test de página (sin botón).
+- GREEN: pytest export 7 passed; ruff OK; vitest 141 archivos, 1858 passed + 2
+  expected fail; eslint 0 errores; build OK.
+
+### Fix T6 (export CSV): producto, día de acreditación, formato Excel es-AR
+- Defectos pedidos por el coordinador: (1) faltaba el producto; (2) la fecha
+  era `date_created` y la regla (#1368) es el día de acreditación; (3) el
+  formato no abría bien en Excel es-AR.
+- Cambios: columnas `producto`, `sku`, `cantidad` (varios ítems de una orden
+  se unen con " | ", nunca se elige uno; mismo orden en las tres);
+  `fecha_acreditacion` (MAX de `date_approved` de pagos relevantes de los
+  miembros del grupo, vía `member_accreditation_dates`, sin regla nueva; un
+  pack repite el día de su último miembro) y `fecha_creacion`; delimitador `;`
+  y coma decimal en la plata, BOM se mantiene. El guard de inyección de
+  fórmulas cubre título y SKU. Supera la limitación (2) del cierre: el CSV ya
+  abre bien en Excel es-AR.
+- RED: 8 de 10 tests del archivo `test_ml_ventas_ops_export_router.py` fallaron
+  (columnas inexistentes / formato viejo). GREEN: export + sales router 106
+  passed; ruff limpio. Frontend sin cambios (sus tests no asertan el formato).

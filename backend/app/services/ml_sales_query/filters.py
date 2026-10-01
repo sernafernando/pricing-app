@@ -29,7 +29,7 @@ from sqlalchemy.orm import Query, Session, aliased
 from app.core.config import settings
 from app.models.marca_pm import MarcaPM
 from app.models.ml_order_item_costo import MlOrderItemCosto
-from app.models.ml_order_metrics import MlOrderMetrics
+from app.models.ml_order_metrics import MlOrderMetrics, MlOrderMetricsDirty
 from app.models.ml_orders_ops import MlOperationLink, MlOrdersOps, MlShipmentOps
 from app.models.producto import ProductoERP
 from app.models.rma_claim_ml import RmaClaimML
@@ -70,6 +70,11 @@ class SalesFilter:
     # status is plain `cancelled`. `cancelled_ml_covered` is NOT hidden: the
     # money arrived (Buyer Protection), it is a sale commercially.
     include_cancelled: bool = True
+    # ODD `ventas-ml-ui-pendiente` T5: "Solo con alertas". Keeps the groups
+    # where ANY member order's alert level (`ml_ventas_ops._alert_level`) is
+    # not `ok`. A scope filter like the product facets, not a switch: it
+    # applies to the listing, the facets and the KPI alike.
+    only_alerts: bool = False
 
 
 @dataclass
@@ -121,6 +126,12 @@ class SalesScope:
     # exactly once, onto the specific query it is building.
     accreditation_subquery: Any
     accreditation_joined: bool
+    # ODD `ventas-ml-ui-pendiente` T5: the listing scope as it would be
+    # WITHOUT the `only_alerts` filter itself (every other filter and switch
+    # applied) and restricted to groups with an alert -- what the "Solo con
+    # alertas (N)" counter counts, so it stays meaningful while the filter is
+    # ON (same rule as every facet: never scoped by its own axis).
+    alert_groups_query: Any = None
 
 
 def _open_claim_exists_subquery(db: Session):
@@ -321,6 +332,57 @@ def _group_switch_subquery(db: Session, op_status_expr: Any):
     return q.group_by(group_key).subquery()
 
 
+def _group_alert_subquery(db: Session, op_status_expr: Any, goods_status_expr: Any):
+    """ODD `ventas-ml-ui-pendiente` T5: one row per GROUP with `has_alert`,
+    the SQL equivalent of "any member's `ml_ventas_ops._alert_level` is not
+    `ok`". A member is clean only when ALL of these hold, which mirrors
+    `_alert_level` + `read.metrics_state_for_orders`:
+
+    - no dirty-queue row (a dirty row is `recalculating` or `failed`);
+    - a stored metrics row exists (none = `pending`) with `gauss_status` `ok`
+      (`provisional` and `unresolved` are alerts);
+    - its `neto` is known and its IVA split does not report `False`
+      (`NULL` = not judged, same as the Python `is False` check);
+    - neither status axis is `unknown` (display axes, as the router sees them).
+
+    If `_alert_level` changes, this must change with it: the router parity
+    test `test_ml_ventas_ops_alerts_router.py` compares them row by row.
+    """
+    group_key = _group_key_expr()
+    member_is_clean = and_(
+        MlOrderMetricsDirty.order_id.is_(None),
+        MlOrderMetrics.order_id.isnot(None),
+        MlOrderMetrics.gauss_status == "ok",
+        MlOrderMetrics.neto.isnot(None),
+        or_(MlOrderMetrics.iva_reconcilia.is_(None), MlOrderMetrics.iva_reconcilia.is_(True)),
+        op_status_expr != "unknown",
+        goods_status_expr != "unknown",
+    )
+    q = (
+        db.query(
+            group_key.label("group_key"),
+            func.max(case((member_is_clean, 0), else_=1)).label("has_alert"),
+        )
+        .outerjoin(MlShipmentOps, MlShipmentOps.shipment_id == MlOrdersOps.shipping_id)
+        .outerjoin(MlOrderMetrics, MlOrderMetrics.order_id == MlOrdersOps.order_id)
+        .outerjoin(MlOrderMetricsDirty, MlOrderMetricsDirty.order_id == MlOrdersOps.order_id)
+    )
+    if settings.ML_USER_ID:
+        q = q.filter(MlOrdersOps.seller_id == int(settings.ML_USER_ID))
+    return q.group_by(group_key).subquery()
+
+
+def _only_groups_with_alert(query: Query, db: Session, op_status_expr: Any, goods_status_expr: Any) -> Query:
+    alerts = _group_alert_subquery(db, op_status_expr, goods_status_expr)
+    return query.join(alerts, alerts.c.group_key == _group_key_expr()).filter(alerts.c.has_alert == 1)
+
+
+def alert_groups_count(scope: "SalesScope") -> int:
+    """How many GROUPS with an alert the current scope holds, ignoring the
+    `only_alerts` filter itself (see `SalesScope.alert_groups_query`)."""
+    return scope.alert_groups_query.with_entities(func.count(func.distinct(scope.group_key))).scalar() or 0
+
+
 def _switch_flags(switches: Any) -> "tuple[Any, Any, Any, Any, Any]":
     """The five toggle boolean expressions over one row of
     `_group_switch_subquery`'s result (design D12, spec KPI R9).
@@ -494,6 +556,12 @@ def build_scope(db: Session, f: SalesFilter) -> SalesScope:
         listing_query = listing_query.filter(facet_exists)
         facet_base = facet_base.filter(facet_exists)
 
+    # Kept apart so the alert COUNTER can ignore the alert filter itself.
+    listing_before_alerts = listing_query
+    if f.only_alerts:
+        listing_query = _only_groups_with_alert(listing_query, db, op_status_expr, goods_status_expr)
+        facet_base = _only_groups_with_alert(facet_base, db, op_status_expr, goods_status_expr)
+
     pre_switch_listing_query = listing_query
 
     # PR11.T2 (design D12, spec KPI R9-R11): the four doubtful-case toggle
@@ -507,6 +575,9 @@ def build_scope(db: Session, f: SalesFilter) -> SalesScope:
     effective_f = effective_switches(f)
     listing_query = _apply_switches(listing_query, db, effective_f, op_status_expr)
     facet_base = _apply_switches(facet_base, db, effective_f, op_status_expr)
+    alert_groups_query = _only_groups_with_alert(
+        _apply_switches(listing_before_alerts, db, effective_f, op_status_expr), db, op_status_expr, goods_status_expr
+    )
 
     return SalesScope(
         base=base,
@@ -519,6 +590,7 @@ def build_scope(db: Session, f: SalesFilter) -> SalesScope:
         group_key=group_key,
         accreditation_subquery=accred,
         accreditation_joined=accreditation_joined,
+        alert_groups_query=alert_groups_query,
     )
 
 

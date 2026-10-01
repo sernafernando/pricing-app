@@ -59,6 +59,7 @@ import PackDetailPanel from '../components/ventasMl/PackDetailPanel';
 import Pagination from '../components/ventasMl/Pagination';
 import SalesToolbar from '../components/ventasMl/SalesToolbar';
 import FacetChips from '../components/ventasMl/FacetChips';
+import AlertsFilterChip from '../components/ventasMl/AlertsFilterChip';
 import ProductFiltersPanel from '../components/shared/ProductFiltersPanel';
 import KpiStrip from '../components/ventasMl/KpiStrip';
 import IncludeToggles from '../components/ventasMl/IncludeToggles';
@@ -77,6 +78,7 @@ import { useVentasMLFilters } from '../hooks/useVentasMLFilters';
 import VariosVentaPctModal from '../components/VariosVentaPctModal';
 import DateRangeFilter from '../components/DateRangeFilter';
 import { buildVentasMLFilterParams } from '../utils/ventasMlParams';
+import { exportVentasCsv } from '../utils/ventasMlExport';
 import {
   formatDate,
   OPERATION_STATUS_LABELS,
@@ -93,6 +95,7 @@ const EMPTY_FACETS = {
   goods_status: {},
   operation_status_total: 0,
   goods_status_total: 0,
+  alerts_total: 0,
 };
 
 // Status labels/badge classes, money/date formatting, and the group-level
@@ -137,6 +140,9 @@ export default function VentasML() {
   const [includeMixed, setIncludeMixed] = useState(true);
   const [includeProvisional, setIncludeProvisional] = useState(true);
   const [includeCancelled, setIncludeCancelled] = useState(true);
+  const [onlyAlerts, setOnlyAlerts] = useState(false);
+  const [exporting, setExporting] = useState(false);
+  const [exportError, setExportError] = useState(null);
 
   const [kpi, setKpi] = useState(null);
   const [kpiLoading, setKpiLoading] = useState(true);
@@ -274,6 +280,53 @@ export default function VentasML() {
     setOffset(0);
   }, []);
 
+  // The file is the filtered set the table shows: same shared params builder,
+  // no paging (the backend walks the pages itself).
+  const handleExport = useCallback(async () => {
+    setExporting(true);
+    setExportError(null);
+    try {
+      await exportVentasCsv(
+        buildVentasMLFilterParams({
+          operationStatusFilter,
+          goodsStatusFilter,
+          fechaDesde,
+          fechaHasta,
+          searchQuery,
+          productFilters,
+          includeUnknown,
+          includeInDispute,
+          includeMixed,
+          includeProvisional,
+          includeCancelled,
+          onlyAlerts,
+        }),
+      );
+    } catch (err) {
+      setExportError(err.message);
+    } finally {
+      setExporting(false);
+    }
+  }, [
+    operationStatusFilter,
+    goodsStatusFilter,
+    fechaDesde,
+    fechaHasta,
+    searchQuery,
+    productFilters,
+    includeUnknown,
+    includeInDispute,
+    includeMixed,
+    includeProvisional,
+    includeCancelled,
+    onlyAlerts,
+  ]);
+
+  const handleOnlyAlertsChange = useCallback((value) => {
+    setOnlyAlerts(value);
+    setOffset(0);
+  }, []);
+
   const handleGoodsStatusChange = useCallback((value) => {
     setGoodsStatusFilter(value);
     setOffset(0);
@@ -326,6 +379,7 @@ export default function VentasML() {
     setIncludeMixed(true);
     setIncludeProvisional(true);
     setIncludeCancelled(true);
+    setOnlyAlerts(false);
     setOffset(0);
   }, [setSearchQuery, clearProductFilters]);
 
@@ -354,7 +408,8 @@ export default function VentasML() {
       !includeInDispute ||
       !includeMixed ||
       !includeProvisional ||
-      !includeCancelled
+      !includeCancelled ||
+      onlyAlerts
   );
 
   // "Todas" is neither `total` (scoped by BOTH axes, so it under-counts
@@ -390,6 +445,7 @@ export default function VentasML() {
           includeMixed,
           includeProvisional,
           includeCancelled,
+          onlyAlerts,
         }),
       };
       const { data } = await api.get('/ml-ventas-ops/sales', { params });
@@ -428,6 +484,7 @@ export default function VentasML() {
     includeMixed,
     includeProvisional,
     includeCancelled,
+    onlyAlerts,
     offset,
     pageSize,
   ]);
@@ -456,6 +513,7 @@ export default function VentasML() {
         includeMixed,
         includeProvisional,
         includeCancelled,
+        onlyAlerts,
       });
       const { data } = await api.get('/ml-ventas-ops/sales/kpis', { params });
       if (requestId !== latestKpiRequestRef.current) return;
@@ -486,6 +544,7 @@ export default function VentasML() {
     includeMixed,
     includeProvisional,
     includeCancelled,
+    onlyAlerts,
   ]);
 
   useEffect(() => {
@@ -545,6 +604,14 @@ export default function VentasML() {
           >
             % de varios
           </button>
+          <button
+            type="button"
+            className="btn-tesla outline sm"
+            onClick={handleExport}
+            disabled={exporting}
+          >
+            {exporting ? 'Exportando...' : 'Exportar CSV'}
+          </button>
           {/* Refreshes BOTH: reloading only the list would leave the six
               cards showing the previous totals beside fresh rows, which is
               exactly the "what I see is what it sums" promise broken by the
@@ -567,6 +634,12 @@ export default function VentasML() {
         Listado de ventas de Mercado Libre. El estado de la operación describe el dinero; el estado de la
         mercadería describe el producto — son ejes independientes a propósito.
       </p>
+
+      {exportError && (
+        <div className={styles.errorBar} role="alert">
+          <ShieldAlert size={16} /> {exportError}
+        </div>
+      )}
 
       {errorKind === 'forbidden' && (
         <div className={styles.errorBar}>
@@ -634,6 +707,17 @@ export default function VentasML() {
             total={facets.goods_status_total}
             activeValue={goodsStatusFilter}
             onChange={handleGoodsStatusChange}
+          />
+        </div>
+
+        <div className={styles.divider} />
+
+        <div className={styles.filterRow}>
+          <span className={styles.fieldLabel}>Alertas</span>
+          <AlertsFilterChip
+            active={onlyAlerts}
+            count={facets.alerts_total}
+            onChange={handleOnlyAlertsChange}
           />
         </div>
 
