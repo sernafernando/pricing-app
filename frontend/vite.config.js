@@ -57,7 +57,13 @@ export default defineConfig({
           css: true,
           browser: {
             enabled: true,
-            provider: playwright(),
+            // The window AROUND the test iframe. Left at Playwright's default
+            // (1280x720), any test that sizes its iframe larger (a 1920x1080
+            // `page.viewport()`) gets the iframe scaled down to fit, and its
+            // screenshots come out at half resolution. A big outer window keeps
+            // the iframe at scale 1; the iframe's own size is still the
+            // `viewport` below, so no layout changes for anyone.
+            provider: playwright({ contextOptions: { viewport: { width: 2000, height: 4000 } } }),
             headless: true,
             // Fixed viewport: geometry assertions and screenshots are only
             // comparable if every run lays out at the same width.
