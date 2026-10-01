@@ -28,10 +28,6 @@ export function formatDateTime(value) {
   return formatDate(value).replace(', ', ' ');
 }
 
-// The listing is denominated in ARS, so repeating "ARS" on every row costs
-// the width the amount itself needs. Only a foreign currency is spelled out.
-export const LISTING_IMPLIED_CURRENCY = 'ARS';
-
 export function formatAmount(value) {
   return new Intl.NumberFormat('es-AR', {
     minimumFractionDigits: 2,
