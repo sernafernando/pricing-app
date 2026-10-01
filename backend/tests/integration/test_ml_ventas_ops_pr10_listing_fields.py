@@ -154,6 +154,31 @@ class TestReceiverAddressAndShipmentAdditiveFields:
         assert order["province"] == "Mendoza"
         assert order["shipping_substatus"] == "out_for_delivery"
 
+    def test_exposes_the_ml_shipping_id_of_each_order(self, db, client, admin_auth_headers, rol_admin):
+        """`shipping_id` is the identifier an operator pastes into Mercado
+        Libre's own tools -- the listing exposes it per order so the Envío
+        cell can lead with it instead of the carrier's tracking number."""
+        _grant_ml_ops_ver(db, rol_admin)
+        order_id = 95014
+        _seed_order(db, order_id, date_created=datetime(2026, 9, 1, tzinfo=timezone.utc), shipping_status="shipped")
+        db.commit()
+
+        body = client.get("/api/ml-ventas-ops/sales", headers=admin_auth_headers).json()
+
+        order = _group_holding(body, order_id)["orders"][0]
+        assert order["shipping_id"] == order_id * 10
+
+    def test_shipping_id_is_null_for_an_order_without_shipment(self, db, client, admin_auth_headers, rol_admin):
+        _grant_ml_ops_ver(db, rol_admin)
+        order_id = 95015
+        _seed_order(db, order_id, date_created=datetime(2026, 9, 1, tzinfo=timezone.utc))
+        db.commit()
+
+        body = client.get("/api/ml-ventas-ops/sales", headers=admin_auth_headers).json()
+
+        order = _group_holding(body, order_id)["orders"][0]
+        assert order["shipping_id"] is None
+
     def test_missing_city_key_is_null_not_an_error(self, db, client, admin_auth_headers, rol_admin):
         _grant_ml_ops_ver(db, rol_admin)
         order_id = 95011

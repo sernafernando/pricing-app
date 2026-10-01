@@ -747,6 +747,10 @@ class SaleListItem(BaseModel):
     currency_id: Optional[str] = None
     payment_status: Optional[str] = None
     shipping_status: Optional[str] = None
+    # Mercado Libre's own shipment id: the identifier an operator pastes into
+    # ML's tools, so the listing's Envío cell leads with it (not the
+    # carrier's tracking number). `None` when the order has no shipment.
+    shipping_id: Optional[int] = None
     operation_status: str
     goods_status: str
     neto: Optional[float] = None
@@ -1569,6 +1573,7 @@ def _sales_page(
                     currency_id=order.currency_id,
                     payment_status=order.payment_status,
                     shipping_status=shipment.status if shipment is not None else None,
+                    shipping_id=order.shipping_id,
                     operation_status=operation_status_value,
                     goods_status=goods_status_value,
                     neto=float(order_neto) if order_neto is not None else None,
