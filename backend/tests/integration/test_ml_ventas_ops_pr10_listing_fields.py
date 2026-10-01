@@ -569,7 +569,11 @@ class TestPR10DoesNotIntroduceNPlusOne:
         assert resp.status_code == 200
 
         assert counter.matching("ml_order_item_costos") <= 1
-        assert counter.matching("ml_order_metrics") <= 2  # read_stored_metrics + metrics_state_for_orders
+        # read_stored_metrics + metrics_state_for_orders + (ODD
+        # `ventas-ml-ui-pendiente` T5) the "Solo con alertas" counter, which
+        # reads the stored metrics once per REQUEST through the group alert
+        # subquery.
+        assert counter.matching("ml_order_metrics") <= 3
         # ODD `ventas-ml-dia-por-acreditacion`: the day filter/sort key now
         # reads `ml_payments_ops` too (`accreditation.py`'s subquery, LEFT
         # JOINed into `base`/`listing_query`), on top of
