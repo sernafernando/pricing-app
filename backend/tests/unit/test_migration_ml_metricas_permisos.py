@@ -34,3 +34,17 @@ def test_codes_match_the_router_and_reach_admin_and_gerente() -> None:
     assert codes == {ml_metricas.PERMISO_VER, ml_metricas.PERMISO_GANANCIA}
     assert set(module.ROL_PERMISOS["ADMIN"]) == codes
     assert set(module.ROL_PERMISOS["GERENTE"]) == codes
+
+
+def test_board_read_indexes_ship_in_a_migration_and_match_the_models() -> None:
+    from app.models.ml_daily_metrics import MlProductDailyMetrics
+    from app.models.ml_group_metrics import MlGroupMetrics
+
+    script = _script()
+    heads = script.get_heads()
+    assert len(heads) == 1, f"alembic forked: {heads}"
+    module = script.get_revision("20261001_ix_board_reads").module
+    declared = {ix.name for ix in MlGroupMetrics.__table__.indexes} | {
+        ix.name for ix in MlProductDailyMetrics.__table__.indexes
+    }
+    assert set(module.INDEXES) <= declared

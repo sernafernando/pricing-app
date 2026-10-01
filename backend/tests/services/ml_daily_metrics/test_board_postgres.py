@@ -5,11 +5,11 @@ not cover."""
 
 from __future__ import annotations
 
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
 
 import pytest
-from sqlalchemy import text
+from sqlalchemy import select, text
 
 from app.models.ml_order_item_costo import MlOrderItemCosto
 from app.models.ml_orders_ops import MlOrderItemOps, MlOrdersOps
@@ -68,4 +68,8 @@ def test_units_last_24h_on_postgres(pg_order_metrics_db, monkeypatch) -> None:
     _sale(db, CANCELLED, status="cancelled", accredited=NOW - timedelta(hours=1), qty=5)
     _sale(db, OLD, status="paid", accredited=NOW - timedelta(hours=30), qty=7)
 
-    assert board._units_last_24h(db) == {(777, "MLA8000000001"): 2}
+    f = board.BoardFilter(date_from=date(2026, 9, 1), date_to=date(2026, 9, 30))
+    u24 = board.Board(db, f)._u24()
+    rows = db.execute(select(u24.c.product, u24.c.mla, u24.c.units)).all()
+
+    assert [(r.product, r.mla, int(r.units)) for r in rows] == [(777, "MLA8000000001", 2)]

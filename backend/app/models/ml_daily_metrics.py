@@ -37,6 +37,8 @@ class MlProductDailyMetrics(Base):
         # The board reads a date window; the refresh reads (mla, day).
         Index("ix_ml_product_daily_metrics_day", "day"),
         Index("ix_ml_product_daily_metrics_mla_day", "mla", "day"),
+        # "actualizado hace": MAX(updated_at) (migration 20261001_ix_board_reads).
+        Index("ix_ml_product_daily_metrics_updated_at", "updated_at"),
     )
 
     id = Column(Integer, primary_key=True)

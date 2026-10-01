@@ -18,8 +18,8 @@ from __future__ import annotations
 
 import csv
 import io
+from dataclasses import replace
 from datetime import date, datetime, timedelta
-from decimal import Decimal
 from typing import Dict, List, Optional, Tuple
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
@@ -252,9 +252,8 @@ def _delta_pct(now, before) -> Optional[float]:
     return round((float(now) - float(before)) / float(before) * 100, 1)
 
 
-def _row_out(u: board.Universe, row: board.Row, f: board.BoardFilter, can_see_margin: bool) -> BoardRow:
-    units_series, markup_series = board.series_for(u, row, f)
-    known = [m for m in markup_series if m is not None]
+def _row_out(row: board.Row, can_see_margin: bool) -> BoardRow:
+    known = [m for m in row.series_markup if m is not None]
     pub = row.pub
     alerts = sorted(row.alerts() - (set() if can_see_margin else {"margen_cayendo"}))
     return BoardRow(
@@ -278,8 +277,8 @@ def _row_out(u: board.Universe, row: board.Row, f: board.BoardFilter, can_see_ma
         markup_delta_pp=_pp(row.markup_delta) if can_see_margin else None,
         markup_min_90d=(min(known) if known else None) if can_see_margin else None,
         markup_max_90d=(max(known) if known else None) if can_see_margin else None,
-        series_units_90d=units_series,
-        series_markup_90d=markup_series if can_see_margin else None,
+        series_units_90d=row.series_units,
+        series_markup_90d=row.series_markup if can_see_margin else None,
         last_sale_at=row.last_sale_at,
         ageing_days=row.ageing_days,
         alerts=alerts,
@@ -292,24 +291,14 @@ def _row_out(u: board.Universe, row: board.Row, f: board.BoardFilter, can_see_ma
     )
 
 
-def _kpis(u: board.Universe, rows: List[board.Row], f: board.BoardFilter, can_see_margin: bool) -> BoardKpis:
-    units = sum(r.units for r in rows)
-    gross = sum((r.gross for r in rows), start=Decimal("0"))
-    tg = sum((r.tg for r in rows), start=Decimal("0"))
-    costo = sum((r.costo for r in rows), start=Decimal("0"))
-    prev_units = sum(u.pairs[p].prev_units for r in rows for p in r.pairs)
-    prev_gross = sum((u.pairs[p].prev_gross for r in rows for p in r.pairs), start=Decimal("0"))
-    prev_tg = sum((r.prev_tg for r in rows), start=Decimal("0"))
-    prev_costo = sum((r.prev_costo for r in rows), start=Decimal("0"))
-    markup = board.markup_of(tg, costo)
-    markup_prev = board.markup_of(prev_tg, prev_costo)
-    series = board.period_series(u, rows, f, f.date_from, f.date_to)
-    ageing = [r.ageing_days for r in rows if r.ageing_days is not None]
+def _kpis(k: board.Kpis, can_see_margin: bool) -> BoardKpis:
+    markup = board.markup_of(k.tg, k.costo)
+    markup_prev = board.markup_of(k.prev_tg, k.prev_costo)
     return BoardKpis(
-        units=KpiUnits(value=units, delta_pct=_delta_pct(units, prev_units), series=series["units"]),
-        gross=KpiMoney(value=_f(gross), delta_pct=_delta_pct(gross, prev_gross), series=series["gross"]),
+        units=KpiUnits(value=k.units, delta_pct=_delta_pct(k.units, k.prev_units), series=k.series_units),
+        gross=KpiMoney(value=_f(k.gross), delta_pct=_delta_pct(k.gross, k.prev_gross), series=k.series_gross),
         total_gauss=(
-            KpiMoney(value=_f(tg), delta_pct=_delta_pct(tg, prev_tg), series=series["total_gauss"])
+            KpiMoney(value=_f(k.tg), delta_pct=_delta_pct(k.tg, k.prev_tg), series=k.series_tg)
             if can_see_margin
             else KpiMoney()
         ),
@@ -317,52 +306,63 @@ def _kpis(u: board.Universe, rows: List[board.Row], f: board.BoardFilter, can_se
             KpiMarkup(
                 value=_pp(markup),
                 delta_pp=_pp(markup - markup_prev) if markup is not None and markup_prev is not None else None,
-                series=series["markup"],
+                series=k.series_markup,
             )
             if can_see_margin
             else KpiMarkup()
         ),
-        products_with_sales=KpiShare(value=sum(1 for r in rows if r.units > 0), of_total=len(rows)),
+        products_with_sales=KpiShare(value=k.with_sales, of_total=k.rows),
         ageing=KpiAgeing(
-            avg_days=round(sum(ageing) / len(ageing), 1) if ageing else None,
-            up_to_30=sum(1 for days in ageing if days <= 30),
-            up_to_60=sum(1 for days in ageing if 30 < days <= board.AGEING_ALERT_DAYS),
-            over_60=sum(1 for r in rows if "ageing_60d" in r.alerts()),
+            avg_days=round(k.ageing_avg, 1) if k.ageing_avg is not None else None,
+            up_to_30=k.up_to_30,
+            up_to_60=k.up_to_60,
+            over_60=k.over_60,
         ),
     )
 
 
-def _facets(u: board.Universe, f: board.BoardFilter, can_see_margin: bool) -> BoardFacets:
-    def count_by(skip: str, buckets_of) -> Dict[str, int]:
-        counts: Dict[str, int] = {}
-        for row in board.build_rows(u, f, skip=skip):
-            for bucket in buckets_of(row):
-                counts[bucket] = counts.get(bucket, 0) + 1
-        return counts
-
-    def pubs_of(row: board.Row) -> List[board.Pub]:
-        return [u.pubs.get(mla) or board.Pub(mla=mla) for _p, mla in row.pairs]
-
-    store_rows = board.build_rows(u, f, skip="stores")
-    stores: Dict[str, int] = {}
-    for row in store_rows:
-        for bucket in {p.store_bucket for p in pubs_of(row)}:
-            stores[bucket] = stores.get(bucket, 0) + 1
-    pub_status = count_by("pub_status", lambda row: {p.status for p in pubs_of(row) if p.status})
-    pub_type = count_by("pub_type", lambda row: set().union(*(p.types() for p in pubs_of(row))))
-    alert_rows = board.build_rows(u, f, skip="alerts")
-    alerts: Dict[str, Optional[int]] = {
-        name: sum(1 for row in alert_rows if name in row.alerts()) for name in board.ALERTS
-    }
+def _facets(facets: board.Facets, can_see_margin: bool) -> BoardFacets:
+    alerts: Dict[str, Optional[int]] = dict(facets.alerts)
     if not can_see_margin:
         alerts["margen_cayendo"] = None
     return BoardFacets(
-        stores=stores, stores_total=len(store_rows), pub_status=pub_status, pub_type=pub_type, alerts=alerts
+        stores=facets.stores,
+        stores_total=facets.stores_total,
+        pub_status=facets.pub_status,
+        pub_type=facets.pub_type,
+        alerts=alerts,
     )
 
 
 def _can_see_margin(db: Session, user: Usuario) -> bool:
     return PermisosService(db).tiene_permiso(user, PERMISO_GANANCIA)
+
+
+def build_board_response(
+    db: Session, f: board.BoardFilter, *, limit: int, offset: int, can_see_margin: bool
+) -> BoardResponse:
+    """Everything the board endpoint answers, in a FIXED number of SQL
+    statements (see `board` module docstring): the page, the KPIs over the
+    whole filtered set and every chip count. Split out of the endpoint so the
+    Postgres volume test can drive exactly this."""
+    with board.Board(db, f) as b:
+        kpis = b.kpis()
+        facets = b.facets()
+        rows = b.page(limit, offset)
+    prev_from, prev_to = board.previous_period(f)
+    return BoardResponse(
+        period=BoardPeriod(date_from=f.date_from, date_to=f.date_to, prev_from=prev_from, prev_to=prev_to),
+        group_by=f.group_by,
+        total=kpis.rows,
+        with_sales_count=kpis.with_sales,
+        limit=limit,
+        offset=offset,
+        can_see_margin=can_see_margin,
+        refreshed_at=board.refreshed_at(db),
+        kpis=_kpis(kpis, can_see_margin),
+        facets=_facets(facets, can_see_margin),
+        rows=[_row_out(row, can_see_margin) for row in rows],
+    )
 
 
 # ── Endpoints ────────────────────────────────────────────────────
@@ -376,29 +376,13 @@ def get_board(
     current_user: Usuario = Depends(require_ver),
     db: Session = Depends(get_db),
 ) -> BoardResponse:
-    """The board: rows of the requested grouping (sorted, paged), the KPI
-    strip over the WHOLE filtered set (never the page), and every chip
-    count scoped by the other filters. Money and units from the daily rollup
-    (`ml_product_daily_metrics`); the 24h window from the orders."""
+    """The board: rows of the requested grouping (sorted and paged in SQL),
+    the KPI strip over the WHOLE filtered set (never the page), and every
+    chip count scoped by the other filters. Money and units from the daily
+    rollup (`ml_product_daily_metrics`); the 24h window from the orders."""
     can_see_margin = _can_see_margin(db, current_user)
     _margin_gate(f, can_see_margin)
-    u = board.load_universe(db, f)
-    rows = board.sort_rows(board.build_rows(u, f), f)
-    page = rows[offset : offset + limit]
-    prev_from, prev_to = board.previous_period(f)
-    return BoardResponse(
-        period=BoardPeriod(date_from=f.date_from, date_to=f.date_to, prev_from=prev_from, prev_to=prev_to),
-        group_by=f.group_by,
-        total=len(rows),
-        with_sales_count=sum(1 for r in rows if r.units > 0),
-        limit=limit,
-        offset=offset,
-        can_see_margin=can_see_margin,
-        refreshed_at=board.refreshed_at(db),
-        kpis=_kpis(u, rows, f, can_see_margin),
-        facets=_facets(u, f, can_see_margin),
-        rows=[_row_out(u, row, f, can_see_margin) for row in page],
-    )
+    return build_board_response(db, f, limit=limit, offset=offset, can_see_margin=can_see_margin)
 
 
 @router.get("/board/products/{product_item_id}/publications", response_model=PublicationsResponse)
@@ -413,11 +397,10 @@ def get_product_publications(
     period (Total Gauss, or gross without the margin permission)."""
     can_see_margin = _can_see_margin(db, current_user)
     _margin_gate(f, can_see_margin)
-    u = board.load_universe(db, f)
-    by_pub = board.BoardFilter(**{**f.__dict__, "group_by": "publication", "alerts": ()})
-    rows = [r for r in board.build_rows(u, by_pub) if any(p == product_item_id for p, _m in r.pairs)]
-    rows = board.sort_rows(rows, by_pub)
-    out = [_row_out(u, row, by_pub, can_see_margin) for row in rows]
+    by_pub = replace(f, group_by="publication", alerts=())
+    with board.Board(db, by_pub, product_item_id=product_item_id) as b:
+        rows = b.page(limit=None, apply_alerts=False)
+    out = [_row_out(row, can_see_margin) for row in rows]
     earned = (lambda r: (r.tg, r.units)) if can_see_margin else (lambda r: (r.gross, r.units))
     best = max(rows, key=earned, default=None)
     for row, item in zip(rows, out):
@@ -439,10 +422,10 @@ def export_board(
     Margin columns only with `ml_metricas.ver_ganancia`."""
     can_see_margin = _can_see_margin(db, current_user)
     _margin_gate(f, can_see_margin)
-    u = board.load_universe(db, f)
-    rows = board.sort_rows(board.build_rows(u, f), f)
+    with board.Board(db, f) as b:
+        rows = b.page(limit=None)
     buffer = io.StringIO()
-    buffer.write("﻿")
+    buffer.write("\ufeff")
     writer = csv.writer(buffer, delimiter=";")
     header = ["Producto", "SKU", "Marca", "MLA", "Unidades", "24h", "3d", "7d", "15d", "30d", "Facturado"]
     if can_see_margin:

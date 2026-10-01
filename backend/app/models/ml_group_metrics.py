@@ -49,6 +49,8 @@ class MlGroupMetrics(Base):
         CheckConstraint("gauss_status IN ('ok', 'provisional', 'unresolved')", name="ck_ml_group_metrics_status"),
         Index("ix_ml_group_metrics_status", "gauss_status"),
         Index("ix_ml_group_metrics_member_order_ids", "member_order_ids", postgresql_using="gin"),
+        # The Métricas ML board's rolling-24h lookup (migration 20261001_ix_board_reads).
+        Index("ix_ml_group_metrics_group_date", "group_date"),
     )
 
     group_key = Column(String(32), primary_key=True)
