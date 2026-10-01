@@ -1,0 +1,79 @@
+.toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 2px 4px 6px;
+  font-family: inherit;
+  font-size: var(--font-sm);
+  font-weight: var(--font-medium);
+  color: var(--cf-text-primary);
+  background: none;
+  border: none;
+  border-radius: var(--radius-md);
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.toggle:focus-visible {
+  outline: 2px solid var(--cf-accent-blue);
+  outline-offset: 2px;
+}
+
+.count {
+  min-width: 22px;
+  padding: 0 6px;
+  border: 1px solid var(--tone-warning-border);
+  border-radius: var(--radius-base);
+  font-size: var(--font-xs);
+  font-weight: var(--font-semibold);
+  font-variant-numeric: tabular-nums;
+  line-height: 1.6;
+  text-align: center;
+  color: var(--tone-warning-fg);
+  background: var(--tone-warning-bg);
+}
+
+.track {
+  position: relative;
+  flex-shrink: 0;
+  width: 34px;
+  height: 20px;
+  border-radius: var(--radius-full);
+  background: var(--cf-border-default);
+}
+
+.thumb {
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 16px;
+  height: 16px;
+  border-radius: var(--radius-full);
+  background: var(--cf-bg-card);
+  box-shadow: var(--cf-card-shadow);
+  transition: transform 120ms ease;
+}
+
+.toggleOn .track {
+  background: var(--money-headline);
+}
+
+.toggleOn .thumb {
+  transform: translateX(14px);
+}
+
+.label {
+  color: inherit;
+}
+
+.srOnly {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}

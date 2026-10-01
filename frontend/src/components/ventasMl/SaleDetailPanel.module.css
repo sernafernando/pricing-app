@@ -1,82 +1,344 @@
-/* SaleDetailPanel — the content sections, moved verbatim from
-   DesgloseDrawer.module.css. Panel GEOMETRY (width, position, z-index,
-   the sticky/fixed breakpoint) now lives in `VentasMLLayout.module.css` —
-   this component only owns its own header/body/section styling, same as
-   it did inside the deleted `.drawer` wrapper. */
+/* SaleDetailPanel — the detail panel's content, laid out like the Stitch
+   `detalle` mockup: a sticky header (order, copy, "Ver en ML", status pills,
+   date), stacked cards (Producto, Comprador | Envío, Pago, "De dónde sale el
+   neto", Total Gauss) and a sticky footer (freshness + Resincronizar).
+   Panel GEOMETRY (width, position, the sheet breakpoint) lives in
+   `VentasMLLayout.module.css`. PackDetailPanel reuses these classes. */
 
-/* `.panel` in VentasMLLayout.module.css is the scrolling container
-   (`overflow-y: auto`) -- without its own sticky position, this header
-   scrolls away with `.body` the same way the table header used to. It
-   only has to clear its own scrolling siblings, so `--z-dropdown` (below
-   `.panel`'s own `--z-sticky`) is enough; it never needs to compete with
-   the table header, which lives in the other grid column entirely. */
+/* ── Header ──────────────────────────────────────────────── */
+
+/* `.panel` in VentasMLLayout.module.css is the scrolling container, so the
+   header needs its own sticky position or it scrolls away with `.body`. */
 .header {
   position: sticky;
   top: 0;
   z-index: var(--z-dropdown);
   display: flex;
-  align-items: center;
+  flex-direction: column;
+  gap: 10px;
+  padding: 16px 18px 14px;
+  background: var(--cf-bg-card);
+  border-bottom: 1px solid var(--ventas-divider);
+}
+
+.headerTop {
+  display: flex;
+  align-items: flex-start;
   justify-content: space-between;
-  padding: var(--spacing-md);
-  background: var(--bg-primary);
-  border-bottom: 1px solid var(--border-primary);
+  gap: var(--space-2);
+}
+
+.titleBlock {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.identityRow {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 4px 8px;
 }
 
 .title {
   margin: 0;
-  font-size: var(--font-lg);
+  font-size: 17px;
   font-weight: var(--font-semibold);
-  color: var(--text-primary);
+  line-height: 1.3;
+  color: var(--cf-text-primary);
+}
+
+/* "Desglose de costos": what the panel is, under whose order it is. */
+.kicker {
+  font-size: 11px;
+  font-weight: var(--font-semibold);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--cf-text-tertiary);
+}
+
+.headerMeta {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.headerDate {
+  margin-left: auto;
+  font-family: var(--font-mono);
+  font-size: var(--font-xs);
+  color: var(--cf-text-tertiary);
 }
 
 .closeButton {
   display: flex;
+  flex-shrink: 0;
   align-items: center;
   justify-content: center;
   width: 32px;
   height: 32px;
   padding: 0;
-  color: var(--text-secondary);
+  color: var(--cf-text-secondary);
   background: none;
-  border: none;
+  border: 1px solid var(--ventas-divider);
   border-radius: var(--radius-md);
   cursor: pointer;
 }
 
 .closeButton:hover {
-  color: var(--text-primary);
-  background: var(--bg-hover);
+  color: var(--cf-text-primary);
+  background: var(--cf-bg-hover);
 }
 
+.mlLink {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  font-size: var(--font-sm);
+  font-weight: var(--font-medium);
+  color: var(--money-headline);
+  text-decoration: none;
+}
+
+.mlLink:hover {
+  text-decoration: underline;
+}
+
+/* ── Body + cards ────────────────────────────────────────── */
+
 .body {
-  padding: var(--spacing-md);
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 16px 18px;
 }
 
 .stateText {
-  color: var(--text-tertiary);
+  margin: 0;
+  color: var(--cf-text-tertiary);
   font-size: var(--font-sm);
 }
 
-.incompleteBanner {
+.card,
+.section {
+  min-width: 0;
+  padding: 14px 16px;
+  background: var(--ventas-card-bg);
+  border: 1px solid var(--ventas-divider);
+  border-radius: var(--radius-lg);
+}
+
+.cardTitle,
+.sectionTitle {
+  margin: 0 0 10px;
+  font-size: 11px;
+  font-weight: var(--font-bold);
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  color: var(--cf-text-secondary);
+}
+
+.cardTitleRow {
   display: flex;
-  align-items: flex-start;
+  align-items: center;
+  justify-content: space-between;
   gap: var(--space-2);
-  padding: var(--space-3);
-  margin-bottom: var(--spacing-md);
-  font-size: var(--font-sm);
-  color: var(--warning-text, var(--text-primary));
-  background: var(--warning-bg, var(--bg-secondary));
-  border: 1px solid var(--warning);
-  border-radius: var(--radius-md);
+  margin-bottom: 10px;
 }
 
-.incompleteBanner p {
+.cardTitleRow .cardTitle {
   margin: 0;
 }
 
-.incompleteBanner p + p {
-  margin-top: var(--space-1);
+.cardHint {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--cf-text-tertiary);
 }
+
+/* Comprador | Envío, side by side like the mockup; stacked when the panel
+   is too narrow for two readable columns. */
+.twoCol {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+  gap: 12px;
+}
+
+/* ── Producto ── */
+
+.productBlock {
+  display: flex;
+  gap: 12px;
+}
+
+.productBlock + .productBlock {
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid var(--ventas-divider);
+}
+
+.productThumb {
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+  width: 56px;
+  height: 56px;
+  color: var(--cf-text-tertiary);
+  background: var(--cf-bg-card);
+  border: 1px solid var(--ventas-divider);
+  border-radius: var(--radius-md);
+}
+
+.productInfo {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+
+.productTitle {
+  margin: 0;
+  font-size: var(--font-sm);
+  font-weight: var(--font-medium);
+  line-height: 1.35;
+  color: var(--cf-text-primary);
+}
+
+.skuChip {
+  padding: 1px 8px;
+  font-family: var(--font-mono);
+  font-size: var(--font-xs);
+  color: var(--cf-text-primary);
+  background: var(--cf-bg-card);
+  border: 1px solid var(--cf-border-default);
+  border-radius: var(--radius-base);
+}
+
+/* ── Comprador / Envío / Pago ── */
+
+.buyerNick {
+  margin: 0 0 2px;
+  font-family: var(--font-mono);
+  font-size: var(--font-sm);
+  font-weight: var(--font-semibold);
+  color: var(--cf-text-primary);
+  overflow-wrap: anywhere;
+}
+
+.contextText {
+  margin: 0 0 2px;
+  font-size: var(--font-sm);
+  color: var(--cf-text-primary);
+}
+
+.contextMuted {
+  margin: 2px 0 0;
+  font-size: var(--font-xs);
+  color: var(--cf-text-tertiary);
+}
+
+.contextList {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 0;
+}
+
+.contextRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  font-size: var(--font-sm);
+}
+
+.contextRow dt {
+  color: var(--cf-text-tertiary);
+}
+
+.contextRow dd {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin: 0;
+  text-align: right;
+  color: var(--cf-text-primary);
+}
+
+.figure {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+}
+
+.figureMuted {
+  color: var(--cf-text-tertiary);
+}
+
+.shipStatus {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0 0 4px;
+  font-size: var(--font-sm);
+  font-weight: var(--font-medium);
+}
+
+.statusDot {
+  width: 8px;
+  height: 8px;
+  border-radius: var(--radius-full);
+  background: currentColor;
+}
+
+.dot_success {
+  color: var(--tone-success-fg);
+}
+
+.dot_info {
+  color: var(--tone-info-fg);
+}
+
+.dot_warning {
+  color: var(--tone-warning-fg);
+}
+
+.dot_danger {
+  color: var(--tone-danger-fg);
+}
+
+.dot_neutral {
+  color: var(--cf-text-secondary);
+}
+
+/* The ML shipping id: the shipment's identity on this panel. */
+.shipId {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  margin: 0;
+  font-size: var(--font-sm);
+  color: var(--cf-text-primary);
+}
+
+/* The carrier's tracking number, demoted: present, small, not copyable. */
+.trackingNote {
+  margin: 6px 0 0;
+  font-size: 11px;
+  color: var(--cf-text-muted);
+  overflow-wrap: anywhere;
+}
+
+.mono {
+  font-family: var(--font-mono);
+  overflow-wrap: anywhere;
+}
+
+/* ── Money lines: (+)/(−) ── */
 
 .lineList {
   list-style: none;
@@ -85,136 +347,170 @@
 }
 
 .line {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: var(--space-2) 0;
-  border-bottom: 1px solid var(--border-primary);
+  display: grid;
+  grid-template-columns: 26px minmax(0, 1fr) auto;
+  align-items: baseline;
+  gap: 6px;
+  padding: 4px 0;
   font-size: var(--font-sm);
-  color: var(--text-primary);
+  color: var(--cf-text-primary);
+}
+
+.lineSign {
+  font-family: var(--font-mono);
+  font-size: var(--font-xs);
+  color: var(--cf-text-tertiary);
 }
 
 .lineConcepto {
-  color: var(--text-secondary);
+  color: var(--cf-text-primary);
 }
 
 .lineMonto {
+  font-family: var(--font-mono);
   font-variant-numeric: tabular-nums;
   text-align: right;
+  white-space: nowrap;
 }
 
-/* ml-ventas-neto-iibb-varios D6: a recoverable withholding line (today:
-   SIRTAC) or an informativo IVA componente -- shown, muted, never read as
-   a real subtraction. Same visual language as `.itemLine`: lower contrast
-   than `.line`, never competing with the real subtraction list above it. */
-.recuperableLine {
-  color: var(--text-tertiary);
+/* A recoverable withholding (SIRTAC) or an informativo IVA componente:
+   shown, muted, never read as a real subtraction. */
+.recuperableLine,
+.recuperableLine .lineConcepto,
+.recuperableLine .lineMonto {
+  color: var(--cf-text-tertiary);
 }
 
 .mutedNote {
-  color: var(--text-tertiary);
-  font-size: var(--font-xs, var(--font-sm));
-}
-
-/* ml-ventas-neto-iibb-varios R4: explains why Neto reads higher than what
-   ML actually deposited -- directly under the Neto total, never its own
-   competing figure. */
-.netoSubLine {
-  margin-top: var(--space-1);
-  font-size: var(--font-xs, var(--font-sm));
-  color: var(--text-tertiary);
+  color: var(--cf-text-tertiary);
+  font-size: var(--font-xs);
 }
 
 .total {
   display: flex;
-  align-items: center;
+  align-items: baseline;
   justify-content: space-between;
-  margin-top: var(--spacing-md);
-  padding: var(--space-3);
-  background: var(--bg-secondary);
-  border: 1px solid var(--border-primary);
-  border-radius: var(--radius-md);
+  gap: var(--space-3);
+  margin-top: 8px;
+  padding-top: 10px;
+  border-top: 1px solid var(--cf-border-default);
 }
 
-/* An incomplete breakdown's total is never allowed to look closed --
-   the warning border/background carry that signal instead of hiding or
-   rounding the number underneath. */
+/* An incomplete total is never allowed to look closed: amber carries the
+   signal, the number underneath stays. */
 .totalIncomplete {
-  background: var(--warning-bg, var(--bg-secondary));
-  border-color: var(--warning);
+  padding: 10px 12px;
+  background: var(--tone-warning-bg);
+  border: 1px solid var(--tone-warning-border);
+  border-radius: var(--radius-md);
 }
 
 .totalLabel {
-  font-size: var(--font-sm);
-  font-weight: var(--font-semibold);
-  color: var(--text-primary);
+  font-size: var(--font-base);
+  font-weight: var(--font-bold);
+  color: var(--cf-text-primary);
 }
 
 .totalMonto {
-  font-size: var(--font-lg);
-  font-weight: var(--font-semibold);
+  font-family: var(--font-mono);
+  font-size: 19px;
+  font-weight: var(--font-bold);
   font-variant-numeric: tabular-nums;
-  color: var(--text-primary);
+  color: var(--cf-text-primary);
 }
 
-/* total-gauss-provisorio: spacing for the "Provisorio" badge beside the
-   Total Gauss label -- reuses the global `badge`/`badge-warning` classes,
-   never a new badge style. */
-.provisionalBadge {
-  margin-left: var(--space-2);
+/* ml-ventas-neto-iibb-varios R4: why Neto reads higher than what ML
+   deposited -- under the Neto total, never its own competing figure. */
+.netoSubLine {
+  margin: 2px 0 0;
+  font-size: var(--font-xs);
+  text-align: right;
+  color: var(--cf-text-tertiary);
 }
 
-/* ml-ventas-modo-logistico PR6 — IVA breakdown / Total Gauss chain. */
-
-.section {
-  margin-top: var(--spacing-md);
-  padding-top: var(--spacing-md);
-  border-top: 1px solid var(--border-primary);
-}
-
-.sectionTitle {
-  margin: 0 0 var(--space-2) 0;
-  font-size: var(--font-sm);
-  font-weight: var(--font-semibold);
-  color: var(--text-primary);
-}
-
-.ivaAlicuota {
-  color: var(--text-tertiary);
-  font-size: var(--font-xs, var(--font-sm));
-}
-
-/* Same visual language as `.incompleteBanner`: this is the named-reason
-   box the IVA split shows INSTEAD OF a componentes table when it does
-   not reconcile -- never a bare number that would misreport it. */
-.reasonBox {
-  padding: var(--space-3);
-  font-size: var(--font-sm);
-  color: var(--warning-text, var(--text-primary));
-  background: var(--warning-bg, var(--bg-secondary));
-  border: 1px solid var(--warning);
+/* IVA por alícuota: an inset under Neto (mockup), mono and compact. */
+.inset {
+  margin-top: 12px;
+  padding: 10px 12px;
+  background: var(--cf-bg-card);
+  border: 1px solid var(--ventas-divider);
   border-radius: var(--radius-md);
 }
 
-.reasonBox p {
+.insetTitle {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0 0 6px;
+  font-size: var(--font-xs);
+  font-weight: var(--font-semibold);
+  color: var(--cf-text-secondary);
+}
+
+.insetList {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.insetLine {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 2px var(--space-3);
+  padding: 2px 0;
+  font-family: var(--font-mono);
+  font-size: var(--font-xs);
+  color: var(--cf-text-secondary);
+}
+
+.insetLine .lineConcepto {
+  color: inherit;
+}
+
+.ivaAlicuota {
+  color: var(--cf-text-tertiary);
+}
+
+.reasonBox,
+.incompleteBanner {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 10px 12px;
+  font-size: var(--font-sm);
+  color: var(--tone-warning-fg);
+  background: var(--tone-warning-bg);
+  border: 1px solid var(--tone-warning-border);
+  border-radius: var(--radius-md);
+}
+
+.incompleteBanner {
+  flex-direction: row;
+  align-items: flex-start;
+  gap: var(--space-2);
+  margin: 8px 0;
+}
+
+.reasonBox p,
+.incompleteBanner p {
   margin: 0;
 }
 
-.reasonBox p + p {
+.incompleteBanner p + p {
   margin-top: var(--space-1);
 }
 
-/* ml-ventas-desglose-costos, "detalle de productos" -- per-item lines
-   under "Monto de la operación" and per-item cost arithmetic under "Costo
-   de mercadería". Deliberately compact/muted relative to `.line`: this is
-   supporting context that explains the figure above it, never a primary
-   number in its own right, so it stays smaller and lower-contrast than
-   `.lineList`/`.total` rather than competing with them visually. */
+/* Supporting detail under a figure (products under "Monto de la
+   operación", cost arithmetic under "Costo de mercadería"): compact and
+   muted, never competing with the lines it explains. */
 .itemLineList {
   list-style: none;
-  margin: var(--space-1) 0 0 0;
-  padding: var(--space-2);
-  background: var(--bg-secondary);
+  margin: 2px 0 6px 32px;
+  padding: 6px 10px;
+  background: var(--cf-bg-card);
+  border: 1px solid var(--ventas-divider);
   border-radius: var(--radius-md);
 }
 
@@ -223,13 +519,13 @@
   align-items: baseline;
   justify-content: space-between;
   gap: var(--space-2);
-  padding: var(--space-1) 0;
-  font-size: var(--font-xs, var(--font-sm));
-  color: var(--text-tertiary);
+  padding: 3px 0;
+  font-size: var(--font-xs);
+  color: var(--cf-text-secondary);
 }
 
 .itemLine + .itemLine {
-  border-top: 1px solid var(--border-primary);
+  border-top: 1px solid var(--ventas-divider);
 }
 
 .itemLineTitle {
@@ -238,34 +534,32 @@
 }
 
 .itemLineFuente {
-  color: var(--text-tertiary);
+  color: var(--cf-text-tertiary);
 }
 
 /* The cost detail rows STACK: the title on its own line, the arithmetic
-   under it. Sharing `.itemLine`'s two-column layout put a ~100-character
-   ML title next to a long, non-shrinking arithmetic string, which wrapped
-   the title over dozens of lines. */
+   under it -- a ~100-character ML title beside a long arithmetic string
+   wrapped over dozens of lines. */
 .costoItemLine {
   display: flex;
   flex-direction: column;
   gap: 2px;
-  padding: var(--space-1) 0;
-  font-size: var(--font-xs, var(--font-sm));
-  color: var(--text-tertiary);
+  padding: 3px 0;
+  font-size: var(--font-xs);
+  color: var(--cf-text-tertiary);
 }
 
 .costoItemLine + .costoItemLine {
-  border-top: 1px solid var(--border-primary);
+  border-top: 1px solid var(--ventas-divider);
 }
 
 .costoItemLine .itemLineTitle {
   flex: none;
-  color: var(--text-secondary);
+  color: var(--cf-text-secondary);
 }
 
-/* Left-aligned under the title it belongs to: right-aligning it would put
-   the figure at the far edge of the drawer, away from what it describes. */
 .costoItemLine .itemLineMonto {
+  font-family: var(--font-mono);
   text-align: left;
 }
 
@@ -276,52 +570,68 @@
 }
 
 .itemLineWarning {
-  margin: var(--space-1) 0 0 0;
-  font-size: var(--font-xs, var(--font-sm));
-  color: var(--warning-text, var(--text-tertiary));
+  margin: 4px 0 0;
+  font-size: var(--font-xs);
+  color: var(--tone-warning-fg);
 }
 
-/* ── Header identity row + Comprador / Pago / Envío (T4) ───────────── */
+/* ── Total Gauss extras ── */
 
-.titleBlock {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-1, 4px);
-  min-width: 0;
+.provisionalBadge {
+  padding: 1px 8px;
+  font-size: var(--font-xs);
+  font-weight: var(--font-semibold);
+  color: var(--tone-warning-fg);
+  background: var(--tone-warning-bg);
+  border: 1px solid var(--tone-warning-border);
+  border-radius: var(--radius-base);
 }
 
-.identityRow {
+.provisionalNote {
+  margin: 6px 0 0;
+  font-size: var(--font-xs);
+  color: var(--tone-warning-fg);
+}
+
+.markupRow {
   display: flex;
   align-items: center;
-  gap: var(--space-2);
-  font-size: var(--font-sm);
-  color: var(--text-secondary);
+  justify-content: space-between;
+  margin-top: 8px;
 }
 
-.mono {
+.markupChip {
+  padding: 1px 8px;
   font-family: var(--font-mono);
-  overflow-wrap: anywhere;
+  font-size: var(--font-sm);
+  font-weight: var(--font-bold);
+  border-radius: var(--radius-base);
+  color: var(--cf-text-primary);
 }
 
-.mlLink {
-  display: inline-flex;
-  align-items: center;
-  gap: 2px;
-  color: var(--cf-accent-blue);
-  text-decoration: none;
+.markup_good {
+  color: var(--tone-success-fg);
+  background: var(--tone-success-bg);
 }
 
-.mlLink:hover {
-  text-decoration: underline;
+.markup_low {
+  color: var(--tone-warning-fg);
+  background: var(--tone-warning-bg);
 }
+
+.markup_negative {
+  color: var(--tone-danger-fg);
+  background: var(--tone-danger-bg);
+}
+
+/* ── Copy buttons ── */
 
 .copyButton {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  padding: 2px;
-  margin-left: var(--space-1, 4px);
-  color: var(--text-tertiary);
+  padding: 3px;
+  color: var(--cf-text-tertiary);
   background: none;
   border: none;
   border-radius: var(--radius-sm, 4px);
@@ -329,83 +639,34 @@
 }
 
 .copyButton:hover {
-  color: var(--text-primary);
-  background: var(--bg-hover);
+  color: var(--cf-text-primary);
+  background: var(--cf-bg-hover);
+}
+
+.copyButtonCompact {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  padding: 2px;
+  color: var(--cf-text-tertiary);
+  background: none;
+  border: none;
+  border-radius: var(--radius-sm, 4px);
+  cursor: pointer;
+}
+
+.copyButtonCompact:hover {
+  color: var(--cf-text-primary);
+  background: var(--cf-bg-hover);
 }
 
 .copiedNote {
   font-size: var(--font-xs);
-  color: var(--text-tertiary);
+  color: var(--cf-text-tertiary);
 }
 
-.contextGrid {
-  display: grid;
-  grid-template-columns: 1fr;
-  gap: var(--spacing-sm, 8px);
-  margin-bottom: var(--spacing-md);
-}
-
-.contextCard {
-  padding: var(--space-3);
-  background: var(--bg-secondary);
-  border: 1px solid var(--border-primary);
-  border-radius: var(--radius-md);
-}
-
-.contextTitle {
-  margin: 0 0 var(--space-2);
-  font-size: 11px;
-  font-weight: var(--font-semibold);
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
-  color: var(--text-tertiary);
-}
-
-.buyerNick {
-  margin: 0;
-  font-family: var(--font-mono);
-  font-size: var(--font-sm);
-  color: var(--text-primary);
-  overflow-wrap: anywhere;
-}
-
-.contextText {
-  margin: 0;
-  font-size: var(--font-sm);
-  color: var(--text-primary);
-}
-
-.contextMuted {
-  margin: 0;
-  font-size: var(--font-xs);
-  color: var(--text-tertiary);
-}
-
-.contextList {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-1, 4px);
-  margin: 0;
-}
-
-.contextRow {
-  display: flex;
-  justify-content: space-between;
-  gap: var(--space-3);
-  font-size: var(--font-sm);
-}
-
-.contextRow dt {
-  color: var(--text-tertiary);
-}
-
-.contextRow dd {
-  margin: 0;
-  text-align: right;
-  color: var(--text-primary);
-}
-
-/* ── Footer: sync freshness + Resincronizar (T7) ───────────────────── */
+/* ── Footer: sync freshness + Resincronizar ── */
 
 .footer {
   position: sticky;
@@ -415,19 +676,63 @@
   justify-content: flex-end;
   flex-wrap: wrap;
   gap: var(--space-3);
-  padding: var(--spacing-md);
-  background: var(--bg-primary);
-  border-top: 1px solid var(--border-primary);
+  margin-top: auto;
+  padding: 12px 18px;
+  background: var(--cf-bg-card);
+  border-top: 1px solid var(--ventas-divider);
 }
 
 .syncedAt {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
   margin-right: auto;
+  font-family: var(--font-mono);
   font-size: var(--font-xs);
-  color: var(--text-tertiary);
+  color: var(--cf-text-tertiary);
+}
+
+.syncedDot {
+  width: 7px;
+  height: 7px;
+  border-radius: var(--radius-full);
+  background: var(--money-positive);
+}
+
+.resyncDone {
+  font-size: var(--font-xs);
+  color: var(--tone-success-fg);
+}
+
+.resyncButton {
+  composes: btn-tesla sm from '../../styles/buttons-tesla.css';
+  color: var(--cf-text-primary);
+  background: var(--cf-bg-card);
+  border: 1px solid var(--cf-border-default);
+  box-shadow: none;
+}
+
+.resyncButton:hover:not(:disabled) {
+  background: var(--cf-bg-hover);
 }
 
 .resyncError {
   flex-basis: 100%;
   font-size: var(--font-sm);
-  color: var(--error-text, var(--text-primary));
+  color: var(--tone-danger-fg);
+}
+
+/* Money tones LAST: they colour a `.lineMonto` / `.totalMonto`, whose own
+   neutral colour would otherwise win on source order at equal specificity
+   (that is how Neto came out black instead of headline blue). */
+.money_negative {
+  color: var(--money-negative);
+}
+
+.money_positive {
+  color: var(--money-positive);
+}
+
+.money_headline {
+  color: var(--money-headline);
 }

@@ -119,3 +119,22 @@ export function pageWindow(current, totalPages) {
   });
   return out;
 }
+
+/**
+ * The distinct shipping ids of a set of orders, in order of appearance. An
+ * order with no shipment contributes nothing: unknown is not an id. One
+ * place for the rule, so "the shared shipment" and "how many shipments" can
+ * never disagree.
+ */
+export function distinctShippingIds(orders) {
+  return [...new Set((orders || []).map((o) => o?.shipping_id).filter((v) => v !== null && v !== undefined))];
+}
+
+/**
+ * Same order/pack id regardless of type: the id in the URL is a string, the
+ * listing's `order_id` a number. A missing id never matches anything.
+ */
+export function sameId(a, b) {
+  if (a === null || a === undefined || b === null || b === undefined) return false;
+  return String(a) === String(b);
+}

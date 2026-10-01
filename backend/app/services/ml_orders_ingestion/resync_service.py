@@ -23,6 +23,10 @@ is therefore enqueued EXPLICITLY (`enqueue_order_metrics`), in the same
 transaction as the writes; the worker's drain recomputes the order and its
 group.
 
+Connection discipline: no pooled connection is held while waiting on ML. The
+existence check's transaction is ended before the first HTTP call; the write
+transaction begins only after the last one.
+
 Repeat protection (scenario 4): one resync per order at a time, and a short
 cooldown after one finishes. In-process on purpose -- the writes are
 idempotent upserts guarded by `ml_last_updated`, so a second API process
@@ -91,12 +95,22 @@ def _reset_guard_for_tests() -> None:
         _finished_at.clear()
 
 
+def _prune_expired(now: float) -> None:
+    """Drop entries whose cooldown is over, so `_finished_at` is bounded by
+    the resyncs of the last `COOLDOWN_SECONDS`, not by every order ever
+    resynced. Caller holds `_guard_lock`."""
+    for order_id in [oid for oid, at in _finished_at.items() if now - at >= COOLDOWN_SECONDS]:
+        del _finished_at[order_id]
+
+
 def _try_begin(order_id: int, monotonic: Callable[[], float] = time.monotonic) -> bool:
     with _guard_lock:
+        now = monotonic()
+        _prune_expired(now)
         if order_id in _in_flight:
             return False
         finished = _finished_at.get(order_id)
-        if finished is not None and monotonic() - finished < COOLDOWN_SECONDS:
+        if finished is not None and now - finished < COOLDOWN_SECONDS:
             return False
         _in_flight.add(order_id)
         return True
@@ -105,15 +119,25 @@ def _try_begin(order_id: int, monotonic: Callable[[], float] = time.monotonic) -
 def _end(order_id: int, *, completed: bool, monotonic: Callable[[], float] = time.monotonic) -> None:
     with _guard_lock:
         _in_flight.discard(order_id)
+        now = monotonic()
+        _prune_expired(now)
         # A failed attempt does not start a cooldown: the operator should be
         # able to retry at once.
         if completed:
-            _finished_at[order_id] = monotonic()
+            _finished_at[order_id] = now
 
 
 def resync_order(db: Session, order_id: int, monotonic: Callable[[], float] = time.monotonic) -> ResyncResult:
     if db.query(MlOrdersOps.order_id).filter(MlOrdersOps.order_id == order_id).first() is None:
         raise OrderNotFound(order_id)
+    # End the read transaction NOW: `_resync` makes up to three rounds of HTTP
+    # to Mercado Libre, and a session left in a transaction pins a pooled
+    # connection for all of it (QueuePool incident, PR #811). The session
+    # re-acquires one lazily for the write transaction. ROLLBACK, not commit:
+    # the existence check only read, and a commit here would persist whatever
+    # unrelated writes the caller's session holds pending (even if the guard
+    # then refuses).
+    db.rollback()
     if not _try_begin(order_id, monotonic):
         raise ResyncInProgress(order_id)
     completed = False

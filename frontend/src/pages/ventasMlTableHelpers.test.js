@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach } from 'vitest';
-import { resizeColumns, COLUMN_SIZING_STORAGE_KEY } from './ventasMlTableHelpers';
+import { resizeColumns, COLUMN_SIZING_STORAGE_KEY, distinctShippingIds, sameId } from './ventasMlTableHelpers';
 
 const ORDER = ['a', 'b', 'c'];
 const WIDTHS = { a: 100, b: 200, c: 300 };
@@ -88,5 +88,33 @@ describe('page size persistence', () => {
     expect(loadPageSize()).toBe(50);
     localStorage.setItem('ventasml:pagesize', 'abc');
     expect(loadPageSize()).toBe(50);
+  });
+});
+
+describe('distinctShippingIds', () => {
+  it('returns each shipping id once, in order of appearance', () => {
+    const orders = [{ shipping_id: 5 }, { shipping_id: 7 }, { shipping_id: 5 }];
+    expect(distinctShippingIds(orders)).toEqual([5, 7]);
+  });
+
+  it('skips orders with no shipment: unknown is not an id', () => {
+    const orders = [{ shipping_id: null }, { shipping_id: undefined }, { shipping_id: 9 }, {}];
+    expect(distinctShippingIds(orders)).toEqual([9]);
+    expect(distinctShippingIds([{ shipping_id: null }])).toEqual([]);
+    expect(distinctShippingIds([])).toEqual([]);
+  });
+});
+
+describe('sameId', () => {
+  it('matches a string id from the URL against a numeric order_id', () => {
+    expect(sameId('2000018230951686', 2000018230951686)).toBe(true);
+    expect(sameId(1001, 1001)).toBe(true);
+  });
+
+  it('never matches a different id, nor a missing one', () => {
+    expect(sameId('1002', 1001)).toBe(false);
+    expect(sameId(null, 1001)).toBe(false);
+    expect(sameId(undefined, undefined)).toBe(false);
+    expect(sameId(null, null)).toBe(false);
   });
 });

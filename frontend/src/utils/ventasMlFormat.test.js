@@ -1,5 +1,17 @@
 import { describe, it, expect } from 'vitest';
-import { mlSaleUrl, paymentMethodLabel, formatDay, timeAgo } from './ventasMlFormat';
+import { mlSaleUrl, paymentMethodLabel, formatDay, formatDateTime, timeAgo } from './ventasMlFormat';
+
+describe('formatDateTime', () => {
+  it('renders day and time without the comma Intl puts between them', () => {
+    // Local time, built from parts so the assertion does not depend on the
+    // runner's timezone.
+    expect(formatDateTime(new Date(2026, 8, 21, 9, 12))).toBe('21/09/2026 09:12');
+  });
+
+  it('renders an absent value as a dash', () => {
+    expect(formatDateTime(null)).toBe('—');
+  });
+});
 
 describe('mlSaleUrl', () => {
   it('points at the seller sale detail by order id', () => {

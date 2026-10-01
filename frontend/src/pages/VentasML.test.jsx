@@ -23,6 +23,7 @@ import userEvent from '@testing-library/user-event';
 import { renderWithRouter } from '../test/renderWithRouter';
 import VentasML from './VentasML';
 import api from '../services/api';
+import { OPERATION_STATUS_LABELS, GOODS_STATUS_LABELS, formatDateTime } from '../utils/ventasMlFormat';
 
 const mockTienePermiso = vi.fn(() => true);
 
@@ -338,8 +339,10 @@ describe('The two axes are independent and read correctly', () => {
     await waitFor(() => {
       expect(screen.getByText('comprador2')).toBeInTheDocument();
     });
-    expect(screen.getByText('Cubierta por ML')).toBeInTheDocument();
-    expect(screen.queryByText('Cancelada')).not.toBeInTheDocument();
+    // Scoped to the sale's row: the filter chips carry every label too.
+    const row = screen.getByText('comprador2').closest('tr');
+    expect(within(row).getByText('Cubierta por ML')).toBeInTheDocument();
+    expect(within(row).queryByText('Cancelada')).not.toBeInTheDocument();
   });
 
   it('renders a plain cancellation as cancelled, with the goods still in the warehouse', async () => {
@@ -362,9 +365,10 @@ describe('The two axes are independent and read correctly', () => {
       expect(screen.getByText('comprador5')).toBeInTheDocument();
     });
 
-    expect(screen.getByText('Cancelada')).toBeInTheDocument();
-    expect(screen.getByText('En depósito')).toBeInTheDocument();
-    expect(screen.queryByText('Cubierta por ML')).not.toBeInTheDocument();
+    const row = screen.getByText('comprador5').closest('tr');
+    expect(within(row).getByText('Cancelada')).toBeInTheDocument();
+    expect(within(row).getByText('En depósito')).toBeInTheDocument();
+    expect(within(row).queryByText('Cubierta por ML')).not.toBeInTheDocument();
   });
 
   it('tells a returned sale apart from one that never shipped', async () => {
@@ -385,8 +389,9 @@ describe('The two axes are independent and read correctly', () => {
       expect(screen.getByText('comprador6')).toBeInTheDocument();
     });
 
-    expect(screen.getByText('Devuelto sin entregar')).toBeInTheDocument();
-    expect(screen.queryByText('En depósito')).not.toBeInTheDocument();
+    const row = screen.getByText('comprador6').closest('tr');
+    expect(within(row).getByText('Devuelto sin entregar')).toBeInTheDocument();
+    expect(within(row).queryByText('En depósito')).not.toBeInTheDocument();
   });
 
   it('keeps an unclassified sale visible on both axes as "A revisar"', async () => {
@@ -588,10 +593,9 @@ describe('Table header structure (ventas-ml-encabezados-fijos-y-tabla-compacta)'
       expect.arrayContaining([
         'Producto',
         'Orden',
-        'Fecha',
         'Comprador',
-        'Operación',
-        'Mercadería',
+        // One column, two pills: the money axis above the goods axis.
+        'Estado',
         'Envío',
         'Importe',
         'Neto',
@@ -769,7 +773,7 @@ describe('A pack is one row', () => {
     mockSalesList([packOf([PACK_A1, PACK_A2], 2000014816536209)]);
     await renderWithRouter(<VentasML />);
 
-    expect(await screen.findByText(/Pack 2000014816536209/)).toBeInTheDocument();
+    expect(await screen.findByRole('button', { name: /Pack 2000014816536209/ })).toBeInTheDocument();
     expect(screen.getByText('2 órdenes')).toBeInTheDocument();
     expect(screen.queryByText('2000018230951686')).not.toBeInTheDocument();
   });
@@ -797,7 +801,7 @@ describe('A pack is one row', () => {
 
     // 27.868,10 + 24.750,00 — the number that was invisible while the
     // three rows stood apart.
-    expect(await screen.findByText('52.618,10')).toBeInTheDocument();
+    expect(await screen.findByText('$ 52.618,10')).toBeInTheDocument();
   });
 
   it('gives a lone order no spoiler to open', async () => {
@@ -950,7 +954,7 @@ describe('A pack is one row', () => {
         );
       });
 
-      await screen.findByText(/Pack 2000014816536209/);
+      await screen.findByRole('button', { name: /Pack 2000014816536209/ });
       await user.click(screen.getByText(PACK_A1.buyer_nickname));
 
       expect(api.get).toHaveBeenCalledWith('/ml-ventas-ops/packs/2000014816536209');
@@ -1000,7 +1004,7 @@ describe('A pack is one row', () => {
       // <button>, which calls stopPropagation -- the buyer cell is a plain
       // <td>, so a click there bubbles to the row's own onClick, same as
       // an operator clicking anywhere on the row that is not the toggle.
-      await screen.findByText(/Pack 2000014816536209/);
+      await screen.findByRole('button', { name: /Pack 2000014816536209/ });
       const buyerCell = screen.getByText(PACK_A1.buyer_nickname);
       await user.click(buyerCell);
 
@@ -1122,7 +1126,7 @@ describe('The Neto column', () => {
     await waitFor(() => expect(screen.getByText('comprador1')).toBeInTheDocument());
 
     const row = screen.getByText('comprador1').closest('tr');
-    expect(within(row).getByText('0,00')).toBeInTheDocument();
+    expect(within(row).getByText('$ 0,00')).toBeInTheDocument();
   });
 
   it('formats a positive neto like the other money columns', async () => {
@@ -1131,7 +1135,7 @@ describe('The Neto column', () => {
     await waitFor(() => expect(screen.getByText('comprador1')).toBeInTheDocument());
 
     const row = screen.getByText('comprador1').closest('tr');
-    expect(within(row).getByText('82,50')).toBeInTheDocument();
+    expect(within(row).getByText('$ 82,50')).toBeInTheDocument();
   });
 
   // The listing is denominated in ARS, so the suffix is dropped there to
@@ -1154,7 +1158,7 @@ describe('The Neto column', () => {
     await renderWithRouter(<VentasML />);
     await waitFor(() => expect(screen.getByText('comprador1')).toBeInTheDocument());
 
-    const cell = screen.getByText('1.234.567,89').closest('td');
+    const cell = screen.getByText('$ 1.234.567,89').closest('td');
     expect(cell).toHaveAttribute('title', '1.234.567,89 ARS');
   });
 
@@ -1552,7 +1556,7 @@ describe('PR14.T9/T10 — recalculating badge never shows a stale number', () =>
     await renderWithRouter(<VentasML />);
 
     expect(await screen.findAllByText(/Recalculando/)).toHaveLength(2); // Neto + Total Gauss cells
-    expect(screen.queryByText('82,50')).not.toBeInTheDocument();
+    expect(screen.queryByText(/82,50/)).not.toBeInTheDocument();
   });
 
   it('shows a distinct "no se pudo calcular" for metrics_state="failed" — never "Recalculando"', async () => {
@@ -1567,7 +1571,7 @@ describe('PR14.T9/T10 — recalculating badge never shows a stale number', () =>
     mockSalesList([{ ...PAID_SALE, neto: 82.5, total_gauss: 70, currency_id: 'ARS', metrics_state: 'ok' }]);
     await renderWithRouter(<VentasML />);
 
-    expect(await screen.findByText('82,50')).toBeInTheDocument();
+    expect(await screen.findByText('$ 82,50')).toBeInTheDocument();
   });
 
   it('a pack with one recalculating member shows the badge on the pack row, not a stale sum', async () => {
@@ -1608,7 +1612,11 @@ describe('PR14 review fix P1 — lone-sale subline and markup are visible', () =
     await renderWithRouter(<VentasML />);
 
     const row = (await screen.findByText('comprador1')).closest('tr');
-    expect(within(row).getByText('Rosario, Santa Fe · in_hub')).toBeInTheDocument();
+    // The city is the buyer's second line (the full place in its tooltip);
+    // the substatus is the Envío cell's, translated -- never raw `in_hub`.
+    expect(within(row).getByTitle('Rosario, Santa Fe')).toHaveTextContent('Rosario');
+    expect(within(row).getByText('En centro de distribución')).toBeInTheDocument();
+    expect(within(row).queryByText(/in_hub/)).not.toBeInTheDocument();
   });
 
   it('shows the markup percentage on a lone sale, not only inside an opened pack', async () => {
@@ -1996,5 +2004,61 @@ describe('the KPI strip stays in parity with the list', () => {
     await waitFor(() => {
       expect(screen.getByText('—', { selector: 'div' })).toBeInTheDocument();
     });
+  });
+});
+
+
+describe('Selected order: header pills and row highlight', () => {
+  function mockWithDetail(rows) {
+    api.get.mockImplementation((url) => {
+      if (url === '/ml-ventas-ops/sales') {
+        return Promise.resolve({
+          data: {
+            sales: rows.map(asGroup),
+            total: rows.length,
+            limit: 50,
+            offset: 0,
+            facets: { operation_status: {}, goods_status: {} },
+          },
+        });
+      }
+      if (url.startsWith('/ml-ventas-ops/orders/')) {
+        return Promise.resolve({
+          data: { breakdown: { lines: [], neto: 1, incompleto: false, incomplete_reasons: [] } },
+        });
+      }
+      return Promise.resolve({ data: {} });
+    });
+  }
+
+  it('shows the status pills and the sale date in the panel when the row is on this page', async () => {
+    mockWithDetail([PAID_SALE]);
+    await renderWithRouter(<VentasML />, { initialEntries: ['/?orden=1001'] });
+
+    const panel = await screen.findByLabelText('Detalle de venta');
+    expect(await within(panel).findByText('Orden')).toBeInTheDocument();
+    expect(within(panel).getByText(OPERATION_STATUS_LABELS.paid)).toBeInTheDocument();
+    expect(within(panel).getByText(GOODS_STATUS_LABELS.delivered)).toBeInTheDocument();
+    expect(within(panel).getByText(formatDateTime(PAID_SALE.date_created))).toBeInTheDocument();
+  });
+
+  it('omits them when the selected order is not on this page (a deep link), never guessing', async () => {
+    mockWithDetail([PAID_SALE]);
+    await renderWithRouter(<VentasML />, { initialEntries: ['/?orden=9999'] });
+
+    const panel = await screen.findByLabelText('Detalle de venta');
+    expect(await within(panel).findByText('9999')).toBeInTheDocument();
+    expect(within(panel).queryByText(OPERATION_STATUS_LABELS.paid)).not.toBeInTheDocument();
+    expect(within(panel).queryByText(formatDateTime(PAID_SALE.date_created))).not.toBeInTheDocument();
+  });
+
+  it('highlights the selected row and no other', async () => {
+    mockWithDetail([PAID_SALE, ML_COVERED_SALE]);
+    await renderWithRouter(<VentasML />, { initialEntries: ['/?orden=1001'] });
+
+    await screen.findByLabelText('Detalle de venta');
+    const selected = document.querySelectorAll('tr[class*="selectedRow"]');
+    expect(selected).toHaveLength(1);
+    expect(selected[0]).toHaveTextContent('comprador1');
   });
 });

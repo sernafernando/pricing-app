@@ -154,6 +154,31 @@ class TestReceiverAddressAndShipmentAdditiveFields:
         assert order["province"] == "Mendoza"
         assert order["shipping_substatus"] == "out_for_delivery"
 
+    def test_exposes_the_ml_shipping_id_of_each_order(self, db, client, admin_auth_headers, rol_admin):
+        """`shipping_id` is the identifier an operator pastes into Mercado
+        Libre's own tools -- the listing exposes it per order so the Envío
+        cell can lead with it instead of the carrier's tracking number."""
+        _grant_ml_ops_ver(db, rol_admin)
+        order_id = 95014
+        _seed_order(db, order_id, date_created=datetime(2026, 9, 1, tzinfo=timezone.utc), shipping_status="shipped")
+        db.commit()
+
+        body = client.get("/api/ml-ventas-ops/sales", headers=admin_auth_headers).json()
+
+        order = _group_holding(body, order_id)["orders"][0]
+        assert order["shipping_id"] == order_id * 10
+
+    def test_shipping_id_is_null_for_an_order_without_shipment(self, db, client, admin_auth_headers, rol_admin):
+        _grant_ml_ops_ver(db, rol_admin)
+        order_id = 95015
+        _seed_order(db, order_id, date_created=datetime(2026, 9, 1, tzinfo=timezone.utc))
+        db.commit()
+
+        body = client.get("/api/ml-ventas-ops/sales", headers=admin_auth_headers).json()
+
+        order = _group_holding(body, order_id)["orders"][0]
+        assert order["shipping_id"] is None
+
     def test_missing_city_key_is_null_not_an_error(self, db, client, admin_auth_headers, rol_admin):
         _grant_ml_ops_ver(db, rol_admin)
         order_id = 95011
@@ -683,3 +708,16 @@ class TestItemsAdditiveField:
 
         assert resp.status_code == 200
         assert counter.matching("ml_order_items_ops") <= 1
+
+
+class TestNestedStrField:
+    """`_nested_str_field` reads nested keys from ANY raw JSON dict (the
+    receiver address AND `raw_shipment`), so it is not named after one."""
+
+    def test_reads_a_nested_string_and_is_null_safe(self):
+        from app.routers.ml_ventas_ops import _nested_str_field
+
+        assert _nested_str_field({"city": {"name": "Rosario"}}, "city", "name") == "Rosario"
+        assert _nested_str_field({"city": None}, "city", "name") is None
+        assert _nested_str_field({"city": "x"}, "city", "name") is None
+        assert _nested_str_field(None, "city") is None

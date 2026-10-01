@@ -1,4 +1,5 @@
 import { AlertTriangle } from 'lucide-react';
+import { formatSignedMoney, markupTone, moneyTone } from '../../utils/ventasMlTone';
 import styles from './KpiStrip.module.css';
 
 /**
@@ -25,8 +26,8 @@ const MONEY_FORMAT = new Intl.NumberFormat('es-AR', {
 const PCT_FORMAT = new Intl.NumberFormat('es-AR', { maximumFractionDigits: 1 });
 
 function formatMoneyARS(value) {
-  if (value === null || value === undefined) return '—';
-  return `$ ${MONEY_FORMAT.format(Number(value))}`;
+  // `-$ 1.234,00`, never `$ -1.234,00`: the sign belongs to the figure.
+  return formatSignedMoney(value);
 }
 
 function formatOtherCurrencies(grossBilledOther) {
@@ -127,7 +128,7 @@ export default function KpiStrip({ kpi, loading, error }) {
 
         <div className={styles.card}>
           <span className={styles.label}>Neto ML</span>
-          <div className={styles.value}>{formatMoneyARS(kpi.neto_sum)}</div>
+          <div className={`${styles.value} ${styles.valueHeadline}`}>{formatMoneyARS(kpi.neto_sum)}</div>
           <div className={styles.sub}>
             {kpi.neto_unknown_count > 0 ? `${INT_FORMAT.format(kpi.neto_unknown_count)} desconocidos` : 'Depositado por ML'}
           </div>
@@ -135,7 +136,9 @@ export default function KpiStrip({ kpi, loading, error }) {
 
         <div className={styles.card}>
           <span className={styles.label}>Total Gauss</span>
-          <div className={styles.value}>{formatMoneyARS(kpi.total_gauss_sum)}</div>
+          <div className={`${styles.value} ${styles[`money_${moneyTone(kpi.total_gauss_sum)}`] || ''}`.trim()}>
+            {formatMoneyARS(kpi.total_gauss_sum)}
+          </div>
           <div className={styles.sub}>
             {kpi.total_gauss_provisional_count > 0
               ? `${INT_FORMAT.format(kpi.total_gauss_provisional_count)} provisorios`
@@ -145,7 +148,17 @@ export default function KpiStrip({ kpi, loading, error }) {
 
         <div className={styles.card}>
           <span className={styles.label}>Markup promedio</span>
-          <div className={styles.value}>{formatPct(kpi.markup_weighted_pct)}</div>
+          {/* Unknown stays a plain dash: a coloured chip would read as a
+              judgement on a number that does not exist. */}
+          {markupTone(kpi.markup_weighted_pct) === null ? (
+            <div className={styles.value}>{formatPct(kpi.markup_weighted_pct)}</div>
+          ) : (
+            <div className={styles.value}>
+              <span className={`${styles.markupChip} ${styles[`markup_${markupTone(kpi.markup_weighted_pct)}`]}`}>
+                {formatPct(kpi.markup_weighted_pct)}
+              </span>
+            </div>
+          )}
           <div className={styles.sub}>
             {kpi.markup_skipped_count > 0
               ? `${INT_FORMAT.format(kpi.markup_skipped_count)} sin datos para calcular`
@@ -154,7 +167,10 @@ export default function KpiStrip({ kpi, loading, error }) {
         </div>
 
         <div className={`${styles.card} ${styles.cardWarning}`}>
-          <span className={styles.label}>Desglose incompleto</span>
+          <span className={styles.label}>
+            Desglose incompleto
+            <AlertTriangle size={14} aria-hidden="true" />
+          </span>
           <div className={styles.value}>{INT_FORMAT.format(noUsableGaussCount)}</div>
           <div className={styles.sub}>sin Total Gauss usable</div>
           <div className={styles.sub}>

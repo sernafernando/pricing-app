@@ -1,23 +1,64 @@
 .row {
   display: flex;
   align-items: center;
-  gap: var(--spacing-xs);
   flex-wrap: wrap;
+  gap: 6px;
 }
 
 .chip {
-  border: 1px solid var(--border-color, var(--text-tertiary));
-  background: var(--bg-primary);
-  color: var(--text-secondary);
-  border-radius: var(--radius-full, 999px);
-  padding: var(--spacing-xs) var(--spacing-sm);
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 28px;
+  padding: 0 10px;
+  font-family: inherit;
   font-size: var(--font-xs);
+  font-weight: var(--font-medium);
+  color: var(--cf-text-primary);
+  background: var(--tone-neutral-bg);
+  border: 1px solid var(--tone-neutral-border);
+  border-radius: var(--radius-md);
   cursor: pointer;
   white-space: nowrap;
 }
 
+.chip:hover {
+  border-color: var(--cf-border-strong);
+}
+
+.chip:focus-visible {
+  outline: 2px solid var(--cf-accent-blue);
+  outline-offset: 1px;
+}
+
+.count {
+  font-variant-numeric: tabular-nums;
+  color: var(--cf-text-tertiary);
+}
+
+/* Active = filled primary, like the design's "Todas (1.284)". */
 .chipActive {
-  background: var(--text-primary);
-  color: var(--bg-primary);
-  border-color: var(--text-primary);
+  /* The card colour on the headline blue: white on blue in light mode,
+     near-black on light blue in dark mode -- both legible. */
+  color: var(--cf-bg-card);
+  background: var(--money-headline);
+  border-color: var(--money-headline);
+}
+
+.chipActive .count {
+  color: inherit;
+  opacity: 0.85;
+}
+
+/* Kept in the accessible name, off the screen. */
+.srOnly {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
 }

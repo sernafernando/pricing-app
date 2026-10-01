@@ -8,9 +8,11 @@ from __future__ import annotations
 
 import csv
 import io
+from contextlib import contextmanager
 from datetime import datetime, timezone
 
 import pytest
+from sqlalchemy.orm import Session
 
 from app.core.config import settings
 from app.models.ml_order_metrics import MlOrderMetrics
@@ -33,6 +35,35 @@ ALL_ON = {
 def _flag_on(monkeypatch):
     monkeypatch.setattr(settings, "ML_USER_ID", 999)
     monkeypatch.setattr(settings, "ML_ORDERS_OPS_ENABLED", True)
+
+
+@pytest.fixture(autouse=True)
+def bg_sessions(db, monkeypatch):
+    """Stands in for `get_background_db` (a real `SessionLocal` would not see
+    the test transaction) and records every short session the export opens.
+
+    Each short session is a DISTINCT `Session` bound to the test's connection
+    (same uncommitted data, different object), so a regression that hands the
+    request `db` to the page work is detectable by identity."""
+    events = {"open": 0, "close": 0, "max_open": 0, "sessions": [], "fail_on_open": None}
+
+    @contextmanager
+    def _fake():
+        events["open"] += 1
+        if events["fail_on_open"] is not None and events["open"] >= events["fail_on_open"]:
+            events["close"] += 1
+            raise RuntimeError("pool timeout")
+        events["max_open"] = max(events["max_open"], events["open"] - events["close"])
+        session = Session(bind=db.get_bind())
+        events["sessions"].append(session)
+        try:
+            yield session
+        finally:
+            session.close()
+            events["close"] += 1
+
+    monkeypatch.setattr(ml_ventas_ops, "get_background_db", _fake, raising=False)
+    return events
 
 
 def _grant(db, rol_admin):
@@ -268,3 +299,155 @@ def test_the_day_is_the_accreditation_day_not_the_creation_day(db, client, admin
     assert rows["1"]["fecha_creacion"].startswith("2026-09-03")
     assert rows["2"]["fecha_acreditacion"].startswith("2026-09-12")
     assert rows["3"]["fecha_acreditacion"].startswith("2026-09-12")
+
+
+def test_each_page_runs_in_its_own_short_session_never_the_request_one(
+    db, client, admin_auth_headers, rol_admin, monkeypatch, bg_sessions
+):
+    # 5 groups / 2 per page = 3 pages. A streaming response outlives the
+    # request handler: holding the request session for all of it pins a pooled
+    # connection while the client downloads (QueuePool incident, PR #811).
+    monkeypatch.setattr(ml_ventas_ops, "EXPORT_PAGE_SIZE", 2)
+    _grant(db, rol_admin)
+    for i in range(1, 6):
+        _sale(db, i, day=i)
+    db.commit()
+
+    resp = client.get("/api/ml-ventas-ops/sales/export", params=ALL_ON, headers=admin_auth_headers)
+
+    assert resp.status_code == 200
+    assert bg_sessions["open"] == 3
+    assert bg_sessions["close"] == 3
+    assert bg_sessions["max_open"] == 1
+
+
+def test_export_pages_skip_the_facets_and_the_alert_counter(
+    db, client, admin_auth_headers, rol_admin, monkeypatch, query_counter
+):
+    _grant(db, rol_admin)
+    _sale(db, 1)
+    _sale(db, 2, pack_id=700)
+    _sale(db, 3, pack_id=700)
+    db.commit()
+    alert_counts = []
+    real = ml_ventas_ops.alert_groups_count
+    monkeypatch.setattr(ml_ventas_ops, "alert_groups_count", lambda scope: alert_counts.append(1) or real(scope))
+
+    with query_counter() as listing:
+        assert client.get("/api/ml-ventas-ops/sales", params=ALL_ON, headers=admin_auth_headers).status_code == 200
+    assert alert_counts == [1]  # control: the listing DOES count alerts
+    assert any(" as bucket" in st for st in listing.statements)  # control: and DOES run the facets
+    alert_counts.clear()
+
+    with query_counter() as export:
+        resp = client.get("/api/ml-ventas-ops/sales/export", params=ALL_ON, headers=admin_auth_headers)
+
+    assert resp.status_code == 200
+    assert sorted(r["orden"] for r in _rows(resp)) == ["1", "2", "3"]
+    assert alert_counts == []
+    assert not any(" as bucket" in st for st in export.statements)
+
+
+def test_only_the_first_export_page_runs_the_total_count(
+    db, client, admin_auth_headers, rol_admin, monkeypatch, query_counter
+):
+    monkeypatch.setattr(ml_ventas_ops, "EXPORT_PAGE_SIZE", 2)
+    _grant(db, rol_admin)
+    for i in range(1, 6):
+        _sale(db, i, day=i)
+    db.commit()
+
+    def totals(statements):
+        return [st for st in statements if "count(distinct" in st and "group by" not in st]
+
+    with query_counter() as one_page:
+        monkeypatch.setattr(ml_ventas_ops, "EXPORT_PAGE_SIZE", 200)
+        client.get("/api/ml-ventas-ops/sales/export", params=ALL_ON, headers=admin_auth_headers)
+    monkeypatch.setattr(ml_ventas_ops, "EXPORT_PAGE_SIZE", 2)
+    with query_counter() as three_pages:
+        resp = client.get("/api/ml-ventas-ops/sales/export", params=ALL_ON, headers=admin_auth_headers)
+
+    assert len(_rows(resp)) == 5
+    assert len(totals(one_page.statements)) >= 1
+    assert len(totals(three_pages.statements)) == len(totals(one_page.statements))
+
+
+def test_the_request_session_is_closed_before_the_first_byte_streams(
+    db, client, admin_auth_headers, rol_admin, monkeypatch, bg_sessions
+):
+    monkeypatch.setattr(ml_ventas_ops, "EXPORT_PAGE_SIZE", 2)
+    _grant(db, rol_admin)
+    for i in range(1, 6):
+        _sale(db, i, day=i)
+    db.commit()
+    timeline = []
+    real_close = db.close
+    monkeypatch.setattr(db, "close", lambda: (timeline.append(("request_close", bg_sessions["open"])), real_close())[1])
+
+    resp = client.get("/api/ml-ventas-ops/sales/export", params=ALL_ON, headers=admin_auth_headers)
+
+    assert resp.status_code == 200
+    assert len(_rows(resp)) == 5
+    # Closed once the first page was read (1 short session so far), never
+    # later, i.e. before page 2's session opens.
+    assert timeline and timeline[0] == ("request_close", 1)
+
+
+def test_the_page_work_runs_on_the_short_session_not_the_request_one(
+    db, client, admin_auth_headers, rol_admin, monkeypatch, bg_sessions
+):
+    monkeypatch.setattr(ml_ventas_ops, "EXPORT_PAGE_SIZE", 2)
+    _grant(db, rol_admin)
+    for i in range(1, 6):
+        _sale(db, i, day=i)
+    db.commit()
+    used = {"sales_page": [], "dates": []}
+    real_page = ml_ventas_ops._sales_page
+    real_dates = ml_ventas_ops.member_accreditation_dates
+    monkeypatch.setattr(
+        ml_ventas_ops, "_sales_page", lambda s, *a, **k: used["sales_page"].append(s) or real_page(s, *a, **k)
+    )
+    monkeypatch.setattr(
+        ml_ventas_ops,
+        "member_accreditation_dates",
+        lambda s, *a, **k: used["dates"].append(s) or real_dates(s, *a, **k),
+    )
+
+    resp = client.get("/api/ml-ventas-ops/sales/export", params=ALL_ON, headers=admin_auth_headers)
+
+    assert resp.status_code == 200
+    assert len(used["sales_page"]) == 3 and len(used["dates"]) == 3
+    for s in used["sales_page"] + used["dates"]:
+        assert s is not db
+        assert any(s is opened for opened in bg_sessions["sessions"])
+
+
+def test_a_page_that_fails_mid_stream_ends_the_file_with_an_explicit_error_line(
+    db, client, admin_auth_headers, rol_admin, monkeypatch, bg_sessions
+):
+    # Page 1 is fetched before the 200; pages 2+ open their session inside the
+    # stream, after the header went out: a failure there cannot change the
+    # status, so the file itself must say it is incomplete.
+    monkeypatch.setattr(ml_ventas_ops, "EXPORT_PAGE_SIZE", 2)
+    _grant(db, rol_admin)
+    for i in range(1, 6):
+        _sale(db, i, day=i)
+    db.commit()
+    bg_sessions["fail_on_open"] = 2
+
+    resp = client.get("/api/ml-ventas-ops/sales/export", params=ALL_ON, headers=admin_auth_headers)
+
+    assert resp.status_code == 200
+    lines = resp.content.decode("utf-8-sig").splitlines()
+    assert lines[-1] == "# ERROR: exportación incompleta — 2 de 5 ventas exportadas. Volvé a intentar."
+    assert sum(1 for line in lines[1:-1]) == 2  # only page 1's rows precede it
+
+
+def test_a_complete_export_has_no_error_line(db, client, admin_auth_headers, rol_admin):
+    _grant(db, rol_admin)
+    _sale(db, 1)
+    db.commit()
+    text = client.get("/api/ml-ventas-ops/sales/export", params=ALL_ON, headers=admin_auth_headers).content.decode(
+        "utf-8-sig"
+    )
+    assert "# ERROR" not in text

@@ -1,19 +1,26 @@
+/* Sits in a right-aligned money cell. It WRAPS instead of `nowrap`: "No se
+   pudo calcular" is wider than a compressed money column, and a single
+   unbreakable line spilled into the next one. */
 .badge {
-  display: inline-flex;
-  align-items: center;
-  gap: var(--spacing-xs);
-  font-size: var(--font-xs);
+  display: inline;
+  font-size: 11.5px;
   font-weight: var(--font-medium);
-  color: var(--text-secondary);
-  white-space: nowrap;
+  line-height: 1.3;
+  text-align: right;
+  color: var(--cf-text-secondary);
+}
+
+.badge svg {
+  margin-right: 3px;
+  vertical-align: -2px;
 }
 
 .failed {
-  color: var(--error);
+  color: var(--tone-danger-fg);
 }
 
 .pending {
-  color: var(--text-tertiary);
+  color: var(--cf-text-tertiary);
 }
 
 .spin {

@@ -108,7 +108,9 @@ def _store_order(db, status="paid"):
             shipping_id=SHIPMENT_ID,
         )
     )
-    db.flush()
+    # Committed, like the real stored order: the service releases its read
+    # transaction with a rollback, which must not discard what was stored.
+    db.commit()
 
 
 def _ml(monkeypatch, *, order=None, payment=None, shipment=None):
@@ -263,6 +265,105 @@ class TestRepeatedResync:
         resync_order(db, ORDER_ID)
 
         assert enqueued == [([ORDER_ID], "resync")]
+
+
+class TestNoConnectionHeldWhileWaitingOnMl:
+    """Every HTTP call to ML must run with the DB session idle: a pooled
+    connection pinned for the duration of up to 3 round trips is the
+    QueuePool-exhaustion defect class (PR #811)."""
+
+    def test_the_session_has_no_open_transaction_during_any_ml_call(self, db, monkeypatch, enqueued):
+        _store_order(db)
+        seen = []
+
+        def watching(name, payload):
+            async def _call(*args, **kwargs):
+                seen.append((name, db.in_transaction()))
+                return payload
+
+            return _call
+
+        monkeypatch.setattr(ml_webhook_client, "get_order", watching("order", _ml_order()))
+        monkeypatch.setattr(ml_webhook_client, "get_payment", watching("payment", _ml_payment()))
+        monkeypatch.setattr(ml_webhook_client, "get_shipment", watching("shipment", _ml_shipment()))
+        monkeypatch.setattr(ml_webhook_client, "get_shipment_costs", watching("costs", None))
+
+        resync_order(db, ORDER_ID)
+
+        assert {name for name, _ in seen} >= {"order", "payment", "shipment"}
+        assert [name for name, in_tx in seen if in_tx] == []
+        assert enqueued == [([ORDER_ID], "resync")]
+
+
+class TestReleasingTheConnectionNeverCommitsOthersWrites:
+    """The existence check is a read: ending its transaction must not persist
+    unrelated pending writes the caller's session holds, nor commit when the
+    guard then refuses."""
+
+    def _pending_unrelated_write(self, db):
+        other = ORDER_ID + 1
+        db.add(
+            MlOrdersOps(
+                order_id=other,
+                status="paid",
+                ml_last_updated=STORED_AT,
+                date_created=STORED_AT,
+                seller_id=999,
+            )
+        )
+        return other
+
+    def _persisted(self, db, order_id):
+        return db.query(MlOrdersOps.order_id).filter(MlOrdersOps.order_id == order_id).first() is not None
+
+    def test_a_refused_resync_does_not_commit_pending_writes(self, db, monkeypatch, enqueued):
+        _store_order(db)
+        _ml(monkeypatch, order=_ml_order(), payment=_ml_payment(), shipment=_ml_shipment())
+        assert resync_service._try_begin(ORDER_ID)
+        other = self._pending_unrelated_write(db)
+
+        with pytest.raises(ResyncInProgress):
+            resync_order(db, ORDER_ID)
+
+        assert not self._persisted(db, other)
+
+    def test_a_resync_does_not_commit_pending_writes_while_waiting_on_ml(self, db, monkeypatch, enqueued):
+        _store_order(db)
+        other = self._pending_unrelated_write(db)
+        seen = []
+
+        async def _order(*args, **kwargs):
+            seen.append(self._persisted(db, other))
+            return None
+
+        monkeypatch.setattr(ml_webhook_client, "get_order", _order)
+
+        with pytest.raises(ResyncFailed):
+            resync_order(db, ORDER_ID)
+
+        assert seen == [False]
+
+
+class TestGuardPrunesExpiredEntries:
+    def test_a_finished_entry_is_dropped_once_its_cooldown_passed(self, db, monkeypatch, enqueued):
+        _store_order(db)
+        _ml(monkeypatch, order=_ml_order(), payment=_ml_payment(), shipment=_ml_shipment())
+        resync_order(db, ORDER_ID, monotonic=lambda: 1000.0)
+        assert ORDER_ID in resync_service._finished_at
+
+        later = 1000.0 + resync_service.COOLDOWN_SECONDS + 1
+        assert resync_service._try_begin(ORDER_ID + 1, monotonic=lambda: later)
+
+        assert ORDER_ID not in resync_service._finished_at
+
+    def test_end_prunes_too_and_keeps_entries_still_cooling_down(self):
+        resync_service._finished_at[1] = 1000.0
+        resync_service._finished_at[2] = 1500.0
+        resync_service._in_flight.add(3)
+
+        resync_service._end(3, completed=True, monotonic=lambda: 1500.0 + 1)
+
+        assert set(resync_service._finished_at) == {2, 3}
 
 
 class TestEnqueueOrderMetrics:

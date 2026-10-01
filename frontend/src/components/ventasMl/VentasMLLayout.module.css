@@ -34,8 +34,8 @@
   overflow-y: auto;
   display: flex;
   flex-direction: column;
-  background: var(--bg-primary);
-  border: 1px solid var(--border-primary);
+  background: var(--cf-bg-card);
+  border: 1px solid var(--ventas-divider);
   border-radius: var(--radius-md);
   box-shadow: var(--cf-shadow-modal);
   z-index: var(--z-sticky);
@@ -57,24 +57,32 @@
   border: 0;
 }
 
-/* <1280px: fixed right sheet, no backdrop, still non-modal — the table
+/* <1600px: fixed right sheet, no backdrop, still non-modal — the table
    stays scrollable/selectable behind it, unlike the deleted overlay
-   modal this replaces. */
-@media (max-width: 1279px) {
+   modal this replaces.
+
+   The cut used to be 1280px, so a 1366px laptop got the side-by-side
+   layout: a 420px panel next to a table left with ~800px for nine money
+   columns, which is exactly where the amounts and badges started spilling
+   into each other. The design's own detail view (`detalle.jpg`) is this
+   sheet over the list; side-by-side needs a wide monitor. */
+@media (max-width: 1599px) {
   .gridWithPanel {
     grid-template-columns: minmax(0, 1fr);
   }
 
   .panel {
     position: fixed;
-    top: 0;
+    /* Below the fixed TopBar, which would otherwise cover the panel's own
+       header (order id, close button). */
+    top: var(--cf-topbar-height);
     right: 0;
     bottom: 0;
-    width: var(--ventas-panel-width);
+    width: var(--ventas-sheet-width);
     max-width: 100vw;
-    max-height: 100vh;
+    max-height: calc(100vh - var(--cf-topbar-height));
     border-radius: 0;
-    border-left: 1px solid var(--border-primary);
+    border-left: 1px solid var(--ventas-divider);
     border-top: none;
     border-right: none;
     border-bottom: none;
