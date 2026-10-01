@@ -47,14 +47,36 @@ el usuario). Cambios pedidos sobre ese diseño que Stitch no llegó a aplicar:
   SUMAS (unidades, bruto, total_gauss, costo, órdenes, última venta), nunca
   porcentajes. Se actualiza en el mismo flujo del worker que recalcula las
   métricas de una venta (sin cron). Backfill por script.
+- (T1, writer) Chips de tienda: una por tienda conocida (Gauss, TP-Link
+  Oficial, Forza/Verbatim, Multimarca) + "Sin tienda", selección única como
+  las otras filas de chips. El backend acepta CSV (`stores=57997,sin_tienda`)
+  para el tablero. "Sin tienda" = el MLA no tiene ninguna fila de publicación
+  con `mlp_official_store_id` no nulo. Un pack que toca dos tiendas cuenta en
+  las dos chips (igual que un pack mixto en los facets de estado).
+- (Usuario, 2026-10-01) Nombres: la pantalla NUEVA se llama "Métricas ML" en
+  el menú y en el título, con badge "Nuevo" en el menú por ahora. El
+  dashboard viejo (`pages/DashboardMetricasML.jsx`) pasa a llamarse
+  "Métricas ML (anterior)" en menú y título — sólo etiqueta, misma ruta y
+  código. La nueva tiene su propia ruta (`/metricas-ml`).
 
 ## Tareas
 
 Ruta: delegated direct (writer único). TDD estricto.
 
-- [ ] T1 — Filtro de tienda en Ventas ML (BE `SalesFilter.stores` por EXISTS
+- [x] T1 — Filtro de tienda en Ventas ML (BE `SalesFilter.stores` por EXISTS
       como los facets de producto + param en /sales, /sales/kpis, export;
       FE chips "TIENDA:" con conteos en la tarjeta de filtros).
+      Commits: `1e03e78b` (BE + migración índice `mlp_publicationid`,
+      IF NOT EXISTS, CONCURRENTLY), `7c3765df` (FE).
+      RED visto: 13/14 tests de router fallando (listado sin filtrar, 200 en
+      vez de 422, `KeyError: 'stores'`); FE 4 fallando (sin grupo "Filtrar por
+      tienda oficial", `stores` undefined).
+      Checks: ruff format/check OK; pytest store_filter + sales/export/kpis
+      routers + services/ml_sales_query → 283 passed; Postgres
+      (`test_filters_stores_postgres.py`, ids de 16 dígitos + EXPLAIN con
+      seqscan off usa el índice de `mlp_publicationid`) 5 passed; vitest
+      144→145 archivos, 1919→1923 tests; test:visual 9 files OK; eslint 0
+      errores (8 warnings previos); lint:css OK; build OK.
 - [ ] T2 — Tabla resumen diaria + migración + actualización desde el worker
       de métricas + script de backfill (con remaining/NOT DONE como los otros).
 - [ ] T3 — Endpoint del tablero: por producto y por publicación, ventanas,
@@ -78,4 +100,4 @@ Una PR por tarea (T1 sola es útil ya; T2→T3→T4 en orden).
 
 ## Estado
 
-Creado 2026-10-01. Sin empezar.
+Creado 2026-10-01. T1 hecho; sigue T2.
