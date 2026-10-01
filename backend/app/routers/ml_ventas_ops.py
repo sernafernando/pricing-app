@@ -176,12 +176,22 @@ class OrderOpsSummary(BaseModel):
     # not send them.
     payment_method_id: Optional[str] = None
     installments: Optional[int] = None
+    # ODD `ventas-ml-ui-pendiente` T4 (panel "Pago"): the LAST approval among
+    # the order's relevant payments (same MAX rule the day filter uses) and
+    # the sum of their coupons. `None` when no relevant payment synced.
+    payment_date_approved: Optional[datetime] = None
+    coupon_amount: Optional[float] = None
 
     model_config = ConfigDict(from_attributes=True)
 
     @classmethod
     def from_order(
-        cls, order: "MlOrdersOps", payment_method_id: Optional[str], installments: Optional[int]
+        cls,
+        order: "MlOrdersOps",
+        payment_method_id: Optional[str],
+        installments: Optional[int],
+        payment_date_approved: Optional[datetime] = None,
+        coupon_amount: Optional[float] = None,
     ) -> "OrderOpsSummary":
         # Raw ML JSON: a shape we did not expect must degrade to nulls, never
         # take the whole endpoint down with it.
@@ -204,6 +214,8 @@ class OrderOpsSummary(BaseModel):
             buyer_last_name=_as_str(buyer.get("last_name")),
             payment_method_id=payment_method_id,
             installments=installments,
+            payment_date_approved=payment_date_approved,
+            coupon_amount=coupon_amount,
         )
 
 
@@ -223,8 +235,32 @@ class ShipmentOpsSummary(BaseModel):
     status: Optional[str] = None
     substatus: Optional[str] = None
     tracking_number: Optional[str] = None
+    # ODD `ventas-ml-ui-pendiente` T4 (panel "Envio"): all derived from rows
+    # we already persist, null when absent. `estimated_delivery` is ML's
+    # `shipping_option.estimated_delivery_final.date` inside `raw_shipment`.
+    modo_logistico: Optional[str] = None
+    city: Optional[str] = None
+    province: Optional[str] = None
+    estimated_delivery: Optional[str] = None
 
     model_config = ConfigDict(from_attributes=True)
+
+    @classmethod
+    def from_shipment(cls, shipment: "MlShipmentOps") -> "ShipmentOpsSummary":
+        return cls(
+            shipment_id=shipment.shipment_id,
+            status=shipment.status,
+            substatus=shipment.substatus,
+            tracking_number=shipment.tracking_number,
+            modo_logistico=resolve_modo_logistico(
+                shipment_logistic_type=shipment.logistic_type, has_shipment=True, tagged_no_shipping=False
+            ),
+            city=_receiver_address_field(shipment.receiver_address, "city", "name"),
+            province=_receiver_address_field(shipment.receiver_address, "state", "name"),
+            estimated_delivery=_receiver_address_field(
+                shipment.raw_shipment, "shipping_option", "estimated_delivery_final", "date"
+            ),
+        )
 
 
 class ClaimSummary(BaseModel):
@@ -1859,6 +1895,16 @@ def obtener_operacion(
     payment_raw = first_payment.raw_payload if first_payment and isinstance(first_payment.raw_payload, dict) else {}
     payment_method_id = _as_str(payment_raw.get("payment_method_id"))
     installments = _as_int(payment_raw.get("installments"))
+    relevant_payment_dates = [
+        row.date_approved
+        for row in db.query(MlPaymentOps.date_approved).filter(
+            MlPaymentOps.order_id == order_id,
+            MlPaymentOps.status.in_(RELEVANT_PAYMENT_STATUSES),
+            MlPaymentOps.date_approved.isnot(None),
+        )
+    ]
+    payment_date_approved = max(relevant_payment_dates) if relevant_payment_dates else None
+    order_coupon = _coupon_amount_by_order(db, [order_id]).get(order_id)
 
     shipment = None
     if order.shipping_id is not None:
@@ -1931,9 +1977,15 @@ def obtener_operacion(
         envio_flex_prorateado = sibling_sharing_shipment is not None
 
     return SaleCentricOperation(
-        order=OrderOpsSummary.from_order(order, payment_method_id, installments),
+        order=OrderOpsSummary.from_order(
+            order,
+            payment_method_id,
+            installments,
+            payment_date_approved=payment_date_approved,
+            coupon_amount=float(order_coupon) if order_coupon is not None else None,
+        ),
         items=[OrderItemOpsSummary.model_validate(item) for item in items],
-        shipment=ShipmentOpsSummary.model_validate(shipment) if shipment else None,
+        shipment=ShipmentOpsSummary.from_shipment(shipment) if shipment else None,
         claim=ClaimSummary.model_validate(claim) if claim else None,
         questions=[QuestionSummary.model_validate(q) for q in questions],
         messages=[MessageSummary.model_validate(m) for m in messages],

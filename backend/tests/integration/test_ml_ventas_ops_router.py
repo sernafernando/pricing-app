@@ -650,6 +650,124 @@ class TestOrderDetailAdditiveDetailFields:
         assert body["order"]["installments"] is None
 
 
+class TestOrderDetailPanelFields:
+    """ODD `ventas-ml-ui-pendiente` T4: what the redesigned panel's
+    Comprador / Pago / Envio sections need beyond the fields above. Every
+    value is read from data we already persist (no new ML call) and is null
+    when absent, never invented. The shipment's `estimated_delivery` reads
+    ML's documented `shipping_option.estimated_delivery_final.date` out of
+    `raw_shipment` (no captured shipment fixture exists in the repo, so that
+    one shape is modelled on ML's documented response)."""
+
+    def _seed(self, db, order_id: int, *, with_estimate: bool = True) -> None:
+        shipment_id = order_id + 1
+        raw_shipment = {"id": shipment_id}
+        if with_estimate:
+            raw_shipment["shipping_option"] = {
+                "estimated_delivery_final": {"date": "2026-09-12T00:00:00.000-03:00", "offset": 0}
+            }
+        db.add(
+            MlOrdersOps(
+                order_id=order_id,
+                pack_id=2000099900000001,
+                status="paid",
+                ml_last_updated=datetime(2026, 9, 9, tzinfo=timezone.utc),
+                seller_id=999,
+                shipping_id=shipment_id,
+                paid_amount=Decimal("1000.00"),
+            )
+        )
+        db.add(
+            MlShipmentOps(
+                shipment_id=shipment_id,
+                status="ready_to_ship",
+                substatus="printed",
+                logistic_type="self_service",
+                tracking_number="MEL123456",
+                receiver_address={"city": {"name": "Rosario"}, "state": {"name": "Santa Fe"}},
+                raw_shipment=raw_shipment,
+            )
+        )
+        # Two relevant payments + one rejected: the date is the LAST relevant
+        # approval (same MAX rule the day filter uses), the coupon sums only
+        # relevant payments.
+        db.add(
+            MlPaymentOps(
+                payment_id=order_id + 10,
+                order_id=order_id,
+                status="approved",
+                coupon_amount=Decimal("100.00"),
+                date_approved=datetime(2026, 9, 9, 12, 0, tzinfo=timezone.utc),
+            )
+        )
+        db.add(
+            MlPaymentOps(
+                payment_id=order_id + 11,
+                order_id=order_id,
+                status="approved",
+                coupon_amount=Decimal("50.00"),
+                date_approved=datetime(2026, 9, 10, 8, 0, tzinfo=timezone.utc),
+            )
+        )
+        db.add(
+            MlPaymentOps(
+                payment_id=order_id + 12,
+                order_id=order_id,
+                status="rejected",
+                coupon_amount=Decimal("999.00"),
+                date_approved=datetime(2026, 9, 11, 8, 0, tzinfo=timezone.utc),
+            )
+        )
+        db.commit()
+
+    def test_exposes_payment_date_coupon_and_shipping_detail(self, db, client, admin_auth_headers, rol_admin) -> None:
+        self._seed(db, 9200001)
+        _grant_ml_ops_ver(db, rol_admin)
+
+        body = client.get("/api/ml-ventas-ops/orders/9200001", headers=admin_auth_headers).json()
+
+        assert body["order"]["payment_date_approved"].startswith("2026-09-10T08:00")
+        assert body["order"]["coupon_amount"] == pytest.approx(150.0)
+        assert body["shipment"]["modo_logistico"] == "self_service"
+        assert body["shipment"]["city"] == "Rosario"
+        assert body["shipment"]["province"] == "Santa Fe"
+        assert body["shipment"]["tracking_number"] == "MEL123456"
+        assert body["shipment"]["estimated_delivery"].startswith("2026-09-12")
+
+    def test_nulls_everything_when_the_data_is_not_there(self, db, client, admin_auth_headers, rol_admin) -> None:
+        db.add(
+            MlOrdersOps(
+                order_id=9200020,
+                status="paid",
+                ml_last_updated=datetime(2026, 9, 9, tzinfo=timezone.utc),
+                seller_id=999,
+                shipping_id=9200021,
+            )
+        )
+        db.add(MlShipmentOps(shipment_id=9200021, status="ready_to_ship", raw_shipment={"unexpected": "shape"}))
+        db.commit()
+        _grant_ml_ops_ver(db, rol_admin)
+
+        body = client.get("/api/ml-ventas-ops/orders/9200020", headers=admin_auth_headers).json()
+
+        assert body["order"]["payment_date_approved"] is None
+        assert body["order"]["coupon_amount"] is None
+        assert body["shipment"]["city"] is None
+        assert body["shipment"]["province"] is None
+        assert body["shipment"]["estimated_delivery"] is None
+
+    def test_a_hostile_raw_shipment_never_breaks_the_endpoint(self, db, client, admin_auth_headers, rol_admin) -> None:
+        self._seed(db, 9200030, with_estimate=False)
+        shipment = db.query(MlShipmentOps).filter(MlShipmentOps.shipment_id == 9200031).one()
+        shipment.raw_shipment = {"shipping_option": {"estimated_delivery_final": "not-a-dict"}}
+        db.commit()
+        _grant_ml_ops_ver(db, rol_admin)
+
+        resp = client.get("/api/ml-ventas-ops/orders/9200030", headers=admin_auth_headers)
+        assert resp.status_code == 200
+        assert resp.json()["shipment"]["estimated_delivery"] is None
+
+
 class TestOrderDetailIvaRazones:
     """PR12.T3/T4: the IVA non-reconcile display carries the specific,
     already-persisted `razones` (BREAKDOWN R34) -- not a bare "no

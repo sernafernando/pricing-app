@@ -214,3 +214,41 @@ export function couponAmountOf(orders) {
   }
   return sum > 0 ? sum : null;
 }
+
+const DAY_FORMAT = new Intl.DateTimeFormat('es-AR', { day: '2-digit', month: '2-digit', year: 'numeric' });
+
+/** Day only (no time), `—` for an absent or unparseable value. */
+export function formatDay(value) {
+  if (!value) return '—';
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? '—' : DAY_FORMAT.format(date);
+}
+
+// Seller-side sale page on Mercado Libre. A pack is one purchase in ML's
+// sales screen, so it is addressed by `pack_id` when there is one. Built from
+// data we already hold; `null` (link hidden) without an id.
+export function mlSaleUrl({ orderId, packId }) {
+  const id = packId ?? orderId;
+  if (id === null || id === undefined) return null;
+  return `https://www.mercadolibre.com.ar/ventas/${id}/detalle`;
+}
+
+const PAYMENT_METHOD_LABELS = {
+  account_money: 'Dinero en cuenta',
+  visa: 'Visa',
+  debvisa: 'Visa débito',
+  master: 'Mastercard',
+  debmaster: 'Mastercard débito',
+  amex: 'American Express',
+  naranja: 'Naranja',
+  cabal: 'Cabal',
+  consumer_credit: 'Cuotas sin tarjeta (Mercado Crédito)',
+  debit_card: 'Tarjeta de débito',
+  credit_card: 'Tarjeta de crédito',
+};
+
+/** Human name for ML's `payment_method_id`; an unknown id is shown raw. */
+export function paymentMethodLabel(id) {
+  if (!id) return null;
+  return PAYMENT_METHOD_LABELS[id] || id;
+}
