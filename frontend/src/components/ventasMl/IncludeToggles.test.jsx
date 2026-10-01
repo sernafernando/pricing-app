@@ -14,24 +14,46 @@ const VALUES = {
   includeInDispute: true,
   includeMixed: true,
   includeProvisional: true,
+  includeCancelled: true,
 };
 
-const EXCLUDED = { a_revisar: 3, en_disputa: 1, mixta: 0, provisorio: 5 };
+const EXCLUDED = { a_revisar: 3, en_disputa: 1, mixta: 0, provisorio: 5, canceladas: 7 };
 
 describe('IncludeToggles', () => {
   it('renders the four toggles, all checked by default', () => {
     render(<IncludeToggles values={VALUES} excludedByToggle={EXCLUDED} onChange={vi.fn()} />);
-    expect(screen.getByRole('checkbox', { name: /sin clasificar/i })).toBeChecked();
+    expect(screen.getByRole('checkbox', { name: /a revisar/i })).toBeChecked();
     expect(screen.getByRole('checkbox', { name: /en disputa/i })).toBeChecked();
     expect(screen.getByRole('checkbox', { name: /mixta/i })).toBeChecked();
     expect(screen.getByRole('checkbox', { name: /provisorio/i })).toBeChecked();
+  });
+
+  it('has a Canceladas switch, ON by default, that reports its own key', async () => {
+    const user = userEvent.setup();
+    const onChange = vi.fn();
+    render(<IncludeToggles values={VALUES} excludedByToggle={EXCLUDED} onChange={onChange} />);
+    const toggle = screen.getByRole('checkbox', { name: /canceladas/i });
+    expect(toggle).toBeChecked();
+    await user.click(toggle);
+    expect(onChange).toHaveBeenCalledWith('includeCancelled', false);
+  });
+
+  it('shows how many cancelled groups Canceladas hides while it is OFF', () => {
+    render(
+      <IncludeToggles
+        values={{ ...VALUES, includeCancelled: false }}
+        excludedByToggle={EXCLUDED}
+        onChange={vi.fn()}
+      />,
+    );
+    expect(screen.getByText('+7')).toBeInTheDocument();
   });
 
   it('calls onChange with the toggled key and the new value', async () => {
     const user = userEvent.setup();
     const onChange = vi.fn();
     render(<IncludeToggles values={VALUES} excludedByToggle={EXCLUDED} onChange={onChange} />);
-    await user.click(screen.getByRole('checkbox', { name: /sin clasificar/i }));
+    await user.click(screen.getByRole('checkbox', { name: /a revisar/i }));
     expect(onChange).toHaveBeenCalledWith('includeUnknown', false);
   });
 
@@ -43,7 +65,7 @@ describe('IncludeToggles', () => {
         onChange={vi.fn()}
       />
     );
-    // "Sin clasificar" is OFF and excludes 3 groups -> its count shows.
+    // "A revisar" is OFF and excludes 3 groups -> its count shows.
     expect(screen.getByText('+3')).toBeInTheDocument();
 
     // And the half that makes the assertion above mean anything: the badge
@@ -59,6 +81,6 @@ describe('IncludeToggles', () => {
 
   it('renders with no crash when excludedByToggle is not loaded yet', () => {
     render(<IncludeToggles values={VALUES} excludedByToggle={null} onChange={vi.fn()} />);
-    expect(screen.getByRole('checkbox', { name: /sin clasificar/i })).toBeInTheDocument();
+    expect(screen.getByRole('checkbox', { name: /a revisar/i })).toBeInTheDocument();
   });
 });

@@ -201,3 +201,16 @@ export function groupAlertReason(orders, level) {
   const culprit = orders.find((o) => o.alert_level === level);
   return orderAlertReason(culprit);
 }
+
+// ML coupon (`coupon_amount`, summed per order by the backend over the
+// order's relevant payments). A pack's coupon is the sum of its orders'.
+// `null` = nothing to show: zero, absent and non-numeric all read the same,
+// the sub-line only exists when a coupon was actually applied.
+export function couponAmountOf(orders) {
+  let sum = 0;
+  for (const order of orders || []) {
+    const value = Number(order?.coupon_amount);
+    if (Number.isFinite(value)) sum += value;
+  }
+  return sum > 0 ? sum : null;
+}

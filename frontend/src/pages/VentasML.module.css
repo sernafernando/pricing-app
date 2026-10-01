@@ -417,17 +417,6 @@
   color: var(--text-secondary);
 }
 
-/* ── Pagination ──────────────────────────────────────────── */
-
-.paginationBar {
-  display: flex;
-  align-items: center;
-  gap: var(--spacing-md);
-  padding: var(--spacing-md) 0;
-  font-size: var(--font-sm);
-  color: var(--text-secondary);
-}
-
 /* Last-resort horizontal scroll, only where compression has run out of
    room: below 1279px the panel is already a fixed sheet (see
    `VentasMLLayout.module.css`) and the percentage columns bottom out. The
@@ -438,4 +427,28 @@
   .tableCard {
     overflow-x: auto;
   }
+}
+
+/* Column resize grip: a thin hit area on the right edge of a header cell
+   (`.table thead th` is already `position: sticky`, so it anchors this). */
+.resizeGrip {
+  position: absolute;
+  top: 0;
+  right: 0;
+  height: 100%;
+  width: 6px;
+  cursor: col-resize;
+  touch-action: none;
+  user-select: none;
+  border-right: 2px solid transparent;
+}
+
+.table thead th:hover .resizeGrip {
+  border-right-color: var(--border-primary);
+}
+
+.resizeGrip:hover,
+.resizeGrip:focus-visible {
+  border-right-color: var(--cf-accent-blue);
+  outline: none;
 }

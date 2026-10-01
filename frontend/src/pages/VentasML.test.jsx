@@ -395,7 +395,8 @@ describe('The two axes are independent and read correctly', () => {
     await waitFor(() => {
       expect(screen.getByText('comprador3')).toBeInTheDocument();
     });
-    const revisarBadges = screen.getAllByText('A revisar');
+    // Scoped to the table: the "Incluir" toggle carries the same name.
+    const revisarBadges = within(screen.getByRole('table')).getAllByText('A revisar');
     expect(revisarBadges.length).toBe(2);
   });
 
@@ -1836,7 +1837,7 @@ describe('the KPI strip stays in parity with the list', () => {
 
     api.get.mock.calls.length = 0;
 
-    await user.click(screen.getByRole('checkbox', { name: /sin clasificar/i }));
+    await user.click(screen.getByRole('checkbox', { name: /a revisar/i }));
 
     await waitFor(() => {
       const listCall = api.get.mock.calls.find((c) => c[0] === '/ml-ventas-ops/sales');
@@ -1844,6 +1845,30 @@ describe('the KPI strip stays in parity with the list', () => {
       expect(listCall[1].params.include_unknown).toBe(false);
       expect(kpiCall[1].params.include_unknown).toBe(false);
     });
+  });
+
+  it('Canceladas off reaches the list and the KPI request, and Limpiar filtros turns it back on', async () => {
+    mockKpi();
+    const user = userEvent.setup();
+    await renderWithRouter(<VentasML />);
+    await waitFor(() => {
+      expect(api.get).toHaveBeenCalledWith('/ml-ventas-ops/sales/kpis', expect.anything());
+    });
+    // Default ON: today's numbers do not change silently.
+    const firstList = api.get.mock.calls.find((c) => c[0] === '/ml-ventas-ops/sales');
+    expect(firstList[1].params.include_cancelled).toBe(true);
+
+    api.get.mock.calls.length = 0;
+    await user.click(screen.getByRole('checkbox', { name: /canceladas/i }));
+    await waitFor(() => {
+      const listCall = api.get.mock.calls.find((c) => c[0] === '/ml-ventas-ops/sales');
+      const kpiCall = api.get.mock.calls.find((c) => c[0] === '/ml-ventas-ops/sales/kpis');
+      expect(listCall[1].params.include_cancelled).toBe(false);
+      expect(kpiCall[1].params.include_cancelled).toBe(false);
+    });
+
+    await user.click(await screen.findByRole('button', { name: /limpiar filtros/i }));
+    expect(screen.getByRole('checkbox', { name: /canceladas/i })).toBeChecked();
   });
 
   it('renders a null markup_weighted_pct from the live response as "—", not 0%', async () => {

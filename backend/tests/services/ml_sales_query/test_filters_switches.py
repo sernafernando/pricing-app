@@ -20,7 +20,12 @@ from app.core.config import settings
 from app.models.ml_order_metrics import MlOrderMetrics
 from app.models.ml_orders_ops import MlOrdersOps, MlShipmentOps
 from app.services.ml_sales_query import filters as filters_module
-from app.services.ml_sales_query.filters import SalesFilter, build_scope, effective_switches
+from app.services.ml_sales_query.filters import (
+    SalesFilter,
+    build_scope,
+    effective_switches,
+    excluded_by_toggle_counts,
+)
 
 
 @pytest.fixture(autouse=True)
@@ -212,6 +217,66 @@ class TestIncludeProvisional:
         assert _group_keys(db, scope) == {"o:31"}
 
 
+class TestIncludeCancelled:
+    """Canceladas switch (ODD `ventas-ml-ui-pendiente` T8): the operation
+    facet "Pagada" is NOT "everything but cancelled" (it leaves out
+    delivered, in dispute...), so the operator needs a switch that hides
+    exactly the groups whose COLLAPSED operation status is `cancelled`."""
+
+    def test_default_keeps_cancelled_groups(self, db):
+        _seed_order(db, 80, status="cancelled", shipping_status="delivered")
+        scope = build_scope(db, SalesFilter())
+        assert _group_keys(db, scope) == {"o:80"}
+
+    def test_include_cancelled_false_hides_a_cancelled_group(self, db):
+        _seed_order(db, 80, status="cancelled", shipping_status="delivered")
+        _seed_order(db, 81, status="paid", shipping_status="delivered")
+        scope = build_scope(db, SalesFilter(include_cancelled=False))
+        assert _group_keys(db, scope) == {"o:81"}
+
+    def test_ml_covered_cancellation_is_not_a_plain_cancellation(self, db):
+        # Money still arrived (Buyer Protection): never folded into "Canceladas".
+        _seed_order(db, 82, status="cancelled", shipping_status="delivered")
+        order = db.query(MlOrdersOps).filter(MlOrdersOps.order_id == 82).one()
+        order.covered_by_marketplace = True
+        db.flush()
+        scope = build_scope(db, SalesFilter(include_cancelled=False))
+        assert _group_keys(db, scope) == {"o:82"}
+
+    def test_pack_with_one_cancelled_member_is_mixed_not_cancelled(self, db):
+        _seed_order(db, 83, pack_id=777, status="cancelled", shipping_status="delivered")
+        _seed_order(db, 84, pack_id=777, status="paid", shipping_status="delivered")
+        scope = build_scope(db, SalesFilter(include_cancelled=False))
+        assert _group_keys(db, scope) == {"p:777"}
+
+    def test_pack_with_every_member_cancelled_is_hidden(self, db):
+        _seed_order(db, 85, pack_id=778, status="cancelled", shipping_status="delivered")
+        _seed_order(db, 86, pack_id=778, status="cancelled", shipping_status="delivered")
+        scope = build_scope(db, SalesFilter(include_cancelled=False))
+        assert _group_keys(db, scope) == set()
+
+    def test_explicit_cancelled_facet_overrides_the_switch(self, db):
+        _seed_order(db, 87, status="cancelled", shipping_status="delivered")
+        scope = build_scope(db, SalesFilter(operation_status="cancelled", include_cancelled=False))
+        assert _group_keys(db, scope) == {"o:87"}
+        assert effective_switches(SalesFilter(operation_status="cancelled", include_cancelled=False)).include_cancelled
+
+    def test_facet_counts_obey_the_switch(self, db):
+        _seed_order(db, 88, status="cancelled", shipping_status="delivered")
+        _seed_order(db, 89, status="paid", shipping_status="delivered")
+        scope = build_scope(db, SalesFilter(include_cancelled=False))
+        keys = {r.group_key for r in scope.facet_base.with_entities(scope.group_key.label("group_key")).all()}
+        assert keys == {"o:89"}
+
+    def test_excluded_by_toggle_counts_the_hidden_cancelled_groups(self, db):
+        _seed_order(db, 90, status="cancelled", shipping_status="delivered")
+        _seed_order(db, 91, status="cancelled", shipping_status="delivered")
+        _seed_order(db, 92, status="paid", shipping_status="delivered")
+        counts = excluded_by_toggle_counts(db, SalesFilter(include_cancelled=False))
+        assert counts["canceladas"] == 2
+        assert excluded_by_toggle_counts(db, SalesFilter())["canceladas"] == 0
+
+
 class TestDefaults:
     def test_defaults_match_spec_r11(self):
         f = SalesFilter()
@@ -219,6 +284,7 @@ class TestDefaults:
         assert f.include_in_dispute is False
         assert f.include_mixed is True
         assert f.include_provisional is True
+        assert f.include_cancelled is True
 
 
 class TestExplicitFacetOverridesSwitch:

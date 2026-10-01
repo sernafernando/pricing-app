@@ -56,6 +56,7 @@ import api from '../services/api';
 import VentasMLLayout from '../components/ventasMl/VentasMLLayout';
 import SaleDetailPanel from '../components/ventasMl/SaleDetailPanel';
 import PackDetailPanel from '../components/ventasMl/PackDetailPanel';
+import Pagination from '../components/ventasMl/Pagination';
 import SalesToolbar from '../components/ventasMl/SalesToolbar';
 import FacetChips from '../components/ventasMl/FacetChips';
 import ProductFiltersPanel from '../components/shared/ProductFiltersPanel';
@@ -63,7 +64,15 @@ import KpiStrip from '../components/ventasMl/KpiStrip';
 import IncludeToggles from '../components/ventasMl/IncludeToggles';
 import ColumnPicker from '../components/ventasMl/ColumnPicker';
 import { COLUMNS } from '../components/ventasMl/ventasMlColumns';
-import { loadColumnVisibility, saveColumnVisibility } from './ventasMlTableHelpers';
+import { useColumnSizing } from '../components/ml-bot/useColumnSizing';
+import { useColumnResize } from '../components/ventasMl/useColumnResize';
+import {
+  loadColumnVisibility,
+  saveColumnVisibility,
+  loadPageSize,
+  savePageSize,
+  COLUMN_SIZING_STORAGE_KEY,
+} from './ventasMlTableHelpers';
 import { useVentasMLFilters } from '../hooks/useVentasMLFilters';
 import VariosVentaPctModal from '../components/VariosVentaPctModal';
 import DateRangeFilter from '../components/DateRangeFilter';
@@ -78,8 +87,6 @@ import {
   groupMetricsState,
 } from '../utils/ventasMlFormat';
 import styles from './VentasML.module.css';
-
-const PAGE_SIZE = 50;
 
 const EMPTY_FACETS = {
   operation_status: {},
@@ -103,6 +110,7 @@ export default function VentasML() {
   const [sales, setSales] = useState([]);
   const [total, setTotal] = useState(0);
   const [offset, setOffset] = useState(0);
+  const [pageSize, setPageSizeState] = useState(loadPageSize);
   const [loading, setLoading] = useState(true);
   const [lastLoadedAt, setLastLoadedAt] = useState(null);
   // 403 (no permission) and 503 (feature switched off) are distinct
@@ -128,6 +136,7 @@ export default function VentasML() {
   const [includeInDispute, setIncludeInDispute] = useState(true);
   const [includeMixed, setIncludeMixed] = useState(true);
   const [includeProvisional, setIncludeProvisional] = useState(true);
+  const [includeCancelled, setIncludeCancelled] = useState(true);
 
   const [kpi, setKpi] = useState(null);
   const [kpiLoading, setKpiLoading] = useState(true);
@@ -179,12 +188,22 @@ export default function VentasML() {
     });
   }, []);
 
+  // User-resizable widths: same shared hook the ml-bot tables use (state in
+  // localStorage, debounced save, reset), our own key.
+  const {
+    columnSizing,
+    onColumnSizingChange,
+    reset: resetColumnSizing,
+    hasCustom: hasCustomSizing,
+  } = useColumnSizing(COLUMN_SIZING_STORAGE_KEY);
+
   const table = useReactTable({
     columns: COLUMNS,
     data: useMemo(() => [], []),
     getCoreRowModel: getCoreRowModel(),
-    state: { columnVisibility },
+    state: { columnVisibility, columnSizing },
     onColumnVisibilityChange: handleColumnVisibilityChange,
+    onColumnSizingChange,
   });
 
   const visibleColumns = table.getVisibleLeafColumns();
@@ -192,6 +211,13 @@ export default function VentasML() {
   // add up to 100% no matter how many the operator hid. `getTotalSize()`
   // would serve here too, but naming it makes the division read as what it
   // is: a share of what is actually on screen.
+  const theadRef = useRef(null);
+  const { startDrag, keyResize } = useColumnResize({
+    visibleColumns,
+    theadRef,
+    onSizingChange: onColumnSizingChange,
+  });
+  const lastVisibleColumnId = visibleColumns[visibleColumns.length - 1]?.id;
   const visibleColumnsTotalSize = visibleColumns.reduce((acc, col) => acc + col.getSize(), 0) || 1;
 
   // Panel selection lives in the `orden` URL param, consistent with this
@@ -234,6 +260,14 @@ export default function VentasML() {
     },
     [selectPack],
   );
+
+  // A new page size invalidates `offset` (page 3 of 25 is not page 3 of
+  // 100), so it always goes back to the first page.
+  const handlePageSizeChange = useCallback((size) => {
+    setPageSizeState(size);
+    savePageSize(size);
+    setOffset(0);
+  }, []);
 
   const handleOperationStatusChange = useCallback((value) => {
     setOperationStatusFilter(value);
@@ -291,6 +325,7 @@ export default function VentasML() {
     setIncludeInDispute(true);
     setIncludeMixed(true);
     setIncludeProvisional(true);
+    setIncludeCancelled(true);
     setOffset(0);
   }, [setSearchQuery, clearProductFilters]);
 
@@ -302,6 +337,7 @@ export default function VentasML() {
     else if (key === 'includeInDispute') setIncludeInDispute(value);
     else if (key === 'includeMixed') setIncludeMixed(value);
     else if (key === 'includeProvisional') setIncludeProvisional(value);
+    else if (key === 'includeCancelled') setIncludeCancelled(value);
     setOffset(0);
   }, []);
 
@@ -317,7 +353,8 @@ export default function VentasML() {
       !includeUnknown ||
       !includeInDispute ||
       !includeMixed ||
-      !includeProvisional
+      !includeProvisional ||
+      !includeCancelled
   );
 
   // "Todas" is neither `total` (scoped by BOTH axes, so it under-counts
@@ -339,7 +376,7 @@ export default function VentasML() {
       // (`buildVentasMLFilterParams`) plus its own pagination on top — the
       // one shared builder is what keeps the two requests from drifting.
       const params = {
-        limit: PAGE_SIZE,
+        limit: pageSize,
         offset,
         ...buildVentasMLFilterParams({
           operationStatusFilter,
@@ -352,6 +389,7 @@ export default function VentasML() {
           includeInDispute,
           includeMixed,
           includeProvisional,
+          includeCancelled,
         }),
       };
       const { data } = await api.get('/ml-ventas-ops/sales', { params });
@@ -389,7 +427,9 @@ export default function VentasML() {
     includeInDispute,
     includeMixed,
     includeProvisional,
+    includeCancelled,
     offset,
+    pageSize,
   ]);
 
   // T5/T6: the KPI strip's own load — same filter params as the list
@@ -415,6 +455,7 @@ export default function VentasML() {
         includeInDispute,
         includeMixed,
         includeProvisional,
+        includeCancelled,
       });
       const { data } = await api.get('/ml-ventas-ops/sales/kpis', { params });
       if (requestId !== latestKpiRequestRef.current) return;
@@ -444,6 +485,7 @@ export default function VentasML() {
     includeInDispute,
     includeMixed,
     includeProvisional,
+    includeCancelled,
   ]);
 
   useEffect(() => {
@@ -482,11 +524,6 @@ export default function VentasML() {
     return null;
   }
 
-  const isFirstPage = offset === 0;
-  const isLastPage = offset + PAGE_SIZE >= total;
-  const rangeFrom = total === 0 ? 0 : offset + 1;
-  const rangeTo = Math.min(offset + PAGE_SIZE, total);
-
   return (
     <div className={styles.container}>
       <div className={styles.header}>
@@ -496,6 +533,11 @@ export default function VentasML() {
         </div>
         <div className={styles.headerActions}>
           <ColumnPicker table={table} />
+          {hasCustomSizing && (
+            <button type="button" className="btn-tesla outline sm" onClick={resetColumnSizing}>
+              Restablecer columnas
+            </button>
+          )}
           <button
             type="button"
             className="btn-tesla outline sm"
@@ -607,7 +649,13 @@ export default function VentasML() {
         <div className={styles.filterRow}>
           <span className={styles.fieldLabel}>Incluir</span>
           <IncludeToggles
-            values={{ includeUnknown, includeInDispute, includeMixed, includeProvisional }}
+            values={{
+              includeUnknown,
+              includeInDispute,
+              includeMixed,
+              includeProvisional,
+              includeCancelled,
+            }}
             excludedByToggle={kpi?.excluded_by_toggle}
             onChange={handleToggleChange}
           />
@@ -674,17 +722,33 @@ export default function VentasML() {
               />
             ))}
           </colgroup>
-          <thead>
+          <thead ref={theadRef}>
             <tr>
               {table.getFlatHeaders().map((h) => {
                 const def = h.column.columnDef;
+                // No grip on the last visible column: its right edge is the
+                // table's edge, nothing to trade width with.
+                const resizable = h.column.getCanResize() && h.column.id !== lastVisibleColumnId;
                 return (
                   <th
                     key={h.id}
+                    data-col-id={h.column.id}
                     className={def.numeric ? styles.numeric : def.align === 'center' ? styles.colAlerta : undefined}
                     aria-label={def.header ? undefined : def.headerAriaLabel}
                   >
                     {def.header}
+                    {resizable && (
+                      <span
+                        className={styles.resizeGrip}
+                        role="separator"
+                        aria-orientation="vertical"
+                        aria-label={`Redimensionar columna ${def.header || def.headerAriaLabel}`}
+                        tabIndex={0}
+                        onMouseDown={(e) => startDrag(h.column.id, e)}
+                        onTouchStart={(e) => startDrag(h.column.id, e)}
+                        onKeyDown={(e) => keyResize(h.column.id, e)}
+                      />
+                    )}
                   </th>
                 );
               })}
@@ -817,27 +881,13 @@ export default function VentasML() {
         </table>
       </div>
 
-      <div className={styles.paginationBar}>
-        <button
-          type="button"
-          className="btn-tesla ghost sm"
-          onClick={() => setOffset((prev) => Math.max(0, prev - PAGE_SIZE))}
-          disabled={isFirstPage}
-        >
-          Anterior
-        </button>
-        <span>
-          mostrando {rangeFrom}-{rangeTo} de {total} ventas
-        </span>
-        <button
-          type="button"
-          className="btn-tesla ghost sm"
-          onClick={() => setOffset((prev) => prev + PAGE_SIZE)}
-          disabled={isLastPage}
-        >
-          Siguiente
-        </button>
-      </div>
+      <Pagination
+        total={total}
+        offset={offset}
+        pageSize={pageSize}
+        onOffsetChange={setOffset}
+        onPageSizeChange={handlePageSizeChange}
+      />
       </VentasMLLayout>
 
       <VariosVentaPctModal isOpen={variosPctModalOpen} onClose={() => setVariosPctModalOpen(false)} />

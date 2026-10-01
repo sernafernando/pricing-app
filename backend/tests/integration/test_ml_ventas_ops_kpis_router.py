@@ -367,6 +367,7 @@ class TestUrlParamRoundTrip:
             "include_in_dispute": False,
             "include_mixed": False,
             "include_provisional": True,
+            "include_cancelled": True,
         }
 
     def test_defaults_match_spec_r11_when_omitted(self, db, client, admin_auth_headers, rol_admin):
@@ -378,6 +379,7 @@ class TestUrlParamRoundTrip:
             "include_in_dispute": False,
             "include_mixed": True,
             "include_provisional": True,
+            "include_cancelled": True,
         }
 
 
@@ -575,3 +577,51 @@ class TestKpiCountsWholePacksThatStraddleTheFilter:
         assert kpi_body["orders_count"] == 2
         assert kpi_body["gross_billed_ars"] == pytest.approx(300.0)
         assert kpi_body["neto_sum"] == pytest.approx(240.0)
+
+
+class TestCanceladasToggle:
+    """ODD `ventas-ml-ui-pendiente` T8: "Canceladas" is ON by default (today's
+    numbers do not change); OFF removes the cancelled groups from the list,
+    the facets and the KPI strip through the SAME scope."""
+
+    def _seed(self, db):
+        _seed_order(db, 1, status="cancelled", payment_status="approved", total_amount=300)
+        _seed_order(db, 2, status="paid", payment_status="approved", total_amount=100)
+        _stored_metrics(db, 1)
+        _stored_metrics(db, 2)
+        db.commit()
+
+    def test_default_keeps_cancelled_sales_in_every_surface(self, db, client, admin_auth_headers, rol_admin):
+        _grant_ml_ops_ver(db, rol_admin)
+        self._seed(db)
+        listing = client.get("/api/ml-ventas-ops/sales", headers=admin_auth_headers).json()
+        kpis = client.get(
+            "/api/ml-ventas-ops/sales/kpis", params={"include_unknown": "true"}, headers=admin_auth_headers
+        )
+        assert listing["total"] == 2
+        assert kpis.json()["effective_switches"]["include_cancelled"] is True
+        assert kpis.json()["excluded_by_toggle"]["canceladas"] == 0
+
+    def test_off_hides_cancelled_in_list_facets_and_kpis_alike(self, db, client, admin_auth_headers, rol_admin):
+        _grant_ml_ops_ver(db, rol_admin)
+        self._seed(db)
+        params = {"include_cancelled": "false", "include_unknown": "true"}
+        listing = client.get("/api/ml-ventas-ops/sales", params=params, headers=admin_auth_headers).json()
+        kpis = client.get("/api/ml-ventas-ops/sales/kpis", params=params, headers=admin_auth_headers).json()
+
+        assert listing["total"] == 1
+        assert [g["group_key"] for g in listing["sales"]] == ["o:2"]
+        assert listing["facets"]["operation_status"].get("cancelled", 0) == 0
+        assert kpis["groups_count"] == 1
+        assert kpis["gross_billed_ars"] == pytest.approx(100.0)
+        assert kpis["effective_switches"]["include_cancelled"] is False
+        assert kpis["excluded_by_toggle"]["canceladas"] == 1
+
+    def test_explicit_cancelled_facet_wins_over_the_switch(self, db, client, admin_auth_headers, rol_admin):
+        _grant_ml_ops_ver(db, rol_admin)
+        self._seed(db)
+        params = {"include_cancelled": "false", "operation_status": "cancelled"}
+        listing = client.get("/api/ml-ventas-ops/sales", params=params, headers=admin_auth_headers).json()
+        kpis = client.get("/api/ml-ventas-ops/sales/kpis", params=params, headers=admin_auth_headers).json()
+        assert listing["total"] == 1
+        assert kpis["effective_switches"]["include_cancelled"] is True

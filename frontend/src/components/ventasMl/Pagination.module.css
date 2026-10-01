@@ -1,0 +1,36 @@
+.bar {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--spacing-md);
+  padding: var(--spacing-md) 0;
+  font-size: var(--font-sm);
+  color: var(--text-secondary);
+}
+
+.pages {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-xs);
+}
+
+.gap {
+  padding: 0 var(--spacing-xs);
+  color: var(--text-tertiary);
+}
+
+.size {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-xs);
+  margin-left: auto;
+}
+
+.size select {
+  padding: var(--spacing-xs) var(--spacing-sm);
+  border: 1px solid var(--border-primary);
+  border-radius: var(--radius-md);
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  font-size: var(--font-sm);
+}

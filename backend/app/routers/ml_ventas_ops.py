@@ -1240,6 +1240,7 @@ def listar_ventas(
     include_in_dispute: bool = Query(default=True, description='Incluir "En disputa" (KPI R9)'),
     include_mixed: bool = Query(default=True, description='Incluir "Mixta" (KPI R9)'),
     include_provisional: bool = Query(default=True, description='Incluir "Provisorio" (KPI R9)'),
+    include_cancelled: bool = Query(default=True, description='Incluir "Canceladas" (ODD ventas-ml-ui-pendiente T8)'),
     limit: int = Query(default=50, ge=1, le=200),
     offset: int = Query(default=0, ge=0),
     current_user: Usuario = Depends(require_permission("ml_ops.ver")),
@@ -1337,6 +1338,7 @@ def listar_ventas(
             include_in_dispute=include_in_dispute,
             include_mixed=include_mixed,
             include_provisional=include_provisional,
+            include_cancelled=include_cancelled,
         ),
     )
     op_status_expr = scope.op_status_expr
@@ -1654,6 +1656,7 @@ class SalesKpiExcludedByToggle(BaseModel):
     en_disputa: int = 0
     mixta: int = 0
     provisorio: int = 0
+    canceladas: int = 0
 
 
 class SalesKpiResponse(BaseModel):
@@ -1708,6 +1711,7 @@ def _toggle_excluded_counts(db: Session, f: SalesFilter) -> SalesKpiExcludedByTo
         en_disputa=counts["en_disputa"],
         mixta=counts["mixta"],
         provisorio=counts["provisorio"],
+        canceladas=counts["canceladas"],
     )
 
 
@@ -1730,6 +1734,7 @@ def sales_kpis(
     include_in_dispute: bool = Query(default=False, description='"En disputa" (KPI R9, R11)'),
     include_mixed: bool = Query(default=True, description='"Mixta" (KPI R9, R11)'),
     include_provisional: bool = Query(default=True, description='"Provisorio" (KPI R9, R11)'),
+    include_cancelled: bool = Query(default=True, description='"Canceladas" (ODD ventas-ml-ui-pendiente T8)'),
     current_user: Usuario = Depends(require_permission("ml_ops.ver")),
     db: Session = Depends(get_db),
 ) -> SalesKpiResponse:
@@ -1787,6 +1792,7 @@ def sales_kpis(
         include_in_dispute=include_in_dispute,
         include_mixed=include_mixed,
         include_provisional=include_provisional,
+        include_cancelled=include_cancelled,
     )
     scope = build_scope(db, sales_filter)
     result = aggregate_order_metrics(db, scope.listing_query, scope.members_base, scope.group_key)
@@ -1821,6 +1827,7 @@ def sales_kpis(
             "include_in_dispute": applied_switches.include_in_dispute,
             "include_mixed": applied_switches.include_mixed,
             "include_provisional": applied_switches.include_provisional,
+            "include_cancelled": applied_switches.include_cancelled,
         },
     )
 
