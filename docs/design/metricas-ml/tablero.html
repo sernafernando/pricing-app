@@ -1,0 +1,1102 @@
+<!DOCTYPE html>
+
+<html class="h-full bg-background text-on-background" lang="es"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>Ventas ML - Métricas</title>
+<!-- Fonts -->
+<link href="https://fonts.googleapis.com" rel="preconnect"/>
+<link crossorigin="" href="https://fonts.gstatic.com" rel="preconnect"/>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&amp;family=JetBrains+Mono:wght@400;500;600;700&amp;display=swap" rel="stylesheet"/>
+<!-- Material Symbols -->
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<!-- Tailwind CSS -->
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<script id="tailwind-config">
+    tailwind.config = {
+      darkMode: "class",
+      theme: {
+        extend: {
+          "colors": {
+            "on-background": "#1a1c1c",
+            "secondary": "#575e70",
+            "tertiary-container": "#616876",
+            "on-surface-variant": "#414753",
+            "secondary-fixed-dim": "#c0c6db",
+            "primary-fixed-dim": "#aac7ff",
+            "on-primary": "#ffffff",
+            "on-primary-fixed-variant": "#00458e",
+            "surface-bright": "#f9f9f9",
+            "error": "#ba1a1a",
+            "secondary-fixed": "#dce2f7",
+            "on-surface": "#1a1c1c",
+            "surface-dim": "#dadada",
+            "background": "#f9f9f9",
+            "on-tertiary-container": "#e1e8f8",
+            "on-secondary-container": "#5c6274",
+            "on-error": "#ffffff",
+            "inverse-on-surface": "#f0f1f1",
+            "primary": "#004e9f",
+            "on-secondary-fixed-variant": "#404758",
+            "inverse-primary": "#aac7ff",
+            "tertiary-fixed": "#dce2f3",
+            "surface-container-highest": "#e2e2e2",
+            "primary-container": "#0066cc",
+            "surface-container": "#eeeeee",
+            "outline-variant": "#c1c6d5",
+            "on-error-container": "#93000a",
+            "on-secondary": "#ffffff",
+            "secondary-container": "#d9dff5",
+            "surface-variant": "#e2e2e2",
+            "on-tertiary-fixed": "#151c27",
+            "tertiary-fixed-dim": "#c0c7d6",
+            "surface-tint": "#005cba",
+            "on-tertiary": "#ffffff",
+            "surface-container-lowest": "#ffffff",
+            "tertiary": "#49505d",
+            "surface": "#f9f9f9",
+            "error-container": "#ffdad6",
+            "on-secondary-fixed": "#141b2b",
+            "on-tertiary-fixed-variant": "#404754",
+            "inverse-surface": "#2f3131",
+            "outline": "#727784",
+            "on-primary-fixed": "#001b3e",
+            "on-primary-container": "#dfe8ff",
+            "surface-container-high": "#e8e8e8",
+            "surface-container-low": "#f3f3f4",
+            "primary-fixed": "#d7e3ff"
+          },
+          "borderRadius": {
+            "DEFAULT": "0.25rem",
+            "lg": "0.5rem",
+            "xl": "0.75rem",
+            "full": "9999px"
+          },
+          "spacing": {
+            "space-xs": "0.25rem",
+            "space-md": "0.75rem",
+            "space-lg": "1.25rem",
+            "gutter-compact": "0.5rem",
+            "space-sm": "0.5rem",
+            "space-xl": "2rem",
+            "gutter": "1rem",
+            "margin-mobile": "1rem",
+            "margin": "1.5rem"
+          },
+          "fontFamily": {
+            "headline-xl-mobile": ["Inter"],
+            "body-sm": ["Inter"],
+            "body-md": ["Inter"],
+            "label-code": ["JetBrains Mono"],
+            "headline-md": ["Inter"],
+            "data-mono": ["JetBrains Mono"],
+            "label-md": ["Inter"],
+            "headline-lg": ["Inter"],
+            "headline-xl": ["Inter"],
+            "headline-sm": ["Inter"],
+            "body-lg": ["Inter"]
+          },
+          "fontSize": {
+            "headline-xl-mobile": ["24px", { "lineHeight": "30px", "letterSpacing": "-0.015em", "fontWeight": "600" }],
+            "body-sm": ["12px", { "lineHeight": "16px", "fontWeight": "400" }],
+            "body-md": ["13px", { "lineHeight": "18px", "fontWeight": "400" }],
+            "label-code": ["12px", { "lineHeight": "16px", "fontWeight": "500" }],
+            "headline-md": ["16px", { "lineHeight": "22px", "letterSpacing": "-0.01em", "fontWeight": "600" }],
+            "data-mono": ["13px", { "lineHeight": "18px", "fontWeight": "400" }],
+            "label-md": ["11px", { "lineHeight": "14px", "letterSpacing": "0.04em", "fontWeight": "500" }],
+            "headline-lg": ["22px", { "lineHeight": "28px", "letterSpacing": "-0.015em", "fontWeight": "600" }],
+            "headline-xl": ["32px", { "lineHeight": "38px", "letterSpacing": "-0.02em", "fontWeight": "600" }],
+            "headline-sm": ["14px", { "lineHeight": "20px", "letterSpacing": "-0.005em", "fontWeight": "600" }],
+            "body-lg": ["15px", { "lineHeight": "22px", "fontWeight": "400" }]
+          }
+        },
+      },
+    }
+  </script>
+<style>
+    .material-symbols-outlined {
+      font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 20;
+      display: inline-block;
+      vertical-align: middle;
+      line-height: 1;
+    }
+    .custom-scrollbar::-webkit-scrollbar {
+      height: 6px;
+      width: 6px;
+    }
+    .custom-scrollbar::-webkit-scrollbar-track {
+      background: #f1f2f4;
+    }
+    .custom-scrollbar::-webkit-scrollbar-thumb {
+      background: #c1c6d5;
+      border-radius: 3px;
+    }
+    .custom-scrollbar::-webkit-scrollbar-thumb:hover {
+      background: #9ca3af;
+    }
+  </style>
+</head>
+<body class="min-h-full flex flex-col font-body-md text-on-surface antialiased bg-background">
+<!-- 1. TOP NAVIGATION BAR (Shared Component Execution) -->
+<header class="sticky top-0 z-50 bg-surface-container-lowest dark:bg-inverse-surface border-b border-outline-variant dark:border-outline shadow-sm">
+<div class="flex justify-between items-center w-full px-margin h-14 max-w-[1920px] mx-auto">
+<!-- Left cluster: Brand + Console Pill + Account Switcher -->
+<div class="flex items-center space-x-6">
+<div class="flex items-center space-x-2.5">
+<span class="text-headline-md font-headline-md text-primary dark:text-inverse-primary tracking-tight font-bold">Ventas ML</span>
+<span class="bg-surface-container-high text-secondary px-2 py-0.5 rounded text-[10px] font-label-code uppercase tracking-wider font-semibold border border-outline-variant/40">CONSOLE v4.2</span>
+</div>
+<div class="h-4 w-px bg-outline-variant/50"></div>
+<!-- Account switcher -->
+<button class="flex items-center space-x-2 bg-surface-container-low hover:bg-surface-container-high transition-colors px-2.5 py-1.5 rounded-lg border border-outline-variant/50 text-left">
+<span class="relative flex h-2 w-2">
+<span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+<span class="relative inline-flex rounded-full h-2 w-2 bg-emerald-600"></span>
+</span>
+<span class="font-headline-sm text-headline-sm text-on-surface">ElectroHogar Oficial (MLA)</span>
+<span class="material-symbols-outlined text-secondary text-sm">unfold_more</span>
+</button>
+<!-- Navigation Tabs: Órdenes, Envíos, Publicaciones, Métricas (ACTIVE), Finanzas -->
+<nav class="hidden md:flex items-center space-x-6 pl-2">
+<a class="text-secondary dark:text-outline-variant hover:text-on-surface dark:hover:text-inverse-on-surface font-headline-sm text-headline-sm transition-colors py-4" href="#">Órdenes</a>
+<a class="text-secondary dark:text-outline-variant hover:text-on-surface dark:hover:text-inverse-on-surface font-headline-sm text-headline-sm transition-colors py-4" href="#">Envíos</a>
+<a class="text-secondary dark:text-outline-variant hover:text-on-surface dark:hover:text-inverse-on-surface font-headline-sm text-headline-sm transition-colors py-4" href="#">Publicaciones</a>
+<a class="text-primary dark:text-inverse-primary border-b-2 border-primary dark:border-inverse-primary font-headline-sm text-headline-sm pb-1 py-4 font-semibold" href="#">Métricas</a>
+<a class="text-secondary dark:text-outline-variant hover:text-on-surface dark:hover:text-inverse-on-surface font-headline-sm text-headline-sm transition-colors py-4" href="#">Finanzas</a>
+</nav>
+</div>
+<!-- Right cluster: Trailing Actions -->
+<div class="flex items-center space-x-3">
+<button class="bg-primary hover:bg-primary-container text-on-primary px-3 py-1.5 rounded-lg font-headline-sm text-headline-sm flex items-center space-x-1.5 shadow-sm transition-all focus:ring-2 focus:ring-primary focus:outline-none">
+<span class="material-symbols-outlined text-base">sync</span>
+<span>Sincronizar</span>
+</button>
+<div class="h-4 w-px bg-outline-variant/40"></div>
+<button class="p-1.5 rounded-lg hover:bg-surface-container-high text-secondary hover:text-on-surface transition-colors relative" title="Notificaciones">
+<span class="material-symbols-outlined text-xl">notifications</span>
+<span class="absolute top-1.5 right-1.5 w-2 h-2 bg-rose-500 rounded-full ring-2 ring-surface-container-lowest"></span>
+</button>
+<button class="p-1.5 rounded-lg hover:bg-surface-container-high text-secondary hover:text-on-surface transition-colors" title="Configuración de vista">
+<span class="material-symbols-outlined text-xl">tune</span>
+</button>
+<div class="flex items-center space-x-2 pl-2">
+<div class="w-7 h-7 rounded-full bg-secondary-container text-on-secondary-fixed flex items-center justify-center font-label-code text-xs font-bold border border-outline-variant">
+            EH
+          </div>
+<span class="text-body-sm font-body-sm text-secondary font-medium">EH - Operador Principal</span>
+</div>
+</div>
+</div>
+</header>
+<!-- MAIN CANVAS -->
+<main class="flex-1 w-full max-w-[1920px] mx-auto px-margin py-5 flex flex-col space-y-4">
+<!-- 2. HEADER DE VISTA -->
+<div class="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+<div>
+<h1 class="font-headline-xl text-headline-xl text-on-surface tracking-tight font-bold">Métricas ML</h1>
+<p class="font-body-md text-body-md text-secondary">Rendimiento y rentabilidad por producto y publicación en Mercado Libre Argentina</p>
+</div>
+<div class="flex items-center space-x-3">
+<!-- Live status pulse badge -->
+<div class="flex items-center space-x-2 bg-surface-container-lowest px-3 py-1 rounded-full border border-gray-200 shadow-sm text-xs font-data-mono text-secondary">
+<span class="relative flex h-2 w-2">
+<span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+<span class="relative inline-flex rounded-full h-2 w-2 bg-emerald-600"></span>
+</span>
+<span>sincronizado hace 3 min</span>
+</div>
+<!-- Button Columnas -->
+<button class="bg-surface-container-lowest hover:bg-surface-container border border-gray-200 text-on-surface px-3 py-1.5 rounded-lg font-headline-sm text-headline-sm flex items-center space-x-1.5 shadow-sm transition-colors">
+<span class="material-symbols-outlined text-base text-secondary">view_column</span>
+<span>Columnas</span>
+</button>
+<!-- Button Exportar CSV -->
+<button class="bg-surface-container-lowest hover:bg-surface-container border border-gray-200 text-on-surface px-3 py-1.5 rounded-lg font-headline-sm text-headline-sm flex items-center space-x-1.5 shadow-sm transition-colors">
+<span class="material-symbols-outlined text-base text-secondary">download</span>
+<span>Exportar CSV</span>
+</button>
+</div>
+</div>
+<!-- 3. FILTER CARD (3 Horizontal Bands) -->
+<div class="bg-surface-container-lowest border border-gray-200 rounded-xl shadow-sm divide-y divide-gray-100">
+<!-- Band 1: Date presets, custom picker, wide search bar, Segmented Group & Compare -->
+<div class="p-3.5 flex flex-wrap items-center justify-between gap-3">
+<div class="flex flex-wrap items-center gap-2">
+<!-- Presets -->
+<div class="inline-flex rounded-lg bg-surface-container-low p-0.5 text-xs font-label-md">
+<button class="px-2.5 py-1 text-secondary hover:text-on-surface rounded font-medium">Hoy</button>
+<button class="px-2.5 py-1 text-secondary hover:text-on-surface rounded font-medium">Ayer</button>
+<button class="px-2.5 py-1 text-secondary hover:text-on-surface rounded font-medium">7d</button>
+<button class="px-2.5 py-1 text-secondary hover:text-on-surface rounded font-medium">14d</button>
+<button class="px-2.5 py-1 bg-surface-container-lowest text-primary font-bold rounded shadow-xs">30d</button>
+<button class="px-2.5 py-1 text-secondary hover:text-on-surface rounded font-medium">Mes actual</button>
+<button class="px-2.5 py-1 text-secondary hover:text-on-surface rounded font-medium">3m</button>
+</div>
+<!-- Date picker -->
+<div class="flex items-center space-x-1.5 bg-surface-container-lowest border border-gray-200 px-2.5 py-1 rounded-lg text-xs font-data-mono text-on-surface">
+<span class="material-symbols-outlined text-secondary text-sm">calendar_today</span>
+<span>01/09/2026 – 30/09/2026</span>
+</div>
+<!-- Wide search bar with cmd+k -->
+<div class="relative w-80">
+<span class="material-symbols-outlined absolute left-2.5 top-2 text-secondary text-base">search</span>
+<input class="w-full h-8 pl-8 pr-12 text-xs bg-surface-container-lowest border border-gray-200 rounded-lg focus:border-primary focus:ring-1 focus:ring-primary outline-none" placeholder="Buscar por producto, SKU, MLA o marca…" type="text"/>
+<span class="absolute right-2 top-1.5 bg-surface-container-high text-secondary text-[10px] font-data-mono px-1 rounded border border-gray-200">⌘K</span>
+</div>
+</div>
+<div class="flex flex-wrap items-center gap-4">
+<!-- Segmented selector: Agrupar por -->
+<div class="flex items-center space-x-2">
+<span class="text-label-md font-label-md text-secondary uppercase">Agrupar por:</span>
+<div class="inline-flex rounded-lg bg-surface-container-low p-0.5 text-xs font-label-md">
+<button class="px-2.5 py-1 bg-surface-container-lowest text-primary font-bold rounded shadow-xs">Producto</button>
+<button class="px-2.5 py-1 text-secondary hover:text-on-surface rounded font-medium">Publicación</button>
+</div>
+</div>
+<!-- Segmented selector: Comparar con -->
+<div class="flex items-center space-x-2">
+<span class="text-label-md font-label-md text-secondary uppercase">Comparar con:</span>
+<div class="inline-flex rounded-lg bg-surface-container-low p-0.5 text-xs font-label-md">
+<button class="px-2.5 py-1 bg-surface-container-lowest text-primary font-bold rounded shadow-xs">Período anterior</button>
+<button class="px-2.5 py-1 text-secondary hover:text-on-surface rounded font-medium">Mismo mes año pasado</button>
+</div>
+</div>
+</div>
+</div>
+<!-- Band 2: Chips PRODUCTO & PUBLICACIÓN -->
+<div class="px-3.5 py-2.5 flex flex-wrap items-center justify-between text-xs gap-3 bg-surface-bright/40">
+<div class="flex flex-wrap items-center gap-4">
+<!-- Categorías Producto -->
+<div class="flex items-center space-x-2">
+<span class="text-label-md font-label-md text-secondary uppercase tracking-wider font-semibold">PRODUCTO:</span>
+<button class="flex items-center space-x-1.5 bg-surface-container-lowest border border-gray-200 px-2.5 py-1 rounded text-secondary hover:text-on-surface">
+<span>Marca: <strong class="text-on-surface font-medium">Epson, Samsung +2</strong></span>
+<span class="bg-primary/10 text-primary text-[10px] font-bold px-1.5 py-0.2 rounded-full">3</span>
+<span class="material-symbols-outlined text-xs">expand_more</span>
+</button>
+<button class="flex items-center space-x-1.5 bg-surface-container-lowest border border-gray-200 px-2.5 py-1 rounded text-secondary hover:text-on-surface">
+<span>Subcategoría: <strong class="text-on-surface font-medium">Todas</strong></span>
+<span class="material-symbols-outlined text-xs">expand_more</span>
+</button>
+<button class="flex items-center space-x-1.5 bg-surface-container-lowest border border-gray-200 px-2.5 py-1 rounded text-secondary hover:text-on-surface">
+<span>PM: <strong class="text-on-surface font-medium">Todos</strong></span>
+<span class="material-symbols-outlined text-xs">expand_more</span>
+</button>
+</div>
+<div class="h-4 w-px bg-gray-200"></div>
+<!-- Publicación status & type -->
+<div class="flex items-center space-x-2">
+<span class="text-label-md font-label-md text-secondary uppercase tracking-wider font-semibold">PUBLICACIÓN:</span>
+<span class="inline-flex items-center px-2 py-0.5 rounded text-[11px] font-medium bg-emerald-50 text-emerald-800 border border-emerald-200">
+<span class="w-1.5 h-1.5 bg-emerald-500 rounded-full mr-1.5"></span>Activa 412
+            </span>
+<span class="inline-flex items-center px-2 py-0.5 rounded text-[11px] font-medium bg-gray-100 text-gray-700 border border-gray-200">Pausada 38</span>
+<span class="inline-flex items-center px-2 py-0.5 rounded text-[11px] font-medium bg-gray-100 text-gray-700 border border-gray-200">Cerrada 21</span>
+<div class="h-3 w-px bg-gray-200 mx-1"></div>
+<span class="text-secondary text-[11px]">Tipo:</span>
+<span class="bg-surface-container-lowest border border-gray-200 px-2 py-0.5 rounded text-[11px] text-secondary font-medium">Clásica</span>
+<span class="bg-surface-container-lowest border border-gray-200 px-2 py-0.5 rounded text-[11px] text-secondary font-medium">Premium</span>
+<span class="bg-surface-container-lowest border border-gray-200 px-2 py-0.5 rounded text-[11px] text-secondary font-medium">Catálogo</span>
+<span class="bg-emerald-50 border border-emerald-200 text-emerald-800 px-2 py-0.5 rounded text-[11px] font-bold flex items-center gap-1">
+<span class="material-symbols-outlined text-xs">bolt</span>Full
+            </span>
+</div>
+</div>
+</div>
+<!-- Band 3: ALERTAS + Limpiar Filtros -->
+<div class="px-3.5 py-2 flex items-center justify-between text-xs">
+<div class="flex items-center space-x-2">
+<span class="text-label-md font-label-md text-secondary uppercase tracking-wider font-semibold">ALERTAS:</span>
+<button class="inline-flex items-center px-2.5 py-0.5 rounded-full text-[11px] font-medium bg-amber-50 text-amber-900 border border-amber-200 hover:bg-amber-100 transition-colors">
+<span class="material-symbols-outlined text-xs mr-1 text-amber-600">warning</span>
+            Sin ventas 30d (64)
+          </button>
+<button class="inline-flex items-center px-2.5 py-0.5 rounded-full text-[11px] font-medium bg-rose-50 text-rose-900 border border-rose-200 hover:bg-rose-100 transition-colors">
+<span class="material-symbols-outlined text-xs mr-1 text-rose-600">schedule</span>
+            Ageing &gt; 60d (23)
+          </button>
+<button class="inline-flex items-center px-2.5 py-0.5 rounded-full text-[11px] font-medium bg-rose-50 text-rose-900 border border-rose-200 hover:bg-rose-100 transition-colors">
+<span class="material-symbols-outlined text-xs mr-1 text-rose-600">trending_down</span>
+            Margen cayendo (11)
+          </button>
+</div>
+<button class="text-secondary hover:text-primary font-medium text-xs flex items-center space-x-1">
+<span class="material-symbols-outlined text-xs">filter_alt_off</span>
+<span>Limpiar filtros</span>
+</button>
+</div>
+</div>
+<!-- 4. TICKER-STYLE KPI STRIP (6 Cards) -->
+<div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-3">
+<!-- KPI 1 -->
+<div class="bg-surface-container-lowest border border-gray-200 rounded-lg p-3 shadow-xs flex flex-col justify-between">
+<div class="flex justify-between items-start">
+<span class="font-label-md text-label-md text-secondary uppercase font-semibold">UNIDADES VENDIDAS</span>
+<span class="material-symbols-outlined text-sm text-secondary/70">shopping_bag</span>
+</div>
+<div class="my-2 flex items-baseline justify-between">
+<span class="font-data-mono text-xl font-bold text-on-surface">3.412</span>
+<span class="text-emerald-700 bg-emerald-50 border border-emerald-200 px-1.5 py-0.5 rounded text-[11px] font-data-mono font-medium flex items-center">
+            ▲ +12,4%
+          </span>
+</div>
+<!-- Sparkline Up -->
+<svg class="w-full h-5 text-emerald-600" fill="none" viewbox="0 0 100 20">
+<path d="M0 16 L20 14 L40 15 L60 8 L80 10 L100 2" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.75"></path>
+</svg>
+</div>
+<!-- KPI 2 -->
+<div class="bg-surface-container-lowest border border-gray-200 rounded-lg p-3 shadow-xs flex flex-col justify-between">
+<div class="flex justify-between items-start">
+<span class="font-label-md text-label-md text-secondary uppercase font-semibold">FACTURADO BRUTO</span>
+<span class="material-symbols-outlined text-sm text-secondary/70">payments</span>
+</div>
+<div class="my-2 flex items-baseline justify-between">
+<span class="font-data-mono text-base font-bold text-on-surface tracking-tight">$ 84.920.450,00</span>
+<span class="text-emerald-700 bg-emerald-50 border border-emerald-200 px-1.5 py-0.5 rounded text-[11px] font-data-mono font-medium flex items-center">
+            ▲ +8,1%
+          </span>
+</div>
+<!-- Sparkline Up -->
+<svg class="w-full h-5 text-emerald-600" fill="none" viewbox="0 0 100 20">
+<path d="M0 18 L25 15 L50 12 L75 7 L100 3" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.75"></path>
+</svg>
+</div>
+<!-- KPI 3 -->
+<div class="bg-surface-container-lowest border border-gray-200 rounded-lg p-3 shadow-xs flex flex-col justify-between">
+<div class="flex justify-between items-start">
+<span class="font-label-md text-label-md text-secondary uppercase font-semibold">TOTAL GAUSS</span>
+<span class="material-symbols-outlined text-sm text-secondary/70">account_balance_wallet</span>
+</div>
+<div class="my-2 flex items-baseline justify-between">
+<span class="font-data-mono text-base font-bold text-on-surface tracking-tight">$ 14.120.900,10</span>
+<span class="text-rose-700 bg-rose-50 border border-rose-200 px-1.5 py-0.5 rounded text-[11px] font-data-mono font-medium flex items-center">
+            ▼ -2,3%
+          </span>
+</div>
+<!-- Sparkline Dip -->
+<svg class="w-full h-5 text-rose-600" fill="none" viewbox="0 0 100 20">
+<path d="M0 4 L25 5 L50 11 L75 9 L100 16" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.75"></path>
+</svg>
+</div>
+<!-- KPI 4 -->
+<div class="bg-surface-container-lowest border border-gray-200 rounded-lg p-3 shadow-xs flex flex-col justify-between">
+<div class="flex justify-between items-start">
+<span class="font-label-md text-label-md text-secondary uppercase font-semibold">MARGEN PROMEDIO</span>
+<span class="material-symbols-outlined text-sm text-secondary/70">pie_chart</span>
+</div>
+<div class="my-2 flex items-baseline justify-between">
+<span class="font-data-mono text-xl font-bold text-on-surface">21,6%</span>
+<span class="text-rose-700 bg-rose-50 border border-rose-200 px-1.5 py-0.5 rounded text-[11px] font-data-mono font-medium flex items-center">
+            ▼ -1,4 pp
+          </span>
+</div>
+<!-- Sparkline with Target Dotted Line -->
+<div class="relative w-full h-5">
+<div class="absolute inset-x-0 top-2.5 border-t border-dashed border-gray-300"></div>
+<svg class="w-full h-5 text-rose-500 relative z-10" fill="none" viewbox="0 0 100 20">
+<path d="M0 6 L30 7 L60 12 L85 10 L100 14" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.75"></path>
+</svg>
+</div>
+</div>
+<!-- KPI 5 -->
+<div class="bg-surface-container-lowest border border-gray-200 rounded-lg p-3 shadow-xs flex flex-col justify-between">
+<div class="flex justify-between items-start">
+<span class="font-label-md text-label-md text-secondary uppercase font-semibold">PRODUCTOS CON VENTAS</span>
+<span class="material-symbols-outlined text-sm text-secondary/70">inventory</span>
+</div>
+<div class="my-2 flex items-baseline justify-between">
+<span class="font-data-mono text-xl font-bold text-on-surface">318 <span class="text-xs font-normal text-secondary">/ 471</span></span>
+<span class="text-primary bg-primary/5 border border-primary/20 px-1.5 py-0.5 rounded text-[11px] font-data-mono font-medium">
+            67,5% activo
+          </span>
+</div>
+<!-- Progress bar -->
+<div class="w-full bg-gray-100 rounded-full h-2 overflow-hidden">
+<div class="bg-primary h-2 rounded-full" style="width: 67.5%"></div>
+</div>
+</div>
+<!-- KPI 6 -->
+<div class="bg-surface-container-lowest border border-gray-200 rounded-lg p-3 shadow-xs flex flex-col justify-between">
+<div class="flex justify-between items-start">
+<span class="font-label-md text-label-md text-secondary uppercase font-semibold">AGEING PROMEDIO</span>
+<span class="material-symbols-outlined text-sm text-secondary/70">hourglass_top</span>
+</div>
+<div class="my-2 flex items-baseline justify-between">
+<span class="font-data-mono text-xl font-bold text-on-surface">18 días</span>
+<span class="text-amber-800 bg-amber-50 border border-amber-200 px-1.5 py-0.5 rounded text-[10px] font-data-mono font-medium flex items-center gap-1">
+            ⚠️ 23 prod &gt; 60d
+          </span>
+</div>
+<!-- Mini distribution bar: green, yellow, red -->
+<div class="w-full flex h-2 rounded-full overflow-hidden">
+<div class="bg-emerald-500 h-full" style="width: 72%"></div>
+<div class="bg-amber-400 h-full" style="width: 18%"></div>
+<div class="bg-rose-500 h-full" style="width: 10%"></div>
+</div>
+</div>
+</div>
+<!-- 5. MAIN STOCK-MARKET WATCHLIST TABLE -->
+<div class="bg-surface-container-lowest border border-gray-200 rounded-xl shadow-xs overflow-hidden">
+<div class="overflow-x-auto custom-scrollbar">
+<table class="w-full text-left border-collapse min-w-[1720px]">
+<!-- Sticky Header Group & Columns -->
+<thead class="sticky top-0 z-30 bg-[#f5f5f5] text-secondary font-label-md text-[11px] border-b border-gray-200 select-none">
+<!-- Group Header Row -->
+<tr class="border-b border-gray-200 text-secondary uppercase">
+<th class="py-2 px-3 w-[380px] font-semibold tracking-wider" scope="col">PRODUCTO</th>
+<th class="py-2 px-3 text-center border-l border-r border-gray-200 font-semibold tracking-wider bg-gray-100/50" colspan="5" scope="col">VENTAS (UNIDADES)</th>
+<th class="py-2 px-3 text-center border-r border-gray-200 font-semibold tracking-wider bg-gray-100/30" colspan="4" scope="col">MARGEN (TRADING DESK CORE)</th>
+<th class="py-2 px-3 text-center border-r border-gray-200 font-semibold tracking-wider" colspan="2" scope="col">RESULTADO FINANCIERO</th>
+<th class="py-2 px-3 text-center border-r border-gray-200 font-semibold tracking-wider bg-gray-100/50" colspan="2" scope="col">ROTACIÓN</th>
+<th class="py-2 px-3 text-center border-dashed border-l border-gray-300 text-gray-400 font-normal" colspan="4" scope="col">
+                SELL-IN / SELL-OUT <span class="ml-1 px-1.5 py-0.2 rounded text-[9px] bg-gray-200 text-gray-600 font-semibold">Próximamente</span>
+</th>
+</tr>
+<!-- Specific Column Row -->
+<tr class="border-b border-gray-200 bg-[#fafafa] text-[10px] text-gray-600 uppercase">
+<th class="py-2 px-3">Detalle / SKU / Marca</th>
+<!-- Ventas -->
+<th class="py-2 px-2 text-right border-l border-gray-200 w-16">24H</th>
+<th class="py-2 px-2 text-right w-16">3D</th>
+<th class="py-2 px-2 text-right w-16">7D</th>
+<th class="py-2 px-2 text-right w-16">15D</th>
+<th class="py-2 px-2 text-right border-r border-gray-200 w-16">30D</th>
+<!-- Margen -->
+<th class="py-2 px-3 text-right w-24">Margen Act.</th>
+<th class="py-2 px-2 text-center w-24">vs Anterior</th>
+<th class="py-2 px-2 text-center w-36">Tendencia 90D</th>
+<th class="py-2 px-2 text-center border-r border-gray-200 w-24">Mín / Máx 90D</th>
+<!-- Resultado Financiero -->
+<th class="py-2 px-3 text-right w-36">Facturado 30D</th>
+<th class="py-2 px-3 text-right border-r border-gray-200 w-36">Total Gauss</th>
+<!-- Rotación -->
+<th class="py-2 px-3 text-left w-28">Última Venta</th>
+<th class="py-2 px-2 text-center border-r border-gray-200 w-20">Ageing</th>
+<!-- Sell-in / Sell-out -->
+<th class="py-2 px-2 text-center border-l border-dashed border-gray-300 text-gray-400 w-16">Stock</th>
+<th class="py-2 px-2 text-center text-gray-400 w-20">Compras 30D</th>
+<th class="py-2 px-2 text-center text-gray-400 w-20">Sell-Through</th>
+<th class="py-2 px-2 text-center text-gray-400 w-20">Cobertura</th>
+</tr>
+</thead>
+<tbody class="divide-y divide-gray-100 text-xs">
+<!-- ROW 1 (EXPANDED): Epson EcoTank L3250 -->
+<tr class="bg-blue-50/20 hover:bg-blue-50/40 transition-colors">
+<td class="py-2.5 px-3">
+<div class="flex items-center space-x-3">
+<button class="text-primary hover:text-primary-container p-0.5 focus:outline-none">
+<span class="material-symbols-outlined text-base">expand_less</span>
+</button>
+<img alt="Epson L3250" class="w-10 h-10 object-contain rounded border border-gray-200 bg-white p-0.5 flex-shrink-0" src="https://lh3.googleusercontent.com/aida/AEtjO1XrA-XXwzbjjXuEBZzoVOmLP9qs9Wiv_1MzDJw9YeN1lcGRadNmKKbXZH04HOttiejoOrUBn70XZpecSZOOuLM7179-GUc5q3SY1sPXUXsw8uzOe-AgktzjwJjgyOKXRNseKWPsnNh-zRH30iQci0c7TcWmVRYU29bcyDEC-Ya7LgGFQKQPXs57k9GREkz7PgOwfkZqeM1U87oVcJLgfK9Z5kcq42Syxot9Tc_99lap2sqrmxW1DcYa"/>
+<div class="min-w-0">
+<div class="font-headline-sm font-semibold text-on-surface truncate">Impresora Multifunción Epson EcoTank L3250 Color Negro</div>
+<div class="flex items-center space-x-2 text-[11px] text-secondary">
+<span class="font-data-mono font-medium text-gray-700">EPS-L3250</span>
+<span>·</span>
+<span>Epson</span>
+<span>·</span>
+<span class="bg-primary/10 text-primary px-1.5 rounded font-medium">3 publicaciones</span>
+</div>
+</div>
+</div>
+</td>
+<!-- Sales -->
+<td class="py-2.5 px-2 text-right font-data-mono border-l border-gray-200 font-medium">14</td>
+<td class="py-2.5 px-2 text-right font-data-mono text-gray-700">42</td>
+<td class="py-2.5 px-2 text-right font-data-mono text-gray-700">89</td>
+<td class="py-2.5 px-2 text-right font-data-mono text-gray-700">184</td>
+<td class="py-2.5 px-2 text-right font-data-mono font-bold text-gray-900 border-r border-gray-200">342</td>
+<!-- Margen -->
+<td class="py-2.5 px-3 text-right font-data-mono font-bold text-emerald-700 text-sm">21,6%</td>
+<td class="py-2.5 px-2 text-center">
+<span class="inline-flex items-center text-[10px] font-data-mono font-medium px-1.5 py-0.5 rounded bg-emerald-50 text-emerald-700 border border-emerald-200">
+                  ▲ +2,1 pp
+                </span>
+</td>
+<td class="py-2.5 px-2 text-center">
+<!-- SVG Sparkline Trend 120x32 rising green line -->
+<div class="inline-block w-[120px] h-[32px] align-middle">
+<svg class="w-full h-full text-emerald-600" fill="none" viewbox="0 0 120 32">
+<line stroke="#e5e7eb" stroke-dasharray="2 2" stroke-width="1" x1="0" x2="120" y1="16" y2="16"></line>
+<path d="M5 24 L25 21 L50 22 L75 12 L100 15 L115 6" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.75"></path>
+<circle cx="115" cy="6" fill="currentColor" r="2.5"></circle>
+</svg>
+</div>
+</td>
+<td class="py-2.5 px-2 text-center font-data-mono text-[11px] text-secondary border-r border-gray-200">18,4% / 23,2%</td>
+<!-- Finanzas -->
+<td class="py-2.5 px-3 text-right font-data-mono font-medium text-gray-900">$ 204.313.765,38</td>
+<td class="py-2.5 px-3 text-right border-r border-gray-200">
+<div class="font-data-mono font-bold text-emerald-700">$ 44.131.773,32</div>
+<div class="mt-0.5"><span class="inline-block text-[9px] font-data-mono px-1 py-0.2 bg-emerald-50 text-emerald-700 rounded border border-emerald-200">+21,6% markup</span></div>
+</td>
+<!-- Rotación -->
+<td class="py-2.5 px-3 text-left">
+<div class="font-data-mono text-[11px] text-gray-800">29/09 18:40</div>
+<div class="text-[10px] text-secondary">hace 1 día</div>
+</td>
+<td class="py-2.5 px-2 text-center border-r border-gray-200">
+<span class="inline-flex px-1.5 py-0.5 rounded text-[10px] font-data-mono font-semibold bg-emerald-50 text-emerald-800 border border-emerald-200">1 d</span>
+</td>
+<!-- Sell in/out placeholder -->
+<td class="py-2.5 px-2 text-center border-l border-dashed border-gray-300 text-gray-300 font-data-mono">—</td>
+<td class="py-2.5 px-2 text-center text-gray-300 font-data-mono">—</td>
+<td class="py-2.5 px-2 text-center text-gray-300 font-data-mono">—</td>
+<td class="py-2.5 px-2 text-center text-gray-300 font-data-mono">—</td>
+</tr>
+<!-- SUB-ROW 1.1: MLA2060835678 (Clásica · Full · Activa) -->
+<tr class="bg-gray-50/70 border-b border-gray-100 text-[11px]">
+<td class="py-2 pl-10 pr-3">
+<div class="flex items-center space-x-2">
+<span class="text-gray-300">↳</span>
+<span class="font-data-mono text-primary font-medium hover:underline cursor-pointer">MLA2060835678</span>
+<span class="bg-emerald-50 text-emerald-700 text-[9px] font-bold px-1.5 rounded border border-emerald-200">Mejor</span>
+<span class="text-secondary">·</span>
+<span class="text-gray-600">Clásica · Full · Activa</span>
+</div>
+<div class="pl-5 text-gray-600 truncate max-w-sm">Impresora Epson L3250 Sistema Continuo Original Ecotank Wi-Fi</div>
+</td>
+<td class="py-2 px-2 text-right font-data-mono border-l border-gray-200">10</td>
+<td class="py-2 px-2 text-right font-data-mono">29</td>
+<td class="py-2 px-2 text-right font-data-mono">62</td>
+<td class="py-2 px-2 text-right font-data-mono">128</td>
+<td class="py-2 px-2 text-right font-data-mono font-medium border-r border-gray-200">238</td>
+<td class="py-2 px-3 text-right font-data-mono font-bold text-emerald-700">22,8%</td>
+<td class="py-2 px-2 text-center">
+<span class="text-[9px] font-data-mono text-emerald-700">▲ +1,8 pp</span>
+</td>
+<td class="py-2 px-2 text-center">
+<div class="inline-block w-[100px] h-[24px]">
+<svg class="w-full h-full text-emerald-600" fill="none" viewbox="0 0 100 24">
+<path d="M5 18 L30 16 L60 10 L95 4" stroke="currentColor" stroke-linecap="round" stroke-width="1.5"></path>
+<circle cx="95" cy="4" fill="currentColor" r="2"></circle>
+</svg>
+</div>
+</td>
+<td class="py-2 px-2 text-center font-data-mono text-[10px] text-secondary border-r border-gray-200">19,5% / 24,0%</td>
+<td class="py-2 px-3 text-right font-data-mono">$ 142.183.272,66</td>
+<td class="py-2 px-3 text-right border-r border-gray-200 font-data-mono text-emerald-700">
+                $ 32.417.786,17 <span class="text-[9px] text-emerald-600 block">(+22,8%)</span>
+</td>
+<td class="py-2 px-3 text-left font-data-mono text-[10px]">29/09 18:40</td>
+<td class="py-2 px-2 text-center border-r border-gray-200">
+<span class="inline-block px-1 rounded text-[9px] font-data-mono bg-emerald-50 text-emerald-700">1 d</span>
+</td>
+<td class="py-2 px-2 text-center border-l border-dashed border-gray-300 text-gray-300 font-data-mono">—</td>
+<td class="py-2 px-2 text-center text-gray-300 font-data-mono">—</td>
+<td class="py-2 px-2 text-center text-gray-300 font-data-mono">—</td>
+<td class="py-2 px-2 text-center text-gray-300 font-data-mono">—</td>
+</tr>
+<!-- SUB-ROW 1.2: MLA1429582101 (Premium) -->
+<tr class="bg-gray-50/70 border-b border-gray-100 text-[11px]">
+<td class="py-2 pl-10 pr-3">
+<div class="flex items-center space-x-2">
+<span class="text-gray-300">↳</span>
+<span class="font-data-mono text-primary font-medium hover:underline cursor-pointer">MLA1429582101</span>
+<span class="text-secondary">·</span>
+<span class="text-gray-600">Premium 6 cuotas · Full · Activa</span>
+</div>
+<div class="pl-5 text-gray-600 truncate max-w-sm">Impresora Multifunción Epson L3250 Ecotank Cuotas Sin Interés</div>
+</td>
+<td class="py-2 px-2 text-right font-data-mono border-l border-gray-200">3</td>
+<td class="py-2 px-2 text-right font-data-mono">10</td>
+<td class="py-2 px-2 text-right font-data-mono">21</td>
+<td class="py-2 px-2 text-right font-data-mono">44</td>
+<td class="py-2 px-2 text-right font-data-mono font-medium border-r border-gray-200">82</td>
+<td class="py-2 px-3 text-right font-data-mono font-bold text-gray-800">18,4%</td>
+<td class="py-2 px-2 text-center">
+<span class="text-[9px] font-data-mono text-rose-700">▼ -1,2 pp</span>
+</td>
+<td class="py-2 px-2 text-center">
+<div class="inline-block w-[100px] h-[24px]">
+<svg class="w-full h-full text-rose-500" fill="none" viewbox="0 0 100 24">
+<path d="M5 8 L40 10 L70 14 L95 18" stroke="currentColor" stroke-linecap="round" stroke-width="1.5"></path>
+<circle cx="95" cy="18" fill="currentColor" r="2"></circle>
+</svg>
+</div>
+</td>
+<td class="py-2 px-2 text-center font-data-mono text-[10px] text-secondary border-r border-gray-200">16,0% / 20,5%</td>
+<td class="py-2 px-3 text-right font-data-mono">$ 53.309.284,74</td>
+<td class="py-2 px-3 text-right border-r border-gray-200 font-data-mono text-gray-800">
+                $ 9.808.908,39 <span class="text-[9px] text-gray-600 block">(+18,4%)</span>
+</td>
+<td class="py-2 px-3 text-left font-data-mono text-[10px]">28/09 11:15</td>
+<td class="py-2 px-2 text-center border-r border-gray-200">
+<span class="inline-block px-1 rounded text-[9px] font-data-mono bg-emerald-50 text-emerald-700">2 d</span>
+</td>
+<td class="py-2 px-2 text-center border-l border-dashed border-gray-300 text-gray-300 font-data-mono">—</td>
+<td class="py-2 px-2 text-center text-gray-300 font-data-mono">—</td>
+<td class="py-2 px-2 text-center text-gray-300 font-data-mono">—</td>
+<td class="py-2 px-2 text-center text-gray-300 font-data-mono">—</td>
+</tr>
+<!-- SUB-ROW 1.3: MLA9083142211 (Catálogo · Pausada) -->
+<tr class="bg-gray-50/70 border-b border-gray-200 text-[11px]">
+<td class="py-2 pl-10 pr-3">
+<div class="flex items-center space-x-2">
+<span class="text-gray-300">↳</span>
+<span class="font-data-mono text-primary font-medium hover:underline cursor-pointer">MLA9083142211</span>
+<span class="text-secondary">·</span>
+<span class="text-gray-500">Catálogo · Colecta · <span class="text-amber-700">Pausada</span></span>
+</div>
+</td>
+<td class="py-2 px-2 text-right font-data-mono border-l border-gray-200 text-gray-500">1</td>
+<td class="py-2 px-2 text-right font-data-mono text-gray-500">3</td>
+<td class="py-2 px-2 text-right font-data-mono text-gray-500">6</td>
+<td class="py-2 px-2 text-right font-data-mono text-gray-500">12</td>
+<td class="py-2 px-2 text-right font-data-mono text-gray-500 border-r border-gray-200">22</td>
+<td class="py-2 px-3 text-right font-data-mono text-gray-700">21,6%</td>
+<td class="py-2 px-2 text-center font-data-mono text-[9px] text-gray-500">— 0,0 pp</td>
+<td class="py-2 px-2 text-center">
+<div class="inline-block w-[100px] h-[24px]">
+<svg class="w-full h-full text-gray-400" fill="none" viewbox="0 0 100 24">
+<line stroke="currentColor" stroke-linecap="round" stroke-width="1.5" x1="10" x2="90" y1="12" y2="12"></line>
+</svg>
+</div>
+</td>
+<td class="py-2 px-2 text-center font-data-mono text-[10px] text-secondary border-r border-gray-200">20,0% / 22,5%</td>
+<td class="py-2 px-3 text-right font-data-mono text-gray-600">$ 8.821.207,98</td>
+<td class="py-2 px-3 text-right border-r border-gray-200 font-data-mono text-gray-600">
+                $ 1.905.078,76 <span class="text-[9px] text-gray-500 block">(+21,6%)</span>
+</td>
+<td class="py-2 px-3 text-left font-data-mono text-[10px]">24/09 14:02</td>
+<td class="py-2 px-2 text-center border-r border-gray-200">
+<span class="inline-block px-1 rounded text-[9px] font-data-mono bg-emerald-50 text-emerald-700">6 d</span>
+</td>
+<td class="py-2 px-2 text-center border-l border-dashed border-gray-300 text-gray-300 font-data-mono">—</td>
+<td class="py-2 px-2 text-center text-gray-300 font-data-mono">—</td>
+<td class="py-2 px-2 text-center text-gray-300 font-data-mono">—</td>
+<td class="py-2 px-2 text-center text-gray-300 font-data-mono">—</td>
+</tr>
+<!-- ROW 2: Notebook Lenovo V15 G4 -->
+<tr class="hover:bg-gray-50/80 transition-colors">
+<td class="py-2.5 px-3">
+<div class="flex items-center space-x-3">
+<button class="text-secondary hover:text-on-surface p-0.5"><span class="material-symbols-outlined text-base">chevron_right</span></button>
+<div class="w-10 h-10 rounded border border-gray-200 bg-white p-1 flex items-center justify-center flex-shrink-0 font-bold text-gray-400">
+<span class="material-symbols-outlined text-gray-500">laptop_mac</span>
+</div>
+<div class="min-w-0">
+<div class="font-headline-sm font-semibold text-on-surface truncate">Notebook Lenovo V15 G4 AMN Ryzen 5 8GB 256GB SSD</div>
+<div class="flex items-center space-x-2 text-[11px] text-secondary">
+<span class="font-data-mono font-medium text-gray-700">LEN-82YU000PAR</span>
+<span>·</span>
+<span>Lenovo</span>
+<span>·</span>
+<span>2 pub</span>
+</div>
+</div>
+</div>
+</td>
+<td class="py-2.5 px-2 text-right font-data-mono border-l border-gray-200">6</td>
+<td class="py-2.5 px-2 text-right font-data-mono">18</td>
+<td class="py-2.5 px-2 text-right font-data-mono">38</td>
+<td class="py-2.5 px-2 text-right font-data-mono">76</td>
+<td class="py-2.5 px-2 text-right font-data-mono font-bold text-gray-900 border-r border-gray-200">142</td>
+<td class="py-2.5 px-3 text-right font-data-mono font-bold text-gray-900">17,0%</td>
+<td class="py-2.5 px-2 text-center">
+<span class="inline-flex items-center text-[10px] font-data-mono font-medium px-1.5 py-0.5 rounded bg-emerald-50 text-emerald-700 border border-emerald-200">▲ +0,8 pp</span>
+</td>
+<td class="py-2.5 px-2 text-center">
+<div class="inline-block w-[120px] h-[32px]">
+<svg class="w-full h-full text-emerald-600" fill="none" viewbox="0 0 120 32">
+<line stroke="#e5e7eb" stroke-dasharray="2 2" stroke-width="1" x1="0" x2="120" y1="16" y2="16"></line>
+<path d="M5 20 L35 18 L70 14 L115 8" stroke="currentColor" stroke-linecap="round" stroke-width="1.75"></path>
+<circle cx="115" cy="8" fill="currentColor" r="2.5"></circle>
+</svg>
+</div>
+</td>
+<td class="py-2.5 px-2 text-center font-data-mono text-[11px] text-secondary border-r border-gray-200">14,8% / 18,5%</td>
+<td class="py-2.5 px-3 text-right font-data-mono font-medium text-gray-900">$ 92.300.000,00</td>
+<td class="py-2.5 px-3 text-right border-r border-gray-200">
+<div class="font-data-mono font-bold text-gray-900">$ 15.691.000,00</div>
+<div class="mt-0.5"><span class="inline-block text-[9px] font-data-mono px-1 py-0.2 bg-gray-100 text-gray-700 rounded border border-gray-200">+17,0%</span></div>
+</td>
+<td class="py-2.5 px-3 text-left">
+<div class="font-data-mono text-[11px] text-gray-800">29/09 16:20</div>
+<div class="text-[10px] text-secondary">hace 1 día</div>
+</td>
+<td class="py-2.5 px-2 text-center border-r border-gray-200">
+<span class="inline-flex px-1.5 py-0.5 rounded text-[10px] font-data-mono font-semibold bg-emerald-50 text-emerald-800 border border-emerald-200">1 d</span>
+</td>
+<td class="py-2.5 px-2 text-center border-l border-dashed border-gray-300 text-gray-300 font-data-mono">—</td>
+<td class="py-2.5 px-2 text-center text-gray-300 font-data-mono">—</td>
+<td class="py-2.5 px-2 text-center text-gray-300 font-data-mono">—</td>
+<td class="py-2.5 px-2 text-center text-gray-300 font-data-mono">—</td>
+</tr>
+<!-- ROW 3: Smart TV Samsung 50" Crystal UHD 4K -->
+<tr class="hover:bg-gray-50/80 transition-colors">
+<td class="py-2.5 px-3">
+<div class="flex items-center space-x-3">
+<button class="text-secondary hover:text-on-surface p-0.5"><span class="material-symbols-outlined text-base">chevron_right</span></button>
+<div class="w-10 h-10 rounded border border-gray-200 bg-white p-1 flex items-center justify-center flex-shrink-0 font-bold text-gray-400">
+<span class="material-symbols-outlined text-gray-500">tv</span>
+</div>
+<div class="min-w-0">
+<div class="font-headline-sm font-semibold text-on-surface truncate">Smart TV Samsung 50" Crystal UHD 4K CU7000</div>
+<div class="flex items-center space-x-2 text-[11px] text-secondary">
+<span class="font-data-mono font-medium text-gray-700">SAM-UN50CU7000</span>
+<span>·</span>
+<span>Samsung</span>
+<span>·</span>
+<span>4 pub</span>
+</div>
+</div>
+</div>
+</td>
+<td class="py-2.5 px-2 text-right font-data-mono border-l border-gray-200">4</td>
+<td class="py-2.5 px-2 text-right font-data-mono">14</td>
+<td class="py-2.5 px-2 text-right font-data-mono">29</td>
+<td class="py-2.5 px-2 text-right font-data-mono">61</td>
+<td class="py-2.5 px-2 text-right font-data-mono font-bold text-gray-900 border-r border-gray-200">118</td>
+<td class="py-2.5 px-3 text-right font-data-mono font-bold text-gray-900">22,0%</td>
+<td class="py-2.5 px-2 text-center">
+<span class="inline-flex items-center text-[10px] font-data-mono font-medium px-1.5 py-0.5 rounded bg-rose-50 text-rose-700 border border-rose-200">▼ -1,5 pp</span>
+</td>
+<td class="py-2.5 px-2 text-center">
+<div class="inline-block w-[120px] h-[32px]">
+<svg class="w-full h-full text-rose-500" fill="none" viewbox="0 0 120 32">
+<line stroke="#e5e7eb" stroke-dasharray="2 2" stroke-width="1" x1="0" x2="120" y1="16" y2="16"></line>
+<path d="M5 8 L35 11 L75 17 L115 22" stroke="currentColor" stroke-linecap="round" stroke-width="1.75"></path>
+<circle cx="115" cy="22" fill="currentColor" r="2.5"></circle>
+</svg>
+</div>
+</td>
+<td class="py-2.5 px-2 text-center font-data-mono text-[11px] text-secondary border-r border-gray-200">20,1% / 24,9%</td>
+<td class="py-2.5 px-3 text-right font-data-mono font-medium text-gray-900">$ 82.600.000,00</td>
+<td class="py-2.5 px-3 text-right border-r border-gray-200">
+<div class="font-data-mono font-bold text-gray-900">$ 18.172.000,00</div>
+<div class="mt-0.5"><span class="inline-block text-[9px] font-data-mono px-1 py-0.2 bg-gray-100 text-gray-700 rounded border border-gray-200">+22,0%</span></div>
+</td>
+<td class="py-2.5 px-3 text-left">
+<div class="font-data-mono text-[11px] text-gray-800">28/09 21:05</div>
+<div class="text-[10px] text-secondary">hace 2 días</div>
+</td>
+<td class="py-2.5 px-2 text-center border-r border-gray-200">
+<span class="inline-flex px-1.5 py-0.5 rounded text-[10px] font-data-mono font-semibold bg-emerald-50 text-emerald-800 border border-emerald-200">2 d</span>
+</td>
+<td class="py-2.5 px-2 text-center border-l border-dashed border-gray-300 text-gray-300 font-data-mono">—</td>
+<td class="py-2.5 px-2 text-center text-gray-300 font-data-mono">—</td>
+<td class="py-2.5 px-2 text-center text-gray-300 font-data-mono">—</td>
+<td class="py-2.5 px-2 text-center text-gray-300 font-data-mono">—</td>
+</tr>
+<!-- ROW 4: Aire Acondicionado Split BGH -->
+<tr class="hover:bg-gray-50/80 transition-colors">
+<td class="py-2.5 px-3">
+<div class="flex items-center space-x-3">
+<button class="text-secondary hover:text-on-surface p-0.5"><span class="material-symbols-outlined text-base">chevron_right</span></button>
+<div class="w-10 h-10 rounded border border-gray-200 bg-white p-1 flex items-center justify-center flex-shrink-0 font-bold text-gray-400">
+<span class="material-symbols-outlined text-gray-500">mode_fan</span>
+</div>
+<div class="min-w-0">
+<div class="font-headline-sm font-semibold text-on-surface truncate">Aire Acondicionado Split BGH Silent Air 3500W Frío/Calor Inverter</div>
+<div class="flex items-center space-x-2 text-[11px] text-secondary">
+<span class="font-data-mono font-medium text-gray-700">BGH-BS35WCCR</span>
+<span>·</span>
+<span>BGH</span>
+<span>·</span>
+<span>2 pub</span>
+</div>
+</div>
+</div>
+</td>
+<td class="py-2.5 px-2 text-right font-data-mono border-l border-gray-200">2</td>
+<td class="py-2.5 px-2 text-right font-data-mono">8</td>
+<td class="py-2.5 px-2 text-right font-data-mono">19</td>
+<td class="py-2.5 px-2 text-right font-data-mono">37</td>
+<td class="py-2.5 px-2 text-right font-data-mono font-bold text-gray-900 border-r border-gray-200">71</td>
+<td class="py-2.5 px-3 text-right font-data-mono font-bold text-emerald-700">19,0%</td>
+<td class="py-2.5 px-2 text-center">
+<span class="inline-flex items-center text-[10px] font-data-mono font-medium px-1.5 py-0.5 rounded bg-emerald-50 text-emerald-700 border border-emerald-200">▲ +3,2 pp</span>
+</td>
+<td class="py-2.5 px-2 text-center">
+<div class="inline-block w-[120px] h-[32px]">
+<svg class="w-full h-full text-emerald-600" fill="none" viewbox="0 0 120 32">
+<line stroke="#e5e7eb" stroke-dasharray="2 2" stroke-width="1" x1="0" x2="120" y1="16" y2="16"></line>
+<path d="M5 26 L40 22 L80 12 L115 5" stroke="currentColor" stroke-linecap="round" stroke-width="1.75"></path>
+<circle cx="115" cy="5" fill="currentColor" r="2.5"></circle>
+</svg>
+</div>
+</td>
+<td class="py-2.5 px-2 text-center font-data-mono text-[11px] text-secondary border-r border-gray-200">15,0% / 20,2%</td>
+<td class="py-2.5 px-3 text-right font-data-mono font-medium text-gray-900">$ 67.450.000,00</td>
+<td class="py-2.5 px-3 text-right border-r border-gray-200">
+<div class="font-data-mono font-bold text-emerald-700">$ 12.815.500,00</div>
+<div class="mt-0.5"><span class="inline-block text-[9px] font-data-mono px-1 py-0.2 bg-emerald-50 text-emerald-700 rounded border border-emerald-200">+19,0%</span></div>
+</td>
+<td class="py-2.5 px-3 text-left">
+<div class="font-data-mono text-[11px] text-gray-800">27/09 19:12</div>
+<div class="text-[10px] text-secondary">hace 3 días</div>
+</td>
+<td class="py-2.5 px-2 text-center border-r border-gray-200">
+<span class="inline-flex px-1.5 py-0.5 rounded text-[10px] font-data-mono font-semibold bg-emerald-50 text-emerald-800 border border-emerald-200">3 d</span>
+</td>
+<td class="py-2.5 px-2 text-center border-l border-dashed border-gray-300 text-gray-300 font-data-mono">—</td>
+<td class="py-2.5 px-2 text-center text-gray-300 font-data-mono">—</td>
+<td class="py-2.5 px-2 text-center text-gray-300 font-data-mono">—</td>
+<td class="py-2.5 px-2 text-center text-gray-300 font-data-mono">—</td>
+</tr>
+<!-- ROW 5: Auriculares Sony WH-1000XM5 -->
+<tr class="hover:bg-gray-50/80 transition-colors">
+<td class="py-2.5 px-3">
+<div class="flex items-center space-x-3">
+<button class="text-secondary hover:text-on-surface p-0.5"><span class="material-symbols-outlined text-base">chevron_right</span></button>
+<div class="w-10 h-10 rounded border border-gray-200 bg-white p-1 flex items-center justify-center flex-shrink-0 font-bold text-gray-400">
+<span class="material-symbols-outlined text-gray-500">headphones</span>
+</div>
+<div class="min-w-0">
+<div class="font-headline-sm font-semibold text-on-surface truncate">Auriculares Inalámbricos Sony WH-1000XM5 Noise Cancelling</div>
+<div class="flex items-center space-x-2 text-[11px] text-secondary">
+<span class="font-data-mono font-medium text-gray-700">SONY-WH1000XM5</span>
+<span>·</span>
+<span>Sony</span>
+<span>·</span>
+<span>3 pub</span>
+</div>
+</div>
+</div>
+</td>
+<td class="py-2.5 px-2 text-right font-data-mono border-l border-gray-200">3</td>
+<td class="py-2.5 px-2 text-right font-data-mono">7</td>
+<td class="py-2.5 px-2 text-right font-data-mono">14</td>
+<td class="py-2.5 px-2 text-right font-data-mono">31</td>
+<td class="py-2.5 px-2 text-right font-data-mono font-bold text-gray-900 border-r border-gray-200">58</td>
+<td class="py-2.5 px-3 text-right font-data-mono font-bold text-emerald-700">24,0%</td>
+<td class="py-2.5 px-2 text-center">
+<span class="inline-flex items-center text-[10px] font-data-mono font-medium px-1.5 py-0.5 rounded bg-emerald-50 text-emerald-700 border border-emerald-200">▲ +1,1 pp</span>
+</td>
+<td class="py-2.5 px-2 text-center">
+<div class="inline-block w-[120px] h-[32px]">
+<svg class="w-full h-full text-emerald-600" fill="none" viewbox="0 0 120 32">
+<line stroke="#e5e7eb" stroke-dasharray="2 2" stroke-width="1" x1="0" x2="120" y1="16" y2="16"></line>
+<path d="M5 19 L40 16 L80 12 L115 7" stroke="currentColor" stroke-linecap="round" stroke-width="1.75"></path>
+<circle cx="115" cy="7" fill="currentColor" r="2.5"></circle>
+</svg>
+</div>
+</td>
+<td class="py-2.5 px-2 text-center font-data-mono text-[11px] text-secondary border-r border-gray-200">21,5% / 25,8%</td>
+<td class="py-2.5 px-3 text-right font-data-mono font-medium text-gray-900">$ 31.900.000,00</td>
+<td class="py-2.5 px-3 text-right border-r border-gray-200">
+<div class="font-data-mono font-bold text-emerald-700">$ 7.656.000,00</div>
+<div class="mt-0.5"><span class="inline-block text-[9px] font-data-mono px-1 py-0.2 bg-emerald-50 text-emerald-700 rounded border border-emerald-200">+24,0%</span></div>
+</td>
+<td class="py-2.5 px-3 text-left">
+<div class="font-data-mono text-[11px] text-gray-800">25/09 10:30</div>
+<div class="text-[10px] text-secondary">hace 5 días</div>
+</td>
+<td class="py-2.5 px-2 text-center border-r border-gray-200">
+<span class="inline-flex px-1.5 py-0.5 rounded text-[10px] font-data-mono font-semibold bg-emerald-50 text-emerald-800 border border-emerald-200">5 d</span>
+</td>
+<td class="py-2.5 px-2 text-center border-l border-dashed border-gray-300 text-gray-300 font-data-mono">—</td>
+<td class="py-2.5 px-2 text-center text-gray-300 font-data-mono">—</td>
+<td class="py-2.5 px-2 text-center text-gray-300 font-data-mono">—</td>
+<td class="py-2.5 px-2 text-center text-gray-300 font-data-mono">—</td>
+</tr>
+<!-- ROW 6 (NEGATIVE MARGIN / PÉRDIDA): Oster Prima Latte II -->
+<tr class="bg-rose-50/20 hover:bg-rose-50/40 transition-colors">
+<td class="py-2.5 px-3">
+<div class="flex items-center space-x-3">
+<button class="text-secondary hover:text-on-surface p-0.5"><span class="material-symbols-outlined text-base">chevron_right</span></button>
+<div class="w-10 h-10 rounded border border-rose-200 bg-white p-1 flex items-center justify-center flex-shrink-0 font-bold text-rose-500">
+<span class="material-symbols-outlined text-rose-500">coffee_maker</span>
+</div>
+<div class="min-w-0">
+<div class="flex items-center space-x-2">
+<span class="font-headline-sm font-semibold text-on-surface truncate">Cafetera Espresso Oster Prima Latte II Roja 19 Bares</span>
+<span class="bg-rose-100 text-rose-800 text-[9px] font-bold px-1.5 py-0.2 rounded border border-rose-300">PÉRDIDA</span>
+</div>
+<div class="flex items-center space-x-2 text-[11px] text-secondary">
+<span class="font-data-mono font-medium text-gray-700">OST-BVSTEM6603R</span>
+<span>·</span>
+<span>Oster</span>
+<span>·</span>
+<span>1 pub</span>
+</div>
+</div>
+</div>
+</td>
+<td class="py-2.5 px-2 text-right font-data-mono border-l border-gray-200">1</td>
+<td class="py-2.5 px-2 text-right font-data-mono">4</td>
+<td class="py-2.5 px-2 text-right font-data-mono">9</td>
+<td class="py-2.5 px-2 text-right font-data-mono">22</td>
+<td class="py-2.5 px-2 text-right font-data-mono font-bold text-gray-900 border-r border-gray-200">45</td>
+<td class="py-2.5 px-3 text-right font-data-mono font-bold text-rose-700 text-sm">-8,4%</td>
+<td class="py-2.5 px-2 text-center">
+<span class="inline-flex items-center text-[10px] font-data-mono font-medium px-1.5 py-0.5 rounded bg-rose-50 text-rose-700 border border-rose-200">▼ -5,8 pp</span>
+</td>
+<td class="py-2.5 px-2 text-center">
+<div class="inline-block w-[120px] h-[32px]">
+<svg class="w-full h-full text-rose-600" fill="none" viewbox="0 0 120 32">
+<line stroke="#e5e7eb" stroke-dasharray="2 2" stroke-width="1" x1="0" x2="120" y1="16" y2="16"></line>
+<path d="M5 6 L30 11 L65 19 L115 28" stroke="currentColor" stroke-linecap="round" stroke-width="1.75"></path>
+<circle cx="115" cy="28" fill="currentColor" r="2.5"></circle>
+</svg>
+</div>
+</td>
+<td class="py-2.5 px-2 text-center font-data-mono text-[11px] text-rose-800 border-r border-gray-200">-10,2% / 3,4%</td>
+<td class="py-2.5 px-3 text-right font-data-mono font-medium text-gray-900">$ 15.300.000,00</td>
+<td class="py-2.5 px-3 text-right border-r border-gray-200">
+<div class="font-data-mono font-bold text-rose-700">-$ 1.285.200,00</div>
+<div class="mt-0.5"><span class="inline-block text-[9px] font-data-mono px-1 py-0.2 bg-rose-50 text-rose-700 rounded border border-rose-200">-8,4%</span></div>
+</td>
+<td class="py-2.5 px-3 text-left">
+<div class="font-data-mono text-[11px] text-gray-800">20/09 23:14</div>
+<div class="text-[10px] text-secondary">hace 10 días</div>
+</td>
+<td class="py-2.5 px-2 text-center border-r border-gray-200">
+<span class="inline-flex px-1.5 py-0.5 rounded text-[10px] font-data-mono font-semibold bg-emerald-50 text-emerald-800 border border-emerald-200">10 d</span>
+</td>
+<td class="py-2.5 px-2 text-center border-l border-dashed border-gray-300 text-gray-300 font-data-mono">—</td>
+<td class="py-2.5 px-2 text-center text-gray-300 font-data-mono">—</td>
+<td class="py-2.5 px-2 text-center text-gray-300 font-data-mono">—</td>
+<td class="py-2.5 px-2 text-center text-gray-300 font-data-mono">—</td>
+</tr>
+<!-- ROW 7: Router TP-Link Archer AX55 -->
+<tr class="hover:bg-gray-50/80 transition-colors">
+<td class="py-2.5 px-3">
+<div class="flex items-center space-x-3">
+<button class="text-secondary hover:text-on-surface p-0.5"><span class="material-symbols-outlined text-base">chevron_right</span></button>
+<div class="w-10 h-10 rounded border border-gray-200 bg-white p-1 flex items-center justify-center flex-shrink-0 font-bold text-gray-400">
+<span class="material-symbols-outlined text-gray-500">router</span>
+</div>
+<div class="min-w-0">
+<div class="font-headline-sm font-semibold text-on-surface truncate">Router Wi-Fi 6 TP-Link Archer AX55 Gigabit Doble Banda</div>
+<div class="flex items-center space-x-2 text-[11px] text-secondary">
+<span class="font-data-mono font-medium text-gray-700">TPL-ARCHERAX55</span>
+<span>·</span>
+<span>TP-Link</span>
+<span>·</span>
+<span>2 pub</span>
+</div>
+</div>
+</div>
+</td>
+<td class="py-2.5 px-2 text-right font-data-mono border-l border-gray-200 text-gray-400">0</td>
+<td class="py-2.5 px-2 text-right font-data-mono">2</td>
+<td class="py-2.5 px-2 text-right font-data-mono">4</td>
+<td class="py-2.5 px-2 text-right font-data-mono">9</td>
+<td class="py-2.5 px-2 text-right font-data-mono font-bold text-gray-900 border-r border-gray-200">18</td>
+<td class="py-2.5 px-3 text-right font-data-mono font-bold text-gray-900">15,0%</td>
+<td class="py-2.5 px-2 text-center">
+<span class="inline-flex items-center text-[10px] font-data-mono font-medium px-1.5 py-0.5 rounded bg-rose-50 text-rose-700 border border-rose-200">▼ -4,2 pp</span>
+</td>
+<td class="py-2.5 px-2 text-center">
+<div class="inline-block w-[120px] h-[32px]">
+<svg class="w-full h-full text-rose-500" fill="none" viewbox="0 0 120 32">
+<line stroke="#e5e7eb" stroke-dasharray="2 2" stroke-width="1" x1="0" x2="120" y1="16" y2="16"></line>
+<path d="M5 8 L40 12 L80 18 L115 24" stroke="currentColor" stroke-linecap="round" stroke-width="1.75"></path>
+<circle cx="115" cy="24" fill="currentColor" r="2.5"></circle>
+</svg>
+</div>
+</td>
+<td class="py-2.5 px-2 text-center font-data-mono text-[11px] text-secondary border-r border-gray-200">13,8% / 21,0%</td>
+<td class="py-2.5 px-3 text-right font-data-mono font-medium text-gray-900">$ 4.140.000,00</td>
+<td class="py-2.5 px-3 text-right border-r border-gray-200">
+<div class="font-data-mono font-bold text-gray-900">$ 621.000,00</div>
+<div class="mt-0.5"><span class="inline-block text-[9px] font-data-mono px-1 py-0.2 bg-gray-100 text-gray-700 rounded border border-gray-200">+15,0%</span></div>
+</td>
+<td class="py-2.5 px-3 text-left">
+<div class="font-data-mono text-[11px] text-gray-800">08/09 12:45</div>
+<div class="text-[10px] text-amber-700 font-medium">hace 22 días</div>
+</td>
+<td class="py-2.5 px-2 text-center border-r border-gray-200">
+<span class="inline-flex px-1.5 py-0.5 rounded text-[10px] font-data-mono font-semibold bg-amber-50 text-amber-800 border border-amber-200">22 d</span>
+</td>
+<td class="py-2.5 px-2 text-center border-l border-dashed border-gray-300 text-gray-300 font-data-mono">—</td>
+<td class="py-2.5 px-2 text-center text-gray-300 font-data-mono">—</td>
+<td class="py-2.5 px-2 text-center text-gray-300 font-data-mono">—</td>
+<td class="py-2.5 px-2 text-center text-gray-300 font-data-mono">—</td>
+</tr>
+<!-- ROW 8 (INMOVILIZADO / 0 VENTAS & AGEING > 60D): DeWalt DCD796 -->
+<tr class="bg-gray-100/40 hover:bg-gray-100/70 transition-colors">
+<td class="py-2.5 px-3">
+<div class="flex items-center space-x-3">
+<button class="text-secondary hover:text-on-surface p-0.5"><span class="material-symbols-outlined text-base">chevron_right</span></button>
+<div class="w-10 h-10 rounded border border-gray-300 bg-white p-1 flex items-center justify-center flex-shrink-0 font-bold text-gray-400">
+<span class="material-symbols-outlined text-gray-500">handyman</span>
+</div>
+<div class="min-w-0">
+<div class="flex items-center space-x-2">
+<span class="font-headline-sm font-semibold text-gray-700 truncate">Taladro Percutor Inalámbrico DeWalt 20V Max Brushless DCD796</span>
+<span class="bg-rose-100 text-rose-800 text-[9px] font-bold px-1.5 py-0.2 rounded border border-rose-300">INMOVILIZADO</span>
+</div>
+<div class="flex items-center space-x-2 text-[11px] text-secondary">
+<span class="font-data-mono font-medium text-gray-500">DEW-DCD796D2</span>
+<span>·</span>
+<span>DeWalt</span>
+<span>·</span>
+<span>1 pub</span>
+</div>
+</div>
+</div>
+</td>
+<td class="py-2.5 px-2 text-right font-data-mono border-l border-gray-200 text-gray-300">0</td>
+<td class="py-2.5 px-2 text-right font-data-mono text-gray-300">0</td>
+<td class="py-2.5 px-2 text-right font-data-mono text-gray-300">0</td>
+<td class="py-2.5 px-2 text-right font-data-mono text-gray-300">0</td>
+<td class="py-2.5 px-2 text-right font-data-mono text-gray-300 border-r border-gray-200 font-bold">0</td>
+<td class="py-2.5 px-3 text-right font-data-mono text-gray-400 font-medium">0,0%</td>
+<td class="py-2.5 px-2 text-center font-data-mono text-[10px] text-gray-400">— 0,0 pp</td>
+<td class="py-2.5 px-2 text-center">
+<div class="inline-block w-[120px] h-[32px]">
+<svg class="w-full h-full text-gray-300" fill="none" viewbox="0 0 120 32">
+<line stroke="currentColor" stroke-linecap="round" stroke-width="1.5" x1="10" x2="110" y1="16" y2="16"></line>
+</svg>
+</div>
+</td>
+<td class="py-2.5 px-2 text-center font-data-mono text-[11px] text-gray-400 border-r border-gray-200">0,0% / 0,0%</td>
+<td class="py-2.5 px-3 text-right font-data-mono text-gray-400">$ 0,00</td>
+<td class="py-2.5 px-3 text-right border-r border-gray-200">
+<div class="font-data-mono text-gray-400">$ 0,00</div>
+<div class="mt-0.5"><span class="inline-block text-[9px] font-data-mono px-1 py-0.2 bg-gray-100 text-gray-400 rounded">0,0%</span></div>
+</td>
+<td class="py-2.5 px-3 text-left">
+<div class="font-data-mono text-[11px] text-rose-700">29/06 15:10</div>
+<div class="text-[10px] text-rose-600 font-semibold">hace 92 días</div>
+</td>
+<td class="py-2.5 px-2 text-center border-r border-gray-200">
+<span class="inline-flex px-1.5 py-0.5 rounded text-[10px] font-data-mono font-bold bg-rose-100 text-rose-800 border border-rose-300">92 d</span>
+</td>
+<td class="py-2.5 px-2 text-center border-l border-dashed border-gray-300 text-gray-300 font-data-mono">—</td>
+<td class="py-2.5 px-2 text-center text-gray-300 font-data-mono">—</td>
+<td class="py-2.5 px-2 text-center text-gray-300 font-data-mono">—</td>
+<td class="py-2.5 px-2 text-center text-gray-300 font-data-mono">—</td>
+</tr>
+</tbody>
+</table>
+</div>
+<!-- 6. FOOTER DE PAGINACIÓN -->
+<div class="p-3 border-t border-gray-200 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs bg-[#fafafa]">
+<!-- Left text -->
+<div class="text-secondary font-body-sm">
+          Mostrando <span class="font-data-mono font-medium text-on-surface">1–50</span> de <span class="font-data-mono font-medium text-on-surface">471</span> productos (<span class="font-data-mono text-emerald-700 font-medium">318</span> con rotación en el período)
+        </div>
+<!-- Center numbered pagination buttons -->
+<div class="flex items-center space-x-1">
+<button class="px-2 py-1 rounded border border-gray-200 bg-surface-container-lowest text-secondary hover:text-on-surface text-xs font-medium disabled:opacity-50" disabled="">Anterior</button>
+<button class="w-7 h-7 rounded border border-primary bg-primary text-on-primary font-data-mono font-bold text-xs flex items-center justify-center">1</button>
+<button class="w-7 h-7 rounded border border-gray-200 bg-surface-container-lowest hover:bg-gray-100 text-on-surface font-data-mono text-xs flex items-center justify-center">2</button>
+<button class="w-7 h-7 rounded border border-gray-200 bg-surface-container-lowest hover:bg-gray-100 text-on-surface font-data-mono text-xs flex items-center justify-center">3</button>
+<span class="px-1 text-secondary font-data-mono text-xs">…</span>
+<button class="w-7 h-7 rounded border border-gray-200 bg-surface-container-lowest hover:bg-gray-100 text-on-surface font-data-mono text-xs flex items-center justify-center">10</button>
+<button class="px-2 py-1 rounded border border-gray-200 bg-surface-container-lowest hover:bg-gray-100 text-on-surface text-xs font-medium">Siguiente</button>
+</div>
+<!-- Right rows select & selection count -->
+<div class="flex items-center space-x-3 text-secondary">
+<div class="flex items-center space-x-1.5">
+<span>Filas por página:</span>
+<select class="h-7 text-xs font-data-mono bg-surface-container-lowest border border-gray-200 rounded py-0 pl-2 pr-6 focus:ring-1 focus:ring-primary focus:border-primary">
+<option>25</option>
+<option selected="">50</option>
+<option>100</option>
+<option>200</option>
+</select>
+</div>
+<span>·</span>
+<span class="font-data-mono">0 seleccionados</span>
+</div>
+</div>
+</div>
+</main>
+</body></html>
