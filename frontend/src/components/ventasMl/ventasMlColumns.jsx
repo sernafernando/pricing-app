@@ -5,7 +5,9 @@ import ProductCell from './ProductCell';
 import RecalculatingBadge from './RecalculatingBadge';
 import {
   formatDate,
+  formatAmount,
   formatMoney,
+  couponAmountOf,
   moneyTitle,
   netoTooltip,
   OPERATION_STATUS_LABELS,
@@ -227,7 +229,15 @@ export const COLUMNS = [
     numeric: true,
     cell: (ctx) => {
       const entity = ctx.kind === 'group' ? ctx.group : ctx.order;
-      return formatMoney(entity.total_amount, entity.currency_id);
+      const coupon = couponAmountOf(ctx.kind === 'group' ? ctx.orders : [ctx.order]);
+      return (
+        <>
+          {formatMoney(entity.total_amount, entity.currency_id)}
+          {coupon !== null && (
+            <span className={styles.subline}>cupón ML $ {formatAmount(coupon)}</span>
+          )}
+        </>
+      );
     },
     cellProps: (ctx) => {
       const entity = ctx.kind === 'group' ? ctx.group : ctx.order;

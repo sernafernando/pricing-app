@@ -53,7 +53,7 @@ Ruta: delegated direct (writer único, 2+ archivos no triviales por tarea).
 
 - [x] T1 — Anchos ajustables + restablecer (frontend).
 - [x] T2 — Paginador numerado + filas por página (frontend).
-- [ ] T3 — Cupón en Importe + toggle "A revisar" (frontend).
+- [x] T3 — Cupón en Importe + toggle "A revisar" (frontend).
 - [ ] T4 — Panel: Comprador / Pago / Envío + Ver en ML + copiar ID (BE+FE).
 - [ ] T5 — Filtro "Solo con alertas" con conteo (BE+FE).
 - [ ] T6 — Exportar CSV del conjunto filtrado (BE+FE).
@@ -101,3 +101,15 @@ Creado 2026-09-30. Línea base vitest: 133 archivos, 1794 passed + 2 expected fa
   Se conserva el texto "mostrando X-Y de N ventas" y los botones
   Anterior/Siguiente (tests existentes siguen verdes sin tocarse).
 - GREEN: `pnpm exec vitest run src/pages src/components/ventasMl` 577 passed.
+
+### T3
+- RED: `ventasMlColumns.test.jsx` (4 fallan: sin sub-línea de cupón) y los 3
+  tests de `IncludeToggles.test.jsx` renombrados a "A revisar" (fallan con la
+  etiqueta vieja).
+- Decisión: el listado trae `coupon_amount` por orden, no por grupo; el grupo
+  suma el de sus órdenes (`couponAmountOf`), sin sub-línea si es 0/null.
+  Formato con 2 decimales como el resto de la columna. Dos tests existentes de
+  `VentasML.test.jsx` se ajustaron (el badge "A revisar" ahora también es la
+  etiqueta del toggle: se acotó la consulta a la tabla).
+- GREEN: vitest completo 137 archivos, 1827 passed + 2 expected fail (base
+  133 / 1794). eslint 0 errores / 8 warnings. build OK.

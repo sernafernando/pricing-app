@@ -15,7 +15,7 @@ import styles from './IncludeToggles.module.css';
  * an ON toggle means.
  */
 const TOGGLE_DEFS = [
-  { key: 'includeUnknown', excludedKey: 'a_revisar', label: 'Sin clasificar' },
+  { key: 'includeUnknown', excludedKey: 'a_revisar', label: 'A revisar' },
   { key: 'includeInDispute', excludedKey: 'en_disputa', label: 'En disputa' },
   { key: 'includeMixed', excludedKey: 'mixta', label: 'Mixta' },
   { key: 'includeProvisional', excludedKey: 'provisorio', label: 'Provisorio' },

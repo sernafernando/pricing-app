@@ -395,7 +395,8 @@ describe('The two axes are independent and read correctly', () => {
     await waitFor(() => {
       expect(screen.getByText('comprador3')).toBeInTheDocument();
     });
-    const revisarBadges = screen.getAllByText('A revisar');
+    // Scoped to the table: the "Incluir" toggle carries the same name.
+    const revisarBadges = within(screen.getByRole('table')).getAllByText('A revisar');
     expect(revisarBadges.length).toBe(2);
   });
 
@@ -1836,7 +1837,7 @@ describe('the KPI strip stays in parity with the list', () => {
 
     api.get.mock.calls.length = 0;
 
-    await user.click(screen.getByRole('checkbox', { name: /sin clasificar/i }));
+    await user.click(screen.getByRole('checkbox', { name: /a revisar/i }));
 
     await waitFor(() => {
       const listCall = api.get.mock.calls.find((c) => c[0] === '/ml-ventas-ops/sales');
