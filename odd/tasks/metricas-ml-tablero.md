@@ -69,6 +69,19 @@ el usuario). Cambios pedidos sobre ese diseño que Stitch no llegó a aplicar:
   ambos valores; el resto suma unidades y cuenta en `unresolved_orders`.
   Bruto sólo de órdenes en ARS. Día = `ml_group_metrics.group_date` en hora
   de Buenos Aires.
+- (T3, writer) Ventanas 3d/7d/15d/30d y la serie de 90 días terminan en
+  `date_to` (hoy por defecto); 24h es móvil desde ahora, leído de las
+  órdenes. "Margen Act." y Facturado/Total Gauss son del período elegido.
+  Ageing = días desde la última venta; si nunca vendió, desde el inicio de
+  la publicación más vieja. Alertas: "Sin ventas 30d" = 0 unidades en 30d;
+  "Ageing > 60d"; "Margen cayendo" = markup del período ≥ 1 pp por debajo
+  del de comparación. "Mejor" publicación = la que más Total Gauss dejó en
+  el período (facturado si no ve ganancia). Orden por defecto: facturado
+  desc. Universo = publicaciones del espejo ERP + pares (producto, MLA)
+  vendidos sin fila de publicación. Permisos nuevos `ml_metricas.ver` y
+  `ml_metricas.ver_ganancia` (ADMIN y GERENTE); sin el segundo, Total
+  Gauss/markup vuelven `null` y ordenar/filtrar por margen es 403. Se agregó
+  export CSV (el diseño tiene el botón).
 
 ## Tareas
 
@@ -104,11 +117,18 @@ Ruta: delegated direct (writer único). TDD estricto.
       (1 fallo encontrado y arreglado en `76345136`); Postgres: rollup con
       ids de 16 dígitos + upsert real + borrado de bucket vacío, y round
       trip de la migración, OK.
-- [ ] T3 — Endpoint del tablero: por producto y por publicación, ventanas,
+- [x] T3 — Endpoint del tablero: por producto y por publicación, ventanas,
       markup actual/anterior/mín/máx, series 90d para sparklines, última venta,
       ageing, KPIs con delta vs período anterior, filtros (tienda, fechas,
       marca/subcat/PM, búsqueda, estado/tipo de publicación, alertas),
       paginación y orden. Permiso para ver ganancia.
+      Commit: `623f8b2c`. `GET /api/ml-metricas/board`,
+      `/board/products/{id}/publications`, `/board/export`.
+      RED visto: 24/24 fallando (404, el router no existía).
+      Checks: ruff OK; router 24 passed; Postgres (24h por
+      `member_order_ids` ARRAY con ids de 16 dígitos) OK; migración de
+      permisos OK. Pendiente de verificar con datos de producción: tiempo de
+      respuesta (carga el espejo de publicaciones entero y agrega en Python).
 - [ ] T4 — Pantalla según el diseño + suite visual (capturas 1920/1366,
       claro/oscuro) comparada contra `tablero.png`.
 
@@ -125,4 +145,4 @@ Una PR por tarea (T1 sola es útil ya; T2→T3→T4 en orden).
 
 ## Estado
 
-Creado 2026-10-01. T1 y T2 hechos; sigue T3.
+Creado 2026-10-01. T1, T2 y T3 hechos; sigue T4.
