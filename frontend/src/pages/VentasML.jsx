@@ -63,7 +63,13 @@ import KpiStrip from '../components/ventasMl/KpiStrip';
 import IncludeToggles from '../components/ventasMl/IncludeToggles';
 import ColumnPicker from '../components/ventasMl/ColumnPicker';
 import { COLUMNS } from '../components/ventasMl/ventasMlColumns';
-import { loadColumnVisibility, saveColumnVisibility } from './ventasMlTableHelpers';
+import { useColumnSizing } from '../components/ml-bot/useColumnSizing';
+import { useColumnResize } from '../components/ventasMl/useColumnResize';
+import {
+  loadColumnVisibility,
+  saveColumnVisibility,
+  COLUMN_SIZING_STORAGE_KEY,
+} from './ventasMlTableHelpers';
 import { useVentasMLFilters } from '../hooks/useVentasMLFilters';
 import VariosVentaPctModal from '../components/VariosVentaPctModal';
 import DateRangeFilter from '../components/DateRangeFilter';
@@ -179,12 +185,22 @@ export default function VentasML() {
     });
   }, []);
 
+  // User-resizable widths: same shared hook the ml-bot tables use (state in
+  // localStorage, debounced save, reset), our own key.
+  const {
+    columnSizing,
+    onColumnSizingChange,
+    reset: resetColumnSizing,
+    hasCustom: hasCustomSizing,
+  } = useColumnSizing(COLUMN_SIZING_STORAGE_KEY);
+
   const table = useReactTable({
     columns: COLUMNS,
     data: useMemo(() => [], []),
     getCoreRowModel: getCoreRowModel(),
-    state: { columnVisibility },
+    state: { columnVisibility, columnSizing },
     onColumnVisibilityChange: handleColumnVisibilityChange,
+    onColumnSizingChange,
   });
 
   const visibleColumns = table.getVisibleLeafColumns();
@@ -192,6 +208,13 @@ export default function VentasML() {
   // add up to 100% no matter how many the operator hid. `getTotalSize()`
   // would serve here too, but naming it makes the division read as what it
   // is: a share of what is actually on screen.
+  const theadRef = useRef(null);
+  const { startDrag, keyResize } = useColumnResize({
+    visibleColumns,
+    theadRef,
+    onSizingChange: onColumnSizingChange,
+  });
+  const lastVisibleColumnId = visibleColumns[visibleColumns.length - 1]?.id;
   const visibleColumnsTotalSize = visibleColumns.reduce((acc, col) => acc + col.getSize(), 0) || 1;
 
   // Panel selection lives in the `orden` URL param, consistent with this
@@ -496,6 +519,11 @@ export default function VentasML() {
         </div>
         <div className={styles.headerActions}>
           <ColumnPicker table={table} />
+          {hasCustomSizing && (
+            <button type="button" className="btn-tesla outline sm" onClick={resetColumnSizing}>
+              Restablecer columnas
+            </button>
+          )}
           <button
             type="button"
             className="btn-tesla outline sm"
@@ -674,17 +702,33 @@ export default function VentasML() {
               />
             ))}
           </colgroup>
-          <thead>
+          <thead ref={theadRef}>
             <tr>
               {table.getFlatHeaders().map((h) => {
                 const def = h.column.columnDef;
+                // No grip on the last visible column: its right edge is the
+                // table's edge, nothing to trade width with.
+                const resizable = h.column.getCanResize() && h.column.id !== lastVisibleColumnId;
                 return (
                   <th
                     key={h.id}
+                    data-col-id={h.column.id}
                     className={def.numeric ? styles.numeric : def.align === 'center' ? styles.colAlerta : undefined}
                     aria-label={def.header ? undefined : def.headerAriaLabel}
                   >
                     {def.header}
+                    {resizable && (
+                      <span
+                        className={styles.resizeGrip}
+                        role="separator"
+                        aria-orientation="vertical"
+                        aria-label={`Redimensionar columna ${def.header || def.headerAriaLabel}`}
+                        tabIndex={0}
+                        onMouseDown={(e) => startDrag(h.column.id, e)}
+                        onTouchStart={(e) => startDrag(h.column.id, e)}
+                        onKeyDown={(e) => keyResize(h.column.id, e)}
+                      />
+                    )}
                   </th>
                 );
               })}

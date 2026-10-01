@@ -439,3 +439,27 @@
     overflow-x: auto;
   }
 }
+
+/* Column resize grip: a thin hit area on the right edge of a header cell
+   (`.table thead th` is already `position: sticky`, so it anchors this). */
+.resizeGrip {
+  position: absolute;
+  top: 0;
+  right: 0;
+  height: 100%;
+  width: 6px;
+  cursor: col-resize;
+  touch-action: none;
+  user-select: none;
+  border-right: 2px solid transparent;
+}
+
+.table thead th:hover .resizeGrip {
+  border-right-color: var(--border-primary);
+}
+
+.resizeGrip:hover,
+.resizeGrip:focus-visible {
+  border-right-color: var(--cf-accent-blue);
+  outline: none;
+}

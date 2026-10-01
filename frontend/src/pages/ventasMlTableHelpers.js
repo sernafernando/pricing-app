@@ -44,3 +44,36 @@ export function saveColumnVisibility(state) {
     // in-memory for the rest of the session.
   }
 }
+
+// Column WIDTHS are user-resizable and persisted with the same shared hook
+// the ml-bot tables use (`components/ml-bot/useColumnSizing.js`); only the
+// storage key is ours. Frozen: renaming it silently resets every operator.
+export const COLUMN_SIZING_STORAGE_KEY = 'ventasml:colsizing';
+
+/**
+ * Moves the border on the right of `columnId` by `delta` pixels: that column
+ * grows, its right neighbour shrinks by the same amount, so the total never
+ * changes and no other column moves. Both are clamped to their minimum, which
+ * is what keeps one column from being dragged over the next (the old overlap
+ * bug). The last visible column has no right neighbour, so it is a no-op.
+ *
+ * @param {Record<string, number>} widths current width of every visible column
+ * @param {string[]} order visible column ids, left to right
+ * @param {string} columnId
+ * @param {number} delta pixels, positive = widen
+ * @param {Record<string, number>} mins minimum width per column id
+ */
+export function resizeColumns(widths, order, columnId, delta, mins) {
+  const index = order.indexOf(columnId);
+  const neighborId = index === -1 ? undefined : order[index + 1];
+  if (neighborId === undefined) return widths;
+  const lower = (mins[columnId] ?? 0) - widths[columnId];
+  const upper = widths[neighborId] - (mins[neighborId] ?? 0);
+  if (lower > upper) return widths;
+  const applied = Math.min(Math.max(delta, lower), upper);
+  return {
+    ...widths,
+    [columnId]: widths[columnId] + applied,
+    [neighborId]: widths[neighborId] - applied,
+  };
+}

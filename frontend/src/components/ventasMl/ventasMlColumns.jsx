@@ -45,12 +45,18 @@ import {
 // they are measurable against a real string, which ten percentages spread
 // across a CSS file were not: the old layout shrank the product column to
 // eight characters on a laptop and nothing in the CSS said it would.
+//
+// `minSize` is the narrowest the operator can drag a column, in real pixels
+// (`useColumnResize` clamps with it): it is what keeps one column from being
+// dragged over its neighbour -- the Producto/Orden overlap bug.
 export const COLUMNS = [
   {
     id: 'alerta',
     header: '',
     headerAriaLabel: 'Alerta',
     size: 32,
+    minSize: 32,
+    enableResizing: false,
     align: 'center',
     // The alert column has no useful thing to hide behind a picker entry
     // for — it is 32px and carries no information a user would trade away
@@ -69,6 +75,7 @@ export const COLUMNS = [
     id: 'producto',
     header: 'Producto',
     size: 320,
+    minSize: 160,
     // T6: without Producto the row says nothing — it can never be hidden.
     enableHiding: false,
     cell: (ctx) =>
@@ -82,6 +89,7 @@ export const COLUMNS = [
     id: 'orden',
     header: 'Orden',
     size: 120,
+    minSize: 90,
     cell: (ctx) => {
       if (ctx.kind === 'member') {
         return <span className={styles.memberOrden}>{ctx.order.order_id}</span>;
@@ -125,6 +133,7 @@ export const COLUMNS = [
     id: 'fecha',
     header: 'Fecha',
     size: 90,
+    minSize: 80,
     cell: (ctx) => formatDate(ctx.kind === 'group' ? ctx.group.date_created : ctx.order.date_created),
     cellProps: () => ({ className: styles.fecha }),
   },
@@ -132,6 +141,7 @@ export const COLUMNS = [
     id: 'comprador',
     header: 'Comprador',
     size: 130,
+    minSize: 80,
     cell: (ctx) => {
       // A pack-member row never carries its own buyer cell — the buyer is
       // a property of the parcel, shown once on the group row.
@@ -145,6 +155,7 @@ export const COLUMNS = [
     id: 'operacion',
     header: 'Operación',
     size: 120,
+    minSize: 90,
     cell: (ctx) => {
       const status = ctx.kind === 'group' ? ctx.group.operation_status : ctx.order.operation_status;
       return (
@@ -158,6 +169,7 @@ export const COLUMNS = [
     id: 'mercaderia',
     header: 'Mercadería',
     size: 155,
+    minSize: 100,
     cell: (ctx) => {
       const status = ctx.kind === 'group' ? ctx.group.goods_status : ctx.order.goods_status;
       return (
@@ -171,6 +183,7 @@ export const COLUMNS = [
     id: 'envio',
     header: 'Envío',
     size: 110,
+    minSize: 90,
     cell: (ctx) => {
       if (ctx.kind === 'member') {
         const order = ctx.order;
@@ -210,6 +223,7 @@ export const COLUMNS = [
     id: 'importe',
     header: 'Importe',
     size: 115,
+    minSize: 90,
     numeric: true,
     cell: (ctx) => {
       const entity = ctx.kind === 'group' ? ctx.group : ctx.order;
@@ -224,6 +238,7 @@ export const COLUMNS = [
     id: 'neto',
     header: 'Neto',
     size: 115,
+    minSize: 90,
     numeric: true,
     cell: (ctx) => {
       if (ctx.kind === 'member') {
@@ -285,6 +300,7 @@ export const COLUMNS = [
     id: 'total_gauss',
     header: 'Total Gauss',
     size: 120,
+    minSize: 90,
     numeric: true,
     // T6: Total Gauss is the other column the screen cannot lose meaning
     // without -- can never be hidden.
