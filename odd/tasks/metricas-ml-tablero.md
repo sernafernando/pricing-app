@@ -82,6 +82,23 @@ el usuario). Cambios pedidos sobre ese diseño que Stitch no llegó a aplicar:
   `ml_metricas.ver_ganancia` (ADMIN y GERENTE); sin el segundo, Total
   Gauss/markup vuelven `null` y ordenar/filtrar por margen es 403. Se agregó
   export CSV (el diseño tiene el botón).
+- (T4, writer) Rótulos "Markup" donde el diseño de Stitch dice "Margen"
+  (Markup act., Markup promedio, "Markup cayendo"): el número ES markup
+  (Total Gauss / costo) y llamarlo margen sería mentir; el parámetro de la
+  alerta sigue siendo `margen_cayendo`. "Comparar con: Mismo período año
+  pasado" (mismas fechas un año atrás), no "mismo mes".
+- (T4, writer) Se agregó una columna "Tendencia" de unidades (semanas de
+  los últimos 90 días) en el grupo Ventas: el pedido incluye "tendencia de
+  ventas con mini gráfico" y el diseño sólo la tenía en las tarjetas. Se
+  puede ocultar desde Columnas.
+- (T4, writer) Sparklines en SVG inline propio (recharts está en el
+  proyecto pero 50 filas × 2 gráficos no lo justifican). El encabezado de la
+  tabla NO es sticky vertical: la tarjeta es el contenedor del scroll
+  horizontal y un `th` sticky se pega a ella, no a la página.
+- (T4, writer) Tienda va en su propia franja, la primera de chips (debajo de
+  fechas/búsqueda); Producto + Publicación/Tipo en la siguiente; Alertas al
+  final. Sin el permiso de ganancia no se muestran las columnas de markup/
+  Total Gauss ni la alerta "Markup cayendo".
 
 ## Tareas
 
@@ -129,8 +146,24 @@ Ruta: delegated direct (writer único). TDD estricto.
       `member_order_ids` ARRAY con ids de 16 dígitos) OK; migración de
       permisos OK. Pendiente de verificar con datos de producción: tiempo de
       respuesta (carga el espejo de publicaciones entero y agrega en Python).
-- [ ] T4 — Pantalla según el diseño + suite visual (capturas 1920/1366,
+- [x] T4 — Pantalla según el diseño + suite visual (capturas 1920/1366,
       claro/oscuro) comparada contra `tablero.png`.
+      Commits: `27613a0a` (BE: miniatura por fila y tramos del ageing),
+      `ed492aff` (FE). Ruta `/metricas-ml`; menú "Métricas ML" + badge
+      "Nuevo"; el viejo pasa a "Métricas ML (anterior)" (misma URL).
+      RED visto: tests de utils/Sparkline/página fallando por módulo
+      inexistente; nav y título viejo 3 fallando; Pagination `summary` 1
+      fallando; backend miniatura/ageing 3 fallando (KeyError).
+      Checks: vitest 145→151 archivos, 1923→1953 tests (todo verde);
+      test:visual 9→10 archivos, 72 passed; eslint 0 errores (8 warnings
+      previos); lint:css OK; build OK. Suite visual: sin overflow de celdas,
+      sin scroll horizontal de página, la tabla scrollea dentro de la
+      tarjeta, Producto queda fijo al scrollear, plata/chip/mín-máx en una
+      línea y enteros. Capturas (no commiteadas): `VITE_METRICAS_SHOTS_DIR`.
+- Suite backend completa (sola, `-p no:randomly`): 7669 passed, 16 skipped.
+  Encontró 2 presupuestos de queries de Ventas ML que contaban
+  `ml_order_items_ops` ≤ 1; el facet de Tienda suma una consulta constante
+  (no por fila) → presupuesto 2, commit aparte.
 
 ## Entrega
 
@@ -145,4 +178,4 @@ Una PR por tarea (T1 sola es útil ya; T2→T3→T4 en orden).
 
 ## Estado
 
-Creado 2026-10-01. T1, T2 y T3 hechos; sigue T4.
+Creado 2026-10-01. T1–T4 hechos. Falta: correr el backfill en producción después del deploy y medir el tiempo de respuesta del tablero con datos reales.
