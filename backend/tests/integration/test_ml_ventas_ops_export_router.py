@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import csv
 import io
+from contextlib import contextmanager
 from datetime import datetime, timezone
 
 import pytest
@@ -33,6 +34,25 @@ ALL_ON = {
 def _flag_on(monkeypatch):
     monkeypatch.setattr(settings, "ML_USER_ID", 999)
     monkeypatch.setattr(settings, "ML_ORDERS_OPS_ENABLED", True)
+
+
+@pytest.fixture(autouse=True)
+def bg_sessions(db, monkeypatch):
+    """Stands in for `get_background_db` (a real `SessionLocal` would not see
+    the test transaction) and records every short session the export opens."""
+    events = {"open": 0, "close": 0, "max_open": 0}
+
+    @contextmanager
+    def _fake():
+        events["open"] += 1
+        events["max_open"] = max(events["max_open"], events["open"] - events["close"])
+        try:
+            yield db
+        finally:
+            events["close"] += 1
+
+    monkeypatch.setattr(ml_ventas_ops, "get_background_db", _fake, raising=False)
+    return events
 
 
 def _grant(db, rol_admin):
@@ -268,3 +288,50 @@ def test_the_day_is_the_accreditation_day_not_the_creation_day(db, client, admin
     assert rows["1"]["fecha_creacion"].startswith("2026-09-03")
     assert rows["2"]["fecha_acreditacion"].startswith("2026-09-12")
     assert rows["3"]["fecha_acreditacion"].startswith("2026-09-12")
+
+
+def test_each_page_runs_in_its_own_short_session_never_the_request_one(
+    db, client, admin_auth_headers, rol_admin, monkeypatch, bg_sessions
+):
+    # 5 groups / 2 per page = 3 pages. A streaming response outlives the
+    # request handler: holding the request session for all of it pins a pooled
+    # connection while the client downloads (QueuePool incident, PR #811).
+    monkeypatch.setattr(ml_ventas_ops, "EXPORT_PAGE_SIZE", 2)
+    _grant(db, rol_admin)
+    for i in range(1, 6):
+        _sale(db, i, day=i)
+    db.commit()
+
+    resp = client.get("/api/ml-ventas-ops/sales/export", params=ALL_ON, headers=admin_auth_headers)
+
+    assert resp.status_code == 200
+    assert bg_sessions["open"] == 3
+    assert bg_sessions["close"] == 3
+    assert bg_sessions["max_open"] == 1
+
+
+def test_export_pages_skip_the_facets_and_the_alert_counter(
+    db, client, admin_auth_headers, rol_admin, monkeypatch, query_counter
+):
+    _grant(db, rol_admin)
+    _sale(db, 1)
+    _sale(db, 2, pack_id=700)
+    _sale(db, 3, pack_id=700)
+    db.commit()
+    alert_counts = []
+    real = ml_ventas_ops.alert_groups_count
+    monkeypatch.setattr(ml_ventas_ops, "alert_groups_count", lambda scope: alert_counts.append(1) or real(scope))
+
+    with query_counter() as listing:
+        assert client.get("/api/ml-ventas-ops/sales", params=ALL_ON, headers=admin_auth_headers).status_code == 200
+    assert alert_counts == [1]  # control: the listing DOES count alerts
+    assert any(" as bucket" in st for st in listing.statements)  # control: and DOES run the facets
+    alert_counts.clear()
+
+    with query_counter() as export:
+        resp = client.get("/api/ml-ventas-ops/sales/export", params=ALL_ON, headers=admin_auth_headers)
+
+    assert resp.status_code == 200
+    assert sorted(r["orden"] for r in _rows(resp)) == ["1", "2", "3"]
+    assert alert_counts == []
+    assert not any(" as bucket" in st for st in export.statements)

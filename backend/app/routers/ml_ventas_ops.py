@@ -41,7 +41,7 @@ from sqlalchemy.orm import Session
 from app.api.deps import get_current_user
 from app.core.config import settings
 from app.core.constants import BUSINESS_TIMEZONE
-from app.core.database import get_db
+from app.core.database import get_background_db, get_db
 from app.models.ml_bot_message import MlBotMessage
 from app.models.ml_bot_question import MlBotQuestion
 from app.models.ml_orders_ops import (
@@ -267,9 +267,9 @@ class ShipmentOpsSummary(BaseModel):
             modo_logistico=resolve_modo_logistico(
                 shipment_logistic_type=shipment.logistic_type, has_shipment=True, tagged_no_shipping=False
             ),
-            city=_receiver_address_field(shipment.receiver_address, "city", "name"),
-            province=_receiver_address_field(shipment.receiver_address, "state", "name"),
-            estimated_delivery=_receiver_address_field(
+            city=_nested_str_field(shipment.receiver_address, "city", "name"),
+            province=_nested_str_field(shipment.receiver_address, "state", "name"),
+            estimated_delivery=_nested_str_field(
                 shipment.raw_shipment, "shipping_option", "estimated_delivery_final", "date"
             ),
         )
@@ -1157,15 +1157,16 @@ def _parse_csv_ids(raw: Optional[str], field: str) -> Tuple[int, ...]:
     return tuple(values)
 
 
-def _receiver_address_field(receiver_address: Optional[Any], *nested_keys: str) -> Optional[str]:
-    """Null-safe read of a `MlShipmentOps.receiver_address` JSONB field
-    (PR10.T3/T4, spec LISTING R28). Real captured shape (verified against
+def _nested_str_field(raw: Optional[Any], *nested_keys: str) -> Optional[str]:
+    """Null-safe read of a nested string out of ANY raw ML JSON dict -- the
+    `MlShipmentOps.receiver_address` JSONB (PR10.T3/T4, spec LISTING R28) and
+    `raw_shipment` alike. Real captured shape (verified against
     `ml_webhook_service.py`'s own parsing): `{"city": {"name": "..."},
     "state": {"name": "..."}}`. This is raw ML JSONB, so every hop is
     guarded -- a missing key, an explicit `null`, or an unexpected type
     (e.g. a string where a dict is expected) all resolve to `None`, never
     a raised exception or an invented value."""
-    value: Any = receiver_address
+    value: Any = raw
     for key in nested_keys:
         if not isinstance(value, dict):
             return None
@@ -1335,6 +1336,56 @@ def listar_ventas(
     Requires `ml_ops.ver`, checked BEFORE the feature flag (403 before
     503) -- same precedent as every other endpoint in this router.
     """
+    return _sales_page(
+        db,
+        operation_status_filter=operation_status_filter,
+        goods_status_filter=goods_status_filter,
+        sold_month=sold_month,
+        date_from=date_from,
+        date_to=date_to,
+        sort=sort,
+        q=q,
+        marcas=marcas,
+        subcategorias=subcategorias,
+        pms=pms,
+        include_unknown=include_unknown,
+        include_in_dispute=include_in_dispute,
+        include_mixed=include_mixed,
+        include_provisional=include_provisional,
+        include_cancelled=include_cancelled,
+        only_alerts=only_alerts,
+        limit=limit,
+        offset=offset,
+    )
+
+
+def _sales_page(
+    db: Session,
+    *,
+    operation_status_filter: Optional[str],
+    goods_status_filter: Optional[str],
+    sold_month: Optional[str],
+    date_from: Optional[str],
+    date_to: Optional[str],
+    sort: str,
+    q: Optional[str],
+    marcas: Optional[str],
+    subcategorias: Optional[str],
+    pms: Optional[str],
+    include_unknown: bool,
+    include_in_dispute: bool,
+    include_mixed: bool,
+    include_provisional: bool,
+    include_cancelled: bool,
+    only_alerts: bool,
+    limit: int,
+    offset: int,
+    with_facets: bool = True,
+) -> SaleListResponse:
+    """The single scope/query path behind `GET /sales` AND the CSV export, so
+    the export can never diverge from the listing. `with_facets=False` skips
+    the facet counts and the alerts counter: the export reads neither, and
+    they are ~5 whole-scope aggregate queries per page."""
     _require_flag_enabled()
 
     if operation_status_filter is not None and operation_status_filter not in OPERATION_STATUSES:
@@ -1526,10 +1577,8 @@ def listar_ventas(
                         float(order_retenciones_recuperables) if order_retenciones_recuperables is not None else None
                     ),
                     item_category=item_category_by_order.get(order.order_id),
-                    city=_receiver_address_field(
-                        shipment.receiver_address if shipment is not None else None, "city", "name"
-                    ),
-                    province=_receiver_address_field(
+                    city=_nested_str_field(shipment.receiver_address if shipment is not None else None, "city", "name"),
+                    province=_nested_str_field(
                         shipment.receiver_address if shipment is not None else None, "state", "name"
                     ),
                     shipping_substatus=shipment.substatus if shipment is not None else None,
@@ -1653,8 +1702,17 @@ def listar_ventas(
             )
         )
 
+    if not with_facets:
+        return SaleListResponse(
+            total=total,
+            limit=limit,
+            offset=offset,
+            sales=groups,
+            facets=SaleFacetCounts(operation_status={}, goods_status={}),
+        )
+
     # Facets: each axis scoped by the OTHER active filter(s), never by its
-    # own -- see docstring above.
+    # own -- see `listar_ventas`'s docstring.
     op_facet_query = facet_base
     if goods_status_filter is not None:
         op_facet_query = op_facet_query.filter(goods_status_expr == goods_status_filter)
@@ -1729,11 +1787,12 @@ def estado_sincronizacion(
 
 # ── ODD ventas-ml-ui-pendiente T6: CSV export of the filtered set ───
 
-# The export walks the REAL listing (`listar_ventas`) page by page, so it
-# holds exactly what the table holds for the same params: there is no second
-# query that could drift from `build_scope`. The cap is a guard rail, not a
-# feature: every page re-runs the listing, so an unbounded export would be a
-# slow request the operator cannot see the end of.
+# The export walks the REAL listing query (`_sales_page`, the same one behind
+# `listar_ventas`) page by page, so it holds exactly what the table holds for
+# the same params: there is no second query that could drift from
+# `build_scope`. Pages skip the facets/alerts counter. The cap is a guard
+# rail, not a feature: every page re-runs the listing query, so an unbounded
+# export would be a slow request the operator cannot see the end of.
 EXPORT_PAGE_SIZE = 200
 EXPORT_MAX_GROUPS = 10_000
 
@@ -1848,31 +1907,54 @@ def exportar_ventas(
     disabled feature or an oversized set fail as a normal HTTP error instead
     of a truncated file."""
 
-    def page(offset: int) -> SaleListResponse:
-        return listar_ventas(
-            operation_status_filter=operation_status_filter,
-            goods_status_filter=goods_status_filter,
-            sold_month=sold_month,
-            date_from=date_from,
-            date_to=date_to,
-            sort=SORT_BY_SALE_DATE,
-            q=q,
-            marcas=marcas,
-            subcategorias=subcategorias,
-            pms=pms,
-            include_unknown=include_unknown,
-            include_in_dispute=include_in_dispute,
-            include_mixed=include_mixed,
-            include_provisional=include_provisional,
-            include_cancelled=include_cancelled,
-            only_alerts=only_alerts,
-            limit=EXPORT_PAGE_SIZE,
-            offset=offset,
-            current_user=current_user,
-            db=db,
-        )
+    def fetch_page(offset: int) -> "tuple[SaleListResponse, str]":
+        # ONE short session per page, opened and closed here: the response
+        # outlives this handler, and a session held across the whole download
+        # pins a pooled connection while the client reads (QueuePool incident,
+        # PR #811). The page's CSV text is built inside the same session.
+        with get_background_db() as page_db:
+            response = _sales_page(
+                page_db,
+                operation_status_filter=operation_status_filter,
+                goods_status_filter=goods_status_filter,
+                sold_month=sold_month,
+                date_from=date_from,
+                date_to=date_to,
+                sort=SORT_BY_SALE_DATE,
+                q=q,
+                marcas=marcas,
+                subcategorias=subcategorias,
+                pms=pms,
+                include_unknown=include_unknown,
+                include_in_dispute=include_in_dispute,
+                include_mixed=include_mixed,
+                include_provisional=include_provisional,
+                include_cancelled=include_cancelled,
+                only_alerts=only_alerts,
+                limit=EXPORT_PAGE_SIZE,
+                offset=offset,
+                with_facets=False,
+            )
+            return response, rows_of(page_db, response)
 
-    first = page(0)
+    def rows_of(page_db: Session, response: SaleListResponse) -> str:
+        buffer = io.StringIO()
+        writer = csv.writer(buffer, delimiter=";")
+        # The sale's day is its ACCREDITATION day (#1368), resolved by the
+        # same `member_accreditation_dates` the list's day rule is built on;
+        # a pack's day is its LAST member's (MAX), repeated on each of its rows.
+        per_order = member_accreditation_dates(page_db, [o.order_id for g in response.sales for o in g.orders])
+        for group in response.sales:
+            dates = [per_order[o.order_id] for o in group.orders if o.order_id in per_order]
+            day = max(dates) if dates else None
+            for order in group.orders:
+                writer.writerow(_csv_order_row(order, day))
+        return buffer.getvalue()
+
+    first, first_rows = fetch_page(0)
+    # The permission check left a read transaction open on the request
+    # session; end it so no pooled connection is held while the file streams.
+    db.rollback()
     if first.total > EXPORT_MAX_GROUPS:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
@@ -1882,33 +1964,19 @@ def exportar_ventas(
             ),
         )
 
-    def rows_of(response: SaleListResponse) -> str:
-        buffer = io.StringIO()
-        writer = csv.writer(buffer, delimiter=";")
-        # The sale's day is its ACCREDITATION day (#1368), resolved by the
-        # same `member_accreditation_dates` the list's day rule is built on;
-        # a pack's day is its LAST member's (MAX), repeated on each of its rows.
-        per_order = member_accreditation_dates(db, [o.order_id for g in response.sales for o in g.orders])
-        for group in response.sales:
-            dates = [per_order[o.order_id] for o in group.orders if o.order_id in per_order]
-            day = max(dates) if dates else None
-            for order in group.orders:
-                writer.writerow(_csv_order_row(order, day))
-        return buffer.getvalue()
-
     def stream():
         header = io.StringIO()
         csv.writer(header, delimiter=";").writerow(EXPORT_HEADER)
         # BOM so Excel reads the accents as UTF-8.
         yield "\ufeff" + header.getvalue()
-        current = first
+        current, current_rows = first, first_rows
         offset = 0
         while True:
-            yield rows_of(current)
+            yield current_rows
             offset += EXPORT_PAGE_SIZE
             if offset >= first.total or not current.sales:
                 break
-            current = page(offset)
+            current, current_rows = fetch_page(offset)
 
     filename = f"ventas-ml-{datetime.now().strftime('%Y%m%d-%H%M')}.csv"
     return StreamingResponse(

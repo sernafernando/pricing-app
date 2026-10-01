@@ -683,3 +683,16 @@ class TestItemsAdditiveField:
 
         assert resp.status_code == 200
         assert counter.matching("ml_order_items_ops") <= 1
+
+
+class TestNestedStrField:
+    """`_nested_str_field` reads nested keys from ANY raw JSON dict (the
+    receiver address AND `raw_shipment`), so it is not named after one."""
+
+    def test_reads_a_nested_string_and_is_null_safe(self):
+        from app.routers.ml_ventas_ops import _nested_str_field
+
+        assert _nested_str_field({"city": {"name": "Rosario"}}, "city", "name") == "Rosario"
+        assert _nested_str_field({"city": None}, "city", "name") is None
+        assert _nested_str_field({"city": "x"}, "city", "name") is None
+        assert _nested_str_field(None, "city") is None

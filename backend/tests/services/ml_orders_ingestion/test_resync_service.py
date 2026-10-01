@@ -265,6 +265,56 @@ class TestRepeatedResync:
         assert enqueued == [([ORDER_ID], "resync")]
 
 
+class TestNoConnectionHeldWhileWaitingOnMl:
+    """Every HTTP call to ML must run with the DB session idle: a pooled
+    connection pinned for the duration of up to 3 round trips is the
+    QueuePool-exhaustion defect class (PR #811)."""
+
+    def test_the_session_has_no_open_transaction_during_any_ml_call(self, db, monkeypatch, enqueued):
+        _store_order(db)
+        seen = []
+
+        def watching(name, payload):
+            async def _call(*args, **kwargs):
+                seen.append((name, db.in_transaction()))
+                return payload
+
+            return _call
+
+        monkeypatch.setattr(ml_webhook_client, "get_order", watching("order", _ml_order()))
+        monkeypatch.setattr(ml_webhook_client, "get_payment", watching("payment", _ml_payment()))
+        monkeypatch.setattr(ml_webhook_client, "get_shipment", watching("shipment", _ml_shipment()))
+        monkeypatch.setattr(ml_webhook_client, "get_shipment_costs", watching("costs", None))
+
+        resync_order(db, ORDER_ID)
+
+        assert {name for name, _ in seen} >= {"order", "payment", "shipment"}
+        assert [name for name, in_tx in seen if in_tx] == []
+        assert enqueued == [([ORDER_ID], "resync")]
+
+
+class TestGuardPrunesExpiredEntries:
+    def test_a_finished_entry_is_dropped_once_its_cooldown_passed(self, db, monkeypatch, enqueued):
+        _store_order(db)
+        _ml(monkeypatch, order=_ml_order(), payment=_ml_payment(), shipment=_ml_shipment())
+        resync_order(db, ORDER_ID, monotonic=lambda: 1000.0)
+        assert ORDER_ID in resync_service._finished_at
+
+        later = 1000.0 + resync_service.COOLDOWN_SECONDS + 1
+        assert resync_service._try_begin(ORDER_ID + 1, monotonic=lambda: later)
+
+        assert ORDER_ID not in resync_service._finished_at
+
+    def test_end_prunes_too_and_keeps_entries_still_cooling_down(self):
+        resync_service._finished_at[1] = 1000.0
+        resync_service._finished_at[2] = 1500.0
+        resync_service._in_flight.add(3)
+
+        resync_service._end(3, completed=True, monotonic=lambda: 1500.0 + 1)
+
+        assert set(resync_service._finished_at) == {2, 3}
+
+
 class TestEnqueueOrderMetrics:
     """The portable half of the explicit enqueue (SQLite here; Postgres runs
     the PL/pgSQL `order_metrics_enqueue`, same semantics)."""

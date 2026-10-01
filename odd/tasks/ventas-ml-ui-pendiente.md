@@ -281,3 +281,24 @@ abajo en "Cierre". Creado 2026-09-30. Línea base vitest: 133 archivos, 1794 pas
 - RED: 8 de 10 tests del archivo `test_ml_ventas_ops_export_router.py` fallaron
   (columnas inexistentes / formato viejo). GREEN: export + sales router 106
   passed; ruff limpio. Frontend sin cambios (sus tests no asertan el formato).
+
+### Fix observaciones (review de la UI de Ventas ML)
+Rama `fix/ventas-ml-ui-observaciones`, TDD estricto (RED observado antes de cada fix).
+- Ruta: delegated direct, un solo writer.
+1. Export caro: cada página re-corría `listar_ventas` completo (facets + contador de
+   alertas). Ahora `listar_ventas` y el export comparten UN camino, `_sales_page`;
+   el export pasa `with_facets=False`. RED: `alert_groups_count` se llamaba en el
+   export (`assert [1] == []`; los controles del listado sí pasaban). GREEN: el export
+   no corre facets (`as bucket`) ni el contador.
+2. Conexión retenida esperando a ML. (a) resync: `resync_order` hace `db.commit()`
+   tras el chequeo de existencia, antes de todo HTTP; la transacción de escritura
+   arranca después del último HTTP (semántica all-HTTP-before-first-write intacta).
+   RED: `db.in_transaction()` era True en las 3 llamadas (order/shipment/payment).
+   (b) export: cada página corre en su propio `get_background_db()` (pedida y cerrada
+   por página); la sesión del request se libera con `db.rollback()` tras la primera
+   página, que sigue validándose antes de arrancar la respuesta (422 intacto).
+   RED: `assert 0 == 3` sesiones cortas abiertas.
+3. `_finished_at` crecía sin límite: `_prune_expired` en `_try_begin` y `_end`.
+   RED: la entrada vencida seguía en el dict.
+4. `_receiver_address_field` -> `_nested_str_field` (lee claves anidadas de cualquier
+   JSON crudo, también `raw_shipment`). RED: ImportError del nombre nuevo.
