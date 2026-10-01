@@ -26,6 +26,7 @@ from __future__ import annotations
 import calendar
 import csv
 import io
+import logging
 from datetime import date, datetime, time, timedelta, timezone
 from decimal import Decimal
 from zoneinfo import ZoneInfo
@@ -117,6 +118,8 @@ DIVERGENCE_STATES = ("open", "acknowledged", "resolved", "ignored")
 # for an unenumerable leaf, see `sweep_service.record_unenumerable_window`)
 # -- MUST NOT render as an order id (mandatory debt from slice 3).
 _UNENUMERABLE_SENTINEL_ORDER_ID = 0
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/ml-ventas-ops", tags=["ML Ventas Ops"])
 
@@ -1982,12 +1985,21 @@ def exportar_ventas(
         yield "\ufeff" + header.getvalue()
         current, current_rows = first, first_rows
         offset = 0
+        exported = 0
         while True:
             yield current_rows
+            exported += len(current.sales)
             offset += EXPORT_PAGE_SIZE
             if offset >= first.total or not current.sales:
                 break
-            current, current_rows = fetch_page(offset, known_total=first.total)
+            try:
+                current, current_rows = fetch_page(offset, known_total=first.total)
+            except Exception:  # noqa: BLE001
+                # The 200 and the header are already on the wire: the status
+                # cannot change, so the FILE says it is incomplete.
+                logger.exception("ventas-ml export: page at offset=%s failed", offset)
+                yield f"# ERROR: exportación incompleta — {exported} de {first.total} ventas exportadas. Volvé a intentar.\n"
+                return
 
     filename = f"ventas-ml-{datetime.now().strftime('%Y%m%d-%H%M')}.csv"
     return StreamingResponse(
