@@ -59,6 +59,7 @@ import PackDetailPanel from '../components/ventasMl/PackDetailPanel';
 import Pagination from '../components/ventasMl/Pagination';
 import SalesToolbar from '../components/ventasMl/SalesToolbar';
 import FacetChips from '../components/ventasMl/FacetChips';
+import AlertsFilterChip from '../components/ventasMl/AlertsFilterChip';
 import ProductFiltersPanel from '../components/shared/ProductFiltersPanel';
 import KpiStrip from '../components/ventasMl/KpiStrip';
 import IncludeToggles from '../components/ventasMl/IncludeToggles';
@@ -93,6 +94,7 @@ const EMPTY_FACETS = {
   goods_status: {},
   operation_status_total: 0,
   goods_status_total: 0,
+  alerts_total: 0,
 };
 
 // Status labels/badge classes, money/date formatting, and the group-level
@@ -137,6 +139,7 @@ export default function VentasML() {
   const [includeMixed, setIncludeMixed] = useState(true);
   const [includeProvisional, setIncludeProvisional] = useState(true);
   const [includeCancelled, setIncludeCancelled] = useState(true);
+  const [onlyAlerts, setOnlyAlerts] = useState(false);
 
   const [kpi, setKpi] = useState(null);
   const [kpiLoading, setKpiLoading] = useState(true);
@@ -274,6 +277,11 @@ export default function VentasML() {
     setOffset(0);
   }, []);
 
+  const handleOnlyAlertsChange = useCallback((value) => {
+    setOnlyAlerts(value);
+    setOffset(0);
+  }, []);
+
   const handleGoodsStatusChange = useCallback((value) => {
     setGoodsStatusFilter(value);
     setOffset(0);
@@ -326,6 +334,7 @@ export default function VentasML() {
     setIncludeMixed(true);
     setIncludeProvisional(true);
     setIncludeCancelled(true);
+    setOnlyAlerts(false);
     setOffset(0);
   }, [setSearchQuery, clearProductFilters]);
 
@@ -354,7 +363,8 @@ export default function VentasML() {
       !includeInDispute ||
       !includeMixed ||
       !includeProvisional ||
-      !includeCancelled
+      !includeCancelled ||
+      onlyAlerts
   );
 
   // "Todas" is neither `total` (scoped by BOTH axes, so it under-counts
@@ -390,6 +400,7 @@ export default function VentasML() {
           includeMixed,
           includeProvisional,
           includeCancelled,
+          onlyAlerts,
         }),
       };
       const { data } = await api.get('/ml-ventas-ops/sales', { params });
@@ -428,6 +439,7 @@ export default function VentasML() {
     includeMixed,
     includeProvisional,
     includeCancelled,
+    onlyAlerts,
     offset,
     pageSize,
   ]);
@@ -456,6 +468,7 @@ export default function VentasML() {
         includeMixed,
         includeProvisional,
         includeCancelled,
+        onlyAlerts,
       });
       const { data } = await api.get('/ml-ventas-ops/sales/kpis', { params });
       if (requestId !== latestKpiRequestRef.current) return;
@@ -486,6 +499,7 @@ export default function VentasML() {
     includeMixed,
     includeProvisional,
     includeCancelled,
+    onlyAlerts,
   ]);
 
   useEffect(() => {
@@ -634,6 +648,17 @@ export default function VentasML() {
             total={facets.goods_status_total}
             activeValue={goodsStatusFilter}
             onChange={handleGoodsStatusChange}
+          />
+        </div>
+
+        <div className={styles.divider} />
+
+        <div className={styles.filterRow}>
+          <span className={styles.fieldLabel}>Alertas</span>
+          <AlertsFilterChip
+            active={onlyAlerts}
+            count={facets.alerts_total}
+            onChange={handleOnlyAlertsChange}
           />
         </div>
 

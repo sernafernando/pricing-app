@@ -74,6 +74,7 @@ from app.services.ml_sales_query.filters import (
     build_scope,
     collapse,
     effective_switches,
+    alert_groups_count,
     excluded_by_toggle_counts,
 )
 from app.services.ml_ventas_desglose.deducciones import resolve_costo_mercaderia_detalle
@@ -876,6 +877,10 @@ class SaleFacetCounts(BaseModel):
     # it would actually render, or it contradicts the table under it.
     operation_status_total: int = 0
     goods_status_total: int = 0
+    # ODD `ventas-ml-ui-pendiente` T5: groups with an alert inside the scope
+    # every OTHER filter leaves standing (never scoped by `only_alerts`
+    # itself, so the "Solo con alertas (N)" counter stays honest while ON).
+    alerts_total: int = 0
 
 
 class SaleListResponse(BaseModel):
@@ -1277,6 +1282,7 @@ def listar_ventas(
     include_mixed: bool = Query(default=True, description='Incluir "Mixta" (KPI R9)'),
     include_provisional: bool = Query(default=True, description='Incluir "Provisorio" (KPI R9)'),
     include_cancelled: bool = Query(default=True, description='Incluir "Canceladas" (ODD ventas-ml-ui-pendiente T8)'),
+    only_alerts: bool = Query(default=False, description="Solo con alertas (ODD ventas-ml-ui-pendiente T5)"),
     limit: int = Query(default=50, ge=1, le=200),
     offset: int = Query(default=0, ge=0),
     current_user: Usuario = Depends(require_permission("ml_ops.ver")),
@@ -1375,6 +1381,7 @@ def listar_ventas(
             include_mixed=include_mixed,
             include_provisional=include_provisional,
             include_cancelled=include_cancelled,
+            only_alerts=only_alerts,
         ),
     )
     op_status_expr = scope.op_status_expr
@@ -1675,6 +1682,7 @@ def listar_ventas(
             goods_status=goods_facet,
             operation_status_total=op_facet_total,
             goods_status_total=goods_facet_total,
+            alerts_total=alert_groups_count(scope),
         ),
     )
 
@@ -1771,6 +1779,7 @@ def sales_kpis(
     include_mixed: bool = Query(default=True, description='"Mixta" (KPI R9, R11)'),
     include_provisional: bool = Query(default=True, description='"Provisorio" (KPI R9, R11)'),
     include_cancelled: bool = Query(default=True, description='"Canceladas" (ODD ventas-ml-ui-pendiente T8)'),
+    only_alerts: bool = Query(default=False, description="Solo con alertas (ODD ventas-ml-ui-pendiente T5)"),
     current_user: Usuario = Depends(require_permission("ml_ops.ver")),
     db: Session = Depends(get_db),
 ) -> SalesKpiResponse:
@@ -1829,6 +1838,7 @@ def sales_kpis(
         include_mixed=include_mixed,
         include_provisional=include_provisional,
         include_cancelled=include_cancelled,
+        only_alerts=only_alerts,
     )
     scope = build_scope(db, sales_filter)
     result = aggregate_order_metrics(db, scope.listing_query, scope.members_base, scope.group_key)

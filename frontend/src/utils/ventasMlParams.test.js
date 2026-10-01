@@ -13,6 +13,7 @@ const BASE_FILTERS = {
   includeMixed: true,
   includeProvisional: true,
   includeCancelled: true,
+  onlyAlerts: false,
 };
 
 describe('buildVentasMLFilterParams', () => {
@@ -70,6 +71,11 @@ describe('buildVentasMLFilterParams', () => {
   it('a caller that does not know the switch keeps cancelled sales (default ON)', () => {
     const { includeCancelled, ...withoutIt } = BASE_FILTERS; // eslint-disable-line no-unused-vars
     expect(buildVentasMLFilterParams(withoutIt).include_cancelled).toBe(true);
+  });
+
+  it('sends only_alerts so the list, facets and KPI strip share the alert scope', () => {
+    expect(buildVentasMLFilterParams(BASE_FILTERS).only_alerts).toBe(false);
+    expect(buildVentasMLFilterParams({ ...BASE_FILTERS, onlyAlerts: true }).only_alerts).toBe(true);
   });
 
   it('reflects a toggle turned off', () => {

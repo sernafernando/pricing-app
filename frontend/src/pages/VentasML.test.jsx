@@ -1871,6 +1871,43 @@ describe('the KPI strip stays in parity with the list', () => {
     expect(screen.getByRole('checkbox', { name: /canceladas/i })).toBeChecked();
   });
 
+  it('Solo con alertas reaches list and KPI requests, resets the page and shows the facet count', async () => {
+    mockKpi();
+    const baseImpl = api.get.getMockImplementation();
+    api.get.mockImplementation((url, config) => {
+      if (url === '/ml-ventas-ops/sales') {
+        return Promise.resolve({
+          data: {
+            sales: [],
+            total: 0,
+            limit: 50,
+            offset: 0,
+            facets: { operation_status: {}, goods_status: {}, alerts_total: 7 },
+          },
+        });
+      }
+      return baseImpl(url, config);
+    });
+    const user = userEvent.setup();
+    await renderWithRouter(<VentasML />);
+    const chip = await screen.findByRole('button', { name: /solo con alertas/i });
+    expect(chip).toHaveTextContent('Solo con alertas · 7');
+    const firstList = api.get.mock.calls.find((c) => c[0] === '/ml-ventas-ops/sales');
+    expect(firstList[1].params.only_alerts).toBe(false);
+
+    api.get.mock.calls.length = 0;
+    await user.click(chip);
+    await waitFor(() => {
+      const listCall = api.get.mock.calls.find((c) => c[0] === '/ml-ventas-ops/sales');
+      const kpiCall = api.get.mock.calls.find((c) => c[0] === '/ml-ventas-ops/sales/kpis');
+      expect(listCall[1].params).toMatchObject({ only_alerts: true, offset: 0 });
+      expect(kpiCall[1].params.only_alerts).toBe(true);
+    });
+
+    await user.click(await screen.findByRole('button', { name: /limpiar filtros/i }));
+    expect(screen.getByRole('button', { name: /solo con alertas/i })).toHaveAttribute('aria-pressed', 'false');
+  });
+
   it('renders a null markup_weighted_pct from the live response as "—", not 0%', async () => {
     mockKpi({ markup_weighted_pct: null });
     await renderWithRouter(<VentasML />);

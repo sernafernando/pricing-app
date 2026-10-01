@@ -25,6 +25,7 @@ export function buildVentasMLFilterParams({
   // ON (cancelled sales included) unless a caller says otherwise, so a
   // caller that predates the switch never hides cancelled sales by accident.
   includeCancelled = true,
+  onlyAlerts = false,
 }) {
   const params = {};
   if (operationStatusFilter) params.operation_status = operationStatusFilter;
@@ -46,5 +47,8 @@ export function buildVentasMLFilterParams({
   params.include_mixed = Boolean(includeMixed);
   params.include_provisional = Boolean(includeProvisional);
   params.include_cancelled = Boolean(includeCancelled);
+  // Not a toggle but a scope filter: same shared builder so the table, the
+  // facets and the KPI strip can never disagree about it.
+  params.only_alerts = Boolean(onlyAlerts);
   return params;
 }
