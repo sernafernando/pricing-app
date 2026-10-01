@@ -131,6 +131,7 @@ class Pub:
     is_full: bool = False
     title: Optional[str] = None
     started_at: Optional[datetime] = None
+    thumbnail: Optional[str] = None
 
     @property
     def store_bucket(self) -> str:
@@ -183,6 +184,7 @@ def _load_pubs(db: Session) -> Tuple[Dict[str, Pub], Dict[str, int]]:
             MercadoLibreItemPublicado.mlp_itemTitle,
             MercadoLibreItemPublicado.mlp_start_time,
             MercadoLibreItemPublicado.mlp_creationDate,
+            MercadoLibreItemPublicado.mlp_thumbnail,
         )
         .filter(MercadoLibreItemPublicado.mlp_publicationID.isnot(None))
         .order_by(MercadoLibreItemPublicado.mlp_id)
@@ -200,6 +202,7 @@ def _load_pubs(db: Session) -> Tuple[Dict[str, Pub], Dict[str, int]]:
             is_full=bool(r.mlp_is4FulFillment),
             title=r.mlp_itemTitle,
             started_at=r.mlp_start_time or r.mlp_creationDate,
+            thumbnail=r.mlp_thumbnail,
         )
         if r.item_id is not None:
             product_of[r.mlp_publicationID] = r.item_id
@@ -326,6 +329,7 @@ class Row:
     last_sale_at: Optional[datetime] = None
     ageing_days: Optional[int] = None
     pub: Optional[Pub] = None
+    thumbnail: Optional[str] = None
 
     @property
     def markup(self) -> Optional[Decimal]:
@@ -462,10 +466,24 @@ def build_rows(u: Universe, f: BoardFilter, skip: str = "") -> List[Row]:
         row.ageing_days = _ageing(
             today, row.last_sale_at, ((u.pubs.get(m) or Pub(mla=m)).started_at for _p, m in pairs)
         )
+        row.thumbnail = _thumbnail(u, pub, pairs)
         if f.alerts and skip != "alerts" and not (row.alerts() & set(f.alerts)):
             continue
         rows.append(row)
     return rows
+
+
+def _thumbnail(u: Universe, pub: Optional[Pub], pairs: Sequence[Tuple[int, str]]) -> Optional[str]:
+    """A publication's own picture; a product's, the picture of its
+    best-selling publication in the period that has one."""
+    if pub is not None:
+        return pub.thumbnail
+    ranked = sorted(pairs, key=lambda pair: (-u.pairs[pair].units, pair[1]))
+    for _product, mla in ranked:
+        candidate = u.pubs.get(mla)
+        if candidate is not None and candidate.thumbnail:
+            return candidate.thumbnail
+    return None
 
 
 def _main_product(u: Universe, pairs: Sequence[Tuple[int, str]]) -> int:

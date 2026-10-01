@@ -90,6 +90,7 @@ class BoardRow(BaseModel):
     is_full: Optional[bool] = None
     store_id: Optional[int] = None
     is_best: Optional[bool] = None
+    thumbnail: Optional[str] = None
 
 
 class KpiMoney(BaseModel):
@@ -117,6 +118,9 @@ class KpiShare(BaseModel):
 
 class KpiAgeing(BaseModel):
     avg_days: Optional[float] = None
+    # The ageing bar: rows aged <= 30, 31-60 and > 60 days.
+    up_to_30: int = 0
+    up_to_60: int = 0
     over_60: int
 
 
@@ -284,6 +288,7 @@ def _row_out(u: board.Universe, row: board.Row, f: board.BoardFilter, can_see_ma
         is_catalog=pub.is_catalog if pub else None,
         is_full=pub.is_full if pub else None,
         store_id=pub.store_id if pub else None,
+        thumbnail=row.thumbnail,
     )
 
 
@@ -320,6 +325,8 @@ def _kpis(u: board.Universe, rows: List[board.Row], f: board.BoardFilter, can_se
         products_with_sales=KpiShare(value=sum(1 for r in rows if r.units > 0), of_total=len(rows)),
         ageing=KpiAgeing(
             avg_days=round(sum(ageing) / len(ageing), 1) if ageing else None,
+            up_to_30=sum(1 for days in ageing if days <= 30),
+            up_to_60=sum(1 for days in ageing if 30 < days <= board.AGEING_ALERT_DAYS),
             over_60=sum(1 for r in rows if "ageing_60d" in r.alerts()),
         ),
     )

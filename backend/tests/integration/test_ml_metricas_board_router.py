@@ -75,6 +75,7 @@ def _pub(db, mlp_id, mla, item_id, store, status_id=153, listing="gold_special",
             mlp_is4FulFillment=full,
             mlp_itemTitle=f"Título {mla}",
             mlp_start_time=datetime(2026, 6, 1),
+            mlp_thumbnail=f"https://http2.mlstatic.com/{mla}.jpg",
         )
     )
 
@@ -268,6 +269,12 @@ class TestPublications:
         assert rows["MLA1"]["store_id"] == 57997
         assert rows["MLA2"]["status"] == "paused"
         assert rows["MLA4"]["is_catalog"] is True
+        assert rows["MLA1"]["thumbnail"] == "https://http2.mlstatic.com/MLA1.jpg"
+
+    def test_a_product_row_shows_the_thumbnail_of_its_best_selling_publication(
+        self, client, admin_auth_headers, board_data
+    ):
+        assert _by_key(_get(client, admin_auth_headers))["11"]["thumbnail"] == "https://http2.mlstatic.com/MLA1.jpg"
 
     def test_nested_publications_of_a_product_mark_the_best(self, client, admin_auth_headers, board_data):
         resp = client.get(f"{URL}/products/11/publications", headers=admin_auth_headers)
@@ -357,6 +364,8 @@ class TestKpis:
         assert len(kpis["units"]["series"]) == 30
         assert kpis["products_with_sales"] == {"value": 2, "of_total": 4}
         assert kpis["ageing"]["over_60"] == 2
+        # The ageing bar's three segments: <= 30 / 31-60 / > 60 days.
+        assert (kpis["ageing"]["up_to_30"], kpis["ageing"]["up_to_60"]) == (2, 0)
 
 
 class TestExport:
