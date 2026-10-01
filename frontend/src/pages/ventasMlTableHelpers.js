@@ -77,3 +77,45 @@ export function resizeColumns(widths, order, columnId, delta, mins) {
     [neighborId]: widths[neighborId] - applied,
   };
 }
+
+// Rows per page. The endpoint caps `limit` at 200 (`ml_ventas_ops.py`), so
+// nothing above that is offered. Persisted like the column choices.
+export const PAGE_SIZE_OPTIONS = [25, 50, 100, 200];
+export const DEFAULT_PAGE_SIZE = 50;
+export const PAGE_SIZE_STORAGE_KEY = 'ventasml:pagesize';
+
+export function loadPageSize() {
+  try {
+    const value = Number(localStorage.getItem(PAGE_SIZE_STORAGE_KEY));
+    return PAGE_SIZE_OPTIONS.includes(value) ? value : DEFAULT_PAGE_SIZE;
+  } catch {
+    return DEFAULT_PAGE_SIZE;
+  }
+}
+
+export function savePageSize(size) {
+  try {
+    localStorage.setItem(PAGE_SIZE_STORAGE_KEY, String(size));
+  } catch {
+    // Disabled/private-mode localStorage: the choice lasts for the session.
+  }
+}
+
+/**
+ * Page numbers to render: first, last, the current page and its neighbours,
+ * with a `gap-*` marker where pages are skipped (never for a single page —
+ * a gap hiding one number is longer than the number).
+ */
+export function pageWindow(current, totalPages) {
+  if (totalPages <= 1) return [1];
+  const keep = new Set([1, totalPages, current - 1, current, current + 1]);
+  const pages = [...keep].filter((p) => p >= 1 && p <= totalPages).sort((a, b) => a - b);
+  const out = [];
+  pages.forEach((page, i) => {
+    const prev = pages[i - 1];
+    if (prev !== undefined && page - prev === 2) out.push(prev + 1);
+    else if (prev !== undefined && page - prev > 2) out.push(prev === 1 ? 'gap-start' : 'gap-end');
+    out.push(page);
+  });
+  return out;
+}

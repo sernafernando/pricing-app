@@ -52,7 +52,7 @@ Strict TDD: enabled (config de sesión). Runners:
 Ruta: delegated direct (writer único, 2+ archivos no triviales por tarea).
 
 - [x] T1 — Anchos ajustables + restablecer (frontend).
-- [ ] T2 — Paginador numerado + filas por página (frontend).
+- [x] T2 — Paginador numerado + filas por página (frontend).
 - [ ] T3 — Cupón en Importe + toggle "A revisar" (frontend).
 - [ ] T4 — Panel: Comprador / Pago / Envío + Ver en ML + copiar ID (BE+FE).
 - [ ] T5 — Filtro "Solo con alertas" con conteo (BE+FE).
@@ -91,3 +91,13 @@ Creado 2026-09-30. Línea base vitest: 133 archivos, 1794 passed + 2 expected fa
   Teclado: flechas ±10px sobre el grip.
 - GREEN: 13/13 tests nuevos. vitest completo: 135 archivos, 1807 passed + 2
   expected fail (antes 133 / 1794). eslint: 0 errores, 8 warnings. build OK.
+
+### T2
+- RED: `pageWindow`/`loadPageSize` no existían (8 fallan en
+  `ventasMlTableHelpers.test.js`), `Pagination.jsx` no existía (suite no carga),
+  y `rows per page` en `VentasML.columnSizing.test.jsx` (no hay "Página N").
+- Decisión: tamaños 25/50/100/200 (el endpoint topea `limit` en 200), default
+  50, persistido en `ventasml:pagesize`; cambiar el tamaño vuelve a la página 1.
+  Se conserva el texto "mostrando X-Y de N ventas" y los botones
+  Anterior/Siguiente (tests existentes siguen verdes sin tocarse).
+- GREEN: `pnpm exec vitest run src/pages src/components/ventasMl` 577 passed.

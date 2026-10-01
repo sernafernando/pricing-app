@@ -417,17 +417,6 @@
   color: var(--text-secondary);
 }
 
-/* ── Pagination ──────────────────────────────────────────── */
-
-.paginationBar {
-  display: flex;
-  align-items: center;
-  gap: var(--spacing-md);
-  padding: var(--spacing-md) 0;
-  font-size: var(--font-sm);
-  color: var(--text-secondary);
-}
-
 /* Last-resort horizontal scroll, only where compression has run out of
    room: below 1279px the panel is already a fixed sheet (see
    `VentasMLLayout.module.css`) and the percentage columns bottom out. The

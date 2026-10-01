@@ -91,3 +91,24 @@ describe('column resize grips', () => {
     expect((await grips()).length).toBeGreaterThan(0);
   });
 });
+
+describe('rows per page', () => {
+  it('sends the chosen limit, resets to the first page and remembers it', async () => {
+    api.get.mockImplementation((url) =>
+      Promise.resolve({
+        data:
+          url === '/ml-ventas-ops/sales'
+            ? { sales: [], total: 500, facets: { operation_status: {}, goods_status: {} } }
+            : {},
+      }),
+    );
+    await renderWithRouter(<VentasML />);
+    await userEvent.click(await screen.findByRole('button', { name: 'Página 2' }));
+    await userEvent.selectOptions(screen.getByLabelText('Filas por página'), '100');
+    await waitFor(() => {
+      const calls = api.get.mock.calls.filter((c) => c[0] === '/ml-ventas-ops/sales');
+      expect(calls[calls.length - 1][1].params).toMatchObject({ limit: 100, offset: 0 });
+    });
+    expect(localStorage.getItem('ventasml:pagesize')).toBe('100');
+  });
+});

@@ -56,6 +56,7 @@ import api from '../services/api';
 import VentasMLLayout from '../components/ventasMl/VentasMLLayout';
 import SaleDetailPanel from '../components/ventasMl/SaleDetailPanel';
 import PackDetailPanel from '../components/ventasMl/PackDetailPanel';
+import Pagination from '../components/ventasMl/Pagination';
 import SalesToolbar from '../components/ventasMl/SalesToolbar';
 import FacetChips from '../components/ventasMl/FacetChips';
 import ProductFiltersPanel from '../components/shared/ProductFiltersPanel';
@@ -68,6 +69,8 @@ import { useColumnResize } from '../components/ventasMl/useColumnResize';
 import {
   loadColumnVisibility,
   saveColumnVisibility,
+  loadPageSize,
+  savePageSize,
   COLUMN_SIZING_STORAGE_KEY,
 } from './ventasMlTableHelpers';
 import { useVentasMLFilters } from '../hooks/useVentasMLFilters';
@@ -84,8 +87,6 @@ import {
   groupMetricsState,
 } from '../utils/ventasMlFormat';
 import styles from './VentasML.module.css';
-
-const PAGE_SIZE = 50;
 
 const EMPTY_FACETS = {
   operation_status: {},
@@ -109,6 +110,7 @@ export default function VentasML() {
   const [sales, setSales] = useState([]);
   const [total, setTotal] = useState(0);
   const [offset, setOffset] = useState(0);
+  const [pageSize, setPageSizeState] = useState(loadPageSize);
   const [loading, setLoading] = useState(true);
   const [lastLoadedAt, setLastLoadedAt] = useState(null);
   // 403 (no permission) and 503 (feature switched off) are distinct
@@ -258,6 +260,14 @@ export default function VentasML() {
     [selectPack],
   );
 
+  // A new page size invalidates `offset` (page 3 of 25 is not page 3 of
+  // 100), so it always goes back to the first page.
+  const handlePageSizeChange = useCallback((size) => {
+    setPageSizeState(size);
+    savePageSize(size);
+    setOffset(0);
+  }, []);
+
   const handleOperationStatusChange = useCallback((value) => {
     setOperationStatusFilter(value);
     setOffset(0);
@@ -362,7 +372,7 @@ export default function VentasML() {
       // (`buildVentasMLFilterParams`) plus its own pagination on top — the
       // one shared builder is what keeps the two requests from drifting.
       const params = {
-        limit: PAGE_SIZE,
+        limit: pageSize,
         offset,
         ...buildVentasMLFilterParams({
           operationStatusFilter,
@@ -413,6 +423,7 @@ export default function VentasML() {
     includeMixed,
     includeProvisional,
     offset,
+    pageSize,
   ]);
 
   // T5/T6: the KPI strip's own load — same filter params as the list
@@ -504,11 +515,6 @@ export default function VentasML() {
   if (!puedeVer) {
     return null;
   }
-
-  const isFirstPage = offset === 0;
-  const isLastPage = offset + PAGE_SIZE >= total;
-  const rangeFrom = total === 0 ? 0 : offset + 1;
-  const rangeTo = Math.min(offset + PAGE_SIZE, total);
 
   return (
     <div className={styles.container}>
@@ -861,27 +867,13 @@ export default function VentasML() {
         </table>
       </div>
 
-      <div className={styles.paginationBar}>
-        <button
-          type="button"
-          className="btn-tesla ghost sm"
-          onClick={() => setOffset((prev) => Math.max(0, prev - PAGE_SIZE))}
-          disabled={isFirstPage}
-        >
-          Anterior
-        </button>
-        <span>
-          mostrando {rangeFrom}-{rangeTo} de {total} ventas
-        </span>
-        <button
-          type="button"
-          className="btn-tesla ghost sm"
-          onClick={() => setOffset((prev) => prev + PAGE_SIZE)}
-          disabled={isLastPage}
-        >
-          Siguiente
-        </button>
-      </div>
+      <Pagination
+        total={total}
+        offset={offset}
+        pageSize={pageSize}
+        onOffsetChange={setOffset}
+        onPageSizeChange={handlePageSizeChange}
+      />
       </VentasMLLayout>
 
       <VariosVentaPctModal isOpen={variosPctModalOpen} onClose={() => setVariosPctModalOpen(false)} />
