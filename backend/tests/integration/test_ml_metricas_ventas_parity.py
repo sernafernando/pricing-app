@@ -71,6 +71,10 @@ def _seed(db) -> None:
     )
     seed_group(db, "p:55", [105, 106], _at(date(2026, 9, 12)))
     seed_sale(db, 107, _at(date(2026, 9, 15)), [Line(11, "MLA1", 3, Decimal("100"))], gauss_status="unresolved")
+    # Unresolved with its cost known: gross in, never Total Gauss or markup.
+    seed_sale(
+        db, 112, _at(date(2026, 9, 15)), [Line(14, "MLA6", 1, Decimal("80"))], costo="20", gauss_status="unresolved"
+    )
     seed_sale(db, 108, _at(date(2026, 9, 16)), [Line(11, "MLA1", 1, Decimal("100"))], tg="5", costo="50", dirty=True)
     seed_sale(
         db, 109, _at(date(2026, 9, 17)), [Line(13, "MLA5", 7, Decimal("100"))], tg="70", costo="100", status="cancelled"
@@ -106,7 +110,7 @@ def test_board_totals_equal_the_ventas_ml_kpis_for_the_same_period(db, client, a
     listed_units = sum(
         item["quantity"] for sale in listing.json()["sales"] for order in sale["orders"] for item in order["items"]
     )
-    assert board_kpis["units"]["value"] == listed_units == 2 + 1 + 1 + 2 + 1 + 1 + 3 + 1 + 1
+    assert board_kpis["units"]["value"] == listed_units == 2 + 1 + 1 + 2 + 1 + 1 + 3 + 1 + 1 + 1
     assert board_kpis["gross"]["value"] == pytest.approx(ventas["gross_billed_ars"])
     assert board_kpis["total_gauss"]["value"] == pytest.approx(ventas["total_gauss_sum"])
     assert board_kpis["markup"]["value"] == pytest.approx(ventas["markup_weighted_pct"], abs=0.05)

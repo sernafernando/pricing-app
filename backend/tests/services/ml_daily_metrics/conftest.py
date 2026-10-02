@@ -1,7 +1,8 @@
 """Real-Postgres fixtures for the Métricas ML board: the tables it reads
 (orders, items, frozen costs, stored metrics and their dirty queue, group
 rows, the ERP publication mirror, the sync cursors and a minimal
-`productos_erp`). Created only if missing and dropped again afterwards; the
+`productos_erp`), plus the payments and deductions Ventas ML's KPI aggregate
+reads for the parity checks. Created only if missing and dropped again afterwards; the
 seed rows of each test live in a transaction that is rolled back."""
 
 from __future__ import annotations
@@ -39,6 +40,8 @@ def board_pg_engine():
     from app.models.ml_order_item_costo import MlOrderItemCosto
     from app.models.ml_order_metrics import MlOrderMetrics, MlOrderMetricsDirty
     from app.models.ml_orders_ops import MlOpsSyncCursor, MlOrderItemOps, MlOrdersOps
+    from app.models.ml_payments import MlPaymentOps
+    from app.models.ml_venta_deduccion import MlVentaDeduccion
 
     tables = [
         MlOrdersOps.__table__,
@@ -49,6 +52,9 @@ def board_pg_engine():
         MlGroupMetrics.__table__,
         MercadoLibreItemPublicado.__table__,
         MlOpsSyncCursor.__table__,
+        # Ventas ML's KPI aggregate (the parity checks) reads these too.
+        MlPaymentOps.__table__,
+        MlVentaDeduccion.__table__,
     ]
     _restore_pristine_pg_types(tables)
     engine = create_engine(POSTGRES_TEST_URL)

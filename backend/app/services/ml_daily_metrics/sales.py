@@ -12,6 +12,11 @@ Rules (the Ventas ML ones, so both screens agree on the same orders):
   `NO_PRODUCT` (0) when it has none.
 - A sale cancelled WITHOUT Mercado Libre covering it is not a sale; one ML
   covered (`covered_by_marketplace`) is.
+- TOTAL GAUSS (and the markup) only from `ok`/`provisional` orders: Ventas
+  ML's reader enforces "unresolved => no Total Gauss" (`OrderMetrics`), so an
+  unresolved order never adds Total Gauss nor enters the markup there; the
+  board decides by the status too, so a row breaking that invariant cannot
+  leak into the sums.
 - MONEY only from orders whose stored metrics are settled: an order being
   recalculated (a dirty row), parked (failed) or never computed (no
   `ml_order_metrics` row) adds units but no gross, Total Gauss or cost --
@@ -30,10 +35,11 @@ Rules (the Ventas ML ones, so both screens agree on the same orders):
 from __future__ import annotations
 
 from datetime import date, datetime, time, timedelta, timezone
+from decimal import Decimal
 from typing import Iterable, List, Optional, Tuple
 from zoneinfo import ZoneInfo
 
-from sqlalchemy import BigInteger, Date, String, and_, case, cast, func, literal, or_, select
+from sqlalchemy import BigInteger, Date, Numeric, String, and_, case, cast, func, literal, or_, select
 from sqlalchemy.orm import aliased
 from sqlalchemy.sql.elements import ColumnElement
 
@@ -57,6 +63,17 @@ D = MlOrderMetricsDirty
 # A UTC range `[start, end)` of group accreditation timestamps; `end=None`
 # means open-ended.
 Range = Tuple[datetime, Optional[datetime]]
+
+
+# The stored statuses whose Total Gauss is a number (`unresolved` never is).
+GAUSS_STATUSES = ("ok", "provisional")
+
+
+def _numeric(expr, sqlite: bool):
+    """`expr` as an exact decimal for a division: NUMERIC on Postgres. SQLite
+    has no decimal type (and its CAST AS NUMERIC keeps an integer, so the
+    division would truncate): a REAL there, where tests round anyway."""
+    return expr * 1.0 if sqlite else cast(expr, Numeric)
 
 
 def frozen_cost_of_item(cost=MlOrderItemCosto, item=MlOrderItemOps) -> ColumnElement[bool]:
@@ -170,7 +187,8 @@ def sale_lines(*, sqlite: bool, ranges: Optional[List[Range]] = None, product: O
     # same way as the group window -- one sort serves both windows.
     by_order = {"partition_by": (G.group_key, O.order_id)}
     settled = and_(D.order_id.is_(None), MT.order_id.isnot(None))
-    candidate = case((and_(settled, MT.total_gauss.isnot(None), MT.costo_mercaderia.isnot(None)), 1), else_=0)
+    has_gauss = and_(settled, MT.gauss_status.in_(GAUSS_STATUSES), MT.total_gauss.isnot(None))
+    candidate = case((and_(has_gauss, MT.costo_mercaderia.isnot(None)), 1), else_=0)
     inner = _scope(
         select(
             func.coalesce(C.producto_item_id, NO_PRODUCT).label("product"),
@@ -182,6 +200,7 @@ def sale_lines(*, sqlite: bool, ranges: Optional[List[Range]] = None, product: O
             func.coalesce(O.currency_id, "ARS").label("currency"),
             case((_is_a_sale(), 1), else_=0).label("is_sale"),
             case((settled, 1), else_=0).label("settled"),
+            case((has_gauss, 1), else_=0).label("has_gauss"),
             MT.total_gauss.label("order_tg"),
             MT.costo_mercaderia.label("order_costo"),
             weight.label("weight"),
@@ -201,11 +220,13 @@ def sale_lines(*, sqlite: bool, ranges: Optional[List[Range]] = None, product: O
         product,
     ).subquery("sold")
     x = inner.c
+    # NUMERIC in every branch: one float branch makes Postgres resolve the
+    # whole CASE -- and every money sum after it -- to double precision.
     share = case(
-        (x.n == 1, literal(1.0)),
-        (and_(x.n_weighted == x.n, x.weight_sum != 0), x.weight / x.weight_sum),
-        (x.qty_sum != 0, x.qty * 1.0 / x.qty_sum),
-        else_=1.0 / x.n,
+        (x.n == 1, literal(Decimal(1), Numeric)),
+        (and_(x.n_weighted == x.n, x.weight_sum != 0), _numeric(x.weight, sqlite) / x.weight_sum),
+        (x.qty_sum != 0, _numeric(x.qty, sqlite) / x.qty_sum),
+        else_=_numeric(literal(1), sqlite) / x.n,
     )
     eligible = x.eligible == 1
     q = select(
@@ -217,7 +238,7 @@ def sale_lines(*, sqlite: bool, ranges: Optional[List[Range]] = None, product: O
         case(
             (and_(x.settled == 1, x.currency == "ARS", x.unit_price.isnot(None)), x.unit_price * x.qty), else_=0
         ).label("gross"),
-        case((and_(x.settled == 1, x.order_tg.isnot(None)), x.order_tg * share), else_=0).label("tg"),
+        case((x.has_gauss == 1, x.order_tg * share), else_=0).label("tg"),
         case((eligible, x.order_tg * share), else_=0).label("mtg"),
         case((eligible, x.order_costo * share), else_=0).label("mcosto"),
     ).where(x.is_sale == 1)

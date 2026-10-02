@@ -418,3 +418,25 @@ PR #1379). Ruta: delegated direct (writer único). TDD estricto.
       previos); lint:css OK; build OK.
       Commits: `5e1d54fb` (ST1), `6d67f34e` (ST2), `4e8e01f8` (ST3),
       `8e7553a1` (ST4). Sin push.
+- [x] ST6 (revisión, hallazgos 1 y 3) — Plata exacta al centavo y Total
+      Gauss sólo de órdenes `ok`/`provisional`.
+      Hallazgo 1, decidido por Ventas ML: su lector (`OrderMetrics`) exige
+      "unresolved ⇒ total_gauss NULL" y RECHAZA una fila que lo rompa
+      (ValueError; el KPI daría 500). Para Ventas ML una orden `unresolved`
+      suma bruto pero nunca Total Gauss ni markup. El tablero decide por el
+      estado (como el resumen viejo): una fila `unresolved` con Total Gauss
+      cuenta unidades y bruto, nunca Total Gauss ni markup.
+      Hallazgo 3: todas las ramas del reparto por ítem son NUMERIC
+      explícitas (`CAST(... AS NUMERIC)`, `Decimal` literal); los totales
+      se redondean al centavo UNA vez al final (ROUND_HALF_UP), como las
+      sumas de valores de 2 decimales de Ventas ML.
+      Test `test_board_money_postgres.py` (Postgres, contra
+      `aggregate_order_metrics` real): 3 ítems de igual peso sobre 100,00,
+      pack con pesos 1 y 2 sobre 10,01, reparto 1/3–2/3 por cantidad,
+      `unresolved` con costo: bruto, Total Gauss (111,06) y markup iguales
+      como `Decimal` exacto; `pg_typeof` de las líneas = numeric. Paridad
+      SQLite con una orden `unresolved` con costo.
+      RED visto: Total Gauss `111.0599999999999999990000` ≠ `111.06`; la
+      fila `unresolved` con Total Gauss sumaba 12,340. (El tipo ya salía
+      NUMERIC en Postgres porque psycopg2 manda `1.0` como literal numérico;
+      ahora es explícito y no depende del driver.)

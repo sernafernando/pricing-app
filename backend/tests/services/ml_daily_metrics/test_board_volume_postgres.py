@@ -285,7 +285,9 @@ class TestBoardOnVolume:
         f = board.BoardFilter(date_from=TODAY - timedelta(days=29), date_to=TODAY)
         b = board.Board(volume_session, f)
         source = b._lines_source()
-        compiled = source.compile(dialect=volume_session.get_bind().dialect)
+        compiled = source.compile(
+            dialect=volume_session.get_bind().dialect, compile_kwargs={"render_postcompile": True}
+        )
         cursor = volume_session.connection().connection.cursor()
         cursor.execute("EXPLAIN " + str(compiled), compiled.params)
         plan = "\n".join(row[0] for row in cursor.fetchall())

@@ -60,7 +60,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from datetime import date, datetime, timedelta, timezone
-from decimal import Decimal
+from decimal import ROUND_HALF_UP, Decimal
 from typing import Any, Dict, List, Optional, Set, Tuple
 
 from sqlalchemy import (
@@ -332,6 +332,16 @@ class Facets:
     pub_status: Dict[str, int]
     pub_type: Dict[str, int]
     alerts: Dict[str, int]
+
+
+CENT = Decimal("0.01")
+
+
+def cents(value: Any) -> Decimal:
+    """A money sum rounded to the cent, once, at the end -- Ventas ML sums
+    2-decimal values, so its totals are exact cents; the board's per-item
+    shares (33.33...) are exact only once the total is rounded."""
+    return Decimal(str(value or 0)).quantize(CENT, ROUND_HALF_UP)
 
 
 def _round1(value: Optional[Decimal]) -> Optional[float]:
@@ -747,13 +757,13 @@ class Board:
                 title=r["title"] or "Sin producto",
                 publications_count=int(r["pubs"] or 0),
                 units=int(r["units"] or 0),
-                gross=Decimal(str(r["gross"] or 0)),
-                tg=Decimal(str(r["tg"] or 0)),
-                mtg=Decimal(str(r["mtg"] or 0)),
-                costo=Decimal(str(r["costo"] or 0)),
-                prev_tg=Decimal(str(r["prev_tg"] or 0)),
-                prev_mtg=Decimal(str(r["prev_mtg"] or 0)),
-                prev_costo=Decimal(str(r["prev_costo"] or 0)),
+                gross=cents(r["gross"]),
+                tg=cents(r["tg"]),
+                mtg=cents(r["mtg"]),
+                costo=cents(r["costo"]),
+                prev_tg=cents(r["prev_tg"]),
+                prev_mtg=cents(r["prev_mtg"]),
+                prev_costo=cents(r["prev_costo"]),
                 last_sale_at=_as_aware(_as_datetime(r["last_at"])),
                 windows={name: int(r[f"w{name}"] or 0) for name, _ in WINDOWS},
                 units_24h=int(r["u24"] or 0),
@@ -918,7 +928,7 @@ class Board:
             s_tg[i] = Decimal(str(s["tg"] or 0))
             s_mtg[i] = Decimal(str(s["mtg"] or 0))
             s_costo[i] = Decimal(str(s["costo"] or 0))
-        dec = lambda v: Decimal(str(v or 0))  # noqa: E731
+        dec = cents
         return Kpis(
             units=int(totals["units"]),
             gross=dec(totals["gross"]),
