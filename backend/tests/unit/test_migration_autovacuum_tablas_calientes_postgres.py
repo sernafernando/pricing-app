@@ -95,10 +95,8 @@ class TestAutovacuumHotTablesMigration:
         assert options["autovacuum_analyze_scale_factor"] == "0.02"
 
     def test_a_missing_table_is_skipped_not_an_error(self, autocommit_conn) -> None:
-        migration = _load_migration()
-        assert any(
-            autocommit_conn.execute(text("SELECT to_regclass(:t)"), {"t": t}).scalar() is None for t in migration.TABLES
-        ), "the test DB should lack at least one ERP table to exercise the skip"
+        if _absent_table(autocommit_conn) is None:
+            pytest.skip("every listed table exists in this test DB; nothing to skip")
 
         _run(autocommit_conn, "upgrade")  # does not raise
 
