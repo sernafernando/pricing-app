@@ -34,7 +34,11 @@ export default function ToggleChips({ label, options, labels, counts, selected, 
             }`}
             data-state={state}
             aria-pressed={state !== 'neutral'}
-            aria-label={state === 'exclude' ? `Ocultar ${name}` : undefined}
+            aria-label={
+              state === 'exclude'
+                ? `Ocultar ${name}${counts ? ` · ${INT_FORMAT.format(counts[value] ?? 0)}` : ''}`
+                : undefined
+            }
             title={state === 'exclude' ? 'Oculta: clic para quitar el filtro' : undefined}
             onClick={() => cycle(value)}
           >

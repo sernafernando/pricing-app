@@ -50,12 +50,12 @@ describe('ToggleChips tri-state', () => {
     expect(chip()).toHaveAttribute('data-state', 'neutral');
   });
 
-  it('an excluded chip is announced as "Ocultar <x>" and keeps its count visible', async () => {
+  it('an excluded chip is announced as "Ocultar <x> · <count>" and keeps its count visible', async () => {
     render(<Harness />);
     await userEvent.click(screen.getByRole('button', { name: /Pausada/ }));
     await userEvent.click(screen.getByRole('button', { name: /Pausada/ }));
 
-    const chip = screen.getByRole('button', { name: 'Ocultar Pausada' });
+    const chip = screen.getByRole('button', { name: 'Ocultar Pausada · 3' });
     expect(chip).toHaveAttribute('aria-pressed', 'true');
     expect(chip).toHaveTextContent('3');
   });

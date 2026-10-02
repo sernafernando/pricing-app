@@ -151,7 +151,7 @@ describe('Métricas ML board (visual)', () => {
         // neutral -> include -> exclude
         await screen.getByRole('button', { name: /Pausada/ }).click();
         await screen.getByRole('button', { name: /Pausada/ }).click();
-        await expect.element(screen.getByRole('button', { name: 'Ocultar Pausada' })).toBeVisible();
+        await expect.element(screen.getByRole('button', { name: /^Ocultar Pausada · \d/ })).toBeVisible();
         await shot(`board-${width}-${theme}-excluded`, { width, height });
 
         const chip = pausada();

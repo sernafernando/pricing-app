@@ -117,7 +117,7 @@ describe('MetricasML page', () => {
 
     await waitFor(() => expect(lastBoardParams()).toMatchObject({ pub_status_exclude: 'paused' }));
     expect(lastBoardParams()).not.toHaveProperty('pub_status');
-    expect(screen.getByRole('button', { name: 'Ocultar Pausada' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /^Ocultar Pausada · \d/ })).toBeInTheDocument();
   });
 
   it('type chips can be hidden too, and the exclusion reaches the nested publications', async () => {
