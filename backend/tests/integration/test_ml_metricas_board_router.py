@@ -651,7 +651,9 @@ class TestExportEdges:
         assert [(r["Producto"], r["MLA"]) for r in rows] == [(r["Producto"], r["MLA"]) for r in full]
 
     def test_one_over_the_cap_is_422_with_the_reason(self, client, admin_auth_headers, board_data, monkeypatch):
-        cap = len(self._export_rows(client, admin_auth_headers)) - 1
+        baseline = self._export_rows(client, admin_auth_headers)
+        assert len(baseline) >= 2, "the fixture must seed enough rows for a positive cap"
+        cap = len(baseline) - 1
         monkeypatch.setattr(ml_metricas, "EXPORT_MAX_ROWS", cap)
 
         resp = client.get(f"{URL}/export", headers=admin_auth_headers)
