@@ -44,5 +44,6 @@ def test_board_read_indexes_ship_in_a_migration_and_match_the_models() -> None:
     assert len(heads) == 1, f"alembic forked: {heads}"
     module = script.get_revision("20261001_ix_board_reads").module
     declared = {ix.name for ix in MlGroupMetrics.__table__.indexes}
-    # The rollup's index left with its table (`20261002_drop_ml_product_daily_metrics`).
+    # The rollup's index stays in the database with its (now unused) table
+    # until the follow-up drop; no model declares it any more.
     assert set(module.INDEXES) - {"ix_ml_product_daily_metrics_updated_at"} <= declared

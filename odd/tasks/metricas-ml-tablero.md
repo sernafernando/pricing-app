@@ -389,11 +389,9 @@ PR #1379). Ruta: delegated direct (writer único). TDD estricto.
       fixtures Postgres de `tests/conftest.py`. Lo que se seguía usando
       (`frozen_cost_of_item`, `business_day`, `BUSINESS_TZ`, `NO_PRODUCT`)
       vive en `services/ml_daily_metrics/sales.py` (desde ST1).
-      Migración `20261002_drop_ml_product_daily_metrics` (sobre
-      `20261002_autovacuum_tablas_calientes`, un solo head): `DROP TABLE IF
-      EXISTS` con `lock_timeout` 10 s (sus índices `_day`, `_mla_day`,
-      `_updated_at` y la clave única se van con la tabla); el downgrade la
-      recrea vacía. `ix_ml_group_metrics_group_date` (de
+      ~~Migración `20261002_drop_ml_product_daily_metrics`~~ — **sacada en
+      ST7 (revisión): el DROP va en una PR posterior, ver ST7.**
+      `ix_ml_group_metrics_group_date` (de
       `20261001_ix_board_reads`) se queda: lo usa el tablero.
       "Actualizado hace X": `MAX(ml_ops_sync_cursor.last_success_at)` de
       `sweep`/`ml_activity`, lo mismo que el sync-status de Ventas ML
@@ -440,3 +438,26 @@ PR #1379). Ruta: delegated direct (writer único). TDD estricto.
       fila `unresolved` con Total Gauss sumaba 12,340. (El tipo ya salía
       NUMERIC en Postgres porque psycopg2 manda `1.0` como literal numérico;
       ahora es explícito y no depende del driver.)
+- [x] ST7 (revisión, hallazgo 2) — Borrado en dos fases.
+      El DROP de la migración corre en el deploy ANTES de que reinicien los
+      workers: los workers viejos todavía llaman a `refresh_rollup` dentro
+      de `store_order_metrics`, así que cada guardado de métricas fallaría
+      (`UndefinedTable`) y se revertiría hasta el reinicio. Esta rama saca
+      el CÓDIGO (modelo, escritor, hook, backfill) y deja la tabla en la
+      base, sin uso; la migración que la borra
+      (`DROP TABLE IF EXISTS ml_product_daily_metrics`, con `lock_timeout`,
+      sus índices `_day`, `_mla_day`, `_updated_at` se van con ella) va en
+      una PR POSTERIOR, después de desplegar esta. Head único de vuelta en
+      el de main (`20261002_autovacuum_tablas_calientes`).
+      Test `tests/unit/test_rollup_removed.py` (antes
+      `test_migration_drop_ml_product_daily_metrics.py`): módulos del
+      resumen inexistentes, ningún modelo mapea la tabla, `store.py` no lo
+      menciona, y NINGUNA migración de esta línea la borra.
+      RED visto: `20261002_drop_ml_product_daily_metrics drops
+      ml_product_daily_metrics`.
+      **Para el cuerpo de la PR:** "La tabla `ml_product_daily_metrics`
+      queda en la base, sin uso. Se borra en una PR siguiente, después de
+      desplegar esta: si la migración la borrara en este deploy, los
+      workers viejos (que todavía la refrescan al guardar métricas)
+      fallarían hasta reiniciarse."
+      Pendiente (PR siguiente): migración de DROP de la tabla.

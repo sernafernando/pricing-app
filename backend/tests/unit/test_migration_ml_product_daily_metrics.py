@@ -1,7 +1,7 @@
 """ODD `metricas-ml-tablero` T2: migration `20261001_ml_product_daily_metrics`
-stays on the single alembic line (history), even though
-`20261002_drop_ml_product_daily_metrics` drops the table again ("Sin tabla
-resumen"); that test owns the create/drop round trip."""
+stays on the single alembic line (history). Since "Sin tabla resumen" no code
+maps or writes the table; it is dropped by a follow-up migration once that
+release is deployed (`tests/unit/test_rollup_removed.py`)."""
 
 from __future__ import annotations
 
