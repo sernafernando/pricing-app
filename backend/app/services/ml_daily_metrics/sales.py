@@ -211,7 +211,7 @@ def sale_lines(*, sqlite: bool, ranges: Optional[List[Range]] = None, product: O
             func.min(candidate).over(partition_by=G.group_key).label("eligible"),
         )
         .select_from(G)
-        .join(O, _members_of_group(narrow=product is not None and product != NO_PRODUCT))
+        .join(O, _members_of_group(narrow=product is not None))
         .join(I, I.order_id == O.order_id)
         .outerjoin(C, frozen_cost_of_item())
         .outerjoin(MT, MT.order_id == O.order_id)
@@ -247,20 +247,20 @@ def sale_lines(*, sqlite: bool, ranges: Optional[List[Range]] = None, product: O
     return q.subquery("lines")
 
 
-def last_sales(*, sqlite: bool, product: Optional[int] = None):
+def last_sales(*, sqlite: bool, product: Optional[int] = None, ranges: Optional[List[Range]] = None):
     """`product`, `mla`, `last_at`: the latest accredited sale of every pair,
-    over ALL history -- what ageing and "última venta" read. Same base as
-    `sale_lines` (same day, product and cancellation rules) without the
-    money, so it needs no windows."""
+    over ALL history (or only `ranges`) -- what ageing and "última venta"
+    read. Same base as `sale_lines` (same day, product and cancellation
+    rules) without the money, so it needs no windows."""
     product_col = func.coalesce(C.producto_item_id, NO_PRODUCT)
     q = _scope(
         select(product_col.label("product"), I.item_id.label("mla"), func.max(G.group_date).label("last_at"))
         .select_from(G)
-        .join(O, _members_of_group(narrow=product is not None and product != NO_PRODUCT))
+        .join(O, _members_of_group(narrow=product is not None))
         .join(I, I.order_id == O.order_id)
         .outerjoin(C, frozen_cost_of_item())
         .where(_is_a_sale()),
-        None,
+        ranges,
         product,
     )
     if product is not None:

@@ -341,8 +341,13 @@ class TestBoardOnVolume:
         _print("\nexport keys + first page", recorder, (time.perf_counter() - started) * 1000)
 
         assert len(keys) == PRODUCTS and len(first) == EXPORT_PAGE_SIZE
-        # No sparkline series in the export.
-        assert not any("GROUP BY fp.rk, board_lines.day" in s for s, _p in recorder.statements)
+        # No sparkline series in the export. The marker is first proven to
+        # match the series statement of a board page, so its absence here
+        # cannot pass vacuously.
+        series_marker = "GROUP BY fp.rk, board_lines.day"
+        _response, page, _ms = _request(volume_session, limit=10)
+        assert sum(series_marker in s for s, _p in page.statements) == 1
+        assert not any(series_marker in s for s, _p in recorder.statements)
 
     def test_freshness_reads_the_sync_cursors(self, volume_session) -> None:
         _response, recorder, _ms = _request(volume_session, limit=10)

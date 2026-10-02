@@ -51,9 +51,9 @@ savepoint that is always rolled back, `ON COMMIT DROP` as a second net, and
 
 Markup is ALWAYS `SUM(total_gauss) / SUM(costo) x 100` over the selected
 rows/days (the per-group all-or-nothing population, `mtg`/`costo`), never an
-average of percentages; no cost means no markup (NULL), never 0. The store is the publication's CURRENT `mlp_official_store_id`
-(decision in the ODD doc): a publication that moved store takes its history
-with it.
+average of percentages; no cost means no markup (NULL), never 0. The store
+is the publication's CURRENT `mlp_official_store_id` (decision in the ODD
+doc): a publication that moved store takes its history with it.
 """
 
 from __future__ import annotations
@@ -483,7 +483,12 @@ class Board:
         last sale ever and its publication/product attributes -- what gets
         materialized once."""
         agg = self._agg()
-        last = last_sales(sqlite=self.sqlite, product=self.product_item_id).cte("last_sale")
+        # Product 0 ("sin producto": items with no frozen cost row) has no
+        # product index to reach its sales through: its sub-rows read only
+        # the request's accreditation window, never the whole history (their
+        # ageing/last sale looks back over that window only).
+        history = self._ranges() if self.product_item_id == NO_PRODUCT else None
+        last = last_sales(sqlite=self.sqlite, product=self.product_item_id, ranges=history).cte("last_sale")
         published = select(M.item_id, M.mlp_publicationID).where(M.item_id.isnot(None), M.mlp_publicationID.isnot(None))
         if self.product_item_id is not None:
             published = published.where(M.item_id == self.product_item_id)

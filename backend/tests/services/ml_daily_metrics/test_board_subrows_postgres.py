@@ -46,9 +46,10 @@ def _env(monkeypatch):
     monkeypatch.setattr(board, "now_utc", lambda: NOW)
 
 
-def _seed_products(db, first: int, count: int, sales_per_mla: int) -> None:
+def _seed_products(db, first: int, count: int, sales_per_mla: int, days_ago: int = 0) -> None:
     """`count` products from `first`, 3 publications each, and
-    `sales_per_mla` lone-order sales per publication over the last 120 days."""
+    `sales_per_mla` lone-order sales per publication over 120 days ending
+    `days_ago` days back."""
     db.execute(
         text(
             "INSERT INTO productos_erp (item_id, codigo, descripcion, marca, categoria, subcategoria_id) "
@@ -69,7 +70,7 @@ def _seed_products(db, first: int, count: int, sales_per_mla: int) -> None:
     )
     sales = "FROM generate_series(0, :count - 1) AS p, generate_series(1, 3) AS m, generate_series(1, :n) AS s"
     order_id = "(7000000000000000 + ((CAST(:first AS BIGINT) + p) * 10 + m) * 1000 + s)"
-    params = {"first": first, "count": count, "n": sales_per_mla, "now": NOW}
+    params = {"first": first, "count": count, "n": sales_per_mla, "now": NOW, "ago": days_ago}
     db.execute(
         text(
             "INSERT INTO ml_orders_ops (order_id, status, ml_last_updated, date_created, seller_id, currency_id) "
@@ -105,7 +106,7 @@ def _seed_products(db, first: int, count: int, sales_per_mla: int) -> None:
             "INSERT INTO ml_group_metrics (group_key, gauss_status, member_order_ids, group_date, "
             "formula_version, computed_at) "
             f"SELECT 'o:' || {order_id}, 'ok', ARRAY[{order_id}]::BIGINT[], "
-            f":now - make_interval(days => (s * 7 + m) % 120, hours => s % 20), 2, :now {sales}"
+            f":now - make_interval(days => :ago + (s * 7 + m) % 120, hours => s % 20), 2, :now {sales}"
         ),
         params,
     )
@@ -122,7 +123,7 @@ def _rows_read(node: dict, read: Counter) -> None:
         _rows_read(child, read)
 
 
-def _subrows(db):
+def _subrows(db, product: int = PRODUCT):
     """What `GET /board/products/{id}/publications` runs, recorded: every
     statement, the rows each temp table got, and (inside the Board, while
     the temp tables exist) the plan of each source read."""
@@ -139,7 +140,7 @@ def _subrows(db):
     event.listen(connection, "after_cursor_execute", after)
     started = time.perf_counter()
     try:
-        with board.Board(db, by_pub, product_item_id=PRODUCT) as b:
+        with board.Board(db, by_pub, product_item_id=product) as b:
             rows = b.page(limit=None, apply_alerts=False)
             elapsed_ms = (time.perf_counter() - started) * 1000
             event.remove(connection, "after_cursor_execute", after)
@@ -178,4 +179,55 @@ def test_subrows_cost_does_not_depend_on_other_products(board_pg) -> None:
     # The other products' rows are never read: they hold 900 publications
     # and 10.800 orders; this product, 3 and 12. Index nested loops may
     # visit a row more than once, so the bound is loose but far from a scan.
+    assert all(n < 200 for n in read.values()), read
+
+
+def _seed_unpriced_sales(db) -> None:
+    """Six recent sales of two MLAs whose items never got a frozen cost: the
+    "sin producto" (product 0) row."""
+    for n in range(6):
+        order_id = 7900000000000000 + n
+        mla = f"MLA79000000{n % 2}"
+        db.execute(
+            text(
+                "INSERT INTO ml_orders_ops (order_id, status, ml_last_updated, date_created, seller_id, currency_id) "
+                "VALUES (:o, 'paid', :now, :now, 999, 'ARS')"
+            ),
+            {"o": order_id, "now": NOW},
+        )
+        db.execute(
+            text("INSERT INTO ml_order_items_ops (order_id, item_id, quantity, unit_price) VALUES (:o, :mla, 1, 100)"),
+            {"o": order_id, "mla": mla},
+        )
+        db.execute(
+            text(
+                "INSERT INTO ml_group_metrics (group_key, gauss_status, member_order_ids, group_date, "
+                "formula_version, computed_at) VALUES ('o:' || CAST(:o AS TEXT), 'ok', ARRAY[CAST(:o AS BIGINT)], "
+                ":gd, 2, :now)"
+            ),
+            {"o": order_id, "gd": NOW - timedelta(days=n + 1), "now": NOW},
+        )
+
+
+@pytest.mark.postgres
+def test_product_zero_subrows_never_read_other_products_history(board_pg) -> None:
+    """Product 0 ("sin producto": items with no frozen cost row) has no
+    product index to go through. Its sub-rows read only the request's
+    accreditation window (period, comparison, 90-day series, 24h), never the
+    whole history -- 300 other products' older sales are never read."""
+    db = board_pg
+    _seed_unpriced_sales(db)
+    alone_rows, alone_statements, alone_created, alone_read, alone_ms = _subrows(db, product=0)
+
+    _seed_products(db, PRODUCT + 1, 300, sales_per_mla=12, days_ago=200)
+    rows, statements, created, read, ms = _subrows(db, product=0)
+
+    print(
+        f"\nproduct-0 sub-rows alone: {len(alone_statements)} statements, {alone_created}, {alone_ms:.0f} ms, {alone_read}"
+    )
+    print(f"product-0 sub-rows among 300 products: {len(statements)} statements, {created}, {ms:.0f} ms, {read}")
+    assert {r.key for r in rows} == {"MLA790000000", "MLA790000001"}
+    assert [(r.key, r.units) for r in rows] == [(r.key, r.units) for r in alone_rows]
+    assert len(statements) == len(alone_statements)
+    assert created == alone_created
     assert all(n < 200 for n in read.values()), read

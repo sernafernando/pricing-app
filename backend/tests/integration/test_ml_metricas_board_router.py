@@ -3,8 +3,8 @@ publications endpoint -- the Métricas ML board ("tablero bursátil").
 
 The board reads the tables Ventas ML reads (orders, items, frozen costs,
 stored metrics, group accreditation day); `_day` seeds one sale the way the
-ingestion and the metrics worker would have stored it. "Today" is frozen at 2026-09-30 (Buenos
-Aires) so every window is deterministic:
+ingestion and the metrics worker would have stored it. "Today" is frozen
+at 2026-09-30 (Buenos Aires) so every window is deterministic:
 
 - period (default 30d): 2026-09-01..2026-09-30, previous: 2026-08-02..2026-08-31
 - 3d: 09-28..30 · 7d: 09-24..30 · 15d: 09-16..30 · 30d: 09-01..30

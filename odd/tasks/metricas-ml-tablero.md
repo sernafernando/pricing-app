@@ -478,3 +478,17 @@ PR #1379). Ruta: delegated direct (writer único). TDD estricto.
       con otro `DROP TABLE` en un archivo que sólo nombra la tabla. RED:
       `NameError` (el matcher no existía).
       Checks: ruff OK; pytest focalizado 112 passed.
+- [x] ST9 (notas del pre-push) — Sub-filas de "sin producto" acotadas,
+      guarda no vacía del export y docstrings partidos.
+      Producto 0 (ítems sin costo congelado) no tiene índice de producto:
+      sus sub-filas ahora van por la unión estrecha grupo→órdenes y su
+      última venta sólo mira la ventana del request (período, comparación,
+      serie de 90 días, 24h), nunca toda la historia. Test en
+      `test_board_subrows_postgres.py`: con 300 productos más (10.800
+      órdenes viejas), mismas 8 sentencias, mismas filas temporales y ≤ 12
+      filas leídas por tabla fuente. RED visto: 10.812 órdenes/ítems,
+      10.800 costos y 900 publicaciones leídas.
+      El chequeo "el export no arma series" primero prueba que el marcador
+      SÍ aparece en una página del tablero (pasó de una: el chequeo no era
+      vacío, ahora no puede serlo).
+      Checks: ruff OK; pytest focalizado 109 passed.
