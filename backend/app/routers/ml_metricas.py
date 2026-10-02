@@ -17,6 +17,7 @@ Permissions (migration `20261001_ml_metricas_permisos`):
 from __future__ import annotations
 
 import csv
+import logging
 import io
 from dataclasses import replace
 from datetime import date, datetime, timedelta
@@ -28,7 +29,7 @@ from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_current_user
-from app.core.database import get_db
+from app.core.database import get_background_db, get_db
 from app.models.usuario import Usuario
 from app.services.ml_sales_query.params import parse_csv_ids, parse_csv_stores, parse_csv_strings
 from app.services.ml_daily_metrics import board
@@ -42,13 +43,15 @@ DEFAULT_PERIOD_DAYS = 30
 # range would build millions of them in memory. One year (a leap year
 # included) is the most the screen offers ("3m" preset, custom ranges).
 MAX_PERIOD_DAYS = 366
-# The CSV is built from the board's own SQL page, this many rows at a time:
-# memory follows the page, never the whole catalogue at once.
+# The CSV streams this many rows per page, each page on its own short DB
+# session: memory and the pooled connection follow ONE page, never the file.
 EXPORT_PAGE_SIZE = 500
 # Sane ends for the period AND its comparison period (a year back, or the
 # same length back), so the date arithmetic can never underflow/overflow.
 MIN_BOARD_DATE = date(2001, 1, 1)
 MAX_BOARD_DATE = date(2100, 12, 31)
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/ml-metricas", tags=["ML Métricas"])
 
@@ -476,33 +479,67 @@ def export_board(
     current_user: Usuario = Depends(require_ver),
     db: Session = Depends(get_db),
 ) -> StreamingResponse:
-    """CSV of every filtered row, same columns as the board, read from the
-    board's own SQL in pages of `EXPORT_PAGE_SIZE` rows, with no sparklines.
-    Margin columns only with `ml_metricas.ver_ganancia`."""
+    """CSV of every filtered row, same columns as the board (no sparklines),
+    STREAMED page by page. Margin columns only with `ml_metricas.ver_ganancia`.
+
+    Each page of `EXPORT_PAGE_SIZE` rows runs on its OWN short session
+    (`get_background_db`), and the request session is closed before the first
+    byte goes out: the response outlives the handler, and a session held for
+    the whole download pins a pooled connection while the client reads
+    (QueuePool incident, PR #811) -- same discipline as the Ventas ML export.
+    Each page builds its own pair table inside its own transaction (PgBouncer,
+    see `board`), so memory and connections follow ONE page at a time. Page 1
+    is read before the 200 so a bad state fails as a normal HTTP error; a
+    later page failing ends the file with an explicit error line."""
     can_see_margin = _can_see_margin(db, current_user)
     _margin_gate(f, can_see_margin)
-    buffer = io.StringIO()
-    buffer.write("\ufeff")
-    writer = csv.writer(buffer, delimiter=";")
+
+    def fetch_page(offset: int) -> List[board.Row]:
+        with get_background_db() as page_db:
+            with board.Board(page_db, f) as b:
+                return b.page(EXPORT_PAGE_SIZE, offset, with_series=False)
+
+    def lines_of(rows: List[board.Row]) -> str:
+        buffer = io.StringIO()
+        writer = csv.writer(buffer, delimiter=";")
+        for row in rows:
+            writer.writerow(_csv_line(row, can_see_margin))
+        return buffer.getvalue()
+
+    first = fetch_page(0)
+    # CLOSE the request session (the permission check left it holding a
+    # pooled connection): nothing may stay tied to the response's lifetime.
+    db.close()
+
     header = ["Producto", "SKU", "Marca", "MLA", "Unidades", "24h", "3d", "7d", "15d", "30d", "Facturado"]
     if can_see_margin:
         header += ["Total Gauss", "Markup %", "Markup anterior %", "Variación pp"]
     header += ["Última venta", "Ageing (días)"]
-    writer.writerow(header)
-    with board.Board(db, f) as b:
-        offset = 0
+
+    def stream():
+        head = io.StringIO()
+        csv.writer(head, delimiter=";").writerow(header)
+        # BOM so Excel reads the accents as UTF-8.
+        yield "\ufeff" + head.getvalue()
+        rows, offset, exported = first, 0, 0
         while True:
-            # No sparkline series: the CSV never reads them.
-            rows = b.page(EXPORT_PAGE_SIZE, offset, with_series=False)
-            for row in rows:
-                writer.writerow(_csv_line(row, can_see_margin))
+            yield lines_of(rows)
+            exported += len(rows)
             if len(rows) < EXPORT_PAGE_SIZE:
-                break
+                return
             offset += EXPORT_PAGE_SIZE
-    buffer.seek(0)
+            try:
+                rows = fetch_page(offset)
+            except Exception:  # noqa: BLE001
+                # The 200 and the header are already on the wire: the status
+                # cannot change, so the FILE says it is incomplete.
+                logger.exception("metricas-ml export: page at offset=%s failed", offset)
+                yield f"# ERROR: exportación incompleta — {exported} filas exportadas. Volvé a intentar.\n"
+                return
+
     filename = f"metricas-ml-{f.date_from.isoformat()}-{f.date_to.isoformat()}.csv"
     return StreamingResponse(
-        iter([buffer.getvalue()]),
+        stream(),
         media_type="text/csv; charset=utf-8",
         headers={"Content-Disposition": f'attachment; filename="{filename}"'},
     )

@@ -19,12 +19,14 @@ plan are what regress loudly.
 from __future__ import annotations
 
 import asyncio
+from contextlib import contextmanager
+from types import SimpleNamespace
 import time
 from datetime import date, datetime, timedelta, timezone
 
 import pytest
 from sqlalchemy import create_engine, event, inspect as sa_inspect, text
-from sqlalchemy.orm import sessionmaker
+from sqlalchemy.orm import Session, sessionmaker
 
 from app.routers.ml_metricas import build_board_response
 from app.services.ml_daily_metrics import board
@@ -358,7 +360,20 @@ class TestPagingIsStableUnderTies:
         monkeypatch.setattr(ml_metricas, "EXPORT_PAGE_SIZE", 300)
         f = board.BoardFilter(date_from=TODAY - timedelta(days=29), date_to=TODAY, sort="units_24h")
         monkeypatch.setattr(ml_metricas, "_can_see_margin", lambda db, user: True)
-        response = ml_metricas.export_board(f=f, current_user=None, db=volume_session)
+
+        @contextmanager
+        def page_session():
+            # Each page's short session, on the module's seeded connection
+            # (a real `SessionLocal` would point at the app's database).
+            session = Session(bind=volume_session.connection())
+            try:
+                yield session
+            finally:
+                session.close()
+
+        monkeypatch.setattr(ml_metricas, "get_background_db", page_session)
+        request_session = SimpleNamespace(close=lambda: None)
+        response = ml_metricas.export_board(f=f, current_user=None, db=request_session)
 
         async def collect(iterator) -> bytes:
             return b"".join([c if isinstance(c, bytes) else c.encode() async for c in iterator])

@@ -15,10 +15,12 @@ from __future__ import annotations
 
 import csv
 import io
+from contextlib import contextmanager
 from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
 
 import pytest
+from sqlalchemy.orm import Session
 
 from app.models.mercadolibre_item_publicado import MercadoLibreItemPublicado
 from app.models.ml_daily_metrics import MlProductDailyMetrics
@@ -27,6 +29,7 @@ from app.models.ml_order_item_costo import MlOrderItemCosto
 from app.models.ml_orders_ops import MlOrderItemOps, MlOrdersOps
 from app.models.permiso import Permiso, RolPermisoBase
 from app.models.producto import ProductoERP
+from app.routers import ml_metricas
 from app.services.ml_daily_metrics import board
 
 NOW = datetime(2026, 9, 30, 18, 0, tzinfo=timezone.utc)  # 15:00 in Buenos Aires
@@ -36,6 +39,33 @@ URL = "/api/ml-metricas/board"
 @pytest.fixture(autouse=True)
 def _frozen_clock(monkeypatch):
     monkeypatch.setattr(board, "now_utc", lambda: NOW)
+
+
+@pytest.fixture(autouse=True)
+def bg_sessions(db, monkeypatch):
+    """Stands in for `get_background_db` (a real `SessionLocal` would not see
+    the test transaction) and records every short session the export opens.
+    Each one is a DISTINCT `Session` on the test's connection, so handing the
+    request session to the page work is detectable by identity."""
+    events = {"open": 0, "close": 0, "max_open": 0, "sessions": [], "fail_on_open": None}
+
+    @contextmanager
+    def _fake():
+        events["open"] += 1
+        if events["fail_on_open"] is not None and events["open"] >= events["fail_on_open"]:
+            events["close"] += 1
+            raise RuntimeError("pool timeout")
+        events["max_open"] = max(events["max_open"], events["open"] - events["close"])
+        session = Session(bind=db.get_bind())
+        events["sessions"].append(session)
+        try:
+            yield session
+        finally:
+            session.close()
+            events["close"] += 1
+
+    monkeypatch.setattr(ml_metricas, "get_background_db", _fake, raising=False)
+    return events
 
 
 def _grant(db, rol, *codigos: str) -> None:
@@ -479,3 +509,70 @@ class TestExportIsSafeForSpreadsheets:
         for row in rows:
             for column in ("Producto", "SKU", "Marca"):
                 assert row[column].startswith("'"), (column, row[column])
+
+
+class TestExportStreamsWithShortSessions:
+    """The CSV outlives the request handler: holding the request session (and
+    its pooled connection) while the client downloads is the QueuePool
+    incident of PR #811. Each page runs on its own short session; the request
+    session is closed before the first byte; a page failing mid-stream ends
+    the file with an explicit line instead of a silently truncated file."""
+
+    def test_each_page_runs_in_its_own_short_session(
+        self, client, admin_auth_headers, board_data, bg_sessions, monkeypatch
+    ):
+        monkeypatch.setattr(ml_metricas, "EXPORT_PAGE_SIZE", 2)
+
+        resp = client.get(f"{URL}/export", headers=admin_auth_headers)
+
+        assert resp.status_code == 200
+        assert len(list(csv.DictReader(io.StringIO(resp.content.decode("utf-8-sig")), delimiter=";"))) == 4
+        assert bg_sessions["open"] == bg_sessions["close"] == 3  # 2 + 2 + an empty last page
+        assert bg_sessions["max_open"] == 1
+
+    def test_the_page_work_never_runs_on_the_request_session(
+        self, db, client, admin_auth_headers, board_data, bg_sessions, monkeypatch
+    ):
+        monkeypatch.setattr(ml_metricas, "EXPORT_PAGE_SIZE", 2)
+        used = []
+        real_init = board.Board.__init__
+
+        def spy(self, session, *args, **kwargs):
+            used.append(session)
+            real_init(self, session, *args, **kwargs)
+
+        monkeypatch.setattr(board.Board, "__init__", spy)
+
+        assert client.get(f"{URL}/export", headers=admin_auth_headers).status_code == 200
+        assert used and all(s is not db and any(s is o for o in bg_sessions["sessions"]) for s in used)
+
+    def test_the_request_session_is_closed_before_the_stream(
+        self, db, client, admin_auth_headers, board_data, bg_sessions, monkeypatch
+    ):
+        monkeypatch.setattr(ml_metricas, "EXPORT_PAGE_SIZE", 2)
+        timeline = []
+        real_close = db.close
+        monkeypatch.setattr(
+            db, "close", lambda: (timeline.append(("request_close", bg_sessions["open"])), real_close())[1]
+        )
+
+        assert client.get(f"{URL}/export", headers=admin_auth_headers).status_code == 200
+        # Closed right after page 1 was read, before page 2's session opened.
+        assert timeline and timeline[0] == ("request_close", 1)
+
+    def test_a_page_failing_mid_stream_ends_the_file_with_an_error_line(
+        self, client, admin_auth_headers, board_data, bg_sessions, monkeypatch
+    ):
+        monkeypatch.setattr(ml_metricas, "EXPORT_PAGE_SIZE", 2)
+        bg_sessions["fail_on_open"] = 2
+
+        resp = client.get(f"{URL}/export", headers=admin_auth_headers)
+
+        assert resp.status_code == 200
+        lines = resp.content.decode("utf-8-sig").splitlines()
+        assert lines[-1] == "# ERROR: exportación incompleta — 2 filas exportadas. Volvé a intentar."
+        assert len(lines[1:-1]) == 2
+
+    def test_a_complete_export_has_no_error_line(self, client, admin_auth_headers, board_data):
+        text = client.get(f"{URL}/export", headers=admin_auth_headers).content.decode("utf-8-sig")
+        assert "# ERROR" not in text
