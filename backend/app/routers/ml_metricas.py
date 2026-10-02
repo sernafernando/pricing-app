@@ -33,6 +33,7 @@ from app.models.usuario import Usuario
 from app.services.ml_sales_query.params import parse_csv_ids, parse_csv_stores, parse_csv_strings
 from app.services.ml_daily_metrics import board
 from app.services.permisos_service import PermisosService
+from app.utils.csv_cells import csv_text
 
 PERMISO_VER = "ml_metricas.ver"
 PERMISO_GANANCIA = "ml_metricas.ver_ganancia"
@@ -443,10 +444,10 @@ def _csv_money(value: Optional[float]) -> str:
 
 def _csv_line(row: board.Row, can_see_margin: bool) -> list:
     line = [
-        row.title,
-        row.sku or "",
-        row.marca or "",
-        row.mla or "",
+        csv_text(row.title),
+        csv_text(row.sku),
+        csv_text(row.marca),
+        csv_text(row.mla),
         row.units,
         row.units_24h,
         row.windows["3d"],

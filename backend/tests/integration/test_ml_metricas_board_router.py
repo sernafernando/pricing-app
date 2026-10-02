@@ -445,3 +445,37 @@ class TestDateRangeBounds:
         body = _get(client, admin_auth_headers, date_from="2025-10-01", date_to="2026-09-30")
 
         assert len(body["kpis"]["units"]["series"]) == 365
+
+
+class TestExportIsSafeForSpreadsheets:
+    """Titles come from Mercado Libre and the ERP: a cell starting with
+    `= + - @`, a tab or a CR is run as a formula by Excel/Sheets. Every
+    free-text cell of the CSV is defused with a leading quote."""
+
+    PREFIXES = ["=", "+", "-", "@", "\t", "\r"]
+
+    def test_free_text_cells_starting_like_a_formula_are_defused(self, db, client, admin_auth_headers, rol_admin):
+        _grant(db, rol_admin, "ml_metricas.ver")
+        for i, prefix in enumerate(self.PREFIXES):
+            item_id = 7100 + i
+            db.add(
+                ProductoERP(
+                    item_id=item_id,
+                    codigo=f"{prefix}SKU{i}",
+                    descripcion=f'{prefix}HYPERLINK("http://x")',
+                    marca=f"{prefix}Marca",
+                    categoria="Cat",
+                    subcategoria_id=1,
+                )
+            )
+            db.flush()
+            _pub(db, 7100 + i, f"MLA71{i}", item_id, 57997)
+        db.commit()
+
+        resp = client.get(f"{URL}/export", headers=admin_auth_headers)
+
+        rows = list(csv.DictReader(io.StringIO(resp.content.decode("utf-8-sig")), delimiter=";"))
+        assert len(rows) == len(self.PREFIXES)
+        for row in rows:
+            for column in ("Producto", "SKU", "Marca"):
+                assert row[column].startswith("'"), (column, row[column])

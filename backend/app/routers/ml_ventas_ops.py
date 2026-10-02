@@ -107,6 +107,7 @@ from app.services.order_metrics import health as order_metrics_health
 from app.services.order_metrics.read import metrics_state_for_orders, read_stored_metrics
 from app.services.order_metrics.types import GaussStatus
 from app.services.permisos_service import PermisosService
+from app.utils.csv_cells import csv_text
 
 DIVERGENCE_KINDS = (
     "missing_in_gbp",
@@ -1798,15 +1799,6 @@ EXPORT_HEADER = [
 ]
 
 
-def _csv_text(value: Optional[str]) -> str:
-    """Free text from ML (buyer nickname, city...) goes into a spreadsheet:
-    a cell starting with `= + - @` (or tab/CR) would be run as a formula, so
-    it is defused with a leading quote. Standard CSV-injection guard."""
-    if value is None:
-        return ""
-    return "'" + value if value[:1] in ("=", "+", "-", "@", "\t", "\r") else value
-
-
 def _csv_money(value: Optional[float]) -> str:
     # Excel es-AR reads a decimal COMMA (and `;` as the delimiter).
     return "" if value is None else f"{value:.2f}".replace(".", ",")
@@ -1819,8 +1811,8 @@ _CSV_ITEM_SEPARATOR = " | "
 def _csv_items(order: SaleListItem) -> "tuple[str, str, str]":
     items = order.items or []
     return (
-        _CSV_ITEM_SEPARATOR.join(_csv_text(i.title or i.item_id) for i in items),
-        _CSV_ITEM_SEPARATOR.join(_csv_text(i.seller_sku or "") for i in items),
+        _CSV_ITEM_SEPARATOR.join(csv_text(i.title or i.item_id) for i in items),
+        _CSV_ITEM_SEPARATOR.join(csv_text(i.seller_sku or "") for i in items),
         _CSV_ITEM_SEPARATOR.join("" if i.quantity is None else str(i.quantity) for i in items),
     )
 
@@ -1832,15 +1824,15 @@ def _csv_order_row(order: SaleListItem, accreditation_date: Optional[datetime]) 
         order.date_created.isoformat() if order.date_created else "",
         str(order.order_id),
         "" if order.pack_id is None else str(order.pack_id),
-        _csv_text(order.buyer_nickname),
+        csv_text(order.buyer_nickname),
         product,
         sku,
         quantity,
         order.operation_status,
         order.goods_status,
         order.modo_logistico,
-        _csv_text(order.city),
-        _csv_text(order.province),
+        csv_text(order.city),
+        csv_text(order.province),
         order.currency_id or "",
         _csv_money(order.total_amount),
         _csv_money(order.coupon_amount),
