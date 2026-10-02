@@ -92,13 +92,17 @@ class TestPublicationIdIndexMigration:
 
         name = _load_migration().INDEX
         autocommit_conn.execute(text(f"DROP INDEX IF EXISTS {name}"))
-        autocommit_conn.execute(
-            text(
-                "INSERT INTO tb_mercadolibre_items_publicados (mlp_id, mlp_publicationid) "
-                "VALUES (998001, 'MLA_DUP_TEST'), (998002, 'MLA_DUP_TEST')"
-            )
-        )
         try:
+            # Leftovers of an earlier aborted run would make the INSERT fail.
+            autocommit_conn.execute(
+                text("DELETE FROM tb_mercadolibre_items_publicados WHERE mlp_id IN (998001, 998002)")
+            )
+            autocommit_conn.execute(
+                text(
+                    "INSERT INTO tb_mercadolibre_items_publicados (mlp_id, mlp_publicationid) "
+                    "VALUES (998001, 'MLA_DUP_TEST'), (998002, 'MLA_DUP_TEST')"
+                )
+            )
             with pytest.raises(IntegrityError):
                 autocommit_conn.execute(
                     text(

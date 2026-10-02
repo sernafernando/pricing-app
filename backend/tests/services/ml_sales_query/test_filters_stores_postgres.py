@@ -239,25 +239,29 @@ class TestStoreFacetStaysInsideTheSeller:
     def test_another_sellers_order_sharing_a_pack_id_never_counts(self, slate) -> None:
         """Pack ids are ML's, not ours: another seller's order can carry the
         same `pack_id`. It must not add a store bucket to our pack -- the
-        chip count must equal what clicking the chip returns (nothing)."""
-        slate.execute(
-            text(
-                "INSERT INTO ml_orders_ops (order_id, seller_id, status, ml_last_updated, date_created, pack_id, "
-                "total_amount, paid_amount, currency_id) "
-                "VALUES (2000012345679999, 555, 'paid', now(), now(), :pack, 100, 100, 'ARS')"
-            ),
-            {"pack": PACK},
-        )
-        _publication(slate, 990044, "MLA9900044", 144)
-        _item(slate, 2000012345679999, "MLA9900044")
-        slate.commit()
+        chip count must equal what clicking the chip returns (nothing).
+        The seller in scope is the `slate` fixture's ML_USER_ID (999)."""
         try:
+            slate.execute(
+                text(
+                    "INSERT INTO ml_orders_ops (order_id, seller_id, status, ml_last_updated, date_created, pack_id, "
+                    "total_amount, paid_amount, currency_id) "
+                    "VALUES (2000012345679999, 555, 'paid', now(), now(), :pack, 100, 100, 'ARS')"
+                ),
+                {"pack": PACK},
+            )
+            _publication(slate, 990044, "MLA9900044", 144)
+            _item(slate, 2000012345679999, "MLA9900044")
+            slate.commit()
+
             counts, _total = store_facet_counts(build_scope(slate, SalesFilter(**ALL_ON)))
             clicked = _key_page(build_scope(slate, SalesFilter(stores=("144",), **ALL_ON)))
 
             assert "144" not in counts
             assert clicked == []
         finally:
+            slate.rollback()
             slate.execute(text("DELETE FROM ml_order_items_ops WHERE order_id = 2000012345679999"))
             slate.execute(text("DELETE FROM ml_orders_ops WHERE order_id = 2000012345679999"))
+            slate.execute(text("DELETE FROM tb_mercadolibre_items_publicados WHERE mlp_id = 990044"))
             slate.commit()
