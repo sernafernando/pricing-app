@@ -482,3 +482,49 @@ def test_a_change_between_pages_never_repeats_or_drops_a_sale(
     rows = _rows(client.get("/api/ml-ventas-ops/sales/export", params=ALL_ON, headers=admin_auth_headers))
 
     assert [r["orden"] for r in rows] == ["5", "4", "3", "2", "1"]
+
+
+def test_an_empty_scope_with_data_elsewhere_is_a_header_only_file(db, client, admin_auth_headers, rol_admin):
+    """Sales exist, none match: page 1 is built from an EMPTY key list (no
+    empty `IN ()`, no `LIMIT 0` error) and the file is just the header."""
+    _grant(db, rol_admin)
+    _sale(db, 1)
+    db.commit()
+
+    resp = client.get(
+        "/api/ml-ventas-ops/sales/export", params={**ALL_ON, "q": "no-existe-nada"}, headers=admin_auth_headers
+    )
+
+    assert resp.status_code == 200
+    lines = resp.content.decode("utf-8-sig").splitlines()
+    assert len(lines) == 1 and lines[0].startswith("fecha_acreditacion;")
+
+
+def test_exactly_the_cap_exports_every_sale(db, client, admin_auth_headers, rol_admin, monkeypatch):
+    monkeypatch.setattr(ml_ventas_ops, "EXPORT_MAX_GROUPS", 3)
+    monkeypatch.setattr(ml_ventas_ops, "EXPORT_PAGE_SIZE", 2)
+    _grant(db, rol_admin)
+    for i in range(1, 4):
+        _sale(db, i, day=i)
+    db.commit()
+
+    resp = client.get("/api/ml-ventas-ops/sales/export", params=ALL_ON, headers=admin_auth_headers)
+
+    assert resp.status_code == 200
+    assert [r["orden"] for r in _rows(resp)] == ["3", "2", "1"]
+
+
+def test_one_over_the_cap_is_422_with_the_reason(db, client, admin_auth_headers, rol_admin, monkeypatch):
+    monkeypatch.setattr(ml_ventas_ops, "EXPORT_MAX_GROUPS", 3)
+    _grant(db, rol_admin)
+    for i in range(1, 5):
+        _sale(db, i, day=i)
+    db.commit()
+
+    resp = client.get("/api/ml-ventas-ops/sales/export", params=ALL_ON, headers=admin_auth_headers)
+
+    assert resp.status_code == 422
+    assert resp.json()["error"]["message"] == (
+        "Son más de 3 ventas, demasiadas para exportar de una vez. "
+        "Acotá los filtros, por ejemplo con un rango de fechas."
+    )

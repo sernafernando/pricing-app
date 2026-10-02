@@ -620,3 +620,32 @@ class TestExportKeysAreFixedUpFront:
         resp = client.get(f"{URL}/export", headers=admin_auth_headers)
 
         assert resp.status_code == 422
+
+
+class TestExportEdges:
+    def test_an_empty_scope_is_a_header_only_file(self, client, admin_auth_headers, board_data):
+        resp = client.get(f"{URL}/export", params={"q": "no-existe-nada"}, headers=admin_auth_headers)
+
+        assert resp.status_code == 200
+        lines = resp.content.decode("utf-8-sig").splitlines()
+        assert len(lines) == 1 and lines[0].startswith("Producto;SKU;Marca;MLA;")
+
+    def test_exactly_the_cap_exports_every_row(self, client, admin_auth_headers, board_data, monkeypatch):
+        monkeypatch.setattr(ml_metricas, "EXPORT_MAX_ROWS", 4)
+        monkeypatch.setattr(ml_metricas, "EXPORT_PAGE_SIZE", 3)
+
+        resp = client.get(f"{URL}/export", headers=admin_auth_headers)
+
+        assert resp.status_code == 200
+        rows = list(csv.DictReader(io.StringIO(resp.content.decode("utf-8-sig")), delimiter=";"))
+        assert len(rows) == 4
+
+    def test_one_over_the_cap_is_422_with_the_reason(self, client, admin_auth_headers, board_data, monkeypatch):
+        monkeypatch.setattr(ml_metricas, "EXPORT_MAX_ROWS", 3)
+
+        resp = client.get(f"{URL}/export", headers=admin_auth_headers)
+
+        assert resp.status_code == 422
+        assert resp.json()["error"]["message"] == (
+            "Son más de 3 filas, demasiadas para exportar de una vez. Acotá los filtros (tienda, marca, búsqueda...)."
+        )
