@@ -108,20 +108,27 @@ def _write_sale(session, order_id: int, qty: int) -> None:
         session.execute(text(stmt), params)
 
 
-def _wait_until_blocked(engine, *, advisory: bool, timeout: float = 10.0) -> None:
-    """Polls `pg_locks` from a THIRD connection until some backend waits on a
-    lock it was not granted -- an advisory lock when `advisory`, any lock
-    otherwise -- and fails if that never happens within `timeout`. A fixed
-    sleep would only make the interleaving likely; this makes it certain."""
-    query = "SELECT count(*) FROM pg_locks WHERE NOT granted" + (" AND locktype = 'advisory'" if advisory else "")
+def _wait_until_blocked(engine, *, waiter_pid: int, holder_pid: int, advisory: bool, timeout: float = 10.0) -> None:
+    """Polls from a THIRD connection until the backend `waiter_pid` (T2) is
+    blocked by `holder_pid` (T1) -- on an advisory lock when `advisory`, on
+    any lock otherwise -- and fails if that never happens within `timeout`.
+    Scoped to those two pids: `pg_locks` is cluster-wide, so an unrelated
+    waiting backend must not satisfy it. A fixed sleep would only make the
+    interleaving likely; this makes it certain."""
+    query = (
+        "SELECT CAST(:holder AS int) = ANY(pg_blocking_pids(:waiter)) AND EXISTS ("
+        "SELECT 1 FROM pg_locks WHERE pid = :waiter AND NOT granted"
+        + (" AND locktype = 'advisory'" if advisory else "")
+        + ")"
+    )
     deadline = time.monotonic() + timeout
     with engine.connect() as observer:
         while time.monotonic() < deadline:
-            if observer.execute(text(query)).scalar():
+            if observer.execute(text(query), {"waiter": waiter_pid, "holder": holder_pid}).scalar():
                 return
             observer.rollback()
             time.sleep(0.02)
-    pytest.fail(f"the second refresh never blocked ({'advisory' if advisory else 'any'} lock)")
+    pytest.fail(f"the second refresh never blocked on the first ({'advisory' if advisory else 'any'} lock)")
 
 
 @pytest.mark.postgres
@@ -139,7 +146,11 @@ def test_two_concurrent_refreshes_of_one_bucket(engine, monkeypatch, locked: boo
     make = sessionmaker(bind=engine)
     t1, t2 = make(), make()
     errors: list = []
+    t2_pid = None
+    worker = None
     try:
+        t1_pid = t1.execute(text("SELECT pg_backend_pid()")).scalar()
+        t2_pid = t2.execute(text("SELECT pg_backend_pid()")).scalar()
         _write_sale(t1, ORDER_A, qty=2)
         refresh_rollup(t1, {(MLA, DAY)})  # T1 holds its refresh, uncommitted
 
@@ -157,7 +168,7 @@ def test_two_concurrent_refreshes_of_one_bucket(engine, monkeypatch, locked: boo
         # T2 is provably waiting on T1 before T1 commits: on the advisory
         # lock (before its read) with the fix, on T1's row (after its read)
         # without it.
-        _wait_until_blocked(engine, advisory=locked)
+        _wait_until_blocked(engine, waiter_pid=t2_pid, holder_pid=t1_pid, advisory=locked)
         t1.commit()
         worker.join(timeout=30)
         assert not worker.is_alive(), "second refresh never finished (deadlock?)"
@@ -175,7 +186,15 @@ def test_two_concurrent_refreshes_of_one_bucket(engine, monkeypatch, locked: boo
             assert (row.units, row.orders, row.total_gauss) == (3, 1, Decimal("30.00"))
     finally:
         t1.close()
-        t2.close()
+        if worker is not None and worker.is_alive() and t2_pid is not None:
+            # T2 is stuck and its session belongs to the worker thread: kill
+            # its backend instead of touching the session from here, so the
+            # cleanup below cannot block on locks T2 still holds.
+            with engine.connect() as killer:
+                killer.execute(text("SELECT pg_terminate_backend(:pid)"), {"pid": t2_pid})
+            worker.join(timeout=10)
+        else:
+            t2.close()
         with engine.begin() as conn:
             for stmt in (
                 "DELETE FROM ml_product_daily_metrics WHERE mla = :mla",
