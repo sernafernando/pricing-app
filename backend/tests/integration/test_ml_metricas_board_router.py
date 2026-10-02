@@ -212,6 +212,17 @@ class TestProductRows:
         assert [row["key"] for row in body["rows"]] == ["14"]
         assert body["with_sales_count"] == 2
 
+    def test_pages_hand_out_each_row_once_even_when_every_row_ties(self, client, admin_auth_headers, board_data):
+        """All four rows tie on units_24h (no orders in the last 24h); pages
+        of one row must still return each exactly once."""
+        keys = [
+            row["key"]
+            for offset in range(4)
+            for row in _get(client, admin_auth_headers, sort="units_24h", limit=1, offset=offset)["rows"]
+        ]
+
+        assert sorted(keys) == ["11", "12", "13", "14"]
+
     def test_units_24h_come_from_orders(self, db, client, admin_auth_headers, board_data):
         order_id = 2000012345678901
         db.add(

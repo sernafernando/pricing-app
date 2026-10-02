@@ -9,8 +9,10 @@ dirty to fix it later.
 
 This test reproduces it with two real Postgres connections and a fixed
 interleaving: T1 writes sale A and refreshes the bucket (uncommitted); T2,
-in another thread, writes sale B and refreshes the same bucket; T1 commits;
-T2 commits. The bucket must hold A + B.
+in another thread, writes sale B and refreshes the same bucket; a third
+connection confirms (`pg_locks`) that T2 is waiting on T1; T1 commits; T2
+commits. With the bucket lock the bucket holds A + B; the variant without
+it shows the lost update.
 """
 
 from __future__ import annotations
@@ -106,9 +108,34 @@ def _write_sale(session, order_id: int, qty: int) -> None:
         session.execute(text(stmt), params)
 
 
+def _wait_until_blocked(engine, *, advisory: bool, timeout: float = 10.0) -> None:
+    """Polls `pg_locks` from a THIRD connection until some backend waits on a
+    lock it was not granted -- an advisory lock when `advisory`, any lock
+    otherwise -- and fails if that never happens within `timeout`. A fixed
+    sleep would only make the interleaving likely; this makes it certain."""
+    query = "SELECT count(*) FROM pg_locks WHERE NOT granted" + (" AND locktype = 'advisory'" if advisory else "")
+    deadline = time.monotonic() + timeout
+    with engine.connect() as observer:
+        while time.monotonic() < deadline:
+            if observer.execute(text(query)).scalar():
+                return
+            observer.rollback()
+            time.sleep(0.02)
+    pytest.fail(f"the second refresh never blocked ({'advisory' if advisory else 'any'} lock)")
+
+
 @pytest.mark.postgres
-def test_two_concurrent_refreshes_of_one_bucket_never_lose_a_sale(engine, monkeypatch) -> None:
+@pytest.mark.parametrize("locked", [True, False], ids=["with-bucket-lock", "without-bucket-lock"])
+def test_two_concurrent_refreshes_of_one_bucket(engine, monkeypatch, locked: bool) -> None:
+    """With the bucket lock, T2 waits on it BEFORE reading and then sees A:
+    the bucket holds A + B. The `without-bucket-lock` variant keeps the RED
+    evidence reproducible: T2 reads without A, waits only on T1's row at the
+    upsert, then overwrites it -- sale A is lost."""
+    from app.services.ml_daily_metrics import rollup
+
     monkeypatch.setattr(settings, "ML_USER_ID", 999)
+    if not locked:
+        monkeypatch.setattr(rollup, "_lock_buckets", lambda db, buckets: None)
     make = sessionmaker(bind=engine)
     t1, t2 = make(), make()
     errors: list = []
@@ -127,7 +154,10 @@ def test_two_concurrent_refreshes_of_one_bucket_never_lose_a_sale(engine, monkey
 
         worker = threading.Thread(target=second_worker)
         worker.start()
-        time.sleep(1.0)  # T2 reads the bucket while T1 is still open
+        # T2 is provably waiting on T1 before T1 commits: on the advisory
+        # lock (before its read) with the fix, on T1's row (after its read)
+        # without it.
+        _wait_until_blocked(engine, advisory=locked)
         t1.commit()
         worker.join(timeout=30)
         assert not worker.is_alive(), "second refresh never finished (deadlock?)"
@@ -138,7 +168,24 @@ def test_two_concurrent_refreshes_of_one_bucket_never_lose_a_sale(engine, monkey
                 text("SELECT units, orders, total_gauss FROM ml_product_daily_metrics WHERE mla = :mla AND day = :day"),
                 {"mla": MLA, "day": DAY},
             ).one()
-        assert (row.units, row.orders, row.total_gauss) == (5, 2, Decimal("50.00"))
+        if locked:
+            assert (row.units, row.orders, row.total_gauss) == (5, 2, Decimal("50.00"))
+        else:
+            # The lost update the lock exists to prevent: only B survives.
+            assert (row.units, row.orders, row.total_gauss) == (3, 1, Decimal("30.00"))
     finally:
         t1.close()
         t2.close()
+        with engine.begin() as conn:
+            for stmt in (
+                "DELETE FROM ml_product_daily_metrics WHERE mla = :mla",
+                "DELETE FROM ml_group_metrics WHERE group_key IN (:ka, :kb)",
+                "DELETE FROM ml_order_metrics WHERE order_id IN (:a, :b)",
+                "DELETE FROM ml_order_item_costos WHERE order_id IN (:a, :b)",
+                "DELETE FROM ml_order_items_ops WHERE order_id IN (:a, :b)",
+                "DELETE FROM ml_orders_ops WHERE order_id IN (:a, :b)",
+            ):
+                conn.execute(
+                    text(stmt),
+                    {"mla": MLA, "a": ORDER_A, "b": ORDER_B, "ka": f"o:{ORDER_A}", "kb": f"o:{ORDER_B}"},
+                )

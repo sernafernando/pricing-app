@@ -18,6 +18,7 @@ plan are what regress loudly.
 
 from __future__ import annotations
 
+import asyncio
 import time
 from datetime import date, datetime, timedelta, timezone
 
@@ -331,3 +332,39 @@ class TestPairsTableLifecycle:
 
         assert first.total == second.total
         assert not _pairs_table_exists(plain_session)
+
+
+@pytest.mark.postgres
+class TestPagingIsStableUnderTies:
+    """Every row of the volume ties on `units_24h` (no orders in the last
+    24h). Paging must still hand out each row exactly once: the ORDER BY ends
+    with the unique row key, or Postgres may reorder the ties between two
+    LIMIT/OFFSET statements and pages repeat or skip rows."""
+
+    @pytest.mark.parametrize("group_by, total", [("product", PRODUCTS), ("publication", PUBLICATIONS)])
+    def test_pages_cover_every_row_exactly_once(self, volume_session, group_by, total) -> None:
+        f = board.BoardFilter(date_from=TODAY - timedelta(days=29), date_to=TODAY, group_by=group_by, sort="units_24h")
+        keys: list[str] = []
+        with board.Board(volume_session, f) as b:
+            for offset in range(0, total, 500):
+                keys += [row.key for row in b.page(500, offset, with_series=False)]
+
+        assert len(keys) == total
+        assert len(set(keys)) == total
+
+    def test_the_csv_export_holds_every_row_exactly_once(self, volume_session, monkeypatch) -> None:
+        from app.routers import ml_metricas
+
+        monkeypatch.setattr(ml_metricas, "EXPORT_PAGE_SIZE", 300)
+        f = board.BoardFilter(date_from=TODAY - timedelta(days=29), date_to=TODAY, sort="units_24h")
+        monkeypatch.setattr(ml_metricas, "_can_see_margin", lambda db, user: True)
+        response = ml_metricas.export_board(f=f, current_user=None, db=volume_session)
+
+        async def collect(iterator) -> bytes:
+            return b"".join([c if isinstance(c, bytes) else c.encode() async for c in iterator])
+
+        body = asyncio.run(collect(response.body_iterator))
+        lines = body.decode("utf-8-sig").strip().splitlines()[1:]
+
+        assert len(lines) == PRODUCTS
+        assert len(set(lines)) == PRODUCTS

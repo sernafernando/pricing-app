@@ -643,6 +643,10 @@ class Board:
         column = sort_cols[self.f.sort]
         descending = self.f.sort_desc if self.f.sort != "ageing" else not self.f.sort_desc
         order = (column.desc() if descending else column.asc()).nulls_last()
+        # The row key closes EVERY ordering: rows tie freely (gross 0, units
+        # 0...), and without a unique last term Postgres may order the ties
+        # differently in two LIMIT/OFFSET statements -- pages (and CSV
+        # export pages) would repeat or skip rows.
         q = select(rows).order_by(order, rows.c.rk.asc())
         if limit is not None:
             q = q.limit(limit).offset(offset)
