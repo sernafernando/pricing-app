@@ -85,4 +85,10 @@ describe('buildVentasMLFilterParams', () => {
     expect(params.include_in_dispute).toBe(true);
     expect(params.include_provisional).toBe(true);
   });
+
+  it('sends the selected store as `stores` so list, facets, KPIs and export agree', () => {
+    expect(buildVentasMLFilterParams(BASE_FILTERS).stores).toBeUndefined();
+    expect(buildVentasMLFilterParams({ ...BASE_FILTERS, storeFilter: '2645' }).stores).toBe('2645');
+    expect(buildVentasMLFilterParams({ ...BASE_FILTERS, storeFilter: 'sin_tienda' }).stores).toBe('sin_tienda');
+  });
 });

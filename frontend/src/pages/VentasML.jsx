@@ -79,6 +79,7 @@ import { useVentasMLFilters } from '../hooks/useVentasMLFilters';
 import VariosVentaPctModal from '../components/VariosVentaPctModal';
 import DateRangeFilter from '../components/DateRangeFilter';
 import { buildVentasMLFilterParams } from '../utils/ventasMlParams';
+import { storeFilterChips } from '../constants/tiendasOficiales';
 import { exportVentasCsv } from '../utils/ventasMlExport';
 import {
   formatDate,
@@ -98,6 +99,8 @@ const EMPTY_FACETS = {
   operation_status_total: 0,
   goods_status_total: 0,
   alerts_total: 0,
+  stores: {},
+  stores_total: 0,
 };
 
 // Status labels/badge classes, money/date formatting, and the group-level
@@ -156,6 +159,7 @@ export default function VentasML() {
 
   const [operationStatusFilter, setOperationStatusFilter] = useState('');
   const [goodsStatusFilter, setGoodsStatusFilter] = useState('');
+  const [storeFilter, setStoreFilter] = useState('');
   // No default range: unlike the métricas dashboard this list starts
   // unfiltered by date, so `dateRangeFiltro` stays `null` until the
   // operator picks a preset or a custom range.
@@ -306,6 +310,7 @@ export default function VentasML() {
           includeProvisional,
           includeCancelled,
           onlyAlerts,
+          storeFilter,
         }),
       );
     } catch (err) {
@@ -326,10 +331,16 @@ export default function VentasML() {
     includeProvisional,
     includeCancelled,
     onlyAlerts,
+    storeFilter,
   ]);
 
   const handleOnlyAlertsChange = useCallback((value) => {
     setOnlyAlerts(value);
+    setOffset(0);
+  }, []);
+
+  const handleStoreChange = useCallback((value) => {
+    setStoreFilter(value);
     setOffset(0);
   }, []);
 
@@ -375,6 +386,7 @@ export default function VentasML() {
   const clearFilters = useCallback(() => {
     setOperationStatusFilter('');
     setGoodsStatusFilter('');
+    setStoreFilter('');
     setFechaDesde('');
     setFechaHasta('');
     setDateRangeFiltro(null);
@@ -404,6 +416,7 @@ export default function VentasML() {
   const hasActiveFilters = Boolean(
     operationStatusFilter ||
       goodsStatusFilter ||
+      storeFilter ||
       fechaDesde ||
       fechaHasta ||
       searchQuery ||
@@ -452,6 +465,7 @@ export default function VentasML() {
           includeProvisional,
           includeCancelled,
           onlyAlerts,
+          storeFilter,
         }),
       };
       const { data } = await api.get('/ml-ventas-ops/sales', { params });
@@ -491,6 +505,7 @@ export default function VentasML() {
     includeProvisional,
     includeCancelled,
     onlyAlerts,
+    storeFilter,
     offset,
     pageSize,
   ]);
@@ -520,6 +535,7 @@ export default function VentasML() {
         includeProvisional,
         includeCancelled,
         onlyAlerts,
+        storeFilter,
       });
       const { data } = await api.get('/ml-ventas-ops/sales/kpis', { params });
       if (requestId !== latestKpiRequestRef.current) return;
@@ -551,6 +567,7 @@ export default function VentasML() {
     includeProvisional,
     includeCancelled,
     onlyAlerts,
+    storeFilter,
   ]);
 
   useEffect(() => {
@@ -737,6 +754,22 @@ export default function VentasML() {
               active={onlyAlerts}
               count={facets.alerts_total}
               onChange={handleOnlyAlertsChange}
+            />
+          </div>
+        </div>
+
+        <div className={styles.filterBand}>
+          <div className={styles.filterGroup}>
+            <span className={styles.filterLabel} title="La tienda oficial de la publicación vendida">
+              Tienda:
+            </span>
+            <FacetChips
+              label="Filtrar por tienda oficial"
+              {...storeFilterChips(facets.stores, storeFilter)}
+              counts={facets.stores}
+              total={facets.stores_total}
+              activeValue={storeFilter}
+              onChange={handleStoreChange}
             />
           </div>
         </div>

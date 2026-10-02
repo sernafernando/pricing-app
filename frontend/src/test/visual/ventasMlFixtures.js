@@ -412,6 +412,8 @@ export const SALES_RESPONSE = {
     operation_status_total: 1284,
     goods_status_total: 1284,
     alerts_total: 19,
+    stores: { 57997: 1022, 2645: 148, 144: 37, 191942: 61, sin_tienda: 16 },
+    stores_total: 1284,
   },
 };
 

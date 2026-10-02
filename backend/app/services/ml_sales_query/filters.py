@@ -23,14 +23,15 @@ from dataclasses import dataclass, field, replace
 from datetime import datetime
 from typing import Any, Dict, Optional, Tuple
 
-from sqlalchemy import String, and_, case, cast, false, func, literal, or_, true
+from sqlalchemy import String, and_, case, cast, false, func, literal, or_, select, true, union
 from sqlalchemy.orm import Query, Session, aliased
 
 from app.core.config import settings
 from app.models.marca_pm import MarcaPM
+from app.models.mercadolibre_item_publicado import MercadoLibreItemPublicado
 from app.models.ml_order_item_costo import MlOrderItemCosto
 from app.models.ml_order_metrics import MlOrderMetrics, MlOrderMetricsDirty
-from app.models.ml_orders_ops import MlOperationLink, MlOrdersOps, MlShipmentOps
+from app.models.ml_orders_ops import MlOperationLink, MlOrderItemOps, MlOrdersOps, MlShipmentOps
 from app.models.producto import ProductoERP
 from app.models.rma_claim_ml import RmaClaimML
 from app.services.ml_orders_ingestion.operation_status import (
@@ -75,6 +76,17 @@ class SalesFilter:
     # not `ok`. A scope filter like the product facets, not a switch: it
     # applies to the listing, the facets and the KPI alike.
     only_alerts: bool = False
+    # ODD `metricas-ml-tablero` T1: official stores (`mlp_official_store_id`
+    # of the item's MLA) plus `NO_STORE` for an MLA with no store. A GROUP
+    # filter like the product facets: applied by `build_scope` through
+    # `_store_exists`, to the listing, the facets and the KPI alike.
+    stores: Tuple[str, ...] = field(default_factory=tuple)
+
+
+# The `stores` sentinel for "the MLA has no official store": no publication
+# row at all, or one whose `mlp_official_store_id` is NULL. Same literal the
+# products export already accepts (`productos_shared.parsear_tiendas_oficiales_mla`).
+NO_STORE = "sin_tienda"
 
 
 @dataclass
@@ -132,6 +144,9 @@ class SalesScope:
     # alertas (N)" counter counts, so it stays meaningful while the filter is
     # ON (same rule as every facet: never scoped by its own axis).
     alert_groups_query: Any = None
+    # ODD `metricas-ml-tablero` T1: `facet_base` WITHOUT the store filter, so
+    # the "TIENDA:" chip counts are never scoped by their own axis.
+    store_facet_base: Any = None
 
 
 def _open_claim_exists_subquery(db: Session):
@@ -285,6 +300,100 @@ def _product_facet_exists(db: Session, f: SalesFilter, group_key: Any) -> Option
         .filter(*conditions)
         .exists()
     )
+
+
+def _store_publication(item_mla: Any):
+    """The publication rows of one order item's MLA that carry a store."""
+    return and_(
+        MercadoLibreItemPublicado.mlp_publicationID == item_mla,
+        MercadoLibreItemPublicado.mlp_official_store_id.isnot(None),
+    )
+
+
+def _store_exists(db: Session, f: SalesFilter, group_key: Any) -> Optional[Any]:
+    """ODD `metricas-ml-tablero` T1: one correlated `EXISTS` over every
+    order item (`ml_order_items_ops`, so an item with no frozen cost still
+    counts) of the SAME GROUP as the outer row, true when that item's MLA is
+    published in one of `f.stores` -- or, for `NO_STORE`, has no publication
+    carrying a store. Correlated by `group_key` exactly like
+    `_product_facet_exists`, so a pack matches as a whole.
+
+    The MLA -> store lookup rides `tb_mercadolibre_items_publicados`'
+    `mlp_publicationid` index (migration 20261001_ix_mlp_publicationid).
+
+    Returns `None` when no store is selected.
+    """
+    if not f.stores:
+        return None
+    store_ids = [int(s) for s in f.stores if s != NO_STORE]
+    order_alias = aliased(MlOrdersOps)
+    alias_group_key = case(
+        (order_alias.pack_id.isnot(None), literal("p:") + cast(order_alias.pack_id, String)),
+        else_=literal("o:") + cast(order_alias.order_id, String),
+    )
+    store_publication = _store_publication(MlOrderItemOps.item_id)
+    item_matches = []
+    if store_ids:
+        item_matches.append(
+            db.query(MercadoLibreItemPublicado.mlp_id)
+            .filter(store_publication, MercadoLibreItemPublicado.mlp_official_store_id.in_(store_ids))
+            .exists()
+        )
+    if NO_STORE in f.stores:
+        item_matches.append(~db.query(MercadoLibreItemPublicado.mlp_id).filter(store_publication).exists())
+
+    conditions = [alias_group_key == group_key, or_(*item_matches)]
+    if settings.ML_USER_ID:
+        conditions.append(order_alias.seller_id == int(settings.ML_USER_ID))
+    return (
+        db.query(MlOrderItemOps.id)
+        .join(order_alias, order_alias.order_id == MlOrderItemOps.order_id)
+        .filter(*conditions)
+        .exists()
+    )
+
+
+def store_facet_counts(scope: "SalesScope") -> "tuple[Dict[str, int], int]":
+    """Groups per store bucket inside the scope every OTHER filter leaves
+    standing, and how many groups that scope holds ("Todas").
+
+    A bucket is the store id as text, or `NO_STORE` -- `_store_exists`' rule,
+    so a chip's count is what clicking it returns. A pack spanning two stores
+    counts under both, like a mixed pack in the status facets.
+
+    Cost follows the SCOPE, never the seller's history: the member orders are
+    the scope's orders plus their pack siblings (two index semi-joins, on
+    `order_id` and `pack_id`), and only THOSE orders' items are read. Called
+    only when the facets are wanted (never by the CSV export's pages).
+    """
+    db = scope.store_facet_base.session
+    in_scope = scope.store_facet_base.with_entities(
+        MlOrdersOps.order_id.label("order_id"), MlOrdersOps.pack_id.label("pack_id")
+    ).subquery("in_scope")
+    # Seller-scoped on BOTH branches: a pack id is Mercado Libre's, and
+    # another seller's order can carry the same one.
+    seller = [MlOrdersOps.seller_id == int(settings.ML_USER_ID)] if settings.ML_USER_ID else []
+    member_ids = union(
+        select(MlOrdersOps.order_id).where(MlOrdersOps.order_id.in_(select(in_scope.c.order_id)), *seller),
+        select(MlOrdersOps.order_id).where(MlOrdersOps.pack_id.in_(select(in_scope.c.pack_id)), *seller),
+    ).subquery("member_ids")
+    member = aliased(MlOrdersOps)
+    member_key = case(
+        (member.pack_id.isnot(None), literal("p:") + cast(member.pack_id, String)),
+        else_=literal("o:") + cast(member.order_id, String),
+    )
+    bucket = func.coalesce(cast(MercadoLibreItemPublicado.mlp_official_store_id, String), literal(NO_STORE))
+    rows = (
+        db.query(bucket.label("store"), func.count(func.distinct(member_key)))
+        .select_from(member)
+        .join(member_ids, member_ids.c.order_id == member.order_id)
+        .join(MlOrderItemOps, MlOrderItemOps.order_id == member.order_id)
+        .outerjoin(MercadoLibreItemPublicado, _store_publication(MlOrderItemOps.item_id))
+        .group_by(bucket)
+        .all()
+    )
+    total = scope.store_facet_base.with_entities(func.count(func.distinct(scope.group_key))).scalar() or 0
+    return {store: count for store, count in rows}, total
 
 
 def _group_switch_subquery(db: Session, op_status_expr: Any):
@@ -555,12 +664,19 @@ def build_scope(db: Session, f: SalesFilter) -> SalesScope:
     if facet_exists is not None:
         listing_query = listing_query.filter(facet_exists)
         facet_base = facet_base.filter(facet_exists)
+    # The store chips are counted over everything EXCEPT the store filter.
+    store_facet_base = facet_base
+    store_exists = _store_exists(db, f, group_key)
+    if store_exists is not None:
+        listing_query = listing_query.filter(store_exists)
+        facet_base = facet_base.filter(store_exists)
 
     # Kept apart so the alert COUNTER can ignore the alert filter itself.
     listing_before_alerts = listing_query
     if f.only_alerts:
         listing_query = _only_groups_with_alert(listing_query, db, op_status_expr, goods_status_expr)
         facet_base = _only_groups_with_alert(facet_base, db, op_status_expr, goods_status_expr)
+        store_facet_base = _only_groups_with_alert(store_facet_base, db, op_status_expr, goods_status_expr)
 
     pre_switch_listing_query = listing_query
 
@@ -575,6 +691,7 @@ def build_scope(db: Session, f: SalesFilter) -> SalesScope:
     effective_f = effective_switches(f)
     listing_query = _apply_switches(listing_query, db, effective_f, op_status_expr)
     facet_base = _apply_switches(facet_base, db, effective_f, op_status_expr)
+    store_facet_base = _apply_switches(store_facet_base, db, effective_f, op_status_expr)
     alert_groups_query = _only_groups_with_alert(
         _apply_switches(listing_before_alerts, db, effective_f, op_status_expr), db, op_status_expr, goods_status_expr
     )
@@ -591,6 +708,7 @@ def build_scope(db: Session, f: SalesFilter) -> SalesScope:
         accreditation_subquery=accred,
         accreditation_joined=accreditation_joined,
         alert_groups_query=alert_groups_query,
+        store_facet_base=store_facet_base,
     )
 
 

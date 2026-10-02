@@ -605,7 +605,9 @@ class TestPR10DoesNotIntroduceNPlusOne:
         # `coupon_amount_by_order`/`neto_desglose` -- still O(1) per
         # REQUEST, never per row.
         assert counter.matching("ml_payments_ops") <= 8
-        assert counter.matching("ml_order_items_ops") <= 1  # items_by_order
+        # items_by_order + the "Tienda" facet count (ONE whole-scope
+        # aggregate, metricas-ml-tablero T1) -- neither grows with the rows.
+        assert counter.matching("ml_order_items_ops") <= 2
 
 
 class TestItemsAdditiveField:
@@ -707,7 +709,9 @@ class TestItemsAdditiveField:
             resp = client.get("/api/ml-ventas-ops/sales", headers=admin_auth_headers)
 
         assert resp.status_code == 200
-        assert counter.matching("ml_order_items_ops") <= 1
+        # The page's bulk items read + the "Tienda" facet count (one
+        # whole-scope aggregate, metricas-ml-tablero T1): constant, not per row.
+        assert counter.matching("ml_order_items_ops") <= 2
 
 
 class TestNestedStrField:

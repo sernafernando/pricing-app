@@ -21,11 +21,14 @@ def _module():
     return module
 
 
-def test_there_is_a_single_alembic_head_and_it_is_this_migration():
+def test_there_is_a_single_alembic_head_and_it_contains_this_migration():
+    # Not pinned to the head by name: every later migration would break it.
     config = Config(str(BACKEND / "alembic.ini"))
     config.set_main_option("script_location", str(BACKEND / "alembic"))
-    heads = ScriptDirectory.from_config(config).get_heads()
-    assert heads == ["20260930_ml_ops_resincronizar"]
+    script = ScriptDirectory.from_config(config)
+    heads = script.get_heads()
+    assert len(heads) == 1, f"alembic forked: {heads}"
+    assert any(rev.revision == "20260930_ml_ops_resincronizar" for rev in script.walk_revisions("base", heads[0]))
 
 
 def test_registers_the_permission_for_admin_only():

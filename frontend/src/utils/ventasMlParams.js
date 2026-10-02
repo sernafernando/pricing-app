@@ -26,6 +26,9 @@ export function buildVentasMLFilterParams({
   // caller that predates the switch never hides cancelled sales by accident.
   includeCancelled = true,
   onlyAlerts = false,
+  // ODD `metricas-ml-tablero` T1: one store value (`STORE_FILTER_OPTIONS`)
+  // or '' for every store.
+  storeFilter = '',
 }) {
   const params = {};
   if (operationStatusFilter) params.operation_status = operationStatusFilter;
@@ -36,6 +39,7 @@ export function buildVentasMLFilterParams({
   if (productFilters?.marcas?.length > 0) params.marcas = productFilters.marcas.join(',');
   if (productFilters?.subcategorias?.length > 0) params.subcategorias = productFilters.subcategorias.join(',');
   if (productFilters?.pms?.length > 0) params.pms = productFilters.pms.join(',');
+  if (storeFilter) params.stores = storeFilter;
   // The five toggles are ALWAYS sent explicitly (never omitted), even when
   // `true` — the backend's own per-endpoint defaults disagree with each
   // other (KPI R11 vs the list's legacy `True` default), which is exactly
