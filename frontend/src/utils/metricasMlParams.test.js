@@ -45,4 +45,17 @@ describe('buildMetricasMLParams', () => {
       alerts: 'sin_ventas_30d',
     });
   });
+
+  it('sends the excluded statuses and types as their own CSV, only when set', () => {
+    expect(buildMetricasMLParams({ ...BASE, pubStatusExclude: [], pubTypeExclude: [] })).not.toHaveProperty(
+      'pub_status_exclude',
+    );
+    const params = buildMetricasMLParams({
+      ...BASE,
+      pubStatusExclude: ['paused', 'closed'],
+      pubTypeExclude: ['catalogo'],
+    });
+    expect(params).toMatchObject({ pub_status_exclude: 'paused,closed', pub_type_exclude: 'catalogo' });
+    expect(params).not.toHaveProperty('pub_status');
+  });
 });

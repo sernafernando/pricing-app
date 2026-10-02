@@ -204,6 +204,12 @@ def _parse_choices(raw: Optional[str], field: str, allowed: Tuple[str, ...]) -> 
     return values
 
 
+def _no_overlap(include: Tuple[str, ...], exclude: Tuple[str, ...], field: str) -> None:
+    both = [v for v in include if v in exclude]
+    if both:
+        raise HTTPException(status_code=422, detail=f"{field}: {both} no se puede incluir y excluir a la vez")
+
+
 def board_filter(
     date_from: Optional[str] = Query(default=None, description="YYYY-MM-DD, inclusive (default: hace 29 días)"),
     date_to: Optional[str] = Query(default=None, description="YYYY-MM-DD, inclusive (default: hoy)"),
@@ -216,6 +222,10 @@ def board_filter(
     q: Optional[str] = Query(default=None, description="Producto, SKU, marca, MLA o título"),
     pub_status: Optional[str] = Query(default=None, description="CSV: " + ", ".join(board.PUB_STATUSES)),
     pub_type: Optional[str] = Query(default=None, description="CSV: " + ", ".join(board.PUB_TYPES)),
+    pub_status_exclude: Optional[str] = Query(
+        default=None, description="CSV a ocultar: " + ", ".join(board.PUB_STATUSES)
+    ),
+    pub_type_exclude: Optional[str] = Query(default=None, description="CSV a ocultar: " + ", ".join(board.PUB_TYPES)),
     alerts: Optional[str] = Query(default=None, description="CSV: " + ", ".join(board.ALERTS)),
     sort: str = Query(default="gross", description=" | ".join(board.SORTS)),
     sort_dir: str = Query(default="desc", description="asc | desc"),
@@ -245,6 +255,12 @@ def board_filter(
         )
     if (hasta - desde).days + 1 > MAX_PERIOD_DAYS:
         raise HTTPException(status_code=422, detail=f"El período no puede superar {MAX_PERIOD_DAYS} días")
+    pub_status_in = _parse_choices(pub_status, "pub_status", board.PUB_STATUSES)
+    pub_status_out = _parse_choices(pub_status_exclude, "pub_status_exclude", board.PUB_STATUSES)
+    pub_type_in = _parse_choices(pub_type, "pub_type", board.PUB_TYPES)
+    pub_type_out = _parse_choices(pub_type_exclude, "pub_type_exclude", board.PUB_TYPES)
+    _no_overlap(pub_status_in, pub_status_out, "pub_status")
+    _no_overlap(pub_type_in, pub_type_out, "pub_type")
     return board.BoardFilter(
         date_from=desde,
         date_to=hasta,
@@ -255,8 +271,10 @@ def board_filter(
         subcategorias=parse_csv_ids(subcategorias, "subcategorias"),
         pms=parse_csv_ids(pms, "pms"),
         q=q.strip() if q and q.strip() else None,
-        pub_status=_parse_choices(pub_status, "pub_status", board.PUB_STATUSES),
-        pub_type=_parse_choices(pub_type, "pub_type", board.PUB_TYPES),
+        pub_status=pub_status_in,
+        pub_type=pub_type_in,
+        pub_status_exclude=pub_status_out,
+        pub_type_exclude=pub_type_out,
         alerts=_parse_choices(alerts, "alerts", board.ALERTS),
         sort=sort,
         sort_desc=sort_dir == "desc",

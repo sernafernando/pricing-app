@@ -347,6 +347,85 @@ class TestFilters:
         assert set(_by_key(_get(client, admin_auth_headers, pub_type="catalogo"))) == {"13"}
         assert set(_by_key(_get(client, admin_auth_headers, pub_type="full"))) == {"11"}
 
+    def test_excluding_paused_hides_only_the_paused_publication(self, client, admin_auth_headers, board_data):
+        body = _get(client, admin_auth_headers, pub_status_exclude="paused")
+
+        assert set(_by_key(body)) == {"11", "12", "13", "14"}
+        # p11 keeps MLA1 (active) but loses MLA2's paused unit and gross.
+        assert _by_key(body)["11"]["units"] == 5
+        assert _by_key(body)["11"]["publications_count"] == 1
+
+    def test_excluding_active_leaves_only_the_paused_pair(self, client, admin_auth_headers, board_data):
+        body = _get(client, admin_auth_headers, pub_status_exclude="active")
+
+        assert set(_by_key(body)) == {"11"}
+        assert _by_key(body)["11"]["units"] == 1
+
+    def test_excluding_a_type(self, client, admin_auth_headers, board_data):
+        assert set(_by_key(_get(client, admin_auth_headers, pub_type_exclude="catalogo"))) == {"11", "12", "14"}
+        # MLA1 is also Full: excluding Full drops it, MLA2 keeps p11 alive.
+        body = _get(client, admin_auth_headers, pub_type_exclude="full")
+        assert _by_key(body)["11"]["units"] == 1
+        # Exclusion matches ANY excluded type: premium or catalogo.
+        body = _get(client, admin_auth_headers, pub_type_exclude="premium,catalogo")
+        assert set(_by_key(body)) == {"11", "12", "14"}
+        assert _by_key(body)["11"]["units"] == 5
+
+    def test_exclusion_combines_with_include_stores_and_brands(self, client, admin_auth_headers, board_data):
+        body = _get(client, admin_auth_headers, stores="57997", pub_status_exclude="paused")
+        assert set(_by_key(body)) == {"11", "13"}
+        assert _by_key(body)["11"]["units"] == 5
+        body = _get(client, admin_auth_headers, marcas="epson", pub_type_exclude="full", pub_status="paused")
+        assert set(_by_key(body)) == {"11"}
+        assert _by_key(body)["11"]["units"] == 1
+        assert _get(client, admin_auth_headers, marcas="lenovo", pub_status_exclude="active")["rows"] == []
+
+    def test_facet_counts_ignore_their_own_excluded_axis(self, client, admin_auth_headers, board_data):
+        facets = _get(client, admin_auth_headers, pub_status_exclude="paused", pub_type_exclude="catalogo")["facets"]
+
+        # Each group counts what it hides (own axis ignored) but sees the other's exclusion: no premium.
+        assert facets["pub_status"] == {"active": 3, "paused": 1}
+        assert facets["pub_type"] == {"clasica": 4, "catalogo": 1, "full": 1}
+
+    def test_other_axes_see_the_exclusions(self, client, admin_auth_headers, board_data):
+        facets = _get(client, admin_auth_headers, pub_status_exclude="paused", pub_type_exclude="catalogo")["facets"]
+
+        assert facets["stores"] == {"57997": 1, "2645": 1, "144": 1}
+        assert facets["stores_total"] == 3
+
+    def test_nested_publications_honour_the_exclusion(self, client, admin_auth_headers, board_data):
+        resp = client.get(
+            f"{URL}/products/11/publications", params={"pub_status_exclude": "paused"}, headers=admin_auth_headers
+        )
+
+        assert resp.status_code == 200
+        assert {p["key"] for p in resp.json()["rows"]} == {"MLA1"}
+
+    def test_export_honours_the_exclusion(self, client, admin_auth_headers, board_data):
+        resp = client.get(f"{URL}/export", params={"pub_status_exclude": "active"}, headers=admin_auth_headers)
+
+        rows = list(csv.DictReader(io.StringIO(resp.content.decode("utf-8-sig")), delimiter=";"))
+        assert len(rows) == 1
+
+    @pytest.mark.parametrize("params", [{"pub_status_exclude": "borrada"}, {"pub_type_exclude": "nope"}])
+    def test_unknown_exclusions_are_422(self, client, admin_auth_headers, board_data, params):
+        assert client.get(URL, params=params, headers=admin_auth_headers).status_code == 422
+
+    @pytest.mark.parametrize(
+        "params",
+        [
+            {"pub_status": "paused", "pub_status_exclude": "paused,closed"},
+            {"pub_type": "full,premium", "pub_type_exclude": "full"},
+        ],
+    )
+    def test_a_value_in_include_and_exclude_is_422_with_a_clear_message(
+        self, client, admin_auth_headers, board_data, params
+    ):
+        resp = client.get(URL, params=params, headers=admin_auth_headers)
+
+        assert resp.status_code == 422
+        assert "incluir y excluir" in resp.json()["error"]["message"]
+
     def test_product_facets_and_search(self, client, admin_auth_headers, board_data):
         assert set(_by_key(_get(client, admin_auth_headers, marcas="epson"))) == {"11"}
         assert set(_by_key(_get(client, admin_auth_headers, subcategorias="2"))) == {"12"}

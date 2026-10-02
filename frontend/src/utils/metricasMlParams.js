@@ -14,6 +14,8 @@ export function buildMetricasMLParams({
   storeFilter,
   pubStatus,
   pubType,
+  pubStatusExclude,
+  pubTypeExclude,
   alerts,
 }) {
   const params = {
@@ -29,6 +31,8 @@ export function buildMetricasMLParams({
   if (storeFilter) params.stores = storeFilter;
   if (pubStatus?.length > 0) params.pub_status = pubStatus.join(',');
   if (pubType?.length > 0) params.pub_type = pubType.join(',');
+  if (pubStatusExclude?.length > 0) params.pub_status_exclude = pubStatusExclude.join(',');
+  if (pubTypeExclude?.length > 0) params.pub_type_exclude = pubTypeExclude.join(',');
   if (alerts?.length > 0) params.alerts = alerts.join(',');
   return params;
 }
