@@ -370,9 +370,12 @@ def store_facet_counts(scope: "SalesScope") -> "tuple[Dict[str, int], int]":
     in_scope = scope.store_facet_base.with_entities(
         MlOrdersOps.order_id.label("order_id"), MlOrdersOps.pack_id.label("pack_id")
     ).subquery("in_scope")
+    # Seller-scoped on BOTH branches: a pack id is Mercado Libre's, and
+    # another seller's order can carry the same one.
+    seller = [MlOrdersOps.seller_id == int(settings.ML_USER_ID)] if settings.ML_USER_ID else []
     member_ids = union(
-        select(MlOrdersOps.order_id).where(MlOrdersOps.order_id.in_(select(in_scope.c.order_id))),
-        select(MlOrdersOps.order_id).where(MlOrdersOps.pack_id.in_(select(in_scope.c.pack_id))),
+        select(MlOrdersOps.order_id).where(MlOrdersOps.order_id.in_(select(in_scope.c.order_id)), *seller),
+        select(MlOrdersOps.order_id).where(MlOrdersOps.pack_id.in_(select(in_scope.c.pack_id)), *seller),
     ).subquery("member_ids")
     member = aliased(MlOrdersOps)
     member_key = case(

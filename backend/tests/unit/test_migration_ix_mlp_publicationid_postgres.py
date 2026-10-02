@@ -82,16 +82,42 @@ class TestPublicationIdIndexMigration:
         assert _validity(autocommit_conn, name) is True
 
     def test_rebuilds_an_invalid_index_left_by_an_interrupted_build(self, autocommit_conn) -> None:
+        """A REAL invalid index, no catalog writes (so no superuser needed): a
+        concurrent UNIQUE build over duplicated values fails AFTER creating
+        its catalog entry, leaving an INVALID index under the migration's
+        name -- exactly what an interrupted build leaves behind. Then the
+        duplicates go, and the upgrade must rebuild it valid (and plain, not
+        unique, as the migration defines it)."""
+        from sqlalchemy.exc import IntegrityError
+
         name = _load_migration().INDEX
         autocommit_conn.execute(text(f"DROP INDEX IF EXISTS {name}"))
-        autocommit_conn.execute(text(f"CREATE INDEX {name} ON tb_mercadolibre_items_publicados (mlp_publicationid)"))
-        # What an interrupted CREATE INDEX CONCURRENTLY leaves behind.
-        autocommit_conn.execute(text(f"UPDATE pg_index SET indisvalid = false WHERE indexrelid = '{name}'::regclass"))
-        assert _validity(autocommit_conn, name) is False
+        autocommit_conn.execute(
+            text(
+                "INSERT INTO tb_mercadolibre_items_publicados (mlp_id, mlp_publicationid) "
+                "VALUES (998001, 'MLA_DUP_TEST'), (998002, 'MLA_DUP_TEST')"
+            )
+        )
+        try:
+            with pytest.raises(IntegrityError):
+                autocommit_conn.execute(
+                    text(
+                        f"CREATE UNIQUE INDEX CONCURRENTLY {name} ON tb_mercadolibre_items_publicados (mlp_publicationid)"
+                    )
+                )
+            assert _validity(autocommit_conn, name) is False
+        finally:
+            autocommit_conn.execute(
+                text("DELETE FROM tb_mercadolibre_items_publicados WHERE mlp_id IN (998001, 998002)")
+            )
 
         _run_upgrade(autocommit_conn)
 
         assert _validity(autocommit_conn, name) is True
+        unique = autocommit_conn.execute(
+            text("SELECT indisunique FROM pg_index WHERE indexrelid = CAST(:n AS regclass)"), {"n": name}
+        ).scalar()
+        assert unique is False
 
     def test_a_valid_index_is_left_alone(self, autocommit_conn) -> None:
         name = _load_migration().INDEX
