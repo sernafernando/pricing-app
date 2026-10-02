@@ -37,6 +37,14 @@ from app.services.permisos_service import PermisosService
 PERMISO_VER = "ml_metricas.ver"
 PERMISO_GANANCIA = "ml_metricas.ver_ganancia"
 DEFAULT_PERIOD_DAYS = 30
+# The KPI daily series holds one entry per day of the period: an unbounded
+# range would build millions of them in memory. One year (a leap year
+# included) is the most the screen offers ("3m" preset, custom ranges).
+MAX_PERIOD_DAYS = 366
+# Sane ends for the period AND its comparison period (a year back, or the
+# same length back), so the date arithmetic can never underflow/overflow.
+MIN_BOARD_DATE = date(2001, 1, 1)
+MAX_BOARD_DATE = date(2100, 12, 31)
 
 router = APIRouter(prefix="/ml-metricas", tags=["ML Métricas"])
 
@@ -205,9 +213,21 @@ def board_filter(
     if sort_dir not in ("asc", "desc"):
         raise HTTPException(status_code=422, detail=f"sort_dir inválido: {sort_dir!r}")
     hasta = _parse_day(date_to, "date_to") or board.today_business()
+    if not MIN_BOARD_DATE <= hasta <= MAX_BOARD_DATE:
+        raise HTTPException(
+            status_code=422,
+            detail=f"Fechas fuera de rango: entre {MIN_BOARD_DATE.isoformat()} y {MAX_BOARD_DATE.isoformat()}",
+        )
     desde = _parse_day(date_from, "date_from") or hasta - timedelta(days=DEFAULT_PERIOD_DAYS - 1)
     if desde > hasta:
         raise HTTPException(status_code=422, detail="date_from es posterior a date_to")
+    if desde < MIN_BOARD_DATE or hasta > MAX_BOARD_DATE:
+        raise HTTPException(
+            status_code=422,
+            detail=f"Fechas fuera de rango: entre {MIN_BOARD_DATE.isoformat()} y {MAX_BOARD_DATE.isoformat()}",
+        )
+    if (hasta - desde).days + 1 > MAX_PERIOD_DAYS:
+        raise HTTPException(status_code=422, detail=f"El período no puede superar {MAX_PERIOD_DAYS} días")
     return board.BoardFilter(
         date_from=desde,
         date_to=hasta,

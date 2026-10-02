@@ -375,3 +375,28 @@ class TestExport:
         assert resp.status_code == 200
         rows = list(csv.DictReader(io.StringIO(resp.content.decode("utf-8-sig")), delimiter=";"))
         assert {row["Producto"] for row in rows} == {"Impresora Epson L3250", "Taladro DeWalt"}
+
+
+class TestDateRangeBounds:
+    """The KPI daily series has one entry per day of the period: an unbounded
+    range (0001-01-02..9999-12-31) is millions of entries in memory. The
+    period is capped and both ends must be sane dates."""
+
+    @pytest.mark.parametrize(
+        "params",
+        [
+            {"date_from": "0001-01-02", "date_to": "9999-12-31"},
+            {"date_from": "2025-01-01", "date_to": "2026-01-02"},  # 367 days
+            {"date_from": "1999-12-31", "date_to": "2000-01-31"},  # before the floor
+            {"date_from": "2101-01-01", "date_to": "2101-01-31"},  # after the ceiling
+            {"date_to": "0001-01-01"},
+        ],
+    )
+    def test_out_of_bounds_is_422(self, client, admin_auth_headers, board_data, params):
+        for url in (URL, f"{URL}/export", f"{URL}/products/11/publications"):
+            assert client.get(url, params=params, headers=admin_auth_headers).status_code == 422, url
+
+    def test_a_full_year_is_accepted(self, client, admin_auth_headers, board_data):
+        body = _get(client, admin_auth_headers, date_from="2025-10-01", date_to="2026-09-30")
+
+        assert len(body["kpis"]["units"]["series"]) == 365
