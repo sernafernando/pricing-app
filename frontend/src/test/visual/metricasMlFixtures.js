@@ -240,8 +240,8 @@ export const BOARD_RESPONSE = {
     gross: { value: 84920450, delta_pct: 8.1, series: unitSeries(2800000, 400000).slice(-30) },
     total_gauss: { value: 14120900.1, delta_pct: -2.3, series: unitSeries(480000, -40000).slice(-30) },
     markup: { value: 21.6, delta_pp: -1.4, series: series(23, -1.5, 0.6).slice(-30) },
-    products_with_sales: { value: 318, of_total: 471 },
-    ageing: { avg_days: 18, up_to_30: 402, up_to_60: 46, over_60: 23 },
+    rows_with_sales: { value: 318, of_total: 471 },
+    ageing: { avg_days: 18, up_to_30: 402, from_31_to_60: 46, over_60: 23 },
   },
   facets: {
     stores: { 57997: 391, 2645: 38, 144: 12, 191942: 22, sin_tienda: 8 },

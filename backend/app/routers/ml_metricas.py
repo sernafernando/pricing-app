@@ -128,10 +128,14 @@ class KpiShare(BaseModel):
 
 
 class KpiAgeing(BaseModel):
+    """Ageing of the filtered rows (days since the last sale, or since the
+    publication started if it never sold). The three buckets split ALL the
+    rows with an ageing and drive the card's bar: up to 30 days, 31 to 60
+    days, over 60 days (the "Ageing > 60d" alert)."""
+
     avg_days: Optional[float] = None
-    # The ageing bar: rows aged <= 30, 31-60 and > 60 days.
-    up_to_30: int = 0
-    up_to_60: int = 0
+    up_to_30: int
+    from_31_to_60: int
     over_60: int
 
 
@@ -140,7 +144,9 @@ class BoardKpis(BaseModel):
     gross: KpiMoney
     total_gauss: KpiMoney
     markup: KpiMarkup
-    products_with_sales: KpiShare
+    # Rows with sales in the period / all rows: products, or publications
+    # when the board is grouped by publication.
+    rows_with_sales: KpiShare
     ageing: KpiAgeing
 
 
@@ -334,11 +340,11 @@ def _kpis(k: board.Kpis, can_see_margin: bool) -> BoardKpis:
             if can_see_margin
             else KpiMarkup()
         ),
-        products_with_sales=KpiShare(value=k.with_sales, of_total=k.rows),
+        rows_with_sales=KpiShare(value=k.with_sales, of_total=k.rows),
         ageing=KpiAgeing(
             avg_days=round(k.ageing_avg, 1) if k.ageing_avg is not None else None,
             up_to_30=k.up_to_30,
-            up_to_60=k.up_to_60,
+            from_31_to_60=k.from_31_to_60,
             over_60=k.over_60,
         ),
     )

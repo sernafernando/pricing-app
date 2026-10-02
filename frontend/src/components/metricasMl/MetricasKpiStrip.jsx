@@ -48,8 +48,8 @@ export default function MetricasKpiStrip({ kpis, canSeeMargin, groupBy, loading 
   if (!kpis) return <div className={styles.cards} aria-busy={loading} />;
   const noun = groupBy === 'publication' ? 'Publicaciones' : 'Productos';
   const short = groupBy === 'publication' ? 'pub' : 'prod';
-  const { units, gross, total_gauss: tg, markup, products_with_sales: withSales, ageing } = kpis;
-  const ageingTotal = ageing.up_to_30 + ageing.up_to_60 + ageing.over_60;
+  const { units, gross, total_gauss: tg, markup, rows_with_sales: withSales, ageing } = kpis;
+  const ageingTotal = ageing.up_to_30 + ageing.from_31_to_60 + ageing.over_60;
   const activePct = pctOf(withSales.value, withSales.of_total);
 
   return (
@@ -132,7 +132,7 @@ export default function MetricasKpiStrip({ kpis, canSeeMargin, groupBy, loading 
           {ageingTotal > 0 && (
             <>
               <span className={styles.segGood} style={{ width: `${pctOf(ageing.up_to_30, ageingTotal)}%` }} />
-              <span className={styles.segLow} style={{ width: `${pctOf(ageing.up_to_60, ageingTotal)}%` }} />
+              <span className={styles.segLow} style={{ width: `${pctOf(ageing.from_31_to_60, ageingTotal)}%` }} />
               <span className={styles.segBad} style={{ width: `${pctOf(ageing.over_60, ageingTotal)}%` }} />
             </>
           )}

@@ -362,10 +362,19 @@ class TestKpis:
         assert kpis["markup"]["value"] == 22.0
         assert kpis["markup"]["delta_pp"] == 2.0
         assert len(kpis["units"]["series"]) == 30
-        assert kpis["products_with_sales"] == {"value": 2, "of_total": 4}
+        # "rows": products, or publications when grouped by publication.
+        assert kpis["rows_with_sales"] == {"value": 2, "of_total": 4}
+        assert "products_with_sales" not in kpis
         assert kpis["ageing"]["over_60"] == 2
         # The ageing bar's three segments: <= 30 / 31-60 / > 60 days.
-        assert (kpis["ageing"]["up_to_30"], kpis["ageing"]["up_to_60"]) == (2, 0)
+        assert (kpis["ageing"]["up_to_30"], kpis["ageing"]["from_31_to_60"]) == (2, 0)
+
+    def test_the_ageing_buckets_are_all_required(self):
+        """No defaults that could quietly report 0 for a bucket nobody filled."""
+        from app.routers.ml_metricas import KpiAgeing
+
+        for name in ("up_to_30", "from_31_to_60", "over_60"):
+            assert KpiAgeing.model_fields[name].is_required(), name
 
 
 class TestExport:

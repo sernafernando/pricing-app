@@ -272,7 +272,7 @@ class Kpis:
     with_sales: int
     ageing_avg: Optional[float]
     up_to_30: int
-    up_to_60: int
+    from_31_to_60: int
     over_60: int
     series_units: List[int]
     series_gross: List[float]
@@ -781,7 +781,7 @@ class Board:
                     func.coalesce(
                         func.sum(case((and_(rows.c.ref_day < ok_bound, rows.c.ref_day >= alert_bound), 1), else_=0)),
                         0,
-                    ).label("up_to_60"),
+                    ).label("from_31_to_60"),
                     func.coalesce(func.sum(rows.c.a_ageing_60d), 0).label("over_60"),
                 )
             )
@@ -827,7 +827,7 @@ class Board:
             with_sales=int(totals["with_sales"]),
             ageing_avg=float(totals["ageing_avg"]) if totals["ageing_avg"] is not None else None,
             up_to_30=int(totals["up_to_30"]),
-            up_to_60=int(totals["up_to_60"]),
+            from_31_to_60=int(totals["from_31_to_60"]),
             over_60=int(totals["over_60"]),
             series_units=s_units,
             series_gross=[float(v) for v in s_gross],
