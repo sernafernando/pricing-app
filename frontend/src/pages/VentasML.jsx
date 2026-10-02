@@ -79,7 +79,7 @@ import { useVentasMLFilters } from '../hooks/useVentasMLFilters';
 import VariosVentaPctModal from '../components/VariosVentaPctModal';
 import DateRangeFilter from '../components/DateRangeFilter';
 import { buildVentasMLFilterParams } from '../utils/ventasMlParams';
-import { STORE_FILTER_LABELS, STORE_FILTER_OPTIONS } from '../constants/tiendasOficiales';
+import { storeFilterChips } from '../constants/tiendasOficiales';
 import { exportVentasCsv } from '../utils/ventasMlExport';
 import {
   formatDate,
@@ -765,8 +765,7 @@ export default function VentasML() {
             </span>
             <FacetChips
               label="Filtrar por tienda oficial"
-              options={STORE_FILTER_OPTIONS}
-              labels={STORE_FILTER_LABELS}
+              {...storeFilterChips(facets.stores, storeFilter)}
               counts={facets.stores}
               total={facets.stores_total}
               activeValue={storeFilter}

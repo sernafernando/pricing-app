@@ -77,3 +77,35 @@ describe('Tienda filter on VentasML', () => {
     await waitFor(() => expect(lastParams('/ml-ventas-ops/sales').stores).toBeUndefined());
   });
 });
+
+describe('Tienda chips follow the facet buckets', () => {
+  it('a store outside the known list gets its own selectable chip, and the chips add up to Todas', async () => {
+    api.get.mockImplementation((url) => {
+      if (url === '/ml-ventas-ops/sales') {
+        return Promise.resolve({
+          data: {
+            sales: [],
+            total: 10,
+            limit: 50,
+            offset: 0,
+            facets: { ...FACETS, stores: { 57997: 5, 2645: 2, 777123: 1, sin_tienda: 2 }, stores_total: 10 },
+          },
+        });
+      }
+      if (url === '/usuarios/pms') return Promise.resolve({ data: [] });
+      return Promise.resolve({ data: {} });
+    });
+    await renderWithRouter(<VentasML />);
+    const group = await screen.findByRole('group', { name: 'Filtrar por tienda oficial' });
+    const unknown = await within(group).findByRole('button', { name: 'Tienda 777123 · 1' });
+
+    const counts = within(group)
+      .getAllByRole('button')
+      .filter((b) => !b.textContent.startsWith('Todas'))
+      .map((b) => Number(b.textContent.split('·').pop().trim()));
+    expect(counts.reduce((a, b) => a + b, 0)).toBe(10);
+
+    await userEvent.click(unknown);
+    await waitFor(() => expect(lastParams('/ml-ventas-ops/sales').stores).toBe('777123'));
+  });
+});

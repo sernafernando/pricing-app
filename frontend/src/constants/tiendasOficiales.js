@@ -51,4 +51,23 @@ export const STORE_FILTER_LABELS = {
   [STORE_NONE]: 'Sin tienda',
 };
 
+/**
+ * The "Tienda:" chips for the facet the backend returned. The known stores
+ * keep their place and label (even at zero); ANY other store the facet
+ * reports gets its own "Tienda <id>" chip (ids ascending, before
+ * "Sin tienda"), so every sale counted in "Todas" sits under a chip that can
+ * be clicked. The selected store stays a chip even if the facet drops it.
+ */
+export function storeFilterChips(counts = {}, selected = '') {
+  const known = STORE_FILTER_OPTIONS.filter((value) => value !== STORE_NONE);
+  const others = new Set(
+    Object.keys(counts || {}).filter((value) => value !== STORE_NONE && !known.includes(value)),
+  );
+  if (selected && selected !== STORE_NONE && !known.includes(selected)) others.add(selected);
+  const extra = [...others].sort((a, b) => Number(a) - Number(b));
+  const labels = { ...STORE_FILTER_LABELS };
+  for (const value of extra) labels[value] = `Tienda ${value}`;
+  return { options: [...known, ...extra, STORE_NONE], labels };
+}
+
 export default TIENDAS_OFICIALES;
