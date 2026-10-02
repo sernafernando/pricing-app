@@ -375,8 +375,15 @@ class Board:
 
     # ── building blocks ──
 
-    def _pub(self):
-        latest = select(func.max(M.mlp_id)).where(M.mlp_publicationID.isnot(None)).group_by(M.mlp_publicationID)
+    def _pub(self, mlas: Any = None):
+        """Each MLA's current publication row (newest `mlp_id`), with its
+        status/type/store resolved in SQL. `mlas` (a one-column select)
+        narrows it to those MLAs: a product's sub-rows never read every
+        publication."""
+        latest = select(func.max(M.mlp_id)).where(M.mlp_publicationID.isnot(None))
+        if mlas is not None:
+            latest = latest.where(M.mlp_publicationID.in_(mlas))
+        latest = latest.group_by(M.mlp_publicationID)
         status = case(
             *((M.mlp_lastStatusID == sid, literal(name)) for sid, name in ML_PUBLICATION_STATUS_MAP.items()),
             (
@@ -404,7 +411,7 @@ class Board:
                 M.mlp_thumbnail.label("thumbnail"),
                 self._date_of(func.coalesce(M.mlp_start_time, M.mlp_creationDate)).label("start_day"),
             )
-            .where(M.mlp_id.in_(latest))
+            .where(M.mlp_id.in_(latest), *([M.mlp_publicationID.in_(mlas)] if mlas is not None else []))
             .subquery("pub")
         )
 
@@ -471,7 +478,7 @@ class Board:
         if self.product_item_id is not None:
             published = published.where(M.item_id == self.product_item_id)
         pairs = union(select(last.c.product, last.c.mla), published).subquery("pairs")
-        pub = self._pub()
+        pub = self._pub(select(pairs.c.mla) if self.product_item_id is not None else None)
         sums = [c for c in agg.c.keys() if c not in ("product", "mla")]
         return (
             select(

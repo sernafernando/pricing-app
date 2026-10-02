@@ -319,9 +319,24 @@ PR #1379). Ruta: delegated direct (writer único). TDD estricto.
       reparto NUMERIC; volumen) → 131 passed. El test de 24h del router pasó
       de 4 a 6: la venta de hoy de `board_data` ahora cae también en 24h
       (antes 24h no veía las ventas del resumen).
-- [ ] ST2 — Sub-filas de publicaciones: sólo los MLAs del producto pedido.
+- [x] ST2 — Sub-filas de publicaciones: sólo los MLAs del producto pedido.
       Test: costo (sentencias y filas) independiente de cuántos otros
       productos hay.
+      Con `product_item_id`: los grupos se alcanzan por el índice de
+      `ml_order_item_costos.producto_item_id` (y de ahí las órdenes por
+      `pack_id`/`order_id`, no por hash de todas), y el espejo de
+      publicaciones se lee sólo para los MLAs del producto (antes el
+      "último `mlp_id` por MLA" recorría todas las publicaciones).
+      Test `test_board_subrows_postgres.py`: el mismo producto solo y entre
+      300 productos más (900 publicaciones, 10.800 órdenes): mismas 8
+      sentencias, mismas filas en las tablas temporales (12 líneas, 3
+      pares), y EXPLAIN ANALYZE (seq scans apagados) con ≤ 48 filas leídas
+      por tabla fuente.
+      RED visto: sin la restricción de publicaciones, 1.809 filas leídas
+      del espejo; sin la del producto, ~21.600 de grupos/ítems/costos y
+      10.824 de órdenes.
+      Medido en volumen (ST3): sub-filas de un producto entre 2.000 →
+      9 sentencias, ~37 ms (antes reconstruía el tablero entero).
 - [ ] ST3 — Rendimiento en Postgres con volumen real (≈80k grupos en 18
       meses, 90 días densos, ~2k productos, ~6k MLAs): tiempos, sentencias,
       EXPLAIN con índices. Si algo es lento: índices sobre tablas EXISTENTES
