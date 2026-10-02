@@ -54,7 +54,10 @@ SETTINGS = {
 
 def _existing_tables() -> list:
     bind = op.get_bind()
-    return [t for t in TABLES if bind.execute(text("SELECT to_regclass(:t)"), {"t": t}).scalar() is not None]
+    # Plain or partitioned tables only: to_regclass also resolves views,
+    # sequences and indexes, which take no autovacuum storage parameters.
+    query = text("SELECT relkind FROM pg_class WHERE oid = to_regclass(:t)")
+    return [t for t in TABLES if bind.execute(query, {"t": t}).scalar() in ("r", "p")]
 
 
 def upgrade() -> None:
@@ -62,6 +65,9 @@ def upgrade() -> None:
     options = ", ".join(f"{key} = {value}" for key, value in SETTINGS.items())
     for table in _existing_tables():
         op.execute(f"ALTER TABLE {table} SET ({options})")
+    # SET LOCAL lasts until the transaction ends, and Alembic may run the next
+    # revisions in this same transaction: give them back the default.
+    op.execute("SET LOCAL lock_timeout = DEFAULT")
 
 
 def downgrade() -> None:
@@ -69,3 +75,4 @@ def downgrade() -> None:
     keys = ", ".join(SETTINGS)
     for table in _existing_tables():
         op.execute(f"ALTER TABLE {table} RESET ({keys})")
+    op.execute("SET LOCAL lock_timeout = DEFAULT")

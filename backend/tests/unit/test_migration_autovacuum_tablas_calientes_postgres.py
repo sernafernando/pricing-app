@@ -52,7 +52,7 @@ def autocommit_conn():
     engine.dispose()
 
 
-def _run(conn, step: str) -> None:
+def _run(conn, step: str, after=None):
     from alembic.operations import Operations
     from alembic.runtime.migration import MigrationContext
 
@@ -63,6 +63,8 @@ def _run(conn, step: str) -> None:
             ctx = MigrationContext.configure(migration_conn)
             with ctx.begin_transaction(), Operations.context(ctx):
                 getattr(migration, step)()
+                if after is not None:
+                    return after(migration_conn)
     finally:
         engine.dispose()
 
@@ -99,6 +101,26 @@ class TestAutovacuumHotTablesMigration:
         options = _options(autocommit_conn, _PROBE_TABLE)
         assert "autovacuum_vacuum_scale_factor" not in options
         assert "autovacuum_analyze_scale_factor" not in options
+
+    def test_the_lock_timeout_does_not_leak_to_later_migrations(self, autocommit_conn) -> None:
+        default = autocommit_conn.execute(text("SHOW lock_timeout")).scalar()
+
+        inside = _run(autocommit_conn, "upgrade", after=lambda c: c.execute(text("SHOW lock_timeout")).scalar())
+
+        assert inside == default
+
+    def test_a_view_with_a_listed_name_is_skipped(self, autocommit_conn) -> None:
+        migration = _load_migration()
+        name = next(
+            t
+            for t in migration.TABLES
+            if autocommit_conn.execute(text("SELECT to_regclass(:t)"), {"t": t}).scalar() is None
+        )
+        autocommit_conn.execute(text(f"CREATE VIEW {name} AS SELECT 1 AS x"))
+        try:
+            _run(autocommit_conn, "upgrade")  # an ALTER TABLE on a view would raise
+        finally:
+            autocommit_conn.execute(text(f"DROP VIEW {name}"))
 
     def test_targets_the_tables_measured_in_production(self) -> None:
         tables = set(_load_migration().TABLES)
