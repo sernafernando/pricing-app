@@ -11,14 +11,18 @@ EXISTS that runs once per candidate group. The model declares `index=True` on
 that column, but no migration ever created it, so whether production has it
 depends on how the table was first built. This makes it explicit.
 
-Same name the model's `index=True` produces, and `IF NOT EXISTS`: a database
-that already has it is untouched. `CONCURRENTLY` (outside the transaction,
+Same name the model's `index=True` produces; a database that already has it
+VALID is untouched. One that has it INVALID (an earlier `CREATE INDEX
+CONCURRENTLY` interrupted midway leaves the name taken by an index Postgres
+never uses, and `IF NOT EXISTS` would happily keep it) gets it dropped and
+built again -- `pg_index.indisvalid` decides. `CONCURRENTLY` (outside the transaction,
 `autocommit_block`) so the ERP sync keeps writing while it builds -- same
 precedent as `20260427_add_idx_mlp_official_store_id.py`.
 """
 
 from typing import Sequence, Union
 
+import sqlalchemy as sa
 from alembic import op
 
 revision: str = "20261001_ix_mlp_publicationid"
@@ -29,11 +33,20 @@ depends_on: Union[str, Sequence[str], None] = None
 INDEX = "ix_tb_mercadolibre_items_publicados_mlp_publicationid"
 
 
+_VALIDITY = sa.text(
+    "SELECT i.indisvalid FROM pg_index i JOIN pg_class c ON c.oid = i.indexrelid "
+    "WHERE c.relname = :name AND pg_table_is_visible(c.oid)"
+)
+
+
 def upgrade() -> None:
     with op.get_context().autocommit_block():
-        op.execute(
-            f"CREATE INDEX CONCURRENTLY IF NOT EXISTS {INDEX} ON tb_mercadolibre_items_publicados (mlp_publicationid)"
-        )
+        valid = op.get_bind().execute(_VALIDITY, {"name": INDEX}).scalar()
+        if valid is True:
+            return
+        if valid is False:
+            op.execute(f"DROP INDEX CONCURRENTLY IF EXISTS {INDEX}")
+        op.execute(f"CREATE INDEX CONCURRENTLY {INDEX} ON tb_mercadolibre_items_publicados (mlp_publicationid)")
 
 
 def downgrade() -> None:
