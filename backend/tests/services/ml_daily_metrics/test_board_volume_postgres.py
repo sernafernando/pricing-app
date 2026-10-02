@@ -318,6 +318,30 @@ class TestBoardOnVolume:
         # SAVEPOINT, 2 x (CREATE + ANALYZE), page, details, series, ROLLBACK TO.
         assert len(recorder.statements) == 9
 
+    def test_the_csv_exports_first_transaction_on_volume(self, volume_session) -> None:
+        """The export's first short transaction: the ordered keys of every
+        row and page 1 (500 rows, no series) -- printed for the ODD doc."""
+        from app.routers.ml_metricas import EXPORT_MAX_ROWS, EXPORT_PAGE_SIZE
+
+        f = board.BoardFilter(date_from=TODAY - timedelta(days=29), date_to=TODAY)
+        recorder = _Recorder()
+        connection = volume_session.connection()
+        event.listen(connection, "before_cursor_execute", recorder.before)
+        event.listen(connection, "after_cursor_execute", recorder.after)
+        started = time.perf_counter()
+        try:
+            with board.Board(volume_session, f) as b:
+                keys = b.ordered_keys(EXPORT_MAX_ROWS + 1)
+                first = b.rows_for_keys(keys[:EXPORT_PAGE_SIZE])
+        finally:
+            event.remove(connection, "before_cursor_execute", recorder.before)
+            event.remove(connection, "after_cursor_execute", recorder.after)
+        _print("\nexport keys + first page", recorder, (time.perf_counter() - started) * 1000)
+
+        assert len(keys) == PRODUCTS and len(first) == EXPORT_PAGE_SIZE
+        # No sparkline series in the export.
+        assert not any("GROUP BY fp.rk, board_lines.day" in s for s, _p in recorder.statements)
+
     def test_freshness_reads_the_sync_cursors(self, volume_session) -> None:
         _response, recorder, _ms = _request(volume_session, limit=10)
 

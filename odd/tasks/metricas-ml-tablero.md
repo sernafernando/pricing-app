@@ -337,10 +337,42 @@ PR #1379). Ruta: delegated direct (writer único). TDD estricto.
       10.824 de órdenes.
       Medido en volumen (ST3): sub-filas de un producto entre 2.000 →
       9 sentencias, ~37 ms (antes reconstruía el tablero entero).
-- [ ] ST3 — Rendimiento en Postgres con volumen real (≈80k grupos en 18
+- [x] ST3 — Rendimiento en Postgres con volumen real (≈80k grupos en 18
       meses, 90 días densos, ~2k productos, ~6k MLAs): tiempos, sentencias,
       EXPLAIN con índices. Si algo es lento: índices sobre tablas EXISTENTES
       o forma de la consulta, nunca una tabla derivada.
+      `test_board_volume_postgres.py` (local, Postgres 18, `-s`): 81.000
+      grupos en 18 meses (20.000 en los últimos 90 días, todos los días con
+      ventas; packs, multi-ítem, canceladas, sin resolver, recalculándose),
+      89.100 órdenes, 101.828 ítems, 2.000 productos, 6.000 MLAs.
+      - Tablero (página + KPIs + chips + detalle + series): **17
+        sentencias** con página de 10, 50 o 200, por producto o por
+        publicación, con filtros o exclusiones (15 si la página sale vacía);
+        **~600–690 ms** en caliente (~1,4 s la primera, que compila).
+        Grueso: `board_lines` ~190 ms, `board_pair_agg` ~185 ms (de los
+        cuales ~165 ms es la última venta de cada par sobre TODA la
+        historia, para el ageing), ANALYZE ~50 + ~57 ms; KPIs ~9 ms + serie
+        ~14 ms, cada chip 2–13 ms, página ~17 ms, detalle ~1 ms, series de
+        la página ~4 ms. 241 filas devueltas para una página de 10.
+      - Sub-filas de un producto: **9 sentencias, ~37 ms**.
+      - Export, primera transacción (claves ordenadas + página de 500, sin
+        series): **9 sentencias, ~536 ms**; cada página siguiente igual.
+      - EXPLAIN: las líneas del request llegan a `ml_group_metrics` por
+        `ix_ml_group_metrics_group_date` (BitmapOr de los tres rangos:
+        período+90 días, comparación, 24h); grupo→órdenes por hash sobre la
+        clave del grupo; sub-filas por `ix_ml_order_item_costos_producto_
+        item_id` y `pack_id`/PK de órdenes (ST2).
+      Forma de consulta corregida en el camino (medido): unir grupo→órdenes
+      con el OR de índices para TODO el tablero anidaba 54k lazos (~120 ms
+      más) y dos ventanas con particiones distintas ordenaban dos veces:
+      el tablero entero usa igualdad de clave (hash) y una sola partición
+      (grupo, orden); el OR por índice queda sólo para un producto. Con eso
+      el CREATE de líneas bajó de ~500 a ~190 ms. JIT apagado no cambiaba
+      nada (medido) y analizar o no `board_lines` daba lo mismo (se deja).
+      Sin índices nuevos: no hubo un índice sobre tablas existentes que
+      sirviera; lo que queda es volumen leído por hash (la historia completa
+      para el ageing). Antes (con resumen): ~370 ms el tablero, pero con
+      números incompletos y segundos para abrir las sub-filas.
 - [ ] ST4 — Sacar el resumen: hook del worker, lock asesor, backfill y sus
       tests, modelo, migración que borra la tabla. "Actualizado hace X" desde
       datos existentes.
