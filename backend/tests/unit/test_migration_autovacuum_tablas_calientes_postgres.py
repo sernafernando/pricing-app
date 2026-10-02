@@ -69,6 +69,14 @@ def _run(conn, step: str, after=None):
         engine.dispose()
 
 
+def _absent_table(conn):
+    """A listed table name that does not exist in the test DB, or None."""
+    for table in _load_migration().TABLES:
+        if conn.execute(text("SELECT to_regclass(:t)"), {"t": table}).scalar() is None:
+            return table
+    return None
+
+
 def _options(conn, table: str) -> dict:
     raw = conn.execute(
         text("SELECT reloptions FROM pg_class WHERE oid = to_regclass(:t)"),
@@ -110,12 +118,9 @@ class TestAutovacuumHotTablesMigration:
         assert inside == default
 
     def test_a_view_with_a_listed_name_is_skipped(self, autocommit_conn) -> None:
-        migration = _load_migration()
-        name = next(
-            t
-            for t in migration.TABLES
-            if autocommit_conn.execute(text("SELECT to_regclass(:t)"), {"t": t}).scalar() is None
-        )
+        name = _absent_table(autocommit_conn)
+        if name is None:
+            pytest.skip("every listed table exists in this test DB; no free name for a view")
         autocommit_conn.execute(text(f"CREATE VIEW {name} AS SELECT 1 AS x"))
         try:
             _run(autocommit_conn, "upgrade")  # an ALTER TABLE on a view would raise

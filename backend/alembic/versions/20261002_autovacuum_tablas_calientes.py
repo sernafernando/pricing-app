@@ -54,10 +54,11 @@ SETTINGS = {
 
 def _existing_tables() -> list:
     bind = op.get_bind()
-    # Plain or partitioned tables only: to_regclass also resolves views,
-    # sequences and indexes, which take no autovacuum storage parameters.
+    # Plain tables only: to_regclass also resolves views, sequences, indexes
+    # and partitioned parents, none of which take autovacuum storage
+    # parameters (Postgres rejects them on a partitioned table).
     query = text("SELECT relkind FROM pg_class WHERE oid = to_regclass(:t)")
-    return [t for t in TABLES if bind.execute(query, {"t": t}).scalar() in ("r", "p")]
+    return [t for t in TABLES if bind.execute(query, {"t": t}).scalar() == "r"]
 
 
 def upgrade() -> None:
