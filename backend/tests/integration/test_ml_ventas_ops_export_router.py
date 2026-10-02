@@ -45,11 +45,15 @@ def bg_sessions(db, monkeypatch):
     Each short session is a DISTINCT `Session` bound to the test's connection
     (same uncommitted data, different object), so a regression that hands the
     request `db` to the page work is detectable by identity."""
-    events = {"open": 0, "close": 0, "max_open": 0, "sessions": [], "fail_on_open": None}
+    events = {"open": 0, "close": 0, "max_open": 0, "sessions": [], "fail_on_open": None, "on_open": None}
 
     @contextmanager
     def _fake():
         events["open"] += 1
+        if events["on_open"] is not None:
+            # A hook to change the data BETWEEN pages, as a concurrent sale or
+            # rollup refresh would.
+            events["on_open"](events["open"])
         if events["fail_on_open"] is not None and events["open"] >= events["fail_on_open"]:
             events["close"] += 1
             raise RuntimeError("pool timeout")
@@ -348,9 +352,7 @@ def test_export_pages_skip_the_facets_and_the_alert_counter(
     assert not any(" as bucket" in st for st in export.statements)
 
 
-def test_only_the_first_export_page_runs_the_total_count(
-    db, client, admin_auth_headers, rol_admin, monkeypatch, query_counter
-):
+def test_no_export_page_runs_the_total_count(db, client, admin_auth_headers, rol_admin, monkeypatch, query_counter):
     monkeypatch.setattr(ml_ventas_ops, "EXPORT_PAGE_SIZE", 2)
     _grant(db, rol_admin)
     for i in range(1, 6):
@@ -368,8 +370,10 @@ def test_only_the_first_export_page_runs_the_total_count(
         resp = client.get("/api/ml-ventas-ops/sales/export", params=ALL_ON, headers=admin_auth_headers)
 
     assert len(_rows(resp)) == 5
-    assert len(totals(one_page.statements)) >= 1
-    assert len(totals(three_pages.statements)) == len(totals(one_page.statements))
+    # The total is the length of the ordered key list the export fixes up
+    # front: no page (not even the first) runs the distinct-count query.
+    assert totals(one_page.statements) == []
+    assert totals(three_pages.statements) == []
 
 
 def test_the_request_session_is_closed_before_the_first_byte_streams(
@@ -416,7 +420,8 @@ def test_the_page_work_runs_on_the_short_session_not_the_request_one(
     resp = client.get("/api/ml-ventas-ops/sales/export", params=ALL_ON, headers=admin_auth_headers)
 
     assert resp.status_code == 200
-    assert len(used["sales_page"]) == 3 and len(used["dates"]) == 3
+    # The ordered key list + 3 pages built by key; dates once per page.
+    assert len(used["sales_page"]) == 4 and len(used["dates"]) == 3
     for s in used["sales_page"] + used["dates"]:
         assert s is not db
         assert any(s is opened for opened in bg_sessions["sessions"])
@@ -451,3 +456,75 @@ def test_a_complete_export_has_no_error_line(db, client, admin_auth_headers, rol
         "utf-8-sig"
     )
     assert "# ERROR" not in text
+
+
+def test_a_change_between_pages_never_repeats_or_drops_a_sale(
+    db, client, admin_auth_headers, rol_admin, monkeypatch, bg_sessions
+):
+    """The export fixes its ORDERED list of groups in its first short
+    transaction and then fetches each page BY KEY. Paging by OFFSET over a
+    fresh query per page let a change between pages reorder the set: here
+    sale 1 becomes the newest after page 1 was written, which under OFFSET
+    repeated sale 4 and dropped sale 1."""
+    monkeypatch.setattr(ml_ventas_ops, "EXPORT_PAGE_SIZE", 2)
+    _grant(db, rol_admin)
+    for i in range(1, 6):
+        _sale(db, i, day=i)
+    db.commit()
+
+    def move_sale_1_to_the_top(opened: int) -> None:
+        if opened == 2:
+            db.query(MlPaymentOps).filter_by(order_id=1).update({"date_approved": NOW.replace(day=28)})
+            db.flush()
+
+    bg_sessions["on_open"] = move_sale_1_to_the_top
+
+    rows = _rows(client.get("/api/ml-ventas-ops/sales/export", params=ALL_ON, headers=admin_auth_headers))
+
+    assert [r["orden"] for r in rows] == ["5", "4", "3", "2", "1"]
+
+
+def test_an_empty_scope_with_data_elsewhere_is_a_header_only_file(db, client, admin_auth_headers, rol_admin):
+    """Sales exist, none match: page 1 is built from an EMPTY key list (no
+    empty `IN ()`, no `LIMIT 0` error) and the file is just the header."""
+    _grant(db, rol_admin)
+    _sale(db, 1)
+    db.commit()
+
+    resp = client.get(
+        "/api/ml-ventas-ops/sales/export", params={**ALL_ON, "q": "no-existe-nada"}, headers=admin_auth_headers
+    )
+
+    assert resp.status_code == 200
+    lines = resp.content.decode("utf-8-sig").splitlines()
+    assert len(lines) == 1 and lines[0].startswith("fecha_acreditacion;")
+
+
+def test_exactly_the_cap_exports_every_sale(db, client, admin_auth_headers, rol_admin, monkeypatch):
+    monkeypatch.setattr(ml_ventas_ops, "EXPORT_MAX_GROUPS", 3)
+    monkeypatch.setattr(ml_ventas_ops, "EXPORT_PAGE_SIZE", 2)
+    _grant(db, rol_admin)
+    for i in range(1, 4):
+        _sale(db, i, day=i)
+    db.commit()
+
+    resp = client.get("/api/ml-ventas-ops/sales/export", params=ALL_ON, headers=admin_auth_headers)
+
+    assert resp.status_code == 200
+    assert [r["orden"] for r in _rows(resp)] == ["3", "2", "1"]
+
+
+def test_one_over_the_cap_is_422_with_the_reason(db, client, admin_auth_headers, rol_admin, monkeypatch):
+    monkeypatch.setattr(ml_ventas_ops, "EXPORT_MAX_GROUPS", 3)
+    _grant(db, rol_admin)
+    for i in range(1, 5):
+        _sale(db, i, day=i)
+    db.commit()
+
+    resp = client.get("/api/ml-ventas-ops/sales/export", params=ALL_ON, headers=admin_auth_headers)
+
+    assert resp.status_code == 422
+    assert resp.json()["error"]["message"] == (
+        "Son más de 3 ventas, demasiadas para exportar de una vez. "
+        "Acotá los filtros, por ejemplo con un rango de fechas."
+    )

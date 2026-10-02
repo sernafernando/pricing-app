@@ -81,15 +81,44 @@ def slate(pg_order_metrics_triggers_db, monkeypatch):
     creadas = [tabla for tabla in tablas if not sa_inspect(engine).has_table(tabla.name)]
     for tabla in creadas:
         tabla.create(engine)
+    from tests.conftest import _patch_pg_types_for_sqlite
+
+    _patch_pg_types_for_sqlite()
+    # The product facets join `productos_erp`; a minimal copy when no other
+    # fixture left one (its full DDL needs an ENUM other fixtures own).
+    crea_productos = not sa_inspect(engine).has_table("productos_erp")
+    if crea_productos:
+        with engine.begin() as conn:
+            conn.execute(
+                text(
+                    "CREATE TABLE productos_erp (item_id INTEGER PRIMARY KEY, codigo VARCHAR(100), "
+                    "descripcion VARCHAR(500), marca VARCHAR(100), categoria VARCHAR(100), subcategoria_id INTEGER)"
+                )
+            )
     for stmt in (
         "DELETE FROM ml_payments_ops WHERE order_id IN (SELECT order_id FROM ml_orders_ops WHERE seller_id = 999)",
         "DELETE FROM ml_order_items_ops WHERE order_id IN (SELECT order_id FROM ml_orders_ops WHERE seller_id = 999)",
         "DELETE FROM ml_orders_ops WHERE seller_id = 999",
         "DELETE FROM tb_mercadolibre_items_publicados WHERE mlp_id BETWEEN 990001 AND 990099",
+        "DELETE FROM ml_order_item_costos WHERE producto_item_id = 990777",
+        "DELETE FROM productos_erp WHERE item_id = 990777",
     ):
         session.execute(text(stmt))
     session.commit()
 
+    session.execute(
+        text(
+            "INSERT INTO productos_erp (item_id, codigo, marca, categoria) VALUES (990777, 'EPS-1', 'Epson', 'Impresoras')"
+        )
+    )
+    session.execute(
+        text(
+            "INSERT INTO ml_order_item_costos (order_id, item_id, costo_origen, moneda, costo_unitario_ars, iva_pct, "
+            "precio_unitario, fuente, producto_item_id, congelado_at) "
+            "VALUES (:oid, 'MLA9900001', 1, 'ARS', 1, 21, 10, 't', 990777, now())"
+        ),
+        {"oid": ORDER_GAUSS},
+    )
     _order(session, ORDER_GAUSS)
     _order(session, ORDER_NONE)
     _order(session, PACK_TPLINK, PACK)
@@ -108,10 +137,15 @@ def slate(pg_order_metrics_triggers_db, monkeypatch):
         "DELETE FROM ml_order_items_ops WHERE order_id IN (SELECT order_id FROM ml_orders_ops WHERE seller_id = 999)",
         "DELETE FROM ml_orders_ops WHERE seller_id = 999",
         "DELETE FROM tb_mercadolibre_items_publicados WHERE mlp_id BETWEEN 990001 AND 990099",
+        "DELETE FROM ml_order_item_costos WHERE producto_item_id = 990777",
+        "DELETE FROM productos_erp WHERE item_id = 990777",
     ):
         session.execute(text(stmt))
     session.commit()
     session.close()
+    if crea_productos:
+        with engine.begin() as conn:
+            conn.execute(text("DROP TABLE IF EXISTS productos_erp"))
     # Leave the shared test DB as found: a lingering `ml_order_metrics` (FK to
     # `ml_orders_ops`) makes the module engine's own teardown fail to drop
     # `ml_orders_ops` for every later Postgres module.
@@ -163,6 +197,34 @@ class TestStoreFilterOnPostgres:
         plan = "\n".join(row[0] for row in slate.execute(text(f"EXPLAIN {compiled}")))
         assert "mlp_publicationid" in plan
         assert "Seq Scan on tb_mercadolibre_items_publicados" not in plan
+
+    def test_store_and_product_facets_combine(self, slate) -> None:
+        epson_gauss = build_scope(slate, SalesFilter(stores=("57997",), marcas=("epson",), **ALL_ON))
+        epson_tplink = build_scope(slate, SalesFilter(stores=("2645",), marcas=("epson",), **ALL_ON))
+
+        assert _key_page(epson_gauss) == [f"o:{ORDER_GAUSS}"]
+        assert _key_page(epson_tplink) == []
+
+    def test_store_and_product_facets_together_reach_every_table_through_an_index(self, slate) -> None:
+        """Ventas ML with a store AND a brand AND a subcategory: each
+        correlated EXISTS must be answerable without a sequential scan of the
+        publications, the order items, the frozen costs or the products."""
+        scope = build_scope(
+            slate, SalesFilter(stores=("57997", NO_STORE), marcas=("epson",), subcategorias=(1,), **ALL_ON)
+        )
+        query = scope.listing_query.with_entities(MlOrdersOps.order_id)
+        compiled = query.statement.compile(dialect=slate.get_bind().dialect, compile_kwargs={"literal_binds": True})
+        slate.execute(text("SET LOCAL enable_seqscan = off"))
+        plan = "\n".join(row[0] for row in slate.execute(text(f"EXPLAIN {compiled}")))
+
+        for table in (
+            "tb_mercadolibre_items_publicados",
+            "ml_order_items_ops",
+            "ml_order_item_costos",
+            "productos_erp",
+        ):
+            assert f"Seq Scan on {table}" not in plan, plan
+        assert "mlp_publicationid" in plan
 
 
 def _rows_read_from(plan: dict, relation: str) -> int:

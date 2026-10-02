@@ -32,18 +32,28 @@ async function messageFromError(err) {
  * message is safe to show the operator.
  */
 export async function exportVentasCsv(params) {
+  await downloadCsv('/ml-ventas-ops/sales/export', params);
+}
+
+/** Métricas ML board CSV (`GET /ml-metricas/board/export`): same download
+ * and error handling, params from `buildMetricasMLParams`. */
+export async function exportMetricasCsv(params) {
+  await downloadCsv('/ml-metricas/board/export', params);
+}
+
+async function downloadCsv(url, params) {
   let response;
   try {
-    response = await api.get('/ml-ventas-ops/sales/export', { params, responseType: 'blob' });
+    response = await api.get(url, { params, responseType: 'blob' });
   } catch (err) {
     throw new Error(await messageFromError(err));
   }
-  const url = URL.createObjectURL(response.data);
+  const objectUrl = URL.createObjectURL(response.data);
   const link = document.createElement('a');
-  link.href = url;
+  link.href = objectUrl;
   link.download = filenameFromDisposition(response.headers?.['content-disposition']);
   document.body.appendChild(link);
   link.click();
   document.body.removeChild(link);
-  URL.revokeObjectURL(url);
+  URL.revokeObjectURL(objectUrl);
 }

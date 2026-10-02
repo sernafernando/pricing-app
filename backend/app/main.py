@@ -83,6 +83,7 @@ from app.routers import (
     ml_order_metrics,
     ml_promotions,
     ml_ventas_ops,
+    ml_metricas,
     prearmado,
     prearmado_stats,
     pxq,
@@ -374,6 +375,7 @@ app.include_router(weather.router, prefix="/api", tags=["weather"])
 app.include_router(free_shipping_alerts.router, prefix="/api", tags=["free-shipping-alerts"])
 app.include_router(ml_promotions.router, prefix="/api")
 app.include_router(ml_ventas_ops.router, prefix="/api")
+app.include_router(ml_metricas.router, prefix="/api")
 app.include_router(pxq.router, prefix="/api")
 app.include_router(document_templates.router, prefix="/api", tags=["document-templates"])
 app.include_router(rrhh_empleados.router, prefix="/api", tags=["rrhh"])

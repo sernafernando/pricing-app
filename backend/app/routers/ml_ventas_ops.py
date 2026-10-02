@@ -80,6 +80,12 @@ from app.services.ml_orders_ingestion.resync_service import (
 )
 from app.services.ml_sales_query.accreditation import member_accreditation_dates
 from app.services.ml_sales_query.aggregate import aggregate_order_metrics
+from app.services.ml_sales_query.params import (
+    STORES_PARAM_DESCRIPTION,
+    parse_csv_ids,
+    parse_csv_stores,
+    parse_csv_strings,
+)
 from app.services.ml_sales_query.filters import (
     SalesFilter,
     SalesScope,
@@ -88,7 +94,6 @@ from app.services.ml_sales_query.filters import (
     effective_switches,
     alert_groups_count,
     excluded_by_toggle_counts,
-    NO_STORE,
     store_facet_counts,
 )
 from app.services.ml_ventas_desglose.deducciones import resolve_costo_mercaderia_detalle
@@ -102,6 +107,7 @@ from app.services.order_metrics import health as order_metrics_health
 from app.services.order_metrics.read import metrics_state_for_orders, read_stored_metrics
 from app.services.order_metrics.types import GaussStatus
 from app.services.permisos_service import PermisosService
+from app.utils.csv_cells import csv_text
 
 DIVERGENCE_KINDS = (
     "missing_in_gbp",
@@ -1111,85 +1117,6 @@ def _parse_date_range(date_from: Optional[str], date_to: Optional[str]) -> Optio
     return start, end
 
 
-def _parse_csv_strings(raw: Optional[str], field: str) -> Tuple[str, ...]:
-    """PFILT R35/T16a: CSV of brand names, deduplicated (order preserved).
-    An empty entry (e.g. `"epson,,lexmark"` or a lone `","`) is HTTP 422,
-    never silently dropped."""
-    if not raw:
-        return ()
-    values: "list[str]" = []
-    seen: set = set()
-    for part in raw.split(","):
-        value = part.strip()
-        if not value:
-            raise HTTPException(
-                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-                detail=f"{field} contiene un valor vacío: {raw!r}",
-            )
-        key = value.upper()
-        if key not in seen:
-            seen.add(key)
-            values.append(value)
-    return tuple(values)
-
-
-_INT32_MIN = -(2**31)
-_INT32_MAX = 2**31 - 1
-
-
-def _parse_csv_ids(raw: Optional[str], field: str) -> Tuple[int, ...]:
-    """PFILT R35/T16a: CSV of integer ids, deduplicated. A non-numeric id
-    or an empty CSV entry is HTTP 422 (never treated as 'no filter')."""
-    if not raw:
-        return ()
-    values: "list[int]" = []
-    seen: set = set()
-    for part in raw.split(","):
-        value = part.strip()
-        if not value:
-            raise HTTPException(
-                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-                detail=f"{field} contiene un valor vacío: {raw!r}",
-            )
-        try:
-            parsed = int(value)
-        except ValueError as e:
-            raise HTTPException(
-                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-                detail=f"{field} inválido (esperado un entero): {value!r}",
-            ) from e
-        # An INT column raises a DataError on an out-of-range value, which
-        # would surface as a 500 instead of the 422 the contract promises.
-        if not (_INT32_MIN <= parsed <= _INT32_MAX):
-            raise HTTPException(
-                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-                detail=f"{field} contiene un id fuera de rango: {value!r}",
-            )
-        if parsed not in seen:
-            seen.add(parsed)
-            values.append(parsed)
-    return tuple(values)
-
-
-_STORES_PARAM_DESCRIPTION = "CSV de mlp_official_store_id y/o 'sin_tienda' (ODD metricas-ml-tablero T1)"
-
-
-def _parse_csv_stores(raw: Optional[str]) -> Tuple[str, ...]:
-    """ODD `metricas-ml-tablero` T1: CSV of official-store ids plus the
-    `sin_tienda` sentinel, normalised to text (`"057997"` -> `"57997"`) and
-    deduplicated. An empty entry, a non-numeric token or an out-of-range id is
-    422, same contract as the other facets (`_parse_csv_ids`)."""
-    if not raw:
-        return ()
-    values: "list[str]" = []
-    for part in raw.split(","):
-        token = part.strip()
-        value = NO_STORE if token == NO_STORE else str(_parse_csv_ids(token or ",", "stores")[0])
-        if value not in values:
-            values.append(value)
-    return tuple(values)
-
-
 def _nested_str_field(raw: Optional[Any], *nested_keys: str) -> Optional[str]:
     """Null-safe read of a nested string out of ANY raw ML JSON dict -- the
     `MlShipmentOps.receiver_address` JSONB (PR10.T3/T4, spec LISTING R28) and
@@ -1314,7 +1241,7 @@ def listar_ventas(
     marcas: Optional[str] = Query(default=None, description="CSV de marcas (PFILT R35, D12a)"),
     subcategorias: Optional[str] = Query(default=None, description="CSV de ids de subcategoría (PFILT R35, D12a)"),
     pms: Optional[str] = Query(default=None, description="CSV de ids de usuario PM (PFILT R35, D12a)"),
-    stores: Optional[str] = Query(default=None, description=_STORES_PARAM_DESCRIPTION),
+    stores: Optional[str] = Query(default=None, description=STORES_PARAM_DESCRIPTION),
     # PR11.T1/T9 (design D12/D13, spec KPI R9-R12): the four doubtful-case
     # toggles, shared verbatim with `GET /sales/kpis` (KPI R7/R10). This
     # endpoint's OWN default is `True` (show everything) on EVERY switch --
@@ -1418,13 +1345,23 @@ def _sales_page(
     offset: int,
     with_facets: bool = True,
     total: Optional[int] = None,
-) -> SaleListResponse:
+    group_keys: Optional[List[str]] = None,
+    keys_only: bool = False,
+) -> "SaleListResponse | List[str]":
     """The single scope/query path behind `GET /sales` AND the CSV export, so
     the export can never diverge from the listing. `with_facets=False` skips
     the facet counts and the alerts counter: the export reads neither, and
     they are ~5 whole-scope aggregate queries per page. A caller that already
     knows the scope's group `total` (the export, after page 1) passes it to
-    skip the distinct-count query."""
+    skip the distinct-count query.
+
+    The CSV export reads in several short transactions, so it must not page
+    by OFFSET (a change between pages would reorder the set and repeat or
+    drop groups): `keys_only=True` returns just the ORDERED group keys of
+    the scope (`limit` of them, from `offset`), and `group_keys` then builds
+    exactly those groups, in that order, with no key query of its own. A key
+    passed in is always built from its CURRENT members, even if the group no
+    longer matches the filters; one with no members left is skipped."""
     _require_flag_enabled()
 
     if operation_status_filter is not None and operation_status_filter not in OPERATION_STATUSES:
@@ -1455,10 +1392,10 @@ def _sales_page(
     # PFILT R35/T16a (design D12a): same value contract as
     # `productos_listing.py` -- `marcas` are brand NAMES (case-insensitive
     # compare done in `build_scope`), `subcategorias`/`pms` are integer ids.
-    marcas_list = _parse_csv_strings(marcas, "marcas")
-    subcategorias_list = _parse_csv_ids(subcategorias, "subcategorias")
-    pms_list = _parse_csv_ids(pms, "pms")
-    stores_list = _parse_csv_stores(stores)
+    marcas_list = parse_csv_strings(marcas, "marcas")
+    subcategorias_list = parse_csv_ids(subcategorias, "subcategorias")
+    pms_list = parse_csv_ids(pms, "pms")
+    stores_list = parse_csv_stores(stores)
 
     # PR9.T1/T2 (design D12): the seller/date scoping, status derivation,
     # status filters and free-text search all live in `build_scope` now.
@@ -1496,8 +1433,13 @@ def _sales_page(
     # Pagination happens over GROUPS, so a pack can never be split across
     # two pages: page the keys first, then fetch every member of those keys.
     group_key = scope.group_key
-    key_page = build_key_page_query(scope, sort, limit, offset).all()
-    page_keys = [row.group_key for row in key_page]
+    if group_keys is None:
+        key_page = build_key_page_query(scope, sort, limit, offset).all()
+        page_keys = [row.group_key for row in key_page]
+        if keys_only:
+            return page_keys
+    else:
+        page_keys = list(group_keys)
 
     if total is None:
         total = listing_query.with_entities(func.count(func.distinct(group_key))).scalar() or 0
@@ -1872,15 +1814,6 @@ EXPORT_HEADER = [
 ]
 
 
-def _csv_text(value: Optional[str]) -> str:
-    """Free text from ML (buyer nickname, city...) goes into a spreadsheet:
-    a cell starting with `= + - @` (or tab/CR) would be run as a formula, so
-    it is defused with a leading quote. Standard CSV-injection guard."""
-    if value is None:
-        return ""
-    return "'" + value if value[:1] in ("=", "+", "-", "@", "\t", "\r") else value
-
-
 def _csv_money(value: Optional[float]) -> str:
     # Excel es-AR reads a decimal COMMA (and `;` as the delimiter).
     return "" if value is None else f"{value:.2f}".replace(".", ",")
@@ -1893,8 +1826,8 @@ _CSV_ITEM_SEPARATOR = " | "
 def _csv_items(order: SaleListItem) -> "tuple[str, str, str]":
     items = order.items or []
     return (
-        _CSV_ITEM_SEPARATOR.join(_csv_text(i.title or i.item_id) for i in items),
-        _CSV_ITEM_SEPARATOR.join(_csv_text(i.seller_sku or "") for i in items),
+        _CSV_ITEM_SEPARATOR.join(csv_text(i.title or i.item_id) for i in items),
+        _CSV_ITEM_SEPARATOR.join(csv_text(i.seller_sku or "") for i in items),
         _CSV_ITEM_SEPARATOR.join("" if i.quantity is None else str(i.quantity) for i in items),
     )
 
@@ -1906,15 +1839,15 @@ def _csv_order_row(order: SaleListItem, accreditation_date: Optional[datetime]) 
         order.date_created.isoformat() if order.date_created else "",
         str(order.order_id),
         "" if order.pack_id is None else str(order.pack_id),
-        _csv_text(order.buyer_nickname),
+        csv_text(order.buyer_nickname),
         product,
         sku,
         quantity,
         order.operation_status,
         order.goods_status,
         order.modo_logistico,
-        _csv_text(order.city),
-        _csv_text(order.province),
+        csv_text(order.city),
+        csv_text(order.province),
         order.currency_id or "",
         _csv_money(order.total_amount),
         _csv_money(order.coupon_amount),
@@ -1938,7 +1871,7 @@ def exportar_ventas(
     marcas: Optional[str] = Query(default=None),
     subcategorias: Optional[str] = Query(default=None),
     pms: Optional[str] = Query(default=None),
-    stores: Optional[str] = Query(default=None, description=_STORES_PARAM_DESCRIPTION),
+    stores: Optional[str] = Query(default=None, description=STORES_PARAM_DESCRIPTION),
     include_unknown: bool = Query(default=True),
     include_in_dispute: bool = Query(default=True),
     include_mixed: bool = Query(default=True),
@@ -1950,41 +1883,44 @@ def exportar_ventas(
 ) -> StreamingResponse:
     """CSV of the filtered set: the same params as `GET /sales` (minus
     paging/sort), the same `ml_ops.ver` permission. Streams page by page; the
-    first page is fetched BEFORE the response starts so a bad param, a
-    disabled feature or an oversized set fail as a normal HTTP error instead
-    of a truncated file."""
+    ordered group keys and the first page are fetched BEFORE the response
+    starts, so a bad param, a disabled feature or an oversized set fail as a
+    normal HTTP error instead of a truncated file, and every later page is
+    built from that fixed key list (never by OFFSET)."""
 
-    def fetch_page(offset: int, known_total: Optional[int] = None) -> "tuple[SaleListResponse, str]":
+    filters = dict(
+        operation_status_filter=operation_status_filter,
+        goods_status_filter=goods_status_filter,
+        sold_month=sold_month,
+        date_from=date_from,
+        date_to=date_to,
+        sort=SORT_BY_SALE_DATE,
+        q=q,
+        marcas=marcas,
+        subcategorias=subcategorias,
+        pms=pms,
+        stores=stores,
+        include_unknown=include_unknown,
+        include_in_dispute=include_in_dispute,
+        include_mixed=include_mixed,
+        include_provisional=include_provisional,
+        include_cancelled=include_cancelled,
+        only_alerts=only_alerts,
+        offset=0,
+        with_facets=False,
+    )
+
+    def page_of(page_db: Session, page_keys: List[str], total: int) -> "tuple[SaleListResponse, str]":
+        response = _sales_page(page_db, **filters, limit=len(page_keys), group_keys=page_keys, total=total)
+        return response, rows_of(page_db, response)
+
+    def fetch_page(page_keys: List[str], total: int) -> "tuple[SaleListResponse, str]":
         # ONE short session per page, opened and closed here: the response
         # outlives this handler, and a session held across the whole download
         # pins a pooled connection while the client reads (QueuePool incident,
         # PR #811). The page's CSV text is built inside the same session.
         with get_background_db() as page_db:
-            response = _sales_page(
-                page_db,
-                operation_status_filter=operation_status_filter,
-                goods_status_filter=goods_status_filter,
-                sold_month=sold_month,
-                date_from=date_from,
-                date_to=date_to,
-                sort=SORT_BY_SALE_DATE,
-                q=q,
-                marcas=marcas,
-                subcategorias=subcategorias,
-                pms=pms,
-                stores=stores,
-                include_unknown=include_unknown,
-                include_in_dispute=include_in_dispute,
-                include_mixed=include_mixed,
-                include_provisional=include_provisional,
-                include_cancelled=include_cancelled,
-                only_alerts=only_alerts,
-                limit=EXPORT_PAGE_SIZE,
-                offset=offset,
-                with_facets=False,
-                total=known_total,
-            )
-            return response, rows_of(page_db, response)
+            return page_of(page_db, page_keys, total)
 
     def rows_of(page_db: Session, response: SaleListResponse) -> str:
         buffer = io.StringIO()
@@ -2000,42 +1936,48 @@ def exportar_ventas(
                 writer.writerow(_csv_order_row(order, day))
         return buffer.getvalue()
 
-    first, first_rows = fetch_page(0)
+    # The FIRST short transaction fixes the ORDERED list of group keys (and
+    # builds page 1): every later page is built BY KEY from that list, never
+    # by OFFSET over a fresh query, so a sale or a payment landing between
+    # pages can never repeat or drop a group. A key is always written from
+    # its current members (see `_sales_page`'s docstring).
+    with get_background_db() as first_db:
+        keys = _sales_page(first_db, **filters, limit=EXPORT_MAX_GROUPS + 1, keys_only=True)
+        if len(keys) > EXPORT_MAX_GROUPS:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail=(
+                    f"Son más de {EXPORT_MAX_GROUPS} ventas, demasiadas para exportar de una vez. "
+                    "Acotá los filtros, por ejemplo con un rango de fechas."
+                ),
+            )
+        total = len(keys)
+        first, first_rows = page_of(first_db, keys[:EXPORT_PAGE_SIZE], total)
     # CLOSE the request session (the permission check left it holding a
     # pooled connection): the streamed pages use their own short sessions, so
     # nothing may stay tied to the response's lifetime.
     db.close()
-    if first.total > EXPORT_MAX_GROUPS:
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail=(
-                f"Son {first.total} ventas, demasiadas para exportar de una vez "
-                f"(máximo {EXPORT_MAX_GROUPS}). Acotá los filtros, por ejemplo con un rango de fechas."
-            ),
-        )
 
     def stream():
         header = io.StringIO()
         csv.writer(header, delimiter=";").writerow(EXPORT_HEADER)
         # BOM so Excel reads the accents as UTF-8.
         yield "\ufeff" + header.getvalue()
-        current, current_rows = first, first_rows
-        offset = 0
-        exported = 0
-        while True:
+        current_rows, exported = first_rows, 0
+        for start in range(0, total, EXPORT_PAGE_SIZE):
+            if start:
+                try:
+                    current, current_rows = fetch_page(keys[start : start + EXPORT_PAGE_SIZE], total)
+                except Exception:  # noqa: BLE001
+                    # The 200 and the header are already on the wire: the
+                    # status cannot change, so the FILE says it is incomplete.
+                    logger.exception("ventas-ml export: page at %s failed", start)
+                    yield f"# ERROR: exportación incompleta — {exported} de {total} ventas exportadas. Volvé a intentar.\n"
+                    return
+            else:
+                current = first
             yield current_rows
             exported += len(current.sales)
-            offset += EXPORT_PAGE_SIZE
-            if offset >= first.total or not current.sales:
-                break
-            try:
-                current, current_rows = fetch_page(offset, known_total=first.total)
-            except Exception:  # noqa: BLE001
-                # The 200 and the header are already on the wire: the status
-                # cannot change, so the FILE says it is incomplete.
-                logger.exception("ventas-ml export: page at offset=%s failed", offset)
-                yield f"# ERROR: exportación incompleta — {exported} de {first.total} ventas exportadas. Volvé a intentar.\n"
-                return
 
     filename = f"ventas-ml-{datetime.now().strftime('%Y%m%d-%H%M')}.csv"
     return StreamingResponse(
@@ -2128,7 +2070,7 @@ def sales_kpis(
     marcas: Optional[str] = Query(default=None, description="CSV de marcas (PFILT R35, D12a)"),
     subcategorias: Optional[str] = Query(default=None, description="CSV de ids de subcategoría (PFILT R35, D12a)"),
     pms: Optional[str] = Query(default=None, description="CSV de ids de usuario PM (PFILT R35, D12a)"),
-    stores: Optional[str] = Query(default=None, description=_STORES_PARAM_DESCRIPTION),
+    stores: Optional[str] = Query(default=None, description=STORES_PARAM_DESCRIPTION),
     # PR11.T9/spec R11: THIS endpoint has no legacy caller, so its own
     # defaults ARE the spec R11 combination -- unlike `GET /sales`'s
     # backward-compatible `True` defaults (see that endpoint's own
@@ -2180,10 +2122,10 @@ def sales_kpis(
     if sold_range is None and sold_month:
         sold_range = _parse_sold_month(sold_month)
 
-    marcas_list = _parse_csv_strings(marcas, "marcas")
-    subcategorias_list = _parse_csv_ids(subcategorias, "subcategorias")
-    pms_list = _parse_csv_ids(pms, "pms")
-    stores_list = _parse_csv_stores(stores)
+    marcas_list = parse_csv_strings(marcas, "marcas")
+    subcategorias_list = parse_csv_ids(subcategorias, "subcategorias")
+    pms_list = parse_csv_ids(pms, "pms")
+    stores_list = parse_csv_stores(stores)
 
     sales_filter = SalesFilter(
         date_range=sold_range,

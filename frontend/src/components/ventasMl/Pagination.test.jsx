@@ -62,4 +62,19 @@ describe('Pagination', () => {
     expect(screen.getByRole('button', { name: 'Anterior' })).toBeDisabled();
     expect(screen.getByRole('button', { name: 'Siguiente' })).toBeDisabled();
   });
+
+  it('a caller can replace the range line with its own summary', () => {
+    render(
+      <Pagination
+        total={471}
+        offset={0}
+        pageSize={50}
+        onOffsetChange={() => {}}
+        onPageSizeChange={() => {}}
+        summary={<span>Mostrando 1–50 de 471 productos</span>}
+      />,
+    );
+    expect(screen.getByText('Mostrando 1–50 de 471 productos')).toBeInTheDocument();
+    expect(screen.queryByText(/ventas/)).not.toBeInTheDocument();
+  });
 });

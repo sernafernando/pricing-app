@@ -52,6 +52,7 @@ const ClaimsDashboard = lazy(() => import('./pages/ClaimsDashboard'));
 const MLQuestions = lazy(() => import('./pages/MLQuestions'));
 const DivergenciasML = lazy(() => import('./pages/DivergenciasML'));
 const VentasML = lazy(() => import('./pages/VentasML'));
+const MetricasML = lazy(() => import('./pages/MetricasML'));
 const ConsultasRanking = lazy(() => import('./pages/ConsultasRanking'));
 const Traza = lazy(() => import('./pages/Traza'));
 const FreeShippingAlerts = lazy(() => import('./pages/FreeShippingAlerts'));
@@ -125,6 +126,7 @@ const protectedRoutes = [
   { path: '/gestion/alertas', component: GestionAlertas, permiso: 'alertas.gestionar' },
   { path: '/mla-banlist', component: Banlist, permiso: 'admin.gestionar_mla_banlist' },
   { path: '/dashboard-metricas-ml', component: DashboardMetricasML, permiso: 'ventas_ml.ver_dashboard' },
+  { path: '/metricas-ml', component: MetricasML, permiso: 'ml_metricas.ver' },
   { path: '/dashboard-tplink', component: DashboardTPLink, permiso: 'dashboard_tplink.ver' },
   { path: '/dashboard-ventas-fuera', component: DashboardVentasFuera, permiso: 'ventas_fuera.ver_dashboard' },
   { path: '/dashboard-tienda-nube', component: DashboardTiendaNube, permiso: 'ventas_tn.ver_dashboard' },

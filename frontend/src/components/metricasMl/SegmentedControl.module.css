@@ -1,0 +1,37 @@
+.group {
+  display: inline-flex;
+  padding: 2px;
+  background: var(--tone-neutral-bg);
+  border: 1px solid var(--tone-neutral-border);
+  border-radius: var(--radius-md);
+}
+
+.option {
+  height: 26px;
+  padding: 0 10px;
+  font-family: inherit;
+  font-size: var(--font-xs);
+  font-weight: var(--font-medium);
+  color: var(--cf-text-secondary);
+  background: transparent;
+  border: none;
+  border-radius: var(--radius-base);
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.option:hover {
+  color: var(--cf-text-primary);
+}
+
+.option:focus-visible {
+  outline: 2px solid var(--cf-accent-blue);
+  outline-offset: 1px;
+}
+
+.active {
+  font-weight: var(--font-bold);
+  color: var(--money-headline);
+  background: var(--cf-bg-card);
+  box-shadow: var(--cf-card-shadow);
+}

@@ -1,0 +1,10 @@
+.dot {
+  width: 6px;
+  height: 6px;
+  border-radius: var(--radius-full);
+  background: var(--cf-text-tertiary);
+}
+
+.dot[data-tone='good'] {
+  background: var(--money-positive);
+}
