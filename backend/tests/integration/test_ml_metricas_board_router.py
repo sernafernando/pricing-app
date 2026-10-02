@@ -630,22 +630,33 @@ class TestExportEdges:
         lines = resp.content.decode("utf-8-sig").splitlines()
         assert len(lines) == 1 and lines[0].startswith("Producto;SKU;Marca;MLA;")
 
-    def test_exactly_the_cap_exports_every_row(self, client, admin_auth_headers, board_data, monkeypatch):
-        monkeypatch.setattr(ml_metricas, "EXPORT_MAX_ROWS", 4)
-        monkeypatch.setattr(ml_metricas, "EXPORT_PAGE_SIZE", 3)
-
-        resp = client.get(f"{URL}/export", headers=admin_auth_headers)
-
+    @staticmethod
+    def _export_rows(client, headers) -> list:
+        resp = client.get(f"{URL}/export", headers=headers)
         assert resp.status_code == 200
-        rows = list(csv.DictReader(io.StringIO(resp.content.decode("utf-8-sig")), delimiter=";"))
-        assert len(rows) == 4
+        return list(csv.DictReader(io.StringIO(resp.content.decode("utf-8-sig")), delimiter=";"))
+
+    def test_exactly_the_cap_exports_every_row(self, client, admin_auth_headers, board_data, monkeypatch):
+        """The cap and the page size come from the fixture's own row count, so
+        the test does not silently depend on how many rows board_data seeds;
+        the exact ordered rows prove the page boundary neither repeats nor
+        drops one."""
+        full = self._export_rows(client, admin_auth_headers)
+        assert len(full) >= 2, "the fixture must span more than one page"
+        monkeypatch.setattr(ml_metricas, "EXPORT_MAX_ROWS", len(full))
+        monkeypatch.setattr(ml_metricas, "EXPORT_PAGE_SIZE", len(full) - 1)
+
+        rows = self._export_rows(client, admin_auth_headers)
+
+        assert [(r["Producto"], r["MLA"]) for r in rows] == [(r["Producto"], r["MLA"]) for r in full]
 
     def test_one_over_the_cap_is_422_with_the_reason(self, client, admin_auth_headers, board_data, monkeypatch):
-        monkeypatch.setattr(ml_metricas, "EXPORT_MAX_ROWS", 3)
+        cap = len(self._export_rows(client, admin_auth_headers)) - 1
+        monkeypatch.setattr(ml_metricas, "EXPORT_MAX_ROWS", cap)
 
         resp = client.get(f"{URL}/export", headers=admin_auth_headers)
 
         assert resp.status_code == 422
         assert resp.json()["error"]["message"] == (
-            "Son más de 3 filas, demasiadas para exportar de una vez. Acotá los filtros (tienda, marca, búsqueda...)."
+            f"Son más de {cap} filas, demasiadas para exportar de una vez. Acotá los filtros (tienda, marca, búsqueda...)."
         )
