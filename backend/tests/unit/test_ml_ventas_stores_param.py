@@ -1,4 +1,4 @@
-"""ODD `metricas-ml-tablero` T1 review: `_parse_csv_stores` normalises and
+"""ODD `metricas-ml-tablero` T1 review: `parse_csv_stores` normalises and
 de-duplicates the `stores` param before it reaches `SalesFilter`, so two
 spellings of the same store can never become two EXISTS branches (or two
 cache keys) -- and a malformed token is a 422, never a silent no-op."""
@@ -8,7 +8,7 @@ from __future__ import annotations
 import pytest
 from fastapi import HTTPException
 
-from app.routers.ml_ventas_ops import _parse_csv_stores
+from app.services.ml_sales_query.params import parse_csv_stores
 
 
 @pytest.mark.parametrize(
@@ -26,11 +26,11 @@ from app.routers.ml_ventas_ops import _parse_csv_stores
     ],
 )
 def test_normalises_and_deduplicates_keeping_first_seen_order(raw, expected) -> None:
-    assert _parse_csv_stores(raw) == expected
+    assert parse_csv_stores(raw) == expected
 
 
 @pytest.mark.parametrize("raw", ["57997,,2645", "abc", "SIN_TIENDA", "57997;2645", " , ", "99999999999999"])
 def test_a_malformed_token_is_422(raw) -> None:
     with pytest.raises(HTTPException) as err:
-        _parse_csv_stores(raw)
+        parse_csv_stores(raw)
     assert err.value.status_code == 422

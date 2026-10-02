@@ -30,7 +30,7 @@ from sqlalchemy.orm import Session
 from app.api.deps import get_current_user
 from app.core.database import get_db
 from app.models.usuario import Usuario
-from app.routers.ml_ventas_ops import _parse_csv_ids, _parse_csv_stores, _parse_csv_strings
+from app.services.ml_sales_query.params import parse_csv_ids, parse_csv_stores, parse_csv_strings
 from app.services.ml_daily_metrics import board
 from app.services.permisos_service import PermisosService
 
@@ -172,7 +172,7 @@ def _parse_day(value: Optional[str], field: str) -> Optional[date]:
 
 
 def _parse_choices(raw: Optional[str], field: str, allowed: Tuple[str, ...]) -> Tuple[str, ...]:
-    values = _parse_csv_strings(raw, field)
+    values = parse_csv_strings(raw, field)
     bad = [v for v in values if v not in allowed]
     if bad:
         raise HTTPException(status_code=422, detail=f"{field} inválido: {bad} (esperado {', '.join(allowed)})")
@@ -213,10 +213,10 @@ def board_filter(
         date_to=hasta,
         compare=comparar_con,
         group_by=group_by,
-        stores=_parse_csv_stores(stores),
-        marcas=_parse_csv_strings(marcas, "marcas"),
-        subcategorias=_parse_csv_ids(subcategorias, "subcategorias"),
-        pms=_parse_csv_ids(pms, "pms"),
+        stores=parse_csv_stores(stores),
+        marcas=parse_csv_strings(marcas, "marcas"),
+        subcategorias=parse_csv_ids(subcategorias, "subcategorias"),
+        pms=parse_csv_ids(pms, "pms"),
         q=q.strip() if q and q.strip() else None,
         pub_status=_parse_choices(pub_status, "pub_status", board.PUB_STATUSES),
         pub_type=_parse_choices(pub_type, "pub_type", board.PUB_TYPES),

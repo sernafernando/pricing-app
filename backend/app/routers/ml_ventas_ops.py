@@ -80,6 +80,12 @@ from app.services.ml_orders_ingestion.resync_service import (
 )
 from app.services.ml_sales_query.accreditation import member_accreditation_dates
 from app.services.ml_sales_query.aggregate import aggregate_order_metrics
+from app.services.ml_sales_query.params import (
+    STORES_PARAM_DESCRIPTION,
+    parse_csv_ids,
+    parse_csv_stores,
+    parse_csv_strings,
+)
 from app.services.ml_sales_query.filters import (
     SalesFilter,
     SalesScope,
@@ -88,7 +94,6 @@ from app.services.ml_sales_query.filters import (
     effective_switches,
     alert_groups_count,
     excluded_by_toggle_counts,
-    NO_STORE,
     store_facet_counts,
 )
 from app.services.ml_ventas_desglose.deducciones import resolve_costo_mercaderia_detalle
@@ -1111,85 +1116,6 @@ def _parse_date_range(date_from: Optional[str], date_to: Optional[str]) -> Optio
     return start, end
 
 
-def _parse_csv_strings(raw: Optional[str], field: str) -> Tuple[str, ...]:
-    """PFILT R35/T16a: CSV of brand names, deduplicated (order preserved).
-    An empty entry (e.g. `"epson,,lexmark"` or a lone `","`) is HTTP 422,
-    never silently dropped."""
-    if not raw:
-        return ()
-    values: "list[str]" = []
-    seen: set = set()
-    for part in raw.split(","):
-        value = part.strip()
-        if not value:
-            raise HTTPException(
-                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-                detail=f"{field} contiene un valor vacío: {raw!r}",
-            )
-        key = value.upper()
-        if key not in seen:
-            seen.add(key)
-            values.append(value)
-    return tuple(values)
-
-
-_INT32_MIN = -(2**31)
-_INT32_MAX = 2**31 - 1
-
-
-def _parse_csv_ids(raw: Optional[str], field: str) -> Tuple[int, ...]:
-    """PFILT R35/T16a: CSV of integer ids, deduplicated. A non-numeric id
-    or an empty CSV entry is HTTP 422 (never treated as 'no filter')."""
-    if not raw:
-        return ()
-    values: "list[int]" = []
-    seen: set = set()
-    for part in raw.split(","):
-        value = part.strip()
-        if not value:
-            raise HTTPException(
-                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-                detail=f"{field} contiene un valor vacío: {raw!r}",
-            )
-        try:
-            parsed = int(value)
-        except ValueError as e:
-            raise HTTPException(
-                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-                detail=f"{field} inválido (esperado un entero): {value!r}",
-            ) from e
-        # An INT column raises a DataError on an out-of-range value, which
-        # would surface as a 500 instead of the 422 the contract promises.
-        if not (_INT32_MIN <= parsed <= _INT32_MAX):
-            raise HTTPException(
-                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-                detail=f"{field} contiene un id fuera de rango: {value!r}",
-            )
-        if parsed not in seen:
-            seen.add(parsed)
-            values.append(parsed)
-    return tuple(values)
-
-
-_STORES_PARAM_DESCRIPTION = "CSV de mlp_official_store_id y/o 'sin_tienda' (ODD metricas-ml-tablero T1)"
-
-
-def _parse_csv_stores(raw: Optional[str]) -> Tuple[str, ...]:
-    """ODD `metricas-ml-tablero` T1: CSV of official-store ids plus the
-    `sin_tienda` sentinel, normalised to text (`"057997"` -> `"57997"`) and
-    deduplicated. An empty entry, a non-numeric token or an out-of-range id is
-    422, same contract as the other facets (`_parse_csv_ids`)."""
-    if not raw:
-        return ()
-    values: "list[str]" = []
-    for part in raw.split(","):
-        token = part.strip()
-        value = NO_STORE if token == NO_STORE else str(_parse_csv_ids(token or ",", "stores")[0])
-        if value not in values:
-            values.append(value)
-    return tuple(values)
-
-
 def _nested_str_field(raw: Optional[Any], *nested_keys: str) -> Optional[str]:
     """Null-safe read of a nested string out of ANY raw ML JSON dict -- the
     `MlShipmentOps.receiver_address` JSONB (PR10.T3/T4, spec LISTING R28) and
@@ -1314,7 +1240,7 @@ def listar_ventas(
     marcas: Optional[str] = Query(default=None, description="CSV de marcas (PFILT R35, D12a)"),
     subcategorias: Optional[str] = Query(default=None, description="CSV de ids de subcategoría (PFILT R35, D12a)"),
     pms: Optional[str] = Query(default=None, description="CSV de ids de usuario PM (PFILT R35, D12a)"),
-    stores: Optional[str] = Query(default=None, description=_STORES_PARAM_DESCRIPTION),
+    stores: Optional[str] = Query(default=None, description=STORES_PARAM_DESCRIPTION),
     # PR11.T1/T9 (design D12/D13, spec KPI R9-R12): the four doubtful-case
     # toggles, shared verbatim with `GET /sales/kpis` (KPI R7/R10). This
     # endpoint's OWN default is `True` (show everything) on EVERY switch --
@@ -1455,10 +1381,10 @@ def _sales_page(
     # PFILT R35/T16a (design D12a): same value contract as
     # `productos_listing.py` -- `marcas` are brand NAMES (case-insensitive
     # compare done in `build_scope`), `subcategorias`/`pms` are integer ids.
-    marcas_list = _parse_csv_strings(marcas, "marcas")
-    subcategorias_list = _parse_csv_ids(subcategorias, "subcategorias")
-    pms_list = _parse_csv_ids(pms, "pms")
-    stores_list = _parse_csv_stores(stores)
+    marcas_list = parse_csv_strings(marcas, "marcas")
+    subcategorias_list = parse_csv_ids(subcategorias, "subcategorias")
+    pms_list = parse_csv_ids(pms, "pms")
+    stores_list = parse_csv_stores(stores)
 
     # PR9.T1/T2 (design D12): the seller/date scoping, status derivation,
     # status filters and free-text search all live in `build_scope` now.
@@ -1938,7 +1864,7 @@ def exportar_ventas(
     marcas: Optional[str] = Query(default=None),
     subcategorias: Optional[str] = Query(default=None),
     pms: Optional[str] = Query(default=None),
-    stores: Optional[str] = Query(default=None, description=_STORES_PARAM_DESCRIPTION),
+    stores: Optional[str] = Query(default=None, description=STORES_PARAM_DESCRIPTION),
     include_unknown: bool = Query(default=True),
     include_in_dispute: bool = Query(default=True),
     include_mixed: bool = Query(default=True),
@@ -2128,7 +2054,7 @@ def sales_kpis(
     marcas: Optional[str] = Query(default=None, description="CSV de marcas (PFILT R35, D12a)"),
     subcategorias: Optional[str] = Query(default=None, description="CSV de ids de subcategoría (PFILT R35, D12a)"),
     pms: Optional[str] = Query(default=None, description="CSV de ids de usuario PM (PFILT R35, D12a)"),
-    stores: Optional[str] = Query(default=None, description=_STORES_PARAM_DESCRIPTION),
+    stores: Optional[str] = Query(default=None, description=STORES_PARAM_DESCRIPTION),
     # PR11.T9/spec R11: THIS endpoint has no legacy caller, so its own
     # defaults ARE the spec R11 combination -- unlike `GET /sales`'s
     # backward-compatible `True` defaults (see that endpoint's own
@@ -2180,10 +2106,10 @@ def sales_kpis(
     if sold_range is None and sold_month:
         sold_range = _parse_sold_month(sold_month)
 
-    marcas_list = _parse_csv_strings(marcas, "marcas")
-    subcategorias_list = _parse_csv_ids(subcategorias, "subcategorias")
-    pms_list = _parse_csv_ids(pms, "pms")
-    stores_list = _parse_csv_stores(stores)
+    marcas_list = parse_csv_strings(marcas, "marcas")
+    subcategorias_list = parse_csv_ids(subcategorias, "subcategorias")
+    pms_list = parse_csv_ids(pms, "pms")
+    stores_list = parse_csv_stores(stores)
 
     sales_filter = SalesFilter(
         date_range=sold_range,
