@@ -1,15 +1,19 @@
-"""ODD `metricas-ml-tablero` (performance round): the board on a realistic
-volume, on real Postgres.
+"""ODD `metricas-ml-tablero` ("Sin tabla resumen" ST3): the board on a
+realistic volume, on real Postgres, read straight from the orders.
 
 Seeded with `generate_series` (seconds, not minutes): 2.000 products, 6.000
-publications and 90 days of daily rollup rows for them (~216k rows). Pins:
+publications and 81.000 groups over 18 months -- every day of the last 90
+has sales (20.000 groups, ~220 a day; ~135 a day before that) -- with packs (every 10th group, two orders), multi-item orders
+(every 7th), cancellations, unresolved metrics and orders being recalculated.
+Pins:
 
 - a FIXED number of SQL statements per board request, the same for a page
   of 10, 50 or 200 rows and for either grouping -- nothing per row;
 - the rows the database hands back stay proportional to the PAGE, never to
-  the catalogue (the publications table is joined, never loaded whole);
-- the page statement is answerable without a sequential scan of the rollup
-  (EXPLAIN with `enable_seqscan = off`: the indexes it needs exist).
+  the catalogue;
+- the windows are nested on every row (24h <= 3d <= 7d <= 15d <= 30d) and
+  the period's units equal an independent count over the orders;
+- the request's lines are reached through the group-date index.
 
 Timing is printed (`-s`) and recorded in the ODD doc, never asserted: a wall
 clock bound would be flaky on a shared CI box. The statement count and the
@@ -25,9 +29,10 @@ import time
 from datetime import date, datetime, timedelta, timezone
 
 import pytest
-from sqlalchemy import create_engine, event, inspect as sa_inspect, text
+from sqlalchemy import event, text
 from sqlalchemy.orm import Session, sessionmaker
 
+from app.core.config import settings
 from app.routers.ml_metricas import build_board_response
 from app.services.ml_daily_metrics import board
 
@@ -35,71 +40,35 @@ TODAY = date(2026, 9, 30)
 NOW = datetime(2026, 9, 30, 18, 0, tzinfo=timezone.utc)
 PRODUCTS = 2000
 PUBLICATIONS = 6000
-DAYS = 90
+GROUPS = 81000
+DENSE_GROUPS = 20000
 
-_PRODUCTOS_MIN_DDL = """
-CREATE TABLE productos_erp (
-    item_id INTEGER PRIMARY KEY,
-    codigo VARCHAR(100),
-    descripcion VARCHAR(500),
-    marca VARCHAR(100),
-    categoria VARCHAR(100),
-    subcategoria_id INTEGER
-)
+# One row per order: `g` (its group), `order_id`, `k` (its MLA's index).
+_MEMBERS = """
+(SELECT g, 3000000000000000 + g AS order_id, (g * 7919) % 6000 + 1 AS k FROM generate_series(CAST(1 AS BIGINT), :groups) AS g
+ UNION ALL
+ SELECT g, 3500000000000000 + g, (g * 104729) % 6000 + 1 FROM generate_series(CAST(10 AS BIGINT), :groups, 10) AS g) AS m
 """
+# One row per sold item: every order sells its MLA; every 7th group's orders
+# sell a second one.
+_ITEMS = f"""
+(SELECT order_id, g, k, 1 + g % 3 AS qty, 1000 + (k % 50) * 10 AS price FROM {_MEMBERS}
+ UNION ALL
+ SELECT order_id, g, (k * 31) % 6000 + 1, 1, 500 FROM {_MEMBERS} WHERE g % 7 = 0) AS it
+"""
+_MLA = "'MLA77' || lpad(CAST(k AS TEXT), 6, '0')"
 
 
-@pytest.fixture(scope="module")
-def volume_session():
-    from tests.conftest import (
-        POSTGRES_TEST_URL,
-        _patch_pg_types_for_sqlite,
-        _postgres_reachable,
-        _restore_pristine_pg_types,
-    )
-
-    if not _postgres_reachable():
-        pytest.skip(f"PostgreSQL not reachable at {POSTGRES_TEST_URL}")
-
-    from app.models.mercadolibre_item_publicado import MercadoLibreItemPublicado
-    from app.models.ml_daily_metrics import MlProductDailyMetrics
-    from app.models.ml_group_metrics import MlGroupMetrics
-    from app.models.ml_order_item_costo import MlOrderItemCosto
-    from app.models.ml_orders_ops import MlOrderItemOps, MlOrdersOps
-
-    tables = [
-        MlOrdersOps.__table__,
-        MlOrderItemOps.__table__,
-        MlOrderItemCosto.__table__,
-        MlGroupMetrics.__table__,
-        MercadoLibreItemPublicado.__table__,
-        MlProductDailyMetrics.__table__,
-    ]
-    _restore_pristine_pg_types(tables)
-    engine = create_engine(POSTGRES_TEST_URL)
-    created = [t for t in tables if not sa_inspect(engine).has_table(t.name)]
-    for table in created:
-        table.create(engine)
-    created_productos = not sa_inspect(engine).has_table("productos_erp")
-    if created_productos:
-        with engine.begin() as conn:
-            conn.execute(text(_PRODUCTOS_MIN_DDL))
-    # Hand the shared Column types back to the SQLite suite (ARRAY -> JSON):
-    # leaving them pristine breaks every SQLite test that runs after this
-    # module in the same process.
-    _patch_pg_types_for_sqlite()
-
-    connection = engine.connect()
-    transaction = connection.begin()
-    session = sessionmaker(bind=connection)()
+def _seed(session) -> None:
+    p = {"groups": GROUPS, "dense": DENSE_GROUPS, "now": NOW, "n": PUBLICATIONS, "p": PRODUCTS}
     session.execute(
         text(
             "INSERT INTO productos_erp (item_id, codigo, descripcion, marca, categoria, subcategoria_id) "
             "SELECT 800000 + i, 'SKU-' || i, 'Producto de volumen ' || i, "
             "(ARRAY['Epson','Lenovo','Samsung','Sony','BGH'])[1 + i % 5], 'Cat', 1 + i % 7 "
-            "FROM generate_series(1, :n) AS i"
+            "FROM generate_series(1, :p) AS i"
         ),
-        {"n": PRODUCTS},
+        p,
     )
     session.execute(
         text(
@@ -109,42 +78,99 @@ def volume_session():
             "SELECT 8000000 + i, 'MLA77' || lpad(i::text, 6, '0'), 800001 + (i % :p), "
             "(ARRAY[57997, 2645, 144, 191942, NULL])[1 + i % 5], (ARRAY[153, 153, 154, 155])[1 + i % 4], "
             "CASE WHEN i % 2 = 0 THEN 'gold_special' ELSE 'gold_pro' END, i % 7 = 0, i % 3 = 0, "
-            "'Publicación ' || i, 'https://http2.mlstatic.com/' || i || '.jpg', TIMESTAMP '2026-03-01' "
+            "'Publicación ' || i, 'https://http2.mlstatic.com/' || i || '.jpg', TIMESTAMP '2025-01-01' "
             "FROM generate_series(1, :n) AS i"
         ),
-        {"n": PUBLICATIONS, "p": PRODUCTS},
+        p,
     )
-    # ~40% of the publication-days sell: ~216k rollup rows.
     session.execute(
         text(
-            "INSERT INTO ml_product_daily_metrics (product_item_id, mla, day, units, gross_ars, total_gauss, "
-            "costo, orders, unresolved_orders, last_sale_at, updated_at) "
-            "SELECT 800001 + (i % :p), 'MLA77' || lpad(i::text, 6, '0'), CAST(:today AS DATE) - d, "
-            "1 + (i + d) % 4, 1000 * (1 + (i + d) % 4), 150 + (i % 50) - d % 30, 800, 1, 0, "
-            "CAST(:today AS DATE) - d + TIME '15:00', now() "
-            "FROM generate_series(1, :n) AS i, generate_series(0, :days - 1) AS d "
-            "WHERE (i * 7 + d) % 5 < 2"
+            "INSERT INTO ml_group_metrics (group_key, gauss_status, member_order_ids, group_date, "
+            "formula_version, computed_at) "
+            "SELECT CASE WHEN g % 10 = 0 THEN 'p:' || (4000000000000000 + g) ELSE 'o:' || (3000000000000000 + g) END, "
+            "'ok', CASE WHEN g % 10 = 0 THEN ARRAY[3000000000000000 + g, 3500000000000000 + g] "
+            "ELSE ARRAY[3000000000000000 + g] END, "
+            ":now - make_interval(days => CASE WHEN g <= :dense THEN g % 90 ELSE 90 + (g - :dense) % 450 END, "
+            "secs => (g * 37) % 86400), 2, :now "
+            "FROM generate_series(1, :groups) AS g"
         ),
-        {"n": PUBLICATIONS, "p": PRODUCTS, "today": TODAY, "days": DAYS},
+        p,
     )
-    session.execute(text("ANALYZE ml_product_daily_metrics"))
-    session.execute(text("ANALYZE tb_mercadolibre_items_publicados"))
-    session.execute(text("ANALYZE productos_erp"))
+    session.execute(
+        text(
+            "INSERT INTO ml_orders_ops (order_id, pack_id, status, ml_last_updated, date_created, seller_id, "
+            "currency_id) "
+            "SELECT order_id, CASE WHEN g % 10 = 0 THEN 4000000000000000 + g END, "
+            "CASE WHEN g % 40 = 0 THEN 'cancelled' ELSE 'paid' END, :now, :now, 999, 'ARS' "
+            f"FROM {_MEMBERS}"
+        ),
+        p,
+    )
+    session.execute(
+        text(
+            "INSERT INTO ml_order_items_ops (order_id, item_id, quantity, unit_price) "
+            f"SELECT order_id, {_MLA}, qty, price FROM {_ITEMS}"
+        ),
+        p,
+    )
+    session.execute(
+        text(
+            "INSERT INTO ml_order_item_costos (order_id, item_id, costo_origen, moneda, costo_unitario_ars, "
+            "iva_pct, precio_unitario, fuente, producto_item_id) "
+            f"SELECT order_id, {_MLA}, 600 + (k % 40) * 5, 'ARS', 600 + (k % 40) * 5, 21, price, 'vol', "
+            f"800001 + (k % :p) FROM {_ITEMS}"
+        ),
+        p,
+    )
+    session.execute(
+        text(
+            "INSERT INTO ml_order_metrics (order_id, total_gauss, costo_mercaderia, gauss_status, "
+            "formula_version, computed_at) "
+            "SELECT order_id, CASE WHEN g % 50 = 0 THEN NULL ELSE 150 + g % 100 END, "
+            "CASE WHEN g % 50 = 0 THEN NULL ELSE 800 END, "
+            "CASE WHEN g % 50 = 0 THEN 'unresolved' ELSE 'ok' END, 2, :now "
+            f"FROM {_MEMBERS}"
+        ),
+        p,
+    )
+    session.execute(
+        text(
+            "INSERT INTO ml_order_metrics_dirty (order_id, version, reason, attempts) "
+            f"SELECT order_id, 1, 'vol', 0 FROM {_MEMBERS} WHERE g % 97 = 0"
+        ),
+        p,
+    )
+    for name in (
+        "ml_group_metrics",
+        "ml_orders_ops",
+        "ml_order_items_ops",
+        "ml_order_item_costos",
+        "ml_order_metrics",
+        "ml_order_metrics_dirty",
+        "tb_mercadolibre_items_publicados",
+        "productos_erp",
+    ):
+        session.execute(text(f"ANALYZE {name}"))
+
+
+@pytest.fixture(scope="module")
+def volume_session(board_pg_engine):
+    connection = board_pg_engine.connect()
+    transaction = connection.begin()
+    session = sessionmaker(bind=connection)()
+    started = time.perf_counter()
+    _seed(session)
+    print(f"\nvolume seeded in {(time.perf_counter() - started):.1f} s")
     yield session
     session.close()
     transaction.rollback()
     connection.close()
-    for table in reversed(created):
-        table.drop(engine, checkfirst=True)
-    if created_productos:
-        with engine.begin() as conn:
-            conn.execute(text("DROP TABLE IF EXISTS productos_erp"))
-    engine.dispose()
 
 
 @pytest.fixture(autouse=True)
 def _frozen_clock(monkeypatch):
     monkeypatch.setattr(board, "now_utc", lambda: NOW)
+    monkeypatch.setattr(settings, "ML_USER_ID", 999)
 
 
 class _Recorder:
@@ -184,6 +210,12 @@ def _request(session, **filters):
     return response, recorder, elapsed_ms
 
 
+def _print(label: str, recorder: _Recorder, elapsed_ms: float) -> None:
+    print(f"{label}: {len(recorder.statements)} statements, {elapsed_ms:.0f} ms")
+    for ms, head in recorder.timings:
+        print(f"   {ms:7.1f} ms  {head}")
+
+
 @pytest.mark.postgres
 class TestBoardOnVolume:
     def test_fixed_statement_count_whatever_the_page_size(self, volume_session) -> None:
@@ -193,22 +225,18 @@ class TestBoardOnVolume:
             assert len(response.rows) == limit
             assert response.total == PRODUCTS
             counts[limit] = len(recorder.statements)
-            print(f"\nboard product limit={limit}: {counts[limit]} statements, {elapsed_ms:.0f} ms")
-            for ms, head in recorder.timings:
-                print(f"   {ms:7.1f} ms  {head}")
+            _print(f"\nboard product limit={limit}", recorder, elapsed_ms)
         _response, recorder, elapsed_ms = _request(volume_session, limit=50, group_by="publication")
-        print(f"board publication limit=50: {len(recorder.statements)} statements, {elapsed_ms:.0f} ms")
+        _print("board publication limit=50", recorder, elapsed_ms)
         response, filtered, elapsed_ms = _request(
             volume_session, limit=50, stores=("2645",), marcas=("Samsung",), pub_status=("active",), q="volumen"
         )
-        print(f"board filtered limit=50: {len(filtered.statements)} statements, {elapsed_ms:.0f} ms")
-        for ms, head in filtered.timings:
-            print(f"   {ms:7.1f} ms  {head}")
+        _print("board filtered limit=50", filtered, elapsed_ms)
         excluded, hidden, elapsed_ms = _request(
             volume_session, limit=50, pub_status_exclude=("paused", "closed"), pub_type_exclude=("catalogo", "full")
         )
         print(f"board with exclusions limit=50: {len(hidden.statements)} statements, {elapsed_ms:.0f} ms")
-        empty, emptied, elapsed_ms = _request(volume_session, limit=50, alerts=("sin_ventas_30d",))
+        empty, emptied, elapsed_ms = _request(volume_session, limit=50, q="no-existe-nada")
         print(f"board empty page: {len(emptied.statements)} statements, {elapsed_ms:.0f} ms")
 
         assert counts[10] == counts[50] == counts[200] == len(recorder.statements)
@@ -217,55 +245,114 @@ class TestBoardOnVolume:
         assert excluded.rows and len(hidden.statements) == counts[50]
         # An empty page skips the two per-page statements (details, series).
         assert not empty.rows and len(emptied.statements) == counts[50] - 2
-        assert counts[50] <= 17
+        assert counts[50] <= 19
 
     def test_rows_fetched_follow_the_page_not_the_catalogue(self, volume_session) -> None:
         _response, recorder, _ms = _request(volume_session, limit=10)
 
         # 10 rows, their pairs (~30), 10 x 90 series points, 30 KPI series
-        # points, a handful of chip buckets. The old in-Python board read all
-        # 6.000 publications and every rollup row of the period.
+        # points, a handful of chip buckets -- never the catalogue or the
+        # orders: those stay inside the database.
         print(f"\nrows returned by the database for a page of 10: {recorder.rows_returned}")
         assert recorder.rows_returned < 1500
 
-    def test_page_statements_reach_the_rollup_through_its_indexes(self, volume_session) -> None:
-        """The two per-page statements (pair details with the last sale
-        timestamp, and the 90-day series) touch only the page's pairs: with
-        the planner's DEFAULT settings they must go through an index of the
-        rollup, never a sequential scan of it. Explained while the request's
-        materialized pair table still exists."""
+    def test_windows_are_nested_and_the_period_matches_the_orders(self, volume_session) -> None:
+        f = board.BoardFilter(date_from=TODAY - timedelta(days=29), date_to=TODAY, group_by="publication")
+        with board.Board(volume_session, f) as b:
+            rows = b.page(None, with_series=False)
+
+        for row in rows:
+            w = row.windows
+            assert row.units_24h <= w["3d"] <= w["7d"] <= w["15d"] <= w["30d"], row.key
+        # Independent count: items of accredited groups in the period (Buenos
+        # Aires days), minus cancellations ML did not cover.
+        expected = volume_session.execute(
+            text(
+                "SELECT SUM(i.quantity) FROM ml_group_metrics g "
+                "JOIN ml_orders_ops o ON (CASE WHEN o.pack_id IS NOT NULL THEN 'p:' || o.pack_id "
+                "ELSE 'o:' || o.order_id END) = g.group_key "
+                "JOIN ml_order_items_ops i ON i.order_id = o.order_id "
+                "WHERE (g.group_date AT TIME ZONE 'America/Argentina/Buenos_Aires')::date "
+                "BETWEEN :d_from AND :d_to AND o.status <> 'cancelled'"
+            ),
+            {"d_from": f.date_from, "d_to": f.date_to},
+        ).scalar()
+        assert sum(row.units for row in rows) == expected
+        assert sum(row.windows["30d"] for row in rows) == expected
+        assert any(row.units_24h for row in rows)
+
+    def test_the_lines_are_reached_through_the_group_date_index(self, volume_session) -> None:
+        f = board.BoardFilter(date_from=TODAY - timedelta(days=29), date_to=TODAY)
+        b = board.Board(volume_session, f)
+        source = b._lines_source()
+        compiled = source.compile(
+            dialect=volume_session.get_bind().dialect, compile_kwargs={"render_postcompile": True}
+        )
+        cursor = volume_session.connection().connection.cursor()
+        cursor.execute("EXPLAIN " + str(compiled), compiled.params)
+        plan = "\n".join(row[0] for row in cursor.fetchall())
+        print("\n" + plan)
+
+        assert "ix_ml_group_metrics_group_date" in plan, plan
+
+    def test_a_products_publications_on_volume(self, volume_session) -> None:
+        """The sub-rows endpoint's work: one product among 2.000, its
+        publications only (ST2) -- printed for the ODD doc."""
+        f = board.BoardFilter(date_from=TODAY - timedelta(days=29), date_to=TODAY, group_by="publication")
+        with board.Board(volume_session, f, product_item_id=800001 + 7) as warm_up:
+            # The first call of a statement shape pays SQLAlchemy's compile;
+            # a running server has it cached.
+            warm_up.page(limit=None, apply_alerts=False)
+        recorder = _Recorder()
+        connection = volume_session.connection()
+        event.listen(connection, "before_cursor_execute", recorder.before)
+        event.listen(connection, "after_cursor_execute", recorder.after)
+        started = time.perf_counter()
+        try:
+            with board.Board(volume_session, f, product_item_id=800001 + 42) as b:
+                rows = b.page(limit=None, apply_alerts=False)
+        finally:
+            event.remove(connection, "before_cursor_execute", recorder.before)
+            event.remove(connection, "after_cursor_execute", recorder.after)
+        _print("\nsub-rows of one product", recorder, (time.perf_counter() - started) * 1000)
+
+        assert {row.key for row in rows} == {f"MLA77{i:06d}" for i in (42, 2042, 4042)}
+        # SAVEPOINT, 2 x (CREATE + ANALYZE), page, details, series, ROLLBACK TO.
+        assert len(recorder.statements) == 9
+
+    def test_the_csv_exports_first_transaction_on_volume(self, volume_session) -> None:
+        """The export's first short transaction: the ordered keys of every
+        row and page 1 (500 rows, no series) -- printed for the ODD doc."""
+        from app.routers.ml_metricas import EXPORT_MAX_ROWS, EXPORT_PAGE_SIZE
+
         f = board.BoardFilter(date_from=TODAY - timedelta(days=29), date_to=TODAY)
         recorder = _Recorder()
         connection = volume_session.connection()
-        with board.Board(volume_session, f) as b:
-            event.listen(connection, "before_cursor_execute", recorder.before)
-            try:
-                b.page(50)
-            finally:
-                event.remove(connection, "before_cursor_execute", recorder.before)
-            cursor = connection.connection.cursor()
-            plans = {}
-            for statement, params in recorder.statements:
-                if "ml_product_daily_metrics" not in statement:
-                    continue
-                cursor.execute("EXPLAIN " + statement, params)
-                plans[statement[:40]] = "\n".join(row[0] for row in cursor.fetchall())
+        event.listen(connection, "before_cursor_execute", recorder.before)
+        event.listen(connection, "after_cursor_execute", recorder.after)
+        started = time.perf_counter()
+        try:
+            with board.Board(volume_session, f) as b:
+                keys = b.ordered_keys(EXPORT_MAX_ROWS + 1)
+                first = b.rows_for_keys(keys[:EXPORT_PAGE_SIZE])
+        finally:
+            event.remove(connection, "before_cursor_execute", recorder.before)
+            event.remove(connection, "after_cursor_execute", recorder.after)
+        _print("\nexport keys + first page", recorder, (time.perf_counter() - started) * 1000)
 
-        assert len(plans) == 2, list(plans)
-        for head, plan in plans.items():
-            assert "Seq Scan on ml_product_daily_metrics" not in plan, f"{head}\n{plan}"
-            assert "Index" in plan and "ml_product_daily_metrics" in plan, f"{head}\n{plan}"
+        assert len(keys) == PRODUCTS and len(first) == EXPORT_PAGE_SIZE
+        # No sparkline series in the export. The marker is first proven to
+        # match the series statement of a board page, so its absence here
+        # cannot pass vacuously.
+        series_marker = "GROUP BY fp.rk, board_lines.day"
+        _response, page, _ms = _request(volume_session, limit=10)
+        assert sum(series_marker in s for s, _p in page.statements) == 1
+        assert not any(series_marker in s for s, _p in recorder.statements)
 
-    def test_freshness_read_is_an_index_edge_not_a_scan(self, volume_session) -> None:
+    def test_freshness_reads_the_sync_cursors(self, volume_session) -> None:
         _response, recorder, _ms = _request(volume_session, limit=10)
-        statement, params = next(
-            (s, p) for s, p in recorder.statements if "max(ml_product_daily_metrics.updated_at)" in s
-        )
-        cursor = volume_session.connection().connection.cursor()
-        cursor.execute("EXPLAIN " + statement, params)
-        plan = "\n".join(row[0] for row in cursor.fetchall())
 
-        assert "ix_ml_product_daily_metrics_updated_at" in plan, plan
+        assert any("ml_ops_sync_cursor" in s for s, _p in recorder.statements)
 
 
 # ── Lifecycle of the request's temporary table (PgBouncer transaction mode) ──
@@ -344,8 +431,8 @@ class TestPairsTableLifecycle:
 
 @pytest.mark.postgres
 class TestPagingIsStableUnderTies:
-    """Every row of the volume ties on `units_24h` (no orders in the last
-    24h). Paging must still hand out each row exactly once: the ORDER BY ends
+    """Most rows of the volume tie on `units_24h` (few sales in the last
+    24h, many rows with 0 or 1-3 units). Paging must still hand out each row exactly once: the ORDER BY ends
     with the unique row key, or Postgres may reorder the ties between two
     LIMIT/OFFSET statements and pages repeat or skip rows."""
 

@@ -37,14 +37,13 @@ def test_codes_match_the_router_and_reach_admin_and_gerente() -> None:
 
 
 def test_board_read_indexes_ship_in_a_migration_and_match_the_models() -> None:
-    from app.models.ml_daily_metrics import MlProductDailyMetrics
     from app.models.ml_group_metrics import MlGroupMetrics
 
     script = _script()
     heads = script.get_heads()
     assert len(heads) == 1, f"alembic forked: {heads}"
     module = script.get_revision("20261001_ix_board_reads").module
-    declared = {ix.name for ix in MlGroupMetrics.__table__.indexes} | {
-        ix.name for ix in MlProductDailyMetrics.__table__.indexes
-    }
-    assert set(module.INDEXES) <= declared
+    declared = {ix.name for ix in MlGroupMetrics.__table__.indexes}
+    # The rollup's index stays in the database with its (now unused) table
+    # until the follow-up drop; no model declares it any more.
+    assert set(module.INDEXES) - {"ix_ml_product_daily_metrics_updated_at"} <= declared
