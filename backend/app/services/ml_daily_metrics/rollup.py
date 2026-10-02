@@ -31,7 +31,7 @@ from decimal import ROUND_HALF_UP, Decimal
 from typing import Dict, Iterable, List, Optional, Set, Tuple
 from zoneinfo import ZoneInfo
 
-from sqlalchemy import String, and_, case, cast, literal, or_, tuple_
+from sqlalchemy import String, and_, case, cast, literal, or_, text, tuple_
 from sqlalchemy.dialects import postgresql, sqlite
 from sqlalchemy.orm import Session
 
@@ -238,6 +238,37 @@ def _shares(items: List[_Item]) -> List[Decimal]:
     return [Decimal(w) / total for w in weights]
 
 
+# Namespace for `pg_advisory_xact_lock`'s two-argument form, so these locks
+# never collide with another advisory lock (same rule as
+# `ml_group_metrics/compute.py::_ADVISORY_LOCK_NAMESPACE`). Arbitrary but FIXED.
+_ADVISORY_LOCK_NAMESPACE = 0x6D6C6464  # "mldd" -- ml daily metrics
+
+
+def _lock_buckets(db: Session, buckets: Iterable[Bucket]) -> None:
+    """Serializes refreshes of the SAME (MLA, day) bucket for the duration of
+    the caller's transaction.
+
+    THE RACE IT CLOSES: two workers storing two different sales of one MLA on
+    one day each read the bucket's source while the other's sale is still
+    uncommitted, so each computes the bucket WITHOUT the other's sale; both
+    upsert and the last one wins -- the bucket silently undercounts and
+    nothing is left dirty to fix it.
+
+    Taken BEFORE the read: the second transaction waits for the first to
+    COMMIT, and its read then runs at a fresh snapshot (READ COMMITTED) that
+    includes the first sale. Taken in SORTED bucket order, so transactions
+    covering overlapping buckets queue instead of deadlocking. Released by
+    the commit/rollback itself. No-op on SQLite (single writer).
+    """
+    if db.get_bind().dialect.name != "postgresql":
+        return
+    for mla, day in sorted(buckets):
+        db.execute(
+            text("SELECT pg_advisory_xact_lock(:ns, hashtext(:k))"),
+            {"ns": _ADVISORY_LOCK_NAMESPACE, "k": f"{mla}|{day.isoformat()}"},
+        )
+
+
 def refresh_rollup(db: Session, buckets: Iterable[Bucket]) -> int:
     """Recomputes every (MLA, day) bucket in `buckets` from source and makes
     the table match: upserts the rows that have sales, deletes the ones that
@@ -245,6 +276,7 @@ def refresh_rollup(db: Session, buckets: Iterable[Bucket]) -> int:
     buckets = {(mla, day) for mla, day in buckets if mla and day is not None}
     if not buckets:
         return 0
+    _lock_buckets(db, buckets)
     computed = _compute(db, buckets)
 
     keep = set(computed)
