@@ -41,6 +41,9 @@ DEFAULT_PERIOD_DAYS = 30
 # range would build millions of them in memory. One year (a leap year
 # included) is the most the screen offers ("3m" preset, custom ranges).
 MAX_PERIOD_DAYS = 366
+# The CSV is built from the board's own SQL page, this many rows at a time:
+# memory follows the page, never the whole catalogue at once.
+EXPORT_PAGE_SIZE = 500
 # Sane ends for the period AND its comparison period (a year back, or the
 # same length back), so the date arithmetic can never underflow/overflow.
 MIN_BOARD_DATE = date(2001, 1, 1)
@@ -432,18 +435,45 @@ def _csv_money(value: Optional[float]) -> str:
     return "" if value is None else f"{value:.2f}".replace(".", ",")
 
 
+def _csv_line(row: board.Row, can_see_margin: bool) -> list:
+    line = [
+        row.title,
+        row.sku or "",
+        row.marca or "",
+        row.mla or "",
+        row.units,
+        row.units_24h,
+        row.windows["3d"],
+        row.windows["7d"],
+        row.windows["15d"],
+        row.windows["30d"],
+        _csv_money(_f(row.gross)),
+    ]
+    if can_see_margin:
+        line += [
+            _csv_money(_f(row.tg)),
+            _csv_money(_pp(row.markup)),
+            _csv_money(_pp(row.markup_prev)),
+            _csv_money(_pp(row.markup_delta)),
+        ]
+    line += [
+        row.last_sale_at.isoformat() if row.last_sale_at else "",
+        row.ageing_days if row.ageing_days is not None else "",
+    ]
+    return line
+
+
 @router.get("/board/export")
 def export_board(
     f: board.BoardFilter = Depends(board_filter),
     current_user: Usuario = Depends(require_ver),
     db: Session = Depends(get_db),
 ) -> StreamingResponse:
-    """CSV of every filtered row (no paging), same columns as the board.
+    """CSV of every filtered row, same columns as the board, read from the
+    board's own SQL in pages of `EXPORT_PAGE_SIZE` rows, with no sparklines.
     Margin columns only with `ml_metricas.ver_ganancia`."""
     can_see_margin = _can_see_margin(db, current_user)
     _margin_gate(f, can_see_margin)
-    with board.Board(db, f) as b:
-        rows = b.page(limit=None)
     buffer = io.StringIO()
     buffer.write("\ufeff")
     writer = csv.writer(buffer, delimiter=";")
@@ -452,32 +482,16 @@ def export_board(
         header += ["Total Gauss", "Markup %", "Markup anterior %", "Variación pp"]
     header += ["Última venta", "Ageing (días)"]
     writer.writerow(header)
-    for row in rows:
-        line = [
-            row.title,
-            row.sku or "",
-            row.marca or "",
-            row.mla or "",
-            row.units,
-            row.units_24h,
-            row.windows["3d"],
-            row.windows["7d"],
-            row.windows["15d"],
-            row.windows["30d"],
-            _csv_money(_f(row.gross)),
-        ]
-        if can_see_margin:
-            line += [
-                _csv_money(_f(row.tg)),
-                _csv_money(_pp(row.markup)),
-                _csv_money(_pp(row.markup_prev)),
-                _csv_money(_pp(row.markup_delta)),
-            ]
-        line += [
-            row.last_sale_at.isoformat() if row.last_sale_at else "",
-            row.ageing_days if row.ageing_days is not None else "",
-        ]
-        writer.writerow(line)
+    with board.Board(db, f) as b:
+        offset = 0
+        while True:
+            # No sparkline series: the CSV never reads them.
+            rows = b.page(EXPORT_PAGE_SIZE, offset, with_series=False)
+            for row in rows:
+                writer.writerow(_csv_line(row, can_see_margin))
+            if len(rows) < EXPORT_PAGE_SIZE:
+                break
+            offset += EXPORT_PAGE_SIZE
     buffer.seek(0)
     filename = f"metricas-ml-{f.date_from.isoformat()}-{f.date_to.isoformat()}.csv"
     return StreamingResponse(

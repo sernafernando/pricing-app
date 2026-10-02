@@ -369,6 +369,31 @@ class TestKpis:
 
 
 class TestExport:
+    def test_export_never_builds_sparkline_series(self, client, admin_auth_headers, board_data, query_counter):
+        """The CSV has no sparklines: the 90-day daily series (one GROUP BY
+        day per page of rows) is the board's most expensive per-page read and
+        the export must not pay for it."""
+        with query_counter() as counter:
+            resp = client.get(f"{URL}/export", headers=admin_auth_headers)
+
+        assert resp.status_code == 200
+        series = [s for s in counter.statements if "group by fp.rk, ml_product_daily_metrics.day" in s]
+        assert series == []
+
+    def test_export_reads_rows_in_bounded_pages(
+        self, client, admin_auth_headers, board_data, query_counter, monkeypatch
+    ):
+        from app.routers import ml_metricas
+
+        monkeypatch.setattr(ml_metricas, "EXPORT_PAGE_SIZE", 2)
+        with query_counter() as counter:
+            resp = client.get(f"{URL}/export", headers=admin_auth_headers)
+
+        rows = list(csv.DictReader(io.StringIO(resp.content.decode("utf-8-sig")), delimiter=";"))
+        assert len(rows) == 4
+        pages = [s for s in counter.statements if "limit" in s and "board_rows" in s]
+        assert len(pages) == 3  # 2 + 2 + an empty last page
+
     def test_csv_holds_every_filtered_row(self, client, admin_auth_headers, board_data):
         resp = client.get(f"{URL}/export", params={"stores": "57997"}, headers=admin_auth_headers)
 

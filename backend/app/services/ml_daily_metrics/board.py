@@ -609,7 +609,9 @@ class Board:
 
     # ── statements ──
 
-    def page(self, limit: Optional[int], offset: int = 0, apply_alerts: bool = True) -> List[Row]:
+    def page(
+        self, limit: Optional[int], offset: int = 0, apply_alerts: bool = True, with_series: bool = True
+    ) -> List[Row]:
         rows = self.rows(apply_alerts=apply_alerts)
         sort_cols = {
             "gross": rows.c.gross,
@@ -654,7 +656,7 @@ class Board:
                 flags={name for name in ALERTS if r[f"a_{name}"]},
             )
             out.append(row)
-        self._decorate(out)
+        self._decorate(out, with_series=with_series)
         return out
 
     def _on_page(self, fp: Any, by_key: Dict[str, Row]) -> Any:
@@ -666,7 +668,7 @@ class Board:
             return fp.c.product.in_([int(key) for key in by_key])
         return fp.c.mla.in_(list(by_key))
 
-    def _decorate(self, rows: List[Row]) -> None:
+    def _decorate(self, rows: List[Row], with_series: bool = True) -> None:
         """The page's pair details (publication data, product data, the last
         sale timestamp) and its 90-day series: TWO bulk statements for the
         whole page, never one per row."""
@@ -728,6 +730,10 @@ class Board:
                 ranked = sorted(details, key=lambda d: (-int(d["units"] or 0), d["mla"]))
                 row.thumbnail = next((d["thumbnail"] for d in ranked if d["thumbnail"]), None)
 
+        if not with_series:
+            # Callers with no sparklines (the CSV export) skip the page's
+            # most expensive read: the 90-day daily series.
+            return
         series = (
             select(
                 fp.c.rk,
