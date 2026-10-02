@@ -347,8 +347,8 @@ def _row_out(row: board.Row, can_see_margin: bool) -> BoardRow:
 
 
 def _kpis(k: board.Kpis, can_see_margin: bool) -> BoardKpis:
-    markup = board.markup_of(k.tg, k.costo)
-    markup_prev = board.markup_of(k.prev_tg, k.prev_costo)
+    markup = board.markup_of(k.mtg, k.costo)
+    markup_prev = board.markup_of(k.prev_mtg, k.prev_costo)
     return BoardKpis(
         units=KpiUnits(value=k.units, delta_pct=_delta_pct(k.units, k.prev_units), series=k.series_units),
         gross=KpiMoney(value=_f(k.gross), delta_pct=_delta_pct(k.gross, k.prev_gross), series=k.series_gross),
@@ -433,8 +433,9 @@ def get_board(
 ) -> BoardResponse:
     """The board: rows of the requested grouping (sorted and paged in SQL),
     the KPI strip over the WHOLE filtered set (never the page), and every
-    chip count scoped by the other filters. Money and units from the daily
-    rollup (`ml_product_daily_metrics`); the 24h window from the orders."""
+    chip count scoped by the other filters. Every number -- money, units, all
+    windows, the 24h included -- from the orders themselves
+    (`ml_daily_metrics.sales.sale_lines`), the same rules as Ventas ML."""
     can_see_margin = _can_see_margin(db, current_user)
     _margin_gate(f, can_see_margin)
     return build_board_response(db, f, limit=limit, offset=offset, can_see_margin=can_see_margin)
@@ -521,7 +522,7 @@ def export_board(
 
     # The FIRST short transaction fixes the ordered keys of every row (and
     # reads page 1): the pages after it fetch rows BY KEY, so a sale or a
-    # rollup refresh between pages can never repeat or drop a row. A key whose
+    # metrics recompute between pages can never repeat or drop a row. A key whose
     # row stopped matching the filters meanwhile is skipped; every other row
     # is written once, with its values as of its own page.
     with get_background_db() as first_db:

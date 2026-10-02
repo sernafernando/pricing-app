@@ -1,9 +1,9 @@
 """ODD `metricas-ml-tablero` T3: `GET /api/ml-metricas/board` and its nested
 publications endpoint -- the Métricas ML board ("tablero bursátil").
 
-Everything but the 24h window reads the daily rollup
-(`ml_product_daily_metrics`); these tests seed it directly so they pin the
-board's arithmetic, not T2's writer. "Today" is frozen at 2026-09-30 (Buenos
+The board reads the tables Ventas ML reads (orders, items, frozen costs,
+stored metrics, group accreditation day); `_day` seeds one sale the way the
+ingestion and the metrics worker would have stored it. "Today" is frozen at 2026-09-30 (Buenos
 Aires) so every window is deterministic:
 
 - period (default 30d): 2026-09-01..2026-09-30, previous: 2026-08-02..2026-08-31
@@ -23,7 +23,6 @@ import pytest
 from sqlalchemy.orm import Session
 
 from app.models.mercadolibre_item_publicado import MercadoLibreItemPublicado
-from app.models.ml_daily_metrics import MlProductDailyMetrics
 from app.models.ml_group_metrics import MlGroupMetrics
 from app.models.ml_order_item_costo import MlOrderItemCosto
 from app.models.ml_orders_ops import MlOrderItemOps, MlOrdersOps
@@ -31,6 +30,7 @@ from app.models.permiso import Permiso, RolPermisoBase
 from app.models.producto import ProductoERP
 from app.routers import ml_metricas
 from app.services.ml_daily_metrics import board
+from tests.services.ml_daily_metrics.seed import Line, seed_sale
 
 NOW = datetime(2026, 9, 30, 18, 0, tzinfo=timezone.utc)  # 15:00 in Buenos Aires
 URL = "/api/ml-metricas/board"
@@ -54,7 +54,7 @@ def bg_sessions(db, monkeypatch):
         events["open"] += 1
         if events["on_open"] is not None:
             # A hook to change the data BETWEEN pages, as a concurrent sale or
-            # rollup refresh would.
+            # metrics recompute would.
             events["on_open"](events["open"])
         if events["fail_on_open"] is not None and events["open"] >= events["fail_on_open"]:
             events["close"] += 1
@@ -114,20 +114,20 @@ def _pub(db, mlp_id, mla, item_id, store, status_id=153, listing="gold_special",
     )
 
 
-def _day(db, product, mla, day, units, gross, tg, costo, orders=1, unresolved=0):
-    db.add(
-        MlProductDailyMetrics(
-            product_item_id=product,
-            mla=mla,
-            day=day,
-            units=units,
-            gross_ars=Decimal(gross),
-            total_gauss=Decimal(tg),
-            costo=Decimal(costo),
-            orders=orders,
-            unresolved_orders=unresolved,
-            last_sale_at=datetime.combine(day, datetime.min.time(), tzinfo=timezone.utc) + timedelta(hours=15),
-        )
+_ORDER_IDS = iter(range(2000090000000001, 2000090000100000))
+
+
+def _day(db, product, mla, day, units, gross, tg, costo):
+    """One sale of `units` x `mla` accredited at 15:00 UTC on `day`, with
+    its order, items, frozen cost, stored metrics, payment and group row:
+    what the ingestion and the metrics worker would have stored."""
+    seed_sale(
+        db,
+        next(_ORDER_IDS),
+        datetime.combine(day, datetime.min.time(), tzinfo=timezone.utc) + timedelta(hours=15),
+        [Line(product, mla, units, Decimal(gross) / units)],
+        tg=tg,
+        costo=costo,
     )
 
 
@@ -247,8 +247,8 @@ class TestProductRows:
         assert body["with_sales_count"] == 2
 
     def test_pages_hand_out_each_row_once_even_when_every_row_ties(self, client, admin_auth_headers, board_data):
-        """All four rows tie on units_24h (no orders in the last 24h); pages
-        of one row must still return each exactly once."""
+        """Three of the four rows tie on units_24h (0: only p11 sold in the
+        last 24h); pages of one row must still return each exactly once."""
         keys = [
             row["key"]
             for offset in range(4)
@@ -297,7 +297,11 @@ class TestProductRows:
 
         p11 = _by_key(_get(client, admin_auth_headers))["11"]
 
-        assert p11["units_24h"] == 4
+        # 4 from this order + the 2 that `board_data` sold today at 15:00 UTC
+        # (3 hours before NOW): the 24h window and the 3d window read the
+        # same sales, so 24h can never exceed 3d.
+        assert p11["units_24h"] == 6
+        assert p11["units_24h"] <= p11["units_3d"]
 
 
 class TestPublications:
@@ -510,7 +514,7 @@ class TestExport:
             resp = client.get(f"{URL}/export", headers=admin_auth_headers)
 
         assert resp.status_code == 200
-        series = [s for s in counter.statements if "group by fp.rk, ml_product_daily_metrics.day" in s]
+        series = [s for s in counter.statements if "group by fp.rk, board_lines.day" in s]
         assert series == []
 
     def test_export_reads_rows_in_bounded_pages(
@@ -741,3 +745,23 @@ class TestExportEdges:
         assert resp.json()["error"]["message"] == (
             f"Son más de {cap} filas, demasiadas para exportar de una vez. Acotá los filtros (tienda, marca, búsqueda...)."
         )
+
+
+class TestFreshness:
+    def test_refreshed_at_is_the_last_complete_sales_sync(self, db, client, admin_auth_headers, board_data):
+        """No summary table to stamp: "actualizado hace X" is when the sales
+        were last brought up to date, the same source as Ventas ML's
+        sync-status (the sweep or the activity drain, never the backfill)."""
+        from app.models.ml_orders_ops import MlOpsSyncCursor
+
+        db.add(MlOpsSyncCursor(name="sweep", last_success_at=NOW - timedelta(minutes=7)))
+        db.add(MlOpsSyncCursor(name="ml_activity", last_success_at=NOW - timedelta(minutes=3)))
+        db.add(MlOpsSyncCursor(name="backfill", last_success_at=NOW))
+        db.commit()
+
+        body = _get(client, admin_auth_headers)
+
+        assert datetime.fromisoformat(body["refreshed_at"]) == NOW - timedelta(minutes=3)
+
+    def test_refreshed_at_is_null_before_any_sync(self, client, admin_auth_headers, board_data):
+        assert _get(client, admin_auth_headers)["refreshed_at"] is None

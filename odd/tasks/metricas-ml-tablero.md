@@ -267,3 +267,67 @@ Una PR por tarea (T1 sola es útil ya; T2→T3→T4 en orden).
 ## Estado
 
 Creado 2026-10-01. T1–T4 hechos. Falta: correr el backfill en producción después del deploy y medir el tiempo de respuesta del tablero con datos reales.
+
+## Sin tabla resumen (2026-10-02)
+
+Decisión del usuario (final): el tablero sale de las tablas que YA tenemos,
+no de `ml_product_daily_metrics`. "Tenemos todas las operaciones, TODAS! no
+entiendo porque tengo que andar backfilleando, porque todo lleva una tabla
+nueva, porque nada sale de lo que ya tenemos."
+
+Síntomas que causaba el resumen en producción: 24h=68 > 3d=7d=15d=53 < 30d=99
+para un producto (24h salía vivo de las órdenes; el resto de un resumen
+incompleto), y abrir las publicaciones de un producto tardaba segundos porque
+la sub-fila reconstruía el agregado del tablero ENTERO.
+
+Fuentes (mismas reglas que Ventas ML, para que los números coincidan):
+día = `ml_group_metrics.group_date` (acreditación) en hora de Buenos Aires;
+plata = `ml_order_metrics`; unidades y MLA = `ml_order_items_ops`; producto =
+costo congelado (`frozen_cost_of_item()`); reparto de una orden con varios
+ítems por costo congelado; cancelada sin cobertura de ML no suma;
+publicación/tienda = `tb_mercadolibre_items_publicados`. TODAS las ventanas,
+markups, series, última venta y ageing salen de UNA base por orden, así que
+24h ⊆ 3d ⊆ 7d ⊆ 15d ⊆ 30d por construcción.
+
+Rama: `refactor/metricas-ml-sin-rollup` (sobre `feat/metricas-ml-excluir`,
+PR #1379). Ruta: delegated direct (writer único). TDD estricto.
+
+- [x] ST1 — Tablero desde las tablas existentes (mismo contrato de API,
+      filtros, orden, paginado, export). Tests: ventanas monótonas contra un
+      conteo a fuerza bruta en Python; paridad con los KPI de Ventas ML.
+      Base única: `services/ml_daily_metrics/sales.py::sale_lines` (una fila
+      por ítem vendido) + `last_sales` (última venta de cada par en TODA la
+      historia, para ageing). Por request, dentro del SAVEPOINT: tabla
+      temporal `board_lines` (producto × MLA × día BA, sólo los días que se
+      leen + 24h) y `board_pair_agg` (ventanas, período, comparación, 24h,
+      última venta, datos de publicación/producto). Contrato de la API sin
+      cambios; el frontend no se toca.
+      Reglas (decisiones, mismas que Ventas ML `aggregate.py`):
+      plata sólo de órdenes con métricas asentadas (una orden recalculándose,
+      fallida o sin calcular suma unidades pero ni bruto ni Total Gauss ni
+      costo — el resumen no lo hacía); markup todo-o-nada POR GRUPO (pack):
+      si un miembro no tiene Total Gauss y costo, el pack entero queda fuera
+      del ratio (`mtg`/`costo`), pero su Total Gauss conocido sigue sumando
+      en "Total Gauss"; estado NULL no es cancelada.
+      Diferencia aceptada con Ventas ML: en un pack MIXTO (un miembro
+      cancelado sin cobertura y otro no) Ventas ML suma el importe del
+      cancelado; el tablero no (regla de la venta cancelada).
+      RED visto: 30 fallando (el tablero leía el resumen vacío: filas sin
+      ventas, `KeyError` de productos vendidos, 24h ≠ ventanas).
+      Checks: pytest SQLite (router 46, paridad 1, reglas + propiedad 13) y
+      Postgres (`test_board_postgres.py`, ids de 16 dígitos, día BA en SQL,
+      reparto NUMERIC; volumen) → 131 passed. El test de 24h del router pasó
+      de 4 a 6: la venta de hoy de `board_data` ahora cae también en 24h
+      (antes 24h no veía las ventas del resumen).
+- [ ] ST2 — Sub-filas de publicaciones: sólo los MLAs del producto pedido.
+      Test: costo (sentencias y filas) independiente de cuántos otros
+      productos hay.
+- [ ] ST3 — Rendimiento en Postgres con volumen real (≈80k grupos en 18
+      meses, 90 días densos, ~2k productos, ~6k MLAs): tiempos, sentencias,
+      EXPLAIN con índices. Si algo es lento: índices sobre tablas EXISTENTES
+      o forma de la consulta, nunca una tabla derivada.
+- [ ] ST4 — Sacar el resumen: hook del worker, lock asesor, backfill y sus
+      tests, modelo, migración que borra la tabla. "Actualizado hace X" desde
+      datos existentes.
+- [ ] ST5 — Checks completos (ruff, suite backend sola, vitest, test:visual,
+      eslint, lint:css, build).
