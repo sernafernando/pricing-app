@@ -145,3 +145,64 @@ describe('MetricasML page', () => {
     expect(screen.getByText('Próximamente')).toBeInTheDocument();
   });
 });
+
+describe('MetricasML publications sub-rows', () => {
+  const PUBS_URL = '/ml-metricas/board/products/4101/publications';
+  const pubCalls = () => api.get.mock.calls.filter(([url]) => url === PUBS_URL);
+  const expandButton = () => screen.getByRole('button', { name: /publicaciones de Impresora Multifunción Epson/ });
+
+  it('a late answer for the previous filters is never shown or reused', async () => {
+    let resolveOld;
+    const stale = { rows: [{ ...EPSON_PUBLICATIONS.rows[0], key: 'MLA_STALE', mla: 'MLA_STALE' }] };
+    api.get.mockImplementation((url, config) => {
+      if (url === '/ml-metricas/board') return Promise.resolve({ data: BOARD_RESPONSE });
+      if (url === PUBS_URL) {
+        if (!config.params.stores) return new Promise((resolve) => (resolveOld = resolve));
+        return Promise.resolve({ data: EPSON_PUBLICATIONS });
+      }
+      if (url === '/usuarios/pms') return Promise.resolve({ data: [] });
+      return Promise.resolve({ data: {} });
+    });
+    await renderWithRouter(<MetricasML />);
+    await screen.findByText('Impresora Multifunción Epson EcoTank L3250 Color Negro');
+    await userEvent.click(expandButton());
+    await waitFor(() => expect(pubCalls()).toHaveLength(1));
+
+    // The filters change while the old sub-rows are still on their way.
+    await userEvent.click(
+      within(screen.getByRole('group', { name: 'Filtrar por tienda oficial' })).getByRole('button', { name: /Gauss/ }),
+    );
+    await waitFor(() => expect(lastBoardParams().stores).toBe('57997'));
+    resolveOld({ data: stale });
+    await new Promise((r) => setTimeout(r, 0));
+
+    await userEvent.click(expandButton());
+
+    expect(await screen.findByText('MLA2060835678')).toBeInTheDocument();
+    expect(screen.queryByText('MLA_STALE')).not.toBeInTheDocument();
+    expect(pubCalls()).toHaveLength(2);
+    expect(pubCalls()[1][1].params.stores).toBe('57997');
+  });
+
+  it('a failed load is not cached: collapsing and expanding again retries', async () => {
+    let fail = true;
+    api.get.mockImplementation((url) => {
+      if (url === '/ml-metricas/board') return Promise.resolve({ data: BOARD_RESPONSE });
+      if (url === PUBS_URL) return fail ? Promise.reject(new Error('boom')) : Promise.resolve({ data: EPSON_PUBLICATIONS });
+      if (url === '/usuarios/pms') return Promise.resolve({ data: [] });
+      return Promise.resolve({ data: {} });
+    });
+    await renderWithRouter(<MetricasML />);
+    await screen.findByText('Impresora Multifunción Epson EcoTank L3250 Color Negro');
+
+    await userEvent.click(expandButton());
+    expect(await screen.findByText('No se pudieron cargar las publicaciones.')).toBeInTheDocument();
+
+    fail = false;
+    await userEvent.click(expandButton()); // collapse
+    await userEvent.click(expandButton()); // expand again
+
+    expect(await screen.findByText('MLA2060835678')).toBeInTheDocument();
+    expect(pubCalls()).toHaveLength(2);
+  });
+});

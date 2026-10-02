@@ -156,14 +156,23 @@ export default function MetricasML() {
         else next.add(key);
         return next;
       });
-      if (expanded.has(key) || publications[key]) return;
+      // A loaded (or loading) answer is reused; a FAILED one is not, so
+      // collapsing and expanding again retries.
+      const cached = publications[key];
+      if (expanded.has(key) || (cached && !cached.error)) return;
+      // The board's request generation: `cargar` bumps it on every filter
+      // change and resets the sub-rows. An answer that arrives after that
+      // belongs to the OLD filters and is dropped, never cached.
+      const generation = latestRequestRef.current;
       setPublications((prev) => ({ ...prev, [key]: { loading: true, rows: [] } }));
       try {
         const { data } = await api.get(`/ml-metricas/board/products/${row.product_item_id}/publications`, {
           params: filterParams,
         });
+        if (generation !== latestRequestRef.current) return;
         setPublications((prev) => ({ ...prev, [key]: { loading: false, rows: data.rows || [] } }));
       } catch {
+        if (generation !== latestRequestRef.current) return;
         setPublications((prev) => ({ ...prev, [key]: { loading: false, rows: [], error: true } }));
       }
     },
