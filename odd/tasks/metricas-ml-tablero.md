@@ -84,6 +84,12 @@ el usuario). Cambios pedidos sobre ese diseño que Stitch no llegó a aplicar:
   `ml_metricas.ver_ganancia` (ADMIN y GERENTE); sin el segundo, Total
   Gauss/markup vuelven `null` y ordenar/filtrar por margen es 403. Se agregó
   export CSV (el diseño tiene el botón).
+- (T6, writer) `refresh_rollup` toma `pg_advisory_xact_lock(ns,
+  hashtext(mla|día))` por bucket, ordenados, ANTES de leer la fuente (mismo
+  patrón que `ml_group_metrics/compute.py::_lock_group`). El tablero acepta
+  como máximo 366 días, entre 2001-01-01 y 2100-12-31. El CSV se arma por
+  páginas de 500 filas sin series. KPI: `rows_with_sales` (productos o
+  publicaciones según la agrupación).
 - (T4, writer) Rótulos "Markup" donde el diseño de Stitch dice "Margen"
   (Markup act., Markup promedio, "Markup cayendo"): el número ES markup
   (Total Gauss / costo) y llamarlo margen sería mentir; el parámetro de la
@@ -227,6 +233,25 @@ Ruta: delegated direct (writer único). TDD estricto.
       dos cálculos seguidos en la misma conexión). Sigue en 16 sentencias
       (salen los dos DROP, entran SAVEPOINT y ROLLBACK TO SAVEPOINT); mismos
       tiempos. pytest focalizado 200 passed; no se tocó código compartido.
+
+- [x] T6 (revisión de cuatro lentes, sobre `metricas-ml-tablero-pr`).
+      Commits: `12acfcf9` (parsers CSV compartidos en
+      `services/ml_sales_query/params.py`), `68c6e5bb` (período ≤ 366 días
+      entre 2001-01-01 y 2100-12-31, si no 422), `32e3fda3` (export sin
+      series y por páginas de 500), `3b6b4f3a` (`rows_with_sales`; tramos de
+      ageing `up_to_30`/`from_31_to_60`/`over_60` obligatorios), `5f402d8e`
+      (sub-filas de publicaciones: respuesta vieja descartada por generación,
+      error no cacheado), `bc1380f9` (docstring del tablero y doc),
+      `3f5b461a` (lock asesor por bucket en `refresh_rollup`).
+      RED visto: carrera con dos conexiones reales → el bucket quedó en
+      (3 u, 1 orden, $30) en vez de (5, 2, $50); rango 0001..9999 → 500 y
+      rangos largos → 200; export → corría la consulta de series; KPI →
+      `KeyError: 'rows_with_sales'` y buckets de ageing con default; front →
+      la sub-fila vieja no se descartaba y el error quedaba cacheado.
+      Checks: ruff OK; pytest focalizado 543 passed; concurrencia 3/3 OK;
+      vitest 152 archivos / 1959 tests; test:visual 10 / 72; eslint 0
+      errores; lint:css OK; build OK. Suite backend completa, sola: 7712
+      passed, 16 skipped.
 
 ## Entrega
 
