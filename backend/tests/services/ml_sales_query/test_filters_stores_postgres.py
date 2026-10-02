@@ -10,7 +10,10 @@ correlated EXISTS is index-friendly (the planner CAN answer it from the
 from __future__ import annotations
 
 import pytest
-from sqlalchemy import func, text
+import json
+from datetime import datetime, timezone
+
+from sqlalchemy import event, func, text
 from sqlalchemy import inspect as sa_inspect
 
 from app.models.ml_orders_ops import MlOrdersOps
@@ -79,6 +82,7 @@ def slate(pg_order_metrics_triggers_db, monkeypatch):
     for tabla in creadas:
         tabla.create(engine)
     for stmt in (
+        "DELETE FROM ml_payments_ops WHERE order_id IN (SELECT order_id FROM ml_orders_ops WHERE seller_id = 999)",
         "DELETE FROM ml_order_items_ops WHERE order_id IN (SELECT order_id FROM ml_orders_ops WHERE seller_id = 999)",
         "DELETE FROM ml_orders_ops WHERE seller_id = 999",
         "DELETE FROM tb_mercadolibre_items_publicados WHERE mlp_id BETWEEN 990001 AND 990099",
@@ -100,6 +104,7 @@ def slate(pg_order_metrics_triggers_db, monkeypatch):
     yield session
     session.rollback()
     for stmt in (
+        "DELETE FROM ml_payments_ops WHERE order_id IN (SELECT order_id FROM ml_orders_ops WHERE seller_id = 999)",
         "DELETE FROM ml_order_items_ops WHERE order_id IN (SELECT order_id FROM ml_orders_ops WHERE seller_id = 999)",
         "DELETE FROM ml_orders_ops WHERE seller_id = 999",
         "DELETE FROM tb_mercadolibre_items_publicados WHERE mlp_id BETWEEN 990001 AND 990099",
@@ -158,3 +163,72 @@ class TestStoreFilterOnPostgres:
         plan = "\n".join(row[0] for row in slate.execute(text(f"EXPLAIN {compiled}")))
         assert "mlp_publicationid" in plan
         assert "Seq Scan on tb_mercadolibre_items_publicados" not in plan
+
+
+def _rows_read_from(plan: dict, relation: str) -> int:
+    """Rows a JSON `EXPLAIN ANALYZE` plan actually pulled out of `relation`
+    (actual rows x loops, summed over every node that reads it)."""
+    total = 0
+    if plan.get("Relation Name") == relation:
+        total += int(plan.get("Actual Rows", 0)) * int(plan.get("Actual Loops", 1))
+    for child in plan.get("Plans", []):
+        total += _rows_read_from(child, relation)
+    return total
+
+
+@pytest.mark.postgres
+class TestStoreFacetCostFollowsTheScope:
+    def test_the_store_facet_reads_the_scopes_items_not_the_sellers_history(self, slate) -> None:
+        """2.000 sales in January, one in September; the September facet must
+        read the items of the September group(s), not the whole history."""
+        slate.execute(
+            text(
+                "INSERT INTO ml_orders_ops (order_id, seller_id, status, ml_last_updated, date_created, "
+                "total_amount, paid_amount, currency_id) "
+                "SELECT 2000090000000000 + i, 999, 'paid', TIMESTAMPTZ '2026-01-15', TIMESTAMPTZ '2026-01-15', "
+                "100, 100, 'ARS' FROM generate_series(1, 2000) AS i"
+            )
+        )
+        slate.execute(
+            text(
+                "INSERT INTO ml_order_items_ops (order_id, item_id, quantity) "
+                "SELECT 2000090000000000 + i, 'MLA9900001', 1 FROM generate_series(1, 2000) AS i"
+            )
+        )
+        slate.execute(
+            text(
+                "INSERT INTO ml_payments_ops (payment_id, order_id, status, date_approved) "
+                "VALUES (2000090000000001, :oid, 'approved', TIMESTAMPTZ '2026-09-10 12:00+00')"
+            ),
+            {"oid": ORDER_GAUSS},
+        )
+        slate.commit()
+        slate.execute(text("ANALYZE ml_orders_ops"))
+        slate.execute(text("ANALYZE ml_order_items_ops"))
+        september = (datetime(2026, 9, 1, tzinfo=timezone.utc), datetime(2026, 10, 1, tzinfo=timezone.utc))
+        scope = build_scope(slate, SalesFilter(date_range=september, **ALL_ON))
+
+        statements = []
+        connection = slate.connection()
+
+        def record(conn, cursor, statement, parameters, context, executemany):
+            statements.append((statement, parameters))
+
+        event.listen(connection, "before_cursor_execute", record)
+        try:
+            counts, total = store_facet_counts(scope)
+        finally:
+            event.remove(connection, "before_cursor_execute", record)
+
+        assert counts == {"57997": 1} and total == 1
+        facet_sql, params = next((s, p) for s, p in statements if "ml_order_items_ops" in s)
+        # Sequential scans priced out: a 2.000-row table is cheap to scan
+        # whole, so on its own the planner would; what is being proven is
+        # that the query CAN be answered from the scope's orders alone. The
+        # unscoped version read every item of the history even then.
+        cursor = connection.connection.cursor()
+        cursor.execute("SET LOCAL enable_seqscan = off")
+        cursor.execute("EXPLAIN (ANALYZE, FORMAT JSON) " + facet_sql, params)
+        raw = cursor.fetchone()[0]
+        plan = (raw if isinstance(raw, list) else json.loads(raw))[0]["Plan"]
+        assert _rows_read_from(plan, "ml_order_items_ops") <= 10, json.dumps(plan, indent=1)[:4000]

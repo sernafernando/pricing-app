@@ -178,3 +178,24 @@ class TestStoreFilterReachesKpisAndExport:
         resp = client.get("/api/ml-ventas-ops/sales/export", params={"stores": "nope"}, headers=admin_auth_headers)
 
         assert resp.status_code == 422
+
+
+class TestStoreFacetOnlyWhenFacetsAreWanted:
+    """The store chips' count is a whole-scope aggregate over the order items
+    and the publications. The listing needs it; the CSV export's pages never
+    read facets, so they must never pay for it."""
+
+    def test_the_listing_counts_stores(self, db, client, admin_auth_headers, catalogo, query_counter):
+        with query_counter() as counter:
+            resp = client.get("/api/ml-ventas-ops/sales", headers=admin_auth_headers)
+
+        assert resp.status_code == 200
+        assert counter.matching("tb_mercadolibre_items_publicados") == 1
+
+    def test_export_pages_never_run_the_store_facet(self, db, client, admin_auth_headers, catalogo, query_counter):
+        with query_counter() as counter:
+            resp = client.get("/api/ml-ventas-ops/sales/export", headers=admin_auth_headers)
+
+        assert resp.status_code == 200
+        assert len(resp.content.decode("utf-8-sig").strip().splitlines()) > 1
+        assert counter.matching("tb_mercadolibre_items_publicados") == 0

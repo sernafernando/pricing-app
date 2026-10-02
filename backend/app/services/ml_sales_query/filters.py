@@ -23,7 +23,7 @@ from dataclasses import dataclass, field, replace
 from datetime import datetime
 from typing import Any, Dict, Optional, Tuple
 
-from sqlalchemy import String, and_, case, cast, false, func, literal, or_, true
+from sqlalchemy import String, and_, case, cast, false, func, literal, or_, select, true, union
 from sqlalchemy.orm import Query, Session, aliased
 
 from app.core.config import settings
@@ -353,33 +353,40 @@ def _store_exists(db: Session, f: SalesFilter, group_key: Any) -> Optional[Any]:
     )
 
 
-def _group_store_subquery(db: Session):
-    """One row per (group, store bucket) the group touches: the store id as
-    text, or `NO_STORE`. Feeds the "TIENDA:" facet counts -- a pack spanning
-    two stores counts under both, like a mixed pack in the status facets.
-    The bucket rule is `_store_exists`' rule, so a chip's count is what
-    clicking it returns."""
-    group_key = _group_key_expr()
-    bucket = func.coalesce(cast(MercadoLibreItemPublicado.mlp_official_store_id, String), literal(NO_STORE))
-    q = (
-        db.query(group_key.label("group_key"), bucket.label("store"))
-        .join(MlOrderItemOps, MlOrderItemOps.order_id == MlOrdersOps.order_id)
-        .outerjoin(MercadoLibreItemPublicado, _store_publication(MlOrderItemOps.item_id))
-    )
-    if settings.ML_USER_ID:
-        q = q.filter(MlOrdersOps.seller_id == int(settings.ML_USER_ID))
-    return q.distinct().subquery()
-
-
 def store_facet_counts(scope: "SalesScope") -> "tuple[Dict[str, int], int]":
     """Groups per store bucket inside the scope every OTHER filter leaves
-    standing, and how many groups that scope holds ("Todas")."""
+    standing, and how many groups that scope holds ("Todas").
+
+    A bucket is the store id as text, or `NO_STORE` -- `_store_exists`' rule,
+    so a chip's count is what clicking it returns. A pack spanning two stores
+    counts under both, like a mixed pack in the status facets.
+
+    Cost follows the SCOPE, never the seller's history: the member orders are
+    the scope's orders plus their pack siblings (two index semi-joins, on
+    `order_id` and `pack_id`), and only THOSE orders' items are read. Called
+    only when the facets are wanted (never by the CSV export's pages).
+    """
     db = scope.store_facet_base.session
-    stores = _group_store_subquery(db)
+    in_scope = scope.store_facet_base.with_entities(
+        MlOrdersOps.order_id.label("order_id"), MlOrdersOps.pack_id.label("pack_id")
+    ).subquery("in_scope")
+    member_ids = union(
+        select(MlOrdersOps.order_id).where(MlOrdersOps.order_id.in_(select(in_scope.c.order_id))),
+        select(MlOrdersOps.order_id).where(MlOrdersOps.pack_id.in_(select(in_scope.c.pack_id))),
+    ).subquery("member_ids")
+    member = aliased(MlOrdersOps)
+    member_key = case(
+        (member.pack_id.isnot(None), literal("p:") + cast(member.pack_id, String)),
+        else_=literal("o:") + cast(member.order_id, String),
+    )
+    bucket = func.coalesce(cast(MercadoLibreItemPublicado.mlp_official_store_id, String), literal(NO_STORE))
     rows = (
-        scope.store_facet_base.join(stores, stores.c.group_key == scope.group_key)
-        .with_entities(stores.c.store, func.count(func.distinct(scope.group_key)))
-        .group_by(stores.c.store)
+        db.query(bucket.label("store"), func.count(func.distinct(member_key)))
+        .select_from(member)
+        .join(member_ids, member_ids.c.order_id == member.order_id)
+        .join(MlOrderItemOps, MlOrderItemOps.order_id == member.order_id)
+        .outerjoin(MercadoLibreItemPublicado, _store_publication(MlOrderItemOps.item_id))
+        .group_by(bucket)
         .all()
     )
     total = scope.store_facet_base.with_entities(func.count(func.distinct(scope.group_key))).scalar() or 0
