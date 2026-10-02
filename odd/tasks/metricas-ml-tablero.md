@@ -406,5 +406,15 @@ PR #1379). Ruta: delegated direct (writer único). TDD estricto.
       order_metrics + ml_group_metrics + router + paridad + export Ventas
       ML + scripts → 399 passed; round trip de la migración en Postgres
       OK.
-- [ ] ST5 — Checks completos (ruff, suite backend sola, vitest, test:visual,
+- [x] ST5 — Checks completos (ruff, suite backend sola, vitest, test:visual,
       eslint, lint:css, build).
+      `ruff format app/ tests/` + `ruff check app/ tests/` OK. Suite backend
+      completa, sola (`-p no:randomly`, `ENVIRONMENT=development`): **7755
+      passed, 16 skipped**. (Una corrida previa sin `ENVIRONMENT` daba 404
+      en `test_openapi_schema_loads`: el entorno por defecto es producción y
+      apaga /docs; no es del cambio.) Frontend sin cambios en esta rama:
+      vitest 143 archivos / 1896 tests antes y después; test:visual 10
+      archivos, 76 passed + 2 expected fail; eslint 0 errores (8 warnings
+      previos); lint:css OK; build OK.
+      Commits: `5e1d54fb` (ST1), `6d67f34e` (ST2), `4e8e01f8` (ST3),
+      `8e7553a1` (ST4). Sin push.
