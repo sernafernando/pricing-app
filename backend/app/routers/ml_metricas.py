@@ -351,9 +351,11 @@ def _kpis(k: board.Kpis, can_see_margin: bool) -> BoardKpis:
     markup_prev = board.markup_of(k.prev_mtg, k.prev_costo)
     return BoardKpis(
         units=KpiUnits(value=k.units, delta_pct=_delta_pct(k.units, k.prev_units), series=k.series_units),
-        gross=KpiMoney(value=_f(k.gross), delta_pct=_delta_pct(k.gross, k.prev_gross), series=k.series_gross),
+        gross=KpiMoney(
+            value=_f(k.gross), delta_pct=_delta_pct(k.gross, k.prev_gross), series=[_f(v) for v in k.series_gross]
+        ),
         total_gauss=(
-            KpiMoney(value=_f(k.tg), delta_pct=_delta_pct(k.tg, k.prev_tg), series=k.series_tg)
+            KpiMoney(value=_f(k.tg), delta_pct=_delta_pct(k.tg, k.prev_tg), series=[_f(v) for v in k.series_tg])
             if can_see_margin
             else KpiMoney()
         ),

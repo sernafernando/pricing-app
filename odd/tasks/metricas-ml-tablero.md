@@ -464,3 +464,17 @@ PR #1379). Ruta: delegated direct (writer único). TDD estricto.
       Checks ST6+ST7: ruff OK; pytest focalizado (ml_daily_metrics, router,
       paridad, migraciones) 92 + 16 passed; suite backend completa, sola
       (`ENVIRONMENT=development`): 7756 passed, 16 skipped.
+- [x] ST8 (revisión final) — Series en centavos y matcher de DROP.
+      Cada punto de dinero de las series diarias de KPIs pasa por `cents()`
+      (half-up, igual que las filas) y viaja como `Decimal`; el markup de
+      cada día de la serie de 90 días sale de las sumas del día ya
+      redondeadas, como el de la fila. RED visto: punto de Total Gauss
+      `111.06` float ≠ `Decimal('111.06')`; en la API un producto de 1/3
+      mandaba `33.33333333333333` en la serie.
+      `test_no_migration_of_this_release_drops_the_table` usa un matcher
+      (`DROP TABLE ... ml_product_daily_metrics` dentro de una sentencia, u
+      `op.drop_table(<la tabla o su constante>)`) con tests propios: atrapa
+      la migración vieja de drop y no da falso positivo con `DROP INDEX` ni
+      con otro `DROP TABLE` en un archivo que sólo nombra la tabla. RED:
+      `NameError` (el matcher no existía).
+      Checks: ruff OK; pytest focalizado 112 passed.

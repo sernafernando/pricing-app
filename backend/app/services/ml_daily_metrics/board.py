@@ -320,8 +320,8 @@ class Kpis:
     from_31_to_60: int
     over_60: int
     series_units: List[int]
-    series_gross: List[float]
-    series_tg: List[float]
+    series_gross: List[Decimal]
+    series_tg: List[Decimal]
     series_markup: List[Optional[float]]
 
 
@@ -864,9 +864,13 @@ class Board:
             units[key][index] += int(s["units"] or 0)
             tg[key][index] += Decimal(str(s["tg"] or 0))
             costo[key][index] += Decimal(str(s["costo"] or 0))
+        # The markup of a day from that day's sums rounded to the cent, like
+        # the row's own markup.
         for key, row in by_key.items():
             row.series_units = units[key]
-            row.series_markup = [_round1(markup_of(tg[key][i], costo[key][i])) for i in range(SERIES_DAYS)]
+            row.series_markup = [
+                _round1(markup_of(cents(tg[key][i]), cents(costo[key][i]))) for i in range(SERIES_DAYS)
+            ]
 
     def kpis(self) -> Kpis:
         rows = self.rows()
@@ -924,10 +928,11 @@ class Board:
         for s in self.db.execute(series).mappings():
             i = (_as_date(s["day"]) - self.f.date_from).days
             s_units[i] = int(s["units"] or 0)
-            s_gross[i] = Decimal(str(s["gross"] or 0))
-            s_tg[i] = Decimal(str(s["tg"] or 0))
-            s_mtg[i] = Decimal(str(s["mtg"] or 0))
-            s_costo[i] = Decimal(str(s["costo"] or 0))
+            # Each point is money like any other: rounded to the cent.
+            s_gross[i] = cents(s["gross"])
+            s_tg[i] = cents(s["tg"])
+            s_mtg[i] = cents(s["mtg"])
+            s_costo[i] = cents(s["costo"])
         dec = cents
         return Kpis(
             units=int(totals["units"]),
@@ -947,8 +952,8 @@ class Board:
             from_31_to_60=int(totals["from_31_to_60"]),
             over_60=int(totals["over_60"]),
             series_units=s_units,
-            series_gross=[float(v) for v in s_gross],
-            series_tg=[float(v) for v in s_tg],
+            series_gross=s_gross,
+            series_tg=s_tg,
             series_markup=[_round1(markup_of(s_mtg[i], s_costo[i])) for i in range(days)],
         )
 

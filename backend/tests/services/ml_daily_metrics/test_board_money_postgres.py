@@ -191,3 +191,22 @@ def test_an_unresolved_row_carrying_total_gauss_never_reaches_the_money(board_pg
         _ventas_ml(db, [2000060000000006])
     assert (row.units, row.gross) == (1, Decimal("99.00"))
     assert row.tg == 0 and row.markup is None
+
+
+@pytest.mark.postgres
+def test_series_points_are_exact_cents(board_pg) -> None:
+    """The KPI daily series carries money too: each point is the day's sum
+    rounded to the cent like every other money value, never a NUMERIC tail
+    (111.0599...) or a float."""
+    db = board_pg
+    order_ids = _seed(db)
+    f = board.BoardFilter(date_from=TODAY - timedelta(days=29), date_to=TODAY)
+
+    with board.Board(db, f) as b:
+        kpis = b.kpis()
+    ventas = _ventas_ml(db, order_ids)
+    day = (SOLD.date() - f.date_from).days
+
+    assert kpis.series_tg[day] == ventas.total_gauss_sum == Decimal("111.06")
+    assert kpis.series_gross[day] == ventas.gross_billed_ars
+    assert kpis.series_markup[day] == round(float(ventas.markup_weighted_pct), 1)

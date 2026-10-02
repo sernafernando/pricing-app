@@ -765,3 +765,35 @@ class TestFreshness:
 
     def test_refreshed_at_is_null_before_any_sync(self, client, admin_auth_headers, board_data):
         assert _get(client, admin_auth_headers)["refreshed_at"] is None
+
+
+class TestMoneyHasTwoDecimals:
+    def test_no_money_value_in_the_response_has_more_than_two_decimals(self, db, client, admin_auth_headers, rol_admin):
+        """One order, three items of equal frozen cost on a Total Gauss of
+        100: each product gets 33.33... Filtered to ONE product, every money
+        value the board sends -- rows, KPIs and their daily series -- is
+        rounded to the cent."""
+        _grant(db, rol_admin, "ml_metricas.ver", "ml_metricas.ver_ganancia")
+        for item_id in (41, 42, 43):
+            _producto(db, item_id, f"Producto tercio {item_id}", "Tercio")
+        db.flush()
+        seed_sale(
+            db,
+            2000091000000001,
+            NOW - timedelta(hours=3),
+            [Line(p, f"MLA4{p}", 1, Decimal("33.34"), Decimal("10")) for p in (41, 42, 43)],
+            tg="100.00",
+            costo="30.00",
+        )
+        db.commit()
+
+        body = _get(client, admin_auth_headers, q="Producto tercio 41")
+
+        kpis = body["kpis"]
+        money = [kpis["gross"]["value"], kpis["total_gauss"]["value"], *kpis["gross"]["series"]]
+        money += kpis["total_gauss"]["series"]
+        for row in body["rows"]:
+            money += [row["gross"], row["total_gauss"]]
+        assert kpis["total_gauss"]["value"] == 33.33
+        for value in money:
+            assert value is None or Decimal(repr(value)) == Decimal(repr(value)).quantize(Decimal("0.01")), value
