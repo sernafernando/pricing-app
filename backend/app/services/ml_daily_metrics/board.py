@@ -81,7 +81,7 @@ from app.models.ml_group_metrics import MlGroupMetrics
 from app.models.ml_order_item_costo import MlOrderItemCosto
 from app.models.ml_orders_ops import MlOrderItemOps, MlOrdersOps
 from app.models.producto import ProductoERP
-from app.services.ml_daily_metrics.rollup import BUSINESS_TZ, NO_PRODUCT
+from app.services.ml_daily_metrics.rollup import BUSINESS_TZ, NO_PRODUCT, frozen_cost_of_item
 from app.services.ml_publication_status_service import ML_PUBLICATION_STATUS_MAP
 from app.services.ml_sales_query.filters import NO_STORE, _resolve_pm_pairs
 
@@ -412,13 +412,7 @@ class Board:
                 func.sum(MlOrderItemOps.quantity).label("units"),
             )
             .join(MlOrdersOps, MlOrdersOps.order_id == MlOrderItemOps.order_id)
-            .outerjoin(
-                MlOrderItemCosto,
-                and_(
-                    MlOrderItemCosto.order_id == MlOrderItemOps.order_id,
-                    MlOrderItemCosto.item_id == MlOrderItemOps.item_id,
-                ),
-            )
+            .outerjoin(MlOrderItemCosto, frozen_cost_of_item())
             .where(
                 MlOrderItemOps.order_id.in_(self.recent_order_ids) if self.recent_order_ids else false(),
                 or_(MlOrdersOps.status != "cancelled", MlOrdersOps.covered_by_marketplace.is_(True)),

@@ -34,6 +34,7 @@ from zoneinfo import ZoneInfo
 from sqlalchemy import String, and_, case, cast, literal, or_, text, tuple_
 from sqlalchemy.dialects import postgresql, sqlite
 from sqlalchemy.orm import Session
+from sqlalchemy.sql.elements import ColumnElement
 
 from app.core.config import settings
 from app.core.constants import BUSINESS_TIMEZONE
@@ -52,6 +53,22 @@ USABLE_GAUSS_STATUSES = ("ok", "provisional")
 
 Bucket = Tuple[str, date]
 RowKey = Tuple[int, str, date]
+
+
+def frozen_cost_of_item() -> ColumnElement[bool]:
+    """The ONE join from a sold item (`ml_order_items_ops`) to its frozen
+    cost row (`ml_order_item_costos`): same order, same MLA, same variation
+    (NULL matching NULL). Every reader of "which product did this item sell"
+    uses it -- matching on (order, MLA) alone pairs each variation with every
+    other variation's cost and double counts."""
+    return and_(
+        MlOrderItemCosto.order_id == MlOrderItemOps.order_id,
+        MlOrderItemCosto.item_id == MlOrderItemOps.item_id,
+        or_(
+            MlOrderItemCosto.variation_id == MlOrderItemOps.variation_id,
+            and_(MlOrderItemCosto.variation_id.is_(None), MlOrderItemOps.variation_id.is_(None)),
+        ),
+    )
 
 
 def business_day(moment: datetime) -> date:
@@ -161,17 +178,7 @@ def _compute(db: Session, buckets: Set[Bucket]) -> Dict[RowKey, _Acc]:
             MlOrderItemCosto.producto_item_id,
             MlOrderItemCosto.costo_unitario_ars,
         )
-        .outerjoin(
-            MlOrderItemCosto,
-            and_(
-                MlOrderItemCosto.order_id == MlOrderItemOps.order_id,
-                MlOrderItemCosto.item_id == MlOrderItemOps.item_id,
-                or_(
-                    MlOrderItemCosto.variation_id == MlOrderItemOps.variation_id,
-                    and_(MlOrderItemCosto.variation_id.is_(None), MlOrderItemOps.variation_id.is_(None)),
-                ),
-            ),
-        )
+        .outerjoin(MlOrderItemCosto, frozen_cost_of_item())
         .filter(MlOrderItemOps.order_id.in_(order_ids))
         .order_by(MlOrderItemOps.order_id, MlOrderItemOps.id)
     )
