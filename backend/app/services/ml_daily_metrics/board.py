@@ -170,6 +170,11 @@ class BoardFilter:
     q: Optional[str] = None
     pub_status: Tuple[str, ...] = ()
     pub_type: Tuple[str, ...] = ()
+    # Exclusion mirrors inclusion ("hide these"): a pair is dropped when it
+    # matches ANY excluded value. Like their include twins, each facet ignores
+    # its own axis' exclusion, so a chip keeps showing what it is hiding.
+    pub_status_exclude: Tuple[str, ...] = ()
+    pub_type_exclude: Tuple[str, ...] = ()
     alerts: Tuple[str, ...] = ()
     sort: str = "gross"
     sort_desc: bool = True
@@ -519,6 +524,17 @@ class Board:
             if "full" in f.pub_type:
                 types.append(t.c.is_full == True)  # noqa: E712
             conditions.append(or_(*types))
+        if f.pub_status_exclude and skip != "pub_status":
+            # A pair with no known status is not "paused": keep it.
+            conditions.append(or_(t.c.status.is_(None), t.c.status.notin_(f.pub_status_exclude)))
+        if f.pub_type_exclude and skip != "pub_type":
+            hidden = [x for x in f.pub_type_exclude if x in ("clasica", "premium")]
+            if hidden:
+                conditions.append(or_(t.c.listing_type.is_(None), t.c.listing_type.notin_(hidden)))
+            if "catalogo" in f.pub_type_exclude:
+                conditions.append(t.c.is_catalog.isnot(True))
+            if "full" in f.pub_type_exclude:
+                conditions.append(t.c.is_full.isnot(True))
         if f.marcas:
             conditions.append(func.upper(t.c.marca).in_([m.upper() for m in f.marcas]))
         if f.subcategorias:

@@ -204,11 +204,17 @@ class TestBoardOnVolume:
         print(f"board filtered limit=50: {len(filtered.statements)} statements, {elapsed_ms:.0f} ms")
         for ms, head in filtered.timings:
             print(f"   {ms:7.1f} ms  {head}")
+        excluded, hidden, elapsed_ms = _request(
+            volume_session, limit=50, pub_status_exclude=("paused", "closed"), pub_type_exclude=("catalogo", "full")
+        )
+        print(f"board with exclusions limit=50: {len(hidden.statements)} statements, {elapsed_ms:.0f} ms")
         empty, emptied, elapsed_ms = _request(volume_session, limit=50, alerts=("sin_ventas_30d",))
         print(f"board empty page: {len(emptied.statements)} statements, {elapsed_ms:.0f} ms")
 
         assert counts[10] == counts[50] == counts[200] == len(recorder.statements)
         assert response.rows and len(filtered.statements) == counts[50]
+        # Exclusion rides the same filter CTE: no extra statements.
+        assert excluded.rows and len(hidden.statements) == counts[50]
         # An empty page skips the two per-page statements (details, series).
         assert not empty.rows and len(emptied.statements) == counts[50] - 2
         assert counts[50] <= 17
