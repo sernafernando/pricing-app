@@ -461,3 +461,6 @@ PR #1379). Ruta: delegated direct (writer único). TDD estricto.
       workers viejos (que todavía la refrescan al guardar métricas)
       fallarían hasta reiniciarse."
       Pendiente (PR siguiente): migración de DROP de la tabla.
+      Checks ST6+ST7: ruff OK; pytest focalizado (ml_daily_metrics, router,
+      paridad, migraciones) 92 + 16 passed; suite backend completa, sola
+      (`ENVIRONMENT=development`): 7756 passed, 16 skipped.
