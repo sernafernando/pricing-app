@@ -144,6 +144,34 @@ describe('Métricas ML board (visual)', () => {
 
   for (const { width, height } of VIEWPORTS) {
     for (const theme of THEMES) {
+      it(`${width}x${height} ${theme}: an excluded chip is struck through in the danger tone and the filter band does not overflow`, async () => {
+        const screen = await renderPage({ width, height, theme });
+        const group = () => document.querySelector('[role="group"][aria-label="Filtrar por estado de publicación"]');
+        const pausada = () => [...group().querySelectorAll('button')].find((b) => /Pausada/.test(b.textContent));
+        // neutral -> include -> exclude
+        await screen.getByRole('button', { name: /Pausada/ }).click();
+        await screen.getByRole('button', { name: /Pausada/ }).click();
+        await expect.element(screen.getByRole('button', { name: 'Ocultar Pausada' })).toBeVisible();
+        await shot(`board-${width}-${theme}-excluded`, { width, height });
+
+        const chip = pausada();
+        expect(chip.dataset.state).toBe('exclude');
+        const label = [...chip.querySelectorAll('span')].find((s) => s.textContent === 'Pausada');
+        expect(getComputedStyle(label).textDecorationLine).toBe('line-through');
+        expect(getComputedStyle(chip).color).toBe(tokenColor('--tone-danger-fg'));
+        // One line (the chip's own scrollWidth counts its off-screen sr-only
+        // separator, so measure the box), whole, inside the page.
+        expect(chip.getClientRects()).toHaveLength(1);
+        expect(chip.getBoundingClientRect().height).toBeLessThan(lineHeightOf(chip) * 2);
+        expect(wrapped([label])).toEqual([]);
+        const chipBox = chip.getBoundingClientRect();
+        expect(chipBox.right).toBeLessThanOrEqual(width);
+        expect(document.documentElement.scrollWidth).toBeLessThanOrEqual(width);
+        const band = group().closest('div[class*="filterBand"]');
+        expect(band.scrollWidth).toBeLessThanOrEqual(band.clientWidth + 1);
+        screen.unmount();
+      });
+
       it(`${width}x${height} ${theme}: scrolls inside the card, Producto pinned, nothing wraps or overflows`, async () => {
         const screen = await renderPage({ width, height, theme });
         // Open the Epson product: the publication sub-rows are part of the look.

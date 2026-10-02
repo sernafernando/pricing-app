@@ -88,6 +88,8 @@ export default function MetricasML() {
   const [storeFilter, setStoreFilter] = useState('');
   const [pubStatus, setPubStatus] = useState([]);
   const [pubType, setPubType] = useState([]);
+  const [pubStatusExclude, setPubStatusExclude] = useState([]);
+  const [pubTypeExclude, setPubTypeExclude] = useState([]);
   const [alerts, setAlerts] = useState([]);
   const [sort, setSort] = useState({ key: 'gross', desc: true });
   const [offset, setOffset] = useState(0);
@@ -117,14 +119,28 @@ export default function MetricasML() {
         storeFilter,
         pubStatus,
         pubType,
+        pubStatusExclude,
+        pubTypeExclude,
         alerts,
       }),
-    [range, compararCon, groupBy, searchQuery, productFilters, storeFilter, pubStatus, pubType, alerts],
+    [
+      range,
+      compararCon,
+      groupBy,
+      searchQuery,
+      productFilters,
+      storeFilter,
+      pubStatus,
+      pubType,
+      pubStatusExclude,
+      pubTypeExclude,
+      alerts,
+    ],
   );
 
   // Changing WHAT is filtered resets WHERE you are: page 1, nothing open.
-  const withReset = (setter) => (value) => {
-    setter(value);
+  const withReset = (setter) => (...args) => {
+    setter(...args);
     setOffset(0);
   };
 
@@ -216,6 +232,8 @@ export default function MetricasML() {
     setStoreFilter('');
     setPubStatus([]);
     setPubType([]);
+    setPubStatusExclude([]);
+    setPubTypeExclude([]);
     setAlerts([]);
     setOffset(0);
   };
@@ -249,6 +267,8 @@ export default function MetricasML() {
       productFilters.pms.length ||
       pubStatus.length ||
       pubType.length ||
+      pubStatusExclude.length ||
+      pubTypeExclude.length ||
       alerts.length,
   );
   const noun = groupBy === 'publication' ? 'publicaciones' : 'productos';
@@ -374,7 +394,11 @@ export default function MetricasML() {
               labels={PUB_STATUS_LABELS}
               counts={facets?.pub_status}
               selected={pubStatus}
-              onChange={withReset(setPubStatus)}
+              excluded={pubStatusExclude}
+              onChange={withReset((nextSelected, nextExcluded) => {
+                setPubStatus(nextSelected);
+                setPubStatusExclude(nextExcluded);
+              })}
               dotFor={(value) => (value === 'active' ? 'good' : null)}
             />
             <span className={styles.subLabel}>Tipo:</span>
@@ -384,7 +408,11 @@ export default function MetricasML() {
               labels={PUB_TYPE_LABELS}
               counts={facets?.pub_type}
               selected={pubType}
-              onChange={withReset(setPubType)}
+              excluded={pubTypeExclude}
+              onChange={withReset((nextSelected, nextExcluded) => {
+                setPubType(nextSelected);
+                setPubTypeExclude(nextExcluded);
+              })}
             />
           </div>
         </div>

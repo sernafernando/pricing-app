@@ -8,3 +8,19 @@
 .dot[data-tone='good'] {
   background: var(--money-positive);
 }
+
+/* Excluded ("ocultar"): danger tone, label struck through. The count stays
+   readable -- it is how many the chip is hiding. */
+.chipExcluded {
+  color: var(--tone-danger-fg);
+  background: var(--tone-danger-bg);
+  border-color: var(--tone-danger-border);
+}
+
+.chipExcluded:hover {
+  border-color: var(--tone-danger-fg);
+}
+
+.struck {
+  text-decoration: line-through;
+}

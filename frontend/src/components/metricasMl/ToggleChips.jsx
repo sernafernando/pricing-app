@@ -1,31 +1,49 @@
+import { EyeOff } from 'lucide-react';
 import facetStyles from '../ventasMl/FacetChips.module.css';
 import styles from './ToggleChips.module.css';
 
 const INT_FORMAT = new Intl.NumberFormat('es-AR');
 
 /**
- * Multi-select chips with live counts (Métricas ML "Publicación:" and
- * "Tipo:" rows): same look as the Ventas ML `FacetChips`, but each chip
- * toggles on its own -- no "Todas", nothing selected means no filter.
- * Counts come from the backend's facets, never recomputed here.
+ * Tri-state chips with live counts (Métricas ML "Publicación:" and "Tipo:"
+ * rows): same look as the Ventas ML `FacetChips`, but each chip cycles on its
+ * own -- neutral -> "solo estas" (include) -> "ocultar" (exclude) -> neutral.
+ * No "Todas": nothing selected and nothing excluded means no filter.
+ * `onChange(selected, excluded)` always hands over BOTH lists, so a chip can
+ * never end up in both. Counts come from the backend's facets, never
+ * recomputed here (they ignore this group's own include AND exclude, so an
+ * excluded chip still shows how many it is hiding).
  */
-export default function ToggleChips({ label, options, labels, counts, selected, onChange, dotFor }) {
-  const toggle = (value) =>
-    onChange(selected.includes(value) ? selected.filter((v) => v !== value) : [...selected, value]);
+export default function ToggleChips({ label, options, labels, counts, selected, excluded = [], onChange, dotFor }) {
+  const cycle = (value) => {
+    if (excluded.includes(value)) return onChange(selected, excluded.filter((v) => v !== value));
+    if (selected.includes(value)) return onChange(selected.filter((v) => v !== value), [...excluded, value]);
+    return onChange([...selected, value], excluded);
+  };
   return (
     <div className={facetStyles.row} role="group" aria-label={label}>
       {options.map((value) => {
-        const active = selected.includes(value);
+        const state = excluded.includes(value) ? 'exclude' : selected.includes(value) ? 'include' : 'neutral';
+        const name = labels[value] ?? value;
         return (
           <button
             key={value}
             type="button"
-            className={`${facetStyles.chip} ${active ? facetStyles.chipActive : ''}`}
-            aria-pressed={active}
-            onClick={() => toggle(value)}
+            className={`${facetStyles.chip} ${state === 'include' ? facetStyles.chipActive : ''} ${
+              state === 'exclude' ? styles.chipExcluded : ''
+            }`}
+            data-state={state}
+            aria-pressed={state !== 'neutral'}
+            aria-label={state === 'exclude' ? `Ocultar ${name}` : undefined}
+            title={state === 'exclude' ? 'Oculta: clic para quitar el filtro' : undefined}
+            onClick={() => cycle(value)}
           >
-            {dotFor?.(value) && <span className={styles.dot} data-tone={dotFor(value)} aria-hidden="true" />}
-            <span>{labels[value] ?? value}</span>{' '}
+            {state === 'exclude' ? (
+              <EyeOff size={12} aria-hidden="true" />
+            ) : (
+              dotFor?.(value) && <span className={styles.dot} data-tone={dotFor(value)} aria-hidden="true" />
+            )}
+            <span className={state === 'exclude' ? styles.struck : undefined}>{name}</span>{' '}
             {counts && (
               <>
                 <span className={facetStyles.srOnly}>·</span>{' '}
