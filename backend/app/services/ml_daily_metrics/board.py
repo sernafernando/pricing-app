@@ -614,10 +614,12 @@ class Board:
 
     # ── statements ──
 
-    def page(
-        self, limit: Optional[int], offset: int = 0, apply_alerts: bool = True, with_series: bool = True
-    ) -> List[Row]:
-        rows = self.rows(apply_alerts=apply_alerts)
+    def _ordered(self, rows: Any) -> Any:
+        """The board's ORDER BY: the requested sort, then the unique row key.
+        The key closes EVERY ordering: rows tie freely (gross 0, units 0...),
+        and without a unique last term Postgres may order the ties
+        differently in two LIMIT/OFFSET statements -- pages would repeat or
+        skip rows."""
         sort_cols = {
             "gross": rows.c.gross,
             "units": rows.c.units,
@@ -636,14 +638,37 @@ class Board:
         }
         column = sort_cols[self.f.sort]
         descending = self.f.sort_desc if self.f.sort != "ageing" else not self.f.sort_desc
-        order = (column.desc() if descending else column.asc()).nulls_last()
-        # The row key closes EVERY ordering: rows tie freely (gross 0, units
-        # 0...), and without a unique last term Postgres may order the ties
-        # differently in two LIMIT/OFFSET statements -- pages (and CSV
-        # export pages) would repeat or skip rows.
-        q = select(rows).order_by(order, rows.c.rk.asc())
+        return ((column.desc() if descending else column.asc()).nulls_last(), rows.c.rk.asc())
+
+    def page(
+        self, limit: Optional[int], offset: int = 0, apply_alerts: bool = True, with_series: bool = True
+    ) -> List[Row]:
+        rows = self.rows(apply_alerts=apply_alerts)
+        q = select(rows).order_by(*self._ordered(rows))
         if limit is not None:
             q = q.limit(limit).offset(offset)
+        return self._rows_of(q, with_series=with_series)
+
+    def ordered_keys(self, limit: int) -> List[str]:
+        """The keys of every row of the filtered board, in board order, at
+        most `limit` of them: what a multi-transaction reader (the CSV export)
+        fixes up front so a change between its pages can never repeat or drop
+        a row."""
+        rows = self.rows()
+        q = select(rows.c.rk).order_by(*self._ordered(rows)).limit(limit)
+        return [str(rk) for (rk,) in self.db.execute(q)]
+
+    def rows_for_keys(self, keys: List[str], with_series: bool = False) -> List[Row]:
+        """The rows of `keys`, in THAT order. A key no longer on the filtered
+        board (its rows stopped matching the filters since the keys were
+        taken) is skipped -- never replaced by another row."""
+        if not keys:
+            return []
+        rows = self.rows()
+        found = {row.key: row for row in self._rows_of(select(rows).where(rows.c.rk.in_(keys)), with_series)}
+        return [found[key] for key in keys if key in found]
+
+    def _rows_of(self, q: Any, with_series: bool) -> List[Row]:
         out = []
         for r in self.db.execute(q).mappings():
             ref_day = _as_date(r["ref_day"])

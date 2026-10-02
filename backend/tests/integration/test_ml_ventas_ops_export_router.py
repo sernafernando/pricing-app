@@ -45,11 +45,15 @@ def bg_sessions(db, monkeypatch):
     Each short session is a DISTINCT `Session` bound to the test's connection
     (same uncommitted data, different object), so a regression that hands the
     request `db` to the page work is detectable by identity."""
-    events = {"open": 0, "close": 0, "max_open": 0, "sessions": [], "fail_on_open": None}
+    events = {"open": 0, "close": 0, "max_open": 0, "sessions": [], "fail_on_open": None, "on_open": None}
 
     @contextmanager
     def _fake():
         events["open"] += 1
+        if events["on_open"] is not None:
+            # A hook to change the data BETWEEN pages, as a concurrent sale or
+            # rollup refresh would.
+            events["on_open"](events["open"])
         if events["fail_on_open"] is not None and events["open"] >= events["fail_on_open"]:
             events["close"] += 1
             raise RuntimeError("pool timeout")
@@ -451,3 +455,29 @@ def test_a_complete_export_has_no_error_line(db, client, admin_auth_headers, rol
         "utf-8-sig"
     )
     assert "# ERROR" not in text
+
+
+def test_a_change_between_pages_never_repeats_or_drops_a_sale(
+    db, client, admin_auth_headers, rol_admin, monkeypatch, bg_sessions
+):
+    """The export fixes its ORDERED list of groups in its first short
+    transaction and then fetches each page BY KEY. Paging by OFFSET over a
+    fresh query per page let a change between pages reorder the set: here
+    sale 1 becomes the newest after page 1 was written, which under OFFSET
+    repeated sale 4 and dropped sale 1."""
+    monkeypatch.setattr(ml_ventas_ops, "EXPORT_PAGE_SIZE", 2)
+    _grant(db, rol_admin)
+    for i in range(1, 6):
+        _sale(db, i, day=i)
+    db.commit()
+
+    def move_sale_1_to_the_top(opened: int) -> None:
+        if opened == 2:
+            db.query(MlPaymentOps).filter_by(order_id=1).update({"date_approved": NOW.replace(day=28)})
+            db.flush()
+
+    bg_sessions["on_open"] = move_sale_1_to_the_top
+
+    rows = _rows(client.get("/api/ml-ventas-ops/sales/export", params=ALL_ON, headers=admin_auth_headers))
+
+    assert [r["orden"] for r in rows] == ["5", "4", "3", "2", "1"]

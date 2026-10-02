@@ -47,11 +47,15 @@ def bg_sessions(db, monkeypatch):
     the test transaction) and records every short session the export opens.
     Each one is a DISTINCT `Session` on the test's connection, so handing the
     request session to the page work is detectable by identity."""
-    events = {"open": 0, "close": 0, "max_open": 0, "sessions": [], "fail_on_open": None}
+    events = {"open": 0, "close": 0, "max_open": 0, "sessions": [], "fail_on_open": None, "on_open": None}
 
     @contextmanager
     def _fake():
         events["open"] += 1
+        if events["on_open"] is not None:
+            # A hook to change the data BETWEEN pages, as a concurrent sale or
+            # rollup refresh would.
+            events["on_open"](events["open"])
         if events["fail_on_open"] is not None and events["open"] >= events["fail_on_open"]:
             events["close"] += 1
             raise RuntimeError("pool timeout")
@@ -441,8 +445,11 @@ class TestExport:
 
         rows = list(csv.DictReader(io.StringIO(resp.content.decode("utf-8-sig")), delimiter=";"))
         assert len(rows) == 4
-        pages = [s for s in counter.statements if "limit" in s and "board_rows" in s]
-        assert len(pages) == 3  # 2 + 2 + an empty last page
+        # ONE ordered-keys read, then each page fetched by its keys (2 + 2).
+        key_lists = [s for s in counter.statements if "limit" in s and "board_rows" in s]
+        pages = [s for s in counter.statements if "board_rows.rk in" in s]
+        assert len(key_lists) == 1
+        assert len(pages) == 2
 
     def test_csv_holds_every_filtered_row(self, client, admin_auth_headers, board_data):
         resp = client.get(f"{URL}/export", params={"stores": "57997"}, headers=admin_auth_headers)
@@ -527,7 +534,7 @@ class TestExportStreamsWithShortSessions:
 
         assert resp.status_code == 200
         assert len(list(csv.DictReader(io.StringIO(resp.content.decode("utf-8-sig")), delimiter=";"))) == 4
-        assert bg_sessions["open"] == bg_sessions["close"] == 3  # 2 + 2 + an empty last page
+        assert bg_sessions["open"] == bg_sessions["close"] == 2  # keys + page 1, then page 2
         assert bg_sessions["max_open"] == 1
 
     def test_the_page_work_never_runs_on_the_request_session(
@@ -570,9 +577,46 @@ class TestExportStreamsWithShortSessions:
 
         assert resp.status_code == 200
         lines = resp.content.decode("utf-8-sig").splitlines()
-        assert lines[-1] == "# ERROR: exportación incompleta — 2 filas exportadas. Volvé a intentar."
+        assert lines[-1] == "# ERROR: exportación incompleta — 2 de 4 filas exportadas. Volvé a intentar."
         assert len(lines[1:-1]) == 2
 
     def test_a_complete_export_has_no_error_line(self, client, admin_auth_headers, board_data):
         text = client.get(f"{URL}/export", headers=admin_auth_headers).content.decode("utf-8-sig")
         assert "# ERROR" not in text
+
+
+class TestExportKeysAreFixedUpFront:
+    def test_a_change_between_pages_never_repeats_or_drops_a_row(
+        self, db, client, admin_auth_headers, board_data, bg_sessions, monkeypatch
+    ):
+        """The export fixes its ORDERED list of row keys in its first short
+        transaction and then fetches each page BY KEY. With OFFSET over a
+        fresh board per page, a sale landing between pages reordered the set:
+        here product 13 jumps to the top after page 1, which under OFFSET
+        repeated product 14 and dropped product 13. A row is written with its
+        values as of its own page."""
+        monkeypatch.setattr(ml_metricas, "EXPORT_PAGE_SIZE", 2)
+
+        def big_sale_for_13(opened: int) -> None:
+            if opened == 2:
+                _day(db, 13, "MLA4", date(2026, 9, 29), 50, "100000", "1000", "5000")
+                db.flush()
+
+        bg_sessions["on_open"] = big_sale_for_13
+
+        resp = client.get(f"{URL}/export", headers=admin_auth_headers)
+
+        products = [r["Producto"] for r in csv.DictReader(io.StringIO(resp.content.decode("utf-8-sig")), delimiter=";")]
+        assert products == [
+            "Impresora Epson L3250",
+            "Router TP-Link AX55",
+            "Notebook Lenovo V15",
+            "Taladro DeWalt",
+        ]
+
+    def test_more_rows_than_the_cap_is_422_before_any_byte(self, client, admin_auth_headers, board_data, monkeypatch):
+        monkeypatch.setattr(ml_metricas, "EXPORT_MAX_ROWS", 3)
+
+        resp = client.get(f"{URL}/export", headers=admin_auth_headers)
+
+        assert resp.status_code == 422

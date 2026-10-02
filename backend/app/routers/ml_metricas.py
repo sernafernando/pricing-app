@@ -46,6 +46,10 @@ MAX_PERIOD_DAYS = 366
 # The CSV streams this many rows per page, each page on its own short DB
 # session: memory and the pooled connection follow ONE page, never the file.
 EXPORT_PAGE_SIZE = 500
+# The export fixes the ordered list of row keys up front (see `export_board`);
+# beyond this many rows it refuses and asks for narrower filters, like the
+# Ventas ML export.
+EXPORT_MAX_ROWS = 10_000
 # Sane ends for the period AND its comparison period (a year back, or the
 # same length back), so the date arithmetic can never underflow/overflow.
 MIN_BOARD_DATE = date(2001, 1, 1)
@@ -482,22 +486,43 @@ def export_board(
     """CSV of every filtered row, same columns as the board (no sparklines),
     STREAMED page by page. Margin columns only with `ml_metricas.ver_ganancia`.
 
-    Each page of `EXPORT_PAGE_SIZE` rows runs on its OWN short session
-    (`get_background_db`), and the request session is closed before the first
-    byte goes out: the response outlives the handler, and a session held for
-    the whole download pins a pooled connection while the client reads
-    (QueuePool incident, PR #811) -- same discipline as the Ventas ML export.
-    Each page builds its own pair table inside its own transaction (PgBouncer,
-    see `board`), so memory and connections follow ONE page at a time. Page 1
-    is read before the 200 so a bad state fails as a normal HTTP error; a
-    later page failing ends the file with an explicit error line."""
+    The first short transaction fixes the ORDERED list of row keys (at most
+    `EXPORT_MAX_ROWS`, else 422) and reads page 1, before the 200, so a bad
+    state fails as a normal HTTP error. Each later page of
+    `EXPORT_PAGE_SIZE` keys runs on its OWN short session
+    (`get_background_db`) and fetches its rows BY KEY, so a change between
+    pages can never repeat or drop a row. The request session is closed
+    before the first byte: the response outlives the handler, and a session
+    held for the whole download pins a pooled connection while the client
+    reads (QueuePool incident, PR #811) -- same discipline as the Ventas ML
+    export. Each page builds its own pair table in its own transaction
+    (PgBouncer, see `board`). A page failing mid-stream ends the file with an
+    explicit error line."""
     can_see_margin = _can_see_margin(db, current_user)
     _margin_gate(f, can_see_margin)
 
-    def fetch_page(offset: int) -> List[board.Row]:
+    # The FIRST short transaction fixes the ordered keys of every row (and
+    # reads page 1): the pages after it fetch rows BY KEY, so a sale or a
+    # rollup refresh between pages can never repeat or drop a row. A key whose
+    # row stopped matching the filters meanwhile is skipped; every other row
+    # is written once, with its values as of its own page.
+    with get_background_db() as first_db:
+        with board.Board(first_db, f) as b:
+            keys = b.ordered_keys(EXPORT_MAX_ROWS + 1)
+            if len(keys) > EXPORT_MAX_ROWS:
+                raise HTTPException(
+                    status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                    detail=(
+                        f"Son más de {EXPORT_MAX_ROWS} filas, demasiadas para exportar de una vez. "
+                        "Acotá los filtros (tienda, marca, búsqueda...)."
+                    ),
+                )
+            first = b.rows_for_keys(keys[:EXPORT_PAGE_SIZE])
+
+    def fetch_page(page_keys: List[str]) -> List[board.Row]:
         with get_background_db() as page_db:
             with board.Board(page_db, f) as b:
-                return b.page(EXPORT_PAGE_SIZE, offset, with_series=False)
+                return b.rows_for_keys(page_keys)
 
     def lines_of(rows: List[board.Row]) -> str:
         buffer = io.StringIO()
@@ -506,7 +531,6 @@ def export_board(
             writer.writerow(_csv_line(row, can_see_margin))
         return buffer.getvalue()
 
-    first = fetch_page(0)
     # CLOSE the request session (the permission check left it holding a
     # pooled connection): nothing may stay tied to the response's lifetime.
     db.close()
@@ -521,21 +545,22 @@ def export_board(
         csv.writer(head, delimiter=";").writerow(header)
         # BOM so Excel reads the accents as UTF-8.
         yield "\ufeff" + head.getvalue()
-        rows, offset, exported = first, 0, 0
-        while True:
+        rows, exported = first, 0
+        for start in range(0, len(keys), EXPORT_PAGE_SIZE):
+            if start:
+                try:
+                    rows = fetch_page(keys[start : start + EXPORT_PAGE_SIZE])
+                except Exception:  # noqa: BLE001
+                    # The 200 and the header are already on the wire: the
+                    # status cannot change, so the FILE says it is incomplete.
+                    logger.exception("metricas-ml export: page at %s failed", start)
+                    yield (
+                        f"# ERROR: exportación incompleta — {exported} de {len(keys)} filas exportadas. "
+                        "Volvé a intentar.\n"
+                    )
+                    return
             yield lines_of(rows)
             exported += len(rows)
-            if len(rows) < EXPORT_PAGE_SIZE:
-                return
-            offset += EXPORT_PAGE_SIZE
-            try:
-                rows = fetch_page(offset)
-            except Exception:  # noqa: BLE001
-                # The 200 and the header are already on the wire: the status
-                # cannot change, so the FILE says it is incomplete.
-                logger.exception("metricas-ml export: page at offset=%s failed", offset)
-                yield f"# ERROR: exportación incompleta — {exported} filas exportadas. Volvé a intentar.\n"
-                return
 
     filename = f"metricas-ml-{f.date_from.isoformat()}-{f.date_to.isoformat()}.csv"
     return StreamingResponse(
