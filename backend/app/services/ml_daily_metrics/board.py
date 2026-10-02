@@ -1,34 +1,45 @@
-"""The Métricas ML board (ODD `metricas-ml-tablero` T3): one row per PRODUCT
-(or per PUBLICATION), with sales windows, markup now vs before, 90-day daily
-series for the sparklines, last sale and ageing.
+"""The Métricas ML board (ODD `metricas-ml-tablero` T3/T5): one row per
+PRODUCT (or per PUBLICATION), with sales windows, markup now vs before,
+90-day daily series for the sparklines, last sale and ageing.
 
 Everything is aggregated, filtered, sorted and PAGED in SQL; Python only
-shapes the page it gets back. A request runs a FIXED set of statements
-whatever the page size or the data volume (pinned by
-`tests/services/ml_daily_metrics/test_board_volume_postgres.py`):
+shapes the page it gets back.
 
-1. the order ids accredited in the last 24h (the daily rollup has no hours);
-2. the page of rows (`LIMIT/OFFSET` after `ORDER BY`, both in SQL);
-3. the KPI totals and 4. their daily series over the period;
-5-9. the chip counts (stores + "Todas", publication status, type, alerts);
-10. the page's (product, MLA) pairs with their publication data;
-11. the page's 90-day daily series, ONE bulk query for every row on it;
-12. the rollup's freshness.
+HOW A REQUEST RUNS (`with Board(db, f) as b:` -- see `__enter__`):
 
-Building blocks (all subqueries, composed per statement):
+1. Once, before the context: the order ids accredited in the last 24h (the
+   daily rollup has no hours) and, if filtered by PM, the PM's pairs.
+2. `__enter__` opens a SAVEPOINT inside the request's transaction and
+   materializes the per-(product, MLA) aggregate into a TEMPORARY table
+   (`PAIRS_TABLE`, `ON COMMIT DROP` on Postgres), then `ANALYZE`s it (a fresh
+   temp table has no statistics and the planner would nest loops over it).
+   The aggregate is built from:
+   - the `agg` CTE: ONE pass over `ml_product_daily_metrics`, per pair, with
+     the period, the comparison period, the 3/7/15/30-day windows and the
+     last sale day (`MAX(day)`);
+   - the universe of pairs: every publication the ERP mirror knows (product =
+     its `item_id`) plus every pair the rollup ever sold;
+   - each MLA's publication data (newest `mlp_id` wins; status/type/store
+     resolved in SQL) and the product's data, joined -- never loaded whole
+     into Python;
+   - the rolling-24h units, from the orders.
+3. Every statement after that reads the small temp table: the KPI totals and
+   their daily series, the chip counts (MATERIALIZED CTEs, each with its own
+   axis cleared), the page (`ORDER BY` + `LIMIT/OFFSET`), and the page's pair
+   details and 90-day series -- ONE bulk statement each, never one per row.
+4. `__exit__` rolls the savepoint back: the CREATE goes with it.
 
-- `pairs`: the universe of (product, MLA) pairs -- every publication the ERP
-  mirror knows (product = its `item_id`) plus every pair the rollup ever
-  sold (a sale without a publication row still counts, as "sin tienda /
-  sin estado").
-- `pub`: one row per MLA from `tb_mercadolibre_items_publicados` (newest
-  `mlp_id` wins), with its status/type/store resolved in SQL. Only joined;
-  never loaded whole into Python.
-- `win`: the rollup aggregated per pair over the period, the comparison
-  period and the 3/7/15/30-day windows (reads only those days).
-- `lastday`: each pair's last sale DAY (`MAX(day)` over the rollup -- an
-  index-only scan of the (product, MLA, day) unique index).
-- `u24`: units per pair in the rolling 24h, from the orders.
+16 statements per board request whatever the page size or the volume (14
+when the page is empty), pinned with the measured timings by
+`tests/services/ml_daily_metrics/test_board_volume_postgres.py`.
+
+WHY ONE TRANSACTION: production reaches Postgres through PgBouncer in
+TRANSACTION pooling (`app/core/database.py`), so a server connection is ours
+only for one transaction. The temp table must never outlive it (the next
+client on that server connection would inherit it) nor be needed after a
+commit (later statements may run on another server connection). Hence the
+savepoint that is always rolled back, `ON COMMIT DROP` as a second net, and
+`Board` refusing loudly if something commits in the middle.
 
 Markup is ALWAYS `SUM(total_gauss) / SUM(costo) x 100` over the selected
 rows/days, never an average of percentages; no cost means no markup (NULL),

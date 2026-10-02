@@ -43,7 +43,9 @@ el usuario). Cambios pedidos sobre ese diseño que Stitch no llegó a aplicar:
 - Estado de publicación (activa/pausada/cerrada) = último estado del ERP; la
   UI lo dice así (no es confiable en vivo, fix diferido al módulo
   Publicaciones ML).
-- Tabla resumen diaria (producto × MLA × día de acreditación × tienda) con
+- Tabla resumen diaria (producto × MLA × día de acreditación; ~~× tienda~~ —
+  **reemplazado por la decisión T2 de abajo: la tienda NO va en la clave, se
+  resuelve al leer**) con
   SUMAS (unidades, bruto, total_gauss, costo, órdenes, última venta), nunca
   porcentajes. Se actualiza en el mismo flujo del worker que recalcula las
   métricas de una venta (sin cron). Backfill por script.
