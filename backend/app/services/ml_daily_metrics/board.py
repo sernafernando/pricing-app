@@ -767,8 +767,8 @@ class Board:
     def _on_page(self, fp: Any, by_key: Dict[str, Row]) -> Any:
         """The page's pairs, filtered on the RAW key column (an int product
         id or an MLA), never on the cast `rk`: the planner can estimate the
-        former, and with a sound estimate it reaches the rollup through the
-        (product, MLA, day) index instead of scanning it."""
+        former, and a sound estimate keeps it from nesting loops over the
+        request's lines table."""
         if self.f.group_by == "product":
             return fp.c.product.in_([int(key) for key in by_key])
         return fp.c.mla.in_(list(by_key))

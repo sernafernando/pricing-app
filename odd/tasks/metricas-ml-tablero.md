@@ -43,7 +43,9 @@ el usuario). Cambios pedidos sobre ese diseño que Stitch no llegó a aplicar:
 - Estado de publicación (activa/pausada/cerrada) = último estado del ERP; la
   UI lo dice así (no es confiable en vivo, fix diferido al módulo
   Publicaciones ML).
-- Tabla resumen diaria (producto × MLA × día de acreditación; ~~× tienda~~ —
+- **REEMPLAZADA 2026-10-02 (decisión del usuario, ver "Sin tabla
+  resumen"): ya no existe; el tablero lee las órdenes.**
+  Tabla resumen diaria (producto × MLA × día de acreditación; ~~× tienda~~ —
   **reemplazado por la decisión T2 de abajo: la tienda NO va en la clave, se
   resuelve al leer**) con
   SUMAS (unidades, bruto, total_gauss, costo, órdenes, última venta), nunca
@@ -266,7 +268,9 @@ Una PR por tarea (T1 sola es útil ya; T2→T3→T4 en orden).
 
 ## Estado
 
-Creado 2026-10-01. T1–T4 hechos. Falta: correr el backfill en producción después del deploy y medir el tiempo de respuesta del tablero con datos reales.
+Creado 2026-10-01. T1–T4 hechos. 2026-10-02: "Sin tabla resumen" (abajo) reemplaza el
+resumen diario: ya NO hay backfill que correr. Falta: medir el tiempo de respuesta
+del tablero con datos reales de producción.
 
 ## Sin tabla resumen (2026-10-02)
 
@@ -373,8 +377,34 @@ PR #1379). Ruta: delegated direct (writer único). TDD estricto.
       sirviera; lo que queda es volumen leído por hash (la historia completa
       para el ageing). Antes (con resumen): ~370 ms el tablero, pero con
       números incompletos y segundos para abrir las sub-filas.
-- [ ] ST4 — Sacar el resumen: hook del worker, lock asesor, backfill y sus
+- [x] ST4 — Sacar el resumen: hook del worker, lock asesor, backfill y sus
       tests, modelo, migración que borra la tabla. "Actualizado hace X" desde
       datos existentes.
+      Borrado: `services/ml_daily_metrics/rollup.py` (escritor, lock asesor
+      por bucket, `stale_buckets`), el hook en
+      `order_metrics/store.py::store_order_metrics` (vuelve a sólo
+      recalcular y guardar el grupo), `models/ml_daily_metrics.py`,
+      `scripts/backfill_ml_daily_metrics.py` y los tests del resumen,
+      del backfill y de la concurrencia del resumen; la tabla de las
+      fixtures Postgres de `tests/conftest.py`. Lo que se seguía usando
+      (`frozen_cost_of_item`, `business_day`, `BUSINESS_TZ`, `NO_PRODUCT`)
+      vive en `services/ml_daily_metrics/sales.py` (desde ST1).
+      Migración `20261002_drop_ml_product_daily_metrics` (sobre
+      `20261002_autovacuum_tablas_calientes`, un solo head): `DROP TABLE IF
+      EXISTS` con `lock_timeout` 10 s (sus índices `_day`, `_mla_day`,
+      `_updated_at` y la clave única se van con la tabla); el downgrade la
+      recrea vacía. `ix_ml_group_metrics_group_date` (de
+      `20261001_ix_board_reads`) se queda: lo usa el tablero.
+      "Actualizado hace X": `MAX(ml_ops_sync_cursor.last_success_at)` de
+      `sweep`/`ml_activity`, lo mismo que el sync-status de Ventas ML
+      (desde ST1); el frontend no cambia.
+      Rama rebasada sobre `origin/main` (que ya incluye #1379 y la
+      migración de autovacuum) para que la migración nueva no bifurque.
+      RED visto: 7 fallando (head, módulos presentes, tabla en la
+      metadata, `store.py` mencionaba el resumen, revisión inexistente).
+      Checks: ruff OK; pytest migraciones + ml_daily_metrics +
+      order_metrics + ml_group_metrics + router + paridad + export Ventas
+      ML + scripts → 399 passed; round trip de la migración en Postgres
+      OK.
 - [ ] ST5 — Checks completos (ruff, suite backend sola, vitest, test:visual,
       eslint, lint:css, build).

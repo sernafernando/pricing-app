@@ -73,7 +73,6 @@ from app.models.ml_billing import (  # noqa: F401 — registers tables for creat
 from app.models.ml_order_item_costo import MlOrderItemCosto  # noqa: F401 — registers table for create_all
 from app.models.ml_order_metrics import MlOrderMetrics, MlOrderMetricsDirty  # noqa: F401 — registers tables for create_all
 from app.models.ml_group_metrics import MlGroupMetrics  # noqa: F401 — registers table for create_all
-from app.models.ml_daily_metrics import MlProductDailyMetrics  # noqa: F401 — registers table for create_all
 from app.models.worker_job_state import WorkerJobState  # noqa: F401 — registers table for create_all
 from app.models.pedido_factura_documento import PedidoFacturaDocumento  # noqa: F401 — registers table for create_all
 from app.models.pedido_compra_oc import PedidoCompraOc  # noqa: F401 — registers table for create_all
@@ -661,7 +660,6 @@ def pg_order_metrics_engine():
             "CI provides this via the `postgres` service in .github/workflows/ci.yml."
         )
 
-    from app.models.ml_daily_metrics import MlProductDailyMetrics as _MlProductDailyMetrics
     from app.models.ml_group_metrics import MlGroupMetrics as _MlGroupMetrics
     from app.models.ml_order_item_costo import MlOrderItemCosto as _MlOrderItemCosto
     from app.models.ml_order_metrics import MlOrderMetrics as _MlOrderMetrics
@@ -693,9 +691,6 @@ def pg_order_metrics_engine():
         # table too, or every real-Postgres store call in this file fails
         # with `UndefinedTable`.
         _MlGroupMetrics.__table__,
-        # ODD metricas-ml-tablero T2: `store_order_metrics` refreshes the daily
-        # rollup in the same transaction as the group row.
-        _MlProductDailyMetrics.__table__,
     ]
     _restore_pristine_pg_types(own_tables)
 
@@ -868,7 +863,6 @@ def pg_order_metrics_triggers_engine():
         )
 
     from app.models.ml_order_item_costo import MlOrderItemCosto as _MlOrderItemCosto
-    from app.models.ml_daily_metrics import MlProductDailyMetrics as _MlProductDailyMetrics
     from app.models.ml_group_metrics import MlGroupMetrics as _MlGroupMetrics
     from app.models.ml_order_metrics import MlOrderMetricsDirty as _MlOrderMetricsDirty
     from app.models.ml_orders_ops import MlOrderItemOps as _MlOrderItemOps
@@ -893,9 +887,6 @@ def pg_order_metrics_triggers_engine():
         # fire -- a missing table would make every write to `ml_orders_ops` fail,
         # not just the group bookkeeping.
         _MlGroupMetrics.__table__,
-        # ODD metricas-ml-tablero T2: `store_order_metrics` refreshes the daily
-        # rollup in the same transaction as the group row.
-        _MlProductDailyMetrics.__table__,
         _MlOrderMetricsDirty.__table__,
     ]
     _restore_pristine_pg_types(own_tables)
@@ -964,7 +955,6 @@ def pg_order_metrics_divergence_engine():
             "CI provides this via the `postgres` service in .github/workflows/ci.yml."
         )
 
-    from app.models.ml_daily_metrics import MlProductDailyMetrics as _MlProductDailyMetrics
     from app.models.ml_group_metrics import MlGroupMetrics as _MlGroupMetrics
     from app.models.ml_order_item_costo import MlOrderItemCosto as _MlOrderItemCosto
     from app.models.ml_order_metrics import MlOrderMetrics as _MlOrderMetrics
@@ -992,9 +982,6 @@ def pg_order_metrics_divergence_engine():
         # ventas-ml-rediseno PR20: `store_order_metrics` writes the
         # affected order's group row in the SAME transaction (T11/T12).
         _MlGroupMetrics.__table__,
-        # ODD metricas-ml-tablero T2: `store_order_metrics` refreshes the daily
-        # rollup in the same transaction as the group row.
-        _MlProductDailyMetrics.__table__,
     ]
     _restore_pristine_pg_types(own_tables)
 
@@ -1091,7 +1078,6 @@ def pg_order_metrics_config_triggers_engine():
     from app.models.etiqueta_envio import EtiquetaEnvio as _EtiquetaEnvio
     from app.models.logistica_costo_cordon import LogisticaCostoCordon as _LogisticaCostoCordon
     from app.models.ml_order_item_costo import MlOrderItemCosto as _MlOrderItemCosto
-    from app.models.ml_daily_metrics import MlProductDailyMetrics as _MlProductDailyMetrics
     from app.models.ml_group_metrics import MlGroupMetrics as _MlGroupMetrics
     from app.models.ml_order_metrics import MlOrderMetricsDirty as _MlOrderMetricsDirty
     from app.models.ml_orders_ops import MlOrderItemOps as _MlOrderItemOps
@@ -1117,9 +1103,6 @@ def pg_order_metrics_config_triggers_engine():
         # fire -- a missing table would make every write to `ml_orders_ops` fail,
         # not just the group bookkeeping.
         _MlGroupMetrics.__table__,
-        # ODD metricas-ml-tablero T2: `store_order_metrics` refreshes the daily
-        # rollup in the same transaction as the group row.
-        _MlProductDailyMetrics.__table__,
         _MlOrderMetricsDirty.__table__,
     ]
     _restore_pristine_pg_types(own_tables)
