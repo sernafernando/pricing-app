@@ -62,7 +62,20 @@ const PRESETS = [
  * wrong month. That is a bug, not a convention, and sharing this module
  * fixes it on both screens at once. Everything else stays.
  */
-export default function DateRangeFilter({ fechaDesde, fechaHasta, filtroActivo, onChange }) {
+/**
+ * Optional `maxDays` (+ `maxDaysMessage`): a custom range spanning more days
+ * than that is flagged next to the inputs and never applied -- for a screen
+ * whose backend caps the period (Métricas ML: 366 days). Absent, nothing
+ * changes for the other callers.
+ */
+export default function DateRangeFilter({
+  fechaDesde,
+  fechaHasta,
+  filtroActivo,
+  onChange,
+  maxDays,
+  maxDaysMessage = 'El período es demasiado largo',
+}) {
   const idBase = useId();
   const [mostrarDropdown, setMostrarDropdown] = useState(false);
   const [fechaTemporal, setFechaTemporal] = useState({ desde: fechaDesde, hasta: fechaHasta });
@@ -89,13 +102,21 @@ export default function DateRangeFilter({ fechaDesde, fechaHasta, filtroActivo, 
     fechaTemporal.desde && fechaTemporal.hasta && fechaTemporal.desde > fechaTemporal.hasta
   );
 
+  // Inclusive day count of the custom range, compared as UTC dates so a DST
+  // change in between can never shave or add a day.
+  const diasDelRango =
+    fechaTemporal.desde && fechaTemporal.hasta && !rangoInvertido
+      ? Math.round((Date.parse(`${fechaTemporal.hasta}T00:00:00Z`) - Date.parse(`${fechaTemporal.desde}T00:00:00Z`)) / 86400000) + 1
+      : 0;
+  const rangoDemasiadoLargo = Boolean(maxDays && diasDelRango > maxDays);
+
   const aplicarFechaPersonalizada = () => {
     // An EMPTY range is not "no filter", it is a filter that says nothing
     // -- and applying it marks the control active while CLEARING whatever
     // the page had (in VentasML, the month filter, since the two are the
     // same axis). Pressing Aplicar on a blank dropdown must do nothing,
     // not quietly throw away the operator's current filter.
-    if (rangoIncompleto || rangoInvertido) return;
+    if (rangoIncompleto || rangoInvertido || rangoDemasiadoLargo) return;
     setMostrarDropdown(false);
     onChange({ desde: fechaTemporal.desde, hasta: fechaTemporal.hasta, filtro: 'custom' });
   };
@@ -157,11 +178,16 @@ export default function DateRangeFilter({ fechaDesde, fechaHasta, filtroActivo, 
                   La fecha «desde» es posterior a la «hasta».
                 </p>
               )}
+              {rangoDemasiadoLargo && (
+                <p className={styles.rangoInvertido} role="alert">
+                  {maxDaysMessage}
+                </p>
+              )}
               {/* `type="button"`: inside a form, a bare button submits it. */}
               <button
                 type="button"
                 onClick={aplicarFechaPersonalizada}
-                disabled={rangoIncompleto || rangoInvertido}
+                disabled={rangoIncompleto || rangoInvertido || rangoDemasiadoLargo}
                 className="btn-tesla outline-subtle-primary sm"
               >
                 Aplicar

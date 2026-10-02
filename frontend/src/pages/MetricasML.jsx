@@ -42,6 +42,9 @@ import styles from './MetricasML.module.css';
 
 const DEFAULT_PRESET = '30d';
 const DEFAULT_PAGE_SIZE = 50;
+// The board's period cap (`MAX_PERIOD_DAYS` in `routers/ml_metricas.py`).
+const MAX_PERIOD_DAYS = 366;
+const PERIOD_LIMIT_MESSAGE = 'El período máximo es de 1 año';
 const EMPTY_PRODUCT_FILTERS = { marcas: [], subcategorias: [], pms: [] };
 const PERIOD_LABELS = {
   hoy: 'hoy',
@@ -93,6 +96,9 @@ export default function MetricasML() {
   const [board, setBoard] = useState(null);
   const [loading, setLoading] = useState(true);
   const [errorKind, setErrorKind] = useState(null);
+  // A 422 (a period or filter the board refuses) is the operator's to fix:
+  // its message is shown as is, never the generic "error al cargar".
+  const [rejectedMessage, setRejectedMessage] = useState(null);
   const [expanded, setExpanded] = useState(() => new Set());
   const [publications, setPublications] = useState({});
   const [columnVisibility, setColumnVisibility] = useState({});
@@ -136,7 +142,14 @@ export default function MetricasML() {
       setPublications({});
     } catch (err) {
       if (requestId !== latestRequestRef.current) return;
-      setErrorKind(err?.response?.status === 403 ? 'forbidden' : 'generic');
+      const status = err?.response?.status;
+      if (status === 422) {
+        const data = err.response.data;
+        setRejectedMessage(data?.error?.message || data?.detail || PERIOD_LIMIT_MESSAGE);
+        setErrorKind('rejected');
+      } else {
+        setErrorKind(status === 403 ? 'forbidden' : 'generic');
+      }
       setBoard(null);
     } finally {
       if (requestId === latestRequestRef.current) setLoading(false);
@@ -282,6 +295,11 @@ export default function MetricasML() {
           <ShieldAlert size={16} /> No tenés permiso para ver Métricas ML.
         </div>
       )}
+      {errorKind === 'rejected' && (
+        <div className={styles.errorBar} role="alert">
+          <ShieldAlert size={16} /> {typeof rejectedMessage === 'string' ? rejectedMessage : PERIOD_LIMIT_MESSAGE}
+        </div>
+      )}
       {errorKind === 'generic' && (
         <div className={styles.errorBar}>
           <ShieldAlert size={16} /> Error al cargar las métricas.
@@ -299,6 +317,8 @@ export default function MetricasML() {
             fechaDesde={range.desde}
             fechaHasta={range.hasta}
             filtroActivo={range.filtro}
+            maxDays={MAX_PERIOD_DAYS}
+            maxDaysMessage={PERIOD_LIMIT_MESSAGE}
             onChange={({ desde, hasta, filtro }) => withReset(setRange)({ desde, hasta, filtro })}
           />
           <div className={styles.searchSlot}>

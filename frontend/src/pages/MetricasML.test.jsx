@@ -206,3 +206,45 @@ describe('MetricasML publications sub-rows', () => {
     expect(pubCalls()).toHaveLength(2);
   });
 });
+
+describe('MetricasML period limit', () => {
+  it('a custom range over a year is flagged next to the range and never requested', async () => {
+    await renderWithRouter(<MetricasML />);
+    await screen.findByText('Impresora Multifunción Epson EcoTank L3250 Color Negro');
+    const before = boardCalls().length;
+
+    await userEvent.click(screen.getByTitle('Seleccionar rango personalizado'));
+    const desde = screen.getByLabelText('Desde');
+    const hasta = screen.getByLabelText('Hasta');
+    await userEvent.clear(desde);
+    await userEvent.type(desde, '2025-01-01');
+    await userEvent.clear(hasta);
+    await userEvent.type(hasta, '2026-01-02');
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('El período máximo es de 1 año');
+    const aplicar = screen.getByRole('button', { name: 'Aplicar' });
+    expect(aplicar).toBeDisabled();
+    await userEvent.click(aplicar);
+    expect(boardCalls().length).toBe(before);
+    expect(boardCalls().some(([, config]) => config.params.date_from === '2025-01-01')).toBe(false);
+  });
+
+  it('a 422 from the board shows the backend message, not the generic error', async () => {
+    api.get.mockImplementation((url) => {
+      if (url === '/ml-metricas/board') {
+        return Promise.reject({
+          response: {
+            status: 422,
+            data: { error: { code: 'HTTP_422', message: 'El período no puede superar 366 días' } },
+          },
+        });
+      }
+      if (url === '/usuarios/pms') return Promise.resolve({ data: [] });
+      return Promise.resolve({ data: {} });
+    });
+    await renderWithRouter(<MetricasML />);
+
+    expect(await screen.findByText(/El período no puede superar 366 días/)).toBeInTheDocument();
+    expect(screen.queryByText(/Error al cargar las métricas/)).not.toBeInTheDocument();
+  });
+});
