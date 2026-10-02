@@ -1345,13 +1345,23 @@ def _sales_page(
     offset: int,
     with_facets: bool = True,
     total: Optional[int] = None,
-) -> SaleListResponse:
+    group_keys: Optional[List[str]] = None,
+    keys_only: bool = False,
+) -> "SaleListResponse | List[str]":
     """The single scope/query path behind `GET /sales` AND the CSV export, so
     the export can never diverge from the listing. `with_facets=False` skips
     the facet counts and the alerts counter: the export reads neither, and
     they are ~5 whole-scope aggregate queries per page. A caller that already
     knows the scope's group `total` (the export, after page 1) passes it to
-    skip the distinct-count query."""
+    skip the distinct-count query.
+
+    The CSV export reads in several short transactions, so it must not page
+    by OFFSET (a change between pages would reorder the set and repeat or
+    drop groups): `keys_only=True` returns just the ORDERED group keys of
+    the scope (`limit` of them, from `offset`), and `group_keys` then builds
+    exactly those groups, in that order, with no key query of its own. A key
+    passed in is always built from its CURRENT members, even if the group no
+    longer matches the filters; one with no members left is skipped."""
     _require_flag_enabled()
 
     if operation_status_filter is not None and operation_status_filter not in OPERATION_STATUSES:
@@ -1423,8 +1433,13 @@ def _sales_page(
     # Pagination happens over GROUPS, so a pack can never be split across
     # two pages: page the keys first, then fetch every member of those keys.
     group_key = scope.group_key
-    key_page = build_key_page_query(scope, sort, limit, offset).all()
-    page_keys = [row.group_key for row in key_page]
+    if group_keys is None:
+        key_page = build_key_page_query(scope, sort, limit, offset).all()
+        page_keys = [row.group_key for row in key_page]
+        if keys_only:
+            return page_keys
+    else:
+        page_keys = list(group_keys)
 
     if total is None:
         total = listing_query.with_entities(func.count(func.distinct(group_key))).scalar() or 0
@@ -1868,41 +1883,44 @@ def exportar_ventas(
 ) -> StreamingResponse:
     """CSV of the filtered set: the same params as `GET /sales` (minus
     paging/sort), the same `ml_ops.ver` permission. Streams page by page; the
-    first page is fetched BEFORE the response starts so a bad param, a
-    disabled feature or an oversized set fail as a normal HTTP error instead
-    of a truncated file."""
+    ordered group keys and the first page are fetched BEFORE the response
+    starts, so a bad param, a disabled feature or an oversized set fail as a
+    normal HTTP error instead of a truncated file, and every later page is
+    built from that fixed key list (never by OFFSET)."""
 
-    def fetch_page(offset: int, known_total: Optional[int] = None) -> "tuple[SaleListResponse, str]":
+    filters = dict(
+        operation_status_filter=operation_status_filter,
+        goods_status_filter=goods_status_filter,
+        sold_month=sold_month,
+        date_from=date_from,
+        date_to=date_to,
+        sort=SORT_BY_SALE_DATE,
+        q=q,
+        marcas=marcas,
+        subcategorias=subcategorias,
+        pms=pms,
+        stores=stores,
+        include_unknown=include_unknown,
+        include_in_dispute=include_in_dispute,
+        include_mixed=include_mixed,
+        include_provisional=include_provisional,
+        include_cancelled=include_cancelled,
+        only_alerts=only_alerts,
+        offset=0,
+        with_facets=False,
+    )
+
+    def page_of(page_db: Session, page_keys: List[str], total: int) -> "tuple[SaleListResponse, str]":
+        response = _sales_page(page_db, **filters, limit=len(page_keys), group_keys=page_keys, total=total)
+        return response, rows_of(page_db, response)
+
+    def fetch_page(page_keys: List[str], total: int) -> "tuple[SaleListResponse, str]":
         # ONE short session per page, opened and closed here: the response
         # outlives this handler, and a session held across the whole download
         # pins a pooled connection while the client reads (QueuePool incident,
         # PR #811). The page's CSV text is built inside the same session.
         with get_background_db() as page_db:
-            response = _sales_page(
-                page_db,
-                operation_status_filter=operation_status_filter,
-                goods_status_filter=goods_status_filter,
-                sold_month=sold_month,
-                date_from=date_from,
-                date_to=date_to,
-                sort=SORT_BY_SALE_DATE,
-                q=q,
-                marcas=marcas,
-                subcategorias=subcategorias,
-                pms=pms,
-                stores=stores,
-                include_unknown=include_unknown,
-                include_in_dispute=include_in_dispute,
-                include_mixed=include_mixed,
-                include_provisional=include_provisional,
-                include_cancelled=include_cancelled,
-                only_alerts=only_alerts,
-                limit=EXPORT_PAGE_SIZE,
-                offset=offset,
-                with_facets=False,
-                total=known_total,
-            )
-            return response, rows_of(page_db, response)
+            return page_of(page_db, page_keys, total)
 
     def rows_of(page_db: Session, response: SaleListResponse) -> str:
         buffer = io.StringIO()
@@ -1918,42 +1936,48 @@ def exportar_ventas(
                 writer.writerow(_csv_order_row(order, day))
         return buffer.getvalue()
 
-    first, first_rows = fetch_page(0)
+    # The FIRST short transaction fixes the ORDERED list of group keys (and
+    # builds page 1): every later page is built BY KEY from that list, never
+    # by OFFSET over a fresh query, so a sale or a payment landing between
+    # pages can never repeat or drop a group. A key is always written from
+    # its current members (see `_sales_page`'s docstring).
+    with get_background_db() as first_db:
+        keys = _sales_page(first_db, **filters, limit=EXPORT_MAX_GROUPS + 1, keys_only=True)
+        if len(keys) > EXPORT_MAX_GROUPS:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail=(
+                    f"Son más de {EXPORT_MAX_GROUPS} ventas, demasiadas para exportar de una vez. "
+                    "Acotá los filtros, por ejemplo con un rango de fechas."
+                ),
+            )
+        total = len(keys)
+        first, first_rows = page_of(first_db, keys[:EXPORT_PAGE_SIZE], total)
     # CLOSE the request session (the permission check left it holding a
     # pooled connection): the streamed pages use their own short sessions, so
     # nothing may stay tied to the response's lifetime.
     db.close()
-    if first.total > EXPORT_MAX_GROUPS:
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail=(
-                f"Son {first.total} ventas, demasiadas para exportar de una vez "
-                f"(máximo {EXPORT_MAX_GROUPS}). Acotá los filtros, por ejemplo con un rango de fechas."
-            ),
-        )
 
     def stream():
         header = io.StringIO()
         csv.writer(header, delimiter=";").writerow(EXPORT_HEADER)
         # BOM so Excel reads the accents as UTF-8.
         yield "\ufeff" + header.getvalue()
-        current, current_rows = first, first_rows
-        offset = 0
-        exported = 0
-        while True:
+        current_rows, exported = first_rows, 0
+        for start in range(0, total, EXPORT_PAGE_SIZE):
+            if start:
+                try:
+                    current, current_rows = fetch_page(keys[start : start + EXPORT_PAGE_SIZE], total)
+                except Exception:  # noqa: BLE001
+                    # The 200 and the header are already on the wire: the
+                    # status cannot change, so the FILE says it is incomplete.
+                    logger.exception("ventas-ml export: page at %s failed", start)
+                    yield f"# ERROR: exportación incompleta — {exported} de {total} ventas exportadas. Volvé a intentar.\n"
+                    return
+            else:
+                current = first
             yield current_rows
             exported += len(current.sales)
-            offset += EXPORT_PAGE_SIZE
-            if offset >= first.total or not current.sales:
-                break
-            try:
-                current, current_rows = fetch_page(offset, known_total=first.total)
-            except Exception:  # noqa: BLE001
-                # The 200 and the header are already on the wire: the status
-                # cannot change, so the FILE says it is incomplete.
-                logger.exception("ventas-ml export: page at offset=%s failed", offset)
-                yield f"# ERROR: exportación incompleta — {exported} de {first.total} ventas exportadas. Volvé a intentar.\n"
-                return
 
     filename = f"ventas-ml-{datetime.now().strftime('%Y%m%d-%H%M')}.csv"
     return StreamingResponse(

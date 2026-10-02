@@ -352,9 +352,7 @@ def test_export_pages_skip_the_facets_and_the_alert_counter(
     assert not any(" as bucket" in st for st in export.statements)
 
 
-def test_only_the_first_export_page_runs_the_total_count(
-    db, client, admin_auth_headers, rol_admin, monkeypatch, query_counter
-):
+def test_no_export_page_runs_the_total_count(db, client, admin_auth_headers, rol_admin, monkeypatch, query_counter):
     monkeypatch.setattr(ml_ventas_ops, "EXPORT_PAGE_SIZE", 2)
     _grant(db, rol_admin)
     for i in range(1, 6):
@@ -372,8 +370,10 @@ def test_only_the_first_export_page_runs_the_total_count(
         resp = client.get("/api/ml-ventas-ops/sales/export", params=ALL_ON, headers=admin_auth_headers)
 
     assert len(_rows(resp)) == 5
-    assert len(totals(one_page.statements)) >= 1
-    assert len(totals(three_pages.statements)) == len(totals(one_page.statements))
+    # The total is the length of the ordered key list the export fixes up
+    # front: no page (not even the first) runs the distinct-count query.
+    assert totals(one_page.statements) == []
+    assert totals(three_pages.statements) == []
 
 
 def test_the_request_session_is_closed_before_the_first_byte_streams(
@@ -420,7 +420,8 @@ def test_the_page_work_runs_on_the_short_session_not_the_request_one(
     resp = client.get("/api/ml-ventas-ops/sales/export", params=ALL_ON, headers=admin_auth_headers)
 
     assert resp.status_code == 200
-    assert len(used["sales_page"]) == 3 and len(used["dates"]) == 3
+    # The ordered key list + 3 pages built by key; dates once per page.
+    assert len(used["sales_page"]) == 4 and len(used["dates"]) == 3
     for s in used["sales_page"] + used["dates"]:
         assert s is not db
         assert any(s is opened for opened in bg_sessions["sessions"])
