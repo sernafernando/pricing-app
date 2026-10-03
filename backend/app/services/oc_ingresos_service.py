@@ -155,9 +155,7 @@ def get_orden_compra_detalle(
     or_clauses: list[str] = []
     params: dict[str, int] = {}
     for idx, (oc_comp_id, oc_bra_id, oc_poh_id) in enumerate(triples):
-        or_clauses.append(
-            f"(d.comp_id = :comp_{idx} AND d.bra_id = :bra_{idx} AND d.poh_id = :poh_{idx})"
-        )
+        or_clauses.append(f"(d.comp_id = :comp_{idx} AND d.bra_id = :bra_{idx} AND d.poh_id = :poh_{idx})")
         params[f"comp_{idx}"] = oc_comp_id
         params[f"bra_{idx}"] = oc_bra_id
         params[f"poh_{idx}"] = oc_poh_id
@@ -194,9 +192,7 @@ def get_orden_compra_detalle(
         pod_price = Decimal(str(row[9] or 0)) if row[9] is not None else None
         raw_nombre = row[10]
         item_code = row[11]
-        item_nombre = (
-            raw_nombre if raw_nombre is not None else (str(item_id) if item_id is not None else None)
-        )
+        item_nombre = raw_nombre if raw_nombre is not None else (str(item_id) if item_id is not None else None)
         lines.append(
             OrdenCompraLineaResponse(
                 pod_id=pod_id,
