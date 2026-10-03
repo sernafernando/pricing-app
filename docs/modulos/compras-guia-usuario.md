@@ -196,6 +196,9 @@ Tab **Recepción / Depósito** (permiso `deposito.recibir_mercaderia`):
 - **Recibidos** lista solo lo recibido (sin controlar). **Con faltantes**
   son solo los **sin** resolución. **Faltantes con resolución** es la cola
   donde Depósito ve lo que el PM ya instructó, hasta pasar a controlado.
+  En **Controlados**, si el pedido tiene OC, se ven **todas** las líneas
+  (aunque el saldo sea 0) en **solo lectura**: no se editan cantidades ni
+  se vuelve a controlar desde ahí.
 - **Docs** abre los **adjuntos del pedido** (no un dump de documentos ERP).
 - Se puede **deshacer recibido** (vuelve a pagado o a CC). **Controlado**
   no se deshace.
@@ -207,7 +210,9 @@ Tab **Recepción / Depósito** (permiso `deposito.recibir_mercaderia`):
   disponible para agregar otra OC (permiso
   `administracion.gestionar_ordenes_compra`, y el pedido no es
   **servicio**), aunque ya haya una OC vinculada. El detalle lista **todas**
-  las OCs vinculadas, no solo la primera del encabezado. **Controlado**
+  las OCs vinculadas, no solo la primera del encabezado. El desglose de
+  ítems muestra **código** y **descripción** (no el item_id interno ni el
+  depósito), con una tablita por OC cuando hay más de una. **Controlado**
   recién cuando están todas las OCs. Pedido **servicio**: no hay candidatas
   OC (no se vincula) y el detalle no muestra **Vincular OC**.
 - **Desvincular OC** es todo-o-nada: quita **todas** las OCs vinculadas del

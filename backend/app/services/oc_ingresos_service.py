@@ -23,6 +23,7 @@ from sqlalchemy.orm import Session
 
 from app.core.logging import get_logger
 from app.models.pedido_compra import PedidoCompra
+from app.models.pedido_compra_oc import triples_for_pedido
 from app.schemas.oc_ingreso import (
     OCCandidataResponse,
     OrdenCompraDetalleResponse,
@@ -131,73 +132,93 @@ def get_orden_compra_detalle(
     pedido_id: int,
 ) -> OrdenCompraDetalleResponse:
     """
-    Returns the per-depot line breakdown for the OC linked to the pedido.
+    Returns the line breakdown for every OC linked to the pedido.
 
-    Reads live from tb_purchase_order_detail JOIN tb_storage (read-only).
-    In Slice 1, saldo_pendiente = pod_qty - COALESCE(pod_confirmedqty, 0)
-    (recibido_pricing always 0 — pedido_compra_ingresos not yet created).
+    Reads live from tb_purchase_order_detail JOIN tb_storage / productos_erp
+    (read-only). saldo_pendiente = pod_qty - COALESCE(pod_confirmedqty, 0).
+
+    Top-level oc_* is the first linked triple. Each line carries its own
+    oc_* so the UI can stack one table per OC.
 
     Raises:
         HTTPException 404 — pedido not found.
         HTTPException 409 — pedido has no linked OC.
     """
     pedido = _obtener_pedido_o_404(session, pedido_id)
-    if pedido.oc_poh_id is None:
+    triples = triples_for_pedido(session, pedido)
+    if not triples:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail=f"Pedido id={pedido.id} has no linked OC.",
         )
 
+    or_clauses: list[str] = []
+    params: dict[str, int] = {}
+    for idx, (oc_comp_id, oc_bra_id, oc_poh_id) in enumerate(triples):
+        or_clauses.append(
+            f"(d.comp_id = :comp_{idx} AND d.bra_id = :bra_{idx} AND d.poh_id = :poh_{idx})"
+        )
+        params[f"comp_{idx}"] = oc_comp_id
+        params[f"bra_{idx}"] = oc_bra_id
+        params[f"poh_{idx}"] = oc_poh_id
+
     stmt = text(
-        """
-        SELECT d.pod_id, d.item_id, d.stor_id, s.stor_desc,
+        f"""
+        SELECT d.comp_id, d.bra_id, d.poh_id,
+               d.pod_id, d.item_id, d.stor_id, s.stor_desc,
                d.pod_qty, d.pod_confirmedqty, d.pod_price,
-               p.descripcion AS item_nombre
+               p.descripcion AS item_nombre,
+               p.codigo AS item_code
         FROM tb_purchase_order_detail d
         LEFT JOIN tb_storage s
           ON s.comp_id = d.comp_id AND s.stor_id = d.stor_id
         LEFT JOIN productos_erp p
           ON p.item_id = d.item_id
-        WHERE d.comp_id = :comp AND d.bra_id = :bra AND d.poh_id = :poh
-        ORDER BY d.pod_id
+        WHERE {" OR ".join(or_clauses)}
+        ORDER BY d.comp_id, d.bra_id, d.poh_id, d.pod_id
         """
     )
-    rows = session.execute(
-        stmt,
-        {
-            "comp": pedido.oc_comp_id,
-            "bra": pedido.oc_bra_id,
-            "poh": pedido.oc_poh_id,
-        },
-    ).all()
+    rows = session.execute(stmt, params).all()
 
     lines: List[OrdenCompraLineaResponse] = []
     for row in rows:
-        pod_qty = Decimal(str(row[4] or 0))
-        pod_confirmedqty = Decimal(str(row[5] or 0))
-        # In Slice 1 there are no ingresos yet; recibido_pricing = 0.
-        saldo_pendiente = pod_qty - pod_confirmedqty
-        item_id = int(row[1]) if row[1] is not None else None
-        # item_nombre: resolved via LEFT JOIN; NULL if phantom item → use str(item_id)
-        raw_nombre = row[7]
-        item_nombre = raw_nombre if raw_nombre is not None else (str(item_id) if item_id is not None else None)
+        oc_comp_id = int(row[0])
+        oc_bra_id = int(row[1])
+        oc_poh_id = int(row[2])
+        pod_id = int(row[3])
+        item_id = int(row[4]) if row[4] is not None else None
+        stor_id = int(row[5]) if row[5] is not None else None
+        deposito_nombre = row[6]
+        pod_qty = Decimal(str(row[7] or 0))
+        pod_confirmedqty = Decimal(str(row[8] or 0))
+        pod_price = Decimal(str(row[9] or 0)) if row[9] is not None else None
+        raw_nombre = row[10]
+        item_code = row[11]
+        item_nombre = (
+            raw_nombre if raw_nombre is not None else (str(item_id) if item_id is not None else None)
+        )
         lines.append(
             OrdenCompraLineaResponse(
-                pod_id=int(row[0]),
+                pod_id=pod_id,
                 item_id=item_id,
                 item_nombre=item_nombre,
-                stor_id=int(row[2]) if row[2] is not None else None,
-                deposito_nombre=row[3],
+                item_code=item_code,
+                stor_id=stor_id,
+                deposito_nombre=deposito_nombre,
                 pod_qty=pod_qty,
                 pod_confirmedqty=pod_confirmedqty,
-                saldo_pendiente=saldo_pendiente,
-                pod_price=Decimal(str(row[6] or 0)) if row[6] is not None else None,
+                saldo_pendiente=pod_qty - pod_confirmedqty,
+                pod_price=pod_price,
+                oc_comp_id=oc_comp_id,
+                oc_bra_id=oc_bra_id,
+                oc_poh_id=oc_poh_id,
             )
         )
 
+    first_comp, first_bra, first_poh = triples[0]
     return OrdenCompraDetalleResponse(
-        oc_comp_id=pedido.oc_comp_id,
-        oc_bra_id=pedido.oc_bra_id,
-        oc_poh_id=pedido.oc_poh_id,
+        oc_comp_id=first_comp,
+        oc_bra_id=first_bra,
+        oc_poh_id=first_poh,
         lines=lines,
     )

@@ -446,3 +446,35 @@ class TestOrdenCompraDetalle:
 
         count_after = db.execute(text("SELECT COUNT(*) FROM tb_purchase_order_detail")).scalar()
         assert count_before == count_after
+
+    def test_orden_compra_detalle_multi_oc_incluye_todas_las_lineas(
+        self, client, auth_headers, db, pedido, proveedor, con_permiso_oc
+    ):
+        """Detalle returns lines from every linked OC with per-line oc_poh_id."""
+        from app.models.pedido_compra_oc import PedidoCompraOc
+        from app.models.producto import ProductoERP
+
+        _mk_oc_header(db, poh_id=100, supp_id=proveedor.supp_id)
+        _mk_oc_header(db, poh_id=200, supp_id=proveedor.supp_id)
+        db.add(ProductoERP(item_id=9001, codigo="SKU-9001", descripcion="Item A"))
+        db.add(ProductoERP(item_id=9002, codigo="SKU-9002", descripcion="Item B"))
+        _mk_oc_detail(db, poh_id=100, pod_id=1, item_id=9001, qty=5.0)
+        _mk_oc_detail(db, poh_id=200, pod_id=2, item_id=9002, qty=8.0)
+
+        pedido.oc_comp_id = 1
+        pedido.oc_bra_id = 1
+        pedido.oc_poh_id = 100
+        db.add(PedidoCompraOc(pedido_id=pedido.id, oc_comp_id=1, oc_bra_id=1, oc_poh_id=100))
+        db.add(PedidoCompraOc(pedido_id=pedido.id, oc_comp_id=1, oc_bra_id=1, oc_poh_id=200))
+        db.flush()
+
+        r = client.get(f"{BASE}/pedidos/{pedido.id}/orden-compra/detalle", headers=auth_headers)
+        assert r.status_code == 200
+        data = r.json()
+        assert data["oc_poh_id"] == 100
+        assert len(data["lines"]) == 2
+        by_poh = {line["oc_poh_id"]: line for line in data["lines"]}
+        assert by_poh[100]["item_code"] == "SKU-9001"
+        assert by_poh[100]["item_nombre"] == "Item A"
+        assert by_poh[200]["item_code"] == "SKU-9002"
+        assert by_poh[200]["item_nombre"] == "Item B"

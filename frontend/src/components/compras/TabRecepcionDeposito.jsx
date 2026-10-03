@@ -613,6 +613,9 @@ function AccordionBodyConOc({ pedido, onRefreshList }) {
   const lineasErp = saldos.lineas || [];
   const lineas = lineasErp.filter((l) => Number(l.saldo_pendiente) !== 0);
   const ocs = linkedOcs(pedido, lineasErp);
+  // Controlados: exhibit all ERP lines (incl. saldo 0). Recibido/faltantes keep the hide.
+  const isControlado = pedido.estado === 'controlado';
+  const lineasVisibles = isControlado ? lineasErp : lineas;
 
   // ── Per-line input validation ──
   const hasInputError = (podId) => {
@@ -726,7 +729,7 @@ function AccordionBodyConOc({ pedido, onRefreshList }) {
       )}
 
       {(ocs.length > 0 ? ocs : [null]).map((oc) => {
-        const blockLineas = oc ? lineasDeOc(lineas, oc) : lineas;
+        const blockLineas = oc ? lineasDeOc(lineasVisibles, oc) : lineasVisibles;
         const erpLineas = oc ? lineasDeOc(lineasErp, oc) : lineasErp;
         const ocKey = oc ? `${oc.oc_comp_id}-${oc.oc_bra_id}-${oc.oc_poh_id}` : 'header';
         const erpMissing = Boolean(oc) && erpLineas.length === 0;
@@ -736,6 +739,42 @@ function AccordionBodyConOc({ pedido, onRefreshList }) {
         {oc && <h3 className={styles.ocBlockTitle}>OC #{oc.oc_poh_id}</h3>}
         {erpMissing ? (
           <p className={styles.ocErpMissing}>{OC_ERP_MISSING_COPY}</p>
+        ) : isControlado ? (
+      <div className={styles.tableWrapper}>
+        <table className={styles.itemTable}>
+          <caption className="sr-only">
+            Ítems de la orden de compra{oc ? ` #${oc.oc_poh_id}` : ''} (solo lectura)
+          </caption>
+          <thead>
+            <tr>
+              <th>Ítem</th>
+              <th>Depósito</th>
+              <th className={styles.thRight}>Cant. pedida</th>
+              <th className={styles.thRight}>Recibido prev.</th>
+              <th className={styles.thRight}>Saldo</th>
+            </tr>
+          </thead>
+          <tbody>
+            {blockLineas.map((linea) => {
+              const nombre = linea.item_nombre || `Ítem #${linea.item_id}`;
+              return (
+                <tr key={`${ocKey}-${linea.pod_id}`}>
+                  <td>
+                    <div className={styles.itemNombre}>{nombre}</div>
+                    <div className={styles.itemCodigo}>#{linea.item_code ?? linea.item_id}</div>
+                  </td>
+                  <td>{linea.deposito_nombre || '—'}</td>
+                  <td className={styles.tdRight}>{formatUnidades(linea.pod_qty)}</td>
+                  <td className={styles.tdRight}>{formatUnidades(linea.cantidad_recibida_total)}</td>
+                  <td className={`${styles.tdRight} ${styles.saldoCell} ${linea.saldo_pendiente > 0 ? styles.saldoPendiente : styles.saldoCero}`}>
+                    {formatUnidades(linea.saldo_pendiente)}
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
         ) : (
       <div className={styles.tableWrapper}>
         <table className={styles.itemTable}>
@@ -831,6 +870,8 @@ function AccordionBodyConOc({ pedido, onRefreshList }) {
         );
       })}
 
+      {!isControlado && (
+        <>
       <div className={styles.observacionesInline}>
         <label htmlFor={`faltantes-conoc-${pedido.id}`} className={styles.observacionesLabel}>
           Texto de faltantes (requerido al marcar faltantes)
@@ -890,6 +931,8 @@ function AccordionBodyConOc({ pedido, onRefreshList }) {
           </button>
         </div>
       </div>
+        </>
+      )}
     </>
   );
 }
