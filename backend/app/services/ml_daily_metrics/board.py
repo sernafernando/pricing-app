@@ -5,54 +5,62 @@ PRODUCT (or per PUBLICATION), with sales windows, markup now vs before,
 Everything is aggregated, filtered, sorted and PAGED in SQL; Python only
 shapes the page it gets back.
 
+WHERE THE NUMBERS COME FROM: the tables we already have, never a derived
+summary table (ODD "Sin tabla resumen"). `sales.sale_lines` is the ONE
+per-sold-item base (accreditation day, frozen-cost product, cancellation
+and money rules -- the Ventas ML ones); every window, markup, series, last
+sale and ageing is read from it, so 24h <= 3d <= 7d <= 15d <= 30d holds by
+construction.
+
 HOW A REQUEST RUNS (`with Board(db, f) as b:` -- see `__enter__`):
 
-1. Once, before the context: the order ids accredited in the last 24h (the
-   daily rollup has no hours) and, if filtered by PM, the PM's pairs.
-2. `__enter__` opens a SAVEPOINT inside the request's transaction and
-   materializes the per-(product, MLA) aggregate into a TEMPORARY table
-   (`PAIRS_TABLE`, `ON COMMIT DROP` on Postgres), then `ANALYZE`s it (a fresh
-   temp table has no statistics and the planner would nest loops over it).
-   The aggregate is built from:
-   - the `agg` CTE: ONE pass over `ml_product_daily_metrics`, per pair, with
-     the period, the comparison period, the 3/7/15/30-day windows and the
-     last sale day (`MAX(day)`);
-   - the universe of pairs: every publication the ERP mirror knows (product =
-     its `item_id`) plus every pair the rollup ever sold;
-   - each MLA's publication data (newest `mlp_id` wins; status/type/store
-     resolved in SQL) and the product's data, joined -- never loaded whole
-     into Python;
-   - the rolling-24h units, from the orders.
-3. Every statement after that reads the small temp table: the KPI totals and
-   their daily series, the chip counts (MATERIALIZED CTEs, each with its own
-   axis cleared), the page (`ORDER BY` + `LIMIT/OFFSET`), and the page's pair
-   details and 90-day series -- ONE bulk statement each, never one per row.
-4. `__exit__` rolls the savepoint back: the CREATE goes with it.
+1. `__enter__` opens a SAVEPOINT inside the request's transaction and
+   materializes, `ON COMMIT DROP` on Postgres, two TEMPORARY tables, each
+   `ANALYZE`d (a fresh temp table has no statistics and the planner would
+   nest loops over it):
+   - `LINES_TABLE`: the base summed per (product, MLA, business day) over
+     the days the request reads (period, comparison period, the 90-day
+     series) plus the rolling 24h -- ONE pass, through the group-date index;
+   - `PAIRS_TABLE`: per (product, MLA) pair, the period, the comparison
+     period, the 3/7/15/30-day windows and the 24h, summed from the lines;
+     the last sale EVER (`sales.last_sales`, all history); and the pair's
+     publication data (newest `mlp_id` wins) and product data, joined --
+     never loaded whole into Python. The universe: every publication the
+     ERP mirror knows plus every pair ever sold.
+2. Every statement after that reads the small temp tables: the KPI totals
+   and their daily series, the chip counts (MATERIALIZED CTEs, each with its
+   own axis cleared), the page (`ORDER BY` + `LIMIT/OFFSET`), and the page's
+   pair details and 90-day series -- ONE bulk statement each, never one per
+   row.
+3. `__exit__` rolls the savepoint back: both CREATEs go with it.
 
-16 statements per board request whatever the page size or the volume (14
-when the page is empty), pinned with the measured timings by
-`tests/services/ml_daily_metrics/test_board_volume_postgres.py`.
+A fixed number of statements per board request whatever the page size or
+the volume, pinned with the measured timings by
+`tests/services/ml_daily_metrics/test_board_volume_postgres.py`. With
+`product_item_id` (a product's publication sub-rows) both tables hold only
+that product's groups, reached through the frozen-cost product index: the
+cost does not depend on how many other products sold.
 
 WHY ONE TRANSACTION: production reaches Postgres through PgBouncer in
 TRANSACTION pooling (`app/core/database.py`), so a server connection is ours
-only for one transaction. The temp table must never outlive it (the next
-client on that server connection would inherit it) nor be needed after a
+only for one transaction. The temp tables must never outlive it (the next
+client on that server connection would inherit them) nor be needed after a
 commit (later statements may run on another server connection). Hence the
 savepoint that is always rolled back, `ON COMMIT DROP` as a second net, and
 `Board` refusing loudly if something commits in the middle.
 
 Markup is ALWAYS `SUM(total_gauss) / SUM(costo) x 100` over the selected
-rows/days, never an average of percentages; no cost means no markup (NULL),
-never 0. The store is the publication's CURRENT `mlp_official_store_id`
-(decision in the ODD doc): a publication that moved store takes its history
-with it.
+rows/days (the per-group all-or-nothing population, `mtg`/`costo`), never an
+average of percentages; no cost means no markup (NULL), never 0. The store
+is the publication's CURRENT `mlp_official_store_id` (decision in the ODD
+doc): a publication that moved store takes its history with it.
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass, field
 from datetime import date, datetime, timedelta, timezone
-from decimal import Decimal
+from decimal import ROUND_HALF_UP, Decimal
 from typing import Any, Dict, List, Optional, Set, Tuple
 
 from sqlalchemy import (
@@ -76,12 +84,16 @@ from sqlalchemy.orm import Session
 from sqlalchemy.sql.expression import ClauseElement, Executable
 
 from app.models.mercadolibre_item_publicado import MercadoLibreItemPublicado
-from app.models.ml_daily_metrics import MlProductDailyMetrics
-from app.models.ml_group_metrics import MlGroupMetrics
-from app.models.ml_order_item_costo import MlOrderItemCosto
-from app.models.ml_orders_ops import MlOrderItemOps, MlOrdersOps
+from app.models.ml_orders_ops import MlOpsSyncCursor
 from app.models.producto import ProductoERP
-from app.services.ml_daily_metrics.rollup import BUSINESS_TZ, NO_PRODUCT, frozen_cost_of_item
+from app.services.ml_daily_metrics.sales import (
+    BUSINESS_TZ,
+    NO_PRODUCT,
+    business_date,
+    day_bounds,
+    last_sales,
+    sale_lines,
+)
 from app.services.ml_publication_status_service import ML_PUBLICATION_STATUS_MAP
 from app.services.ml_sales_query.filters import NO_STORE, _resolve_pm_pairs
 
@@ -123,6 +135,10 @@ LISTING_TYPES = {"gold_special": "clasica", "gold_pro": "premium"}
 # `Board.__exit__` always rolls back (a rolled-back CREATE leaves nothing
 # behind, success or failure), and a commit in between is refused loudly.
 PAIRS_TABLE = "board_pair_agg"
+LINES_TABLE = "board_lines"
+# The cursors whose completed passes keep the sales fresh (same as Ventas ML's
+# sync-status): the windowed sweep and the event-driven activity drain.
+FRESHNESS_CURSORS = ("sweep", "ml_activity")
 
 
 class CreateTempTableAs(Executable, ClauseElement):
@@ -143,7 +159,6 @@ def _compile_create_temp_table_as(element: CreateTempTableAs, compiler: Any, **k
     return f"CREATE TEMPORARY TABLE {element.name}{on_commit} AS {compiler.process(element.query, **kw)}"
 
 
-R = MlProductDailyMetrics
 M = MercadoLibreItemPublicado
 P = ProductoERP
 
@@ -210,6 +225,14 @@ def _as_date(value: Any) -> Optional[date]:
     return date.fromisoformat(str(value)[:10])
 
 
+def _as_datetime(value: Any) -> Optional[datetime]:
+    """SQLite hands a timestamp read through an untyped temp-table column
+    back as text; Postgres as `datetime`."""
+    if value is None or isinstance(value, datetime):
+        return value
+    return datetime.fromisoformat(str(value))
+
+
 def _as_aware(moment: Optional[datetime]) -> Optional[datetime]:
     if moment is not None and moment.tzinfo is None:
         return moment.replace(tzinfo=timezone.utc)
@@ -242,9 +265,13 @@ class Row:
     publications_count: int = 0
     units: int = 0
     gross: Decimal = Decimal("0")
+    # `tg`: every known Total Gauss (what "Total Gauss" shows). `mtg`/`costo`:
+    # the markup's numerator/denominator (per-group all-or-nothing).
     tg: Decimal = Decimal("0")
+    mtg: Decimal = Decimal("0")
     costo: Decimal = Decimal("0")
     prev_tg: Decimal = Decimal("0")
+    prev_mtg: Decimal = Decimal("0")
     prev_costo: Decimal = Decimal("0")
     windows: Dict[str, int] = field(default_factory=dict)
     units_24h: int = 0
@@ -258,11 +285,11 @@ class Row:
 
     @property
     def markup(self) -> Optional[Decimal]:
-        return markup_of(self.tg, self.costo)
+        return markup_of(self.mtg, self.costo)
 
     @property
     def markup_prev(self) -> Optional[Decimal]:
-        return markup_of(self.prev_tg, self.prev_costo)
+        return markup_of(self.prev_mtg, self.prev_costo)
 
     @property
     def markup_delta(self) -> Optional[Decimal]:
@@ -279,10 +306,12 @@ class Kpis:
     units: int
     gross: Decimal
     tg: Decimal
+    mtg: Decimal
     costo: Decimal
     prev_units: int
     prev_gross: Decimal
     prev_tg: Decimal
+    prev_mtg: Decimal
     prev_costo: Decimal
     rows: int
     with_sales: int
@@ -291,8 +320,8 @@ class Kpis:
     from_31_to_60: int
     over_60: int
     series_units: List[int]
-    series_gross: List[float]
-    series_tg: List[float]
+    series_gross: List[Decimal]
+    series_tg: List[Decimal]
     series_markup: List[Optional[float]]
 
 
@@ -305,6 +334,16 @@ class Facets:
     alerts: Dict[str, int]
 
 
+CENT = Decimal("0.01")
+
+
+def cents(value: Any) -> Decimal:
+    """A money sum rounded to the cent, once, at the end -- Ventas ML sums
+    2-decimal values, so its totals are exact cents; the board's per-item
+    shares (33.33...) are exact only once the total is rounded."""
+    return Decimal(str(value or 0)).quantize(CENT, ROUND_HALF_UP)
+
+
 def _round1(value: Optional[Decimal]) -> Optional[float]:
     return None if value is None else round(float(value), 1)
 
@@ -314,20 +353,20 @@ def _round1(value: Optional[Decimal]) -> Optional[float]:
 
 class Board:
     """One request's worth of board SQL. Construct once per request (it
-    resolves the 24h order ids and the PM pairs up front, once)."""
+    fixes the clock and resolves the PM pairs up front, once)."""
 
     def __init__(self, db: Session, f: BoardFilter, product_item_id: Optional[int] = None):
         self.db = db
         self.f = f
         self.product_item_id = product_item_id
         self.sqlite = db.get_bind().dialect.name == "sqlite"
-        self.today = today_business()
+        self.now = now_utc()
+        self.today = self.now.astimezone(BUSINESS_TZ).date()
         self.prev_from, self.prev_to = previous_period(f)
         self.window_from = {name: f.date_to - timedelta(days=days - 1) for name, days in WINDOWS}
-        self.read_from = min(f.date_from, self.window_from["30d"])
         self.series_from = f.date_to - timedelta(days=SERIES_DAYS - 1)
+        self.since_24h = self.now - timedelta(hours=24)
         self.pm_pairs = _resolve_pm_pairs(db, f.pms) if f.pms else None
-        self.recent_order_ids = self._recent_order_ids()
 
     # ── dialect helpers ──
 
@@ -346,13 +385,15 @@ class Board:
 
     # ── building blocks ──
 
-    def _recent_order_ids(self) -> List[int]:
-        since = now_utc() - timedelta(hours=24)
-        rows = self.db.execute(select(MlGroupMetrics.member_order_ids).where(MlGroupMetrics.group_date >= since))
-        return sorted({int(oid) for (members,) in rows for oid in (members or ())})
-
-    def _pub(self):
-        latest = select(func.max(M.mlp_id)).where(M.mlp_publicationID.isnot(None)).group_by(M.mlp_publicationID)
+    def _pub(self, mlas: Any = None):
+        """Each MLA's current publication row (newest `mlp_id`), with its
+        status/type/store resolved in SQL. `mlas` (a one-column select)
+        narrows it to those MLAs: a product's sub-rows never read every
+        publication."""
+        latest = select(func.max(M.mlp_id)).where(M.mlp_publicationID.isnot(None))
+        if mlas is not None:
+            latest = latest.where(M.mlp_publicationID.in_(mlas))
+        latest = latest.group_by(M.mlp_publicationID)
         status = case(
             *((M.mlp_lastStatusID == sid, literal(name)) for sid, name in ML_PUBLICATION_STATUS_MAP.items()),
             (
@@ -380,61 +421,80 @@ class Board:
                 M.mlp_thumbnail.label("thumbnail"),
                 self._date_of(func.coalesce(M.mlp_start_time, M.mlp_creationDate)).label("start_day"),
             )
-            .where(M.mlp_id.in_(latest))
+            .where(M.mlp_id.in_(latest), *([M.mlp_publicationID.in_(mlas)] if mlas is not None else []))
             .subquery("pub")
         )
 
-    def _agg(self):
-        """ONE pass over the rollup, per (product, MLA): the period, the
-        comparison period, the 3/7/15/30-day windows and the last sale day."""
+    def _ranges(self):
+        """The accreditation timestamps the request reads, as UTC ranges: the
+        period through `date_to` and its 30-day windows and 90-day series,
+        the comparison period, and the rolling 24h."""
         f = self.f
+        first = min(f.date_from, self.window_from["30d"], self.series_from)
+        return [day_bounds(first, f.date_to), day_bounds(self.prev_from, self.prev_to), (self.since_24h, None)]
 
-        def total(column, start: date, end: date):
-            return func.coalesce(func.sum(case((R.day.between(start, end), column), else_=0)), 0)
+    def _lines_source(self):
+        """The base summed per (product, MLA, business day) over `_ranges`:
+        what every period/window total, the KPI series and the 90-day
+        sparklines read. `u24` is the part accredited in the last 24h -- a
+        SUBSET of the day's units by construction."""
+        lines = sale_lines(sqlite=self.sqlite, ranges=self._ranges(), product=self.product_item_id)
+        return select(
+            lines.c.product,
+            lines.c.mla,
+            lines.c.day,
+            func.sum(lines.c.qty).label("units"),
+            func.sum(lines.c.gross).label("gross"),
+            func.sum(lines.c.tg).label("tg"),
+            func.sum(lines.c.mtg).label("mtg"),
+            func.sum(lines.c.mcosto).label("mcosto"),
+            func.sum(case((lines.c.group_date >= self.since_24h, lines.c.qty), else_=0)).label("u24"),
+            func.max(lines.c.group_date).label("last_at"),
+        ).group_by(lines.c.product, lines.c.mla, lines.c.day)
+
+    def _agg(self):
+        """ONE pass over the request's lines, per (product, MLA): the period,
+        the comparison period, the 3/7/15/30-day windows and the 24h."""
+        f, L = self.f, self.lines
+
+        def total(col, start: date, end: date):
+            return func.coalesce(func.sum(case((L.c.day.between(self._day(start), self._day(end)), col), else_=0)), 0)
 
         cols = [
-            R.product_item_id.label("product"),
-            R.mla.label("mla"),
-            total(R.units, f.date_from, f.date_to).label("units"),
-            total(R.gross_ars, f.date_from, f.date_to).label("gross"),
-            total(R.total_gauss, f.date_from, f.date_to).label("tg"),
-            total(R.costo, f.date_from, f.date_to).label("costo"),
-            total(R.units, self.prev_from, self.prev_to).label("prev_units"),
-            total(R.gross_ars, self.prev_from, self.prev_to).label("prev_gross"),
-            total(R.total_gauss, self.prev_from, self.prev_to).label("prev_tg"),
-            total(R.costo, self.prev_from, self.prev_to).label("prev_costo"),
-            *(total(R.units, start, f.date_to).label(f"w{name}") for name, start in self.window_from.items()),
-            func.max(R.day).label("last_day"),
+            L.c.product.label("product"),
+            L.c.mla.label("mla"),
+            total(L.c.units, f.date_from, f.date_to).label("units"),
+            total(L.c.gross, f.date_from, f.date_to).label("gross"),
+            total(L.c.tg, f.date_from, f.date_to).label("tg"),
+            total(L.c.mtg, f.date_from, f.date_to).label("mtg"),
+            total(L.c.mcosto, f.date_from, f.date_to).label("costo"),
+            total(L.c.units, self.prev_from, self.prev_to).label("prev_units"),
+            total(L.c.gross, self.prev_from, self.prev_to).label("prev_gross"),
+            total(L.c.tg, self.prev_from, self.prev_to).label("prev_tg"),
+            total(L.c.mtg, self.prev_from, self.prev_to).label("prev_mtg"),
+            total(L.c.mcosto, self.prev_from, self.prev_to).label("prev_costo"),
+            *(total(L.c.units, start, f.date_to).label(f"w{name}") for name, start in self.window_from.items()),
+            func.coalesce(func.sum(L.c.u24), 0).label("u24"),
         ]
-        return select(*cols).group_by(R.product_item_id, R.mla).cte("agg")
-
-    def _u24(self):
-        product = func.coalesce(MlOrderItemCosto.producto_item_id, NO_PRODUCT)
-        q = (
-            select(
-                product.label("product"),
-                MlOrderItemOps.item_id.label("mla"),
-                func.sum(MlOrderItemOps.quantity).label("units"),
-            )
-            .join(MlOrdersOps, MlOrdersOps.order_id == MlOrderItemOps.order_id)
-            .outerjoin(MlOrderItemCosto, frozen_cost_of_item())
-            .where(
-                MlOrderItemOps.order_id.in_(self.recent_order_ids) if self.recent_order_ids else false(),
-                or_(MlOrdersOps.status != "cancelled", MlOrdersOps.covered_by_marketplace.is_(True)),
-            )
-            .group_by(product, MlOrderItemOps.item_id)
-        )
-        return q.subquery("u24")
+        return select(*cols).group_by(L.c.product, L.c.mla).subquery("agg")
 
     def _pair_source(self):
-        """Every (product, MLA) pair of the universe with its aggregates and
-        its publication/product attributes -- what gets materialized once."""
-        agg, pub, u24 = self._agg(), self._pub(), self._u24()
-        pairs = union(
-            select(agg.c.product, agg.c.mla),
-            select(M.item_id, M.mlp_publicationID).where(M.item_id.isnot(None), M.mlp_publicationID.isnot(None)),
-        ).subquery("pairs")
-        sums = [c for c in agg.c.keys() if c not in ("product", "mla", "last_day")]
+        """Every (product, MLA) pair of the universe with its aggregates, its
+        last sale ever and its publication/product attributes -- what gets
+        materialized once."""
+        agg = self._agg()
+        # Product 0 ("sin producto": items with no frozen cost row) has no
+        # product index to reach its sales through: its sub-rows read only
+        # the request's accreditation window, never the whole history (their
+        # ageing/last sale looks back over that window only).
+        history = self._ranges() if self.product_item_id == NO_PRODUCT else None
+        last = last_sales(sqlite=self.sqlite, product=self.product_item_id, ranges=history).cte("last_sale")
+        published = select(M.item_id, M.mlp_publicationID).where(M.item_id.isnot(None), M.mlp_publicationID.isnot(None))
+        if self.product_item_id is not None:
+            published = published.where(M.item_id == self.product_item_id)
+        pairs = union(select(last.c.product, last.c.mla), published).subquery("pairs")
+        pub = self._pub(select(pairs.c.mla) if self.product_item_id is not None else None)
+        sums = [c for c in agg.c.keys() if c not in ("product", "mla")]
         return (
             select(
                 pairs.c.product.label("product"),
@@ -454,32 +514,36 @@ class Board:
                 P.categoria,
                 P.subcategoria_id,
                 *(func.coalesce(agg.c[name], 0).label(name) for name in sums),
-                agg.c.last_day,
-                func.coalesce(u24.c.units, 0).label("u24"),
+                last.c.last_at,
+                business_date(last.c.last_at, self.sqlite).label("last_day"),
             )
             .select_from(pairs)
             .outerjoin(pub, pub.c.mla == pairs.c.mla)
             .outerjoin(P, P.item_id == pairs.c.product)
             .outerjoin(agg, and_(agg.c.product == pairs.c.product, agg.c.mla == pairs.c.mla))
-            .outerjoin(u24, and_(u24.c.product == pairs.c.product, u24.c.mla == pairs.c.mla))
+            .outerjoin(last, and_(last.c.product == pairs.c.product, last.c.mla == pairs.c.mla))
         )
 
-    # ── request lifecycle: the pair aggregate is computed ONCE ──
+    # ── request lifecycle: the lines and the pair aggregate, computed ONCE ──
+
+    def _materialize(self, name: str, source: Any, types: Optional[Dict[str, Any]] = None) -> Any:
+        self.db.execute(CreateTempTableAs(name, source))
+        if not self.sqlite:
+            # A fresh temp table has no statistics: without them the planner
+            # guesses tiny row counts and nests loops over it (seen: 0.7 s
+            # for one chip count). Analyzing a narrow temp table is ms.
+            self.db.execute(text(f"ANALYZE {name}"))
+        types = types or {}
+        return table(name, *(column(c, types.get(c)) for c in source.selected_columns.keys()))
 
     def __enter__(self) -> "Board":
-        source = self._pair_source()
         # Everything below runs in ONE transaction: a SAVEPOINT inside the
         # request's transaction, rolled back on the way out whatever happens.
         self._savepoint = self.db.begin_nested()
         if not self.db.in_transaction() or not self._savepoint.is_active:
-            raise RuntimeError("Board needs an open transaction: its pair table must not outlive it")
-        self.db.execute(CreateTempTableAs(PAIRS_TABLE, source))
-        if not self.sqlite:
-            # A fresh temp table has no statistics: without them the planner
-            # guesses tiny row counts and nests loops over ~10k pairs (seen:
-            # 0.7 s for one chip count). Analyzing ~10k narrow rows is ms.
-            self.db.execute(text(f"ANALYZE {PAIRS_TABLE}"))
-        self.t = table(PAIRS_TABLE, *(column(name) for name in source.selected_columns.keys()))
+            raise RuntimeError("Board needs an open transaction: its temp tables must not outlive it")
+        self.lines = self._materialize(LINES_TABLE, self._lines_source(), {"day": Date()})
+        self.t = self._materialize(PAIRS_TABLE, self._pair_source())
         return self
 
     def __exit__(self, exc_type: Any, exc: Any, tb: Any) -> None:
@@ -588,10 +652,12 @@ class Board:
                         "units",
                         "gross",
                         "tg",
+                        "mtg",
                         "costo",
                         "prev_units",
                         "prev_gross",
                         "prev_tg",
+                        "prev_mtg",
                         "prev_costo",
                         "w3d",
                         "w7d",
@@ -601,13 +667,14 @@ class Board:
                     )
                 ),
                 func.max(fp.c.last_day).label("last_day"),
+                func.max(fp.c.last_at).label("last_at"),
                 func.min(fp.c.start_day).label("start_day"),
             )
             .group_by(fp.c.rk)
             .subquery("g")
         )
-        markup = case((g.c.costo > 0, g.c.tg * 100 / g.c.costo), else_=None)
-        markup_prev = case((g.c.prev_costo > 0, g.c.prev_tg * 100 / g.c.prev_costo), else_=None)
+        markup = case((g.c.costo > 0, g.c.mtg * 100 / g.c.costo), else_=None)
+        markup_prev = case((g.c.prev_costo > 0, g.c.prev_mtg * 100 / g.c.prev_costo), else_=None)
         delta = markup - markup_prev
         ref_day = func.coalesce(g.c.last_day, g.c.start_day)
         sin_ventas = g.c.w30d == 0
@@ -695,11 +762,14 @@ class Board:
                 title=r["title"] or "Sin producto",
                 publications_count=int(r["pubs"] or 0),
                 units=int(r["units"] or 0),
-                gross=Decimal(str(r["gross"] or 0)),
-                tg=Decimal(str(r["tg"] or 0)),
-                costo=Decimal(str(r["costo"] or 0)),
-                prev_tg=Decimal(str(r["prev_tg"] or 0)),
-                prev_costo=Decimal(str(r["prev_costo"] or 0)),
+                gross=cents(r["gross"]),
+                tg=cents(r["tg"]),
+                mtg=cents(r["mtg"]),
+                costo=cents(r["costo"]),
+                prev_tg=cents(r["prev_tg"]),
+                prev_mtg=cents(r["prev_mtg"]),
+                prev_costo=cents(r["prev_costo"]),
+                last_sale_at=_as_aware(_as_datetime(r["last_at"])),
                 windows={name: int(r[f"w{name}"] or 0) for name, _ in WINDOWS},
                 units_24h=int(r["u24"] or 0),
                 ageing_days=(self.today - ref_day).days if ref_day else None,
@@ -712,8 +782,8 @@ class Board:
     def _on_page(self, fp: Any, by_key: Dict[str, Row]) -> Any:
         """The page's pairs, filtered on the RAW key column (an int product
         id or an MLA), never on the cast `rk`: the planner can estimate the
-        former, and with a sound estimate it reaches the rollup through the
-        (product, MLA, day) index instead of scanning it."""
+        former, and a sound estimate keeps it from nesting loops over the
+        request's lines table."""
         if self.f.group_by == "product":
             return fp.c.product.in_([int(key) for key in by_key])
         return fp.c.mla.in_(list(by_key))
@@ -726,11 +796,6 @@ class Board:
             return
         by_key = {row.key: row for row in rows}
         fp = self.filtered_pairs()
-        last_ts = (
-            select(func.max(R.last_sale_at))
-            .where(R.product_item_id == fp.c.product, R.mla == fp.c.mla)
-            .scalar_subquery()
-        )
         detail = select(
             fp.c.rk,
             fp.c.product,
@@ -746,17 +811,12 @@ class Board:
             fp.c.is_full,
             fp.c.pub_title.label("title"),
             fp.c.thumbnail,
-            last_ts.label("last_sale_at"),
         ).where(self._on_page(fp, by_key))
         pairs_of: Dict[str, List[Any]] = {}
         for d in self.db.execute(detail).mappings():
             pairs_of.setdefault(str(d["rk"]), []).append(d)
         for key, details in pairs_of.items():
             row = by_key[key]
-            for d in details:
-                last = _as_aware(d["last_sale_at"])
-                if last is not None and (row.last_sale_at is None or last > row.last_sale_at):
-                    row.last_sale_at = last
             main = next((d for d in details if d["product"] == row.product_item_id and d["codigo"]), None)
             main = main or next((d for d in details if d["codigo"]), None)
             if main is not None:
@@ -784,18 +844,22 @@ class Board:
             # Callers with no sparklines (the CSV export) skip the page's
             # most expensive read: the 90-day daily series.
             return
+        L = self.lines
         series = (
             select(
                 fp.c.rk,
-                R.day,
-                func.sum(R.units).label("units"),
-                func.sum(R.total_gauss).label("tg"),
-                func.sum(R.costo).label("costo"),
+                L.c.day,
+                func.sum(L.c.units).label("units"),
+                func.sum(L.c.mtg).label("tg"),
+                func.sum(L.c.mcosto).label("costo"),
             )
             .select_from(fp)
-            .join(R, and_(R.product_item_id == fp.c.product, R.mla == fp.c.mla))
-            .where(self._on_page(fp, by_key), R.day.between(self.series_from, self.f.date_to))
-            .group_by(fp.c.rk, R.day)
+            .join(L, and_(L.c.product == fp.c.product, L.c.mla == fp.c.mla))
+            .where(
+                self._on_page(fp, by_key),
+                L.c.day.between(self._day(self.series_from), self._day(self.f.date_to)),
+            )
+            .group_by(fp.c.rk, L.c.day)
         )
         units = {key: [0] * SERIES_DAYS for key in by_key}
         tg = {key: [Decimal("0")] * SERIES_DAYS for key in by_key}
@@ -805,9 +869,13 @@ class Board:
             units[key][index] += int(s["units"] or 0)
             tg[key][index] += Decimal(str(s["tg"] or 0))
             costo[key][index] += Decimal(str(s["costo"] or 0))
+        # The markup of a day from that day's sums rounded to the cent, like
+        # the row's own markup.
         for key, row in by_key.items():
             row.series_units = units[key]
-            row.series_markup = [_round1(markup_of(tg[key][i], costo[key][i])) for i in range(SERIES_DAYS)]
+            row.series_markup = [
+                _round1(markup_of(cents(tg[key][i]), cents(costo[key][i]))) for i in range(SERIES_DAYS)
+            ]
 
     def kpis(self) -> Kpis:
         rows = self.rows()
@@ -819,10 +887,12 @@ class Board:
                     func.coalesce(func.sum(rows.c.units), 0).label("units"),
                     func.coalesce(func.sum(rows.c.gross), 0).label("gross"),
                     func.coalesce(func.sum(rows.c.tg), 0).label("tg"),
+                    func.coalesce(func.sum(rows.c.mtg), 0).label("mtg"),
                     func.coalesce(func.sum(rows.c.costo), 0).label("costo"),
                     func.coalesce(func.sum(rows.c.prev_units), 0).label("prev_units"),
                     func.coalesce(func.sum(rows.c.prev_gross), 0).label("prev_gross"),
                     func.coalesce(func.sum(rows.c.prev_tg), 0).label("prev_tg"),
+                    func.coalesce(func.sum(rows.c.prev_mtg), 0).label("prev_mtg"),
                     func.coalesce(func.sum(rows.c.prev_costo), 0).label("prev_costo"),
                     func.count().label("rows"),
                     func.coalesce(func.sum(case((rows.c.units > 0, 1), else_=0)), 0).label("with_sales"),
@@ -842,36 +912,43 @@ class Board:
         # Daily series of the period: the rows' pairs, one statement.
         joined, fp = self._members("")
         days = (self.f.date_to - self.f.date_from).days + 1
+        L = self.lines
         series = (
             select(
-                R.day,
-                func.sum(R.units).label("units"),
-                func.sum(R.gross_ars).label("gross"),
-                func.sum(R.total_gauss).label("tg"),
-                func.sum(R.costo).label("costo"),
+                L.c.day,
+                func.sum(L.c.units).label("units"),
+                func.sum(L.c.gross).label("gross"),
+                func.sum(L.c.tg).label("tg"),
+                func.sum(L.c.mtg).label("mtg"),
+                func.sum(L.c.mcosto).label("costo"),
             )
             .select_from(joined)
-            .join(R, and_(R.product_item_id == fp.c.product, R.mla == fp.c.mla))
-            .where(R.day.between(self.f.date_from, self.f.date_to))
-            .group_by(R.day)
+            .join(L, and_(L.c.product == fp.c.product, L.c.mla == fp.c.mla))
+            .where(L.c.day.between(self._day(self.f.date_from), self._day(self.f.date_to)))
+            .group_by(L.c.day)
         )
         s_units, s_gross = [0] * days, [Decimal("0")] * days
         s_tg, s_costo = [Decimal("0")] * days, [Decimal("0")] * days
+        s_mtg = [Decimal("0")] * days
         for s in self.db.execute(series).mappings():
             i = (_as_date(s["day"]) - self.f.date_from).days
             s_units[i] = int(s["units"] or 0)
-            s_gross[i] = Decimal(str(s["gross"] or 0))
-            s_tg[i] = Decimal(str(s["tg"] or 0))
-            s_costo[i] = Decimal(str(s["costo"] or 0))
-        dec = lambda v: Decimal(str(v or 0))  # noqa: E731
+            # Each point is money like any other: rounded to the cent.
+            s_gross[i] = cents(s["gross"])
+            s_tg[i] = cents(s["tg"])
+            s_mtg[i] = cents(s["mtg"])
+            s_costo[i] = cents(s["costo"])
+        dec = cents
         return Kpis(
             units=int(totals["units"]),
             gross=dec(totals["gross"]),
             tg=dec(totals["tg"]),
+            mtg=dec(totals["mtg"]),
             costo=dec(totals["costo"]),
             prev_units=int(totals["prev_units"]),
             prev_gross=dec(totals["prev_gross"]),
             prev_tg=dec(totals["prev_tg"]),
+            prev_mtg=dec(totals["prev_mtg"]),
             prev_costo=dec(totals["prev_costo"]),
             rows=int(totals["rows"]),
             with_sales=int(totals["with_sales"]),
@@ -880,9 +957,9 @@ class Board:
             from_31_to_60=int(totals["from_31_to_60"]),
             over_60=int(totals["over_60"]),
             series_units=s_units,
-            series_gross=[float(v) for v in s_gross],
-            series_tg=[float(v) for v in s_tg],
-            series_markup=[_round1(markup_of(s_tg[i], s_costo[i])) for i in range(days)],
+            series_gross=s_gross,
+            series_tg=s_tg,
+            series_markup=[_round1(markup_of(s_mtg[i], s_costo[i])) for i in range(days)],
         )
 
     def _members(self, skip: str):
@@ -953,7 +1030,13 @@ class Board:
 
 
 def refreshed_at(db: Session) -> Optional[datetime]:
-    return _as_aware(db.query(func.max(R.updated_at)).scalar())
+    """When the sales were last brought up to date from Mercado Libre: the
+    latest COMPLETE pass of the sweep or the activity drain -- the same
+    source as Ventas ML's sync-status. `None` before any."""
+    last = (
+        db.query(func.max(MlOpsSyncCursor.last_success_at)).filter(MlOpsSyncCursor.name.in_(FRESHNESS_CURSORS)).scalar()
+    )
+    return _as_aware(_as_datetime(last))
 
 
 __all__ = [

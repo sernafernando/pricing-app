@@ -52,7 +52,7 @@ def bg_sessions(db, monkeypatch):
         events["open"] += 1
         if events["on_open"] is not None:
             # A hook to change the data BETWEEN pages, as a concurrent sale or
-            # rollup refresh would.
+            # metrics recompute would.
             events["on_open"](events["open"])
         if events["fail_on_open"] is not None and events["open"] >= events["fail_on_open"]:
             events["close"] += 1

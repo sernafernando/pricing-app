@@ -43,7 +43,9 @@ el usuario). Cambios pedidos sobre ese diseño que Stitch no llegó a aplicar:
 - Estado de publicación (activa/pausada/cerrada) = último estado del ERP; la
   UI lo dice así (no es confiable en vivo, fix diferido al módulo
   Publicaciones ML).
-- Tabla resumen diaria (producto × MLA × día de acreditación; ~~× tienda~~ —
+- **REEMPLAZADA 2026-10-02 (decisión del usuario, ver "Sin tabla
+  resumen"): ya no existe; el tablero lee las órdenes.**
+  Tabla resumen diaria (producto × MLA × día de acreditación; ~~× tienda~~ —
   **reemplazado por la decisión T2 de abajo: la tienda NO va en la clave, se
   resuelve al leer**) con
   SUMAS (unidades, bruto, total_gauss, costo, órdenes, última venta), nunca
@@ -266,4 +268,227 @@ Una PR por tarea (T1 sola es útil ya; T2→T3→T4 en orden).
 
 ## Estado
 
-Creado 2026-10-01. T1–T4 hechos. Falta: correr el backfill en producción después del deploy y medir el tiempo de respuesta del tablero con datos reales.
+Creado 2026-10-01. T1–T4 hechos. 2026-10-02: "Sin tabla resumen" (abajo) reemplaza el
+resumen diario: ya NO hay backfill que correr. Falta: medir el tiempo de respuesta
+del tablero con datos reales de producción.
+
+## Sin tabla resumen (2026-10-02)
+
+Decisión del usuario (final): el tablero sale de las tablas que YA tenemos,
+no de `ml_product_daily_metrics`. "Tenemos todas las operaciones, TODAS! no
+entiendo porque tengo que andar backfilleando, porque todo lleva una tabla
+nueva, porque nada sale de lo que ya tenemos."
+
+Síntomas que causaba el resumen en producción: 24h=68 > 3d=7d=15d=53 < 30d=99
+para un producto (24h salía vivo de las órdenes; el resto de un resumen
+incompleto), y abrir las publicaciones de un producto tardaba segundos porque
+la sub-fila reconstruía el agregado del tablero ENTERO.
+
+Fuentes (mismas reglas que Ventas ML, para que los números coincidan):
+día = `ml_group_metrics.group_date` (acreditación) en hora de Buenos Aires;
+plata = `ml_order_metrics`; unidades y MLA = `ml_order_items_ops`; producto =
+costo congelado (`frozen_cost_of_item()`); reparto de una orden con varios
+ítems por costo congelado; cancelada sin cobertura de ML no suma;
+publicación/tienda = `tb_mercadolibre_items_publicados`. TODAS las ventanas,
+markups, series, última venta y ageing salen de UNA base por orden, así que
+24h ⊆ 3d ⊆ 7d ⊆ 15d ⊆ 30d por construcción.
+
+Rama: `refactor/metricas-ml-sin-rollup` (sobre `feat/metricas-ml-excluir`,
+PR #1379). Ruta: delegated direct (writer único). TDD estricto.
+
+- [x] ST1 — Tablero desde las tablas existentes (mismo contrato de API,
+      filtros, orden, paginado, export). Tests: ventanas monótonas contra un
+      conteo a fuerza bruta en Python; paridad con los KPI de Ventas ML.
+      Base única: `services/ml_daily_metrics/sales.py::sale_lines` (una fila
+      por ítem vendido) + `last_sales` (última venta de cada par en TODA la
+      historia, para ageing). Por request, dentro del SAVEPOINT: tabla
+      temporal `board_lines` (producto × MLA × día BA, sólo los días que se
+      leen + 24h) y `board_pair_agg` (ventanas, período, comparación, 24h,
+      última venta, datos de publicación/producto). Contrato de la API sin
+      cambios; el frontend no se toca.
+      Reglas (decisiones, mismas que Ventas ML `aggregate.py`):
+      plata sólo de órdenes con métricas asentadas (una orden recalculándose,
+      fallida o sin calcular suma unidades pero ni bruto ni Total Gauss ni
+      costo — el resumen no lo hacía); markup todo-o-nada POR GRUPO (pack):
+      si un miembro no tiene Total Gauss y costo, el pack entero queda fuera
+      del ratio (`mtg`/`costo`), pero su Total Gauss conocido sigue sumando
+      en "Total Gauss"; estado NULL no es cancelada.
+      Diferencia aceptada con Ventas ML: en un pack MIXTO (un miembro
+      cancelado sin cobertura y otro no) Ventas ML suma el importe del
+      cancelado; el tablero no (regla de la venta cancelada).
+      RED visto: 30 fallando (el tablero leía el resumen vacío: filas sin
+      ventas, `KeyError` de productos vendidos, 24h ≠ ventanas).
+      Checks: pytest SQLite (router 46, paridad 1, reglas + propiedad 13) y
+      Postgres (`test_board_postgres.py`, ids de 16 dígitos, día BA en SQL,
+      reparto NUMERIC; volumen) → 131 passed. El test de 24h del router pasó
+      de 4 a 6: la venta de hoy de `board_data` ahora cae también en 24h
+      (antes 24h no veía las ventas del resumen).
+- [x] ST2 — Sub-filas de publicaciones: sólo los MLAs del producto pedido.
+      Test: costo (sentencias y filas) independiente de cuántos otros
+      productos hay.
+      Con `product_item_id`: los grupos se alcanzan por el índice de
+      `ml_order_item_costos.producto_item_id` (y de ahí las órdenes por
+      `pack_id`/`order_id`, no por hash de todas), y el espejo de
+      publicaciones se lee sólo para los MLAs del producto (antes el
+      "último `mlp_id` por MLA" recorría todas las publicaciones).
+      Test `test_board_subrows_postgres.py`: el mismo producto solo y entre
+      300 productos más (900 publicaciones, 10.800 órdenes): mismas 8
+      sentencias, mismas filas en las tablas temporales (12 líneas, 3
+      pares), y EXPLAIN ANALYZE (seq scans apagados) con ≤ 48 filas leídas
+      por tabla fuente.
+      RED visto: sin la restricción de publicaciones, 1.809 filas leídas
+      del espejo; sin la del producto, ~21.600 de grupos/ítems/costos y
+      10.824 de órdenes.
+      Medido en volumen (ST3): sub-filas de un producto entre 2.000 →
+      9 sentencias, ~37 ms (antes reconstruía el tablero entero).
+- [x] ST3 — Rendimiento en Postgres con volumen real (≈80k grupos en 18
+      meses, 90 días densos, ~2k productos, ~6k MLAs): tiempos, sentencias,
+      EXPLAIN con índices. Si algo es lento: índices sobre tablas EXISTENTES
+      o forma de la consulta, nunca una tabla derivada.
+      `test_board_volume_postgres.py` (local, Postgres 18, `-s`): 81.000
+      grupos en 18 meses (20.000 en los últimos 90 días, todos los días con
+      ventas; packs, multi-ítem, canceladas, sin resolver, recalculándose),
+      89.100 órdenes, 101.828 ítems, 2.000 productos, 6.000 MLAs.
+      - Tablero (página + KPIs + chips + detalle + series): **17
+        sentencias** con página de 10, 50 o 200, por producto o por
+        publicación, con filtros o exclusiones (15 si la página sale vacía);
+        **~600–690 ms** en caliente (~1,4 s la primera, que compila).
+        Grueso: `board_lines` ~190 ms, `board_pair_agg` ~185 ms (de los
+        cuales ~165 ms es la última venta de cada par sobre TODA la
+        historia, para el ageing), ANALYZE ~50 + ~57 ms; KPIs ~9 ms + serie
+        ~14 ms, cada chip 2–13 ms, página ~17 ms, detalle ~1 ms, series de
+        la página ~4 ms. 241 filas devueltas para una página de 10.
+      - Sub-filas de un producto: **9 sentencias, ~37 ms**.
+      - Export, primera transacción (claves ordenadas + página de 500, sin
+        series): **9 sentencias, ~536 ms**; cada página siguiente igual.
+      - EXPLAIN: las líneas del request llegan a `ml_group_metrics` por
+        `ix_ml_group_metrics_group_date` (BitmapOr de los tres rangos:
+        período+90 días, comparación, 24h); grupo→órdenes por hash sobre la
+        clave del grupo; sub-filas por `ix_ml_order_item_costos_producto_
+        item_id` y `pack_id`/PK de órdenes (ST2).
+      Forma de consulta corregida en el camino (medido): unir grupo→órdenes
+      con el OR de índices para TODO el tablero anidaba 54k lazos (~120 ms
+      más) y dos ventanas con particiones distintas ordenaban dos veces:
+      el tablero entero usa igualdad de clave (hash) y una sola partición
+      (grupo, orden); el OR por índice queda sólo para un producto. Con eso
+      el CREATE de líneas bajó de ~500 a ~190 ms. JIT apagado no cambiaba
+      nada (medido) y analizar o no `board_lines` daba lo mismo (se deja).
+      Sin índices nuevos: no hubo un índice sobre tablas existentes que
+      sirviera; lo que queda es volumen leído por hash (la historia completa
+      para el ageing). Antes (con resumen): ~370 ms el tablero, pero con
+      números incompletos y segundos para abrir las sub-filas.
+- [x] ST4 — Sacar el resumen: hook del worker, lock asesor, backfill y sus
+      tests, modelo, migración que borra la tabla. "Actualizado hace X" desde
+      datos existentes.
+      Borrado: `services/ml_daily_metrics/rollup.py` (escritor, lock asesor
+      por bucket, `stale_buckets`), el hook en
+      `order_metrics/store.py::store_order_metrics` (vuelve a sólo
+      recalcular y guardar el grupo), `models/ml_daily_metrics.py`,
+      `scripts/backfill_ml_daily_metrics.py` y los tests del resumen,
+      del backfill y de la concurrencia del resumen; la tabla de las
+      fixtures Postgres de `tests/conftest.py`. Lo que se seguía usando
+      (`frozen_cost_of_item`, `business_day`, `BUSINESS_TZ`, `NO_PRODUCT`)
+      vive en `services/ml_daily_metrics/sales.py` (desde ST1).
+      ~~Migración `20261002_drop_ml_product_daily_metrics`~~ — **sacada en
+      ST7 (revisión): el DROP va en una PR posterior, ver ST7.**
+      `ix_ml_group_metrics_group_date` (de
+      `20261001_ix_board_reads`) se queda: lo usa el tablero.
+      "Actualizado hace X": `MAX(ml_ops_sync_cursor.last_success_at)` de
+      `sweep`/`ml_activity`, lo mismo que el sync-status de Ventas ML
+      (desde ST1); el frontend no cambia.
+      Rama rebasada sobre `origin/main` (que ya incluye #1379 y la
+      migración de autovacuum) para que la migración nueva no bifurque.
+      RED visto: 7 fallando (head, módulos presentes, tabla en la
+      metadata, `store.py` mencionaba el resumen, revisión inexistente).
+      Checks: ruff OK; pytest migraciones + ml_daily_metrics +
+      order_metrics + ml_group_metrics + router + paridad + export Ventas
+      ML + scripts → 399 passed; round trip de la migración en Postgres
+      OK.
+- [x] ST5 — Checks completos (ruff, suite backend sola, vitest, test:visual,
+      eslint, lint:css, build).
+      `ruff format app/ tests/` + `ruff check app/ tests/` OK. Suite backend
+      completa, sola (`-p no:randomly`, `ENVIRONMENT=development`): **7755
+      passed, 16 skipped**. (Una corrida previa sin `ENVIRONMENT` daba 404
+      en `test_openapi_schema_loads`: el entorno por defecto es producción y
+      apaga /docs; no es del cambio.) Frontend sin cambios en esta rama:
+      vitest 143 archivos / 1896 tests antes y después; test:visual 10
+      archivos, 76 passed + 2 expected fail; eslint 0 errores (8 warnings
+      previos); lint:css OK; build OK.
+      Commits: `5e1d54fb` (ST1), `6d67f34e` (ST2), `4e8e01f8` (ST3),
+      `8e7553a1` (ST4). Sin push.
+- [x] ST6 (revisión, hallazgos 1 y 3) — Plata exacta al centavo y Total
+      Gauss sólo de órdenes `ok`/`provisional`.
+      Hallazgo 1, decidido por Ventas ML: su lector (`OrderMetrics`) exige
+      "unresolved ⇒ total_gauss NULL" y RECHAZA una fila que lo rompa
+      (ValueError; el KPI daría 500). Para Ventas ML una orden `unresolved`
+      suma bruto pero nunca Total Gauss ni markup. El tablero decide por el
+      estado (como el resumen viejo): una fila `unresolved` con Total Gauss
+      cuenta unidades y bruto, nunca Total Gauss ni markup.
+      Hallazgo 3: todas las ramas del reparto por ítem son NUMERIC
+      explícitas (`CAST(... AS NUMERIC)`, `Decimal` literal); los totales
+      se redondean al centavo UNA vez al final (ROUND_HALF_UP), como las
+      sumas de valores de 2 decimales de Ventas ML.
+      Test `test_board_money_postgres.py` (Postgres, contra
+      `aggregate_order_metrics` real): 3 ítems de igual peso sobre 100,00,
+      pack con pesos 1 y 2 sobre 10,01, reparto 1/3–2/3 por cantidad,
+      `unresolved` con costo: bruto, Total Gauss (111,06) y markup iguales
+      como `Decimal` exacto; `pg_typeof` de las líneas = numeric. Paridad
+      SQLite con una orden `unresolved` con costo.
+      RED visto: Total Gauss `111.0599999999999999990000` ≠ `111.06`; la
+      fila `unresolved` con Total Gauss sumaba 12,340. (El tipo ya salía
+      NUMERIC en Postgres porque psycopg2 manda `1.0` como literal numérico;
+      ahora es explícito y no depende del driver.)
+- [x] ST7 (revisión, hallazgo 2) — Borrado en dos fases.
+      El DROP de la migración corre en el deploy ANTES de que reinicien los
+      workers: los workers viejos todavía llaman a `refresh_rollup` dentro
+      de `store_order_metrics`, así que cada guardado de métricas fallaría
+      (`UndefinedTable`) y se revertiría hasta el reinicio. Esta rama saca
+      el CÓDIGO (modelo, escritor, hook, backfill) y deja la tabla en la
+      base, sin uso; la migración que la borra
+      (`DROP TABLE IF EXISTS ml_product_daily_metrics`, con `lock_timeout`,
+      sus índices `_day`, `_mla_day`, `_updated_at` se van con ella) va en
+      una PR POSTERIOR, después de desplegar esta. Head único de vuelta en
+      el de main (`20261002_autovacuum_tablas_calientes`).
+      Test `tests/unit/test_rollup_removed.py` (antes
+      `test_migration_drop_ml_product_daily_metrics.py`): módulos del
+      resumen inexistentes, ningún modelo mapea la tabla, `store.py` no lo
+      menciona, y NINGUNA migración de esta línea la borra.
+      RED visto: `20261002_drop_ml_product_daily_metrics drops
+      ml_product_daily_metrics`.
+      **Para el cuerpo de la PR:** "La tabla `ml_product_daily_metrics`
+      queda en la base, sin uso. Se borra en una PR siguiente, después de
+      desplegar esta: si la migración la borrara en este deploy, los
+      workers viejos (que todavía la refrescan al guardar métricas)
+      fallarían hasta reiniciarse."
+      Pendiente (PR siguiente): migración de DROP de la tabla.
+      Checks ST6+ST7: ruff OK; pytest focalizado (ml_daily_metrics, router,
+      paridad, migraciones) 92 + 16 passed; suite backend completa, sola
+      (`ENVIRONMENT=development`): 7756 passed, 16 skipped.
+- [x] ST8 (revisión final) — Series en centavos y matcher de DROP.
+      Cada punto de dinero de las series diarias de KPIs pasa por `cents()`
+      (half-up, igual que las filas) y viaja como `Decimal`; el markup de
+      cada día de la serie de 90 días sale de las sumas del día ya
+      redondeadas, como el de la fila. RED visto: punto de Total Gauss
+      `111.06` float ≠ `Decimal('111.06')`; en la API un producto de 1/3
+      mandaba `33.33333333333333` en la serie.
+      `test_no_migration_of_this_release_drops_the_table` usa un matcher
+      (`DROP TABLE ... ml_product_daily_metrics` dentro de una sentencia, u
+      `op.drop_table(<la tabla o su constante>)`) con tests propios: atrapa
+      la migración vieja de drop y no da falso positivo con `DROP INDEX` ni
+      con otro `DROP TABLE` en un archivo que sólo nombra la tabla. RED:
+      `NameError` (el matcher no existía).
+      Checks: ruff OK; pytest focalizado 112 passed.
+- [x] ST9 (notas del pre-push) — Sub-filas de "sin producto" acotadas,
+      guarda no vacía del export y docstrings partidos.
+      Producto 0 (ítems sin costo congelado) no tiene índice de producto:
+      sus sub-filas ahora van por la unión estrecha grupo→órdenes y su
+      última venta sólo mira la ventana del request (período, comparación,
+      serie de 90 días, 24h), nunca toda la historia. Test en
+      `test_board_subrows_postgres.py`: con 300 productos más (10.800
+      órdenes viejas), mismas 8 sentencias, mismas filas temporales y ≤ 12
+      filas leídas por tabla fuente. RED visto: 10.812 órdenes/ítems,
+      10.800 costos y 900 publicaciones leídas.
+      El chequeo "el export no arma series" primero prueba que el marcador
+      SÍ aparece en una página del tablero (pasó de una: el chequeo no era
+      vacío, ahora no puede serlo).
+      Checks: ruff OK; pytest focalizado 109 passed.
