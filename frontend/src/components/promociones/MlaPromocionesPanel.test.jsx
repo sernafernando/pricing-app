@@ -615,6 +615,9 @@ describe('MlaPromocionesPanel', () => {
   });
 
   it('shows an empty state when there are zero promotions', async () => {
+    // A CONFIRMED empty: the pull worked. An unconfirmed one (failed pull)
+    // says "no se pudo confirmar" instead — see the freshness tests.
+    promocionesAPI.refreshItemPromociones.mockResolvedValue({ data: { ok: true } });
     promocionesAPI.getPromocionesItem.mockResolvedValue({ data: { promotions: [] } });
 
     renderPanel();
@@ -969,15 +972,15 @@ describe('MlaPromocionesPanel — pullOnOpen', () => {
   });
 });
 
-// The pull endpoint (POST /promociones/item/{mla}/refresh) requires
-// `promos.escribir`, the same permission TreeNode gates its manual refresh
-// button on. Without this gate every panel open by a `promos.ver`-only user
-// is a 403 that the .catch() swallows silently.
-describe('MlaPromocionesPanel — read-only user never pulls from ML', () => {
+// The pull endpoint (POST /promociones/item/{mla}/refresh) is a read and
+// requires `promos.ver` (it used to require `promos.escribir`; see
+// MlaPromocionesPanel.freshness.test.jsx for the promos.ver-only case).
+// Without that permission every pull would be a 403 swallowed in silence.
+describe('MlaPromocionesPanel — a user without promos.ver never pulls from ML', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     usePromoFilterStore.setState({ selectedTypes: [], selectedNames: {} });
-    permisosMock.denied = ['promos.escribir'];
+    permisosMock.denied = ['promos.ver'];
   });
 
   afterEach(() => {
@@ -1042,7 +1045,9 @@ describe('MlaPromocionesPanel — says so when the pull did not succeed', () => 
 
     render(<MlaPromocionesPanel mla="MLA_SOFT_EMPTY" promosCacheRef={{ current: new Map() }} />);
 
-    expect(await screen.findByText(/sin promociones habilitadas/i)).toBeInTheDocument();
+    // An unconfirmed empty mirror no longer claims "Sin promociones".
+    expect(await screen.findByText(/no se pudo confirmar con ml/i)).toBeInTheDocument();
+    expect(screen.queryByText(/sin promociones habilitadas/i)).not.toBeInTheDocument();
     expect(screen.getByText(/no se pudo actualizar desde mercadolibre/i)).toBeInTheDocument();
   });
 

@@ -7,7 +7,12 @@ import { getMarkupColor } from '../../hooks/useProductosOffsets';
 import { matchesPromoFilter } from './promoFilterPredicate';
 import { resolvePromoName } from './resolvePromoName';
 import PromoApplyControl from './PromoApplyControl';
+import { formatRelativeAge, promoDisplayPrice } from './promoDisplayPrice';
 import styles from './promociones.module.css';
+
+// A row older than this reads as stale (ML recalculates SMART/PRICE_MATCHING
+// candidates daily, so a day-old mirror row may no longer be ML's offer).
+const STALE_ROW_MS = 24 * 60 * 60 * 1000;
 
 // SELLER_CAMPAIGN/DEAL/SMART/PRE_NEGOTIATED/PRICE_MATCHING can be enrolled
 // via the apply control (FE-C). DOD/LIGHTNING/PRICE_DISCOUNT are read-only
@@ -75,13 +80,12 @@ function formatDateRange(startDate, finishDate) {
  * first expand — the parent conditionally mounts this component).
  */
 function MlaPromocionesPanel({ mla, promosCacheRef, pullOnOpen = true }) {
-  // The pull endpoint requires `promos.escribir` — the same permission
-  // TreeNode gates its manual refresh button on. Without this check every
-  // panel open by a `promos.ver`-only user is a 403 swallowed in silence, and
-  // the auto-pull becomes a back door into the path that button closes at the
-  // front. Such a user reads the mirror: degraded, but fully working.
+  // The pull endpoint is a READ (it reconciles our mirror from ML and never
+  // writes to ML) and requires `promos.ver`. It used to require
+  // `promos.escribir`, which left read-only users looking at an unrefreshed
+  // mirror with no way to know — part of incident 2026-10-05.
   const { tienePermiso } = usePermisos();
-  const canPull = tienePermiso('promos.escribir');
+  const canPull = tienePermiso('promos.ver');
 
   // Opening the panel pulls fresh state from MercadoLibre first, then reads
   // the mirror the server just updated.
@@ -142,8 +146,8 @@ function MlaPromocionesPanel({ mla, promosCacheRef, pullOnOpen = true }) {
 
   // The error-state retry pulls, because the user opened this expecting fresh
   // state — re-reading the mirror under a button labelled "Reintentar" would
-  // not retry what actually failed. A user without `promos.escribir` never had
-  // a pull to retry, so for them the retry is a plain re-read.
+  // not retry what actually failed. A user without `promos.ver` never had a
+  // pull to retry, so for them the retry is a plain re-read.
   const retry = useCallback(
     () =>
       canPull
@@ -198,6 +202,22 @@ function MlaPromocionesPanel({ mla, promosCacheRef, pullOnOpen = true }) {
   ) : null;
 
   if (promociones.length === 0) {
+    // An empty mirror is only "no promos" when ML agrees. If the refresh
+    // failed, or the backend saw ML report promos (or could not ask), saying
+    // "Sin promociones" would be a confident lie — the mirror had 0 rows for
+    // an MLA with 9 live promos in the 2026-10-05 incident.
+    const unconfirmed = data?.refreshFailed || data?.posiblemente_desactualizado;
+    if (unconfirmed) {
+      return (
+        <>
+          {staleNotice}
+          <div className={styles.staleNotice}>
+            No se pudo confirmar con ML — datos posiblemente desactualizados.
+            {data?.promos_en_ml > 0 ? ` ML informa ${data.promos_en_ml} promociones para esta publicación.` : ''}
+          </div>
+        </>
+      );
+    }
     return (
       <>
         {staleNotice}
@@ -231,9 +251,12 @@ function MlaPromocionesPanel({ mla, promosCacheRef, pullOnOpen = true }) {
           const meliPct = formatPercentage(promo.payload?.meli_percentage);
           // `price` is 0 for candidate promos (not yet applied); fall back to the
           // suggested discounted price so the row shows the price it WOULD apply
-          // at, not $0. Started promos (SMART/LIGHTNING) carry a real `price`.
-          const effectivePrice = promo.price > 0 ? promo.price : promo.suggested_discounted_price;
+          // at, not $0. Shared with PromoApplyControl, which sends this exact
+          // value as `precio_visto` so the backend can refuse a moved offer.
+          const effectivePrice = promoDisplayPrice(promo);
           const dateRange = formatDateRange(promo.start_date, promo.finish_date);
+          const age = formatRelativeAge(promo.updated_at);
+          const ageIsStale = age && Date.now() - Date.parse(promo.updated_at) > STALE_ROW_MS;
 
           return (
             <li
@@ -272,6 +295,14 @@ function MlaPromocionesPanel({ mla, promosCacheRef, pullOnOpen = true }) {
               <span className={styles.promoMarkup} style={{ color: getMarkupColor(promo.nuestro_markup) }}>
                 Tu markup: {formatMarkup(promo.nuestro_markup)}
               </span>
+              {age && (
+                <span
+                  className={ageIsStale ? styles.promoFreshnessStale : styles.promoFreshness}
+                  title="Última vez que el espejo de promociones se actualizó desde MercadoLibre"
+                >
+                  actualizado {age}
+                </span>
+              )}
               {applicable && (
                 <PromoApplyControl
                   mla={mla}
