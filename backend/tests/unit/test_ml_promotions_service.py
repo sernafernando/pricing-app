@@ -1346,8 +1346,8 @@ class TestFetchMlasWithCandidateNotStarted:
         # any MLA that has a started promo, even when it also has candidates.
         normalized = " ".join(executed_query.split())
         assert (
-            "bool_or(status = 'candidate') AND NOT bool_or(status = 'started') "
-            "AND NOT bool_or(status = 'pending')" in normalized
+            "bool_or(ip.status = 'candidate') AND NOT bool_or(ip.status = 'started') "
+            "AND NOT bool_or(ip.status = 'pending')" in normalized
         )
         assert "'pending'" in executed_query
 
@@ -1397,7 +1397,7 @@ class TestFetchMlasWithCandidateNotStartedTruthTable:
             fetch_mlas_with_candidate_only()
 
         executed_query = str(mock_conn.execute.call_args[0][0])
-        assert "NOT bool_or(status = 'started')" in executed_query
+        assert "NOT bool_or(ip.status = 'started')" in executed_query
 
     def test_has_pending_is_excluded_via_having_clause_text(self) -> None:
         """Truth-table row: candidate+pending -> excluded (B2)."""
@@ -1412,7 +1412,7 @@ class TestFetchMlasWithCandidateNotStartedTruthTable:
             fetch_mlas_with_candidate_only()
 
         executed_query = str(mock_conn.execute.call_args[0][0])
-        assert "NOT bool_or(status = 'pending')" in executed_query
+        assert "NOT bool_or(ip.status = 'pending')" in executed_query
 
 
 class TestFetchMlasWithCandidateOnlyForTypes:
@@ -1458,8 +1458,8 @@ class TestFetchMlasWithCandidateOnlyForTypes:
         normalized = " ".join(executed_query.split())
         assert "promotion_type = ANY(:types)" in normalized
         assert (
-            "bool_or(status = 'candidate') AND NOT bool_or(status = 'started') "
-            "AND NOT bool_or(status = 'pending')" in normalized
+            "bool_or(ip.status = 'candidate') AND NOT bool_or(ip.status = 'started') "
+            "AND NOT bool_or(ip.status = 'pending')" in normalized
         )
         bound_params = mock_conn.execute.call_args[0][1]
         assert bound_params["types"] == ["SMART"]
