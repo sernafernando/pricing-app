@@ -693,4 +693,8 @@ una consulta por fila).
       inexistente, fila sin referencia, `rows()` sin los argumentos nuevos);
       frontend: celda de stock sin `data-stock`, aviso con exclusión,
       `SwitchChip` inexistente.
-      Commits: `aab9f420` (backend R2/R3/R5) y el de frontend R1/R4/R6.
+      Commits: `aab9f420` (backend R2/R3/R5), `3ff86b5b` (frontend R1/R4/R6).
+      Checks: ruff OK; router + paridad + servicios del tablero (Postgres,
+      volumen) 173 passed; vitest 144 archivos / 1924 tests; test:visual 10 /
+      80 + 2 expected fail; eslint 0 errores; lint:css OK; build OK; suite
+      backend completa, sola: **7869 passed, 16 skipped**.
