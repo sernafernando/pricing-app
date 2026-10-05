@@ -1,4 +1,4 @@
-import { ChevronDown, ChevronRight, CornerDownRight, Package } from 'lucide-react';
+import { ArrowDown, ArrowUp, ChevronDown, ChevronRight, CornerDownRight, Package } from 'lucide-react';
 import Sparkline from './Sparkline';
 import { formatSignedMoney, markupTone, moneyTone } from '../../utils/ventasMlTone';
 import {
@@ -42,6 +42,7 @@ const SORT_BY = {
   total_gauss: 'total_gauss',
   last_sale: 'last_sale',
   ageing: 'ageing',
+  stock: 'stock',
 };
 
 function UnitsCell({ value, strong }) {
@@ -337,7 +338,12 @@ export default function BoardTable({
                 {sortKey ? (
                   <button type="button" className={styles.sortButton} onClick={() => onSort(sortKey)}>
                     {col.header}
-                    {active && <span aria-hidden="true">{sortDesc ? ' ↓' : ' ↑'}</span>}
+                    {active &&
+                      (sortDesc ? (
+                        <ArrowDown size={11} className={styles.sortArrow} aria-hidden="true" />
+                      ) : (
+                        <ArrowUp size={11} className={styles.sortArrow} aria-hidden="true" />
+                      ))}
                   </button>
                 ) : (
                   col.header

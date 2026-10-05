@@ -282,6 +282,52 @@ describe('MetricasML page', () => {
     expect(screen.queryByText('Ocultando productos sin ventas en el período')).not.toBeInTheDocument();
   });
 
+  it('a column header sorts by it: first click descending, second ascending, with an arrow and aria-sort', async () => {
+    await renderWithRouter(<MetricasML />);
+    await screen.findByText('Impresora Multifunción Epson EcoTank L3250 Color Negro');
+    const stockHeader = () => screen.getByRole('columnheader', { name: /^Stock/ });
+    expect(stockHeader()).not.toHaveAttribute('aria-sort');
+
+    await userEvent.click(within(stockHeader()).getByRole('button', { name: /Stock/ }));
+    await waitFor(() => expect(lastBoardParams()).toMatchObject({ sort: 'stock', sort_dir: 'desc', offset: 0 }));
+    expect(stockHeader()).toHaveAttribute('aria-sort', 'descending');
+    expect(stockHeader().querySelector('svg.lucide-arrow-down')).not.toBeNull();
+
+    await userEvent.click(within(stockHeader()).getByRole('button', { name: /Stock/ }));
+    await waitFor(() => expect(lastBoardParams()).toMatchObject({ sort: 'stock', sort_dir: 'asc' }));
+    expect(stockHeader()).toHaveAttribute('aria-sort', 'ascending');
+    expect(stockHeader().querySelector('svg.lucide-arrow-up')).not.toBeNull();
+  });
+
+  it.each([
+    ['24H', 'units_24h'],
+    ['30D', 'units_30d'],
+    ['vs anterior', 'markup_delta'],
+    ['Total Gauss', 'total_gauss'],
+    ['Última venta', 'last_sale'],
+    ['Ageing', 'ageing'],
+  ])('the "%s" header sorts by %s', async (header, key) => {
+    await renderWithRouter(<MetricasML />);
+    await screen.findByText('Impresora Multifunción Epson EcoTank L3250 Color Negro');
+
+    const th = screen.getByRole('columnheader', { name: new RegExp(`^${header}`) });
+    await userEvent.click(within(th).getByRole('button'));
+
+    await waitFor(() => expect(lastBoardParams()).toMatchObject({ sort: key, sort_dir: 'desc' }));
+  });
+
+  it('"Limpiar filtros" keeps the sort: it is not a filter', async () => {
+    await renderWithRouter(<MetricasML />);
+    await screen.findByText('Impresora Multifunción Epson EcoTank L3250 Color Negro');
+    await userEvent.click(within(screen.getByRole('columnheader', { name: /^Stock/ })).getByRole('button'));
+    await userEvent.click(screen.getByRole('switch', { name: /Solo con ventas en el período/ }));
+    await waitFor(() => expect(lastBoardParams()).toMatchObject({ sort: 'stock', solo_con_ventas: false }));
+
+    await userEvent.click(screen.getByRole('button', { name: /Limpiar filtros/ }));
+
+    await waitFor(() => expect(lastBoardParams()).toMatchObject({ sort: 'stock', solo_con_ventas: true }));
+  });
+
   it('"Comparar con" switches to the same period last year', async () => {
     await renderWithRouter(<MetricasML />);
     await screen.findByText('Impresora Multifunción Epson EcoTank L3250 Color Negro');

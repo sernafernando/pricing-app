@@ -630,7 +630,29 @@ una consulta por fila).
       por ageing", sin params, sin aviso).
       Checks: router + paridad + servicios del tablero (Postgres, volumen)
       128 passed; vitest página + params + componentes 38 passed.
-- [ ] PS4 — Orden por columnas (stock incluido, flecha lucide, aria-sort).
+- [x] PS4 — Orden por columnas (stock incluido, flecha lucide, aria-sort).
+      PS3 commit: `8bba31cb`. Ruta: inline (writer único).
+      El orden por encabezado ya existía (24h…30D, markup, vs anterior,
+      facturado, Total Gauss, última venta, ageing, título) en SQL con la
+      clave de fila como desempate; se agregó `stock` (NULL = "sin dato" al
+      final en los dos sentidos) y la flecha pasó de texto (↓/↑) a
+      `ArrowDown`/`ArrowUp` de lucide. Tests nuevos: CADA clave de `SORTS`
+      en asc y desc contra el contrato (valor, NULL al final, desempate por
+      clave), páginas de 1 fila = orden completo con empates (stock, ageing,
+      24h), stock sin permiso de ganancia = 200 y Total Gauss = 403;
+      Postgres: orden por stock con NULL al final.
+      RED visto: 7 fallando (`sort inválido: 'stock'`, `SORTS` sin stock);
+      frontend 2 fallando (encabezado Stock sin botón, sin svg de flecha).
+      Visual (nuevo test por ancho/tema): toggle, aviso, 6 chips y el
+      encabezado ordenado en UNA línea dentro de la página/celda, banda sin
+      overflow, puntos de ageing con los tonos de la columna, aviso en tono
+      warning. La suite visual atrapó una regresión propia: un `composes`
+      de `FacetChips.module.css` en el CSS de la página reordenaba las hojas
+      y el chip excluido perdía su tono rojo; se reemplazó por las clases
+      del chip aplicadas en el JSX. Los divisores de la banda nueva se
+      sacaron (a 1366 el grupo Ageing baja de renglón y el divisor quedaba
+      colgando). Los tests visuales se escribieron con los controles ya
+      hechos: son de layout, no RED-first.
 - [ ] PS5 — Checks: ruff, pytest focalizado, vitest (antes 143 archivos /
       1899 tests), test:visual, eslint, lint:css, build, suite backend
       completa sola.

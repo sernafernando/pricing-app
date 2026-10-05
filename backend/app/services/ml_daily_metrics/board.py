@@ -128,6 +128,7 @@ SORTS = (
     "last_sale",
     "ageing",
     "title",
+    "stock",
 )
 MARGIN_SORTS = ("total_gauss", "markup", "markup_delta")
 SERIES_DAYS = 90
@@ -786,6 +787,8 @@ class Board:
             # More days of ageing = an OLDER reference day.
             "ageing": rows.c.ref_day,
             "title": func.lower(func.coalesce(rows.c.title, "")),
+            # Unknown stock ("sin dato") goes last either way, like any NULL.
+            "stock": rows.c.stock,
         }
         column = sort_cols[self.f.sort]
         descending = self.f.sort_desc if self.f.sort != "ageing" else not self.f.sort_desc

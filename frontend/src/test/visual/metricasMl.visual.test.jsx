@@ -172,6 +172,53 @@ describe('Métricas ML board (visual)', () => {
         screen.unmount();
       });
 
+      it(`${width}x${height} ${theme}: the period toggle, its warning, the stock and ageing chips and the sort arrow fit`, async () => {
+        const screen = await renderPage({ width, height, theme });
+        // An ageing chip with "Solo con ventas" on: the warning shows next to
+        // the toggle (ODD "Período y stock" PS3).
+        await screen.getByRole('button', { name: /^Más de 60 d/ }).click();
+        await expect.element(screen.getByText('Ocultando productos sin ventas en el período')).toBeVisible();
+        await screen.getByRole('columnheader', { name: /^Stock/ }).getByRole('button').click();
+        await expect.element(screen.getByRole('columnheader', { name: /^Stock/ })).toHaveAttribute('aria-sort', 'descending');
+        await shot(`board-${width}-${theme}-periodo-stock`, { width, height });
+
+        const toggle = document.querySelector('[role="switch"]');
+        const hint = [...document.querySelectorAll('[role="status"]')].find((el) => /Ocultando/.test(el.textContent));
+        const groups = ['Filtrar por stock', 'Filtrar por ageing'].map((name) =>
+          document.querySelector(`[role="group"][aria-label="${name}"]`),
+        );
+        const chips = groups.flatMap((group) => [...group.querySelectorAll('button')]);
+        expect(chips).toHaveLength(6);
+        // Every control on ONE line, whole, inside the page.
+        for (const el of [toggle, hint, ...chips]) {
+          expect(el.getClientRects(), el.textContent).toHaveLength(1);
+          expect(el.getBoundingClientRect().height, el.textContent).toBeLessThan(lineHeightOf(el) * 2);
+          expect(el.getBoundingClientRect().right, el.textContent).toBeLessThanOrEqual(width);
+        }
+        expect(document.documentElement.scrollWidth).toBeLessThanOrEqual(width);
+        const band = toggle.closest('div[class*="filterBand"]');
+        expect(band.scrollWidth).toBeLessThanOrEqual(band.clientWidth + 1);
+        // The toggle reads as ON (filled chip) and the ageing dots carry the
+        // Ageing column's tones.
+        expect(toggle.getAttribute('aria-checked')).toBe('true');
+        const dotOf = (label) => chips.find((c) => c.textContent.startsWith(label)).querySelector('[data-tone]');
+        expect(getComputedStyle(dotOf('Más de 60 d')).backgroundColor).toBe(tokenColor('--tone-danger-fg'));
+        expect(getComputedStyle(dotOf('31 a 60 d')).backgroundColor).toBe(tokenColor('--tone-warning-fg'));
+        expect(getComputedStyle(hint).color).toBe(tokenColor('--tone-warning-fg'));
+
+        // The sorted header keeps its label and arrow on one line, inside it.
+        const th = document.querySelector('thead th[aria-sort="descending"]');
+        const button = th.querySelector('button');
+        const arrow = th.querySelector('svg');
+        expect(arrow).not.toBeNull();
+        expect(button.getClientRects()).toHaveLength(1);
+        expect(button.getBoundingClientRect().height).toBeLessThan(lineHeightOf(button) * 2);
+        const thBox = th.getBoundingClientRect();
+        expect(arrow.getBoundingClientRect().right).toBeLessThanOrEqual(thBox.right + 0.5);
+        expect(button.getBoundingClientRect().right).toBeLessThanOrEqual(thBox.right + 0.5);
+        screen.unmount();
+      });
+
       it(`${width}x${height} ${theme}: scrolls inside the card, Producto pinned, nothing wraps or overflows`, async () => {
         const screen = await renderPage({ width, height, theme });
         // Open the Epson product: the publication sub-rows are part of the look.

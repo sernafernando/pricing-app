@@ -166,16 +166,13 @@
   composes: btn-tesla ghost sm from '../styles/buttons-tesla.css';
 }
 
-/* "Solo con ventas en el período": a chip that is a switch -- same pill as
-   the facet chips, filled while on, with a check box saying so. */
+/* "Solo con ventas en el período": a chip that is a switch -- the facet
+   chip's own classes (`FacetChips.module.css`, applied in the JSX: a
+   `composes` here would reorder that sheet after `ToggleChips.module.css`
+   and undo its excluded tone), filled while on, with a check box. */
 .periodToggle {
-  composes: chip from '../components/ventasMl/FacetChips.module.css';
   cursor: pointer;
   white-space: nowrap;
-}
-
-.periodToggleOn {
-  composes: chipActive from '../components/ventasMl/FacetChips.module.css';
 }
 
 .periodToggleBox {

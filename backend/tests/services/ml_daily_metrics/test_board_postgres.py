@@ -158,3 +158,7 @@ def test_stock_is_joined_filtered_and_counted_on_postgres(board_pg) -> None:
     assert sin_stock == ["778"]
     assert (kpis.units, kpis.rows) == (1, 1)
     assert not_in_stock == ["778", "779"]
+    # Sorting by stock (PS4): unknown last either way.
+    for desc, expected in ((True, ["777", "778", "779"]), (False, ["778", "777", "779"])):
+        with board.Board(db, board.BoardFilter(**period, sort="stock", sort_desc=desc)) as b:
+            assert [row.key for row in b.page(None)] == expected

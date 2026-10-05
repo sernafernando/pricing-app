@@ -1063,3 +1063,86 @@ class TestAgeing:
     )
     def test_bad_values_are_422(self, client, admin_auth_headers, board_data, params):
         assert client.get(URL, params=params, headers=admin_auth_headers).status_code == 422
+
+
+# Each sort key and the response field it orders by. `last_sale` orders by
+# the DAY of the last sale (Buenos Aires); `board_data` sells at 15:00 UTC,
+# the same calendar day.
+SORT_FIELDS = {
+    "gross": lambda r: r["gross"],
+    "units": lambda r: r["units"],
+    "units_24h": lambda r: r["units_24h"],
+    "units_3d": lambda r: r["units_3d"],
+    "units_7d": lambda r: r["units_7d"],
+    "units_15d": lambda r: r["units_15d"],
+    "units_30d": lambda r: r["units_30d"],
+    "total_gauss": lambda r: r["total_gauss"],
+    "markup": lambda r: r["markup_pct"],
+    "markup_delta": lambda r: r["markup_delta_pp"],
+    "last_sale": lambda r: r["last_sale_at"][:10] if r["last_sale_at"] else None,
+    "ageing": lambda r: r["ageing_days"],
+    "title": lambda r: r["title"].lower(),
+    "stock": lambda r: r["stock"],
+}
+
+
+def _expected_order(rows, value_of, descending):
+    """The board's contract: by the value (nulls LAST either way), ties by
+    the unique row key ascending."""
+    known = [r for r in rows if value_of(r) is not None]
+    unknown = sorted((r for r in rows if value_of(r) is None), key=lambda r: r["key"])
+    known.sort(key=lambda r: r["key"])
+    known.sort(key=value_of, reverse=descending)
+    return [r["key"] for r in known + unknown]
+
+
+class TestSortByColumn:
+    """ODD "Período y stock" PS4: every sortable column sorts the WHOLE
+    filtered set in SQL, both ways, then pages -- always closed by the unique
+    row key, so ties can never repeat or skip a row between pages."""
+
+    def test_every_sort_key_is_covered(self):
+        assert set(SORT_FIELDS) == set(board.SORTS)
+
+    @pytest.mark.parametrize("sort", sorted(SORT_FIELDS))
+    @pytest.mark.parametrize("sort_dir", ["asc", "desc"])
+    def test_each_key_both_ways(self, client, admin_auth_headers, stock_data, sort, sort_dir):
+        body = _get(client, admin_auth_headers, sort=sort, sort_dir=sort_dir)
+
+        keys = [row["key"] for row in body["rows"]]
+        assert keys == _expected_order(body["rows"], SORT_FIELDS[sort], sort_dir == "desc")
+        assert len(keys) == 4
+
+    def test_stock_orders_the_whole_set_before_paging(self, client, admin_auth_headers, stock_data):
+        """Stock 5, 0, 3, unknown: descending puts 5 then 3 on page 1 even
+        though gross (the default) would not."""
+        page = _get(client, admin_auth_headers, sort="stock", sort_dir="desc", limit=2)
+
+        assert [row["key"] for row in page["rows"]] == ["11", "13"]
+        assert page["total"] == 4
+
+    @pytest.mark.parametrize("sort", ["stock", "ageing", "units_24h"])
+    @pytest.mark.parametrize("sort_dir", ["asc", "desc"])
+    def test_pages_of_one_row_are_the_full_order_even_with_ties(
+        self, db, client, admin_auth_headers, stock_data, sort, sort_dir
+    ):
+        # p13 ties p11 on stock (5); three rows tie on units_24h (0).
+        db.query(ProductoERP).filter(ProductoERP.item_id == 13).update({"stock": 5})
+        db.commit()
+        full = [row["key"] for row in _get(client, admin_auth_headers, sort=sort, sort_dir=sort_dir)["rows"]]
+
+        paged = [
+            row["key"]
+            for offset in range(4)
+            for row in _get(client, admin_auth_headers, sort=sort, sort_dir=sort_dir, limit=1, offset=offset)["rows"]
+        ]
+
+        assert paged == full
+        assert sorted(paged) == ["11", "12", "13", "14"]
+
+    def test_sorting_by_stock_needs_no_margin_permission(self, db, client, admin_auth_headers, rol_admin):
+        _grant(db, rol_admin, "ml_metricas.ver")
+        db.commit()
+
+        assert client.get(URL, params={"sort": "stock"}, headers=admin_auth_headers).status_code == 200
+        assert client.get(URL, params={"sort": "total_gauss"}, headers=admin_auth_headers).status_code == 403

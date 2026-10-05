@@ -7,6 +7,7 @@ import DateRangeFilter from '../components/DateRangeFilter';
 import SearchInput from '../components/SearchInput';
 import ProductFiltersPanel from '../components/shared/ProductFiltersPanel';
 import FacetChips from '../components/ventasMl/FacetChips';
+import facetStyles from '../components/ventasMl/FacetChips.module.css';
 import ColumnPicker from '../components/ventasMl/ColumnPicker';
 import Pagination from '../components/ventasMl/Pagination';
 import SegmentedControl from '../components/metricasMl/SegmentedControl';
@@ -420,7 +421,7 @@ export default function MetricasML() {
               type="button"
               role="switch"
               aria-checked={soloConVentas}
-              className={`${styles.periodToggle} ${soloConVentas ? styles.periodToggleOn : ''}`}
+              className={`${facetStyles.chip} ${soloConVentas ? facetStyles.chipActive : ''} ${styles.periodToggle}`}
               title="Muestra sólo las filas con ventas en el período elegido; sus ventanas 24h a 30D no cambian"
               onClick={() => withReset(setSoloConVentas)(!soloConVentas)}
             >
@@ -435,7 +436,6 @@ export default function MetricasML() {
               </span>
             )}
           </div>
-          <span className={styles.divider} aria-hidden="true" />
           <div className={styles.filterGroup}>
             <span className={styles.filterLabel} title="Stock del ERP (depósito 1), el mismo que muestra Productos">
               Stock:
@@ -453,7 +453,6 @@ export default function MetricasML() {
               })}
             />
           </div>
-          <span className={styles.divider} aria-hidden="true" />
           <div className={styles.filterGroup}>
             <span
               className={styles.filterLabel}
