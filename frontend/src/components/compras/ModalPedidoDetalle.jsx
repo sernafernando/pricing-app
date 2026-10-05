@@ -1,3 +1,9 @@
+// ponytail: this file is 1200+ lines and already violates the ~200-line
+// component-size convention. The genuine fix is splitting by section
+// (OC detalle / factura / TC / faltantes → own files) — a move-only refactor
+// touching every export and every test import. Bolting that onto a behavioural
+// change would spend the review budget on churn and bury the diff. Revisit
+// next time this file is touched for an unrelated reason.
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   X,
@@ -107,6 +113,29 @@ const linkedOcTriples = (pedido) => {
     ];
   }
   return [];
+};
+
+/** Group detalle lines into stacked OC blocks (one table per oc_poh_id). */
+const ocDetalleBlocks = (ocDetalle) => {
+  const lines = Array.isArray(ocDetalle?.lines) ? ocDetalle.lines : [];
+  if (lines.length === 0) return [];
+  const byPoh = new Map();
+  lines.forEach((line) => {
+    const poh =
+      line.oc_poh_id != null
+        ? line.oc_poh_id
+        : ocDetalle.oc_poh_id;
+    if (!byPoh.has(poh)) {
+      byPoh.set(poh, {
+        oc_comp_id: line.oc_comp_id ?? ocDetalle.oc_comp_id,
+        oc_bra_id: line.oc_bra_id ?? ocDetalle.oc_bra_id,
+        oc_poh_id: poh,
+        lines: [],
+      });
+    }
+    byPoh.get(poh).lines.push(line);
+  });
+  return Array.from(byPoh.values());
 };
 
 export default function ModalPedidoDetalle({ pedidoId, onClose }) {
@@ -425,6 +454,7 @@ export default function ModalPedidoDetalle({ pedidoId, onClose }) {
   );
 
   const linkedOcs = linkedOcTriples(pedido);
+  const ocBlocks = ocDetalleBlocks(ocDetalle);
   const canVincularOc = Boolean(pedido && canGestionar && pedido.tipo !== 'servicio');
 
   return (
@@ -971,36 +1001,54 @@ export default function ModalPedidoDetalle({ pedidoId, onClose }) {
               )}
             </div>
 
-            {/* OC detalle por depósito (read-only, Slice 1) */}
+            {/* OC detalle (read-only): código + descripción; one table per linked OC */}
             {pedido.oc_poh_id && (
               <>
                 {loadingOcDetalle ? (
                   <div className={styles.centered}>
                     <Loader2 size={14} className={styles.spin} /> Cargando desglose OC…
                   </div>
-                ) : ocDetalle?.lines?.length > 0 ? (
-                  <div className={styles.tableWrapper}>
-                    <table className={styles.table}>
-                      <thead>
-                        <tr>
-                          <th>Depósito</th>
-                          <th>Item ID</th>
-                          <th className={styles.thRight}>Qty OC</th>
-                          <th className={styles.thRight}>Saldo pendiente</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {ocDetalle.lines.map((line) => (
-                          <tr key={line.pod_id}>
-                            <td>{line.deposito_nombre || `stor_id ${line.stor_id}`}</td>
-                            <td className={styles.tdMono}>{line.item_id ?? '—'}</td>
-                            <td className={styles.tdRight}>{Number(line.pod_qty ?? 0).toLocaleString('es-AR')}</td>
-                            <td className={styles.tdRight}>{Number(line.saldo_pendiente ?? 0).toLocaleString('es-AR')}</td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
+                ) : ocBlocks.length > 0 ? (
+                  ocBlocks.map((block) => (
+                    <div key={`${block.oc_comp_id}-${block.oc_bra_id}-${block.oc_poh_id}`} className={styles.ocDetalleBlock}>
+                      <h4 className={styles.ocDetalleTitle}>OC #{block.oc_poh_id}</h4>
+                      <div className={styles.tableWrapper}>
+                        <table className={styles.table}>
+                          <caption className="sr-only">
+                            Ítems de la OC #{block.oc_poh_id} (solo lectura)
+                          </caption>
+                          <thead>
+                            <tr>
+                              <th>Código</th>
+                              <th>Descripción</th>
+                              <th className={styles.thCenter}>Qty OC</th>
+                              <th className={styles.thCenter}>Saldo pendiente</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {block.lines.map((line) => (
+                              <tr key={`${block.oc_poh_id}-${line.pod_id}`}>
+                                <td className={styles.itemCodigo}>
+                                  {line.item_code ? `#${line.item_code}` : '—'}
+                                </td>
+                                <td>
+                                  <span className={styles.itemNombre} title={line.item_nombre || undefined}>
+                                    {line.item_nombre || '—'}
+                                  </span>
+                                </td>
+                                <td className={styles.tdCenter}>
+                                  {Number(line.pod_qty ?? 0).toLocaleString('es-AR')}
+                                </td>
+                                <td className={styles.tdCenter}>
+                                  {Number(line.saldo_pendiente ?? 0).toLocaleString('es-AR')}
+                                </td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
+                  ))
                 ) : ocDetalle ? (
                   <div className={styles.emptySection}>Sin líneas de detalle disponibles.</div>
                 ) : null}

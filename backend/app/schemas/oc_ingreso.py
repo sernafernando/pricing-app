@@ -55,19 +55,27 @@ class OrdenCompraLineaResponse(BaseModel):
 
     pod_id: int
     item_id: int | None = None
-    item_nombre: str | None = None  # resolved via LEFT JOIN to productos_erp (Slice 2)
+    item_nombre: str | None = None  # productos_erp.descripcion
+    item_code: str | None = None  # productos_erp.codigo (operator-facing "EAN"/código)
     stor_id: int | None = None
     deposito_nombre: str | None = None
     pod_qty: Decimal | None = None
     pod_confirmedqty: Decimal | None = None
     saldo_pendiente: Decimal | None = None
     pod_price: Decimal | None = None
+    oc_comp_id: int | None = None
+    oc_bra_id: int | None = None
+    oc_poh_id: int | None = None
 
     model_config = ConfigDict(from_attributes=True)
 
 
 class OrdenCompraDetalleResponse(BaseModel):
-    """Response for GET /pedidos/{id}/orden-compra/detalle."""
+    """Response for GET /pedidos/{id}/orden-compra/detalle.
+
+    Top-level oc_* is the first linked triple (header cache / first relation row).
+    `lines` includes every linked OC; each line carries its own oc_* for grouping.
+    """
 
     oc_comp_id: int
     oc_bra_id: int

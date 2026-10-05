@@ -915,6 +915,50 @@ describe('TabRecepcionDeposito — Phase 3 depósito', () => {
     expect(screen.queryByText('Completa')).not.toBeInTheDocument();
   });
 
+  it('Controlados shows OC lines with saldo 0 read-only', async () => {
+    const user = userEvent.setup();
+    const controlado = {
+      ...PEDIDO_CON_OC_PAGADO,
+      id: 21,
+      numero: 'PC-0021',
+      estado: 'controlado',
+    };
+    mockListadoAndSaldos([controlado], {
+      [controlado.id]: {
+        ...SALDOS_ARRIBO,
+        pedido_id: controlado.id,
+        estado: 'controlado',
+        lineas: [
+          {
+            ...SALDOS_ARRIBO.lineas[0],
+            pod_id: 1,
+            item_nombre: 'Memoria controlada',
+            cantidad_recibida_total: '10.000000',
+            saldo_pendiente: '0.000000',
+          },
+          {
+            ...SALDOS_ARRIBO.lineas[1],
+            pod_id: 2,
+            item_nombre: 'Disco controlado',
+            cantidad_recibida_total: '5.000000',
+            saldo_pendiente: '0.000000',
+          },
+        ],
+      },
+    });
+    render(<TabRecepcionDeposito />);
+    await screen.findByText(`#${controlado.numero}`);
+    await user.click(screen.getByRole('button', { name: /Proveedor Tres/ }));
+
+    expect(await screen.findByText('Memoria controlada')).toBeInTheDocument();
+    expect(screen.getByText('Disco controlado')).toBeInTheDocument();
+    expect(screen.getByText(/Ítems de la orden de compra.*solo lectura/)).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /Marcar como controlado/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /Marcar con faltantes/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /^Marcar todo$/i })).not.toBeInTheDocument();
+    expect(screen.queryByLabelText(/Cantidad recibida para/i)).not.toBeInTheDocument();
+  });
+
   it('Docs opens pedido adjuntos, not an ERP dump', async () => {
     const user = userEvent.setup();
     api.get.mockImplementation((url) => {

@@ -55,13 +55,30 @@ const PEDIDO_BASE = {
   eventos: [],
 };
 
-function mockPedido(pedido) {
+function mockPedido(pedido, ocDetalle = null) {
   api.get.mockImplementation((url) => {
     if (url === `/administracion/compras/pedidos/${pedido.id}`) {
       return Promise.resolve({ data: pedido });
     }
+    if (url === `/administracion/compras/pedidos/${pedido.id}/orden-compra/detalle`) {
+      return Promise.resolve({
+        data:
+          ocDetalle ?? {
+            oc_comp_id: pedido.oc_comp_id ?? 1,
+            oc_bra_id: pedido.oc_bra_id ?? 1,
+            oc_poh_id: pedido.oc_poh_id,
+            lines: [],
+          },
+      });
+    }
     return Promise.resolve({ data: [] });
   });
+}
+
+async function renderDetalleWithOc(pedido, ocDetalle) {
+  mockPedido(pedido, ocDetalle);
+  render(<ModalPedidoDetalle pedidoId={pedido.id} onClose={() => {}} />);
+  await screen.findByText(`Pedido ${pedido.numero}`);
 }
 
 async function renderDetalle(pedido) {
@@ -252,5 +269,90 @@ describe('ModalPedidoDetalle — Vincular OC stays available', () => {
 
     expect(screen.getByRole('button', { name: /^\s*Vincular OC\s*$/ })).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /Desvincular OC/ })).not.toBeInTheDocument();
+  });
+});
+
+describe('ModalPedidoDetalle — OC breakdown table', () => {
+  it('shows código and descripción, not Item ID or Depósito headers', async () => {
+    await renderDetalleWithOc(
+      {
+        ...PEDIDO_BASE,
+        oc_poh_id: 100,
+        oc_comp_id: 1,
+        oc_bra_id: 1,
+      },
+      {
+        oc_comp_id: 1,
+        oc_bra_id: 1,
+        oc_poh_id: 100,
+        lines: [
+          {
+            pod_id: 1,
+            item_id: 55,
+            item_code: 'SKU-55',
+            item_nombre: 'Memoria RAM 16GB',
+            oc_poh_id: 100,
+            oc_comp_id: 1,
+            oc_bra_id: 1,
+            pod_qty: '10',
+            saldo_pendiente: '2',
+          },
+        ],
+      },
+    );
+
+    expect(await screen.findByText('Memoria RAM 16GB')).toBeInTheDocument();
+    expect(screen.getByText('#SKU-55')).toBeInTheDocument();
+    expect(screen.getByRole('columnheader', { name: 'Código' })).toBeInTheDocument();
+    expect(screen.getByRole('columnheader', { name: 'Descripción' })).toBeInTheDocument();
+    expect(screen.queryByRole('columnheader', { name: 'Item ID' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('columnheader', { name: 'Depósito' })).not.toBeInTheDocument();
+  });
+
+  it('stacks one table per linked OC', async () => {
+    await renderDetalleWithOc(
+      {
+        ...PEDIDO_BASE,
+        oc_poh_id: 100,
+        oc_comp_id: 1,
+        oc_bra_id: 1,
+        ocs: [
+          { oc_comp_id: 1, oc_bra_id: 1, oc_poh_id: 100 },
+          { oc_comp_id: 1, oc_bra_id: 1, oc_poh_id: 200 },
+        ],
+      },
+      {
+        oc_comp_id: 1,
+        oc_bra_id: 1,
+        oc_poh_id: 100,
+        lines: [
+          {
+            pod_id: 1,
+            item_code: 'A-1',
+            item_nombre: 'Linea OC 100',
+            oc_poh_id: 100,
+            oc_comp_id: 1,
+            oc_bra_id: 1,
+            pod_qty: '1',
+            saldo_pendiente: '0',
+          },
+          {
+            pod_id: 2,
+            item_code: 'B-2',
+            item_nombre: 'Linea OC 200',
+            oc_poh_id: 200,
+            oc_comp_id: 1,
+            oc_bra_id: 1,
+            pod_qty: '3',
+            saldo_pendiente: '1',
+          },
+        ],
+      },
+    );
+
+    expect(await screen.findByRole('heading', { name: 'OC #100' })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'OC #200' })).toBeInTheDocument();
+    expect(screen.getByText('Linea OC 100')).toBeInTheDocument();
+    expect(screen.getByText('Linea OC 200')).toBeInTheDocument();
   });
 });

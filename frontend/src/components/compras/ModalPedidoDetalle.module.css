@@ -320,6 +320,45 @@
   text-align: right;
 }
 
+.thCenter {
+  text-align: center;
+}
+
+.tdCenter {
+  text-align: center;
+  font-weight: 500;
+}
+
+.ocDetalleBlock {
+  margin-top: var(--spacing-sm);
+}
+
+.ocDetalleBlock + .ocDetalleBlock {
+  margin-top: var(--spacing-md);
+}
+
+.ocDetalleTitle {
+  margin: 0 0 var(--spacing-xs);
+  font-size: var(--font-sm);
+  font-weight: 600;
+  color: var(--cf-text-secondary);
+}
+
+.itemCodigo {
+  font-family: var(--font-mono, monospace);
+  font-size: var(--font-xs);
+  color: var(--cf-text-secondary);
+  white-space: nowrap;
+}
+
+.itemNombre {
+  display: block;
+  max-width: 18rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .tdSecondary {
   color: var(--cf-text-secondary);
 }
