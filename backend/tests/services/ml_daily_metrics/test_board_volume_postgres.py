@@ -238,9 +238,16 @@ class TestBoardOnVolume:
         )
         print(f"board with exclusions limit=50: {len(hidden.statements)} statements, {elapsed_ms:.0f} ms")
         stocked, by_stock, elapsed_ms = _request(
-            volume_session, limit=50, stock=("sin_stock",), stock_exclude=("sin_dato",), solo_con_ventas=True
+            volume_session,
+            limit=50,
+            stock=("sin_stock",),
+            stock_exclude=("sin_dato",),
+            ageing=("up_to_30",),
+            solo_con_ventas=True,
         )
-        print(f"board by stock, solo con ventas limit=50: {len(by_stock.statements)} statements, {elapsed_ms:.0f} ms")
+        print(
+            f"board by stock, ageing, solo con ventas limit=50: {len(by_stock.statements)} statements, {elapsed_ms:.0f} ms"
+        )
         empty, emptied, elapsed_ms = _request(volume_session, limit=50, q="no-existe-nada")
         print(f"board empty page: {len(emptied.statements)} statements, {elapsed_ms:.0f} ms")
 
@@ -248,7 +255,7 @@ class TestBoardOnVolume:
         assert response.rows and len(filtered.statements) == counts[50]
         # Exclusion rides the same filter CTE: no extra statements.
         assert excluded.rows and len(hidden.statements) == counts[50]
-        # The ROW filters (stock, "solo con ventas") ride the rows subquery
+        # The ROW filters (stock, ageing, "solo con ventas") ride the rows subquery
         # and the stock join is inside it: no extra statements either.
         assert stocked.rows and len(by_stock.statements) == counts[50]
         # An empty page skips the two per-page statements (details, series).

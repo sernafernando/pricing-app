@@ -252,6 +252,7 @@ export const BOARD_RESPONSE = {
     pub_type: { clasica: 402, premium: 233, catalogo: 87, full: 156 },
     alerts: { sin_ventas_30d: 64, ageing_60d: 23, margen_cayendo: 11 },
     stock: { con_stock: 402, sin_stock: 61, sin_dato: 8 },
+    ageing: { up_to_30: 402, from_31_to_60: 46, over_60: 23 },
   },
   rows: BOARD_ROWS,
 };

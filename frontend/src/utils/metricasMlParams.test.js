@@ -32,6 +32,12 @@ describe('buildMetricasMLParams', () => {
     expect(params).toMatchObject({ stock: 'sin_stock,sin_dato', stock_exclude: 'con_stock' });
   });
 
+  it('sends the ageing chips as include / exclude CSV, only when set', () => {
+    expect(buildMetricasMLParams({ ...BASE, ageing: [], ageingExclude: [] })).not.toHaveProperty('ageing');
+    const params = buildMetricasMLParams({ ...BASE, ageing: ['over_60'], ageingExclude: ['up_to_30'] });
+    expect(params).toMatchObject({ ageing: 'over_60', ageing_exclude: 'up_to_30' });
+  });
+
   it('sends the toggle explicitly when off, never relying on the backend default', () => {
     expect(buildMetricasMLParams({ ...BASE, soloConVentas: false }).solo_con_ventas).toBe(false);
   });

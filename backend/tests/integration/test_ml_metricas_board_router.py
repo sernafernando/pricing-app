@@ -982,3 +982,84 @@ class TestStock:
     )
     def test_bad_values_are_422(self, client, admin_auth_headers, stock_data, params):
         assert client.get(URL, params=params, headers=admin_auth_headers).status_code == 422
+
+
+class TestAgeing:
+    """ODD "Período y stock" PS3: ageing chips with the KPI's buckets (<= 30,
+    31-60, > 60 days since the last sale -- or since the publication started
+    if it never sold), filtered in SQL. In `board_data`: p11 0 d, p14 20 d,
+    p12 82 d, p13 121 d."""
+
+    def test_the_chips_count_rows_by_ageing_bucket(self, client, admin_auth_headers, board_data):
+        facets = _get(client, admin_auth_headers)["facets"]
+
+        assert facets["ageing"] == {"up_to_30": 2, "from_31_to_60": 0, "over_60": 2}
+
+    def test_including_and_excluding(self, client, admin_auth_headers, board_data):
+        assert set(_by_key(_get(client, admin_auth_headers, ageing="over_60"))) == {"12", "13"}
+        assert set(_by_key(_get(client, admin_auth_headers, ageing="up_to_30"))) == {"11", "14"}
+        assert set(_by_key(_get(client, admin_auth_headers, ageing_exclude="over_60"))) == {"11", "14"}
+        assert set(_by_key(_get(client, admin_auth_headers, ageing="up_to_30,over_60"))) == {"11", "12", "13", "14"}
+
+    def test_the_middle_bucket(self, db, client, admin_auth_headers, board_data):
+        _producto(db, 15, "Monitor Samsung", "Samsung")
+        db.flush()
+        _pub(db, 6, "MLA6", 15, 57997)
+        _day(db, 15, "MLA6", date(2026, 8, 20), 1, "100", "10", "50")  # 41 days ago
+        db.commit()
+
+        body = _get(client, admin_auth_headers, ageing="from_31_to_60")
+
+        assert set(_by_key(body)) == {"15"}
+        assert _by_key(body)["15"]["ageing_days"] == 41
+        assert body["facets"]["ageing"]["from_31_to_60"] == 1
+
+    def test_the_over_60_chip_is_the_ageing_alert(self, client, admin_auth_headers, board_data):
+        body = _get(client, admin_auth_headers)
+
+        assert body["facets"]["ageing"]["over_60"] == body["facets"]["alerts"]["ageing_60d"]
+        assert body["facets"]["ageing"]["over_60"] == body["kpis"]["ageing"]["over_60"]
+        assert set(_by_key(_get(client, admin_auth_headers, ageing="over_60"))) == set(
+            _by_key(_get(client, admin_auth_headers, alerts="ageing_60d"))
+        )
+
+    def test_kpis_follow_and_its_own_chips_ignore_it(self, client, admin_auth_headers, board_data):
+        body = _get(client, admin_auth_headers, ageing="over_60")
+
+        assert body["total"] == 2
+        assert body["kpis"]["ageing"] == {"avg_days": 101.5, "up_to_30": 0, "from_31_to_60": 0, "over_60": 2}
+        assert body["kpis"]["units"]["value"] == 0
+        assert body["facets"]["ageing"] == {"up_to_30": 2, "from_31_to_60": 0, "over_60": 2}
+        assert body["facets"]["stores"] == {"57997": 1, "2645": 1}
+
+    def test_ageing_and_stock_chips_see_each_other(self, client, admin_auth_headers, stock_data):
+        assert _get(client, admin_auth_headers, ageing="over_60")["facets"]["stock"] == {
+            "con_stock": 1,
+            "sin_stock": 1,
+            "sin_dato": 0,
+        }
+        assert _get(client, admin_auth_headers, stock="con_stock")["facets"]["ageing"] == {
+            "up_to_30": 1,
+            "from_31_to_60": 0,
+            "over_60": 1,
+        }
+
+    def test_with_solo_con_ventas_on_stale_rows_are_hidden(self, client, admin_auth_headers, board_data):
+        """The board never flips the toggle by itself: the page warns
+        instead ("Ocultando productos sin ventas en el período")."""
+        resp = client.get(URL, params={"ageing": "over_60"}, headers=admin_auth_headers)
+
+        assert resp.json()["rows"] == []
+
+    def test_the_export_follows_it(self, client, admin_auth_headers, board_data):
+        resp = client.get(f"{URL}/export", params={**CATALOG, "ageing": "over_60"}, headers=admin_auth_headers)
+
+        rows = list(csv.DictReader(io.StringIO(resp.content.decode("utf-8-sig")), delimiter=";"))
+        assert {row["Producto"] for row in rows} == {"Notebook Lenovo V15", "Taladro DeWalt"}
+
+    @pytest.mark.parametrize(
+        "params",
+        [{"ageing": "viejo"}, {"ageing_exclude": "90d"}, {"ageing": "over_60", "ageing_exclude": "over_60"}],
+    )
+    def test_bad_values_are_422(self, client, admin_auth_headers, board_data, params):
+        assert client.get(URL, params=params, headers=admin_auth_headers).status_code == 422

@@ -9,6 +9,15 @@
   background: var(--money-positive);
 }
 
+/* The ageing tones of the board's Ageing column (`chip_low`/`chip_negative`). */
+.dot[data-tone='low'] {
+  background: var(--tone-warning-fg);
+}
+
+.dot[data-tone='negative'] {
+  background: var(--tone-danger-fg);
+}
+
 /* Excluded ("ocultar"): danger tone, label struck through. The count stays
    readable -- it is how many the chip is hiding. */
 .chipExcluded {

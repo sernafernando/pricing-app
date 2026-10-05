@@ -77,6 +77,7 @@ from sqlalchemy import (
     select,
     table,
     text,
+    true,
     union,
 )
 from sqlalchemy.ext.compiler import compiles
@@ -108,6 +109,11 @@ ALERTS = ("sin_ventas_30d", "ageing_60d", "margen_cayendo")
 # never folded into "sin stock": a "what to rebuy" list must not fill up with
 # rows we know nothing about (ODD "Período y stock").
 STOCK_BUCKETS = ("con_stock", "sin_stock", "sin_dato")
+# The row's ageing (days since its last sale, or since its oldest
+# publication started if it never sold), in the KPI's three buckets: <= 30,
+# 31-60, > 60 days. "over_60" IS the "Ageing > 60d" alert (same SQL). A row
+# with no reference day at all falls in none of them.
+AGEING_BUCKETS = ("up_to_30", "from_31_to_60", "over_60")
 SORTS = (
     "gross",
     "units",
@@ -201,6 +207,9 @@ class BoardFilter:
     # exclude like the publication chips.
     stock: Tuple[str, ...] = ()
     stock_exclude: Tuple[str, ...] = ()
+    # ROW filters on the row's ageing bucket (`AGEING_BUCKETS`).
+    ageing: Tuple[str, ...] = ()
+    ageing_exclude: Tuple[str, ...] = ()
     # "Solo con ventas en el período": keep only the ROWS (products, or
     # publications) with a unit sold in the period. A row filter, applied to
     # the aggregated row: its windows, markups and series keep every sale.
@@ -350,6 +359,7 @@ class Facets:
     pub_type: Dict[str, int]
     alerts: Dict[str, int]
     stock: Dict[str, int]
+    ageing: Dict[str, int]
 
 
 CENT = Decimal("0.01")
@@ -708,7 +718,14 @@ class Board:
         delta = markup - markup_prev
         ref_day = func.coalesce(g.c.last_day, g.c.start_day)
         sin_ventas = g.c.w30d == 0
-        ageing_60 = ref_day < self._day(self.today - timedelta(days=AGEING_ALERT_DAYS))
+        # ONE ageing bucketing for the chips, the KPI bar and the alert.
+        ageing_bucket = case(
+            (ref_day >= self._day(self.today - timedelta(days=AGEING_OK_DAYS)), literal("up_to_30")),
+            (ref_day >= self._day(self.today - timedelta(days=AGEING_ALERT_DAYS)), literal("from_31_to_60")),
+            (ref_day.isnot(None), literal("over_60")),
+            else_=literal("sin_dato"),
+        )
+        ageing_60 = ageing_bucket == "over_60"
         cayendo = delta <= FALLING_MARGIN_PP
         # The row's stock: ONE join by primary key on the row's product inside
         # this statement, never a lookup per row. Product 0 ("sin producto")
@@ -731,9 +748,12 @@ class Board:
             case((cayendo, 1), else_=0).label("a_margen_cayendo"),
             stock.label("stock"),
             stock_bucket.label("stock_bucket"),
+            ageing_bucket.label("ageing_bucket"),
         ).select_from(g.outerjoin(erp, erp.c.item_id == g.c.product))
         if "stock" not in skips:
             q = q.where(*self._row_axis(stock_bucket, self.f.stock, self.f.stock_exclude))
+        if "ageing" not in skips:
+            q = q.where(*self._row_axis(ageing_bucket, self.f.ageing, self.f.ageing_exclude))
         if apply_alerts and self.f.alerts and "alerts" not in skips:
             by_name = {"sin_ventas_30d": sin_ventas, "ageing_60d": ageing_60, "margen_cayendo": cayendo}
             q = q.where(or_(*(by_name[a] for a in self.f.alerts)))
@@ -928,8 +948,6 @@ class Board:
 
     def kpis(self) -> Kpis:
         rows = self.rows()
-        ok_bound = self._day(self.today - timedelta(days=AGEING_OK_DAYS))
-        alert_bound = self._day(self.today - timedelta(days=AGEING_ALERT_DAYS))
         totals = (
             self.db.execute(
                 select(
@@ -946,12 +964,10 @@ class Board:
                     func.count().label("rows"),
                     func.coalesce(func.sum(case((rows.c.units > 0, 1), else_=0)), 0).label("with_sales"),
                     func.avg(self._days_since(rows.c.ref_day)).label("ageing_avg"),
-                    func.coalesce(func.sum(case((rows.c.ref_day >= ok_bound, 1), else_=0)), 0).label("up_to_30"),
-                    func.coalesce(
-                        func.sum(case((and_(rows.c.ref_day < ok_bound, rows.c.ref_day >= alert_bound), 1), else_=0)),
-                        0,
-                    ).label("from_31_to_60"),
-                    func.coalesce(func.sum(rows.c.a_ageing_60d), 0).label("over_60"),
+                    *(
+                        func.coalesce(func.sum(case((rows.c.ageing_bucket == name, 1), else_=0)), 0).label(name)
+                        for name in AGEING_BUCKETS
+                    ),
                 )
             )
             .mappings()
@@ -1076,22 +1092,28 @@ class Board:
         )
         alerts = {name: int(alert_row[name]) for name in ALERTS}
 
-        # The row chip groups (stock), each with its own axis cleared: one
-        # statement, conditional counts per bucket.
-        rows = self.rows(skip="stock")
-        stock_row = (
+        # The row chip groups (stock, ageing) in ONE statement: the rows with
+        # BOTH axes cleared, each group counting only the rows that pass the
+        # OTHER group's chips -- so each ignores its own axis and sees the rest.
+        rows = self.rows(skip=("stock", "ageing"))
+        stock_pass = and_(true(), *self._row_axis(rows.c.stock_bucket, self.f.stock, self.f.stock_exclude))
+        ageing_pass = and_(true(), *self._row_axis(rows.c.ageing_bucket, self.f.ageing, self.f.ageing_exclude))
+
+        def count(bucket: Any, name: str, other_passes: Any) -> Any:
+            return func.coalesce(func.sum(case((and_(bucket == name, other_passes), 1), else_=0)), 0)
+
+        row_chips = (
             self.db.execute(
                 select(
-                    *(
-                        func.coalesce(func.sum(case((rows.c.stock_bucket == name, 1), else_=0)), 0).label(name)
-                        for name in STOCK_BUCKETS
-                    )
+                    *(count(rows.c.stock_bucket, name, ageing_pass).label(f"s_{name}") for name in STOCK_BUCKETS),
+                    *(count(rows.c.ageing_bucket, name, stock_pass).label(f"a_{name}") for name in AGEING_BUCKETS),
                 )
             )
             .mappings()
             .one()
         )
-        stock = {name: int(stock_row[name]) for name in STOCK_BUCKETS}
+        stock = {name: int(row_chips[f"s_{name}"]) for name in STOCK_BUCKETS}
+        ageing = {name: int(row_chips[f"a_{name}"]) for name in AGEING_BUCKETS}
         return Facets(
             stores=stores,
             stores_total=stores_total,
@@ -1099,6 +1121,7 @@ class Board:
             pub_type=pub_type,
             alerts=alerts,
             stock=stock,
+            ageing=ageing,
         )
 
 
@@ -1115,6 +1138,7 @@ def refreshed_at(db: Session) -> Optional[datetime]:
 __all__ = [
     "ALERTS",
     "AGEING_ALERT_DAYS",
+    "AGEING_BUCKETS",
     "Board",
     "BoardFilter",
     "COMPARE",

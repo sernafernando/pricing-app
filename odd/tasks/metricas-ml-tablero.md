@@ -616,7 +616,20 @@ una consulta por fila).
       por stock", sin params, celda "—" de próximamente).
       Checks: router + paridad + servicios del tablero (Postgres incluido,
       volumen) 117 passed; vitest página + params 27 passed; ruff OK.
-- [ ] PS3 — Chips de Ageing + aviso con "Solo con ventas".
+- [x] PS3 — Chips de Ageing + aviso con "Solo con ventas".
+      PS2 commit: `44a7e6a9`. Ruta: inline (writer único).
+      SQL: UN solo `CASE` de tramos de ageing en `Board.rows`
+      (`ageing_bucket`) alimenta los chips, la barra del KPI y la alerta
+      "Ageing > 60d" (`over_60`); el KPI dejó de tener su propia cuenta de
+      límites. Los conteos de los chips de stock y de ageing salen de UNA
+      sentencia (filas con los dos ejes apagados, cada grupo cuenta sólo lo
+      que pasa el otro): el tablero sigue en **18 sentencias** en volumen
+      (stock + ageing + solo con ventas incluido).
+      RED visto: router 11/11 fallando (`KeyError: 'ageing'`, filtros
+      ignorados, 200 en vez de 422); frontend 4 fallando (sin grupo "Filtrar
+      por ageing", sin params, sin aviso).
+      Checks: router + paridad + servicios del tablero (Postgres, volumen)
+      128 passed; vitest página + params + componentes 38 passed.
 - [ ] PS4 — Orden por columnas (stock incluido, flecha lucide, aria-sort).
 - [ ] PS5 — Checks: ruff, pytest focalizado, vitest (antes 143 archivos /
       1899 tests), test:visual, eslint, lint:css, build, suite backend

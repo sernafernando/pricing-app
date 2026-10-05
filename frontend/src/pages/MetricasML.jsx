@@ -20,6 +20,9 @@ import { buildMetricasMLParams } from '../utils/metricasMlParams';
 import { exportMetricasCsv } from '../utils/ventasMlExport';
 import { timeAgo } from '../utils/ventasMlFormat';
 import {
+  AGEING_BUCKET_TONES,
+  AGEING_LABELS,
+  AGEING_OPTIONS,
   PUB_STATUS_LABELS,
   PUB_STATUS_OPTIONS,
   PUB_TYPE_LABELS,
@@ -95,6 +98,8 @@ export default function MetricasML() {
   const [alerts, setAlerts] = useState([]);
   const [stock, setStock] = useState([]);
   const [stockExclude, setStockExclude] = useState([]);
+  const [ageing, setAgeing] = useState([]);
+  const [ageingExclude, setAgeingExclude] = useState([]);
   // "Solo con ventas en el período": on by default -- a short period shows
   // what sold in it, not the whole catalog (ODD "Período y stock" PS1).
   const [soloConVentas, setSoloConVentas] = useState(true);
@@ -131,6 +136,8 @@ export default function MetricasML() {
         alerts,
         stock,
         stockExclude,
+        ageing,
+        ageingExclude,
         soloConVentas,
       }),
     [
@@ -147,6 +154,8 @@ export default function MetricasML() {
       alerts,
       stock,
       stockExclude,
+      ageing,
+      ageingExclude,
       soloConVentas,
     ],
   );
@@ -250,6 +259,8 @@ export default function MetricasML() {
     setAlerts([]);
     setStock([]);
     setStockExclude([]);
+    setAgeing([]);
+    setAgeingExclude([]);
     setSoloConVentas(true);
     setOffset(0);
   };
@@ -288,9 +299,15 @@ export default function MetricasML() {
       alerts.length ||
       stock.length ||
       stockExclude.length ||
+      ageing.length ||
+      ageingExclude.length ||
       !soloConVentas,
   );
   const noun = groupBy === 'publication' ? 'publicaciones' : 'productos';
+  // Stale rows (an ageing chip) rarely sold in a short period: with the
+  // toggle on they are hidden. Say so -- never flip the toggle behind the
+  // operator's back.
+  const hidesStale = soloConVentas && (ageing.length > 0 || ageingExclude.length > 0);
   const rows = board?.rows || [];
   const total = board?.total ?? 0;
   const freshness = timeAgo(board?.refreshed_at);
@@ -412,6 +429,11 @@ export default function MetricasML() {
               </span>
               Solo con ventas en el período
             </button>
+            {hidesStale && (
+              <span className={styles.toggleHint} role="status">
+                Ocultando {noun} sin ventas en el período
+              </span>
+            )}
           </div>
           <span className={styles.divider} aria-hidden="true" />
           <div className={styles.filterGroup}>
@@ -429,6 +451,28 @@ export default function MetricasML() {
                 setStock(nextSelected);
                 setStockExclude(nextExcluded);
               })}
+            />
+          </div>
+          <span className={styles.divider} aria-hidden="true" />
+          <div className={styles.filterGroup}>
+            <span
+              className={styles.filterLabel}
+              title="Días desde la última venta (o desde que empezó la publicación, si nunca vendió)"
+            >
+              Ageing:
+            </span>
+            <ToggleChips
+              label="Filtrar por ageing"
+              options={AGEING_OPTIONS}
+              labels={AGEING_LABELS}
+              counts={facets?.ageing}
+              selected={ageing}
+              excluded={ageingExclude}
+              onChange={withReset((nextSelected, nextExcluded) => {
+                setAgeing(nextSelected);
+                setAgeingExclude(nextExcluded);
+              })}
+              dotFor={(value) => AGEING_BUCKET_TONES[value]}
             />
           </div>
         </div>

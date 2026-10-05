@@ -19,6 +19,8 @@ export function buildMetricasMLParams({
   alerts,
   stock,
   stockExclude,
+  ageing,
+  ageingExclude,
   soloConVentas = true,
 }) {
   const params = {
@@ -42,5 +44,7 @@ export function buildMetricasMLParams({
   if (alerts?.length > 0) params.alerts = alerts.join(',');
   if (stock?.length > 0) params.stock = stock.join(',');
   if (stockExclude?.length > 0) params.stock_exclude = stockExclude.join(',');
+  if (ageing?.length > 0) params.ageing = ageing.join(',');
+  if (ageingExclude?.length > 0) params.ageing_exclude = ageingExclude.join(',');
   return params;
 }

@@ -168,6 +168,8 @@ class BoardFacets(BaseModel):
     pub_type: Dict[str, int]
     alerts: Dict[str, Optional[int]]
     stock: Dict[str, int]
+    # Same buckets as `KpiAgeing` (`over_60` is the "Ageing > 60d" alert).
+    ageing: Dict[str, int]
 
 
 class BoardResponse(BaseModel):
@@ -233,6 +235,10 @@ def board_filter(
     alerts: Optional[str] = Query(default=None, description="CSV: " + ", ".join(board.ALERTS)),
     stock: Optional[str] = Query(default=None, description="CSV: " + ", ".join(board.STOCK_BUCKETS)),
     stock_exclude: Optional[str] = Query(default=None, description="CSV a ocultar: " + ", ".join(board.STOCK_BUCKETS)),
+    ageing: Optional[str] = Query(default=None, description="CSV: " + ", ".join(board.AGEING_BUCKETS)),
+    ageing_exclude: Optional[str] = Query(
+        default=None, description="CSV a ocultar: " + ", ".join(board.AGEING_BUCKETS)
+    ),
     solo_con_ventas: bool = Query(
         default=True,
         description="Sólo filas con al menos una unidad vendida en el período (sus ventanas no cambian)",
@@ -274,6 +280,9 @@ def board_filter(
     stock_in = _parse_choices(stock, "stock", board.STOCK_BUCKETS)
     stock_out = _parse_choices(stock_exclude, "stock_exclude", board.STOCK_BUCKETS)
     _no_overlap(stock_in, stock_out, "stock")
+    ageing_in = _parse_choices(ageing, "ageing", board.AGEING_BUCKETS)
+    ageing_out = _parse_choices(ageing_exclude, "ageing_exclude", board.AGEING_BUCKETS)
+    _no_overlap(ageing_in, ageing_out, "ageing")
     return board.BoardFilter(
         date_from=desde,
         date_to=hasta,
@@ -291,6 +300,8 @@ def board_filter(
         alerts=_parse_choices(alerts, "alerts", board.ALERTS),
         stock=stock_in,
         stock_exclude=stock_out,
+        ageing=ageing_in,
+        ageing_exclude=ageing_out,
         solo_con_ventas=solo_con_ventas,
         sort=sort,
         sort_desc=sort_dir == "desc",
@@ -406,6 +417,7 @@ def _facets(facets: board.Facets, can_see_margin: bool) -> BoardFacets:
         pub_type=facets.pub_type,
         alerts=alerts,
         stock=facets.stock,
+        ageing=facets.ageing,
     )
 
 
@@ -472,13 +484,22 @@ def get_product_publications(
     filters as the board. `is_best` marks the one that earned the most in the
     period (Total Gauss, or gross without the margin permission).
 
-    The ROW filters (alerts, stock, "solo con ventas") already decided that the
+    The ROW filters (alerts, stock, ageing, "solo con ventas") already decided that the
     product is on the board: its sub-rows are every publication passing the
     PAIR filters (store, status, type, brand, search), so they add up to the
     product row."""
     can_see_margin = _can_see_margin(db, current_user)
     _margin_gate(f, can_see_margin)
-    by_pub = replace(f, group_by="publication", alerts=(), stock=(), stock_exclude=(), solo_con_ventas=False)
+    by_pub = replace(
+        f,
+        group_by="publication",
+        alerts=(),
+        stock=(),
+        stock_exclude=(),
+        ageing=(),
+        ageing_exclude=(),
+        solo_con_ventas=False,
+    )
     with board.Board(db, by_pub, product_item_id=product_item_id) as b:
         rows = b.page(limit=None, apply_alerts=False)
     out = [_row_out(row, can_see_margin) for row in rows]

@@ -188,6 +188,14 @@
   border-radius: var(--radius-sm);
 }
 
+/* "Ocultando productos sin ventas en el período": a quiet warning beside
+   the toggle when an ageing chip narrows to rows that rarely sell. */
+.toggleHint {
+  font-size: var(--font-xs);
+  color: var(--tone-warning-fg);
+  white-space: nowrap;
+}
+
 /* Alert pills (design: amber "Sin ventas", rose "Ageing"/"Markup cayendo"). */
 .alertChip {
   display: inline-flex;
