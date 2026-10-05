@@ -17,7 +17,7 @@
  * orders they describe.
  */
 
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { renderWithRouter } from '../test/renderWithRouter';
@@ -2060,5 +2060,90 @@ describe('Selected order: header pills and row highlight', () => {
     const selected = document.querySelectorAll('tr[class*="selectedRow"]');
     expect(selected).toHaveLength(1);
     expect(selected[0]).toHaveTextContent('comprador1');
+  });
+});
+
+describe('Ctrl/Cmd+click opens the sale in MercadoLibre instead of the drawer', () => {
+  const PACK_ID = 2000014816536209;
+  const M1 = { ...PAID_SALE, order_id: 2000018230951686, pack_id: PACK_ID, buyer_nickname: 'MIEMBRO1' };
+  const M2 = { ...PAID_SALE, order_id: 2000018230945962, pack_id: PACK_ID, buyer_nickname: 'MIEMBRO1' };
+
+  async function ctrlClick(user, el, key = 'Control') {
+    await user.keyboard(`{${key}>}`);
+    await user.click(el);
+    await user.keyboard(`{/${key}}`);
+  }
+
+  beforeEach(() => {
+    delete document.documentElement.dataset.mlPanel;
+    vi.spyOn(window, 'open').mockImplementation(() => null);
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it('lone order row: ctrl+click opens ML with the order id and no drawer', async () => {
+    mockSalesList([PAID_SALE]);
+    const user = userEvent.setup();
+    await renderWithRouter(<VentasML />);
+    await ctrlClick(user, await screen.findByText('comprador1'));
+    expect(window.open).toHaveBeenCalledWith(
+      'https://vendedores.mercadolibre.com.ar/ventas/1001/detalle',
+      '_blank',
+      'noopener,noreferrer',
+    );
+    expect(api.get).not.toHaveBeenCalledWith(expect.stringContaining('/ml-ventas-ops/orders/1001'));
+  });
+
+  it('meta+click works too and a plain click still opens the drawer', async () => {
+    mockSalesList([PAID_SALE]);
+    const user = userEvent.setup();
+    await renderWithRouter(<VentasML />);
+    await ctrlClick(user, await screen.findByText('comprador1'), 'Meta');
+    expect(window.open).toHaveBeenCalledTimes(1);
+    await user.click(screen.getByText('comprador1'));
+    expect(window.open).toHaveBeenCalledTimes(1);
+    expect(api.get).toHaveBeenCalledWith(expect.stringContaining('/ml-ventas-ops/orders/1001'));
+  });
+
+  it('Neto button: ctrl+click opens ML and not the drawer', async () => {
+    mockSalesList([PAID_SALE]);
+    const user = userEvent.setup();
+    await renderWithRouter(<VentasML />);
+    await ctrlClick(user, await screen.findByRole('button', { name: 'Ver desglose de costos' }));
+    expect(window.open).toHaveBeenCalledTimes(1);
+    expect(api.get).not.toHaveBeenCalledWith(expect.stringContaining('/ml-ventas-ops/orders/1001'));
+  });
+
+  it('pack row: ctrl+click opens ML with the pack id and no pack drawer', async () => {
+    mockSalesList([packOf([M1, M2], PACK_ID)]);
+    const user = userEvent.setup();
+    await renderWithRouter(<VentasML />);
+    await ctrlClick(user, await screen.findByText('MIEMBRO1'));
+    expect(window.open).toHaveBeenCalledWith(
+      `https://vendedores.mercadolibre.com.ar/ventas/${PACK_ID}/detalle`,
+      '_blank',
+      'noopener,noreferrer',
+    );
+    expect(api.get).not.toHaveBeenCalledWith(`/ml-ventas-ops/packs/${PACK_ID}`);
+  });
+
+  it('pack member row and its Neto button: ctrl+click opens ML with the pack id', async () => {
+    mockSalesList([packOf([M1, M2], PACK_ID)]);
+    const user = userEvent.setup();
+    await renderWithRouter(<VentasML />);
+    await user.click(await screen.findByRole('button', { name: new RegExp(`Pack ${PACK_ID}`) }));
+    const rows = document.querySelectorAll('tr[class*="memberRow"]');
+    expect(rows).toHaveLength(2);
+    await ctrlClick(user, rows[0].querySelector('td[data-col-id="total_gauss"]'));
+    await ctrlClick(user, within(rows[1]).getByRole('button', { name: 'Ver desglose de costos' }));
+    expect(window.open).toHaveBeenCalledTimes(2);
+    expect(window.open).toHaveBeenCalledWith(
+      `https://vendedores.mercadolibre.com.ar/ventas/${PACK_ID}/detalle`,
+      '_blank',
+      'noopener,noreferrer',
+    );
+    expect(api.get).not.toHaveBeenCalledWith(expect.stringContaining('/ml-ventas-ops/orders/'));
   });
 });

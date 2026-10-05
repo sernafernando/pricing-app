@@ -278,7 +278,7 @@ export const COLUMNS = [
             title={isRecalc ? undefined : netoTooltip(order.neto_depositado, order.retenciones_recuperables)}
             onClick={(e) => {
               e.stopPropagation();
-              ctx.openDrawer(order.order_id);
+              ctx.openMemberPanel(e);
             }}
           >
             {isRecalc ? (
@@ -307,7 +307,7 @@ export const COLUMNS = [
             title={metricsState === 'ok' ? netoTooltip(group.neto_depositado, group.retenciones_recuperables) : undefined}
             onClick={(e) => {
               e.stopPropagation();
-              openGroupPanel();
+              openGroupPanel(e);
             }}
           >
             {content}
