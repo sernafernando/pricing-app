@@ -20,7 +20,7 @@ from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
 
 import pytest
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.models.mercadolibre_item_publicado import MercadoLibreItemPublicado
@@ -1199,10 +1199,21 @@ class TestRowsSkipAxes:
     def _board(self, db):
         return board.Board(db, board.BoardFilter(date_from=date(2026, 9, 1), date_to=date(2026, 9, 30)))
 
-    def test_pair_and_row_axes_are_separate(self, db, board_data):
+    def test_skipping_the_pair_axis_really_clears_that_filter(self, db, board_data):
+        """A store no row belongs to empties the board; skipping the stores
+        axis brings every row back -- while the row axes passed alongside are
+        skipped too, so the pair axis is no longer dropped silently."""
+        nowhere = board.BoardFilter(date_from=date(2026, 9, 1), date_to=date(2026, 9, 30), stores=("999999",))
+        with board.Board(db, nowhere) as b:
+            filtered = db.execute(select(func.count()).select_from(b.rows())).scalar()
+            skipped = db.execute(
+                select(func.count()).select_from(b.rows(skip_pair_axis="stores", skip_row_axes=("stock", "ageing")))
+            ).scalar()
         with self._board(db) as b:
-            b.rows(skip_pair_axis="stores", skip_row_axes=("stock", "ageing"))
-            b.rows(skip_row_axes=("alerts",))
+            everything = db.execute(select(func.count()).select_from(b.rows())).scalar()
+
+        assert filtered == 0
+        assert skipped == everything > 0
 
     @pytest.mark.parametrize(
         "kwargs",
