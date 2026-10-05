@@ -20,6 +20,7 @@ from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
 
 import pytest
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.models.mercadolibre_item_publicado import MercadoLibreItemPublicado
@@ -156,6 +157,12 @@ def board_data(db, rol_admin):
     _day(db, 14, "MLA5", date(2026, 8, 10), 1, "150", "20", "100")
     # p13: never sold
     db.commit()
+
+
+# "Solo con ventas en el período" (ODD "Período y stock" PS1) is OFF unless
+# asked for: an older SPA bundle that never sends it keeps the whole catalog.
+# The page asks for it explicitly (on by default in the UI).
+SOLO_CON_VENTAS = {"solo_con_ventas": "true"}
 
 
 def _get(client, headers, **params):
@@ -797,3 +804,427 @@ class TestMoneyHasTwoDecimals:
         assert kpis["total_gauss"]["value"] == 33.33
         for value in money:
             assert value is None or Decimal(repr(value)) == Decimal(repr(value)).quantize(Decimal("0.01")), value
+
+
+class TestSoloConVentas:
+    """ODD "Período y stock" PS1: "Solo con ventas en el período" keeps only
+    the ROWS with a sale in the selected period; it filters which rows, never
+    their numbers -- a product sold today still shows its 30-day window,
+    other publications' sales included. OFF unless asked for (rolling-deploy
+    safety: an older bundle sends nothing and must keep the full catalog)."""
+
+    TODAY = {"date_from": "2026-09-30", "date_to": "2026-09-30", **SOLO_CON_VENTAS}
+
+    @staticmethod
+    def _board(client, headers, **params):
+        resp = client.get(URL, params=params, headers=headers)
+        assert resp.status_code == 200, resp.text
+        return resp.json()
+
+    def test_today_shows_only_what_sold_today_with_its_full_windows(self, client, admin_auth_headers, board_data):
+        body = self._board(client, admin_auth_headers, **self.TODAY)
+
+        assert set(_by_key(body)) == {"11"}
+        p11 = _by_key(body)["11"]
+        assert p11["units"] == 2
+        # 30d keeps the 09-20 sale (MLA1) and the 09-25 one on ANOTHER
+        # publication (MLA2): the toggle filters rows, not pairs or days.
+        assert p11["units_30d"] == 6
+        assert p11["units_7d"] == 3
+        assert p11["publications_count"] == 2
+        assert p11["markup_min_90d"] == 10.0
+
+    def test_kpis_and_chips_follow_the_same_rows(self, client, admin_auth_headers, board_data):
+        body = self._board(client, admin_auth_headers, **self.TODAY)
+
+        assert body["total"] == 1
+        assert body["kpis"]["rows_with_sales"] == {"value": 1, "of_total": 1}
+        assert body["facets"]["stores"] == {"57997": 1}
+        assert body["facets"]["stores_total"] == 1
+        assert body["facets"]["alerts"]["sin_ventas_30d"] == 0
+
+    def test_off_shows_the_whole_catalog(self, client, admin_auth_headers, board_data):
+        body = self._board(client, admin_auth_headers, **{**self.TODAY, "solo_con_ventas": "false"})
+
+        assert set(_by_key(body)) == {"11", "12", "13", "14"}
+        assert body["kpis"]["rows_with_sales"] == {"value": 1, "of_total": 4}
+
+    def test_without_the_param_board_and_csv_keep_the_whole_catalog(self, client, admin_auth_headers, board_data):
+        """An SPA bundle from before the toggle sends no `solo_con_ventas`:
+        its board, KPIs and CSV must not be silently truncated."""
+        today = {"date_from": "2026-09-30", "date_to": "2026-09-30"}
+        body = self._board(client, admin_auth_headers, **today)
+        resp = client.get(f"{URL}/export", params=today, headers=admin_auth_headers)
+
+        assert set(_by_key(body)) == {"11", "12", "13", "14"}
+        assert body["kpis"]["rows_with_sales"] == {"value": 1, "of_total": 4}
+        assert len(list(csv.DictReader(io.StringIO(resp.content.decode("utf-8-sig")), delimiter=";"))) == 4
+
+    def test_grouped_by_publication_it_keeps_the_publications_that_sold(self, client, admin_auth_headers, board_data):
+        body = self._board(client, admin_auth_headers, group_by="publication", **self.TODAY)
+
+        assert set(_by_key(body)) == {"MLA1"}
+        assert _by_key(body)["MLA1"]["units_30d"] == 5
+
+    def test_the_export_follows_it(self, client, admin_auth_headers, board_data):
+        resp = client.get(f"{URL}/export", params=self.TODAY, headers=admin_auth_headers)
+
+        rows = list(csv.DictReader(io.StringIO(resp.content.decode("utf-8-sig")), delimiter=";"))
+        assert [row["Producto"] for row in rows] == ["Impresora Epson L3250"]
+
+    def test_a_shown_product_lists_all_its_publications(self, client, admin_auth_headers, board_data):
+        """The row-level filters already let the product through: its
+        sub-rows are every publication that passes the pair filters, so they
+        add up to the product row (MLA2 sold this month, not today)."""
+        resp = client.get(f"{URL}/products/11/publications", params=self.TODAY, headers=admin_auth_headers)
+
+        assert resp.status_code == 200
+        assert {p["key"] for p in resp.json()["rows"]} == {"MLA1", "MLA2"}
+
+    def test_an_unknown_value_is_422(self, client, admin_auth_headers, board_data):
+        assert client.get(URL, params={"solo_con_ventas": "quizas"}, headers=admin_auth_headers).status_code == 422
+
+
+@pytest.fixture()
+def stock_data(db, board_data):
+    """`board_data` with the ERP stock (`productos_erp.stock`, deposit 1):
+    p11 5, p12 0, p13 3, p14 unknown (NULL)."""
+    for item_id, stock in ((11, 5), (12, 0), (13, 3), (14, None)):
+        db.query(ProductoERP).filter(ProductoERP.item_id == item_id).update({"stock": stock})
+    db.commit()
+
+
+class TestStock:
+    """ODD "Período y stock" PS2: the row's stock is `productos_erp.stock` of
+    its product; the "Con stock" / "Sin stock" / "Sin dato" chips filter in
+    SQL, so rows, KPIs, chips and the CSV agree."""
+
+    def test_each_row_shows_its_products_stock(self, client, admin_auth_headers, stock_data):
+        rows = _by_key(_get(client, admin_auth_headers))
+
+        assert {key: row["stock"] for key, row in rows.items()} == {"11": 5, "12": 0, "13": 3, "14": None}
+
+    def test_a_publication_row_shows_its_products_stock(self, client, admin_auth_headers, stock_data):
+        rows = _by_key(_get(client, admin_auth_headers, group_by="publication"))
+
+        assert rows["MLA1"]["stock"] == 5
+        assert rows["MLA2"]["stock"] == 5
+        assert rows["MLA3"]["stock"] == 0
+        assert rows["MLA5"]["stock"] is None
+
+    def test_the_chips_count_rows_by_stock(self, client, admin_auth_headers, stock_data):
+        facets = _get(client, admin_auth_headers)["facets"]
+
+        assert facets["stock"] == {"con_stock": 2, "sin_stock": 1, "sin_dato": 1}
+
+    def test_including_and_excluding(self, client, admin_auth_headers, stock_data):
+        assert set(_by_key(_get(client, admin_auth_headers, stock="sin_stock"))) == {"12"}
+        assert set(_by_key(_get(client, admin_auth_headers, stock="con_stock"))) == {"11", "13"}
+        assert set(_by_key(_get(client, admin_auth_headers, stock="sin_stock,sin_dato"))) == {"12", "14"}
+        assert set(_by_key(_get(client, admin_auth_headers, stock_exclude="con_stock"))) == {"12", "14"}
+        assert set(_by_key(_get(client, admin_auth_headers, stock_exclude="sin_dato"))) == {"11", "12", "13"}
+
+    def test_a_negative_stock_is_sin_stock(self, db, client, admin_auth_headers, stock_data):
+        db.query(ProductoERP).filter(ProductoERP.item_id == 13).update({"stock": -2})
+        db.commit()
+
+        assert set(_by_key(_get(client, admin_auth_headers, stock="sin_stock"))) == {"12", "13"}
+
+    def test_a_product_missing_from_the_erp_is_sin_dato(self, db, client, admin_auth_headers, stock_data):
+        _day(db, 99, "MLA99", date(2026, 9, 29), 1, "100", "10", "50")
+        db.commit()
+
+        body = _get(client, admin_auth_headers, stock="sin_dato")
+
+        assert set(_by_key(body)) == {"14", "99"}
+        assert _by_key(body)["99"]["stock"] is None
+
+    def test_kpis_and_other_chips_follow_the_stock_filter(self, client, admin_auth_headers, stock_data):
+        body = _get(client, admin_auth_headers, stock="con_stock")
+
+        # p11 (6 u in the period) and p13 (never sold).
+        assert body["total"] == 2
+        assert body["kpis"]["units"]["value"] == 6
+        assert body["kpis"]["rows_with_sales"] == {"value": 1, "of_total": 2}
+        assert body["facets"]["stores"] == {"57997": 2}
+        assert body["facets"]["alerts"]["sin_ventas_30d"] == 1
+        # Its own chips ignore it: they keep showing what each would select.
+        assert body["facets"]["stock"] == {"con_stock": 2, "sin_stock": 1, "sin_dato": 1}
+
+    def test_the_stock_chips_see_the_other_filters(self, client, admin_auth_headers, stock_data):
+        facets = _get(client, admin_auth_headers, stores="57997")["facets"]
+
+        assert facets["stock"] == {"con_stock": 2, "sin_stock": 0, "sin_dato": 0}
+
+    def test_solo_con_ventas_and_sin_stock_is_what_to_rebuy(self, db, client, admin_auth_headers, stock_data):
+        db.query(ProductoERP).filter(ProductoERP.item_id == 11).update({"stock": 0})
+        db.commit()
+
+        resp = client.get(URL, params={**SOLO_CON_VENTAS, "stock": "sin_stock"}, headers=admin_auth_headers)
+
+        assert set(_by_key(resp.json())) == {"11"}
+
+    def test_a_shown_products_publications_carry_its_stock(self, client, admin_auth_headers, stock_data):
+        resp = client.get(f"{URL}/products/11/publications", params={"stock": "con_stock"}, headers=admin_auth_headers)
+
+        assert resp.status_code == 200
+        assert {p["key"]: p["stock"] for p in resp.json()["rows"]} == {"MLA1": 5, "MLA2": 5}
+
+    def test_the_csv_has_the_stock_column(self, client, admin_auth_headers, stock_data):
+        resp = client.get(f"{URL}/export", params={"stock_exclude": "sin_stock"}, headers=admin_auth_headers)
+
+        rows = list(csv.DictReader(io.StringIO(resp.content.decode("utf-8-sig")), delimiter=";"))
+        assert {row["Producto"]: row["Stock"] for row in rows} == {
+            "Impresora Epson L3250": "5",
+            "Taladro DeWalt": "3",
+            "Router TP-Link AX55": "",
+        }
+
+    @pytest.mark.parametrize(
+        "params",
+        [
+            {"stock": "nope"},
+            {"stock_exclude": "agotado"},
+            {"stock": "con_stock", "stock_exclude": "con_stock"},
+        ],
+    )
+    def test_bad_values_are_422(self, client, admin_auth_headers, stock_data, params):
+        assert client.get(URL, params=params, headers=admin_auth_headers).status_code == 422
+
+
+class TestAgeing:
+    """ODD "Período y stock" PS3: ageing chips with the KPI's buckets (<= 30,
+    31-60, > 60 days since the last sale -- or since the publication started
+    if it never sold), filtered in SQL. In `board_data`: p11 0 d, p14 20 d,
+    p12 82 d, p13 121 d."""
+
+    def test_the_chips_count_rows_by_ageing_bucket(self, client, admin_auth_headers, board_data):
+        facets = _get(client, admin_auth_headers)["facets"]
+
+        assert facets["ageing"] == {"up_to_30": 2, "from_31_to_60": 0, "over_60": 2}
+
+    def test_including_and_excluding(self, client, admin_auth_headers, board_data):
+        assert set(_by_key(_get(client, admin_auth_headers, ageing="over_60"))) == {"12", "13"}
+        assert set(_by_key(_get(client, admin_auth_headers, ageing="up_to_30"))) == {"11", "14"}
+        assert set(_by_key(_get(client, admin_auth_headers, ageing_exclude="over_60"))) == {"11", "14"}
+        assert set(_by_key(_get(client, admin_auth_headers, ageing="up_to_30,over_60"))) == {"11", "12", "13", "14"}
+
+    def test_the_middle_bucket(self, db, client, admin_auth_headers, board_data):
+        _producto(db, 15, "Monitor Samsung", "Samsung")
+        db.flush()
+        _pub(db, 6, "MLA6", 15, 57997)
+        _day(db, 15, "MLA6", date(2026, 8, 20), 1, "100", "10", "50")  # 41 days ago
+        db.commit()
+
+        body = _get(client, admin_auth_headers, ageing="from_31_to_60")
+
+        assert set(_by_key(body)) == {"15"}
+        assert _by_key(body)["15"]["ageing_days"] == 41
+        assert body["facets"]["ageing"]["from_31_to_60"] == 1
+
+    def test_the_over_60_chip_is_the_ageing_alert(self, client, admin_auth_headers, board_data):
+        body = _get(client, admin_auth_headers)
+
+        assert body["facets"]["ageing"]["over_60"] == body["facets"]["alerts"]["ageing_60d"]
+        assert body["facets"]["ageing"]["over_60"] == body["kpis"]["ageing"]["over_60"]
+        assert set(_by_key(_get(client, admin_auth_headers, ageing="over_60"))) == set(
+            _by_key(_get(client, admin_auth_headers, alerts="ageing_60d"))
+        )
+
+    def test_kpis_follow_and_its_own_chips_ignore_it(self, client, admin_auth_headers, board_data):
+        body = _get(client, admin_auth_headers, ageing="over_60")
+
+        assert body["total"] == 2
+        assert body["kpis"]["ageing"] == {"avg_days": 101.5, "up_to_30": 0, "from_31_to_60": 0, "over_60": 2}
+        assert body["kpis"]["units"]["value"] == 0
+        assert body["facets"]["ageing"] == {"up_to_30": 2, "from_31_to_60": 0, "over_60": 2}
+        assert body["facets"]["stores"] == {"57997": 1, "2645": 1}
+
+    def test_ageing_and_stock_chips_see_each_other(self, client, admin_auth_headers, stock_data):
+        assert _get(client, admin_auth_headers, ageing="over_60")["facets"]["stock"] == {
+            "con_stock": 1,
+            "sin_stock": 1,
+            "sin_dato": 0,
+        }
+        assert _get(client, admin_auth_headers, stock="con_stock")["facets"]["ageing"] == {
+            "up_to_30": 1,
+            "from_31_to_60": 0,
+            "over_60": 1,
+        }
+
+    def test_with_solo_con_ventas_on_stale_rows_are_hidden(self, client, admin_auth_headers, board_data):
+        """The board never flips the toggle by itself: the page warns
+        instead ("Ocultando productos sin ventas en el período")."""
+        resp = client.get(URL, params={**SOLO_CON_VENTAS, "ageing": "over_60"}, headers=admin_auth_headers)
+
+        assert resp.json()["rows"] == []
+
+    def test_the_export_follows_it(self, client, admin_auth_headers, board_data):
+        resp = client.get(f"{URL}/export", params={"ageing": "over_60"}, headers=admin_auth_headers)
+
+        rows = list(csv.DictReader(io.StringIO(resp.content.decode("utf-8-sig")), delimiter=";"))
+        assert {row["Producto"] for row in rows} == {"Notebook Lenovo V15", "Taladro DeWalt"}
+
+    @pytest.mark.parametrize(
+        "params",
+        [{"ageing": "viejo"}, {"ageing_exclude": "90d"}, {"ageing": "over_60", "ageing_exclude": "over_60"}],
+    )
+    def test_bad_values_are_422(self, client, admin_auth_headers, board_data, params):
+        assert client.get(URL, params=params, headers=admin_auth_headers).status_code == 422
+
+
+# Each sort key and the response field it orders by. `last_sale` orders by
+# the DAY of the last sale (Buenos Aires); `board_data` sells at 15:00 UTC,
+# the same calendar day.
+SORT_FIELDS = {
+    "gross": lambda r: r["gross"],
+    "units": lambda r: r["units"],
+    "units_24h": lambda r: r["units_24h"],
+    "units_3d": lambda r: r["units_3d"],
+    "units_7d": lambda r: r["units_7d"],
+    "units_15d": lambda r: r["units_15d"],
+    "units_30d": lambda r: r["units_30d"],
+    "total_gauss": lambda r: r["total_gauss"],
+    "markup": lambda r: r["markup_pct"],
+    "markup_delta": lambda r: r["markup_delta_pp"],
+    "last_sale": lambda r: r["last_sale_at"][:10] if r["last_sale_at"] else None,
+    "ageing": lambda r: r["ageing_days"],
+    "title": lambda r: r["title"].lower(),
+    "stock": lambda r: r["stock"],
+}
+
+
+def _expected_order(rows, value_of, descending):
+    """The board's contract: by the value (nulls LAST either way), ties by
+    the unique row key ascending."""
+    known = [r for r in rows if value_of(r) is not None]
+    unknown = sorted((r for r in rows if value_of(r) is None), key=lambda r: r["key"])
+    known.sort(key=lambda r: r["key"])
+    known.sort(key=value_of, reverse=descending)
+    return [r["key"] for r in known + unknown]
+
+
+class TestSortByColumn:
+    """ODD "Período y stock" PS4: every sortable column sorts the WHOLE
+    filtered set in SQL, both ways, then pages -- always closed by the unique
+    row key, so ties can never repeat or skip a row between pages."""
+
+    def test_every_sort_key_is_covered(self):
+        assert set(SORT_FIELDS) == set(board.SORTS)
+
+    @pytest.mark.parametrize("sort", sorted(SORT_FIELDS))
+    @pytest.mark.parametrize("sort_dir", ["asc", "desc"])
+    def test_each_key_both_ways(self, client, admin_auth_headers, stock_data, sort, sort_dir):
+        body = _get(client, admin_auth_headers, sort=sort, sort_dir=sort_dir)
+
+        keys = [row["key"] for row in body["rows"]]
+        assert keys == _expected_order(body["rows"], SORT_FIELDS[sort], sort_dir == "desc")
+        assert len(keys) == 4
+
+    def test_stock_orders_the_whole_set_before_paging(self, client, admin_auth_headers, stock_data):
+        """Stock 5, 0, 3, unknown: descending puts 5 then 3 on page 1 even
+        though gross (the default) would not."""
+        page = _get(client, admin_auth_headers, sort="stock", sort_dir="desc", limit=2)
+
+        assert [row["key"] for row in page["rows"]] == ["11", "13"]
+        assert page["total"] == 4
+
+    @pytest.mark.parametrize("sort", ["stock", "ageing", "units_24h"])
+    @pytest.mark.parametrize("sort_dir", ["asc", "desc"])
+    def test_pages_of_one_row_are_the_full_order_even_with_ties(
+        self, db, client, admin_auth_headers, stock_data, sort, sort_dir
+    ):
+        # p13 ties p11 on stock (5); three rows tie on units_24h (0).
+        db.query(ProductoERP).filter(ProductoERP.item_id == 13).update({"stock": 5})
+        db.commit()
+        full = [row["key"] for row in _get(client, admin_auth_headers, sort=sort, sort_dir=sort_dir)["rows"]]
+
+        paged = [
+            row["key"]
+            for offset in range(4)
+            for row in _get(client, admin_auth_headers, sort=sort, sort_dir=sort_dir, limit=1, offset=offset)["rows"]
+        ]
+
+        assert paged == full
+        assert sorted(paged) == ["11", "12", "13", "14"]
+
+    def test_sorting_by_stock_needs_no_margin_permission(self, db, client, admin_auth_headers, rol_admin):
+        _grant(db, rol_admin, "ml_metricas.ver")
+        db.commit()
+
+        assert client.get(URL, params={"sort": "stock"}, headers=admin_auth_headers).status_code == 200
+        assert client.get(URL, params={"sort": "total_gauss"}, headers=admin_auth_headers).status_code == 403
+
+
+@pytest.fixture()
+def no_reference(db, board_data):
+    """Product 16: one publication with no start or creation date that never
+    sold -- a row with NO ageing reference day at all."""
+    _producto(db, 16, "Sin referencia", "Nadie")
+    db.flush()
+    db.add(MercadoLibreItemPublicado(mlp_id=7, mlp_publicationID="MLA7", item_id=16, mlp_official_store_id=57997))
+    db.commit()
+
+
+class TestAgeingWithoutReference:
+    """A row with no reference day falls in no ageing bucket: its own
+    internal value (`board.AGEING_NO_REFERENCE`), never the stock's "sin
+    dato". No chip selects it; excluding chips never drops it."""
+
+    def test_its_own_internal_value(self, db, no_reference):
+        assert board.AGEING_NO_REFERENCE == "sin_referencia"
+        assert board.AGEING_NO_REFERENCE not in board.AGEING_BUCKETS
+        assert board.AGEING_NO_REFERENCE not in board.STOCK_BUCKETS
+        f = board.BoardFilter(date_from=date(2026, 9, 1), date_to=date(2026, 9, 30))
+        with board.Board(db, f) as b:
+            rows = b.rows()
+            buckets = dict(db.execute(select(rows.c.rk, rows.c.ageing_bucket)).all())
+
+        assert buckets["16"] == "sin_referencia"
+        assert buckets["11"] == "up_to_30"
+
+    def test_no_chip_selects_it_and_no_exclusion_drops_it(self, client, admin_auth_headers, no_reference):
+        assert _by_key(_get(client, admin_auth_headers))["16"]["ageing_days"] is None
+        assert "16" not in _by_key(_get(client, admin_auth_headers, ageing="up_to_30,from_31_to_60,over_60"))
+        kept = _get(client, admin_auth_headers, ageing_exclude="up_to_30,from_31_to_60,over_60")
+        assert set(_by_key(kept)) == {"16"}
+        assert _get(client, admin_auth_headers)["facets"]["ageing"] == {"up_to_30": 2, "from_31_to_60": 0, "over_60": 2}
+
+
+class TestRowsSkipAxes:
+    """`Board.rows` takes the pair axis to skip and the row axes to skip as
+    SEPARATE arguments, and refuses names it does not know -- a tuple that
+    mixed them used to drop the pair axis silently."""
+
+    def _board(self, db):
+        return board.Board(db, board.BoardFilter(date_from=date(2026, 9, 1), date_to=date(2026, 9, 30)))
+
+    def test_skipping_the_pair_axis_really_clears_that_filter(self, db, board_data):
+        """A store no row belongs to empties the board; skipping the stores
+        axis brings every row back -- while the row axes passed alongside are
+        skipped too, so the pair axis is no longer dropped silently."""
+        nowhere = board.BoardFilter(date_from=date(2026, 9, 1), date_to=date(2026, 9, 30), stores=("999999",))
+        with board.Board(db, nowhere) as b:
+            filtered = db.execute(select(func.count()).select_from(b.rows())).scalar()
+            skipped = db.execute(
+                select(func.count()).select_from(b.rows(skip_pair_axis="stores", skip_row_axes=("stock", "ageing")))
+            ).scalar()
+        with self._board(db) as b:
+            everything = db.execute(select(func.count()).select_from(b.rows())).scalar()
+
+        assert filtered == 0
+        assert skipped == everything > 0
+
+    @pytest.mark.parametrize(
+        "kwargs",
+        [
+            {"skip_row_axes": ("stores",)},  # a pair axis among the row axes
+            {"skip_row_axes": ("stok",)},
+            {"skip_pair_axis": "stock"},  # a row axis as the pair axis
+            {"skip_pair_axis": "nope"},
+        ],
+    )
+    def test_unknown_or_misplaced_axes_raise(self, db, board_data, kwargs):
+        with self._board(db) as b:
+            with pytest.raises(ValueError):
+                b.rows(**kwargs)

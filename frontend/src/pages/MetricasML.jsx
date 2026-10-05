@@ -11,6 +11,7 @@ import ColumnPicker from '../components/ventasMl/ColumnPicker';
 import Pagination from '../components/ventasMl/Pagination';
 import SegmentedControl from '../components/metricasMl/SegmentedControl';
 import ToggleChips from '../components/metricasMl/ToggleChips';
+import SwitchChip from '../components/metricasMl/SwitchChip';
 import MetricasKpiStrip from '../components/metricasMl/MetricasKpiStrip';
 import BoardTable from '../components/metricasMl/BoardTable';
 import { buildBoardColumns } from '../components/metricasMl/metricasMlColumns';
@@ -20,10 +21,15 @@ import { buildMetricasMLParams } from '../utils/metricasMlParams';
 import { exportMetricasCsv } from '../utils/ventasMlExport';
 import { timeAgo } from '../utils/ventasMlFormat';
 import {
+  AGEING_BUCKET_TONES,
+  AGEING_LABELS,
+  AGEING_OPTIONS,
   PUB_STATUS_LABELS,
   PUB_STATUS_OPTIONS,
   PUB_TYPE_LABELS,
   PUB_TYPE_OPTIONS,
+  STOCK_LABELS,
+  STOCK_OPTIONS,
   formatUnits,
 } from '../utils/metricasMlFormat';
 import styles from './MetricasML.module.css';
@@ -42,6 +48,8 @@ import styles from './MetricasML.module.css';
 
 const DEFAULT_PRESET = '30d';
 const DEFAULT_PAGE_SIZE = 50;
+// Ageing buckets whose rows, by definition, sold nothing in the last 30 days.
+const STALE_AGEING_BUCKETS = new Set(['from_31_to_60', 'over_60']);
 // The board's period cap (`MAX_PERIOD_DAYS` in `routers/ml_metricas.py`).
 const MAX_PERIOD_DAYS = 366;
 const PERIOD_LIMIT_MESSAGE = 'El período máximo es de 1 año';
@@ -91,6 +99,13 @@ export default function MetricasML() {
   const [pubStatusExclude, setPubStatusExclude] = useState([]);
   const [pubTypeExclude, setPubTypeExclude] = useState([]);
   const [alerts, setAlerts] = useState([]);
+  const [stock, setStock] = useState([]);
+  const [stockExclude, setStockExclude] = useState([]);
+  const [ageing, setAgeing] = useState([]);
+  const [ageingExclude, setAgeingExclude] = useState([]);
+  // "Solo con ventas en el período": on by default -- a short period shows
+  // what sold in it, not the whole catalog (ODD "Período y stock" PS1).
+  const [soloConVentas, setSoloConVentas] = useState(true);
   const [sort, setSort] = useState({ key: 'gross', desc: true });
   const [offset, setOffset] = useState(0);
   const [pageSize, setPageSize] = useState(DEFAULT_PAGE_SIZE);
@@ -122,6 +137,11 @@ export default function MetricasML() {
         pubStatusExclude,
         pubTypeExclude,
         alerts,
+        stock,
+        stockExclude,
+        ageing,
+        ageingExclude,
+        soloConVentas,
       }),
     [
       range,
@@ -135,6 +155,11 @@ export default function MetricasML() {
       pubStatusExclude,
       pubTypeExclude,
       alerts,
+      stock,
+      stockExclude,
+      ageing,
+      ageingExclude,
+      soloConVentas,
     ],
   );
 
@@ -235,6 +260,11 @@ export default function MetricasML() {
     setPubStatusExclude([]);
     setPubTypeExclude([]);
     setAlerts([]);
+    setStock([]);
+    setStockExclude([]);
+    setAgeing([]);
+    setAgeingExclude([]);
+    setSoloConVentas(true);
     setOffset(0);
   };
 
@@ -269,9 +299,19 @@ export default function MetricasML() {
       pubType.length ||
       pubStatusExclude.length ||
       pubTypeExclude.length ||
-      alerts.length,
+      alerts.length ||
+      stock.length ||
+      stockExclude.length ||
+      ageing.length ||
+      ageingExclude.length ||
+      !soloConVentas,
   );
   const noun = groupBy === 'publication' ? 'publicaciones' : 'productos';
+  // Asking FOR stale rows (an included 31-60 or > 60 d chip) while the
+  // toggle hides rows with no sale in the period mostly comes back empty:
+  // say so -- never flip the toggle behind the operator's back. Excluding
+  // chips or "Hasta 30 d" ask for no stale rows: no warning.
+  const hidesStale = soloConVentas && ageing.some((bucket) => STALE_AGEING_BUCKETS.has(bucket));
   const rows = board?.rows || [];
   const total = board?.total ?? 0;
   const freshness = timeAgo(board?.refreshed_at);
@@ -374,6 +414,60 @@ export default function MetricasML() {
               total={facets?.stores_total}
               activeValue={storeFilter}
               onChange={withReset(setStoreFilter)}
+            />
+          </div>
+        </div>
+
+        <div className={styles.filterBand}>
+          <div className={styles.filterGroup}>
+            <SwitchChip
+              label="Solo con ventas en el período"
+              checked={soloConVentas}
+              onChange={withReset(setSoloConVentas)}
+              title="Muestra sólo las filas con ventas en el período elegido; sus ventanas 24h a 30D no cambian"
+            />
+            {hidesStale && (
+              <span className={styles.toggleHint} role="status">
+                Ocultando {noun} sin ventas en el período
+              </span>
+            )}
+          </div>
+          <div className={styles.filterGroup}>
+            <span className={styles.filterLabel} title="Stock del ERP (depósito 1), el mismo que muestra Productos">
+              Stock:
+            </span>
+            <ToggleChips
+              label="Filtrar por stock"
+              options={STOCK_OPTIONS}
+              labels={STOCK_LABELS}
+              counts={facets?.stock}
+              selected={stock}
+              excluded={stockExclude}
+              onChange={withReset((nextSelected, nextExcluded) => {
+                setStock(nextSelected);
+                setStockExclude(nextExcluded);
+              })}
+            />
+          </div>
+          <div className={styles.filterGroup}>
+            <span
+              className={styles.filterLabel}
+              title="Días desde la última venta (o desde que empezó la publicación, si nunca vendió)"
+            >
+              Ageing:
+            </span>
+            <ToggleChips
+              label="Filtrar por ageing"
+              options={AGEING_OPTIONS}
+              labels={AGEING_LABELS}
+              counts={facets?.ageing}
+              selected={ageing}
+              excluded={ageingExclude}
+              onChange={withReset((nextSelected, nextExcluded) => {
+                setAgeing(nextSelected);
+                setAgeingExclude(nextExcluded);
+              })}
+              dotFor={(value) => AGEING_BUCKET_TONES[value]}
             />
           </div>
         </div>

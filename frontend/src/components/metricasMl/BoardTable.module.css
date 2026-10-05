@@ -65,6 +65,13 @@
   white-space: nowrap;
 }
 
+/* The active sort's arrow: inline with the label, never on its own line. */
+.sortArrow {
+  margin-left: 3px;
+  vertical-align: -1px;
+  flex-shrink: 0;
+}
+
 .sortButton:hover {
   color: var(--cf-text-primary);
 }

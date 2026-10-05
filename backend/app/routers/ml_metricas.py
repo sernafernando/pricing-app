@@ -101,6 +101,9 @@ class BoardRow(BaseModel):
     series_markup_90d: Optional[List[Optional[float]]] = None
     last_sale_at: Optional[datetime] = None
     ageing_days: Optional[int] = None
+    # `productos_erp.stock` of the row's product (a publication row: its
+    # current product's); null when the ERP has none.
+    stock: Optional[int] = None
     alerts: List[str]
     # Publication attributes (publication rows and nested rows only).
     status: Optional[str] = None
@@ -164,6 +167,9 @@ class BoardFacets(BaseModel):
     pub_status: Dict[str, int]
     pub_type: Dict[str, int]
     alerts: Dict[str, Optional[int]]
+    stock: Dict[str, int]
+    # Same buckets as `KpiAgeing` (`over_60` is the "Ageing > 60d" alert).
+    ageing: Dict[str, int]
 
 
 class BoardResponse(BaseModel):
@@ -227,6 +233,19 @@ def board_filter(
     ),
     pub_type_exclude: Optional[str] = Query(default=None, description="CSV a ocultar: " + ", ".join(board.PUB_TYPES)),
     alerts: Optional[str] = Query(default=None, description="CSV: " + ", ".join(board.ALERTS)),
+    stock: Optional[str] = Query(default=None, description="CSV: " + ", ".join(board.STOCK_BUCKETS)),
+    stock_exclude: Optional[str] = Query(default=None, description="CSV a ocultar: " + ", ".join(board.STOCK_BUCKETS)),
+    ageing: Optional[str] = Query(default=None, description="CSV: " + ", ".join(board.AGEING_BUCKETS)),
+    ageing_exclude: Optional[str] = Query(
+        default=None, description="CSV a ocultar: " + ", ".join(board.AGEING_BUCKETS)
+    ),
+    # OFF unless asked for: during a rolling deploy an older SPA bundle sends
+    # nothing and must keep the full catalog (board, KPIs, CSV). The page
+    # always sends it (on by default in the UI).
+    solo_con_ventas: bool = Query(
+        default=False,
+        description="Sólo filas con al menos una unidad vendida en el período (sus ventanas no cambian)",
+    ),
     sort: str = Query(default="gross", description=" | ".join(board.SORTS)),
     sort_dir: str = Query(default="desc", description="asc | desc"),
 ) -> board.BoardFilter:
@@ -261,6 +280,12 @@ def board_filter(
     pub_type_out = _parse_choices(pub_type_exclude, "pub_type_exclude", board.PUB_TYPES)
     _no_overlap(pub_status_in, pub_status_out, "pub_status")
     _no_overlap(pub_type_in, pub_type_out, "pub_type")
+    stock_in = _parse_choices(stock, "stock", board.STOCK_BUCKETS)
+    stock_out = _parse_choices(stock_exclude, "stock_exclude", board.STOCK_BUCKETS)
+    _no_overlap(stock_in, stock_out, "stock")
+    ageing_in = _parse_choices(ageing, "ageing", board.AGEING_BUCKETS)
+    ageing_out = _parse_choices(ageing_exclude, "ageing_exclude", board.AGEING_BUCKETS)
+    _no_overlap(ageing_in, ageing_out, "ageing")
     return board.BoardFilter(
         date_from=desde,
         date_to=hasta,
@@ -276,6 +301,11 @@ def board_filter(
         pub_status_exclude=pub_status_out,
         pub_type_exclude=pub_type_out,
         alerts=_parse_choices(alerts, "alerts", board.ALERTS),
+        stock=stock_in,
+        stock_exclude=stock_out,
+        ageing=ageing_in,
+        ageing_exclude=ageing_out,
+        solo_con_ventas=solo_con_ventas,
         sort=sort,
         sort_desc=sort_dir == "desc",
     )
@@ -336,6 +366,7 @@ def _row_out(row: board.Row, can_see_margin: bool) -> BoardRow:
         series_markup_90d=row.series_markup if can_see_margin else None,
         last_sale_at=row.last_sale_at,
         ageing_days=row.ageing_days,
+        stock=row.stock,
         alerts=alerts,
         status=pub.status if pub else None,
         listing_type=pub.listing_type if pub else None,
@@ -388,6 +419,8 @@ def _facets(facets: board.Facets, can_see_margin: bool) -> BoardFacets:
         pub_status=facets.pub_status,
         pub_type=facets.pub_type,
         alerts=alerts,
+        stock=facets.stock,
+        ageing=facets.ageing,
     )
 
 
@@ -452,10 +485,24 @@ def get_product_publications(
 ) -> PublicationsResponse:
     """A product row's publications (the expandable sub-rows), under the same
     filters as the board. `is_best` marks the one that earned the most in the
-    period (Total Gauss, or gross without the margin permission)."""
+    period (Total Gauss, or gross without the margin permission).
+
+    The ROW filters (alerts, stock, ageing, "solo con ventas") already decided that the
+    product is on the board: its sub-rows are every publication passing the
+    PAIR filters (store, status, type, brand, search), so they add up to the
+    product row."""
     can_see_margin = _can_see_margin(db, current_user)
     _margin_gate(f, can_see_margin)
-    by_pub = replace(f, group_by="publication", alerts=())
+    by_pub = replace(
+        f,
+        group_by="publication",
+        alerts=(),
+        stock=(),
+        stock_exclude=(),
+        ageing=(),
+        ageing_exclude=(),
+        solo_con_ventas=False,
+    )
     with board.Board(db, by_pub, product_item_id=product_item_id) as b:
         rows = b.page(limit=None, apply_alerts=False)
     out = [_row_out(row, can_see_margin) for row in rows]
@@ -494,6 +541,7 @@ def _csv_line(row: board.Row, can_see_margin: bool) -> list:
     line += [
         row.last_sale_at.isoformat() if row.last_sale_at else "",
         row.ageing_days if row.ageing_days is not None else "",
+        row.stock if row.stock is not None else "",
     ]
     return line
 
@@ -559,7 +607,7 @@ def export_board(
     header = ["Producto", "SKU", "Marca", "MLA", "Unidades", "24h", "3d", "7d", "15d", "30d", "Facturado"]
     if can_see_margin:
         header += ["Total Gauss", "Markup %", "Markup anterior %", "Variación pp"]
-    header += ["Última venta", "Ageing (días)"]
+    header += ["Última venta", "Ageing (días)", "Stock"]
 
     def stream():
         head = io.StringIO()

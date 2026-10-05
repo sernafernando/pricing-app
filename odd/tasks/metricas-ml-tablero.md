@@ -492,3 +492,209 @@ PR #1379). Ruta: delegated direct (writer único). TDD estricto.
       SÍ aparece en una página del tablero (pasó de una: el chequeo no era
       vacío, ahora no puede serlo).
       Checks: ruff OK; pytest focalizado 109 passed.
+
+## Período y stock (2026-10-05)
+
+Pedido del usuario: "el filtro de fecha de las métricas no está siendo muy
+útil, quizás deberíamos hacer un toggle que muestre solo los productos dentro
+de ese rango de fechas, no que no muestre cuanto se vendió hace 30d, pero que
+los productos que se vean por ejemplo sean solo los de hoy y no los 3000,
+también un filtro de productos sin stock para elegir verlos o no verlos, ver
+las métricas de solo sin stock también, para ver si hay que recomprar algo".
+Después: "faltaría también uno para ver los de ageing, y poder ordenar por
+diferentes columnas".
+
+Rama: `feat/metricas-ml-periodo-y-stock` desde `origin/main`, PR contra main.
+Ruta: delegated direct (writer único). TDD estricto (RED visto antes de cada
+arreglo). Runner: backend `pytest` (venv de pricing-app-5), frontend `vitest`
+(`pnpm test`, `pnpm test:visual`).
+
+### Exploración: de dónde sale el stock
+
+- `productos_erp.stock` (`backend/app/models/producto.py:28`): el stock del
+  depósito 1 que trae `erp_sync.sincronizar_erp` en vivo del ERP
+  (`fetch_stock_erp`, `ItemStorage_funGetXMLData` con `intStor_id=1`,
+  `backend/app/services/erp_sync.py:159-177`, guardado en
+  `erp_sync.py:349-401`). Es el "Stock" que ya usa el resto de la app para un
+  producto ERP: columna Stock y filtros "Con stock"/"Sin stock" de Productos
+  (`api/endpoints/productos_stats.py:82-86`, `productos_pricing.py:298-299`,
+  `:904-908`), pestaña Stock del dashboard TP-Link
+  (`api/endpoints/dashboard_tplink.py:689`).
+  Frescura: se reescribe cada vez que corre `sincronizar_erp` — el cron de
+  `scripts/sync_completo.py` (cada 10 min de 6 a 21 h según su docstring y
+  `crontab_fixed.txt`; `backend/CRON_COMPLETO_OPTIMIZADO.md` de 2026-01
+  propuso sacarlo, el cron real de producción no se puede ver desde el repo)
+  y el botón de sync manual (`api/endpoints/sync.py`).
+- `stock_por_deposito` (`models/stock_por_deposito.py`,
+  `scripts/sync_stock_por_deposito.py`): mismo origen del ERP pero por
+  depósito, cron diario sugerido (03:00); sólo lo usa Consultas
+  (`routers/consultas.py`) con depósitos elegidos por el usuario. Más viejo
+  (diario) y sin un "depósito vendible" definido para un producto: no.
+- GBP reporte 78 `Stock_Disponible`: lo lee la conciliación de Tienda Nube
+  por HTTP en el momento; no está guardado por producto: no.
+- `tb_item_storage.itst_cant` (espejo): el propio `erp_sync` documenta que
+  NO es real-time (`erp_sync.py:252-256`): no.
+
+**Elegido: `productos_erp.stock`**, unido por `item_id` al producto de la
+fila (un LEFT JOIN por PK dentro de la consulta de filas del tablero, nunca
+una consulta por fila).
+
+### Decisiones
+
+- (PS1) "Solo con ventas en el período" = la FILA (producto, o publicación
+  agrupando por publicación) tiene ≥ 1 unidad vendida en el período elegido
+  (`units > 0`, la misma definición que el KPI "con ventas"). Filtra QUÉ
+  filas, no los números: se aplica sobre la fila ya agregada, así que las
+  ventanas 24h…30d, markups, series y ageing de una fila que pasa incluyen
+  TODAS sus ventas (también las de otras publicaciones o días fuera del
+  período). KPIs, conteos de chips, paginado y CSV usan el mismo conjunto de
+  filas; con el toggle prendido "con ventas X de Y" da X = Y. Parámetro
+  `solo_con_ventas` (bool): por defecto `false` en la API y en
+  `BoardFilter` (revisión R2: en un deploy escalonado un bundle viejo del
+  SPA no lo manda y no puede recibir tablero/KPIs/CSV recortados en
+  silencio); la PÁGINA lo prende por defecto y lo manda siempre explícito.
+- (PS1/PS2/PS3) Sub-filas de publicaciones de un producto: los filtros de
+  FILA (solo con ventas, stock, ageing, alertas) ya decidieron que el
+  producto se ve; sus sub-filas muestran todas sus publicaciones que pasan
+  los filtros de PAR (tienda, estado, tipo, marca, búsqueda), para que sumen
+  lo mismo que la fila del producto (igual que hoy con las alertas).
+- (PS2) Stock de la fila: producto → `productos_erp.stock` de ese producto;
+  publicación → el del producto ACTUAL de la publicación (el mismo producto
+  que ya muestra la fila). Chips (tri-estado, como Publicación/Tipo):
+  "Con stock" (> 0), "Sin stock" (<= 0) y "Sin dato" (el producto no está en
+  `productos_erp` o su stock es NULL — por ejemplo "Sin producto", ítems sin
+  costo congelado). "Sin dato" va aparte y no dentro de "Sin stock": el
+  pedido es ver qué recomprar, y meter ahí filas que no sabemos qué son
+  ensuciaría esa lista. La columna muestra "—" en "Sin dato".
+  Columna Stock: sale del grupo "Sell-in / Sell-out (Próximamente)" y pasa a
+  "Rotación", porque ya es real.
+- (PS3) Ageing: chips tri-estado con los MISMOS tramos que el KPI (≤ 30,
+  31–60, > 60 días desde la última venta, o desde el inicio de la
+  publicación si nunca vendió) y los mismos colores que la columna. La
+  alerta "Ageing > 60d" es exactamente el tramo "> 60 d" (misma expresión en
+  SQL), así que sus conteos coinciden; las dos quedan. Con un chip de ageing
+  activo y "Solo con ventas" prendido, aparece un aviso junto al toggle
+  ("Ocultando productos sin ventas en el período"): el toggle no se cambia
+  solo.
+- (PS4) Orden: cualquier encabezado numérico (24h…30D, Markup act., vs
+  anterior, Facturado, Total Gauss, Última venta, Ageing, Stock) ordena en
+  SQL sobre todo el conjunto filtrado y después pagina, siempre cerrando con
+  la clave única de la fila. Primer clic desc (asc para Producto), segundo
+  invierte. Ordenar por margen sigue pidiendo `ver_ganancia` (403); sin el
+  permiso esas columnas no existen en la UI. "Limpiar filtros" no toca el
+  orden (no es un filtro).
+
+### Tareas
+
+- [x] PS1 — Toggle "Solo con ventas en el período" (BE param + FE switch +
+      params + reset). Tests: con "Hoy" sólo lo vendido hoy, con su 30d
+      incluyendo ventas viejas; OFF = catálogo entero.
+      Ruta: inline (writer único). RED visto: backend 5/7 fallando (con "Hoy"
+      volvían los 4 productos, el CSV traía 4 filas, `quizas` daba 200);
+      frontend 5 fallando (sin `solo_con_ventas` en los params, sin switch).
+      ~~Los tests viejos del router piden `solo_con_ventas=false`
+      (`CATALOG`)~~ — revisión R2: el default de la API volvió a `false` y
+      `CATALOG` se sacó; los tests del toggle lo piden con
+      `SOLO_CON_VENTAS`.
+      Checks: router + paridad + servicios del tablero 102 passed; vitest de
+      la página y params 23 passed; ruff OK.
+- [x] PS2 — Stock: columna, chips Con/Sin stock/Sin dato con conteos, en
+      SQL (filas, KPIs, chips, CSV), CSV con columna Stock. Conteo de
+      sentencias ajustado con justificación; volumen sigue pasando.
+      PS1 commit: `3c3da1b4`. Ruta: inline (writer único).
+      SQL: el stock es un LEFT JOIN por PK de `productos_erp` sobre el
+      producto de la fila DENTRO de la subconsulta de filas (`Board.rows`),
+      con su tramo (`stock_bucket`); el filtro va sobre la fila agregada, así
+      que página, KPIs, chips y CSV ven las mismas filas. Conteos de los
+      chips de stock: UNA sentencia más (sumas condicionales con su eje
+      apagado). Tablero en volumen: **18 sentencias** (antes 17; la nueva es
+      la de los chips de stock, ~3 ms), igual con página 10/50/200, por
+      producto o publicación, con exclusiones y con stock + solo con ventas;
+      ~660–750 ms en caliente (antes ~600–690). CSV: columna "Stock" al
+      final. Fixture Postgres del tablero: `productos_erp` mínima con
+      `stock` (en CI la crea el fixture; sin la columna el join fallaría).
+      RED visto: router 14/14 fallando (`KeyError: 'stock'`, filtros
+      ignorados, 200 en vez de 422); frontend 4 fallando (sin grupo "Filtrar
+      por stock", sin params, celda "—" de próximamente).
+      Checks: router + paridad + servicios del tablero (Postgres incluido,
+      volumen) 117 passed; vitest página + params 27 passed; ruff OK.
+- [x] PS3 — Chips de Ageing + aviso con "Solo con ventas".
+      PS2 commit: `44a7e6a9`. Ruta: inline (writer único).
+      SQL: UN solo `CASE` de tramos de ageing en `Board.rows`
+      (`ageing_bucket`) alimenta los chips, la barra del KPI y la alerta
+      "Ageing > 60d" (`over_60`); el KPI dejó de tener su propia cuenta de
+      límites. Los conteos de los chips de stock y de ageing salen de UNA
+      sentencia (filas con los dos ejes apagados, cada grupo cuenta sólo lo
+      que pasa el otro): el tablero sigue en **18 sentencias** en volumen
+      (stock + ageing + solo con ventas incluido).
+      RED visto: router 11/11 fallando (`KeyError: 'ageing'`, filtros
+      ignorados, 200 en vez de 422); frontend 4 fallando (sin grupo "Filtrar
+      por ageing", sin params, sin aviso).
+      Checks: router + paridad + servicios del tablero (Postgres, volumen)
+      128 passed; vitest página + params + componentes 38 passed.
+- [x] PS4 — Orden por columnas (stock incluido, flecha lucide, aria-sort).
+      PS3 commit: `8bba31cb`. Ruta: inline (writer único).
+      El orden por encabezado ya existía (24h…30D, markup, vs anterior,
+      facturado, Total Gauss, última venta, ageing, título) en SQL con la
+      clave de fila como desempate; se agregó `stock` (NULL = "sin dato" al
+      final en los dos sentidos) y la flecha pasó de texto (↓/↑) a
+      `ArrowDown`/`ArrowUp` de lucide. Tests nuevos: CADA clave de `SORTS`
+      en asc y desc contra el contrato (valor, NULL al final, desempate por
+      clave), páginas de 1 fila = orden completo con empates (stock, ageing,
+      24h), stock sin permiso de ganancia = 200 y Total Gauss = 403;
+      Postgres: orden por stock con NULL al final.
+      RED visto: 7 fallando (`sort inválido: 'stock'`, `SORTS` sin stock);
+      frontend 2 fallando (encabezado Stock sin botón, sin svg de flecha).
+      Visual (nuevo test por ancho/tema): toggle, aviso, 6 chips y el
+      encabezado ordenado en UNA línea dentro de la página/celda, banda sin
+      overflow, puntos de ageing con los tonos de la columna, aviso en tono
+      warning. La suite visual atrapó una regresión propia: un `composes`
+      de `FacetChips.module.css` en el CSS de la página reordenaba las hojas
+      y el chip excluido perdía su tono rojo; se reemplazó por las clases
+      del chip aplicadas en el JSX. Los divisores de la banda nueva se
+      sacaron (a 1366 el grupo Ageing baja de renglón y el divisor quedaba
+      colgando). Los tests visuales se escribieron con los controles ya
+      hechos: son de layout, no RED-first.
+- [x] PS5 — Checks: ruff, pytest focalizado, vitest (antes 143 archivos /
+      1899 tests), test:visual, eslint, lint:css, build, suite backend
+      completa sola.
+      PS4 commit: `a976f89b`. Frontend: vitest 143 archivos, 1899 → 1919
+      tests (todo verde); test:visual 10 archivos, 76 → 80 passed + 2
+      expected fail (4 tests visuales nuevos); eslint 0 errores (8 warnings
+      previos, ninguno de Métricas ML); lint:css OK; build OK. Backend: ruff
+      format/check OK; router + paridad + servicios del tablero (Postgres y
+      volumen) 130 + 2 passed. Suite backend completa, sola (`-p no:randomly`,
+      `ENVIRONMENT=development`): **7861 passed, 16 skipped**.
+      Espejo Engram `odd/metricas-ml-tablero/tasks`: PENDIENTE (mem_save
+      falló: "multiple active runtime sessions match").
+- [x] PS6 (revisión de cuatro lentes, aprobada con hallazgos). Ruta: inline.
+      R1 celda de stock: `StockCell` propia — "—" SÓLO si el stock es
+      desconocido; 0 se lee "0" (sin atenuar) y un negativo es su número en
+      tono de pérdida (`data-stock` = positive/zero/negative/unknown).
+      R2 deploy escalonado: `solo_con_ventas` por defecto `false` en la API
+      (un bundle viejo no lo manda y conserva el catálogo entero en tablero,
+      KPIs y CSV); la página lo prende y lo manda siempre. Se sacó `CATALOG`
+      de los tests; los del toggle usan `SOLO_CON_VENTAS`.
+      R3 ageing sin referencia: valor interno propio
+      `AGEING_NO_REFERENCE = "sin_referencia"` (antes reusaba el "sin_dato"
+      del stock); ningún chip lo selecciona y excluir chips nunca lo saca.
+      R4 aviso: sólo con un chip de ageing INCLUIDO que implica sin ventas
+      recientes (31–60, > 60 d) y el toggle prendido; excluir o "Hasta 30 d"
+      no lo muestran.
+      R5 `Board.rows(skip_pair_axis=..., skip_row_axes=(...))` explícitos
+      (`PAIR_AXES` / `ROW_AXES`); un nombre desconocido o del eje
+      equivocado levanta `ValueError` (antes un eje de par dentro de la
+      tupla se ignoraba en silencio).
+      R6 `SwitchChip` (componente + módulo CSS propios) para el toggle; la
+      página ya no importa el CSS privado de `FacetChips` ni lleva el
+      parche de orden de hojas. Visual: el switch prendido usa
+      `--money-headline`.
+      RED visto: backend 79 fallando (default true, `AGEING_NO_REFERENCE`
+      inexistente, fila sin referencia, `rows()` sin los argumentos nuevos);
+      frontend: celda de stock sin `data-stock`, aviso con exclusión,
+      `SwitchChip` inexistente.
+      Commits: `aab9f420` (backend R2/R3/R5), `3ff86b5b` (frontend R1/R4/R6).
+      Checks: ruff OK; router + paridad + servicios del tablero (Postgres,
+      volumen) 173 passed; vitest 144 archivos / 1924 tests; test:visual 10 /
+      80 + 2 expected fail; eslint 0 errores; lint:css OK; build OK; suite
+      backend completa, sola: **7869 passed, 16 skipped**.

@@ -69,6 +69,17 @@ export const PUB_STATUS_LABELS = STATUS_LABELS;
 export const PUB_TYPE_OPTIONS = ['clasica', 'premium', 'catalogo', 'full'];
 export const PUB_TYPE_LABELS = { clasica: 'Clásica', premium: 'Premium', catalogo: 'Catálogo', full: 'Full' };
 
+/** The row's ERP stock buckets (`STOCK_BUCKETS` in the board service):
+ * "Sin dato" = the product has no stock in the ERP mirror. */
+export const STOCK_OPTIONS = ['con_stock', 'sin_stock', 'sin_dato'];
+export const STOCK_LABELS = { con_stock: 'Con stock', sin_stock: 'Sin stock', sin_dato: 'Sin dato' };
+
+/** The ageing KPI's buckets (`AGEING_BUCKETS` in the board service), with
+ * the same tones as the Ageing column (`ageingTone`). */
+export const AGEING_OPTIONS = ['up_to_30', 'from_31_to_60', 'over_60'];
+export const AGEING_LABELS = { up_to_30: 'Hasta 30 d', from_31_to_60: '31 a 60 d', over_60: 'Más de 60 d' };
+export const AGEING_BUCKET_TONES = { up_to_30: 'good', from_31_to_60: 'low', over_60: 'negative' };
+
 /** `Clásica · Full · Activa` -- what the design writes next to an MLA. */
 export function publicationDescriptor(pub) {
   const parts = [];

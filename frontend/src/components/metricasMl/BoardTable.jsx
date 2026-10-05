@@ -1,4 +1,4 @@
-import { ChevronDown, ChevronRight, CornerDownRight, Package } from 'lucide-react';
+import { ArrowDown, ArrowUp, ChevronDown, ChevronRight, CornerDownRight, Package } from 'lucide-react';
 import Sparkline from './Sparkline';
 import { formatSignedMoney, markupTone, moneyTone } from '../../utils/ventasMlTone';
 import {
@@ -42,7 +42,22 @@ const SORT_BY = {
   total_gauss: 'total_gauss',
   last_sale: 'last_sale',
   ageing: 'ageing',
+  stock: 'stock',
 };
+
+/** The row's ERP stock: "—" ONLY when unknown; a known 0 reads "0" and a
+ * negative stock (oversold in the ERP) its number in the danger tone, so
+ * neither can pass for "Sin dato". */
+function StockCell({ value }) {
+  const known = value !== null && value !== undefined;
+  const kind = !known ? 'unknown' : value < 0 ? 'negative' : value === 0 ? 'zero' : 'positive';
+  const tone = kind === 'negative' ? styles.tone_negative : kind === 'unknown' ? styles.muted : '';
+  return (
+    <span className={`${styles.units} ${tone}`} data-stock={kind}>
+      {known ? formatUnits(value) : '—'}
+    </span>
+  );
+}
 
 function UnitsCell({ value, strong }) {
   return (
@@ -230,6 +245,9 @@ function renderCell(colId, row, ctx) {
         <span className={`${styles.ageing} ${tone ? styles[`chip_${tone}`] : ''}`}>{formatAgeing(row.ageing_days)}</span>
       );
     }
+    case 'stock':
+      // `productos_erp.stock` of the row's product; "—" when the ERP has none.
+      return <StockCell value={row.stock} />;
     default:
       // Sell-in / sell-out: announced, never invented.
       return <span className={styles.placeholder}>—</span>;
@@ -334,7 +352,12 @@ export default function BoardTable({
                 {sortKey ? (
                   <button type="button" className={styles.sortButton} onClick={() => onSort(sortKey)}>
                     {col.header}
-                    {active && <span aria-hidden="true">{sortDesc ? ' ↓' : ' ↑'}</span>}
+                    {active &&
+                      (sortDesc ? (
+                        <ArrowDown size={11} className={styles.sortArrow} aria-hidden="true" />
+                      ) : (
+                        <ArrowUp size={11} className={styles.sortArrow} aria-hidden="true" />
+                      ))}
                   </button>
                 ) : (
                   col.header

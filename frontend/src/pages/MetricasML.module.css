@@ -166,6 +166,16 @@
   composes: btn-tesla ghost sm from '../styles/buttons-tesla.css';
 }
 
+/* "Ocultando productos sin ventas en el período": a quiet warning beside
+   the toggle, shown only when "Solo con ventas en el período" is on AND an
+   old ageing bucket (31-60 d or > 60 d) is INCLUDED -- never for exclusions
+   or for "Hasta 30 d". */
+.toggleHint {
+  font-size: var(--font-xs);
+  color: var(--tone-warning-fg);
+  white-space: nowrap;
+}
+
 /* Alert pills (design: amber "Sin ventas", rose "Ageing"/"Markup cayendo"). */
 .alertChip {
   display: inline-flex;

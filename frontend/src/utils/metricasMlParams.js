@@ -17,12 +17,20 @@ export function buildMetricasMLParams({
   pubStatusExclude,
   pubTypeExclude,
   alerts,
+  stock,
+  stockExclude,
+  ageing,
+  ageingExclude,
+  soloConVentas = true,
 }) {
   const params = {
     date_from: fechaDesde,
     date_to: fechaHasta,
     comparar_con: compararCon,
     group_by: groupBy,
+    // Always explicit: the board's own default must never decide which
+    // rows the operator sees.
+    solo_con_ventas: soloConVentas,
   };
   if (searchQuery) params.q = searchQuery;
   if (productFilters?.marcas?.length > 0) params.marcas = productFilters.marcas.join(',');
@@ -34,5 +42,9 @@ export function buildMetricasMLParams({
   if (pubStatusExclude?.length > 0) params.pub_status_exclude = pubStatusExclude.join(',');
   if (pubTypeExclude?.length > 0) params.pub_type_exclude = pubTypeExclude.join(',');
   if (alerts?.length > 0) params.alerts = alerts.join(',');
+  if (stock?.length > 0) params.stock = stock.join(',');
+  if (stockExclude?.length > 0) params.stock_exclude = stockExclude.join(',');
+  if (ageing?.length > 0) params.ageing = ageing.join(',');
+  if (ageingExclude?.length > 0) params.ageing_exclude = ageingExclude.join(',');
   return params;
 }

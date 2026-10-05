@@ -18,7 +18,8 @@ CREATE TABLE productos_erp (
     descripcion VARCHAR(500),
     marca VARCHAR(100),
     categoria VARCHAR(100),
-    subcategoria_id INTEGER
+    subcategoria_id INTEGER,
+    stock INTEGER
 )
 """
 

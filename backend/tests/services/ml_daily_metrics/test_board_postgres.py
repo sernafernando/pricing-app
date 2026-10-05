@@ -122,3 +122,43 @@ def test_the_board_reads_the_orders_on_postgres(board_pg) -> None:
     for row in rows.values():
         assert row.units_24h <= row.windows["3d"] <= row.windows["7d"] <= row.windows["15d"] <= row.windows["30d"]
     assert set(_rows(db, "publication")) == {MLA, OTHER}
+
+
+@pytest.mark.postgres
+def test_stock_is_joined_filtered_and_counted_on_postgres(board_pg) -> None:
+    """ODD "Período y stock" PS2: the row's `productos_erp.stock` (a LEFT
+    JOIN by primary key on the row's product), its bucket, the filter and
+    the chip counts, on real Postgres temp tables."""
+    db = board_pg
+    db.execute(
+        text(
+            "INSERT INTO productos_erp (item_id, codigo, descripcion, marca, categoria, subcategoria_id, stock) "
+            "VALUES (777, 'S-777', 'Con stock', 'M', 'C', 1, 4), (778, 'S-778', 'Agotado', 'M', 'C', 1, 0)"
+        )
+    )
+    for order_id, product, mla in ((2000012345678921, 777, MLA), (2000012345678922, 778, OTHER)):
+        _order(db, order_id, [(product, mla, 1, 10)])
+        _group(db, f"o:{order_id}", [order_id], NOW - timedelta(hours=3))
+    # 779 sold but is missing from productos_erp: "sin dato".
+    _order(db, 2000012345678923, [(779, "MLA8000000003", 1, 10)])
+    _group(db, "o:2000012345678923", [2000012345678923], NOW - timedelta(hours=3))
+
+    period = {"date_from": TODAY - timedelta(days=29), "date_to": TODAY}
+    with board.Board(db, board.BoardFilter(**period)) as b:
+        stocks = {row.key: row.stock for row in b.page(None)}
+        facets = b.facets()
+    with board.Board(db, board.BoardFilter(**period, stock=("sin_stock",))) as b:
+        sin_stock = [row.key for row in b.page(None)]
+        kpis = b.kpis()
+    with board.Board(db, board.BoardFilter(**period, stock_exclude=("con_stock",))) as b:
+        not_in_stock = sorted(row.key for row in b.page(None))
+
+    assert stocks == {"777": 4, "778": 0, "779": None}
+    assert facets.stock == {"con_stock": 1, "sin_stock": 1, "sin_dato": 1}
+    assert sin_stock == ["778"]
+    assert (kpis.units, kpis.rows) == (1, 1)
+    assert not_in_stock == ["778", "779"]
+    # Sorting by stock (PS4): unknown last either way.
+    for desc, expected in ((True, ["777", "778", "779"]), (False, ["778", "777", "779"])):
+        with board.Board(db, board.BoardFilter(**period, sort="stock", sort_desc=desc)) as b:
+            assert [row.key for row in b.page(None)] == expected
