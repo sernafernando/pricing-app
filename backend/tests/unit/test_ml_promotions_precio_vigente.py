@@ -484,49 +484,208 @@ class TestRefreshIsARead:
         assert response.json()["ok"] is True
 
 
-class TestEmptyMirrorIsCheckedAgainstML:
-    """Incident: the mirror had NO rows for MLA2385168136 while the live
-    proxy returned 9 promos. An empty mirror must not read as "no promos"
-    unless ML agrees."""
+class TestMirrorReadNeverWaitsOnML:
+    """GET /promociones/item/{mla} reads only the mirror. An empty mirror is
+    common (items with no promos), so a live confirmation there would put a
+    proxy round-trip (and its failures) on every panel open."""
 
-    def _get(self, client: TestClient, mirror: List[Dict[str, Any]], live: Optional[List[Dict[str, Any]]]):
+    def test_empty_mirror_does_not_call_the_live_proxy(self, read_only_client: TestClient) -> None:
         with (
-            patch("app.routers.ml_promotions.fetch_item_promotions", return_value=mirror),
+            patch("app.routers.ml_promotions.fetch_item_promotions", return_value=[]),
             patch("app.routers.ml_promotions.enriquecer_markup_por_promo", side_effect=lambda db, mla, p: p),
-            patch.object(write_service.ml_webhook_client, "get_item_promotions", return_value=live) as mock_live,
+            patch.object(write_service.ml_webhook_client, "get_item_promotions") as mock_live,
         ):
-            response = client.get(f"/api/promociones/item/{MLA}")
+            response = read_only_client.get(f"/api/promociones/item/{MLA}")
+
+        assert response.status_code == 200
+        assert response.json()["count"] == 0
+        mock_live.assert_not_called()
+
+
+class TestConfirmacionML:
+    """GET /promociones/item/{mla}/confirmacion-ml: the panel asks it AFTER
+    rendering an empty mirror. Incident: the mirror had NO rows for
+    MLA2385168136 while the live proxy returned 9 promos. It must never
+    raise and never wait long."""
+
+    URL = f"/api/promociones/item/{MLA}/confirmacion-ml"
+
+    def _get(self, client: TestClient, **live_kwargs: Any):
+        with patch.object(write_service.ml_webhook_client, "get_item_promotions", **live_kwargs) as mock_live:
+            response = client.get(self.URL)
         return response, mock_live
 
-    def test_empty_mirror_but_ml_has_promos_is_flagged(self, read_only_client: TestClient) -> None:
-        response, _ = self._get(read_only_client, [], [_live_entry(), _live_entry(status="started")])
+    def test_ml_has_active_promos_is_not_confirmed(self, read_only_client: TestClient) -> None:
+        response, _ = self._get(
+            read_only_client,
+            return_value=[_live_entry(), _live_entry(status="started"), _live_entry(status="finished")],
+        )
 
-        body = response.json()
         assert response.status_code == 200
-        assert body["count"] == 0
-        assert body["posiblemente_desactualizado"] is True
-        assert body["promos_en_ml"] == 2
+        assert response.json()["sin_promos_confirmado"] is False
+        assert response.json()["promos_en_ml"] == 2
 
-    def test_empty_mirror_and_live_read_failed_is_flagged(self, read_only_client: TestClient) -> None:
-        response, _ = self._get(read_only_client, [], None)
+    def test_ml_agrees_there_are_none(self, read_only_client: TestClient) -> None:
+        response, _ = self._get(read_only_client, return_value=[_live_entry(status="finished")])
 
-        body = response.json()
-        assert body["posiblemente_desactualizado"] is True
-        assert body["promos_en_ml"] is None
+        assert response.json()["sin_promos_confirmado"] is True
+        assert response.json()["promos_en_ml"] == 0
 
-    def test_empty_mirror_and_ml_agrees_is_not_flagged(self, read_only_client: TestClient) -> None:
-        response, _ = self._get(read_only_client, [], [_live_entry(status="finished")])
+    def test_live_read_failure_is_unconfirmed(self, read_only_client: TestClient) -> None:
+        response, _ = self._get(read_only_client, return_value=None)
 
-        body = response.json()
-        assert body["posiblemente_desactualizado"] is False
-        assert body["promos_en_ml"] == 0
+        assert response.status_code == 200
+        assert response.json()["sin_promos_confirmado"] is False
+        assert response.json()["promos_en_ml"] is None
 
-    def test_non_empty_mirror_does_not_call_ml(self, read_only_client: TestClient) -> None:
-        mirror = [
-            {"mla": MLA, "promotion_id": PROMO_ID, "promotion_type": "SMART", "status": "candidate", "price": 1.0}
-        ]
+    @pytest.mark.parametrize("exc", [ValueError("boom"), KeyError("x"), RuntimeError("no db"), TimeoutError()])
+    def test_any_exception_is_200_unconfirmed(self, read_only_client: TestClient, exc: Exception) -> None:
+        response, _ = self._get(read_only_client, side_effect=exc)
 
-        response, mock_live = self._get(read_only_client, mirror, [_live_entry()])
+        assert response.status_code == 200
+        assert response.json()["sin_promos_confirmado"] is False
 
-        assert response.json()["posiblemente_desactualizado"] is False
-        mock_live.assert_not_called()
+    def test_garbage_payload_is_unconfirmed(self, read_only_client: TestClient) -> None:
+        response, _ = self._get(read_only_client, return_value={"unexpected": "shape"})
+
+        assert response.status_code == 200
+        assert response.json()["sin_promos_confirmado"] is False
+
+    def test_uses_a_short_timeout(self, read_only_client: TestClient) -> None:
+        response, mock_live = self._get(read_only_client, return_value=[])
+
+        assert response.status_code == 200
+        timeout = mock_live.call_args.kwargs["timeout"]
+        assert 0 < timeout <= 3.0
+
+
+class TestClientTimeoutIsHonoured:
+    def test_get_item_promotions_passes_the_timeout_to_httpx(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        import asyncio
+
+        import httpx
+
+        from app.services.ml_webhook_client import MLWebhookClient
+
+        seen: Dict[str, Any] = {}
+        original_init = httpx.AsyncClient.__init__
+
+        def patched_init(self: Any, *args: Any, **kwargs: Any) -> None:
+            seen["timeout"] = kwargs.get("timeout")
+            kwargs["transport"] = httpx.MockTransport(lambda request: httpx.Response(200, json=[]))
+            original_init(self, *args, **kwargs)
+
+        monkeypatch.setattr(httpx.AsyncClient, "__init__", patched_init)
+
+        assert asyncio.run(MLWebhookClient().get_item_promotions(MLA, timeout=2.5)) == []
+        assert seen["timeout"] == 2.5
+
+    def test_slow_proxy_is_bounded(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """A proxy slower than the timeout yields None quickly, never a hang."""
+        import asyncio
+        import time
+
+        import httpx
+
+        from app.services.ml_webhook_client import MLWebhookClient
+
+        async def slow_handler(request: httpx.Request) -> httpx.Response:
+            await asyncio.sleep(5)
+            return httpx.Response(200, json=[])
+
+        original_init = httpx.AsyncClient.__init__
+
+        def patched_init(self: Any, *args: Any, **kwargs: Any) -> None:
+            kwargs["transport"] = httpx.MockTransport(slow_handler)
+            original_init(self, *args, **kwargs)
+
+        monkeypatch.setattr(httpx.AsyncClient, "__init__", patched_init)
+
+        started = time.monotonic()
+        result = asyncio.run(MLWebhookClient().get_item_promotions(MLA, timeout=0.2))
+
+        assert result is None
+        assert time.monotonic() - started < 2.0
+
+
+# ── One offer-price rule (shared by guard, 409 and markup) ──────
+
+
+class TestOfferPriceRule:
+    def test_price_wins_when_positive(self) -> None:
+        assert pricing.precio_de_oferta({"price": 100.0, "suggested_discounted_price": 90.0}) == 100.0
+
+    def test_suggested_when_price_is_zero(self) -> None:
+        assert pricing.precio_de_oferta({"price": 0, "suggested_discounted_price": 90.0}) == 90.0
+
+    @pytest.mark.parametrize(
+        "entry",
+        [
+            {},
+            {"price": 0},
+            {"price": None, "suggested_discounted_price": None},
+            {"price": 0, "suggested_discounted_price": 0},
+        ],
+    )
+    def test_none_when_neither_is_usable(self, entry: Dict[str, Any]) -> None:
+        assert pricing.precio_de_oferta(entry) is None
+
+
+@pytest.mark.usefixtures("writes_on")
+class TestGuardUsesTheOfferPriceRule:
+    def test_price_zero_with_suggested_compares_the_suggested(self) -> None:
+        entry = _live_entry(price=0)
+        entry["suggested_discounted_price"] = LIVE_PRICE
+        proxy = FakeProxy([entry])
+
+        result = _enroll(proxy, precio_visto=LIVE_PRICE)
+
+        assert result["status"] == "submitted"
+        assert len(proxy.enrolls) == 1
+
+    def test_price_zero_with_suggested_changed_reports_the_suggested(self) -> None:
+        entry = _live_entry(price=0)
+        entry["suggested_discounted_price"] = LIVE_PRICE
+        proxy = FakeProxy([entry])
+
+        result = _enroll(proxy, precio_visto=STALE_PRICE)
+
+        assert proxy.enrolls == []
+        assert result["status"] == "rejected_price_changed"
+        assert result["precio_actual"] == LIVE_PRICE
+
+    def test_positive_price_ignores_a_different_suggested(self) -> None:
+        entry = _live_entry(price=LIVE_PRICE)
+        entry["suggested_discounted_price"] = STALE_PRICE
+        proxy = FakeProxy([entry])
+
+        result = _enroll(proxy, precio_visto=STALE_PRICE)
+
+        assert proxy.enrolls == []
+        assert result["status"] == "rejected_price_changed"
+        assert result["precio_actual"] == LIVE_PRICE
+
+    def test_both_missing_is_blocked(self) -> None:
+        entry = _live_entry(price=0)
+        entry["suggested_discounted_price"] = None
+        proxy = FakeProxy([entry])
+
+        result = _enroll(proxy, precio_visto=LIVE_PRICE)
+
+        assert proxy.enrolls == []
+        assert result["status"] == "rejected_price_unresolved"
+
+    def test_markup_of_a_live_offer_uses_the_same_price(self) -> None:
+        captured: Dict[str, Any] = {}
+
+        def _fake_enriquecer(db: Any, mla: str, promos: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+            captured.update(promos[0])
+            promos[0]["nuestro_markup"] = 1.0
+            return promos
+
+        entry = _live_entry(price=0)
+        entry["suggested_discounted_price"] = LIVE_PRICE
+        with patch.object(pricing, "enriquecer_markup_por_promo", side_effect=_fake_enriquecer):
+            pricing.markup_de_oferta_live(object(), MLA, "SMART", entry)
+
+        assert pricing.precio_de_oferta(captured) == LIVE_PRICE

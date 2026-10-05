@@ -130,14 +130,21 @@ class ItemPromotionsList(BaseModel):
     mla: str
     count: int
     promotions: List[ItemPromotion]
-    posiblemente_desactualizado: bool = False
-    """True when the mirror returned NO rows but that could not be confirmed
-    with ML: the live proxy has active promos for the item, or the live read
-    failed. The panel then says "no se pudo confirmar con ML" instead of
-    "sin promociones". Only checked when the mirror is empty."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class ConfirmacionML(BaseModel):
+    """Whether ML agrees an item has NO active promotions. Asked by the
+    panel only after it rendered an EMPTY mirror, off the mirror read's
+    critical path (`GET /promociones/item/{mla}/confirmacion-ml`)."""
+
+    sin_promos_confirmado: bool
+    """True only when the live proxy answered and reports zero active
+    (candidate|started|pending) promos. Any failure, timeout or odd payload
+    is False: we could not confirm, so the panel must not say "no promos"."""
     promos_en_ml: Optional[int] = None
-    """Active (candidate|started|pending) promos the live proxy reports, when
-    the mirror was empty and the live read worked. None otherwise."""
+    """Active promos the live proxy reports; None when it could not be read."""
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -441,25 +448,43 @@ def listar_promociones(
 
 _ESTADOS_ACTIVOS_LIVE = {"candidate", "started", "pending"}
 
+# Short on purpose: this read sits behind a panel the operator is looking at.
+CONFIRMACION_ML_TIMEOUT_SECONDS = 2.5
 
-def _confirmar_vacio_con_ml(mla_id: str) -> tuple[bool, Optional[int]]:
-    """An EMPTY mirror is only trusted when ML agrees. Returns
-    `(posiblemente_desactualizado, promos_en_ml)`.
 
-    Incident 2026-10-05: the mirror had no rows for MLA2385168136 while the
-    live proxy returned 9 promos, so "Sin promociones habilitadas" would have
-    been a confident lie. One live read, only on the empty case (cheap and
-    bounded: the proxy client times out at 10s and never raises). A failed
-    read cannot confirm anything -> flagged (fail closed on the claim).
+@router.get("/item/{mla_id}/confirmacion-ml", response_model=ConfirmacionML)
+def confirmar_sin_promos_con_ml(
+    mla_id: str,
+    current_user: Usuario = Depends(require_promos_read()),
+) -> ConfirmacionML:
     """
-    live = resolve_maybe_async(ml_webhook_client.get_item_promotions(mla_id))
-    if not isinstance(live, list):
-        logger.warning("Empty promo mirror for %s could not be confirmed: live read failed", mla_id)
-        return True, None
-    activas = sum(1 for p in live if isinstance(p, dict) and p.get("status") in _ESTADOS_ACTIVOS_LIVE)
+    ¿ML confirma que el item NO tiene promociones activas? El panel lo pide
+    sólo DESPUÉS de mostrar un espejo vacío, fuera del camino crítico de
+    `GET /promociones/item/{mla}` (que sólo lee el espejo).
+
+    Incidente 2026-10-05: el espejo no tenía filas para MLA2385168136
+    mientras el proxy live devolvía 9 promos; "Sin promociones habilitadas"
+    hubiera sido una afirmación falsa.
+
+    NUNCA lanza: cualquier error, timeout (~2.5s) o payload raro devuelve
+    200 con `sin_promos_confirmado=false` (no se pudo confirmar). Lectura
+    pura, sin escrituras en ML. Requiere permiso: promos.ver
+    """
+    try:
+        live = resolve_maybe_async(
+            ml_webhook_client.get_item_promotions(mla_id, timeout=CONFIRMACION_ML_TIMEOUT_SECONDS)
+        )
+        if not isinstance(live, list):
+            logger.warning("Empty promo mirror for %s could not be confirmed: live read failed", mla_id)
+            return ConfirmacionML(sin_promos_confirmado=False, promos_en_ml=None)
+        activas = sum(1 for p in live if isinstance(p, dict) and p.get("status") in _ESTADOS_ACTIVOS_LIVE)
+    except Exception as e:
+        logger.warning("Empty promo mirror for %s could not be confirmed: %s", mla_id, e, exc_info=True)
+        return ConfirmacionML(sin_promos_confirmado=False, promos_en_ml=None)
+
     if activas:
         logger.warning("Promo mirror empty for %s but the live proxy reports %d active promos", mla_id, activas)
-    return activas > 0, activas
+    return ConfirmacionML(sin_promos_confirmado=activas == 0, promos_en_ml=activas)
 
 
 @router.get("/item/{mla_id}", response_model=ItemPromotionsList)
@@ -486,14 +511,7 @@ def obtener_promociones_item(
         # derived here.
         promotions = derivar_application_status(promotions)
         promotions = enriquecer_markup_por_promo(db, mla_id, promotions)
-        posiblemente_desactualizado, promos_en_ml = _confirmar_vacio_con_ml(mla_id) if not promotions else (False, None)
-        return ItemPromotionsList(
-            mla=mla_id,
-            count=len(promotions),
-            promotions=promotions,
-            posiblemente_desactualizado=posiblemente_desactualizado,
-            promos_en_ml=promos_en_ml,
-        )
+        return ItemPromotionsList(mla=mla_id, count=len(promotions), promotions=promotions)
     except RuntimeError as e:
         logger.error("ML_WEBHOOK_DB_URL not configured: %s", e)
         raise HTTPException(

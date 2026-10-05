@@ -55,6 +55,7 @@ from app.core.config import settings
 from app.core.database import get_background_db
 from app.models.promo_refresh_pending import PromoRefreshPending
 from app.models.publicacion_ml import PublicacionML
+from app.services.ml_promotions_pricing import precio_de_oferta
 from app.services.ml_promotions_service import fetch_item_promotions
 from app.services.ml_webhook_client import ml_webhook_client
 from app.services.promo_price_propagation import recompute_item
@@ -513,7 +514,10 @@ def _enroll_one_item(
         # `offer_id`. Both are re-read fresh every time (never cached): the
         # SMART price/split is recalculated by ML over time.
         offer_id = promo.get("ref_id")
-        entry_price = promo.get("price")
+        # ONE offer-price rule shared with the panel display, the 409 and the
+        # markup (`precio_de_oferta`: price > 0, else suggested > 0), so the
+        # guard compares like with like against `precio_visto`.
+        entry_price = precio_de_oferta(promo)
 
         live_status = promo.get("status")
         if live_status != "candidate":

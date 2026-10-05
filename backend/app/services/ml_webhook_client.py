@@ -972,11 +972,14 @@ class MLWebhookClient:
 
         return {"ok": False, "status_code": response.status_code, "ambiguous": False, "body": body}
 
-    async def get_item_promotions(self, mla_id: str) -> Optional[List[Dict]]:
+    async def get_item_promotions(self, mla_id: str, timeout: float = 10.0) -> Optional[List[Dict]]:
         """Obtiene las promociones de un item puntual vía el proxy ml-webhook.
 
         Args:
             mla_id: El ID del item (ej: MLA2361127120).
+            timeout: Segundos máximos para la llamada (default 10). Las
+                lecturas que acompañan una pantalla (confirmar un espejo
+                vacío) pasan uno corto para no colgar la UI.
 
         Returns:
             LISTA de promos del item (payload crudo del proxy: el endpoint
@@ -984,11 +987,17 @@ class MLWebhookClient:
             una con `id` (=promotion_id), `type`, `status`, precios, etc.), o
             None si hay error/timeout.
         """
-        try:
-            async with httpx.AsyncClient(timeout=10.0) as client:
+
+        async def _fetch() -> Optional[List[Dict]]:
+            async with httpx.AsyncClient(timeout=timeout) as client:
                 response = await client.get(f"{self.base_url}/api/promociones/item/{mla_id}")
                 response.raise_for_status()
                 return response.json()
+
+        try:
+            # httpx's timeout bounds each phase (connect, each read), not the
+            # whole call; wait_for makes `timeout` a hard overall deadline.
+            return await asyncio.wait_for(_fetch(), timeout=timeout)
         except Exception as e:
             logger.error(f"Error obteniendo promociones del item {mla_id}: {_describe_exc(e)}")
             return None

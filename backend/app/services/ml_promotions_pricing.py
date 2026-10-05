@@ -101,18 +101,45 @@ def _boost_amount(payload: Dict[str, Any], original_price: Any) -> float:
     return 0.0
 
 
+def _positive_float(value: Any) -> Optional[float]:
+    """float(value) when it is a finite number > 0, else None. Never raises."""
+    if value is None or isinstance(value, bool):
+        return None
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        return None
+    if number != number or number in (float("inf"), float("-inf")) or number <= 0:
+        return None
+    return number
+
+
+def precio_de_oferta(promo: Dict[str, Any]) -> Optional[float]:
+    """THE price of a promo offer — the one rule shared by the panel display
+    (frontend `promoDisplayPrice`, same fallback order), the pre-apply guard,
+    the 409's `precio_actual` and every markup computed on an offer.
+
+    `price` when > 0, else `suggested_discounted_price` when > 0, else None.
+    Works on both shapes: a mirror row and a raw live proxy entry (both use
+    `price` / `suggested_discounted_price`).
+
+    Which types legitimately carry `price` 0: candidate SELLER_CAMPAIGN /
+    DEAL rows (the seller sets the price; ML only proposes
+    `suggested_discounted_price` within [min,max]). ML-priced types (SMART,
+    PRE_NEGOTIATED, PRICE_MATCHING) normally carry ML's offer in `price`
+    even as candidates (ML docs, "Co-fondeada automatizada y precios
+    competitivos"); should one arrive with 0, the suggested price is what
+    the panel shows, so it is what the guard compares — like with like.
+    """
+    price = _positive_float(promo.get("price"))
+    if price is not None:
+        return price
+    return _positive_float(promo.get("suggested_discounted_price"))
+
+
 def _effective_discounted_price(promo: Dict[str, Any]) -> Optional[float]:
-    """`price` when the promo is started (price > 0); otherwise
-    `suggested_discounted_price` (candidate). None when neither is usable."""
-    price = promo.get("price")
-    if price and price > 0:
-        return float(price)
-
-    suggested = promo.get("suggested_discounted_price")
-    if suggested and suggested > 0:
-        return float(suggested)
-
-    return None
+    """Price used for `nuestro_markup`: see `precio_de_oferta`."""
+    return precio_de_oferta(promo)
 
 
 class _PricingContext:
