@@ -13,6 +13,7 @@ vi.mock('../../services/api', () => ({
   promocionesAPI: {
     getPromocionesItem: vi.fn().mockResolvedValue({ data: { promotions: [] } }),
     refreshItemPromociones: vi.fn().mockResolvedValue({ data: { ok: true } }),
+    confirmarSinPromosML: vi.fn(() => Promise.resolve({ data: { sin_promos_confirmado: true, promos_en_ml: 0 } })),
   },
 }));
 

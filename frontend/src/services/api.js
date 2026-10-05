@@ -290,6 +290,10 @@ export const equiposAPI = {
 
 export const promocionesAPI = {
   getPromocionesItem: (mlaId) => api.get(`/promociones/item/${mlaId}`),
+  // Asked only after an EMPTY mirror rendered: does ML agree there are no
+  // active promos? { sin_promos_confirmado, promos_en_ml }. Never errors
+  // server-side (failures come back as sin_promos_confirmado=false).
+  confirmarSinPromosML: (mlaId) => api.get(`/promociones/item/${mlaId}/confirmacion-ml`),
   // Enroll a promotion for a given MLA (real ML price write). `body` shape:
   // - SELLER_CAMPAIGN/DEAL: { promotion_id, promotion_type, deal_price? }
   // - SMART/PRE_NEGOTIATED/PRICE_MATCHING: { promotion_id, promotion_type,

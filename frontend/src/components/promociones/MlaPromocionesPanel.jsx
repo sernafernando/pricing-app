@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { promocionesAPI } from '../../services/api';
 import { usePermisos } from '../../contexts/PermisosContext';
 import { useLazyResource } from '../../hooks/useLazyResource';
@@ -170,6 +170,38 @@ function MlaPromocionesPanel({ mla, promosCacheRef, pullOnOpen = true }) {
 
   useEffect(() => () => clearReloadTimers(), [clearReloadTimers]);
 
+  // An EMPTY mirror is only "no promos" when ML agrees (incident 2026-10-05:
+  // 0 mirror rows, 9 live promos). The mirror read stays fast and mirror-only;
+  // the panel asks ML separately AFTER rendering. Keyed by the `data` object
+  // so a reload re-asks, and a stale answer for an older read is ignored.
+  // A failed refresh already means "unconfirmed": no extra call then.
+  const [mlCheck, setMlCheck] = useState(null); // { forData, status, promosEnMl }
+  const mirrorEmpty = Boolean(data) && !loading && !error && (data.promotions || []).length === 0;
+  const needsMlCheck = mirrorEmpty && !data.refreshFailed;
+  useEffect(() => {
+    if (!needsMlCheck) return undefined;
+    let ignore = false;
+    const forData = data;
+    setMlCheck({ forData, status: 'checking', promosEnMl: null });
+    Promise.resolve()
+      .then(() => promocionesAPI.confirmarSinPromosML(mla))
+      .then((r) => {
+        if (ignore) return;
+        const confirmed = r?.data?.sin_promos_confirmado === true;
+        setMlCheck({
+          forData,
+          status: confirmed ? 'confirmed' : 'unconfirmed',
+          promosEnMl: r?.data?.promos_en_ml ?? null,
+        });
+      })
+      .catch(() => {
+        if (!ignore) setMlCheck({ forData, status: 'unconfirmed', promosEnMl: null });
+      });
+    return () => {
+      ignore = true;
+    };
+  }, [needsMlCheck, data, mla]);
+
   if (loading) {
     return <div className={styles.panelState}>Cargando promociones...</div>;
   }
@@ -203,17 +235,20 @@ function MlaPromocionesPanel({ mla, promosCacheRef, pullOnOpen = true }) {
 
   if (promociones.length === 0) {
     // An empty mirror is only "no promos" when ML agrees. If the refresh
-    // failed, or the backend saw ML report promos (or could not ask), saying
+    // failed, or ML reports promos (or could not be asked), saying
     // "Sin promociones" would be a confident lie — the mirror had 0 rows for
     // an MLA with 9 live promos in the 2026-10-05 incident.
-    const unconfirmed = data?.refreshFailed || data?.posiblemente_desactualizado;
-    if (unconfirmed) {
+    const check = mlCheck?.forData === data ? mlCheck : null;
+    if (!data?.refreshFailed && (!check || check.status === 'checking')) {
+      return <div className={styles.panelState}>Sin promociones en el espejo — confirmando con ML…</div>;
+    }
+    if (data?.refreshFailed || check.status !== 'confirmed') {
       return (
         <>
           {staleNotice}
           <div className={styles.staleNotice}>
             No se pudo confirmar con ML — datos posiblemente desactualizados.
-            {data?.promos_en_ml > 0 ? ` ML informa ${data.promos_en_ml} promociones para esta publicación.` : ''}
+            {check?.promosEnMl > 0 ? ` ML informa ${check.promosEnMl} promociones para esta publicación.` : ''}
           </div>
         </>
       );

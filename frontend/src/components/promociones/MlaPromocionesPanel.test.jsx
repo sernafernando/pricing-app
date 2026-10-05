@@ -9,6 +9,9 @@ vi.mock('../../services/api', () => ({
     getPromocionesItem: vi.fn(),
     postPromocionItem: vi.fn(),
     refreshItemPromociones: vi.fn(),
+    // Default: ML confirms an empty mirror (the off-path check the panel
+    // makes after rendering one). Tests about the unconfirmed case override it.
+    confirmarSinPromosML: vi.fn(() => Promise.resolve({ data: { sin_promos_confirmado: true, promos_en_ml: 0 } })),
   },
 }));
 

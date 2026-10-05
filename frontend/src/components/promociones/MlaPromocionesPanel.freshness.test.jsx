@@ -13,6 +13,7 @@ vi.mock('../../services/api', () => ({
     getPromocionesItem: vi.fn(),
     postPromocionItem: vi.fn(),
     refreshItemPromociones: vi.fn(),
+    confirmarSinPromosML: vi.fn(),
   },
 }));
 
@@ -107,10 +108,13 @@ describe('MlaPromocionesPanel — an empty mirror is not "no promos" unless ML a
     permisosMock.granted = ['promos.ver', 'promos.escribir'];
   });
 
+  // The mirror read stays mirror-only (fast); the panel asks ML separately,
+  // AFTER rendering, and says "confirming" meanwhile — never "no promos".
   it('empty mirror while ML reports promos -> cannot confirm', async () => {
     promocionesAPI.refreshItemPromociones.mockResolvedValue({ data: { ok: true } });
-    promocionesAPI.getPromocionesItem.mockResolvedValue({
-      data: { promotions: [], posiblemente_desactualizado: true, promos_en_ml: 9 },
+    promocionesAPI.getPromocionesItem.mockResolvedValue({ data: { promotions: [] } });
+    promocionesAPI.confirmarSinPromosML.mockResolvedValue({
+      data: { sin_promos_confirmado: false, promos_en_ml: 9 },
     });
 
     renderPanel();
@@ -119,9 +123,31 @@ describe('MlaPromocionesPanel — an empty mirror is not "no promos" unless ML a
     expect(screen.getByText(/datos posiblemente desactualizados/i)).toBeInTheDocument();
     expect(screen.getByText(/ml informa 9 promociones/i)).toBeInTheDocument();
     expect(screen.queryByText(/sin promociones habilitadas/i)).not.toBeInTheDocument();
+    expect(promocionesAPI.confirmarSinPromosML).toHaveBeenCalledWith('MLA2385168136');
   });
 
-  it('empty mirror after a failed refresh -> cannot confirm', async () => {
+  it('shows "confirming" while ML has not answered yet', async () => {
+    promocionesAPI.refreshItemPromociones.mockResolvedValue({ data: { ok: true } });
+    promocionesAPI.getPromocionesItem.mockResolvedValue({ data: { promotions: [] } });
+    promocionesAPI.confirmarSinPromosML.mockReturnValue(new Promise(() => {}));
+
+    renderPanel();
+
+    expect(await screen.findByText(/confirmando con ml/i)).toBeInTheDocument();
+    expect(screen.queryByText(/sin promociones habilitadas/i)).not.toBeInTheDocument();
+  });
+
+  it('a failed confirmation call -> cannot confirm', async () => {
+    promocionesAPI.refreshItemPromociones.mockResolvedValue({ data: { ok: true } });
+    promocionesAPI.getPromocionesItem.mockResolvedValue({ data: { promotions: [] } });
+    promocionesAPI.confirmarSinPromosML.mockRejectedValue(new Error('network'));
+
+    renderPanel();
+
+    expect(await screen.findByText(/no se pudo confirmar con ml/i)).toBeInTheDocument();
+  });
+
+  it('empty mirror after a failed refresh -> cannot confirm, without asking ML again', async () => {
     promocionesAPI.refreshItemPromociones.mockResolvedValue({ data: { ok: false, motivo: null } });
     promocionesAPI.getPromocionesItem.mockResolvedValue({ data: { promotions: [] } });
 
@@ -129,17 +155,31 @@ describe('MlaPromocionesPanel — an empty mirror is not "no promos" unless ML a
 
     expect(await screen.findByText(/no se pudo confirmar con ml/i)).toBeInTheDocument();
     expect(screen.queryByText(/sin promociones habilitadas/i)).not.toBeInTheDocument();
+    expect(promocionesAPI.confirmarSinPromosML).not.toHaveBeenCalled();
   });
 
   it('empty mirror that ML confirms -> "Sin promociones habilitadas"', async () => {
     promocionesAPI.refreshItemPromociones.mockResolvedValue({ data: { ok: true } });
-    promocionesAPI.getPromocionesItem.mockResolvedValue({
-      data: { promotions: [], posiblemente_desactualizado: false, promos_en_ml: 0 },
+    promocionesAPI.getPromocionesItem.mockResolvedValue({ data: { promotions: [] } });
+    promocionesAPI.confirmarSinPromosML.mockResolvedValue({
+      data: { sin_promos_confirmado: true, promos_en_ml: 0 },
     });
 
     renderPanel();
 
     expect(await screen.findByText(/sin promociones habilitadas/i)).toBeInTheDocument();
     expect(screen.queryByText(/no se pudo confirmar con ml/i)).not.toBeInTheDocument();
+  });
+
+  it('a non-empty mirror never asks ML for confirmation', async () => {
+    promocionesAPI.refreshItemPromociones.mockResolvedValue({ data: { ok: true } });
+    promocionesAPI.getPromocionesItem.mockResolvedValue({
+      data: { promotions: [{ promotion_id: 'P1', promotion_type: 'DEAL', name: 'Deal', price: 80 }] },
+    });
+
+    renderPanel();
+
+    await screen.findByText('Deal');
+    expect(promocionesAPI.confirmarSinPromosML).not.toHaveBeenCalled();
   });
 });

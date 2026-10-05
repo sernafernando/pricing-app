@@ -41,6 +41,7 @@ vi.mock('./PxqPanel', () => ({
 vi.mock('../../services/api', () => ({
   promocionesAPI: {
     refreshItemPromociones: vi.fn(),
+    confirmarSinPromosML: vi.fn(() => Promise.resolve({ data: { sin_promos_confirmado: true, promos_en_ml: 0 } })),
   },
 }));
 
