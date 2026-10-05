@@ -81,6 +81,7 @@ import DateRangeFilter from '../components/DateRangeFilter';
 import { buildVentasMLFilterParams } from '../utils/ventasMlParams';
 import { storeFilterChips } from '../constants/tiendasOficiales';
 import { exportVentasCsv } from '../utils/ventasMlExport';
+import { buildMlSaleUrl, openInMlPanel } from '../utils/mlSidePanel';
 import {
   formatDate,
   timeAgo,
@@ -266,6 +267,16 @@ export default function VentasML() {
     },
     [selectOrder],
   );
+
+  // Ctrl/Cmd+click opens the sale in MercadoLibre instead of the internal
+  // drawer; any other click runs `open` unchanged.
+  const openOrMl = useCallback((e, packId, orderId, open) => {
+    if (e?.ctrlKey || e?.metaKey) {
+      openInMlPanel(buildMlSaleUrl(packId, orderId));
+      return;
+    }
+    open();
+  }, []);
 
   // PR19 (PANEL R22): a pack row opens the PACK-scoped panel, keyed by
   // `pack_id` — never `openDrawer(orders[0].order_id)`, which opened the
@@ -951,9 +962,12 @@ export default function VentasML() {
                 // arbitrary member's order-scoped panel instead.
                 const isRowClickable = isPack ? group.pack_id != null : representativeOrderId != null;
                 const openGroupPanel = isPack
-                  ? () => openPackDrawer(group.pack_id)
+                  ? (e) => openOrMl(e, group.pack_id, representativeOrderId, () => openPackDrawer(group.pack_id))
                   : representativeOrderId != null
-                    ? () => openDrawer(representativeOrderId)
+                    ? (e) =>
+                        openOrMl(e, orders[0].pack_id ?? group.pack_id, representativeOrderId, () =>
+                          openDrawer(representativeOrderId),
+                        )
                     : undefined;
                 const groupCtx = {
                   kind: 'group',
@@ -1013,14 +1027,18 @@ export default function VentasML() {
                     {isPack &&
                       isOpen &&
                       orders.map((order) => {
-                        const memberCtx = { kind: 'member', order, openDrawer };
+                        const openMemberPanel = (e) =>
+                          openOrMl(e, order.pack_id ?? group.pack_id, order.order_id, () =>
+                            openDrawer(order.order_id),
+                          );
+                        const memberCtx = { kind: 'member', order, openDrawer, openMemberPanel };
                         return (
                           <tr
                             key={order.order_id}
                             className={`${styles.memberRow} ${styles.clickableRow} ${
                               sameId(selectedOrderId, order.order_id) ? styles.selectedRow : ''
                             }`.trim()}
-                            onClick={() => openDrawer(order.order_id)}
+                            onClick={openMemberPanel}
                           >
                             {/* T4: THE SAME `visibleColumns` list the group
                                 row above just rendered -- a hidden column

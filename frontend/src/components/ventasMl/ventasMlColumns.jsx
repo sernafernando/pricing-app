@@ -43,7 +43,10 @@ import {
 // EITHER a group row (`ctx.kind === 'group'`) or a single pack-member
 // order (`ctx.kind === 'member'`) plus whatever per-row handlers that
 // render needs — see the group-row / member-row cell contexts in
-// `VentasML.jsx`.
+// `VentasML.jsx`. The click handlers (`openGroupPanel` / `openMemberPanel`)
+// MUST be called with the click event: Ctrl/Cmd+click routes to
+// MercadoLibre instead of the internal drawer, and they read the modifier
+// keys from it.
 //
 // NINE columns, laid out like the Stitch `listado` design: each cell carries
 // a primary value and a muted second line instead of spending a column per
@@ -278,7 +281,7 @@ export const COLUMNS = [
             title={isRecalc ? undefined : netoTooltip(order.neto_depositado, order.retenciones_recuperables)}
             onClick={(e) => {
               e.stopPropagation();
-              ctx.openDrawer(order.order_id);
+              ctx.openMemberPanel(e);
             }}
           >
             {isRecalc ? (
@@ -307,7 +310,7 @@ export const COLUMNS = [
             title={metricsState === 'ok' ? netoTooltip(group.neto_depositado, group.retenciones_recuperables) : undefined}
             onClick={(e) => {
               e.stopPropagation();
-              openGroupPanel();
+              openGroupPanel(e);
             }}
           >
             {content}
