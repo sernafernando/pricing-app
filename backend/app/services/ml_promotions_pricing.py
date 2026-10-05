@@ -137,11 +137,6 @@ def precio_de_oferta(promo: Dict[str, Any]) -> Optional[float]:
     return _positive_float(promo.get("suggested_discounted_price"))
 
 
-def _effective_discounted_price(promo: Dict[str, Any]) -> Optional[float]:
-    """Price used for `nuestro_markup`: see `precio_de_oferta`."""
-    return precio_de_oferta(promo)
-
-
 class _PricingContext:
     """Resolved cost/pricelist/commission context for an MLA, shared by
     `enriquecer_markup_por_promo` and `markup_para_precio`."""
@@ -324,7 +319,7 @@ def _calcular_nuestro_markup(
     costo_envio: float,
     grupo_id: int,
 ) -> Optional[float]:
-    effective_price = _effective_discounted_price(promo)
+    effective_price = precio_de_oferta(promo)
     if effective_price is None:
         return None
 

@@ -551,6 +551,27 @@ class TestConfirmacionML:
         assert response.status_code == 200
         assert response.json()["sin_promos_confirmado"] is False
 
+    def test_log_says_what_happened_not_what_the_caller_saw(
+        self, read_only_client: TestClient, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """The endpoint cannot know the mirror state, so its logs must not
+        assert one; they say what the live read returned."""
+        from app.routers import ml_promotions
+
+        with caplog.at_level("WARNING", logger=ml_promotions.logger.name):
+            self._get(read_only_client, return_value=None)
+            failed = [r.getMessage() for r in caplog.records]
+            caplog.clear()
+            self._get(read_only_client, return_value=[_live_entry()])
+            reported = [r.getMessage() for r in caplog.records]
+
+        assert len(failed) == 1 and MLA in failed[0]
+        assert "live read failed" in failed[0]
+        assert "mirror" not in failed[0].lower()
+        assert len(reported) == 1 and MLA in reported[0]
+        assert "1 active" in reported[0]
+        assert "mirror" not in reported[0].lower()
+
     def test_uses_a_short_timeout(self, read_only_client: TestClient) -> None:
         response, mock_live = self._get(read_only_client, return_value=[])
 
@@ -606,6 +627,56 @@ class TestClientTimeoutIsHonoured:
 
         assert result is None
         assert time.monotonic() - started < 2.0
+
+
+class TestHardDeadlineOnlyWhenExplicit:
+    """`asyncio.wait_for` is a hard overall deadline: only an explicit
+    `timeout=` may opt into it. Default callers (the enroll live re-read)
+    keep httpx's per-phase timeout and are not cut short."""
+
+    @staticmethod
+    def _spy(monkeypatch: pytest.MonkeyPatch) -> list:
+        import asyncio
+
+        import httpx
+
+        calls: list = []
+        real_wait_for = asyncio.wait_for
+
+        async def spy(aw: Any, timeout: Any = None) -> Any:
+            calls.append(timeout)
+            return await real_wait_for(aw, timeout)
+
+        monkeypatch.setattr("app.services.ml_webhook_client.asyncio.wait_for", spy)
+
+        original_init = httpx.AsyncClient.__init__
+
+        def patched_init(self: Any, *args: Any, **kwargs: Any) -> None:
+            kwargs["transport"] = httpx.MockTransport(lambda request: httpx.Response(200, json=[]))
+            original_init(self, *args, **kwargs)
+
+        monkeypatch.setattr(httpx.AsyncClient, "__init__", patched_init)
+        return calls
+
+    def test_default_call_has_no_hard_deadline(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        import asyncio
+
+        from app.services.ml_webhook_client import MLWebhookClient
+
+        calls = self._spy(monkeypatch)
+
+        assert asyncio.run(MLWebhookClient().get_item_promotions(MLA)) == []
+        assert calls == []
+
+    def test_explicit_timeout_applies_the_hard_deadline(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        import asyncio
+
+        from app.services.ml_webhook_client import MLWebhookClient
+
+        calls = self._spy(monkeypatch)
+
+        assert asyncio.run(MLWebhookClient().get_item_promotions(MLA, timeout=2.5)) == []
+        assert calls == [2.5]
 
 
 # ── One offer-price rule (shared by guard, 409 and markup) ──────
@@ -689,3 +760,10 @@ class TestGuardUsesTheOfferPriceRule:
             pricing.markup_de_oferta_live(object(), MLA, "SMART", entry)
 
         assert pricing.precio_de_oferta(captured) == LIVE_PRICE
+
+
+class TestNoPriceAlias:
+    def test_pricing_module_has_a_single_offer_price_function(self) -> None:
+        from app.services import ml_promotions_pricing
+
+        assert not hasattr(ml_promotions_pricing, "_effective_discounted_price")

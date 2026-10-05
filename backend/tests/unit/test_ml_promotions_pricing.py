@@ -16,7 +16,6 @@ import pytest
 
 from app.services.ml_promotions_pricing import (
     _co_funding_amount,
-    _effective_discounted_price,
     enriquecer_markup_por_promo,
     markup_para_precio,
 )
@@ -146,23 +145,6 @@ class TestCoFundingAmount:
             },
         }
         assert _co_funding_amount(promo) == pytest.approx(400.0)
-
-
-# ── _effective_discounted_price ──────────────────────────────────────
-
-
-class TestEffectiveDiscountedPrice:
-    def test_started_promo_uses_price(self) -> None:
-        promo = {"price": 850, "suggested_discounted_price": None}
-        assert _effective_discounted_price(promo) == 850
-
-    def test_candidate_promo_uses_suggested_discounted_price(self) -> None:
-        promo = {"price": 0, "suggested_discounted_price": 900}
-        assert _effective_discounted_price(promo) == 900
-
-    def test_no_usable_price_returns_none(self) -> None:
-        promo = {"price": 0, "suggested_discounted_price": None}
-        assert _effective_discounted_price(promo) is None
 
 
 # ── enriquecer_markup_por_promo ───────────────────────────────────────

@@ -972,14 +972,15 @@ class MLWebhookClient:
 
         return {"ok": False, "status_code": response.status_code, "ambiguous": False, "body": body}
 
-    async def get_item_promotions(self, mla_id: str, timeout: float = 10.0) -> Optional[List[Dict]]:
+    async def get_item_promotions(self, mla_id: str, timeout: Optional[float] = None) -> Optional[List[Dict]]:
         """Obtiene las promociones de un item puntual vía el proxy ml-webhook.
 
         Args:
             mla_id: El ID del item (ej: MLA2361127120).
-            timeout: Segundos máximos para la llamada (default 10). Las
-                lecturas que acompañan una pantalla (confirmar un espejo
-                vacío) pasan uno corto para no colgar la UI.
+            timeout: Si se pasa, deadline duro total en segundos (las lecturas
+                que acompañan una pantalla, como confirmar un espejo vacío,
+                pasan uno corto para no colgar la UI). Sin él, rige el
+                timeout por fase de httpx (10s), sin deadline total.
 
         Returns:
             LISTA de promos del item (payload crudo del proxy: el endpoint
@@ -989,14 +990,16 @@ class MLWebhookClient:
         """
 
         async def _fetch() -> Optional[List[Dict]]:
-            async with httpx.AsyncClient(timeout=timeout) as client:
+            async with httpx.AsyncClient(timeout=timeout or 10.0) as client:
                 response = await client.get(f"{self.base_url}/api/promociones/item/{mla_id}")
                 response.raise_for_status()
                 return response.json()
 
         try:
+            if timeout is None:
+                return await _fetch()
             # httpx's timeout bounds each phase (connect, each read), not the
-            # whole call; wait_for makes `timeout` a hard overall deadline.
+            # whole call; an explicit `timeout` opts into a hard overall deadline.
             return await asyncio.wait_for(_fetch(), timeout=timeout)
         except Exception as e:
             logger.error(f"Error obteniendo promociones del item {mla_id}: {_describe_exc(e)}")

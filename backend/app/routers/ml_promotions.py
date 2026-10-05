@@ -475,15 +475,15 @@ def confirmar_sin_promos_con_ml(
             ml_webhook_client.get_item_promotions(mla_id, timeout=CONFIRMACION_ML_TIMEOUT_SECONDS)
         )
         if not isinstance(live, list):
-            logger.warning("Empty promo mirror for %s could not be confirmed: live read failed", mla_id)
+            logger.warning("ML confirmation for %s unavailable: live read failed", mla_id)
             return ConfirmacionML(sin_promos_confirmado=False, promos_en_ml=None)
         activas = sum(1 for p in live if isinstance(p, dict) and p.get("status") in _ESTADOS_ACTIVOS_LIVE)
     except Exception as e:
-        logger.warning("Empty promo mirror for %s could not be confirmed: %s", mla_id, e, exc_info=True)
+        logger.warning("ML confirmation for %s unavailable: %s", mla_id, e, exc_info=True)
         return ConfirmacionML(sin_promos_confirmado=False, promos_en_ml=None)
 
     if activas:
-        logger.warning("Promo mirror empty for %s but the live proxy reports %d active promos", mla_id, activas)
+        logger.warning("ML reports %d active promos for %s", activas, mla_id)
     return ConfirmacionML(sin_promos_confirmado=activas == 0, promos_en_ml=activas)
 
 
