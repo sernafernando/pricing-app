@@ -26,7 +26,11 @@ from app.services.ml_catalog_competition_service import (
     refrescar_competencia_catalogo,
     undercutting_competitors,
 )
-from app.services.ml_promotions_pricing import enriquecer_markup_por_promo, markup_para_precio
+from app.services.ml_promotions_pricing import (
+    enriquecer_markup_por_promo,
+    markup_de_oferta_live,
+    markup_para_precio,
+)
 from app.services.ml_promotions_service import (
     derivar_application_status,
     fetch_item_promotions,
@@ -153,6 +157,13 @@ class EnrollRequest(BaseModel):
     promotion_type: str
     deal_price: Optional[float] = None
     top_deal_price: Optional[float] = None
+    precio_visto: Optional[float] = None
+    """Price the operator SAW and confirmed. Required for the ML-priced
+    types (SMART / PRE_NEGOTIATED / PRICE_MATCHING): if ML's live offer is
+    no longer at this price (to the cent) nothing is sent and the endpoint
+    answers 409 with the new price and markup."""
+    markup_visto: Optional[float] = None
+    """Markup the operator saw. Audit only (logged with a 409)."""
 
 
 class EnrollResult(BaseModel):
@@ -183,6 +194,17 @@ class EnrollResult(BaseModel):
     """SMART-only: the authoritative new offer_id ("OFFER-MLA...-N")
     returned by ML in the 201 response. None for SELLER_CAMPAIGN/DEAL
     (which have no offer_id concept) or when not yet submitted."""
+    precio_confirmado: Optional[float] = None
+    """ML-priced types: the price the operator confirmed (= live price
+    at POST time, enforced by the pre-apply guard)."""
+    precio_aplicado: Optional[float] = None
+    """ML-priced types: the `price` ML returned in its 201 body."""
+    precio_difiere: Optional[bool] = None
+    """True = ML applied a price different from the confirmed one (the
+    panel shows a red alert with "Quitar promo"). False = verified equal.
+    None = not verifiable (ML returned no price, or not applicable)."""
+    markup_aplicado: Optional[float] = None
+    """Markup at `precio_aplicado`, only computed when `precio_difiere`."""
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -320,6 +342,10 @@ _WRITE_STATUS_TO_HTTP = {
     "rejected_promotion_not_found": status.HTTP_422_UNPROCESSABLE_ENTITY,
     "rejected_read_unavailable": status.HTTP_503_SERVICE_UNAVAILABLE,
     "rejected_by_proxy": status.HTTP_422_UNPROCESSABLE_ENTITY,
+    # Pre-apply guard for ML-priced offers (incident 2026-10-05).
+    "rejected_price_unconfirmed": status.HTTP_422_UNPROCESSABLE_ENTITY,
+    "rejected_not_candidate": status.HTTP_409_CONFLICT,
+    "rejected_price_changed": status.HTTP_409_CONFLICT,
 }
 
 
@@ -533,6 +559,7 @@ def inscribir_item_en_promocion(
     body: EnrollRequest,
     response: Response,
     current_user: Usuario = Depends(require_promos_write()),
+    db=Depends(get_db),
 ) -> EnrollResult:
     """
     Inscribe un item en una promoción (SELLER_CAMPAIGN, DEAL, SMART o PRE_NEGOTIATED) vía el proxy
@@ -545,6 +572,14 @@ def inscribir_item_en_promocion(
     inmediata puede seguir mostrando `candidate` sin que eso sea una
     falla (ver EnrollResult).
 
+    Tipos con precio fijado por ML (SMART / PRE_NEGOTIATED / PRICE_MATCHING):
+    `precio_visto` es obligatorio. Si la oferta live ya no está a ese precio
+    -> 409 con `{status: "rejected_price_changed", precio_visto,
+    precio_actual, markup_actual, mensaje}` (markup con la misma cadena que
+    el panel) y NADA se envía a ML. Si ya no es `candidate` -> 409 con un
+    mensaje. Tras inscribir, el precio que devuelve ML se compara con el
+    confirmado (`precio_difiere`, `markup_aplicado`).
+
     Requiere permiso: promos.escribir
     """
     try:
@@ -554,6 +589,8 @@ def inscribir_item_en_promocion(
             body.promotion_type,
             deal_price=body.deal_price,
             top_deal_price=body.top_deal_price,
+            precio_visto=body.precio_visto,
+            markup_visto=body.markup_visto,
         )
     except RuntimeError as e:
         logger.error("ML_WEBHOOK_DB_URL not configured: %s", e)
@@ -562,9 +599,30 @@ def inscribir_item_en_promocion(
             detail="Base de datos mlwebhook no disponible",
         )
 
+    # The raw live entry is internal: used only to price it here.
+    live_promo = outcome.pop("live_promo", None)
+
+    if outcome["status"] == "rejected_price_changed":
+        markup_actual = markup_de_oferta_live(db, mla_id, body.promotion_type, live_promo or {})
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail={
+                "status": "rejected_price_changed",
+                "mensaje": outcome.get("detail"),
+                "precio_visto": outcome.get("precio_visto"),
+                "precio_actual": outcome.get("precio_actual"),
+                "markup_visto": body.markup_visto,
+                "markup_actual": markup_actual,
+            },
+        )
+
     _raise_if_write_rejected(outcome)
     if outcome["status"] == "ambiguous":
         response.status_code = status.HTTP_202_ACCEPTED
+    if outcome.get("precio_difiere") is True:
+        outcome["markup_aplicado"] = markup_de_oferta_live(
+            db, mla_id, body.promotion_type, live_promo or {}, price=outcome.get("precio_aplicado")
+        )
     return EnrollResult(**outcome)
 
 

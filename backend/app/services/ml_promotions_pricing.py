@@ -252,6 +252,42 @@ def markup_para_precio(db: Session, mla: str, price: float) -> Optional[float]:
     return _markup_con_contexto(db, context, price, mla=mla)
 
 
+def markup_de_oferta_live(
+    db: Session,
+    mla: str,
+    promotion_type: str,
+    live_entry: Dict[str, Any],
+    price: Optional[float] = None,
+) -> Optional[float]:
+    """Seller markup for a LIVE proxy offer entry, computed with exactly the
+    chain the panel shows (`enriquecer_markup_por_promo`: effective price +
+    ML co-funding + boost).
+
+    The live proxy entry is the raw ML item-promotion object — the same
+    object the mirror stores as `payload` — so it is passed as the payload:
+    `meli_percentage` / boost fields live there for the co-funding math.
+    `price` overrides the entry's price (used to price what ML says it
+    actually applied after an enroll).
+
+    Never raises: None when the markup cannot be computed.
+    """
+    promo: Dict[str, Any] = {
+        "mla": mla,
+        "promotion_id": live_entry.get("id"),
+        "promotion_type": promotion_type,
+        "price": price if price is not None else live_entry.get("price"),
+        "original_price": live_entry.get("original_price"),
+        "suggested_discounted_price": live_entry.get("suggested_discounted_price"),
+        "payload": live_entry,
+    }
+    try:
+        enriquecer_markup_por_promo(db, mla, [promo])
+    except Exception as e:
+        logger.warning("Error calculando markup de oferta live mla %s: %s", mla, e)
+        return None
+    return promo.get("nuestro_markup")
+
+
 def _calcular_nuestro_markup(
     db: Session,
     promo: Dict[str, Any],

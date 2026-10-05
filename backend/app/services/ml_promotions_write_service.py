@@ -22,8 +22,12 @@ Order of operations (`enroll_one_item` / `remove_one_item`):
      [min,max].
   4. Defensive validation BEFORE the POST: for SELLER_CAMPAIGN/DEAL,
      `deal_price` must be within [min, max] (reject out-of-range without a
-     wasted round-trip). For SMART/PRE_NEGOTIATED there is no range — fail
-     closed instead if the entry's `price`/`ref_id` are missing.
+     wasted round-trip). For SMART/PRE_NEGOTIATED/PRICE_MATCHING there is
+     no range — fail closed instead if the entry's `price`/`ref_id` are
+     missing, if it is no longer `candidate`, or if its live price differs
+     from the `precio_visto` the operator confirmed (see
+     PRICE_GUARDED_PROMOTION_TYPES). After a 201, ML's returned `price` is
+     compared with the confirmed one (`_post_apply_price_check`).
   5. Single POST/DELETE via `MLWebhookClient` (no retry — a blind retry
      on an ambiguous write could double-apply it).
   6. On ambiguous outcome (timeout/5xx): reconcile via
@@ -42,6 +46,7 @@ ambiguous response rather than via a scheduled sweep (see design decision).
 
 import logging
 from datetime import datetime, timedelta, timezone
+from decimal import ROUND_HALF_UP, Decimal, InvalidOperation
 from typing import Any, Dict, List, Optional
 
 from sqlalchemy.dialects.postgresql import insert as pg_insert
@@ -87,6 +92,49 @@ WRITABLE_PROMOTION_TYPES = {"SELLER_CAMPAIGN", "DEAL", "SMART", "PRE_NEGOTIATED"
 # NOTE: PRICE_MATCHING_MELI_ALL is intentionally EXCLUDED here too (see
 # WRITABLE_PROMOTION_TYPES comment above) — exact set membership only.
 SMART_LIKE_PROMOTION_TYPES = {"SMART", "PRE_NEGOTIATED", "PRICE_MATCHING"}
+
+# Incident 2026-10-05 (MLA2385168136): for the SMART-like types ML SETS the
+# offer price and recalculates candidates daily, and the enroll POST carries
+# only the offer_id — so whatever ML holds at that moment is what gets
+# applied. The panel showed a stale ~$469k, ML applied $372.408,72 with
+# negative markup. The guard: the operator's request carries the price they
+# SAW (`precio_visto`); right before the POST the live offer must still be a
+# `candidate` at that same price, to the cent. Anything else sends nothing.
+#
+# Tolerance is cent rounding and nothing more: both sides are rounded to
+# cents (half-up) and must be equal. That absorbs JSON float noise
+# (372408.72000000003) and nothing an operator would call a different price.
+# SELLER_CAMPAIGN/DEAL are NOT guarded: the operator types `deal_price` and
+# that exact value is what we send (validated against the live [min,max]).
+PRICE_GUARDED_PROMOTION_TYPES = SMART_LIKE_PROMOTION_TYPES
+
+
+def _to_cents(value: Any) -> Optional[int]:
+    """Price -> integer cents (half-up), or None when it is not a usable
+    positive number. Never raises."""
+    if value is None or isinstance(value, bool):
+        return None
+    try:
+        amount = Decimal(str(value))
+        if not amount.is_finite():
+            return None
+        cents = (amount * 100).quantize(Decimal("1"), rounding=ROUND_HALF_UP)
+    except (InvalidOperation, ValueError, TypeError):
+        return None
+    if cents <= 0:
+        return None
+    return int(cents)
+
+
+def _rejected_price_unconfirmed(promotion_type: str) -> Dict[str, Any]:
+    return {
+        "submitted": False,
+        "status": "rejected_price_unconfirmed",
+        "detail": (
+            f"{promotion_type}: ML fija el precio de esta oferta y no llegó el precio que viste "
+            "(precio_visto). No se aplicó nada."
+        ),
+    }
 
 
 def _disabled_outcome() -> Dict[str, Any]:
@@ -349,6 +397,8 @@ def enroll_one_item(
     promotion_type: str,
     deal_price: Optional[float] = None,
     top_deal_price: Optional[float] = None,
+    precio_visto: Optional[float] = None,
+    markup_visto: Optional[float] = None,
 ) -> Dict[str, Any]:
     """Enrolls a single item in a promotion, then triggers the point-refresh
     hook (`_maybe_refresh_after_write`) BEFORE the promo price recompute
@@ -361,6 +411,8 @@ def enroll_one_item(
         promotion_type,
         deal_price=deal_price,
         top_deal_price=top_deal_price,
+        precio_visto=precio_visto,
+        markup_visto=markup_visto,
     )
     _maybe_refresh_after_write(mla_id, outcome)
     _maybe_recompute_after_write(mla_id, outcome)
@@ -373,6 +425,8 @@ def _enroll_one_item(
     promotion_type: str,
     deal_price: Optional[float] = None,
     top_deal_price: Optional[float] = None,
+    precio_visto: Optional[float] = None,
+    markup_visto: Optional[float] = None,
 ) -> Dict[str, Any]:
     """Enrolls a single item in a promotion (SELLER_CAMPAIGN, DEAL, SMART, or PRE_NEGOTIATED).
 
@@ -386,6 +440,14 @@ def _enroll_one_item(
             always the live entry's own `price` (no [min,max] range exists
             to validate against for SMART).
         top_deal_price: Optional cap price.
+        precio_visto: REQUIRED for the price-guarded (SMART-like) types: the
+            price the operator saw and confirmed. Missing/non-positive ->
+            `rejected_price_unconfirmed` before any proxy call. The live
+            offer must still be `candidate` (else `rejected_not_candidate`)
+            at this price to the cent (else `rejected_price_changed`, with
+            `precio_visto`/`precio_actual`/`live_promo`). Ignored for
+            SELLER_CAMPAIGN/DEAL.
+        markup_visto: The markup the operator saw. Audit only (logged).
 
     SMART specifics: `offer_id` is taken from the live entry's `ref_id`
     (candidate form "CANDIDATE-MLA...-N"), never cached. On success the 201
@@ -404,6 +466,17 @@ def _enroll_one_item(
 
     if promotion_type not in WRITABLE_PROMOTION_TYPES:
         return _rejected_unsupported_type(promotion_type)
+
+    seen_cents = _to_cents(precio_visto)
+    if promotion_type in PRICE_GUARDED_PROMOTION_TYPES and seen_cents is None:
+        logger.warning(
+            "ML promo enroll rejected_price_unconfirmed mla=%s promotion_id=%s promotion_type=%s precio_visto=%s",
+            mla_id,
+            promotion_id,
+            promotion_type,
+            precio_visto,
+        )
+        return _rejected_price_unconfirmed(promotion_type)
 
     live = _resolve(ml_webhook_client.get_item_promotions(mla_id))
     if live is None:
@@ -442,7 +515,26 @@ def _enroll_one_item(
         offer_id = promo.get("ref_id")
         entry_price = promo.get("price")
 
-        if offer_id is None or entry_price is None:
+        live_status = promo.get("status")
+        if live_status != "candidate":
+            logger.warning(
+                "ML promo enroll rejected_not_candidate mla=%s promotion_id=%s promotion_type=%s live_status=%s",
+                mla_id,
+                promotion_id,
+                promotion_type,
+                live_status,
+            )
+            return {
+                "submitted": False,
+                "status": "rejected_not_candidate",
+                "detail": (
+                    "La oferta ya no está disponible para aplicar en ML "
+                    f"(estado actual: {live_status or 'desconocido'}). No se aplicó nada; actualizá el panel."
+                ),
+            }
+
+        live_cents = _to_cents(entry_price)
+        if offer_id is None or live_cents is None:
             logger.warning(
                 "ML promo enroll rejected_price_unresolved mla=%s promotion_id=%s promotion_type=%s ref_id=%s price=%s",
                 mla_id,
@@ -455,6 +547,26 @@ def _enroll_one_item(
                 "submitted": False,
                 "status": "rejected_price_unresolved",
                 "detail": f"{promotion_type} entry is missing ref_id (offer_id) or price in the live payload",
+            }
+
+        if live_cents != seen_cents:
+            logger.warning(
+                "ML promo enroll rejected_price_changed mla=%s promotion_id=%s promotion_type=%s "
+                "precio_visto=%s markup_visto=%s precio_actual=%s",
+                mla_id,
+                promotion_id,
+                promotion_type,
+                precio_visto,
+                markup_visto,
+                entry_price,
+            )
+            return {
+                "submitted": False,
+                "status": "rejected_price_changed",
+                "detail": "ML cambió el precio de la oferta desde que la viste. No se aplicó nada.",
+                "precio_visto": precio_visto,
+                "precio_actual": float(entry_price),
+                "live_promo": dict(promo),
             }
 
         write_result = _resolve(
@@ -483,6 +595,11 @@ def _enroll_one_item(
             body = write_result.get("body") if isinstance(write_result.get("body"), dict) else None
             authoritative_offer_id = (body or {}).get("offer_id")
             outcome["offer_id"] = authoritative_offer_id
+            outcome.update(
+                _post_apply_price_check(
+                    mla_id, promotion_id, promotion_type, precio_visto, (body or {}).get("price"), promo
+                )
+            )
             logger.info(
                 "ML promo enroll submitted mla=%s promotion_id=%s promotion_type=%s "
                 "candidate_offer_id=%s authoritative_offer_id=%s",
@@ -537,6 +654,58 @@ def _enroll_one_item(
     return _classify_write_outcome(
         write_result, mla_id, promotion_id, price=deal_price, promotion_type=promotion_type, operation="enroll"
     )
+
+
+def _post_apply_price_check(
+    mla_id: str,
+    promotion_id: str,
+    promotion_type: str,
+    precio_confirmado: Optional[float],
+    precio_aplicado_raw: Any,
+    live_promo: Dict[str, Any],
+) -> Dict[str, Any]:
+    """Compares the price ML says it applied (its 201 body `price`) with the
+    price the operator confirmed.
+
+    `precio_difiere` is tri-state on purpose: True = ML applied a different
+    price (logged at ERROR — real money moved at a price nobody accepted),
+    False = verified equal, None = ML did not return a usable price, so we
+    could NOT verify. None is never collapsed into False.
+    """
+    applied_cents = _to_cents(precio_aplicado_raw)
+    confirmed_cents = _to_cents(precio_confirmado)
+    precio_aplicado = float(precio_aplicado_raw) if applied_cents is not None else None
+
+    precio_difiere: Optional[bool] = None
+    if applied_cents is None or confirmed_cents is None:
+        logger.warning(
+            "ML promo enroll: no se pudo verificar el precio aplicado mla=%s promotion_id=%s "
+            "promotion_type=%s precio_confirmado=%s precio_aplicado_raw=%r",
+            mla_id,
+            promotion_id,
+            promotion_type,
+            precio_confirmado,
+            precio_aplicado_raw,
+        )
+    else:
+        precio_difiere = applied_cents != confirmed_cents
+        if precio_difiere:
+            logger.error(
+                "ML promo enroll: precio aplicado difiere del confirmado mla=%s promotion_id=%s "
+                "promotion_type=%s precio_confirmado=%s precio_aplicado=%s",
+                mla_id,
+                promotion_id,
+                promotion_type,
+                precio_confirmado,
+                precio_aplicado,
+            )
+
+    return {
+        "precio_confirmado": precio_confirmado,
+        "precio_aplicado": precio_aplicado,
+        "precio_difiere": precio_difiere,
+        "live_promo": dict(live_promo),
+    }
 
 
 def remove_one_item(mla_id: str, promotion_type: str, promotion_id: str) -> Dict[str, Any]:
