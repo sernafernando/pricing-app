@@ -263,12 +263,17 @@ function PromoApplyControl({ mla, promotion, onApplied }) {
         })
         .then((res) => res.data);
       setFeedback(feedbackFor(data?.status, true));
-      if (PROVISIONAL_TRIGGER_STATUSES.has(data?.status) || data?.status === 'ambiguous') setPriceAlert(null);
+      // Only a removal that went through clears the alert. Anything else
+      // (ambiguous, reconciled_not_applied, ...) may leave the promo live at
+      // the wrong price, so the alert and its button stay.
+      if (PROVISIONAL_TRIGGER_STATUSES.has(data?.status)) setPriceAlert(null);
       markProvisional(data?.status, true);
       if (onApplied) onApplied(data);
     } catch (err) {
       // Keep the alert: the promo may still be live at the wrong price.
       setFeedback(feedbackForError(err, 'desaplicar'));
+      // Still let the panel re-read the mirror: the truth lives there.
+      if (onApplied) onApplied(null);
     }
     setPhase('done');
   };

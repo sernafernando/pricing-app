@@ -226,6 +226,57 @@ describe('PromoApplyControl — post-apply price check', () => {
     expect(onApplied).toHaveBeenCalledTimes(2);
   });
 
+  function mismatchedEnroll() {
+    promocionesAPI.postPromocionItem.mockResolvedValue({
+      data: {
+        submitted: true,
+        status: 'submitted',
+        precio_confirmado: LIVE,
+        precio_aplicado: 350000,
+        precio_difiere: true,
+        markup_aplicado: -12.3,
+      },
+    });
+  }
+
+  it('"Quitar promo" answered with a non-provisional status keeps the red alert', async () => {
+    // A SMART removal right after the enroll can land while ML still shows
+    // the candidate offer: the promo may still be live at the wrong price.
+    const user = userEvent.setup();
+    const onApplied = vi.fn();
+    mismatchedEnroll();
+    promocionesAPI.deletePromocionItem.mockResolvedValue({
+      data: { submitted: false, status: 'reconciled_not_applied' },
+    });
+    render(<PromoApplyControl mla="MLA1" promotion={smartPromo({ price: LIVE })} onApplied={onApplied} />);
+
+    await clickApplyAndConfirm(user);
+    await user.click(await screen.findByRole('button', { name: /quitar promo/i }));
+
+    expect(await screen.findByText(/enviado pero aún no reflejado/i)).toBeInTheDocument();
+    expect(screen.getByRole('alert')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /quitar promo/i })).toBeInTheDocument();
+    expect(onApplied).toHaveBeenCalledTimes(2);
+  });
+
+  it('"Quitar promo" rejected by the server keeps the red alert and still reloads', async () => {
+    const user = userEvent.setup();
+    const onApplied = vi.fn();
+    mismatchedEnroll();
+    const err = new Error('422');
+    err.response = { status: 422, data: { error: { code: 'UNPROCESSABLE', message: 'Rechazado por ML (400).' } } };
+    promocionesAPI.deletePromocionItem.mockRejectedValue(err);
+    render(<PromoApplyControl mla="MLA1" promotion={smartPromo({ price: LIVE })} onApplied={onApplied} />);
+
+    await clickApplyAndConfirm(user);
+    await user.click(await screen.findByRole('button', { name: /quitar promo/i }));
+
+    expect(await screen.findByText(/rechazado por ml \(400\)/i)).toBeInTheDocument();
+    expect(screen.getByRole('alert')).toBeInTheDocument();
+    // The panel still re-reads the mirror: the truth is there, not here.
+    expect(onApplied).toHaveBeenCalledTimes(2);
+  });
+
   it('an unverifiable applied price warns instead of passing as fine', async () => {
     const user = userEvent.setup();
     promocionesAPI.postPromocionItem.mockResolvedValue({
