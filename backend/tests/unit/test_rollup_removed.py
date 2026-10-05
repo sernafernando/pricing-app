@@ -2,11 +2,11 @@
 code is gone -- the board reads the orders and nothing writes or reads
 `ml_product_daily_metrics` any more.
 
-Two-phase removal: THIS release removes the code only and leaves the table in
-place, unused. The migration that drops it ships in a follow-up PR, after
-this one is deployed: run during the deploy, before the workers restart, a
-drop would make every metrics store of the still-running old workers fail
-(they refresh the rollup in the same transaction) until they restart.
+Two-phase removal: the release that removed the code left the table in place,
+unused (a drop run during that deploy, before the workers restart, would have
+made every metrics store of the still-running old workers fail). That release
+is deployed, so the follow-up migration `20261005_drop_ml_product_daily_metrics`
+drops the table.
 """
 
 from __future__ import annotations
@@ -76,15 +76,21 @@ def test_storing_order_metrics_never_mentions_the_rollup() -> None:
     assert "rollup" not in source and "ml_daily_metrics" not in source
 
 
-def test_no_migration_of_this_release_drops_the_table() -> None:
-    """The DROP waits for the follow-up PR (see module docstring)."""
+_DROP_REVISION = "20261005_drop_ml_product_daily_metrics"
+
+
+def test_exactly_the_follow_up_migration_drops_the_table() -> None:
+    """Phase two: the release that stopped writing the table is deployed
+    (2026-10-05), so the follow-up drops it -- and only that revision does."""
     script = _script()
     heads = script.get_heads()
     assert len(heads) == 1, f"alembic forked: {heads}"
-    for revision in script.walk_revisions("base", heads[0]):
-        module = revision.module
-        upgrade = inspect.getsource(module.upgrade)
-        assert not drops_the_table(upgrade, constants=vars(module)), f"{revision.revision} drops {_TABLE}"
+    droppers = [
+        revision.revision
+        for revision in script.walk_revisions("base", heads[0])
+        if drops_the_table(inspect.getsource(revision.module.upgrade), constants=vars(revision.module))
+    ]
+    assert droppers == [_DROP_REVISION]
 
 
 @pytest.mark.parametrize(
