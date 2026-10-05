@@ -430,6 +430,7 @@ def _fake_live_smart_promotions(
             "type": "SMART",
             "ref_id": ref_id,
             "price": price,
+            "status": "candidate",
         }
     ]
 
@@ -459,7 +460,7 @@ class TestSmartWritableRegressionGuard:
                 },
             ) as mock_enroll,
         ):
-            result = write_service.enroll_one_item("MLA123456789", "P-MLA1", "SMART")
+            result = write_service.enroll_one_item("MLA123456789", "P-MLA1", "SMART", precio_visto=900.0)
 
         mock_enroll.assert_called_once()
         assert result["status"] == "submitted"
@@ -510,7 +511,7 @@ class TestSmartEnroll:
                 },
             ) as mock_enroll,
         ):
-            result = write_service.enroll_one_item("MLA1859172999", "P-MLA1", "SMART")
+            result = write_service.enroll_one_item("MLA1859172999", "P-MLA1", "SMART", precio_visto=19585.27)
 
         mock_enroll.assert_called_once_with(
             "MLA1859172999",
@@ -542,7 +543,7 @@ class TestSmartEnroll:
                 return_value={"ok": True, "status_code": 201, "ambiguous": False, "body": {}},
             ) as mock_enroll,
         ):
-            result = write_service.enroll_one_item("MLA123456789", "P-MLA1", "SMART")
+            result = write_service.enroll_one_item("MLA123456789", "P-MLA1", "SMART", precio_visto=99999.0)
 
         mock_enroll.assert_called_once()
         assert result["status"] == "submitted"
@@ -554,7 +555,7 @@ class TestSmartEnroll:
             patch.object(write_service.ml_webhook_client, "get_item_promotions", return_value=None),
             patch.object(write_service.ml_webhook_client, "enroll_item") as mock_enroll,
         ):
-            result = write_service.enroll_one_item("MLA123456789", "P-MLA1", "SMART")
+            result = write_service.enroll_one_item("MLA123456789", "P-MLA1", "SMART", precio_visto=900.0)
 
         mock_enroll.assert_not_called()
         assert result["status"] == "rejected_read_unavailable"
@@ -570,7 +571,7 @@ class TestSmartEnroll:
             ),
             patch.object(write_service.ml_webhook_client, "enroll_item") as mock_enroll,
         ):
-            result = write_service.enroll_one_item("MLA123456789", "P-MLA1", "SMART")
+            result = write_service.enroll_one_item("MLA123456789", "P-MLA1", "SMART", precio_visto=900.0)
 
         mock_enroll.assert_not_called()
         assert result["status"] == "rejected_promotion_not_found"
@@ -587,7 +588,7 @@ class TestSmartEnroll:
             patch.object(write_service.ml_webhook_client, "get_item_promotions", return_value=live),
             patch.object(write_service.ml_webhook_client, "enroll_item") as mock_enroll,
         ):
-            result = write_service.enroll_one_item("MLA123456789", "P-MLA1", "SMART")
+            result = write_service.enroll_one_item("MLA123456789", "P-MLA1", "SMART", precio_visto=900.0)
 
         mock_enroll.assert_not_called()
         assert result["status"] == "rejected_price_unresolved"
@@ -599,7 +600,7 @@ class TestSmartEnroll:
             patch.object(write_service.ml_webhook_client, "get_item_promotions") as mock_read,
             patch.object(write_service.ml_webhook_client, "enroll_item") as mock_enroll,
         ):
-            result = write_service.enroll_one_item("MLA123456789", "P-MLA1", "SMART")
+            result = write_service.enroll_one_item("MLA123456789", "P-MLA1", "SMART", precio_visto=900.0)
 
         mock_read.assert_not_called()
         mock_enroll.assert_not_called()
@@ -952,7 +953,7 @@ class TestSmartAmbiguousReconciliation:
             ) as mock_enroll,
             patch.object(write_service, "fetch_item_promotions", return_value=[]),
         ):
-            result = write_service.enroll_one_item("MLA123456789", "P-MLA1", "SMART")
+            result = write_service.enroll_one_item("MLA123456789", "P-MLA1", "SMART", precio_visto=900.0)
 
         mock_enroll.assert_called_once()  # no retry
         assert result["status"] == "ambiguous"
@@ -1004,7 +1005,7 @@ class TestSmartAmbiguousReconciliation:
                 return_value=[{"mla": "MLA123456789", "promotion_id": "P-MLA1", "status": "started"}],
             ),
         ):
-            result = write_service.enroll_one_item("MLA123456789", "P-MLA1", "SMART")
+            result = write_service.enroll_one_item("MLA123456789", "P-MLA1", "SMART", precio_visto=900.0)
 
         assert result["status"] == "reconciled_applied"
 
@@ -1057,7 +1058,7 @@ class TestSmartOfferIdAuditLogging:
                     },
                 ),
             ):
-                write_service.enroll_one_item("MLA123456789", "P-MLA1", "SMART")
+                write_service.enroll_one_item("MLA123456789", "P-MLA1", "SMART", precio_visto=900.0)
 
         assert any("CANDIDATE-MLA1-1" in record.message for record in caplog.records)
         assert any("OFFER-MLA1-11196371958" in record.message for record in caplog.records)
@@ -1102,6 +1103,7 @@ def _fake_live_pre_negotiated_promotions(
             "type": "PRE_NEGOTIATED",
             "ref_id": ref_id,
             "price": price,
+            "status": "candidate",
         }
     ]
 
@@ -1130,7 +1132,7 @@ class TestPreNegotiatedWritableRegressionGuard:
                 },
             ) as mock_enroll,
         ):
-            result = write_service.enroll_one_item("MLA123456789", "PN-MLA1", "PRE_NEGOTIATED")
+            result = write_service.enroll_one_item("MLA123456789", "PN-MLA1", "PRE_NEGOTIATED", precio_visto=900.0)
 
         mock_enroll.assert_called_once()
         assert result["status"] == "submitted"
@@ -1181,7 +1183,7 @@ class TestPreNegotiatedEnroll:
                 },
             ) as mock_enroll,
         ):
-            result = write_service.enroll_one_item("MLA1859172999", "PN-MLA1", "PRE_NEGOTIATED")
+            result = write_service.enroll_one_item("MLA1859172999", "PN-MLA1", "PRE_NEGOTIATED", precio_visto=19585.27)
 
         mock_enroll.assert_called_once_with(
             "MLA1859172999",
@@ -1211,7 +1213,7 @@ class TestPreNegotiatedEnroll:
                 return_value={"ok": True, "status_code": 201, "ambiguous": False, "body": {}},
             ) as mock_enroll,
         ):
-            result = write_service.enroll_one_item("MLA123456789", "PN-MLA1", "PRE_NEGOTIATED")
+            result = write_service.enroll_one_item("MLA123456789", "PN-MLA1", "PRE_NEGOTIATED", precio_visto=99999.0)
 
         mock_enroll.assert_called_once()
         assert result["status"] == "submitted"
@@ -1223,7 +1225,7 @@ class TestPreNegotiatedEnroll:
             patch.object(write_service.ml_webhook_client, "get_item_promotions", return_value=None),
             patch.object(write_service.ml_webhook_client, "enroll_item") as mock_enroll,
         ):
-            result = write_service.enroll_one_item("MLA123456789", "PN-MLA1", "PRE_NEGOTIATED")
+            result = write_service.enroll_one_item("MLA123456789", "PN-MLA1", "PRE_NEGOTIATED", precio_visto=900.0)
 
         mock_enroll.assert_not_called()
         assert result["status"] == "rejected_read_unavailable"
@@ -1239,7 +1241,7 @@ class TestPreNegotiatedEnroll:
             ),
             patch.object(write_service.ml_webhook_client, "enroll_item") as mock_enroll,
         ):
-            result = write_service.enroll_one_item("MLA123456789", "PN-MLA1", "PRE_NEGOTIATED")
+            result = write_service.enroll_one_item("MLA123456789", "PN-MLA1", "PRE_NEGOTIATED", precio_visto=900.0)
 
         mock_enroll.assert_not_called()
         assert result["status"] == "rejected_promotion_not_found"
@@ -1256,7 +1258,7 @@ class TestPreNegotiatedEnroll:
             patch.object(write_service.ml_webhook_client, "get_item_promotions", return_value=live),
             patch.object(write_service.ml_webhook_client, "enroll_item") as mock_enroll,
         ):
-            result = write_service.enroll_one_item("MLA123456789", "PN-MLA1", "PRE_NEGOTIATED")
+            result = write_service.enroll_one_item("MLA123456789", "PN-MLA1", "PRE_NEGOTIATED", precio_visto=900.0)
 
         mock_enroll.assert_not_called()
         assert result["status"] == "rejected_price_unresolved"
@@ -1337,7 +1339,7 @@ class TestPreNegotiatedAmbiguousReconciliation:
             ) as mock_enroll,
             patch.object(write_service, "fetch_item_promotions", return_value=[]),
         ):
-            result = write_service.enroll_one_item("MLA123456789", "PN-MLA1", "PRE_NEGOTIATED")
+            result = write_service.enroll_one_item("MLA123456789", "PN-MLA1", "PRE_NEGOTIATED", precio_visto=900.0)
 
         mock_enroll.assert_called_once()  # no retry
         assert result["status"] == "ambiguous"
@@ -1383,6 +1385,7 @@ def _fake_live_price_matching_promotions(
             "type": "PRICE_MATCHING",
             "ref_id": ref_id,
             "price": price,
+            "status": "candidate",
         }
     ]
 
@@ -1406,7 +1409,7 @@ class TestPriceMatchingWritableRegressionGuard:
                 return_value={"ok": True, "status_code": 201, "ambiguous": False, "body": {}},
             ) as mock_enroll,
         ):
-            result = write_service.enroll_one_item("MLA123456789", "PM-MLA1", "PRICE_MATCHING")
+            result = write_service.enroll_one_item("MLA123456789", "PM-MLA1", "PRICE_MATCHING", precio_visto=900.0)
 
         mock_enroll.assert_called_once()
         assert result["status"] == "submitted"
@@ -1458,7 +1461,7 @@ class TestPriceMatchingEnroll:
                 },
             ) as mock_enroll,
         ):
-            result = write_service.enroll_one_item("MLA1859172999", "PM-MLA1", "PRICE_MATCHING")
+            result = write_service.enroll_one_item("MLA1859172999", "PM-MLA1", "PRICE_MATCHING", precio_visto=19585.27)
 
         mock_enroll.assert_called_once_with(
             "MLA1859172999",

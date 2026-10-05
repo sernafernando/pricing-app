@@ -26,7 +26,11 @@ from app.services.ml_catalog_competition_service import (
     refrescar_competencia_catalogo,
     undercutting_competitors,
 )
-from app.services.ml_promotions_pricing import enriquecer_markup_por_promo, markup_para_precio
+from app.services.ml_promotions_pricing import (
+    enriquecer_markup_por_promo,
+    markup_de_oferta_live,
+    markup_para_precio,
+)
 from app.services.ml_promotions_service import (
     derivar_application_status,
     fetch_item_promotions,
@@ -130,6 +134,21 @@ class ItemPromotionsList(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
 
+class ConfirmacionML(BaseModel):
+    """Whether ML agrees an item has NO active promotions. Asked by the
+    panel only after it rendered an EMPTY mirror, off the mirror read's
+    critical path (`GET /promociones/item/{mla}/confirmacion-ml`)."""
+
+    sin_promos_confirmado: bool
+    """True only when the live proxy answered and reports zero active
+    (candidate|started|pending) promos. Any failure, timeout or odd payload
+    is False: we could not confirm, so the panel must not say "no promos"."""
+    promos_en_ml: Optional[int] = None
+    """Active promos the live proxy reports; None when it could not be read."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+
 class MarkupParaPrecioResponse(BaseModel):
     """Respuesta del markup para un precio candidato de un MLA."""
 
@@ -153,6 +172,13 @@ class EnrollRequest(BaseModel):
     promotion_type: str
     deal_price: Optional[float] = None
     top_deal_price: Optional[float] = None
+    precio_visto: Optional[float] = None
+    """Price the operator SAW and confirmed. Required for the ML-priced
+    types (SMART / PRE_NEGOTIATED / PRICE_MATCHING): if ML's live offer is
+    no longer at this price (to the cent) nothing is sent and the endpoint
+    answers 409 with the new price and markup."""
+    markup_visto: Optional[float] = None
+    """Markup the operator saw. Audit only (logged with a 409)."""
 
 
 class EnrollResult(BaseModel):
@@ -183,6 +209,17 @@ class EnrollResult(BaseModel):
     """SMART-only: the authoritative new offer_id ("OFFER-MLA...-N")
     returned by ML in the 201 response. None for SELLER_CAMPAIGN/DEAL
     (which have no offer_id concept) or when not yet submitted."""
+    precio_confirmado: Optional[float] = None
+    """ML-priced types: the price the operator confirmed (= live price
+    at POST time, enforced by the pre-apply guard)."""
+    precio_aplicado: Optional[float] = None
+    """ML-priced types: the `price` ML returned in its 201 body."""
+    precio_difiere: Optional[bool] = None
+    """True = ML applied a price different from the confirmed one (the
+    panel shows a red alert with "Quitar promo"). False = verified equal.
+    None = not verifiable (ML returned no price, or not applicable)."""
+    markup_aplicado: Optional[float] = None
+    """Markup at `precio_aplicado`, only computed when `precio_difiere`."""
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -320,6 +357,10 @@ _WRITE_STATUS_TO_HTTP = {
     "rejected_promotion_not_found": status.HTTP_422_UNPROCESSABLE_ENTITY,
     "rejected_read_unavailable": status.HTTP_503_SERVICE_UNAVAILABLE,
     "rejected_by_proxy": status.HTTP_422_UNPROCESSABLE_ENTITY,
+    # Pre-apply guard for ML-priced offers (incident 2026-10-05).
+    "rejected_price_unconfirmed": status.HTTP_422_UNPROCESSABLE_ENTITY,
+    "rejected_not_candidate": status.HTTP_409_CONFLICT,
+    "rejected_price_changed": status.HTTP_409_CONFLICT,
 }
 
 
@@ -403,6 +444,47 @@ def listar_promociones(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Error al consultar promociones",
         )
+
+
+_ESTADOS_ACTIVOS_LIVE = {"candidate", "started", "pending"}
+
+# Short on purpose: this read sits behind a panel the operator is looking at.
+CONFIRMACION_ML_TIMEOUT_SECONDS = 2.5
+
+
+@router.get("/item/{mla_id}/confirmacion-ml", response_model=ConfirmacionML)
+def confirmar_sin_promos_con_ml(
+    mla_id: str,
+    current_user: Usuario = Depends(require_promos_read()),
+) -> ConfirmacionML:
+    """
+    ¿ML confirma que el item NO tiene promociones activas? El panel lo pide
+    sólo DESPUÉS de mostrar un espejo vacío, fuera del camino crítico de
+    `GET /promociones/item/{mla}` (que sólo lee el espejo).
+
+    Incidente 2026-10-05: el espejo no tenía filas para MLA2385168136
+    mientras el proxy live devolvía 9 promos; "Sin promociones habilitadas"
+    hubiera sido una afirmación falsa.
+
+    NUNCA lanza: cualquier error, timeout (~2.5s) o payload raro devuelve
+    200 con `sin_promos_confirmado=false` (no se pudo confirmar). Lectura
+    pura, sin escrituras en ML. Requiere permiso: promos.ver
+    """
+    try:
+        live = resolve_maybe_async(
+            ml_webhook_client.get_item_promotions(mla_id, timeout=CONFIRMACION_ML_TIMEOUT_SECONDS)
+        )
+        if not isinstance(live, list):
+            logger.warning("ML confirmation for %s unavailable: live read failed", mla_id)
+            return ConfirmacionML(sin_promos_confirmado=False, promos_en_ml=None)
+        activas = sum(1 for p in live if isinstance(p, dict) and p.get("status") in _ESTADOS_ACTIVOS_LIVE)
+    except Exception as e:
+        logger.warning("ML confirmation for %s unavailable: %s", mla_id, e, exc_info=True)
+        return ConfirmacionML(sin_promos_confirmado=False, promos_en_ml=None)
+
+    if activas:
+        logger.warning("ML reports %d active promos for %s", activas, mla_id)
+    return ConfirmacionML(sin_promos_confirmado=activas == 0, promos_en_ml=activas)
 
 
 @router.get("/item/{mla_id}", response_model=ItemPromotionsList)
@@ -496,7 +578,7 @@ def listar_items_de_promocion(
 @router.post("/item/{mla_id}/refresh", response_model=RefreshResult)
 def refrescar_promociones_item(
     mla_id: str,
-    current_user: Usuario = Depends(require_promos_write()),
+    current_user: Usuario = Depends(require_promos_read()),
 ) -> RefreshResult:
     """
     Dispara un reconcile server-side (point-refresh) del espejo de
@@ -518,7 +600,11 @@ def refrescar_promociones_item(
     pantalla sólo podía decir "no se pudo actualizar", y una publicación
     cerrada se leía igual que un proxy caído o un token vencido.
 
-    Requiere permiso: promos.escribir (mismo permiso que enroll/remove).
+    Requiere permiso: promos.ver. Es una LECTURA (reconcilia nuestro espejo
+    desde ML, nunca escribe en ML), así que un usuario de solo lectura que
+    abre el panel también ve datos frescos — antes estaba gateado por
+    promos.escribir y esos usuarios veían el espejo sin actualizar
+    (incidente 2026-10-05).
     """
     outcome = resolve_maybe_async(ml_webhook_client.refresh_item_promotions(mla_id))
     return RefreshResult(ok=outcome.ok, motivo=outcome.motivo)
@@ -533,6 +619,7 @@ def inscribir_item_en_promocion(
     body: EnrollRequest,
     response: Response,
     current_user: Usuario = Depends(require_promos_write()),
+    db=Depends(get_db),
 ) -> EnrollResult:
     """
     Inscribe un item en una promoción (SELLER_CAMPAIGN, DEAL, SMART o PRE_NEGOTIATED) vía el proxy
@@ -545,6 +632,14 @@ def inscribir_item_en_promocion(
     inmediata puede seguir mostrando `candidate` sin que eso sea una
     falla (ver EnrollResult).
 
+    Tipos con precio fijado por ML (SMART / PRE_NEGOTIATED / PRICE_MATCHING):
+    `precio_visto` es obligatorio. Si la oferta live ya no está a ese precio
+    -> 409 con `{status: "rejected_price_changed", precio_visto,
+    precio_actual, markup_actual, mensaje}` (markup con la misma cadena que
+    el panel) y NADA se envía a ML. Si ya no es `candidate` -> 409 con un
+    mensaje. Tras inscribir, el precio que devuelve ML se compara con el
+    confirmado (`precio_difiere`, `markup_aplicado`).
+
     Requiere permiso: promos.escribir
     """
     try:
@@ -554,6 +649,8 @@ def inscribir_item_en_promocion(
             body.promotion_type,
             deal_price=body.deal_price,
             top_deal_price=body.top_deal_price,
+            precio_visto=body.precio_visto,
+            markup_visto=body.markup_visto,
         )
     except RuntimeError as e:
         logger.error("ML_WEBHOOK_DB_URL not configured: %s", e)
@@ -562,9 +659,30 @@ def inscribir_item_en_promocion(
             detail="Base de datos mlwebhook no disponible",
         )
 
+    # The raw live entry is internal: used only to price it here.
+    live_promo = outcome.pop("live_promo", None)
+
+    if outcome["status"] == "rejected_price_changed":
+        markup_actual = markup_de_oferta_live(db, mla_id, body.promotion_type, live_promo or {})
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail={
+                "status": "rejected_price_changed",
+                "mensaje": outcome.get("detail"),
+                "precio_visto": outcome.get("precio_visto"),
+                "precio_actual": outcome.get("precio_actual"),
+                "markup_visto": body.markup_visto,
+                "markup_actual": markup_actual,
+            },
+        )
+
     _raise_if_write_rejected(outcome)
     if outcome["status"] == "ambiguous":
         response.status_code = status.HTTP_202_ACCEPTED
+    if outcome.get("precio_difiere") is True:
+        outcome["markup_aplicado"] = markup_de_oferta_live(
+            db, mla_id, body.promotion_type, live_promo or {}, price=outcome.get("precio_aplicado")
+        )
     return EnrollResult(**outcome)
 
 

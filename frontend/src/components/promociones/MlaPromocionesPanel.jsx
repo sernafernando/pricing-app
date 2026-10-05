@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { promocionesAPI } from '../../services/api';
 import { usePermisos } from '../../contexts/PermisosContext';
 import { useLazyResource } from '../../hooks/useLazyResource';
@@ -7,7 +7,12 @@ import { getMarkupColor } from '../../hooks/useProductosOffsets';
 import { matchesPromoFilter } from './promoFilterPredicate';
 import { resolvePromoName } from './resolvePromoName';
 import PromoApplyControl from './PromoApplyControl';
+import { formatRelativeAge, promoDisplayPrice } from './promoDisplayPrice';
 import styles from './promociones.module.css';
+
+// A row older than this reads as stale (ML recalculates SMART/PRICE_MATCHING
+// candidates daily, so a day-old mirror row may no longer be ML's offer).
+const STALE_ROW_MS = 24 * 60 * 60 * 1000;
 
 // SELLER_CAMPAIGN/DEAL/SMART/PRE_NEGOTIATED/PRICE_MATCHING can be enrolled
 // via the apply control (FE-C). DOD/LIGHTNING/PRICE_DISCOUNT are read-only
@@ -75,13 +80,12 @@ function formatDateRange(startDate, finishDate) {
  * first expand — the parent conditionally mounts this component).
  */
 function MlaPromocionesPanel({ mla, promosCacheRef, pullOnOpen = true }) {
-  // The pull endpoint requires `promos.escribir` — the same permission
-  // TreeNode gates its manual refresh button on. Without this check every
-  // panel open by a `promos.ver`-only user is a 403 swallowed in silence, and
-  // the auto-pull becomes a back door into the path that button closes at the
-  // front. Such a user reads the mirror: degraded, but fully working.
+  // The pull endpoint is a READ (it reconciles our mirror from ML and never
+  // writes to ML) and requires `promos.ver`. It used to require
+  // `promos.escribir`, which left read-only users looking at an unrefreshed
+  // mirror with no way to know — part of incident 2026-10-05.
   const { tienePermiso } = usePermisos();
-  const canPull = tienePermiso('promos.escribir');
+  const canPull = tienePermiso('promos.ver');
 
   // Opening the panel pulls fresh state from MercadoLibre first, then reads
   // the mirror the server just updated.
@@ -142,8 +146,8 @@ function MlaPromocionesPanel({ mla, promosCacheRef, pullOnOpen = true }) {
 
   // The error-state retry pulls, because the user opened this expecting fresh
   // state — re-reading the mirror under a button labelled "Reintentar" would
-  // not retry what actually failed. A user without `promos.escribir` never had
-  // a pull to retry, so for them the retry is a plain re-read.
+  // not retry what actually failed. A user without `promos.ver` never had a
+  // pull to retry, so for them the retry is a plain re-read.
   const retry = useCallback(
     () =>
       canPull
@@ -165,6 +169,64 @@ function MlaPromocionesPanel({ mla, promosCacheRef, pullOnOpen = true }) {
   }, []);
 
   useEffect(() => () => clearReloadTimers(), [clearReloadTimers]);
+
+  // Used for a write that returned a result (`onApplied`) and for one that was
+  // rejected (`onReloadNeeded`, no result to hand over): either way the truth
+  // lives in the mirror.
+  const scheduleMirrorReloads = useCallback(() => {
+    // Do NOT assert the final state from either reload alone
+    // (eventual consistency — the table stays the source of
+    // truth). After a write the server refreshes the mirror on
+    // its own (immediate + ~60s retry) and these two reloads
+    // only RE-READ it — they do not pull from ML. Opening the
+    // panel does pull, which is a different path on purpose.
+    //
+    // Clear any prior pending timers before scheduling new
+    // ones, and clear on unmount so we never call reload()
+    // after the panel (and the underlying setState) is gone.
+    clearReloadTimers();
+    reloadTimersRef.current = [
+      setTimeout(() => reload(), 5000),
+      setTimeout(() => reload(), 65000),
+    ];
+  }, [clearReloadTimers, reload]);
+
+  // An EMPTY mirror is only "no promos" when ML agrees (incident 2026-10-05:
+  // 0 mirror rows, 9 live promos). The mirror read stays fast and mirror-only;
+  // the panel asks ML separately AFTER rendering. Keyed by the `data` object
+  // so a reload re-asks, and a stale answer for an older read is ignored.
+  // A failed refresh already means "unconfirmed": no extra call then.
+  // `mlCheckState` is one explicit value: 'idle' (nothing to confirm),
+  // 'checking', 'confirmed' or 'unconfirmed'. An answer recorded for another
+  // read counts as 'checking' for the current one.
+  const [mlCheck, setMlCheck] = useState(null); // { forData, status, promosEnMl }
+  const mirrorEmpty = Boolean(data) && !loading && !error && (data.promotions || []).length === 0;
+  const needsMlCheck = mirrorEmpty && !data.refreshFailed;
+  const mlCheckState = !needsMlCheck ? 'idle' : mlCheck?.forData === data ? mlCheck.status : 'checking';
+  const promosEnMl = mlCheckState === 'unconfirmed' ? mlCheck.promosEnMl : null;
+  useEffect(() => {
+    if (!needsMlCheck) return undefined;
+    let ignore = false;
+    const forData = data;
+    setMlCheck({ forData, status: 'checking', promosEnMl: null });
+    Promise.resolve()
+      .then(() => promocionesAPI.confirmarSinPromosML(mla))
+      .then((r) => {
+        if (ignore) return;
+        const confirmed = r?.data?.sin_promos_confirmado === true;
+        setMlCheck({
+          forData,
+          status: confirmed ? 'confirmed' : 'unconfirmed',
+          promosEnMl: r?.data?.promos_en_ml ?? null,
+        });
+      })
+      .catch(() => {
+        if (!ignore) setMlCheck({ forData, status: 'unconfirmed', promosEnMl: null });
+      });
+    return () => {
+      ignore = true;
+    };
+  }, [needsMlCheck, data, mla]);
 
   if (loading) {
     return <div className={styles.panelState}>Cargando promociones...</div>;
@@ -198,6 +260,24 @@ function MlaPromocionesPanel({ mla, promosCacheRef, pullOnOpen = true }) {
   ) : null;
 
   if (promociones.length === 0) {
+    // An empty mirror is only "no promos" when ML agrees. If the refresh
+    // failed, or ML reports promos (or could not be asked), saying
+    // "Sin promociones" would be a confident lie — the mirror had 0 rows for
+    // an MLA with 9 live promos in the 2026-10-05 incident.
+    if (!data?.refreshFailed && mlCheckState === 'checking') {
+      return <div className={styles.panelState}>Sin promociones en el espejo — confirmando con ML…</div>;
+    }
+    if (data?.refreshFailed || mlCheckState !== 'confirmed') {
+      return (
+        <>
+          {staleNotice}
+          <div className={styles.staleNotice}>
+            No se pudo confirmar con ML — datos posiblemente desactualizados.
+            {promosEnMl > 0 ? ` ML informa ${promosEnMl} promociones para esta publicación.` : ''}
+          </div>
+        </>
+      );
+    }
     return (
       <>
         {staleNotice}
@@ -231,9 +311,12 @@ function MlaPromocionesPanel({ mla, promosCacheRef, pullOnOpen = true }) {
           const meliPct = formatPercentage(promo.payload?.meli_percentage);
           // `price` is 0 for candidate promos (not yet applied); fall back to the
           // suggested discounted price so the row shows the price it WOULD apply
-          // at, not $0. Started promos (SMART/LIGHTNING) carry a real `price`.
-          const effectivePrice = promo.price > 0 ? promo.price : promo.suggested_discounted_price;
+          // at, not $0. Shared with PromoApplyControl, which sends this exact
+          // value as `precio_visto` so the backend can refuse a moved offer.
+          const effectivePrice = promoDisplayPrice(promo);
           const dateRange = formatDateRange(promo.start_date, promo.finish_date);
+          const age = formatRelativeAge(promo.updated_at);
+          const ageIsStale = age && Date.now() - Date.parse(promo.updated_at) > STALE_ROW_MS;
 
           return (
             <li
@@ -272,27 +355,20 @@ function MlaPromocionesPanel({ mla, promosCacheRef, pullOnOpen = true }) {
               <span className={styles.promoMarkup} style={{ color: getMarkupColor(promo.nuestro_markup) }}>
                 Tu markup: {formatMarkup(promo.nuestro_markup)}
               </span>
+              {age && (
+                <span
+                  className={ageIsStale ? styles.promoFreshnessStale : styles.promoFreshness}
+                  title="Última vez que el espejo de promociones se actualizó desde MercadoLibre"
+                >
+                  actualizado {age}
+                </span>
+              )}
               {applicable && (
                 <PromoApplyControl
                   mla={mla}
                   promotion={promo}
-                  onApplied={() => {
-                    // Do NOT assert the final state from either reload alone
-                    // (eventual consistency — the table stays the source of
-                    // truth). After a write the server refreshes the mirror on
-                    // its own (immediate + ~60s retry) and these two reloads
-                    // only RE-READ it — they do not pull from ML. Opening the
-                    // panel does pull, which is a different path on purpose.
-                    //
-                    // Clear any prior pending timers before scheduling new
-                    // ones, and clear on unmount so we never call reload()
-                    // after the panel (and the underlying setState) is gone.
-                    clearReloadTimers();
-                    reloadTimersRef.current = [
-                      setTimeout(() => reload(), 5000),
-                      setTimeout(() => reload(), 65000),
-                    ];
-                  }}
+                  onApplied={scheduleMirrorReloads}
+                  onReloadNeeded={scheduleMirrorReloads}
                 />
               )}
             </li>

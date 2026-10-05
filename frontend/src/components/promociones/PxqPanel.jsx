@@ -4,6 +4,7 @@ import { pxqAPI } from '../../services/api';
 import { useLazyResource } from '../../hooks/useLazyResource';
 import { usePxqMarkup } from '../../hooks/usePxqMarkup';
 import { usePermisos } from '../../contexts/PermisosContext';
+import { formatRelativeAge } from './promoDisplayPrice';
 import styles from './promociones.module.css';
 
 const MAX_TIERS = 5;
@@ -506,32 +507,6 @@ function PxqAdoptControl({ itemId, canImport, feedback, onFeedback, onAdopted })
       {feedback && <div className={feedbackClass}>{feedback.text}</div>}
     </div>
   );
-}
-
-/**
- * How old the live reading is, in words ("recién", "hace 2 min", "hace 3 h").
- *
- * `now` is a parameter, not a `Date.now()` call inside, so a caller (and its
- * test) can pin a clock without faking timers for a whole render.
- *
- * A reading dated in the FUTURE is clock skew between the backend and this
- * browser, never a real negative age: it collapses to "recién" instead of
- * printing "hace -1 min", which would read as a bug in the data rather than in
- * the clock. Anything unusable (absent, unparseable) returns `null` — the
- * caller then says nothing at all, which is honest, instead of guessing.
- */
-function formatRelativeAge(fetchedAt, now = Date.now()) {
-  if (!fetchedAt) return null;
-  const ts = Date.parse(fetchedAt);
-  if (Number.isNaN(ts)) return null;
-
-  const seconds = Math.floor((now - ts) / 1000);
-  if (seconds < 60) return 'recién';
-  const minutes = Math.floor(seconds / 60);
-  if (minutes < 60) return `hace ${minutes} min`;
-  const hours = Math.floor(minutes / 60);
-  if (hours < 24) return `hace ${hours} h`;
-  return `hace ${Math.floor(hours / 24)} d`;
 }
 
 // Money is Decimal on the backend and arrives as a number or string here —

@@ -101,18 +101,40 @@ def _boost_amount(payload: Dict[str, Any], original_price: Any) -> float:
     return 0.0
 
 
-def _effective_discounted_price(promo: Dict[str, Any]) -> Optional[float]:
-    """`price` when the promo is started (price > 0); otherwise
-    `suggested_discounted_price` (candidate). None when neither is usable."""
-    price = promo.get("price")
-    if price and price > 0:
-        return float(price)
+def _positive_float(value: Any) -> Optional[float]:
+    """float(value) when it is a finite number > 0, else None. Never raises."""
+    if value is None or isinstance(value, bool):
+        return None
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        return None
+    if number != number or number in (float("inf"), float("-inf")) or number <= 0:
+        return None
+    return number
 
-    suggested = promo.get("suggested_discounted_price")
-    if suggested and suggested > 0:
-        return float(suggested)
 
-    return None
+def precio_de_oferta(promo: Dict[str, Any]) -> Optional[float]:
+    """THE price of a promo offer — the one rule shared by the panel display
+    (frontend `promoDisplayPrice`, same fallback order), the pre-apply guard,
+    the 409's `precio_actual` and every markup computed on an offer.
+
+    `price` when > 0, else `suggested_discounted_price` when > 0, else None.
+    Works on both shapes: a mirror row and a raw live proxy entry (both use
+    `price` / `suggested_discounted_price`).
+
+    Which types legitimately carry `price` 0: candidate SELLER_CAMPAIGN /
+    DEAL rows (the seller sets the price; ML only proposes
+    `suggested_discounted_price` within [min,max]). ML-priced types (SMART,
+    PRE_NEGOTIATED, PRICE_MATCHING) normally carry ML's offer in `price`
+    even as candidates (ML docs, "Co-fondeada automatizada y precios
+    competitivos"); should one arrive with 0, the suggested price is what
+    the panel shows, so it is what the guard compares — like with like.
+    """
+    price = _positive_float(promo.get("price"))
+    if price is not None:
+        return price
+    return _positive_float(promo.get("suggested_discounted_price"))
 
 
 class _PricingContext:
@@ -252,6 +274,42 @@ def markup_para_precio(db: Session, mla: str, price: float) -> Optional[float]:
     return _markup_con_contexto(db, context, price, mla=mla)
 
 
+def markup_de_oferta_live(
+    db: Session,
+    mla: str,
+    promotion_type: str,
+    live_entry: Dict[str, Any],
+    price: Optional[float] = None,
+) -> Optional[float]:
+    """Seller markup for a LIVE proxy offer entry, computed with exactly the
+    chain the panel shows (`enriquecer_markup_por_promo`: effective price +
+    ML co-funding + boost).
+
+    The live proxy entry is the raw ML item-promotion object — the same
+    object the mirror stores as `payload` — so it is passed as the payload:
+    `meli_percentage` / boost fields live there for the co-funding math.
+    `price` overrides the entry's price (used to price what ML says it
+    actually applied after an enroll).
+
+    Never raises: None when the markup cannot be computed.
+    """
+    promo: Dict[str, Any] = {
+        "mla": mla,
+        "promotion_id": live_entry.get("id"),
+        "promotion_type": promotion_type,
+        "price": price if price is not None else live_entry.get("price"),
+        "original_price": live_entry.get("original_price"),
+        "suggested_discounted_price": live_entry.get("suggested_discounted_price"),
+        "payload": live_entry,
+    }
+    try:
+        enriquecer_markup_por_promo(db, mla, [promo])
+    except Exception as e:
+        logger.warning("Error calculando markup de oferta live mla %s: %s", mla, e)
+        return None
+    return promo.get("nuestro_markup")
+
+
 def _calcular_nuestro_markup(
     db: Session,
     promo: Dict[str, Any],
@@ -261,7 +319,7 @@ def _calcular_nuestro_markup(
     costo_envio: float,
     grupo_id: int,
 ) -> Optional[float]:
-    effective_price = _effective_discounted_price(promo)
+    effective_price = precio_de_oferta(promo)
     if effective_price is None:
         return None
 
