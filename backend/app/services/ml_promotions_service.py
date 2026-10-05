@@ -45,6 +45,7 @@ state (candidate|started|finished), not the live ML API read-back.
 """
 
 import logging
+from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional, Set
 
 from sqlalchemy import text
@@ -223,6 +224,27 @@ def fetch_promotions() -> List[Dict[str, Any]]:
     return result
 
 
+def _is_expired_finish_date(finish: Any, now: datetime) -> bool:
+    """True only when `finish` is a parseable date strictly in the past.
+
+    Anything missing or unparseable is NOT expired (fail-open for display: a
+    promo with no/garbled finish date, e.g. SMART/PRICE_MATCHING, stays
+    visible rather than the read crashing or hiding a valid option). Naive
+    values are taken as UTC; a date-only value expires at the END of that day.
+    """
+    if not finish or not isinstance(finish, str):
+        return False
+    try:
+        parsed = datetime.fromisoformat(finish.strip())
+    except ValueError:
+        return False
+    if len(finish.strip()) == 10:
+        parsed = parsed + timedelta(days=1)
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    return parsed < now
+
+
 def fetch_item_promotions(mla_id: str, active_only: bool = False) -> List[Dict[str, Any]]:
     """Lee las promociones aplicables a un MLA puntual desde ml_item_promotions.
 
@@ -236,6 +258,9 @@ def fetch_item_promotions(mla_id: str, active_only: bool = False) -> List[Dict[s
             marque 'finished'. El display (endpoint) usa active_only=True para no
             mostrar promos terminadas; la reconciliación de escrituras usa el
             default (False) porque necesita ver el estado crudo.
+            Además oculta promos cuya fecha de fin efectiva (catálogo, si no
+            payload) ya pasó: el bridge puede dejar filas vivas después de que
+            ML dejó de devolverlas. Sin fecha o con fecha ilegible se muestra.
 
     Returns:
         Lista de promociones del item (dict), con status normalizado a
@@ -259,6 +284,7 @@ def fetch_item_promotions(mla_id: str, active_only: bool = False) -> List[Dict[s
             {"mla": mla_id},
         ).fetchall()
 
+    now = datetime.now(timezone.utc)
     result = []
     for row in rows:
         item = _item_promotion_row_to_dict(row)
@@ -277,6 +303,10 @@ def fetch_item_promotions(mla_id: str, active_only: bool = False) -> List[Dict[s
         catalog_finish = row[14]
         item["start_date"] = catalog_start.isoformat() if catalog_start else item["start_date"]
         item["finish_date"] = catalog_finish.isoformat() if catalog_finish else item["finish_date"]
+        # Effective finish (catalog-then-payload, resolved just above) in the
+        # past => expired; hide it from the display read only.
+        if active_only and _is_expired_finish_date(item["finish_date"], now):
+            continue
         result.append(item)
     logger.info("ml_item_promotions: %d promotions read for %s", len(result), mla_id)
     return result
