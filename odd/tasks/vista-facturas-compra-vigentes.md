@@ -145,7 +145,9 @@ vista es la misma.
 - pytest focalizado (compras, erp matching, pedidos, imputaciones, órdenes de
   pago, CC proveedor, clasificador, jukebox, vista SQLite, todos los
   `test_migration_*` + el nuevo): 879 passed, 4 skipped.
-- Suite backend completa: ver commit/reporte.
+- Suite backend completa (`pytest tests`, sola): 7786 passed, 16 skipped.
+- Commit de T1: `8a987cff` (perf(compras)). Mirror Engram: pendiente (la
+  sesión de memoria rechazó el guardado por sesiones ambiguas).
 
 ## Notas
 
