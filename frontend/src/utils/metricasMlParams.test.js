@@ -26,6 +26,12 @@ describe('buildMetricasMLParams', () => {
     });
   });
 
+  it('sends the stock chips as include / exclude CSV, only when set', () => {
+    expect(buildMetricasMLParams({ ...BASE, stock: [], stockExclude: [] })).not.toHaveProperty('stock');
+    const params = buildMetricasMLParams({ ...BASE, stock: ['sin_stock', 'sin_dato'], stockExclude: ['con_stock'] });
+    expect(params).toMatchObject({ stock: 'sin_stock,sin_dato', stock_exclude: 'con_stock' });
+  });
+
   it('sends the toggle explicitly when off, never relying on the backend default', () => {
     expect(buildMetricasMLParams({ ...BASE, soloConVentas: false }).solo_con_ventas).toBe(false);
   });

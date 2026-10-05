@@ -24,6 +24,8 @@ import {
   PUB_STATUS_OPTIONS,
   PUB_TYPE_LABELS,
   PUB_TYPE_OPTIONS,
+  STOCK_LABELS,
+  STOCK_OPTIONS,
   formatUnits,
 } from '../utils/metricasMlFormat';
 import styles from './MetricasML.module.css';
@@ -91,6 +93,8 @@ export default function MetricasML() {
   const [pubStatusExclude, setPubStatusExclude] = useState([]);
   const [pubTypeExclude, setPubTypeExclude] = useState([]);
   const [alerts, setAlerts] = useState([]);
+  const [stock, setStock] = useState([]);
+  const [stockExclude, setStockExclude] = useState([]);
   // "Solo con ventas en el período": on by default -- a short period shows
   // what sold in it, not the whole catalog (ODD "Período y stock" PS1).
   const [soloConVentas, setSoloConVentas] = useState(true);
@@ -125,6 +129,8 @@ export default function MetricasML() {
         pubStatusExclude,
         pubTypeExclude,
         alerts,
+        stock,
+        stockExclude,
         soloConVentas,
       }),
     [
@@ -139,6 +145,8 @@ export default function MetricasML() {
       pubStatusExclude,
       pubTypeExclude,
       alerts,
+      stock,
+      stockExclude,
       soloConVentas,
     ],
   );
@@ -240,6 +248,8 @@ export default function MetricasML() {
     setPubStatusExclude([]);
     setPubTypeExclude([]);
     setAlerts([]);
+    setStock([]);
+    setStockExclude([]);
     setSoloConVentas(true);
     setOffset(0);
   };
@@ -276,6 +286,8 @@ export default function MetricasML() {
       pubStatusExclude.length ||
       pubTypeExclude.length ||
       alerts.length ||
+      stock.length ||
+      stockExclude.length ||
       !soloConVentas,
   );
   const noun = groupBy === 'publication' ? 'publicaciones' : 'productos';
@@ -400,6 +412,24 @@ export default function MetricasML() {
               </span>
               Solo con ventas en el período
             </button>
+          </div>
+          <span className={styles.divider} aria-hidden="true" />
+          <div className={styles.filterGroup}>
+            <span className={styles.filterLabel} title="Stock del ERP (depósito 1), el mismo que muestra Productos">
+              Stock:
+            </span>
+            <ToggleChips
+              label="Filtrar por stock"
+              options={STOCK_OPTIONS}
+              labels={STOCK_LABELS}
+              counts={facets?.stock}
+              selected={stock}
+              excluded={stockExclude}
+              onChange={withReset((nextSelected, nextExcluded) => {
+                setStock(nextSelected);
+                setStockExclude(nextExcluded);
+              })}
+            />
           </div>
         </div>
 

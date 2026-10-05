@@ -32,7 +32,8 @@ export function buildBoardColumns({ canSeeMargin, periodLabel, groupBy }) {
     { id: 'total_gauss', group: 'resultado', header: 'Total Gauss' },
     { id: 'last_sale', group: 'rotacion', header: 'Última venta' },
     { id: 'ageing', group: 'rotacion', header: 'Ageing' },
-    { id: 'stock', group: 'sellin', header: 'Stock' },
+    // Real now (`productos_erp.stock`): out of the "coming soon" group.
+    { id: 'stock', group: 'rotacion', header: 'Stock' },
     { id: 'compras_30d', group: 'sellin', header: 'Compras 30D' },
     { id: 'sell_through', group: 'sellin', header: 'Sell-Through' },
     { id: 'cobertura', group: 'sellin', header: 'Cobertura' },

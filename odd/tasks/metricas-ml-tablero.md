@@ -596,9 +596,26 @@ una consulta por fila).
       es el contrato nuevo, no una regresión.
       Checks: router + paridad + servicios del tablero 102 passed; vitest de
       la página y params 23 passed; ruff OK.
-- [ ] PS2 — Stock: columna, chips Con/Sin stock/Sin dato con conteos, en
+- [x] PS2 — Stock: columna, chips Con/Sin stock/Sin dato con conteos, en
       SQL (filas, KPIs, chips, CSV), CSV con columna Stock. Conteo de
       sentencias ajustado con justificación; volumen sigue pasando.
+      PS1 commit: `3c3da1b4`. Ruta: inline (writer único).
+      SQL: el stock es un LEFT JOIN por PK de `productos_erp` sobre el
+      producto de la fila DENTRO de la subconsulta de filas (`Board.rows`),
+      con su tramo (`stock_bucket`); el filtro va sobre la fila agregada, así
+      que página, KPIs, chips y CSV ven las mismas filas. Conteos de los
+      chips de stock: UNA sentencia más (sumas condicionales con su eje
+      apagado). Tablero en volumen: **18 sentencias** (antes 17; la nueva es
+      la de los chips de stock, ~3 ms), igual con página 10/50/200, por
+      producto o publicación, con exclusiones y con stock + solo con ventas;
+      ~660–750 ms en caliente (antes ~600–690). CSV: columna "Stock" al
+      final. Fixture Postgres del tablero: `productos_erp` mínima con
+      `stock` (en CI la crea el fixture; sin la columna el join fallaría).
+      RED visto: router 14/14 fallando (`KeyError: 'stock'`, filtros
+      ignorados, 200 en vez de 422); frontend 4 fallando (sin grupo "Filtrar
+      por stock", sin params, celda "—" de próximamente).
+      Checks: router + paridad + servicios del tablero (Postgres incluido,
+      volumen) 117 passed; vitest página + params 27 passed; ruff OK.
 - [ ] PS3 — Chips de Ageing + aviso con "Solo con ventas".
 - [ ] PS4 — Orden por columnas (stock incluido, flecha lucide, aria-sort).
 - [ ] PS5 — Checks: ruff, pytest focalizado, vitest (antes 143 archivos /

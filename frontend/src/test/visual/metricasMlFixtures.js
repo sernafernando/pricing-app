@@ -31,6 +31,7 @@ const BASE_ROW = {
   store_id: null,
   is_best: null,
   thumbnail: null,
+  stock: null,
   alerts: [],
 };
 
@@ -61,6 +62,7 @@ export const BOARD_ROWS = [
     series_markup_90d: series(19, 3, 1.2),
     last_sale_at: '2026-09-30T14:40:00Z',
     ageing_days: 0,
+    stock: 128,
   }),
   product(4102, {
     title: 'Notebook Lenovo V15 G4 AMN Ryzen 5 8GB 256GB SSD',
@@ -249,6 +251,7 @@ export const BOARD_RESPONSE = {
     pub_status: { active: 412, paused: 38, closed: 21 },
     pub_type: { clasica: 402, premium: 233, catalogo: 87, full: 156 },
     alerts: { sin_ventas_30d: 64, ageing_60d: 23, margen_cayendo: 11 },
+    stock: { con_stock: 402, sin_stock: 61, sin_dato: 8 },
   },
   rows: BOARD_ROWS,
 };

@@ -69,6 +69,11 @@ export const PUB_STATUS_LABELS = STATUS_LABELS;
 export const PUB_TYPE_OPTIONS = ['clasica', 'premium', 'catalogo', 'full'];
 export const PUB_TYPE_LABELS = { clasica: 'Clásica', premium: 'Premium', catalogo: 'Catálogo', full: 'Full' };
 
+/** The row's ERP stock buckets (`STOCK_BUCKETS` in the board service):
+ * "Sin dato" = the product has no stock in the ERP mirror. */
+export const STOCK_OPTIONS = ['con_stock', 'sin_stock', 'sin_dato'];
+export const STOCK_LABELS = { con_stock: 'Con stock', sin_stock: 'Sin stock', sin_dato: 'Sin dato' };
+
 /** `Clásica · Full · Activa` -- what the design writes next to an MLA. */
 export function publicationDescriptor(pub) {
   const parts = [];

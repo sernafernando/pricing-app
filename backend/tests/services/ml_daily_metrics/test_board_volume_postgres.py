@@ -63,9 +63,10 @@ def _seed(session) -> None:
     p = {"groups": GROUPS, "dense": DENSE_GROUPS, "now": NOW, "n": PUBLICATIONS, "p": PRODUCTS}
     session.execute(
         text(
-            "INSERT INTO productos_erp (item_id, codigo, descripcion, marca, categoria, subcategoria_id) "
+            "INSERT INTO productos_erp (item_id, codigo, descripcion, marca, categoria, subcategoria_id, stock) "
             "SELECT 800000 + i, 'SKU-' || i, 'Producto de volumen ' || i, "
-            "(ARRAY['Epson','Lenovo','Samsung','Sony','BGH'])[1 + i % 5], 'Cat', 1 + i % 7 "
+            "(ARRAY['Epson','Lenovo','Samsung','Sony','BGH'])[1 + i % 5], 'Cat', 1 + i % 7, "
+            "CASE WHEN i % 11 = 0 THEN NULL ELSE i % 5 - 1 END "
             "FROM generate_series(1, :p) AS i"
         ),
         p,
@@ -236,6 +237,10 @@ class TestBoardOnVolume:
             volume_session, limit=50, pub_status_exclude=("paused", "closed"), pub_type_exclude=("catalogo", "full")
         )
         print(f"board with exclusions limit=50: {len(hidden.statements)} statements, {elapsed_ms:.0f} ms")
+        stocked, by_stock, elapsed_ms = _request(
+            volume_session, limit=50, stock=("sin_stock",), stock_exclude=("sin_dato",), solo_con_ventas=True
+        )
+        print(f"board by stock, solo con ventas limit=50: {len(by_stock.statements)} statements, {elapsed_ms:.0f} ms")
         empty, emptied, elapsed_ms = _request(volume_session, limit=50, q="no-existe-nada")
         print(f"board empty page: {len(emptied.statements)} statements, {elapsed_ms:.0f} ms")
 
@@ -243,6 +248,9 @@ class TestBoardOnVolume:
         assert response.rows and len(filtered.statements) == counts[50]
         # Exclusion rides the same filter CTE: no extra statements.
         assert excluded.rows and len(hidden.statements) == counts[50]
+        # The ROW filters (stock, "solo con ventas") ride the rows subquery
+        # and the stock join is inside it: no extra statements either.
+        assert stocked.rows and len(by_stock.statements) == counts[50]
         # An empty page skips the two per-page statements (details, series).
         assert not empty.rows and len(emptied.statements) == counts[50] - 2
         assert counts[50] <= 19

@@ -194,6 +194,46 @@ describe('MetricasML page', () => {
     });
   });
 
+  it('stock chips show their counts, include on the first click and hide on the second', async () => {
+    await renderWithRouter(<MetricasML />);
+    await screen.findByText('Impresora Multifunción Epson EcoTank L3250 Color Negro');
+    const group = screen.getByRole('group', { name: 'Filtrar por stock' });
+    expect(within(group).getByRole('button', { name: /^Sin stock/ })).toHaveTextContent('61');
+    expect(within(group).getByRole('button', { name: /^Con stock/ })).toHaveTextContent('402');
+    expect(within(group).getByRole('button', { name: /^Sin dato/ })).toHaveTextContent('8');
+
+    await userEvent.click(within(group).getByRole('button', { name: /^Sin stock/ }));
+    await waitFor(() => expect(lastBoardParams()).toMatchObject({ stock: 'sin_stock', offset: 0 }));
+    await userEvent.click(within(group).getByRole('button', { name: /Sin stock/ }));
+
+    await waitFor(() => expect(lastBoardParams()).toMatchObject({ stock_exclude: 'sin_stock' }));
+    expect(lastBoardParams()).not.toHaveProperty('stock');
+  });
+
+  it('"Limpiar filtros" clears the stock chips', async () => {
+    await renderWithRouter(<MetricasML />);
+    await screen.findByText('Impresora Multifunción Epson EcoTank L3250 Color Negro');
+    const group = screen.getByRole('group', { name: 'Filtrar por stock' });
+    await userEvent.click(within(group).getByRole('button', { name: /^Con stock/ }));
+    await waitFor(() => expect(lastBoardParams().stock).toBe('con_stock'));
+
+    await userEvent.click(screen.getByRole('button', { name: /Limpiar filtros/ }));
+
+    await waitFor(() => expect(lastBoardParams()).not.toHaveProperty('stock'));
+    expect(within(group).getByRole('button', { name: /^Con stock/ })).toHaveAttribute('data-state', 'neutral');
+  });
+
+  it('the Stock column shows the row stock, "—" when unknown, and is no longer "coming soon"', async () => {
+    await renderWithRouter(<MetricasML />);
+    const epson = (await screen.findByText('Impresora Multifunción Epson EcoTank L3250 Color Negro')).closest('tr');
+    const lenovo = screen.getByText('Notebook Lenovo V15 G4 AMN Ryzen 5 8GB 256GB SSD').closest('tr');
+
+    expect(epson.querySelector('td[data-col-id="stock"]')).toHaveTextContent('128');
+    expect(lenovo.querySelector('td[data-col-id="stock"]')).toHaveTextContent('—');
+    const header = screen.getByRole('columnheader', { name: /^Stock/ });
+    expect(header.className).not.toMatch(/soonCol/);
+  });
+
   it('"Comparar con" switches to the same period last year', async () => {
     await renderWithRouter(<MetricasML />);
     await screen.findByText('Impresora Multifunción Epson EcoTank L3250 Color Negro');

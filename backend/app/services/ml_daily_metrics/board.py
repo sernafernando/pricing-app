@@ -102,6 +102,12 @@ COMPARE = ("periodo_anterior", "anio_anterior")
 PUB_STATUSES = ("active", "paused", "closed", "under_review")
 PUB_TYPES = ("clasica", "premium", "catalogo", "full")
 ALERTS = ("sin_ventas_30d", "ageing_60d", "margen_cayendo")
+# The row's ERP stock (`productos_erp.stock`, deposit 1 -- the "Stock" every
+# other screen shows for an ERP product): > 0, <= 0, or unknown (the product
+# is not in `productos_erp`, or its stock is NULL). Unknown is its own bucket,
+# never folded into "sin stock": a "what to rebuy" list must not fill up with
+# rows we know nothing about (ODD "Período y stock").
+STOCK_BUCKETS = ("con_stock", "sin_stock", "sin_dato")
 SORTS = (
     "gross",
     "units",
@@ -191,6 +197,10 @@ class BoardFilter:
     pub_status_exclude: Tuple[str, ...] = ()
     pub_type_exclude: Tuple[str, ...] = ()
     alerts: Tuple[str, ...] = ()
+    # ROW filters on the row's stock bucket (`STOCK_BUCKETS`), include and
+    # exclude like the publication chips.
+    stock: Tuple[str, ...] = ()
+    stock_exclude: Tuple[str, ...] = ()
     # "Solo con ventas en el período": keep only the ROWS (products, or
     # publications) with a unit sold in the period. A row filter, applied to
     # the aggregated row: its windows, markups and series keep every sale.
@@ -282,6 +292,8 @@ class Row:
     units_24h: int = 0
     last_sale_at: Optional[datetime] = None
     ageing_days: Optional[int] = None
+    # `productos_erp.stock` of the row's product; None when unknown.
+    stock: Optional[int] = None
     pub: Optional[Pub] = None
     thumbnail: Optional[str] = None
     flags: Set[str] = field(default_factory=set)
@@ -337,6 +349,7 @@ class Facets:
     pub_status: Dict[str, int]
     pub_type: Dict[str, int]
     alerts: Dict[str, int]
+    stock: Dict[str, int]
 
 
 CENT = Decimal("0.01")
@@ -635,11 +648,23 @@ class Board:
             q = q.where(*conditions)
         return q.subquery("fp")
 
-    def rows(self, skip: str = "", apply_alerts: bool = True):
+    def _row_axis(self, bucket: Any, include: Tuple[str, ...], exclude: Tuple[str, ...]) -> List[Any]:
+        """A row chip group's conditions on its (never NULL) bucket column."""
+        conditions = []
+        if include:
+            conditions.append(bucket.in_(include))
+        if exclude:
+            conditions.append(bucket.notin_(exclude))
+        return conditions
+
+    def rows(self, skip: Any = "", apply_alerts: bool = True):
         """One row per board row (product or MLA), with the derived markup,
-        ageing reference day and alert flags, filtered by the alerts unless
-        skipped. A subquery: callers page, count or aggregate it."""
-        fp = self.filtered_pairs(skip)
+        ageing reference day, alert flags and stock, filtered by the row
+        filters (alerts, stock, "solo con ventas") unless skipped. `skip` is
+        one axis name or a tuple of them. A subquery: callers page, count or
+        aggregate it."""
+        skips = {skip} if isinstance(skip, str) else set(skip)
+        fp = self.filtered_pairs(skip if isinstance(skip, str) else "")
         product = fp.c.product if self.f.group_by == "product" else fp.c.pub_item_id
         g = (
             select(
@@ -685,6 +710,16 @@ class Board:
         sin_ventas = g.c.w30d == 0
         ageing_60 = ref_day < self._day(self.today - timedelta(days=AGEING_ALERT_DAYS))
         cayendo = delta <= FALLING_MARGIN_PP
+        # The row's stock: ONE join by primary key on the row's product inside
+        # this statement, never a lookup per row. Product 0 ("sin producto")
+        # and products missing from the ERP mirror have none: "sin dato".
+        erp = P.__table__.alias("row_stock")
+        stock = erp.c.stock
+        stock_bucket = case(
+            (stock.is_(None), literal("sin_dato")),
+            (stock > 0, literal("con_stock")),
+            else_=literal("sin_stock"),
+        )
         q = select(
             *g.c,
             markup.label("markup"),
@@ -694,8 +729,12 @@ class Board:
             case((sin_ventas, 1), else_=0).label("a_sin_ventas_30d"),
             case((ageing_60, 1), else_=0).label("a_ageing_60d"),
             case((cayendo, 1), else_=0).label("a_margen_cayendo"),
-        )
-        if apply_alerts and self.f.alerts and skip != "alerts":
+            stock.label("stock"),
+            stock_bucket.label("stock_bucket"),
+        ).select_from(g.outerjoin(erp, erp.c.item_id == g.c.product))
+        if "stock" not in skips:
+            q = q.where(*self._row_axis(stock_bucket, self.f.stock, self.f.stock_exclude))
+        if apply_alerts and self.f.alerts and "alerts" not in skips:
             by_name = {"sin_ventas_30d": sin_ventas, "ageing_60d": ageing_60, "margen_cayendo": cayendo}
             q = q.where(or_(*(by_name[a] for a in self.f.alerts)))
         if self.f.solo_con_ventas:
@@ -782,6 +821,7 @@ class Board:
                 windows={name: int(r[f"w{name}"] or 0) for name, _ in WINDOWS},
                 units_24h=int(r["u24"] or 0),
                 ageing_days=(self.today - ref_day).days if ref_day else None,
+                stock=int(r["stock"]) if r["stock"] is not None else None,
                 flags={name for name in ALERTS if r[f"a_{name}"]},
             )
             out.append(row)
@@ -1035,7 +1075,31 @@ class Board:
             .one()
         )
         alerts = {name: int(alert_row[name]) for name in ALERTS}
-        return Facets(stores=stores, stores_total=stores_total, pub_status=pub_status, pub_type=pub_type, alerts=alerts)
+
+        # The row chip groups (stock), each with its own axis cleared: one
+        # statement, conditional counts per bucket.
+        rows = self.rows(skip="stock")
+        stock_row = (
+            self.db.execute(
+                select(
+                    *(
+                        func.coalesce(func.sum(case((rows.c.stock_bucket == name, 1), else_=0)), 0).label(name)
+                        for name in STOCK_BUCKETS
+                    )
+                )
+            )
+            .mappings()
+            .one()
+        )
+        stock = {name: int(stock_row[name]) for name in STOCK_BUCKETS}
+        return Facets(
+            stores=stores,
+            stores_total=stores_total,
+            pub_status=pub_status,
+            pub_type=pub_type,
+            alerts=alerts,
+            stock=stock,
+        )
 
 
 def refreshed_at(db: Session) -> Optional[datetime]:
@@ -1062,6 +1126,7 @@ __all__ = [
     "Pub",
     "Row",
     "SORTS",
+    "STOCK_BUCKETS",
     "markup_of",
     "now_utc",
     "previous_period",

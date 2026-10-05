@@ -230,6 +230,9 @@ function renderCell(colId, row, ctx) {
         <span className={`${styles.ageing} ${tone ? styles[`chip_${tone}`] : ''}`}>{formatAgeing(row.ageing_days)}</span>
       );
     }
+    case 'stock':
+      // `productos_erp.stock` of the row's product; "—" when the ERP has none.
+      return <UnitsCell value={row.stock} />;
     default:
       // Sell-in / sell-out: announced, never invented.
       return <span className={styles.placeholder}>—</span>;

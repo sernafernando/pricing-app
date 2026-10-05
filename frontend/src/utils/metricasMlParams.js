@@ -17,6 +17,8 @@ export function buildMetricasMLParams({
   pubStatusExclude,
   pubTypeExclude,
   alerts,
+  stock,
+  stockExclude,
   soloConVentas = true,
 }) {
   const params = {
@@ -38,5 +40,7 @@ export function buildMetricasMLParams({
   if (pubStatusExclude?.length > 0) params.pub_status_exclude = pubStatusExclude.join(',');
   if (pubTypeExclude?.length > 0) params.pub_type_exclude = pubTypeExclude.join(',');
   if (alerts?.length > 0) params.alerts = alerts.join(',');
+  if (stock?.length > 0) params.stock = stock.join(',');
+  if (stockExclude?.length > 0) params.stock_exclude = stockExclude.join(',');
   return params;
 }

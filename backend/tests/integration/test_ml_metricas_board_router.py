@@ -873,3 +873,112 @@ class TestSoloConVentas:
 
     def test_an_unknown_value_is_422(self, client, admin_auth_headers, board_data):
         assert client.get(URL, params={"solo_con_ventas": "quizas"}, headers=admin_auth_headers).status_code == 422
+
+
+@pytest.fixture()
+def stock_data(db, board_data):
+    """`board_data` with the ERP stock (`productos_erp.stock`, deposit 1):
+    p11 5, p12 0, p13 3, p14 unknown (NULL)."""
+    for item_id, stock in ((11, 5), (12, 0), (13, 3), (14, None)):
+        db.query(ProductoERP).filter(ProductoERP.item_id == item_id).update({"stock": stock})
+    db.commit()
+
+
+class TestStock:
+    """ODD "Período y stock" PS2: the row's stock is `productos_erp.stock` of
+    its product; the "Con stock" / "Sin stock" / "Sin dato" chips filter in
+    SQL, so rows, KPIs, chips and the CSV agree."""
+
+    def test_each_row_shows_its_products_stock(self, client, admin_auth_headers, stock_data):
+        rows = _by_key(_get(client, admin_auth_headers))
+
+        assert {key: row["stock"] for key, row in rows.items()} == {"11": 5, "12": 0, "13": 3, "14": None}
+
+    def test_a_publication_row_shows_its_products_stock(self, client, admin_auth_headers, stock_data):
+        rows = _by_key(_get(client, admin_auth_headers, group_by="publication"))
+
+        assert rows["MLA1"]["stock"] == 5
+        assert rows["MLA2"]["stock"] == 5
+        assert rows["MLA3"]["stock"] == 0
+        assert rows["MLA5"]["stock"] is None
+
+    def test_the_chips_count_rows_by_stock(self, client, admin_auth_headers, stock_data):
+        facets = _get(client, admin_auth_headers)["facets"]
+
+        assert facets["stock"] == {"con_stock": 2, "sin_stock": 1, "sin_dato": 1}
+
+    def test_including_and_excluding(self, client, admin_auth_headers, stock_data):
+        assert set(_by_key(_get(client, admin_auth_headers, stock="sin_stock"))) == {"12"}
+        assert set(_by_key(_get(client, admin_auth_headers, stock="con_stock"))) == {"11", "13"}
+        assert set(_by_key(_get(client, admin_auth_headers, stock="sin_stock,sin_dato"))) == {"12", "14"}
+        assert set(_by_key(_get(client, admin_auth_headers, stock_exclude="con_stock"))) == {"12", "14"}
+        assert set(_by_key(_get(client, admin_auth_headers, stock_exclude="sin_dato"))) == {"11", "12", "13"}
+
+    def test_a_negative_stock_is_sin_stock(self, db, client, admin_auth_headers, stock_data):
+        db.query(ProductoERP).filter(ProductoERP.item_id == 13).update({"stock": -2})
+        db.commit()
+
+        assert set(_by_key(_get(client, admin_auth_headers, stock="sin_stock"))) == {"12", "13"}
+
+    def test_a_product_missing_from_the_erp_is_sin_dato(self, db, client, admin_auth_headers, stock_data):
+        _day(db, 99, "MLA99", date(2026, 9, 29), 1, "100", "10", "50")
+        db.commit()
+
+        body = _get(client, admin_auth_headers, stock="sin_dato")
+
+        assert set(_by_key(body)) == {"14", "99"}
+        assert _by_key(body)["99"]["stock"] is None
+
+    def test_kpis_and_other_chips_follow_the_stock_filter(self, client, admin_auth_headers, stock_data):
+        body = _get(client, admin_auth_headers, stock="con_stock")
+
+        # p11 (6 u in the period) and p13 (never sold).
+        assert body["total"] == 2
+        assert body["kpis"]["units"]["value"] == 6
+        assert body["kpis"]["rows_with_sales"] == {"value": 1, "of_total": 2}
+        assert body["facets"]["stores"] == {"57997": 2}
+        assert body["facets"]["alerts"]["sin_ventas_30d"] == 1
+        # Its own chips ignore it: they keep showing what each would select.
+        assert body["facets"]["stock"] == {"con_stock": 2, "sin_stock": 1, "sin_dato": 1}
+
+    def test_the_stock_chips_see_the_other_filters(self, client, admin_auth_headers, stock_data):
+        facets = _get(client, admin_auth_headers, stores="57997")["facets"]
+
+        assert facets["stock"] == {"con_stock": 2, "sin_stock": 0, "sin_dato": 0}
+
+    def test_solo_con_ventas_and_sin_stock_is_what_to_rebuy(self, db, client, admin_auth_headers, stock_data):
+        db.query(ProductoERP).filter(ProductoERP.item_id == 11).update({"stock": 0})
+        db.commit()
+
+        resp = client.get(URL, params={"stock": "sin_stock"}, headers=admin_auth_headers)
+
+        assert set(_by_key(resp.json())) == {"11"}
+
+    def test_a_shown_products_publications_carry_its_stock(self, client, admin_auth_headers, stock_data):
+        resp = client.get(
+            f"{URL}/products/11/publications", params={**CATALOG, "stock": "con_stock"}, headers=admin_auth_headers
+        )
+
+        assert resp.status_code == 200
+        assert {p["key"]: p["stock"] for p in resp.json()["rows"]} == {"MLA1": 5, "MLA2": 5}
+
+    def test_the_csv_has_the_stock_column(self, client, admin_auth_headers, stock_data):
+        resp = client.get(f"{URL}/export", params={**CATALOG, "stock_exclude": "sin_stock"}, headers=admin_auth_headers)
+
+        rows = list(csv.DictReader(io.StringIO(resp.content.decode("utf-8-sig")), delimiter=";"))
+        assert {row["Producto"]: row["Stock"] for row in rows} == {
+            "Impresora Epson L3250": "5",
+            "Taladro DeWalt": "3",
+            "Router TP-Link AX55": "",
+        }
+
+    @pytest.mark.parametrize(
+        "params",
+        [
+            {"stock": "nope"},
+            {"stock_exclude": "agotado"},
+            {"stock": "con_stock", "stock_exclude": "con_stock"},
+        ],
+    )
+    def test_bad_values_are_422(self, client, admin_auth_headers, stock_data, params):
+        assert client.get(URL, params=params, headers=admin_auth_headers).status_code == 422
