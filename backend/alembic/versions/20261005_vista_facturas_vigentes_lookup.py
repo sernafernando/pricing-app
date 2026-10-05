@@ -1,7 +1,7 @@
 """v_facturas_compra_vigentes: correlated anti-joins + (supp_id, ct_docnumber) index
 
 Revision ID: 20261005_vfactvig_lookup
-Revises: 20261002_autovacuum_tablas_calientes
+Revises: 20261005_drop_ml_product_daily_metrics
 Create Date: 2026-10-05
 
 Measured in production 2026-10-05: `v_facturas_compra_vigentes` (compras_014)
@@ -61,7 +61,7 @@ import sqlalchemy as sa
 from alembic import op
 
 revision: str = "20261005_vfactvig_lookup"
-down_revision: Union[str, None] = "20261002_autovacuum_tablas_calientes"
+down_revision: Union[str, None] = "20261005_drop_ml_product_daily_metrics"
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
