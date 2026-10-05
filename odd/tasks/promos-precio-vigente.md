@@ -113,8 +113,24 @@ Scope decision per type (code + ML docs):
 - `POST /promociones/item/{mla}/refresh` is now `promos.ver` (it is a read-reconcile of our
   mirror; no write to ML). The TreeNode manual refresh BUTTON is still gated on
   `promos.escribir` in the UI — left as is (separate UX decision).
-- GET `/promociones/item/{mla}`: one live proxy read ONLY when the mirror is empty, to set
-  `posiblemente_desactualizado` / `promos_en_ml`.
+- One offer-price rule (review fix): backend `precio_de_oferta` (`ml_promotions_pricing.py`)
+  and frontend `promoDisplayPrice` = `price` > 0, else `suggested_discounted_price` > 0, else
+  none. Used by the panel display / `precio_visto`, the guard, the 409's `precio_actual` and
+  every markup. `price` 0 is legitimate for candidate SELLER_CAMPAIGN/DEAL rows (seller sets
+  the price); ML-priced types normally carry ML's offer in `price` even as candidates.
+- Empty mirror (review fix): `GET /promociones/item/{mla}` is mirror-only again. The panel
+  asks `GET /promociones/item/{mla}/confirmacion-ml` AFTER rendering an empty mirror
+  (`{sin_promos_confirmado, promos_en_ml}`): never raises (any error/odd payload -> 200,
+  unconfirmed), 2.5s hard deadline (`get_item_promotions(timeout=)` wraps the call in
+  `asyncio.wait_for`; httpx only bounds each phase).
+- "Quitar promo" (review fix): the red alert clears only on submitted/reconciled_applied;
+  any other status or a rejected request keeps it; `onApplied` still fires so the panel
+  re-reads the mirror.
+
+Review fixes: `b6adf39c` (backend), `bad3b4a5` (panel confirm), `df14b113` (price rule FE +
+Quitar promo). RED before each: backend 21 failed; frontend 7 failed. After: targeted promo
++ client pytest 517 passed; vitest promociones 373, full 1960 (147 files); eslint 0 errors;
+build OK.
 - Behaviour change for API clients: an enroll of SMART / PRE_NEGOTIATED / PRICE_MATCHING
   without `precio_visto` is now refused (422). The panel is the only client in this repo.
 
