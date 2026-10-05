@@ -1,7 +1,7 @@
 """ODD `metricas-ml-tablero` T2: migration `20261001_ml_product_daily_metrics`
 stays on the single alembic line (history). Since "Sin tabla resumen" no code
-maps or writes the table; it is dropped by a follow-up migration once that
-release is deployed (`tests/unit/test_rollup_removed.py`)."""
+maps or writes the table; `20261005_drop_ml_product_daily_metrics` drops it
+(`tests/unit/test_rollup_removed.py`)."""
 
 from __future__ import annotations
 
