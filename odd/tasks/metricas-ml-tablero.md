@@ -653,6 +653,15 @@ una consulta por fila).
       sacaron (a 1366 el grupo Ageing baja de renglón y el divisor quedaba
       colgando). Los tests visuales se escribieron con los controles ya
       hechos: son de layout, no RED-first.
-- [ ] PS5 — Checks: ruff, pytest focalizado, vitest (antes 143 archivos /
+- [x] PS5 — Checks: ruff, pytest focalizado, vitest (antes 143 archivos /
       1899 tests), test:visual, eslint, lint:css, build, suite backend
       completa sola.
+      PS4 commit: `a976f89b`. Frontend: vitest 143 archivos, 1899 → 1919
+      tests (todo verde); test:visual 10 archivos, 76 → 80 passed + 2
+      expected fail (4 tests visuales nuevos); eslint 0 errores (8 warnings
+      previos, ninguno de Métricas ML); lint:css OK; build OK. Backend: ruff
+      format/check OK; router + paridad + servicios del tablero (Postgres y
+      volumen) 130 + 2 passed. Suite backend completa, sola (`-p no:randomly`,
+      `ENVIRONMENT=development`): **7861 passed, 16 skipped**.
+      Espejo Engram `odd/metricas-ml-tablero/tasks`: PENDIENTE (mem_save
+      falló: "multiple active runtime sessions match").
