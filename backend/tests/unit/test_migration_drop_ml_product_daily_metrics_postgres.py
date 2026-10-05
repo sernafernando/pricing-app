@@ -108,6 +108,8 @@ class TestDropDailyRollupMigration:
             "last_sale_at": "TIMESTAMP",
             "updated_at": "TIMESTAMP",
         }
+        timestamps = {c["name"]: c["type"].timezone for c in inspector.get_columns(_TABLE) if c["name"].endswith("_at")}
+        assert timestamps == {"last_sale_at": True, "updated_at": True}
         # The unique constraint's backing index is listed too; compare plain ones.
         assert {i["name"] for i in inspector.get_indexes(_TABLE) if not i.get("duplicates_constraint")} == {
             "ix_ml_product_daily_metrics_day",
