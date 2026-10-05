@@ -350,6 +350,52 @@
   color: var(--danger, var(--text-primary));
 }
 
+/* Price guard (incident 2026-10-05): a negative markup on the re-ask or on
+   the post-apply alert must read as a loss at a glance. */
+.markupNegative {
+  color: var(--danger, var(--text-primary));
+  font-weight: 600;
+}
+
+.markupNeutral {
+  color: inherit;
+}
+
+/* ML applied a price different from the one the operator confirmed. */
+.priceAlert {
+  display: inline-flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 4px 8px;
+  border-radius: 4px;
+  font-size: 12px;
+  color: var(--danger, var(--text-primary));
+  border: 1px solid var(--danger, var(--border-secondary));
+  background: color-mix(in srgb, var(--danger, var(--bg-secondary)) 12%, transparent);
+}
+
+.priceAlertBtn {
+  border: 1px solid var(--danger, var(--border-secondary));
+  background: var(--danger, var(--bg-secondary));
+  color: var(--bg-primary);
+  border-radius: 6px;
+  padding: 2px 10px;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+/* "actualizado hace X": when the mirror last heard from ML for this row. */
+.promoFreshness {
+  font-size: 11px;
+  color: var(--text-tertiary);
+}
+
+.promoFreshnessStale {
+  font-size: 11px;
+  color: var(--warning, var(--text-tertiary));
+}
+
 .filterBar {
   display: flex;
   align-items: center;

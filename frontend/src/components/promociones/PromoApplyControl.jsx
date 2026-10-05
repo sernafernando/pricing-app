@@ -1,7 +1,22 @@
 import { useEffect, useRef, useState } from 'react';
 import { promocionesAPI } from '../../services/api';
 import { usePermisos } from '../../contexts/PermisosContext';
+import { ML_PRICED_TYPES, promoDisplayPrice } from './promoDisplayPrice';
 import styles from './promociones.module.css';
+
+function formatMoney(value) {
+  if (value === null || value === undefined || Number.isNaN(Number(value))) return 'N/A';
+  return `$${Number(value).toLocaleString('es-AR')}`;
+}
+
+function formatMarkupPct(value) {
+  if (value === null || value === undefined || Number.isNaN(Number(value))) return 'N/A';
+  return `${Number(value).toFixed(1)}%`;
+}
+
+function markupClass(value) {
+  return value !== null && value !== undefined && Number(value) < 0 ? styles.markupNegative : styles.markupNeutral;
+}
 
 // Same writable-type contract as MlaPromocionesPanel's APPLICABLE_TYPES.
 const WRITABLE_TYPES = new Set(['SELLER_CAMPAIGN', 'DEAL', 'SMART', 'PRE_NEGOTIATED', 'PRICE_MATCHING']);
@@ -42,7 +57,14 @@ function feedbackFor(status, isEnrolled) {
 
 function feedbackForError(err, actionLabel = 'aplicar') {
   const httpStatus = err?.response?.status;
-  const detail = err?.response?.data?.detail;
+  // The app-wide exception handler wraps a string detail as
+  // `{error: {code, message}}` and returns a dict detail as the body root;
+  // `detail` is kept for any route that still answers the FastAPI default.
+  const data = err?.response?.data;
+  const detail = data?.detail || data?.error?.message || data?.mensaje;
+  if (httpStatus === 409) {
+    return { tone: 'error', message: detail || 'La oferta cambió en ML. No se aplicó nada; actualizá el panel.' };
+  }
   if (httpStatus === 403) {
     return { tone: 'error', message: detail || 'No autorizado o función deshabilitada.' };
   }
@@ -74,6 +96,12 @@ function PromoApplyControl({ mla, promotion, onApplied }) {
   // MlaPromocionesPanel and are driven solely by promo.application_status.
   // 'applying' | 'removing' | null.
   const [pendingKind, setPendingKind] = useState(null);
+  // 409 "price changed": ML moved the offer since the operator saw it.
+  // { precioActual, markupActual, precioVistoAnterior } | null
+  const [reprice, setReprice] = useState(null);
+  // Post-apply check: { kind: 'difiere' | 'sin_verificar', precioAplicado,
+  // precioConfirmado, markupAplicado } | null
+  const [priceAlert, setPriceAlert] = useState(null);
   const safetyTimeoutRef = useRef(null);
 
   const clearPendingSafetyTimeout = () => {
@@ -108,6 +136,14 @@ function PromoApplyControl({ mla, promotion, onApplied }) {
   // offered but not yet live at ML, so the only valid action is Desaplicar
   // (remove), same as started. Only `candidate` offers Aplicar.
   const isEnrolled = promotion.status === 'started' || promotion.status === 'pending';
+
+  // ML-priced offers (SMART & co.) are applied only at the price the operator
+  // SAW: the same value the panel row shows. The backend re-reads ML's live
+  // offer and refuses (409) if it moved — incident 2026-10-05.
+  const isMlPricedApply = ML_PRICED_TYPES.has(promotion.promotion_type) && !isEnrolled;
+  const seenPrice = promoDisplayPrice(promotion);
+  const seenMarkup = promotion.nuestro_markup ?? null;
+  const missingSeenPrice = isMlPricedApply && !(Number(seenPrice) > 0);
 
   useEffect(() => {
     // The manual-price markup lookup only applies to the range-type enroll
@@ -178,23 +214,78 @@ function PromoApplyControl({ mla, promotion, onApplied }) {
 
   const handleActionClick = () => {
     setFeedback(null);
+    setPriceAlert(null);
     setDealPrice(defaultPrice);
     setMarkup(null);
     setPhase('confirming');
   };
 
   const handleCancel = () => {
+    setReprice(null);
     setPhase('idle');
+  };
+
+  const markProvisional = (status, removing) => {
+    if (!PROVISIONAL_TRIGGER_STATUSES.has(status)) return;
+    setPendingKind(removing ? 'removing' : 'applying');
+    clearPendingSafetyTimeout();
+    safetyTimeoutRef.current = setTimeout(() => {
+      safetyTimeoutRef.current = null;
+      setPendingKind(null);
+    }, PROVISIONAL_SAFETY_TIMEOUT_MS);
+  };
+
+  // Post-apply check result -> red alert (ML applied another price) or an
+  // amber "could not verify". `precio_difiere: null` is NOT "fine".
+  const priceAlertFrom = (data, confirmedPrice) => {
+    if (!isMlPricedApply || data?.status !== 'submitted') return null;
+    if (data.precio_difiere === true) {
+      return {
+        kind: 'difiere',
+        precioAplicado: data.precio_aplicado,
+        precioConfirmado: data.precio_confirmado ?? confirmedPrice,
+        markupAplicado: data.markup_aplicado,
+      };
+    }
+    if (data.precio_difiere === false) return null;
+    return { kind: 'sin_verificar', precioConfirmado: data.precio_confirmado ?? confirmedPrice };
+  };
+
+  // One-click removal from the post-apply alert: the existing remove flow
+  // (DELETE /promociones/item/{mla}), no extra confirmation step.
+  const handleQuitarPromo = async () => {
+    setPhase('submitting');
+    try {
+      const data = await promocionesAPI
+        .deletePromocionItem(mla, {
+          promotion_id: promotion.promotion_id,
+          promotion_type: promotion.promotion_type,
+        })
+        .then((res) => res.data);
+      setFeedback(feedbackFor(data?.status, true));
+      if (PROVISIONAL_TRIGGER_STATUSES.has(data?.status) || data?.status === 'ambiguous') setPriceAlert(null);
+      markProvisional(data?.status, true);
+      if (onApplied) onApplied(data);
+    } catch (err) {
+      // Keep the alert: the promo may still be live at the wrong price.
+      setFeedback(feedbackForError(err, 'desaplicar'));
+    }
+    setPhase('done');
   };
 
   const handlePriceChange = (e) => {
     setDealPrice(e.target.value);
   };
 
-  const handleConfirm = async () => {
+  // `seen` overrides the price/markup the operator confirms — used when they
+  // accept ML's NEW price after a 409, so the re-send is still guarded
+  // against a further change.
+  const handleConfirm = async (seen = { precio: seenPrice, markup: seenMarkup }) => {
     if (isRangeType && priceOutOfRange) return;
+    if (missingSeenPrice && !(Number(seen.precio) > 0)) return;
 
     setPhase('submitting');
+    setReprice(null);
     try {
       const data = isEnrolled
         ? await promocionesAPI
@@ -208,20 +299,32 @@ function PromoApplyControl({ mla, promotion, onApplied }) {
               promotion_id: promotion.promotion_id,
               promotion_type: promotion.promotion_type,
               ...(isRangeType ? { deal_price: numericDealPrice } : {}),
+              ...(isMlPricedApply
+                ? {
+                    precio_visto: Number(seen.precio),
+                    ...(seen.markup !== null && seen.markup !== undefined ? { markup_visto: seen.markup } : {}),
+                  }
+                : {}),
             })
             .then((res) => res.data);
       setFeedback(feedbackFor(data?.status, isEnrolled));
+      setPriceAlert(isEnrolled ? null : priceAlertFrom(data, Number(seen.precio)));
       setPhase('done');
-      if (PROVISIONAL_TRIGGER_STATUSES.has(data?.status)) {
-        setPendingKind(isEnrolled ? 'removing' : 'applying');
-        clearPendingSafetyTimeout();
-        safetyTimeoutRef.current = setTimeout(() => {
-          safetyTimeoutRef.current = null;
-          setPendingKind(null);
-        }, PROVISIONAL_SAFETY_TIMEOUT_MS);
-      }
+      markProvisional(data?.status, isEnrolled);
       if (onApplied) onApplied(data);
     } catch (err) {
+      const data = err?.response?.data;
+      if (err?.response?.status === 409 && data?.status === 'rejected_price_changed') {
+        // ML moved the offer. Nothing was applied: show the new price and
+        // markup and ask again. Never apply silently.
+        setReprice({
+          precioActual: data.precio_actual,
+          markupActual: data.markup_actual ?? null,
+          precioVistoAnterior: data.precio_visto ?? seen.precio,
+        });
+        setPhase('repricing');
+        return;
+      }
       const fb = feedbackForError(err, actionLabel);
       if (fb.tone === 'unavailable') {
         setUnavailable(true);
@@ -232,6 +335,48 @@ function PromoApplyControl({ mla, promotion, onApplied }) {
       setPhase('done');
     }
   };
+
+  if (phase === 'repricing' && reprice) {
+    const nuevoPrecio = formatMoney(reprice.precioActual);
+    const nuevoMarkup = formatMarkupPct(reprice.markupActual);
+    return (
+      <span className={styles.applyConfirm}>
+        <span className={styles.feedbackWarn}>
+          ML cambió el precio: viste {formatMoney(reprice.precioVistoAnterior)}, ahora es {nuevoPrecio}{' '}
+          <span data-testid="markup-actual" className={markupClass(reprice.markupActual)}>
+            (markup {nuevoMarkup})
+          </span>
+          . No se aplicó nada.
+        </span>
+        <span>
+          ¿Aplicar igual a {nuevoPrecio} (markup {nuevoMarkup})?
+        </span>
+        <button
+          type="button"
+          className={styles.applyConfirmBtn}
+          onClick={() => handleConfirm({ precio: reprice.precioActual, markup: reprice.markupActual })}
+        >
+          Sí, aplicar a {nuevoPrecio}
+        </button>
+        <button type="button" className={styles.applyCancelBtn} onClick={handleCancel}>
+          Cancelar
+        </button>
+      </span>
+    );
+  }
+
+  if (phase === 'confirming' && missingSeenPrice) {
+    return (
+      <span className={styles.applyConfirm}>
+        <span className={styles.feedbackError}>
+          No hay un precio para confirmar en esta oferta; actualizá el panel antes de aplicarla.
+        </span>
+        <button type="button" className={styles.applyCancelBtn} onClick={handleCancel}>
+          Cancelar
+        </button>
+      </span>
+    );
+  }
 
   if (phase === 'confirming') {
     const priceInputId = `deal-price-${mla}-${promotion.promotion_id}`;
@@ -266,7 +411,7 @@ function PromoApplyControl({ mla, promotion, onApplied }) {
         <button
           type="button"
           className={`${styles.applyConfirmBtn} ${isEnrolled ? styles.removeConfirmBtn : ''}`}
-          onClick={handleConfirm}
+          onClick={() => handleConfirm()}
           disabled={isRangeType && !isEnrolled && priceOutOfRange}
         >
           Sí, {actionLabel}
@@ -311,6 +456,24 @@ function PromoApplyControl({ mla, promotion, onApplied }) {
           }
         >
           {feedback.message}
+        </span>
+      )}
+      {priceAlert?.kind === 'difiere' && (
+        <span role="alert" className={styles.priceAlert}>
+          ML aplicó {formatMoney(priceAlert.precioAplicado)}{' '}
+          <span className={markupClass(priceAlert.markupAplicado)}>
+            (markup {formatMarkupPct(priceAlert.markupAplicado)})
+          </span>
+          , distinto del precio que confirmaste ({formatMoney(priceAlert.precioConfirmado)}).
+          <button type="button" className={styles.priceAlertBtn} onClick={handleQuitarPromo}>
+            Quitar promo
+          </button>
+        </span>
+      )}
+      {priceAlert?.kind === 'sin_verificar' && (
+        <span className={styles.feedbackWarn}>
+          No se pudo verificar el precio aplicado: ML no lo devolvió. Confirmá en ML que quedó en{' '}
+          {formatMoney(priceAlert.precioConfirmado)}.
         </span>
       )}
     </span>

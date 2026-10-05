@@ -292,7 +292,10 @@ export const promocionesAPI = {
   getPromocionesItem: (mlaId) => api.get(`/promociones/item/${mlaId}`),
   // Enroll a promotion for a given MLA (real ML price write). `body` shape:
   // - SELLER_CAMPAIGN/DEAL: { promotion_id, promotion_type, deal_price? }
-  // - SMART: { promotion_id, promotion_type } — backend derives offer_id/price.
+  // - SMART/PRE_NEGOTIATED/PRICE_MATCHING: { promotion_id, promotion_type,
+  //   precio_visto, markup_visto? } — backend derives offer_id and refuses
+  //   (409 {status: 'rejected_price_changed', precio_actual, markup_actual})
+  //   if ML's live offer is no longer at precio_visto.
   postPromocionItem: (mlaId, body) => api.post(`/promociones/item/${mlaId}`, body),
   // Remove/desapply a promotion from a given MLA (real ML write). `params`
   // shape: { promotion_type, promotion_id } - backend re-derives offer_id
@@ -301,7 +304,8 @@ export const promocionesAPI = {
   // Seller markup for a candidate price (used by the manual price input on
   // SELLER_CAMPAIGN/DEAL apply controls). Returns { price, nuestro_markup }.
   getMarkupParaPrecio: (mlaId, price) => api.get(`/promociones/item/${mlaId}/markup`, { params: { price } }),
-  // Manual per-MLA promo-refresh button: triggers a read-reconcile of the
+  // Per-MLA promo refresh (panel open + manual button; requires promos.ver):
+  // triggers a read-reconcile of the
   // promo mirror via the ml-webhook proxy (PROMOS ONLY — never touches the
   // publication/tree structure, never writes prices/promos). Returns
   // { ok: boolean }; fail-soft (HTTP 200 even on proxy failure).

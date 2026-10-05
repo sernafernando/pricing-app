@@ -257,7 +257,7 @@ describe('PromoApplyControl', () => {
     expect(screen.queryByText(/^promoción aplicada$/i)).not.toBeInTheDocument();
   });
 
-  it('sends only { promotion_id, promotion_type } for SMART (no offer_id/price from FE)', async () => {
+  it('sends { promotion_id, promotion_type, precio_visto } for SMART (no offer_id; the seen price is guarded server-side)', async () => {
     const user = userEvent.setup();
     promocionesAPI.postPromocionItem.mockResolvedValue({ data: { submitted: true, status: 'submitted' } });
     render(
@@ -274,11 +274,12 @@ describe('PromoApplyControl', () => {
       expect(promocionesAPI.postPromocionItem).toHaveBeenCalledWith('MLA1', {
         promotion_id: 'P-SMART',
         promotion_type: 'SMART',
+        precio_visto: 100,
       }),
     );
   });
 
-  it('sends only { promotion_id, promotion_type } for PRE_NEGOTIATED (no offer_id/price from FE)', async () => {
+  it('sends { promotion_id, promotion_type, precio_visto } for PRE_NEGOTIATED (no offer_id; the seen price is guarded server-side)', async () => {
     const user = userEvent.setup();
     promocionesAPI.postPromocionItem.mockResolvedValue({ data: { submitted: true, status: 'submitted' } });
     render(
@@ -295,11 +296,12 @@ describe('PromoApplyControl', () => {
       expect(promocionesAPI.postPromocionItem).toHaveBeenCalledWith('MLA1', {
         promotion_id: 'P-PN',
         promotion_type: 'PRE_NEGOTIATED',
+        precio_visto: 100,
       }),
     );
   });
 
-  it('sends only { promotion_id, promotion_type } for PRICE_MATCHING (no offer_id/price from FE)', async () => {
+  it('sends { promotion_id, promotion_type, precio_visto } for PRICE_MATCHING (no offer_id; the seen price is guarded server-side)', async () => {
     const user = userEvent.setup();
     promocionesAPI.postPromocionItem.mockResolvedValue({ data: { submitted: true, status: 'submitted' } });
     render(
@@ -316,6 +318,7 @@ describe('PromoApplyControl', () => {
       expect(promocionesAPI.postPromocionItem).toHaveBeenCalledWith('MLA1', {
         promotion_id: 'P-PM',
         promotion_type: 'PRICE_MATCHING',
+        precio_visto: 100,
       }),
     );
   });
