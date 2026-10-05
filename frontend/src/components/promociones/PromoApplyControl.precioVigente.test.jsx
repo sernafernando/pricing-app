@@ -259,22 +259,33 @@ describe('PromoApplyControl — post-apply price check', () => {
     expect(onApplied).toHaveBeenCalledTimes(2);
   });
 
-  it('"Quitar promo" rejected by the server keeps the red alert and still reloads', async () => {
+  it('"Quitar promo" rejected by the server keeps the red alert and asks for a reload, not a fake result', async () => {
     const user = userEvent.setup();
     const onApplied = vi.fn();
+    const onReloadNeeded = vi.fn();
     mismatchedEnroll();
     const err = new Error('422');
     err.response = { status: 422, data: { error: { code: 'UNPROCESSABLE', message: 'Rechazado por ML (400).' } } };
     promocionesAPI.deletePromocionItem.mockRejectedValue(err);
-    render(<PromoApplyControl mla="MLA1" promotion={smartPromo({ price: LIVE })} onApplied={onApplied} />);
+    render(
+      <PromoApplyControl
+        mla="MLA1"
+        promotion={smartPromo({ price: LIVE })}
+        onApplied={onApplied}
+        onReloadNeeded={onReloadNeeded}
+      />,
+    );
 
     await clickApplyAndConfirm(user);
     await user.click(await screen.findByRole('button', { name: /quitar promo/i }));
 
     expect(await screen.findByText(/rechazado por ml \(400\)/i)).toBeInTheDocument();
     expect(screen.getByRole('alert')).toBeInTheDocument();
-    // The panel still re-reads the mirror: the truth is there, not here.
-    expect(onApplied).toHaveBeenCalledTimes(2);
+    // The panel still re-reads the mirror (the truth is there, not here),
+    // but through its own callback: `onApplied` only ever carries a result.
+    expect(onReloadNeeded).toHaveBeenCalledTimes(1);
+    expect(onApplied).toHaveBeenCalledTimes(1);
+    expect(onApplied).not.toHaveBeenCalledWith(null);
   });
 
   it('an unverifiable applied price warns instead of passing as fine', async () => {

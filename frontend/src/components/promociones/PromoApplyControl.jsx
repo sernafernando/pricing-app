@@ -86,7 +86,7 @@ function feedbackForError(err, actionLabel = 'aplicar') {
  * requires explicit confirmation, never auto-retries, never claims a confirmed
  * "aplicado" state from the immediate response (eventual consistency).
  */
-function PromoApplyControl({ mla, promotion, onApplied }) {
+function PromoApplyControl({ mla, promotion, onApplied, onReloadNeeded }) {
   const { tienePermiso } = usePermisos();
   const [phase, setPhase] = useState('idle'); // idle | confirming | submitting | done
   const [feedback, setFeedback] = useState(null); // { tone, message } | null
@@ -272,8 +272,9 @@ function PromoApplyControl({ mla, promotion, onApplied }) {
     } catch (err) {
       // Keep the alert: the promo may still be live at the wrong price.
       setFeedback(feedbackForError(err, 'desaplicar'));
-      // Still let the panel re-read the mirror: the truth lives there.
-      if (onApplied) onApplied(null);
+      // No result to report, but the panel should still re-read the mirror:
+      // the truth lives there.
+      if (onReloadNeeded) onReloadNeeded();
     }
     setPhase('done');
   };

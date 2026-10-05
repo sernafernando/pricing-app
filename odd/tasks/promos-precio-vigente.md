@@ -96,6 +96,30 @@ Scope decision per type (code + ML docs):
       empty mirror while ML has promos / refresh failed -> "No se pudo confirmar con ML".
       Backend `79ec2b62`, UI `dc1edaac`.
 
+- [x] T5 Second review round (a-f). Route: delegated direct (one writer). Commits `e3ecc20f`
+      (backend) and the frontend commit that follows it on the branch.
+  - [x] a `get_item_promotions(timeout=)`: hard `asyncio.wait_for` only when `timeout` is passed
+        (default `None` -> httpx per-phase 10s, no overall deadline). RED: default-call test failed
+        (wait_for was called); explicit-timeout test passes before and after (control). GREEN after.
+  - [x] b `onApplied(null)` on a failed removal: the panel handler ignored its argument (null-safe),
+        but passing a fake "result" was confusing. PromoApplyControl now calls `onReloadNeeded()`;
+        the panel wires both to one `scheduleMirrorReloads`. RED: control test (reloadNeeded not
+        called) + panel wiring test (`onReloadNeeded is not a function`). GREEN after.
+  - [x] c Stale `confirmacion-ml` answer for another item is ignored. Test
+        `a late confirmation for a previous item is ignored`; mutation check: removing the `ignore`
+        guard fails it. The `forData` guard is only a one-render guard (the effect resets state to
+        'checking' right after commit) and cannot be observed through RTL, so no test kills it.
+  - [x] d `mlCheck?.status` scattered -> one derived `mlCheckState` (idle / checking / confirmed /
+        unconfirmed). Pure refactor: no observable change, so no RED; the existing empty-mirror
+        tests are the characterization and stay green.
+  - [x] e `confirmacion-ml` logs said "Empty promo mirror ..." though the endpoint cannot know the
+        mirror state. Now "ML confirmation for X unavailable: live read failed" /
+        "ML reports N active promos for X". RED: caplog test.
+  - [x] f `_effective_discounted_price` alias removed; the caller uses `precio_de_oferta`; its three
+        alias tests were duplicates of `TestOfferPriceRule`. RED: `hasattr` test.
+  Checks: backend `-k promo` 509 passed, ruff format/check clean; vitest full 1963 passed
+  (148 files), eslint 0 errors (8 pre-existing warnings).
+
 ## Contract decisions
 
 - Tolerance: both prices rounded to cents (half-up) must be equal — absorbs JSON float noise

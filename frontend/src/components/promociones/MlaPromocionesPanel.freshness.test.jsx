@@ -3,7 +3,7 @@
 // The panel must say how old each row is, pull fresh state for read-only
 // users too, and never present an unconfirmed empty mirror as "no promos".
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { render, screen, waitFor } from '@testing-library/react';
+import { render, screen, waitFor, act } from '@testing-library/react';
 import MlaPromocionesPanel from './MlaPromocionesPanel';
 import { promocionesAPI } from '../../services/api';
 import { usePromoFilterStore } from '../../store/promoFilterStore';
@@ -169,6 +169,43 @@ describe('MlaPromocionesPanel — an empty mirror is not "no promos" unless ML a
 
     expect(await screen.findByText(/sin promociones habilitadas/i)).toBeInTheDocument();
     expect(screen.queryByText(/no se pudo confirmar con ml/i)).not.toBeInTheDocument();
+  });
+
+  // A confirmation answers for the read that asked it. If the panel moves on
+  // (another item, a newer read) a late answer for the old one must not
+  // decide what the new empty mirror says.
+  it('a late confirmation for a previous item is ignored', async () => {
+    promocionesAPI.refreshItemPromociones.mockResolvedValue({ data: { ok: true } });
+    promocionesAPI.getPromocionesItem.mockResolvedValue({ data: { promotions: [] } });
+    let answerA;
+    let answerB;
+    promocionesAPI.confirmarSinPromosML.mockImplementation((mla) =>
+      new Promise((resolve) => {
+        if (mla === 'MLA_A') answerA = resolve;
+        else answerB = resolve;
+      }),
+    );
+    const cache = { current: new Map() };
+
+    const { rerender } = render(<MlaPromocionesPanel mla="MLA_A" promosCacheRef={cache} />);
+    await waitFor(() => expect(answerA).toBeDefined());
+
+    rerender(<MlaPromocionesPanel mla="MLA_B" promosCacheRef={cache} />);
+    await waitFor(() => expect(answerB).toBeDefined());
+
+    // ML says B has promos (cannot confirm); only then does A's stale
+    // "ML agrees there are none" arrive.
+    await act(async () => {
+      answerB({ data: { sin_promos_confirmado: false, promos_en_ml: 3 } });
+    });
+    expect(await screen.findByText(/ml informa 3 promociones/i)).toBeInTheDocument();
+
+    await act(async () => {
+      answerA({ data: { sin_promos_confirmado: true, promos_en_ml: 0 } });
+    });
+
+    expect(screen.queryByText(/sin promociones habilitadas/i)).not.toBeInTheDocument();
+    expect(screen.getByText(/ml informa 3 promociones/i)).toBeInTheDocument();
   });
 
   it('a non-empty mirror never asks ML for confirmation', async () => {

@@ -170,14 +170,40 @@ function MlaPromocionesPanel({ mla, promosCacheRef, pullOnOpen = true }) {
 
   useEffect(() => () => clearReloadTimers(), [clearReloadTimers]);
 
+  // Used for a write that returned a result (`onApplied`) and for one that was
+  // rejected (`onReloadNeeded`, no result to hand over): either way the truth
+  // lives in the mirror.
+  const scheduleMirrorReloads = useCallback(() => {
+    // Do NOT assert the final state from either reload alone
+    // (eventual consistency — the table stays the source of
+    // truth). After a write the server refreshes the mirror on
+    // its own (immediate + ~60s retry) and these two reloads
+    // only RE-READ it — they do not pull from ML. Opening the
+    // panel does pull, which is a different path on purpose.
+    //
+    // Clear any prior pending timers before scheduling new
+    // ones, and clear on unmount so we never call reload()
+    // after the panel (and the underlying setState) is gone.
+    clearReloadTimers();
+    reloadTimersRef.current = [
+      setTimeout(() => reload(), 5000),
+      setTimeout(() => reload(), 65000),
+    ];
+  }, [clearReloadTimers, reload]);
+
   // An EMPTY mirror is only "no promos" when ML agrees (incident 2026-10-05:
   // 0 mirror rows, 9 live promos). The mirror read stays fast and mirror-only;
   // the panel asks ML separately AFTER rendering. Keyed by the `data` object
   // so a reload re-asks, and a stale answer for an older read is ignored.
   // A failed refresh already means "unconfirmed": no extra call then.
+  // `mlCheckState` is one explicit value: 'idle' (nothing to confirm),
+  // 'checking', 'confirmed' or 'unconfirmed'. An answer recorded for another
+  // read counts as 'checking' for the current one.
   const [mlCheck, setMlCheck] = useState(null); // { forData, status, promosEnMl }
   const mirrorEmpty = Boolean(data) && !loading && !error && (data.promotions || []).length === 0;
   const needsMlCheck = mirrorEmpty && !data.refreshFailed;
+  const mlCheckState = !needsMlCheck ? 'idle' : mlCheck?.forData === data ? mlCheck.status : 'checking';
+  const promosEnMl = mlCheckState === 'unconfirmed' ? mlCheck.promosEnMl : null;
   useEffect(() => {
     if (!needsMlCheck) return undefined;
     let ignore = false;
@@ -238,17 +264,16 @@ function MlaPromocionesPanel({ mla, promosCacheRef, pullOnOpen = true }) {
     // failed, or ML reports promos (or could not be asked), saying
     // "Sin promociones" would be a confident lie — the mirror had 0 rows for
     // an MLA with 9 live promos in the 2026-10-05 incident.
-    const check = mlCheck?.forData === data ? mlCheck : null;
-    if (!data?.refreshFailed && (!check || check.status === 'checking')) {
+    if (!data?.refreshFailed && mlCheckState === 'checking') {
       return <div className={styles.panelState}>Sin promociones en el espejo — confirmando con ML…</div>;
     }
-    if (data?.refreshFailed || check.status !== 'confirmed') {
+    if (data?.refreshFailed || mlCheckState !== 'confirmed') {
       return (
         <>
           {staleNotice}
           <div className={styles.staleNotice}>
             No se pudo confirmar con ML — datos posiblemente desactualizados.
-            {check?.promosEnMl > 0 ? ` ML informa ${check.promosEnMl} promociones para esta publicación.` : ''}
+            {promosEnMl > 0 ? ` ML informa ${promosEnMl} promociones para esta publicación.` : ''}
           </div>
         </>
       );
@@ -342,23 +367,8 @@ function MlaPromocionesPanel({ mla, promosCacheRef, pullOnOpen = true }) {
                 <PromoApplyControl
                   mla={mla}
                   promotion={promo}
-                  onApplied={() => {
-                    // Do NOT assert the final state from either reload alone
-                    // (eventual consistency — the table stays the source of
-                    // truth). After a write the server refreshes the mirror on
-                    // its own (immediate + ~60s retry) and these two reloads
-                    // only RE-READ it — they do not pull from ML. Opening the
-                    // panel does pull, which is a different path on purpose.
-                    //
-                    // Clear any prior pending timers before scheduling new
-                    // ones, and clear on unmount so we never call reload()
-                    // after the panel (and the underlying setState) is gone.
-                    clearReloadTimers();
-                    reloadTimersRef.current = [
-                      setTimeout(() => reload(), 5000),
-                      setTimeout(() => reload(), 65000),
-                    ];
-                  }}
+                  onApplied={scheduleMirrorReloads}
+                  onReloadNeeded={scheduleMirrorReloads}
                 />
               )}
             </li>
