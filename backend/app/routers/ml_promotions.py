@@ -130,6 +130,14 @@ class ItemPromotionsList(BaseModel):
     mla: str
     count: int
     promotions: List[ItemPromotion]
+    posiblemente_desactualizado: bool = False
+    """True when the mirror returned NO rows but that could not be confirmed
+    with ML: the live proxy has active promos for the item, or the live read
+    failed. The panel then says "no se pudo confirmar con ML" instead of
+    "sin promociones". Only checked when the mirror is empty."""
+    promos_en_ml: Optional[int] = None
+    """Active (candidate|started|pending) promos the live proxy reports, when
+    the mirror was empty and the live read worked. None otherwise."""
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -431,6 +439,29 @@ def listar_promociones(
         )
 
 
+_ESTADOS_ACTIVOS_LIVE = {"candidate", "started", "pending"}
+
+
+def _confirmar_vacio_con_ml(mla_id: str) -> tuple[bool, Optional[int]]:
+    """An EMPTY mirror is only trusted when ML agrees. Returns
+    `(posiblemente_desactualizado, promos_en_ml)`.
+
+    Incident 2026-10-05: the mirror had no rows for MLA2385168136 while the
+    live proxy returned 9 promos, so "Sin promociones habilitadas" would have
+    been a confident lie. One live read, only on the empty case (cheap and
+    bounded: the proxy client times out at 10s and never raises). A failed
+    read cannot confirm anything -> flagged (fail closed on the claim).
+    """
+    live = resolve_maybe_async(ml_webhook_client.get_item_promotions(mla_id))
+    if not isinstance(live, list):
+        logger.warning("Empty promo mirror for %s could not be confirmed: live read failed", mla_id)
+        return True, None
+    activas = sum(1 for p in live if isinstance(p, dict) and p.get("status") in _ESTADOS_ACTIVOS_LIVE)
+    if activas:
+        logger.warning("Promo mirror empty for %s but the live proxy reports %d active promos", mla_id, activas)
+    return activas > 0, activas
+
+
 @router.get("/item/{mla_id}", response_model=ItemPromotionsList)
 def obtener_promociones_item(
     mla_id: str,
@@ -455,7 +486,14 @@ def obtener_promociones_item(
         # derived here.
         promotions = derivar_application_status(promotions)
         promotions = enriquecer_markup_por_promo(db, mla_id, promotions)
-        return ItemPromotionsList(mla=mla_id, count=len(promotions), promotions=promotions)
+        posiblemente_desactualizado, promos_en_ml = _confirmar_vacio_con_ml(mla_id) if not promotions else (False, None)
+        return ItemPromotionsList(
+            mla=mla_id,
+            count=len(promotions),
+            promotions=promotions,
+            posiblemente_desactualizado=posiblemente_desactualizado,
+            promos_en_ml=promos_en_ml,
+        )
     except RuntimeError as e:
         logger.error("ML_WEBHOOK_DB_URL not configured: %s", e)
         raise HTTPException(
@@ -522,7 +560,7 @@ def listar_items_de_promocion(
 @router.post("/item/{mla_id}/refresh", response_model=RefreshResult)
 def refrescar_promociones_item(
     mla_id: str,
-    current_user: Usuario = Depends(require_promos_write()),
+    current_user: Usuario = Depends(require_promos_read()),
 ) -> RefreshResult:
     """
     Dispara un reconcile server-side (point-refresh) del espejo de
@@ -544,7 +582,11 @@ def refrescar_promociones_item(
     pantalla sólo podía decir "no se pudo actualizar", y una publicación
     cerrada se leía igual que un proxy caído o un token vencido.
 
-    Requiere permiso: promos.escribir (mismo permiso que enroll/remove).
+    Requiere permiso: promos.ver. Es una LECTURA (reconcilia nuestro espejo
+    desde ML, nunca escribe en ML), así que un usuario de solo lectura que
+    abre el panel también ve datos frescos — antes estaba gateado por
+    promos.escribir y esos usuarios veían el espejo sin actualizar
+    (incidente 2026-10-05).
     """
     outcome = resolve_maybe_async(ml_webhook_client.refresh_item_promotions(mla_id))
     return RefreshResult(ok=outcome.ok, motivo=outcome.motivo)

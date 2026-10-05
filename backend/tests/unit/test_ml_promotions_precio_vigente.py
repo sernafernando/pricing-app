@@ -442,3 +442,91 @@ class TestEnrollRouterGuard:
         assert response.status_code == 403
         assert proxy.reads == 0
         assert proxy.enrolls == []
+
+
+# ── Freshness (T4) ───────────────────────────────────────────────
+
+
+class _OnlyRead:
+    """A `promos.ver`-only user."""
+
+    def __init__(self) -> None:
+        self.calls: List[str] = []
+
+    def tiene_permiso(self, usuario: Any, codigo: str) -> bool:
+        self.calls.append(codigo)
+        return codigo == "promos.ver"
+
+
+@pytest.fixture()
+def read_only_client() -> Any:
+    app.dependency_overrides[get_current_user] = _fake_user
+    app.dependency_overrides[get_db] = lambda: object()
+    with patch("app.routers.ml_promotions.PermisosService", return_value=_OnlyRead()):
+        yield TestClient(app)
+    app.dependency_overrides.pop(get_current_user, None)
+    app.dependency_overrides.pop(get_db, None)
+
+
+class TestRefreshIsARead:
+    def test_read_only_user_can_reconcile_the_mirror(self, read_only_client: TestClient) -> None:
+        """The refresh only reconciles our mirror from ML (no write to ML),
+        so a `promos.ver` user opening the panel must get fresh data too."""
+        from app.services.ml_webhook_client import RefreshOutcome
+
+        with patch(
+            "app.routers.ml_promotions.ml_webhook_client.refresh_item_promotions",
+            return_value=RefreshOutcome(ok=True),
+        ):
+            response = read_only_client.post(f"/api/promociones/item/{MLA}/refresh")
+
+        assert response.status_code == 200
+        assert response.json()["ok"] is True
+
+
+class TestEmptyMirrorIsCheckedAgainstML:
+    """Incident: the mirror had NO rows for MLA2385168136 while the live
+    proxy returned 9 promos. An empty mirror must not read as "no promos"
+    unless ML agrees."""
+
+    def _get(self, client: TestClient, mirror: List[Dict[str, Any]], live: Optional[List[Dict[str, Any]]]):
+        with (
+            patch("app.routers.ml_promotions.fetch_item_promotions", return_value=mirror),
+            patch("app.routers.ml_promotions.enriquecer_markup_por_promo", side_effect=lambda db, mla, p: p),
+            patch.object(write_service.ml_webhook_client, "get_item_promotions", return_value=live) as mock_live,
+        ):
+            response = client.get(f"/api/promociones/item/{MLA}")
+        return response, mock_live
+
+    def test_empty_mirror_but_ml_has_promos_is_flagged(self, read_only_client: TestClient) -> None:
+        response, _ = self._get(read_only_client, [], [_live_entry(), _live_entry(status="started")])
+
+        body = response.json()
+        assert response.status_code == 200
+        assert body["count"] == 0
+        assert body["posiblemente_desactualizado"] is True
+        assert body["promos_en_ml"] == 2
+
+    def test_empty_mirror_and_live_read_failed_is_flagged(self, read_only_client: TestClient) -> None:
+        response, _ = self._get(read_only_client, [], None)
+
+        body = response.json()
+        assert body["posiblemente_desactualizado"] is True
+        assert body["promos_en_ml"] is None
+
+    def test_empty_mirror_and_ml_agrees_is_not_flagged(self, read_only_client: TestClient) -> None:
+        response, _ = self._get(read_only_client, [], [_live_entry(status="finished")])
+
+        body = response.json()
+        assert body["posiblemente_desactualizado"] is False
+        assert body["promos_en_ml"] == 0
+
+    def test_non_empty_mirror_does_not_call_ml(self, read_only_client: TestClient) -> None:
+        mirror = [
+            {"mla": MLA, "promotion_id": PROMO_ID, "promotion_type": "SMART", "status": "candidate", "price": 1.0}
+        ]
+
+        response, mock_live = self._get(read_only_client, mirror, [_live_entry()])
+
+        assert response.json()["posiblemente_desactualizado"] is False
+        mock_live.assert_not_called()

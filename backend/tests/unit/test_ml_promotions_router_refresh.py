@@ -116,8 +116,11 @@ class TestRefreshEndpoint:
         finally:
             _clear_overrides()
 
+        # The refresh is a read (it reconciles our mirror from ML, never
+        # writes to ML), so the gate is promos.ver — see
+        # test_ml_promotions_precio_vigente.TestRefreshIsARead.
         assert response.status_code == 403
-        assert "promos.escribir" in fake_service.calls
+        assert "promos.ver" in fake_service.calls
 
     def test_unauthenticated_returns_401(self, client: TestClient) -> None:
         app.dependency_overrides[get_current_user] = _unauthenticated
