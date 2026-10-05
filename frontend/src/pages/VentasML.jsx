@@ -1031,7 +1031,7 @@ export default function VentasML() {
                           openOrMl(e, order.pack_id ?? group.pack_id, order.order_id, () =>
                             openDrawer(order.order_id),
                           );
-                        const memberCtx = { kind: 'member', order, openMemberPanel };
+                        const memberCtx = { kind: 'member', order, openDrawer, openMemberPanel };
                         return (
                           <tr
                             key={order.order_id}

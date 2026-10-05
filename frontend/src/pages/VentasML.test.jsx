@@ -2127,6 +2127,26 @@ describe('Ctrl/Cmd+click opens the sale in MercadoLibre instead of the drawer', 
       'noopener,noreferrer',
     );
     expect(api.get).not.toHaveBeenCalledWith(`/ml-ventas-ops/packs/${PACK_ID}`);
+    // Control: a plain click on the same row does fetch the pack, so the
+    // negative assertion above cannot pass vacuously.
+    await user.click(screen.getByText('MIEMBRO1'));
+    await waitFor(() => expect(api.get).toHaveBeenCalledWith(`/ml-ventas-ops/packs/${PACK_ID}`));
+    expect(window.open).toHaveBeenCalledTimes(1);
+  });
+
+  it('with the extension present, ctrl+click posts to the side panel instead of opening a tab', async () => {
+    document.documentElement.dataset.mlPanel = '1';
+    const postMessage = vi.spyOn(window, 'postMessage').mockImplementation(() => {});
+    mockSalesList([PAID_SALE]);
+    const user = userEvent.setup();
+    await renderWithRouter(<VentasML />);
+    await ctrlClick(user, await screen.findByText('comprador1'));
+    expect(postMessage).toHaveBeenCalledWith(
+      { type: 'ml-open', url: 'https://vendedores.mercadolibre.com.ar/ventas/1001/detalle' },
+      window.location.origin,
+    );
+    expect(window.open).not.toHaveBeenCalled();
+    delete document.documentElement.dataset.mlPanel;
   });
 
   it('pack member row and its Neto button: ctrl+click opens ML with the pack id', async () => {
