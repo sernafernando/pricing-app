@@ -166,6 +166,28 @@
   composes: btn-tesla ghost sm from '../styles/buttons-tesla.css';
 }
 
+/* "Solo con ventas en el período": a chip that is a switch -- same pill as
+   the facet chips, filled while on, with a check box saying so. */
+.periodToggle {
+  composes: chip from '../components/ventasMl/FacetChips.module.css';
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.periodToggleOn {
+  composes: chipActive from '../components/ventasMl/FacetChips.module.css';
+}
+
+.periodToggleBox {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 14px;
+  height: 14px;
+  border: 1.5px solid currentcolor;
+  border-radius: var(--radius-sm);
+}
+
 /* Alert pills (design: amber "Sin ventas", rose "Ageing"/"Markup cayendo"). */
 .alertChip {
   display: inline-flex;

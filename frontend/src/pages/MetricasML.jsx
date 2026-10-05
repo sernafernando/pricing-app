@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useReactTable, getCoreRowModel } from '@tanstack/react-table';
-import { AlertTriangle, Clock, Download, FilterX, ShieldAlert, TrendingDown } from 'lucide-react';
+import { AlertTriangle, Check, Clock, Download, FilterX, ShieldAlert, TrendingDown } from 'lucide-react';
 import api from '../services/api';
 import { usePermisos } from '../contexts/PermisosContext';
 import DateRangeFilter from '../components/DateRangeFilter';
@@ -91,6 +91,9 @@ export default function MetricasML() {
   const [pubStatusExclude, setPubStatusExclude] = useState([]);
   const [pubTypeExclude, setPubTypeExclude] = useState([]);
   const [alerts, setAlerts] = useState([]);
+  // "Solo con ventas en el período": on by default -- a short period shows
+  // what sold in it, not the whole catalog (ODD "Período y stock" PS1).
+  const [soloConVentas, setSoloConVentas] = useState(true);
   const [sort, setSort] = useState({ key: 'gross', desc: true });
   const [offset, setOffset] = useState(0);
   const [pageSize, setPageSize] = useState(DEFAULT_PAGE_SIZE);
@@ -122,6 +125,7 @@ export default function MetricasML() {
         pubStatusExclude,
         pubTypeExclude,
         alerts,
+        soloConVentas,
       }),
     [
       range,
@@ -135,6 +139,7 @@ export default function MetricasML() {
       pubStatusExclude,
       pubTypeExclude,
       alerts,
+      soloConVentas,
     ],
   );
 
@@ -235,6 +240,7 @@ export default function MetricasML() {
     setPubStatusExclude([]);
     setPubTypeExclude([]);
     setAlerts([]);
+    setSoloConVentas(true);
     setOffset(0);
   };
 
@@ -269,7 +275,8 @@ export default function MetricasML() {
       pubType.length ||
       pubStatusExclude.length ||
       pubTypeExclude.length ||
-      alerts.length,
+      alerts.length ||
+      !soloConVentas,
   );
   const noun = groupBy === 'publication' ? 'publicaciones' : 'productos';
   const rows = board?.rows || [];
@@ -375,6 +382,24 @@ export default function MetricasML() {
               activeValue={storeFilter}
               onChange={withReset(setStoreFilter)}
             />
+          </div>
+        </div>
+
+        <div className={styles.filterBand}>
+          <div className={styles.filterGroup}>
+            <button
+              type="button"
+              role="switch"
+              aria-checked={soloConVentas}
+              className={`${styles.periodToggle} ${soloConVentas ? styles.periodToggleOn : ''}`}
+              title="Muestra sólo las filas con ventas en el período elegido; sus ventanas 24h a 30D no cambian"
+              onClick={() => withReset(setSoloConVentas)(!soloConVentas)}
+            >
+              <span className={styles.periodToggleBox} aria-hidden="true">
+                {soloConVentas && <Check size={11} strokeWidth={3} />}
+              </span>
+              Solo con ventas en el período
+            </button>
           </div>
         </div>
 

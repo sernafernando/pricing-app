@@ -17,12 +17,16 @@ export function buildMetricasMLParams({
   pubStatusExclude,
   pubTypeExclude,
   alerts,
+  soloConVentas = true,
 }) {
   const params = {
     date_from: fechaDesde,
     date_to: fechaHasta,
     comparar_con: compararCon,
     group_by: groupBy,
+    // Always explicit: the board's own default must never decide which
+    // rows the operator sees.
+    solo_con_ventas: soloConVentas,
   };
   if (searchQuery) params.q = searchQuery;
   if (productFilters?.marcas?.length > 0) params.marcas = productFilters.marcas.join(',');

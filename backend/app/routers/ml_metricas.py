@@ -227,6 +227,10 @@ def board_filter(
     ),
     pub_type_exclude: Optional[str] = Query(default=None, description="CSV a ocultar: " + ", ".join(board.PUB_TYPES)),
     alerts: Optional[str] = Query(default=None, description="CSV: " + ", ".join(board.ALERTS)),
+    solo_con_ventas: bool = Query(
+        default=True,
+        description="Sólo filas con al menos una unidad vendida en el período (sus ventanas no cambian)",
+    ),
     sort: str = Query(default="gross", description=" | ".join(board.SORTS)),
     sort_dir: str = Query(default="desc", description="asc | desc"),
 ) -> board.BoardFilter:
@@ -276,6 +280,7 @@ def board_filter(
         pub_status_exclude=pub_status_out,
         pub_type_exclude=pub_type_out,
         alerts=_parse_choices(alerts, "alerts", board.ALERTS),
+        solo_con_ventas=solo_con_ventas,
         sort=sort,
         sort_desc=sort_dir == "desc",
     )
@@ -452,10 +457,15 @@ def get_product_publications(
 ) -> PublicationsResponse:
     """A product row's publications (the expandable sub-rows), under the same
     filters as the board. `is_best` marks the one that earned the most in the
-    period (Total Gauss, or gross without the margin permission)."""
+    period (Total Gauss, or gross without the margin permission).
+
+    The ROW filters (alerts, "solo con ventas") already decided that the
+    product is on the board: its sub-rows are every publication passing the
+    PAIR filters (store, status, type, brand, search), so they add up to the
+    product row."""
     can_see_margin = _can_see_margin(db, current_user)
     _margin_gate(f, can_see_margin)
-    by_pub = replace(f, group_by="publication", alerts=())
+    by_pub = replace(f, group_by="publication", alerts=(), solo_con_ventas=False)
     with board.Board(db, by_pub, product_item_id=product_item_id) as b:
         rows = b.page(limit=None, apply_alerts=False)
     out = [_row_out(row, can_see_margin) for row in rows]

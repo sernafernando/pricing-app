@@ -191,6 +191,11 @@ class BoardFilter:
     pub_status_exclude: Tuple[str, ...] = ()
     pub_type_exclude: Tuple[str, ...] = ()
     alerts: Tuple[str, ...] = ()
+    # "Solo con ventas en el período": keep only the ROWS (products, or
+    # publications) with a unit sold in the period. A row filter, applied to
+    # the aggregated row: its windows, markups and series keep every sale.
+    # Off here (an empty filter filters nothing); the API defaults it on.
+    solo_con_ventas: bool = False
     sort: str = "gross"
     sort_desc: bool = True
 
@@ -693,6 +698,10 @@ class Board:
         if apply_alerts and self.f.alerts and skip != "alerts":
             by_name = {"sin_ventas_30d": sin_ventas, "ageing_60d": ageing_60, "margen_cayendo": cayendo}
             q = q.where(or_(*(by_name[a] for a in self.f.alerts)))
+        if self.f.solo_con_ventas:
+            # On the aggregated ROW, never on its pairs: a product sold today
+            # keeps the 30-day sales of its other publications.
+            q = q.where(g.c.units > 0)
         return q.subquery("board_rows")
 
     # ── statements ──

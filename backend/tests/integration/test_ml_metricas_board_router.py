@@ -158,8 +158,15 @@ def board_data(db, rol_admin):
     db.commit()
 
 
+# The board's default hides rows with no sale in the period ("Solo con ventas
+# en el período", ODD "Período y stock" PS1). Most tests here are about the
+# whole catalog (windows, ageing of what never sold, chips...): they ask for
+# it explicitly. `TestSoloConVentas` covers the default.
+CATALOG = {"solo_con_ventas": "false"}
+
+
 def _get(client, headers, **params):
-    resp = client.get(URL, params=params, headers=headers)
+    resp = client.get(URL, params={**CATALOG, **params}, headers=headers)
     assert resp.status_code == 200, resp.text
     return resp.json()
 
@@ -511,7 +518,7 @@ class TestExport:
         day per page of rows) is the board's most expensive per-page read and
         the export must not pay for it."""
         with query_counter() as counter:
-            resp = client.get(f"{URL}/export", headers=admin_auth_headers)
+            resp = client.get(f"{URL}/export", params=CATALOG, headers=admin_auth_headers)
 
         assert resp.status_code == 200
         series = [s for s in counter.statements if "group by fp.rk, board_lines.day" in s]
@@ -524,7 +531,7 @@ class TestExport:
 
         monkeypatch.setattr(ml_metricas, "EXPORT_PAGE_SIZE", 2)
         with query_counter() as counter:
-            resp = client.get(f"{URL}/export", headers=admin_auth_headers)
+            resp = client.get(f"{URL}/export", params=CATALOG, headers=admin_auth_headers)
 
         rows = list(csv.DictReader(io.StringIO(resp.content.decode("utf-8-sig")), delimiter=";"))
         assert len(rows) == 4
@@ -535,7 +542,7 @@ class TestExport:
         assert len(pages) == 2
 
     def test_csv_holds_every_filtered_row(self, client, admin_auth_headers, board_data):
-        resp = client.get(f"{URL}/export", params={"stores": "57997"}, headers=admin_auth_headers)
+        resp = client.get(f"{URL}/export", params={**CATALOG, "stores": "57997"}, headers=admin_auth_headers)
 
         assert resp.status_code == 200
         rows = list(csv.DictReader(io.StringIO(resp.content.decode("utf-8-sig")), delimiter=";"))
@@ -592,7 +599,7 @@ class TestExportIsSafeForSpreadsheets:
             _pub(db, 7100 + i, f"MLA71{i}", item_id, 57997)
         db.commit()
 
-        resp = client.get(f"{URL}/export", headers=admin_auth_headers)
+        resp = client.get(f"{URL}/export", params=CATALOG, headers=admin_auth_headers)
 
         rows = list(csv.DictReader(io.StringIO(resp.content.decode("utf-8-sig")), delimiter=";"))
         assert len(rows) == len(self.PREFIXES)
@@ -613,7 +620,7 @@ class TestExportStreamsWithShortSessions:
     ):
         monkeypatch.setattr(ml_metricas, "EXPORT_PAGE_SIZE", 2)
 
-        resp = client.get(f"{URL}/export", headers=admin_auth_headers)
+        resp = client.get(f"{URL}/export", params=CATALOG, headers=admin_auth_headers)
 
         assert resp.status_code == 200
         assert len(list(csv.DictReader(io.StringIO(resp.content.decode("utf-8-sig")), delimiter=";"))) == 4
@@ -633,7 +640,7 @@ class TestExportStreamsWithShortSessions:
 
         monkeypatch.setattr(board.Board, "__init__", spy)
 
-        assert client.get(f"{URL}/export", headers=admin_auth_headers).status_code == 200
+        assert client.get(f"{URL}/export", params=CATALOG, headers=admin_auth_headers).status_code == 200
         assert used and all(s is not db and any(s is o for o in bg_sessions["sessions"]) for s in used)
 
     def test_the_request_session_is_closed_before_the_stream(
@@ -646,7 +653,7 @@ class TestExportStreamsWithShortSessions:
             db, "close", lambda: (timeline.append(("request_close", bg_sessions["open"])), real_close())[1]
         )
 
-        assert client.get(f"{URL}/export", headers=admin_auth_headers).status_code == 200
+        assert client.get(f"{URL}/export", params=CATALOG, headers=admin_auth_headers).status_code == 200
         # Closed right after page 1 was read, before page 2's session opened.
         assert timeline and timeline[0] == ("request_close", 1)
 
@@ -656,7 +663,7 @@ class TestExportStreamsWithShortSessions:
         monkeypatch.setattr(ml_metricas, "EXPORT_PAGE_SIZE", 2)
         bg_sessions["fail_on_open"] = 2
 
-        resp = client.get(f"{URL}/export", headers=admin_auth_headers)
+        resp = client.get(f"{URL}/export", params=CATALOG, headers=admin_auth_headers)
 
         assert resp.status_code == 200
         lines = resp.content.decode("utf-8-sig").splitlines()
@@ -664,7 +671,7 @@ class TestExportStreamsWithShortSessions:
         assert len(lines[1:-1]) == 2
 
     def test_a_complete_export_has_no_error_line(self, client, admin_auth_headers, board_data):
-        text = client.get(f"{URL}/export", headers=admin_auth_headers).content.decode("utf-8-sig")
+        text = client.get(f"{URL}/export", params=CATALOG, headers=admin_auth_headers).content.decode("utf-8-sig")
         assert "# ERROR" not in text
 
 
@@ -687,7 +694,7 @@ class TestExportKeysAreFixedUpFront:
 
         bg_sessions["on_open"] = big_sale_for_13
 
-        resp = client.get(f"{URL}/export", headers=admin_auth_headers)
+        resp = client.get(f"{URL}/export", params=CATALOG, headers=admin_auth_headers)
 
         products = [r["Producto"] for r in csv.DictReader(io.StringIO(resp.content.decode("utf-8-sig")), delimiter=";")]
         assert products == [
@@ -700,7 +707,7 @@ class TestExportKeysAreFixedUpFront:
     def test_more_rows_than_the_cap_is_422_before_any_byte(self, client, admin_auth_headers, board_data, monkeypatch):
         monkeypatch.setattr(ml_metricas, "EXPORT_MAX_ROWS", 3)
 
-        resp = client.get(f"{URL}/export", headers=admin_auth_headers)
+        resp = client.get(f"{URL}/export", params=CATALOG, headers=admin_auth_headers)
 
         assert resp.status_code == 422
 
@@ -715,7 +722,7 @@ class TestExportEdges:
 
     @staticmethod
     def _export_rows(client, headers) -> list:
-        resp = client.get(f"{URL}/export", headers=headers)
+        resp = client.get(f"{URL}/export", params=CATALOG, headers=headers)
         assert resp.status_code == 200
         return list(csv.DictReader(io.StringIO(resp.content.decode("utf-8-sig")), delimiter=";"))
 
@@ -739,7 +746,7 @@ class TestExportEdges:
         cap = len(baseline) - 1
         monkeypatch.setattr(ml_metricas, "EXPORT_MAX_ROWS", cap)
 
-        resp = client.get(f"{URL}/export", headers=admin_auth_headers)
+        resp = client.get(f"{URL}/export", params=CATALOG, headers=admin_auth_headers)
 
         assert resp.status_code == 422
         assert resp.json()["error"]["message"] == (
@@ -797,3 +804,72 @@ class TestMoneyHasTwoDecimals:
         assert kpis["total_gauss"]["value"] == 33.33
         for value in money:
             assert value is None or Decimal(repr(value)) == Decimal(repr(value)).quantize(Decimal("0.01")), value
+
+
+class TestSoloConVentas:
+    """ODD "Período y stock" PS1: "Solo con ventas en el período" (ON by
+    default) keeps only the ROWS with a sale in the selected period; it
+    filters which rows, never their numbers -- a product sold today still
+    shows its 30-day window, other publications' sales included."""
+
+    TODAY = {"date_from": "2026-09-30", "date_to": "2026-09-30"}
+
+    @staticmethod
+    def _board(client, headers, **params):
+        resp = client.get(URL, params=params, headers=headers)
+        assert resp.status_code == 200, resp.text
+        return resp.json()
+
+    def test_by_default_today_shows_only_what_sold_today_with_its_full_windows(
+        self, client, admin_auth_headers, board_data
+    ):
+        body = self._board(client, admin_auth_headers, **self.TODAY)
+
+        assert set(_by_key(body)) == {"11"}
+        p11 = _by_key(body)["11"]
+        assert p11["units"] == 2
+        # 30d keeps the 09-20 sale (MLA1) and the 09-25 one on ANOTHER
+        # publication (MLA2): the toggle filters rows, not pairs or days.
+        assert p11["units_30d"] == 6
+        assert p11["units_7d"] == 3
+        assert p11["publications_count"] == 2
+        assert p11["markup_min_90d"] == 10.0
+
+    def test_kpis_and_chips_follow_the_same_rows(self, client, admin_auth_headers, board_data):
+        body = self._board(client, admin_auth_headers, **self.TODAY)
+
+        assert body["total"] == 1
+        assert body["kpis"]["rows_with_sales"] == {"value": 1, "of_total": 1}
+        assert body["facets"]["stores"] == {"57997": 1}
+        assert body["facets"]["stores_total"] == 1
+        assert body["facets"]["alerts"]["sin_ventas_30d"] == 0
+
+    def test_off_shows_the_whole_catalog(self, client, admin_auth_headers, board_data):
+        body = self._board(client, admin_auth_headers, solo_con_ventas="false", **self.TODAY)
+
+        assert set(_by_key(body)) == {"11", "12", "13", "14"}
+        assert body["kpis"]["rows_with_sales"] == {"value": 1, "of_total": 4}
+
+    def test_grouped_by_publication_it_keeps_the_publications_that_sold(self, client, admin_auth_headers, board_data):
+        body = self._board(client, admin_auth_headers, group_by="publication", **self.TODAY)
+
+        assert set(_by_key(body)) == {"MLA1"}
+        assert _by_key(body)["MLA1"]["units_30d"] == 5
+
+    def test_the_export_follows_it(self, client, admin_auth_headers, board_data):
+        resp = client.get(f"{URL}/export", params=self.TODAY, headers=admin_auth_headers)
+
+        rows = list(csv.DictReader(io.StringIO(resp.content.decode("utf-8-sig")), delimiter=";"))
+        assert [row["Producto"] for row in rows] == ["Impresora Epson L3250"]
+
+    def test_a_shown_product_lists_all_its_publications(self, client, admin_auth_headers, board_data):
+        """The row-level filters already let the product through: its
+        sub-rows are every publication that passes the pair filters, so they
+        add up to the product row (MLA2 sold this month, not today)."""
+        resp = client.get(f"{URL}/products/11/publications", params=self.TODAY, headers=admin_auth_headers)
+
+        assert resp.status_code == 200
+        assert {p["key"] for p in resp.json()["rows"]} == {"MLA1", "MLA2"}
+
+    def test_an_unknown_value_is_422(self, client, admin_auth_headers, board_data):
+        assert client.get(URL, params={"solo_con_ventas": "quizas"}, headers=admin_auth_headers).status_code == 422

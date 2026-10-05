@@ -153,6 +153,47 @@ describe('MetricasML page', () => {
     expect(screen.getByRole('button', { name: /Pausada/ })).toHaveAttribute('data-state', 'neutral');
   });
 
+  it('"Solo con ventas en el período" is on by default and turning it off asks for the whole catalog', async () => {
+    await renderWithRouter(<MetricasML />);
+    await screen.findByText('Impresora Multifunción Epson EcoTank L3250 Color Negro');
+    expect(lastBoardParams().solo_con_ventas).toBe(true);
+    const toggle = screen.getByRole('switch', { name: /Solo con ventas en el período/ });
+    expect(toggle).toHaveAttribute('aria-checked', 'true');
+
+    await userEvent.click(screen.getByRole('button', { name: 'Siguiente' }));
+    await waitFor(() => expect(lastBoardParams().offset).toBe(50));
+    await userEvent.click(toggle);
+
+    await waitFor(() => expect(lastBoardParams()).toMatchObject({ solo_con_ventas: false, offset: 0 }));
+    expect(toggle).toHaveAttribute('aria-checked', 'false');
+  });
+
+  it('"Limpiar filtros" turns "Solo con ventas" back on', async () => {
+    await renderWithRouter(<MetricasML />);
+    await screen.findByText('Impresora Multifunción Epson EcoTank L3250 Color Negro');
+    await userEvent.click(screen.getByRole('switch', { name: /Solo con ventas en el período/ }));
+    await waitFor(() => expect(lastBoardParams().solo_con_ventas).toBe(false));
+
+    await userEvent.click(screen.getByRole('button', { name: /Limpiar filtros/ }));
+
+    await waitFor(() => expect(lastBoardParams().solo_con_ventas).toBe(true));
+    expect(screen.getByRole('switch', { name: /Solo con ventas en el período/ })).toHaveAttribute('aria-checked', 'true');
+  });
+
+  it('the nested publications carry the toggle too', async () => {
+    await renderWithRouter(<MetricasML />);
+    await screen.findByText('Impresora Multifunción Epson EcoTank L3250 Color Negro');
+    await userEvent.click(screen.getByRole('switch', { name: /Solo con ventas en el período/ }));
+    await waitFor(() => expect(lastBoardParams().solo_con_ventas).toBe(false));
+
+    await userEvent.click(screen.getByRole('button', { name: /Ver publicaciones de Impresora Multifunción Epson/ }));
+
+    await waitFor(() => {
+      const call = api.get.mock.calls.find(([url]) => url === '/ml-metricas/board/products/4101/publications');
+      expect(call[1].params.solo_con_ventas).toBe(false);
+    });
+  });
+
   it('"Comparar con" switches to the same period last year', async () => {
     await renderWithRouter(<MetricasML />);
     await screen.findByText('Impresora Multifunción Epson EcoTank L3250 Color Negro');
