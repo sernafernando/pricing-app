@@ -239,8 +239,11 @@ def board_filter(
     ageing_exclude: Optional[str] = Query(
         default=None, description="CSV a ocultar: " + ", ".join(board.AGEING_BUCKETS)
     ),
+    # OFF unless asked for: during a rolling deploy an older SPA bundle sends
+    # nothing and must keep the full catalog (board, KPIs, CSV). The page
+    # always sends it (on by default in the UI).
     solo_con_ventas: bool = Query(
-        default=True,
+        default=False,
         description="Sólo filas con al menos una unidad vendida en el período (sus ventanas no cambian)",
     ),
     sort: str = Query(default="gross", description=" | ".join(board.SORTS)),

@@ -20,6 +20,7 @@ from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
 
 import pytest
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.models.mercadolibre_item_publicado import MercadoLibreItemPublicado
@@ -158,15 +159,14 @@ def board_data(db, rol_admin):
     db.commit()
 
 
-# The board's default hides rows with no sale in the period ("Solo con ventas
-# en el período", ODD "Período y stock" PS1). Most tests here are about the
-# whole catalog (windows, ageing of what never sold, chips...): they ask for
-# it explicitly. `TestSoloConVentas` covers the default.
-CATALOG = {"solo_con_ventas": "false"}
+# "Solo con ventas en el período" (ODD "Período y stock" PS1) is OFF unless
+# asked for: an older SPA bundle that never sends it keeps the whole catalog.
+# The page asks for it explicitly (on by default in the UI).
+SOLO_CON_VENTAS = {"solo_con_ventas": "true"}
 
 
 def _get(client, headers, **params):
-    resp = client.get(URL, params={**CATALOG, **params}, headers=headers)
+    resp = client.get(URL, params=params, headers=headers)
     assert resp.status_code == 200, resp.text
     return resp.json()
 
@@ -518,7 +518,7 @@ class TestExport:
         day per page of rows) is the board's most expensive per-page read and
         the export must not pay for it."""
         with query_counter() as counter:
-            resp = client.get(f"{URL}/export", params=CATALOG, headers=admin_auth_headers)
+            resp = client.get(f"{URL}/export", headers=admin_auth_headers)
 
         assert resp.status_code == 200
         series = [s for s in counter.statements if "group by fp.rk, board_lines.day" in s]
@@ -531,7 +531,7 @@ class TestExport:
 
         monkeypatch.setattr(ml_metricas, "EXPORT_PAGE_SIZE", 2)
         with query_counter() as counter:
-            resp = client.get(f"{URL}/export", params=CATALOG, headers=admin_auth_headers)
+            resp = client.get(f"{URL}/export", headers=admin_auth_headers)
 
         rows = list(csv.DictReader(io.StringIO(resp.content.decode("utf-8-sig")), delimiter=";"))
         assert len(rows) == 4
@@ -542,7 +542,7 @@ class TestExport:
         assert len(pages) == 2
 
     def test_csv_holds_every_filtered_row(self, client, admin_auth_headers, board_data):
-        resp = client.get(f"{URL}/export", params={**CATALOG, "stores": "57997"}, headers=admin_auth_headers)
+        resp = client.get(f"{URL}/export", params={"stores": "57997"}, headers=admin_auth_headers)
 
         assert resp.status_code == 200
         rows = list(csv.DictReader(io.StringIO(resp.content.decode("utf-8-sig")), delimiter=";"))
@@ -599,7 +599,7 @@ class TestExportIsSafeForSpreadsheets:
             _pub(db, 7100 + i, f"MLA71{i}", item_id, 57997)
         db.commit()
 
-        resp = client.get(f"{URL}/export", params=CATALOG, headers=admin_auth_headers)
+        resp = client.get(f"{URL}/export", headers=admin_auth_headers)
 
         rows = list(csv.DictReader(io.StringIO(resp.content.decode("utf-8-sig")), delimiter=";"))
         assert len(rows) == len(self.PREFIXES)
@@ -620,7 +620,7 @@ class TestExportStreamsWithShortSessions:
     ):
         monkeypatch.setattr(ml_metricas, "EXPORT_PAGE_SIZE", 2)
 
-        resp = client.get(f"{URL}/export", params=CATALOG, headers=admin_auth_headers)
+        resp = client.get(f"{URL}/export", headers=admin_auth_headers)
 
         assert resp.status_code == 200
         assert len(list(csv.DictReader(io.StringIO(resp.content.decode("utf-8-sig")), delimiter=";"))) == 4
@@ -640,7 +640,7 @@ class TestExportStreamsWithShortSessions:
 
         monkeypatch.setattr(board.Board, "__init__", spy)
 
-        assert client.get(f"{URL}/export", params=CATALOG, headers=admin_auth_headers).status_code == 200
+        assert client.get(f"{URL}/export", headers=admin_auth_headers).status_code == 200
         assert used and all(s is not db and any(s is o for o in bg_sessions["sessions"]) for s in used)
 
     def test_the_request_session_is_closed_before_the_stream(
@@ -653,7 +653,7 @@ class TestExportStreamsWithShortSessions:
             db, "close", lambda: (timeline.append(("request_close", bg_sessions["open"])), real_close())[1]
         )
 
-        assert client.get(f"{URL}/export", params=CATALOG, headers=admin_auth_headers).status_code == 200
+        assert client.get(f"{URL}/export", headers=admin_auth_headers).status_code == 200
         # Closed right after page 1 was read, before page 2's session opened.
         assert timeline and timeline[0] == ("request_close", 1)
 
@@ -663,7 +663,7 @@ class TestExportStreamsWithShortSessions:
         monkeypatch.setattr(ml_metricas, "EXPORT_PAGE_SIZE", 2)
         bg_sessions["fail_on_open"] = 2
 
-        resp = client.get(f"{URL}/export", params=CATALOG, headers=admin_auth_headers)
+        resp = client.get(f"{URL}/export", headers=admin_auth_headers)
 
         assert resp.status_code == 200
         lines = resp.content.decode("utf-8-sig").splitlines()
@@ -671,7 +671,7 @@ class TestExportStreamsWithShortSessions:
         assert len(lines[1:-1]) == 2
 
     def test_a_complete_export_has_no_error_line(self, client, admin_auth_headers, board_data):
-        text = client.get(f"{URL}/export", params=CATALOG, headers=admin_auth_headers).content.decode("utf-8-sig")
+        text = client.get(f"{URL}/export", headers=admin_auth_headers).content.decode("utf-8-sig")
         assert "# ERROR" not in text
 
 
@@ -694,7 +694,7 @@ class TestExportKeysAreFixedUpFront:
 
         bg_sessions["on_open"] = big_sale_for_13
 
-        resp = client.get(f"{URL}/export", params=CATALOG, headers=admin_auth_headers)
+        resp = client.get(f"{URL}/export", headers=admin_auth_headers)
 
         products = [r["Producto"] for r in csv.DictReader(io.StringIO(resp.content.decode("utf-8-sig")), delimiter=";")]
         assert products == [
@@ -707,7 +707,7 @@ class TestExportKeysAreFixedUpFront:
     def test_more_rows_than_the_cap_is_422_before_any_byte(self, client, admin_auth_headers, board_data, monkeypatch):
         monkeypatch.setattr(ml_metricas, "EXPORT_MAX_ROWS", 3)
 
-        resp = client.get(f"{URL}/export", params=CATALOG, headers=admin_auth_headers)
+        resp = client.get(f"{URL}/export", headers=admin_auth_headers)
 
         assert resp.status_code == 422
 
@@ -722,7 +722,7 @@ class TestExportEdges:
 
     @staticmethod
     def _export_rows(client, headers) -> list:
-        resp = client.get(f"{URL}/export", params=CATALOG, headers=headers)
+        resp = client.get(f"{URL}/export", headers=headers)
         assert resp.status_code == 200
         return list(csv.DictReader(io.StringIO(resp.content.decode("utf-8-sig")), delimiter=";"))
 
@@ -746,7 +746,7 @@ class TestExportEdges:
         cap = len(baseline) - 1
         monkeypatch.setattr(ml_metricas, "EXPORT_MAX_ROWS", cap)
 
-        resp = client.get(f"{URL}/export", params=CATALOG, headers=admin_auth_headers)
+        resp = client.get(f"{URL}/export", headers=admin_auth_headers)
 
         assert resp.status_code == 422
         assert resp.json()["error"]["message"] == (
@@ -807,12 +807,13 @@ class TestMoneyHasTwoDecimals:
 
 
 class TestSoloConVentas:
-    """ODD "Período y stock" PS1: "Solo con ventas en el período" (ON by
-    default) keeps only the ROWS with a sale in the selected period; it
-    filters which rows, never their numbers -- a product sold today still
-    shows its 30-day window, other publications' sales included."""
+    """ODD "Período y stock" PS1: "Solo con ventas en el período" keeps only
+    the ROWS with a sale in the selected period; it filters which rows, never
+    their numbers -- a product sold today still shows its 30-day window,
+    other publications' sales included. OFF unless asked for (rolling-deploy
+    safety: an older bundle sends nothing and must keep the full catalog)."""
 
-    TODAY = {"date_from": "2026-09-30", "date_to": "2026-09-30"}
+    TODAY = {"date_from": "2026-09-30", "date_to": "2026-09-30", **SOLO_CON_VENTAS}
 
     @staticmethod
     def _board(client, headers, **params):
@@ -820,9 +821,7 @@ class TestSoloConVentas:
         assert resp.status_code == 200, resp.text
         return resp.json()
 
-    def test_by_default_today_shows_only_what_sold_today_with_its_full_windows(
-        self, client, admin_auth_headers, board_data
-    ):
+    def test_today_shows_only_what_sold_today_with_its_full_windows(self, client, admin_auth_headers, board_data):
         body = self._board(client, admin_auth_headers, **self.TODAY)
 
         assert set(_by_key(body)) == {"11"}
@@ -845,10 +844,21 @@ class TestSoloConVentas:
         assert body["facets"]["alerts"]["sin_ventas_30d"] == 0
 
     def test_off_shows_the_whole_catalog(self, client, admin_auth_headers, board_data):
-        body = self._board(client, admin_auth_headers, solo_con_ventas="false", **self.TODAY)
+        body = self._board(client, admin_auth_headers, **{**self.TODAY, "solo_con_ventas": "false"})
 
         assert set(_by_key(body)) == {"11", "12", "13", "14"}
         assert body["kpis"]["rows_with_sales"] == {"value": 1, "of_total": 4}
+
+    def test_without_the_param_board_and_csv_keep_the_whole_catalog(self, client, admin_auth_headers, board_data):
+        """An SPA bundle from before the toggle sends no `solo_con_ventas`:
+        its board, KPIs and CSV must not be silently truncated."""
+        today = {"date_from": "2026-09-30", "date_to": "2026-09-30"}
+        body = self._board(client, admin_auth_headers, **today)
+        resp = client.get(f"{URL}/export", params=today, headers=admin_auth_headers)
+
+        assert set(_by_key(body)) == {"11", "12", "13", "14"}
+        assert body["kpis"]["rows_with_sales"] == {"value": 1, "of_total": 4}
+        assert len(list(csv.DictReader(io.StringIO(resp.content.decode("utf-8-sig")), delimiter=";"))) == 4
 
     def test_grouped_by_publication_it_keeps_the_publications_that_sold(self, client, admin_auth_headers, board_data):
         body = self._board(client, admin_auth_headers, group_by="publication", **self.TODAY)
@@ -950,20 +960,18 @@ class TestStock:
         db.query(ProductoERP).filter(ProductoERP.item_id == 11).update({"stock": 0})
         db.commit()
 
-        resp = client.get(URL, params={"stock": "sin_stock"}, headers=admin_auth_headers)
+        resp = client.get(URL, params={**SOLO_CON_VENTAS, "stock": "sin_stock"}, headers=admin_auth_headers)
 
         assert set(_by_key(resp.json())) == {"11"}
 
     def test_a_shown_products_publications_carry_its_stock(self, client, admin_auth_headers, stock_data):
-        resp = client.get(
-            f"{URL}/products/11/publications", params={**CATALOG, "stock": "con_stock"}, headers=admin_auth_headers
-        )
+        resp = client.get(f"{URL}/products/11/publications", params={"stock": "con_stock"}, headers=admin_auth_headers)
 
         assert resp.status_code == 200
         assert {p["key"]: p["stock"] for p in resp.json()["rows"]} == {"MLA1": 5, "MLA2": 5}
 
     def test_the_csv_has_the_stock_column(self, client, admin_auth_headers, stock_data):
-        resp = client.get(f"{URL}/export", params={**CATALOG, "stock_exclude": "sin_stock"}, headers=admin_auth_headers)
+        resp = client.get(f"{URL}/export", params={"stock_exclude": "sin_stock"}, headers=admin_auth_headers)
 
         rows = list(csv.DictReader(io.StringIO(resp.content.decode("utf-8-sig")), delimiter=";"))
         assert {row["Producto"]: row["Stock"] for row in rows} == {
@@ -1047,12 +1055,12 @@ class TestAgeing:
     def test_with_solo_con_ventas_on_stale_rows_are_hidden(self, client, admin_auth_headers, board_data):
         """The board never flips the toggle by itself: the page warns
         instead ("Ocultando productos sin ventas en el período")."""
-        resp = client.get(URL, params={"ageing": "over_60"}, headers=admin_auth_headers)
+        resp = client.get(URL, params={**SOLO_CON_VENTAS, "ageing": "over_60"}, headers=admin_auth_headers)
 
         assert resp.json()["rows"] == []
 
     def test_the_export_follows_it(self, client, admin_auth_headers, board_data):
-        resp = client.get(f"{URL}/export", params={**CATALOG, "ageing": "over_60"}, headers=admin_auth_headers)
+        resp = client.get(f"{URL}/export", params={"ageing": "over_60"}, headers=admin_auth_headers)
 
         rows = list(csv.DictReader(io.StringIO(resp.content.decode("utf-8-sig")), delimiter=";"))
         assert {row["Producto"] for row in rows} == {"Notebook Lenovo V15", "Taladro DeWalt"}
@@ -1146,3 +1154,66 @@ class TestSortByColumn:
 
         assert client.get(URL, params={"sort": "stock"}, headers=admin_auth_headers).status_code == 200
         assert client.get(URL, params={"sort": "total_gauss"}, headers=admin_auth_headers).status_code == 403
+
+
+@pytest.fixture()
+def no_reference(db, board_data):
+    """Product 16: one publication with no start or creation date that never
+    sold -- a row with NO ageing reference day at all."""
+    _producto(db, 16, "Sin referencia", "Nadie")
+    db.flush()
+    db.add(MercadoLibreItemPublicado(mlp_id=7, mlp_publicationID="MLA7", item_id=16, mlp_official_store_id=57997))
+    db.commit()
+
+
+class TestAgeingWithoutReference:
+    """A row with no reference day falls in no ageing bucket: its own
+    internal value (`board.AGEING_NO_REFERENCE`), never the stock's "sin
+    dato". No chip selects it; excluding chips never drops it."""
+
+    def test_its_own_internal_value(self, db, no_reference):
+        assert board.AGEING_NO_REFERENCE == "sin_referencia"
+        assert board.AGEING_NO_REFERENCE not in board.AGEING_BUCKETS
+        assert board.AGEING_NO_REFERENCE not in board.STOCK_BUCKETS
+        f = board.BoardFilter(date_from=date(2026, 9, 1), date_to=date(2026, 9, 30))
+        with board.Board(db, f) as b:
+            rows = b.rows()
+            buckets = dict(db.execute(select(rows.c.rk, rows.c.ageing_bucket)).all())
+
+        assert buckets["16"] == "sin_referencia"
+        assert buckets["11"] == "up_to_30"
+
+    def test_no_chip_selects_it_and_no_exclusion_drops_it(self, client, admin_auth_headers, no_reference):
+        assert _by_key(_get(client, admin_auth_headers))["16"]["ageing_days"] is None
+        assert "16" not in _by_key(_get(client, admin_auth_headers, ageing="up_to_30,from_31_to_60,over_60"))
+        kept = _get(client, admin_auth_headers, ageing_exclude="up_to_30,from_31_to_60,over_60")
+        assert set(_by_key(kept)) == {"16"}
+        assert _get(client, admin_auth_headers)["facets"]["ageing"] == {"up_to_30": 2, "from_31_to_60": 0, "over_60": 2}
+
+
+class TestRowsSkipAxes:
+    """`Board.rows` takes the pair axis to skip and the row axes to skip as
+    SEPARATE arguments, and refuses names it does not know -- a tuple that
+    mixed them used to drop the pair axis silently."""
+
+    def _board(self, db):
+        return board.Board(db, board.BoardFilter(date_from=date(2026, 9, 1), date_to=date(2026, 9, 30)))
+
+    def test_pair_and_row_axes_are_separate(self, db, board_data):
+        with self._board(db) as b:
+            b.rows(skip_pair_axis="stores", skip_row_axes=("stock", "ageing"))
+            b.rows(skip_row_axes=("alerts",))
+
+    @pytest.mark.parametrize(
+        "kwargs",
+        [
+            {"skip_row_axes": ("stores",)},  # a pair axis among the row axes
+            {"skip_row_axes": ("stok",)},
+            {"skip_pair_axis": "stock"},  # a row axis as the pair axis
+            {"skip_pair_axis": "nope"},
+        ],
+    )
+    def test_unknown_or_misplaced_axes_raise(self, db, board_data, kwargs):
+        with self._board(db) as b:
+            with pytest.raises(ValueError):
+                b.rows(**kwargs)

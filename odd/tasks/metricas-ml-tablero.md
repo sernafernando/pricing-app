@@ -549,9 +549,10 @@ una consulta por fila).
   TODAS sus ventas (también las de otras publicaciones o días fuera del
   período). KPIs, conteos de chips, paginado y CSV usan el mismo conjunto de
   filas; con el toggle prendido "con ventas X de Y" da X = Y. Parámetro
-  `solo_con_ventas` (bool): por defecto `true` en la API (lo pidió el
-  usuario); `BoardFilter.solo_con_ventas` por defecto `False` (un filtro
-  vacío no filtra, como los demás). El frontend lo manda siempre explícito.
+  `solo_con_ventas` (bool): por defecto `false` en la API y en
+  `BoardFilter` (revisión R2: en un deploy escalonado un bundle viejo del
+  SPA no lo manda y no puede recibir tablero/KPIs/CSV recortados en
+  silencio); la PÁGINA lo prende por defecto y lo manda siempre explícito.
 - (PS1/PS2/PS3) Sub-filas de publicaciones de un producto: los filtros de
   FILA (solo con ventas, stock, ageing, alertas) ya decidieron que el
   producto se ve; sus sub-filas muestran todas sus publicaciones que pasan
@@ -591,9 +592,10 @@ una consulta por fila).
       Ruta: inline (writer único). RED visto: backend 5/7 fallando (con "Hoy"
       volvían los 4 productos, el CSV traía 4 filas, `quizas` daba 200);
       frontend 5 fallando (sin `solo_con_ventas` en los params, sin switch).
-      Los tests viejos del router que hablan del catálogo entero piden
-      `solo_con_ventas=false` explícito (`CATALOG`): el cambio del default
-      es el contrato nuevo, no una regresión.
+      ~~Los tests viejos del router piden `solo_con_ventas=false`
+      (`CATALOG`)~~ — revisión R2: el default de la API volvió a `false` y
+      `CATALOG` se sacó; los tests del toggle lo piden con
+      `SOLO_CON_VENTAS`.
       Checks: router + paridad + servicios del tablero 102 passed; vitest de
       la página y params 23 passed; ruff OK.
 - [x] PS2 — Stock: columna, chips Con/Sin stock/Sin dato con conteos, en

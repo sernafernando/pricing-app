@@ -112,8 +112,15 @@ STOCK_BUCKETS = ("con_stock", "sin_stock", "sin_dato")
 # The row's ageing (days since its last sale, or since its oldest
 # publication started if it never sold), in the KPI's three buckets: <= 30,
 # 31-60, > 60 days. "over_60" IS the "Ageing > 60d" alert (same SQL). A row
-# with no reference day at all falls in none of them.
+# with no reference day at all (never sold, publication with no start or
+# creation date) gets `AGEING_NO_REFERENCE`: no chip selects it, and
+# excluding chips never drops it (it is not in any excluded bucket).
 AGEING_BUCKETS = ("up_to_30", "from_31_to_60", "over_60")
+AGEING_NO_REFERENCE = "sin_referencia"
+# The chip axes a facet count can clear: PAIR axes filter (product, MLA)
+# pairs before they are summed into rows; ROW axes filter the summed rows.
+PAIR_AXES = ("stores", "pub_status", "pub_type")
+ROW_AXES = ("alerts", "stock", "ageing")
 SORTS = (
     "gross",
     "units",
@@ -214,7 +221,8 @@ class BoardFilter:
     # "Solo con ventas en el período": keep only the ROWS (products, or
     # publications) with a unit sold in the period. A row filter, applied to
     # the aggregated row: its windows, markups and series keep every sale.
-    # Off here (an empty filter filters nothing); the API defaults it on.
+    # Off unless asked for, here and in the API (rolling-deploy safety); the
+    # page turns it on by default and always sends it.
     solo_con_ventas: bool = False
     sort: str = "gross"
     sort_desc: bool = True
@@ -590,7 +598,10 @@ class Board:
 
     def filtered_pairs(self, skip: str = ""):
         """One row per (product, MLA) pair that passes every filter but
-        `skip`, read from the request's materialized pair table."""
+        `skip` (one of `PAIR_AXES`, or "" for none), read from the request's
+        materialized pair table."""
+        if skip and skip not in PAIR_AXES:
+            raise ValueError(f"Not a pair axis: {skip!r} (expected one of {PAIR_AXES})")
         f, t = self.f, self.t
         rk = cast(t.c.product, String) if f.group_by == "product" else t.c.mla
         q = select(
@@ -668,14 +679,18 @@ class Board:
             conditions.append(bucket.notin_(exclude))
         return conditions
 
-    def rows(self, skip: Any = "", apply_alerts: bool = True):
+    def rows(self, skip_pair_axis: str = "", skip_row_axes: Tuple[str, ...] = (), apply_alerts: bool = True):
         """One row per board row (product or MLA), with the derived markup,
-        ageing reference day, alert flags and stock, filtered by the row
-        filters (alerts, stock, "solo con ventas") unless skipped. `skip` is
-        one axis name or a tuple of them. A subquery: callers page, count or
-        aggregate it."""
-        skips = {skip} if isinstance(skip, str) else set(skip)
-        fp = self.filtered_pairs(skip if isinstance(skip, str) else "")
+        ageing reference day, alert flags and stock, filtered by the pair
+        filters but `skip_pair_axis` (one of `PAIR_AXES`) and the row filters
+        (alerts, stock, ageing, "solo con ventas") but `skip_row_axes` (any of
+        `ROW_AXES`). An unknown or misplaced axis name raises. A subquery:
+        callers page, count or aggregate it."""
+        unknown = [axis for axis in skip_row_axes if axis not in ROW_AXES]
+        if unknown:
+            raise ValueError(f"Not row axes: {unknown} (expected any of {ROW_AXES})")
+        skips = set(skip_row_axes)
+        fp = self.filtered_pairs(skip_pair_axis)
         product = fp.c.product if self.f.group_by == "product" else fp.c.pub_item_id
         g = (
             select(
@@ -724,7 +739,7 @@ class Board:
             (ref_day >= self._day(self.today - timedelta(days=AGEING_OK_DAYS)), literal("up_to_30")),
             (ref_day >= self._day(self.today - timedelta(days=AGEING_ALERT_DAYS)), literal("from_31_to_60")),
             (ref_day.isnot(None), literal("over_60")),
-            else_=literal("sin_dato"),
+            else_=literal(AGEING_NO_REFERENCE),
         )
         ageing_60 = ageing_bucket == "over_60"
         cayendo = delta <= FALLING_MARGIN_PP
@@ -1036,7 +1051,7 @@ class Board:
         CTEs: inlined, the planner under-estimates a filtered pair set and
         nests loops over it (measured: 0.7 s for one chip count)."""
         fp = self.filtered_pairs(skip)
-        rows = self.rows(skip=skip)
+        rows = self.rows(skip_pair_axis=skip)
         pairs = select(fp).cte(f"members_{skip or 'all'}").prefix_with("MATERIALIZED", dialect="postgresql")
         keys = select(rows.c.rk).cte(f"keys_{skip or 'all'}").prefix_with("MATERIALIZED", dialect="postgresql")
         return pairs.join(keys, keys.c.rk == pairs.c.rk), pairs
@@ -1052,7 +1067,7 @@ class Board:
                 select(bucket, func.count(func.distinct(fp.c.rk))).select_from(joined).group_by(bucket)
             )
         }
-        rows = self.rows(skip="stores")
+        rows = self.rows(skip_pair_axis="stores")
         stores_total = int(self.db.execute(select(func.count()).select_from(rows)).scalar() or 0)
 
         joined, fp = self._members("pub_status")
@@ -1087,7 +1102,7 @@ class Board:
         )
         pub_type = {name: int(type_row[name] or 0) for name in type_conds if type_row[name]}
 
-        rows = self.rows(skip="alerts")
+        rows = self.rows(skip_row_axes=("alerts",))
         alert_row = (
             self.db.execute(select(*(func.coalesce(func.sum(rows.c[f"a_{name}"]), 0).label(name) for name in ALERTS)))
             .mappings()
@@ -1098,7 +1113,7 @@ class Board:
         # The row chip groups (stock, ageing) in ONE statement: the rows with
         # BOTH axes cleared, each group counting only the rows that pass the
         # OTHER group's chips -- so each ignores its own axis and sees the rest.
-        rows = self.rows(skip=("stock", "ageing"))
+        rows = self.rows(skip_row_axes=("stock", "ageing"))
         stock_pass = and_(true(), *self._row_axis(rows.c.stock_bucket, self.f.stock, self.f.stock_exclude))
         ageing_pass = and_(true(), *self._row_axis(rows.c.ageing_bucket, self.f.ageing, self.f.ageing_exclude))
 
@@ -1142,6 +1157,7 @@ __all__ = [
     "ALERTS",
     "AGEING_ALERT_DAYS",
     "AGEING_BUCKETS",
+    "AGEING_NO_REFERENCE",
     "Board",
     "BoardFilter",
     "COMPARE",
