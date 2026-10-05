@@ -269,6 +269,26 @@ describe('MetricasML page', () => {
     expect(hint()).not.toBeInTheDocument();
   });
 
+  it('no warning for an exclude-only ageing filter or for "Hasta 30 d": they do not ask for stale rows', async () => {
+    const hint = () => screen.queryByText('Ocultando productos sin ventas en el período');
+    await renderWithRouter(<MetricasML />);
+    await screen.findByText('Impresora Multifunción Epson EcoTank L3250 Color Negro');
+    const group = screen.getByRole('group', { name: 'Filtrar por ageing' });
+
+    // Hiding "> 60 d" (include, then exclude).
+    await userEvent.click(within(group).getByRole('button', { name: /^Más de 60 d/ }));
+    await userEvent.click(within(group).getByRole('button', { name: /Más de 60 d/ }));
+    await waitFor(() => expect(lastBoardParams()).toMatchObject({ ageing_exclude: 'over_60' }));
+    expect(hint()).not.toBeInTheDocument();
+
+    await userEvent.click(within(group).getByRole('button', { name: /^Hasta 30 d/ }));
+    await waitFor(() => expect(lastBoardParams()).toMatchObject({ ageing: 'up_to_30' }));
+    expect(hint()).not.toBeInTheDocument();
+
+    await userEvent.click(within(group).getByRole('button', { name: /^31 a 60 d/ }));
+    expect(hint()).toBeInTheDocument();
+  });
+
   it('"Limpiar filtros" clears the ageing chips (and the warning with them)', async () => {
     await renderWithRouter(<MetricasML />);
     await screen.findByText('Impresora Multifunción Epson EcoTank L3250 Color Negro');
@@ -326,6 +346,29 @@ describe('MetricasML page', () => {
     await userEvent.click(screen.getByRole('button', { name: /Limpiar filtros/ }));
 
     await waitFor(() => expect(lastBoardParams()).toMatchObject({ sort: 'stock', solo_con_ventas: true }));
+  });
+
+  it('a known zero or negative stock is a number, never the "—" of an unknown stock', async () => {
+    const stocks = { 4101: 0, 4102: -3, 4103: null };
+    board = {
+      ...BOARD_RESPONSE,
+      rows: BOARD_RESPONSE.rows.map((row) => (row.key in stocks ? { ...row, stock: stocks[row.key] } : row)),
+    };
+    await renderWithRouter(<MetricasML />);
+    await screen.findByText('Impresora Multifunción Epson EcoTank L3250 Color Negro');
+    const cell = (key) =>
+      screen
+        .getAllByRole('row')
+        .find((tr) => within(tr).queryByRole('button', { name: new RegExp(`publicaciones de ${board.rows.find((r) => r.key === key).title.slice(0, 20)}`) }))
+        .querySelector('td[data-col-id="stock"] span');
+
+    expect(cell('4101')).toHaveTextContent(/^0$/);
+    expect(cell('4101')).toHaveAttribute('data-stock', 'zero');
+    expect(cell('4102')).toHaveTextContent(/^-3$/);
+    expect(cell('4102')).toHaveAttribute('data-stock', 'negative');
+    expect(cell('4102').className).toMatch(/tone_negative/);
+    expect(cell('4103')).toHaveTextContent(/^—$/);
+    expect(cell('4103')).toHaveAttribute('data-stock', 'unknown');
   });
 
   it('"Comparar con" switches to the same period last year', async () => {

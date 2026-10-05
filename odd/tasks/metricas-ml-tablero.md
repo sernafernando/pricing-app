@@ -667,3 +667,30 @@ una consulta por fila).
       `ENVIRONMENT=development`): **7861 passed, 16 skipped**.
       Espejo Engram `odd/metricas-ml-tablero/tasks`: PENDIENTE (mem_save
       falló: "multiple active runtime sessions match").
+- [x] PS6 (revisión de cuatro lentes, aprobada con hallazgos). Ruta: inline.
+      R1 celda de stock: `StockCell` propia — "—" SÓLO si el stock es
+      desconocido; 0 se lee "0" (sin atenuar) y un negativo es su número en
+      tono de pérdida (`data-stock` = positive/zero/negative/unknown).
+      R2 deploy escalonado: `solo_con_ventas` por defecto `false` en la API
+      (un bundle viejo no lo manda y conserva el catálogo entero en tablero,
+      KPIs y CSV); la página lo prende y lo manda siempre. Se sacó `CATALOG`
+      de los tests; los del toggle usan `SOLO_CON_VENTAS`.
+      R3 ageing sin referencia: valor interno propio
+      `AGEING_NO_REFERENCE = "sin_referencia"` (antes reusaba el "sin_dato"
+      del stock); ningún chip lo selecciona y excluir chips nunca lo saca.
+      R4 aviso: sólo con un chip de ageing INCLUIDO que implica sin ventas
+      recientes (31–60, > 60 d) y el toggle prendido; excluir o "Hasta 30 d"
+      no lo muestran.
+      R5 `Board.rows(skip_pair_axis=..., skip_row_axes=(...))` explícitos
+      (`PAIR_AXES` / `ROW_AXES`); un nombre desconocido o del eje
+      equivocado levanta `ValueError` (antes un eje de par dentro de la
+      tupla se ignoraba en silencio).
+      R6 `SwitchChip` (componente + módulo CSS propios) para el toggle; la
+      página ya no importa el CSS privado de `FacetChips` ni lleva el
+      parche de orden de hojas. Visual: el switch prendido usa
+      `--money-headline`.
+      RED visto: backend 79 fallando (default true, `AGEING_NO_REFERENCE`
+      inexistente, fila sin referencia, `rows()` sin los argumentos nuevos);
+      frontend: celda de stock sin `data-stock`, aviso con exclusión,
+      `SwitchChip` inexistente.
+      Commits: `aab9f420` (backend R2/R3/R5) y el de frontend R1/R4/R6.

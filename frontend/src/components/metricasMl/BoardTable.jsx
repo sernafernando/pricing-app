@@ -45,6 +45,20 @@ const SORT_BY = {
   stock: 'stock',
 };
 
+/** The row's ERP stock: "—" ONLY when unknown; a known 0 reads "0" and a
+ * negative stock (oversold in the ERP) its number in the danger tone, so
+ * neither can pass for "Sin dato". */
+function StockCell({ value }) {
+  const known = value !== null && value !== undefined;
+  const kind = !known ? 'unknown' : value < 0 ? 'negative' : value === 0 ? 'zero' : 'positive';
+  const tone = kind === 'negative' ? styles.tone_negative : kind === 'unknown' ? styles.muted : '';
+  return (
+    <span className={`${styles.units} ${tone}`} data-stock={kind}>
+      {known ? formatUnits(value) : '—'}
+    </span>
+  );
+}
+
 function UnitsCell({ value, strong }) {
   return (
     <span className={`${styles.units} ${strong ? styles.strong : ''} ${value ? '' : styles.muted}`}>
@@ -233,7 +247,7 @@ function renderCell(colId, row, ctx) {
     }
     case 'stock':
       // `productos_erp.stock` of the row's product; "—" when the ERP has none.
-      return <UnitsCell value={row.stock} />;
+      return <StockCell value={row.stock} />;
     default:
       // Sell-in / sell-out: announced, never invented.
       return <span className={styles.placeholder}>—</span>;

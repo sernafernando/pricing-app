@@ -201,6 +201,7 @@ describe('Métricas ML board (visual)', () => {
         // The toggle reads as ON (filled chip) and the ageing dots carry the
         // Ageing column's tones.
         expect(toggle.getAttribute('aria-checked')).toBe('true');
+        expect(getComputedStyle(toggle).backgroundColor).toBe(tokenColor('--money-headline'));
         const dotOf = (label) => chips.find((c) => c.textContent.startsWith(label)).querySelector('[data-tone]');
         expect(getComputedStyle(dotOf('Más de 60 d')).backgroundColor).toBe(tokenColor('--tone-danger-fg'));
         expect(getComputedStyle(dotOf('31 a 60 d')).backgroundColor).toBe(tokenColor('--tone-warning-fg'));

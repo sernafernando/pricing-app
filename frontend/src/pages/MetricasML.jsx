@@ -1,17 +1,17 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useReactTable, getCoreRowModel } from '@tanstack/react-table';
-import { AlertTriangle, Check, Clock, Download, FilterX, ShieldAlert, TrendingDown } from 'lucide-react';
+import { AlertTriangle, Clock, Download, FilterX, ShieldAlert, TrendingDown } from 'lucide-react';
 import api from '../services/api';
 import { usePermisos } from '../contexts/PermisosContext';
 import DateRangeFilter from '../components/DateRangeFilter';
 import SearchInput from '../components/SearchInput';
 import ProductFiltersPanel from '../components/shared/ProductFiltersPanel';
 import FacetChips from '../components/ventasMl/FacetChips';
-import facetStyles from '../components/ventasMl/FacetChips.module.css';
 import ColumnPicker from '../components/ventasMl/ColumnPicker';
 import Pagination from '../components/ventasMl/Pagination';
 import SegmentedControl from '../components/metricasMl/SegmentedControl';
 import ToggleChips from '../components/metricasMl/ToggleChips';
+import SwitchChip from '../components/metricasMl/SwitchChip';
 import MetricasKpiStrip from '../components/metricasMl/MetricasKpiStrip';
 import BoardTable from '../components/metricasMl/BoardTable';
 import { buildBoardColumns } from '../components/metricasMl/metricasMlColumns';
@@ -48,6 +48,8 @@ import styles from './MetricasML.module.css';
 
 const DEFAULT_PRESET = '30d';
 const DEFAULT_PAGE_SIZE = 50;
+// Ageing buckets whose rows, by definition, sold nothing in the last 30 days.
+const STALE_AGEING_BUCKETS = new Set(['from_31_to_60', 'over_60']);
 // The board's period cap (`MAX_PERIOD_DAYS` in `routers/ml_metricas.py`).
 const MAX_PERIOD_DAYS = 366;
 const PERIOD_LIMIT_MESSAGE = 'El período máximo es de 1 año';
@@ -305,10 +307,11 @@ export default function MetricasML() {
       !soloConVentas,
   );
   const noun = groupBy === 'publication' ? 'publicaciones' : 'productos';
-  // Stale rows (an ageing chip) rarely sold in a short period: with the
-  // toggle on they are hidden. Say so -- never flip the toggle behind the
-  // operator's back.
-  const hidesStale = soloConVentas && (ageing.length > 0 || ageingExclude.length > 0);
+  // Asking FOR stale rows (an included 31-60 or > 60 d chip) while the
+  // toggle hides rows with no sale in the period mostly comes back empty:
+  // say so -- never flip the toggle behind the operator's back. Excluding
+  // chips or "Hasta 30 d" ask for no stale rows: no warning.
+  const hidesStale = soloConVentas && ageing.some((bucket) => STALE_AGEING_BUCKETS.has(bucket));
   const rows = board?.rows || [];
   const total = board?.total ?? 0;
   const freshness = timeAgo(board?.refreshed_at);
@@ -417,19 +420,12 @@ export default function MetricasML() {
 
         <div className={styles.filterBand}>
           <div className={styles.filterGroup}>
-            <button
-              type="button"
-              role="switch"
-              aria-checked={soloConVentas}
-              className={`${facetStyles.chip} ${soloConVentas ? facetStyles.chipActive : ''} ${styles.periodToggle}`}
+            <SwitchChip
+              label="Solo con ventas en el período"
+              checked={soloConVentas}
+              onChange={withReset(setSoloConVentas)}
               title="Muestra sólo las filas con ventas en el período elegido; sus ventanas 24h a 30D no cambian"
-              onClick={() => withReset(setSoloConVentas)(!soloConVentas)}
-            >
-              <span className={styles.periodToggleBox} aria-hidden="true">
-                {soloConVentas && <Check size={11} strokeWidth={3} />}
-              </span>
-              Solo con ventas en el período
-            </button>
+            />
             {hidesStale && (
               <span className={styles.toggleHint} role="status">
                 Ocultando {noun} sin ventas en el período
