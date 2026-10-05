@@ -1,6 +1,8 @@
 # promos-precio-vigente — aplicar una promo al precio que el operador vio
 
 Branch: `fix/promos-precio-vigente-al-aplicar` (from `origin/main`, PR targets `main`).
+Engram mirror `odd/promos-precio-vigente/tasks`: PENDING (mem_save refused: multiple active
+runtime sessions match this directory; resync when available).
 TDD: Strict TDD (session config "Strict TDD Mode: enabled"). Runners: `backend/venv/bin/pytest`, `pnpm test` (vitest).
 
 ## Objective
@@ -80,16 +82,41 @@ Scope decision per type (code + ML docs):
 ## Tasks
 
 - [x] T0 STEP 0 verification recorded (above). Route: inline (read 1-3 files at a time).
-- [ ] T1 Backend pre-apply guard for SMART-like: `precio_visto` required; live status must be
+- [x] T1 Backend pre-apply guard for SMART-like: `precio_visto` required; live status must be
       `candidate`; live price must equal `precio_visto` to the cent; else 409 with
       `{precio_visto, precio_actual, markup_actual}` and nothing sent. Fail closed on live-read
       failure / missing / non-candidate. Kill switch unchanged. Route: inline (single writer).
-- [ ] T2 UI confirm flow on 409: new price + markup (red if negative), "¿Aplicar igual a $X
-      (markup Y%)?", confirming re-sends with the new `precio_visto`.
-- [ ] T3 Post-apply check: compare ML's returned `price` with the confirmed one; flag + log;
-      panel red alert with one-click "Quitar promo" (existing remove flow).
-- [ ] T4 Freshness: "actualizado hace X" per row; open-panel pull for `promos.ver` users;
+      Commit `40592151` (with T3 backend).
+- [x] T2 UI confirm flow on 409: new price + markup (red if negative), "¿Aplicar igual a $X
+      (markup Y%)?", confirming re-sends with the new `precio_visto`. Commit `e6a502d2`.
+- [x] T3 Post-apply check: compare ML's returned `price` with the confirmed one; flag + log;
+      panel red alert with one-click "Quitar promo" (existing remove flow). Backend `40592151`,
+      UI `e6a502d2`.
+- [x] T4 Freshness: "actualizado hace X" per row; open-panel pull for `promos.ver` users;
       empty mirror while ML has promos / refresh failed -> "No se pudo confirmar con ML".
+      Backend `79ec2b62`, UI `dc1edaac`.
+
+## Contract decisions
+
+- Tolerance: both prices rounded to cents (half-up) must be equal — absorbs JSON float noise
+  only (`_to_cents`, `ml_promotions_write_service.py`).
+- HTTP: `rejected_price_changed` -> 409, body root `{status, mensaje, precio_visto,
+  precio_actual, markup_visto, markup_actual}` (the app-wide handler in
+  `app/core/exceptions.py` returns a dict detail as the body root; a string detail becomes
+  `{error: {code, message}}`). `rejected_not_candidate` -> 409 (message);
+  `rejected_price_unconfirmed` (no `precio_visto`) -> 422; live read failure -> 503 (unchanged).
+- `markup_actual` / `markup_aplicado` use `markup_de_oferta_live`: the live proxy entry is fed
+  as the `payload` into `enriquecer_markup_por_promo`, i.e. the same chain (price + ML
+  co-funding + boost) as the panel's `nuestro_markup`.
+- `precio_difiere` is tri-state: True (red alert + Quitar promo, logged at ERROR), False,
+  None = ML returned no usable price (amber "no se pudo verificar"), never collapsed to False.
+- `POST /promociones/item/{mla}/refresh` is now `promos.ver` (it is a read-reconcile of our
+  mirror; no write to ML). The TreeNode manual refresh BUTTON is still gated on
+  `promos.escribir` in the UI — left as is (separate UX decision).
+- GET `/promociones/item/{mla}`: one live proxy read ONLY when the mirror is empty, to set
+  `posiblemente_desactualizado` / `promos_en_ml`.
+- Behaviour change for API clients: an enroll of SMART / PRE_NEGOTIATED / PRICE_MATCHING
+  without `precio_visto` is now refused (422). The panel is the only client in this repo.
 
 ## Acceptance / checks
 
@@ -98,4 +125,44 @@ suite once at the end.
 
 ## Evidence
 
-(filled as tasks close)
+RED observed before each implementation:
+- Backend T1/T3: `tests/unit/test_ml_promotions_precio_vigente.py` -> 29 failed, 1 passed (the
+  DEAL control) — `enroll_one_item() got an unexpected keyword argument 'precio_visto'`,
+  missing `markup_de_oferta_live`.
+- Backend T4: 5 failed (refresh 403 for a promos.ver user; no `posiblemente_desactualizado`).
+- FE T2/T3: `PromoApplyControl.precioVigente.test.jsx` -> 11 failed, 2 passed (DEAL contract,
+  verified-equal no alert).
+- FE T4: `MlaPromocionesPanel.freshness.test.jsx` -> 4 failed, 3 passed (controls).
+
+Tests whose expectations changed on purpose (they encoded the old contract):
+- `test_ml_promotions_write_service.py`: SMART/PRE_NEGOTIATED/PRICE_MATCHING enroll calls now
+  pass `precio_visto`; live fixtures carry `status: "candidate"` (real proxy shape).
+- `test_ml_promotions_router_refresh.py`: 403 now checks `promos.ver`.
+- `PromoApplyControl.test.jsx`: the three "sends only {promotion_id, promotion_type}" tests now
+  expect `precio_visto`.
+- `MlaPromocionesPanel.test.jsx`: read-only describe now "without promos.ver never pulls";
+  empty + failed refresh expects "No se pudo confirmar"; the plain empty-state test mocks a
+  successful pull.
+
+GREEN / checks:
+- ruff format --check + ruff check on touched backend files: clean.
+- Targeted pytest `-k "promo or promocion"`: 413 passed.
+- vitest promociones: 357 passed (15 files); full `pnpm test`: 1919 passed (145 files).
+- eslint: 0 errors (8 pre-existing warnings, none in touched files). `pnpm run build`: OK.
+- Full backend suite, run once alone (`pytest tests/`): 7826 passed, 16 skipped, 0 failed
+  (20m03s). (`pytest` at backend root also collects `test_turbo_simple.py`, a manual script
+  that reads stdin — not part of the suite.)
+
+## Known caveat
+
+- "Quitar promo" right after a SMART enroll re-reads the live offer for its current `ref_id`;
+  during ML's ~10-18s consistency window that may still be the CANDIDATE id and ML rejects the
+  DELETE ("Rechazado por ML"). The red alert stays visible so the operator can retry.
+
+## Needs the external ml-webhook bridge
+
+- Why the mirror had 0 rows for MLA2385168136 while the live proxy had 9 promos (does its
+  reconcile drop/skip rows?). This repo now detects and says so; the cause lives there.
+- Whether the proxy passes ML's enroll 201 body (`price`) through unchanged. The code already
+  relied on `body.offer_id`; if `price` were stripped, every apply would show the amber
+  "no se pudo verificar" warning (fail-visible, not fail-silent).
