@@ -92,8 +92,53 @@ class TestDropDailyRollupMigration:
         _run(conn, "downgrade")
 
         assert _has_table(conn)
-        uniques = sa_inspect(conn).get_unique_constraints(_TABLE)
+        inspector = sa_inspect(conn)
+        columns = {c["name"]: str(c["type"]) for c in inspector.get_columns(_TABLE)}
+        assert columns == {
+            "id": "INTEGER",
+            "product_item_id": "INTEGER",
+            "mla": "VARCHAR(20)",
+            "day": "DATE",
+            "units": "INTEGER",
+            "gross_ars": "NUMERIC(16, 2)",
+            "total_gauss": "NUMERIC(16, 2)",
+            "costo": "NUMERIC(16, 2)",
+            "orders": "INTEGER",
+            "unresolved_orders": "INTEGER",
+            "last_sale_at": "TIMESTAMP",
+            "updated_at": "TIMESTAMP",
+        }
+        # The unique constraint's backing index is listed too; compare plain ones.
+        assert {i["name"] for i in inspector.get_indexes(_TABLE) if not i.get("duplicates_constraint")} == {
+            "ix_ml_product_daily_metrics_day",
+            "ix_ml_product_daily_metrics_mla_day",
+            "ix_ml_product_daily_metrics_updated_at",
+        }
+        uniques = inspector.get_unique_constraints(_TABLE)
         assert {"product_item_id", "mla", "day"} == set(uniques[0]["column_names"])
+
+    def test_the_drop_fails_fast_when_the_table_is_held(self, conn) -> None:
+        """The deploy must not queue forever behind a session holding the
+        table: with it held, the DROP gives up at the 10s lock_timeout."""
+        import time
+
+        from sqlalchemy.exc import OperationalError
+
+        if not _has_table(conn):
+            _run(conn, "downgrade")
+        holder_engine = create_engine(str(conn.engine.url.render_as_string(hide_password=False)))
+        try:
+            with holder_engine.connect() as holder:
+                holder.execute(text(f"SELECT 1 FROM {_TABLE} LIMIT 1"))  # opens a txn holding ACCESS SHARE
+                started = time.monotonic()
+                with pytest.raises(OperationalError, match="lock timeout"):
+                    _run(conn, "upgrade")
+                elapsed = time.monotonic() - started
+                holder.rollback()
+        finally:
+            holder_engine.dispose()
+        assert 9 <= elapsed < 30
+        assert _has_table(conn)
 
     def test_the_lock_timeout_does_not_leak_to_later_migrations(self, conn) -> None:
         default = conn.execute(text("SHOW lock_timeout")).scalar()
