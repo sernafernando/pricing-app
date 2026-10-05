@@ -2096,6 +2096,18 @@ describe('Ctrl/Cmd+click opens the sale in MercadoLibre instead of the drawer', 
     expect(api.get).not.toHaveBeenCalledWith(expect.stringContaining('/ml-ventas-ops/orders/1001'));
   });
 
+  it('lone order that belongs to a pack: ctrl+click uses its own pack id', async () => {
+    mockSalesList([{ ...PAID_SALE, pack_id: PACK_ID }]);
+    const user = userEvent.setup();
+    await renderWithRouter(<VentasML />);
+    await ctrlClick(user, await screen.findByText('comprador1'));
+    expect(window.open).toHaveBeenCalledWith(
+      `https://vendedores.mercadolibre.com.ar/ventas/${PACK_ID}/detalle`,
+      '_blank',
+      'noopener,noreferrer',
+    );
+  });
+
   it('meta+click works too and a plain click still opens the drawer', async () => {
     mockSalesList([PAID_SALE]);
     const user = userEvent.setup();
