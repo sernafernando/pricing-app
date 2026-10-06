@@ -324,6 +324,18 @@ describe('opening a group', () => {
     errors.mockRestore();
   });
 
+  it('the same product under two open groups (a product sold in two stores) never repeats a React key', async () => {
+    const errors = vi.spyOn(console, 'error').mockImplementation(() => {});
+    await openGroupedView();
+
+    await userEvent.click(screen.getByRole('button', { name: /productos de Epson/ }));
+    await userEvent.click(screen.getByRole('button', { name: /productos de Lenovo/ }));
+
+    await waitFor(() => expect(screen.getAllByText(EPSON_GROUP_PRODUCTS.rows[0].title)).toHaveLength(2));
+    expect(errors.mock.calls.flat().join(' ')).not.toMatch(/same key/);
+    errors.mockRestore();
+  });
+
   it('shows no "Ver más" once every product is on screen', async () => {
     groupProducts = { ...EPSON_GROUP_PRODUCTS, total: 2 };
     await openGroupedView();

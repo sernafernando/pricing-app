@@ -366,8 +366,8 @@ export default function BoardTable({
     return `${cellClass(col.id, edge.start, edge.end)} ${col.group === 'sellin' ? styles.soonCol : ''}`;
   };
 
-  const renderRow = (row, { isSub = false } = {}) => (
-    <tr key={`${isSub ? 'sub-' : ''}${row.key}`} className={isSub ? styles.subRow : expanded.has(row.key) ? styles.openRow : ''}>
+  const renderRow = (row, { isSub = false, parentKey = '' } = {}) => (
+    <tr key={isSub ? `sub-${parentKey}-${row.key}` : row.key} className={isSub ? styles.subRow : expanded.has(row.key) ? styles.openRow : ''}>
       {columns.map((col) => (
         <td key={col.id} className={colClass(col)} data-col-id={col.id}>
           {renderCell(col.id, row, {
@@ -442,7 +442,7 @@ export default function BoardTable({
               </tr>
             );
             const loaded = state?.rows || [];
-            for (const sub of loaded) out.push(renderRow(sub, { isSub: true }));
+            for (const sub of loaded) out.push(renderRow(sub, { isSub: true, parentKey: row.key }));
             if (!state || state.loading) {
               out.push(note('loading', `Cargando ${noun}…`));
             } else if (state.error) {
