@@ -265,6 +265,22 @@ class TestReDerivation:
             with pytest.raises(ValueError, match="batch_size"):
                 events_store.rederive_events(db, batch_size=size)
 
+    def test_the_item_filtered_batch_query_uses_the_item_index(self, events_on) -> None:
+        with events_on.begin() as conn:
+            conn.execute(
+                text(
+                    "INSERT INTO ml_change_log (resource_type, entity_id, item_id, observed_at, changed_paths, changes)"
+                    " SELECT 'item', 'MLA' || (g % 400), 'MLA' || (g % 400), now() - (g || ' seconds')::interval,"
+                    " '{}', '[]' FROM generate_series(1, 6000) g"
+                )
+            )
+            conn.execute(text("ANALYZE ml_change_log"))
+        with store_module.database.get_background_db() as db:
+            query = events_store.batch_query(db, item_id="MLA7", last_id=0, batch_size=50)
+            sql = str(query.statement.compile(dialect=db.get_bind().dialect, compile_kwargs={"literal_binds": True}))
+            plan = "\n".join(row[0] for row in db.execute(text("EXPLAIN " + sql)))
+        assert "ix_ml_change_log_item" in plan and "Seq Scan" not in plan
+
     def test_each_batch_is_committed_so_a_late_failure_keeps_the_earlier_batches(self, events_on, monkeypatch) -> None:
         for item_id in (ACTIVE, "MLA882393030"):
             body = sample_item(item_id)

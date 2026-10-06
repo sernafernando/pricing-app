@@ -5,7 +5,7 @@ from __future__ import annotations
 import copy
 
 from app.services.ml_publications.diff import MISSING, Change, array_keys_for, diff
-from tests.services.ml_publications.conftest import bulk_item, keyed_sample, load_fixture, ITEM_WITH_VARIATIONS
+from tests.services.ml_publications.conftest import ITEM_WITH_VARIATIONS, bulk_item, keyed_sample, load_fixture
 
 
 def _by_path(changes):

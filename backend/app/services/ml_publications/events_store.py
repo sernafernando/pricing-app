@@ -64,6 +64,14 @@ def write_events(db, entry: MlChangeLog) -> int:
     return _insert(db, [ChangeRow.from_model(entry)])
 
 
+def batch_query(db, *, item_id: Optional[str], last_id: int, batch_size: int):
+    """The next batch of change-log rows after `last_id`, in id order, optionally one item's."""
+    query = db.query(MlChangeLog).filter(MlChangeLog.id > last_id)
+    if item_id is not None:
+        query = query.filter(MlChangeLog.item_id == item_id)
+    return query.order_by(MlChangeLog.id).limit(batch_size)
+
+
 def rederive_events(db, *, item_id: Optional[str] = None, batch_size: int = DEFAULT_BATCH_SIZE) -> int:
     """Rebuild the events of every stored change-log row (optionally one item's); returns new events.
 
@@ -78,10 +86,7 @@ def rederive_events(db, *, item_id: Optional[str] = None, batch_size: int = DEFA
     last_id = 0
     while True:
         db.execute(text(f"SET LOCAL statement_timeout = '{BATCH_STATEMENT_TIMEOUT}'"))
-        query = db.query(MlChangeLog).filter(MlChangeLog.id > last_id)
-        if item_id is not None:
-            query = query.filter(MlChangeLog.item_id == item_id)
-        entries = query.order_by(MlChangeLog.id).limit(batch_size).all()
+        entries = batch_query(db, item_id=item_id, last_id=last_id, batch_size=batch_size).all()
         if not entries:
             return created
         created += _insert(db, [ChangeRow.from_model(entry) for entry in entries])
