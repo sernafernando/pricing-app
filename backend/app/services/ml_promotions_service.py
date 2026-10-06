@@ -45,6 +45,7 @@ state (candidate|started|finished), not the live ML API read-back.
 """
 
 import logging
+from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional, Set
 
 from sqlalchemy import text
@@ -140,6 +141,25 @@ _ITEM_PROMOTIONS_SELECT_COLUMNS_JOINED = """
 """
 
 
+# Single definition of "this promo has not expired" for every SET-BASED reader
+# (summaries, node summary, fetch_mlas_* behind the list promo filter) so the
+# list badges/filters agree with the panel. Expects the aliases `ip`
+# (ml_item_promotions) and `p` (ml_promotions, LEFT JOINed via
+# _PROMO_CATALOG_JOIN_SQL; ml_promotions.promotion_id is the PRIMARY KEY, so
+# the join cannot duplicate rows).
+#
+# SCOPE, deliberately narrow: it reads ONLY the typed catalog column
+# p.finish_date. The catalog carries the dates for SELLER_CAMPAIGN/DEAL (the
+# reported case). Payload-only dates (e.g. SMART) are NOT checked here: casting
+# the free-form payload->>'finish_date' string in a set-based query would let
+# ONE malformed value crash the whole read, so those stay covered by the
+# panel's Python filter (fetch_item_promotions) and by the bridge fix upstream
+# (ml-webhook). A promo with no catalog row or a NULL catalog finish_date is
+# kept (fail-open for display).
+_PROMO_CATALOG_JOIN_SQL = "LEFT JOIN ml_promotions p ON p.promotion_id = ip.promotion_id"
+_PROMO_NOT_EXPIRED_SQL = "(p.finish_date IS NULL OR p.finish_date >= NOW())"
+
+
 def _validate_item_status(status: Any) -> str:
     """Validate an ml_item_promotions.status against candidate|started|finished.
 
@@ -223,6 +243,27 @@ def fetch_promotions() -> List[Dict[str, Any]]:
     return result
 
 
+def _is_expired_finish_date(finish: Any, now: datetime) -> bool:
+    """True only when `finish` is a parseable date strictly in the past.
+
+    Anything missing or unparseable is NOT expired (fail-open for display: a
+    promo with no/garbled finish date, e.g. SMART/PRICE_MATCHING, stays
+    visible rather than the read crashing or hiding a valid option). Naive
+    values are taken as UTC; a date-only value expires at the END of that day.
+    """
+    if not finish or not isinstance(finish, str):
+        return False
+    try:
+        parsed = datetime.fromisoformat(finish.strip())
+    except ValueError:
+        return False
+    if len(finish.strip()) == 10:
+        parsed = parsed + timedelta(days=1)
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    return parsed < now
+
+
 def fetch_item_promotions(mla_id: str, active_only: bool = False) -> List[Dict[str, Any]]:
     """Lee las promociones aplicables a un MLA puntual desde ml_item_promotions.
 
@@ -236,6 +277,9 @@ def fetch_item_promotions(mla_id: str, active_only: bool = False) -> List[Dict[s
             marque 'finished'. El display (endpoint) usa active_only=True para no
             mostrar promos terminadas; la reconciliación de escrituras usa el
             default (False) porque necesita ver el estado crudo.
+            Además oculta promos cuya fecha de fin efectiva (catálogo, si no
+            payload) ya pasó: el bridge puede dejar filas vivas después de que
+            ML dejó de devolverlas. Sin fecha o con fecha ilegible se muestra.
 
     Returns:
         Lista de promociones del item (dict), con status normalizado a
@@ -259,6 +303,7 @@ def fetch_item_promotions(mla_id: str, active_only: bool = False) -> List[Dict[s
             {"mla": mla_id},
         ).fetchall()
 
+    now = datetime.now(timezone.utc)
     result = []
     for row in rows:
         item = _item_promotion_row_to_dict(row)
@@ -277,6 +322,10 @@ def fetch_item_promotions(mla_id: str, active_only: bool = False) -> List[Dict[s
         catalog_finish = row[14]
         item["start_date"] = catalog_start.isoformat() if catalog_start else item["start_date"]
         item["finish_date"] = catalog_finish.isoformat() if catalog_finish else item["finish_date"]
+        # Effective finish (catalog-then-payload, resolved just above) in the
+        # past => expired; hide it from the display read only.
+        if active_only and _is_expired_finish_date(item["finish_date"], now):
+            continue
         result.append(item)
     logger.info("ml_item_promotions: %d promotions read for %s", len(result), mla_id)
     return result
@@ -313,7 +362,7 @@ def fetch_promo_summary_by_mla(mla_ids: List[str]) -> Dict[str, Dict[str, Any]]:
     engine = get_mlwebhook_engine()
     with engine.connect() as conn:
         rows = conn.execute(
-            text("""
+            text(f"""
                 SELECT
                     ip.mla,
                     COUNT(*)                                 AS active_count,
@@ -324,6 +373,7 @@ def fetch_promo_summary_by_mla(mla_ids: List[str]) -> Dict[str, Dict[str, Any]]:
                 LEFT JOIN ml_promotions p ON p.promotion_id = ip.promotion_id
                 WHERE ip.mla = ANY(:mlas)
                   AND ip.status IN ('candidate', 'started', 'pending')
+                  AND {_PROMO_NOT_EXPIRED_SQL}
                 GROUP BY ip.mla
             """),
             {"mlas": mla_ids},
@@ -373,7 +423,7 @@ def fetch_promo_node_summary_by_mla(mla_ids: List[str]) -> Dict[str, Dict[str, A
     engine = get_mlwebhook_engine()
     with engine.connect() as conn:
         rows = conn.execute(
-            text("""
+            text(f"""
                 SELECT
                     ip.mla,
                     COUNT(*) FILTER (WHERE ip.status = 'started')   AS started_count,
@@ -387,6 +437,7 @@ def fetch_promo_node_summary_by_mla(mla_ids: List[str]) -> Dict[str, Dict[str, A
                 LEFT JOIN ml_promotions p ON p.promotion_id = ip.promotion_id
                 WHERE ip.mla = ANY(:mlas)
                   AND ip.status IN ('candidate', 'started', 'pending')
+                  AND {_PROMO_NOT_EXPIRED_SQL}
                 GROUP BY ip.mla
             """),
             {"mlas": mla_ids},
@@ -482,8 +533,10 @@ def fetch_mlas_with_active_promo_type(
     if not promo_types:
         return set()
 
-    status_clause = "AND status = 'started'" if applied_only else "AND status IN ('candidate', 'started', 'pending')"
-    mla_clause = "AND mla = ANY(:mla_ids)" if mla_ids else ""
+    status_clause = (
+        "AND ip.status = 'started'" if applied_only else "AND ip.status IN ('candidate', 'started', 'pending')"
+    )
+    mla_clause = "AND ip.mla = ANY(:mla_ids)" if mla_ids else ""
 
     params: Dict[str, Any] = {"types": promo_types}
     if mla_ids:
@@ -493,10 +546,12 @@ def fetch_mlas_with_active_promo_type(
     with engine.connect() as conn:
         rows = conn.execute(
             text(f"""
-                SELECT DISTINCT mla
-                FROM ml_item_promotions
-                WHERE promotion_type = ANY(:types)
+                SELECT DISTINCT ip.mla
+                FROM ml_item_promotions ip
+                {_PROMO_CATALOG_JOIN_SQL}
+                WHERE ip.promotion_type = ANY(:types)
                 {status_clause}
+                AND {_PROMO_NOT_EXPIRED_SQL}
                 {mla_clause}
             """),
             params,
@@ -536,11 +591,12 @@ def fetch_mlas_by_promo_name(name_substr: str) -> Set[str]:
     engine = get_mlwebhook_engine()
     with engine.connect() as conn:
         rows = conn.execute(
-            text(r"""
+            text(rf"""
                 SELECT DISTINCT ip.mla
                 FROM ml_item_promotions ip
                 JOIN ml_promotions p ON p.promotion_id = ip.promotion_id
                 WHERE ip.status IN ('candidate', 'started', 'pending')
+                  AND {_PROMO_NOT_EXPIRED_SQL}
                   AND p.name ILIKE :pattern ESCAPE '\'
             """),
             {"pattern": pattern},
@@ -576,16 +632,18 @@ def fetch_mlas_with_started(mla_ids: Optional[List[str]] = None) -> Set[str]:
         RuntimeError: si ML_WEBHOOK_DB_URL no está configurada. El caller
             (endpoint) es responsable de mapear esto a HTTP 503.
     """
-    mla_clause = "AND mla = ANY(:mla_ids)" if mla_ids else ""
+    mla_clause = "AND ip.mla = ANY(:mla_ids)" if mla_ids else ""
     params: Dict[str, Any] = {"mla_ids": mla_ids} if mla_ids else {}
 
     engine = get_mlwebhook_engine()
     with engine.connect() as conn:
         rows = conn.execute(
             text(f"""
-                SELECT DISTINCT mla
-                FROM ml_item_promotions
-                WHERE status = 'started'
+                SELECT DISTINCT ip.mla
+                FROM ml_item_promotions ip
+                {_PROMO_CATALOG_JOIN_SQL}
+                WHERE ip.status = 'started'
+                AND {_PROMO_NOT_EXPIRED_SQL}
                 {mla_clause}
             """),
             params,
@@ -620,21 +678,23 @@ def fetch_mlas_with_candidate_only(mla_ids: Optional[List[str]] = None) -> Set[s
         RuntimeError: si ML_WEBHOOK_DB_URL no está configurada. El caller
             (endpoint) es responsable de mapear esto a HTTP 503.
     """
-    mla_clause = "AND mla = ANY(:mla_ids)" if mla_ids else ""
+    mla_clause = "AND ip.mla = ANY(:mla_ids)" if mla_ids else ""
     params: Dict[str, Any] = {"mla_ids": mla_ids} if mla_ids else {}
 
     engine = get_mlwebhook_engine()
     with engine.connect() as conn:
         rows = conn.execute(
             text(f"""
-                SELECT mla
-                FROM ml_item_promotions
-                WHERE status IN ('candidate', 'started', 'pending')
+                SELECT ip.mla
+                FROM ml_item_promotions ip
+                {_PROMO_CATALOG_JOIN_SQL}
+                WHERE ip.status IN ('candidate', 'started', 'pending')
+                AND {_PROMO_NOT_EXPIRED_SQL}
                 {mla_clause}
-                GROUP BY mla
-                HAVING bool_or(status = 'candidate')
-                   AND NOT bool_or(status = 'started')
-                   AND NOT bool_or(status = 'pending')
+                GROUP BY ip.mla
+                HAVING bool_or(ip.status = 'candidate')
+                   AND NOT bool_or(ip.status = 'started')
+                   AND NOT bool_or(ip.status = 'pending')
             """),
             params,
         ).fetchall()
@@ -671,7 +731,7 @@ def fetch_mlas_with_candidate_only_for_types(promo_types: List[str], mla_ids: Op
     if not promo_types:
         return set()
 
-    mla_clause = "AND mla = ANY(:mla_ids)" if mla_ids else ""
+    mla_clause = "AND ip.mla = ANY(:mla_ids)" if mla_ids else ""
     params: Dict[str, Any] = {"types": promo_types}
     if mla_ids:
         params["mla_ids"] = mla_ids
@@ -680,15 +740,17 @@ def fetch_mlas_with_candidate_only_for_types(promo_types: List[str], mla_ids: Op
     with engine.connect() as conn:
         rows = conn.execute(
             text(f"""
-                SELECT mla
-                FROM ml_item_promotions
-                WHERE promotion_type = ANY(:types)
-                  AND status IN ('candidate', 'started', 'pending')
+                SELECT ip.mla
+                FROM ml_item_promotions ip
+                {_PROMO_CATALOG_JOIN_SQL}
+                WHERE ip.promotion_type = ANY(:types)
+                  AND ip.status IN ('candidate', 'started', 'pending')
+                  AND {_PROMO_NOT_EXPIRED_SQL}
                 {mla_clause}
-                GROUP BY mla
-                HAVING bool_or(status = 'candidate')
-                   AND NOT bool_or(status = 'started')
-                   AND NOT bool_or(status = 'pending')
+                GROUP BY ip.mla
+                HAVING bool_or(ip.status = 'candidate')
+                   AND NOT bool_or(ip.status = 'started')
+                   AND NOT bool_or(ip.status = 'pending')
             """),
             params,
         ).fetchall()

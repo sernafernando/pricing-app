@@ -22,7 +22,7 @@ the mlwebhook DB is NOT reachable from the test environment.
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import UTC, datetime
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -403,6 +403,82 @@ class TestFetchItemPromotions:
         assert result[0]["finish_date"] == "2026-07-31T23:59:59"
         assert result[1]["start_date"] is None
         assert result[1]["finish_date"] is None
+
+
+class TestFetchItemPromotionsExpiredFilter:
+    """active_only=True hides promos whose effective finish date is in the past.
+
+    The mirror table is upsert-only and the bridge can leave rows alive after
+    ML stopped returning them, so status alone is not enough. Effective finish
+    = catalog p.finish_date, else payload finish_date; no date at all = shown.
+    """
+
+    PAST = datetime(2020, 1, 1, tzinfo=UTC)
+    FUTURE = datetime(2099, 1, 1, tzinfo=UTC)
+
+    def _fetch(self, rows, active_only=True):
+        from app.services.ml_promotions_service import fetch_item_promotions
+
+        mock_engine = MagicMock()
+        mock_conn = MagicMock()
+        mock_engine.connect.return_value.__enter__.return_value = mock_conn
+        mock_conn.execute.return_value.fetchall.return_value = rows
+        with patch("app.services.ml_promotions_service.get_mlwebhook_engine", return_value=mock_engine):
+            return fetch_item_promotions("MLA123456789", active_only=active_only)
+
+    def test_expired_catalog_finish_is_hidden(self) -> None:
+        rows = [_make_item_promotion_row(promotion_id="OLD", catalog_finish_date=self.PAST)]
+        assert self._fetch(rows) == []
+
+    def test_expired_payload_finish_without_catalog_is_hidden(self) -> None:
+        rows = [_make_item_promotion_row(promotion_id="OLD", payload={"finish_date": "2020-09-30T23:59:59Z"})]
+        assert self._fetch(rows) == []
+
+    def test_future_finish_is_shown(self) -> None:
+        rows = [_make_item_promotion_row(promotion_id="NEW", catalog_finish_date=self.FUTURE)]
+        assert [r["promotion_id"] for r in self._fetch(rows)] == ["NEW"]
+
+    def test_no_finish_date_is_shown(self) -> None:
+        rows = [_make_item_promotion_row(promotion_id="SMART-1", promotion_type="SMART")]
+        assert [r["promotion_id"] for r in self._fetch(rows)] == ["SMART-1"]
+
+    def test_catalog_future_overrides_payload_past(self) -> None:
+        rows = [
+            _make_item_promotion_row(
+                promotion_id="CAT-WINS",
+                catalog_finish_date=self.FUTURE,
+                payload={"finish_date": "2020-09-30T23:59:59Z"},
+            )
+        ]
+        assert [r["promotion_id"] for r in self._fetch(rows)] == ["CAT-WINS"]
+
+    def test_catalog_past_overrides_payload_future(self) -> None:
+        rows = [
+            _make_item_promotion_row(
+                promotion_id="CAT-PAST",
+                catalog_finish_date=self.PAST,
+                payload={"finish_date": "2099-01-01T00:00:00Z"},
+            )
+        ]
+        assert self._fetch(rows) == []
+
+    @pytest.mark.parametrize("bad", ["not-a-date", "2026-13-45", "", 12345])
+    def test_malformed_payload_date_does_not_crash_and_is_shown(self, bad) -> None:
+        rows = [_make_item_promotion_row(promotion_id="BAD", payload={"finish_date": bad})]
+        assert [r["promotion_id"] for r in self._fetch(rows)] == ["BAD"]
+
+    def test_naive_past_payload_date_is_hidden(self) -> None:
+        rows = [_make_item_promotion_row(promotion_id="OLD", payload={"finish_date": "2020-09-30T23:59:59"})]
+        assert self._fetch(rows) == []
+
+    def test_date_only_today_is_still_shown(self) -> None:
+        today = datetime.now(UTC).date().isoformat()
+        rows = [_make_item_promotion_row(promotion_id="TODAY", payload={"finish_date": today})]
+        assert [r["promotion_id"] for r in self._fetch(rows)] == ["TODAY"]
+
+    def test_active_only_false_returns_expired_rows(self) -> None:
+        rows = [_make_item_promotion_row(promotion_id="OLD", catalog_finish_date=self.PAST)]
+        assert [r["promotion_id"] for r in self._fetch(rows, active_only=False)] == ["OLD"]
 
 
 class TestFetchPromoSummaryByMla:
@@ -1270,8 +1346,8 @@ class TestFetchMlasWithCandidateNotStarted:
         # any MLA that has a started promo, even when it also has candidates.
         normalized = " ".join(executed_query.split())
         assert (
-            "bool_or(status = 'candidate') AND NOT bool_or(status = 'started') "
-            "AND NOT bool_or(status = 'pending')" in normalized
+            "bool_or(ip.status = 'candidate') AND NOT bool_or(ip.status = 'started') "
+            "AND NOT bool_or(ip.status = 'pending')" in normalized
         )
         assert "'pending'" in executed_query
 
@@ -1321,7 +1397,7 @@ class TestFetchMlasWithCandidateNotStartedTruthTable:
             fetch_mlas_with_candidate_only()
 
         executed_query = str(mock_conn.execute.call_args[0][0])
-        assert "NOT bool_or(status = 'started')" in executed_query
+        assert "NOT bool_or(ip.status = 'started')" in executed_query
 
     def test_has_pending_is_excluded_via_having_clause_text(self) -> None:
         """Truth-table row: candidate+pending -> excluded (B2)."""
@@ -1336,7 +1412,7 @@ class TestFetchMlasWithCandidateNotStartedTruthTable:
             fetch_mlas_with_candidate_only()
 
         executed_query = str(mock_conn.execute.call_args[0][0])
-        assert "NOT bool_or(status = 'pending')" in executed_query
+        assert "NOT bool_or(ip.status = 'pending')" in executed_query
 
 
 class TestFetchMlasWithCandidateOnlyForTypes:
@@ -1382,8 +1458,8 @@ class TestFetchMlasWithCandidateOnlyForTypes:
         normalized = " ".join(executed_query.split())
         assert "promotion_type = ANY(:types)" in normalized
         assert (
-            "bool_or(status = 'candidate') AND NOT bool_or(status = 'started') "
-            "AND NOT bool_or(status = 'pending')" in normalized
+            "bool_or(ip.status = 'candidate') AND NOT bool_or(ip.status = 'started') "
+            "AND NOT bool_or(ip.status = 'pending')" in normalized
         )
         bound_params = mock_conn.execute.call_args[0][1]
         assert bound_params["types"] == ["SMART"]
