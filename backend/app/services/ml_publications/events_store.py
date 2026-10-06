@@ -42,13 +42,14 @@ def _values(row: ChangeRow, event: Event) -> dict:
     }
 
 
-def _write(db, row: ChangeRow) -> int:
-    events = derive_events(row)
-    if not events:
+def _insert(db, rows: list[ChangeRow]) -> int:
+    """One INSERT for the events of every row given; returns how many were new."""
+    values = [_values(row, event) for row in rows for event in derive_events(row)]
+    if not values:
         return 0
     statement = (
         pg_insert(MlItemEvent)
-        .values([_values(row, event) for event in events])
+        .values(values)
         .on_conflict_do_nothing(index_elements=["dedupe_key"])
         .returning(MlItemEvent.id)
     )
@@ -57,7 +58,7 @@ def _write(db, row: ChangeRow) -> int:
 
 def write_events(db, entry: MlChangeLog) -> int:
     """Insert the events of one change-log row; returns how many were new."""
-    return _write(db, ChangeRow.from_model(entry))
+    return _insert(db, [ChangeRow.from_model(entry)])
 
 
 def rederive_events(db, *, item_id: Optional[str] = None, batch_size: int = DEFAULT_BATCH_SIZE) -> int:
@@ -77,7 +78,6 @@ def rederive_events(db, *, item_id: Optional[str] = None, batch_size: int = DEFA
         entries = query.order_by(MlChangeLog.id).limit(batch_size).all()
         if not entries:
             return created
-        for entry in entries:
-            created += _write(db, ChangeRow.from_model(entry))
+        created += _insert(db, [ChangeRow.from_model(entry) for entry in entries])
         last_id = entries[-1].id
         db.commit()  # ends the batch transaction; also expires the loaded rows (bounded identity map)

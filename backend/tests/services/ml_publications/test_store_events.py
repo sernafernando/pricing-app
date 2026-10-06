@@ -266,16 +266,16 @@ class TestReDerivation:
             apply(flipped(body, status="paused"), item_id, minutes=2)
         with events_on.begin() as conn:
             conn.execute(text("DELETE FROM ml_item_events"))
-        real = events_store._write
+        real = events_store._insert
         calls = []
 
-        def fail_on_the_second_row(db, row):
-            calls.append(row.id)
+        def fail_on_the_second_batch(db, rows):
+            calls.append([row.id for row in rows])
             if len(calls) == 2:
                 raise RuntimeError("injected failure in batch 2")
-            return real(db, row)
+            return real(db, rows)
 
-        monkeypatch.setattr(events_store, "_write", fail_on_the_second_row)
+        monkeypatch.setattr(events_store, "_insert", fail_on_the_second_batch)
         with pytest.raises(RuntimeError, match="batch 2"):
             with store_module.database.get_background_db() as db:
                 events_store.rederive_events(db, batch_size=1)

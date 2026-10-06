@@ -22,8 +22,8 @@ from sqlalchemy.dialects.postgresql import insert as pg_insert
 
 from app.core import database
 from app.models.ml_publications import MlChangeLog, MlItem, MlItemVariation
-from app.services.ml_publications.canonical import canonical_hash
 from app.services.ml_publications import events_store, settings_store
+from app.services.ml_publications.canonical import canonical_hash
 from app.services.ml_publications.diff import Change, diff, split_excluded
 from app.services.ml_publications.mappers import map_variations
 from app.services.ml_publications.ml_http import MlResponse
