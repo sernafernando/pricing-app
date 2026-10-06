@@ -109,6 +109,14 @@ class TestEnqueue:
         stored = row(mlpub_pg, "MLA1")
         assert (stored["parked_at"], stored["attempts"], stored["lane"]) == (None, 0, 0)
 
+    def test_a_manual_enqueue_on_a_claimed_entry_keeps_its_charged_attempts(self, mlpub_pg) -> None:
+        enqueue([entry("MLA1")])
+        claim_one("MLA1")
+        sql(mlpub_pg, "UPDATE ml_pub_refresh_queue SET attempts = 2")
+        enqueue([entry("MLA1", lane=0)])
+        stored = row(mlpub_pg, "MLA1")
+        assert (stored["attempts"], stored["parked_at"], stored["lane"]) == (2, None, 0)
+
     def test_kinds_do_not_collide(self, mlpub_pg) -> None:
         enqueue([EnqueueEntry("item", "X1", 1), EnqueueEntry("user_product", "X1", 1)])
         assert count(mlpub_pg) == 2

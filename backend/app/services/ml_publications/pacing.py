@@ -155,6 +155,8 @@ class Pacer:
     def acquire(self, family: str, deadline: Optional[datetime] = None) -> str:
         """Wait for a slot and spend it. Returns `DEADLINE` (nothing spent, nothing slept) when
         the wait would cross `deadline`."""
+        if deadline is not None and deadline.tzinfo is None:
+            raise ValueError("deadline must be timezone-aware")
         now = self._clock.monotonic()
         is_stock = family == STOCK_FAMILY
         ready_at = max(self._cooldown_until, self._global.next_at)

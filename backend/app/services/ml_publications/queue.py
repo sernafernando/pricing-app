@@ -103,7 +103,7 @@ _ENQUEUE_SQL = text(
         not_before = CASE WHEN EXCLUDED.lane < q.lane THEN LEAST(q.not_before, EXCLUDED.not_before)
                           ELSE q.not_before END,
         parked_at = CASE WHEN EXCLUDED.lane = 0 THEN NULL ELSE q.parked_at END,
-        attempts = CASE WHEN EXCLUDED.lane = 0 THEN 0 ELSE q.attempts END
+        attempts = CASE WHEN EXCLUDED.lane = 0 AND q.parked_at IS NOT NULL THEN 0 ELSE q.attempts END
     """
 )
 

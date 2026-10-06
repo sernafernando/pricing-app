@@ -79,7 +79,7 @@ class MlResponse:
 
 @dataclass
 class Counters:
-    """Calls per endpoint family and outcome class, cumulative for the process."""
+    """Calls per endpoint family and outcome class, cumulative for the lifetime of one client."""
 
     _counts: Dict[str, Dict[str, int]] = field(default_factory=lambda: defaultdict(lambda: defaultdict(int)))
 

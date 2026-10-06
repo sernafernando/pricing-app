@@ -199,6 +199,11 @@ class TestDeadline:
         assert clock.monotonic() == before
         assert clock.sleeps == []
 
+    def test_a_naive_deadline_is_rejected_instead_of_failing_mid_subtraction(self, clock) -> None:
+        pacer = make(clock)
+        with pytest.raises(ValueError, match="timezone"):
+            pacer.acquire("items_bulk", deadline=datetime(2026, 10, 6, 12, 0, 30))
+
     def test_a_deadline_beyond_the_wait_is_granted_after_sleeping(self, clock) -> None:
         pacer = make(clock)
         pacer.on_rate_limited("30")
