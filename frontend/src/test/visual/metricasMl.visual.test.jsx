@@ -21,7 +21,12 @@ import { page } from 'vitest/browser';
 import { setTheme, tokenColor } from './visualHelpers';
 import MetricasML from '../../pages/MetricasML';
 import api from '../../services/api';
-import { BOARD_RESPONSE, EPSON_PUBLICATIONS } from './metricasMlFixtures';
+import {
+  BOARD_RESPONSE,
+  EPSON_GROUP_PRODUCTS,
+  EPSON_PUBLICATIONS,
+  GROUP_BOARD_RESPONSE,
+} from './metricasMlFixtures';
 
 vi.mock('react-router-dom', () => ({
   Link: ({ to, children, ...rest }) => (
@@ -260,6 +265,66 @@ describe('Métricas ML board (visual)', () => {
         expect(getComputedStyle(byText('-$ 1.416.000,00')).color).toBe(tokenColor('--money-negative'));
         expect(getComputedStyle(byText('▲ +2,1 pp')).color).toBe(tokenColor('--tone-success-fg'));
         expect(getComputedStyle(byText('▼ -5,8 pp')).color).toBe(tokenColor('--tone-danger-fg'));
+        screen.unmount();
+      });
+    }
+  }
+});
+
+describe('Métricas ML "Agrupado" view (visual)', () => {
+  beforeEach(() => {
+    api.get.mockReset();
+    api.get.mockImplementation((url, config) => {
+      if (url === '/ml-metricas/board' && config?.params?.group_by === 'group') {
+        return Promise.resolve({ data: { ...GROUP_BOARD_RESPONSE, dimension: config.params.dimension } });
+      }
+      if (url === '/ml-metricas/board/group-products') return Promise.resolve({ data: EPSON_GROUP_PRODUCTS });
+      return Promise.resolve(routeGet(url));
+    });
+  });
+
+  for (const { width, height } of VIEWPORTS) {
+    for (const theme of THEMES) {
+      it(`${width}x${height} ${theme}: the view and dimension controls fit, a group opens into its products, nothing wraps or overflows`, async () => {
+        const screen = await renderPage({ width, height, theme });
+        await screen.getByRole('button', { name: 'Agrupado' }).click();
+        await expect.element(screen.getByText('Sin marca')).toBeVisible();
+        await screen.getByRole('button', { name: /Ver productos de Epson/ }).click();
+        await expect.element(screen.getByText(EPSON_GROUP_PRODUCTS.rows[0].sku)).toBeVisible();
+        await shot(`board-grouped-${width}-${theme}`, { width, height });
+
+        // The two segmented controls sit in the first band, each button on ONE line.
+        const views = document.querySelector('[role="group"][aria-label="Agrupar por"]');
+        const dimensions = document.querySelector('[role="group"][aria-label="Dimensión"]');
+        const buttons = [...views.querySelectorAll('button'), ...dimensions.querySelectorAll('button')];
+        expect(buttons).toHaveLength(8);
+        for (const button of buttons) {
+          expect(button.getClientRects(), button.textContent).toHaveLength(1);
+          expect(button.getBoundingClientRect().height, button.textContent).toBeLessThan(lineHeightOf(button) * 2);
+          expect(button.getBoundingClientRect().right, button.textContent).toBeLessThanOrEqual(width);
+        }
+        const band = views.closest('div[class*="filterBand"]');
+        expect(band.scrollWidth).toBeLessThanOrEqual(band.clientWidth + 1);
+        expect(document.documentElement.scrollWidth).toBeLessThanOrEqual(width);
+
+        // The table: scrolls inside its card, first column pinned, no cell overflow,
+        // money and the group's counts on one line.
+        const table = document.querySelector('table');
+        const scroller = document.querySelector('[data-table-scroll]');
+        expect(scroller.scrollWidth).toBeGreaterThan(scroller.clientWidth);
+        expect(overflowingCells(table)).toEqual([]);
+        expect(wrapped(table.querySelectorAll('[data-money]'))).toEqual([]);
+        const counts = [...table.querySelectorAll('tbody td[data-col-id="producto"] span')].filter((el) =>
+          /productos? ·/.test(el.textContent),
+        );
+        expect(counts.length).toBeGreaterThan(0);
+        expect(wrapped(counts)).toEqual([]);
+
+        const firstCell = table.querySelector('tbody td[data-col-id="producto"]');
+        const leftBefore = firstCell.getBoundingClientRect().left;
+        scroller.scrollLeft = scroller.scrollWidth;
+        await new Promise((resolve) => requestAnimationFrame(resolve));
+        expect(Math.abs(firstCell.getBoundingClientRect().left - leftBefore)).toBeLessThan(1);
         screen.unmount();
       });
     }

@@ -46,7 +46,8 @@ const pctOf = (part, whole) => (whole ? (part / whole) * 100 : null);
 
 export default function MetricasKpiStrip({ kpis, canSeeMargin, groupBy, loading }) {
   if (!kpis) return <div className={styles.cards} aria-busy={loading} />;
-  const noun = groupBy === 'publication' ? 'Publicaciones' : 'Productos';
+  const noun = { publication: 'Publicaciones', group: 'Grupos' }[groupBy] ?? 'Productos';
+  // The ageing buckets count PRODUCTS (or publications) even in the grouped view.
   const short = groupBy === 'publication' ? 'pub' : 'prod';
   const { units, gross, total_gauss: tg, markup, rows_with_sales: withSales, ageing } = kpis;
   const ageingTotal = ageing.up_to_30 + ageing.from_31_to_60 + ageing.over_60;

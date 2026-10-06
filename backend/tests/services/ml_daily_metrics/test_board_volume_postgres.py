@@ -604,3 +604,121 @@ def test_ventas_product_option_lists_cost_on_volume(volume_session) -> None:
         lambda: sales_product_options(session, active, active_scope),
     )
     assert rows and options.marcas
+
+
+# ── The "Agrupado" view (ODD `metricas-ml-vista-agrupada`) ─────────────────
+
+
+@pytest.fixture()
+def group_lookups(volume_session):
+    """What the group names read, on the volume data: PMs for the 5 brands,
+    the 7 subcategories, the official stores (two sharing a clave). Removed
+    again: the module's other tests count rows of these tables."""
+    session = volume_session
+    session.execute(
+        text(
+            "INSERT INTO usuarios (id, nombre) VALUES (990001, 'PM Uno'), (990002, 'PM Dos');"
+            "INSERT INTO marcas_pm (marca, categoria, usuario_id) VALUES "
+            "('Epson', 'Cat', 990001), ('Lenovo', 'Cat', 990001), ('Samsung', 'Cat', 990002), ('Sony', 'Cat', 990002);"
+            "INSERT INTO subcategorias_grupos (subcat_id, grupo_id, nombre_subcategoria, nombre_categoria) "
+            "SELECT s, 1, 'Subcategoría ' || s, 'Cat' FROM generate_series(1, 7) AS s;"
+            "INSERT INTO ml_tiendas_oficiales (store_id, nombre, clave, orden, activa) VALUES "
+            "(57997, 'Gauss', NULL, 1, true), (2645, 'TP-Link vieja', 'tplink', 2, false), "
+            "(144, 'TP-Link', 'tplink', 3, true), (191942, 'Multimarca', NULL, 4, true)"
+        )
+    )
+    yield
+    session.execute(
+        text(
+            "DELETE FROM ml_tiendas_oficiales; DELETE FROM subcategorias_grupos; "
+            "DELETE FROM marcas_pm WHERE usuario_id IN (990001, 990002); DELETE FROM usuarios WHERE id IN (990001, 990002)"
+        )
+    )
+
+
+GROUP_DIMENSIONS = ("marca", "categoria", "subcategoria", "tienda", "pm")
+
+
+@pytest.mark.postgres
+class TestGroupedBoardOnVolume:
+    def test_fixed_statement_count_for_every_dimension_and_page_size(self, volume_session, group_lookups) -> None:
+        _response, product_recorder, _ms = _request(volume_session, limit=50)
+        counts = {}
+        for dimension in GROUP_DIMENSIONS:
+            for limit in (10, 200):
+                response, recorder, elapsed_ms = _request(
+                    volume_session, limit=limit, group_by="group", dimension=dimension
+                )
+                counts[(dimension, limit)] = len(recorder.statements)
+                if limit == 10:
+                    _print(f"\ngrouped by {dimension}, limit=10 ({response.total} groups)", recorder, elapsed_ms)
+                assert response.rows and len(response.rows) <= limit
+
+        assert len(set(counts.values())) == 1, counts
+        # Its own page, series and count -- never per group, never per product.
+        assert counts[("marca", 10)] <= len(product_recorder.statements) + 3
+
+    def test_an_empty_page_skips_the_series(self, volume_session, group_lookups) -> None:
+        _full, full, _ = _request(volume_session, group_by="group", dimension="marca")
+        empty_response, empty, _ = _request(volume_session, group_by="group", dimension="marca", q="no-existe-nada")
+
+        assert not empty_response.rows and len(empty.statements) == len(full.statements) - 1
+
+    @pytest.mark.parametrize("dimension", GROUP_DIMENSIONS)
+    def test_the_groups_add_up_to_the_ungrouped_totals_on_volume(
+        self, volume_session, group_lookups, dimension
+    ) -> None:
+        response, _recorder, _ms = _request(volume_session, limit=200, group_by="group", dimension=dimension)
+        assert response.total <= 200  # one page holds every group of every dimension here
+
+        kpis = response.kpis
+        assert sum(r.units for r in response.rows) == kpis.units.value
+        assert round(sum(r.gross for r in response.rows), 2) == kpis.gross.value
+        # Total Gauss of a multi-item order is split in fractions of a cent
+        # and each group rounds ITS sum once: within a cent per group.
+        assert abs(sum(r.total_gauss for r in response.rows) - kpis.total_gauss.value) <= 0.01 * len(response.rows)
+
+    def test_the_filters_narrow_the_groups_on_volume(self, volume_session, group_lookups) -> None:
+        response, recorder, elapsed_ms = _request(
+            volume_session,
+            limit=50,
+            group_by="group",
+            dimension="tienda",
+            marcas=("Samsung",),
+            pub_status=("active",),
+            solo_con_ventas=True,
+        )
+        _print("\ngrouped by tienda with filters", recorder, elapsed_ms)
+
+        assert response.rows and response.total == len(response.rows)
+
+    @pytest.mark.parametrize(
+        "extra",
+        [{}, {"stock": ("con_stock",), "ageing": ("up_to_30",), "solo_con_ventas": True}],
+        ids=["plain", "row-filters"],
+    )
+    def test_opening_a_group_on_volume(self, volume_session, group_lookups, extra) -> None:
+        f = board.BoardFilter(
+            date_from=TODAY - timedelta(days=29), date_to=TODAY, group_by="product", dimension="tienda", **extra
+        )
+        recorder = _Recorder()
+        connection = volume_session.connection()
+        event.listen(connection, "before_cursor_execute", recorder.before)
+        event.listen(connection, "after_cursor_execute", recorder.after)
+        started = time.perf_counter()
+        try:
+            with board.Board(volume_session, f, group_key="c:tplink") as b:
+                total = b.product_count()
+                rows = b.page(100, 0)
+        finally:
+            event.remove(connection, "before_cursor_execute", recorder.before)
+            event.remove(connection, "after_cursor_execute", recorder.after)
+        _print(
+            f"\nopening c:tplink {extra or ''} ({len(rows)} of {total} products)",
+            recorder,
+            (time.perf_counter() - started) * 1000,
+        )
+
+        assert rows and len(rows) == min(100, total)  # a page, never the whole group
+        # One request: savepoint + 2 CREATE + 2 ANALYZE + count + page + details + series + rollback.
+        assert len(recorder.statements) <= 12, len(recorder.statements)

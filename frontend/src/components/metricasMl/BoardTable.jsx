@@ -1,4 +1,4 @@
-import { ArrowDown, ArrowUp, ChevronDown, ChevronRight, CornerDownRight, Package } from 'lucide-react';
+import { ArrowDown, ArrowUp, ChevronDown, ChevronRight, CornerDownRight, Layers, Package } from 'lucide-react';
 import Sparkline from './Sparkline';
 import { formatSignedMoney, markupTone, moneyTone } from '../../utils/ventasMlTone';
 import {
@@ -88,6 +88,42 @@ function ProductBadges({ row, canSeeMargin }) {
   ));
 }
 
+/** "12 productos · 31 publicaciones": what a group row sums. */
+function groupCounts(row) {
+  const products = row.products_count ?? 0;
+  const pubs = row.publications_count ?? 0;
+  return `${products === 1 ? '1 producto' : `${products} productos`} · ${pubs === 1 ? '1 publicación' : `${pubs} publicaciones`}`;
+}
+
+function GroupCell({ row, expanded, onToggle }) {
+  return (
+    <div className={styles.product}>
+      <button
+        type="button"
+        className={styles.expand}
+        aria-expanded={expanded}
+        aria-label={`${expanded ? 'Ocultar' : 'Ver'} productos de ${row.title}`}
+        onClick={onToggle}
+      >
+        {expanded ? <ChevronDown size={16} /> : <ChevronRight size={16} />}
+      </button>
+      <span className={styles.thumb} aria-hidden="true">
+        <Layers size={18} />
+      </span>
+      <div className={styles.productText}>
+        <div className={styles.titleLine}>
+          <span className={styles.title} title={row.title}>
+            {row.title}
+          </span>
+        </div>
+        <div className={styles.meta}>
+          <span>{groupCounts(row)}</span>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function Thumb({ row }) {
   if (row.thumbnail) return <img className={styles.thumb} src={row.thumbnail} alt="" loading="lazy" />;
   return (
@@ -98,6 +134,29 @@ function Thumb({ row }) {
 }
 
 function ProductCell({ row, groupBy, canSeeMargin, isSub, expanded, onToggle }) {
+  if (isSub && groupBy === 'group') {
+    // A group opens into PRODUCTS: sku and brand over the title.
+    return (
+      <div className={styles.subProduct}>
+        <div className={styles.subLine}>
+          <CornerDownRight size={12} className={styles.subArrow} aria-hidden="true" />
+          {row.sku && <span className={styles.sku}>{row.sku}</span>}
+          {row.marca && (
+            <>
+              <span className={styles.dotSep}>·</span>
+              <span className={styles.descriptor}>{row.marca}</span>
+            </>
+          )}
+        </div>
+        <div className={styles.subTitle} title={row.title}>
+          {row.title}
+        </div>
+      </div>
+    );
+  }
+  if (groupBy === 'group') {
+    return <GroupCell row={row} expanded={expanded} onToggle={onToggle} />;
+  }
   if (isSub) {
     return (
       <div className={styles.subProduct}>
@@ -284,7 +343,7 @@ export default function BoardTable({
   groupBy,
   canSeeMargin,
   expanded,
-  publications,
+  subRows,
   onToggleExpand,
   sort,
   sortDesc,
@@ -307,8 +366,8 @@ export default function BoardTable({
     return `${cellClass(col.id, edge.start, edge.end)} ${col.group === 'sellin' ? styles.soonCol : ''}`;
   };
 
-  const renderRow = (row, { isSub = false } = {}) => (
-    <tr key={`${isSub ? 'sub-' : ''}${row.key}`} className={isSub ? styles.subRow : expanded.has(row.key) ? styles.openRow : ''}>
+  const renderRow = (row, { isSub = false, parentKey = '' } = {}) => (
+    <tr key={isSub ? `sub-${parentKey}-${row.key}` : row.key} className={isSub ? styles.subRow : expanded.has(row.key) ? styles.openRow : ''}>
       {columns.map((col) => (
         <td key={col.id} className={colClass(col)} data-col-id={col.id}>
           {renderCell(col.id, row, {
@@ -370,28 +429,46 @@ export default function BoardTable({
       <tbody>
         {rows.flatMap((row) => {
           const out = [renderRow(row)];
-          if (groupBy === 'product' && expanded.has(row.key)) {
-            const state = publications[row.key];
+          if (groupBy !== 'publication' && expanded.has(row.key)) {
+            const state = subRows[row.key];
+            const noun = groupBy === 'group' ? 'productos' : 'publicaciones';
+            const note = (key, text, extra) => (
+              <tr key={`${key}-${row.key}`} className={styles.subRow}>
+                <td className={styles.colProducto}>
+                  <span className={styles.subNote}>{text}</span>
+                  {extra}
+                </td>
+                <td colSpan={columns.length - 1} />
+              </tr>
+            );
+            const loaded = state?.rows || [];
+            for (const sub of loaded) out.push(renderRow(sub, { isSub: true, parentKey: row.key }));
             if (!state || state.loading) {
-              out.push(
-                <tr key={`loading-${row.key}`} className={styles.subRow}>
-                  <td className={styles.colProducto}>
-                    <span className={styles.subNote}>Cargando publicaciones…</span>
-                  </td>
-                  <td colSpan={columns.length - 1} />
-                </tr>,
-              );
+              out.push(note('loading', `Cargando ${noun}…`));
             } else if (state.error) {
+              const failure = groupBy === 'group' ? 'los productos' : 'las publicaciones';
               out.push(
-                <tr key={`error-${row.key}`} className={styles.subRow}>
-                  <td className={styles.colProducto}>
-                    <span className={styles.subNote}>No se pudieron cargar las publicaciones.</span>
-                  </td>
-                  <td colSpan={columns.length - 1} />
-                </tr>,
+                note(
+                  'error',
+                  `No se pudieron cargar ${failure}.`,
+                  // A page that failed after others loaded: retry just that page.
+                  groupBy === 'group' && loaded.length > 0 ? (
+                    <button type="button" className={styles.moreButton} onClick={() => onToggleExpand(row, { more: true })}>
+                      Reintentar
+                    </button>
+                  ) : null,
+                ),
               );
-            } else {
-              for (const pub of state.rows) out.push(renderRow(pub, { isSub: true }));
+            } else if (groupBy === 'group' && state.total > loaded.length) {
+              out.push(
+                note(
+                  'more',
+                  `Mostrando ${loaded.length} de ${state.total} productos`,
+                  <button type="button" className={styles.moreButton} onClick={() => onToggleExpand(row, { more: true })}>
+                    Ver más productos
+                  </button>,
+                ),
+              );
             }
           }
           return out;
