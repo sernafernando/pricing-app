@@ -53,3 +53,11 @@ def bulk_item(item_id: str) -> dict:
 @pytest.fixture
 def fixture_loader():
     return load_fixture
+
+
+KEYED_ARRAYS = "keyed_arrays_promotions_visits_20261006.json"
+
+
+def keyed_sample(name: str) -> Any:
+    """Real promotions list / visits body used to exercise the natural-key overrides."""
+    return copy.deepcopy(load_fixture(KEYED_ARRAYS)[name])
