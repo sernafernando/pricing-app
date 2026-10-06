@@ -34,8 +34,8 @@ Los nombres viven en `frontend/src/constants/tiendasOficiales.js` y duplicados e
 
 ## Tareas
 
-- [ ] T1 Backend: tabla (con `clave`) + modelo + migracion (seed + permiso) + tests
-- [ ] T2 Backend: schemas + router GET/CRUD (con `clave`) + permiso + `items-sin-mla` desde tabla
+- [x] T1 (f3e879c6, f22142d1) Backend: tabla (con `clave`) + modelo + migracion (seed + permiso) + tests
+- [x] T2 Backend: schemas + router GET/CRUD (con `clave`) + permiso + `items-sin-mla` desde tabla
 - [ ] T3 Backend: helper `store_ids_for_clave` + dashboard TP-Link + sync/ingesta TP-Link por clave (fail-closed) + sin `2645` literal
 - [ ] T4 Frontend: hook `useTiendasOficiales` + panel Admin
 - [ ] T5 Frontend: consumidores (Ventas ML, Metricas ML, Productos, TreeNode, ExportModal, DashboardMetricasML) + limpieza de constantes
@@ -53,8 +53,8 @@ pytest (nuevos + suite completa), ruff format/check, pnpm test, lint, build, tes
 
 ## Progreso / evidencia
 
-- T1: RED = test_migration_ml_tiendas_oficiales_postgres + test_ml_tienda_oficial (ImportError/2 failed por falta de `clave`); GREEN = 9 passed. Nota: `ruff format alembic/` reformatea ~120 migraciones historicas ajenas (drift previo): se formatean solo archivos propios.
+- T1: RED = test_migration_ml_tiendas_oficiales_postgres + test_ml_tienda_oficial (ImportError/2 failed por falta de `clave`); GREEN = 9 passed. Seed ampliado: 471846 (nuevo id TP-Link, clave tplink) orden 2; 471846 no aparecia en el codigo. T2: RED = 10 failed router + 1 failed items-sin-mla; GREEN = 11 + 1 passed. Sin DELETE a proposito (se desactiva). Nota: `ruff format alembic/` reformatea ~120 migraciones historicas ajenas (drift previo): se formatean solo archivos propios.
 
 ## Siguiente paso
 
-T2
+T3

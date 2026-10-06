@@ -14,20 +14,13 @@ from app.models.producto import ProductoERP
 from app.models.mercadolibre_item_publicado import MercadoLibreItemPublicado
 from app.models.item_sin_mla_banlist import ItemSinMLABanlist
 from app.models.comparacion_listas_banlist import ComparacionListasBanlist
+from app.models.ml_tienda_oficial import MlTiendaOficial
 from app.models.usuario import Usuario
 from app.models.ml_publication_snapshot import MLPublicationSnapshot
 from app.services.permisos_service import verificar_permiso
 from app.scripts.audit_publication_link_coverage import list_anomalies
 
 router = APIRouter()
-
-# Tiendas oficiales de MercadoLibre
-TIENDAS_OFICIALES: Dict[int, str] = {
-    57997: "Gauss",
-    2645: "TP-Link",
-    144: "Forza/Verbatim",
-    191942: "Multi-marca",
-}
 
 # Mapeo de IDs de listas a nombres
 LISTAS_PRECIOS = {
@@ -456,16 +449,20 @@ def get_listas_precios(db: Session = Depends(get_db), current_user: Usuario = De
 
 @router.get("/tiendas-oficiales", response_model=List[TiendaOficialResponse])
 def get_tiendas_oficiales(
+    db: Session = Depends(get_db),
     current_user: Usuario = Depends(get_current_user),
 ) -> List[TiendaOficialResponse]:
     """
-    Devuelve la lista de tiendas oficiales de MercadoLibre con sus IDs y nombres.
-    Centraliza esta info para que el frontend no necesite hardcodearla.
+    Devuelve las tiendas oficiales activas de MercadoLibre con sus IDs y nombres,
+    leídas de la tabla administrable desde el panel Admin (ml_tiendas_oficiales).
     """
-    return [
-        TiendaOficialResponse(id=store_id, nombre=nombre)
-        for store_id, nombre in sorted(TIENDAS_OFICIALES.items(), key=lambda x: x[1])
-    ]
+    tiendas = (
+        db.query(MlTiendaOficial)
+        .filter(MlTiendaOficial.activa.is_(True))
+        .order_by(MlTiendaOficial.orden, MlTiendaOficial.nombre)
+        .all()
+    )
+    return [TiendaOficialResponse(id=t.store_id, nombre=t.nombre) for t in tiendas]
 
 
 @router.get("/marcas")
