@@ -20,8 +20,9 @@ array is reported whole at the array path.
 from __future__ import annotations
 
 import json
+import re
 from dataclasses import dataclass
-from typing import Any, Literal, Sequence
+from typing import Any, Literal, Mapping, Sequence
 
 from app.services.ml_publications.canonical import (
     ArrayKeys,
@@ -71,6 +72,13 @@ ARRAY_KEYS_BY_RESOURCE: dict[str, ArrayKeys] = {
 
 def array_keys_for(resource_type: str) -> ArrayKeys:
     return ARRAY_KEYS_BY_RESOURCE.get(resource_type, {})
+
+
+# Paths whose changes are noise without business meaning, keyed by
+# (resource_type, path glob; `*` matches any run of characters). EVERY entry needs a
+# written justification with evidence from captures or measured churn. Empty by
+# default: anything not listed is recorded (spec "Volatile and excluded field policy").
+EXCLUDED_NOISE: dict[tuple[str, str], str] = {}
 
 
 @dataclass(frozen=True)
@@ -172,8 +180,46 @@ def _is_scalar_set(items: Sequence) -> bool:
     return all(not isinstance(v, (dict, list)) for v in items)
 
 
+def assert_justified(noise: Mapping[tuple[str, str], str]) -> None:
+    """Raise when any excluded-noise entry lacks a non-blank justification."""
+    for (resource_type, glob), justification in noise.items():
+        if not isinstance(justification, str) or not justification.strip():
+            raise ValueError(f"EXCLUDED_NOISE entry ({resource_type!r}, {glob!r}) has no justification")
+
+
+def _glob_matches(glob: str, path: str) -> bool:
+    pattern = "".join(".*" if part == "*" else re.escape(part) for part in re.split(r"(\*)", glob))
+    # The path itself or any descendant (`.child` or `[element]`).
+    return re.fullmatch(pattern + r"(?:[.\[].*)?", path) is not None
+
+
+def split_excluded(
+    changes: Sequence[Change], resource_type: str, noise: Mapping[tuple[str, str], str] | None = None
+) -> tuple[list[Change], list[Change]]:
+    """Split `changes` into (reportable, excluded-noise) for one resource type."""
+    active = EXCLUDED_NOISE if noise is None else noise
+    assert_justified(active)
+    globs = [glob for (rtype, glob) in active if rtype == resource_type]
+    reportable: list[Change] = []
+    excluded: list[Change] = []
+    for change in changes:
+        (excluded if any(_glob_matches(g, change.path) for g in globs) else reportable).append(change)
+    return reportable, excluded
+
+
 def paths_of(changes: Sequence[Change]) -> list[str]:
     return [c.path for c in changes]
 
 
-__all__ = ["ARRAY_KEYS_BY_RESOURCE", "MISSING", "Change", "array_keys_for", "diff", "escape_key", "paths_of"]
+__all__ = [
+    "ARRAY_KEYS_BY_RESOURCE",
+    "EXCLUDED_NOISE",
+    "MISSING",
+    "Change",
+    "assert_justified",
+    "split_excluded",
+    "array_keys_for",
+    "diff",
+    "escape_key",
+    "paths_of",
+]
