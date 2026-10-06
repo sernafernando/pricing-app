@@ -1,3 +1,5 @@
+import { chainHeader } from '../../utils/metricasMlLevels';
+
 /**
  * The Métricas ML board's columns (tablero.html): grouped, each leaf
  * hideable from the ColumnPicker except Producto. Margin columns only exist
@@ -16,7 +18,7 @@ export const COLUMN_GROUPS = [
 const MARGIN_COLUMNS = new Set(['markup', 'markup_delta', 'markup_trend', 'markup_range', 'total_gauss']);
 
 /** The "Agrupado" view's dimensions: the backend `dimension` value and the
- * name shown on its picker and on the first column. */
+ * name shown on its picker; the first column names the whole chain of levels. */
 export const DIMENSION_OPTIONS = [
   { value: 'marca', label: 'Marca' },
   { value: 'categoria', label: 'Categoría' },
@@ -27,7 +29,7 @@ export const DIMENSION_OPTIONS = [
 
 function productHeader(groupBy, dimension) {
   if (groupBy === 'publication') return 'Publicación / Producto';
-  if (groupBy === 'group') return DIMENSION_OPTIONS.find((option) => option.value === dimension)?.label ?? 'Grupo';
+  if (groupBy === 'group') return chainHeader(dimension);
   return 'Detalle / SKU / Marca';
 }
 

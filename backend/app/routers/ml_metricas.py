@@ -17,11 +17,12 @@ Permissions (migration `20261001_ml_metricas_permisos`):
 from __future__ import annotations
 
 import csv
+import json
 import logging
 import io
 from dataclasses import replace
 from datetime import date, datetime, timedelta
-from typing import Dict, List, Optional, Tuple
+from typing import Callable, Dict, List, NamedTuple, Optional, Sequence, Tuple
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from fastapi.responses import StreamingResponse
@@ -32,7 +33,7 @@ from app.api.deps import get_current_user
 from app.core.database import get_background_db, get_db
 from app.models.usuario import Usuario
 from app.services.ml_sales_query.params import parse_csv_ids, parse_csv_stores, parse_csv_strings
-from app.services.ml_daily_metrics import board
+from app.services.ml_daily_metrics import board, groups
 from app.services.permisos_service import PermisosService
 from app.services.product_facets import ProductFacetOptions
 from app.utils.csv_cells import csv_text
@@ -87,6 +88,11 @@ class BoardRow(BaseModel):
     publications_count: int
     # Distinct products of a group row (the "Agrupado" view); null elsewhere.
     products_count: Optional[int] = None
+    # The tree level of a row of the "Agrupado" view (a level kind, or
+    # "product" at the leaf) and what it opens into (null at the leaf);
+    # null in the other views.
+    level: Optional[str] = None
+    child_level: Optional[str] = None
     units: int
     units_24h: int
     units_3d: int
@@ -183,6 +189,8 @@ class BoardResponse(BaseModel):
     group_by: str
     # What the "group" view sums by; null in the product/publication views.
     dimension: Optional[str] = None
+    # The levels of the "group" view's tree, top first, "product" last; null elsewhere.
+    levels: Optional[List[str]] = None
     total: int
     with_sales_count: int
     limit: int
@@ -198,9 +206,11 @@ class PublicationsResponse(BaseModel):
     rows: List[BoardRow]
 
 
-class GroupProductsResponse(BaseModel):
-    """One page of a group's products and how many it has in all."""
+class GroupNodesResponse(BaseModel):
+    """One page of the level below a node of the "Agrupado" tree (its child
+    nodes, or its products at the last level) and how many it has in all."""
 
+    level: str
     rows: List[BoardRow]
     total: int
     limit: int
@@ -360,7 +370,8 @@ def _delta_pct(now, before) -> Optional[float]:
     return round((float(now) - float(before)) / float(before) * 100, 1)
 
 
-def _row_out(row: board.Row, can_see_margin: bool, group_view: bool = False) -> BoardRow:
+def _row_out(row: board.Row, can_see_margin: bool, group_view: bool = False, leaf: bool = False) -> BoardRow:
+    """`group_view`: a node of the "Agrupado" tree; `leaf`: a product under one."""
     known = [m for m in row.series_markup if m is not None]
     pub = row.pub
     # Alerts are product filters: a group row has none.
@@ -374,6 +385,8 @@ def _row_out(row: board.Row, can_see_margin: bool, group_view: bool = False) -> 
         marca=row.marca,
         publications_count=row.publications_count,
         products_count=row.products_count if group_view else None,
+        level=row.level if group_view else (groups.PRODUCT_LEVEL if leaf else None),
+        child_level=row.child_level if group_view else None,
         units=row.units,
         units_24h=row.units_24h,
         units_3d=row.windows["3d"],
@@ -477,6 +490,7 @@ def build_board_response(
         period=BoardPeriod(date_from=f.date_from, date_to=f.date_to, prev_from=prev_from, prev_to=prev_to),
         group_by=f.group_by,
         dimension=f.dimension if grouped else None,
+        levels=list(groups.levels_of(f.dimension)) if grouped else None,
         total=kpis.rows,
         with_sales_count=kpis.with_sales,
         limit=limit,
@@ -547,29 +561,65 @@ def get_product_publications(
     return PublicationsResponse(rows=out)
 
 
-@router.get("/board/group-products", response_model=GroupProductsResponse)
-def get_group_products(
-    group_key: str = Query(..., min_length=1, description="`key` of a row of the group view"),
+# A path is at most as long as the longest tree; each key is a brand, a store
+# clave, an id... -- a few hundred characters at the very most.
+MAX_PATH_KEY_LENGTH = 300
+
+
+def _parse_path(raw: str, dimension: str) -> Tuple[str, ...]:
+    """The node's path: a JSON list of 1..N keys (N = the group levels of the
+    dimension's tree). It travels as ONE query param because a key may hold any
+    character."""
+    max_keys = len(groups.levels_of(dimension)) - 1
+    try:
+        keys = json.loads(raw)
+    except ValueError as e:
+        raise HTTPException(status_code=422, detail="path inválido: tiene que ser una lista JSON de claves") from e
+    valid = (
+        isinstance(keys, list)
+        and 1 <= len(keys) <= max_keys
+        and all(isinstance(key, str) and 0 < len(key) <= MAX_PATH_KEY_LENGTH for key in keys)
+    )
+    if not valid:
+        raise HTTPException(
+            status_code=422, detail=f"path inválido: de 1 a {max_keys} claves de texto para la dimensión {dimension!r}"
+        )
+    return tuple(keys)
+
+
+@router.get("/board/group-nodes", response_model=GroupNodesResponse)
+def get_group_nodes(
+    path: str = Query(..., min_length=2, description="JSON list: the keys of the node's ancestors and its own"),
     limit: int = Query(default=100, ge=1, le=500),
     offset: int = Query(default=0, ge=0),
     f: board.BoardFilter = Depends(board_filter),
     current_user: Usuario = Depends(require_ver),
     db: Session = Depends(get_db),
-) -> GroupProductsResponse:
-    """A group row's PRODUCTS (what its row expands into), under the same
-    filters as the board and the same `dimension`. They are the products the
-    group summed -- those passing every filter as whole products -- each with
-    only the sales of this group (under "tienda", the sales of that store's
-    publications), so they add up to the group row. The key travels as a query
-    param: a brand or a store clave may hold any character. Paged (a brand
-    can hold thousands of products), in the board's sort order."""
+) -> GroupNodesResponse:
+    """What a node of the "Agrupado" tree opens into: the nodes of the level
+    below it, or -- below the last level -- its PRODUCTS. Under the same filters
+    as the board and the same `dimension`; every row of the page carries only
+    the sales of its own path (under "tienda", the sales of that store's
+    publications), so the page adds up to the node. Paged (a brand can hold
+    thousands of products), in the board's sort order."""
     can_see_margin = _can_see_margin(db, current_user)
     _margin_gate(f, can_see_margin)
-    with board.Board(db, replace(f, group_by="product"), group_key=group_key) as b:
-        total = b.product_count()
-        rows = b.page(limit, offset)
-    return GroupProductsResponse(
-        rows=[_row_out(row, can_see_margin) for row in rows], total=total, limit=limit, offset=offset
+    scope = _parse_path(path, f.dimension)
+    levels = groups.levels_of(f.dimension)
+    leaf = len(scope) == len(levels) - 1
+    with board.Board(db, replace(f, group_by="product" if leaf else "group"), scope=scope) as b:
+        if leaf:
+            total = b.product_count()
+            rows = b.page(limit, offset)
+        else:
+            total = b.group_counts()[0]
+            rows = b.group_page(limit, offset)
+    return GroupNodesResponse(
+        level=levels[len(scope)],
+        rows=[_row_out(row, can_see_margin, group_view=not leaf, leaf=leaf) for row in rows],
+        total=total,
+        limit=limit,
+        offset=offset,
     )
 
 
@@ -577,19 +627,44 @@ def _csv_money(value: Optional[float]) -> str:
     return "" if value is None else f"{value:.2f}".replace(".", ",")
 
 
-def _csv_head(row: board.Row, grouped: bool) -> list:
-    """The columns that differ: a product/publication names itself, SKU, brand
-    and MLA; a group its name and how many products and publications it sums."""
-    if grouped:
-        return [csv_text(row.title), row.products_count, row.publications_count]
-    return [csv_text(row.title), csv_text(row.sku), csv_text(row.marca), csv_text(row.mla)]
+class CsvLayout(NamedTuple):
+    """How a board layout writes its lines: the columns that differ (named
+    before the metric columns every layout shares) and how a row fills them."""
+
+    header: List[str]
+    head_of: Callable[[board.Row], list]
 
 
-def _csv_line(row: board.Row, can_see_margin: bool, grouped: bool = False) -> list:
-    """One CSV line: `_csv_head`, then the columns both layouts share, in the
-    same order (units and windows, money, margin when allowed, last sale,
-    ageing, stock)."""
-    line = _csv_head(row, grouped) + [
+def _csv_layout(f: board.BoardFilter) -> CsvLayout:
+    """The product/publication view names a row by its product, SKU, brand and
+    MLA; the "Agrupado" view writes ONE row per product under each path of the
+    tree, led by the display names of the path's levels."""
+    if f.group_by != "group":
+        return CsvLayout(
+            ["Producto", "SKU", "Marca", "MLA"],
+            lambda row: [csv_text(row.title), csv_text(row.sku), csv_text(row.marca), csv_text(row.mla)],
+        )
+    levels = groups.levels_of(f.dimension)[:-1]
+    # The brand is a column of its own only when no level of the path is it.
+    with_marca = "marca" not in levels
+    header = [LEVEL_HEADERS[kind] for kind in levels] + ["Producto", "SKU"] + (["Marca"] if with_marca else [])
+    return CsvLayout(
+        header + ["Publicaciones"],
+        lambda row: [
+            *(csv_text(name) for name in row.path),
+            csv_text(row.title),
+            csv_text(row.sku),
+            *([csv_text(row.marca)] if with_marca else []),
+            row.publications_count,
+        ],
+    )
+
+
+def _csv_line(row: board.Row, can_see_margin: bool, layout: CsvLayout) -> list:
+    """One CSV line: the layout's own columns, then the ones every layout
+    shares, in the same order (units and windows, money, margin when allowed,
+    last sale, ageing, stock)."""
+    line = layout.head_of(row) + [
         row.units,
         row.units_24h,
         row.windows["3d"],
@@ -613,17 +688,18 @@ def _csv_line(row: board.Row, can_see_margin: bool, grouped: bool = False) -> li
     return line
 
 
-# The first CSV column of the group view: what the rows are grouped by.
-DIMENSION_HEADERS = {
+# The CSV header of each level of the "Agrupado" tree.
+LEVEL_HEADERS = {
     "marca": "Marca",
     "categoria": "Categoría",
     "subcategoria": "Subcategoría",
+    groups.SUBCATEGORIA_IN_CATEGORIA: "Subcategoría · Categoría",
     "tienda": "Tienda",
     "pm": "PM",
 }
-# A dimension added to the board without its header would KeyError the export.
-if set(DIMENSION_HEADERS) != set(board.DIMENSIONS):
-    raise RuntimeError("DIMENSION_HEADERS must cover board.DIMENSIONS")
+# A level added to the board without its header would KeyError the export.
+if set(LEVEL_HEADERS) != set(groups.LEVEL_KINDS):
+    raise RuntimeError("LEVEL_HEADERS must cover groups.LEVEL_KINDS")
 
 
 @router.get("/board/export")
@@ -656,11 +732,13 @@ def export_board(
     # row stopped matching the filters meanwhile is skipped; every other row
     # is written once, with its values as of its own page.
     grouped = f.group_by == "group"
+    layout = _csv_layout(f)
     # The layout is chosen ONCE: how the keys and the rows of a page are read.
-    keys_of = board.Board.group_keys if grouped else board.Board.ordered_keys
-    rows_of = board.Board.groups_for_keys if grouped else board.Board.rows_for_keys
+    # The "Agrupado" export is one row per product under each path of the tree.
+    keys_of = board.Board.leaf_keys if grouped else board.Board.ordered_keys
+    rows_of = board.Board.leaves_for_keys if grouped else board.Board.rows_for_keys
     with get_background_db() as first_db:
-        with board.Board(first_db, f) as b:
+        with board.Board(first_db, f, through_leaves=grouped) as b:
             keys = keys_of(b, EXPORT_MAX_ROWS + 1)
             if len(keys) > EXPORT_MAX_ROWS:
                 raise HTTPException(
@@ -672,27 +750,23 @@ def export_board(
                 )
             first = rows_of(b, keys[:EXPORT_PAGE_SIZE])
 
-    def fetch_page(page_keys: List[str]) -> List[board.Row]:
+    def fetch_page(page_keys: Sequence) -> List[board.Row]:
         with get_background_db() as page_db:
-            with board.Board(page_db, f) as b:
+            with board.Board(page_db, f, through_leaves=grouped) as b:
                 return rows_of(b, page_keys)
 
     def lines_of(rows: List[board.Row]) -> str:
         buffer = io.StringIO()
         writer = csv.writer(buffer, delimiter=";")
         for row in rows:
-            writer.writerow(_csv_line(row, can_see_margin, grouped))
+            writer.writerow(_csv_line(row, can_see_margin, layout))
         return buffer.getvalue()
 
     # CLOSE the request session (the permission check left it holding a
     # pooled connection): nothing may stay tied to the response's lifetime.
     db.close()
 
-    if grouped:
-        header = [DIMENSION_HEADERS[f.dimension], "Productos", "Publicaciones", "Unidades"]
-        header += ["24h", "3d", "7d", "15d", "30d", "Facturado"]
-    else:
-        header = ["Producto", "SKU", "Marca", "MLA", "Unidades", "24h", "3d", "7d", "15d", "30d", "Facturado"]
+    header = layout.header + ["Unidades", "24h", "3d", "7d", "15d", "30d", "Facturado"]
     if can_see_margin:
         header += ["Total Gauss", "Markup %", "Markup anterior %", "Variación pp"]
     header += ["Última venta", "Ageing (días)", "Stock"]

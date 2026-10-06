@@ -19,6 +19,7 @@ import { buildStoreChips } from '../constants/tiendasOficiales';
 import { useTiendasOficiales } from '../hooks/useTiendasOficiales';
 import { calcularRangoPreset } from '../utils/dateRangePresets';
 import { buildMetricasMLParams } from '../utils/metricasMlParams';
+import { nodeId } from '../utils/metricasMlLevels';
 import { exportMetricasCsv } from '../utils/ventasMlExport';
 import { timeAgo } from '../utils/ventasMlFormat';
 import {
@@ -70,9 +71,10 @@ const GROUP_OPTIONS = [
   { value: 'publication', label: 'Publicación' },
   { value: 'group', label: 'Agrupado' },
 ];
-// A group opens into its products this many at a time ("Ver más" loads the next).
-const GROUP_PRODUCTS_PAGE = 100;
-const GROUP_PRODUCTS_URL = '/ml-metricas/board/group-products';
+// A node of the "Agrupado" tree opens into the level below it this many rows at
+// a time ("Ver más" loads the next page of THAT node).
+const GROUP_NODES_PAGE = 100;
+const GROUP_NODES_URL = '/ml-metricas/board/group-nodes';
 const COMPARE_OPTIONS = [
   { value: 'periodo_anterior', label: 'Período anterior' },
   { value: 'anio_anterior', label: 'Mismo período año pasado' },
@@ -133,8 +135,9 @@ export default function MetricasML() {
   // its message is shown as is, never the generic "error al cargar".
   const [rejectedMessage, setRejectedMessage] = useState(null);
   const [expanded, setExpanded] = useState(() => new Set());
-  // What each open row opened into, by row key: a product's publications or a
-  // group's products (`{ loading, rows, total, error }`).
+  // What each open row opened into, by node id (the path of keys down to it, so
+  // the same key under two parents is two nodes): a product's publications or
+  // a node's next level (`{ loading, rows, total, level, fetched, error }`).
   const [subRows, setSubRows] = useState({});
   const [columnVisibility, setColumnVisibility] = useState({});
   const [exporting, setExporting] = useState(false);
@@ -222,23 +225,25 @@ export default function MetricasML() {
   }, [cargar]);
 
   // Opens or closes a row and loads what it opens into: a product's
-  // publications, or a group's products (`more` asks for the next page).
+  // publications, or the level below a node of the "Agrupado" tree. `path` is
+  // the keys from the top down to the row (just its own for a top-level row);
+  // `more` asks for the next page of that node.
   const toggleExpand = useCallback(
-    async (row, { more = false } = {}) => {
-      const key = row.key;
+    async (row, { more = false, path = [row.key] } = {}) => {
+      const id = nodeId(path);
       const isGroup = groupBy === 'group';
       if (!more) {
         setExpanded((prev) => {
           const next = new Set(prev);
-          if (next.has(key)) next.delete(key);
-          else next.add(key);
+          if (next.has(id)) next.delete(id);
+          else next.add(id);
           return next;
         });
       }
       // A loaded (or loading) answer is reused; a FAILED one is not, so
       // collapsing and expanding again retries.
-      const cached = subRows[key];
-      if (!more && (expanded.has(key) || (cached && !cached.error))) return;
+      const cached = subRows[id];
+      if (!more && (expanded.has(id) || (cached && !cached.error))) return;
       // The board's request generation: `cargar` bumps it on every filter
       // change and resets the sub-rows. An answer that arrives after that
       // belongs to the OLD filters and is dropped, never cached.
@@ -246,30 +251,39 @@ export default function MetricasML() {
       const previous = more ? cached?.rows || [] : [];
       // How many rows the SERVER has handed out (dropped repeats included).
       const fetched = more ? cached?.fetched || 0 : 0;
-      setSubRows((prev) => ({ ...prev, [key]: { ...(more ? prev[key] : {}), loading: true, rows: previous } }));
+      const level = more ? cached?.level : undefined;
+      setSubRows((prev) => ({ ...prev, [id]: { ...(more ? prev[id] : {}), loading: true, rows: previous, level } }));
       try {
         const request = isGroup
-          ? api.get(GROUP_PRODUCTS_URL, {
-              params: { ...filterParams, group_key: key, limit: GROUP_PRODUCTS_PAGE, offset: fetched },
+          ? api.get(GROUP_NODES_URL, {
+              params: {
+                ...filterParams,
+                path: id,
+                sort: sort.key,
+                sort_dir: sort.desc ? 'desc' : 'asc',
+                limit: GROUP_NODES_PAGE,
+                offset: fetched,
+              },
             })
           : api.get(`/ml-metricas/board/products/${row.product_item_id}/publications`, { params: filterParams });
         const { data } = await request;
         if (generation !== latestRequestRef.current) return;
         setSubRows((prev) => ({
           ...prev,
-          [key]: {
+          [id]: {
             loading: false,
             rows: appendNew(previous, data.rows || []),
             total: data.total,
+            level: data.level,
             fetched: fetched + (data.rows || []).length,
           },
         }));
       } catch {
         if (generation !== latestRequestRef.current) return;
-        setSubRows((prev) => ({ ...prev, [key]: { loading: false, rows: previous, fetched, error: true } }));
+        setSubRows((prev) => ({ ...prev, [id]: { loading: false, rows: previous, level, fetched, error: true } }));
       }
     },
-    [expanded, subRows, filterParams, groupBy],
+    [expanded, subRows, filterParams, groupBy, sort],
   );
 
   const handleSort = useCallback((key) => {

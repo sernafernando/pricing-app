@@ -1,20 +1,23 @@
-"""ODD `metricas-ml-vista-agrupada` T3: `GET /api/ml-metricas/board?group_by=group`
-(the "Agrupado" view), the endpoint that opens a group into its products, and
-the grouped CSV. Same data, clock and permissions as the board's router tests
-(`board_data`: products 11 Epson, 12 Lenovo, 13 DeWalt, 14 TP-Link; stores
-57997, 2645, 144)."""
+"""ODD `metricas-ml-vista-agrupada` T3 and `metricas-ml-agrupado-anidado` T3:
+`GET /api/ml-metricas/board?group_by=group` (the top level of the "Agrupado"
+tree), `GET /board/group-nodes?path=` (the level below a node, or its products
+at the last level) and the grouped CSV (one row per product with its path).
+Same data, clock and permissions as the board's router tests (`board_data`:
+products 11 Epson, 12 Lenovo, 13 DeWalt, 14 TP-Link, all in categoría "Cat";
+subcategoría 1 except Lenovo's 2; stores 57997, 2645, 144)."""
 
 # ruff: noqa: F811 -- the imported fixtures are re-named by the tests that use them
 from __future__ import annotations
 
 import csv
 import io
+import json
 from datetime import date
 
 from app.models.ml_tienda_oficial import MlTiendaOficial
 from app.models.producto import ProductoERP
 from app.routers import ml_metricas
-from app.services.ml_daily_metrics import board
+from app.services.ml_daily_metrics import board, groups
 from tests.integration.test_ml_metricas_board_router import (  # noqa: F401 -- fixtures
     URL,
     SOLO_CON_VENTAS,
@@ -27,6 +30,11 @@ from tests.integration.test_ml_metricas_board_router import (  # noqa: F401 -- f
 )
 
 GROUP = {"group_by": "group", "dimension": "marca"}
+NODES = f"{URL}/group-nodes"
+
+
+def _path(*keys):
+    return json.dumps(list(keys))
 
 
 def _get(client, headers, url=URL, **params):
@@ -57,6 +65,22 @@ class TestGroupedBoard:
         assert (epson["products_count"], epson["publications_count"]) == (1, 2)
         assert epson["units_3d"] == 2 and len(epson["series_units_90d"]) == 90
         assert epson["ageing_days"] == 0 and epson["last_sale_at"].startswith("2026-09-30")
+
+    def test_rows_say_which_level_they_are_and_what_they_open_into(self, client, admin_auth_headers, board_data):
+        body = _get(client, admin_auth_headers, **GROUP)
+
+        assert body["levels"] == ["marca", "categoria", "subcategoria", "product"]
+        assert {(r["level"], r["child_level"]) for r in body["rows"]} == {("marca", "categoria")}
+        by_dimension = {
+            dimension: _get(client, admin_auth_headers, group_by="group", dimension=dimension)["levels"]
+            for dimension in ("categoria", "subcategoria", "pm", "tienda")
+        }
+        assert by_dimension == {
+            "categoria": ["categoria", "subcategoria", "product"],
+            "subcategoria": ["subcategoria_categoria", "product"],
+            "pm": ["pm", "marca", "categoria", "subcategoria", "product"],
+            "tienda": ["tienda", "marca", "categoria", "subcategoria", "product"],
+        }
 
     def test_the_groups_add_up_to_the_kpis_under_the_same_filters(self, client, admin_auth_headers, board_data):
         for extra in ({}, {"stores": "57997"}, SOLO_CON_VENTAS):
@@ -113,8 +137,9 @@ class TestGroupedBoard:
     def test_the_product_and_publication_views_are_untouched(self, client, admin_auth_headers, board_data):
         body = _get(client, admin_auth_headers)
 
-        assert body["group_by"] == "product" and body["dimension"] is None
+        assert body["group_by"] == "product" and body["dimension"] is None and body["levels"] is None
         assert _by_key(body)["11"]["products_count"] is None
+        assert _by_key(body)["11"]["level"] is None
 
 
 class TestGroupedPermissions:
@@ -137,88 +162,150 @@ class TestGroupedPermissions:
         for sort in ("markup", "total_gauss", "markup_delta"):
             resp = client.get(URL, params={"sort": sort, **GROUP}, headers=admin_auth_headers)
             assert resp.status_code == 403, sort
-        products = client.get(
-            f"{URL}/group-products", params={"group_key": "EPSON", **GROUP}, headers=admin_auth_headers
-        ).json()["rows"]
-        assert products[0]["total_gauss"] is None and products[0]["markup_pct"] is None
+        # Every level of the tree: the nodes and the products at its leaf.
+        for path in (["EPSON"], ["EPSON", "C"], ["EPSON", "C", "1"]):
+            below = client.get(NODES, params={"path": _path(*path), **GROUP}, headers=admin_auth_headers).json()["rows"]
+            assert below, path
+            assert below[0]["total_gauss"] is None and below[0]["markup_pct"] is None, path
+            assert below[0]["series_markup_90d"] is None and below[0]["markup_delta_pp"] is None, path
+        for sort in ("markup", "total_gauss", "markup_delta"):
+            resp = client.get(NODES, params={"path": _path("EPSON"), "sort": sort, **GROUP}, headers=admin_auth_headers)
+            assert resp.status_code == 403, sort
 
     def test_without_ver_everything_is_403(self, client, admin_auth_headers, db):
         assert client.get(URL, params=GROUP, headers=admin_auth_headers).status_code == 403
-        assert (
-            client.get(
-                f"{URL}/group-products", params={"group_key": "X", **GROUP}, headers=admin_auth_headers
-            ).status_code
-            == 403
-        )
+        assert client.get(NODES, params={"path": _path("X"), **GROUP}, headers=admin_auth_headers).status_code == 403
 
 
-class TestOpenAGroup:
-    def test_a_group_opens_into_its_products(self, client, admin_auth_headers, board_data):
-        body = _get(client, admin_auth_headers, f"{URL}/group-products", group_key="EPSON", **GROUP)
+class TestGroupNodes:
+    def test_a_node_opens_into_the_next_level(self, client, admin_auth_headers, board_data):
+        body = _get(client, admin_auth_headers, NODES, path=_path("EPSON"), **GROUP)
 
-        assert [r["product_item_id"] for r in body["rows"]] == [11]
-        assert body["rows"][0]["units"] == 6 and body["rows"][0]["title"] == "Impresora Epson L3250"
+        assert body["level"] == "categoria" and body["total"] == 1
+        assert [(r["key"], r["title"], r["level"], r["child_level"]) for r in body["rows"]] == [
+            ("CAT", "Cat", "categoria", "subcategoria")
+        ]
+        assert body["rows"][0]["units"] == 6 and body["rows"][0]["products_count"] == 1
+        assert len(body["rows"][0]["series_units_90d"]) == 90
 
-    def test_a_store_group_opens_into_the_products_with_only_its_sales(self, client, admin_auth_headers, board_data):
-        body = _get(
+    def test_the_last_level_opens_into_products(self, client, admin_auth_headers, board_data):
+        subs = _get(client, admin_auth_headers, NODES, path=_path("EPSON", "CAT"), **GROUP)
+        assert subs["level"] == "subcategoria" and [r["key"] for r in subs["rows"]] == ["1"]
+        assert subs["rows"][0]["title"] == "Subcategoría #1"
+
+        products = _get(client, admin_auth_headers, NODES, path=_path("EPSON", "CAT", "1"), **GROUP)
+
+        assert products["level"] == "product"
+        assert [r["product_item_id"] for r in products["rows"]] == [11]
+        assert products["rows"][0]["units"] == 6 and products["rows"][0]["title"] == "Impresora Epson L3250"
+        assert products["rows"][0]["level"] == "product" and products["rows"][0]["child_level"] is None
+
+    def test_each_level_adds_up_to_the_node_above_it(self, client, admin_auth_headers, board_data):
+        for dimension, depth in (("categoria", 2), ("marca", 3), ("tienda", 4), ("pm", 4), ("subcategoria", 1)):
+            top = _get(client, admin_auth_headers, group_by="group", dimension=dimension)["rows"]
+
+            def check(node, path):
+                below = _get(
+                    client, admin_auth_headers, NODES, path=_path(*path), group_by="group", dimension=dimension
+                )["rows"]
+                assert sum(r["units"] for r in below) == node["units"], (dimension, path)
+                assert round(sum(r["gross"] for r in below), 2) == node["gross"], (dimension, path)
+                if len(path) < depth:
+                    for child in below:
+                        check(child, [*path, child["key"]])
+
+            for node in top:
+                check(node, [node["key"]])
+
+    def test_a_store_node_opens_down_to_the_products_with_only_its_sales(self, client, admin_auth_headers, board_data):
+        params = {"group_by": "group", "dimension": "tienda"}
+        marcas = _get(client, admin_auth_headers, NODES, path=_path("s:2645"), **params)
+        assert [(r["key"], r["units"]) for r in marcas["rows"]] == [("LENOVO", 0)]
+
+        products = _get(client, admin_auth_headers, NODES, path=_path("s:2645", "LENOVO", "CAT", "2"), **params)
+
+        assert [(r["product_item_id"], r["units"]) for r in products["rows"]] == [(12, 0)]
+
+    def test_nodes_come_in_pages_with_their_total_and_a_stable_order(self, client, admin_auth_headers, board_data):
+        params = {"group_by": "group", "dimension": "tienda", "sort": "units_24h", "limit": 1}
+        pages = [_get(client, admin_auth_headers, NODES, path=_path("s:57997"), offset=n, **params) for n in range(3)]
+
+        assert [(p["total"], p["limit"], p["offset"]) for p in pages] == [(2, 1, 0), (2, 1, 1), (2, 1, 2)]
+        keys = [r["key"] for p in pages for r in p["rows"]]
+        assert len(keys) == len(set(keys)) == 2
+        assert pages[2]["rows"] == []
+
+    def test_the_sort_applies_inside_each_level(self, client, admin_auth_headers, board_data):
+        asc = _get(
             client,
             admin_auth_headers,
-            f"{URL}/group-products",
-            group_key="s:2645",
-            group_by="group",
-            dimension="tienda",
-        )
-
-        assert [(r["product_item_id"], r["units"]) for r in body["rows"]] == [(12, 0)]
-
-    def test_the_products_come_in_pages_with_their_total(self, client, admin_auth_headers, board_data):
-        first = _get(
-            client,
-            admin_auth_headers,
-            f"{URL}/group-products",
-            group_key="s:57997",
-            limit=1,
+            NODES,
+            path=_path("s:57997"),
             sort="title",
             sort_dir="asc",
             group_by="group",
             dimension="tienda",
         )
-        second = _get(
+        desc = _get(
             client,
             admin_auth_headers,
-            f"{URL}/group-products",
-            group_key="s:57997",
-            limit=1,
-            offset=1,
+            NODES,
+            path=_path("s:57997"),
             sort="title",
-            sort_dir="asc",
+            sort_dir="desc",
             group_by="group",
             dimension="tienda",
         )
 
-        assert (first["total"], first["limit"], first["offset"]) == (2, 1, 0)
-        assert [r["product_item_id"] for r in first["rows"]] == [11]  # "Impresora..." before "Taladro..."
-        assert [r["product_item_id"] for r in second["rows"]] == [13]
+        assert [r["key"] for r in asc["rows"]] == list(reversed([r["key"] for r in desc["rows"]]))
 
-    def test_a_group_key_is_required_and_an_unknown_one_is_empty(self, client, admin_auth_headers, board_data):
-        assert client.get(f"{URL}/group-products", params=GROUP, headers=admin_auth_headers).status_code == 422
-        assert _get(client, admin_auth_headers, f"{URL}/group-products", group_key="NOPE", **GROUP)["rows"] == []
+    def test_searching_leaves_only_the_branches_with_matching_products(self, client, admin_auth_headers, board_data):
+        top = _get(client, admin_auth_headers, q="notebook", group_by="group", dimension="categoria")
+        subs = _get(
+            client, admin_auth_headers, NODES, path=_path("CAT"), q="notebook", group_by="group", dimension="categoria"
+        )
+        products = _get(
+            client,
+            admin_auth_headers,
+            NODES,
+            path=_path("CAT", "2"),
+            q="notebook",
+            group_by="group",
+            dimension="categoria",
+        )
 
-    def test_the_products_of_a_group_follow_the_boards_filters(self, client, admin_auth_headers, board_data):
-        body = _get(client, admin_auth_headers, f"{URL}/group-products", group_key="EPSON", stores="144", **GROUP)
+        assert [r["key"] for r in top["rows"]] == ["CAT"]
+        assert [r["key"] for r in subs["rows"]] == ["2"]  # Lenovo's subcategoría only
+        assert [r["product_item_id"] for r in products["rows"]] == [12]
+
+    def test_a_path_is_required_and_must_be_a_json_list_of_the_right_size(self, client, admin_auth_headers, board_data):
+        for bad in (None, "EPSON", "[]", '["A","B","C","D"]', "[1]", '[""]', "{}"):
+            params = dict(GROUP, **({"path": bad} if bad is not None else {}))
+            resp = client.get(NODES, params=params, headers=admin_auth_headers)
+            assert resp.status_code == 422, bad
+
+    def test_an_unknown_path_is_empty(self, client, admin_auth_headers, board_data):
+        assert _get(client, admin_auth_headers, NODES, path=_path("NOPE"), **GROUP)["rows"] == []
+        assert _get(client, admin_auth_headers, NODES, path=_path("EPSON", "NOPE", "9"), **GROUP)["rows"] == []
+
+    def test_nodes_follow_the_boards_filters(self, client, admin_auth_headers, board_data):
+        body = _get(client, admin_auth_headers, NODES, path=_path("EPSON"), stores="144", **GROUP)
 
         assert body["rows"] == []
 
 
 class TestGroupedExport:
-    def test_csv_holds_every_group_with_a_fixed_column_list(self, client, admin_auth_headers, board_data):
+    def test_csv_has_one_row_per_product_with_its_full_path(self, client, admin_auth_headers, board_data):
         resp = client.get(f"{URL}/export", params=GROUP, headers=admin_auth_headers)
 
         assert resp.status_code == 200 and "metricas-ml-por-marca-" in resp.headers["content-disposition"]
         header = resp.content.decode("utf-8-sig").splitlines()[0].split(";")
         assert header == [
             "Marca",
-            "Productos",
+            "Categoría",
+            "Subcategoría",
+            "Producto",
+            "SKU",
             "Publicaciones",
             "Unidades",
             "24h",
@@ -235,20 +322,58 @@ class TestGroupedExport:
             "Ageing (días)",
             "Stock",
         ]
-        rows = {row["Marca"]: row for row in _csv(resp)}
-        assert set(rows) == {"Epson", "Lenovo", "DeWalt", "TP-Link"}
-        assert rows["Epson"]["Unidades"] == "6" and rows["Epson"]["Markup %"] == "25,00"
+        rows = {row["Producto"]: row for row in _csv(resp)}
+        assert set(rows) == {"Impresora Epson L3250", "Notebook Lenovo V15", "Taladro DeWalt", "Router TP-Link AX55"}
+        epson = rows["Impresora Epson L3250"]
+        assert (epson["Marca"], epson["Categoría"], epson["Subcategoría"]) == ("Epson", "Cat", "Subcategoría #1")
+        assert epson["Unidades"] == "6" and epson["Markup %"] == "25,00" and epson["SKU"] == "SKU-11"
 
-    def test_the_group_name_is_defused_against_formulas(self, db, client, admin_auth_headers, board_data):
-        db.add(ProductoERP(item_id=21, codigo="S21", descripcion="X", marca='=HYPERLINK("x")', categoria="C"))
+    def test_the_path_columns_follow_the_dimension(self, client, admin_auth_headers, board_data):
+        headers = {}
+        for dimension in ("categoria", "subcategoria", "pm", "tienda"):
+            resp = client.get(
+                f"{URL}/export", params={"group_by": "group", "dimension": dimension}, headers=admin_auth_headers
+            )
+            headers[dimension] = resp.content.decode("utf-8-sig").splitlines()[0].split(";")[:7]
+
+        assert headers["categoria"] == [
+            "Categoría",
+            "Subcategoría",
+            "Producto",
+            "SKU",
+            "Marca",
+            "Publicaciones",
+            "Unidades",
+        ]
+        assert headers["subcategoria"][:4] == ["Subcategoría · Categoría", "Producto", "SKU", "Marca"]
+        assert headers["pm"][:5] == ["PM", "Marca", "Categoría", "Subcategoría", "Producto"]
+        assert headers["tienda"][:5] == ["Tienda", "Marca", "Categoría", "Subcategoría", "Producto"]
+
+    def test_a_product_in_two_stores_has_a_row_per_store(self, db, client, admin_auth_headers, board_data):
+        _pub(db, 6, "MLA6", 11, 144)
+        _day(db, 11, "MLA6", date(2026, 9, 30), 4, "400", "40", "200")
+        db.commit()
+
+        rows = _csv(
+            client.get(f"{URL}/export", params={"group_by": "group", "dimension": "tienda"}, headers=admin_auth_headers)
+        )
+
+        epson = {row["Tienda"]: row["Unidades"] for row in rows if row["Producto"] == "Impresora Epson L3250"}
+        assert epson == {"Tienda 57997": "6", "Tienda 144": "4"}
+
+    def test_every_path_name_and_the_product_are_defused_against_formulas(
+        self, db, client, admin_auth_headers, board_data
+    ):
+        db.add(ProductoERP(item_id=21, codigo="=1+1", descripcion="@x", marca='=HYPERLINK("x")', categoria="+cat"))
         db.flush()
         _pub(db, 21, "MLA21", 21, 57997)
         _day(db, 21, "MLA21", date(2026, 9, 30), 1, "100", "10", "50")
         db.commit()
 
-        names = [row["Marca"] for row in _csv(client.get(f"{URL}/export", params=GROUP, headers=admin_auth_headers))]
+        rows = _csv(client.get(f"{URL}/export", params=GROUP, headers=admin_auth_headers))
 
-        assert '\'=HYPERLINK("x")' in names
+        evil = next(r for r in rows if r["Producto"] == "'@x")
+        assert (evil["Marca"], evil["Categoría"], evil["SKU"]) == ('\'=HYPERLINK("x")', "'+cat", "'=1+1")
 
     def test_margin_columns_only_with_ver_ganancia(self, db, client, admin_auth_headers, rol_admin):
         _grant(db, rol_admin, "ml_metricas.ver")
@@ -258,7 +383,7 @@ class TestGroupedExport:
 
         assert "Total Gauss" not in header.splitlines()[0]
 
-    def test_refuses_more_groups_than_the_cap(self, client, admin_auth_headers, board_data, monkeypatch):
+    def test_refuses_more_rows_than_the_cap(self, client, admin_auth_headers, board_data, monkeypatch):
         monkeypatch.setattr(ml_metricas, "EXPORT_MAX_ROWS", 3)
 
         resp = client.get(f"{URL}/export", params=GROUP, headers=admin_auth_headers)
@@ -299,11 +424,27 @@ class TestGroupedStatementBudget:
 
         assert len(set(counts.values())) == 1, counts
 
-    def test_opening_a_group_is_a_bounded_read(self, client, admin_auth_headers, board_data, query_counter):
-        with query_counter() as counter:
-            _get(client, admin_auth_headers, f"{URL}/group-products", group_key="EPSON", **GROUP)
+    def test_opening_a_node_at_any_depth_is_a_bounded_read(self, client, admin_auth_headers, board_data, query_counter):
+        counts = []
+        for path in (["EPSON"], ["EPSON", "C"], ["EPSON", "C", "1"]):
+            with query_counter() as counter:
+                _get(client, admin_auth_headers, NODES, path=_path(*path), **GROUP)
+            counts.append(len(counter.statements))
 
-        assert len(counter.statements) <= 14, len(counter.statements)
+        assert max(counts) <= 14, counts
+
+    def test_the_grouped_export_is_a_fixed_number_of_statements_per_page(
+        self, client, admin_auth_headers, board_data, query_counter, monkeypatch
+    ):
+        counts = []
+        for page_size in (1, 100):
+            monkeypatch.setattr(ml_metricas, "EXPORT_PAGE_SIZE", page_size)
+            with query_counter() as counter:
+                client.get(f"{URL}/export", params=GROUP, headers=admin_auth_headers)
+            counts.append(len(counter.statements))
+
+        # One statement set for the keys and one per page: 4 leaves, 4 pages vs 1.
+        assert counts[0] - counts[1] <= 3 * 8, counts
 
 
 class TestGroupedViewReview:
@@ -314,12 +455,13 @@ class TestGroupedViewReview:
                     URL, params={"sort": sort, "sort_dir": direction, **GROUP}, headers=admin_auth_headers
                 )
                 assert resp.status_code == 200, (sort, direction, resp.text)
-                products = client.get(
-                    f"{URL}/group-products",
-                    params={"group_key": "EPSON", "sort": sort, "sort_dir": direction, **GROUP},
-                    headers=admin_auth_headers,
-                )
-                assert products.status_code == 200, (sort, direction, products.text)
+                for path in (["EPSON"], ["EPSON", "CAT", "1"]):
+                    below = client.get(
+                        NODES,
+                        params={"path": _path(*path), "sort": sort, "sort_dir": direction, **GROUP},
+                        headers=admin_auth_headers,
+                    )
+                    assert below.status_code == 200, (sort, direction, path, below.text)
 
     def test_group_rows_carry_no_alerts(self, client, admin_auth_headers, board_data):
         rows = _get(client, admin_auth_headers, **GROUP)["rows"]
@@ -332,8 +474,8 @@ class TestGroupedViewReview:
             body = _get(
                 client,
                 admin_auth_headers,
-                f"{URL}/group-products",
-                group_key="s:57997",
+                NODES,
+                path=_path("s:57997", "EPSON", "CAT", "1"),
                 limit=1,
                 offset=offset,
                 sort="units_24h",
@@ -342,7 +484,7 @@ class TestGroupedViewReview:
             )
             seen += [r["key"] for r in body["rows"]]
 
-        assert len(seen) == len(set(seen)) == 2
+        assert len(seen) == len(set(seen)) == 1
 
     def test_the_csv_layouts_share_their_tail_columns(self, client, admin_auth_headers, board_data):
         product = client.get(f"{URL}/export", headers=admin_auth_headers).content.decode("utf-8-sig")
@@ -360,5 +502,5 @@ class TestGroupedViewReview:
         assert product.splitlines()[0].split(";")[-len(tail) :] == tail
         assert grouped.splitlines()[0].split(";")[-len(tail) :] == tail
 
-    def test_every_dimension_has_a_csv_header(self):
-        assert set(ml_metricas.DIMENSION_HEADERS) == set(board.DIMENSIONS)
+    def test_every_level_has_a_csv_header(self):
+        assert set(ml_metricas.LEVEL_HEADERS) == set(groups.LEVEL_KINDS)

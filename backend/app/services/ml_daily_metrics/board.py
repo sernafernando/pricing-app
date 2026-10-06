@@ -61,12 +61,13 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from datetime import date, datetime, timedelta, timezone
 from decimal import ROUND_HALF_UP, Decimal
-from typing import Any, Dict, List, Optional, Set, Tuple
+from typing import Any, Dict, List, Optional, Sequence, Set, Tuple
 
 from sqlalchemy import (
     Date,
     String,
     and_,
+    any_,
     case,
     cast,
     false,
@@ -78,6 +79,7 @@ from sqlalchemy import (
     table,
     text,
     true,
+    tuple_,
     union,
 )
 from sqlalchemy.ext.compiler import compiles
@@ -314,6 +316,13 @@ class Row:
     publications_count: int = 0
     # Distinct products of a group row (a "group" view row only).
     products_count: int = 0
+    # The tree level of a node of the "group" view (one of `groups.LEVEL_KINDS`)
+    # and what it opens into (a level, or "product"); None on other rows.
+    level: Optional[str] = None
+    child_level: Optional[str] = None
+    # A leaf row of the CSV export: the display names of the levels above the
+    # product, top first.
+    path: List[str] = field(default_factory=list)
     units: int = 0
     gross: Decimal = Decimal("0")
     # `tg`: every known Total Gauss (what "Total Gauss" shows). `mtg`/`costo`:
@@ -418,17 +427,30 @@ class Board:
         db: Session,
         f: BoardFilter,
         product_item_id: Optional[int] = None,
-        group_key: Optional[str] = None,
+        scope: Sequence[str] = (),
+        through_leaves: bool = False,
     ):
-        """`group_key` (a key of the "group" view under `f.dimension`) opens
-        that group into its PRODUCTS: the board's product rows, each summing
-        only the pairs of the group, for the products that pass every filter
-        as a whole (see `filtered_pairs`)."""
+        """`scope` is the PATH of a node of the "group" view under
+        `f.dimension`: the keys of levels 0..n-1. The "group" view then reads
+        the nodes one level below it (`group_page`); with a path as deep as the
+        tree has group levels, the board's product rows are the node's
+        PRODUCTS, each summing only the pairs of the node, for the products
+        that pass every filter as a whole (see `filtered_pairs`).
+        `through_leaves` reads the keys of every level (the CSV export)."""
         self.db = db
         self.f = f
         self.product_item_id = product_item_id
-        self.group_key = group_key
+        self.scope = tuple(scope)
+        self.levels = grouping.levels_of(f.dimension)
+        # The levels above the products: how many keys a path can hold.
+        self.group_levels = len(self.levels) - 1
+        if len(self.scope) > self.group_levels:
+            raise ValueError(f"A path under {f.dimension!r} has at most {self.group_levels} keys: {self.scope!r}")
+        # The pair table carries the keys of the levels the request filters or
+        # groups on: the scope plus the level being read.
+        self.key_levels = self.group_levels if through_leaves else min(len(self.scope) + 1, self.group_levels)
         self._unscoped_depth = 0
+        self._survivors_cte: Optional[Any] = None
         self.sqlite = db.get_bind().dialect.name == "sqlite"
         # The rows' unit is the PRODUCT in the product and "group" views (the
         # latter sums them afterwards); only "publication" rows are MLAs.
@@ -568,17 +590,20 @@ class Board:
         pairs = union(select(last.c.product, last.c.mla), published).subquery("pairs")
         pub = self._pub(select(pairs.c.mla) if self.product_item_id is not None else None)
         sums = [c for c in agg.c.keys() if c not in ("product", "mla")]
-        # The group view (and opening a group) reads each pair's group key and
-        # label as COLUMNS: the dimension's small lookup joins run once here.
-        dimension = None
-        if self.f.group_by == "group" or self.group_key is not None:
-            dimension = grouping.dimension_of(
-                self.f.dimension,
-                marca=P.marca,
-                categoria=P.categoria,
-                subcategoria_id=P.subcategoria_id,
-                store_id=pub.c.store_id,
-            )
+        # The group view (and opening a node) reads each pair's key and label
+        # per tree level as COLUMNS: the levels' small lookup joins run once here.
+        dimensions = []
+        if self.f.group_by == "group" or self.scope:
+            dimensions = [
+                grouping.dimension_of(
+                    kind,
+                    marca=P.marca,
+                    categoria=P.categoria,
+                    subcategoria_id=P.subcategoria_id,
+                    store_id=pub.c.store_id,
+                )
+                for kind in self.levels[: self.key_levels]
+            ]
         source = (
             select(
                 pairs.c.product.label("product"),
@@ -600,7 +625,14 @@ class Board:
                 *(func.coalesce(agg.c[name], 0).label(name) for name in sums),
                 last.c.last_at,
                 business_date(last.c.last_at, self.sqlite).label("last_day"),
-                *((dimension.key.label("gkey"), dimension.label.label("glabel")) if dimension is not None else ()),
+                *(
+                    column
+                    for level, dimension in enumerate(dimensions)
+                    for column in (
+                        dimension.key.label(grouping.key_column(level)),
+                        dimension.label.label(grouping.label_column(level)),
+                    )
+                ),
             )
             .select_from(pairs)
             .outerjoin(pub, pub.c.mla == pairs.c.mla)
@@ -608,8 +640,9 @@ class Board:
             .outerjoin(agg, and_(agg.c.product == pairs.c.product, agg.c.mla == pairs.c.mla))
             .outerjoin(last, and_(last.c.product == pairs.c.product, last.c.mla == pairs.c.mla))
         )
-        for target, onclause in dimension.joins if dimension is not None else ():
-            source = source.outerjoin(target, onclause)
+        for dimension in dimensions:
+            for target, onclause in dimension.joins:
+                source = source.outerjoin(target, onclause)
         return source
 
     # ── request lifecycle: the lines and the pair aggregate, computed ONCE ──
@@ -648,9 +681,9 @@ class Board:
         self._savepoint.rollback()
 
     @property
-    def _in_group(self) -> bool:
-        """Reading the pairs of ONE group (see `__init__`), not the whole board."""
-        return self.group_key is not None and not self._unscoped_depth
+    def _in_scope(self) -> bool:
+        """Reading the pairs of ONE node (see `__init__`), not the whole board."""
+        return bool(self.scope) and not self._unscoped_depth
 
     def _has_row_filters(self) -> bool:
         """Whether any ROW filter is active: derived from `ROW_AXES` (each axis
@@ -663,13 +696,32 @@ class Board:
     def _survivors(self) -> Any:
         """The keys of the product rows that pass EVERY filter as whole
         products (a MATERIALIZED CTE: the planner reads its true size) -- built
-        UNSCOPED, or it would ask for itself."""
-        self._unscoped_depth += 1
-        try:
-            rows = self.rows()
-        finally:
-            self._unscoped_depth -= 1
-        return select(rows.c.rk).cte("scope_keys").prefix_with("MATERIALIZED", dialect="postgresql")
+        UNSCOPED, or it would ask for itself. ONE CTE object per board: the
+        statements that filter pairs twice (the pairs and their keys) must
+        share it, or SQL would see two CTEs with one name."""
+        if self._survivors_cte is None:
+            self._unscoped_depth += 1
+            try:
+                rows = self.rows()
+            finally:
+                self._unscoped_depth -= 1
+            self._survivors_cte = (
+                select(rows.c.rk, rows.c.product).cte("scope_keys").prefix_with("MATERIALIZED", dialect="postgresql")
+            )
+        return self._survivors_cte
+
+    def _is_survivor(self, pairs: Any, rk: Any) -> Any:
+        """Whether a pair belongs to a product that passes every row filter.
+        On Postgres: `product = ANY(<array of the survivors>)`, the array built
+        ONCE by an InitPlan and probed as a hash. A semi-join against the CTE
+        is the natural spelling, but the planner cannot size a CTE filtered on
+        aggregates (it guesses ONE row), nests loops over the pair table and
+        scans it once per survivor (measured: 2.2 s per statement on 1.000
+        survivors; this form: milliseconds)."""
+        survivors = self._survivors()
+        if self.sqlite:
+            return rk.in_(select(survivors.c.rk))
+        return pairs.c.product == any_(func.array(select(survivors.c.product).scalar_subquery()))
 
     def filtered_pairs(self, skip: str = ""):
         """One row per (product, MLA) pair that passes every filter but
@@ -743,10 +795,10 @@ class Board:
             )
         if self.product_item_id is not None:
             conditions.append(t.c.product == self.product_item_id)
-        if self._in_group:
-            conditions.append(t.c.gkey == self.group_key)
+        if self._in_scope:
+            conditions.extend(t.c[grouping.key_column(level)] == key for level, key in enumerate(self.scope))
             if self._has_row_filters():
-                conditions.append(rk.in_(select(self._survivors().c.rk)))
+                conditions.append(self._is_survivor(t, rk))
         if conditions:
             q = q.where(*conditions)
         return q.subquery("fp")
@@ -847,8 +899,8 @@ class Board:
             stock_bucket.label("stock_bucket"),
             ageing_bucket.label("ageing_bucket"),
         ).select_from(g.outerjoin(erp, erp.c.item_id == g.c.product))
-        if self._in_group:
-            # The group's pairs are already those of the products that passed
+        if self._in_scope:
+            # The node's pairs are already those of the products that passed
             # every row filter AS WHOLE products: filtering again on the
             # group's own partial sums would drop products the group counted.
             return q.subquery("board_rows")
@@ -1061,27 +1113,38 @@ class Board:
                 _round1(markup_of(cents(tg[key][i]), cents(costo[key][i]))) for i in range(SERIES_DAYS)
             ]
 
-    # ── the "Agrupado" view: the surviving products' pairs, summed by dimension ──
+    # ── the "Agrupado" view: the surviving products' pairs, as a tree of nodes ──
 
-    def _group_source(self) -> Any:
+    @property
+    def _node_level(self) -> int:
+        """The tree level the "group" view reads: the one below the scope."""
+        level = len(self.scope)
+        if level >= self.group_levels:
+            raise ValueError(f"Below a path of {level} keys under {self.f.dimension!r} there are products, not nodes")
+        return level
+
+    def _group_source(self, level: Optional[int] = None) -> Any:
         """The pairs of the products that pass EVERY filter (row filters
-        included, decided per product like the product view), each with its
-        group key under `BoardFilter.dimension`."""
+        included, decided per product like the product view), each with the
+        keys and labels of its levels, the product's stock counted once per
+        node at `level` (default: the level being read)."""
         joined, fp = self._members("")
-        return grouping.grouped_pairs(joined, fp, grouping.stock_table())
+        return grouping.grouped_pairs(joined, fp, grouping.stock_table(), self._node_level if level is None else level)
 
     def group_rows(self) -> Any:
-        """One row per group (a subquery named like the product rows' columns
-        so `_ordered` serves both): `rk` the group key, `title` its name, the
-        sums, the markups as the RATIO of the sums, the reference day of its
-        ageing (its most recent sale, else its oldest publication) and its
-        stock (each product once). Groups with no unit in the period drop out
-        under "solo con ventas"."""
-        gp = self._group_source()
+        """One row per node of the level below the scope (a subquery named like
+        the product rows' columns so `_ordered` serves both): `rk` its key,
+        `title` its name, the sums, the markups as the RATIO of the sums, the
+        reference day of its ageing (its most recent sale, else its oldest
+        publication) and its stock (each product once). Nodes with no unit in
+        the period drop out under "solo con ventas"."""
+        level = self._node_level
+        gp = self._group_source(level)
+        key = gp.c[grouping.key_column(level)]
         g = (
             select(
-                gp.c.gkey.label("rk"),
-                func.max(gp.c.glabel).label("label"),
+                key.label("rk"),
+                func.max(gp.c[grouping.label_column(level)]).label("label"),
                 func.sum(gp.c.first_in_group).label("products"),
                 func.count(func.distinct(gp.c.mla)).label("pubs"),
                 *(func.sum(gp.c[name]).label(name) for name in grouping.SUM_COLUMNS),
@@ -1090,14 +1153,14 @@ class Board:
                 func.min(gp.c.start_day).label("start_day"),
                 func.sum(case((gp.c.first_in_group == 1, gp.c.stock), else_=None)).label("stock"),
             )
-            .group_by(gp.c.gkey)
+            .group_by(key)
             .subquery("g")
         )
         markup = case((g.c.costo > 0, g.c.mtg * 100 / g.c.costo), else_=None)
         markup_prev = case((g.c.prev_costo > 0, g.c.prev_mtg * 100 / g.c.prev_costo), else_=None)
         q = select(
             *(c for c in g.c if c.name != "label"),
-            grouping.title_of(self.f.dimension, g.c.rk, g.c.label).label("title"),
+            grouping.title_of(self.levels[level], g.c.rk, g.c.label).label("title"),
             markup.label("markup"),
             markup_prev.label("markup_prev"),
             (markup - markup_prev).label("markup_delta"),
@@ -1108,8 +1171,9 @@ class Board:
         return q.subquery("group_rows")
 
     def group_counts(self) -> Tuple[int, int]:
-        """`(groups, groups with units in the period)` over the whole filtered
-        set -- the page's total and its "con rotación" count."""
+        """`(nodes, nodes with units in the period)` of the level below the
+        scope over the whole filtered set -- the page's total and its "con
+        rotación" count."""
         rows = self.group_rows()
         total, with_sales = self.db.execute(
             select(func.count(), func.coalesce(func.sum(case((rows.c.units > 0, 1), else_=0)), 0)).select_from(rows)
@@ -1123,23 +1187,8 @@ class Board:
             q = q.limit(limit).offset(offset)
         return self._group_rows_of(q, with_series)
 
-    def group_keys(self, limit: int) -> List[str]:
-        """Every group's key in board order, at most `limit` (the CSV export
-        fixes them up front, like `ordered_keys`)."""
-        rows = self.group_rows()
-        q = select(rows.c.rk).order_by(*self._ordered(rows)).limit(limit)
-        return [str(rk) for (rk,) in self.db.execute(q)]
-
-    def groups_for_keys(self, keys: List[str], with_series: bool = False) -> List[Row]:
-        """The groups of `keys`, in THAT order; one no longer on the board is
-        skipped, never replaced."""
-        if not keys:
-            return []
-        rows = self.group_rows()
-        found = {row.key: row for row in self._group_rows_of(select(rows).where(rows.c.rk.in_(keys)), with_series)}
-        return [found[key] for key in keys if key in found]
-
     def _group_rows_of(self, q: Any, with_series: bool) -> List[Row]:
+        level = self._node_level
         out = []
         for r in self.db.execute(q).mappings():
             ref_day = _as_date(r["ref_day"])
@@ -1149,29 +1198,19 @@ class Board:
                     product_item_id=NO_PRODUCT,
                     mla=None,
                     title=r["title"],
-                    publications_count=int(r["pubs"] or 0),
+                    level=self.levels[level],
+                    child_level=self.levels[level + 1],
+                    **self._sums_of(r, ref_day),
                     products_count=int(r["products"] or 0),
-                    units=int(r["units"] or 0),
-                    gross=cents(r["gross"]),
-                    tg=cents(r["tg"]),
-                    mtg=cents(r["mtg"]),
-                    costo=cents(r["costo"]),
-                    prev_tg=cents(r["prev_tg"]),
-                    prev_mtg=cents(r["prev_mtg"]),
-                    prev_costo=cents(r["prev_costo"]),
-                    last_sale_at=_as_aware(_as_datetime(r["last_at"])),
-                    windows={name: int(r[f"w{name}"] or 0) for name, _ in WINDOWS},
-                    units_24h=int(r["u24"] or 0),
-                    ageing_days=(self.today - ref_day).days if ref_day else None,
-                    stock=int(r["stock"]) if r["stock"] is not None else None,
                 )
             )
         if out and with_series:
             by_key = {row.key: row for row in out}
-            gp, L = self._group_source(), self.lines
+            gp, L = self._group_source(level), self.lines
+            key = gp.c[grouping.key_column(level)]
             series = (
                 select(
-                    gp.c.gkey.label("rk"),
+                    key.label("rk"),
                     L.c.day,
                     func.sum(L.c.units).label("units"),
                     func.sum(L.c.mtg).label("tg"),
@@ -1180,13 +1219,127 @@ class Board:
                 .select_from(gp)
                 .join(L, and_(L.c.product == gp.c.product, L.c.mla == gp.c.mla))
                 .where(
-                    gp.c.gkey.in_(list(by_key)),
+                    key.in_(list(by_key)),
                     L.c.day.between(self._day(self.series_from), self._day(self.f.date_to)),
                 )
-                .group_by(gp.c.gkey, L.c.day)
+                .group_by(key, L.c.day)
             )
             self._read_series(by_key, series)
         return out
+
+    def _sums_of(self, r: Any, ref_day: Optional[date]) -> Dict[str, Any]:
+        """The `Row` fields a node's or leaf's summed columns fill."""
+        return dict(
+            publications_count=int(r["pubs"] or 0),
+            units=int(r["units"] or 0),
+            gross=cents(r["gross"]),
+            tg=cents(r["tg"]),
+            mtg=cents(r["mtg"]),
+            costo=cents(r["costo"]),
+            prev_tg=cents(r["prev_tg"]),
+            prev_mtg=cents(r["prev_mtg"]),
+            prev_costo=cents(r["prev_costo"]),
+            last_sale_at=_as_aware(_as_datetime(r["last_at"])),
+            windows={name: int(r[f"w{name}"] or 0) for name, _ in WINDOWS},
+            units_24h=int(r["u24"] or 0),
+            ageing_days=(self.today - ref_day).days if ref_day else None,
+            stock=int(r["stock"]) if r["stock"] is not None else None,
+        )
+
+    # ── the leaves of the whole tree: one row per (path, product), for the CSV ──
+
+    def leaf_rows(self) -> Any:
+        """One row per (path of group levels, product): the product with only
+        the sales of that path (a product selling in two stores is one leaf
+        under each), its sums like a node's and the display names of the path's
+        levels as `t0..tN`. Ordered by `_leaf_order`. Needs `through_leaves`."""
+        if self.scope or self.key_levels != self.group_levels:
+            raise ValueError("The leaves are read over the whole tree (no scope, `through_leaves=True`)")
+        level = self.group_levels - 1
+        gp = self._group_source(level)
+        path = [gp.c[grouping.key_column(i)] for i in range(self.group_levels)]
+        g = (
+            select(
+                *(key.label(grouping.key_column(i)) for i, key in enumerate(path)),
+                *(
+                    func.max(gp.c[grouping.label_column(i)]).label(grouping.label_column(i))
+                    for i in range(self.group_levels)
+                ),
+                gp.c.product.label("product"),
+                cast(gp.c.product, String).label("rk"),
+                func.max(gp.c.title).label("title"),
+                func.max(gp.c.codigo).label("sku"),
+                func.max(gp.c.marca).label("marca"),
+                func.count(func.distinct(gp.c.mla)).label("pubs"),
+                *(func.sum(gp.c[name]).label(name) for name in grouping.SUM_COLUMNS),
+                func.max(gp.c.last_day).label("last_day"),
+                func.max(gp.c.last_at).label("last_at"),
+                func.min(gp.c.start_day).label("start_day"),
+                func.sum(case((gp.c.first_in_group == 1, gp.c.stock), else_=None)).label("stock"),
+            )
+            .group_by(*path, gp.c.product)
+            .subquery("g")
+        )
+        markup = case((g.c.costo > 0, g.c.mtg * 100 / g.c.costo), else_=None)
+        markup_prev = case((g.c.prev_costo > 0, g.c.prev_mtg * 100 / g.c.prev_costo), else_=None)
+        q = select(
+            *g.c,
+            *(
+                grouping.title_of(self.levels[i], g.c[grouping.key_column(i)], g.c[grouping.label_column(i)]).label(
+                    f"t{i}"
+                )
+                for i in range(self.group_levels)
+            ),
+            markup.label("markup"),
+            markup_prev.label("markup_prev"),
+            (markup - markup_prev).label("markup_delta"),
+            func.coalesce(g.c.last_day, g.c.start_day).label("ref_day"),
+        )
+        if self.f.solo_con_ventas:
+            q = q.where(g.c.units > 0)
+        return q.subquery("leaf_rows")
+
+    def _leaf_order(self, rows: Any) -> Any:
+        """Path by path (names, then the keys that settle equal names), and the
+        board's sort among the products of one path; the product closes it."""
+        names = [func.lower(rows.c[f"t{i}"]) for i in range(self.group_levels)]
+        keys = [rows.c[grouping.key_column(i)] for i in range(self.group_levels)]
+        return (*names, *keys, *self._ordered(rows))
+
+    def leaf_keys(self, limit: int) -> List[Tuple[str, ...]]:
+        """The key of every leaf -- the keys of its path, then its product --
+        in export order, at most `limit`: what the CSV export fixes up front so
+        a change between its pages can never repeat or drop a row."""
+        rows = self.leaf_rows()
+        path = [rows.c[grouping.key_column(i)] for i in range(self.group_levels)]
+        q = select(*path, rows.c.rk).order_by(*self._leaf_order(rows)).limit(limit)
+        return [tuple(str(part) for part in row) for row in self.db.execute(q)]
+
+    def leaves_for_keys(self, keys: List[Tuple[str, ...]]) -> List[Row]:
+        """The leaves of `keys`, in THAT order; one no longer on the board is
+        skipped, never replaced."""
+        if not keys:
+            return []
+        rows = self.leaf_rows()
+        path = [rows.c[grouping.key_column(i)] for i in range(self.group_levels)]
+        wanted = [(*key[:-1], int(key[-1])) for key in keys]
+        found = {}
+        for r in self.db.execute(select(rows).where(tuple_(*path, rows.c.product).in_(wanted))).mappings():
+            ref_day = _as_date(r["ref_day"])
+            names = [r[f"t{i}"] for i in range(self.group_levels)]
+            row = Row(
+                key=str(r["rk"]),
+                product_item_id=int(r["product"]),
+                mla=None,
+                title=r["title"] or "Sin producto",
+                sku=r["sku"],
+                marca=r["marca"],
+                level=grouping.PRODUCT_LEVEL,
+                path=names,
+                **self._sums_of(r, ref_day),
+            )
+            found[(*(str(r[grouping.key_column(i)]) for i in range(self.group_levels)), str(r["product"]))] = row
+        return [found[key] for key in keys if key in found]
 
     def kpis(self) -> Kpis:
         rows = self.rows()

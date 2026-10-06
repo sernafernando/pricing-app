@@ -34,7 +34,7 @@ from sqlalchemy.orm import Session, sessionmaker
 
 from app.core.config import settings
 from app.routers.ml_metricas import build_board_response
-from app.services.ml_daily_metrics import board
+from app.services.ml_daily_metrics import board, groups
 
 TODAY = date(2026, 9, 30)
 NOW = datetime(2026, 9, 30, 18, 0, tzinfo=timezone.utc)
@@ -65,7 +65,7 @@ def _seed(session) -> None:
         text(
             "INSERT INTO productos_erp (item_id, codigo, descripcion, marca, categoria, subcategoria_id, stock) "
             "SELECT 800000 + i, 'SKU-' || i, 'Producto de volumen ' || i, "
-            "(ARRAY['Epson','Lenovo','Samsung','Sony','BGH'])[1 + i % 5], 'Cat', 1 + i % 7, "
+            "(ARRAY['Epson','Lenovo','Samsung','Sony','BGH'])[1 + i % 5], 'Cat' || (i % 7 % 3), 1 + i % 7, "
             "CASE WHEN i % 11 = 0 THEN NULL ELSE i % 5 - 1 END "
             "FROM generate_series(1, :p) AS i"
         ),
@@ -618,10 +618,11 @@ def group_lookups(volume_session):
     session.execute(
         text(
             "INSERT INTO usuarios (id, nombre) VALUES (990001, 'PM Uno'), (990002, 'PM Dos');"
-            "INSERT INTO marcas_pm (marca, categoria, usuario_id) VALUES "
-            "('Epson', 'Cat', 990001), ('Lenovo', 'Cat', 990001), ('Samsung', 'Cat', 990002), ('Sony', 'Cat', 990002);"
+            "INSERT INTO marcas_pm (marca, categoria, usuario_id) "
+            "SELECT m.marca, 'Cat' || c, m.pm FROM (VALUES ('Epson', 990001), ('Lenovo', 990001), "
+            "('Samsung', 990002), ('Sony', 990002)) AS m(marca, pm) CROSS JOIN generate_series(0, 2) AS c;"
             "INSERT INTO subcategorias_grupos (subcat_id, grupo_id, nombre_subcategoria, nombre_categoria) "
-            "SELECT s, 1, 'Subcategoría ' || s, 'Cat' FROM generate_series(1, 7) AS s;"
+            "SELECT s, 1, 'Subcategoría ' || s, 'Cat' || ((s - 1) % 3) FROM generate_series(1, 7) AS s;"
             "INSERT INTO ml_tiendas_oficiales (store_id, nombre, clave, orden, activa) VALUES "
             "(57997, 'Gauss', NULL, 1, true), (2645, 'TP-Link vieja', 'tplink', 2, false), "
             "(144, 'TP-Link', 'tplink', 3, true), (191942, 'Multimarca', NULL, 4, true)"
@@ -697,9 +698,33 @@ class TestGroupedBoardOnVolume:
         [{}, {"stock": ("con_stock",), "ageing": ("up_to_30",), "solo_con_ventas": True}],
         ids=["plain", "row-filters"],
     )
-    def test_opening_a_group_on_volume(self, volume_session, group_lookups, extra) -> None:
+    @pytest.mark.parametrize(
+        "dimension, scope",
+        [
+            ("tienda", ()),
+            ("tienda", ("c:tplink",)),
+            ("tienda", ("c:tplink", "SAMSUNG")),
+            ("tienda", ("c:tplink", "SAMSUNG", "CAT0")),
+            ("tienda", ("c:tplink", "SAMSUNG", "CAT0", "1")),
+            ("categoria", ("CAT0", "1")),
+            ("subcategoria", ("1|CAT0",)),
+            ("pm", ("990002", "SAMSUNG", "CAT0", "1")),
+        ],
+        ids=lambda v: "/".join(v) if isinstance(v, tuple) else None,
+    )
+    def test_opening_a_node_at_any_depth_on_volume(
+        self, volume_session, group_lookups, dimension, scope, extra
+    ) -> None:
+        """One level page = ONE request's worth of SQL, whatever the depth: the
+        same pair table, the node's keys as plain equality filters."""
+        levels = groups.levels_of(dimension)
+        leaf = len(scope) == len(levels) - 1
         f = board.BoardFilter(
-            date_from=TODAY - timedelta(days=29), date_to=TODAY, group_by="product", dimension="tienda", **extra
+            date_from=TODAY - timedelta(days=29),
+            date_to=TODAY,
+            group_by="product" if leaf else "group",
+            dimension=dimension,
+            **extra,
         )
         recorder = _Recorder()
         connection = volume_session.connection()
@@ -707,18 +732,59 @@ class TestGroupedBoardOnVolume:
         event.listen(connection, "after_cursor_execute", recorder.after)
         started = time.perf_counter()
         try:
-            with board.Board(volume_session, f, group_key="c:tplink") as b:
-                total = b.product_count()
-                rows = b.page(100, 0)
+            with board.Board(volume_session, f, scope=scope) as b:
+                if leaf:
+                    total = b.product_count()
+                    rows = b.page(100, 0)
+                else:
+                    total = b.group_counts()[0]
+                    rows = b.group_page(100, 0)
         finally:
             event.remove(connection, "before_cursor_execute", recorder.before)
             event.remove(connection, "after_cursor_execute", recorder.after)
-        _print(
-            f"\nopening c:tplink {extra or ''} ({len(rows)} of {total} products)",
-            recorder,
-            (time.perf_counter() - started) * 1000,
+        elapsed_ms = (time.perf_counter() - started) * 1000
+        print(
+            f"\nTREE {dimension} {'/'.join(scope) or '(top)'} {extra and 'row-filters' or 'plain'}: "
+            f"{len(rows)} of {total} {levels[len(scope)]}, {len(recorder.statements)} statements, {elapsed_ms:.0f} ms"
         )
+        for ms, head in sorted(recorder.timings, reverse=True)[:2]:
+            print(f"      slowest: {ms:7.1f} ms  {head}")
 
-        assert rows and len(rows) == min(100, total)  # a page, never the whole group
-        # One request: savepoint + 2 CREATE + 2 ANALYZE + count + page + details + series + rollback.
+        assert rows and len(rows) == min(100, total)  # a page, never the whole level
+        # savepoint + 2 CREATE + 2 ANALYZE + count + page + (details +) series + rollback.
         assert len(recorder.statements) <= 12, len(recorder.statements)
+
+    @pytest.mark.parametrize("dimension", ("marca", "tienda", "pm"))
+    def test_every_level_adds_up_to_its_parent_on_volume(self, volume_session, group_lookups, dimension) -> None:
+        """Walks ONE branch from the top to the products: at each step the
+        children (every page) add up to the node they were opened from."""
+        levels = groups.levels_of(dimension)
+        scope: tuple = ()
+        with board.Board(
+            volume_session,
+            board.BoardFilter(
+                date_from=TODAY - timedelta(days=29), date_to=TODAY, group_by="group", dimension=dimension
+            ),
+        ) as b:
+            node = max(b.group_page(None), key=lambda r: r.units)
+        while True:
+            scope = (*scope, node.key)
+            leaf = len(scope) == len(levels) - 1
+            f = board.BoardFilter(
+                date_from=TODAY - timedelta(days=29),
+                date_to=TODAY,
+                group_by="product" if leaf else "group",
+                dimension=dimension,
+            )
+            with board.Board(volume_session, f, scope=scope) as b:
+                children = b.page(None, with_series=False) if leaf else b.group_page(None, with_series=False)
+            assert sum(c.units for c in children) == node.units, scope
+            assert sum(c.gross for c in children) == node.gross, scope
+            # Gauss and cost of a multi-item order are split in fractions of a cent and each
+            # node rounds ITS sum once: within a cent per child (units and billing are exact).
+            assert abs(sum(c.costo for c in children) - node.costo) <= 0.01 * len(children), scope
+            assert abs(sum(c.tg for c in children) - node.tg) <= 0.01 * len(children), scope
+            if leaf:
+                assert len(children) == node.products_count, scope
+                break
+            node = max(children, key=lambda r: r.units)

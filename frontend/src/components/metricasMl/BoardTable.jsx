@@ -13,6 +13,7 @@ import {
   weeklySums,
 } from '../../utils/metricasMlFormat';
 import { COLUMN_GROUPS } from './metricasMlColumns';
+import { LEVEL_LABELS, LEVEL_NOUNS, nodeId } from '../../utils/metricasMlLevels';
 import styles from './BoardTable.module.css';
 
 /**
@@ -27,6 +28,9 @@ import styles from './BoardTable.module.css';
  * does, and money never wraps.
  */
 
+
+// How far each level of the "Agrupado" tree steps in under its parent.
+const INDENT_PX = 18;
 
 // Column id -> the backend `sort` value it orders by.
 const SORT_BY = {
@@ -95,23 +99,35 @@ function groupCounts(row) {
   return `${products === 1 ? '1 producto' : `${products} productos`} · ${pubs === 1 ? '1 publicación' : `${pubs} publicaciones`}`;
 }
 
-function GroupCell({ row, expanded, onToggle }) {
+/** How far a row sits under its parent: the CSS indents by `--indent`. */
+function indentStyle(depth) {
+  return { '--indent': `${depth * INDENT_PX}px` };
+}
+
+/** A node of the "Agrupado" tree: what it opens into (`child_level`), its level's tag
+ * and, at the top, the stack icon; deeper nodes drop the icon to leave the room to
+ * the indentation. */
+function GroupCell({ row, depth, expanded, onToggle }) {
+  const opensInto = LEVEL_NOUNS[row.child_level]?.all ?? 'los productos';
   return (
-    <div className={styles.product}>
+    <div className={styles.product} style={indentStyle(depth)} data-node-level={row.level}>
       <button
         type="button"
         className={styles.expand}
         aria-expanded={expanded}
-        aria-label={`${expanded ? 'Ocultar' : 'Ver'} productos de ${row.title}`}
+        aria-label={`${expanded ? 'Ocultar' : 'Ver'} ${opensInto} de ${row.title}`}
         onClick={onToggle}
       >
         {expanded ? <ChevronDown size={16} /> : <ChevronRight size={16} />}
       </button>
-      <span className={styles.thumb} aria-hidden="true">
-        <Layers size={18} />
-      </span>
+      {depth === 0 && (
+        <span className={styles.thumb} aria-hidden="true">
+          <Layers size={18} />
+        </span>
+      )}
       <div className={styles.productText}>
         <div className={styles.titleLine}>
+          {row.level && <span className={styles.levelTag}>{LEVEL_LABELS[row.level] ?? row.level}</span>}
           <span className={styles.title} title={row.title}>
             {row.title}
           </span>
@@ -133,11 +149,14 @@ function Thumb({ row }) {
   );
 }
 
-function ProductCell({ row, groupBy, canSeeMargin, isSub, expanded, onToggle }) {
-  if (isSub && groupBy === 'group') {
-    // A group opens into PRODUCTS: sku and brand over the title.
+function ProductCell({ row, groupBy, canSeeMargin, isSub, depth, expanded, onToggle }) {
+  if (groupBy === 'group' && row.child_level) {
+    return <GroupCell row={row} depth={depth} expanded={expanded} onToggle={onToggle} />;
+  }
+  if (groupBy === 'group') {
+    // The last level of the tree is PRODUCTS: sku and brand over the title.
     return (
-      <div className={styles.subProduct}>
+      <div className={styles.subProduct} style={indentStyle(depth)}>
         <div className={styles.subLine}>
           <CornerDownRight size={12} className={styles.subArrow} aria-hidden="true" />
           {row.sku && <span className={styles.sku}>{row.sku}</span>}
@@ -153,9 +172,6 @@ function ProductCell({ row, groupBy, canSeeMargin, isSub, expanded, onToggle }) 
         </div>
       </div>
     );
-  }
-  if (groupBy === 'group') {
-    return <GroupCell row={row} expanded={expanded} onToggle={onToggle} />;
   }
   if (isSub) {
     return (
@@ -366,20 +382,75 @@ export default function BoardTable({
     return `${cellClass(col.id, edge.start, edge.end)} ${col.group === 'sellin' ? styles.soonCol : ''}`;
   };
 
-  const renderRow = (row, { isSub = false, parentKey = '' } = {}) => (
-    <tr key={isSub ? `sub-${parentKey}-${row.key}` : row.key} className={isSub ? styles.subRow : expanded.has(row.key) ? styles.openRow : ''}>
-      {columns.map((col) => (
-        <td key={col.id} className={colClass(col)} data-col-id={col.id}>
-          {renderCell(col.id, row, {
-            ...ctxBase,
-            isSub,
-            expanded: expanded.has(row.key),
-            onToggle: () => onToggleExpand(row),
-          })}
-        </td>
-      ))}
+  // `depth` 0 is a board row; deeper rows are what an open row opened into.
+  // `id` is the row's node id (the keys down to it): the same key under two
+  // parents is two rows, so it -- not the key -- names a row and its state.
+  const renderRow = (row, { depth = 0, id = nodeId([row.key]) } = {}) => {
+    const isSub = depth > 0;
+    return (
+      <tr
+        key={isSub ? `sub-${id}` : row.key}
+        data-depth={depth}
+        className={isSub ? `${styles.subRow} ${expanded.has(id) ? styles.openRow : ''}` : expanded.has(id) ? styles.openRow : ''}
+      >
+        {columns.map((col) => (
+          <td key={col.id} className={colClass(col)} data-col-id={col.id}>
+            {renderCell(col.id, row, {
+              ...ctxBase,
+              isSub,
+              depth,
+              expanded: expanded.has(id),
+              onToggle: () => onToggleExpand(row, { path: JSON.parse(id) }),
+            })}
+          </td>
+        ))}
+      </tr>
+    );
+  };
+
+  const note = (key, id, text, extra) => (
+    <tr key={`${key}-${id}`} className={styles.subRow} data-note={key}>
+      <td className={styles.colProducto}>
+        <span className={styles.subNote}>{text}</span>
+        {extra}
+      </td>
+      <td colSpan={columns.length - 1} />
     </tr>
   );
+
+  // A row and, when it is open, everything it opened into -- recursively for
+  // the nodes of the "Agrupado" tree, each level with its own state and notes.
+  const renderTree = (row, path, depth) => {
+    const id = nodeId(path);
+    const out = [renderRow(row, { depth, id })];
+    const opensRows = groupBy === 'group' ? Boolean(row.child_level) : groupBy === 'product';
+    if (!opensRows || !expanded.has(id)) return out;
+    const state = subRows[id];
+    const loaded = state?.rows || [];
+    for (const sub of loaded) {
+      out.push(...renderTree(sub, [...path, sub.key], depth + 1));
+    }
+    const isGroup = groupBy === 'group';
+    const level = state?.level ?? row.child_level;
+    const nouns = LEVEL_NOUNS[level] ?? LEVEL_NOUNS.product;
+    const loadMore = (
+      <button type="button" className={styles.moreButton} onClick={() => onToggleExpand(row, { more: true, path })}>
+        {state?.error ? 'Reintentar' : `Ver más ${nouns.plural}`}
+      </button>
+    );
+    if (!state || state.loading) {
+      out.push(note('loading', id, `Cargando ${isGroup ? nouns.plural : 'publicaciones'}…`));
+    } else if (state.error) {
+      const failure = isGroup ? nouns.all : 'las publicaciones';
+      // A page that failed after others loaded: retry just that page.
+      out.push(note('error', id, `No se pudieron cargar ${failure}.`, isGroup && loaded.length > 0 ? loadMore : null));
+    } else if (isGroup && state.total > loaded.length) {
+      out.push(note('more', id, `Mostrando ${loaded.length} de ${state.total} ${nouns.plural}`, loadMore));
+    } else if (isGroup && loaded.length === 0) {
+      out.push(note('empty', id, `No hay ${nouns.plural} para estos filtros.`));
+    }
+    return out;
+  };
 
   return (
     <table className={styles.table}>
@@ -427,52 +498,7 @@ export default function BoardTable({
         </tr>
       </thead>
       <tbody>
-        {rows.flatMap((row) => {
-          const out = [renderRow(row)];
-          if (groupBy !== 'publication' && expanded.has(row.key)) {
-            const state = subRows[row.key];
-            const noun = groupBy === 'group' ? 'productos' : 'publicaciones';
-            const note = (key, text, extra) => (
-              <tr key={`${key}-${row.key}`} className={styles.subRow}>
-                <td className={styles.colProducto}>
-                  <span className={styles.subNote}>{text}</span>
-                  {extra}
-                </td>
-                <td colSpan={columns.length - 1} />
-              </tr>
-            );
-            const loaded = state?.rows || [];
-            for (const sub of loaded) out.push(renderRow(sub, { isSub: true, parentKey: row.key }));
-            if (!state || state.loading) {
-              out.push(note('loading', `Cargando ${noun}…`));
-            } else if (state.error) {
-              const failure = groupBy === 'group' ? 'los productos' : 'las publicaciones';
-              out.push(
-                note(
-                  'error',
-                  `No se pudieron cargar ${failure}.`,
-                  // A page that failed after others loaded: retry just that page.
-                  groupBy === 'group' && loaded.length > 0 ? (
-                    <button type="button" className={styles.moreButton} onClick={() => onToggleExpand(row, { more: true })}>
-                      Reintentar
-                    </button>
-                  ) : null,
-                ),
-              );
-            } else if (groupBy === 'group' && state.total > loaded.length) {
-              out.push(
-                note(
-                  'more',
-                  `Mostrando ${loaded.length} de ${state.total} productos`,
-                  <button type="button" className={styles.moreButton} onClick={() => onToggleExpand(row, { more: true })}>
-                    Ver más productos
-                  </button>,
-                ),
-              );
-            }
-          }
-          return out;
-        })}
+        {rows.flatMap((row) => renderTree(row, [row.key], 0))}
       </tbody>
     </table>
   );
