@@ -142,6 +142,61 @@ class Settings(BaseSettings):
     # environment until the sweep is proven safe in production.
     ML_BILLING_ENABLED: bool = False
 
+    # ML publications store (ml-publicaciones-store, design D19). Runtime flags
+    # live in `ml_pub_settings` (DB); the values below are only the DEFAULT used
+    # when a key has no DB row, so a fresh deploy with no overrides is inert
+    # (PROMOS_WRITE_ENABLED precedent). The kill switch is env-only on purpose:
+    # it is the escape hatch for "the settings table is unreachable or wrong".
+    ML_PUB_KILL_SWITCH: bool = False
+    ML_PUB_REFRESH_ENABLED: bool = False
+    ML_PUB_INTAKE_ENABLED: bool = False
+    ML_PUB_SCAN_ENABLED: bool = False
+    ML_PUB_MISSED_FEEDS_ENABLED: bool = False
+    ML_PUB_SWEEP_ENABLED: bool = False
+    ML_PUB_EVENTS_ENABLED: bool = False
+    ML_PUB_PROMOTIONS_ENABLED: bool = False
+    ML_PUB_LINKS_ENABLED: bool = False
+    ML_PUB_VERIFY_ENABLED: bool = False
+    ML_PUB_DIVERGENCE_ENABLED: bool = False
+    # Global ML budget (requests per second) and the stock sub-budget (ML
+    # documents 100/min for /user-products/{id}/stock; stay below it).
+    ML_PUB_RATE_PER_SEC: float = Field(default=2.0, gt=0, le=20)
+    ML_PUB_STOCK_RATE_PER_MIN: int = Field(default=60, ge=1, le=100)
+    # `/items/bulk` accepts at most 20 ids per call.
+    ML_PUB_BULK_MAX_IDS: int = Field(default=20, ge=1, le=20)
+    # Queue: claim lease (ten times the 30 s handler deadline) and poison limit.
+    ML_PUB_LEASE_SECONDS: int = Field(default=300, ge=30)
+    ML_PUB_MAX_ATTEMPTS: int = Field(default=8, ge=1)
+    # Share of claim batches that favour the LOW-priority lanes so backfill and
+    # sweeps are never starved by live traffic.
+    ML_PUB_LOW_LANE_MIN_SHARE: float = Field(default=0.1, gt=0, le=1)
+    # Sub-resources the refresh handler may fetch; only the item core by default.
+    ML_PUB_BUNDLE_RESOURCES: List[str] = Field(default_factory=lambda: ["core"])
+    # Intake topic map; only `items` is read by default (design D13).
+    ML_PUB_INTAKE_TOPICS: dict = Field(default_factory=lambda: {"items": {"kind": "item", "resources": ["bundle"]}})
+    ML_PUB_INTAKE_OVERLAP_SECONDS: int = Field(default=120, ge=0)
+    ML_PUB_INTAKE_BATCH: int = Field(default=1000, ge=1)
+    # Minimum seconds between fetches of a sub-resource on a bundle refresh.
+    ML_PUB_MIN_AGE_SECONDS: dict = Field(
+        default_factory=lambda: {
+            "promotions": 300,
+            "description": 21600,
+            "user_product": 900,
+            "stock": 900,
+            "family": 86400,
+            "competition": 900,
+            "moderation": 3600,
+        }
+    )
+    ML_PUB_SCAN_STATUSES: List[str] = Field(
+        default_factory=lambda: ["closed", "paused", "under_review", "inactive", "pending", "active"]
+    )
+    ML_PUB_SWEEP_STATUSES: List[str] = Field(
+        default_factory=lambda: ["paused", "under_review", "inactive", "pending", "active"]
+    )
+    ML_PUB_STALE_DAYS: int = Field(default=7, ge=1)
+    ML_PUB_NOT_APPLICABLE_RECHECK_DAYS: int = Field(default=30, ge=1)
+
     # Mapbox Geocoding API
     MAPBOX_ACCESS_TOKEN: Optional[str] = None
 
