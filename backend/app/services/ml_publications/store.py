@@ -13,7 +13,7 @@ from __future__ import annotations
 
 from collections import Counter
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any, Literal, Mapping, Optional
 
 from sqlalchemy import null, text
@@ -68,7 +68,9 @@ def _context(old: Mapping[str, Any], new: Mapping[str, Any], first_active_before
         "sub_status_new": new.get("sub_status"),
         "available_quantity_old": old.get("available_quantity"),
         "available_quantity_new": new.get("available_quantity"),
-        "first_active_at_before": first_active_before.isoformat() if first_active_before else None,
+        "first_active_at_before": first_active_before.astimezone(timezone.utc).isoformat()
+        if first_active_before
+        else None,
         "official_store_id": new.get("official_store_id"),
         "brand": new.get("brand"),
     }
@@ -175,50 +177,67 @@ def apply_fetch(
                 return _not_found(db, spec, row, response, trigger_received_at)
             return _error(db, row, response)
 
-        new_hash = canonical_hash(body, spec)
-        observed_at = response.received_at
-        if row.raw is None:
-            _write_state(row, typed, body, new_hash, response)
-            if typed["status"] == STATUS_ACTIVE:
-                row.first_active_at = observed_at
-            _touch(row, response, trigger_received_at)
-            _project_variations(db, item_id, body, response)
-            db.flush()
-            return ApplyOutcome("first_seen")
+        return _apply_state(db, spec, row, body, typed, response, trigger_received_at, counters)
 
-        restoring = row.gone_at is not None
-        if not restoring and bytes(row.raw_hash) == new_hash:
-            _touch(row, response, trigger_received_at)
-            _mark_ok(row, response)
-            db.flush()
-            return ApplyOutcome("unchanged")
 
-        reportable, excluded = split_excluded(diff(row.raw, body, spec), spec.name)
-        for change in excluded:
-            counters.noise_suppressed[(spec.name, change.path)] += 1
-        old_snapshot = _typed_snapshot(row)
-        previous_hash = bytes(row.raw_hash)
-        first_active_before = row.first_active_at
+def _apply_state(
+    db,
+    spec: ResourceSpec,
+    row: MlItem,
+    body: dict,
+    typed: dict,
+    response: MlResponse,
+    trigger_received_at: Optional[datetime],
+    counters: ApplyCounters,
+) -> ApplyOutcome:
+    """A 2xx (or declared negative-state) body: first sighting, unchanged, noise-only, change or restore."""
+    item_id = row.item_id
+    incoming_last_updated = typed["ml_last_updated"]
+    new_hash = canonical_hash(body, spec)
+    if row.raw is None:
         _write_state(row, typed, body, new_hash, response)
+        if typed["status"] == STATUS_ACTIVE:
+            row.first_active_at = response.received_at
         _touch(row, response, trigger_received_at)
         _project_variations(db, item_id, body, response)
-        if not reportable and not restoring:
-            db.flush()
-            return ApplyOutcome("noise_only")
-        kind = "restored" if restoring else "change"
-        entry = _log_change(
-            db,
-            spec,
-            item_id,
-            kind,
-            reportable,
-            previous_hash,
-            new_hash,
-            response,
-            incoming_last_updated,
-            _context(old_snapshot, typed, first_active_before),
-        )
-        return ApplyOutcome("restored" if restoring else "changed", change_log_id=entry.id)
+        db.flush()
+        return ApplyOutcome("first_seen")
+
+    restoring = row.gone_at is not None
+    if not restoring and bytes(row.raw_hash) == new_hash:
+        _touch(row, response, trigger_received_at)
+        _mark_ok(row, response)
+        db.flush()
+        return ApplyOutcome("unchanged")
+
+    reportable, excluded = split_excluded(diff(row.raw, body, spec), spec.name)
+    for change in excluded:
+        counters.noise_suppressed[(spec.name, change.path)] += 1
+    old_snapshot = _typed_snapshot(row)
+    previous_hash = bytes(row.raw_hash)
+    first_active_before = row.first_active_at
+    _write_state(row, typed, body, new_hash, response)
+    if row.first_active_at is None and typed["status"] == STATUS_ACTIVE:
+        row.first_active_at = response.received_at
+    _touch(row, response, trigger_received_at)
+    _project_variations(db, item_id, body, response)
+    if not reportable and not restoring:
+        db.flush()
+        return ApplyOutcome("noise_only")
+    kind = "restored" if restoring else "change"
+    entry = _log_change(
+        db,
+        spec,
+        item_id,
+        kind,
+        reportable,
+        previous_hash,
+        new_hash,
+        response,
+        incoming_last_updated,
+        _context(old_snapshot, typed, first_active_before),
+    )
+    return ApplyOutcome("restored" if restoring else "changed", change_log_id=entry.id)
 
 
 def _project_variations(db, item_id: str, body: Mapping[str, Any], response: MlResponse) -> None:

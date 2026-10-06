@@ -707,3 +707,70 @@ class TestVariations:
 
         assert apply(copy.deepcopy(body), MULTI, minutes=3).kind == "restored"
         assert len(variation_rows(mlpub_pg)) == 4
+
+
+ACTIVE = "MLA874027718"  # active, sub_status [], available_quantity 2, official store 57997, brand from attributes
+
+
+class TestChangeLogContext:
+    def test_context_holds_the_derivation_inputs_for_a_change(self, mlpub_pg) -> None:
+        """real payload, status paused->active, sub_status cleared and available_quantity 0->3."""
+        body = bulk_item(PAUSED)
+        apply(body, PAUSED, minutes=1)
+        changed = copy.deepcopy(body)
+        changed["status"] = "active"
+        changed["sub_status"] = []
+        changed["available_quantity"] = 3
+
+        apply(changed, PAUSED, minutes=5)
+
+        (entry,) = log_rows(mlpub_pg, PAUSED)
+        assert entry["context"] == {
+            "status_old": "paused",
+            "status_new": "active",
+            "sub_status_old": ["out_of_stock"],
+            "sub_status_new": [],
+            "available_quantity_old": 0,
+            "available_quantity_new": 3,
+            "first_active_at_before": None,
+            "official_store_id": 57997,
+            "brand": "Marvo",
+        }
+
+    def test_first_active_at_is_set_on_the_first_observed_active_status(self, mlpub_pg) -> None:
+        body = bulk_item(PAUSED)
+        apply(body, PAUSED, minutes=1)
+        assert item_row(mlpub_pg, PAUSED)["first_active_at"] is None
+
+        changed = copy.deepcopy(body)
+        changed["status"] = "active"
+        apply(changed, PAUSED, minutes=5)
+
+        assert item_row(mlpub_pg, PAUSED)["first_active_at"] == at(5)
+
+    def test_first_active_at_is_set_on_a_first_sighting_that_is_already_active(self, mlpub_pg) -> None:
+        apply(sample_item(ACTIVE), ACTIVE, minutes=2)
+        assert item_row(mlpub_pg, ACTIVE)["first_active_at"] == at(2)
+
+    def test_first_active_at_is_never_moved_by_later_reactivations(self, mlpub_pg) -> None:
+        """real payload, active -> paused -> active again."""
+        body = sample_item(ACTIVE)
+        apply(body, ACTIVE, minutes=2)
+        paused = copy.deepcopy(body)
+        paused["status"] = "paused"
+        apply(paused, ACTIVE, minutes=3)
+        apply(copy.deepcopy(body), ACTIVE, minutes=4)
+
+        assert item_row(mlpub_pg, ACTIVE)["first_active_at"] == at(2)
+        reactivation = log_rows(mlpub_pg, ACTIVE)[-1]
+        assert reactivation["context"]["first_active_at_before"] == at(2).isoformat()
+        assert reactivation["context"]["status_old"] == "paused" and reactivation["context"]["status_new"] == "active"
+
+    def test_context_of_a_gone_row_carries_the_unchanged_state(self, mlpub_pg) -> None:
+        apply(sample_item(ACTIVE), ACTIVE, minutes=2)
+        only_not_found(ACTIVE, 6)
+
+        (entry,) = log_rows(mlpub_pg, ACTIVE)
+        assert entry["context"]["status_old"] == "active" and entry["context"]["status_new"] == "active"
+        assert entry["context"]["first_active_at_before"] == at(2).isoformat()
+        assert entry["context"]["official_store_id"] == 57997
