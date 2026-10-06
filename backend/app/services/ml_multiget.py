@@ -56,8 +56,6 @@ def parse_multiget(payload: Any) -> List[MultigetElement]:
         item_id = element.get("id")
         if item_id is None and body is not None:
             item_id = body.get("id")
-        if item_id is None and isinstance(raw_body, dict):
-            item_id = raw_body.get("id")
 
         found = status == 200 and body is not None
         parsed.append(MultigetElement(id=item_id, status_code=status, body=body if found else None))

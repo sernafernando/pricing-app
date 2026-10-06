@@ -33,7 +33,7 @@ from app.core.database import SessionLocal
 from app.models.ml_publication_snapshot import MLPublicationSnapshot
 from app.models.mercadolibre_item_publicado import MercadoLibreItemPublicado
 from app.services.ml_api_client import MercadoLibreAPIClient
-from app.services.ml_multiget import BULK_ITEMS_PATH, parse_multiget
+from app.services.ml_multiget import BULK_ITEMS_PATH, MAX_IDS_PER_CALL, parse_multiget
 
 # El access token vive en la DB del ml-webhook (única fuente de OAuth para ML);
 # este cliente solo lo lee/cachea, nunca hace el intercambio de refresh_token.
@@ -197,7 +197,7 @@ async def procesar_batch(
     Procesa un batch de MLA IDs.
     Estrategia: commit por chunk de 20 → si falla, fallback a individual.
     """
-    chunk_size = 20
+    chunk_size = MAX_IDS_PER_CALL
     saved = 0
     updated = 0
     errors = 0

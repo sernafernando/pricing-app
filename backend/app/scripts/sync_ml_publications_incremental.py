@@ -36,7 +36,7 @@ from app.scripts.sync_ml_publications_full import (
     crear_snapshot,
 )
 from app.services.ml_api_client import MercadoLibreAPIClient
-from app.services.ml_multiget import BULK_ITEMS_PATH, parse_multiget
+from app.services.ml_multiget import BULK_ITEMS_PATH, MAX_IDS_PER_CALL, parse_multiget
 
 # El access token vive en la DB del ml-webhook (única fuente de OAuth para ML);
 # este cliente solo lo lee/cachea, nunca hace el intercambio de refresh_token.
@@ -85,7 +85,7 @@ async def obtener_mla_ids_activos(db: Session) -> list:
 
 async def traer_detalles_batch(ids: list, db: Session):
     """Obtiene detalles de publicaciones en batches y los guarda en la DB"""
-    chunk_size = 20
+    chunk_size = MAX_IDS_PER_CALL
     total_saved = 0
     total_updated = 0
     total_errors = 0
