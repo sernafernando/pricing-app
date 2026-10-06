@@ -1,5 +1,5 @@
 """Migration `20261006_ml_tiendas_oficiales`: creates the table, seeds the four
-stores that used to be hardcoded, seeds the `admin.tiendas_oficiales`
+stores that used to be hardcoded plus TP-Link's new id 471846, seeds the `admin.tiendas_oficiales`
 permission for ADMIN, is idempotent, and downgrade removes all of it.
 
 Runs inside a throwaway schema of the Postgres test DB (with minimal
