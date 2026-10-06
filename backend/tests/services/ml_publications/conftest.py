@@ -146,3 +146,28 @@ def item_404_bulk_element() -> dict:
 def item_with_variations() -> dict:
     """Captured MLA1207279308 (closed, 4 variations without `attributes`)."""
     return copy.deepcopy(load_fixture(ITEM_WITH_VARIATIONS))
+
+
+# --- Sub-resource captures (description, prices, sale price, promotions, user product, stock, family) ---
+
+SUBRESOURCE_FIXTURES = {
+    "description": "description_20261006.json",
+    "prices": "prices_20261006.json",
+    "sale_price": "sale_price_20261006.json",
+    "promotions": "seller_promotions_20261006.json",
+    "user_product": "user_product_20261006.json",
+    "stock": "user_product_stock_20261006.json",
+    "family": "family_20261006.json",
+}
+
+
+def subresource_call(resource: str, name: str) -> dict:
+    """One captured call `{name, path, status, headers, body}` of a sub-resource fixture (deep copy)."""
+    for call in load_fixture(SUBRESOURCE_FIXTURES[resource])["calls"]:
+        if call["name"] == name:
+            return copy.deepcopy(call)
+    raise KeyError(f"{resource}:{name}")
+
+
+def subresource_body(resource: str, name: str) -> Any:
+    return subresource_call(resource, name)["body"]

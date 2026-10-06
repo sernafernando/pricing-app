@@ -1,0 +1,38 @@
+{
+ "source": "ml_publications_capture_20261006_102440.json",
+ "captured_at": "2026-10-06T13:23:47.447148+00:00",
+ "calls": [
+  {
+   "name": "family_5385385211222674",
+   "path": "/sites/MLA/user-products-families/5385385211222674",
+   "status": 200,
+   "headers": {
+    "date": "Tue, 06 Oct 2026 13:24:16 GMT"
+   },
+   "body": {
+    "user_products_ids": [
+     "MLAU245334053"
+    ],
+    "family_id": 5385385211222674,
+    "site_id": "MLA",
+    "user_id": 413658225
+   }
+  },
+  {
+   "name": "family_994279717105509",
+   "path": "/sites/MLA/user-products-families/994279717105509",
+   "status": 200,
+   "headers": {
+    "date": "Tue, 06 Oct 2026 13:24:34 GMT"
+   },
+   "body": {
+    "user_products_ids": [
+     "MLAU266459622"
+    ],
+    "family_id": 994279717105509,
+    "site_id": "MLA",
+    "user_id": 413658225
+   }
+  }
+ ]
+}

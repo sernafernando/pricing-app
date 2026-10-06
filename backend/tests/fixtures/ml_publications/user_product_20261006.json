@@ -1,0 +1,1153 @@
+{
+ "source": "ml_publications_capture_20261006_102440.json",
+ "captured_at": "2026-10-06T13:23:47.447148+00:00",
+ "calls": [
+  {
+   "name": "user_product_MLAU245334053",
+   "path": "/user-products/MLAU245334053",
+   "status": 200,
+   "headers": {
+    "date": "Tue, 06 Oct 2026 13:24:14 GMT"
+   },
+   "body": {
+    "id": "MLAU245334053",
+    "name": "Teclado Mecanico Marvo Kg901 Rgb Switch Blue Negro Inglés Us",
+    "family_name": "Teclado Mecanico Marvo Kg901 Rgb Switch Blue",
+    "site_id": "MLA",
+    "user_id": 413658225,
+    "domain_id": "MLA-PC_KEYBOARDS",
+    "attributes": [
+     {
+      "id": "IS_WIRELESS",
+      "name": "Es inalámbrico",
+      "values": [
+       {
+        "id": "242084",
+        "name": "No",
+        "struct": null
+       }
+      ]
+     },
+     {
+      "id": "KEYS_SHAPE",
+      "name": "Forma de las teclas",
+      "values": [
+       {
+        "id": "111014",
+        "name": "Cilíndrica",
+        "struct": null
+       }
+      ]
+     },
+     {
+      "id": "PC_KEYBOARD_ARCHITECTURE",
+      "name": "Arquitectura",
+      "values": [
+       {
+        "id": "108463",
+        "name": "Mecánico",
+        "struct": null
+       }
+      ]
+     },
+     {
+      "id": "PACKAGE_LENGTH",
+      "name": "Largo del paquete",
+      "values": [
+       {
+        "id": null,
+        "name": "37.6 cm",
+        "struct": {
+         "number": 37.6,
+         "unit": "cm"
+        }
+       }
+      ]
+     },
+     {
+      "id": "WITH_BLUETOOTH",
+      "name": "Con Bluetooth",
+      "values": [
+       {
+        "id": "242084",
+        "name": "No",
+        "struct": null
+       }
+      ]
+     },
+     {
+      "id": "WITH_DISPLAY",
+      "name": "Con pantalla",
+      "values": [
+       {
+        "id": "242084",
+        "name": "No",
+        "struct": null
+       }
+      ]
+     },
+     {
+      "id": "WITH_ANTI_GHOST_KEYS",
+      "name": "Con teclas anti-ghost",
+      "values": [
+       {
+        "id": "242085",
+        "name": "Sí",
+        "struct": null
+       }
+      ]
+     },
+     {
+      "id": "GTIN",
+      "name": "Código universal de producto",
+      "values": [
+       {
+        "id": null,
+        "name": "6932391923412",
+        "struct": null
+       },
+       {
+        "id": null,
+        "name": "6932391920954",
+        "struct": null
+       }
+      ]
+     },
+     {
+      "id": "BACKLIGHTING_COLOR",
+      "name": "Color de la retroiluminación",
+      "values": [
+       {
+        "id": "559747",
+        "name": "Rainbow",
+        "struct": null
+       }
+      ]
+     },
+     {
+      "id": "KEYBOARD_DEPTH",
+      "name": "Profundidad del teclado",
+      "values": [
+       {
+        "id": null,
+        "name": "14 cm",
+        "struct": {
+         "number": 14.0,
+         "unit": "cm"
+        }
+       }
+      ]
+     },
+     {
+      "id": "KEYBOARD_WIDTH",
+      "name": "Ancho del teclado",
+      "values": [
+       {
+        "id": null,
+        "name": "34 cm",
+        "struct": {
+         "number": 34.0,
+         "unit": "cm"
+        }
+       }
+      ]
+     },
+     {
+      "id": "WITH_INTERFACE_USB",
+      "name": "Con interfaz USB",
+      "values": [
+       {
+        "id": "242084",
+        "name": "No",
+        "struct": null
+       }
+      ]
+     },
+     {
+      "id": "KEYBOARD_HEIGHT",
+      "name": "Altura del teclado",
+      "values": [
+       {
+        "id": null,
+        "name": "3 cm",
+        "struct": {
+         "number": 3.0,
+         "unit": "cm"
+        }
+       }
+      ]
+     },
+     {
+      "id": "WITH_WIRELESS_CAPABILITY",
+      "name": "Con recepción inalámbrica",
+      "values": [
+       {
+        "id": "242084",
+        "name": "No",
+        "struct": null
+       }
+      ]
+     },
+     {
+      "id": "LANGUAGE",
+      "name": "Idioma",
+      "values": [
+       {
+        "id": "328561",
+        "name": "Inglés US",
+        "struct": null
+       }
+      ]
+     },
+     {
+      "id": "LAYOUT",
+      "name": "Layout",
+      "values": [
+       {
+        "id": "110991",
+        "name": "QWERTY",
+        "struct": null
+       }
+      ]
+     },
+     {
+      "id": "IS_GAMER",
+      "name": "Es gamer",
+      "values": [
+       {
+        "id": "242085",
+        "name": "Sí",
+        "struct": null
+       }
+      ]
+     },
+     {
+      "id": "PRODUCT_FEATURES",
+      "name": "Características del producto",
+      "values": [
+       {
+        "id": "8847339",
+        "name": "Sin vencimiento",
+        "struct": null
+       }
+      ]
+     },
+     {
+      "id": "SELLER_PACKAGE_WEIGHT",
+      "name": "Peso del paquete del seller",
+      "values": [
+       {
+        "id": null,
+        "name": "1040 g",
+        "struct": {
+         "number": 1040.0,
+         "unit": "g"
+        }
+       }
+      ]
+     },
+     {
+      "id": "ITEM_CONDITION",
+      "name": "Condición del ítem",
+      "values": [
+       {
+        "id": "2230284",
+        "name": "Nuevo",
+        "struct": null
+       }
+      ]
+     },
+     {
+      "id": "PC_KEYBOARDS_SWITCH_TYPE",
+      "name": "Tipo de switch",
+      "values": [
+       {
+        "id": "8706243",
+        "name": "Marvo Blue",
+        "struct": null
+       }
+      ]
+     },
+     {
+      "id": "CONNECTIVITY",
+      "name": "Conectividad",
+      "values": [
+       {
+        "id": "102761",
+        "name": "USB 2.0",
+        "struct": null
+       }
+      ]
+     },
+     {
+      "id": "IS_ONE_HANDED",
+      "name": "Es para una mano",
+      "values": [
+       {
+        "id": "242084",
+        "name": "No",
+        "struct": null
+       }
+      ]
+     },
+     {
+      "id": "MODEL",
+      "name": "Modelo",
+      "values": [
+       {
+        "id": "8706241",
+        "name": "KG901",
+        "struct": null
+       }
+      ]
+     },
+     {
+      "id": "IS_SPLASH_RESISTANT",
+      "name": "Es resistente a salpicaduras",
+      "values": [
+       {
+        "id": "242084",
+        "name": "No",
+        "struct": null
+       }
+      ]
+     },
+     {
+      "id": "SHIPMENT_PACKING",
+      "name": "Embalaje del envío",
+      "values": [
+       {
+        "id": "7575939",
+        "name": "Auto-despachable",
+        "struct": null
+       }
+      ]
+     },
+     {
+      "id": "PACKAGE_WIDTH",
+      "name": "Ancho del paquete",
+      "values": [
+       {
+        "id": null,
+        "name": "16.6 cm",
+        "struct": {
+         "number": 16.6,
+         "unit": "cm"
+        }
+       }
+      ]
+     },
+     {
+      "id": "KEYBOARDS_KEYS_NUMBER",
+      "name": "Cantidad de teclas",
+      "values": [
+       {
+        "id": null,
+        "name": "87",
+        "struct": null
+       }
+      ]
+     },
+     {
+      "id": "WITH_TRACKBALL",
+      "name": "Con trackball",
+      "values": [
+       {
+        "id": "242084",
+        "name": "No",
+        "struct": null
+       }
+      ]
+     },
+     {
+      "id": "WITH_NUMERIC_PAD",
+      "name": "Con pad numérico",
+      "values": [
+       {
+        "id": "242084",
+        "name": "No",
+        "struct": null
+       }
+      ]
+     },
+     {
+      "id": "GIFTABLE",
+      "name": "Regalable",
+      "values": [
+       {
+        "id": "54973164",
+        "name": "vppfull",
+        "struct": null
+       }
+      ]
+     },
+     {
+      "id": "PACKAGE_HEIGHT",
+      "name": "Altura del paquete",
+      "values": [
+       {
+        "id": null,
+        "name": "4.2 cm",
+        "struct": {
+         "number": 4.2,
+         "unit": "cm"
+        }
+       }
+      ]
+     },
+     {
+      "id": "WITH_RETROILLUMINATION",
+      "name": "Con retroiluminación",
+      "values": [
+       {
+        "id": "242085",
+        "name": "Sí",
+        "struct": null
+       }
+      ]
+     },
+     {
+      "id": "SELLER_PACKAGE_TYPE",
+      "name": "Tipo de paquete del seller",
+      "values": [
+       {
+        "id": "47115156",
+        "name": "Con embalaje adicional",
+        "struct": null
+       }
+      ]
+     },
+     {
+      "id": "SELLER_PACKAGE_LENGTH",
+      "name": "Largo del paquete del seller",
+      "values": [
+       {
+        "id": null,
+        "name": "5 cm",
+        "struct": {
+         "number": 5.0,
+         "unit": "cm"
+        }
+       }
+      ]
+     },
+     {
+      "id": "KEYBOARD_COLOR",
+      "name": "Color del teclado",
+      "values": [
+       {
+        "id": "52049",
+        "name": "Negro",
+        "struct": null
+       }
+      ]
+     },
+     {
+      "id": "CONNECTOR_TYPE",
+      "name": "Tipo de conector",
+      "values": [
+       {
+        "id": "102761",
+        "name": "USB 2.0",
+        "struct": null
+       }
+      ]
+     },
+     {
+      "id": "IMPORT_DUTY",
+      "name": "Impuesto interno",
+      "values": [
+       {
+        "id": "49553239",
+        "name": "0 %",
+        "struct": null
+       }
+      ]
+     },
+     {
+      "id": "VALUE_ADDED_TAX",
+      "name": "IVA",
+      "values": [
+       {
+        "id": "48405909",
+        "name": "21 %",
+        "struct": null
+       }
+      ]
+     },
+     {
+      "id": "SELLER_SKU",
+      "name": "SKU",
+      "values": [
+       {
+        "id": null,
+        "name": "6932391923412",
+        "struct": null
+       }
+      ]
+     },
+     {
+      "id": "KEYBOARD_SIZE",
+      "name": "Tamaño del teclado",
+      "values": [
+       {
+        "id": "61683452",
+        "name": "60%",
+        "struct": null
+       }
+      ]
+     },
+     {
+      "id": "LINE",
+      "name": "Línea",
+      "values": [
+       {
+        "id": "217536",
+        "name": "Scorpion",
+        "struct": null
+       }
+      ]
+     },
+     {
+      "id": "WITH_TOUCHPAD",
+      "name": "Con touchpad",
+      "values": [
+       {
+        "id": "242084",
+        "name": "No",
+        "struct": null
+       }
+      ]
+     },
+     {
+      "id": "KEYBOARD_WEIGHT",
+      "name": "Peso del teclado",
+      "values": [
+       {
+        "id": null,
+        "name": "758 g",
+        "struct": {
+         "number": 758.0,
+         "unit": "g"
+        }
+       }
+      ]
+     },
+     {
+      "id": "INCLUDES_CELL_BATTERIES",
+      "name": "Incluye pilas",
+      "values": [
+       {
+        "id": "242084",
+        "name": "No",
+        "struct": null
+       }
+      ]
+     },
+     {
+      "id": "PACKAGE_WEIGHT",
+      "name": "Peso del paquete",
+      "values": [
+       {
+        "id": null,
+        "name": "1060 g",
+        "struct": {
+         "number": 1060.0,
+         "unit": "g"
+        }
+       }
+      ]
+     },
+     {
+      "id": "BRAND",
+      "name": "Marca",
+      "values": [
+       {
+        "id": "271057",
+        "name": "Marvo",
+        "struct": null
+       }
+      ]
+     },
+     {
+      "id": "SWITCH_TECHNOLOGY",
+      "name": "Tecnología de switch",
+      "values": [
+       {
+        "id": "61683420",
+        "name": "Mecánico",
+        "struct": null
+       }
+      ]
+     },
+     {
+      "id": "IS_NUMERIC_KEYBOARD",
+      "name": "Es teclado numérico",
+      "values": [
+       {
+        "id": "242084",
+        "name": "No",
+        "struct": null
+       }
+      ]
+     },
+     {
+      "id": "WITH_WRIST_REST",
+      "name": "Con reposa muñeca",
+      "values": [
+       {
+        "id": "242084",
+        "name": "No",
+        "struct": null
+       }
+      ]
+     },
+     {
+      "id": "SELLER_PACKAGE_HEIGHT",
+      "name": "Altura del paquete del seller",
+      "values": [
+       {
+        "id": null,
+        "name": "38 cm",
+        "struct": {
+         "number": 38.0,
+         "unit": "cm"
+        }
+       }
+      ]
+     },
+     {
+      "id": "SELLER_PACKAGE_WIDTH",
+      "name": "Ancho del paquete del seller",
+      "values": [
+       {
+        "id": null,
+        "name": "17 cm",
+        "struct": {
+         "number": 17.0,
+         "unit": "cm"
+        }
+       }
+      ]
+     },
+     {
+      "id": "CABLE_LENGTH",
+      "name": "Largo del cable",
+      "values": [
+       {
+        "id": null,
+        "name": "1.6 m",
+        "struct": {
+         "number": 1.6,
+         "unit": "m"
+        }
+       }
+      ]
+     },
+     {
+      "id": "IS_ERGONOMIC",
+      "name": "Es ergonómica",
+      "values": [
+       {
+        "id": "242084",
+        "name": "No",
+        "struct": null
+       }
+      ]
+     },
+     {
+      "id": "WITH_REMOVABLE_CABLE",
+      "name": "Con cable removible",
+      "values": [
+       {
+        "id": "242084",
+        "name": "No",
+        "struct": null
+       }
+      ]
+     }
+    ],
+    "pictures": [
+     {
+      "id": "796320-MLA92851137533_092025",
+      "secure_url": "https://http2.mlstatic.com/D_796320-MLA92851137533_092025-O.jpg"
+     },
+     {
+      "id": "605143-MLA43557625595_092020",
+      "secure_url": "https://http2.mlstatic.com/D_605143-MLA43557625595_092020-O.jpg"
+     },
+     {
+      "id": "865003-MLU78853040345_082024",
+      "secure_url": "https://http2.mlstatic.com/D_865003-MLU78853040345_082024-O.jpg"
+     },
+     {
+      "id": "917963-MLU72836405301_112023",
+      "secure_url": "https://http2.mlstatic.com/D_917963-MLU72836405301_112023-O.jpg"
+     },
+     {
+      "id": "937794-MLU72836356331_112023",
+      "secure_url": "https://http2.mlstatic.com/D_937794-MLU72836356331_112023-O.jpg"
+     },
+     {
+      "id": "614055-MLU78852914265_082024",
+      "secure_url": "https://http2.mlstatic.com/D_614055-MLU78852914265_082024-O.jpg"
+     },
+     {
+      "id": "837291-MLU78853040353_082024",
+      "secure_url": "https://http2.mlstatic.com/D_837291-MLU78853040353_082024-O.jpg"
+     }
+    ],
+    "thumbnail": {
+     "id": "796320-MLA92851137533_092025",
+     "secure_url": "https://http2.mlstatic.com/D_796320-MLA92851137533_092025-O.jpg"
+    },
+    "catalog_product_id": "MLA15810042",
+    "bundle": null,
+    "family_id": 5385385211222674,
+    "tags": [
+     "primary"
+    ],
+    "date_created": "2024-02-07T23:54:53.076+0000",
+    "last_updated": "2026-10-02T19:21:52.233+0000",
+    "main_features": [],
+    "commingling": null
+   }
+  },
+  {
+   "name": "user_product_MLAU266459622",
+   "path": "/user-products/MLAU266459622",
+   "status": 200,
+   "headers": {
+    "date": "Tue, 06 Oct 2026 13:24:32 GMT"
+   },
+   "body": {
+    "id": "MLAU266459622",
+    "name": "Mouse Pad Gamer Marvo G41 Xl 900x400x3mm Microfibra Tela Negro",
+    "family_name": "Mouse Pad Gamer Marvo G41 Xl 900x400x3mm Microfibra Tela",
+    "site_id": "MLA",
+    "user_id": 413658225,
+    "domain_id": "MLA-MOUSE_PADS",
+    "attributes": [
+     {
+      "id": "PACKAGE_LENGTH",
+      "name": "Largo del paquete",
+      "values": [
+       {
+        "id": null,
+        "name": "41.8 cm",
+        "struct": {
+         "number": 41.8,
+         "unit": "cm"
+        }
+       }
+      ]
+     },
+     {
+      "id": "GTIN",
+      "name": "Código universal de producto",
+      "values": [
+       {
+        "id": null,
+        "name": "6932391922590",
+        "struct": null
+       }
+      ]
+     },
+     {
+      "id": "SELLER_PACKAGE_LENGTH",
+      "name": "Largo del paquete del seller",
+      "values": [
+       {
+        "id": null,
+        "name": "10 cm",
+        "struct": {
+         "number": 10.0,
+         "unit": "cm"
+        }
+       }
+      ]
+     },
+     {
+      "id": "EXCLUSIVE_CHANNEL",
+      "name": "Canal exclusivo",
+      "values": [
+       {
+        "id": "7865259",
+        "name": "Mercado Libre",
+        "struct": null
+       }
+      ]
+     },
+     {
+      "id": "ITEM_CONDITION",
+      "name": "Condición del ítem",
+      "values": [
+       {
+        "id": "2230284",
+        "name": "Nuevo",
+        "struct": null
+       }
+      ]
+     },
+     {
+      "id": "SELLER_PACKAGE_WIDTH",
+      "name": "Ancho del paquete del seller",
+      "values": [
+       {
+        "id": null,
+        "name": "11 cm",
+        "struct": {
+         "number": 11.0,
+         "unit": "cm"
+        }
+       }
+      ]
+     },
+     {
+      "id": "MOUSE_PAD_SIZE",
+      "name": "Tamaño del mouse pad",
+      "values": [
+       {
+        "id": "2353026",
+        "name": "XL",
+        "struct": null
+       }
+      ]
+     },
+     {
+      "id": "VALUE_ADDED_TAX",
+      "name": "IVA",
+      "values": [
+       {
+        "id": "48405909",
+        "name": "21 %",
+        "struct": null
+       }
+      ]
+     },
+     {
+      "id": "BRAND",
+      "name": "Marca",
+      "values": [
+       {
+        "id": "271057",
+        "name": "Marvo",
+        "struct": null
+       }
+      ]
+     },
+     {
+      "id": "SELLER_PACKAGE_TYPE",
+      "name": "Tipo de paquete del seller",
+      "values": [
+       {
+        "id": "47115156",
+        "name": "Con embalaje adicional",
+        "struct": null
+       }
+      ]
+     },
+     {
+      "id": "SELLER_PACKAGE_WEIGHT",
+      "name": "Peso del paquete del seller",
+      "values": [
+       {
+        "id": null,
+        "name": "750 g",
+        "struct": {
+         "number": 750.0,
+         "unit": "g"
+        }
+       }
+      ]
+     },
+     {
+      "id": "GIFTABLE",
+      "name": "Regalable",
+      "values": [
+       {
+        "id": "54973164",
+        "name": "vppfull",
+        "struct": null
+       }
+      ]
+     },
+     {
+      "id": "LINE",
+      "name": "Línea",
+      "values": [
+       {
+        "id": "217536",
+        "name": "Scorpion",
+        "struct": null
+       }
+      ]
+     },
+     {
+      "id": "SELLER_SKU",
+      "name": "SKU",
+      "values": [
+       {
+        "id": null,
+        "name": "6932391922590",
+        "struct": null
+       }
+      ]
+     },
+     {
+      "id": "SHIPMENT_PACKING",
+      "name": "Embalaje del envío",
+      "values": [
+       {
+        "id": "7435891",
+        "name": "Bolsa",
+        "struct": null
+       }
+      ]
+     },
+     {
+      "id": "IS_GAMER",
+      "name": "Es gamer",
+      "values": [
+       {
+        "id": "242085",
+        "name": "Sí",
+        "struct": null
+       }
+      ]
+     },
+     {
+      "id": "MATERIALS",
+      "name": "Materiales",
+      "values": [
+       {
+        "id": "35916916",
+        "name": "Caucho",
+        "struct": null
+       },
+       {
+        "id": "2469707",
+        "name": "Tela",
+        "struct": null
+       }
+      ]
+     },
+     {
+      "id": "LENGTH",
+      "name": "Largo",
+      "values": [
+       {
+        "id": null,
+        "name": "90 cm",
+        "struct": {
+         "number": 90.0,
+         "unit": "cm"
+        }
+       }
+      ]
+     },
+     {
+      "id": "COLOR",
+      "name": "Color",
+      "values": [
+       {
+        "id": "52049",
+        "name": "Negro",
+        "struct": null
+       }
+      ]
+     },
+     {
+      "id": "PACKAGE_HEIGHT",
+      "name": "Altura del paquete",
+      "values": [
+       {
+        "id": null,
+        "name": "10 cm",
+        "struct": {
+         "number": 10.0,
+         "unit": "cm"
+        }
+       }
+      ]
+     },
+     {
+      "id": "THICKNESS",
+      "name": "Espesor",
+      "values": [
+       {
+        "id": null,
+        "name": "3 mm",
+        "struct": {
+         "number": 3.0,
+         "unit": "mm"
+        }
+       }
+      ]
+     },
+     {
+      "id": "WIDTH",
+      "name": "Ancho",
+      "values": [
+       {
+        "id": null,
+        "name": "40 cm",
+        "struct": {
+         "number": 40.0,
+         "unit": "cm"
+        }
+       }
+      ]
+     },
+     {
+      "id": "IS_NON_SLIP",
+      "name": "Es antideslizante",
+      "values": [
+       {
+        "id": "242085",
+        "name": "Sí",
+        "struct": null
+       }
+      ]
+     },
+     {
+      "id": "WITH_WRIST_SUPPORT",
+      "name": "Con apoya muñeca",
+      "values": [
+       {
+        "id": "242084",
+        "name": "No",
+        "struct": null
+       }
+      ]
+     },
+     {
+      "id": "IMPORT_DUTY",
+      "name": "Impuesto interno",
+      "values": [
+       {
+        "id": "49553239",
+        "name": "0 %",
+        "struct": null
+       }
+      ]
+     },
+     {
+      "id": "WITH_DEVICES_WIRELESS_CHARGE",
+      "name": "Con carga inalámbrica de dispositivos",
+      "values": [
+       {
+        "id": "242084",
+        "name": "No",
+        "struct": null
+       }
+      ]
+     },
+     {
+      "id": "PACKAGE_WIDTH",
+      "name": "Ancho del paquete",
+      "values": [
+       {
+        "id": null,
+        "name": "11.2 cm",
+        "struct": {
+         "number": 11.2,
+         "unit": "cm"
+        }
+       }
+      ]
+     },
+     {
+      "id": "PRODUCT_FEATURES",
+      "name": "Características del producto",
+      "values": [
+       {
+        "id": "8847339",
+        "name": "Sin vencimiento",
+        "struct": null
+       }
+      ]
+     },
+     {
+      "id": "PACKAGE_WEIGHT",
+      "name": "Peso del paquete",
+      "values": [
+       {
+        "id": null,
+        "name": "760 g",
+        "struct": {
+         "number": 760.0,
+         "unit": "g"
+        }
+       }
+      ]
+     },
+     {
+      "id": "SELLER_PACKAGE_HEIGHT",
+      "name": "Altura del paquete del seller",
+      "values": [
+       {
+        "id": null,
+        "name": "42 cm",
+        "struct": {
+         "number": 42.0,
+         "unit": "cm"
+        }
+       }
+      ]
+     },
+     {
+      "id": "MODEL",
+      "name": "Modelo",
+      "values": [
+       {
+        "id": "8902004",
+        "name": "G41",
+        "struct": null
+       }
+      ]
+     },
+     {
+      "id": "WITH_LED_LIGHT",
+      "name": "Con luz LED",
+      "values": [
+       {
+        "id": "242084",
+        "name": "No",
+        "struct": null
+       }
+      ]
+     }
+    ],
+    "pictures": [
+     {
+      "id": "641581-MLA92852916059_092025",
+      "secure_url": "https://http2.mlstatic.com/D_641581-MLA92852916059_092025-O.jpg"
+     },
+     {
+      "id": "958450-MLA46770869469_072021",
+      "secure_url": "https://http2.mlstatic.com/D_958450-MLA46770869469_072021-O.jpg"
+     },
+     {
+      "id": "973755-MLA46771080217_072021",
+      "secure_url": "https://http2.mlstatic.com/D_973755-MLA46771080217_072021-O.jpg"
+     }
+    ],
+    "thumbnail": {
+     "id": "641581-MLA92852916059_092025",
+     "secure_url": "https://http2.mlstatic.com/D_641581-MLA92852916059_092025-O.jpg"
+    },
+    "catalog_product_id": "MLA16034201",
+    "bundle": null,
+    "family_id": 994279717105509,
+    "tags": [
+     "primary"
+    ],
+    "date_created": "2024-02-08T15:10:16.828+0000",
+    "last_updated": "2026-10-03T01:17:43.172+0000",
+    "main_features": [],
+    "commingling": null
+   }
+  }
+ ]
+}

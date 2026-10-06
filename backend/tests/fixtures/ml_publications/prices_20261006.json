@@ -1,0 +1,170 @@
+{
+ "source": "ml_publications_capture_20261006_102440.json",
+ "captured_at": "2026-10-06T13:23:47.447148+00:00",
+ "calls": [
+  {
+   "name": "prices_MLA874027718",
+   "path": "/items/MLA874027718/prices",
+   "status": 200,
+   "headers": {
+    "date": "Tue, 06 Oct 2026 13:24:08 GMT"
+   },
+   "body": {
+    "id": "MLA874027718",
+    "prices": [
+     {
+      "id": "465",
+      "type": "standard",
+      "amount": 55882.0,
+      "regular_amount": null,
+      "currency_id": "ARS",
+      "last_updated": "2026-09-09T15:14:56Z",
+      "conditions": {
+       "context_restrictions": [
+        "channel_marketplace"
+       ],
+       "start_time": null,
+       "end_time": null
+      }
+     },
+     {
+      "id": "414",
+      "type": "standard",
+      "amount": 39990.0,
+      "regular_amount": null,
+      "currency_id": "ARS",
+      "last_updated": "2023-12-29T16:49:57Z",
+      "conditions": {
+       "context_restrictions": [
+        "channel_mshops"
+       ],
+       "start_time": null,
+       "end_time": null
+      }
+     }
+    ]
+   }
+  },
+  {
+   "name": "prices_MLA903301838",
+   "path": "/items/MLA903301838/prices",
+   "status": 200,
+   "headers": {
+    "date": "Tue, 06 Oct 2026 13:24:26 GMT"
+   },
+   "body": {
+    "id": "MLA903301838",
+    "prices": [
+     {
+      "id": "339",
+      "type": "standard",
+      "amount": 18511.0,
+      "regular_amount": null,
+      "currency_id": "ARS",
+      "last_updated": "2025-11-14T17:40:15Z",
+      "conditions": {
+       "context_restrictions": [],
+       "start_time": null,
+       "end_time": null
+      }
+     }
+    ]
+   }
+  },
+  {
+   "name": "prices_started_MLA2146576013",
+   "path": "/items/MLA2146576013/prices",
+   "status": 200,
+   "headers": {
+    "date": "Tue, 06 Oct 2026 13:23:58 GMT"
+   },
+   "body": {
+    "id": "MLA2146576013",
+    "prices": [
+     {
+      "id": "6",
+      "type": "standard",
+      "amount": 2381471.0,
+      "regular_amount": null,
+      "currency_id": "ARS",
+      "last_updated": "2026-10-02T18:00:33Z",
+      "conditions": {
+       "context_restrictions": [],
+       "start_time": null,
+       "end_time": null
+      }
+     },
+     {
+      "id": "7",
+      "type": "promotion",
+      "amount": 1509999.0,
+      "regular_amount": 2381471.0,
+      "currency_id": "ARS",
+      "last_updated": "2026-10-06T13:20:10Z",
+      "conditions": {
+       "context_restrictions": [
+        "channel_marketplace"
+       ],
+       "start_time": "2026-10-01T03:00:00Z",
+       "end_time": "2026-11-01T02:59:59Z"
+      }
+     }
+    ]
+   }
+  },
+  {
+   "name": "prices_candidate_MLA2146646463",
+   "path": "/items/MLA2146646463/prices",
+   "status": 200,
+   "headers": {
+    "date": "Tue, 06 Oct 2026 13:24:00 GMT"
+   },
+   "body": {
+    "id": "MLA2146646463",
+    "prices": [
+     {
+      "id": "5",
+      "type": "standard",
+      "amount": 1770276.0,
+      "regular_amount": null,
+      "currency_id": "ARS",
+      "last_updated": "2026-10-02T18:00:32Z",
+      "conditions": {
+       "context_restrictions": [],
+       "start_time": null,
+       "end_time": null
+      }
+     },
+     {
+      "id": "6",
+      "type": "promotion",
+      "amount": 1230699.0,
+      "regular_amount": 1770276.0,
+      "currency_id": "ARS",
+      "last_updated": "2026-10-06T13:19:43Z",
+      "conditions": {
+       "context_restrictions": [
+        "channel_marketplace"
+       ],
+       "start_time": "2026-10-01T03:00:00Z",
+       "end_time": "2026-11-01T02:59:59Z"
+      }
+     }
+    ]
+   }
+  },
+  {
+   "name": "prices_unknown",
+   "path": "/items/MLA1/prices",
+   "status": 404,
+   "headers": {
+    "date": "Tue, 06 Oct 2026 13:24:05 GMT"
+   },
+   "body": {
+    "error": "The item MLA1 has no prices associated",
+    "code": "not.found",
+    "status": 404
+   }
+  }
+ ]
+}
