@@ -4,6 +4,8 @@ reads the official-store names; creating/editing needs
 
 from __future__ import annotations
 
+from sqlalchemy.orm import Session
+
 from app.models.ml_tienda_oficial import MlTiendaOficial
 from app.models.permiso import Permiso, RolPermisoBase
 
@@ -63,6 +65,20 @@ class TestCreate:
         _seed(db)
         resp = client.post("/api/tiendas-oficiales", json={"store_id": 1, "nombre": "Otra"}, headers=admin_auth_headers)
         assert resp.status_code == 409
+
+    def test_a_racing_insert_that_slips_past_the_precheck_is_409_not_500(
+        self, db, client, admin_auth_headers, rol_admin, monkeypatch
+    ) -> None:
+        _grant(db, rol_admin)
+        _seed(db)
+        # Simulate the race: the pre-check does not see the row another request
+        # just inserted, so the INSERT itself collides on the primary key.
+        monkeypatch.setattr(Session, "get", lambda self, entity, ident, **kw: None)
+
+        resp = client.post("/api/tiendas-oficiales", json={"store_id": 1, "nombre": "Otra"}, headers=admin_auth_headers)
+
+        assert resp.status_code == 409
+        assert "Ya existe la tienda 1" in resp.json()["error"]["message"]
 
     def test_clave_is_normalized_and_may_be_shared(self, db, client, admin_auth_headers, rol_admin) -> None:
         _grant(db, rol_admin)

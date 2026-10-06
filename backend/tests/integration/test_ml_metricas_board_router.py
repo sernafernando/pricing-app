@@ -347,6 +347,23 @@ class TestFilters:
     def test_store(self, client, admin_auth_headers, board_data):
         assert set(_by_key(_get(client, admin_auth_headers, stores="2645"))) == {"12"}
 
+    def test_several_stores_are_a_union_the_grouped_chip_sends(self, client, admin_auth_headers, board_data):
+        # The grouped store chip (same clave) sends every id as CSV.
+        assert set(_by_key(_get(client, admin_auth_headers, stores="2645,144"))) == {"12", "14"}
+        assert set(_by_key(_get(client, admin_auth_headers, stores="144"))) == {"14"}
+
+    def test_several_stores_reach_the_export(self, client, admin_auth_headers, board_data):
+        resp = client.get(f"{URL}/export", params={"stores": "2645,144"}, headers=admin_auth_headers)
+
+        assert resp.status_code == 200
+        rows = list(csv.DictReader(io.StringIO(resp.content.decode("utf-8-sig")), delimiter=";"))
+        assert len(rows) == 2
+
+    @pytest.mark.parametrize("bad", ["2645,abc", "2645,,144", "99999999999999"])
+    def test_garbage_stores_is_422_never_all_stores(self, client, admin_auth_headers, board_data, bad):
+        assert client.get(URL, params={"stores": bad}, headers=admin_auth_headers).status_code == 422
+        assert client.get(f"{URL}/export", params={"stores": bad}, headers=admin_auth_headers).status_code == 422
+
     def test_publication_status_narrows_the_product_row_too(self, client, admin_auth_headers, board_data):
         body = _get(client, admin_auth_headers, pub_status="paused")
 

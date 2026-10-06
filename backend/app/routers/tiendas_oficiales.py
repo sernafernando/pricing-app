@@ -13,6 +13,7 @@ from __future__ import annotations
 from typing import List
 
 from fastapi import APIRouter, Depends, HTTPException, status
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_current_user
@@ -49,11 +50,17 @@ def crear_tienda_oficial(
     db: Session = Depends(get_db),
 ) -> MlTiendaOficial:
     """Registers a store id with its display name. 409 when the id already exists."""
+    conflict = HTTPException(status_code=status.HTTP_409_CONFLICT, detail=f"Ya existe la tienda {body.store_id}")
     if db.get(MlTiendaOficial, body.store_id) is not None:
-        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=f"Ya existe la tienda {body.store_id}")
+        raise conflict
     tienda = MlTiendaOficial(**body.model_dump())
     db.add(tienda)
-    db.commit()
+    try:
+        db.commit()
+    except IntegrityError as exc:
+        # Another request inserted the same id between the check and the INSERT.
+        db.rollback()
+        raise conflict from exc
     db.refresh(tienda)
     return tienda
 

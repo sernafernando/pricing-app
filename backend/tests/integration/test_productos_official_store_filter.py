@@ -95,6 +95,28 @@ class TestOfficialStoreFilterCsv:
         assert result.total == 2
         assert sorted(p.item_id for p in result.productos) == [1, 2]
 
+    def test_old_and_new_id_of_one_store_return_the_products_of_both(self, db) -> None:
+        # The grouped store option in Productos sends `2645,471846` (same clave).
+        for item_id, mla, store in ((1, "MLA1", 2645), (2, "MLA2", 471846), (3, "MLA3", 144)):
+            db.add(_make_producto(item_id))
+            db.add(_make_publicacion(item_id, mla, store))
+        db.commit()
+        _patch_tienda_nube(db)
+
+        both = listar_productos(db=db, current_user=_current_user(), page=1, page_size=50, tienda_oficial="2645,471846")
+        new_only = listar_productos(db=db, current_user=_current_user(), page=1, page_size=50, tienda_oficial="471846")
+
+        assert sorted(p.item_id for p in both.productos) == [1, 2]
+        assert [p.item_id for p in new_only.productos] == [2]
+
+    def test_parser_reads_the_grouped_csv_and_never_fails_open(self) -> None:
+        from app.api.endpoints.productos_shared import parsear_tiendas_oficiales_mla
+
+        assert parsear_tiendas_oficiales_mla("2645,471846") == ([2645, 471846], False)
+        with pytest.raises(HTTPException) as exc:
+            parsear_tiendas_oficiales_mla("2645,garbage")
+        assert exc.value.status_code == 400
+
     def test_regression_pre_fix_if_false_returned_unfiltered_set(self, db) -> None:
         """The dead `if False:` block used to make this param a no-op — the
         filtered count must be strictly less than the unfiltered count."""

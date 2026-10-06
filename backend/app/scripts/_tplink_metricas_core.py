@@ -517,7 +517,7 @@ def fold_order_rows(rows: Iterable[Any], db_session: Any = None) -> dict[Any, di
             "ganancia": ganancia,
             "markup_porcentaje": markup_porcentaje,
             "offset_flex": offset_flex_once,
-            "mlp_official_store_id": getattr(first, "mlp_official_store_id", None),
+            "mlp_official_store_id": first.mlp_official_store_id,
             # --- JD-001 fix: previously-dropped fields (see review ledger
             # sdd/tplink-metricas-dual-key-dedup/review-ledger-slice2) ---
             # Per-order REPRESENTATIVE values (same detail as descriptive

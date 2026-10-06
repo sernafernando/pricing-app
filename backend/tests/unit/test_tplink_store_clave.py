@@ -25,6 +25,53 @@ def test_aggregation_sql_filters_by_the_store_id_list() -> None:
     assert sql._bindparams["store_ids"].expanding is True
 
 
+def test_aggregation_sql_selects_the_store_column_the_fold_reads() -> None:
+    from app.scripts import _tplink_metricas_core as core
+
+    assert "tmlip.mlp_official_store_id as mlp_official_store_id" in core.build_aggregation_sql().text
+
+
+def test_a_row_without_the_store_column_fails_loudly_instead_of_storing_null() -> None:
+    from app.scripts import _tplink_metricas_core as core
+
+    row = _order_row()
+    del row.mlp_official_store_id
+    with pytest.raises(AttributeError):
+        core.fold_order_rows([row], db_session=MagicMock())
+
+
+def _order_row(**overrides) -> SimpleNamespace:
+    values = dict(
+        id_operacion=1,
+        ml_id="ML1",
+        mlp_id=1,
+        pack_id=None,
+        item_id=1,
+        codigo="C",
+        descripcion="D",
+        marca="TP-LINK",
+        categoria="R",
+        subcategoria="S",
+        cantidad=1,
+        monto_unitario=1000.0,
+        monto_total=1000.0,
+        costo_sin_iva=400.0,
+        iva=21.0,
+        comision_base_porcentaje=12.0,
+        subcat_id=None,
+        pricelist_id=None,
+        tipo_logistica=None,
+        seller_shipping_cost=0.0,
+        shipment_total=0.0,
+        envio_producto=None,
+        fecha_venta=datetime(2026, 7, 1, 10, 0, 0),
+        mlod_id=1,
+        mlp_official_store_id=471846,
+    )
+    values.update(overrides)
+    return SimpleNamespace(**values)
+
+
 def test_folded_row_keeps_the_real_store_id_of_the_order() -> None:
     from app.scripts import _tplink_metricas_core as core
 
