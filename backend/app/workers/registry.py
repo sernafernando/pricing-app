@@ -15,6 +15,7 @@ from datetime import time, timedelta
 from typing import List, Optional, Protocol, Tuple
 
 from app.workers.context import JobResult, WorkerContext
+from app.workers.handlers.ml_publications import refresh as _ml_publications_refresh
 from app.workers.handlers.order_metrics import divergence as _order_metrics_divergence
 from app.workers.handlers.order_metrics import drain as _order_metrics_drain
 from app.workers.handlers.order_metrics import reconcile as _order_metrics_reconcile
@@ -49,3 +50,8 @@ class JobHandler(Protocol):
 # `order_metrics.drain`; PR6 appends `order_metrics.reconcile` and
 # `order_metrics.divergence`.
 REGISTRY: List[JobHandler] = [_order_metrics_drain, _order_metrics_reconcile, _order_metrics_divergence]
+
+# The ML publications store runs in its OWN process (`pricing-worker-ml.service`,
+# `--registry ml_publications`, design D1): its handlers sleep for ML pacing and must
+# never delay `order_metrics.drain`. A separate explicit list, never merged into REGISTRY.
+ML_PUBLICATIONS_REGISTRY: List[JobHandler] = [_ml_publications_refresh]
