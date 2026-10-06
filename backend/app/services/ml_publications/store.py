@@ -209,6 +209,7 @@ def _apply_state(
     restoring = row.gone_at is not None
     if not restoring and bytes(row.raw_hash) == new_hash:
         _touch(row, response, trigger_received_at)
+        row.fetched_request_started_at = _later(row.fetched_request_started_at, response.request_started_at)
         _mark_ok(row, response)
         db.flush()
         return ApplyOutcome("unchanged")

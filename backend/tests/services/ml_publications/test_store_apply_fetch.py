@@ -108,7 +108,7 @@ class TestFirstSighting:
 
 
 class TestIdenticalFetch:
-    def test_updates_only_last_checked_at(self, mlpub_pg) -> None:
+    def test_updates_only_the_freshness_columns(self, mlpub_pg) -> None:
         body = bulk_item(PAUSED)
         apply(body, PAUSED, minutes=1)
         before = dict(item_row(mlpub_pg, PAUSED))
@@ -119,6 +119,9 @@ class TestIdenticalFetch:
         assert outcome.kind == "unchanged"
         assert after.pop("last_checked_at") == at(10)
         assert before.pop("last_checked_at") == at(1)
+        # the ordering bound advances with the confirmation (see the late-404 test below)
+        assert after.pop("fetched_request_started_at") == at(10) - timedelta(seconds=1)
+        assert before.pop("fetched_request_started_at") == at(1) - timedelta(seconds=1)
         assert after == before  # raw, raw_hash, typed columns and fetched_at untouched
         assert count(mlpub_pg, "ml_change_log") == 0
 
@@ -540,6 +543,17 @@ class TestGoneOrdering:
 
         assert apply(copy.deepcopy(body), PAUSED, minutes=15).kind == "stale"
         assert item_row(mlpub_pg, PAUSED)["gone_at"] == at(10)
+
+    def test_an_identical_confirmation_moves_the_ordering_bound_so_an_older_404_is_discarded(self, mlpub_pg) -> None:
+        body = bulk_item(PAUSED)
+        apply(body, PAUSED, minutes=1)
+        apply(copy.deepcopy(body), PAUSED, minutes=10)  # identical, confirmed at t10
+        counters = ApplyCounters()
+
+        outcome = only_not_found(PAUSED, 5.5, counters=counters)  # its request started at t5.5 - 1s: older
+
+        assert outcome.kind == "stale" and counters.stale_discarded == 1
+        assert item_row(mlpub_pg, PAUSED)["gone_at"] is None and count(mlpub_pg, "ml_change_log") == 0
 
 
 class TestTriggerTimestamp:
