@@ -1171,21 +1171,6 @@ class Board:
             q = q.limit(limit).offset(offset)
         return self._group_rows_of(q, with_series)
 
-    def group_keys(self, limit: int) -> List[str]:
-        """Every node's key in board order, at most `limit`."""
-        rows = self.group_rows()
-        q = select(rows.c.rk).order_by(*self._ordered(rows)).limit(limit)
-        return [str(rk) for (rk,) in self.db.execute(q)]
-
-    def groups_for_keys(self, keys: List[str], with_series: bool = False) -> List[Row]:
-        """The nodes of `keys`, in THAT order; one no longer on the board is
-        skipped, never replaced."""
-        if not keys:
-            return []
-        rows = self.group_rows()
-        found = {row.key: row for row in self._group_rows_of(select(rows).where(rows.c.rk.in_(keys)), with_series)}
-        return [found[key] for key in keys if key in found]
-
     def _group_rows_of(self, q: Any, with_series: bool) -> List[Row]:
         level = self._node_level
         out = []
