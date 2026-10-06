@@ -26,6 +26,7 @@ from tests.services.ml_publications.conftest import (
     item_404_bulk_element,
     item_404_single,
     item_with_variations,
+    load_fixture,
     sample_item,
 )
 
@@ -443,22 +444,68 @@ class TestNonSuccessResponses:
         assert outcome.kind == "error_recorded" and row["raw"] is None and row["last_error"] == "body id mismatch"
 
 
+def _unmappable(_body):
+    raise AssertionError("the item mapper must not run for a declared negative state")
+
+
+NEGATIVE_BODIES = load_fixture("negative_state_bodies_20261006.json")
+
+
 class TestNegativeStates:
-    """`ResourceSpec.negative_states`: a declared HTTP status that is a state of the resource, not an error."""
+    """`ResourceSpec.negative_states`: a declared HTTP status that is a state of the resource, not an error.
 
-    SPEC_WITH_STATE = dataclasses.replace(SPEC, negative_states={404: "test_negative_state"})
+    The state is recorded (raw, hash, http_status) WITHOUT running the body through the typed mapper:
+    typed columns keep their previous values.
+    """
 
-    def test_declared_negative_state_is_stored_like_a_2xx_state_and_never_gone(self, mlpub_pg) -> None:
-        """test-local negative state for 404; real captured 404 body."""
+    SPEC_WITH_STATE = dataclasses.replace(
+        SPEC, mapper=_unmappable, negative_states={404: "absent", 400: "not_applicable"}
+    )
+
+    @pytest.mark.parametrize("name", ["moderation_404", "performance_400"])
+    def test_negative_state_is_stored_without_mapping_and_keeps_typed_columns(self, mlpub_pg, name) -> None:
+        """real captured moderation 404 / performance 400 bodies on a test-only spec."""
+        status, body = NEGATIVE_BODIES[name]["status"], NEGATIVE_BODIES[name]["body"]
         apply(bulk_item(PAUSED), PAUSED, minutes=1)
+        before = dict(item_row(mlpub_pg, PAUSED))
 
-        outcome = apply_fetch(self.SPEC_WITH_STATE, (PAUSED,), ok(item_404_single(), 5, status=404))
+        outcome = apply_fetch(self.SPEC_WITH_STATE, (PAUSED,), ok(body, 5, status=status))
 
-        row = item_row(mlpub_pg, PAUSED)
+        row = dict(item_row(mlpub_pg, PAUSED))
         (entry,) = log_rows(mlpub_pg, PAUSED)
         assert outcome.kind == "changed"
-        assert row["gone_at"] is None and row["http_status"] == 404 and row["raw"] == item_404_single()
+        assert row["raw"] == body and row["http_status"] == status and row["gone_at"] is None
+        assert bytes(row["raw_hash"]) == canonical_hash(body, SPEC)
+        for column in ("status", "brand", "title", "sub_status", "available_quantity", "ml_last_updated"):
+            assert row[column] == before[column]
         assert entry["kind"] == "change"
+        assert entry["context"]["status_old"] == "paused" and entry["context"]["status_new"] == "paused"
+
+    def test_negative_state_on_a_never_seen_id_is_a_first_sighting_with_null_typed_columns(self, mlpub_pg) -> None:
+        body = NEGATIVE_BODIES["moderation_404"]["body"]
+
+        outcome = apply_fetch(self.SPEC_WITH_STATE, (PAUSED,), ok(body, 2, status=404))
+
+        row = item_row(mlpub_pg, PAUSED)
+        assert outcome.kind == "first_seen" and row["raw"] == body and row["gone_at"] is None
+        assert row["status"] is None and row["title"] is None and row["first_active_at"] is None
+
+    def test_negative_state_leaves_the_variation_rows_alone(self, mlpub_pg) -> None:
+        apply(item_with_variations(), MULTI, minutes=1)
+        body = NEGATIVE_BODIES["moderation_404"]["body"]
+
+        apply_fetch(self.SPEC_WITH_STATE, (MULTI,), ok(body, 5, status=404))
+
+        rows = variation_rows(mlpub_pg)
+        assert len(rows) == 4 and all(r["gone_at"] is None for r in rows)
+
+    def test_repeating_the_same_negative_state_is_unchanged(self, mlpub_pg) -> None:
+        body = NEGATIVE_BODIES["moderation_404"]["body"]
+        apply_fetch(self.SPEC_WITH_STATE, (PAUSED,), ok(body, 2, status=404))
+
+        outcome = apply_fetch(self.SPEC_WITH_STATE, (PAUSED,), ok(body, 3, status=404))
+
+        assert outcome.kind == "unchanged" and count(mlpub_pg, "ml_change_log") == 0
 
     def test_undeclared_status_is_unaffected_by_the_hook(self, mlpub_pg) -> None:
         apply(bulk_item(PAUSED), PAUSED, minutes=1)

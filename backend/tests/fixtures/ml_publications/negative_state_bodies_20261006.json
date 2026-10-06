@@ -1,0 +1,17 @@
+{
+  "source": "ml_publications_capture_20261006_102440.json",
+  "moderation_404": {
+    "status": 404,
+    "body": {
+      "Status": 404
+    }
+  },
+  "performance_400": {
+    "status": 400,
+    "body": {
+      "message": "Entity not calculated: Product items are not supported",
+      "error": "bad_request",
+      "status": 400
+    }
+  }
+}

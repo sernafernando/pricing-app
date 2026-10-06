@@ -162,12 +162,14 @@ def apply_fetch(
             body = response.body
             if not isinstance(body, dict):
                 return _error(db, row, response, "invalid body")
-            if response.status in spec.negative_states or body.get("id") == item_id:
+            if response.status in spec.negative_states:
+                typed = {}  # a declared negative state is recorded as-is: its body is not an item
+            elif body.get("id") == item_id:
                 typed = spec.mapper(body)
             else:
                 return _error(db, row, response, "body id mismatch")
 
-        incoming_last_updated = typed["ml_last_updated"] if typed else None
+        incoming_last_updated = typed.get("ml_last_updated") if typed else None
         if _stale(row, incoming_last_updated, response):
             counters.stale_discarded += 1
             return ApplyOutcome("stale")
@@ -192,14 +194,15 @@ def _apply_state(
 ) -> ApplyOutcome:
     """A 2xx (or declared negative-state) body: first sighting, unchanged, noise-only, change or restore."""
     item_id = row.item_id
-    incoming_last_updated = typed["ml_last_updated"]
+    incoming_last_updated = typed.get("ml_last_updated")
     new_hash = canonical_hash(body, spec)
     if row.raw is None:
         _write_state(row, typed, body, new_hash, response)
-        if typed["status"] == STATUS_ACTIVE:
+        if typed.get("status") == STATUS_ACTIVE:
             row.first_active_at = response.received_at
         _touch(row, response, trigger_received_at)
-        _project_variations(db, item_id, body, response)
+        if typed:  # a negative-state body carries no variations
+            _project_variations(db, item_id, body, response)
         db.flush()
         return ApplyOutcome("first_seen")
 
@@ -217,10 +220,11 @@ def _apply_state(
     previous_hash = bytes(row.raw_hash)
     first_active_before = row.first_active_at
     _write_state(row, typed, body, new_hash, response)
-    if row.first_active_at is None and typed["status"] == STATUS_ACTIVE:
+    if row.first_active_at is None and typed.get("status") == STATUS_ACTIVE:
         row.first_active_at = response.received_at
     _touch(row, response, trigger_received_at)
-    _project_variations(db, item_id, body, response)
+    if typed:  # a negative-state body carries no variations
+        _project_variations(db, item_id, body, response)
     if not reportable and not restoring:
         db.flush()
         return ApplyOutcome("noise_only")
@@ -235,7 +239,7 @@ def _apply_state(
         new_hash,
         response,
         incoming_last_updated,
-        _context(old_snapshot, typed, first_active_before),
+        _context(old_snapshot, typed or old_snapshot, first_active_before),
     )
     return ApplyOutcome("restored" if restoring else "changed", change_log_id=entry.id)
 
