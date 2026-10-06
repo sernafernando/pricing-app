@@ -67,6 +67,7 @@ from sqlalchemy import (
     Date,
     String,
     and_,
+    any_,
     case,
     cast,
     false,
@@ -704,8 +705,23 @@ class Board:
                 rows = self.rows()
             finally:
                 self._unscoped_depth -= 1
-            self._survivors_cte = select(rows.c.rk).cte("scope_keys").prefix_with("MATERIALIZED", dialect="postgresql")
+            self._survivors_cte = (
+                select(rows.c.rk, rows.c.product).cte("scope_keys").prefix_with("MATERIALIZED", dialect="postgresql")
+            )
         return self._survivors_cte
+
+    def _is_survivor(self, pairs: Any, rk: Any) -> Any:
+        """Whether a pair belongs to a product that passes every row filter.
+        On Postgres: `product = ANY(<array of the survivors>)`, the array built
+        ONCE by an InitPlan and probed as a hash. A semi-join against the CTE
+        is the natural spelling, but the planner cannot size a CTE filtered on
+        aggregates (it guesses ONE row), nests loops over the pair table and
+        scans it once per survivor (measured: 2.2 s per statement on 1.000
+        survivors; this form: milliseconds)."""
+        survivors = self._survivors()
+        if self.sqlite:
+            return rk.in_(select(survivors.c.rk))
+        return pairs.c.product == any_(func.array(select(survivors.c.product).scalar_subquery()))
 
     def filtered_pairs(self, skip: str = ""):
         """One row per (product, MLA) pair that passes every filter but
@@ -782,7 +798,7 @@ class Board:
         if self._in_scope:
             conditions.extend(t.c[grouping.key_column(level)] == key for level, key in enumerate(self.scope))
             if self._has_row_filters():
-                conditions.append(rk.in_(select(self._survivors().c.rk)))
+                conditions.append(self._is_survivor(t, rk))
         if conditions:
             q = q.where(*conditions)
         return q.subquery("fp")

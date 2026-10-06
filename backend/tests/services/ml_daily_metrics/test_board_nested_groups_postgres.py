@@ -571,3 +571,16 @@ def test_a_level_page_costs_a_fixed_number_of_statements_at_every_depth(
 
     # savepoint + 2 CREATE + 2 ANALYZE + count + page (+ series | details + series) + rollback.
     assert count.n <= 12, count.n
+
+
+@pytest.mark.postgres
+def test_row_filters_reach_a_node_through_an_array_probe_not_a_join_on_the_survivors(tree_catalog) -> None:
+    """On volume a join against the survivors CTE (filtered on aggregates, so the
+    planner sizes it at ONE row) nested loops over the pair table: 2.2 s per
+    statement for 1.000 survivors. `product = ANY(array)` is probed as a hash."""
+    f = _filter("tienda", stock=("con_stock",), solo_con_ventas=True)
+    with board.Board(tree_catalog, f, scope=("c:tplink", "EPSON")) as b:
+        sql = str(b.group_rows().compile(tree_catalog.get_bind()))
+
+    assert "= ANY (array((SELECT scope_keys.product" in sql
+    assert "scope_keys.rk" not in sql.split("scope_keys.product", 1)[1]
