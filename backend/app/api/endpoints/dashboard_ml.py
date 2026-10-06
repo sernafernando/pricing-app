@@ -31,11 +31,7 @@ def aplicar_filtro_tienda_oficial(query, tiendas_oficiales: Optional[str], db: S
     Aplica filtro de tiendas oficiales por mlp_official_store_id.
     Soporta múltiples tiendas separadas por coma.
 
-    Tiendas disponibles:
-    - 57997: Gauss
-    - 2645: TP-Link
-    - 144: Forza/Verbatim
-    - 191942: Multi-marca (Epson, Logitech, MGN, Razer)
+    Los nombres de las tiendas viven en la tabla `ml_tiendas_oficiales`.
     """
     if tiendas_oficiales:
         from app.models.mercadolibre_item_publicado import MercadoLibreItemPublicado

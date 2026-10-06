@@ -3,7 +3,7 @@ TP-Link brand-facing dashboard endpoints.
 
 Security guarantees on every endpoint:
 1. Permission gate  — requires `dashboard_tplink.ver` (403 otherwise).
-2. Store hard-lock  — only store 2645 data is ever returned; client-supplied
+2. Store hard-lock  — only TP-Link store data is ever returned; client-supplied
    store params are not accepted in the function signatures.
 3. PM/marca bypass  — `aplicar_filtro_marcas_pm` is intentionally SKIPPED.
    A brand user has no MarcaPM rows and skipping prevents the __NINGUNA__ branch.
@@ -34,13 +34,11 @@ from app.models.tipo_cambio import TipoCambio
 from app.models.tplink_venta_metrica import TplinkVentaMetrica
 from app.models.usuario import Usuario
 from app.services.permisos_service import PermisosService
+from app.services.tiendas_oficiales import TPLINK_CLAVE, StoreClaveNotConfigured, require_store_ids_for_clave
 from app.api.endpoints.ventas_ml import fetch_operaciones_con_metricas
 from zoneinfo import ZoneInfo
 
 router = APIRouter()
-
-# TP-Link official store ID — never read from the client request.
-TPLINK_OFFICIAL_STORE_ID = 2645
 
 ARGENTINA_TZ = ZoneInfo("America/Argentina/Buenos_Aires")
 
@@ -143,7 +141,7 @@ def _aplicar_filtros_tplink_tabla(
     """Apply date, category, and cancellation filters directly on TplinkVentaMetrica.
 
     No store subquery is needed: the tplink_ventas_metricas table is already
-    scoped to store 2645 by the ingestion job (agregar_metricas_tplink.py).
+    scoped to the `tplink` stores by the ingestion job (agregar_metricas_tplink.py).
 
     Date semantics match dashboard_ml.py:
     - fecha_desde  → TplinkVentaMetrica.fecha_venta >= 00:00:00 Argentina TZ
@@ -207,7 +205,7 @@ def get_metricas_generales_tplink(
     """
     TP-Link brand KPIs — Resumen tab.
 
-    Store is hard-locked to 2645. Client cannot override it.
+    Store is hard-locked to the `tplink` clave stores. Client cannot override it.
     Margin fields are omitted unless caller has `dashboard_tplink.ver_ganancia`.
     No offset fields in response.
     """
@@ -222,7 +220,7 @@ def get_metricas_generales_tplink(
         func.sum(TplinkVentaMetrica.costo_envio_ml).label("total_envios"),
     )
 
-    # ML's exact filters, store hard-locked to TP-Link (2645)
+    # ML's exact filters, store hard-locked to TP-Link
     query = _aplicar_filtros_tplink_tabla(query, fecha_desde, fecha_hasta, categorias, db)
 
     result = query.first()
@@ -277,7 +275,7 @@ def get_ventas_por_categoria_tplink(
 ) -> List[VentaPorCategoriaTPLinkResponse]:
     """
     Sales by category for the TP-Link brand.
-    Store locked to 2645. Margin fields gated by .ver_ganancia.
+    Store locked to the `tplink` clave stores. Margin fields gated by .ver_ganancia.
     """
     query = db.query(
         TplinkVentaMetrica.categoria,
@@ -329,7 +327,7 @@ def get_ventas_por_logistica_tplink(
 ) -> List[VentaPorLogisticaTPLinkResponse]:
     """
     Sales by logistics type for the TP-Link brand.
-    Store locked to 2645. No offset fields in response.
+    Store locked to the `tplink` clave stores. No offset fields in response.
     """
     query = db.query(
         TplinkVentaMetrica.tipo_logistica,
@@ -369,7 +367,7 @@ def get_ventas_por_dia_tplink(
 ) -> List[VentaDiariaTPLinkResponse]:
     """
     Daily sales aggregation for the TP-Link brand.
-    Store locked to 2645. Margin ganancia gated by .ver_ganancia.
+    Store locked to the `tplink` clave stores. Margin ganancia gated by .ver_ganancia.
     """
     fecha_truncada = func.date(func.timezone("America/Argentina/Buenos_Aires", TplinkVentaMetrica.fecha_venta))
 
@@ -417,7 +415,7 @@ def get_top_productos_tplink(
 ) -> List[TopProductoTPLinkResponse]:
     """
     Top-selling products for the TP-Link brand.
-    Store locked to 2645. Margin fields gated by .ver_ganancia_productos.
+    Store locked to the `tplink` clave stores. Margin fields gated by .ver_ganancia_productos.
     """
     query = db.query(
         TplinkVentaMetrica.item_id,
@@ -483,9 +481,9 @@ def get_categorias_disponibles_tplink(
     current_user: Usuario = Depends(get_current_user),
 ) -> List[str]:
     """
-    Available categories for the TP-Link brand store (2645).
+    Available categories for the TP-Link brand store.
     Used to populate the categoría filter dropdown.
-    Store locked to 2645.
+    Store locked to the `tplink` clave stores.
     """
     query = db.query(TplinkVentaMetrica.categoria).filter(TplinkVentaMetrica.categoria.isnot(None))
 
@@ -504,7 +502,7 @@ class OperacionTPLinkResponse(BaseModel):
     """Per-row operations response for the TP-Link Detalle de Operaciones tab.
 
     Computed LIVE from raw ERP tables via the shared ML core
-    `fetch_operaciones_con_metricas` (store hard-locked to 2645).
+    `fetch_operaciones_con_metricas` (store hard-locked to the `tplink` stores).
     No offset_flex field by construction.
     Margin-related fields (costo_sin_iva, costo_total, comision_porcentaje,
     comision_pesos, markup_porcentaje, ganancia) are Optional — omitted when
@@ -572,7 +570,7 @@ def get_operaciones_tplink(
     detail that read pre-calculated `ml_ventas_metricas` with cost=0 and a wrong
     identifier for some TP-Link rows.
 
-    Store is hard-locked to 2645 (never read from the client). Client cannot
+    Store is hard-locked to the `tplink` clave stores (never read from the client). Client cannot
     supply tiendas_oficiales, pm_ids, or marcas — they are not in the signature.
     PM/marca filtering is bypassed (`pares_usuario=None`): brand users have no
     MarcaPM rows. No offset_flex field. Margin fields are omitted unless the
@@ -585,13 +583,19 @@ def get_operaciones_tplink(
     if not from_date or not to_date:
         raise HTTPException(status_code=422, detail="from_date y to_date son requeridos")
 
+    try:
+        store_ids = require_store_ids_for_clave(db, TPLINK_CLAVE)
+    except StoreClaveNotConfigured as exc:
+        # Fail closed: never fall back to "all stores" for the brand dashboard.
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+
     operaciones = fetch_operaciones_con_metricas(
         db,
         from_date=from_date,
         to_date=to_date,
         categorias=categorias,
-        # Store hard-locked to TP-Link (2645); never read from the client request.
-        tiendas_oficiales=str(TPLINK_OFFICIAL_STORE_ID),
+        # Store hard-locked to TP-Link (every id of the `tplink` clave); never read from the client request.
+        tiendas_oficiales=",".join(str(store_id) for store_id in store_ids),
         # PM/marca bypass — brand users have no MarcaPM; None = no per-pair filter.
         pares_usuario=None,
         # Cost list id. TP-Link uses its own cost list (coslis_id=8).

@@ -1,5 +1,5 @@
 """
-Script for adding TP-Link sales metrics (store 2645, coslis_id=8) — BACKFILL.
+Script for adding TP-Link sales metrics (clave tplink, coslis_id=8) — BACKFILL.
 
 Slice 2 (SDD change tplink-metricas-dual-key-dedup, design v2 D1/D5): this
 job is now a THIN WRAPPER around the shared per-order aggregation core
@@ -29,11 +29,11 @@ from sqlalchemy import and_, desc
 from sqlalchemy.orm import Session
 
 from app.core.database import SessionLocal
+from app.services.tiendas_oficiales import TPLINK_CLAVE, require_store_ids_for_clave
 from app.models.item_cost_list_history import ItemCostListHistory
 from app.models.producto import ProductoERP
 from app.scripts._tplink_metricas_core import (
     TPLINK_COSLIS_ID,
-    TPLINK_STORE_ID,
     build_aggregation_sql,
     build_upsert_payload,
     fold_order_rows,
@@ -42,7 +42,6 @@ from app.scripts._tplink_metricas_core import (
 
 # Module-level constants — kept identical to the shared core for readability
 # at call sites in this file.
-_TPLINK_STORE_ID: int = TPLINK_STORE_ID
 _TPLINK_COSLIS_ID: int = TPLINK_COSLIS_ID
 
 # Missing-cost tracking, retained from the pre-slice-2 per-detail flow for
@@ -150,8 +149,12 @@ def agregar_metricas_rango(from_date: date, to_date: date, batch_size: int = 100
 
     try:
         print(f"\n{'=' * 60}")
-        print("AGREGACION DE METRICAS TP-LINK (store 2645, coslis_id=8)")
+        print("AGREGACION DE METRICAS TP-LINK (clave tplink, coslis_id=8)")
         print(f"{'=' * 60}")
+
+        # Fail closed: no store with the `tplink` clave raises instead of widening the query.
+        store_ids = require_store_ids_for_clave(db, TPLINK_CLAVE)
+        print(f"Tiendas TP-Link (clave {TPLINK_CLAVE}): {store_ids}")
 
         from_ts, to_ts = compute_date_window(from_date, to_date)
         print(f"Rango: {from_date} a {to_date} (inclusive)")
@@ -164,7 +167,7 @@ def agregar_metricas_rango(from_date: date, to_date: date, batch_size: int = 100
                 "from_ts": from_ts,
                 "to_ts": to_ts,
                 "coslis_id": _TPLINK_COSLIS_ID,
-                "store_id": _TPLINK_STORE_ID,
+                "store_ids": store_ids,
             },
         )
         rows = result.fetchall()
@@ -221,7 +224,7 @@ def agregar_metricas_rango(from_date: date, to_date: date, batch_size: int = 100
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Agregar metricas TP-Link (store 2645, coslis_id=8)")
+    parser = argparse.ArgumentParser(description="Agregar metricas TP-Link (clave tplink, coslis_id=8)")
     parser.add_argument("--from-date", required=True, help="Fecha inicio YYYY-MM-DD")
     parser.add_argument("--to-date", default=None, help="Fecha fin YYYY-MM-DD (default: hoy)")
     parser.add_argument("--batch-size", type=int, default=100)

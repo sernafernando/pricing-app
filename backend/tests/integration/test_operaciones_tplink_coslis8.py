@@ -13,6 +13,7 @@ from unittest.mock import patch
 import pytest
 
 from app.core.security import create_access_token, get_password_hash
+from app.models.ml_tienda_oficial import MlTiendaOficial
 from app.models.permiso import Permiso
 from app.models.rol import Rol
 from app.models.usuario import AuthProvider, RolUsuario, Usuario
@@ -26,6 +27,18 @@ def _bearer(user: Usuario) -> dict[str, str]:
 # ---------------------------------------------------------------------------
 # Fixtures
 # ---------------------------------------------------------------------------
+
+
+@pytest.fixture(autouse=True)
+def _tplink_stores(db) -> None:
+    """The dashboard resolves its store ids from the `tplink` clave (old id inactive, new id active)."""
+    db.add_all(
+        [
+            MlTiendaOficial(store_id=2645, nombre="TP-Link", clave="tplink", activa=False),
+            MlTiendaOficial(store_id=471846, nombre="TP-Link", clave="tplink"),
+        ]
+    )
+    db.flush()
 
 
 @pytest.fixture()
@@ -121,8 +134,8 @@ def test_operaciones_calls_fetch_with_coslis_id_8(client, user_ops):
     assert call_kwargs.get("coslis_id") == 8, f"Expected coslis_id=8 but got {call_kwargs.get('coslis_id')}"
 
 
-def test_operaciones_store_hard_locked_to_2645(client, user_ops):
-    """fetch_operaciones_con_metricas must be called with tiendas_oficiales='2645'."""
+def test_operaciones_store_comes_from_the_tplink_clave_old_and_new_ids(client, user_ops):
+    """Every store id of the `tplink` clave (inactive ones too) is passed to the live query."""
     target = "app.api.endpoints.dashboard_tplink.fetch_operaciones_con_metricas"
     with patch(target, return_value=[]) as mock_fetch:
         client.get(
@@ -131,4 +144,20 @@ def test_operaciones_store_hard_locked_to_2645(client, user_ops):
             headers=_bearer(user_ops),
         )
     call_kwargs = mock_fetch.call_args.kwargs
-    assert call_kwargs.get("tiendas_oficiales") == "2645"
+    assert call_kwargs.get("tiendas_oficiales") == "2645,471846"
+
+
+def test_operaciones_without_a_configured_tplink_store_fails_closed(client, db, user_ops):
+    """No store with the clave -> explicit 503, never an unfiltered (all stores) query."""
+    db.query(MlTiendaOficial).delete()
+    db.flush()
+    target = "app.api.endpoints.dashboard_tplink.fetch_operaciones_con_metricas"
+    with patch(target, return_value=[]) as mock_fetch:
+        resp = client.get(
+            "/api/dashboard-tplink/operaciones",
+            params={"from_date": "2026-06-01", "to_date": "2026-06-20"},
+            headers=_bearer(user_ops),
+        )
+    assert resp.status_code == 503
+    assert "No hay tiendas configuradas con la clave tplink" in resp.json()["error"]["message"]
+    mock_fetch.assert_not_called()

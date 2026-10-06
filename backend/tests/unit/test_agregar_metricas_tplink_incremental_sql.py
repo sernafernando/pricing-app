@@ -54,12 +54,12 @@ class TestIncrementalSqlNoCoslis1Literal:
         assert ":coslis_id" in sql_str, "':coslis_id' bind not found in the shared aggregating SQL."
 
     def test_store_id_bind_present_in_sql(self) -> None:
-        """The SQL must filter by ':store_id' bind parameter."""
+        """The SQL must filter by the ':store_ids' (list) bind parameter."""
         core = _get_core_module()
-        sql_str = str(core.build_aggregation_sql())
-        assert ":store_id" in sql_str, (
-            "':store_id' bind not found in the shared aggregating SQL. "
-            "Must add 'AND tmlip.mlp_official_store_id = :store_id' to WHERE clause."
+        sql_str = core.build_aggregation_sql().text
+        assert ":store_ids" in sql_str, (
+            "':store_ids' bind not found in the shared aggregating SQL. "
+            "Must add 'AND tmlip.mlp_official_store_id IN :store_ids' to WHERE clause."
         )
 
     def test_incremental_delegates_to_shared_core_builder(self) -> None:

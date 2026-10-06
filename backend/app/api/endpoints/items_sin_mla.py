@@ -188,7 +188,7 @@ def get_items_sin_mla(
     con_stock: Optional[bool] = Query(None, description="Filtrar solo items con stock"),
     tiendas_oficiales: Optional[str] = Query(
         None,
-        description="IDs de tiendas oficiales separados por coma (ej: 57997,2645). "
+        description="IDs de tiendas oficiales separados por coma (ej: 57997,144). "
         "Si se especifica, solo muestra items sin MLA en ESAS tiendas.",
     ),
     db: Session = Depends(get_db),
