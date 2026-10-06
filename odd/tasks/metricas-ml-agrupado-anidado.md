@@ -42,6 +42,12 @@ Resultado en la base local `pricing_dev` (3.828 productos, 280 subcategorías):
 - Productos con `subcategoria_id` sin fila en `subcategorias_grupos`: 3 (se muestran como
   "Subcategoría #<id>", igual que hoy).
 
+Resultado en PRODUCCIÓN (corrido por el usuario, 2026-10-06, mismo SQL): 4.371 productos, todos
+con categoría y con subcategoría (0 con subcategoría y sin categoría); subcategorías que
+mapean a más de una `productos_erp.categoria`: **0**; productos cuya categoría difiere de la
+de su subcategoría: **0**; productos con `subcategoria_id` sin fila en `subcategorias_grupos`:
+18 (se muestran como "Subcategoría #<id>"). Decisión confirmada.
+
 Decisión: la jerarquía usa `productos_erp.categoria` (consistente con el filtro de
 categoría y la regla de PM). El árbol no se rompe en los datos medidos. Si en producción una
 subcategoría tuviera productos en varias categorías, aparece DEBAJO DE CADA una (el nodo se
@@ -113,4 +119,4 @@ pytest (tests tocados + `pytest tests -q`), `ruff format --check app/ tests/`, `
 
 ## Progreso / evidencia
 
-- T0 medición: ver arriba (0 conflictos en `pricing_dev`).
+- T0 medición: ver arriba (0 conflictos en `pricing_dev` ni en producción).

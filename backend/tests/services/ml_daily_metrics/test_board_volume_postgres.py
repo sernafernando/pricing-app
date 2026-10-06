@@ -707,7 +707,7 @@ class TestGroupedBoardOnVolume:
         event.listen(connection, "after_cursor_execute", recorder.after)
         started = time.perf_counter()
         try:
-            with board.Board(volume_session, f, group_key="c:tplink") as b:
+            with board.Board(volume_session, f, scope=("c:tplink", "SAMSUNG", "CAT", "1")) as b:
                 total = b.product_count()
                 rows = b.page(100, 0)
         finally:

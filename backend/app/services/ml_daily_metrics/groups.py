@@ -1,19 +1,33 @@
-"""The "Agrupado" view of the Métricas ML board (ODD `metricas-ml-vista-agrupada`):
-the board's (product, MLA) pairs summed by a DIMENSION -- marca, categoría,
-subcategoría, tienda or PM.
+"""The "Agrupado" view of the Métricas ML board (ODD `metricas-ml-vista-agrupada`
+and `metricas-ml-agrupado-anidado`): the board's (product, MLA) pairs summed by
+a DIMENSION -- marca, categoría, subcategoría, tienda or PM -- as a TREE.
 
-The key and label of every pair are COLUMNS of the board's own pair table
+Each dimension is a PATH of levels (`HIERARCHIES`): categoría > subcategoría,
+marca > categoría > subcategoría, PM or tienda in front of that, and always the
+PRODUCTS below the last level. A node is identified by the keys of its
+ancestors (its "path") plus its own.
+
+The key and label of every level are COLUMNS of the board's own pair table
 (`board_pair_agg`, computed once per request with the few small lookup joins the
-dimension needs), so grouping is a plain GROUP BY over the products that
-survive the row filters, and opening a group is a plain `gkey = :key` filter
-the planner can estimate. No table of its own beyond that one.
+levels need; `gk<n>`/`gl<n>` for level n), so grouping a level is a plain
+GROUP BY over the products that survive the row filters, and opening a node is
+a plain `gk0 = :a AND gk1 = :b` filter the planner can estimate. No table of
+its own beyond that one.
 
-Dimension semantics (one group KEY per pair, `NO_GROUP` for "Sin ..."):
+The hierarchy takes the categoría from `productos_erp.categoria` (what the
+categoría filter and the PM rule use), never from the subcategory's group: a
+subcategoría whose products sit in several categorías appears under each of
+them.
+
+Level semantics (one KEY per pair, `NO_GROUP` for "Sin ..."):
 
 - marca / categoría: the value trimmed and upper-cased, so `Epson` and `EPSON`
   are ONE group (the filters match case-insensitively too); the label is the
   spelling that sorts last, like the facet lists.
 - subcategoría: the id; the label is the name in `subcategorias_grupos`.
+- subcategoría_categoría (the top level of the Subcategoría dimension): the id
+  AND the categoría, `<id>|<categoría>`, labelled "<name> · <categoría>", so a
+  subcategoría is told apart by the categoría it sits in.
 - tienda: the PUBLICATION's current `mlp_official_store_id`. Ids sharing a
   `clave` in `ml_tiendas_oficiales` are ONE group (`c:<clave>`, labelled with
   the first active store of the clave by `orden`); an id with no row is its own
@@ -39,6 +53,22 @@ from app.models.producto import ProductoERP
 from app.models.usuario import Usuario
 
 DIMENSIONS = ("marca", "categoria", "subcategoria", "tienda", "pm")
+# The last level of every tree: the board's product rows.
+PRODUCT_LEVEL = "product"
+# The GROUP levels below each dimension, top first (the products come after).
+# The Subcategoría dimension is a single level labelled with its categoría.
+SUBCATEGORIA_IN_CATEGORIA = "subcategoria_categoria"
+HIERARCHIES = {
+    "categoria": ("categoria", "subcategoria"),
+    "subcategoria": (SUBCATEGORIA_IN_CATEGORIA,),
+    "marca": ("marca", "categoria", "subcategoria"),
+    "pm": ("pm", "marca", "categoria", "subcategoria"),
+    "tienda": ("tienda", "marca", "categoria", "subcategoria"),
+}
+LEVEL_KINDS = ("marca", "categoria", "subcategoria", "tienda", "pm", SUBCATEGORIA_IN_CATEGORIA)
+# Separates the subcategoría id from its categoría in a `subcategoria_categoria` key.
+SUBCATEGORIA_KEY_SEPARATOR = "|"
+SUBCATEGORIA_LABEL_SEPARATOR = " · "
 # Prefixes of a store group's key: `c:<clave>` for the ids sharing a clave,
 # `s:<id>` for a store with none. The ONE place they are written and read.
 CLAVE_KEY_PREFIX = "c:"
@@ -52,6 +82,25 @@ NO_LABELS = {
     "tienda": "Sin tienda",
     "pm": "Sin PM",
 }
+
+
+def levels_of(dimension: str) -> tuple:
+    """The levels under `dimension`, top first, the products last."""
+    try:
+        return (*HIERARCHIES[dimension], PRODUCT_LEVEL)
+    except KeyError:
+        raise ValueError(f"Not a dimension: {dimension!r} (expected one of {DIMENSIONS})") from None
+
+
+def key_column(level: int) -> str:
+    """The pair table's column holding the key of the node at `level`."""
+    return f"gk{level}"
+
+
+def label_column(level: int) -> str:
+    return f"gl{level}"
+
+
 # The per-pair sums every group adds up (the board row's, by name).
 SUM_COLUMNS = (
     "units",
@@ -88,6 +137,22 @@ def _subcategoria_dimension(subcategoria_id: Any) -> Dimension:
     names = aliased(SubcategoriaGrupo)
     key = case((subcategoria_id.is_(None), literal(NO_GROUP)), else_=cast(subcategoria_id, String))
     return Dimension(key, names.nombre_subcategoria, [(names, names.subcat_id == subcategoria_id)])
+
+
+def _subcategoria_categoria_dimension(subcategoria_id: Any, categoria: Any) -> Dimension:
+    names = aliased(SubcategoriaGrupo)
+    category = _text_dimension(categoria)
+    sub_key = case((subcategoria_id.is_(None), literal(NO_GROUP)), else_=cast(subcategoria_id, String))
+    sub_label = case(
+        (subcategoria_id.is_(None), literal(NO_LABELS["subcategoria"])),
+        else_=func.coalesce(names.nombre_subcategoria, literal("Subcategoría #") + cast(subcategoria_id, String)),
+    )
+    category_label = case((category.key == NO_GROUP, literal(NO_LABELS["categoria"])), else_=categoria)
+    return Dimension(
+        sub_key + literal(SUBCATEGORIA_KEY_SEPARATOR) + category.key,
+        sub_label + literal(SUBCATEGORIA_LABEL_SEPARATOR) + category_label,
+        [(names, names.subcat_id == subcategoria_id)],
+    )
 
 
 def _tienda_dimension(store_id: Any) -> Dimension:
@@ -147,11 +212,13 @@ def dimension_of(name: str, *, marca: Any, categoria: Any, subcategoria_id: Any,
         return _text_dimension(categoria)
     if name == "subcategoria":
         return _subcategoria_dimension(subcategoria_id)
+    if name == SUBCATEGORIA_IN_CATEGORIA:
+        return _subcategoria_categoria_dimension(subcategoria_id, categoria)
     if name == "tienda":
         return _tienda_dimension(store_id)
     if name == "pm":
         return _pm_dimension(marca, categoria)
-    raise ValueError(f"Not a dimension: {name!r} (expected one of {DIMENSIONS})")
+    raise ValueError(f"Not a level: {name!r} (expected one of {LEVEL_KINDS})")
 
 
 def title_of(name: str, key: ColumnElement, label: ColumnElement) -> ColumnElement:
@@ -166,21 +233,28 @@ def title_of(name: str, key: ColumnElement, label: ColumnElement) -> ColumnEleme
     elif name == "pm":
         fallback = literal("PM #") + key
     shown = func.coalesce(label, fallback) if fallback is not None else label
+    if name == SUBCATEGORIA_IN_CATEGORIA:
+        # Its label already says "Sin subcategoría"/"Sin categoría" in its parts.
+        return label
     return case((key == NO_GROUP, literal(NO_LABELS[name])), else_=shown)
 
 
-def grouped_pairs(joined: Any, fp: Any, stock: Any) -> Any:
+def grouped_pairs(joined: Any, fp: Any, stock: Any, level: int) -> Any:
     """One row per (product, MLA) pair of `joined` (the surviving products'
-    pairs, `fp` their columns, group `gkey` and `glabel` among them) with its
-    sums and its product's `stock`, counted ONCE per (group, product):
-    `first_in_group` marks the single pair that carries it."""
+    pairs, `fp` their columns, the keys and labels of every level among them)
+    with its sums and its product's `stock`, counted ONCE per (node at
+    `level`, product): `first_in_group` marks the single pair that carries it.
+    A node at `level` is identified by the keys of levels 0..`level`."""
     source = joined.outerjoin(stock, stock.c.item_id == fp.c.product)
+    level_columns = [c for c in fp.c if c.name.startswith(("gk", "gl"))]
     inner = (
         select(
-            fp.c.gkey,
-            fp.c.glabel,
+            *level_columns,
             fp.c.product,
             fp.c.mla,
+            fp.c.title,
+            fp.c.codigo,
+            fp.c.marca,
             *(fp.c[column] for column in SUM_COLUMNS),
             fp.c.last_day,
             fp.c.last_at,
@@ -190,7 +264,8 @@ def grouped_pairs(joined: Any, fp: Any, stock: Any) -> Any:
         .select_from(source)
         .subquery("group_pairs_raw")
     )
-    first = func.row_number().over(partition_by=(inner.c.gkey, inner.c.product), order_by=inner.c.mla) == 1
+    node = [inner.c[key_column(i)] for i in range(level + 1)]
+    first = func.row_number().over(partition_by=(*node, inner.c.product), order_by=inner.c.mla) == 1
     return select(*inner.c, case((first, 1), else_=0).label("first_in_group")).subquery("group_pairs")
 
 
@@ -201,6 +276,13 @@ def stock_table() -> Any:
 
 __all__ = [
     "DIMENSIONS",
+    "HIERARCHIES",
+    "LEVEL_KINDS",
+    "PRODUCT_LEVEL",
+    "SUBCATEGORIA_IN_CATEGORIA",
+    "key_column",
+    "label_column",
+    "levels_of",
     "NO_GROUP",
     "NO_LABELS",
     "SUM_COLUMNS",
