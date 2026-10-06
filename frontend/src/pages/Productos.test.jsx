@@ -1120,3 +1120,34 @@ describe('CS-11: official store filter options come from the admin-managed list'
     expect([...select.options].map((o) => o.value)).toEqual(['todos', '57997', '144', '2645,471846']);
   });
 });
+
+describe('CS-12: legacy single-id URL of a grouped store', () => {
+  it('shows the group option selected and re-selecting sends the whole group', async () => {
+    resetTiendasOficiales();
+    setupApiMocks({ productos: [makeProducto()], total: 1 });
+    const base = api.get.getMockImplementation();
+    api.get.mockImplementation((url, ...rest) =>
+      url === '/tiendas-oficiales'
+        ? Promise.resolve({
+            data: [
+              { store_id: 2645, nombre: 'TP-Link vieja', clave: 'tplink', orden: 1, activa: false },
+              { store_id: 471846, nombre: 'TP-Link', clave: 'tplink', orden: 2, activa: true },
+            ],
+          })
+        : base(url, ...rest),
+    );
+    const user = userEvent.setup();
+
+    await act(async () => {
+      renderWithRouter(<Productos />, { initialEntries: ['/?tienda_oficial=2645'] });
+    });
+    await waitFor(() => expect(screen.getByText('Producto Test')).toBeInTheDocument());
+    await act(async () => {
+      await user.click(screen.getByRole('button', { name: /avanzados/i }));
+    });
+
+    const select = screen.getByText('🏪 Tienda Oficial').closest('.filter-item').querySelector('select');
+    await waitFor(() => expect(select.value).toBe('2645,471846'));
+  });
+});
+

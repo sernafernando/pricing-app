@@ -40,49 +40,49 @@ const armarOpcionesTiendas = (grupos) => [
 const FiltrosActivosDisplay = ({ filtrosActivos }) => {
   const { getLabelForIds } = useTiendasOficiales();
   return (
-  <div className={styles.filtrosActivos}>
-    {filtrosActivos?.search && <div>• Búsqueda: &quot;{filtrosActivos.search}&quot;</div>}
-    {filtrosActivos?.con_stock === true && <div>• Con stock</div>}
-    {filtrosActivos?.con_stock === false && <div>• Sin stock</div>}
-    {filtrosActivos?.con_precio === true && <div>• Con precio</div>}
-    {filtrosActivos?.con_precio === false && <div>• Sin precio</div>}
-    {filtrosActivos?.marcas?.length > 0 && <div>• {filtrosActivos.marcas.length} marca(s)</div>}
-    {filtrosActivos?.subcategorias?.length > 0 && <div>• {filtrosActivos.subcategorias.length} subcategoría(s)</div>}
-    {filtrosActivos?.filtroRebate === 'con_rebate' && <div>• Con Rebate</div>}
-    {filtrosActivos?.filtroRebate === 'sin_rebate' && <div>• Sin Rebate</div>}
-    {filtrosActivos?.filtroOferta === 'con_oferta' && <div>• Con Oferta</div>}
-    {filtrosActivos?.filtroOferta === 'sin_oferta' && <div>• Sin Oferta</div>}
-    {filtrosActivos?.filtroWebTransf === 'con_web_transf' && <div>• Con Web Transferencia</div>}
-    {filtrosActivos?.filtroWebTransf === 'sin_web_transf' && <div>• Sin Web Transferencia</div>}
-    {filtrosActivos?.filtroTiendaNube === 'con_descuento' && <div>• Tienda Nube: Con Descuento</div>}
-    {filtrosActivos?.filtroTiendaNube === 'sin_descuento' && <div>• Tienda Nube: Sin Descuento</div>}
-    {filtrosActivos?.filtroTiendaNube === 'no_publicado' && <div>• Tienda Nube: No Publicado</div>}
-    {filtrosActivos?.filtroOutOfCards === 'con_out_of_cards' && <div>• Con Out of Cards</div>}
-    {filtrosActivos?.filtroOutOfCards === 'sin_out_of_cards' && <div>• Sin Out of Cards</div>}
-    {filtrosActivos?.filtroMarkupClasica === 'positivo' && <div>• Markup Clásica: Positivo</div>}
-    {filtrosActivos?.filtroMarkupClasica === 'negativo' && <div>• Markup Clásica: Negativo</div>}
-    {filtrosActivos?.filtroMarkupRebate === 'positivo' && <div>• Markup Rebate: Positivo</div>}
-    {filtrosActivos?.filtroMarkupRebate === 'negativo' && <div>• Markup Rebate: Negativo</div>}
-    {filtrosActivos?.filtroMarkupOferta === 'positivo' && <div>• Markup Oferta: Positivo</div>}
-    {filtrosActivos?.filtroMarkupOferta === 'negativo' && <div>• Markup Oferta: Negativo</div>}
-    {filtrosActivos?.filtroMarkupWebTransf === 'positivo' && <div>• Markup Web Transf: Positivo</div>}
-    {filtrosActivos?.filtroMarkupWebTransf === 'negativo' && <div>• Markup Web Transf: Negativo</div>}
-    {filtrosActivos?.audit_usuarios?.length > 0 && <div>• {filtrosActivos.audit_usuarios.length} usuario(s) auditoría</div>}
-    {filtrosActivos?.audit_tipos_accion?.length > 0 && <div>• {filtrosActivos.audit_tipos_accion.length} tipo(s) de acción</div>}
-    {filtrosActivos?.audit_fecha_desde && <div>• Auditoría desde: {filtrosActivos.audit_fecha_desde}</div>}
-    {filtrosActivos?.audit_fecha_hasta && <div>• Auditoría hasta: {filtrosActivos.audit_fecha_hasta}</div>}
-    {filtrosActivos?.coloresSeleccionados?.length > 0 && <div>• {filtrosActivos.coloresSeleccionados.length} color(es) seleccionado(s)</div>}
-    {filtrosActivos?.coloresSeleccionados?.length > 0 && filtrosActivos?.equipoActivoNombre && <div>• Capa de colores: {filtrosActivos.equipoActivoNombre}</div>}
-    {filtrosActivos?.pmsSeleccionados?.length > 0 && <div>• {filtrosActivos.pmsSeleccionados.length} PM(s) seleccionado(s)</div>}
-    {filtrosActivos?.filtroMLA === 'con_mla' && <div>• Con MLA</div>}
-    {filtrosActivos?.filtroMLA === 'sin_mla' && <div>• Sin MLA</div>}
-    {filtrosActivos?.filtroEstadoMLA === 'activa' && <div>• Estado MLA: Activas</div>}
-    {filtrosActivos?.filtroEstadoMLA === 'pausada' && <div>• Estado MLA: Pausadas</div>}
-    {filtrosActivos?.filtroNuevos === 'ultimos_7_dias' && <div>• Nuevos (últimos 7 días)</div>}
-    {filtrosActivos?.filtroTiendaOficial && filtrosActivos.filtroTiendaOficial !== 'todos' && (
-      <div>• Tienda Oficial: {getLabelForIds(filtrosActivos.filtroTiendaOficial)}</div>
-    )}
-  </div>
+    <div className={styles.filtrosActivos}>
+      {filtrosActivos?.search && <div>• Búsqueda: &quot;{filtrosActivos.search}&quot;</div>}
+      {filtrosActivos?.con_stock === true && <div>• Con stock</div>}
+      {filtrosActivos?.con_stock === false && <div>• Sin stock</div>}
+      {filtrosActivos?.con_precio === true && <div>• Con precio</div>}
+      {filtrosActivos?.con_precio === false && <div>• Sin precio</div>}
+      {filtrosActivos?.marcas?.length > 0 && <div>• {filtrosActivos.marcas.length} marca(s)</div>}
+      {filtrosActivos?.subcategorias?.length > 0 && <div>• {filtrosActivos.subcategorias.length} subcategoría(s)</div>}
+      {filtrosActivos?.filtroRebate === 'con_rebate' && <div>• Con Rebate</div>}
+      {filtrosActivos?.filtroRebate === 'sin_rebate' && <div>• Sin Rebate</div>}
+      {filtrosActivos?.filtroOferta === 'con_oferta' && <div>• Con Oferta</div>}
+      {filtrosActivos?.filtroOferta === 'sin_oferta' && <div>• Sin Oferta</div>}
+      {filtrosActivos?.filtroWebTransf === 'con_web_transf' && <div>• Con Web Transferencia</div>}
+      {filtrosActivos?.filtroWebTransf === 'sin_web_transf' && <div>• Sin Web Transferencia</div>}
+      {filtrosActivos?.filtroTiendaNube === 'con_descuento' && <div>• Tienda Nube: Con Descuento</div>}
+      {filtrosActivos?.filtroTiendaNube === 'sin_descuento' && <div>• Tienda Nube: Sin Descuento</div>}
+      {filtrosActivos?.filtroTiendaNube === 'no_publicado' && <div>• Tienda Nube: No Publicado</div>}
+      {filtrosActivos?.filtroOutOfCards === 'con_out_of_cards' && <div>• Con Out of Cards</div>}
+      {filtrosActivos?.filtroOutOfCards === 'sin_out_of_cards' && <div>• Sin Out of Cards</div>}
+      {filtrosActivos?.filtroMarkupClasica === 'positivo' && <div>• Markup Clásica: Positivo</div>}
+      {filtrosActivos?.filtroMarkupClasica === 'negativo' && <div>• Markup Clásica: Negativo</div>}
+      {filtrosActivos?.filtroMarkupRebate === 'positivo' && <div>• Markup Rebate: Positivo</div>}
+      {filtrosActivos?.filtroMarkupRebate === 'negativo' && <div>• Markup Rebate: Negativo</div>}
+      {filtrosActivos?.filtroMarkupOferta === 'positivo' && <div>• Markup Oferta: Positivo</div>}
+      {filtrosActivos?.filtroMarkupOferta === 'negativo' && <div>• Markup Oferta: Negativo</div>}
+      {filtrosActivos?.filtroMarkupWebTransf === 'positivo' && <div>• Markup Web Transf: Positivo</div>}
+      {filtrosActivos?.filtroMarkupWebTransf === 'negativo' && <div>• Markup Web Transf: Negativo</div>}
+      {filtrosActivos?.audit_usuarios?.length > 0 && <div>• {filtrosActivos.audit_usuarios.length} usuario(s) auditoría</div>}
+      {filtrosActivos?.audit_tipos_accion?.length > 0 && <div>• {filtrosActivos.audit_tipos_accion.length} tipo(s) de acción</div>}
+      {filtrosActivos?.audit_fecha_desde && <div>• Auditoría desde: {filtrosActivos.audit_fecha_desde}</div>}
+      {filtrosActivos?.audit_fecha_hasta && <div>• Auditoría hasta: {filtrosActivos.audit_fecha_hasta}</div>}
+      {filtrosActivos?.coloresSeleccionados?.length > 0 && <div>• {filtrosActivos.coloresSeleccionados.length} color(es) seleccionado(s)</div>}
+      {filtrosActivos?.coloresSeleccionados?.length > 0 && filtrosActivos?.equipoActivoNombre && <div>• Capa de colores: {filtrosActivos.equipoActivoNombre}</div>}
+      {filtrosActivos?.pmsSeleccionados?.length > 0 && <div>• {filtrosActivos.pmsSeleccionados.length} PM(s) seleccionado(s)</div>}
+      {filtrosActivos?.filtroMLA === 'con_mla' && <div>• Con MLA</div>}
+      {filtrosActivos?.filtroMLA === 'sin_mla' && <div>• Sin MLA</div>}
+      {filtrosActivos?.filtroEstadoMLA === 'activa' && <div>• Estado MLA: Activas</div>}
+      {filtrosActivos?.filtroEstadoMLA === 'pausada' && <div>• Estado MLA: Pausadas</div>}
+      {filtrosActivos?.filtroNuevos === 'ultimos_7_dias' && <div>• Nuevos (últimos 7 días)</div>}
+      {filtrosActivos?.filtroTiendaOficial && filtrosActivos.filtroTiendaOficial !== 'todos' && (
+        <div>• Tienda Oficial: {getLabelForIds(filtrosActivos.filtroTiendaOficial)}</div>
+      )}
+    </div>
   );
 };
 

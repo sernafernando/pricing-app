@@ -6,7 +6,8 @@ Create Date: 2026-10-06
 
 Official-store names used to be hardcoded in the frontend (and duplicated in
 `items_sin_mla.py`). This table holds them, keyed by MercadoLibre's
-`official_store_id`, seeded with the four stores that were hardcoded so
+`official_store_id`, seeded with the four stores that were hardcoded plus TP-Link's
+new id 471846 (five rows) so
 nothing changes visually after deploy. Also seeds the
 `admin.tiendas_oficiales` permission (ADMIN; SUPERADMIN short-circuits the
 catalog, anyone else through the per-user overrides screen).

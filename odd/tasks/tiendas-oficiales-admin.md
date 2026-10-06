@@ -66,6 +66,8 @@ pytest (nuevos + suite completa), ruff format/check, pnpm test, lint, build, tes
   - R3-006 crear tienda: RED = 500 en carrera; GREEN = IntegrityError -> rollback -> 409.
   - Verificacion: backend completo con ENVIRONMENT=testing 7995 passed, 0 failed; frontend 2009 passed, lint 0 errores, lint:css ok, build ok, test:visual 80 passed.
 
+- T8 (observaciones GGA): docstring de la migracion (cinco filas); Dashboard cuenta tiendas con `labelsForIds` (RED = nombre con coma inflaba el conteo); ExportModal reindentado; URL legacy `tienda_oficial=2645` mapea a la opcion del grupo con `groupValueForSelection` (RED en el helper; el test de Productos CS-12 se escribio junto con el fix). unit 2014 passed, lint 0 errores, lint:css ok, build ok, migracion 6 passed.
+
 ## Siguiente paso
 
 Entregar (sin push)

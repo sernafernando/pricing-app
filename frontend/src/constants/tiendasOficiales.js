@@ -44,16 +44,37 @@ export function groupStores(tiendas = []) {
 }
 
 /**
- * Names a CSV selection of store ids: every group whose ids are ALL selected
- * by the group's name (so `2645,471846` reads "TP-Link"), the remaining ids
- * by their own name. Empty selection -> null.
+ * One label per entry of a CSV selection of store ids: every group whose ids
+ * are ALL selected by the group's name (so `2645,471846` reads "TP-Link"), the
+ * remaining ids by their own name. Empty selection -> [].
  */
-export function labelForIds(tiendas, getLabel, csv) {
+export function labelsForIds(tiendas, getLabel, csv) {
   const ids = csv ? String(csv).split(',').map((id) => id.trim()).filter(Boolean) : [];
-  if (ids.length === 0) return null;
+  if (ids.length === 0) return [];
   const grupos = groupStores(tiendas).filter((g) => g.ids.every((id) => ids.includes(id)));
   const sueltos = ids.filter((id) => !grupos.some((g) => g.ids.includes(id)));
-  return [...grupos.map((g) => g.label), ...sueltos.map((id) => getLabel(id))].join(', ');
+  return [...grupos.map((g) => g.label), ...sueltos.map((id) => getLabel(id))];
+}
+
+/** `labelsForIds` joined for display; empty selection -> null. */
+export function labelForIds(tiendas, getLabel, csv) {
+  const labels = labelsForIds(tiendas, getLabel, csv);
+  return labels.length === 0 ? null : labels.join(', ');
+}
+
+/**
+ * The picker option a selection stands for. A non-empty subset of ONE clave
+ * group's ids (e.g. a legacy `tienda_oficial=2645` URL, when the group is
+ * `2645,471846`) maps to that group's option; anything else comes back as is.
+ */
+export function groupValueForSelection(tiendas, csv) {
+  const ids = csv ? String(csv).split(',').map((id) => id.trim()).filter(Boolean) : [];
+  if (ids.length === 0) return csv || '';
+  const grupos = groupStores(tiendas);
+  const exact = grupos.find((g) => g.value === ids.join(','));
+  if (exact) return exact.value;
+  const container = grupos.filter((g) => g.ids.length > 1 && ids.every((id) => g.ids.includes(id)));
+  return container.length === 1 ? container[0].value : csv;
 }
 
 /**

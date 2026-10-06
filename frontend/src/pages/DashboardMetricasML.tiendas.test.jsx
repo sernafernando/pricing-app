@@ -38,4 +38,14 @@ describe('DashboardMetricasML official store filter', () => {
     });
     expect(screen.getByRole('checkbox', { name: 'TP-Link' })).toBeChecked();
   });
+
+  it('counts stores, not commas, when a store name contains one', async () => {
+    seedTiendasOficiales([
+      { store_id: 144, nombre: 'Forza, Verbatim', clave: null, orden: 0, activa: true },
+      { store_id: 57997, nombre: 'Gauss', clave: null, orden: 1, activa: true },
+    ]);
+    await renderWithRouter(<DashboardMetricasML />, { initialEntries: ['/?tiendas_oficiales=144'] });
+
+    expect(await screen.findByText('1 tienda seleccionada')).toBeInTheDocument();
+  });
 });

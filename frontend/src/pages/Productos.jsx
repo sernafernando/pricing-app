@@ -98,7 +98,7 @@ export default function Productos() {
     handleOrdenar, limpiarTodosFiltros, limpiarFiltros, limpiarFiltrosAvanzados, aplicarFiltroStat,
     construirFiltrosParams,
   } = useProductosFilters();
-  const { grupos: tiendasGrupos } = useTiendasOficiales();
+  const { grupos: tiendasGrupos, getGroupValue } = useTiendasOficiales();
   // Color-layer teams (productos-color-teams). Feeds the layer selector.
   // No team selected (equipoActivoId null) === global layer. `recargarEquipos`
   // refreshes the selector after the management modal creates/renames/deletes.
@@ -1468,7 +1468,7 @@ export default function Productos() {
                 <div className="filter-item">
                   <label>🏪 Tienda Oficial</label>
                   <select
-                    value={filtroTiendaOficial || 'todos'}
+                    value={getGroupValue(filtroTiendaOficial) || 'todos'}
                     onChange={(e) => { setFiltroTiendaOficial(e.target.value === 'todos' ? null : e.target.value); setPage(1); }}
                     className="filter-select"
                   >

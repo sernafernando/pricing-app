@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { STORE_NONE, buildStoreChips, groupStores } from './tiendasOficiales';
+import { STORE_NONE, buildStoreChips, groupStores, labelsForIds, groupValueForSelection } from './tiendasOficiales';
 
 const T = (store_id, nombre, orden, activa = true, clave = null) => ({ store_id, nombre, orden, activa, clave });
 const TIENDAS = [T(57997, 'Gauss', 0), T(2645, 'TP-Link viejo', 1, false, 'tplink'), T(471846, 'TP-Link', 2, true, 'tplink')];
@@ -60,5 +60,28 @@ describe('buildStoreChips', () => {
 
   it('without facet counts (Métricas ML) offers only the groups', () => {
     expect(buildStoreChips({ tiendas: TIENDAS, getLabel }).options).toEqual(['57997', '2645,471846', STORE_NONE]);
+  });
+});
+
+describe('labelsForIds', () => {
+  it('returns one label per group/store, so a name with a comma stays one entry', () => {
+    const tiendas = [T(1, 'Forza, Verbatim', 0, true, 'fv'), T(2, 'Forza, Verbatim', 1, true, 'fv'), T(3, 'Gauss', 2)];
+    const label = (id) => tiendas.find((t) => String(t.store_id) === id)?.nombre ?? `Tienda ${id}`;
+    expect(labelsForIds(tiendas, label, '1,2,3')).toEqual(['Forza, Verbatim', 'Gauss']);
+    expect(labelsForIds(tiendas, label, '')).toEqual([]);
+  });
+});
+
+describe('groupValueForSelection', () => {
+  it('maps a non-empty subset of one clave group (legacy single-id URL) to the group option', () => {
+    expect(groupValueForSelection(TIENDAS, '2645')).toBe('2645,471846');
+    expect(groupValueForSelection(TIENDAS, '471846,2645')).toBe('2645,471846');
+  });
+
+  it('keeps an exact option, and leaves anything else untouched', () => {
+    expect(groupValueForSelection(TIENDAS, '57997')).toBe('57997');
+    expect(groupValueForSelection(TIENDAS, '2645,57997')).toBe('2645,57997');
+    expect(groupValueForSelection(TIENDAS, '999')).toBe('999');
+    expect(groupValueForSelection(TIENDAS, '')).toBe('');
   });
 });

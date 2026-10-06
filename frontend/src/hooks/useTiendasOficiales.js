@@ -1,6 +1,6 @@
 import { useEffect } from 'react';
 import { useTiendasOficialesStore } from '../store/tiendasOficialesStore';
-import { groupStores, labelForIds } from '../constants/tiendasOficiales';
+import { groupStores, labelForIds, labelsForIds, groupValueForSelection } from '../constants/tiendasOficiales';
 
 /**
  * Official-store names defined in the Admin panel, keyed by ML's
@@ -11,6 +11,9 @@ import { groupStores, labelForIds } from '../constants/tiendasOficiales';
  *   "Sin tienda".
  * - `getLabelForIds(csv)`: the name of a CSV selection (a whole clave group by
  *   its name, the rest by their own).
+ * - `getLabelsForIds(csv)`: the same as a list (one entry per group/store).
+ * - `getGroupValue(csv)`: the picker option a selection maps to (a legacy
+ *   single id of a grouped store -> the group's option).
  * - `tiendas`: every store (inactive too: their history still needs a name).
  * - `activas`: active stores ordered by `orden`.
  * - `grupos`: the picker options (see `groupStores`): stores sharing a `clave`
@@ -34,8 +37,10 @@ export function useTiendasOficiales() {
   const activas = tiendas.filter((t) => t.activa).sort((a, b) => a.orden - b.orden || a.nombre.localeCompare(b.nombre));
 
   const getLabelForIds = (csv) => labelForIds(tiendas, getLabel, csv);
+  const getLabelsForIds = (csv) => labelsForIds(tiendas, getLabel, csv);
+  const getGroupValue = (csv) => groupValueForSelection(tiendas, csv);
 
-  return { tiendas, activas, getLabelForIds, grupos: groupStores(tiendas), loading, getLabel, reload: () => load(true) };
+  return { tiendas, activas, getLabelForIds, getLabelsForIds, getGroupValue, grupos: groupStores(tiendas), loading, getLabel, reload: () => load(true) };
 }
 
 export default useTiendasOficiales;

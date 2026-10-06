@@ -48,9 +48,9 @@ export default function DashboardMetricasML() {
   const fechaHasta = getFilter('fecha_hasta');
   const marcasQuery = getFilter('marcas');
   const categoriasQuery = getFilter('categorias');
-  const { grupos: tiendasGrupos, getLabelForIds } = useTiendasOficiales();
+  const { grupos: tiendasGrupos, getLabelsForIds } = useTiendasOficiales();
   const tiendasOficialesQuery = getFilter('tiendas_oficiales');
-  const etiquetasTiendasSeleccionadas = tiendasOficialesQuery ? getLabelForIds(tiendasOficialesQuery).split(', ') : [];
+  const etiquetasTiendasSeleccionadas = getLabelsForIds(tiendasOficialesQuery);
   const pmsQuery = getFilter('pms');
   
   // Convertir strings a arrays
