@@ -170,13 +170,47 @@ thead .colProducto {
   background: var(--metricas-sub-bg);
 }
 
+/* The levels of the "Agrupado" tree: an OPEN node keeps the open tint at any
+   depth (the path you are following reads at a glance), and every row below the
+   top has a guide bar on the pinned column's left edge. */
+.subRow.openRow td {
+  background: var(--metricas-open-bg);
+}
+
+.subRow td.colProducto {
+  box-shadow:
+    inset 2px 0 0 var(--cf-border-default),
+    inset -1px 0 0 var(--ventas-divider);
+}
+
+.subRow .title {
+  font-size: 12px;
+}
+
 /* ── Producto cell ──────────────────────────────────────── */
 
+/* `--indent` (set inline by the table) is how far a tree level steps in. */
 .product {
   display: flex;
   align-items: center;
   gap: 10px;
   min-width: 0;
+  padding-left: var(--indent, 0);
+}
+
+/* "Marca", "Categoría"...: which level of the tree a row is. */
+.levelTag {
+  flex-shrink: 0;
+  padding: 0 5px;
+  border: 1px solid var(--tone-neutral-border);
+  border-radius: var(--radius-base);
+  font-size: 9px;
+  font-weight: var(--font-semibold);
+  letter-spacing: 0.04em;
+  line-height: 15px;
+  text-transform: uppercase;
+  color: var(--tone-neutral-fg);
+  background: var(--tone-neutral-bg);
 }
 
 .expand {
@@ -298,7 +332,7 @@ thead .colProducto {
   flex-direction: column;
   gap: 2px;
   min-width: 0;
-  padding-left: 30px;
+  padding-left: calc(12px + var(--indent, 18px));
 }
 
 .subLine {

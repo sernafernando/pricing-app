@@ -370,6 +370,8 @@ function group(key, fields) {
     sku: null,
     marca: null,
     publications_count: 0,
+    level: 'marca',
+    child_level: 'categoria',
     ...fields,
   };
 }
@@ -449,16 +451,132 @@ export const GROUP_BOARD_RESPONSE = {
   ...BOARD_RESPONSE,
   group_by: 'group',
   dimension: 'marca',
+  levels: ['marca', 'categoria', 'subcategoria', 'product'],
   total: GROUP_ROWS.length,
   with_sales_count: 2,
   kpis: { ...BOARD_RESPONSE.kpis, rows_with_sales: { value: 2, of_total: 3 } },
   rows: GROUP_ROWS,
 };
 
-// The products of the "Epson" group (`GET /ml-metricas/board/group-products`).
+// The products of the "Epson" > "Impresoras" > "Laser" node (the last level opens into products;
+// `GET /ml-metricas/board/group-nodes?path=["EPSON","IMPRESORAS","10"]`).
 export const EPSON_GROUP_PRODUCTS = {
-  rows: BOARD_ROWS.slice(0, 2).map((row) => ({ ...row, products_count: null })),
+  level: 'product',
+  rows: BOARD_ROWS.slice(0, 2).map((row) => ({ ...row, products_count: null, level: 'product', child_level: null })),
   total: 12,
   limit: 100,
   offset: 0,
 };
+
+// The levels of the "Epson" branch: marca > categoría > subcategoría > producto
+// (`GET /ml-metricas/board/group-nodes?path=...`), shaped like the group rows.
+function node(level, childLevel, key, title, fields) {
+  return group(key, { title, level, child_level: childLevel, ...fields });
+}
+
+export const EPSON_CATEGORIAS = {
+  level: 'categoria',
+  rows: [
+    node('categoria', 'subcategoria', 'IMPRESORAS', 'Impresoras', {
+      products_count: 9,
+      publications_count: 24,
+      units: 700,
+      units_24h: 26,
+      units_3d: 80,
+      units_7d: 170,
+      units_15d: 350,
+      units_30d: 700,
+      gross: 430000000,
+      total_gauss: 88000000,
+      markup_pct: 20.9,
+      markup_prev_pct: 19.4,
+      markup_delta_pp: 1.5,
+      markup_min_90d: 17,
+      markup_max_90d: 22.4,
+      series_units_90d: unitSeries(20, 5),
+      series_markup_90d: series(19, 3, 1),
+      last_sale_at: '2026-09-30T14:40:00Z',
+      ageing_days: 0,
+      stock: 1100,
+    }),
+    node('categoria', 'subcategoria', 'INSUMOS', 'Insumos', {
+      products_count: 3,
+      publications_count: 7,
+      units: 142,
+      units_24h: 5,
+      units_3d: 16,
+      units_7d: 34,
+      units_15d: 68,
+      units_30d: 142,
+      gross: 82340000.5,
+      total_gauss: 16200000.25,
+      markup_pct: 18.4,
+      markup_prev_pct: 18.1,
+      markup_delta_pp: 0.3,
+      markup_min_90d: 16,
+      markup_max_90d: 20,
+      series_units_90d: unitSeries(4, 1),
+      series_markup_90d: series(18, 1, 0.8),
+      last_sale_at: '2026-09-29T09:00:00Z',
+      ageing_days: 1,
+      stock: 240,
+    }),
+  ],
+  total: 2,
+  limit: 100,
+  offset: 0,
+};
+
+export const IMPRESORAS_SUBCATEGORIAS = {
+  level: 'subcategoria',
+  rows: [
+    node('subcategoria', 'product', '10', 'Laser', {
+      products_count: 5,
+      publications_count: 12,
+      units: 420,
+      units_24h: 15,
+      units_3d: 48,
+      units_7d: 100,
+      units_15d: 210,
+      units_30d: 420,
+      gross: 260000000,
+      total_gauss: 54000000,
+      markup_pct: 21.2,
+      markup_prev_pct: 20,
+      markup_delta_pp: 1.2,
+      markup_min_90d: 18,
+      markup_max_90d: 23,
+      series_units_90d: unitSeries(12, 3),
+      series_markup_90d: series(20, 2, 1),
+      last_sale_at: '2026-09-30T14:40:00Z',
+      ageing_days: 0,
+      stock: 600,
+    }),
+    node('subcategoria', 'product', '__none__', 'Sin subcategoría', {
+      products_count: 1,
+      publications_count: 1,
+      units: 0,
+      stock: null,
+      markup_pct: null,
+      markup_prev_pct: null,
+      markup_delta_pp: null,
+      markup_min_90d: null,
+      markup_max_90d: null,
+      series_units_90d: Array(DAYS).fill(0),
+      series_markup_90d: Array(DAYS).fill(null),
+    }),
+  ],
+  total: 2,
+  limit: 100,
+  offset: 0,
+};
+
+/** The answer of `group-nodes` for the "Epson" branch of the marca tree, by path. */
+export function epsonNodesFor(path) {
+  const answers = {
+    '["EPSON"]': EPSON_CATEGORIAS,
+    '["EPSON","IMPRESORAS"]': IMPRESORAS_SUBCATEGORIAS,
+    '["EPSON","IMPRESORAS","10"]': EPSON_GROUP_PRODUCTS,
+  };
+  return answers[path] ?? { level: 'product', rows: [], total: 0, limit: 100, offset: 0 };
+}

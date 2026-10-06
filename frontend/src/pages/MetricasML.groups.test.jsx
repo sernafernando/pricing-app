@@ -1,7 +1,9 @@
 /**
  * ODD `metricas-ml-vista-agrupada` T4/T5: the third view of the Métricas ML
  * board, "Agrupado" -- rows summed by marca, categoría, subcategoría, tienda or
- * PM (`group_by=group&dimension=...`), each opening into its products.
+ * PM (`group_by=group&dimension=...`), each opening into the level below it
+ * (the nested levels: `MetricasML.tree.test.jsx`). Here the node answers with
+ * a page of rows, whatever its level.
  */
 import { describe, it, expect, vi, beforeEach, afterAll } from 'vitest';
 import { screen, waitFor, within } from '@testing-library/react';
@@ -26,7 +28,7 @@ vi.mock('../utils/ventasMlExport', async (importOriginal) => ({
   exportMetricasCsv: vi.fn(() => Promise.resolve()),
 }));
 
-const GROUP_PRODUCTS_URL = '/ml-metricas/board/group-products';
+const GROUP_PRODUCTS_URL = '/ml-metricas/board/group-nodes';
 let groupBoard = GROUP_BOARD_RESPONSE;
 let groupProducts = EPSON_GROUP_PRODUCTS;
 
@@ -200,7 +202,7 @@ describe('the "Agrupado" view', () => {
 });
 
 describe('opening a group', () => {
-  const expandButton = () => screen.getByRole('button', { name: /productos de Epson/ });
+  const expandButton = () => screen.getByRole('button', { name: / de Epson$/ });
 
   it('loads its products under the same filters and the group key, and lists them as sub-rows', async () => {
     await openGroupedView();
@@ -215,7 +217,7 @@ describe('opening a group', () => {
     expect(params).toMatchObject({
       group_by: 'group',
       dimension: 'marca',
-      group_key: 'EPSON',
+      path: '["EPSON"]',
       comparar_con: 'periodo_anterior',
       date_from: lastBoardParams().date_from,
       limit: 100,
@@ -227,19 +229,21 @@ describe('opening a group', () => {
   it('opens a group whose key has special characters and the "sin" group', async () => {
     await openGroupedView();
 
-    await userEvent.click(screen.getByRole('button', { name: /Ver productos de Sin marca/ }));
+    await userEvent.click(screen.getByRole('button', { name: /Ver .* de Sin marca/ }));
 
-    await waitFor(() => expect(productCalls().at(-1)[1].params.group_key).toBe('__none__'));
+    await waitFor(() => expect(productCalls().at(-1)[1].params.path).toBe('["__none__"]'));
   });
 
   it('pages: "Ver más" asks for the next page and appends it', async () => {
     const page2 = {
+      level: 'product',
       rows: [{ ...EPSON_GROUP_PRODUCTS.rows[0], key: '9999', product_item_id: 9999, title: 'Producto de la página dos' }],
       total: 12,
       limit: 100,
       offset: 100,
     };
     const fullPage = {
+      level: 'product',
       rows: Array.from({ length: 100 }, (_, i) => ({ ...EPSON_GROUP_PRODUCTS.rows[0], key: `p${i}`, title: `Producto ${i}` })),
       total: 101,
       limit: 100,
@@ -267,6 +271,7 @@ describe('opening a group', () => {
 
   it('a failed next page keeps what was loaded and offers to retry just that page', async () => {
     const fullPage = {
+      level: 'product',
       rows: Array.from({ length: 100 }, (_, i) => ({ ...EPSON_GROUP_PRODUCTS.rows[0], key: `p${i}`, title: `Producto ${i}` })),
       total: 150,
       limit: 100,
@@ -301,13 +306,13 @@ describe('opening a group', () => {
 
   it('a second page that overlaps the first (the order moved meanwhile) never repeats a row', async () => {
     const rows = Array.from({ length: 100 }, (_, i) => ({ ...EPSON_GROUP_PRODUCTS.rows[0], key: `p${i}`, title: `Producto ${i}` }));
-    const shifted = { rows: [rows[99], { ...rows[0], key: 'p100', title: 'Producto 100' }], total: 101, limit: 100, offset: 100 };
+    const shifted = { level: 'product', rows: [rows[99], { ...rows[0], key: 'p100', title: 'Producto 100' }], total: 101, limit: 100, offset: 100 };
     api.get.mockImplementation((url, config) => {
       if (url === '/ml-metricas/board') {
         return Promise.resolve({ data: config.params.group_by === 'group' ? GROUP_BOARD_RESPONSE : BOARD_RESPONSE });
       }
       if (url === GROUP_PRODUCTS_URL) {
-        return Promise.resolve({ data: config.params.offset === 100 ? shifted : { rows, total: 101, limit: 100, offset: 0 } });
+        return Promise.resolve({ data: config.params.offset === 100 ? shifted : { level: 'product', rows, total: 101, limit: 100, offset: 0 } });
       }
       return Promise.resolve({ data: {} });
     });
@@ -331,7 +336,7 @@ describe('opening a group', () => {
       if (url === '/ml-metricas/board') {
         return Promise.resolve({ data: config.params.group_by === 'group' ? GROUP_BOARD_RESPONSE : BOARD_RESPONSE });
       }
-      if (url === GROUP_PRODUCTS_URL) return Promise.resolve({ data: { rows: pages[config.params.offset] ?? [], total: 300, limit: 100 } });
+      if (url === GROUP_PRODUCTS_URL) return Promise.resolve({ data: { level: 'product', rows: pages[config.params.offset] ?? [], total: 300, limit: 100 } });
       return Promise.resolve({ data: {} });
     });
     await openGroupedView();
@@ -348,8 +353,8 @@ describe('opening a group', () => {
     const errors = vi.spyOn(console, 'error').mockImplementation(() => {});
     await openGroupedView();
 
-    await userEvent.click(screen.getByRole('button', { name: /productos de Epson/ }));
-    await userEvent.click(screen.getByRole('button', { name: /productos de Lenovo/ }));
+    await userEvent.click(screen.getByRole('button', { name: / de Epson$/ }));
+    await userEvent.click(screen.getByRole('button', { name: / de Lenovo$/ }));
 
     await waitFor(() => expect(screen.getAllByText(EPSON_GROUP_PRODUCTS.rows[0].title)).toHaveLength(2));
     expect(errors.mock.calls.flat().join(' ')).not.toMatch(/same key/);
@@ -378,7 +383,7 @@ describe('opening a group', () => {
     await openGroupedView();
 
     await userEvent.click(expandButton());
-    expect(await screen.findByText('No se pudieron cargar los productos.')).toBeInTheDocument();
+    expect(await screen.findByText('No se pudieron cargar las categorías.')).toBeInTheDocument();
     fail = false;
     await userEvent.click(expandButton());
     await userEvent.click(expandButton());
