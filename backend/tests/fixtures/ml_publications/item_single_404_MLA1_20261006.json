@@ -1,0 +1,11 @@
+{
+  "source": "ml_publications_capture_20261006_102440.json call item_unknown (GET /items/MLA1)",
+  "path": "/items/MLA1",
+  "status": 404,
+  "body": {
+    "message": "Item with id MLA1 not found",
+    "error": "not_found",
+    "status": 404,
+    "cause": []
+  }
+}

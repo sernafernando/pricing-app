@@ -83,10 +83,23 @@ def mlpub_pg(monkeypatch):
     from sqlalchemy import create_engine, text
     from sqlalchemy.orm import sessionmaker
 
-    from tests.conftest import POSTGRES_TEST_URL, _postgres_reachable
+    from app.models import ml_publications as models
+    from tests.conftest import (
+        POSTGRES_TEST_URL,
+        _patch_pg_types_for_sqlite,
+        _postgres_reachable,
+        _restore_pristine_pg_types,
+    )
 
     if not _postgres_reachable():
         pytest.skip(f"PostgreSQL not reachable at {POSTGRES_TEST_URL}")
+
+    # The SQLite `engine` fixture rewrites the shared Column types (JSONB/ARRAY -> JSON, BigInteger PK ->
+    # Integer) in place; the ORM writes of the store need the real Postgres types back, whatever ran before.
+    store_tables = [
+        model.__table__ for model in vars(models).values() if hasattr(model, "__table__") and hasattr(model, "metadata")
+    ]
+    _restore_pristine_pg_types(store_tables)
 
     migration_path = Path(__file__).resolve().parents[3] / "alembic" / "versions" / "20261006_ml_publications_core.py"
     module_spec = importlib.util.spec_from_file_location("ml_publications_core_for_tests", migration_path)
@@ -110,7 +123,26 @@ def mlpub_pg(monkeypatch):
     try:
         yield eng
     finally:
+        _patch_pg_types_for_sqlite()  # leave the shared columns as the SQLite fixture expects them
         eng.dispose()
         with admin.connect() as conn:
             conn.execute(text(f"DROP SCHEMA {schema} CASCADE"))
         admin.dispose()
+
+
+ITEM_404_SINGLE = "item_single_404_MLA1_20261006.json"
+
+
+def item_404_single() -> dict:
+    """Real single-item `GET /items/MLA1` 404 body `{message, error, status, cause}`."""
+    return copy.deepcopy(load_fixture(ITEM_404_SINGLE)["body"])
+
+
+def item_404_bulk_element() -> dict:
+    """Real `/items/bulk` not-found element for MLA1 (`{id, status_code: 404, error}`)."""
+    return bulk_call("bulk_full")[2]
+
+
+def item_with_variations() -> dict:
+    """Captured MLA1207279308 (closed, 4 variations without `attributes`)."""
+    return copy.deepcopy(load_fixture(ITEM_WITH_VARIATIONS))
