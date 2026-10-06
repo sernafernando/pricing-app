@@ -1,5 +1,6 @@
 import { useEffect } from 'react';
 import { useTiendasOficialesStore } from '../store/tiendasOficialesStore';
+import { groupStores } from '../constants/tiendasOficiales';
 
 /**
  * Official-store names defined in the Admin panel, keyed by ML's
@@ -9,7 +10,9 @@ import { useTiendasOficialesStore } from '../store/tiendasOficialesStore';
  *   `Tienda <id>`; null/undefined stays null so the caller renders its own
  *   "Sin tienda".
  * - `tiendas`: every store (inactive too: their history still needs a name).
- * - `activas`: active stores ordered by `orden`, for pickers and chips.
+ * - `activas`: active stores ordered by `orden`.
+ * - `grupos`: the picker options (see `groupStores`): stores sharing a `clave`
+ *   collapse into one option that selects every id of the clave.
  */
 export function useTiendasOficiales() {
   const tiendas = useTiendasOficialesStore((state) => state.tiendas);
@@ -28,7 +31,7 @@ export function useTiendasOficiales() {
 
   const activas = tiendas.filter((t) => t.activa).sort((a, b) => a.orden - b.orden || a.nombre.localeCompare(b.nombre));
 
-  return { tiendas, activas, loading, getLabel, reload: () => load(true) };
+  return { tiendas, activas, grupos: groupStores(tiendas), loading, getLabel, reload: () => load(true) };
 }
 
 export default useTiendasOficiales;

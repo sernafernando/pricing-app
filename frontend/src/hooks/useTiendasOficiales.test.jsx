@@ -47,6 +47,12 @@ describe('useTiendasOficiales', () => {
     expect(result.current.getLabel(2645)).toBe('TP-Link');
   });
 
+  it('exposes `grupos`: stores sharing a clave collapse into one option with every id', async () => {
+    const { result } = renderHook(() => useTiendasOficiales());
+    await waitFor(() => expect(result.current.grupos.length).toBe(2));
+    expect(result.current.grupos.map((g) => g.value)).toEqual(['57997', '2645,471846']);
+  });
+
   it('fetches once for many consumers', async () => {
     const a = renderHook(() => useTiendasOficiales());
     const b = renderHook(() => useTiendasOficiales());

@@ -58,6 +58,21 @@ describe('MetricasML page', () => {
     await waitFor(() => expect(lastBoardParams().stores).toBe('57997'));
   });
 
+  it('stores sharing a clave are ONE chip that filters by every id, inactive ones included', async () => {
+    seedTiendasOficiales([
+      { store_id: 57997, nombre: 'Gauss', clave: null, orden: 0, activa: true },
+      { store_id: 2645, nombre: 'TP-Link vieja', clave: 'tplink', orden: 1, activa: false },
+      { store_id: 471846, nombre: 'TP-Link', clave: 'tplink', orden: 2, activa: true },
+    ]);
+    await renderWithRouter(<MetricasML />);
+
+    const group = await screen.findByRole('group', { name: 'Filtrar por tienda oficial' });
+    expect(within(group).getAllByRole('button', { name: /TP-Link/ })).toHaveLength(1);
+    await userEvent.click(within(group).getByRole('button', { name: /TP-Link/ }));
+    await waitFor(() => expect(lastBoardParams().stores).toBe('2645,471846'));
+    expect(within(group).getByRole('button', { name: /TP-Link/ })).toHaveAttribute('aria-pressed', 'true');
+  });
+
   it('asks for the last 30 days by product, compared with the previous period, sorted by gross', async () => {
     await renderWithRouter(<MetricasML />);
 

@@ -22,14 +22,15 @@ const FACETS = {
   operation_status_total: 9,
   goods_status_total: 9,
   alerts_total: 0,
-  stores: { 57997: 5, 2645: 3, sin_tienda: 2 },
-  stores_total: 9,
+  stores: { 57997: 5, 2645: 3, 471846: 4, sin_tienda: 2 },
+  stores_total: 14,
 };
 
 beforeEach(() => {
   seedTiendasOficiales([
     { store_id: 57997, nombre: 'Gauss', clave: null, orden: 0, activa: true },
-    { store_id: 2645, nombre: 'TP-Link Renombrada', clave: 'tplink', orden: 1, activa: true },
+    { store_id: 2645, nombre: 'TP-Link vieja', clave: 'tplink', orden: 1, activa: false },
+    { store_id: 471846, nombre: 'TP-Link Renombrada', clave: 'tplink', orden: 2, activa: true },
   ]);
   api.get.mockReset();
   api.get.mockImplementation((url) => {
@@ -54,9 +55,11 @@ describe('Tienda filter on VentasML', () => {
     await renderWithRouter(<VentasML />);
     const group = await screen.findByRole('group', { name: 'Filtrar por tienda oficial' });
     await waitFor(() => expect(within(group).getByRole('button', { name: 'Gauss · 5' })).toBeInTheDocument());
-    expect(within(group).getByRole('button', { name: 'Todas · 9' })).toBeInTheDocument();
+    expect(within(group).getByRole('button', { name: 'Todas · 14' })).toBeInTheDocument();
+    // Old + new id of TP-Link: ONE chip, count = 3 + 4.
+    expect(within(group).getAllByRole('button', { name: /TP-Link/ })).toHaveLength(1);
     // Names come from the admin-managed list, not from a constant.
-    expect(within(group).getByRole('button', { name: 'TP-Link Renombrada · 3' })).toBeInTheDocument();
+    expect(within(group).getByRole('button', { name: 'TP-Link Renombrada · 7' })).toBeInTheDocument();
     expect(within(group).queryByRole('button', { name: /Forza/ })).not.toBeInTheDocument();
     expect(within(group).getByRole('button', { name: 'Sin tienda · 2' })).toBeInTheDocument();
   });
@@ -67,10 +70,20 @@ describe('Tienda filter on VentasML', () => {
     await userEvent.click(await within(group).findByRole('button', { name: /TP-Link Renombrada/ }));
 
     await waitFor(() => {
-      expect(lastParams('/ml-ventas-ops/sales').stores).toBe('2645');
-      expect(lastParams('/ml-ventas-ops/sales/kpis').stores).toBe('2645');
+      // The chip selects every id of the clave, the inactive one included (history).
+      expect(lastParams('/ml-ventas-ops/sales').stores).toBe('2645,471846');
+      expect(lastParams('/ml-ventas-ops/sales/kpis').stores).toBe('2645,471846');
     });
     expect(lastParams('/ml-ventas-ops/sales').offset ?? 0).toBe(0);
+  });
+
+  it('the grouped chip shows as pressed once selected', async () => {
+    await renderWithRouter(<VentasML />);
+    const group = await screen.findByRole('group', { name: 'Filtrar por tienda oficial' });
+    await userEvent.click(await within(group).findByRole('button', { name: /TP-Link Renombrada/ }));
+    await waitFor(() =>
+      expect(within(group).getByRole('button', { name: /TP-Link Renombrada/ })).toHaveAttribute('aria-pressed', 'true'),
+    );
   });
 
   it('"Limpiar filtros" clears the store', async () => {

@@ -95,7 +95,7 @@ export default function MetricasML() {
   const [searchQuery, setSearchQuery] = useState('');
   const [productFilters, setProductFilters] = useState(EMPTY_PRODUCT_FILTERS);
   const [storeFilter, setStoreFilter] = useState('');
-  const { activas, getLabel } = useTiendasOficiales();
+  const { tiendas, getLabel } = useTiendasOficiales();
   const [pubStatus, setPubStatus] = useState([]);
   const [pubType, setPubType] = useState([]);
   const [pubStatusExclude, setPubStatusExclude] = useState([]);
@@ -410,10 +410,8 @@ export default function MetricasML() {
             </span>
             <FacetChips
               label="Filtrar por tienda oficial"
-              {...buildStoreChips({ activas, getLabel, selected: storeFilter })}
-              counts={facets?.stores}
+              {...buildStoreChips({ tiendas, getLabel, counts: facets?.stores, selected: storeFilter, facetExtras: false })}
               total={facets?.stores_total}
-              activeValue={storeFilter}
               onChange={withReset(setStoreFilter)}
             />
           </div>

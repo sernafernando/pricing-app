@@ -4,6 +4,7 @@ import api from '../services/api';
 import { toLocalTimestamp } from '../utils/dateUtils';
 import styles from './ExportModal.module.css';
 import { buildFilterQueryString } from './exportFilterParams';
+import { serializarTiendasOficiales } from './exportTiendas';
 import { usePermisos } from '../contexts/PermisosContext';
 import { useTiendasOficiales } from '../hooks/useTiendasOficiales';
 
@@ -17,25 +18,15 @@ import { useTiendasOficiales } from '../hooks/useTiendasOficiales';
  */
 const TIENDA_SIN_TIENDA = { id: 'sin_tienda', label: 'Sin tienda' };
 
-/** "Sin tienda" + las tiendas activas (nombres definidos en Admin > Tiendas Oficiales). */
-const armarOpcionesTiendas = (activas) => [
-  TIENDA_SIN_TIENDA,
-  ...activas.map((tienda) => ({ id: String(tienda.store_id), label: tienda.nombre })),
-];
-
 /**
- * Serializa las tiendas oficiales tildadas a CSV para el backend.
- * `destildadas` es el Set de IDs que el usuario sacó (vacío = todas tildadas,
- * el default, sin importar cuántas tiendas haya).
- * Devuelve null cuando todas o ninguna están tildadas (= sin filtro efectivo).
+ * "Sin tienda" + una opción por tienda (nombres definidos en Admin > Tiendas
+ * Oficiales). Las tiendas que comparten clave son UNA opción cuyo id es la
+ * lista de todos sus IDs (activos e inactivos), separada por coma.
  */
-const serializarTiendasOficiales = (opciones, destildadas) => {
-  const tildadas = opciones.filter((opcion) => !destildadas.has(opcion.id)).map((opcion) => opcion.id);
-  if (tildadas.length === 0 || tildadas.length === opciones.length) {
-    return null;
-  }
-  return tildadas.join(',');
-};
+const armarOpcionesTiendas = (grupos) => [
+  TIENDA_SIN_TIENDA,
+  ...grupos.map((grupo) => ({ id: grupo.value, label: grupo.label })),
+];
 
 /**
  * Construye query string de filtros para exports GET.
@@ -147,8 +138,8 @@ export default function ExportModal({ onClose, filtrosActivos, showToast, esTien
   // Default: todas tildadas → no filtra (idéntico al comportamiento actual).
   // Se guardan las DESTILDADAS: vacío = todas tildadas, aunque las tiendas
   // lleguen después (nombres e IDs vienen de la API).
-  const { activas: tiendasActivas } = useTiendasOficiales();
-  const opcionesTiendas = armarOpcionesTiendas(tiendasActivas);
+  const { grupos: tiendasGrupos } = useTiendasOficiales();
+  const opcionesTiendas = armarOpcionesTiendas(tiendasGrupos);
   const [tiendasDestildadas, setTiendasDestildadas] = useState(() => new Set());
 
   /**

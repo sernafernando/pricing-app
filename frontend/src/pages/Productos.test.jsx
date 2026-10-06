@@ -1094,7 +1094,8 @@ describe('CS-11: official store filter options come from the admin-managed list'
       if (url === '/tiendas-oficiales') {
         return Promise.resolve({
           data: [
-            { store_id: 2645, nombre: 'Apagada', clave: null, orden: 0, activa: false },
+            { store_id: 2645, nombre: 'Apagada', clave: 'tplink', orden: 0, activa: false },
+            { store_id: 471846, nombre: 'Apagada nueva', clave: 'tplink', orden: 3, activa: true },
             { store_id: 144, nombre: 'Segunda', clave: null, orden: 2, activa: true },
             { store_id: 57997, nombre: 'Primera', clave: null, orden: 1, activa: true },
           ],
@@ -1114,8 +1115,8 @@ describe('CS-11: official store filter options come from the admin-managed list'
 
     const select = screen.getByText('🏪 Tienda Oficial').closest('.filter-item').querySelector('select');
     await waitFor(() =>
-      expect([...select.options].map((o) => o.textContent.trim())).toEqual(['Todas', 'Primera', 'Segunda']),
+      expect([...select.options].map((o) => o.textContent.trim())).toEqual(['Todas', 'Primera', 'Segunda', 'Apagada nueva']),
     );
-    expect([...select.options].map((o) => o.value)).toEqual(['todos', '57997', '144']);
+    expect([...select.options].map((o) => o.value)).toEqual(['todos', '57997', '144', '2645,471846']);
   });
 });

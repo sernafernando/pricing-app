@@ -48,8 +48,15 @@ export default function DashboardMetricasML() {
   const fechaHasta = getFilter('fecha_hasta');
   const marcasQuery = getFilter('marcas');
   const categoriasQuery = getFilter('categorias');
-  const { activas: tiendasActivas, getLabel } = useTiendasOficiales();
+  const { grupos: tiendasGrupos, getLabel } = useTiendasOficiales();
   const tiendasOficialesQuery = getFilter('tiendas_oficiales');
+  // One label per grouped store (all its ids selected); any other id by its own name.
+  const etiquetasTiendasSeleccionadas = (() => {
+    const seleccion = tiendasOficialesQuery ? tiendasOficialesQuery.split(',').filter(Boolean) : [];
+    const grupos = tiendasGrupos.filter((g) => g.ids.every((id) => seleccion.includes(id)));
+    const sueltos = seleccion.filter((id) => !grupos.some((g) => g.ids.includes(id)));
+    return [...grupos.map((g) => g.label), ...sueltos.map((id) => getLabel(id))];
+  })();
   const pmsQuery = getFilter('pms');
   
   // Convertir strings a arrays
@@ -281,12 +288,11 @@ export default function DashboardMetricasML() {
   };
 
   // Handlers para selector múltiple de Tiendas Oficiales
-  const toggleTiendaOficial = (tiendaId) => {
-    const nuevasSeleccionadas = tiendasOficialesSeleccionadas.includes(tiendaId)
-      ? tiendasOficialesSeleccionadas.filter(t => t !== tiendaId)
-      : [...tiendasOficialesSeleccionadas, tiendaId];
-    
-    updateFilters({ tiendas_oficiales: nuevasSeleccionadas.join(',') || '' });
+  // A grouped store (same clave) is ONE checkbox that toggles all its ids.
+  const toggleTiendaGrupo = (ids) => {
+    const todas = ids.every((id) => tiendasOficialesSeleccionadas.includes(id));
+    const resto = tiendasOficialesSeleccionadas.filter((t) => !ids.includes(t));
+    updateFilters({ tiendas_oficiales: (todas ? resto : [...resto, ...ids]).join(',') });
   };
 
   const limpiarTiendasOficiales = () => {
@@ -506,9 +512,9 @@ export default function DashboardMetricasML() {
             <div className={styles.multiSelect}>
               <div className={styles.multiSelectHeader}>
                 <span className={styles.multiSelectLabel}>
-                  {tiendasOficialesSeleccionadas.length === 0 
-                    ? 'Todas las tiendas' 
-                    : `${tiendasOficialesSeleccionadas.length} tienda${tiendasOficialesSeleccionadas.length > 1 ? 's' : ''} seleccionada${tiendasOficialesSeleccionadas.length > 1 ? 's' : ''}`}
+                  {etiquetasTiendasSeleccionadas.length === 0
+                    ? 'Todas las tiendas'
+                    : `${etiquetasTiendasSeleccionadas.length} tienda${etiquetasTiendasSeleccionadas.length > 1 ? 's' : ''} seleccionada${etiquetasTiendasSeleccionadas.length > 1 ? 's' : ''}`}
                 </span>
               </div>
               <div className={styles.multiSelectDropdown}>
@@ -524,14 +530,14 @@ export default function DashboardMetricasML() {
                   </div>
                 )}
                 <div className={styles.multiSelectOptions}>
-                  {tiendasActivas.map(({ store_id: id, nombre }) => (
-                    <label key={id} className={styles.multiSelectOption}>
+                  {tiendasGrupos.map(({ value, ids, label }) => (
+                    <label key={value} className={styles.multiSelectOption}>
                       <input
                         type="checkbox"
-                        checked={tiendasOficialesSeleccionadas.includes(String(id))}
-                        onChange={() => toggleTiendaOficial(String(id))}
+                        checked={ids.every((id) => tiendasOficialesSeleccionadas.includes(id))}
+                        onChange={() => toggleTiendaGrupo(ids)}
                       />
-                      <span>{nombre}</span>
+                      <span>{label}</span>
                     </label>
                   ))}
                 </div>
@@ -712,7 +718,7 @@ export default function DashboardMetricasML() {
           {tiendasOficialesSeleccionadas.length > 0 && (
             <div className={styles.bannerTiendaOficial}>
               <Store size={14} /> Filtrando por: <strong>
-                {tiendasOficialesSeleccionadas.map(id => getLabel(id)).join(', ')}
+                {etiquetasTiendasSeleccionadas.join(', ')}
               </strong>
             </div>
           )}
