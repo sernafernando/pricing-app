@@ -123,6 +123,31 @@ class IntakeResult:
     error: Optional[str] = None
 
 
+class OverlapMemory:
+    """The `(resource, received_at)` rows of each topic that were already enqueued, so the overlap
+    window (re-read every pass) does not enqueue them again: every re-enqueue bumps the entry
+    `version` and can requeue a claim that is being fetched. A new delivery of the same resource has
+    a new `received_at`, so it is not remembered. In-process and bounded by the overlap window; a
+    restart only costs one harmless repeat."""
+
+    def __init__(self) -> None:
+        self._seen: Dict[str, set] = {}
+
+    def add(self, topic: str, rows: Sequence["_Row"]) -> None:
+        self._seen.setdefault(topic, set()).update((r.resource, r.received_at) for r in rows)
+
+    def unseen(self, topic: str, rows: Sequence["_Row"]) -> List["_Row"]:
+        seen = self._seen.get(topic, ())
+        return [r for r in rows if (r.resource, r.received_at) not in seen]
+
+    def prune(self, topic: str, older_than: datetime) -> None:
+        if topic in self._seen:
+            self._seen[topic] = {key for key in self._seen[topic] if key[1] >= older_than}
+
+    def size(self) -> int:
+        return sum(len(rows) for rows in self._seen.values())
+
+
 @dataclass(frozen=True)
 class _Row:
     resource: str
@@ -184,6 +209,8 @@ _ADVANCE_CURSOR = text(
         skipped_foreign_seller = COALESCE(skipped_foreign_seller, 0) + :foreign,
         unparsed = COALESCE(unparsed, 0) + :unparsed
     WHERE topic = :topic
+      AND (cursor_received_at IS NULL
+           OR (cursor_received_at, COALESCE(cursor_resource, '')) < (CAST(:at AS timestamptz), :res))
     """
 )
 _FETCHED = text("SELECT item_id, fetched_request_started_at FROM ml_items WHERE item_id = ANY(:ids)")
@@ -250,6 +277,8 @@ def _forward(
     batch: int,
     keep_going: Callable[[], bool],
     stats: IntakeStats,
+    memory: OverlapMemory,
+    overlap_seconds: int,
 ) -> None:
     at_, resource = cursor
     while keep_going():
@@ -260,7 +289,9 @@ def _forward(
         with database.get_background_db() as session:
             classified = _classify(session, mapping, rows, seller_id)
             last = rows[-1]
-            # Cursor first, enqueue second, one transaction: any failure rolls both back.
+            # Cursor first, enqueue second, one transaction: any failure rolls both back. The advance only
+            # moves the cursor forward: a second intake process that got further is never pulled back
+            # (this batch's enqueue is idempotent, only its counters are not added).
             session.execute(
                 _ADVANCE_CURSOR,
                 {
@@ -275,6 +306,8 @@ def _forward(
                 },
             )
             queue.enqueue(classified.entries, session=session)
+        memory.add(mapping.topic, rows)
+        memory.prune(mapping.topic, last.received_at - timedelta(seconds=overlap_seconds))
         stats.rows_read += len(rows)
         stats.enqueued += len(classified.entries)
         stats.skipped_satisfied += classified.satisfied
@@ -294,14 +327,17 @@ def _overlap(
     overlap_seconds: int,
     overlap_batch: int,
     stats: IntakeStats,
+    memory: OverlapMemory,
 ) -> None:
     at_, resource = cursor
+    lower = at_ - timedelta(seconds=overlap_seconds)
+    memory.prune(mapping.topic, lower)
     rows = _read(
         bridge,
         _OVERLAP,
         {
             "topic": mapping.topic,
-            "lower": at_ - timedelta(seconds=overlap_seconds),
+            "lower": lower,
             "at": at_,
             "res": resource,
             "limit": overlap_batch + 1,
@@ -310,12 +346,14 @@ def _overlap(
     if len(rows) > overlap_batch:
         stats.overlap_truncated += 1
         rows = rows[:overlap_batch]
+    rows = memory.unseen(mapping.topic, rows)
     stats.overlap_rows += len(rows)
     if not rows:
         return
     with database.get_background_db() as session:
         classified = _classify(session, mapping, rows, seller_id)
         queue.enqueue(classified.entries, session=session)
+    memory.add(mapping.topic, rows)
     stats.overlap_enqueued += len(classified.entries)
 
 
@@ -329,10 +367,12 @@ def run_pass(
     overlap_batch: int = 2000,
     keep_going: Callable[[], bool] = lambda: True,
     now: Optional[datetime] = None,
+    memory: Optional[OverlapMemory] = None,
 ) -> IntakeResult:
     """One intake pass over every mapped topic. Never raises: a bridge or pricing failure is reported
     in `IntakeResult.error` and leaves the cursor of the failed batch where it was."""
     result = IntakeResult()
+    memory = memory if memory is not None else OverlapMemory()
     if not seller_id:
         logger.error("ML_USER_ID is not set; intake refuses to read notifications without a seller scope")
         result.error = ERROR_SELLER_NOT_CONFIGURED
@@ -351,6 +391,8 @@ def run_pass(
                 batch=batch,
                 keep_going=keep_going,
                 stats=result.stats,
+                memory=memory,
+                overlap_seconds=overlap_seconds,
             )
             if existed and keep_going():
                 _overlap(
@@ -361,6 +403,7 @@ def run_pass(
                     overlap_seconds=overlap_seconds,
                     overlap_batch=overlap_batch,
                     stats=result.stats,
+                    memory=memory,
                 )
     except _BridgeUnavailable:
         result.error = ERROR_BRIDGE_UNAVAILABLE

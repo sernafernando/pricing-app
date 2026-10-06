@@ -378,6 +378,7 @@ class IntakeHandler:
     def __init__(self, *, bridge_engine: Optional[Callable[[], Any]] = None) -> None:
         self._bridge_engine = bridge_engine or (lambda: database.get_mlwebhook_engine())
         self._totals: Counter = Counter()  # cumulative since process start, mirrors the cursor columns
+        self._memory = intake_core.OverlapMemory()  # rows the overlap window must not enqueue twice
 
     def run(self, ctx: WorkerContext) -> JobResult:
         config = settings_store.get_settings(_INTAKE_KEYS)
@@ -396,6 +397,7 @@ class IntakeHandler:
             batch=settings.ML_PUB_INTAKE_BATCH,
             overlap_seconds=settings.ML_PUB_INTAKE_OVERLAP_SECONDS,
             keep_going=keep_going,
+            memory=self._memory,
         )
         stats = result.stats.as_dict()
         if stats["rows_read"] or stats["overlap_rows"] or result.error:

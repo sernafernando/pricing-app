@@ -337,6 +337,87 @@ class TestOverlapPass:
         assert cursor(pricing)["rows_read"] is None
 
 
+class TestOverlapMemory:
+    """The overlap re-reads the same rows every pass; rows already handled must not be enqueued again
+    (each re-enqueue bumps the entry version and can requeue an in-flight claim)."""
+
+    PRICES = {"items_prices": {"kind": "item", "resources": ["prices"]}}  # no item-core satisfied filter
+
+    def versions(self, engine) -> dict[str, int]:
+        return {k: v["version"] for k, v in queued(engine).items()}
+
+    def test_a_row_already_enqueued_by_the_forward_pass_is_not_enqueued_again_by_the_next_overlap(self, env) -> None:
+        pricing, bridge = env
+        set_cursor(pricing, "items_prices", -100)
+        put_webhook(bridge, webhook_row("items_prices", 0, received_at=str(at(-50))))
+        memory = intake.OverlapMemory()
+        run(bridge, topics=self.PRICES, memory=memory)
+        before = self.versions(pricing)
+        run(bridge, topics=self.PRICES, memory=memory)  # the row is now behind the cursor, inside the window
+        run(bridge, topics=self.PRICES, memory=memory)
+        assert self.versions(pricing) == before
+
+    def test_a_late_row_is_enqueued_once_across_repeated_overlap_passes(self, env) -> None:
+        pricing, bridge = env
+        set_cursor(pricing, "items_prices", 0, "/items/MLA9999999999/prices")
+        put_webhook(bridge, webhook_row("items_prices", 0, received_at=str(at(-2))))
+        memory = intake.OverlapMemory()
+        run(bridge, topics=self.PRICES, memory=memory)
+        after_first = self.versions(pricing)
+        assert len(after_first) == 1
+        for _ in range(3):
+            run(bridge, topics=self.PRICES, memory=memory)
+        assert self.versions(pricing) == after_first
+
+    def test_a_new_delivery_of_the_same_resource_is_enqueued_again(self, env) -> None:
+        pricing, bridge = env
+        set_cursor(pricing, "items_prices", -100)
+        put_webhook(bridge, webhook_row("items_prices", 0, received_at=str(at(-50))))
+        memory = intake.OverlapMemory()
+        run(bridge, topics=self.PRICES, memory=memory)
+        before = self.versions(pricing)
+        # real row, received_at changed: ML sent the notification again, the bridge kept the latest
+        put_webhook(bridge, webhook_row("items_prices", 0, received_at=str(at(-1))))
+        run(bridge, topics=self.PRICES, memory=memory)
+        (item,) = before
+        assert self.versions(pricing)[item] == before[item] + 1
+
+    def test_the_memory_forgets_rows_that_left_the_window(self, env) -> None:
+        pricing, bridge = env
+        set_cursor(pricing, "items_prices", -100)
+        put_webhook(bridge, webhook_row("items_prices", 0, received_at=str(at(-50))))
+        memory = intake.OverlapMemory()
+        run(bridge, topics=self.PRICES, memory=memory)
+        assert memory.size() == 1
+        later = webhook_row("items_prices", 1, received_at=str(at(1000)))
+        put_webhook(bridge, later)  # the cursor moves 1000 s on: the first row is far behind the window
+        run(bridge, topics=self.PRICES, memory=memory, now=at(1000))
+        assert memory.size() == 1
+
+
+class TestConcurrentIntake:
+    def test_a_cursor_that_another_pass_already_moved_further_is_not_pulled_back(self, env, monkeypatch) -> None:
+        pricing, bridge = env
+        set_cursor(pricing, "items", -100)
+        put_webhook(bridge, item_row("MLA1500000001", -50))
+        real_read = intake._read
+        calls = {"n": 0}
+
+        def read_then_lose_the_race(*args, **kwargs):
+            rows = real_read(*args, **kwargs)
+            calls["n"] += 1
+            if calls["n"] == 1:  # only the forward read: a second process gets further before our write
+                set_cursor(pricing, "items", 10, "/items/MLA1500000009")
+            return rows
+
+        monkeypatch.setattr(intake, "_read", read_then_lose_the_race)
+        run(bridge, overlap_seconds=0)
+        row = cursor(pricing)
+        assert row["cursor_received_at"] == at(10) and row["cursor_resource"] == "/items/MLA1500000009"
+        assert row["rows_read"] is None  # the losing pass does not add to the counters
+        assert list(queued(pricing)) == ["MLA1500000001"]  # its enqueue is idempotent and harmless
+
+
 class TestFailureAndSafety:
     def test_an_unreachable_bridge_is_logged_leaves_the_cursor_and_does_not_raise(self, env) -> None:
         pricing, _bridge = env
