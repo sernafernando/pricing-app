@@ -71,7 +71,7 @@ class TestDbOverridesEnv:
         set_setting("bulk_max_ids", 12, updated_by="ops")
         with engine.connect() as conn:
             rows = conn.execute(text("SELECT value, updated_by FROM ml_pub_settings WHERE key = 'bulk_max_ids'")).all()
-        assert [(r[1]) for r in rows] == ["ops"]
+        assert [r[1] for r in rows] == ["ops"]
         assert get_setting("bulk_max_ids").value == 12
 
 

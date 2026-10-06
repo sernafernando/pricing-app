@@ -234,7 +234,9 @@ def complete(
     """Record the result of one claimed entry, fenced by its claim token.
 
     - failures: the entry keeps only the failed resources, is charged one attempt
-      and backed off; at `max_attempts` it is parked;
+      and backed off; at `max_attempts` it is parked. The attempt is charged even if a
+      notification bumped the version meanwhile (the failure is real); resources added by
+      that notification stay queued with the failed ones and inherit the charged attempt;
     - a notification landed meanwhile (`version` moved): the claim is cleared and the
       merged resources kept so the entry is refetched;
     - everything succeeded and the version is unchanged: the entry is deleted;

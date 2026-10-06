@@ -135,6 +135,19 @@ class TestTypedResponse:
         client, _ = build(lambda r: httpx.Response(200, content=b"not json"))
         response = client.get("items_bulk", "/items/bulk")
         assert (response.status, response.body, response.error) == (200, None, "invalid_json")
+        assert response.outcome == "invalid_json"
+        assert client.counters.snapshot() == {"items_bulk": {"invalid_json": 1}}
+
+    def test_a_2xx_with_a_broken_body_does_not_reset_the_429_backoff(self) -> None:
+        answers = iter(
+            [httpx.Response(429, json={}), httpx.Response(200, content=b"not json"), httpx.Response(429, json={})]
+        )
+        client, _ = build(lambda r: next(answers))
+        for _ in range(3):
+            client.get("items_bulk", "/items/bulk")
+        # The broken 200 kept the exponent: this is the 2nd consecutive 429, delay in [2, 4].
+        # Had the 200 reset it, the delay would be at most 2.
+        assert 2.0 < client.pacer.cooldown_remaining() <= 4.0
 
 
 class TestTransportFaults:

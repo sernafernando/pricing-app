@@ -70,7 +70,7 @@ class MlResponse:
 
     @property
     def outcome(self) -> str:
-        if self.error in (OUTCOME_NOT_CONFIGURED, OUTCOME_NO_TOKEN, DEADLINE):
+        if self.error in (OUTCOME_NOT_CONFIGURED, OUTCOME_NO_TOKEN, DEADLINE, ERROR_INVALID_JSON):
             return self.error
         return outcome_class(self.status)
 
@@ -201,6 +201,6 @@ class MlHttpClient:
         self.counters.inc(response.endpoint, response.outcome)
         if response.status == 429:
             self.pacer.on_rate_limited(response.headers.get("retry-after"))
-        elif 200 <= response.status < 300:
+        elif response.outcome == "2xx":
             self.pacer.on_success()
         return response
