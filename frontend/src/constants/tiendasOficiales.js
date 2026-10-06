@@ -117,8 +117,10 @@ export function buildStoreChips({ tiendas = [], getLabel, counts = {}, selected 
 
   let activeValue = '';
   if (selectedIds.length > 0) {
+    // A chip is active when the selection IS its ids (any order), not merely
+    // contains them: a broader hand-edited selection must not light up one chip.
     const selection = new Set(selectedIds);
-    const match = grupos.find((g) => g.ids.every((id) => selection.has(id)));
+    const match = grupos.find((g) => g.ids.length === selection.size && g.ids.every((id) => selection.has(id)));
     if (match) activeValue = match.value;
     else if (selection.size === 1 && options.includes(selected)) activeValue = selected;
     else {

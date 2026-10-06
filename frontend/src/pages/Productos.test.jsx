@@ -1148,6 +1148,12 @@ describe('CS-12: legacy single-id URL of a grouped store', () => {
 
     const select = screen.getByText('🏪 Tienda Oficial').closest('.filter-item').querySelector('select');
     await waitFor(() => expect(select.value).toBe('2645,471846'));
+    // What the select shows is what is APPLIED: the state is normalized to the
+    // group, so the listing asks for both ids.
+    await waitFor(() => {
+      const last = productosAPI.listar.mock.calls.at(-1)[0];
+      expect(last.tienda_oficial).toBe('2645,471846');
+    });
   });
 });
 

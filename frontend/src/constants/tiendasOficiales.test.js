@@ -54,6 +54,10 @@ describe('buildStoreChips', () => {
   it('a group chip is active when ALL its ids are selected (any order)', () => {
     expect(buildStoreChips({ tiendas: TIENDAS, getLabel, selected: '471846,2645' }).activeValue).toBe('2645,471846');
     expect(buildStoreChips({ tiendas: TIENDAS, getLabel, selected: '57997' }).activeValue).toBe('57997');
+    // A broader selection (hand-edited) is not any one chip: it stays visible as its own.
+    const broad = buildStoreChips({ tiendas: TIENDAS, getLabel, selected: '57997,2645,471846' });
+    expect(broad.activeValue).toBe('57997,2645,471846');
+    expect(broad.options).toContain('57997,2645,471846');
     expect(buildStoreChips({ tiendas: TIENDAS, getLabel, selected: '' }).activeValue).toBe('');
     expect(buildStoreChips({ tiendas: TIENDAS, getLabel, selected: STORE_NONE }).activeValue).toBe(STORE_NONE);
   });

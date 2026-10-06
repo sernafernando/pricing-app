@@ -99,6 +99,15 @@ export default function Productos() {
     construirFiltrosParams,
   } = useProductosFilters();
   const { grupos: tiendasGrupos, getGroupValue } = useTiendasOficiales();
+  // A legacy URL with ONE id of a grouped store (`?tienda_oficial=2645`) is
+  // normalized to the whole group once the stores are known, so the select
+  // shows what is actually applied.
+  const grupoDeLaSeleccion = getGroupValue(filtroTiendaOficial);
+  useEffect(() => {
+    if (filtroTiendaOficial && grupoDeLaSeleccion !== filtroTiendaOficial) {
+      setFiltroTiendaOficial(grupoDeLaSeleccion);
+    }
+  }, [filtroTiendaOficial, grupoDeLaSeleccion, setFiltroTiendaOficial]);
   // Color-layer teams (productos-color-teams). Feeds the layer selector.
   // No team selected (equipoActivoId null) === global layer. `recargarEquipos`
   // refreshes the selector after the management modal creates/renames/deletes.
@@ -1468,7 +1477,7 @@ export default function Productos() {
                 <div className="filter-item">
                   <label>🏪 Tienda Oficial</label>
                   <select
-                    value={getGroupValue(filtroTiendaOficial) || 'todos'}
+                    value={grupoDeLaSeleccion || 'todos'}
                     onChange={(e) => { setFiltroTiendaOficial(e.target.value === 'todos' ? null : e.target.value); setPage(1); }}
                     className="filter-select"
                   >

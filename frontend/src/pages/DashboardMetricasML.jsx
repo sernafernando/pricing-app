@@ -48,8 +48,16 @@ export default function DashboardMetricasML() {
   const fechaHasta = getFilter('fecha_hasta');
   const marcasQuery = getFilter('marcas');
   const categoriasQuery = getFilter('categorias');
-  const { grupos: tiendasGrupos, getLabelsForIds } = useTiendasOficiales();
+  const { grupos: tiendasGrupos, getLabelsForIds, getGroupValue } = useTiendasOficiales();
   const tiendasOficialesQuery = getFilter('tiendas_oficiales');
+  // A legacy URL with ONE id of a grouped store is normalized to the whole group
+  // once the stores are known, so the checkbox matches what is applied.
+  const grupoDeLaSeleccion = getGroupValue(tiendasOficialesQuery);
+  useEffect(() => {
+    if (tiendasOficialesQuery && grupoDeLaSeleccion !== tiendasOficialesQuery) {
+      updateFilters({ tiendas_oficiales: grupoDeLaSeleccion });
+    }
+  }, [tiendasOficialesQuery, grupoDeLaSeleccion, updateFilters]);
   const etiquetasTiendasSeleccionadas = getLabelsForIds(tiendasOficialesQuery);
   const pmsQuery = getFilter('pms');
   

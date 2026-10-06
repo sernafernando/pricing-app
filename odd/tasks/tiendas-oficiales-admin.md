@@ -68,6 +68,8 @@ pytest (nuevos + suite completa), ruff format/check, pnpm test, lint, build, tes
 
 - T8 (observaciones GGA): docstring de la migracion (cinco filas); Dashboard cuenta tiendas con `labelsForIds` (RED = nombre con coma inflaba el conteo); ExportModal reindentado; URL legacy `tienda_oficial=2645` mapea a la opcion del grupo con `groupValueForSelection` (RED en el helper; el test de Productos CS-12 se escribio junto con el fix). unit 2014 passed, lint 0 errores, lint:css ok, build ok, migracion 6 passed.
 
+- T9 (GGA, 2da pasada): la seleccion legacy `2645` se NORMALIZA en el estado (Productos y Dashboard) al grupo, no solo en el select; el chip activo exige igualdad exacta de ids; carrera de `load(true)` resuelta con contador de request. RED = 3 failed (chip amplio, carrera del store, Dashboard legacy); Productos CS-12 ahora verifica el `tienda_oficial` enviado. unit 2016 passed, lint 0 errores, lint:css ok, build ok.
+
 ## Siguiente paso
 
 Entregar (sin push)

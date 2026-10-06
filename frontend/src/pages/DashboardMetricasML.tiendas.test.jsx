@@ -48,4 +48,14 @@ describe('DashboardMetricasML official store filter', () => {
 
     expect(await screen.findByText('1 tienda seleccionada')).toBeInTheDocument();
   });
+
+  it('a legacy single id of a grouped store is normalized to the whole group (checkbox ticked, both ids sent)', async () => {
+    await renderWithRouter(<DashboardMetricasML />, { initialEntries: ['/?tiendas_oficiales=2645'] });
+
+    await waitFor(() => expect(screen.getByRole('checkbox', { name: 'TP-Link' })).toBeChecked());
+    await waitFor(() => {
+      const conTiendas = api.get.mock.calls.filter(([, c]) => c?.params?.tiendas_oficiales === '2645,471846');
+      expect(conTiendas.length).toBeGreaterThan(0);
+    });
+  });
 });
