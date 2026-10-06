@@ -9,6 +9,10 @@ HTTP status, never by body shape (the 404 bodies differ per endpoint):
 
 Negative answers that are states rather than errors (moderation 404, performance 400) are
 declared per resource by `ResourceSpec.negative_states`; none of the resources parsed here has one.
+
+Each resource module pairs `parse_<resource>(status, body)` with `map_<resource>(raw)`. Mappers return
+the typed non-key columns only: the entity key (item id, user product id, family id) always comes from
+the request that was made, never from the body.
 """
 
 from __future__ import annotations
